@@ -238,6 +238,72 @@ pub struct SwapSettled {
 }
 
 #[event]
+pub struct LeveragePositionOpened {
+    pub market: Pubkey,
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub debt_asset_mint: Pubkey,
+    pub collateral_asset_mint: Pubkey,
+    pub margin_amount: u64,
+    pub debt_amount: u64,
+    pub debt_shares: u128,
+    pub collateral_amount: u64,
+    pub closeout_value: u64,
+    pub equity: u64,
+    pub multiplier_bps: u64,
+    pub metadata: MarketEventMetadata,
+}
+
+#[event]
+pub struct LeveragePositionClosed {
+    pub market: Pubkey,
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub debt_asset_mint: Pubkey,
+    pub collateral_asset_mint: Pubkey,
+    pub debt_repaid: u64,
+    pub interest_paid: u64,
+    pub collateral_sold: u64,
+    pub closeout_value: u64,
+    pub residual: u64,
+    pub metadata: MarketEventMetadata,
+}
+
+#[event]
+pub struct LeveragePositionUpdated {
+    pub market: Pubkey,
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub debt_asset_mint: Pubkey,
+    pub collateral_asset_mint: Pubkey,
+    pub debt_delta: i64,
+    pub collateral_delta: i64,
+    pub debt_amount: u64,
+    pub debt_shares: u128,
+    pub collateral_amount: u64,
+    pub closeout_value: u64,
+    pub metadata: MarketEventMetadata,
+}
+
+#[event]
+pub struct LeveragePositionLiquidated {
+    pub market: Pubkey,
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub liquidator: Pubkey,
+    pub debt_asset_mint: Pubkey,
+    pub collateral_asset_mint: Pubkey,
+    pub debt_repaid: u64,
+    pub interest_paid: u64,
+    pub principal_written_off: u64,
+    pub collateral_sold: u64,
+    pub closeout_value: u64,
+    pub liquidator_amount: u64,
+    pub owner_residual: u64,
+    pub metadata: MarketEventMetadata,
+}
+
+#[event]
 pub struct MarketCollateralDeposited {
     pub market: Pubkey,
     pub owner: Pubkey,

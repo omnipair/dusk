@@ -340,4 +340,22 @@ pub enum ErrorCode {
 
     #[msg("Liquidation auction is stale")]
     StaleLiquidationAuction,
+
+    #[msg("Leverage multiplier exceeds circuit breaker")]
+    LeverageMultiplierTooHigh,
+
+    #[msg("Leverage position does not have enough initial margin")]
+    LeverageInitialMarginTooLow,
+
+    #[msg("Leverage unwind impact exceeds limit")]
+    LeverageUnwindImpactTooHigh,
+
+    #[msg("Leverage position is not liquidatable")]
+    LeveragePositionNotLiquidatable,
+
+    #[msg("Invalid signer")]
+    InvalidSigner,
+
+    #[msg("Invalid leverage position")]
+    InvalidLeveragePosition,
 }

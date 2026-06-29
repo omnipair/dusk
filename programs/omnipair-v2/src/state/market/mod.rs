@@ -4,6 +4,7 @@ pub mod fees;
 pub mod health;
 pub mod hlp;
 pub mod insurance;
+pub mod leverage;
 pub mod limits;
 pub mod reserves;
 pub mod risk;
@@ -16,6 +17,7 @@ pub use debt::*;
 pub use fees::*;
 pub use hlp::*;
 pub use insurance::*;
+pub use leverage::*;
 pub use limits::*;
 pub use reserves::*;
 pub use risk::*;
@@ -930,17 +932,21 @@ fn accrue_side(market: &mut Market, asset: MarketAsset, dt_ms: u64) -> Result<()
 }
 
 fn total_borrowed(market: &Market, asset: MarketAsset, index_nad: u128) -> Result<u128> {
-    let (margin_fixed, hlp_shares) = match asset {
+    let (margin_fixed, isolated, hlp_shares) = match asset {
         MarketAsset::Base => (
             market.debt.fixed_base_shares,
+            market.debt.isolated_base_shares,
             market.quote_hlp_vault.debt_shares,
         ),
         MarketAsset::Quote => (
             market.debt.fixed_quote_shares,
+            market.debt.isolated_quote_shares,
             market.base_hlp_vault.debt_shares,
         ),
     };
     let total_shares = margin_fixed
+        .checked_add(isolated)
+        .ok_or(ErrorCode::MarketMathOverflow)?
         .checked_add(hlp_shares)
         .ok_or(ErrorCode::MarketMathOverflow)?;
     Debt::shares_to_debt(total_shares, index_nad)

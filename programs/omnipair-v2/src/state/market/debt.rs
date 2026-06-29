@@ -21,6 +21,26 @@ pub struct Debt {
     /// compounding into reserves.
     pub fixed_base_principal: u128,
     pub fixed_quote_principal: u128,
+    /// Aggregate isolated leverage debt. This debt contributes to utilization
+    /// and interest, but is intentionally not recognized as normal margin debt.
+    pub isolated_base_shares: u128,
+    pub isolated_quote_shares: u128,
+    pub isolated_base_principal: u128,
+    pub isolated_quote_principal: u128,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DebtClearance {
+    pub shares_burned: u128,
+    pub principal_paid: u64,
+    pub interest_paid: u64,
+    pub remaining_debt: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DebtWriteoff {
+    pub shares_written_off: u128,
+    pub principal_written_off: u64,
 }
 
 impl Debt {
@@ -52,6 +72,142 @@ impl Debt {
             .checked_add(amount as u128)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         Ok(())
+    }
+
+    pub fn add_isolated_debt(&mut self, asset: MarketAsset, amount: u64) -> Result<u128> {
+        let borrow_index_nad = self.borrow_index(asset);
+        let shares = Self::debt_to_shares(amount, borrow_index_nad)?;
+        let (aggregate_shares, principal) = match asset {
+            MarketAsset::Base => (
+                &mut self.isolated_base_shares,
+                &mut self.isolated_base_principal,
+            ),
+            MarketAsset::Quote => (
+                &mut self.isolated_quote_shares,
+                &mut self.isolated_quote_principal,
+            ),
+        };
+        *aggregate_shares = aggregate_shares
+            .checked_add(shares)
+            .ok_or(ErrorCode::DebtShareMathOverflow)?;
+        *principal = principal
+            .checked_add(amount as u128)
+            .ok_or(ErrorCode::DebtMathOverflow)?;
+        Ok(shares)
+    }
+
+    pub fn isolated_debt(&self, asset: MarketAsset) -> Result<u128> {
+        let (shares, index) = match asset {
+            MarketAsset::Base => (self.isolated_base_shares, self.base_borrow_index_nad),
+            MarketAsset::Quote => (self.isolated_quote_shares, self.quote_borrow_index_nad),
+        };
+        Self::shares_to_debt(shares, index)
+    }
+
+    pub fn borrow_index(&self, asset: MarketAsset) -> u128 {
+        match asset {
+            MarketAsset::Base => self.base_borrow_index_nad,
+            MarketAsset::Quote => self.quote_borrow_index_nad,
+        }
+    }
+
+    pub fn clear_isolated_debt(
+        &mut self,
+        asset: MarketAsset,
+        position_shares: &mut u128,
+        position_principal: &mut u128,
+        repay_amount: u64,
+    ) -> Result<DebtClearance> {
+        require!(repay_amount > 0, ErrorCode::AmountZero);
+        let current_debt_u128 = Self::shares_to_debt(*position_shares, self.borrow_index(asset))?;
+        require_gte!(
+            current_debt_u128,
+            repay_amount as u128,
+            ErrorCode::InsufficientDebt
+        );
+        let current_debt =
+            u64::try_from(current_debt_u128).map_err(|_| ErrorCode::DebtMathOverflow)?;
+        let shares_burned = if repay_amount == current_debt {
+            *position_shares
+        } else {
+            Self::debt_to_shares(repay_amount, self.borrow_index(asset))?.min(*position_shares)
+        };
+        require!(shares_burned > 0, ErrorCode::DebtShareDivisionOverflow);
+
+        let principal = (*position_principal).min(current_debt_u128);
+        let (principal_paid, interest_paid) =
+            crate::math::realized_interest_split(repay_amount, current_debt_u128, principal)?;
+        let (aggregate_shares, aggregate_principal) = match asset {
+            MarketAsset::Base => (
+                &mut self.isolated_base_shares,
+                &mut self.isolated_base_principal,
+            ),
+            MarketAsset::Quote => (
+                &mut self.isolated_quote_shares,
+                &mut self.isolated_quote_principal,
+            ),
+        };
+        *position_shares = position_shares
+            .checked_sub(shares_burned)
+            .ok_or(ErrorCode::DebtShareMathOverflow)?;
+        *aggregate_shares = aggregate_shares
+            .checked_sub(shares_burned)
+            .ok_or(ErrorCode::DebtShareMathOverflow)?;
+        *position_principal = position_principal.saturating_sub(principal_paid as u128);
+        *aggregate_principal = aggregate_principal.saturating_sub(principal_paid as u128);
+        if *position_shares == 0 {
+            *position_principal = 0;
+        }
+        if *aggregate_shares == 0 {
+            *aggregate_principal = 0;
+        }
+
+        Ok(DebtClearance {
+            shares_burned,
+            principal_paid,
+            interest_paid,
+            remaining_debt: current_debt.saturating_sub(repay_amount),
+        })
+    }
+
+    pub fn writeoff_isolated_position(
+        &mut self,
+        asset: MarketAsset,
+        position_shares: &mut u128,
+        position_principal: &mut u128,
+    ) -> Result<DebtWriteoff> {
+        require!(*position_shares > 0, ErrorCode::DebtShareDivisionOverflow);
+        let (aggregate_shares, aggregate_principal) = match asset {
+            MarketAsset::Base => (
+                &mut self.isolated_base_shares,
+                &mut self.isolated_base_principal,
+            ),
+            MarketAsset::Quote => (
+                &mut self.isolated_quote_shares,
+                &mut self.isolated_quote_principal,
+            ),
+        };
+        require_gte!(
+            *aggregate_shares,
+            *position_shares,
+            ErrorCode::DebtShareMathOverflow
+        );
+        let principal_written_off =
+            u64::try_from(*position_principal).map_err(|_| ErrorCode::DebtMathOverflow)?;
+        *aggregate_shares = aggregate_shares
+            .checked_sub(*position_shares)
+            .ok_or(ErrorCode::DebtShareMathOverflow)?;
+        *aggregate_principal = aggregate_principal.saturating_sub(*position_principal);
+        let shares_written_off = *position_shares;
+        *position_shares = 0;
+        *position_principal = 0;
+        if *aggregate_shares == 0 {
+            *aggregate_principal = 0;
+        }
+        Ok(DebtWriteoff {
+            shares_written_off,
+            principal_written_off,
+        })
     }
 
     /// Reduce tracked margin principal for a cash-backed fixed-debt repayment,
@@ -115,11 +271,15 @@ impl Debt {
     }
 
     pub fn total_base_debt(&self) -> Result<u128> {
-        self.fixed_base_debt()
+        self.fixed_base_debt()?
+            .checked_add(self.isolated_debt(MarketAsset::Base)?)
+            .ok_or(ErrorCode::MarketMathOverflow.into())
     }
 
     pub fn total_quote_debt(&self) -> Result<u128> {
-        self.fixed_quote_debt()
+        self.fixed_quote_debt()?
+            .checked_add(self.isolated_debt(MarketAsset::Quote)?)
+            .ok_or(ErrorCode::MarketMathOverflow.into())
     }
 }
 

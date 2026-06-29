@@ -102,6 +102,18 @@ pub const INSURANCE_SEED_PREFIX: &[u8] = b"insurance";
 #[constant]
 pub const LIQUIDATION_AUCTION_SEED_PREFIX: &[u8] = b"liquidation_auction";
 #[constant]
+pub const LEVERAGE_POSITION_SEED_PREFIX: &[u8] = b"leverage_position_v2";
+#[constant]
+pub const LEVERAGE_COLLATERAL_VAULT_SEED_PREFIX: &[u8] = b"leverage_collateral";
+#[constant]
+pub const LEVERAGE_MAX_MULTIPLIER_BPS: u64 = 200_000; // 20x circuit breaker
+#[constant]
+pub const LEVERAGE_MAX_UNWIND_IMPACT_BPS: u16 = 200; // 2%
+#[constant]
+pub const LEVERAGE_INITIAL_MARGIN_BPS: u16 = 1_000; // 10%
+#[constant]
+pub const LEVERAGE_MAINTENANCE_BUFFER_BPS: u16 = 700; // 7%
+#[constant]
 pub const MARKET_VERSION: u8 = 2;
 
 /// Emergency signer authorized to toggle reduce-only mode.
