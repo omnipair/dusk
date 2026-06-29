@@ -358,4 +358,7 @@ pub enum ErrorCode {
 
     #[msg("Invalid leverage position")]
     InvalidLeveragePosition,
+
+    #[msg("Invalid leverage delegation")]
+    InvalidLeverageDelegation,
 }

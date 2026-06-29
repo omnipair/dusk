@@ -304,6 +304,17 @@ pub struct LeveragePositionLiquidated {
 }
 
 #[event]
+pub struct LeverageDelegationUpdated {
+    pub market: Pubkey,
+    pub delegation: Pubkey,
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub delegated_program: Pubkey,
+    pub approved_actions: u32,
+    pub metadata: MarketEventMetadata,
+}
+
+#[event]
 pub struct MarketCollateralDeposited {
     pub market: Pubkey,
     pub owner: Pubkey,

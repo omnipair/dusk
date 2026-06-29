@@ -203,6 +203,14 @@ pub mod omnipair_v2 {
         CloseLeverage::handle_close(ctx, args)
     }
 
+    #[access_control(ctx.accounts.update_and_validate_delegated(&args))]
+    pub fn delegated_close_leverage<'info>(
+        ctx: Context<'_, '_, '_, 'info, CloseLeverage<'info>>,
+        args: DelegatedCloseLeverageArgs,
+    ) -> Result<()> {
+        CloseLeverage::handle_delegated_close(ctx, args)
+    }
+
     #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn increase_leverage<'info>(
         ctx: Context<'_, '_, '_, 'info, IncreaseLeverage<'info>>,
@@ -241,6 +249,29 @@ pub mod omnipair_v2 {
         args: LiquidateLeverageArgs,
     ) -> Result<()> {
         LiquidateLeverage::handle_liquidate(ctx, args)
+    }
+
+    #[access_control(ctx.accounts.validate(&args))]
+    pub fn create_leverage_delegation(
+        ctx: Context<CreateLeverageDelegation>,
+        args: CreateLeverageDelegationArgs,
+    ) -> Result<()> {
+        CreateLeverageDelegation::handle_create(ctx, args)
+    }
+
+    #[access_control(ctx.accounts.validate(&args))]
+    pub fn update_leverage_delegation(
+        ctx: Context<UpdateLeverageDelegation>,
+        args: UpdateLeverageDelegationArgs,
+    ) -> Result<()> {
+        UpdateLeverageDelegation::handle_update(ctx, args)
+    }
+
+    pub fn close_leverage_delegation(
+        ctx: Context<CloseLeverageDelegation>,
+        args: CloseLeverageDelegationArgs,
+    ) -> Result<()> {
+        CloseLeverageDelegation::handle_close(ctx, args)
     }
 
     #[access_control(ctx.accounts.update_and_validate())]

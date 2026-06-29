@@ -104,6 +104,8 @@ pub const LIQUIDATION_AUCTION_SEED_PREFIX: &[u8] = b"liquidation_auction";
 #[constant]
 pub const LEVERAGE_POSITION_SEED_PREFIX: &[u8] = b"leverage_position_v2";
 #[constant]
+pub const LEVERAGE_DELEGATION_SEED_PREFIX: &[u8] = b"leverage_delegation_v2";
+#[constant]
 pub const LEVERAGE_COLLATERAL_VAULT_SEED_PREFIX: &[u8] = b"leverage_collateral";
 #[constant]
 pub const LEVERAGE_MAX_MULTIPLIER_BPS: u64 = 200_000; // 20x circuit breaker
