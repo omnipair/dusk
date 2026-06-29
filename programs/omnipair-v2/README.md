@@ -23,7 +23,8 @@ V2 exposes the current market instruction set:
 - `swap`
 - `deposit_collateral`, `withdraw_collateral`, `borrow`, `repay`, `liquidate`
 - `open_hedge`, `close_hedge`
-- `open_leverage`, `close_leverage`, `increase_leverage`, `decrease_leverage`, `add_leverage_margin`, `remove_leverage_margin`, `liquidate_leverage`
+- `open_leverage`, `close_leverage`, `delegated_close_leverage`, `increase_leverage`, `decrease_leverage`, `add_leverage_margin`, `remove_leverage_margin`, `liquidate_leverage`
+- `create_leverage_delegation`, `update_leverage_delegation`, `close_leverage_delegation`
 - V1-style futarchy/revenue administration: `init_futarchy_authority`, `update_futarchy_authority`, `update_protocol_revenue`, `update_revenue_recipients`, `set_global_reduce_only`, `claim_protocol_fees`
 
 ## Token Model
@@ -85,6 +86,8 @@ user margin + isolated borrow
 
 Users can increase or decrease exposure, add or remove margin, and close the position. Liquidation is permissionless once closeout value falls below the maintenance threshold. Isolated leverage debt contributes to utilization and interest accrual, but it is kept separate from normal borrower debt and aggregate hLP vault debt.
 
+Owners can approve a position-scoped `LeverageDelegation` PDA for a delegate program. Delegated close uses a before-hook approval payload and an after-hook settlement payload, allowing keeper-style take-profit or stop-loss execution while binding the close to the expected market, owner, position, delegation, output mint, recipient, and residual amount.
+
 ## Swaps And Rebalancing
 
 `swap` is the V2 swap entry. It transfers inventory, routes swap fees to the fee vault, applies GAMM reserve movement, and checkpoints both aggregate hLP vaults in O(1).
@@ -104,6 +107,7 @@ hLP checkpointing computes NAV, attempts the spot-based leverage adjustment, rec
 | Yield account | `yield`, `market`, `owner`, `asset_mint`, `token_kind` | `deriveYieldAccountAddress` |
 | Insurance vault | `insurance`, `market`, `asset_mint` | `deriveInsuranceAddress` |
 | Leverage position | `leverage_position_v2`, `market`, `owner`, `debt_mint` | derive from seed tuple |
+| Leverage delegation | `leverage_delegation_v2`, `leverage_position` | derive from seed tuple |
 | Leverage collateral vault | `leverage_collateral`, `market`, `collateral_mint` | derive from seed tuple |
 | LP token metadata | Metaplex `metadata`, token metadata program, `lp_mint` | `deriveTokenMetadataAddress` |
 
@@ -121,6 +125,7 @@ Indexers should consume V2 events from the standalone V2 IDL:
 - `PositionLiquidated`
 - `HlpOpened`, `HlpClosed`
 - `LeveragePositionOpened`, `LeveragePositionClosed`, `LeveragePositionUpdated`, `LeveragePositionLiquidated`
+- `LeverageDelegationUpdated`
 
 Every V2 event carries `MarketEventMetadata` with signer, market, and slot.
 
@@ -135,6 +140,7 @@ Every V2 event carries `MarketEventMetadata` with signer, market, and slot.
 - hLP operations never use yLP-denominated debt.
 - Isolated leverage debt contributes to utilization without entering normal borrower health.
 - Leverage collateral vault balances are matched by open leverage position collateral accounting.
+- Delegated close must validate both the delegate's close approval and settlement approval return data.
 - Market health uses recognized debt-bearing collateral for borrower debt; idle collateral contributes zero.
 - Risk books update EMA values from cached pre-transition observations and store current observations for the next refresh.
 - Liquidation follows the waterfall: borrower collateral, liquidator incentive, insurance, then bounded LP socialization.

@@ -15,7 +15,7 @@ Dusk keeps that core Omnipair GAMM idea and rebuilds it around a market-native a
 - **Standalone V2 program**: Dusk has its own program ID, IDL, account model, event surface, and SDK helpers.
 - **Yield-bearing LP shares**: `yLP` represents a two-sided liquidity claim while reserve-side yield is checkpointed through base and quote growth indexes.
 - **Leveraged LP vaults**: base and quote `hLP` mints are aggregate 2x LP vault shares that target one-sided market exposure.
-- **Isolated leverage**: traders can open market-local spot-margin positions that borrow one side, swap through the GAMM, hold the opposite side as collateral, and liquidate through the same reserve accounting.
+- **Isolated leverage**: traders can open market-local spot-margin positions that borrow one side, swap through the GAMM, hold the opposite side as collateral, delegate TP/SL close execution, and liquidate through the same reserve accounting.
 - **Cached risk books**: risk checks roll EMA values from cached observations so settlement does not depend on a same-instruction manipulated spot.
 - **Bounded liquidation waterfall**: liquidations move through borrower collateral, liquidator incentive, insurance, then bounded LP socialization.
 
@@ -82,6 +82,8 @@ user margin + isolated borrow
 
 Users can increase or decrease exposure, add or remove margin, close the position, or be liquidated if the closeout value falls below maintenance requirements. Isolated debt contributes to utilization and interest accrual, but it is kept separate from normal borrower debt and hLP vault debt.
 
+Owners can also approve a leverage delegate program for a position. The delegate flow uses a before-hook approval and after-hook settlement approval, so keepers can execute take-profit or stop-loss closes into a custody PDA without receiving unchecked control over the position.
+
 ## hLP Vaults
 
 Each market maintains two aggregate hLP vaults:
@@ -135,11 +137,15 @@ open_hedge
 close_hedge
 open_leverage
 close_leverage
+delegated_close_leverage
 increase_leverage
 decrease_leverage
 add_leverage_margin
 remove_leverage_margin
 liquidate_leverage
+create_leverage_delegation
+update_leverage_delegation
+close_leverage_delegation
 ```
 
 Futarchy and protocol revenue administration mirror the legacy Omnipair flow:
@@ -161,7 +167,7 @@ Dusk is not a drop-in account rename for Omnipair V1. Integrations should route 
 - Store V1 pair metrics and Dusk market metrics separately at the source level, then aggregate them under the Omnipair brand in analytics.
 - Do not sort Dusk market mints client-side. The creator's `base_mint` and `quote_mint` order defines the market and its price direction.
 - Treat yLP and hLP mints as distinct Token-2022 token concepts. yLP is the two-sided normal LP token; hLP tokens are aggregate leveraged LP vault shares.
-- Consume Dusk events from the standalone V2 IDL, including market, liquidity, swap, debt, liquidation, yield, hLP, and leverage events.
+- Consume Dusk events from the standalone V2 IDL, including market, liquidity, swap, debt, liquidation, yield, hLP, leverage, and leverage-delegation events.
 
 ## Core Invariants
 
@@ -175,6 +181,7 @@ Dusk is not a drop-in account rename for Omnipair V1. Integrations should route 
 - Swap-time hLP updates are O(1) and never iterate over user positions.
 - Isolated leverage debt contributes to utilization without contaminating normal borrower health checks.
 - Leverage collateral vault balances are matched by open leverage position collateral accounting.
+- Delegated close requires both a close approval payload and a settlement approval payload from the approved delegate program.
 
 ## Program ID
 
