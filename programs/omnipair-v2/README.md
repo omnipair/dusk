@@ -1,6 +1,6 @@
 # Omnipair V2
 
-Omnipair V2 is a standalone market program that lives beside the legacy V1 pair program in `programs/omnipair`. V1 compatibility stays unchanged. V2 uses market terminology, floating yield LP shares, and aggregate hedged LP vault accounting.
+Omnipair V2 is a standalone market program that lives beside the legacy V1 pair program in `programs/omnipair`. V1 compatibility stays unchanged. V2 uses market terminology, floating yield LP shares, aggregate hedged LP vault accounting, and isolated spot-margin leverage.
 
 ## Source Boundaries
 
@@ -11,7 +11,7 @@ Omnipair V2 is a standalone market program that lives beside the legacy V1 pair 
 - `math/`: fixed-point, GAMM, EMA, valuation, and circuit-breaker helpers.
 - `utils/`: shared accounting helpers used by transitions.
 
-Instruction modules are split by domain: `market`, `reserve`, `yielding`, `spot`, `lending`, `liquidation`, `hedge`, and `futarchy`.
+Instruction modules are split by domain: `market`, `liquidity`, `yielding`, `spot`, `lending`, `leverage`, and `futarchy`.
 
 ## Public Instructions
 
@@ -23,6 +23,7 @@ V2 exposes the current market instruction set:
 - `swap`
 - `deposit_collateral`, `withdraw_collateral`, `borrow`, `repay`, `liquidate`
 - `open_hedge`, `close_hedge`
+- `open_leverage`, `close_leverage`, `increase_leverage`, `decrease_leverage`, `add_leverage_margin`, `remove_leverage_margin`, `liquidate_leverage`
 - V1-style futarchy/revenue administration: `init_futarchy_authority`, `update_futarchy_authority`, `update_protocol_revenue`, `update_revenue_recipients`, `set_global_reduce_only`, `claim_protocol_fees`
 
 ## Token Model
@@ -69,6 +70,21 @@ user target asset
 
 Closing hLP burns hLP shares, burns the vault's proportional yLP, repays the borrowed-side vault debt, and returns remaining target-side inventory to the user. hLP debt is denominated in the borrowed underlying asset and tracked on the aggregate hLP vault, not as borrower margin debt.
 
+## Isolated Leverage
+
+V2 ports the core V1 isolated spot-margin leverage flow into the market account model. A leverage position is a user-owned PDA that records margin, collateral, borrowed principal, debt shares, and the debt side for a single market-local position.
+
+Opening leverage:
+
+```text
+user margin + isolated borrow
+  -> internal GAMM swap
+  -> collateral held in a leverage collateral vault
+  -> debt tracked in isolated debt buckets
+```
+
+Users can increase or decrease exposure, add or remove margin, and close the position. Liquidation is permissionless once closeout value falls below the maintenance threshold. Isolated leverage debt contributes to utilization and interest accrual, but it is kept separate from normal borrower debt and aggregate hLP vault debt.
+
 ## Swaps And Rebalancing
 
 `swap` is the V2 swap entry. It transfers inventory, routes swap fees to the fee vault, applies GAMM reserve movement, and checkpoints both aggregate hLP vaults in O(1).
@@ -87,6 +103,8 @@ hLP checkpointing computes NAV, attempts the spot-based leverage adjustment, rec
 | Margin position | `margin`, `market`, `owner` | `deriveMarginPositionAddress` |
 | Yield account | `yield`, `market`, `owner`, `asset_mint`, `token_kind` | `deriveYieldAccountAddress` |
 | Insurance vault | `insurance`, `market`, `asset_mint` | `deriveInsuranceAddress` |
+| Leverage position | `leverage_position_v2`, `market`, `owner`, `debt_mint` | derive from seed tuple |
+| Leverage collateral vault | `leverage_collateral`, `market`, `collateral_mint` | derive from seed tuple |
 | LP token metadata | Metaplex `metadata`, token metadata program, `lp_mint` | `deriveTokenMetadataAddress` |
 
 yLP and hLP mints are supplied to `initialize` and validated by mint authority, decimals, Token-2022 owner, transfer hook, fee-free extension rules, no freeze authority, vanity suffix, and zero supply at market creation. LP metadata is created in follow-up `initialize_lp_metadata` calls, one mint per transaction.
@@ -102,6 +120,7 @@ Indexers should consume V2 events from the standalone V2 IDL:
 - `MarketCollateralDeposited`, `MarketCollateralWithdrawn`, `MarketDebtUpdated`
 - `PositionLiquidated`
 - `HlpOpened`, `HlpClosed`
+- `LeveragePositionOpened`, `LeveragePositionClosed`, `LeveragePositionUpdated`, `LeveragePositionLiquidated`
 
 Every V2 event carries `MarketEventMetadata` with signer, market, and slot.
 
@@ -114,6 +133,8 @@ Every V2 event carries `MarketEventMetadata` with signer, market, and slot.
 - hLP NAV is `collateral_value - debt_value` and must not underflow.
 - hLP debt shares stay matched to aggregate hLP vault debt.
 - hLP operations never use yLP-denominated debt.
+- Isolated leverage debt contributes to utilization without entering normal borrower health.
+- Leverage collateral vault balances are matched by open leverage position collateral accounting.
 - Market health uses recognized debt-bearing collateral for borrower debt; idle collateral contributes zero.
 - Risk books update EMA values from cached pre-transition observations and store current observations for the next refresh.
 - Liquidation follows the waterfall: borrower collateral, liquidator incentive, insurance, then bounded LP socialization.
