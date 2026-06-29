@@ -10,6 +10,13 @@ pub struct HlpVault {
     pub target_side: u8,
     pub ylp_vault: Pubkey,
     pub ylp_shares: u64,
+    /// hLP-owned live reserve depth that is not backed by reserve cash or
+    /// normal cash-backed debt. This is the explicit synthetic live component
+    /// in `r_virtual = r_cash + r_cash_backed_debt + r_hlp_live`.
+    pub base_hlp_live_reserve: u64,
+    pub quote_hlp_live_reserve: u64,
+    /// Funding debt used by the hLP vault. It accrues interest and counts
+    /// toward utilization, but is not same-side cash-backed reserve debt.
     pub debt_shares: u128,
     pub debt_principal: u128,
     pub hlp_supply: u64,
@@ -57,6 +64,13 @@ impl HlpVault {
             .hlp_supply
             .checked_sub(amount)
             .ok_or(ErrorCode::SupplyUnderflow)?;
+        if self.hlp_supply == 0 {
+            require_eq!(self.ylp_shares, 0, ErrorCode::BrokenInvariant);
+            require_eq!(self.base_hlp_live_reserve, 0, ErrorCode::BrokenInvariant);
+            require_eq!(self.quote_hlp_live_reserve, 0, ErrorCode::BrokenInvariant);
+            require_eq!(self.debt_shares, 0, ErrorCode::BrokenInvariant);
+            require_eq!(self.debt_principal, 0, ErrorCode::BrokenInvariant);
+        }
         Ok(())
     }
 
@@ -73,6 +87,35 @@ impl HlpVault {
             .ylp_shares
             .checked_sub(shares)
             .ok_or(ErrorCode::SupplyUnderflow)?;
+        Ok(())
+    }
+
+    pub fn hlp_live_reserve(&self, asset: MarketAsset) -> u64 {
+        match asset {
+            MarketAsset::Base => self.base_hlp_live_reserve,
+            MarketAsset::Quote => self.quote_hlp_live_reserve,
+        }
+    }
+
+    pub fn credit_hlp_live_reserve(&mut self, asset: MarketAsset, amount: u64) -> Result<()> {
+        let reserve = match asset {
+            MarketAsset::Base => &mut self.base_hlp_live_reserve,
+            MarketAsset::Quote => &mut self.quote_hlp_live_reserve,
+        };
+        *reserve = reserve
+            .checked_add(amount)
+            .ok_or(ErrorCode::ReserveOverflow)?;
+        Ok(())
+    }
+
+    pub fn debit_hlp_live_reserve(&mut self, asset: MarketAsset, amount: u64) -> Result<()> {
+        let reserve = match asset {
+            MarketAsset::Base => &mut self.base_hlp_live_reserve,
+            MarketAsset::Quote => &mut self.quote_hlp_live_reserve,
+        };
+        *reserve = reserve
+            .checked_sub(amount)
+            .ok_or(ErrorCode::ReserveUnderflow)?;
         Ok(())
     }
 

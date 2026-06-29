@@ -885,22 +885,27 @@ impl Market {
     }
 
     pub fn assert_virtual_reserve_invariant(&self, asset: MarketAsset) -> Result<()> {
-        let (side, borrowed) = match asset {
+        let (side, cash_backed_debt) = match asset {
             MarketAsset::Base => (
                 &self.base_side,
-                total_borrowed(self, asset, self.debt.base_borrow_index_nad)?,
+                total_cash_backed_borrowed(self, asset, self.debt.base_borrow_index_nad)?,
             ),
             MarketAsset::Quote => (
                 &self.quote_side,
-                total_borrowed(self, asset, self.debt.quote_borrow_index_nad)?,
+                total_cash_backed_borrowed(self, asset, self.debt.quote_borrow_index_nad)?,
             ),
         };
+        let hlp_live = self.hlp_live_reserve(asset)?;
         // Invariants:
         // 1. x_virtual * y_virtual = k (Constant product invariant)
-        // 2. r_virtual >= r_debt (Solvency invariant)
-        // with a state transition: ΔR_virtual = ΔR_cash + ΔR_debt
+        // 2. r_virtual >= r_cash_backed_debt (Solvency invariant)
+        // with a state transition:
+        // ΔR_virtual = ΔR_cash + ΔR_cash_backed_debt + ΔR_hlp_live.
+        // hLP funding debt is priced through utilization and hLP NAV, but it is
+        // not same-side cash-backed reserve debt.
         let expected_live_reserve = (side.reserves.cash_reserve as u128)
-            .checked_add(borrowed)
+            .checked_add(cash_backed_debt)
+            .and_then(|value| value.checked_add(hlp_live))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require_eq!(
             side.reserves.live_reserve as u128,
@@ -908,6 +913,12 @@ impl Market {
             ErrorCode::BrokenInvariant
         );
         Ok(())
+    }
+
+    pub fn hlp_live_reserve(&self, asset: MarketAsset) -> Result<u128> {
+        (self.base_hlp_vault.hlp_live_reserve(asset) as u128)
+            .checked_add(self.quote_hlp_vault.hlp_live_reserve(asset) as u128)
+            .ok_or(ErrorCode::MarketMathOverflow.into())
     }
 
     pub fn spot_value_in_opposite(&self, asset: MarketAsset, amount: u64) -> Result<u64> {
@@ -950,8 +961,8 @@ fn accrue_side(market: &mut Market, asset: MarketAsset, dt_ms: u64) -> Result<()
         MarketAsset::Quote => market.quote_side.reserves.cash_reserve,
     } as u128;
 
-    // Calculate utilization rates. With r_virtual = r_cash + r_debt, this is
-    // equivalent to V1's total_debt / reserve utilization.
+    // Calculate utilization rates. hLP funding debt counts toward funding cost,
+    // but only cash-backed debt accrual grows virtual reserves.
     let debt_before = total_borrowed(market, asset, index)?;
     let util = utilization_bps(debt_before, cash)?;
     let error = utilization_error_nad(util, INTEREST_TARGET_UTILIZATION_BPS)?;
@@ -966,9 +977,10 @@ fn accrue_side(market: &mut Market, asset: MarketAsset, dt_ms: u64) -> Result<()
         INTEREST_MAX_RATE_AT_TARGET_NAD,
         INTEREST_MAX_ADAPTATION_STEP_NAD,
     )?;
-    let debt_after = total_borrowed(market, asset, next_index)?;
-    let accrued_interest = debt_after
-        .checked_sub(debt_before)
+    let cash_backed_before = total_cash_backed_borrowed(market, asset, index)?;
+    let cash_backed_after = total_cash_backed_borrowed(market, asset, next_index)?;
+    let accrued_interest = cash_backed_after
+        .checked_sub(cash_backed_before)
         .ok_or(ErrorCode::MarketMathOverflow)?;
     if accrued_interest > 0 {
         let accrued_interest =
@@ -995,24 +1007,38 @@ fn accrue_side(market: &mut Market, asset: MarketAsset, dt_ms: u64) -> Result<()
 }
 
 fn total_borrowed(market: &Market, asset: MarketAsset, index_nad: u128) -> Result<u128> {
-    let (margin_fixed, isolated, hlp_shares) = match asset {
+    total_cash_backed_borrowed(market, asset, index_nad)?
+        .checked_add(total_hlp_funding_debt(market, asset, index_nad)?)
+        .ok_or(ErrorCode::MarketMathOverflow.into())
+}
+
+fn total_cash_backed_borrowed(
+    market: &Market,
+    asset: MarketAsset,
+    index_nad: u128,
+) -> Result<u128> {
+    let (margin_fixed, isolated) = match asset {
         MarketAsset::Base => (
             market.debt.fixed_base_shares,
             market.debt.isolated_base_shares,
-            market.quote_hlp_vault.debt_shares,
         ),
         MarketAsset::Quote => (
             market.debt.fixed_quote_shares,
             market.debt.isolated_quote_shares,
-            market.base_hlp_vault.debt_shares,
         ),
     };
     let total_shares = margin_fixed
         .checked_add(isolated)
-        .ok_or(ErrorCode::MarketMathOverflow)?
-        .checked_add(hlp_shares)
         .ok_or(ErrorCode::MarketMathOverflow)?;
     Debt::shares_to_debt(total_shares, index_nad)
+}
+
+fn total_hlp_funding_debt(market: &Market, asset: MarketAsset, index_nad: u128) -> Result<u128> {
+    let hlp_shares = match asset {
+        MarketAsset::Base => market.quote_hlp_vault.debt_shares,
+        MarketAsset::Quote => market.base_hlp_vault.debt_shares,
+    };
+    Debt::shares_to_debt(hlp_shares, index_nad)
 }
 
 fn sync_borrow_recognition(

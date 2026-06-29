@@ -89,7 +89,12 @@ use super::*;
         // Quote borrowed 950 via base-hLP, 50 cash -> util 95% (above 90% target).
         // error = +0.5 -> curve mult 2.5x -> rate = 4% * 2.5 = 10% APR.
         let mut market = test_market(1_000_000, 50);
+        market.quote_side.reserves.live_reserve = 1_000;
         market.base_hlp_vault.debt_shares = 950;
+        market.base_hlp_vault.quote_hlp_live_reserve = 950;
+        market
+            .assert_virtual_reserve_invariant(MarketAsset::Quote)
+            .unwrap();
         market
             .accrue_interest_to_slot(slots_for_ms(MS_PER_YEAR))
             .unwrap();
@@ -101,13 +106,36 @@ use super::*;
     }
 
     #[test]
-    fn accrued_interest_increases_virtual_reserve_with_debt() {
-        // V1 GAMM accounting requires r_virtual = r_cash + r_debt. Borrow
-        // interest therefore grows virtual reserves while the debt is unpaid.
+    fn hlp_funding_interest_does_not_grow_virtual_reserve() {
+        // hLP funding debt counts toward utilization and accrues interest, but
+        // it is not same-side cash-backed reserve debt. Its interest reduces
+        // hLP NAV without growing virtual reserves.
         let mut market = test_market(1_000_000, 50);
         market.quote_side.reserves.live_reserve = 1_000;
         market.base_hlp_vault.debt_shares = 950;
         market.base_hlp_vault.debt_principal = 950;
+        market.base_hlp_vault.quote_hlp_live_reserve = 950;
+
+        market
+            .accrue_interest_to_slot(slots_for_ms(MS_PER_YEAR))
+            .unwrap();
+
+        assert_eq!(market.debt.quote_borrow_index_nad, (NAD as u128) * 110 / 100);
+        assert_eq!(market.quote_side.reserves.cash_reserve, 50);
+        assert_eq!(market.quote_side.reserves.live_reserve, 1_000);
+        market
+            .assert_virtual_reserve_invariant(MarketAsset::Quote)
+            .unwrap();
+    }
+
+    #[test]
+    fn cash_backed_interest_increases_virtual_reserve_with_debt() {
+        // Normal V1-style cash-backed debt still grows virtual reserves as
+        // interest accrues while the debt is unpaid.
+        let mut market = test_market(1_000_000, 50);
+        market.quote_side.reserves.live_reserve = 1_000;
+        market.debt.fixed_quote_shares = 950;
+        market.debt.fixed_quote_principal = 950;
 
         market
             .accrue_interest_to_slot(slots_for_ms(MS_PER_YEAR))
@@ -127,8 +155,13 @@ use super::*;
         // (> target), so the anchor must rise. If either leg were ignored, util
         // would fall below target and the anchor would instead drop.
         let mut market = test_market(1_000_000, 40);
+        market.quote_side.reserves.live_reserve = 1_000;
         market.debt.fixed_quote_shares = 480;
         market.base_hlp_vault.debt_shares = 480;
+        market.base_hlp_vault.quote_hlp_live_reserve = 480;
+        market
+            .assert_virtual_reserve_invariant(MarketAsset::Quote)
+            .unwrap();
         market
             .accrue_interest_to_slot(slots_for_ms(MS_PER_YEAR))
             .unwrap();
@@ -140,7 +173,12 @@ use super::*;
         // ~100% utilization held for years: the anchor ramps up (capped per
         // step) and clamps at the max, never exceeding it.
         let mut market = test_market(1_000_000, 1);
+        market.quote_side.reserves.live_reserve = 10_001;
         market.base_hlp_vault.debt_shares = 10_000;
+        market.base_hlp_vault.quote_hlp_live_reserve = 10_000;
+        market
+            .assert_virtual_reserve_invariant(MarketAsset::Quote)
+            .unwrap();
         for year in 1..=15u64 {
             market
                 .accrue_interest_to_slot(slots_for_ms(MS_PER_YEAR * year))
