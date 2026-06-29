@@ -187,6 +187,62 @@ pub mod omnipair_v2 {
         Repay::handle_repay(ctx, args)
     }
 
+    #[access_control(ctx.accounts.update_and_validate(&args))]
+    pub fn open_leverage<'info>(
+        ctx: Context<'_, '_, '_, 'info, OpenLeverage<'info>>,
+        args: OpenLeverageArgs,
+    ) -> Result<()> {
+        OpenLeverage::handle_open(ctx, args)
+    }
+
+    #[access_control(ctx.accounts.update_and_validate(&args))]
+    pub fn close_leverage<'info>(
+        ctx: Context<'_, '_, '_, 'info, CloseLeverage<'info>>,
+        args: CloseLeverageArgs,
+    ) -> Result<()> {
+        CloseLeverage::handle_close(ctx, args)
+    }
+
+    #[access_control(ctx.accounts.update_and_validate(&args))]
+    pub fn increase_leverage<'info>(
+        ctx: Context<'_, '_, '_, 'info, IncreaseLeverage<'info>>,
+        args: IncreaseLeverageArgs,
+    ) -> Result<()> {
+        IncreaseLeverage::handle_increase(ctx, args)
+    }
+
+    #[access_control(ctx.accounts.update_and_validate(&args))]
+    pub fn decrease_leverage<'info>(
+        ctx: Context<'_, '_, '_, 'info, DecreaseLeverage<'info>>,
+        args: DecreaseLeverageArgs,
+    ) -> Result<()> {
+        DecreaseLeverage::handle_decrease(ctx, args)
+    }
+
+    #[access_control(ctx.accounts.update_and_validate(&args))]
+    pub fn add_leverage_margin<'info>(
+        ctx: Context<'_, '_, '_, 'info, AddLeverageMargin<'info>>,
+        args: AddLeverageMarginArgs,
+    ) -> Result<()> {
+        AddLeverageMargin::handle_add_margin(ctx, args)
+    }
+
+    #[access_control(ctx.accounts.update_and_validate(&args))]
+    pub fn remove_leverage_margin<'info>(
+        ctx: Context<'_, '_, '_, 'info, RemoveLeverageMargin<'info>>,
+        args: RemoveLeverageMarginArgs,
+    ) -> Result<()> {
+        RemoveLeverageMargin::handle_remove_margin(ctx, args)
+    }
+
+    #[access_control(ctx.accounts.update_and_validate(&args))]
+    pub fn liquidate_leverage<'info>(
+        ctx: Context<'_, '_, '_, 'info, LiquidateLeverage<'info>>,
+        args: LiquidateLeverageArgs,
+    ) -> Result<()> {
+        LiquidateLeverage::handle_liquidate(ctx, args)
+    }
+
     #[access_control(ctx.accounts.update_and_validate())]
     pub fn open_liquidation_auction(ctx: Context<OpenLiquidationAuction>) -> Result<()> {
         OpenLiquidationAuction::handle_open(ctx)
