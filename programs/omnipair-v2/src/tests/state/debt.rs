@@ -69,3 +69,48 @@ use super::*;
         assert_eq!(interest, 50);
         assert_eq!(debt.fixed_base_principal, 0);
     }
+
+    #[test]
+    fn isolated_debt_uses_separate_shares_and_principal() {
+        let mut debt = Debt {
+            base_borrow_index_nad: NAD as u128,
+            quote_borrow_index_nad: NAD as u128,
+            ..Debt::default()
+        };
+
+        let shares = debt.add_isolated_debt(MarketAsset::Base, 1_000).unwrap();
+
+        assert_eq!(shares, 1_000);
+        assert_eq!(debt.isolated_base_shares, 1_000);
+        assert_eq!(debt.isolated_base_principal, 1_000);
+        assert_eq!(debt.fixed_base_shares, 0);
+        assert_eq!(debt.total_base_debt().unwrap(), 1_000);
+    }
+
+    #[test]
+    fn isolated_repay_splits_interest_without_touching_margin_principal() {
+        let mut debt = Debt {
+            base_borrow_index_nad: (NAD as u128) * 11 / 10,
+            isolated_base_shares: 1_000,
+            isolated_base_principal: 1_000,
+            fixed_base_principal: 777,
+            ..Debt::default()
+        };
+        let mut position_shares = 1_000;
+        let mut position_principal = 1_000;
+
+        let clearance = debt
+            .clear_isolated_debt(
+                MarketAsset::Base,
+                &mut position_shares,
+                &mut position_principal,
+                550,
+            )
+            .unwrap();
+
+        assert_eq!(clearance.principal_paid, 500);
+        assert_eq!(clearance.interest_paid, 50);
+        assert_eq!(debt.isolated_base_principal, 500);
+        assert_eq!(position_principal, 500);
+        assert_eq!(debt.fixed_base_principal, 777);
+    }
