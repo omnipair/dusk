@@ -120,3 +120,13 @@ The new pair config structure includes:
 - The swap fee and other pair parameters are stored in the pair account itself
 - The `nonce` parameter in pair config initialization must be a BN (Big Number)
 - Account names in TypeScript use snake_case to match Rust struct fields
+
+## Leverage Scripts
+
+The PR #75 leverage runners are available for the isolated spot-margin flow:
+
+- `npm run deploy-leverage`
+- `npm run devnet-leverage-e2e`
+- `npm run surfpool-leverage-e2e`
+
+These are imported from the V1 leverage branch as operational references. The on-chain delegation layer in this repo is V2-native, so SDK wiring may need to be refreshed when the V2 IDL/package is regenerated.
