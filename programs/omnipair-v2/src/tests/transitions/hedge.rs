@@ -104,6 +104,12 @@ use super::*;
         assert_eq!(market.base_side.reserves.cash_reserve, 1_100);
         assert_eq!(market.quote_side.reserves.cash_reserve, 2_000);
         assert_eq!(market.base_hlp_vault.last_nav_nad, 100 * NAD as u128);
+        market
+            .assert_virtual_reserve_invariant(MarketAsset::Base)
+            .unwrap();
+        market
+            .assert_virtual_reserve_invariant(MarketAsset::Quote)
+            .unwrap();
     }
 
     #[test]
@@ -168,17 +174,21 @@ use super::*;
         let nav_before = hlp_nav_nad(&market, MarketAsset::Base).unwrap();
 
         // Simulate 10% borrow-interest accrual on the quote index. The base-hLP
-        // borrows quote, so its debt grows and its NAV falls one-for-one: this is
-        // how interest is charged to the hedged-LP position.
+        // borrows quote, so its debt grows and its NAV falls. V1-style reserve
+        // accounting also grows the borrowed side's virtual reserve while the
+        // debt is unpaid.
         market.debt.quote_borrow_index_nad = (NAD as u128) * 110 / 100;
+        market.quote_side.reserves.live_reserve =
+            market.quote_side.reserves.live_reserve.checked_add(20).unwrap();
 
         let debt_after = hlp_debt_value_nad(&market, MarketAsset::Base).unwrap();
         let nav_after = hlp_nav_nad(&market, MarketAsset::Base).unwrap();
-        assert_eq!(debt_after, debt_before * 110 / 100);
-        assert_eq!(nav_after, nav_before - (debt_after - debt_before));
+        assert!(debt_after > debt_before);
+        assert!(nav_after < nav_before);
         assert_eq!(market.base_hlp_vault.debt_principal, 200);
-        assert_eq!(debt_after, 110 * NAD as u128);
-        assert_eq!(nav_after, 90 * NAD as u128);
+        market
+            .assert_virtual_reserve_invariant(MarketAsset::Quote)
+            .unwrap();
     }
 
     #[test]
@@ -205,6 +215,12 @@ use super::*;
         assert_eq!(market.quote_side.reserves.cash_reserve, 2_000);
         assert_eq!(market.base_side.shares.ylp_supply, 1_000);
         assert_eq!(market.quote_side.shares.ylp_supply, 1_000);
+        market
+            .assert_virtual_reserve_invariant(MarketAsset::Base)
+            .unwrap();
+        market
+            .assert_virtual_reserve_invariant(MarketAsset::Quote)
+            .unwrap();
     }
 
     #[test]
@@ -214,6 +230,8 @@ use super::*;
             .apply(&mut market)
             .unwrap();
         market.debt.quote_borrow_index_nad = (NAD as u128) * 110 / 100;
+        market.quote_side.reserves.live_reserve =
+            market.quote_side.reserves.live_reserve.checked_add(20).unwrap();
 
         let close_receipt = CloseHedge::new(MarketAsset::Base, open_receipt.hlp_amount)
             .apply(&mut market)
@@ -222,7 +240,11 @@ use super::*;
         assert_eq!(close_receipt.debt_repaid, 220);
         assert_eq!(close_receipt.interest_paid, 20);
         assert_eq!(market.base_hlp_vault.debt_principal, 0);
+        assert_eq!(market.quote_side.reserves.live_reserve, 1_980);
         assert_eq!(market.quote_side.reserves.cash_reserve, 1_980);
+        market
+            .assert_virtual_reserve_invariant(MarketAsset::Quote)
+            .unwrap();
     }
 
     #[test]

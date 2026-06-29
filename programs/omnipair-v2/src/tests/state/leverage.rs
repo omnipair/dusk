@@ -157,6 +157,12 @@ fn open_leverage_tracks_isolated_debt_and_cash() {
         1_000_000 - quote.amount_out
     );
     assert_eq!(market.quote_side.reserves.cash_reserve, 1_000_000 - quote.amount_out);
+    market
+        .assert_virtual_reserve_invariant(MarketAsset::Base)
+        .unwrap();
+    market
+        .assert_virtual_reserve_invariant(MarketAsset::Quote)
+        .unwrap();
 }
 
 #[test]
@@ -202,6 +208,12 @@ fn close_leverage_clears_isolated_debt_and_residual_cash() {
         base_cash_before_close - receipt.residual
     );
     assert_eq!(receipt.closeout_value, close_quote.amount_out);
+    market
+        .assert_virtual_reserve_invariant(MarketAsset::Base)
+        .unwrap();
+    market
+        .assert_virtual_reserve_invariant(MarketAsset::Quote)
+        .unwrap();
 }
 
 #[test]
@@ -219,6 +231,12 @@ fn solvent_liquidation_closes_position_and_pays_residual_incentive() {
     assert_eq!(receipt.debt_repaid, 1_000);
     assert_eq!(receipt.principal_written_off, 0);
     assert!(receipt.liquidator_amount > 0);
+    market
+        .assert_virtual_reserve_invariant(MarketAsset::Base)
+        .unwrap();
+    market
+        .assert_virtual_reserve_invariant(MarketAsset::Quote)
+        .unwrap();
 }
 
 #[test]
@@ -236,4 +254,10 @@ fn insolvent_liquidation_socializes_unrepaid_principal() {
     assert!(receipt.debt_repaid < 1_000);
     assert!(receipt.principal_written_off > 0);
     assert_eq!(receipt.liquidator_amount, 0);
+    market
+        .assert_virtual_reserve_invariant(MarketAsset::Base)
+        .unwrap();
+    market
+        .assert_virtual_reserve_invariant(MarketAsset::Quote)
+        .unwrap();
 }

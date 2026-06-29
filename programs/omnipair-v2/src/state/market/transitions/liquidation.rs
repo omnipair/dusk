@@ -194,8 +194,12 @@ impl Liquidation {
             debt_side.reserves.live_reserve = debt_side
                 .reserves
                 .live_reserve
-                .checked_add(principal_credit)
-                .ok_or(ErrorCode::ReserveOverflow)?;
+                .checked_sub(
+                    interest_paid
+                        .checked_add(socialized_loss)
+                        .ok_or(ErrorCode::ReserveUnderflow)?,
+                )
+                .ok_or(ErrorCode::ReserveUnderflow)?;
             debt_side.reserves.cash_reserve = debt_side
                 .reserves
                 .cash_reserve

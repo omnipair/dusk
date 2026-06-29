@@ -347,6 +347,11 @@ fn debit_cash_for_hlp_interest(
     if interest_paid == 0 {
         return Ok(());
     }
+    borrowed_side.reserves.live_reserve = borrowed_side
+        .reserves
+        .live_reserve
+        .checked_sub(interest_paid)
+        .ok_or(ErrorCode::ReserveUnderflow)?;
     borrowed_side.reserves.cash_reserve = borrowed_side
         .reserves
         .cash_reserve

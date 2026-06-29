@@ -32,6 +32,7 @@ use crate::math::{
     accrued_index_nad, adapt_rate_at_target_nad, instantaneous_rate_apr_nad, utilization_bps,
     utilization_error_nad,
 };
+use crate::shared::math::SqrtU128;
 use crate::state::{
     futarchy_authority::{FutarchyAuthority, ProtocolAuctionSplit},
     margin_position::{CollateralReceipt, MarginPosition},
@@ -279,8 +280,10 @@ impl Market {
     }
 
     pub fn update(&mut self) -> Result<()> {
-        self.accrue_interest()?;
+        let current_slot = Clock::get()?.slot;
+        self.accrue_interest_to_slot(current_slot)?;
         if self.base_side.reserves.live_reserve > 0 && self.quote_side.reserves.live_reserve > 0 {
+            self.checkpoint_hlp_vaults(current_slot)?;
             self.refresh_market_health()?;
         }
         Ok(())
@@ -516,11 +519,6 @@ impl Market {
         self.enforce_daily_borrow_limit(borrow_asset, borrow_amount)?;
         let debt_side = self.side_mut(borrow_asset)?;
         require_borrow_headroom(debt_side, borrow_amount)?;
-        debt_side.reserves.live_reserve = debt_side
-            .reserves
-            .live_reserve
-            .checked_sub(borrow_amount)
-            .ok_or(ErrorCode::ReserveUnderflow)?;
         debt_side.reserves.cash_reserve = debt_side
             .reserves
             .cash_reserve
@@ -621,8 +619,8 @@ impl Market {
                     .base_side
                     .reserves
                     .live_reserve
-                    .checked_add(principal_credit)
-                    .ok_or(ErrorCode::ReserveOverflow)?;
+                    .checked_sub(interest_paid)
+                    .ok_or(ErrorCode::ReserveUnderflow)?;
                 self.base_side.reserves.cash_reserve = self
                     .base_side
                     .reserves
@@ -665,8 +663,8 @@ impl Market {
                     .quote_side
                     .reserves
                     .live_reserve
-                    .checked_add(principal_credit)
-                    .ok_or(ErrorCode::ReserveOverflow)?;
+                    .checked_sub(interest_paid)
+                    .ok_or(ErrorCode::ReserveUnderflow)?;
                 self.quote_side.reserves.cash_reserve = self
                     .quote_side
                     .reserves
@@ -716,8 +714,15 @@ impl Market {
 
         self.base_side.credit_reserve(base_reserve_credit, true)?;
         self.quote_side.credit_reserve(quote_reserve_credit, true)?;
-        self.base_side.shares.mint(ylp_amount)?;
-        self.quote_side.shares.mint(ylp_amount)?;
+        let internal_mint_amount = if self.base_side.shares.ylp_supply == 0 {
+            ylp_amount
+                .checked_add(MIN_LIQUIDITY)
+                .ok_or(ErrorCode::SupplyOverflow)?
+        } else {
+            ylp_amount
+        };
+        self.base_side.shares.mint(internal_mint_amount)?;
+        self.quote_side.shares.mint(internal_mint_amount)?;
         self.base_side.assert_share_backing()?;
         self.quote_side.assert_share_backing()?;
 
@@ -784,7 +789,21 @@ impl Market {
             ErrorCode::BrokenInvariant
         );
         if self.base_side.shares.ylp_supply == 0 {
-            return Ok(base_amount);
+            // sqrt(amount0_in * amount1_in) - MINIMUM_LIQUIDITY
+            // MINIMUM_LIQUIDITY = 1000
+            // 9 decimals: 1000 / 10^9 = 1e-6 full LP tokens
+            // 1000 units are burned permanently.
+            // This burn (~1e-6 of supply) is larger than Uniswap V2's 1e-15 burn (with 18 decimals),
+            // but still negligible for users and significantly raises the cost of share inflation attacks.
+            return (base_amount as u128)
+                .checked_mul(quote_amount as u128)
+                .ok_or(ErrorCode::LiquidityMathOverflow)?
+                .sqrt()
+                .ok_or(ErrorCode::LiquiditySqrtOverflow)?
+                .checked_sub(MIN_LIQUIDITY as u128)
+                .ok_or(ErrorCode::LiquidityUnderflow)?
+                .try_into()
+                .map_err(|_| ErrorCode::LiquidityConversionOverflow.into());
         }
         let base_ylp = self
             .base_side
@@ -860,6 +879,34 @@ impl Market {
         self.quote_side.assert_share_backing()?;
         self.base_side.fees.assert_backed()?;
         self.quote_side.fees.assert_backed()?;
+        self.assert_virtual_reserve_invariant(MarketAsset::Base)?;
+        self.assert_virtual_reserve_invariant(MarketAsset::Quote)?;
+        Ok(())
+    }
+
+    pub fn assert_virtual_reserve_invariant(&self, asset: MarketAsset) -> Result<()> {
+        let (side, borrowed) = match asset {
+            MarketAsset::Base => (
+                &self.base_side,
+                total_borrowed(self, asset, self.debt.base_borrow_index_nad)?,
+            ),
+            MarketAsset::Quote => (
+                &self.quote_side,
+                total_borrowed(self, asset, self.debt.quote_borrow_index_nad)?,
+            ),
+        };
+        // Invariants:
+        // 1. x_virtual * y_virtual = k (Constant product invariant)
+        // 2. r_virtual >= r_debt (Solvency invariant)
+        // with a state transition: ΔR_virtual = ΔR_cash + ΔR_debt
+        let expected_live_reserve = (side.reserves.cash_reserve as u128)
+            .checked_add(borrowed)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        require_eq!(
+            side.reserves.live_reserve as u128,
+            expected_live_reserve,
+            ErrorCode::BrokenInvariant
+        );
         Ok(())
     }
 
@@ -903,8 +950,10 @@ fn accrue_side(market: &mut Market, asset: MarketAsset, dt_ms: u64) -> Result<()
         MarketAsset::Quote => market.quote_side.reserves.cash_reserve,
     } as u128;
 
-    let borrowed = total_borrowed(market, asset, index)?;
-    let util = utilization_bps(borrowed, cash)?;
+    // Calculate utilization rates. With r_virtual = r_cash + r_debt, this is
+    // equivalent to V1's total_debt / reserve utilization.
+    let debt_before = total_borrowed(market, asset, index)?;
+    let util = utilization_bps(debt_before, cash)?;
     let error = utilization_error_nad(util, INTEREST_TARGET_UTILIZATION_BPS)?;
     let rate = instantaneous_rate_apr_nad(rate_at_target, error, INTEREST_CURVE_STEEPNESS_NAD)?;
     let next_index = accrued_index_nad(index, rate, dt_ms)?;
@@ -917,6 +966,20 @@ fn accrue_side(market: &mut Market, asset: MarketAsset, dt_ms: u64) -> Result<()
         INTEREST_MAX_RATE_AT_TARGET_NAD,
         INTEREST_MAX_ADAPTATION_STEP_NAD,
     )?;
+    let debt_after = total_borrowed(market, asset, next_index)?;
+    let accrued_interest = debt_after
+        .checked_sub(debt_before)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    if accrued_interest > 0 {
+        let accrued_interest =
+            u64::try_from(accrued_interest).map_err(|_| ErrorCode::ReserveOverflow)?;
+        let side = market.side_mut(asset)?;
+        side.reserves.live_reserve = side
+            .reserves
+            .live_reserve
+            .checked_add(accrued_interest)
+            .ok_or(ErrorCode::ReserveOverflow)?;
+    }
 
     match asset {
         MarketAsset::Base => {

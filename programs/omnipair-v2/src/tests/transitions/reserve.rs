@@ -28,14 +28,15 @@ use super::*;
     }
 
     #[test]
-    fn add_liquidity_mints_floating_ylp_shares() {
+    fn add_liquidity_mints_v1_style_locked_liquidity() {
         let mut market = empty_market();
 
         let receipt = market.add_liquidity(1_000_000, 2_000_000).unwrap();
 
-        assert_eq!(receipt.ylp_amount, 1_000_000);
-        assert_eq!(market.base_side.shares.ylp_supply, 1_000_000);
-        assert_eq!(market.quote_side.shares.ylp_supply, 1_000_000);
+        assert_eq!(receipt.ylp_amount, 1_413_213);
+        assert_eq!(market.base_side.shares.ylp_supply, 1_414_213);
+        assert_eq!(market.quote_side.shares.ylp_supply, 1_414_213);
+        market.assert_market_invariants().unwrap();
     }
 
     #[test]
@@ -45,9 +46,10 @@ use super::*;
 
         let receipt = market.remove_liquidity(250_000).unwrap();
 
-        assert_eq!(receipt.base_amount_out, 250_000);
-        assert_eq!(receipt.quote_amount_out, 500_000);
-        assert_eq!(receipt.ylp_supply, 750_000);
-        assert_eq!(market.base_side.shares.ylp_supply, 750_000);
-        assert_eq!(market.quote_side.shares.ylp_supply, 750_000);
+        assert_eq!(receipt.base_amount_out, 176_776);
+        assert_eq!(receipt.quote_amount_out, 353_553);
+        assert_eq!(receipt.ylp_supply, 1_164_213);
+        assert_eq!(market.base_side.shares.ylp_supply, 1_164_213);
+        assert_eq!(market.quote_side.shares.ylp_supply, 1_164_213);
+        market.assert_market_invariants().unwrap();
     }

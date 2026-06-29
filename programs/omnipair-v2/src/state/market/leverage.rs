@@ -163,6 +163,7 @@ impl Market {
             debt_asset,
             swap,
             swap.amount_out,
+            0,
             manager_fee_bps,
             protocol_fee_bps,
             protocol_auction_split,
@@ -249,6 +250,7 @@ impl Market {
             debt_asset,
             swap,
             swap.amount_out,
+            0,
             manager_fee_bps,
             protocol_fee_bps,
             protocol_auction_split,
@@ -321,6 +323,7 @@ impl Market {
             collateral_asset,
             swap,
             clearance.interest_paid,
+            clearance.interest_paid,
             manager_fee_bps,
             protocol_fee_bps,
             protocol_auction_split,
@@ -372,6 +375,7 @@ impl Market {
             collateral_asset,
             swap,
             cash_debit,
+            clearance.interest_paid,
             manager_fee_bps,
             protocol_fee_bps,
             protocol_auction_split,
@@ -444,16 +448,17 @@ impl Market {
             collateral_asset,
             swap,
             cash_debit,
+            clearance.interest_paid,
             manager_fee_bps,
             protocol_fee_bps,
             protocol_auction_split,
         )?;
-        if writeoff.principal_written_off > 0 {
+        if writeoff.debt_written_off > 0 {
             let debt_side = self.side_mut(debt_asset)?;
             debt_side.reserves.live_reserve = debt_side
                 .reserves
                 .live_reserve
-                .checked_sub(writeoff.principal_written_off)
+                .checked_sub(writeoff.debt_written_off)
                 .ok_or(ErrorCode::ReserveUnderflow)?;
             debt_side.assert_share_backing()?;
         }
@@ -497,8 +502,8 @@ impl Market {
         side.reserves.live_reserve = side
             .reserves
             .live_reserve
-            .checked_add(principal_paid)
-            .ok_or(ErrorCode::ReserveOverflow)?;
+            .checked_sub(clearance.interest_paid)
+            .ok_or(ErrorCode::ReserveUnderflow)?;
         side.reserves.cash_reserve = side
             .reserves
             .cash_reserve
@@ -647,6 +652,7 @@ impl Market {
         asset_in: MarketAsset,
         swap: LeverageSwapQuote,
         cash_debit_out: u64,
+        extra_live_debit_out: u64,
         manager_fee_bps: u16,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
@@ -665,7 +671,11 @@ impl Market {
         side_out.reserves.live_reserve = side_out
             .reserves
             .live_reserve
-            .checked_sub(swap.amount_out)
+            .checked_sub(
+                swap.amount_out
+                    .checked_add(extra_live_debit_out)
+                    .ok_or(ErrorCode::ReserveUnderflow)?,
+            )
             .ok_or(ErrorCode::ReserveUnderflow)?;
         side_out.reserves.cash_reserve = side_out
             .reserves

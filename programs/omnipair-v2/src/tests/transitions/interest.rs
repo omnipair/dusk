@@ -101,6 +101,27 @@ use super::*;
     }
 
     #[test]
+    fn accrued_interest_increases_virtual_reserve_with_debt() {
+        // V1 GAMM accounting requires r_virtual = r_cash + r_debt. Borrow
+        // interest therefore grows virtual reserves while the debt is unpaid.
+        let mut market = test_market(1_000_000, 50);
+        market.quote_side.reserves.live_reserve = 1_000;
+        market.base_hlp_vault.debt_shares = 950;
+        market.base_hlp_vault.debt_principal = 950;
+
+        market
+            .accrue_interest_to_slot(slots_for_ms(MS_PER_YEAR))
+            .unwrap();
+
+        assert_eq!(market.debt.quote_borrow_index_nad, (NAD as u128) * 110 / 100);
+        assert_eq!(market.quote_side.reserves.cash_reserve, 50);
+        assert_eq!(market.quote_side.reserves.live_reserve, 1_095);
+        market
+            .assert_virtual_reserve_invariant(MarketAsset::Quote)
+            .unwrap();
+    }
+
+    #[test]
     fn margin_and_hlp_debt_both_count_toward_utilization() {
         // Quote debt = 480 margin + 480 base-hLP = 960 borrowed, 40 cash -> 96%
         // (> target), so the anchor must rise. If either leg were ignored, util

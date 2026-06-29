@@ -14,6 +14,7 @@ pub struct Debt {
     pub recognized_quote_collateral_for_base_debt: u64,
     pub last_recognition_slot: u64,
     pub last_accrual_slot: u64,
+    // Debt tracking (r_debt)
     /// Aggregate outstanding *principal* (borrowed token amount, excluding
     /// accrued interest) backing fixed margin debt on each side. Accrued
     /// interest is `fixed_*_debt - fixed_*_principal`; tracked so interest can
@@ -40,6 +41,7 @@ pub struct DebtClearance {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DebtWriteoff {
     pub shares_written_off: u128,
+    pub debt_written_off: u64,
     pub principal_written_off: u64,
 }
 
@@ -177,6 +179,11 @@ impl Debt {
         position_principal: &mut u128,
     ) -> Result<DebtWriteoff> {
         require!(*position_shares > 0, ErrorCode::DebtShareDivisionOverflow);
+        let debt_written_off = u64::try_from(Self::shares_to_debt(
+            *position_shares,
+            self.borrow_index(asset),
+        )?)
+        .map_err(|_| ErrorCode::DebtMathOverflow)?;
         let (aggregate_shares, aggregate_principal) = match asset {
             MarketAsset::Base => (
                 &mut self.isolated_base_shares,
@@ -206,6 +213,7 @@ impl Debt {
         }
         Ok(DebtWriteoff {
             shares_written_off,
+            debt_written_off,
             principal_written_off,
         })
     }
