@@ -115,6 +115,24 @@ use super::*;
     }
 
     #[test]
+    fn hlp_synthetic_backing_rejects_free_depth() {
+        let mut market = seeded_market();
+        OpenHedge::new(MarketAsset::Base, 100, 1)
+            .apply(&mut market)
+            .unwrap();
+
+        credit_hlp_live_reserve(&mut market, MarketAsset::Base, MarketAsset::Base, 1).unwrap();
+
+        market
+            .assert_virtual_reserve_invariant(MarketAsset::Base)
+            .unwrap();
+        let err = market
+            .assert_hlp_synthetic_backing(MarketAsset::Base)
+            .unwrap_err();
+        assert_eq!(err, error!(ErrorCode::BrokenInvariant));
+    }
+
+    #[test]
     fn open_hlp_requires_borrowed_side_cash_headroom() {
         let mut market = seeded_market();
         market.quote_side.reserves.cash_reserve = 199;
@@ -523,6 +541,7 @@ use super::*;
         let ylp_before = market.base_hlp_vault.ylp_shares;
         let debt_before = market.base_hlp_vault.debt_shares;
         let principal_before = market.base_hlp_vault.debt_principal;
+        let ideal_before = current_hlp_ideal_delta(&market, MarketAsset::Base).unwrap();
 
         let (base_receipt, _) = rebalance_hlp_vaults(&mut market, 44).unwrap();
 
@@ -544,7 +563,11 @@ use super::*;
         market
             .assert_virtual_reserve_invariant(MarketAsset::Quote)
             .unwrap();
-        assert_hlp_near_target(&market, MarketAsset::Base, 2 * NAD as u128);
+        market
+            .assert_hlp_synthetic_backing(MarketAsset::Base)
+            .unwrap();
+        let ideal_after = current_hlp_ideal_delta(&market, MarketAsset::Base).unwrap();
+        assert!(ideal_after.unsigned_abs() < ideal_before.unsigned_abs());
     }
 
     #[test]
@@ -574,6 +597,7 @@ use super::*;
             .checked_sub(principal_repaid)
             .unwrap();
         assert!(interest_paid > 0);
+        assert_eq!(base_receipt.interest_paid as u128, interest_paid);
         assert!(
             quote_cash_before
                 .checked_sub(market.quote_side.reserves.cash_reserve)
@@ -622,7 +646,7 @@ use super::*;
     }
 
     #[test]
-    fn swap_rebalance_is_price_neutral_after_user_quote() {
+    fn swap_rebalance_preserves_hlp_backing_after_user_quote() {
         let mut market = seeded_market();
         market.base_side.reserves.live_reserve = 1_000_000;
         market.base_side.reserves.cash_reserve = 1_000_000;
@@ -679,11 +703,17 @@ use super::*;
 
         let post_rebalance_price =
             market_spot_price_nad(&market.base_side, &market.quote_side).unwrap();
-        let price_diff = quoted_post_swap_price.abs_diff(post_rebalance_price);
-        assert!(
-            price_diff <= quoted_post_swap_price / BPS_DENOMINATOR as u64 + 1,
-            "hLP rebalance moved post-swap spot by more than rounding: quoted {}, final {}",
-            quoted_post_swap_price,
-            post_rebalance_price
-        );
+        assert_ne!(quoted_post_swap_price, post_rebalance_price);
+        market
+            .assert_virtual_reserve_invariant(MarketAsset::Base)
+            .unwrap();
+        market
+            .assert_virtual_reserve_invariant(MarketAsset::Quote)
+            .unwrap();
+        market
+            .assert_hlp_synthetic_backing(MarketAsset::Base)
+            .unwrap();
+        market
+            .assert_hlp_synthetic_backing(MarketAsset::Quote)
+            .unwrap();
     }

@@ -205,7 +205,7 @@ impl<'info> Swap<'info> {
         }
 
         if h_lp_tokens_changed {
-            apply_hlp_rebalance_token_changes(&ctx, &base_hlp_rebalance, &quote_hlp_rebalance)?;
+            apply_hlp_rebalance_token_changes(&mut ctx, &base_hlp_rebalance, &quote_hlp_rebalance)?;
             emit_swap_settled_low_heap(
                 market_key,
                 trader_key,
@@ -290,7 +290,7 @@ fn should_emit_hlp_rebalance(ideal_delta: i128, pending_rebalance: i128, hlp_sup
 }
 
 fn rebalance_executes_token_changes(receipt: &HlpRebalanceReceipt) -> bool {
-    receipt.ylp_mint_amount > 0 || receipt.ylp_burn_amount > 0
+    receipt.ylp_mint_amount > 0 || receipt.ylp_burn_amount > 0 || receipt.interest_paid > 0
 }
 
 fn refresh_risk_snapshot(market: &mut Market) -> Result<()> {
@@ -346,28 +346,37 @@ fn validate_hlp_rebalance_accounts(
     if market.base_hlp_vault.hlp_supply > 0 {
         require_gte!(
             remaining_accounts.len(),
-            cursor + 2,
+            cursor + 3,
             ErrorCode::NotEnoughAccounts
         );
-        require_hlp_mint_account(&remaining_accounts[cursor], market.ylp_mint)?;
-        require_hlp_vault_account(
-            &remaining_accounts[cursor + 1],
-            market.base_hlp_vault.ylp_vault,
-        )?;
-        cursor += 2;
+        require_hlp_rebalance_accounts(market, MarketAsset::Base, remaining_accounts, cursor)?;
+        cursor += 3;
     }
     if market.quote_hlp_vault.hlp_supply > 0 {
         require_gte!(
             remaining_accounts.len(),
-            cursor + 2,
+            cursor + 3,
             ErrorCode::NotEnoughAccounts
         );
-        require_hlp_mint_account(&remaining_accounts[cursor], market.ylp_mint)?;
-        require_hlp_vault_account(
-            &remaining_accounts[cursor + 1],
-            market.quote_hlp_vault.ylp_vault,
-        )?;
+        require_hlp_rebalance_accounts(market, MarketAsset::Quote, remaining_accounts, cursor)?;
     }
+    Ok(())
+}
+
+fn require_hlp_rebalance_accounts(
+    market: &Market,
+    target_asset: MarketAsset,
+    remaining_accounts: &[AccountInfo],
+    cursor: usize,
+) -> Result<()> {
+    let expected_ylp_vault = match target_asset {
+        MarketAsset::Base => market.base_hlp_vault.ylp_vault,
+        MarketAsset::Quote => market.quote_hlp_vault.ylp_vault,
+    };
+    let expected_interest_vault = market.side(target_asset.opposite())?.interest_vault;
+    require_hlp_mint_account(&remaining_accounts[cursor], market.ylp_mint)?;
+    require_hlp_vault_account(&remaining_accounts[cursor + 1], expected_ylp_vault)?;
+    require_hlp_interest_vault_account(&remaining_accounts[cursor + 2], expected_interest_vault)?;
     Ok(())
 }
 
@@ -383,8 +392,14 @@ fn require_hlp_vault_account(account: &AccountInfo, expected_key: Pubkey) -> Res
     Ok(())
 }
 
+fn require_hlp_interest_vault_account(account: &AccountInfo, expected_key: Pubkey) -> Result<()> {
+    require_keys_eq!(account.key(), expected_key, ErrorCode::InvalidVault);
+    require!(account.is_writable, ErrorCode::InvalidVault);
+    Ok(())
+}
+
 fn apply_hlp_rebalance_token_changes<'info>(
-    ctx: &anchor_lang::context::Context<'_, '_, '_, 'info, Swap<'info>>,
+    ctx: &mut anchor_lang::context::Context<'_, '_, '_, 'info, Swap<'info>>,
     base_receipt: &HlpRebalanceReceipt,
     quote_receipt: &HlpRebalanceReceipt,
 ) -> Result<()> {
@@ -392,7 +407,7 @@ fn apply_hlp_rebalance_token_changes<'info>(
     let mut scratch = Token2022InstructionScratch::new(ctx.accounts.token_2022_program.key());
     if ctx.accounts.market.base_hlp_vault.hlp_supply > 0 {
         apply_single_hlp_rebalance_token_changes(ctx, base_receipt, cursor, &mut scratch)?;
-        cursor += 2;
+        cursor += 3;
     }
     if ctx.accounts.market.quote_hlp_vault.hlp_supply > 0 {
         apply_single_hlp_rebalance_token_changes(ctx, quote_receipt, cursor, &mut scratch)?;
@@ -455,7 +470,7 @@ impl Token2022InstructionScratch {
 }
 
 fn apply_single_hlp_rebalance_token_changes<'info>(
-    ctx: &anchor_lang::context::Context<'_, '_, '_, 'info, Swap<'info>>,
+    ctx: &mut anchor_lang::context::Context<'_, '_, '_, 'info, Swap<'info>>,
     receipt: &HlpRebalanceReceipt,
     cursor: usize,
     scratch: &mut Token2022InstructionScratch,
@@ -489,7 +504,89 @@ fn apply_single_hlp_rebalance_token_changes<'info>(
             &signer_seeds,
         )?;
     }
+    if receipt.interest_paid > 0 {
+        move_hlp_rebalance_interest(ctx, receipt, cursor)?;
+    }
     Ok(())
+}
+
+fn move_hlp_rebalance_interest<'info>(
+    ctx: &mut anchor_lang::context::Context<'_, '_, '_, 'info, Swap<'info>>,
+    receipt: &HlpRebalanceReceipt,
+    cursor: usize,
+) -> Result<()> {
+    let borrowed_asset = receipt.target_asset.opposite();
+    let (borrowed_reserve_vault, borrowed_mint, borrowed_token_program, borrowed_decimals) =
+        rebalance_interest_transfer_accounts(ctx, borrowed_asset)?;
+    transfer_from_vault_to_vault(
+        ctx.accounts.market.to_account_info(),
+        borrowed_reserve_vault,
+        ctx.remaining_accounts[cursor + 2].clone(),
+        borrowed_mint,
+        borrowed_token_program,
+        receipt.interest_paid,
+        borrowed_decimals,
+        &[&generate_market_seeds!(ctx.accounts.market)[..]],
+    )?;
+    let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
+    ctx.accounts
+        .market
+        .side_mut(borrowed_asset)?
+        .record_interest_credit(
+            receipt.interest_paid,
+            manager_fee_bps,
+            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+            ctx.accounts.futarchy_authority.protocol_auction_split,
+        )?;
+    Ok(())
+}
+
+fn rebalance_interest_transfer_accounts<'info>(
+    ctx: &anchor_lang::context::Context<'_, '_, '_, 'info, Swap<'info>>,
+    asset: MarketAsset,
+) -> Result<(
+    AccountInfo<'info>,
+    AccountInfo<'info>,
+    AccountInfo<'info>,
+    u8,
+)> {
+    if ctx
+        .accounts
+        .market
+        .asset_for_mint(ctx.accounts.asset_in_mint.key())?
+        == asset
+    {
+        let token_program = token_program_for_mint(
+            &ctx.accounts.asset_in_mint,
+            &ctx.accounts.token_program,
+            &ctx.accounts.token_2022_program,
+        )?;
+        return Ok((
+            ctx.accounts.reserve_in_vault.to_account_info(),
+            ctx.accounts.asset_in_mint.to_account_info(),
+            token_program,
+            ctx.accounts.asset_in_mint.decimals,
+        ));
+    }
+    if ctx
+        .accounts
+        .market
+        .asset_for_mint(ctx.accounts.asset_out_mint.key())?
+        == asset
+    {
+        let token_program = token_program_for_mint(
+            &ctx.accounts.asset_out_mint,
+            &ctx.accounts.token_program,
+            &ctx.accounts.token_2022_program,
+        )?;
+        return Ok((
+            ctx.accounts.reserve_out_vault.to_account_info(),
+            ctx.accounts.asset_out_mint.to_account_info(),
+            token_program,
+            ctx.accounts.asset_out_mint.decimals,
+        ));
+    }
+    err!(ErrorCode::InvalidMint)
 }
 
 fn token_2022_mint_to_with_scratch<'info>(
