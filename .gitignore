@@ -1,0 +1,34 @@
+.anchor
+.DS_Store
+target
+**/*.rs.bk
+node_modules
+test-ledger
+.yarn
+.env
+docker-target
+
+# Keypairs (never commit private keys)
+*-keypair.json
+mockTokens/*.json
+!mockTokens/*_metadata.json
+omni*.json
+omni-local-build.md
+omnipair.so
+
+# Package build artifacts
+packages/*/dist
+packages/program-interface/src/idl.json
+packages/program-interface/src/types.ts
+
+# Temp directories
+temp-decoder/
+carbon-cli-test/
+.generated/
+.v2-fork-lab/
+
+# Local treasury inspection helpers
+scripts/check_squads_treasury_limit.mjs
+
+# Audit reports
+**/.audit/
