@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/omnipair-dusk-hero.png" alt="Omnipair Dusk (v2)" width="100%" />
+</p>
+
 # Omnipair Dusk
 
 **Omnipair Dusk (v2)** is an oracle-less lending protocol on Solana.
