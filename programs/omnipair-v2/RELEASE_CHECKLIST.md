@@ -8,8 +8,6 @@ mainnet launch or upgrade.
 ## 1. Scope Freeze
 
 - Confirm V2 remains a standalone program: `programs/omnipair-v2`.
-- Confirm V1 program behavior, instruction names, events, and account layouts
-  are unchanged by the V2 release.
 - Confirm the emergency reduce-only authority is the intended signer and can
   reach `set_reduce_only` for incident response.
 - Confirm soft borrow and soft liquidation remain disabled unless a separate
@@ -23,8 +21,7 @@ mainnet launch or upgrade.
 
 ## 2. Security Review
 
-- Run a fresh end-to-end review against the final V2 source tree, not an older
-  mixed V1/V2 implementation.
+- Run a fresh end-to-end review against the final Dusk source tree.
 - Re-check the V2 invariants in `programs/omnipair-v2/README.md`.
 - Re-check the cached-spot EMA flow for same-slot manipulation resistance.
 - Re-check daily-limit enforcement against liquidity EMA for borrow,
@@ -45,19 +42,10 @@ cargo check -p omnipair-v2 --lib
 cargo test -p omnipair-v2 --lib -- --nocapture
 cargo check -p omnipair-v2 --lib --features production
 cargo test -p omnipair-v2 --lib --features production -- --nocapture
-anchor build -p omnipair_v2
-anchor build -p omnipair_v2 -- --features production
+anchor build -p omnipair-v2
+anchor build -p omnipair-v2 -- --features production
 npm run build --prefix packages/program-interface
-cargo test -p omnipair-decoder --lib
-node decoders/omnipair-decoder/scripts/generate-v2-decoder.mjs
 yarn test-litesvm
-```
-
-Also run the V1 baseline check and confirm it has only the documented legacy
-failures:
-
-```bash
-cargo test -p omnipair --lib
 ```
 
 ## 4. Artifact Review
@@ -79,14 +67,13 @@ cargo test -p omnipair --lib
   `programs/omnipair-v2/SIGNOFF_CHECKLIST.md`.
 - Review the integrator handoff in `programs/omnipair-v2/README.md` with app,
   SDK, indexer, analytics, and aggregator owners.
-- SDK consumers use `IDL_V2`, `OmnipairV2`, and `OMNIPAIR_V2_PROGRAM_ID`.
+- SDK consumers use `IDL`, `OmnipairV2`, and `PROGRAM_ID` or the explicit
+  `IDL_V2` / `OMNIPAIR_V2_PROGRAM_ID` aliases.
 - Market PDA derivation uses `deriveMarketAddress` or `deriveMarketV2Address`.
-- Indexers consume V2 events from the standalone V2 IDL and do not reuse V1
-  pair event decoders.
-- App routing points new market flows at V2 while keeping legacy V1 access
-  available.
-- Analytics distinguish V1 pair liquidity from V2 market yLP, hLP, debt,
-  insurance, and fee state.
+- Indexers consume Dusk events from the standalone Dusk IDL.
+- App routing points Dusk market flows at the Dusk program ID.
+- Analytics track yLP, hLP, debt, insurance, and fee state as Dusk market
+  metrics.
 
 ## 6. Mainnet Deployment
 
@@ -97,7 +84,7 @@ cargo test -p omnipair --lib
 export GIT_REV=$(git rev-parse HEAD)
 export GIT_RELEASE=$(git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 
-anchor build --verifiable -p omnipair_v2 \
+anchor build --verifiable -p omnipair-v2 \
   -e GIT_REV=$GIT_REV \
   -e GIT_RELEASE=$GIT_RELEASE \
   -- --features "production"

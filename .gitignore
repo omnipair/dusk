@@ -18,8 +18,6 @@ omnipair.so
 
 # Package build artifacts
 packages/*/dist
-packages/program-interface/src/idl.json
-packages/program-interface/src/types.ts
 
 # Temp directories
 temp-decoder/

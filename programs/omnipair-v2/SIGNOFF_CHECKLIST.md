@@ -23,7 +23,7 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 ## Security Review
 
 - Confirm the reviewed source is the final standalone `programs/omnipair-v2`
-  tree and not an older mixed V1/V2 implementation.
+  tree.
 - Review the core invariants listed in `programs/omnipair-v2/README.md`.
 - Review the cached-spot EMA flow and pre-action risk snapshots for swap and
   liquidity-add paths.
@@ -46,7 +46,6 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 
 - Route new V2 market creation, liquidity, swap, lending, liquidation,
   insurance, yield, protocol-fee, and hedge flows to `OMNIPAIR_V2_PROGRAM_ID`.
-- Keep legacy V1 routes available for existing pair positions.
 - Do not sort V2 market mints client-side; creator-chosen base/quote order
   defines the market and displayed price direction.
 - Display yLP as floating reserve-side yield LP shares.
@@ -56,31 +55,28 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 
 ## SDK / Package Interface
 
-- Use `IDL_V2`, `OmnipairV2`, and `OMNIPAIR_V2_PROGRAM_ID` for V2 flows.
+- Use `IDL`, `OmnipairV2`, and `PROGRAM_ID` for Dusk flows. The explicit
+  `IDL_V2` and `OMNIPAIR_V2_PROGRAM_ID` aliases are also available.
 - Use V2 PDA helpers from `packages/program-interface/src/constants.ts`.
 - Confirm V2 IDL and generated TypeScript copies match `target/idl` and
   `target/types` artifacts from the release build.
-- Confirm V1 helpers and types remain available for legacy pair flows.
-- Confirm consumer examples do not reuse V1 `Pair` decoders for V2 `Market`
-  accounts.
+- Confirm consumer examples use Dusk `Market` accounts.
 
 ## Indexing And Analytics
 
 - Subscribe to the standalone V2 program ID and V2 IDL events.
 - Use `MarketEventMetadata.market` as the V2 market key.
-- Store V1 pair metrics and V2 market metrics separately at the source level.
 - Track yLP supply, hLP vault-owned yLP, hLP supply, hLP debt, recognized
   collateral, insurance, fee liabilities, and market health as separate V2
   metrics.
 - Decode `LiquidityAdded`, `LiquidityRemoved`, `SwapExecuted`,
   `MarketDebtUpdated`, `PositionLiquidated`, yield, protocol-fee, hedge, and
   insurance events from the V2 IDL.
-- Confirm analytics labels use V2 market terminology and do not present V2 as a
-  renamed V1 pair.
+- Confirm analytics labels use Dusk market terminology.
 
 ## Aggregators And Routers
 
-- Treat V2 `swap` as a distinct venue/source from V1 `swap`.
+- Treat Dusk `swap` as its own venue/source.
 - Always pass `min_asset_out` and quote with the V2 reserve floor in mind.
 - Do not assume V2 yLP behaves like a fixed-principal protected LP token.
 - Respect reduce-only mode and risk/circuit-breaker failures.
@@ -92,7 +88,7 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 - Confirm `programs/omnipair-v2/src/lib.rs` declares the intended program ID.
 - Build the verifiable binary with production features and embedded
   `GIT_REV`/`GIT_RELEASE` metadata.
-- Deploy the upgrade buffer through the documented workflow with `program=v2`.
+- Deploy the upgrade buffer through the documented Dusk buffer workflow.
 - Transfer upgrade buffer authority to the configured Squads vault.
 - Create, approve, and execute the Squads upgrade proposal.
 - Verify the deployed binary with `solana-verify` using trailing cargo args for
@@ -111,5 +107,5 @@ Record target-cluster transaction signatures for:
 - healthy liquidation rejection;
 - unhealthy liquidation on a controlled test market;
 - insurance-backed liquidation path;
-- open hedge and close hedge;
+- deposit single-sided liquidity and withdraw single-sided liquidity;
 - reduce-only mode rejection for risk-increasing paths.

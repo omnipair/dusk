@@ -19,7 +19,7 @@ security_txt! {
     name: "Omnipair V2",
     project_url: "https://omnipair.fi",
     contacts: "email:security@omnipair.fi,telegram:rustfully",
-    source_code: "https://github.com/omnipair/omnipair-rs",
+    source_code: "https://github.com/omnipair/dusk",
     source_release: env!("GIT_RELEASE"),
     source_revision: env!("GIT_REV"),
     auditors: "Pending final V2 security review",

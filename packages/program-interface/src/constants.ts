@@ -1,8 +1,6 @@
 import { AccountMeta, PublicKey } from "@solana/web3.js";
 
-/** Default Omnipair program ID (mainnet) when env is not set */
-const DEFAULT_PROGRAM_ID = "omnixgS8fnqHfCcTGKWj6JtKjzpJZ1Y5y9pyFkQDkYE";
-const DEFAULT_V2_PROGRAM_ID = "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv";
+const DEFAULT_PROGRAM_ID = "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv";
 const MPL_TOKEN_METADATA_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
 
 function getProgramIdFromEnv(envNames: string[], fallback: string): string {
@@ -15,30 +13,21 @@ function getProgramIdFromEnv(envNames: string[], fallback: string): string {
 }
 
 /**
- * Omnipair V1 program ID (mainnet/devnet).
- * Reads from env PROGRAM_ID or OMNIPAIR_PROGRAM_ID, falls back to mainnet default.
- */
-export const PROGRAM_ID = new PublicKey(
-  getProgramIdFromEnv(["PROGRAM_ID", "OMNIPAIR_PROGRAM_ID"], DEFAULT_PROGRAM_ID)
-);
-
-export const OMNIPAIR_PROGRAM_ID = PROGRAM_ID;
-
-/**
- * Omnipair V2 program ID.
- * Reads from env OMNIPAIR_V2_PROGRAM_ID or PROGRAM_ID_V2, falls back to V2 default.
+ * Omnipair Dusk program ID.
+ * Reads from env OMNIPAIR_V2_PROGRAM_ID, PROGRAM_ID_V2, or PROGRAM_ID.
  */
 export const OMNIPAIR_V2_PROGRAM_ID = new PublicKey(
-  getProgramIdFromEnv(["OMNIPAIR_V2_PROGRAM_ID", "PROGRAM_ID_V2"], DEFAULT_V2_PROGRAM_ID)
+  getProgramIdFromEnv(["OMNIPAIR_V2_PROGRAM_ID", "PROGRAM_ID_V2", "PROGRAM_ID"], DEFAULT_PROGRAM_ID)
 );
 
+export const PROGRAM_ID = OMNIPAIR_V2_PROGRAM_ID;
+export const DUSK_PROGRAM_ID = OMNIPAIR_V2_PROGRAM_ID;
 export const TOKEN_METADATA_PROGRAM_ID = new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID);
 
 /**
  * PDA seeds used by the program
  */
 export const SEEDS = {
-  PAIR: Buffer.from("gamm_pair"),
   MARKET_V2: Buffer.from("market_v2"),
   MARKET_RESERVE_VAULT: Buffer.from("market_reserve"),
   MARKET_COLLATERAL_VAULT: Buffer.from("market_collateral"),
@@ -49,10 +38,7 @@ export const SEEDS = {
   HLP_YLP_VAULT: Buffer.from("hlp_ylp_vault"),
   INSURANCE: Buffer.from("insurance"),
   LIQUIDATION_AUCTION: Buffer.from("liquidation_auction"),
-  USER_POSITION: Buffer.from("gamm_position"),
   FUTARCHY_AUTHORITY: Buffer.from("futarchy_authority"),
-  RESERVE_VAULT: Buffer.from("reserve_vault"),
-  COLLATERAL_VAULT: Buffer.from("collateral_vault"),
   METADATA: Buffer.from("metadata"),
 } as const;
 
@@ -65,71 +51,13 @@ function normalizeParamsHash(paramsHash: Uint8Array | Buffer | number[]): Buffer
 }
 
 /**
- * Derive Pair PDA address
- */
-export function derivePairAddress(
-  token0: PublicKey,
-  token1: PublicKey,
-  paramsHash: Uint8Array | Buffer | number[]
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [SEEDS.PAIR, token0.toBuffer(), token1.toBuffer(), normalizeParamsHash(paramsHash)],
-    PROGRAM_ID
-  );
-}
-
-/**
- * Derive User Position PDA address
- */
-export function deriveUserPositionAddress(
-  pair: PublicKey,
-  user: PublicKey
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [SEEDS.USER_POSITION, pair.toBuffer(), user.toBuffer()],
-    PROGRAM_ID
-  );
-}
-
-/**
  * Derive Futarchy Authority PDA address
  */
 export function deriveFutarchyAuthorityAddress(): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([SEEDS.FUTARCHY_AUTHORITY], PROGRAM_ID);
-}
-
-/**
- * Derive V2 Futarchy Authority PDA address.
- */
-export function deriveFutarchyAuthorityV2Address(): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([SEEDS.FUTARCHY_AUTHORITY], OMNIPAIR_V2_PROGRAM_ID);
 }
 
-/**
- * Derive Reserve Vault PDA address
- */
-export function deriveReserveVaultAddress(
-  pair: PublicKey,
-  reserveMint: PublicKey
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [SEEDS.RESERVE_VAULT, pair.toBuffer(), reserveMint.toBuffer()],
-    PROGRAM_ID
-  );
-}
-
-/**
- * Derive Collateral Vault PDA address
- */
-export function deriveCollateralVaultAddress(
-  pair: PublicKey,
-  collateralMint: PublicKey
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [SEEDS.COLLATERAL_VAULT, pair.toBuffer(), collateralMint.toBuffer()],
-    PROGRAM_ID
-  );
-}
+export const deriveFutarchyAuthorityV2Address = deriveFutarchyAuthorityAddress;
 
 /**
  * Derive V2 market PDA address

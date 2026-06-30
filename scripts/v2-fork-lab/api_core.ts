@@ -1546,7 +1546,7 @@ async function buildRepayTx(params: {
   return serializeOwnerTransaction(params.owner, instructions);
 }
 
-async function buildOpenHedgeTx(params: {
+async function buildDepositSingleSidedTx(params: {
   owner: PublicKey;
   market: StoredMarket;
   targetAsset: MarketAsset;
@@ -1571,7 +1571,7 @@ async function buildOpenHedgeTx(params: {
   );
   instructions.push(
     await program.methods
-      .openHedge({
+      .depositSingleSided({
         depositAmount: toBN(params.depositAmount),
         minHlpAmount: toBN(params.minHlpAmount),
       })
@@ -1605,7 +1605,7 @@ async function buildOpenHedgeTx(params: {
   return serializeOwnerTransaction(params.owner, instructions);
 }
 
-async function buildCloseHedgeTx(params: {
+async function buildWithdrawSingleSidedTx(params: {
   owner: PublicKey;
   market: StoredMarket;
   targetAsset: MarketAsset;
@@ -1630,7 +1630,7 @@ async function buildCloseHedgeTx(params: {
   );
   instructions.push(
     await program.methods
-      .closeHedge({
+      .withdrawSingleSided({
         hlpAmount: toBN(params.hlpAmount),
         minTargetAmountOut: toBN(params.minTargetAmountOut),
       })
@@ -1898,9 +1898,9 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     return txResponse("repay", owner, stored, transaction, { repayAsset });
   }
 
-  if (path === "/api/v2/fork/tx/open-hedge") {
+  if (path === "/api/v2/fork/tx/deposit-single-sided") {
     const targetAsset = assetFromBody(body.targetAsset ?? body.asset, "base");
-    const transaction = await buildOpenHedgeTx({
+    const transaction = await buildDepositSingleSidedTx({
       owner,
       market: stored,
       targetAsset,
@@ -1917,12 +1917,12 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         "0"
       ),
     });
-    return txResponse("open-hedge", owner, stored, transaction, { targetAsset });
+    return txResponse("deposit-single-sided", owner, stored, transaction, { targetAsset });
   }
 
-  if (path === "/api/v2/fork/tx/close-hedge") {
+  if (path === "/api/v2/fork/tx/withdraw-single-sided") {
     const targetAsset = assetFromBody(body.targetAsset ?? body.asset, "base");
-    const transaction = await buildCloseHedgeTx({
+    const transaction = await buildWithdrawSingleSidedTx({
       owner,
       market: stored,
       targetAsset,
@@ -1939,7 +1939,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         "0"
       ),
     });
-    return txResponse("close-hedge", owner, stored, transaction, { targetAsset });
+    return txResponse("withdraw-single-sided", owner, stored, transaction, { targetAsset });
   }
 
   throw new Error(`Unsupported route: ${req.method} ${path}`);

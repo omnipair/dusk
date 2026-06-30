@@ -243,10 +243,11 @@ impl<'info> DepositSingleSided<'info> {
         }
         .ok_or(ErrorCode::MarketMathOverflow)?;
 
-        let receipt =
-            ctx.accounts
-                .market
-                .open_hedge(target_asset, deposit_credit, args.min_hlp_amount)?;
+        let receipt = ctx.accounts.market.deposit_single_sided(
+            target_asset,
+            deposit_credit,
+            args.min_hlp_amount,
+        )?;
         initialize_or_validate_hlp_yield_account(
             &mut ctx.accounts.target_yield_account,
             owner_key,

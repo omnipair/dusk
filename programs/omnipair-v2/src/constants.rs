@@ -19,7 +19,7 @@ pub const LIQUIDATION_INSURANCE_FUNDING_BPS: u16 = 200;
 #[constant]
 pub const LIQUIDATION_PENALTY_BPS: u16 = 300;
 #[constant]
-pub const MARKET_CREATION_FEE_LAMPORTS: u64 = 200_000_000; // 0.2 SOL, same fee as V1 pair creation
+pub const MARKET_CREATION_FEE_LAMPORTS: u64 = 200_000_000; // 0.2 SOL
 #[constant]
 pub const TARGET_MS_PER_SLOT: u64 = 400;
 #[constant]

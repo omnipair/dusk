@@ -655,7 +655,7 @@ describe("Omnipair V2 final model smoke", () => {
     )[0];
 
     const tx = await program.methods
-      .openHedge({
+      .depositSingleSided({
         depositAmount: new BN(depositAmount),
         minHlpAmount: new BN(1),
       })
@@ -718,7 +718,7 @@ describe("Omnipair V2 final model smoke", () => {
     )[0];
 
     const tx = await program.methods
-      .openHedge({
+      .depositSingleSided({
         depositAmount: new BN(depositAmount),
         minHlpAmount: new BN(1),
       })
@@ -955,7 +955,7 @@ describe("Omnipair V2 final model smoke", () => {
     const fixture = await addBalancedLiquidity(44);
     const ownerBaseBefore = await getAccount(connection as any, fixture.ownerBaseAccount);
     const hedge = await openBaseHedge(fixture);
-    trackV2Instruction("openHedge", this.test?.title);
+    trackV2Instruction("depositSingleSided", this.test?.title);
 
     const ownerBaseAfter = await getAccount(connection as any, fixture.ownerBaseAccount);
     expect(ownerBaseAfter.amount).to.equal(ownerBaseBefore.amount - 10_000n);
@@ -1018,12 +1018,13 @@ describe("Omnipair V2 final model smoke", () => {
     const hedge = await openBaseHedge(fixture);
 
     const tx = await program.methods
-      .closeHedge({
+      .withdrawSingleSided({
         hlpAmount: new BN(10_000),
         minTargetAmountOut: new BN(9_999),
       })
       .accounts({
         market: fixture.market,
+        futarchyAuthority,
         owner: payer.publicKey,
         baseMint: fixture.baseMint,
         quoteMint: fixture.quoteMint,
@@ -1044,7 +1045,7 @@ describe("Omnipair V2 final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
-    trackV2Instruction("closeHedge", this.test?.title);
+    trackV2Instruction("withdrawSingleSided", this.test?.title);
 
     const ownerBaseAfterClose = await getAccount(connection as any, fixture.ownerBaseAccount);
     expect(ownerBaseAfterClose.amount).to.equal(ownerBaseBeforeOpen.amount);
@@ -1080,7 +1081,7 @@ describe("Omnipair V2 final model smoke", () => {
     const fixture = await addBalancedLiquidity(54);
     const ownerQuoteBeforeOpen = await getAccount(connection as any, fixture.ownerQuoteAccount);
     const hedge = await openQuoteHedge(fixture);
-    trackV2Instruction("openHedge", this.test?.title);
+    trackV2Instruction("depositSingleSided", this.test?.title);
 
     const ownerQuoteAfterOpen = await getAccount(connection as any, fixture.ownerQuoteAccount);
     expect(ownerQuoteAfterOpen.amount).to.equal(ownerQuoteBeforeOpen.amount - 20_000n);
@@ -1108,12 +1109,13 @@ describe("Omnipair V2 final model smoke", () => {
     expect(decoded.quote_hlp_vault.debt_shares.toNumber()).to.be.greaterThan(0);
 
     const tx = await program.methods
-      .closeHedge({
+      .withdrawSingleSided({
         hlpAmount: new BN(20_000),
         minTargetAmountOut: new BN(19_999),
       })
       .accounts({
         market: fixture.market,
+        futarchyAuthority,
         owner: payer.publicKey,
         baseMint: fixture.baseMint,
         quoteMint: fixture.quoteMint,
@@ -1134,7 +1136,7 @@ describe("Omnipair V2 final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
-    trackV2Instruction("closeHedge", this.test?.title);
+    trackV2Instruction("withdrawSingleSided", this.test?.title);
 
     const ownerQuoteAfterClose = await getAccount(connection as any, fixture.ownerQuoteAccount);
     expect(ownerQuoteAfterClose.amount).to.equal(ownerQuoteBeforeOpen.amount);

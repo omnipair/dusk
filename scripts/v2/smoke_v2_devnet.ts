@@ -74,9 +74,9 @@ async function main() {
     tokenProgram: quoteProgram,
   });
 
-  if (process.env.OMNIPAIR_V2_SMOKE_OPEN_HEDGE !== "0") {
+  if (process.env.OMNIPAIR_V2_SMOKE_HLP_DEPOSIT !== "0") {
     const hedgeAmount = parseUnits(
-      process.env.OMNIPAIR_V2_SMOKE_HEDGE_AMOUNT ?? "10",
+      process.env.OMNIPAIR_V2_SMOKE_HLP_DEPOSIT_AMOUNT ?? "10",
       baseDecimals
     );
     await mintMockTokens({
@@ -96,7 +96,7 @@ async function main() {
       tokenProgram: TOKEN_2022_PROGRAM_ID,
     });
     const signature = await program.methods
-      .openHedge({
+      .depositSingleSided({
         depositAmount: bnFromUnits(hedgeAmount),
         minHlpAmount: new anchor.BN(1),
       })
@@ -128,7 +128,7 @@ async function main() {
       })
       .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
       .rpc();
-    console.log(`Smoke hLP open sent: ${explorerTx(signature)}`);
+    console.log(`Smoke hLP deposit sent: ${explorerTx(signature)}`);
   }
 
   if (process.env.OMNIPAIR_V2_SMOKE_SWAP === "0") return;

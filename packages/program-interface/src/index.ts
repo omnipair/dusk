@@ -1,11 +1,8 @@
-// Re-export IDL
-export { default as IDL } from "./idl.js";
-export { default as IDL_V2 } from "./idl_v2.js";
-export type { Omnipair } from "./types.js";
+// Re-export Dusk IDL
+export { default as IDL, default as IDL_V2 } from "./idl_v2.js";
 export type { OmnipairV2 } from "./types_v2.js";
 
 // Re-export types
-export * from "./types.js";
 export * from "./types_v2.js";
 export * from "./type-aliases.js";
 

@@ -28,7 +28,7 @@ use super::*;
     }
 
     #[test]
-    fn add_liquidity_mints_v1_style_locked_liquidity() {
+    fn add_liquidity_mints_locked_minimum_liquidity() {
         let mut market = empty_market();
 
         let receipt = market.add_liquidity(1_000_000, 2_000_000).unwrap();

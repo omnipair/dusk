@@ -136,9 +136,10 @@ deposit_collateral
 withdraw_collateral
 borrow
 repay
-liquidate
-open_hedge
-close_hedge
+open_liquidation_auction
+settle_liquidation_auction
+deposit_single_sided
+withdraw_single_sided
 open_leverage
 close_leverage
 delegated_close_leverage
@@ -152,26 +153,30 @@ update_leverage_delegation
 close_leverage_delegation
 ```
 
-Futarchy and protocol revenue administration mirror the legacy Omnipair flow:
+Futarchy, operator, and protocol revenue administration:
 
 ```text
 init_futarchy_authority
 update_futarchy_authority
 update_protocol_revenue
 update_revenue_recipients
+update_protocol_auction_config
+update_protocol_auction_recipients
 set_global_reduce_only
-claim_protocol_fees
+settle_protocol_auction
+set_operator
+set_manager
+claim_manager_fees
 ```
 
 ## Integrator Notes
 
-Dusk is not a drop-in account rename for Omnipair V1. Integrations should route by program generation and program ID:
+Dusk is a standalone V2 program and should be integrated through its own IDL, program ID, and market account model:
 
-- Use the Dusk IDL and market PDAs for V2 markets.
-- Store V1 pair metrics and Dusk market metrics separately at the source level, then aggregate them under the Omnipair brand in analytics.
+- Use the Dusk IDL and market PDAs for markets.
 - Do not sort Dusk market mints client-side. The creator's `base_mint` and `quote_mint` order defines the market and its price direction.
 - Treat yLP and hLP mints as distinct Token-2022 token concepts. yLP is the two-sided normal LP token; hLP tokens are aggregate leveraged LP vault shares.
-- Consume Dusk events from the standalone V2 IDL, including market, liquidity, swap, debt, liquidation, yield, hLP, leverage, and leverage-delegation events.
+- Consume Dusk events from the standalone IDL, including market, liquidity, swap, debt, liquidation, yield, hLP, leverage, and leverage-delegation events.
 
 ## Core Invariants
 
@@ -262,7 +267,7 @@ Dusk extends the invariant set only where hLP needs native 2x LP tracking:
 Core V2 verification gates:
 
 ```bash
-anchor build -p omnipair_v2
+anchor build -p omnipair-v2
 cargo fmt -p omnipair-v2 -- --check
 cargo check -p omnipair-v2 --lib
 cargo test -p omnipair-v2 --lib -- --nocapture
@@ -274,6 +279,6 @@ Run the program-interface build whenever public IDL, account, event, seed, or in
 
 ## Security And Status
 
-Dusk is the standalone V2 Omnipair program. It is separate from the legacy V1 pair program and should be integrated by program generation, IDL, and program ID.
+Dusk is the standalone V2 Omnipair program.
 
 Before Dusk is treated as production-ready, it should complete final security review, release artifact verification, and owner signoff for app, SDK, indexing, analytics, aggregators, and deployment.
