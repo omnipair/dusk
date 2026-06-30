@@ -8,7 +8,7 @@ fn open_auction() -> LiquidationAuction {
     auction
         .open(OpenLiquidationAuctionParams {
             market: Pubkey::new_unique(),
-            margin_position: Pubkey::new_unique(),
+            borrow_position: Pubkey::new_unique(),
             borrower: Pubkey::new_unique(),
             debt_asset: MarketAsset::Quote,
             debt_mint: Pubkey::new_unique(),
@@ -47,9 +47,10 @@ fn dutch_incentive_respects_live_max_after_health_changes() {
 #[test]
 fn stale_position_epoch_cannot_settle() {
     let auction = open_auction();
-    let margin_position = MarginPosition {
+    let borrow_position = BorrowPosition {
         owner: auction.borrower,
         market: auction.market,
+        position_id: auction.borrow_position,
         base_collateral: 0,
         quote_collateral: 0,
         recognized_base_collateral_for_quote_debt: 0,
@@ -63,8 +64,8 @@ fn stale_position_epoch_cannot_settle() {
     let err = auction
         .assert_matches(
             auction.market,
-            auction.margin_position,
-            &margin_position,
+            auction.borrow_position,
+            &borrow_position,
             MarketAsset::Quote,
             auction.debt_mint,
             auction.collateral_mint,

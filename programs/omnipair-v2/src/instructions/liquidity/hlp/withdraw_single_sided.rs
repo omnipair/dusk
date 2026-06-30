@@ -235,7 +235,7 @@ impl<'info> WithdrawSingleSided<'info> {
         let receipt = ctx
             .accounts
             .market
-            .close_hedge(target_asset, args.hlp_amount)?;
+            .withdraw_single_sided(target_asset, args.hlp_amount)?;
         if receipt.interest_paid > 0 {
             let borrowed_asset = target_asset.opposite();
             let (borrowed_reserve_vault, borrowed_mint, borrowed_decimals) = match borrowed_asset {

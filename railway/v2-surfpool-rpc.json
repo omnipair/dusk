@@ -13,7 +13,6 @@
       "package-lock.json",
       "railway/v2-surfpool-rpc.json",
       "programs/omnipair-v2/**",
-      "programs/omnipair-macros/**",
       "scripts/v2-fork-lab/start_surfpool.sh"
     ]
   },

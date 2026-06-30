@@ -106,6 +106,7 @@ impl Market {
         position: &mut LeveragePosition,
         owner: Pubkey,
         market: Pubkey,
+        position_id: Pubkey,
         debt_asset: MarketAsset,
         margin_credit: u64,
         multiplier_bps: u64,
@@ -172,6 +173,7 @@ impl Market {
         position.initialize(
             owner,
             market,
+            position_id,
             debt_asset,
             collateral_credit,
             margin_credit,

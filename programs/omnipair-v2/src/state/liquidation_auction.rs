@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 use crate::{
     constants::{BPS_DENOMINATOR, MARKET_VERSION},
     errors::ErrorCode,
-    state::{MarginPosition, Market, MarketAsset},
+    state::{BorrowPosition, Market, MarketAsset},
 };
 
 pub(crate) use crate::state::market::transitions::liquidation::LiquidationPricing;
@@ -14,7 +14,7 @@ pub struct LiquidationAuction {
     pub version: u8,
     pub active: bool,
     pub market: Pubkey,
-    pub margin_position: Pubkey,
+    pub borrow_position: Pubkey,
     pub borrower: Pubkey,
     pub debt_asset: u8,
     pub collateral_asset: u8,
@@ -35,7 +35,7 @@ pub struct LiquidationAuction {
 
 pub struct OpenLiquidationAuctionParams {
     pub market: Pubkey,
-    pub margin_position: Pubkey,
+    pub borrow_position: Pubkey,
     pub borrower: Pubkey,
     pub debt_asset: MarketAsset,
     pub debt_mint: Pubkey,
@@ -52,8 +52,8 @@ pub struct OpenLiquidationAuctionParams {
 }
 
 impl LiquidationAuction {
-    pub fn can_open_for(&self, margin_position: &MarginPosition) -> bool {
-        !self.active || self.position_risk_epoch != margin_position.risk_epoch
+    pub fn can_open_for(&self, borrow_position: &BorrowPosition) -> bool {
+        !self.active || self.position_risk_epoch != borrow_position.risk_epoch
     }
 
     pub fn open(&mut self, params: OpenLiquidationAuctionParams) -> Result<()> {
@@ -73,7 +73,7 @@ impl LiquidationAuction {
         self.version = MARKET_VERSION;
         self.active = true;
         self.market = params.market;
-        self.margin_position = params.margin_position;
+        self.borrow_position = params.borrow_position;
         self.borrower = params.borrower;
         self.debt_asset = params.debt_asset.code();
         self.collateral_asset = params.debt_asset.opposite().code();
@@ -96,8 +96,8 @@ impl LiquidationAuction {
     pub fn assert_matches(
         &self,
         market_key: Pubkey,
-        margin_position_key: Pubkey,
-        margin_position: &MarginPosition,
+        borrow_position_key: Pubkey,
+        borrow_position: &BorrowPosition,
         debt_asset: MarketAsset,
         debt_mint: Pubkey,
         collateral_mint: Pubkey,
@@ -109,13 +109,13 @@ impl LiquidationAuction {
             ErrorCode::InvalidLiquidationAuction
         );
         require_keys_eq!(
-            self.margin_position,
-            margin_position_key,
+            self.borrow_position,
+            borrow_position_key,
             ErrorCode::InvalidLiquidationAuction
         );
         require_keys_eq!(
             self.borrower,
-            margin_position.owner,
+            borrow_position.owner,
             ErrorCode::InvalidLiquidationAuction
         );
         require_eq!(
@@ -135,7 +135,7 @@ impl LiquidationAuction {
         );
         require_eq!(
             self.position_risk_epoch,
-            margin_position.risk_epoch,
+            borrow_position.risk_epoch,
             ErrorCode::StaleLiquidationAuction
         );
         Ok(())
@@ -168,7 +168,7 @@ impl LiquidationAuction {
 
     pub fn record_settlement(
         &mut self,
-        margin_position: &MarginPosition,
+        borrow_position: &BorrowPosition,
         repaid_amount: u64,
         current_slot: u64,
         still_liquidatable: bool,
@@ -177,7 +177,7 @@ impl LiquidationAuction {
             .settled_repay_amount
             .checked_add(repaid_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.position_risk_epoch = margin_position.risk_epoch;
+        self.position_risk_epoch = borrow_position.risk_epoch;
         self.last_settlement_slot = current_slot;
         self.active = still_liquidatable;
         Ok(())
@@ -211,26 +211,26 @@ pub fn liquidation_auction_start_incentive_bps(
 impl Market {
     pub fn liquidation_terms(
         &self,
-        margin_position: &MarginPosition,
+        borrow_position: &BorrowPosition,
         debt_asset: MarketAsset,
     ) -> Result<crate::state::market::transitions::liquidation::LiquidationTerms> {
         crate::state::market::transitions::liquidation::liquidation_terms(
             self,
-            margin_position,
+            borrow_position,
             debt_asset,
         )
     }
 
     pub fn liquidation_terms_with_incentive_and_pricing(
         &self,
-        margin_position: &MarginPosition,
+        borrow_position: &BorrowPosition,
         debt_asset: MarketAsset,
         liquidation_incentive_bps: u16,
         pricing: crate::state::market::transitions::liquidation::LiquidationPricing,
     ) -> Result<crate::state::market::transitions::liquidation::LiquidationTerms> {
         crate::state::market::transitions::liquidation::liquidation_terms_with_incentive_and_pricing(
             self,
-            margin_position,
+            borrow_position,
             debt_asset,
             liquidation_incentive_bps,
             pricing,
@@ -239,7 +239,7 @@ impl Market {
 
     pub fn insurance_request_for_liquidation_with_terms_and_pricing(
         &self,
-        margin_position: &MarginPosition,
+        borrow_position: &BorrowPosition,
         debt_asset: MarketAsset,
         repay_credit: u64,
         max_insurance_draw: u64,
@@ -248,7 +248,7 @@ impl Market {
     ) -> Result<u64> {
         crate::state::market::transitions::liquidation::insurance_request_for_liquidation_with_terms_and_pricing(
             self,
-            margin_position,
+            borrow_position,
             debt_asset,
             repay_credit,
             max_insurance_draw,
@@ -259,7 +259,7 @@ impl Market {
 
     pub fn settle_liquidation(
         &mut self,
-        margin_position: &mut MarginPosition,
+        borrow_position: &mut BorrowPosition,
         debt_asset: MarketAsset,
         repay_credit: u64,
         insurance_spent: u64,
@@ -277,7 +277,7 @@ impl Market {
             terms,
             pricing,
         )
-        .apply(self, margin_position)
+        .apply(self, borrow_position)
     }
 }
 

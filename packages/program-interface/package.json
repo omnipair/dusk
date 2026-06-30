@@ -1,12 +1,12 @@
 {
   "name": "@omnipair/program-interface",
   "version": "0.1.0",
-  "description": "Omnipair program IDL, TypeScript types, and constants",
+  "description": "Omnipair Dusk program IDL, TypeScript types, and constants",
   "license": "MIT",
   "author": "Omnipair <security@omnipair.fi>",
   "repository": {
     "type": "git",
-    "url": "https://github.com/omnipair/omnipair-rs.git",
+    "url": "https://github.com/omnipair/dusk.git",
     "directory": "packages/program-interface"
   },
   "homepage": "https://omnipair.fi",
@@ -31,8 +31,8 @@
       "types": "./dist/index.d.ts"
     },
     "./idl": {
-      "import": "./dist/idl.js",
-      "types": "./dist/idl.d.ts"
+      "import": "./dist/idl_v2.js",
+      "types": "./dist/idl_v2.d.ts"
     },
     "./idl-v2": {
       "import": "./dist/idl_v2.js",

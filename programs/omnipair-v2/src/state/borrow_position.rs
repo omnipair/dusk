@@ -13,9 +13,10 @@ pub struct CollateralReceipt {
 
 #[account]
 #[derive(InitSpace)]
-pub struct MarginPosition {
+pub struct BorrowPosition {
     pub owner: Pubkey,
     pub market: Pubkey,
+    pub position_id: Pubkey,
     pub base_collateral: u64,
     pub quote_collateral: u64,
     pub recognized_base_collateral_for_quote_debt: u64,
@@ -26,10 +27,11 @@ pub struct MarginPosition {
     pub bump: u8,
 }
 
-impl MarginPosition {
-    pub fn initialize(&mut self, owner: Pubkey, market: Pubkey, bump: u8) {
+impl BorrowPosition {
+    pub fn initialize(&mut self, owner: Pubkey, market: Pubkey, position_id: Pubkey, bump: u8) {
         self.owner = owner;
         self.market = market;
+        self.position_id = position_id;
         self.risk_epoch = 0;
         self.bump = bump;
     }

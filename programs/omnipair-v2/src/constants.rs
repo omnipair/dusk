@@ -19,7 +19,7 @@ pub const LIQUIDATION_INSURANCE_FUNDING_BPS: u16 = 200;
 #[constant]
 pub const LIQUIDATION_PENALTY_BPS: u16 = 300;
 #[constant]
-pub const MARKET_CREATION_FEE_LAMPORTS: u64 = 200_000_000; // 0.2 SOL, same fee as V1 pair creation
+pub const MARKET_CREATION_FEE_LAMPORTS: u64 = 200_000_000; // 0.2 SOL
 #[constant]
 pub const TARGET_MS_PER_SLOT: u64 = 400;
 #[constant]
@@ -90,7 +90,7 @@ pub const MARKET_FEE_VAULT_SEED_PREFIX: &[u8] = b"market_fee";
 #[constant]
 pub const MARKET_INTEREST_VAULT_SEED_PREFIX: &[u8] = b"market_interest";
 #[constant]
-pub const MARGIN_POSITION_SEED_PREFIX: &[u8] = b"margin";
+pub const BORROW_POSITION_SEED_PREFIX: &[u8] = b"borrow_position_v2";
 #[constant]
 pub const YIELD_ACCOUNT_SEED_PREFIX: &[u8] = b"yield";
 #[constant]

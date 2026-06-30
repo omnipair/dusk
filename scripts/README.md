@@ -1,132 +1,38 @@
-# Omnipair Scripts
+# Omnipair Dusk Scripts
 
-This directory contains TypeScript scripts for interacting with the Omnipair protocol.
+This directory contains Dusk/V2 development and fork-lab scripts.
 
-## Updated Scripts for New Pair Config Structure
+## Devnet
 
-The scripts have been updated to work with the new pair config structure that includes futarchy authority and pair config PDAs with proper seeds and deployment parameters.
-
-### New Scripts
-
-#### `init_futarchy_and_config.ts`
-Initializes the futarchy authority and pair config with the proper PDAs and deployment parameters.
-
-**Usage:**
 ```bash
-npm run ts-node scripts/init_futarchy_and_config.ts
+yarn v2:build-devnet
+yarn v2:deploy-devnet
+yarn v2:create-mock-tokens
+yarn v2:mint-mock-tokens <wallet>
+yarn v2:bootstrap-market
+yarn v2:smoke-devnet
 ```
 
-This script:
-1. Creates the futarchy authority PDA with seed `futarchy_authority`
-2. Creates the pair config PDA with seed `gamm_pair_config` + nonce
-3. Initializes the pair config with futarchy fees
+Local V2 state and generated keypairs live under
+`~/.config/omnipair/v2-devnet` unless overridden by the environment variables
+documented in `scripts/v2/README.md`.
 
-**Output:**
-- Futarchy Authority PDA address
-- Pair Config PDA address
-- Pair Config Nonce (for reference)
+## Fork Lab
 
-### Updated Scripts
-
-#### `initialize_pair.ts`
-Updated to work with an existing pair config PDA instead of creating a new one.
-
-**Environment Variables Required:**
-- `TOKEN0_MINT`: Address of the first token mint
-- `TOKEN1_MINT`: Address of the second token mint
-- `PAIR_CONFIG_PDA`: Address of the existing pair config PDA (from `init_futarchy_and_config.ts`)
-
-**Usage:**
 ```bash
-PAIR_CONFIG_PDA=<pair_config_pda_address> npm run ts-node scripts/initialize_pair.ts
+yarn v2-fork:surfpool
+yarn v2-fork:rpc-proxy
+yarn v2-fork:api
+yarn test-surfpool-v2
+yarn surfpool-v2-e2e
 ```
 
-This script:
-1. Uses the provided pair config PDA
-2. Creates a new rate model account
-3. Initializes the pair with the existing pair config
+The fork lab runs `omnipair_v2` against a private Surfpool fork and exposes the
+browser-facing V2 fork API. See `scripts/v2-fork-lab/README.md`.
 
-### Other Updated Scripts
+## Utilities
 
-The following scripts have been updated to correctly access the rate model from the pair account instead of the pair config account:
+- `scripts/utils/address_vanity.ts`: local address-generation helper.
+- `scripts/utils/deploy_tokens.ts`: mock token deployment helper.
 
-- `bootstrap_liquidity.ts`
-- `add_collateral.ts`
-- `borrow.ts`
-- `add_liquidity.ts`
-- `swap.ts`
-- `remove_collateral.ts`
-- `liquidate.ts`
-- `remove_liquidity.ts`
-- `repay.ts`
-
-## Deployment Workflow
-
-1. **Initialize Futarchy and Pair Config:**
-   ```bash
-   npm run ts-node scripts/init_futarchy_and_config.ts
-   ```
-
-2. **Set the Pair Config PDA as an environment variable:**
-   ```bash
-   export PAIR_CONFIG_PDA=<pair_config_pda_address>
-   ```
-
-3. **Initialize Pair:**
-   ```bash
-   npm run ts-node scripts/initialize_pair.ts
-   ```
-
-4. **Bootstrap Liquidity:**
-   ```bash
-   npm run ts-node scripts/bootstrap_liquidity.ts
-   ```
-
-## Fee Structure
-
-The new pair config structure includes:
-
-- **Futarchy Fee**: 0.5% (50 bps) - Fee collected by the futarchy authority
-- **Swap Fee**: 0.5% (50 bps) - Fee collected by the pool
-
-## PDA Seeds
-
-- **Futarchy Authority**: `futarchy_authority`
-- **Pair Config**: `gamm_pair_config` + nonce (as bytes)
-- **Pair**: `gamm_pair` + token0 + token1
-- **LP Mint**: `gamm_lp_mint` + pair
-- **User Position**: `gamm_position` + pair + user
-
-## Account Structure
-
-### Pair Config Account
-- `futarchy_fee_bps`: u16 - Futarchy fee in basis points
-- `nonce`: u64 - Unique identifier for the pair config
-
-### Pair Account
-- `token0`: Pubkey - First token mint
-- `token1`: Pubkey - Second token mint
-- `config`: Pubkey - Reference to pair config account
-- `rate_model`: Pubkey - Reference to rate model account
-- `swap_fee_bps`: u16 - Swap fee in basis points
-- `half_life`: u64 - EMA half-life in seconds
-- Plus other pair state fields (reserves, debt, etc.)
-
-## Notes
-
-- The rate model is now a separate account referenced in the pair account
-- The pair config contains only futarchy fees
-- All scripts now correctly access the rate model from `pairAccount.rateModel`
-- The swap fee and other pair parameters are stored in the pair account itself
-- The `nonce` parameter in pair config initialization must be a BN (Big Number)
-- Account names in TypeScript use snake_case to match Rust struct fields
-
-## Leverage Scripts
-
-The PR #75 leverage runners are available for the isolated spot-margin flow:
-
-- `npm run deploy-leverage`
-- `npm run devnet-leverage-e2e`
-- `npm run surfpool-leverage-e2e`
-
-These are imported from the V1 leverage branch as operational references. The on-chain delegation layer in this repo is V2-native, so SDK wiring may need to be refreshed when the V2 IDL/package is regenerated.
+Older pair-program scripts intentionally do not live in this repository.

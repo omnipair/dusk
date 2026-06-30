@@ -90,7 +90,7 @@ use super::*;
     fn open_hlp_keeps_leverage_debt_on_aggregate_vault() {
         let mut market = seeded_market();
 
-        let receipt = OpenHedge::new(MarketAsset::Base, 100, 1)
+        let receipt = DepositSingleSided::new(MarketAsset::Base, 100, 1)
             .apply(&mut market)
             .unwrap();
 
@@ -119,7 +119,7 @@ use super::*;
         let mut market = seeded_market();
         market.quote_side.reserves.cash_reserve = 199;
 
-        let err = OpenHedge::new(MarketAsset::Base, 100, 1)
+        let err = DepositSingleSided::new(MarketAsset::Base, 100, 1)
             .apply(&mut market)
             .unwrap_err();
 
@@ -130,10 +130,10 @@ use super::*;
     fn repeated_open_hlp_mints_against_delta_nav() {
         let mut market = seeded_market();
 
-        let first = OpenHedge::new(MarketAsset::Base, 100, 1)
+        let first = DepositSingleSided::new(MarketAsset::Base, 100, 1)
             .apply(&mut market)
             .unwrap();
-        let second = OpenHedge::new(MarketAsset::Base, 120, 1)
+        let second = DepositSingleSided::new(MarketAsset::Base, 120, 1)
             .apply(&mut market)
             .unwrap();
 
@@ -148,7 +148,7 @@ use super::*;
     fn h_lp_nav_values_collateral_and_debt_in_target_numeraire() {
         let mut market = seeded_market();
 
-        OpenHedge::new(MarketAsset::Base, 100, 1)
+        DepositSingleSided::new(MarketAsset::Base, 100, 1)
             .apply(&mut market)
             .unwrap();
 
@@ -169,7 +169,7 @@ use super::*;
     #[test]
     fn accrued_interest_grows_hlp_debt_and_reduces_nav() {
         let mut market = seeded_market();
-        OpenHedge::new(MarketAsset::Base, 100, 1)
+        DepositSingleSided::new(MarketAsset::Base, 100, 1)
             .apply(&mut market)
             .unwrap();
         let debt_before = hlp_debt_value_nad(&market, MarketAsset::Base).unwrap();
@@ -194,16 +194,16 @@ use super::*;
     #[test]
     fn close_hlp_burns_vault_ylp_and_repays_vault_debt() {
         let mut market = seeded_market();
-        let open_receipt = OpenHedge::new(MarketAsset::Base, 100, 1)
+        let deposit_receipt = DepositSingleSided::new(MarketAsset::Base, 100, 1)
             .apply(&mut market)
             .unwrap();
 
-        let close_receipt = CloseHedge::new(MarketAsset::Base, open_receipt.hlp_amount)
+        let withdraw_receipt = WithdrawSingleSided::new(MarketAsset::Base, deposit_receipt.hlp_amount)
             .apply(&mut market)
             .unwrap();
 
-        assert_eq!(close_receipt.target_amount_out, 100);
-        assert_eq!(close_receipt.debt_repaid, 200);
+        assert_eq!(withdraw_receipt.target_amount_out, 100);
+        assert_eq!(withdraw_receipt.debt_repaid, 200);
         assert_eq!(market.base_hlp_vault.hlp_supply, 0);
         assert_eq!(market.base_hlp_vault.debt_shares, 0);
         assert_eq!(market.base_hlp_vault.debt_principal, 0);
@@ -228,17 +228,17 @@ use super::*;
     #[test]
     fn close_hlp_realizes_interest_from_borrowed_side_cash() {
         let mut market = seeded_market();
-        let open_receipt = OpenHedge::new(MarketAsset::Base, 100, 1)
+        let deposit_receipt = DepositSingleSided::new(MarketAsset::Base, 100, 1)
             .apply(&mut market)
             .unwrap();
         market.debt.quote_borrow_index_nad = (NAD as u128) * 110 / 100;
 
-        let close_receipt = CloseHedge::new(MarketAsset::Base, open_receipt.hlp_amount)
+        let withdraw_receipt = WithdrawSingleSided::new(MarketAsset::Base, deposit_receipt.hlp_amount)
             .apply(&mut market)
             .unwrap();
 
-        assert_eq!(close_receipt.debt_repaid, 220);
-        assert_eq!(close_receipt.interest_paid, 20);
+        assert_eq!(withdraw_receipt.debt_repaid, 220);
+        assert_eq!(withdraw_receipt.interest_paid, 20);
         assert_eq!(market.base_hlp_vault.debt_principal, 0);
         assert_eq!(market.base_hlp_vault.quote_hlp_live_reserve, 0);
         assert_eq!(market.quote_side.reserves.live_reserve, 1_980);
@@ -251,7 +251,7 @@ use super::*;
     #[test]
     fn close_hlp_converts_borrowed_side_surplus_into_target_out() {
         let mut market = seeded_market();
-        let open_receipt = OpenHedge::new(MarketAsset::Base, 100, 1)
+        let deposit_receipt = DepositSingleSided::new(MarketAsset::Base, 100, 1)
             .apply(&mut market)
             .unwrap();
         market.quote_side.reserves.live_reserve = 2_300;
@@ -260,12 +260,12 @@ use super::*;
             .assert_virtual_reserve_invariant(MarketAsset::Quote)
             .unwrap();
 
-        let close_receipt = CloseHedge::new(MarketAsset::Base, open_receipt.hlp_amount)
+        let withdraw_receipt = WithdrawSingleSided::new(MarketAsset::Base, deposit_receipt.hlp_amount)
             .apply(&mut market)
             .unwrap();
 
-        assert!(close_receipt.target_amount_out > 100);
-        assert_eq!(close_receipt.debt_repaid, 200);
+        assert!(withdraw_receipt.target_amount_out > 100);
+        assert_eq!(withdraw_receipt.debt_repaid, 200);
         assert_eq!(market.base_hlp_vault.hlp_supply, 0);
         assert_eq!(market.quote_side.reserves.live_reserve, 2_100);
         assert_eq!(market.quote_side.reserves.cash_reserve, 2_100);
@@ -277,7 +277,7 @@ use super::*;
     #[test]
     fn close_hlp_uses_target_side_value_for_borrowed_side_shortfall() {
         let mut market = seeded_market();
-        let open_receipt = OpenHedge::new(MarketAsset::Base, 100, 1)
+        let deposit_receipt = DepositSingleSided::new(MarketAsset::Base, 100, 1)
             .apply(&mut market)
             .unwrap();
         market.quote_side.reserves.live_reserve = 2_110;
@@ -286,12 +286,12 @@ use super::*;
             .assert_virtual_reserve_invariant(MarketAsset::Quote)
             .unwrap();
 
-        let close_receipt = CloseHedge::new(MarketAsset::Base, open_receipt.hlp_amount)
+        let withdraw_receipt = WithdrawSingleSided::new(MarketAsset::Base, deposit_receipt.hlp_amount)
             .apply(&mut market)
             .unwrap();
 
-        assert!(close_receipt.target_amount_out < 100);
-        assert_eq!(close_receipt.debt_repaid, 200);
+        assert!(withdraw_receipt.target_amount_out < 100);
+        assert_eq!(withdraw_receipt.debt_repaid, 200);
         assert_eq!(market.base_hlp_vault.hlp_supply, 0);
         assert_eq!(market.quote_side.reserves.live_reserve, 1_910);
         assert_eq!(market.quote_side.reserves.cash_reserve, 1_910);
@@ -303,7 +303,7 @@ use super::*;
     #[test]
     fn open_hlp_rejects_settlement_price_divergence() {
         let mut market = seeded_market();
-        OpenHedge::new(MarketAsset::Base, 100, 1)
+        DepositSingleSided::new(MarketAsset::Base, 100, 1)
             .apply(&mut market)
             .unwrap();
 
@@ -312,7 +312,7 @@ use super::*;
         market
             .assert_virtual_reserve_invariant(MarketAsset::Quote)
             .unwrap();
-        let err = OpenHedge::new(MarketAsset::Base, 100, 1)
+        let err = DepositSingleSided::new(MarketAsset::Base, 100, 1)
             .apply(&mut market)
             .unwrap_err();
 
@@ -322,7 +322,7 @@ use super::*;
     #[test]
     fn close_hlp_rejects_settlement_price_divergence() {
         let mut market = seeded_market();
-        let receipt = OpenHedge::new(MarketAsset::Base, 100, 1)
+        let receipt = DepositSingleSided::new(MarketAsset::Base, 100, 1)
             .apply(&mut market)
             .unwrap();
 
@@ -331,7 +331,7 @@ use super::*;
         market
             .assert_virtual_reserve_invariant(MarketAsset::Quote)
             .unwrap();
-        let err = CloseHedge::new(MarketAsset::Base, receipt.hlp_amount)
+        let err = WithdrawSingleSided::new(MarketAsset::Base, receipt.hlp_amount)
             .apply(&mut market)
             .unwrap_err();
 
@@ -341,7 +341,7 @@ use super::*;
     #[test]
     fn h_lp_checkpoint_refreshes_settlement_reference() {
         let mut market = seeded_market();
-        OpenHedge::new(MarketAsset::Base, 100, 1)
+        DepositSingleSided::new(MarketAsset::Base, 100, 1)
             .apply(&mut market)
             .unwrap();
         market.quote_side.reserves.live_reserve = 2_080;
@@ -372,7 +372,7 @@ use super::*;
     #[test]
     fn rebalance_hlp_leverages_up_with_balanced_ylp() {
         let mut market = seeded_market();
-        OpenHedge::new(MarketAsset::Base, 100, 1)
+        DepositSingleSided::new(MarketAsset::Base, 100, 1)
             .apply(&mut market)
             .unwrap();
         market.quote_side.reserves.live_reserve = 2_400;
@@ -412,7 +412,7 @@ use super::*;
     #[test]
     fn close_hlp_after_rebalance_retires_synthetic_live_reserves() {
         let mut market = seeded_market();
-        OpenHedge::new(MarketAsset::Base, 100, 1)
+        DepositSingleSided::new(MarketAsset::Base, 100, 1)
             .apply(&mut market)
             .unwrap();
         market.quote_side.reserves.live_reserve = 2_400;
@@ -428,7 +428,7 @@ use super::*;
         assert!(market.base_hlp_vault.quote_hlp_live_reserve > 200);
 
         let hlp_amount = market.base_hlp_vault.hlp_supply;
-        CloseHedge::new(MarketAsset::Base, hlp_amount)
+        WithdrawSingleSided::new(MarketAsset::Base, hlp_amount)
             .apply(&mut market)
             .unwrap();
 
@@ -449,7 +449,7 @@ use super::*;
     #[test]
     fn rebalance_hlp_leverage_up_stores_pending_when_borrow_cash_is_constrained() {
         let mut market = seeded_market();
-        OpenHedge::new(MarketAsset::Base, 100, 1)
+        DepositSingleSided::new(MarketAsset::Base, 100, 1)
             .apply(&mut market)
             .unwrap();
         market.quote_side.reserves.live_reserve = 2_400;
@@ -483,7 +483,7 @@ use super::*;
     #[test]
     fn rebalance_hlp_leverage_up_keeps_swap_live_without_borrow_cash() {
         let mut market = seeded_market();
-        OpenHedge::new(MarketAsset::Base, 100, 1)
+        DepositSingleSided::new(MarketAsset::Base, 100, 1)
             .apply(&mut market)
             .unwrap();
         market.quote_side.reserves.live_reserve = 2_400;
@@ -512,7 +512,7 @@ use super::*;
     #[test]
     fn rebalance_hlp_deleverages_with_balanced_ylp() {
         let mut market = seeded_market();
-        OpenHedge::new(MarketAsset::Base, 100, 1)
+        DepositSingleSided::new(MarketAsset::Base, 100, 1)
             .apply(&mut market)
             .unwrap();
         market.quote_side.reserves.live_reserve = 1_800;
@@ -550,7 +550,7 @@ use super::*;
     #[test]
     fn rebalance_hlp_deleverage_pays_accrued_interest_from_borrowed_cash() {
         let mut market = seeded_market();
-        OpenHedge::new(MarketAsset::Base, 100, 1)
+        DepositSingleSided::new(MarketAsset::Base, 100, 1)
             .apply(&mut market)
             .unwrap();
         market.quote_side.reserves.live_reserve = 1_800;
@@ -592,7 +592,7 @@ use super::*;
     #[test]
     fn quote_hlp_rebalance_moves_both_ylp_sides() {
         let mut market = seeded_market();
-        OpenHedge::new(MarketAsset::Quote, 200, 1)
+        DepositSingleSided::new(MarketAsset::Quote, 200, 1)
             .apply(&mut market)
             .unwrap();
         market.base_side.reserves.live_reserve = 1_200;
@@ -632,10 +632,10 @@ use super::*;
         market.quote_side.reserves.cash_reserve = 2_000_000;
         market.quote_side.shares.ylp_supply = 1_000_000;
 
-        OpenHedge::new(MarketAsset::Base, 100_000, 1)
+        DepositSingleSided::new(MarketAsset::Base, 100_000, 1)
             .apply(&mut market)
             .unwrap();
-        OpenHedge::new(MarketAsset::Quote, 200_000, 1)
+        DepositSingleSided::new(MarketAsset::Quote, 200_000, 1)
             .apply(&mut market)
             .unwrap();
 

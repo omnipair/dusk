@@ -10,7 +10,7 @@ use crate::{
     events::{MarketCollateralWithdrawn, MarketEventMetadata, MarketHealthUpdated},
     generate_market_seeds,
     shared::token::transfer_from_vault_to_user,
-    state::{FutarchyAuthority, MarginPosition, Market},
+    state::{BorrowPosition, FutarchyAuthority, Market},
 };
 
 use crate::instructions::common::{
@@ -61,13 +61,13 @@ pub struct WithdrawCollateral<'info> {
     #[account(
         mut,
         seeds = [
-            MARGIN_POSITION_SEED_PREFIX,
+            BORROW_POSITION_SEED_PREFIX,
             market.key().as_ref(),
-            owner.key().as_ref(),
+            borrow_position.position_id.as_ref(),
         ],
-        bump = margin_position.bump
+        bump = borrow_position.bump
     )]
-    pub margin_position: Box<Account<'info, MarginPosition>>,
+    pub borrow_position: Box<Account<'info, BorrowPosition>>,
 
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
@@ -85,16 +85,16 @@ impl<'info> WithdrawCollateral<'info> {
             &self.owner_asset_account,
         )?;
         require_supported_asset_mint(&self.asset_mint)?;
-        self.margin_position
+        self.borrow_position
             .assert_position(self.owner.key(), self.market.key())?;
         if self
             .futarchy_authority
             .is_reduce_only(self.market.reduce_only)
         {
             let debt = self
-                .margin_position
+                .borrow_position
                 .fixed_base_debt(&self.market.debt)?
-                .checked_add(self.margin_position.fixed_quote_debt(&self.market.debt)?)
+                .checked_add(self.borrow_position.fixed_quote_debt(&self.market.debt)?)
                 .ok_or(ErrorCode::DebtMathOverflow)?;
             require!(debt == 0, ErrorCode::ReduceOnlyHasDebt);
         }
@@ -104,8 +104,8 @@ impl<'info> WithdrawCollateral<'info> {
             ErrorCode::InsufficientBalance
         );
         let idle_collateral = match market_asset {
-            crate::state::MarketAsset::Base => self.margin_position.idle_base_collateral()?,
-            crate::state::MarketAsset::Quote => self.margin_position.idle_quote_collateral()?,
+            crate::state::MarketAsset::Base => self.borrow_position.idle_base_collateral()?,
+            crate::state::MarketAsset::Quote => self.borrow_position.idle_quote_collateral()?,
         };
         require_gte!(
             idle_collateral,
@@ -167,7 +167,7 @@ impl<'info> WithdrawCollateral<'info> {
         );
 
         let collateral_receipt = ctx.accounts.market.withdraw_collateral(
-            &mut ctx.accounts.margin_position,
+            &mut ctx.accounts.borrow_position,
             market_asset,
             collateral_debit,
         )?;

@@ -130,8 +130,8 @@ use super::*;
 
     #[test]
     fn cash_backed_interest_increases_virtual_reserve_with_debt() {
-        // Normal V1-style cash-backed debt still grows virtual reserves as
-        // interest accrues while the debt is unpaid.
+        // Normal cash-backed debt still grows virtual reserves as interest
+        // accrues while the debt is unpaid.
         let mut market = test_market(1_000_000, 50);
         market.quote_side.reserves.live_reserve = 1_000;
         market.debt.fixed_quote_shares = 950;

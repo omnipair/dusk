@@ -202,9 +202,10 @@ use super::*;
     #[test]
     fn borrow_preserves_virtual_reserve_as_cash_plus_debt() {
         let mut market = invariant_market(1_000_000, 1_000_000);
-        let mut margin_position = MarginPosition {
+        let mut borrow_position = BorrowPosition {
             owner: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
+            position_id: Pubkey::new_unique(),
             base_collateral: 0,
             quote_collateral: 250_000,
             recognized_base_collateral_for_quote_debt: 0,
@@ -216,7 +217,7 @@ use super::*;
         };
 
         market
-            .borrow(&mut margin_position, MarketAsset::Base, 100_000, BPS_DENOMINATOR as u64)
+            .borrow(&mut borrow_position, MarketAsset::Base, 100_000, BPS_DENOMINATOR as u64)
             .unwrap();
 
         assert_eq!(market.base_side.reserves.live_reserve, 1_000_000);
@@ -238,9 +239,10 @@ use super::*;
         market.debt.base_borrow_index_nad = (NAD as u128) * 11 / 10;
         market.debt.fixed_base_shares = 100;
         market.debt.fixed_base_principal = 100;
-        let mut margin_position = MarginPosition {
+        let mut borrow_position = BorrowPosition {
             owner: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
+            position_id: Pubkey::new_unique(),
             base_collateral: 0,
             quote_collateral: 0,
             recognized_base_collateral_for_quote_debt: 0,
@@ -252,7 +254,7 @@ use super::*;
         };
 
         let receipt = market
-            .repay(&mut margin_position, MarketAsset::Base, 110)
+            .repay(&mut borrow_position, MarketAsset::Base, 110)
             .unwrap();
 
         assert_eq!(receipt.interest_paid, 10);

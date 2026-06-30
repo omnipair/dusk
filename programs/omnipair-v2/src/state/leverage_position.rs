@@ -10,6 +10,7 @@ use crate::{
 pub struct LeveragePosition {
     pub owner: Pubkey,
     pub market: Pubkey,
+    pub position_id: Pubkey,
     pub debt_asset: u8,
     pub collateral_amount: u64,
     pub margin_amount: u64,
@@ -90,6 +91,7 @@ impl LeveragePosition {
         &mut self,
         owner: Pubkey,
         market: Pubkey,
+        position_id: Pubkey,
         debt_asset: MarketAsset,
         collateral_amount: u64,
         margin_amount: u64,
@@ -103,6 +105,7 @@ impl LeveragePosition {
     ) {
         self.owner = owner;
         self.market = market;
+        self.position_id = position_id;
         self.debt_asset = debt_asset.code();
         self.collateral_amount = collateral_amount;
         self.margin_amount = margin_amount;

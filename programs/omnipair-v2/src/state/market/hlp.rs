@@ -258,13 +258,13 @@ fn credit_hlp_growth(
 }
 
 impl Market {
-    pub fn open_hedge(
+    pub fn deposit_single_sided(
         &mut self,
         target_asset: MarketAsset,
         deposit_amount: u64,
         min_hlp_amount: u64,
     ) -> Result<crate::state::market::transitions::hedge::HedgeReceipt> {
-        crate::state::market::transitions::hedge::OpenHedge::new(
+        crate::state::market::transitions::hedge::DepositSingleSided::new(
             target_asset,
             deposit_amount,
             min_hlp_amount,
@@ -272,12 +272,12 @@ impl Market {
         .apply(self)
     }
 
-    pub fn close_hedge(
+    pub fn withdraw_single_sided(
         &mut self,
         target_asset: MarketAsset,
         hlp_amount: u64,
     ) -> Result<crate::state::market::transitions::hedge::HedgeReceipt> {
-        crate::state::market::transitions::hedge::CloseHedge::new(target_asset, hlp_amount)
+        crate::state::market::transitions::hedge::WithdrawSingleSided::new(target_asset, hlp_amount)
             .apply(self)
     }
 

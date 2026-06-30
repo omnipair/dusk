@@ -3,47 +3,28 @@
  * Tracks which program instructions are exercised at least once.
  */
 
-type ProgramGeneration = "v1" | "v2";
-type InstructionId = `${ProgramGeneration}:${string}`;
+type InstructionId = string;
 
 const testedInstructions = new Set<InstructionId>();
 const instructionDetails = new Map<InstructionId, { count: number; tests: string[] }>();
 let lastPrintedReportSignature: string | undefined;
 
-const V1_INSTRUCTIONS = [
-  "viewPairData",
-  "viewUserPositionData",
+const DUSK_INSTRUCTIONS = [
   "initFutarchyAuthority",
   "updateFutarchyAuthority",
   "updateProtocolRevenue",
   "updateRevenueRecipients",
-  "claimProtocolFees",
+  "updateProtocolAuctionConfig",
+  "updateProtocolAuctionRecipients",
   "setGlobalReduceOnly",
-  "setPairReduceOnly",
-  "setPairRateModel",
-  "createRateModel",
-  "initialize",
-  "addLiquidity",
-  "removeLiquidity",
-  "swap",
-  "addCollateral",
-  "removeCollateral",
-  "borrow",
-  "repay",
-  "liquidate",
-  "flashloan"
-];
-
-const V2_INSTRUCTIONS = [
-  "initFutarchyAuthority",
-  "updateFutarchyAuthority",
-  "updateProtocolRevenue",
-  "updateRevenueRecipients",
-  "setGlobalReduceOnly",
+  "settleProtocolAuction",
   "initialize",
   "initializeLpMetadata",
   "updateConfig",
   "setReduceOnly",
+  "setOperator",
+  "setManager",
+  "claimManagerFees",
   "addLiquidity",
   "removeLiquidity",
   "setYieldRecipient",
@@ -53,33 +34,31 @@ const V2_INSTRUCTIONS = [
   "withdrawCollateral",
   "borrow",
   "repay",
+  "openLeverage",
+  "closeLeverage",
+  "delegatedCloseLeverage",
+  "increaseLeverage",
+  "decreaseLeverage",
+  "addLeverageMargin",
+  "removeLeverageMargin",
+  "liquidateLeverage",
+  "createLeverageDelegation",
+  "updateLeverageDelegation",
+  "closeLeverageDelegation",
   "openLiquidationAuction",
   "settleLiquidationAuction",
-  "openHedge",
-  "closeHedge",
+  "depositSingleSided",
+  "withdrawSingleSided",
 ];
 
-const ALL_INSTRUCTIONS = [
-  ...V1_INSTRUCTIONS.map((name) => instructionId("v1", name)),
-  ...V2_INSTRUCTIONS.map((name) => instructionId("v2", name)),
-];
-
-const INSTRUCTIONS_BY_GENERATION: Record<ProgramGeneration, string[]> = {
-  v1: V1_INSTRUCTIONS,
-  v2: V2_INSTRUCTIONS,
-};
-
-function instructionId(generation: ProgramGeneration, instructionName: string): InstructionId {
-  return `${generation}:${instructionName}`;
-}
+const ALL_INSTRUCTIONS = DUSK_INSTRUCTIONS;
 
 function instructionLabel(id: InstructionId): string {
-  const [generation, instructionName] = id.split(":");
-  return `${generation}.${instructionName}`;
+  return id;
 }
 
-function track(generation: ProgramGeneration, instructionName: string, testName?: string) {
-  const id = instructionId(generation, instructionName);
+function track(instructionName: string, testName?: string) {
+  const id = instructionName;
   testedInstructions.add(id);
 
   const detail = instructionDetails.get(id) || { count: 0, tests: [] };
@@ -90,12 +69,6 @@ function track(generation: ProgramGeneration, instructionName: string, testName?
   instructionDetails.set(id, detail);
 
   console.log(`  ✓ Tested: ${instructionLabel(id)}`);
-}
-
-function generationInstructions(generation: ProgramGeneration): InstructionId[] {
-  return INSTRUCTIONS_BY_GENERATION[generation].map((name) =>
-    instructionId(generation, name)
-  );
 }
 
 function coverageDataFor(instructions: InstructionId[]) {
@@ -151,15 +124,14 @@ function printCoverageSection(title: string, instructions: InstructionId[]) {
  * @param testName Name of the test that used it
  */
 export function trackInstruction(instructionName: string, testName?: string) {
-  track("v1", instructionName, testName);
+  track(instructionName, testName);
 }
 
 /**
- * Track that a standalone v2 instruction was tested.
- * Keeps clean v2 names like swap/borrow separate from legacy v1 names.
+ * Track that a Dusk instruction was tested.
  */
 export function trackV2Instruction(instructionName: string, testName?: string) {
-  track("v2", instructionName, testName);
+  track(instructionName, testName);
 }
 
 /**
@@ -176,10 +148,6 @@ export function getCoverageReport() {
       percentage: parseFloat(aggregate.percentage),
       testedInstructions: aggregate.testedInstructions.map(instructionLabel),
       untestedInstructions: aggregate.untestedInstructions.map(instructionLabel),
-      byGeneration: {
-        v1: getCoverageData("v1"),
-        v2: getCoverageData("v2"),
-      },
     };
   }
   lastPrintedReportSignature = signature;
@@ -194,8 +162,7 @@ export function getCoverageReport() {
     "It is not statement, branch, invariant, or full behavioral coverage."
   );
 
-  printCoverageSection("V2 Instruction Smoke Coverage", generationInstructions("v2"));
-  printCoverageSection("V1 Legacy Instruction Smoke Coverage", generationInstructions("v1"));
+  printCoverageSection("Dusk Instruction Smoke Coverage", ALL_INSTRUCTIONS);
   
   console.log("\n" + "═".repeat(70));
   console.log(
@@ -209,10 +176,6 @@ export function getCoverageReport() {
     percentage: parseFloat(aggregate.percentage),
     testedInstructions: aggregate.testedInstructions.map(instructionLabel),
     untestedInstructions: aggregate.untestedInstructions.map(instructionLabel),
-    byGeneration: {
-      v1: getCoverageData("v1"),
-      v2: getCoverageData("v2"),
-    },
   };
 }
 
@@ -228,9 +191,8 @@ export function resetCoverage() {
 /**
  * Get current coverage as object
  */
-export function getCoverageData(generation?: ProgramGeneration) {
-  const instructions = generation ? generationInstructions(generation) : ALL_INSTRUCTIONS;
-  const data = coverageDataFor(instructions);
+export function getCoverageData() {
+  const data = coverageDataFor(ALL_INSTRUCTIONS);
 
   return {
     covered: data.covered,

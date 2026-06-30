@@ -11,13 +11,13 @@ use crate::{
     state::{Debt, HlpVault, Market, MarketAsset},
 };
 
-pub struct OpenHedge {
+pub struct DepositSingleSided {
     pub target_asset: MarketAsset,
     pub deposit_amount: u64,
     pub min_hlp_amount: u64,
 }
 
-pub struct CloseHedge {
+pub struct WithdrawSingleSided {
     pub target_asset: MarketAsset,
     pub hlp_amount: u64,
 }
@@ -63,7 +63,7 @@ impl Default for HlpRebalanceReceipt {
     }
 }
 
-impl OpenHedge {
+impl DepositSingleSided {
     pub fn new(target_asset: MarketAsset, deposit_amount: u64, min_hlp_amount: u64) -> Self {
         Self {
             target_asset,
@@ -85,8 +85,8 @@ impl OpenHedge {
         checkpoint_hlp_yield_from_ylp(market, self.target_asset)?;
 
         let (ylp_amount, hlp_amount, hlp_supply) = match self.target_asset {
-            MarketAsset::Base => open_base_hlp(market, self.deposit_amount, borrowed_amount)?,
-            MarketAsset::Quote => open_quote_hlp(market, self.deposit_amount, borrowed_amount)?,
+            MarketAsset::Base => deposit_base_hlp(market, self.deposit_amount, borrowed_amount)?,
+            MarketAsset::Quote => deposit_quote_hlp(market, self.deposit_amount, borrowed_amount)?,
         };
         require_gte!(hlp_amount, self.min_hlp_amount, ErrorCode::SlippageExceeded);
         market.refresh_market_health()?;
@@ -106,7 +106,7 @@ impl OpenHedge {
     }
 }
 
-impl CloseHedge {
+impl WithdrawSingleSided {
     pub fn new(target_asset: MarketAsset, hlp_amount: u64) -> Self {
         Self {
             target_asset,
@@ -119,8 +119,8 @@ impl CloseHedge {
         require_hlp_settlement_available(market, self.target_asset)?;
         checkpoint_hlp_yield_from_ylp(market, self.target_asset)?;
         let receipt = match self.target_asset {
-            MarketAsset::Base => close_base_hlp(market, self.hlp_amount)?,
-            MarketAsset::Quote => close_quote_hlp(market, self.hlp_amount)?,
+            MarketAsset::Base => withdraw_base_hlp(market, self.hlp_amount)?,
+            MarketAsset::Quote => withdraw_quote_hlp(market, self.hlp_amount)?,
         };
         market.refresh_market_health()?;
         market.assert_virtual_reserve_invariant(MarketAsset::Base)?;
@@ -144,7 +144,7 @@ pub fn rebalance_hlp_vaults(
     Ok((base_receipt, quote_receipt))
 }
 
-fn open_base_hlp(
+fn deposit_base_hlp(
     market: &mut Market,
     base_deposit: u64,
     quote_borrow: u64,
@@ -196,7 +196,7 @@ fn open_base_hlp(
     Ok((ylp_amount, hlp_amount, market.base_hlp_vault.hlp_supply))
 }
 
-fn open_quote_hlp(
+fn deposit_quote_hlp(
     market: &mut Market,
     quote_deposit: u64,
     base_borrow: u64,
@@ -248,7 +248,7 @@ fn open_quote_hlp(
     Ok((ylp_amount, hlp_amount, market.quote_hlp_vault.hlp_supply))
 }
 
-fn close_base_hlp(market: &mut Market, hlp_amount: u64) -> Result<HedgeReceipt> {
+fn withdraw_base_hlp(market: &mut Market, hlp_amount: u64) -> Result<HedgeReceipt> {
     let supply = market.base_hlp_vault.hlp_supply;
     require_gte!(supply, hlp_amount, ErrorCode::InsufficientBalance);
     let ylp_amount = proportional(market.base_hlp_vault.ylp_shares, hlp_amount, supply)?;
@@ -321,7 +321,7 @@ fn close_base_hlp(market: &mut Market, hlp_amount: u64) -> Result<HedgeReceipt> 
     })
 }
 
-fn close_quote_hlp(market: &mut Market, hlp_amount: u64) -> Result<HedgeReceipt> {
+fn withdraw_quote_hlp(market: &mut Market, hlp_amount: u64) -> Result<HedgeReceipt> {
     let supply = market.quote_hlp_vault.hlp_supply;
     require_gte!(supply, hlp_amount, ErrorCode::InsufficientBalance);
     let ylp_amount = proportional(market.quote_hlp_vault.ylp_shares, hlp_amount, supply)?;

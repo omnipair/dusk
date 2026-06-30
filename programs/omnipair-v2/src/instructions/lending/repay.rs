@@ -10,7 +10,7 @@ use crate::{
     events::{MarketDebtUpdated, MarketEventMetadata, MarketHealthUpdated},
     generate_market_seeds,
     shared::token::{transfer_from_user_to_vault, transfer_from_vault_to_vault},
-    state::{FutarchyAuthority, MarginPosition, Market},
+    state::{BorrowPosition, FutarchyAuthority, Market},
 };
 
 use crate::instructions::common::{
@@ -63,13 +63,13 @@ pub struct Repay<'info> {
     #[account(
         mut,
         seeds = [
-            MARGIN_POSITION_SEED_PREFIX,
+            BORROW_POSITION_SEED_PREFIX,
             market.key().as_ref(),
-            owner.key().as_ref(),
+            borrow_position.position_id.as_ref(),
         ],
-        bump = margin_position.bump
+        bump = borrow_position.bump
     )]
-    pub margin_position: Box<Account<'info, MarginPosition>>,
+    pub borrow_position: Box<Account<'info, BorrowPosition>>,
 
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
@@ -95,7 +95,7 @@ impl<'info> Repay<'info> {
             validate_interest_accounts(&self.market, &self.debt_asset_mint, &self.interest_vault)?;
         require!(interest_asset == repay_asset, ErrorCode::InvalidVault);
         require_supported_asset_mint(&self.debt_asset_mint)?;
-        self.margin_position
+        self.borrow_position
             .assert_position(self.owner.key(), self.market.key())?;
         Ok(())
     }
@@ -139,7 +139,7 @@ impl<'info> Repay<'info> {
         require!(repay_credit > 0, ErrorCode::AmountZero);
 
         let debt_receipt = ctx.accounts.market.repay(
-            &mut ctx.accounts.margin_position,
+            &mut ctx.accounts.borrow_position,
             repay_asset,
             repay_credit,
         )?;

@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
-    token::{Token, Mint, TokenAccount},
     associated_token::AssociatedToken,
+    token::{Mint, Token, TokenAccount},
     token_2022::{self},
 };
 
@@ -76,7 +76,11 @@ fn handle_faucet_mint(ctx: Context<FaucetMint>) -> Result<()> {
     // Mint 50,000 tokens to user for each token
     let mint_amount = 50_000 * 10u64.pow(6); // 50,000 * 10^6
 
-    let seeds = &[b"faucet_authority", crate::ID.as_ref(), &[ctx.bumps.faucet_authority]];
+    let seeds = &[
+        b"faucet_authority",
+        crate::ID.as_ref(),
+        &[ctx.bumps.faucet_authority],
+    ];
     let signer_seeds = &[&seeds[..]];
 
     // Mint Token0
@@ -124,4 +128,3 @@ fn token_mint_to<'a>(
         amount,
     )
 }
-

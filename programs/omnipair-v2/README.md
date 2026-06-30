@@ -1,6 +1,6 @@
 # Omnipair V2
 
-Omnipair V2 is a standalone market program that lives beside the legacy V1 pair program in `programs/omnipair`. V1 compatibility stays unchanged. V2 uses market terminology, floating yield LP shares, aggregate hedged LP vault accounting, and isolated spot-margin leverage.
+Omnipair V2 is the standalone Dusk market program. It uses market terminology, floating yield LP shares, aggregate hedged LP vault accounting, and isolated spot-margin leverage.
 
 ## Source Boundaries
 
@@ -21,11 +21,12 @@ V2 exposes the current market instruction set:
 - `add_liquidity`, `remove_liquidity`
 - `set_yield_recipient`, `claim_yield`
 - `swap`
-- `deposit_collateral`, `withdraw_collateral`, `borrow`, `repay`, `liquidate`
-- `open_hedge`, `close_hedge`
+- `deposit_collateral`, `withdraw_collateral`, `borrow`, `repay`
+- `open_liquidation_auction`, `settle_liquidation_auction`
+- `deposit_single_sided`, `withdraw_single_sided`
 - `open_leverage`, `close_leverage`, `delegated_close_leverage`, `increase_leverage`, `decrease_leverage`, `add_leverage_margin`, `remove_leverage_margin`, `liquidate_leverage`
 - `create_leverage_delegation`, `update_leverage_delegation`, `close_leverage_delegation`
-- V1-style futarchy/revenue administration: `init_futarchy_authority`, `update_futarchy_authority`, `update_protocol_revenue`, `update_revenue_recipients`, `set_global_reduce_only`, `claim_protocol_fees`
+- Futarchy, operator, and revenue administration: `init_futarchy_authority`, `update_futarchy_authority`, `update_protocol_revenue`, `update_revenue_recipients`, `update_protocol_auction_config`, `update_protocol_auction_recipients`, `set_global_reduce_only`, `settle_protocol_auction`, `set_operator`, `set_manager`, `claim_manager_fees`
 
 ## Token Model
 
@@ -73,7 +74,7 @@ Closing hLP burns hLP shares, burns the vault's proportional yLP, repays the bor
 
 ## Isolated Leverage
 
-V2 ports the core V1 isolated spot-margin leverage flow into the market account model. A leverage position is a user-owned PDA that records margin, collateral, borrowed principal, debt shares, and the debt side for a single market-local position.
+Dusk includes isolated spot-margin leverage inside the market account model. A leverage position is a user-owned PDA that records margin, collateral, borrowed principal, debt shares, and the debt side for a single market-local position.
 
 Opening leverage:
 
@@ -103,10 +104,10 @@ hLP checkpointing computes NAV, attempts the spot-based leverage adjustment, rec
 | Collateral vault | `market_collateral`, `market`, `asset_mint` | `deriveMarketCollateralVaultAddress` |
 | Swap fee vault | `market_fee`, `market`, `asset_mint` | `deriveMarketFeeVaultAddress` |
 | Interest vault | `market_interest`, `market`, `asset_mint` | `deriveMarketInterestVaultAddress` |
-| Margin position | `margin`, `market`, `owner` | `deriveMarginPositionAddress` |
+| Borrow position | `borrow_position_v2`, `market`, `position_id` | `deriveBorrowPositionAddress` |
 | Yield account | `yield`, `market`, `owner`, `asset_mint`, `token_kind` | `deriveYieldAccountAddress` |
 | Insurance vault | `insurance`, `market`, `asset_mint` | `deriveInsuranceAddress` |
-| Leverage position | `leverage_position_v2`, `market`, `owner`, `debt_mint` | derive from seed tuple |
+| Leverage position | `leverage_position_v2`, `market`, `position_id` | `deriveLeveragePositionAddress` |
 | Leverage delegation | `leverage_delegation_v2`, `leverage_position` | derive from seed tuple |
 | Leverage collateral vault | `leverage_collateral`, `market`, `collateral_mint` | derive from seed tuple |
 | LP token metadata | Metaplex `metadata`, token metadata program, `lp_mint` | `deriveTokenMetadataAddress` |
@@ -153,21 +154,9 @@ Useful focused checks while changing V2:
 cargo fmt -p omnipair-v2 -- --check
 cargo check -p omnipair-v2 --lib
 cargo test -p omnipair-v2 --lib -- --nocapture
-anchor build -p omnipair_v2
+anchor build -p omnipair-v2
 npm run build --prefix packages/program-interface
 yarn test-litesvm
 ```
 
 Run program-interface builds whenever public IDL, account, event, seed, or instruction shapes change.
-
-## Legacy V1 Baseline
-
-V1 remains the legacy program and is not expected to become clean as part of V2 review. As of the branch baseline, `cargo test -p omnipair --lib` has 5 known failures:
-
-- `v1::state::rate_model::tests::test_default_matches_original_low_util`
-- `v1::state::rate_model::tests::test_default_matches_original_high_util`
-- `v1::state::rate_model::tests::test_faster_half_life_adjusts_quicker`
-- `v1::state::rate_model::tests::test_uncapped_rate_grows_exponentially`
-- `shared::gamm_math::tests::manipulation_bounded_by_ema`
-
-Treat new V1 failures beyond that list as regressions, and keep V2 changes out of the legacy V1 instruction surface unless the change is explicitly scoped as V1 work.

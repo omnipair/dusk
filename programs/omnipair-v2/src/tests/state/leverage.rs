@@ -65,6 +65,7 @@ fn empty_position() -> LeveragePosition {
     LeveragePosition {
         owner: Pubkey::default(),
         market: Pubkey::default(),
+        position_id: Pubkey::default(),
         debt_asset: 0,
         collateral_amount: 0,
         margin_amount: 0,
@@ -100,6 +101,7 @@ fn seeded_position(
     position.initialize(
         Pubkey::new_unique(),
         Pubkey::new_unique(),
+        Pubkey::new_unique(),
         debt_asset,
         collateral_amount,
         debt_amount,
@@ -125,6 +127,7 @@ fn open_leverage_tracks_isolated_debt_and_cash() {
     let receipt = market
         .open_leverage(
             &mut position,
+            Pubkey::new_unique(),
             Pubkey::new_unique(),
             Pubkey::new_unique(),
             MarketAsset::Base,
@@ -175,6 +178,7 @@ fn close_leverage_clears_isolated_debt_and_residual_cash() {
     market
         .open_leverage(
             &mut position,
+            Pubkey::new_unique(),
             Pubkey::new_unique(),
             Pubkey::new_unique(),
             MarketAsset::Base,
