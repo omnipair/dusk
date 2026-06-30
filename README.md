@@ -18,7 +18,7 @@ Dusk keeps that core Omnipair GAMM idea and rebuilds it around a market-native a
 - **Unified liquidity and lending**: LP inventory backs both swaps and borrow demand, letting capital serve multiple protocol flows.
 - **Standalone V2 program**: Dusk has its own program ID, IDL, account model, event surface, and SDK helpers.
 - **Yield-bearing LP shares**: `yLP` represents a two-sided liquidity claim while reserve-side yield is checkpointed through base and quote growth indexes.
-- **Leveraged LP vaults**: base and quote `hLP` mints are aggregate 2x LP vault shares that target one-sided market exposure.
+- **Leveraged LP vaults**: base and quote `hLP` mints are aggregate 2x LP vault shares that target one-sided market exposure through explicit hLP live-reserve accounting.
 - **Isolated leverage**: traders can open market-local spot-margin positions that borrow one side, swap through the GAMM, hold the opposite side as collateral, delegate TP/SL close execution, and liquidate through the same reserve accounting.
 - **Cached risk books**: risk checks roll EMA values from cached observations so settlement does not depend on a same-instruction manipulated spot.
 - **Bounded liquidation waterfall**: liquidations move through borrower collateral, liquidator incentive, insurance, then bounded LP socialization.
@@ -46,7 +46,7 @@ Borrowers
 hLP users
   deposit one market asset
   receive aggregate leveraged LP vault shares
-  close by burning hLP and settling the vault's borrowed-side debt
+  close by burning hLP and settling the vault's funding debt
 
 Leverage users
   deposit margin in one market asset
@@ -92,20 +92,20 @@ Owners can also approve a leverage delegate program for a position. The delegate
 
 Each market maintains two aggregate hLP vaults:
 
-- `hLP_base`: users deposit base, the vault borrows quote, then the vault adds balanced liquidity.
-- `hLP_quote`: users deposit quote, the vault borrows base, then the vault adds balanced liquidity.
+- `hLP_base`: users deposit base and the vault funds the quote leg.
+- `hLP_quote`: users deposit quote and the vault funds the base leg.
 
-Opening an hLP position mints vault shares against aggregate vault NAV:
+Opening an hLP position mints vault shares against aggregate vault NAV. The target-side deposit is reserve cash; the funded side is tracked as hLP funding debt and an explicit hLP live-reserve component:
 
 ```text
 user target asset
-  -> hLP vault borrows opposite asset
-  -> vault adds balanced liquidity
+  -> hLP vault records opposite-side funding debt
+  -> market credits balanced live reserves
   -> vault receives yLP
   -> user receives hLP_target
 ```
 
-Closing burns hLP shares, removes the vault's proportional yLP liquidity, repays borrowed-side debt, and returns remaining target-side inventory to the user.
+Closing burns hLP shares, removes the vault's proportional yLP liquidity, repays funding debt, realizes any interest from borrowed-side cash, and returns remaining target-side inventory to the user.
 
 ## Risk Model
 
@@ -175,17 +175,80 @@ Dusk is not a drop-in account rename for Omnipair V1. Integrations should route 
 
 ## Core Invariants
 
+Dusk keeps a live reserve coordinate for each side of the market:
+
+```text
+R_live[i] = R_cash[i] + D_cash_backed[i] + R_hLP_live[i]
+```
+
+where `i` is base or quote. Without hLP live depth this collapses to the V1 GAMM reserve invariant:
+
+```text
+R_live[i] = R_cash[i] + D_cash_backed[i]
+```
+
+That gives Dusk the same normal lending behavior as V1: cash-backed borrow decreases cash and increases debt by the same amount, so borrowing does not move the GAMM price.
+
+```text
+borrow a:
+  R_cash[i]        -= a
+  D_cash_backed[i] += a
+  R_live[i]         unchanged
+```
+
+hLP adds a named synthetic live-reserve coordinate, not an unnamed exception. hLP funding debt is part of total utilization and accrues interest, but it is not same-side cash-backed reserve debt:
+
+```text
+D_total[i] = D_cash_backed[i] + D_hLP_funding[i]
+```
+
+Only `D_cash_backed` expands `R_live` through normal cash-backed interest accrual. hLP funding interest is carried by hLP debt/NAV and is settled from borrowed-side cash when realized.
+
+Spot-neutral hLP rebalancing moves both live-reserve sides proportionally:
+
+```text
+dR_hLP_live[base]  / R_live[base]
+= dR_hLP_live[quote] / R_live[quote]
+
+P = R_live[quote] / R_live[base]
+P' = P
+```
+
+That preserves spot, but not depth: finite swap quotes can change when hLP live depth changes. Swap-triggered hLP updates are therefore quote-aware and O(1), and never iterate over user positions.
+
+Other invariants:
+
 - yLP supply is backed by reserve-side principal accounting.
 - No operation mints yLP without corresponding reserve value.
 - yLP principal reserves exclude fee and interest vault balances.
 - Fee liabilities are backed by fee and interest vault balances.
+- Synthetic hLP live reserve is not directly withdrawable cash; swaps, withdrawals, debt repayment, and interest realization are still constrained by cash reserves.
 - hLP NAV is `collateral_value - debt_value` and must not underflow.
-- hLP debt shares stay matched to aggregate hLP vault debt.
+- hLP solvency is enforced through NAV, cash headroom, settlement references, divergence guards, and balanced rebalance math.
+- Dusk does not enforce `R_hLP_live[i] <= D_hLP_funding[i]` per asset; hLP live depth is a balanced GAMM coordinate, not a standalone per-asset liability.
+- hLP debt shares stay matched to aggregate hLP vault funding debt.
 - hLP operations never use yLP-denominated debt.
-- Swap-time hLP updates are O(1) and never iterate over user positions.
 - Isolated leverage debt contributes to utilization without contaminating normal borrower health checks.
 - Leverage collateral vault balances are matched by open leverage position collateral accounting.
 - Delegated close requires both a close approval payload and a settlement approval payload from the approved delegate program.
+
+## Changed Invariants From GAMM V1
+
+The core GAMM primitive is intentionally preserved:
+
+- The market is still priced from in-protocol reserves, not external oracles.
+- Normal borrow and repay paths still preserve `R_live = R_cash + D_cash_backed`.
+- Cash constraints still matter: virtual depth can quote, but only cash can leave vaults or settle realized liabilities.
+- LP minting and burning still use the V1-style proportional reserve math with permanently locked minimum liquidity.
+- Swap fees and borrow interest remain outside principal reserves and are distributed through fee and yield accounting.
+
+Dusk extends the invariant set only where hLP needs native 2x LP tracking:
+
+- V1 had no hLP component, so `R_hLP_live = 0`.
+- Dusk allows only hLP transitions to mutate `R_hLP_live`.
+- hLP leverage-up/deleverage updates are balanced reserve-coordinate moves, designed to preserve spot while changing depth.
+- hLP funding debt affects utilization and funding cost, while hLP NAV and settlement guards enforce vault solvency.
+- Cash-constrained hLP leverage-up does not block swaps; unexecuted rebalance is carried as `pending_rebalance`.
 
 ## Program ID
 
