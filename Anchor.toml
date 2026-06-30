@@ -21,7 +21,7 @@ omnipair_v2 = "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv"
 leverage_delegate = "EPGF9iFrbGnhWgC3To9rC9vxinEYuDHaz4RXgLPvuRkp"
 
 [registry]
-url = "https://mainnet.helius-rpc.com/?api-key=30168341-6376-4364-98bd-e7bb7da3d5e1"
+url = "https://api.apr.dev"
 
 [provider]
 cluster = "mainnet"

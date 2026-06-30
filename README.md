@@ -2,6 +2,8 @@
   <img src="assets/omnipair-dusk-hero.png" alt="Omnipair Dusk (v2)" width="100%" />
 </p>
 
+> **Experimental software.** Omnipair Dusk is unaudited, incomplete, and under active development. It is published for research, review, and testing only. Do not deploy it to mainnet, integrate it in production, or use it with real funds until the implementation, tests, audits, and launch process are complete.
+
 # Omnipair Dusk
 
 **Omnipair Dusk (v2)** is an oracle-less lending protocol on Solana.

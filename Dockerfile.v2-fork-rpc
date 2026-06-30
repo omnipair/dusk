@@ -51,11 +51,7 @@ RUN npm ci --include=dev
 
 COPY . .
 
-RUN node -e "const { Keypair } = require('@solana/web3.js'); const fs = require('fs'); fs.writeFileSync('/app/deployer-keypair.json', JSON.stringify(Array.from(Keypair.generate().secretKey)))" \
-    && mkdir -p /root/.config/solana \
-    && cp /app/deployer-keypair.json /root/.config/solana/id.json \
-    && solana config set --keypair /root/.config/solana/id.json \
-    && anchor build -p omnipair-v2 -- --features "development"
+RUN anchor build -p omnipair-v2 -- --features "development"
 
 EXPOSE 8899 8900
 
