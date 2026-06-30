@@ -33,7 +33,8 @@ export const SEEDS = {
   MARKET_COLLATERAL_VAULT: Buffer.from("market_collateral"),
   MARKET_FEE_VAULT: Buffer.from("market_fee"),
   MARKET_INTEREST_VAULT: Buffer.from("market_interest"),
-  MARGIN_POSITION: Buffer.from("margin"),
+  BORROW_POSITION: Buffer.from("borrow_position_v2"),
+  LEVERAGE_POSITION: Buffer.from("leverage_position_v2"),
   YIELD_ACCOUNT: Buffer.from("yield"),
   HLP_YLP_VAULT: Buffer.from("hlp_ylp_vault"),
   INSURANCE: Buffer.from("insurance"),
@@ -143,31 +144,44 @@ export function deriveMarketInterestVaultAddress(
 }
 
 /**
- * Derive margin position PDA address
+ * Derive borrow position PDA address
  */
-export function deriveMarginPositionAddress(
+export function deriveBorrowPositionAddress(
   market: PublicKey,
-  owner: PublicKey
+  positionId: PublicKey
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [SEEDS.MARGIN_POSITION, market.toBuffer(), owner.toBuffer()],
+    [SEEDS.BORROW_POSITION, market.toBuffer(), positionId.toBuffer()],
     OMNIPAIR_V2_PROGRAM_ID
   );
 }
 
 /**
- * Derive liquidation auction PDA address for a market margin position and debt mint.
+ * Derive leverage position PDA address
+ */
+export function deriveLeveragePositionAddress(
+  market: PublicKey,
+  positionId: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [SEEDS.LEVERAGE_POSITION, market.toBuffer(), positionId.toBuffer()],
+    OMNIPAIR_V2_PROGRAM_ID
+  );
+}
+
+/**
+ * Derive liquidation auction PDA address for a market borrow position and debt mint.
  */
 export function deriveLiquidationAuctionAddress(
   market: PublicKey,
-  marginPosition: PublicKey,
+  borrowPosition: PublicKey,
   debtMint: PublicKey
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [
       SEEDS.LIQUIDATION_AUCTION,
       market.toBuffer(),
-      marginPosition.toBuffer(),
+      borrowPosition.toBuffer(),
       debtMint.toBuffer(),
     ],
     OMNIPAIR_V2_PROGRAM_ID

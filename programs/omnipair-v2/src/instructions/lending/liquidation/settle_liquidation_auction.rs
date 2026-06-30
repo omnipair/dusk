@@ -13,7 +13,7 @@ use crate::{
         get_transfer_fee, transfer_from_user_to_vault, transfer_from_vault_to_user,
         transfer_from_vault_to_vault,
     },
-    state::{FutarchyAuthority, LiquidationAuction, LiquidationPricing, MarginPosition, Market},
+    state::{BorrowPosition, FutarchyAuthority, LiquidationAuction, LiquidationPricing, Market},
 };
 
 use super::common::validate_liquidation_accounts;
@@ -74,20 +74,20 @@ pub struct SettleLiquidationAuction<'info> {
     #[account(
         mut,
         seeds = [
-            MARGIN_POSITION_SEED_PREFIX,
+            BORROW_POSITION_SEED_PREFIX,
             market.key().as_ref(),
-            margin_position.owner.as_ref(),
+            borrow_position.position_id.as_ref(),
         ],
-        bump = margin_position.bump
+        bump = borrow_position.bump
     )]
-    pub margin_position: Box<Account<'info, MarginPosition>>,
+    pub borrow_position: Box<Account<'info, BorrowPosition>>,
 
     #[account(
         mut,
         seeds = [
             LIQUIDATION_AUCTION_SEED_PREFIX,
             market.key().as_ref(),
-            margin_position.key().as_ref(),
+            borrow_position.key().as_ref(),
             debt_asset_mint.key().as_ref(),
         ],
         bump = liquidation_auction.bump
@@ -125,14 +125,14 @@ impl<'info> SettleLiquidationAuction<'info> {
         require_supported_asset_mint(&self.debt_asset_mint)?;
         require_supported_asset_mint(&self.collateral_asset_mint)?;
         require_keys_eq!(
-            self.margin_position.market,
+            self.borrow_position.market,
             self.market.key(),
-            ErrorCode::InvalidMarginPosition
+            ErrorCode::InvalidBorrowPosition
         );
         self.liquidation_auction.assert_matches(
             self.market.key(),
-            self.margin_position.key(),
-            &self.margin_position,
+            self.borrow_position.key(),
+            &self.borrow_position,
             debt_asset,
             self.debt_asset_mint.key(),
             self.collateral_asset_mint.key(),
@@ -151,8 +151,8 @@ impl<'info> SettleLiquidationAuction<'info> {
 
     pub fn handle_settle(ctx: Context<Self>, args: SettleLiquidationAuctionArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
-        let margin_position_key = ctx.accounts.margin_position.key();
-        let borrower_key = ctx.accounts.margin_position.owner;
+        let borrow_position_key = ctx.accounts.borrow_position.key();
+        let borrower_key = ctx.accounts.borrow_position.owner;
         let bidder_key = ctx.accounts.bidder.key();
         let debt_asset_mint_key = ctx.accounts.debt_asset_mint.key();
         let collateral_asset_mint_key = ctx.accounts.collateral_asset_mint.key();
@@ -161,8 +161,8 @@ impl<'info> SettleLiquidationAuction<'info> {
 
         ctx.accounts.liquidation_auction.assert_matches(
             market_key,
-            margin_position_key,
-            &ctx.accounts.margin_position,
+            borrow_position_key,
+            &ctx.accounts.borrow_position,
             debt_asset,
             debt_asset_mint_key,
             collateral_asset_mint_key,
@@ -170,7 +170,7 @@ impl<'info> SettleLiquidationAuction<'info> {
         let health_bps = ctx
             .accounts
             .market
-            .position_health_bps(&ctx.accounts.margin_position, debt_asset)?;
+            .position_health_bps(&ctx.accounts.borrow_position, debt_asset)?;
         require!(
             health_bps < ctx.accounts.market.config.market_health_min_bps as u64,
             ErrorCode::PositionNotLiquidatable
@@ -178,7 +178,7 @@ impl<'info> SettleLiquidationAuction<'info> {
         let live_terms = ctx
             .accounts
             .market
-            .liquidation_terms(&ctx.accounts.margin_position, debt_asset)?;
+            .liquidation_terms(&ctx.accounts.borrow_position, debt_asset)?;
         let auction_incentive_bps = ctx
             .accounts
             .liquidation_auction
@@ -190,7 +190,7 @@ impl<'info> SettleLiquidationAuction<'info> {
             .accounts
             .market
             .liquidation_terms_with_incentive_and_pricing(
-                &ctx.accounts.margin_position,
+                &ctx.accounts.borrow_position,
                 debt_asset,
                 auction_incentive_bps,
                 LiquidationPricing::PessimisticReserves,
@@ -229,7 +229,7 @@ impl<'info> SettleLiquidationAuction<'info> {
             ctx.accounts
                 .market
                 .insurance_request_for_liquidation_with_terms_and_pricing(
-                    &ctx.accounts.margin_position,
+                    &ctx.accounts.borrow_position,
                     debt_asset,
                     repay_credit,
                     args.max_insurance_draw,
@@ -269,7 +269,7 @@ impl<'info> SettleLiquidationAuction<'info> {
         };
 
         let liquidation_receipt = ctx.accounts.market.settle_liquidation(
-            &mut ctx.accounts.margin_position,
+            &mut ctx.accounts.borrow_position,
             debt_asset,
             repay_credit,
             insurance_spent,
@@ -366,7 +366,7 @@ impl<'info> SettleLiquidationAuction<'info> {
         }
 
         ctx.accounts.liquidation_auction.record_settlement(
-            &ctx.accounts.margin_position,
+            &ctx.accounts.borrow_position,
             liquidation_receipt.repaid_amount,
             current_slot,
             false,
@@ -374,7 +374,7 @@ impl<'info> SettleLiquidationAuction<'info> {
 
         emit!(LiquidationAuctionSettled {
             market: market_key,
-            margin_position: margin_position_key,
+            borrow_position: borrow_position_key,
             borrower: borrower_key,
             bidder: bidder_key,
             debt_asset_mint: debt_asset_mint_key,

@@ -263,8 +263,21 @@ function deriveMarketAddresses(baseMint: PublicKey, quoteMint: PublicKey, params
   };
 }
 
-function deriveMarginPosition(market: PublicKey, owner: PublicKey): PublicKey {
-  return pda(seed("margin"), market.toBuffer(), owner.toBuffer());
+function deriveBorrowPosition(market: PublicKey, positionId: PublicKey): PublicKey {
+  return pda(seed("borrow_position_v2"), market.toBuffer(), positionId.toBuffer());
+}
+
+function optionalPublicKey(value: unknown): PublicKey | null {
+  if (value == null || value === "") return null;
+  return new PublicKey(String(value));
+}
+
+function requiredPositionId(body: Record<string, unknown>): PublicKey {
+  const positionId = optionalPublicKey(body.positionId ?? body.borrowPositionId ?? body.position_id);
+  if (!positionId) {
+    throw new Error("positionId is required for this borrow position action");
+  }
+  return positionId;
 }
 
 function deriveYieldAccount(
@@ -1428,6 +1441,7 @@ async function buildSwapTx(params: {
 async function buildDepositCollateralTx(params: {
   owner: PublicKey;
   market: StoredMarket;
+  positionId: PublicKey;
   marketAsset: MarketAsset;
   depositAmount: bigint;
 }) {
@@ -1444,6 +1458,7 @@ async function buildDepositCollateralTx(params: {
   instructions.push(
     await program.methods
       .depositCollateral({
+        positionId: params.positionId,
         depositAmount: toBN(params.depositAmount),
       })
       .accounts({
@@ -1452,7 +1467,7 @@ async function buildDepositCollateralTx(params: {
         assetMint: isBase ? m.baseMint : m.quoteMint,
         collateralVault: isBase ? m.baseCollateralVault : m.quoteCollateralVault,
         ownerAssetAccount: ownerAsset,
-        marginPosition: deriveMarginPosition(m.market, params.owner),
+        borrowPosition: deriveBorrowPosition(m.market, params.positionId),
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
@@ -1467,6 +1482,7 @@ async function buildDepositCollateralTx(params: {
 async function buildBorrowTx(params: {
   owner: PublicKey;
   market: StoredMarket;
+  positionId: PublicKey;
   borrowAsset: MarketAsset;
   borrowAmount: bigint;
   minDebtAmountOut: bigint;
@@ -1497,7 +1513,7 @@ async function buildBorrowTx(params: {
         collateralAssetMint: isBase ? m.quoteMint : m.baseMint,
         reserveVault: isBase ? m.baseReserveVault : m.quoteReserveVault,
         ownerDebtAccount: ownerDebt,
-        marginPosition: deriveMarginPosition(m.market, params.owner),
+        borrowPosition: deriveBorrowPosition(m.market, params.positionId),
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: m.eventAuthority,
@@ -1511,6 +1527,7 @@ async function buildBorrowTx(params: {
 async function buildRepayTx(params: {
   owner: PublicKey;
   market: StoredMarket;
+  positionId: PublicKey;
   repayAsset: MarketAsset;
   repayAmount: bigint;
 }) {
@@ -1535,7 +1552,7 @@ async function buildRepayTx(params: {
         debtAssetMint: isBase ? m.baseMint : m.quoteMint,
         reserveVault: isBase ? m.baseReserveVault : m.quoteReserveVault,
         ownerDebtAccount: ownerDebt,
-        marginPosition: deriveMarginPosition(m.market, params.owner),
+        borrowPosition: deriveBorrowPosition(m.market, params.positionId),
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: m.eventAuthority,
@@ -1665,17 +1682,23 @@ async function buildWithdrawSingleSidedTx(params: {
   return serializeOwnerTransaction(params.owner, instructions);
 }
 
-async function userPositionsPayload(wallet: PublicKey, stored: StoredMarket) {
+async function userPositionsPayload(
+  wallet: PublicKey,
+  stored: StoredMarket,
+  positionId: PublicKey | null = null
+) {
   const { program } = initializeRuntime();
   const market = new PublicKey(stored.market);
-  const margin = deriveMarginPosition(market, wallet);
-  const marginPosition = await program.account.marginPosition.fetchNullable(margin);
   const now = new Date().toISOString();
   const positions = [];
-  if (marginPosition) {
+  if (!positionId) return positions;
+
+  const borrowPositionAddress = deriveBorrowPosition(market, positionId);
+  const borrowPosition = await program.account.borrowPosition.fetchNullable(borrowPositionAddress);
+  if (borrowPosition) {
     positions.push({
       id: 1,
-      eventType: "margin_position",
+      eventType: "borrow_position",
       market: stored.market,
       owner: wallet.toBase58(),
       assetMint: null,
@@ -1685,11 +1708,12 @@ async function userPositionsPayload(wallet: PublicKey, stored: StoredMarket) {
       instructionPath: "fork-state",
       timestamp: now,
       payload: {
-        address: margin.toBase58(),
-        baseCollateral: stringValue(field(marginPosition, "baseCollateral", "base_collateral")),
-        quoteCollateral: stringValue(field(marginPosition, "quoteCollateral", "quote_collateral")),
-        fixedBaseShares: stringValue(field(marginPosition, "fixedBaseShares", "fixed_base_shares")),
-        fixedQuoteShares: stringValue(field(marginPosition, "fixedQuoteShares", "fixed_quote_shares")),
+        positionId: positionId.toBase58(),
+        address: borrowPositionAddress.toBase58(),
+        baseCollateral: stringValue(field(borrowPosition, "baseCollateral", "base_collateral")),
+        quoteCollateral: stringValue(field(borrowPosition, "quoteCollateral", "quote_collateral")),
+        fixedBaseShares: stringValue(field(borrowPosition, "fixedBaseShares", "fixed_base_shares")),
+        fixedQuoteShares: stringValue(field(borrowPosition, "fixedQuoteShares", "fixed_quote_shares")),
       },
     });
   }
@@ -1794,7 +1818,13 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     const wallet = new PublicKey(userPositionsMatch[1]);
     return {
       success: true,
-      data: { positions: await userPositionsPayload(wallet, stored) },
+      data: {
+        positions: await userPositionsPayload(
+          wallet,
+          stored,
+          optionalPublicKey(url.searchParams.get("positionId"))
+        ),
+      },
     };
   }
 
@@ -1849,9 +1879,12 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
 
   if (path === "/api/v2/fork/tx/deposit-collateral") {
     const marketAsset = assetFromBody(body.marketAsset ?? body.asset, "base");
+    const positionId = optionalPublicKey(body.positionId ?? body.borrowPositionId) ?? Keypair.generate().publicKey;
+    const borrowPosition = deriveBorrowPosition(new PublicKey(stored.market), positionId);
     const transaction = await buildDepositCollateralTx({
       owner,
       market: stored,
+      positionId,
       marketAsset,
       depositAmount: rawAmount(
         body,
@@ -1860,11 +1893,17 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         "1"
       ),
     });
-    return txResponse("deposit-collateral", owner, stored, transaction, { marketAsset });
+    return txResponse("deposit-collateral", owner, stored, transaction, {
+      marketAsset,
+      borrowPositionId: positionId.toBase58(),
+      borrowPosition: borrowPosition.toBase58(),
+    });
   }
 
   if (path === "/api/v2/fork/tx/borrow") {
     const borrowAsset = assetFromBody(body.borrowAsset ?? body.asset, "quote");
+    const positionId = requiredPositionId(body);
+    const borrowPosition = deriveBorrowPosition(new PublicKey(stored.market), positionId);
     const decimals = borrowAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
     const amount = rawAmount(body, ["borrowAmount", "amount"], decimals, "1");
     const minDebtAmountOut =
@@ -1874,19 +1913,27 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     const transaction = await buildBorrowTx({
       owner,
       market: stored,
+      positionId,
       borrowAsset,
       borrowAmount: amount,
       minDebtAmountOut,
       minHealthBps: BigInt(String(body.minHealthBps ?? "11000")),
     });
-    return txResponse("borrow", owner, stored, transaction, { borrowAsset });
+    return txResponse("borrow", owner, stored, transaction, {
+      borrowAsset,
+      borrowPositionId: positionId.toBase58(),
+      borrowPosition: borrowPosition.toBase58(),
+    });
   }
 
   if (path === "/api/v2/fork/tx/repay") {
     const repayAsset = assetFromBody(body.repayAsset ?? body.asset, "quote");
+    const positionId = requiredPositionId(body);
+    const borrowPosition = deriveBorrowPosition(new PublicKey(stored.market), positionId);
     const transaction = await buildRepayTx({
       owner,
       market: stored,
+      positionId,
       repayAsset,
       repayAmount: rawAmount(
         body,
@@ -1895,7 +1942,11 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         "1"
       ),
     });
-    return txResponse("repay", owner, stored, transaction, { repayAsset });
+    return txResponse("repay", owner, stored, transaction, {
+      repayAsset,
+      borrowPositionId: positionId.toBase58(),
+      borrowPosition: borrowPosition.toBase58(),
+    });
   }
 
   if (path === "/api/v2/fork/tx/deposit-single-sided") {

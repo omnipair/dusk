@@ -8,7 +8,7 @@ use crate::{
     shared::account::get_size_with_discriminator,
     state::{
         liquidation_auction_reference_price_nad, liquidation_auction_start_incentive_bps,
-        LiquidationAuction, MarginPosition, Market,
+        BorrowPosition, LiquidationAuction, Market,
     },
 };
 
@@ -36,13 +36,13 @@ pub struct OpenLiquidationAuction<'info> {
 
     #[account(
         seeds = [
-            MARGIN_POSITION_SEED_PREFIX,
+            BORROW_POSITION_SEED_PREFIX,
             market.key().as_ref(),
-            margin_position.owner.as_ref(),
+            borrow_position.position_id.as_ref(),
         ],
-        bump = margin_position.bump
+        bump = borrow_position.bump
     )]
-    pub margin_position: Box<Account<'info, MarginPosition>>,
+    pub borrow_position: Box<Account<'info, BorrowPosition>>,
 
     #[account(
         init_if_needed,
@@ -51,7 +51,7 @@ pub struct OpenLiquidationAuction<'info> {
         seeds = [
             LIQUIDATION_AUCTION_SEED_PREFIX,
             market.key().as_ref(),
-            margin_position.key().as_ref(),
+            borrow_position.key().as_ref(),
             debt_asset_mint.key().as_ref(),
         ],
         bump
@@ -73,12 +73,12 @@ impl<'info> OpenLiquidationAuction<'info> {
         require_supported_asset_mint(&self.debt_asset_mint)?;
         require_supported_asset_mint(&self.collateral_asset_mint)?;
         require_keys_eq!(
-            self.margin_position.market,
+            self.borrow_position.market,
             self.market.key(),
-            ErrorCode::InvalidMarginPosition
+            ErrorCode::InvalidBorrowPosition
         );
         require!(
-            self.liquidation_auction.can_open_for(&self.margin_position),
+            self.liquidation_auction.can_open_for(&self.borrow_position),
             ErrorCode::LiquidationAuctionAlreadyActive
         );
         Ok(())
@@ -95,8 +95,8 @@ impl<'info> OpenLiquidationAuction<'info> {
 
     pub fn handle_open(ctx: Context<Self>) -> Result<()> {
         let market_key = ctx.accounts.market.key();
-        let margin_position_key = ctx.accounts.margin_position.key();
-        let borrower_key = ctx.accounts.margin_position.owner;
+        let borrow_position_key = ctx.accounts.borrow_position.key();
+        let borrower_key = ctx.accounts.borrow_position.owner;
         let debt_asset_mint_key = ctx.accounts.debt_asset_mint.key();
         let collateral_asset_mint_key = ctx.accounts.collateral_asset_mint.key();
         let current_slot = Clock::get()?.slot;
@@ -105,13 +105,13 @@ impl<'info> OpenLiquidationAuction<'info> {
         require!(
             ctx.accounts
                 .liquidation_auction
-                .can_open_for(&ctx.accounts.margin_position),
+                .can_open_for(&ctx.accounts.borrow_position),
             ErrorCode::LiquidationAuctionAlreadyActive
         );
         let health_bps = ctx
             .accounts
             .market
-            .position_health_bps(&ctx.accounts.margin_position, debt_asset)?;
+            .position_health_bps(&ctx.accounts.borrow_position, debt_asset)?;
         require!(
             health_bps < ctx.accounts.market.config.market_health_min_bps as u64,
             ErrorCode::PositionNotLiquidatable
@@ -119,7 +119,7 @@ impl<'info> OpenLiquidationAuction<'info> {
         let terms = ctx
             .accounts
             .market
-            .liquidation_terms(&ctx.accounts.margin_position, debt_asset)?;
+            .liquidation_terms(&ctx.accounts.borrow_position, debt_asset)?;
         let start_incentive_bps = liquidation_auction_start_incentive_bps(
             ctx.accounts
                 .market
@@ -134,12 +134,12 @@ impl<'info> OpenLiquidationAuction<'info> {
             .liquidation_auction
             .open(crate::state::OpenLiquidationAuctionParams {
                 market: market_key,
-                margin_position: margin_position_key,
+                borrow_position: borrow_position_key,
                 borrower: borrower_key,
                 debt_asset,
                 debt_mint: debt_asset_mint_key,
                 collateral_mint: collateral_asset_mint_key,
-                position_risk_epoch: ctx.accounts.margin_position.risk_epoch,
+                position_risk_epoch: ctx.accounts.borrow_position.risk_epoch,
                 current_slot,
                 duration_slots: ctx
                     .accounts
@@ -156,7 +156,7 @@ impl<'info> OpenLiquidationAuction<'info> {
 
         emit!(LiquidationAuctionOpened {
             market: market_key,
-            margin_position: margin_position_key,
+            borrow_position: borrow_position_key,
             borrower: borrower_key,
             debt_asset_mint: debt_asset_mint_key,
             collateral_asset_mint: collateral_asset_mint_key,

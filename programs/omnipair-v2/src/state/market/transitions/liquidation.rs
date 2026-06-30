@@ -8,7 +8,7 @@ use crate::{
     errors::ErrorCode,
     math::{denormalize_from_nad_ceil, normalize_to_nad},
     shared::math::ceil_div,
-    state::{Debt, MarginPosition, Market, MarketAsset},
+    state::{BorrowPosition, Debt, Market, MarketAsset},
 };
 
 pub struct Liquidation {
@@ -94,9 +94,9 @@ impl Liquidation {
     pub fn apply(
         self,
         market: &mut Market,
-        margin_position: &mut MarginPosition,
+        borrow_position: &mut BorrowPosition,
     ) -> Result<LiquidationReceipt> {
-        let debt_before = position_debt(market, margin_position, self.debt_asset)?;
+        let debt_before = position_debt(market, borrow_position, self.debt_asset)?;
         require_gte!(
             debt_before,
             self.repay_credit as u128,
@@ -107,7 +107,7 @@ impl Liquidation {
             self.repay_credit,
             ErrorCode::LiquidationRepayTooLarge
         );
-        let collateral_before = position_collateral(margin_position, self.debt_asset);
+        let collateral_before = position_collateral(borrow_position, self.debt_asset);
         let collateral_seized = collateral_to_seize(
             market,
             self.debt_asset,
@@ -183,7 +183,7 @@ impl Liquidation {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         apply_liquidation_debt_reduction(
             market,
-            margin_position,
+            borrow_position,
             self.debt_asset,
             debt_reduction,
             collateral_seized,
@@ -233,7 +233,7 @@ impl Liquidation {
             }
         }
 
-        margin_position.record_risk_update()?;
+        borrow_position.record_risk_update()?;
         market.recompute_market_health_from_risk()?;
         market.assert_risk_circuit_breakers()?;
         Ok(LiquidationReceipt {
@@ -244,7 +244,7 @@ impl Liquidation {
             insurance_funded,
             insurance_drawn: self.insurance_credit,
             socialized_loss,
-            remaining_debt: position_debt(market, margin_position, self.debt_asset)?,
+            remaining_debt: position_debt(market, borrow_position, self.debt_asset)?,
             liquidation_incentive_bps: self.terms.liquidation_incentive_bps,
             insurance_funding_bps: self.terms.insurance_funding_bps,
             max_repay_amount: self.terms.max_repay_amount,
@@ -254,14 +254,14 @@ impl Liquidation {
 
 pub(crate) fn insurance_request_for_liquidation_with_terms_and_pricing(
     market: &Market,
-    margin_position: &MarginPosition,
+    borrow_position: &BorrowPosition,
     debt_asset: MarketAsset,
     repay_credit: u64,
     max_insurance_draw: u64,
     terms: LiquidationTerms,
     pricing: LiquidationPricing,
 ) -> Result<u64> {
-    let debt_before = position_debt(market, margin_position, debt_asset)?;
+    let debt_before = position_debt(market, borrow_position, debt_asset)?;
     require_gte!(
         debt_before,
         repay_credit as u128,
@@ -272,7 +272,7 @@ pub(crate) fn insurance_request_for_liquidation_with_terms_and_pricing(
         repay_credit,
         ErrorCode::LiquidationRepayTooLarge
     );
-    let collateral_before = position_collateral(margin_position, debt_asset);
+    let collateral_before = position_collateral(borrow_position, debt_asset);
     let collateral_seized = collateral_to_seize(
         market,
         debt_asset,
@@ -304,10 +304,10 @@ pub(crate) fn insurance_request_for_liquidation_with_terms_and_pricing(
 
 pub(crate) fn liquidation_terms(
     market: &Market,
-    margin_position: &MarginPosition,
+    borrow_position: &BorrowPosition,
     debt_asset: MarketAsset,
 ) -> Result<LiquidationTerms> {
-    let health_before = market.position_health_bps(margin_position, debt_asset)?;
+    let health_before = market.position_health_bps(borrow_position, debt_asset)?;
     let liquidation_incentive_bps =
         liquidation_incentive_bps(health_before, market.config.market_health_min_bps as u64);
     let insurance_funding_bps =
@@ -316,7 +316,7 @@ pub(crate) fn liquidation_terms(
         .checked_add(insurance_funding_bps)
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let max_repay_amount =
-        max_repay_to_restore_health(market, margin_position, debt_asset, total_penalty_bps)?;
+        max_repay_to_restore_health(market, borrow_position, debt_asset, total_penalty_bps)?;
     Ok(LiquidationTerms {
         liquidation_incentive_bps,
         insurance_funding_bps,
@@ -327,13 +327,13 @@ pub(crate) fn liquidation_terms(
 
 pub(crate) fn liquidation_terms_with_incentive_and_pricing(
     market: &Market,
-    margin_position: &MarginPosition,
+    borrow_position: &BorrowPosition,
     debt_asset: MarketAsset,
     liquidation_incentive_bps: u16,
     pricing: LiquidationPricing,
 ) -> Result<LiquidationTerms> {
     let max_incentive_bps = liquidation_max_incentive_bps(
-        market.position_health_bps(margin_position, debt_asset)?,
+        market.position_health_bps(borrow_position, debt_asset)?,
         market.config.market_health_min_bps as u64,
     );
     require_gte!(
@@ -348,7 +348,7 @@ pub(crate) fn liquidation_terms_with_incentive_and_pricing(
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let max_repay_amount = max_repay_to_restore_health_with_pricing(
         market,
-        margin_position,
+        borrow_position,
         debt_asset,
         total_penalty_bps,
         pricing,
@@ -363,36 +363,36 @@ pub(crate) fn liquidation_terms_with_incentive_and_pricing(
 
 fn apply_liquidation_debt_reduction(
     market: &mut Market,
-    margin_position: &mut MarginPosition,
+    borrow_position: &mut BorrowPosition,
     debt_asset: MarketAsset,
     debt_reduction: u128,
     collateral_seized: u64,
 ) -> Result<()> {
     match debt_asset {
         MarketAsset::Base => {
-            let shares_before = margin_position.fixed_base_shares;
-            let debt_before = margin_position.fixed_base_debt(&market.debt)?;
+            let shares_before = borrow_position.fixed_base_shares;
+            let debt_before = borrow_position.fixed_base_debt(&market.debt)?;
             let shares_to_burn = shares_to_burn_for_reduction(
                 debt_reduction,
                 debt_before,
                 shares_before,
                 market.debt.base_borrow_index_nad,
             )?;
-            margin_position.quote_collateral = margin_position
+            borrow_position.quote_collateral = borrow_position
                 .quote_collateral
                 .checked_sub(collateral_seized)
                 .ok_or(ErrorCode::InsufficientRecognizedCollateral)?;
             let recognized_decrease = recognized_decrease_after_seizure(
-                margin_position.recognized_quote_collateral_for_base_debt,
-                margin_position.quote_collateral,
+                borrow_position.recognized_quote_collateral_for_base_debt,
+                borrow_position.quote_collateral,
                 shares_to_burn,
                 shares_before,
             )?;
-            margin_position.recognized_quote_collateral_for_base_debt = margin_position
+            borrow_position.recognized_quote_collateral_for_base_debt = borrow_position
                 .recognized_quote_collateral_for_base_debt
                 .checked_sub(recognized_decrease)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
-            margin_position.fixed_base_shares = margin_position
+            borrow_position.fixed_base_shares = borrow_position
                 .fixed_base_shares
                 .checked_sub(shares_to_burn)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -408,29 +408,29 @@ fn apply_liquidation_debt_reduction(
                 .ok_or(ErrorCode::MarketMathOverflow)?;
         }
         MarketAsset::Quote => {
-            let shares_before = margin_position.fixed_quote_shares;
-            let debt_before = margin_position.fixed_quote_debt(&market.debt)?;
+            let shares_before = borrow_position.fixed_quote_shares;
+            let debt_before = borrow_position.fixed_quote_debt(&market.debt)?;
             let shares_to_burn = shares_to_burn_for_reduction(
                 debt_reduction,
                 debt_before,
                 shares_before,
                 market.debt.quote_borrow_index_nad,
             )?;
-            margin_position.base_collateral = margin_position
+            borrow_position.base_collateral = borrow_position
                 .base_collateral
                 .checked_sub(collateral_seized)
                 .ok_or(ErrorCode::InsufficientRecognizedCollateral)?;
             let recognized_decrease = recognized_decrease_after_seizure(
-                margin_position.recognized_base_collateral_for_quote_debt,
-                margin_position.base_collateral,
+                borrow_position.recognized_base_collateral_for_quote_debt,
+                borrow_position.base_collateral,
                 shares_to_burn,
                 shares_before,
             )?;
-            margin_position.recognized_base_collateral_for_quote_debt = margin_position
+            borrow_position.recognized_base_collateral_for_quote_debt = borrow_position
                 .recognized_base_collateral_for_quote_debt
                 .checked_sub(recognized_decrease)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
-            margin_position.fixed_quote_shares = margin_position
+            borrow_position.fixed_quote_shares = borrow_position
                 .fixed_quote_shares
                 .checked_sub(shares_to_burn)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -451,19 +451,19 @@ fn apply_liquidation_debt_reduction(
 
 fn position_debt(
     market: &Market,
-    margin_position: &MarginPosition,
+    borrow_position: &BorrowPosition,
     debt_asset: MarketAsset,
 ) -> Result<u128> {
     match debt_asset {
-        MarketAsset::Base => margin_position.fixed_base_debt(&market.debt),
-        MarketAsset::Quote => margin_position.fixed_quote_debt(&market.debt),
+        MarketAsset::Base => borrow_position.fixed_base_debt(&market.debt),
+        MarketAsset::Quote => borrow_position.fixed_quote_debt(&market.debt),
     }
 }
 
-fn position_collateral(margin_position: &MarginPosition, debt_asset: MarketAsset) -> u64 {
+fn position_collateral(borrow_position: &BorrowPosition, debt_asset: MarketAsset) -> u64 {
     match debt_asset {
-        MarketAsset::Base => margin_position.quote_collateral,
-        MarketAsset::Quote => margin_position.base_collateral,
+        MarketAsset::Base => borrow_position.quote_collateral,
+        MarketAsset::Quote => borrow_position.base_collateral,
     }
 }
 
@@ -529,13 +529,13 @@ pub(crate) fn liquidation_insurance_funding_bps(
 
 pub(crate) fn max_repay_to_restore_health(
     market: &Market,
-    margin_position: &MarginPosition,
+    borrow_position: &BorrowPosition,
     debt_asset: MarketAsset,
     total_penalty_bps: u16,
 ) -> Result<u64> {
     max_repay_to_restore_health_with_pricing(
         market,
-        margin_position,
+        borrow_position,
         debt_asset,
         total_penalty_bps,
         LiquidationPricing::PessimisticReserves,
@@ -544,19 +544,19 @@ pub(crate) fn max_repay_to_restore_health(
 
 fn max_repay_to_restore_health_with_pricing(
     market: &Market,
-    margin_position: &MarginPosition,
+    borrow_position: &BorrowPosition,
     debt_asset: MarketAsset,
     total_penalty_bps: u16,
     pricing: LiquidationPricing,
 ) -> Result<u64> {
-    let debt_before = position_debt(market, margin_position, debt_asset)?;
+    let debt_before = position_debt(market, borrow_position, debt_asset)?;
     let debt_decimals = match debt_asset {
         MarketAsset::Base => market.base_side.asset_decimals,
         MarketAsset::Quote => market.quote_side.asset_decimals,
     };
     let debt_value_nad = normalize_to_nad(debt_before, debt_decimals)?;
     let collateral_value_nad =
-        recognized_collateral_value_with_pricing(market, margin_position, debt_asset, pricing)?;
+        recognized_collateral_value_with_pricing(market, borrow_position, debt_asset, pricing)?;
     let target_bps = market.config.market_health_min_bps as u128;
     let penalty_multiplier_bps = (BPS_DENOMINATOR as u128)
         .checked_add(total_penalty_bps as u128)
@@ -588,7 +588,7 @@ fn max_repay_to_restore_health_with_pricing(
 
 fn recognized_collateral_value_with_pricing(
     market: &Market,
-    margin_position: &MarginPosition,
+    borrow_position: &BorrowPosition,
     debt_asset: MarketAsset,
     pricing: LiquidationPricing,
 ) -> Result<u128> {
@@ -598,12 +598,12 @@ fn recognized_collateral_value_with_pricing(
             match debt_asset {
                 MarketAsset::Base => market.collateral_value_nad(
                     MarketAsset::Quote,
-                    margin_position.recognized_quote_collateral_for_base_debt,
+                    borrow_position.recognized_quote_collateral_for_base_debt,
                     &risk,
                 ),
                 MarketAsset::Quote => market.collateral_value_nad(
                     MarketAsset::Base,
-                    margin_position.recognized_base_collateral_for_quote_debt,
+                    borrow_position.recognized_base_collateral_for_quote_debt,
                     &risk,
                 ),
             }
@@ -613,8 +613,8 @@ fn recognized_collateral_value_with_pricing(
         } => {
             let collateral_asset = debt_asset.opposite();
             let collateral_amount = match debt_asset {
-                MarketAsset::Base => margin_position.recognized_quote_collateral_for_base_debt,
-                MarketAsset::Quote => margin_position.recognized_base_collateral_for_quote_debt,
+                MarketAsset::Base => borrow_position.recognized_quote_collateral_for_base_debt,
+                MarketAsset::Quote => borrow_position.recognized_base_collateral_for_quote_debt,
             };
             collateral_value_at_reference_price_nad(
                 market,

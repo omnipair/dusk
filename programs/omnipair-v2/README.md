@@ -104,10 +104,10 @@ hLP checkpointing computes NAV, attempts the spot-based leverage adjustment, rec
 | Collateral vault | `market_collateral`, `market`, `asset_mint` | `deriveMarketCollateralVaultAddress` |
 | Swap fee vault | `market_fee`, `market`, `asset_mint` | `deriveMarketFeeVaultAddress` |
 | Interest vault | `market_interest`, `market`, `asset_mint` | `deriveMarketInterestVaultAddress` |
-| Margin position | `margin`, `market`, `owner` | `deriveMarginPositionAddress` |
+| Borrow position | `borrow_position_v2`, `market`, `position_id` | `deriveBorrowPositionAddress` |
 | Yield account | `yield`, `market`, `owner`, `asset_mint`, `token_kind` | `deriveYieldAccountAddress` |
 | Insurance vault | `insurance`, `market`, `asset_mint` | `deriveInsuranceAddress` |
-| Leverage position | `leverage_position_v2`, `market`, `owner`, `debt_mint` | derive from seed tuple |
+| Leverage position | `leverage_position_v2`, `market`, `position_id` | `deriveLeveragePositionAddress` |
 | Leverage delegation | `leverage_delegation_v2`, `leverage_position` | derive from seed tuple |
 | Leverage collateral vault | `leverage_collateral`, `market`, `collateral_mint` | derive from seed tuple |
 | LP token metadata | Metaplex `metadata`, token metadata program, `lp_mint` | `deriveTokenMetadataAddress` |

@@ -63,7 +63,7 @@ console.log("quote mint:", market.quoteMint.toBase58());
 ### Types
 
 - `OmnipairV2`: generated Anchor program type.
-- `Market`, `MarginPosition`, `YieldAccount`, `FutarchyAuthority`.
+- `Market`, `BorrowPosition`, `YieldAccount`, `FutarchyAuthority`.
 - Dusk event aliases including `MarketCreated`, `LiquidityAdded`,
   `LiquidityRemoved`, `HlpOpened`, `HlpClosed`, `HlpRebalanced`,
   `SwapExecuted`, `YieldClaimed`, and liquidation/protocol auction events.
@@ -85,10 +85,11 @@ console.log("quote mint:", market.quoteMint.toBase58());
 - `deriveMarketCollateralVaultAddress(market, collateralMint)`.
 - `deriveMarketFeeVaultAddress(market, feeMint)`.
 - `deriveMarketInterestVaultAddress(market, interestMint)`.
-- `deriveMarginPositionAddress(market, owner)`.
+- `deriveBorrowPositionAddress(market, positionId)`.
+- `deriveLeveragePositionAddress(market, positionId)`.
 - `deriveYieldAccountAddress(market, owner, assetMint, tokenKind)`.
 - `deriveInsuranceAddress(market, assetMint)`.
-- `deriveLiquidationAuctionAddress(market, marginPosition, debtMint)`.
+- `deriveLiquidationAuctionAddress(market, borrowPosition, debtMint)`.
 - Token-2022 transfer-hook validation and extra-account-meta helpers.
 
 ## ESM Compatibility

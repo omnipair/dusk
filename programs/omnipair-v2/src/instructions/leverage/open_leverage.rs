@@ -23,6 +23,7 @@ use crate::instructions::common::{token_account_credit, token_program_for_mint};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct OpenLeverageArgs {
+    pub position_id: Pubkey,
     pub debt_asset: u8,
     pub margin_amount: u64,
     pub multiplier_bps: u64,
@@ -61,8 +62,7 @@ pub struct OpenLeverage<'info> {
         seeds = [
             LEVERAGE_POSITION_SEED_PREFIX,
             market.key().as_ref(),
-            owner.key().as_ref(),
-            &[args.debt_asset],
+            args.position_id.as_ref(),
         ],
         bump
     )]
@@ -234,6 +234,7 @@ impl<'info> OpenLeverage<'info> {
             &mut ctx.accounts.leverage_position,
             owner_key,
             market_key,
+            args.position_id,
             debt_asset,
             margin_credit,
             args.multiplier_bps,

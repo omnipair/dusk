@@ -8,6 +8,7 @@ fn leverage_position_tracks_debt_asset_and_current_debt() {
     let mut position = LeveragePosition {
         owner: Pubkey::default(),
         market: Pubkey::default(),
+        position_id: Pubkey::default(),
         debt_asset: 0,
         collateral_amount: 0,
         margin_amount: 0,
@@ -22,6 +23,7 @@ fn leverage_position_tracks_debt_asset_and_current_debt() {
     position.initialize(
         owner,
         market,
+        Pubkey::new_unique(),
         MarketAsset::Quote,
         1_000,
         500,

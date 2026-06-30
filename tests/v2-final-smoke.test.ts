@@ -39,7 +39,7 @@ import {
   deriveMarketInterestVaultAddress,
   deriveMarketReserveVaultAddress,
   deriveLiquidationAuctionAddress,
-  deriveMarginPositionAddress,
+  deriveBorrowPositionAddress,
   deriveYieldAccountAddress,
   deriveYieldTransferHookValidationAddress,
   deriveTokenMetadataAddress,
@@ -1822,12 +1822,14 @@ describe("Omnipair V2 final model smoke", () => {
 
   it("deposits collateral, borrows fixed quote debt, repays, and withdraws idle collateral", async function () {
     const fixture = await addBalancedLiquidity(49);
-    const marginPosition = deriveMarginPositionAddress(fixture.market, payer.publicKey)[0];
+    const borrowPositionId = Keypair.generate().publicKey;
+    const borrowPosition = deriveBorrowPositionAddress(fixture.market, borrowPositionId)[0];
     const ownerBaseBefore = await getAccount(connection as any, fixture.ownerBaseAccount);
     const ownerQuoteBefore = await getAccount(connection as any, fixture.ownerQuoteAccount);
 
     const depositTx = await program.methods
       .depositCollateral({
+        positionId: borrowPositionId,
         depositAmount: new BN(10_000),
       })
       .accounts({
@@ -1836,7 +1838,7 @@ describe("Omnipair V2 final model smoke", () => {
         assetMint: fixture.baseMint,
         collateralVault: fixture.baseCollateralVault,
         ownerAssetAccount: fixture.ownerBaseAccount,
-        marginPosition,
+        borrowPosition,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
@@ -1861,7 +1863,7 @@ describe("Omnipair V2 final model smoke", () => {
         collateralAssetMint: fixture.baseMint,
         reserveVault: fixture.quoteReserveVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
-        marginPosition,
+        borrowPosition,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
@@ -1876,9 +1878,9 @@ describe("Omnipair V2 final model smoke", () => {
     expect(ownerBase.amount).to.equal(ownerBaseBefore.amount - 10_000n);
     expect(ownerQuote.amount).to.equal(ownerQuoteBefore.amount + 5_000n);
 
-    let positionAccount = svm.getAccount(marginPosition);
+    let positionAccount = svm.getAccount(borrowPosition);
     expect(positionAccount).to.not.equal(null);
-    let position = accountCoder.decode("MarginPosition", Buffer.from(positionAccount!.data)) as any;
+    let position = accountCoder.decode("BorrowPosition", Buffer.from(positionAccount!.data)) as any;
     expect(position.base_collateral.toNumber()).to.equal(10_000);
     expect(position.fixed_quote_shares.toNumber()).to.equal(5_000);
     expect(position.recognized_base_collateral_for_quote_debt.toNumber()).to.be.greaterThan(0);
@@ -1894,7 +1896,7 @@ describe("Omnipair V2 final model smoke", () => {
         reserveVault: fixture.quoteReserveVault,
         interestVault: fixture.quoteInterestVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
-        marginPosition,
+        borrowPosition,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
@@ -1916,7 +1918,7 @@ describe("Omnipair V2 final model smoke", () => {
         assetMint: fixture.baseMint,
         collateralVault: fixture.baseCollateralVault,
         ownerAssetAccount: fixture.ownerBaseAccount,
-        marginPosition,
+        borrowPosition,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
@@ -1931,9 +1933,9 @@ describe("Omnipair V2 final model smoke", () => {
     expect(ownerBase.amount).to.equal(ownerBaseBefore.amount);
     expect(ownerQuote.amount).to.equal(ownerQuoteBefore.amount);
 
-    positionAccount = svm.getAccount(marginPosition);
+    positionAccount = svm.getAccount(borrowPosition);
     expect(positionAccount).to.not.equal(null);
-    position = accountCoder.decode("MarginPosition", Buffer.from(positionAccount!.data)) as any;
+    position = accountCoder.decode("BorrowPosition", Buffer.from(positionAccount!.data)) as any;
     expect(position.base_collateral.toNumber()).to.equal(0);
     expect(position.fixed_quote_shares.toNumber()).to.equal(0);
     expect(position.recognized_base_collateral_for_quote_debt.toNumber()).to.equal(0);
@@ -1951,10 +1953,12 @@ describe("Omnipair V2 final model smoke", () => {
     const liquidationConfig = marketConfig();
     liquidationConfig.spotEmaDivergenceBps = 10_000;
     const fixture = await addBalancedLiquidity(54, liquidationConfig);
-    const marginPosition = deriveMarginPositionAddress(fixture.market, payer.publicKey)[0];
+    const borrowPositionId = Keypair.generate().publicKey;
+    const borrowPosition = deriveBorrowPositionAddress(fixture.market, borrowPositionId)[0];
 
     const depositTx = await program.methods
       .depositCollateral({
+        positionId: borrowPositionId,
         depositAmount: new BN(10_000),
       })
       .accounts({
@@ -1963,7 +1967,7 @@ describe("Omnipair V2 final model smoke", () => {
         assetMint: fixture.baseMint,
         collateralVault: fixture.baseCollateralVault,
         ownerAssetAccount: fixture.ownerBaseAccount,
-        marginPosition,
+        borrowPosition,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
@@ -1987,7 +1991,7 @@ describe("Omnipair V2 final model smoke", () => {
         collateralAssetMint: fixture.baseMint,
         reserveVault: fixture.quoteReserveVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
-        marginPosition,
+        borrowPosition,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
@@ -1998,10 +2002,10 @@ describe("Omnipair V2 final model smoke", () => {
 
     await swapBaseForQuote(fixture, [], 5_000, 8_500);
 
-    const positionBeforeAccount = svm.getAccount(marginPosition);
+    const positionBeforeAccount = svm.getAccount(borrowPosition);
     expect(positionBeforeAccount).to.not.equal(null);
     const positionBefore = accountCoder.decode(
-      "MarginPosition",
+      "BorrowPosition",
       Buffer.from(positionBeforeAccount!.data)
     ) as any;
     const baseCollateralBefore = positionBefore.base_collateral.toNumber();
@@ -2009,7 +2013,7 @@ describe("Omnipair V2 final model smoke", () => {
     const ownerBaseBefore = await getAccount(connection as any, fixture.ownerBaseAccount);
     const liquidationAuction = deriveLiquidationAuctionAddress(
       fixture.market,
-      marginPosition,
+      borrowPosition,
       fixture.quoteMint
     )[0];
 
@@ -2020,7 +2024,7 @@ describe("Omnipair V2 final model smoke", () => {
         market: fixture.market,
         debtAssetMint: fixture.quoteMint,
         collateralAssetMint: fixture.baseMint,
-        marginPosition,
+        borrowPosition,
         liquidationAuction,
         systemProgram: SystemProgram.programId,
       })
@@ -2048,7 +2052,7 @@ describe("Omnipair V2 final model smoke", () => {
         collateralInsuranceVault: fixture.baseInsuranceVault,
         bidderDebtAccount: fixture.ownerQuoteAccount,
         bidderCollateralAccount: fixture.ownerBaseAccount,
-        marginPosition,
+        borrowPosition,
         liquidationAuction,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -2060,10 +2064,10 @@ describe("Omnipair V2 final model smoke", () => {
     const ownerBaseAfter = await getAccount(connection as any, fixture.ownerBaseAccount);
     expect(ownerBaseAfter.amount > ownerBaseBefore.amount).to.equal(true);
 
-    const positionAfterAccount = svm.getAccount(marginPosition);
+    const positionAfterAccount = svm.getAccount(borrowPosition);
     expect(positionAfterAccount).to.not.equal(null);
     const positionAfter = accountCoder.decode(
-      "MarginPosition",
+      "BorrowPosition",
       Buffer.from(positionAfterAccount!.data)
     ) as any;
     expect(positionAfter.base_collateral.toNumber()).to.be.lessThan(baseCollateralBefore);

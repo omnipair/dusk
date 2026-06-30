@@ -90,7 +90,7 @@ pub const MARKET_FEE_VAULT_SEED_PREFIX: &[u8] = b"market_fee";
 #[constant]
 pub const MARKET_INTEREST_VAULT_SEED_PREFIX: &[u8] = b"market_interest";
 #[constant]
-pub const MARGIN_POSITION_SEED_PREFIX: &[u8] = b"margin";
+pub const BORROW_POSITION_SEED_PREFIX: &[u8] = b"borrow_position_v2";
 #[constant]
 pub const YIELD_ACCOUNT_SEED_PREFIX: &[u8] = b"yield";
 #[constant]

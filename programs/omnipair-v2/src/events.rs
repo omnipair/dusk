@@ -370,7 +370,7 @@ pub struct PositionLiquidated {
 #[event]
 pub struct LiquidationAuctionOpened {
     pub market: Pubkey,
-    pub margin_position: Pubkey,
+    pub borrow_position: Pubkey,
     pub borrower: Pubkey,
     pub debt_asset_mint: Pubkey,
     pub collateral_asset_mint: Pubkey,
@@ -387,7 +387,7 @@ pub struct LiquidationAuctionOpened {
 #[event]
 pub struct LiquidationAuctionSettled {
     pub market: Pubkey,
-    pub margin_position: Pubkey,
+    pub borrow_position: Pubkey,
     pub borrower: Pubkey,
     pub bidder: Pubkey,
     pub debt_asset_mint: Pubkey,

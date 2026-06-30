@@ -98,7 +98,45 @@ export type OmnipairV2 = {
         },
         {
           "name": "leveragePosition",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.position_id",
+                "account": "leveragePosition"
+              }
+            ]
+          }
         },
         {
           "name": "debtMint"
@@ -451,19 +489,31 @@ export type OmnipairV2 = {
           "writable": true
         },
         {
-          "name": "marginPosition",
+          "name": "borrowPosition",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  109,
-                  97,
+                  98,
+                  111,
                   114,
-                  103,
+                  114,
+                  111,
+                  119,
+                  95,
+                  112,
+                  111,
+                  115,
                   105,
-                  110
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
                 ]
               },
               {
@@ -472,7 +522,8 @@ export type OmnipairV2 = {
               },
               {
                 "kind": "account",
-                "path": "owner"
+                "path": "borrow_position.position_id",
+                "account": "borrowPosition"
               }
             ]
           }
@@ -861,7 +912,45 @@ export type OmnipairV2 = {
         },
         {
           "name": "leveragePosition",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.position_id",
+                "account": "leveragePosition"
+              }
+            ]
+          }
         },
         {
           "name": "debtMint"
@@ -1113,7 +1202,45 @@ export type OmnipairV2 = {
           }
         },
         {
-          "name": "leveragePosition"
+          "name": "leveragePosition",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.position_id",
+                "account": "leveragePosition"
+              }
+            ]
+          }
         },
         {
           "name": "leverageDelegation",
@@ -1292,7 +1419,45 @@ export type OmnipairV2 = {
         },
         {
           "name": "leveragePosition",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.position_id",
+                "account": "leveragePosition"
+              }
+            ]
+          }
         },
         {
           "name": "debtMint"
@@ -1499,7 +1664,45 @@ export type OmnipairV2 = {
         },
         {
           "name": "leveragePosition",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.position_id",
+                "account": "leveragePosition"
+              }
+            ]
+          }
         },
         {
           "name": "debtMint"
@@ -1699,19 +1902,31 @@ export type OmnipairV2 = {
           "writable": true
         },
         {
-          "name": "marginPosition",
+          "name": "borrowPosition",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  109,
-                  97,
+                  98,
+                  111,
                   114,
-                  103,
+                  114,
+                  111,
+                  119,
+                  95,
+                  112,
+                  111,
+                  115,
                   105,
-                  110
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
                 ]
               },
               {
@@ -1719,8 +1934,8 @@ export type OmnipairV2 = {
                 "path": "market"
               },
               {
-                "kind": "account",
-                "path": "owner"
+                "kind": "arg",
+                "path": "args.position_id"
               }
             ]
           }
@@ -2079,7 +2294,45 @@ export type OmnipairV2 = {
         },
         {
           "name": "leveragePosition",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.position_id",
+                "account": "leveragePosition"
+              }
+            ]
+          }
         },
         {
           "name": "debtMint"
@@ -3075,7 +3328,45 @@ export type OmnipairV2 = {
         },
         {
           "name": "leveragePosition",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.position_id",
+                "account": "leveragePosition"
+              }
+            ]
+          }
         },
         {
           "name": "debtMint"
@@ -3291,7 +3582,44 @@ export type OmnipairV2 = {
         },
         {
           "name": "leveragePosition",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "arg",
+                "path": "args.position_id"
+              }
+            ]
+          }
         },
         {
           "name": "debtMint"
@@ -3473,18 +3801,30 @@ export type OmnipairV2 = {
           "name": "collateralAssetMint"
         },
         {
-          "name": "marginPosition",
+          "name": "borrowPosition",
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  109,
-                  97,
+                  98,
+                  111,
                   114,
-                  103,
+                  114,
+                  111,
+                  119,
+                  95,
+                  112,
+                  111,
+                  115,
                   105,
-                  110
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
                 ]
               },
               {
@@ -3493,8 +3833,8 @@ export type OmnipairV2 = {
               },
               {
                 "kind": "account",
-                "path": "margin_position.owner",
-                "account": "marginPosition"
+                "path": "borrow_position.position_id",
+                "account": "borrowPosition"
               }
             ]
           }
@@ -3534,7 +3874,7 @@ export type OmnipairV2 = {
               },
               {
                 "kind": "account",
-                "path": "marginPosition"
+                "path": "borrowPosition"
               },
               {
                 "kind": "account",
@@ -3635,7 +3975,45 @@ export type OmnipairV2 = {
         },
         {
           "name": "leveragePosition",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.position_id",
+                "account": "leveragePosition"
+              }
+            ]
+          }
         },
         {
           "name": "debtMint"
@@ -3951,19 +4329,31 @@ export type OmnipairV2 = {
           "writable": true
         },
         {
-          "name": "marginPosition",
+          "name": "borrowPosition",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  109,
-                  97,
+                  98,
+                  111,
                   114,
-                  103,
+                  114,
+                  111,
+                  119,
+                  95,
+                  112,
+                  111,
+                  115,
                   105,
-                  110
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
                 ]
               },
               {
@@ -3972,7 +4362,8 @@ export type OmnipairV2 = {
               },
               {
                 "kind": "account",
-                "path": "owner"
+                "path": "borrow_position.position_id",
+                "account": "borrowPosition"
               }
             ]
           }
@@ -4617,19 +5008,31 @@ export type OmnipairV2 = {
           "writable": true
         },
         {
-          "name": "marginPosition",
+          "name": "borrowPosition",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  109,
-                  97,
+                  98,
+                  111,
                   114,
-                  103,
+                  114,
+                  111,
+                  119,
+                  95,
+                  112,
+                  111,
+                  115,
                   105,
-                  110
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
                 ]
               },
               {
@@ -4638,8 +5041,8 @@ export type OmnipairV2 = {
               },
               {
                 "kind": "account",
-                "path": "margin_position.owner",
-                "account": "marginPosition"
+                "path": "borrow_position.position_id",
+                "account": "borrowPosition"
               }
             ]
           }
@@ -4679,7 +5082,7 @@ export type OmnipairV2 = {
               },
               {
                 "kind": "account",
-                "path": "marginPosition"
+                "path": "borrowPosition"
               },
               {
                 "kind": "account",
@@ -5254,7 +5657,45 @@ export type OmnipairV2 = {
           }
         },
         {
-          "name": "leveragePosition"
+          "name": "leveragePosition",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.position_id",
+                "account": "leveragePosition"
+              }
+            ]
+          }
         },
         {
           "name": "leverageDelegation",
@@ -5701,19 +6142,31 @@ export type OmnipairV2 = {
           "writable": true
         },
         {
-          "name": "marginPosition",
+          "name": "borrowPosition",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  109,
-                  97,
+                  98,
+                  111,
                   114,
-                  103,
+                  114,
+                  111,
+                  119,
+                  95,
+                  112,
+                  111,
+                  115,
                   105,
-                  110
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
                 ]
               },
               {
@@ -5722,7 +6175,8 @@ export type OmnipairV2 = {
               },
               {
                 "kind": "account",
-                "path": "owner"
+                "path": "borrow_position.position_id",
+                "account": "borrowPosition"
               }
             ]
           }
@@ -5999,6 +6453,19 @@ export type OmnipairV2 = {
   ],
   "accounts": [
     {
+      "name": "borrowPosition",
+      "discriminator": [
+        243,
+        140,
+        20,
+        139,
+        32,
+        243,
+        114,
+        55
+      ]
+    },
+    {
       "name": "futarchyAuthority",
       "discriminator": [
         175,
@@ -6048,19 +6515,6 @@ export type OmnipairV2 = {
         174,
         24,
         141
-      ]
-    },
-    {
-      "name": "marginPosition",
-      "discriminator": [
-        176,
-        105,
-        128,
-        156,
-        137,
-        230,
-        126,
-        186
       ]
     },
     {
@@ -6981,8 +7435,8 @@ export type OmnipairV2 = {
     },
     {
       "code": 6094,
-      "name": "invalidMarginPosition",
-      "msg": "Invalid margin position"
+      "name": "invalidBorrowPosition",
+      "msg": "Invalid borrow position"
     },
     {
       "code": 6095,
@@ -7163,6 +7617,58 @@ export type OmnipairV2 = {
           {
             "name": "minHealthBps",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "borrowPosition",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "positionId",
+            "type": "pubkey"
+          },
+          {
+            "name": "baseCollateral",
+            "type": "u64"
+          },
+          {
+            "name": "quoteCollateral",
+            "type": "u64"
+          },
+          {
+            "name": "recognizedBaseCollateralForQuoteDebt",
+            "type": "u64"
+          },
+          {
+            "name": "recognizedQuoteCollateralForBaseDebt",
+            "type": "u64"
+          },
+          {
+            "name": "fixedBaseShares",
+            "type": "u128"
+          },
+          {
+            "name": "fixedQuoteShares",
+            "type": "u128"
+          },
+          {
+            "name": "riskEpoch",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }
@@ -7403,6 +7909,10 @@ export type OmnipairV2 = {
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "positionId",
+            "type": "pubkey"
+          },
           {
             "name": "depositAmount",
             "type": "u64"
@@ -8050,6 +8560,10 @@ export type OmnipairV2 = {
             "type": "pubkey"
           },
           {
+            "name": "positionId",
+            "type": "pubkey"
+          },
+          {
             "name": "debtAsset",
             "type": "u8"
           },
@@ -8370,7 +8884,7 @@ export type OmnipairV2 = {
             "type": "pubkey"
           },
           {
-            "name": "marginPosition",
+            "name": "borrowPosition",
             "type": "pubkey"
           },
           {
@@ -8450,7 +8964,7 @@ export type OmnipairV2 = {
             "type": "pubkey"
           },
           {
-            "name": "marginPosition",
+            "name": "borrowPosition",
             "type": "pubkey"
           },
           {
@@ -8514,7 +9028,7 @@ export type OmnipairV2 = {
             "type": "pubkey"
           },
           {
-            "name": "marginPosition",
+            "name": "borrowPosition",
             "type": "pubkey"
           },
           {
@@ -8704,54 +9218,6 @@ export type OmnipairV2 = {
                 "name": "marketEventMetadata"
               }
             }
-          }
-        ]
-      }
-    },
-    {
-      "name": "marginPosition",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "owner",
-            "type": "pubkey"
-          },
-          {
-            "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "baseCollateral",
-            "type": "u64"
-          },
-          {
-            "name": "quoteCollateral",
-            "type": "u64"
-          },
-          {
-            "name": "recognizedBaseCollateralForQuoteDebt",
-            "type": "u64"
-          },
-          {
-            "name": "recognizedQuoteCollateralForBaseDebt",
-            "type": "u64"
-          },
-          {
-            "name": "fixedBaseShares",
-            "type": "u128"
-          },
-          {
-            "name": "fixedQuoteShares",
-            "type": "u128"
-          },
-          {
-            "name": "riskEpoch",
-            "type": "u64"
-          },
-          {
-            "name": "bump",
-            "type": "u8"
           }
         ]
       }
@@ -9563,6 +10029,10 @@ export type OmnipairV2 = {
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "positionId",
+            "type": "pubkey"
+          },
           {
             "name": "debtAsset",
             "type": "u8"
@@ -10803,6 +11273,11 @@ export type OmnipairV2 = {
   ],
   "constants": [
     {
+      "name": "borrowPositionSeedPrefix",
+      "type": "bytes",
+      "value": "[98, 111, 114, 114, 111, 119, 95, 112, 111, 115, 105, 116, 105, 111, 110, 95, 118, 50]"
+    },
+    {
       "name": "bpsDenominator",
       "type": "u16",
       "value": "10000"
@@ -10881,11 +11356,6 @@ export type OmnipairV2 = {
       "name": "liquidationPenaltyBps",
       "type": "u16",
       "value": "300"
-    },
-    {
-      "name": "marginPositionSeedPrefix",
-      "type": "bytes",
-      "value": "[109, 97, 114, 103, 105, 110]"
     },
     {
       "name": "marketCollateralVaultSeedPrefix",

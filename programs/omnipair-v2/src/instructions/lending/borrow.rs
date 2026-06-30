@@ -10,7 +10,7 @@ use crate::{
     events::{MarketDebtUpdated, MarketEventMetadata, MarketHealthUpdated},
     generate_market_seeds,
     shared::token::transfer_from_vault_to_user,
-    state::{FutarchyAuthority, MarginPosition, Market},
+    state::{BorrowPosition, FutarchyAuthority, Market},
 };
 
 use crate::instructions::common::{
@@ -64,13 +64,13 @@ pub struct Borrow<'info> {
     #[account(
         mut,
         seeds = [
-            MARGIN_POSITION_SEED_PREFIX,
+            BORROW_POSITION_SEED_PREFIX,
             market.key().as_ref(),
-            owner.key().as_ref(),
+            borrow_position.position_id.as_ref(),
         ],
-        bump = margin_position.bump
+        bump = borrow_position.bump
     )]
-    pub margin_position: Box<Account<'info, MarginPosition>>,
+    pub borrow_position: Box<Account<'info, BorrowPosition>>,
 
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
@@ -95,7 +95,7 @@ impl<'info> Borrow<'info> {
             &self.owner_debt_account,
         )?;
         require_supported_asset_mint(&self.debt_asset_mint)?;
-        self.margin_position
+        self.borrow_position
             .assert_position(self.owner.key(), self.market.key())?;
         Ok(())
     }
@@ -116,7 +116,7 @@ impl<'info> Borrow<'info> {
         let borrow_asset = ctx.accounts.market.asset_for_mint(debt_asset_mint_key)?;
 
         let debt_receipt = ctx.accounts.market.borrow(
-            &mut ctx.accounts.margin_position,
+            &mut ctx.accounts.borrow_position,
             borrow_asset,
             args.borrow_amount,
             args.min_health_bps,

@@ -284,8 +284,8 @@ pub enum ErrorCode {
     #[msg("Market health is insufficient")]
     InsufficientMarketHealth,
 
-    #[msg("Invalid margin position")]
-    InvalidMarginPosition,
+    #[msg("Invalid borrow position")]
+    InvalidBorrowPosition,
 
     #[msg("Recognized collateral is insufficient")]
     InsufficientRecognizedCollateral,

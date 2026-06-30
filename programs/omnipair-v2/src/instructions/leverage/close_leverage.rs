@@ -72,8 +72,7 @@ pub struct CloseLeverage<'info> {
         seeds = [
             LEVERAGE_POSITION_SEED_PREFIX,
             market.key().as_ref(),
-            position_owner.key().as_ref(),
-            &[leverage_position.debt_asset],
+            leverage_position.position_id.as_ref(),
         ],
         bump = leverage_position.bump,
         constraint = leverage_position.market == market.key() @ ErrorCode::InvalidLeveragePosition,

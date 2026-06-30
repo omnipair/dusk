@@ -45,8 +45,7 @@ pub struct CreateLeverageDelegation<'info> {
         seeds = [
             LEVERAGE_POSITION_SEED_PREFIX,
             market.key().as_ref(),
-            owner.key().as_ref(),
-            &[args.debt_asset],
+            leverage_position.position_id.as_ref(),
         ],
         bump = leverage_position.bump,
         constraint = leverage_position.owner == owner.key() @ ErrorCode::InvalidLeveragePosition,
@@ -91,8 +90,7 @@ pub struct UpdateLeverageDelegation<'info> {
         seeds = [
             LEVERAGE_POSITION_SEED_PREFIX,
             market.key().as_ref(),
-            owner.key().as_ref(),
-            &[args.debt_asset],
+            leverage_position.position_id.as_ref(),
         ],
         bump = leverage_position.bump,
         constraint = leverage_position.owner == owner.key() @ ErrorCode::InvalidLeveragePosition,

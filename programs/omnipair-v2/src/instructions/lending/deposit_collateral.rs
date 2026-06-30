@@ -9,7 +9,7 @@ use crate::{
     errors::ErrorCode,
     events::{MarketCollateralDeposited, MarketEventMetadata},
     shared::{account::get_size_with_discriminator, token::transfer_from_user_to_vault},
-    state::{MarginPosition, Market},
+    state::{BorrowPosition, Market},
 };
 
 use crate::instructions::common::{require_supported_asset_mint, token_program_for_mint};
@@ -18,6 +18,7 @@ use super::common::validate_collateral_accounts;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct DepositCollateralArgs {
+    pub position_id: Pubkey,
     pub deposit_amount: u64,
 }
 
@@ -51,15 +52,15 @@ pub struct DepositCollateral<'info> {
     #[account(
         init_if_needed,
         payer = owner,
-        space = get_size_with_discriminator::<MarginPosition>(),
+        space = get_size_with_discriminator::<BorrowPosition>(),
         seeds = [
-            MARGIN_POSITION_SEED_PREFIX,
+            BORROW_POSITION_SEED_PREFIX,
             market.key().as_ref(),
-            owner.key().as_ref(),
+            args.position_id.as_ref(),
         ],
         bump
     )]
-    pub margin_position: Box<Account<'info, MarginPosition>>,
+    pub borrow_position: Box<Account<'info, BorrowPosition>>,
 
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
@@ -83,8 +84,8 @@ impl<'info> DepositCollateral<'info> {
             &self.owner_asset_account,
         )?;
         require_supported_asset_mint(&self.asset_mint)?;
-        if self.margin_position.is_initialized() {
-            self.margin_position
+        if self.borrow_position.is_initialized() {
+            self.borrow_position
                 .assert_position(self.owner.key(), self.market.key())?;
         }
         Ok(())
@@ -105,15 +106,16 @@ impl<'info> DepositCollateral<'info> {
         let asset_mint_key = ctx.accounts.asset_mint.key();
         let market_asset = ctx.accounts.market.asset_for_mint(asset_mint_key)?;
 
-        if !ctx.accounts.margin_position.is_initialized() {
-            ctx.accounts.margin_position.initialize(
+        if !ctx.accounts.borrow_position.is_initialized() {
+            ctx.accounts.borrow_position.initialize(
                 owner_key,
                 market_key,
-                ctx.bumps.margin_position,
+                args.position_id,
+                ctx.bumps.borrow_position,
             );
         }
         ctx.accounts
-            .margin_position
+            .borrow_position
             .assert_position(owner_key, market_key)?;
 
         let collateral_balance_before = ctx.accounts.collateral_vault.amount;
@@ -142,7 +144,7 @@ impl<'info> DepositCollateral<'info> {
 
         let collateral_receipt = ctx
             .accounts
-            .margin_position
+            .borrow_position
             .deposit_collateral(market_asset, collateral_credit)?;
 
         emit_cpi!(MarketCollateralDeposited {

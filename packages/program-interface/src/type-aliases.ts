@@ -2,7 +2,7 @@ import type { IdlAccounts, IdlEvents } from "@coral-xyz/anchor";
 import type { OmnipairV2 } from "./types_v2.js";
 
 export type Market = IdlAccounts<OmnipairV2>["market"];
-export type MarginPosition = IdlAccounts<OmnipairV2>["marginPosition"];
+export type BorrowPosition = IdlAccounts<OmnipairV2>["borrowPosition"];
 export type YieldAccount = IdlAccounts<OmnipairV2>["yieldAccount"];
 export type FutarchyAuthority = IdlAccounts<OmnipairV2>["futarchyAuthority"];
 export type V2FutarchyAuthority = FutarchyAuthority;

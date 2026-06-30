@@ -31,7 +31,7 @@ fn valid_config() -> MarketConfig {
     }
 }
 
-fn liquidatable_quote_debt_position() -> (Market, MarginPosition) {
+fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
     let base_mint = Pubkey::new_unique();
     let quote_mint = Pubkey::new_unique();
     let mut base_side = MarketSide {
@@ -87,9 +87,10 @@ fn liquidatable_quote_debt_position() -> (Market, MarginPosition) {
         reduce_only: false,
         bump: 255,
     };
-    let margin_position = MarginPosition {
+    let borrow_position = BorrowPosition {
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
+        position_id: Pubkey::new_unique(),
         base_collateral: 109,
         quote_collateral: 0,
         recognized_base_collateral_for_quote_debt: 109,
@@ -99,7 +100,7 @@ fn liquidatable_quote_debt_position() -> (Market, MarginPosition) {
         risk_epoch: 0,
         bump: 255,
     };
-    (market, margin_position)
+    (market, borrow_position)
 }
 
 #[test]
@@ -126,12 +127,12 @@ fn insurance_funding_preserves_room_to_restore_health() {
 
 #[test]
 fn max_repay_caps_liquidation_to_restore_target_health() {
-    let (market, margin_position) = liquidatable_quote_debt_position();
+    let (market, borrow_position) = liquidatable_quote_debt_position();
     let incentive_bps = liquidation_incentive_bps(10_900, 11_000);
     let insurance_bps = liquidation_insurance_funding_bps(incentive_bps, &market.config).unwrap();
     let cap = max_repay_to_restore_health(
         &market,
-        &margin_position,
+        &borrow_position,
         MarketAsset::Quote,
         incentive_bps + insurance_bps,
     )
@@ -170,13 +171,13 @@ fn auction_pricing_uses_reference_price_for_collateral_seizure() {
 
 #[test]
 fn auction_restore_cap_uses_reference_price() {
-    let (market, margin_position) = liquidatable_quote_debt_position();
+    let (market, borrow_position) = liquidatable_quote_debt_position();
     let pricing = LiquidationPricing::ReferencePrice {
         debt_per_collateral_price_nad: NAD as u64,
     };
     let cap = max_repay_to_restore_health_with_pricing(
         &market,
-        &margin_position,
+        &borrow_position,
         MarketAsset::Quote,
         300,
         pricing,
@@ -188,20 +189,20 @@ fn auction_restore_cap_uses_reference_price() {
 
 #[test]
 fn liquidation_rejects_repay_above_restore_cap() {
-    let (mut market, mut margin_position) = liquidatable_quote_debt_position();
+    let (mut market, mut borrow_position) = liquidatable_quote_debt_position();
     let incentive_bps = liquidation_incentive_bps(10_900, 11_000);
     let insurance_bps = liquidation_insurance_funding_bps(incentive_bps, &market.config).unwrap();
     let cap = max_repay_to_restore_health(
         &market,
-        &margin_position,
+        &borrow_position,
         MarketAsset::Quote,
         incentive_bps + insurance_bps,
     )
     .unwrap();
 
-    let terms = liquidation_terms(&market, &margin_position, MarketAsset::Quote).unwrap();
+    let terms = liquidation_terms(&market, &borrow_position, MarketAsset::Quote).unwrap();
     let err = Liquidation::new(MarketAsset::Quote, cap + 1, 0, 0, 0, terms)
-        .apply(&mut market, &mut margin_position)
+        .apply(&mut market, &mut borrow_position)
         .unwrap_err();
 
     assert_eq!(
