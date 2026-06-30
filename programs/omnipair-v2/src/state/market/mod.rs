@@ -881,8 +881,6 @@ impl Market {
         self.quote_side.fees.assert_backed()?;
         self.assert_virtual_reserve_invariant(MarketAsset::Base)?;
         self.assert_virtual_reserve_invariant(MarketAsset::Quote)?;
-        self.assert_hlp_synthetic_backing(MarketAsset::Base)?;
-        self.assert_hlp_synthetic_backing(MarketAsset::Quote)?;
         Ok(())
     }
 
@@ -921,31 +919,6 @@ impl Market {
         (self.base_hlp_vault.hlp_live_reserve(asset) as u128)
             .checked_add(self.quote_hlp_vault.hlp_live_reserve(asset) as u128)
             .ok_or(ErrorCode::MarketMathOverflow.into())
-    }
-
-    pub fn assert_hlp_synthetic_backing(&self, target_asset: MarketAsset) -> Result<()> {
-        let borrowed_asset = target_asset.opposite();
-        let (vault, borrow_index_nad) = match target_asset {
-            MarketAsset::Base => (&self.base_hlp_vault, self.debt.quote_borrow_index_nad),
-            MarketAsset::Quote => (&self.quote_hlp_vault, self.debt.base_borrow_index_nad),
-        };
-        let target_hlp_live = vault.hlp_live_reserve(target_asset);
-        let borrowed_hlp_live = vault.hlp_live_reserve(borrowed_asset);
-        let target_value_in_borrowed = if target_hlp_live == 0 {
-            0
-        } else {
-            self.spot_value_in_opposite(target_asset, target_hlp_live)? as u128
-        };
-        let synthetic_value_in_borrowed = target_value_in_borrowed
-            .checked_add(borrowed_hlp_live as u128)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let debt_value = Debt::shares_to_debt(vault.debt_shares, borrow_index_nad)?;
-        require_gte!(
-            debt_value,
-            synthetic_value_in_borrowed,
-            ErrorCode::BrokenInvariant
-        );
-        Ok(())
     }
 
     pub fn spot_value_in_opposite(&self, asset: MarketAsset, amount: u64) -> Result<u64> {
