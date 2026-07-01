@@ -1997,7 +1997,8 @@ describe("Omnipair V2 final model smoke", () => {
       .transaction();
     await connection.sendTransaction(borrowTx, [payer]);
 
-    await swapBaseForQuote(fixture, [], 5_000, 8_500);
+    await swapBaseForQuote(fixture, [], 20_000, 30_000);
+    svm.warpToSlot(10_000n);
 
     const positionBeforeAccount = svm.getAccount(borrowPosition);
     expect(positionBeforeAccount).to.not.equal(null);
@@ -2018,7 +2019,7 @@ describe("Omnipair V2 final model smoke", () => {
       .accounts({
         market: fixture.market,
         futarchyAuthority,
-        bidder: payer.publicKey,
+        liquidator: payer.publicKey,
         debtAssetMint: fixture.quoteMint,
         collateralAssetMint: fixture.baseMint,
         reserveVault: fixture.quoteReserveVault,

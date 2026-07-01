@@ -234,8 +234,9 @@ impl Liquidation {
         }
 
         borrow_position.record_risk_update()?;
-        market.recompute_market_health_from_risk()?;
-        market.assert_risk_circuit_breakers()?;
+        // The repay-and-seize path updates source-of-truth debt/collateral but
+        // does not move the AMM spot/k coordinate. Cached aggregate health is
+        // refreshed by the next instruction's update hook.
         Ok(LiquidationReceipt {
             repaid_amount: self.repay_credit,
             interest_paid,

@@ -139,9 +139,26 @@ pub fn rebalance_hlp_vaults(
     market: &mut Market,
     current_slot: u64,
 ) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
+    if market.base_hlp_vault.hlp_supply == 0
+        && market.base_hlp_vault.pending_rebalance == 0
+        && market.quote_hlp_vault.hlp_supply == 0
+        && market.quote_hlp_vault.pending_rebalance == 0
+    {
+        return Ok((
+            empty_hlp_rebalance_receipt(MarketAsset::Base),
+            empty_hlp_rebalance_receipt(MarketAsset::Quote),
+        ));
+    }
     let base_receipt = rebalance_one_hlp(market, MarketAsset::Base, current_slot)?;
     let quote_receipt = rebalance_one_hlp(market, MarketAsset::Quote, current_slot)?;
     Ok((base_receipt, quote_receipt))
+}
+
+fn empty_hlp_rebalance_receipt(target_asset: MarketAsset) -> HlpRebalanceReceipt {
+    HlpRebalanceReceipt {
+        target_asset,
+        ..HlpRebalanceReceipt::default()
+    }
 }
 
 fn deposit_base_hlp(

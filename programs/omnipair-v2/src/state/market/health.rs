@@ -17,22 +17,26 @@ impl Market {
     pub fn recompute_market_health_from_risk(&mut self) -> Result<()> {
         let effective_base_debt_nad = self.effective_base_debt_nad()?;
         let effective_quote_debt_nad = self.effective_quote_debt_nad()?;
-        let quote_collateral_value_for_base_debt_nad = self
-            .quote_collateral_value_for_base_debt_nad(
-                self.debt.recognized_quote_collateral_for_base_debt,
-            )?;
-        let base_collateral_value_for_quote_debt_nad = self
-            .base_collateral_value_for_quote_debt_nad(
-                self.debt.recognized_base_collateral_for_quote_debt,
-            )?;
-        let base_debt_health_bps = health_bps(
-            quote_collateral_value_for_base_debt_nad,
-            effective_base_debt_nad,
-        )?;
-        let quote_debt_health_bps = health_bps(
-            base_collateral_value_for_quote_debt_nad,
-            effective_quote_debt_nad,
-        )?;
+        let base_debt_health_bps = if effective_base_debt_nad == 0 {
+            u64::MAX
+        } else {
+            health_bps(
+                self.quote_collateral_value_for_base_debt_nad(
+                    self.debt.recognized_quote_collateral_for_base_debt,
+                )?,
+                effective_base_debt_nad,
+            )?
+        };
+        let quote_debt_health_bps = if effective_quote_debt_nad == 0 {
+            u64::MAX
+        } else {
+            health_bps(
+                self.base_collateral_value_for_quote_debt_nad(
+                    self.debt.recognized_base_collateral_for_quote_debt,
+                )?,
+                effective_quote_debt_nad,
+            )?
+        };
         self.health = MarketHealth {
             recognized_base_collateral_for_quote_debt: self
                 .debt
@@ -223,12 +227,21 @@ impl Market {
         debt_asset: MarketAsset,
     ) -> Result<u64> {
         let risk = self.current_risk()?;
+        self.position_health_bps_with_risk(borrow_position, debt_asset, &risk)
+    }
+
+    pub fn position_health_bps_with_risk(
+        &self,
+        borrow_position: &BorrowPosition,
+        debt_asset: MarketAsset,
+        risk: &Risk,
+    ) -> Result<u64> {
         match debt_asset {
             MarketAsset::Base => health_bps(
                 self.collateral_value_nad(
                     MarketAsset::Quote,
                     borrow_position.recognized_quote_collateral_for_base_debt,
-                    &risk,
+                    risk,
                 )?,
                 normalize_to_nad(
                     borrow_position.fixed_base_debt(&self.debt)?,
@@ -239,7 +252,7 @@ impl Market {
                 self.collateral_value_nad(
                     MarketAsset::Base,
                     borrow_position.recognized_base_collateral_for_quote_debt,
-                    &risk,
+                    risk,
                 )?,
                 normalize_to_nad(
                     borrow_position.fixed_quote_debt(&self.debt)?,
@@ -421,7 +434,11 @@ impl Market {
         )
     }
 
-    fn daily_limit_for_side(&self, market_asset: MarketAsset, limit_bps: u16) -> Result<u64> {
+    pub(crate) fn daily_limit_for_side(
+        &self,
+        market_asset: MarketAsset,
+        limit_bps: u16,
+    ) -> Result<u64> {
         let (liquidity_ema, asset_decimals) = match market_asset {
             MarketAsset::Base => (self.risk.base_liquidity_ema, self.base_side.asset_decimals),
             MarketAsset::Quote => (

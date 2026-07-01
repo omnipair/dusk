@@ -1,4 +1,5 @@
-use anchor_lang::prelude::*;
+use anchor_lang::solana_program::log::sol_log_data;
+use anchor_lang::{prelude::*, Discriminator};
 use anchor_spl::{
     token::Token,
     token_interface::{Mint, Token2022, TokenAccount},
@@ -7,7 +8,7 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{MarketEventMetadata, PositionLiquidated},
+    events::PositionLiquidated,
     generate_market_seeds,
     shared::token::{
         get_transfer_fee, transfer_from_user_to_vault, transfer_from_vault_to_user,
@@ -332,22 +333,78 @@ impl<'info> LiquidateBorrowPosition<'info> {
             );
         }
 
-        emit!(PositionLiquidated {
-            market: market_key,
-            borrow_position: borrow_position_key,
-            borrower: borrower_key,
-            liquidator: liquidator_key,
-            debt_asset_mint: debt_asset_mint_key,
-            collateral_asset_mint: collateral_asset_mint_key,
-            repaid_amount: liquidation_receipt.repaid_amount,
-            collateral_seized: liquidation_receipt.collateral_seized,
-            collateral_to_liquidator: liquidation_receipt.collateral_to_liquidator,
-            insurance_funded: liquidation_receipt.insurance_funded,
-            insurance_drawn: liquidation_receipt.insurance_drawn,
-            socialized_loss: liquidation_receipt.socialized_loss,
-            remaining_debt: liquidation_receipt.remaining_debt,
-            metadata: MarketEventMetadata::new(liquidator_key, market_key)?,
-        });
+        emit_position_liquidated_low_heap(
+            market_key,
+            borrow_position_key,
+            borrower_key,
+            liquidator_key,
+            debt_asset_mint_key,
+            collateral_asset_mint_key,
+            liquidation_receipt.repaid_amount,
+            liquidation_receipt.collateral_seized,
+            liquidation_receipt.collateral_to_liquidator,
+            liquidation_receipt.insurance_funded,
+            liquidation_receipt.insurance_drawn,
+            liquidation_receipt.socialized_loss,
+            liquidation_receipt.remaining_debt,
+        )?;
         Ok(())
     }
+}
+
+fn emit_position_liquidated_low_heap(
+    market: Pubkey,
+    borrow_position: Pubkey,
+    borrower: Pubkey,
+    liquidator: Pubkey,
+    debt_asset_mint: Pubkey,
+    collateral_asset_mint: Pubkey,
+    repaid_amount: u64,
+    collateral_seized: u64,
+    collateral_to_liquidator: u64,
+    insurance_funded: u64,
+    insurance_drawn: u64,
+    socialized_loss: u64,
+    remaining_debt: u128,
+) -> Result<()> {
+    const POSITION_LIQUIDATED_EVENT_LEN: usize = 8 + (6 * 32) + (6 * 8) + 16 + 32 + 32 + 8;
+
+    let mut data = [0u8; POSITION_LIQUIDATED_EVENT_LEN];
+    let mut offset = 0usize;
+    data[offset..offset + 8].copy_from_slice(PositionLiquidated::DISCRIMINATOR);
+    offset += 8;
+    data[offset..offset + 32].copy_from_slice(market.as_ref());
+    offset += 32;
+    data[offset..offset + 32].copy_from_slice(borrow_position.as_ref());
+    offset += 32;
+    data[offset..offset + 32].copy_from_slice(borrower.as_ref());
+    offset += 32;
+    data[offset..offset + 32].copy_from_slice(liquidator.as_ref());
+    offset += 32;
+    data[offset..offset + 32].copy_from_slice(debt_asset_mint.as_ref());
+    offset += 32;
+    data[offset..offset + 32].copy_from_slice(collateral_asset_mint.as_ref());
+    offset += 32;
+    data[offset..offset + 8].copy_from_slice(&repaid_amount.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&collateral_seized.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&collateral_to_liquidator.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&insurance_funded.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&insurance_drawn.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&socialized_loss.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 16].copy_from_slice(&remaining_debt.to_le_bytes());
+    offset += 16;
+    data[offset..offset + 32].copy_from_slice(liquidator.as_ref());
+    offset += 32;
+    data[offset..offset + 32].copy_from_slice(market.as_ref());
+    offset += 32;
+    data[offset..offset + 8].copy_from_slice(&Clock::get()?.slot.to_le_bytes());
+
+    sol_log_data(&[&data]);
+    Ok(())
 }
