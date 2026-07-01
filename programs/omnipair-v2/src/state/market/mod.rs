@@ -79,14 +79,19 @@ pub struct SwapReceipt {
 }
 
 impl DebtReceipt {
-    fn from_market(market: &Market, debt_delta: i64, interest_paid: u64) -> Result<Self> {
+    fn from_market(
+        market: &Market,
+        debt_delta: i64,
+        interest_paid: u64,
+        health: &MarketHealth,
+    ) -> Result<Self> {
         Ok(Self {
             debt_delta,
             interest_paid,
             fixed_base_debt: market.debt.fixed_base_debt()?,
             fixed_quote_debt: market.debt.fixed_quote_debt()?,
-            base_debt_health_bps: market.health.base_debt_health_bps,
-            quote_debt_health_bps: market.health.quote_debt_health_bps,
+            base_debt_health_bps: health.base_debt_health_bps,
+            quote_debt_health_bps: health.quote_debt_health_bps,
         })
     }
 }
@@ -170,7 +175,6 @@ pub struct Market {
     pub base_hlp_vault: HlpVault,
     pub quote_hlp_vault: HlpVault,
     pub risk: Risk,
-    pub health: MarketHealth,
     pub insurance: Insurance,
     pub pending_config: PendingConfigChange,
     pub pending_operator: PendingAuthorityChange,
@@ -238,7 +242,6 @@ impl Market {
                 last_snapshot_slot: current_slot,
                 ..Risk::default()
             },
-            health: MarketHealth::default(),
             insurance: Insurance::default(),
             pending_config: PendingConfigChange::default(),
             pending_operator: PendingAuthorityChange::default(),
@@ -284,7 +287,7 @@ impl Market {
         self.accrue_interest_to_slot(current_slot)?;
         if self.base_side.reserves.live_reserve > 0 && self.quote_side.reserves.live_reserve > 0 {
             self.checkpoint_hlp_vaults(current_slot)?;
-            self.refresh_market_health()?;
+            self.refresh_risk()?;
         }
         Ok(())
     }
@@ -489,7 +492,7 @@ impl Market {
             }
         }
         borrow_position.record_risk_update()?;
-        self.refresh_market_health()?;
+        self.refresh_risk()?;
         self.assert_risk_circuit_breakers()?;
 
         Ok(CollateralReceipt {
@@ -563,8 +566,8 @@ impl Market {
             .add_margin_principal(borrow_asset, borrow_amount)?;
         let risk = self.risk;
         sync_borrow_recognition(self, borrow_position, borrow_asset, &risk)?;
-        self.recompute_market_health_from_risk()?;
-        self.assert_market_health()?;
+        let market_health = self.market_health()?;
+        self.assert_market_health_snapshot(&market_health)?;
         self.assert_risk_circuit_breakers()?;
         // Recognition was just reconciled against the current debt cap. Reuse
         // the refreshed risk snapshot instead of recomputing the same cap/health
@@ -573,7 +576,7 @@ impl Market {
             self.position_health_bps_with_risk(borrow_position, borrow_asset, &self.risk)?;
         require_gte!(health, min_health_bps, ErrorCode::InsufficientMarketHealth);
         borrow_position.record_risk_update()?;
-        DebtReceipt::from_market(self, debt_delta, 0)
+        DebtReceipt::from_market(self, debt_delta, 0, &market_health)
     }
 
     pub fn repay(
@@ -687,9 +690,10 @@ impl Market {
             }
         }
         borrow_position.record_risk_update()?;
-        self.refresh_market_health()?;
+        self.refresh_risk()?;
         self.assert_risk_circuit_breakers()?;
-        DebtReceipt::from_market(self, debt_delta, interest_paid)
+        let market_health = self.market_health()?;
+        DebtReceipt::from_market(self, debt_delta, interest_paid, &market_health)
     }
 
     pub fn add_liquidity(

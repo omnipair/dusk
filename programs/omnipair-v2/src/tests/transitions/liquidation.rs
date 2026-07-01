@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     constants::{BPS_DENOMINATOR, MARKET_VERSION, NAD},
     state::{
-        Debt, HlpVault, Insurance, MarketConfig, MarketHealth, MarketSide, PendingAuthorityChange,
+        Debt, HlpVault, Insurance, MarketConfig, MarketSide, PendingAuthorityChange,
         PendingConfigChange, Reserves, Risk,
     },
 };
@@ -75,7 +75,6 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
         base_hlp_vault: HlpVault::default(),
         quote_hlp_vault: HlpVault::default(),
         risk: Risk::default(),
-        health: MarketHealth::default(),
         insurance: Insurance::default(),
         pending_config: PendingConfigChange::default(),
         pending_operator: PendingAuthorityChange::default(),

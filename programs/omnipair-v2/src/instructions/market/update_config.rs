@@ -64,18 +64,17 @@ impl<'info> UpdateMarketConfig<'info> {
             protocol_fee_bps: market.config.protocol_fee_bps,
             metadata: MarketEventMetadata::new(signer, market.key())?,
         });
+        let health = market.market_health()?;
         emit_cpi!(MarketHealthUpdated {
             market: market.key(),
-            recognized_base_collateral_for_quote_debt: market
-                .health
+            recognized_base_collateral_for_quote_debt: health
                 .recognized_base_collateral_for_quote_debt,
-            recognized_quote_collateral_for_base_debt: market
-                .health
+            recognized_quote_collateral_for_base_debt: health
                 .recognized_quote_collateral_for_base_debt,
-            effective_base_debt_nad: market.health.effective_base_debt_nad,
-            effective_quote_debt_nad: market.health.effective_quote_debt_nad,
-            base_debt_health_bps: market.health.base_debt_health_bps,
-            quote_debt_health_bps: market.health.quote_debt_health_bps,
+            effective_base_debt_nad: health.effective_base_debt_nad,
+            effective_quote_debt_nad: health.effective_quote_debt_nad,
+            base_debt_health_bps: health.base_debt_health_bps,
+            quote_debt_health_bps: health.quote_debt_health_bps,
             metadata: MarketEventMetadata::new(signer, market.key())?,
         });
 
@@ -87,7 +86,6 @@ fn apply_config_update(market: &mut Market, config: MarketConfig) -> Result<()> 
     config.validate()?;
     let previous_config = market.config;
     let previous_risk = market.risk;
-    let previous_health = market.health;
     let previous_last_update_slot = market.last_update_slot;
 
     market.config = config;
@@ -97,7 +95,6 @@ fn apply_config_update(market: &mut Market, config: MarketConfig) -> Result<()> 
     if result.is_err() {
         market.config = previous_config;
         market.risk = previous_risk;
-        market.health = previous_health;
         market.last_update_slot = previous_last_update_slot;
     }
     result

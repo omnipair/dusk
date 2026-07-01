@@ -8840,14 +8840,6 @@
             }
           },
           {
-            "name": "health",
-            "type": {
-              "defined": {
-                "name": "MarketHealth"
-              }
-            }
-          },
-          {
             "name": "insurance",
             "type": {
               "defined": {
@@ -9360,38 +9352,6 @@
                 "name": "MarketEventMetadata"
               }
             }
-          }
-        ]
-      }
-    },
-    {
-      "name": "MarketHealth",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "recognized_base_collateral_for_quote_debt",
-            "type": "u64"
-          },
-          {
-            "name": "recognized_quote_collateral_for_base_debt",
-            "type": "u64"
-          },
-          {
-            "name": "effective_base_debt_nad",
-            "type": "u128"
-          },
-          {
-            "name": "effective_quote_debt_nad",
-            "type": "u128"
-          },
-          {
-            "name": "base_debt_health_bps",
-            "type": "u64"
-          },
-          {
-            "name": "quote_debt_health_bps",
-            "type": "u64"
           }
         ]
       }

@@ -6,7 +6,7 @@ use super::*;
             INTEREST_MIN_RATE_AT_TARGET_NAD, MS_PER_YEAR, NAD, TARGET_MS_PER_SLOT,
         },
         state::{
-            Debt, HlpVault, Insurance, MarketConfig, MarketHealth, MarketSide, Reserves, Risk,
+            Debt, HlpVault, Insurance, MarketConfig, MarketSide, Reserves, Risk,
         },
     };
 
@@ -48,7 +48,6 @@ use super::*;
             base_hlp_vault: HlpVault::default(),
             quote_hlp_vault: HlpVault::default(),
             risk: Risk::default(),
-            health: MarketHealth::default(),
             insurance: Insurance::default(),
             pending_config: PendingConfigChange::default(),
             pending_operator: PendingAuthorityChange::default(),

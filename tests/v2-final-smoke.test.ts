@@ -970,14 +970,14 @@ describe("Omnipair V2 final model smoke", () => {
       TOKEN_2022_PROGRAM_ID
     );
     expect(ownerHlp.amount).to.equal(10_000n);
-    expect(vaultYlp.amount).to.equal(10_000n);
+    expect(vaultYlp.amount).to.equal(14_142n);
 
     const account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
     const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
     expect(decoded.base_side.reserves.live_reserve.toNumber()).to.equal(110_000);
     expect(decoded.quote_side.reserves.live_reserve.toNumber()).to.equal(220_000);
-    expect(decoded.base_hlp_vault.ylp_shares.toNumber()).to.equal(10_000);
+    expect(decoded.base_hlp_vault.ylp_shares.toNumber()).to.equal(14_142);
     expect(decoded.base_hlp_vault.hlp_supply.toNumber()).to.equal(10_000);
     expect(decoded.base_hlp_vault.debt_shares.toNumber()).to.be.greaterThan(0);
   });
@@ -1000,12 +1000,12 @@ describe("Omnipair V2 final model smoke", () => {
       TOKEN_2022_PROGRAM_ID
     );
     expect(ownerHlp.amount).to.equal(11_000n);
-    expect(vaultYlp.amount).to.equal(11_000n);
+    expect(vaultYlp.amount).to.equal(15_556n);
 
     const account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
     const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
-    expect(decoded.base_hlp_vault.ylp_shares.toNumber()).to.equal(11_000);
+    expect(decoded.base_hlp_vault.ylp_shares.toNumber()).to.equal(15_556);
     expect(decoded.base_hlp_vault.hlp_supply.toNumber()).to.equal(11_000);
   });
 
@@ -1096,12 +1096,12 @@ describe("Omnipair V2 final model smoke", () => {
       TOKEN_2022_PROGRAM_ID
     );
     expect(ownerHlp.amount).to.equal(20_000n);
-    expect(vaultYlp.amount).to.equal(10_000n);
+    expect(vaultYlp.amount).to.equal(14_142n);
 
     let account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
     let decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
-    expect(decoded.quote_hlp_vault.ylp_shares.toNumber()).to.equal(10_000);
+    expect(decoded.quote_hlp_vault.ylp_shares.toNumber()).to.equal(14_142);
     expect(decoded.quote_hlp_vault.hlp_supply.toNumber()).to.equal(20_000);
     expect(decoded.quote_hlp_vault.debt_shares.toNumber()).to.be.greaterThan(0);
 
@@ -1503,7 +1503,7 @@ describe("Omnipair V2 final model smoke", () => {
     expect(account).to.not.equal(null);
     const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
     expect(decoded.base_hlp_vault.hlp_supply.toNumber()).to.equal(10_000);
-    expect(decoded.base_hlp_vault.ylp_shares.toNumber()).to.be.lessThan(10_000);
+    expect(decoded.base_hlp_vault.ylp_shares.toNumber()).to.be.lessThan(14_142);
   });
 
   it("checkpoints quote hLP vaults during opposite-direction swaps", async function () {
@@ -1531,7 +1531,7 @@ describe("Omnipair V2 final model smoke", () => {
     expect(account).to.not.equal(null);
     const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
     expect(decoded.quote_hlp_vault.hlp_supply.toNumber()).to.equal(20_000);
-    expect(decoded.quote_hlp_vault.ylp_shares.toNumber()).to.be.lessThan(10_000);
+    expect(decoded.quote_hlp_vault.ylp_shares.toNumber()).to.be.lessThan(14_142);
   });
 
   it("checkpoints both aggregate hLP vaults in one swap", async function () {

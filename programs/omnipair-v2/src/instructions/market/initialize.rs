@@ -294,7 +294,6 @@ impl<'info> InitializeMarket<'info> {
             last_snapshot_slot: current_slot,
             ..crate::state::Risk::default()
         };
-        market.health = crate::state::MarketHealth::default();
         market.params_hash = args.params_hash;
         market.last_update_slot = current_slot;
         market.reduce_only = false;

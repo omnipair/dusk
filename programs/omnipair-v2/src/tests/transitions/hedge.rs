@@ -3,7 +3,7 @@ use super::*;
     use crate::{
         constants::{BPS_DENOMINATOR, MARKET_VERSION},
         math::calculate_raw_amount_out,
-        state::{Insurance, MarketConfig, MarketHealth, MarketSide, Risk},
+        state::{Insurance, MarketConfig, MarketSide, Risk},
     };
 
     fn valid_config() -> MarketConfig {
@@ -72,7 +72,6 @@ use super::*;
             base_hlp_vault,
             quote_hlp_vault,
             risk: Risk::default(),
-            health: MarketHealth::default(),
             insurance: Insurance::default(),
             pending_config: PendingConfigChange::default(),
             pending_operator: PendingAuthorityChange::default(),

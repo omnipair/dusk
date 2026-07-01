@@ -89,8 +89,8 @@ impl DepositSingleSided {
             MarketAsset::Quote => deposit_quote_hlp(market, self.deposit_amount, borrowed_amount)?,
         };
         require_gte!(hlp_amount, self.min_hlp_amount, ErrorCode::SlippageExceeded);
-        market.refresh_market_health()?;
-        market.assert_market_health()?;
+        let health = market.refresh_market_health()?;
+        market.assert_market_health_snapshot(&health)?;
         market.assert_virtual_reserve_invariant(MarketAsset::Base)?;
         market.assert_virtual_reserve_invariant(MarketAsset::Quote)?;
         Ok(HedgeReceipt {
@@ -122,7 +122,7 @@ impl WithdrawSingleSided {
             MarketAsset::Base => withdraw_base_hlp(market, self.hlp_amount)?,
             MarketAsset::Quote => withdraw_quote_hlp(market, self.hlp_amount)?,
         };
-        market.refresh_market_health()?;
+        market.refresh_risk()?;
         market.assert_virtual_reserve_invariant(MarketAsset::Base)?;
         market.assert_virtual_reserve_invariant(MarketAsset::Quote)?;
         Ok(receipt)

@@ -8846,14 +8846,6 @@ export type OmnipairV2 = {
             }
           },
           {
-            "name": "health",
-            "type": {
-              "defined": {
-                "name": "marketHealth"
-              }
-            }
-          },
-          {
             "name": "insurance",
             "type": {
               "defined": {
@@ -9366,38 +9358,6 @@ export type OmnipairV2 = {
                 "name": "marketEventMetadata"
               }
             }
-          }
-        ]
-      }
-    },
-    {
-      "name": "marketHealth",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "recognizedBaseCollateralForQuoteDebt",
-            "type": "u64"
-          },
-          {
-            "name": "recognizedQuoteCollateralForBaseDebt",
-            "type": "u64"
-          },
-          {
-            "name": "effectiveBaseDebtNad",
-            "type": "u128"
-          },
-          {
-            "name": "effectiveQuoteDebtNad",
-            "type": "u128"
-          },
-          {
-            "name": "baseDebtHealthBps",
-            "type": "u64"
-          },
-          {
-            "name": "quoteDebtHealthBps",
-            "type": "u64"
           }
         ]
       }

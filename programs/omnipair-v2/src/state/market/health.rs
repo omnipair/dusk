@@ -10,19 +10,25 @@ use crate::{
 };
 
 impl Market {
-    pub fn refresh_market_health(&mut self) -> Result<()> {
-        self.refresh_risk()
+    pub fn refresh_market_health(&mut self) -> Result<MarketHealth> {
+        self.refresh_risk()?;
+        self.market_health()
     }
 
-    pub fn recompute_market_health_from_risk(&mut self) -> Result<()> {
+    pub fn market_health(&self) -> Result<MarketHealth> {
+        self.market_health_from_risk(&self.risk)
+    }
+
+    pub fn market_health_from_risk(&self, risk: &Risk) -> Result<MarketHealth> {
         let effective_base_debt_nad = self.effective_base_debt_nad()?;
         let effective_quote_debt_nad = self.effective_quote_debt_nad()?;
         let base_debt_health_bps = if effective_base_debt_nad == 0 {
             u64::MAX
         } else {
             health_bps(
-                self.quote_collateral_value_for_base_debt_nad(
+                self.quote_collateral_value_for_base_debt_nad_with_risk(
                     self.debt.recognized_quote_collateral_for_base_debt,
+                    risk,
                 )?,
                 effective_base_debt_nad,
             )?
@@ -31,13 +37,14 @@ impl Market {
             u64::MAX
         } else {
             health_bps(
-                self.base_collateral_value_for_quote_debt_nad(
+                self.base_collateral_value_for_quote_debt_nad_with_risk(
                     self.debt.recognized_base_collateral_for_quote_debt,
+                    risk,
                 )?,
                 effective_quote_debt_nad,
             )?
         };
-        self.health = MarketHealth {
+        Ok(MarketHealth {
             recognized_base_collateral_for_quote_debt: self
                 .debt
                 .recognized_base_collateral_for_quote_debt,
@@ -48,8 +55,7 @@ impl Market {
             effective_quote_debt_nad,
             base_debt_health_bps,
             quote_debt_health_bps,
-        };
-        Ok(())
+        })
     }
 
     pub fn current_risk(&self) -> Result<Risk> {
@@ -67,7 +73,7 @@ impl Market {
     pub fn refresh_risk(&mut self) -> Result<()> {
         self.risk = self.current_risk()?;
         self.last_update_slot = self.risk.last_snapshot_slot;
-        self.recompute_market_health_from_risk()
+        Ok(())
     }
 
     pub fn enforce_daily_borrow_limit(
@@ -137,14 +143,30 @@ impl Market {
         &self,
         quote_collateral_amount: u64,
     ) -> Result<u128> {
-        self.collateral_value_nad(MarketAsset::Quote, quote_collateral_amount, &self.risk)
+        self.quote_collateral_value_for_base_debt_nad_with_risk(quote_collateral_amount, &self.risk)
+    }
+
+    fn quote_collateral_value_for_base_debt_nad_with_risk(
+        &self,
+        quote_collateral_amount: u64,
+        risk: &Risk,
+    ) -> Result<u128> {
+        self.collateral_value_nad(MarketAsset::Quote, quote_collateral_amount, risk)
     }
 
     pub fn base_collateral_value_for_quote_debt_nad(
         &self,
         base_collateral_amount: u64,
     ) -> Result<u128> {
-        self.collateral_value_nad(MarketAsset::Base, base_collateral_amount, &self.risk)
+        self.base_collateral_value_for_quote_debt_nad_with_risk(base_collateral_amount, &self.risk)
+    }
+
+    fn base_collateral_value_for_quote_debt_nad_with_risk(
+        &self,
+        base_collateral_amount: u64,
+        risk: &Risk,
+    ) -> Result<u128> {
+        self.collateral_value_nad(MarketAsset::Base, base_collateral_amount, risk)
     }
 
     pub fn collateral_amount_for_debt_value(
@@ -297,16 +319,21 @@ impl Market {
     }
 
     pub fn assert_market_health(&self) -> Result<()> {
-        if self.health.effective_base_debt_nad > 0 {
+        let health = self.market_health()?;
+        self.assert_market_health_snapshot(&health)
+    }
+
+    pub fn assert_market_health_snapshot(&self, health: &MarketHealth) -> Result<()> {
+        if health.effective_base_debt_nad > 0 {
             require_gte!(
-                self.health.base_debt_health_bps,
+                health.base_debt_health_bps,
                 self.config.market_health_min_bps as u64,
                 ErrorCode::InsufficientMarketHealth
             );
         }
-        if self.health.effective_quote_debt_nad > 0 {
+        if health.effective_quote_debt_nad > 0 {
             require_gte!(
-                self.health.quote_debt_health_bps,
+                health.quote_debt_health_bps,
                 self.config.market_health_min_bps as u64,
                 ErrorCode::InsufficientMarketHealth
             );
