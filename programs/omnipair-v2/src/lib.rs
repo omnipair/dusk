@@ -274,17 +274,12 @@ pub mod omnipair_v2 {
         CloseLeverageDelegation::handle_close(ctx, args)
     }
 
-    #[access_control(ctx.accounts.update_and_validate())]
-    pub fn open_liquidation_auction(ctx: Context<OpenLiquidationAuction>) -> Result<()> {
-        OpenLiquidationAuction::handle_open(ctx)
-    }
-
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn settle_liquidation_auction(
-        ctx: Context<SettleLiquidationAuction>,
-        args: SettleLiquidationAuctionArgs,
+    pub fn liquidate_borrow_position(
+        ctx: Context<LiquidateBorrowPosition>,
+        args: LiquidateBorrowPositionArgs,
     ) -> Result<()> {
-        SettleLiquidationAuction::handle_settle(ctx, args)
+        LiquidateBorrowPosition::handle_liquidate(ctx, args)
     }
 
     #[access_control(ctx.accounts.update_and_validate(&args))]

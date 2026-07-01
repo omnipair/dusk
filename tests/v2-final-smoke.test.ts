@@ -38,7 +38,6 @@ import {
   deriveMarketFeeVaultAddress,
   deriveMarketInterestVaultAddress,
   deriveMarketReserveVaultAddress,
-  deriveLiquidationAuctionAddress,
   deriveBorrowPositionAddress,
   deriveYieldAccountAddress,
   deriveYieldTransferHookValidationAddress,
@@ -96,8 +95,6 @@ function marketConfig() {
     kEmaDrawdownBps: 1_000,
     recognizedCollateralCapBps: 15_000,
     marketHealthMinBps: 11_000,
-    liquidationAuctionDurationSlots: new BN(1_200),
-    liquidationAuctionStartIncentiveBps: 0,
     hedgedLpEnabled: true,
     startTime: new BN(0),
   };
@@ -940,15 +937,15 @@ describe("Omnipair V2 final model smoke", () => {
       undefined,
       TOKEN_2022_PROGRAM_ID
     );
-    expect(ylpAccount.amount).to.equal(100_000n);
+    expect(ylpAccount.amount).to.equal(140_421n);
 
     const account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
     const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
     expect(decoded.base_side.reserves.live_reserve.toNumber()).to.equal(100_000);
     expect(decoded.quote_side.reserves.live_reserve.toNumber()).to.equal(200_000);
-    expect(decoded.base_side.shares.ylp_supply.toNumber()).to.equal(100_000);
-    expect(decoded.quote_side.shares.ylp_supply.toNumber()).to.equal(100_000);
+    expect(decoded.base_side.shares.ylp_supply.toNumber()).to.equal(141_421);
+    expect(decoded.quote_side.shares.ylp_supply.toNumber()).to.equal(141_421);
   });
 
   it("opens base hLP by borrowing quote and locking both yLP sides", async function () {
@@ -1447,7 +1444,7 @@ describe("Omnipair V2 final model smoke", () => {
         maxPaymentAmount: new BN(1_000),
       })
       .accounts({
-        bidder: payer.publicKey,
+        liquidator: payer.publicKey,
         market: fixture.market,
         futarchyAuthority,
         soldMint: fixture.baseMint,
@@ -2011,29 +2008,8 @@ describe("Omnipair V2 final model smoke", () => {
     const baseCollateralBefore = positionBefore.base_collateral.toNumber();
     const quoteDebtSharesBefore = BigInt(positionBefore.fixed_quote_shares.toString());
     const ownerBaseBefore = await getAccount(connection as any, fixture.ownerBaseAccount);
-    const liquidationAuction = deriveLiquidationAuctionAddress(
-      fixture.market,
-      borrowPosition,
-      fixture.quoteMint
-    )[0];
-
-    const openAuctionTx = await program.methods
-      .openLiquidationAuction()
-      .accounts({
-        keeper: payer.publicKey,
-        market: fixture.market,
-        debtAssetMint: fixture.quoteMint,
-        collateralAssetMint: fixture.baseMint,
-        borrowPosition,
-        liquidationAuction,
-        systemProgram: SystemProgram.programId,
-      })
-      .transaction();
-    await connection.sendTransaction(openAuctionTx, [payer]);
-    trackV2Instruction("openLiquidationAuction", this.test?.title);
-
-    const settleAuctionTx = await program.methods
-      .settleLiquidationAuction({
+    const liquidateTx = await program.methods
+      .liquidateBorrowPosition({
         repayAmount: new BN(1),
         minCollateralOut: new BN(1),
         maxInsuranceDraw: new BN(0),
@@ -2050,16 +2026,15 @@ describe("Omnipair V2 final model smoke", () => {
         collateralVault: fixture.baseCollateralVault,
         insuranceVault: fixture.quoteInsuranceVault,
         collateralInsuranceVault: fixture.baseInsuranceVault,
-        bidderDebtAccount: fixture.ownerQuoteAccount,
-        bidderCollateralAccount: fixture.ownerBaseAccount,
+        liquidatorDebtAccount: fixture.ownerQuoteAccount,
+        liquidatorCollateralAccount: fixture.ownerBaseAccount,
         borrowPosition,
-        liquidationAuction,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
       })
       .transaction();
-    await connection.sendTransaction(settleAuctionTx, [payer]);
-    trackV2Instruction("settleLiquidationAuction", this.test?.title);
+    await connection.sendTransaction(liquidateTx, [payer]);
+    trackV2Instruction("liquidateBorrowPosition", this.test?.title);
 
     const ownerBaseAfter = await getAccount(connection as any, fixture.ownerBaseAccount);
     expect(ownerBaseAfter.amount > ownerBaseBefore.amount).to.equal(true);

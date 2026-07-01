@@ -24,8 +24,6 @@ fn valid_config() -> MarketConfig {
         k_ema_drawdown_bps: 1_000,
         recognized_collateral_cap_bps: 15_000,
         market_health_min_bps: 11_000,
-        liquidation_auction_duration_slots: 1_200,
-        liquidation_auction_start_incentive_bps: 0,
         hedged_lp_enabled: true,
         start_time: 0,
     }
@@ -130,11 +128,12 @@ fn max_repay_caps_liquidation_to_restore_target_health() {
     let (market, borrow_position) = liquidatable_quote_debt_position();
     let incentive_bps = liquidation_incentive_bps(10_900, 11_000);
     let insurance_bps = liquidation_insurance_funding_bps(incentive_bps, &market.config).unwrap();
-    let cap = max_repay_to_restore_health(
+    let cap = max_repay_to_restore_health_with_pricing(
         &market,
         &borrow_position,
         MarketAsset::Quote,
         incentive_bps + insurance_bps,
+        LiquidationPricing::PessimisticReserves,
     )
     .unwrap();
 
@@ -142,7 +141,7 @@ fn max_repay_caps_liquidation_to_restore_target_health() {
 }
 
 #[test]
-fn auction_pricing_uses_reference_price_for_collateral_seizure() {
+fn reference_pricing_uses_ema_price_for_collateral_seizure() {
     let (market, _) = liquidatable_quote_debt_position();
     let pricing = LiquidationPricing::ReferencePrice {
         debt_per_collateral_price_nad: NAD as u64,
@@ -170,7 +169,7 @@ fn auction_pricing_uses_reference_price_for_collateral_seizure() {
 }
 
 #[test]
-fn auction_restore_cap_uses_reference_price() {
+fn direct_liquidation_restore_cap_uses_reference_price() {
     let (market, borrow_position) = liquidatable_quote_debt_position();
     let pricing = LiquidationPricing::ReferencePrice {
         debt_per_collateral_price_nad: NAD as u64,
@@ -188,15 +187,59 @@ fn auction_restore_cap_uses_reference_price() {
 }
 
 #[test]
+fn max_repay_respects_close_factor_for_deep_partial_liquidation() {
+    let (mut market, mut borrow_position) = liquidatable_quote_debt_position();
+    borrow_position.base_collateral = 50;
+    borrow_position.recognized_base_collateral_for_quote_debt = 50;
+    market.debt.recognized_base_collateral_for_quote_debt = 50;
+    let pricing = LiquidationPricing::ReferencePrice {
+        debt_per_collateral_price_nad: NAD as u64,
+    };
+    let terms = liquidation_terms_with_pricing(
+        &market,
+        &borrow_position,
+        MarketAsset::Quote,
+        pricing,
+    )
+    .unwrap();
+
+    assert_eq!(terms.max_repay_amount, 50);
+}
+
+#[test]
+fn max_repay_full_closes_when_partial_would_leave_dust() {
+    let (mut market, mut borrow_position) = liquidatable_quote_debt_position();
+    market.debt.fixed_quote_shares = 2;
+    market.debt.fixed_quote_principal = 2;
+    market.debt.recognized_base_collateral_for_quote_debt = 1;
+    borrow_position.fixed_quote_shares = 2;
+    borrow_position.base_collateral = 1;
+    borrow_position.recognized_base_collateral_for_quote_debt = 1;
+    let pricing = LiquidationPricing::ReferencePrice {
+        debt_per_collateral_price_nad: NAD as u64,
+    };
+    let terms = liquidation_terms_with_pricing(
+        &market,
+        &borrow_position,
+        MarketAsset::Quote,
+        pricing,
+    )
+    .unwrap();
+
+    assert_eq!(terms.max_repay_amount, 2);
+}
+
+#[test]
 fn liquidation_rejects_repay_above_restore_cap() {
     let (mut market, mut borrow_position) = liquidatable_quote_debt_position();
     let incentive_bps = liquidation_incentive_bps(10_900, 11_000);
     let insurance_bps = liquidation_insurance_funding_bps(incentive_bps, &market.config).unwrap();
-    let cap = max_repay_to_restore_health(
+    let cap = max_repay_to_restore_health_with_pricing(
         &market,
         &borrow_position,
         MarketAsset::Quote,
         incentive_bps + insurance_bps,
+        LiquidationPricing::PessimisticReserves,
     )
     .unwrap();
 

@@ -21,8 +21,7 @@ V2 exposes the current market instruction set:
 - `add_liquidity`, `remove_liquidity`
 - `set_yield_recipient`, `claim_yield`
 - `swap`
-- `deposit_collateral`, `withdraw_collateral`, `borrow`, `repay`
-- `open_liquidation_auction`, `settle_liquidation_auction`
+- `deposit_collateral`, `withdraw_collateral`, `borrow`, `repay`, `liquidate_borrow_position`
 - `deposit_single_sided`, `withdraw_single_sided`
 - `open_leverage`, `close_leverage`, `delegated_close_leverage`, `increase_leverage`, `decrease_leverage`, `add_leverage_margin`, `remove_leverage_margin`, `liquidate_leverage`
 - `create_leverage_delegation`, `update_leverage_delegation`, `close_leverage_delegation`

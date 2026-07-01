@@ -45,8 +45,7 @@ const DUSK_INSTRUCTIONS = [
   "createLeverageDelegation",
   "updateLeverageDelegation",
   "closeLeverageDelegation",
-  "openLiquidationAuction",
-  "settleLiquidationAuction",
+  "liquidateBorrowPosition",
   "depositSingleSided",
   "withdrawSingleSided",
 ];

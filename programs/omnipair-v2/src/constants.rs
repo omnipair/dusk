@@ -11,6 +11,8 @@ pub const BPS_DENOMINATOR: u16 = 10_000;
 #[constant]
 pub const MAX_MANAGER_FEE_BPS: u16 = 500;
 #[constant]
+pub const LIQUIDATION_CLOSE_FACTOR_BPS: u16 = 5_000;
+#[constant]
 pub const LIQUIDATION_INCENTIVE_BPS: u16 = 100;
 #[constant]
 pub const LIQUIDATION_MAX_INCENTIVE_BPS: u16 = 500;
@@ -99,8 +101,6 @@ pub const HLP_YLP_VAULT_SEED_PREFIX: &[u8] = b"hlp_ylp_vault";
 pub const METADATA_SEED_PREFIX: &[u8] = b"metadata";
 #[constant]
 pub const INSURANCE_SEED_PREFIX: &[u8] = b"insurance";
-#[constant]
-pub const LIQUIDATION_AUCTION_SEED_PREFIX: &[u8] = b"liquidation_auction";
 #[constant]
 pub const LEVERAGE_POSITION_SEED_PREFIX: &[u8] = b"leverage_position_v2";
 #[constant]

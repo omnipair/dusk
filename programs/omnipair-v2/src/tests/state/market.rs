@@ -44,8 +44,6 @@ use super::*;
             k_ema_drawdown_bps: BPS_DENOMINATOR,
             recognized_collateral_cap_bps: 15_000,
             market_health_min_bps: BPS_DENOMINATOR,
-            liquidation_auction_duration_slots: 1_200,
-            liquidation_auction_start_incentive_bps: 0,
             hedged_lp_enabled: true,
             start_time: 0,
         }
@@ -182,9 +180,6 @@ use super::*;
         config.ema_half_life_ms = MIN_HALF_LIFE_MS;
         config.directional_ema_half_life_ms = MIN_HALF_LIFE_MS;
         config.k_ema_half_life_ms = MIN_HALF_LIFE_MS;
-        config.liquidation_auction_duration_slots = 1_200;
-        config.liquidation_auction_start_incentive_bps = 0;
-
         let action = market.prepare_config_update(manager, config, 7).unwrap();
         assert_eq!(
             action,

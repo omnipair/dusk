@@ -329,18 +329,6 @@ pub enum ErrorCode {
     #[msg("Liquidation repay amount exceeds partial liquidation cap")]
     LiquidationRepayTooLarge,
 
-    #[msg("Invalid liquidation auction")]
-    InvalidLiquidationAuction,
-
-    #[msg("Liquidation auction is already active")]
-    LiquidationAuctionAlreadyActive,
-
-    #[msg("Liquidation auction is inactive")]
-    LiquidationAuctionInactive,
-
-    #[msg("Liquidation auction is stale")]
-    StaleLiquidationAuction,
-
     #[msg("Leverage multiplier exceeds circuit breaker")]
     LeverageMultiplierTooHigh,
 
