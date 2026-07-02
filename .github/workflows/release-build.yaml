@@ -25,6 +25,7 @@ on:
 
 env:
   ANCHOR_VERSION: "0.31.1"
+  NODE_VERSION: "24"
   SOLANA_VERSION: "1.18.18"
   PROGRAM_CRATE: omnipair-v2
   PROGRAM_LIBRARY: omnipair_v2
@@ -148,6 +149,11 @@ jobs:
       - name: Install Anchor CLI
         run: cargo install --git https://github.com/coral-xyz/anchor --tag v${{ env.ANCHOR_VERSION }} anchor-cli --locked
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
       - name: Build verifiable Dusk artifact
         run: |
           cargo clean
@@ -230,6 +236,11 @@ jobs:
 
       - name: Install Anchor CLI
         run: cargo install --git https://github.com/coral-xyz/anchor --tag v${{ env.ANCHOR_VERSION }} anchor-cli --locked
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Build Dusk
         run: anchor build -p "${{ env.PROGRAM_CRATE }}" -- --features production
