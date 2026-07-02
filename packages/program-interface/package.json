@@ -45,6 +45,7 @@
   ],
   "scripts": {
     "prepare-idl": "node scripts/prepare.js",
+    "check-idl-current": "node scripts/check-idl-current.js",
     "build": "npm run prepare-idl && tsc",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",

@@ -168,6 +168,9 @@ jobs:
           strings "target/verifiable/${{ env.PROGRAM_SO }}" | grep -q source_release
           strings "target/verifiable/${{ env.PROGRAM_SO }}" | grep -q source_revision
 
+      - name: Verify program interface matches build artifacts
+        run: npm run check-idl-current --prefix packages/program-interface
+
       - name: Create and push tag
         run: |
           git tag -a ${{ needs.prepare-release.outputs.tag }} -m "Release ${{ needs.prepare-release.outputs.tag }}"
@@ -230,6 +233,9 @@ jobs:
 
       - name: Build Dusk
         run: anchor build -p "${{ env.PROGRAM_CRATE }}" -- --features production
+
+      - name: Verify program interface matches build artifacts
+        run: npm run check-idl-current --prefix packages/program-interface
 
       - name: Test Dusk
         run: cargo test -p omnipair-v2
