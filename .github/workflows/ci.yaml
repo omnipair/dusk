@@ -14,6 +14,9 @@ on:
       - "test/**"
   workflow_dispatch:
 
+env:
+  ANCHOR_VERSION: "0.31.1"
+
 jobs:
   test:
     runs-on: ubuntu-22.04
@@ -58,6 +61,16 @@ jobs:
 
       - name: Typecheck test harness
         run: yarn typecheck
+
+      - name: Install Anchor CLI
+        run: cargo install --git https://github.com/coral-xyz/anchor --tag v${{ env.ANCHOR_VERSION }} anchor-cli --locked
+
+      - name: Build program interface artifacts
+        run: |
+          mkdir -p target/idl target/types
+          anchor idl build -p omnipair-v2 \
+            -o target/idl/omnipair_v2.json \
+            -t target/types/omnipair_v2.ts
 
       - name: Check program interface package
         run: npm run check:program-interface
