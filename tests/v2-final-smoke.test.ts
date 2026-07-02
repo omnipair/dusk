@@ -81,7 +81,7 @@ function tokenMetadataProgramPath() {
 function marketConfig() {
   return {
     swapFeeBps: 30,
-    operatorFeeBps: 0,
+    managerFeeBps: 0,
     protocolFeeBps: 0,
     targetHlpLeverageBps: 20_000,
     settlementDivergenceBps: 500,
@@ -1539,6 +1539,60 @@ describe("Omnipair V2 final model smoke", () => {
     await resetFutarchyDefaults();
   });
 
+  it("claims manager swap fees from the fee vault", async function () {
+    const config = marketConfig();
+    config.managerFeeBps = 500;
+    config.spotEmaDivergenceBps = 10_000;
+    config.kEmaDrawdownBps = 10_000;
+    const fixture = await addBalancedLiquidity(60, config);
+
+    await swapBaseForQuote(fixture, [], 10_000, 1);
+
+    const marketBeforeAccount = svm.getAccount(fixture.market);
+    expect(marketBeforeAccount).to.not.equal(null);
+    const marketBefore = accountCoder.decode(
+      "Market",
+      Buffer.from(marketBeforeAccount!.data)
+    ) as any;
+    const managerSwapFeeLiability =
+      marketBefore.base_side.fees.manager_swap_fee_liability.toNumber();
+    expect(managerSwapFeeLiability).to.equal(1);
+
+    const managerBaseBefore = await getAccount(connection as any, fixture.ownerBaseAccount);
+    const claimTx = await program.methods
+      .claimManagerFees()
+      .accounts({
+        market: fixture.market,
+        manager: payer.publicKey,
+        assetMint: fixture.baseMint,
+        feeVault: fixture.baseFeeVault,
+        interestVault: fixture.baseInterestVault,
+        managerAssetAccount: fixture.ownerBaseAccount,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(claimTx, [payer]);
+    trackV2Instruction("claimManagerFees", this.test?.title);
+
+    const managerBaseAfter = await getAccount(connection as any, fixture.ownerBaseAccount);
+    expect(managerBaseAfter.amount - managerBaseBefore.amount).to.equal(
+      BigInt(managerSwapFeeLiability)
+    );
+
+    const feeVault = await getAccount(connection as any, fixture.baseFeeVault);
+    const marketAfterAccount = svm.getAccount(fixture.market);
+    expect(marketAfterAccount).to.not.equal(null);
+    const marketAfter = accountCoder.decode("Market", Buffer.from(marketAfterAccount!.data)) as any;
+    expect(marketAfter.base_side.fees.manager_swap_fee_liability.toNumber()).to.equal(0);
+    expect(marketAfter.base_side.fees.manager_interest_fee_liability.toNumber()).to.equal(0);
+    expect(marketAfter.base_side.fees.swap_fee_vault_balance.toNumber()).to.equal(
+      Number(feeVault.amount)
+    );
+  });
+
   it("checkpoints active hLP vaults during swaps with canonical vault accounts", async function () {
     const fixture = await addBalancedLiquidity(51);
     const hedge = await openBaseHedge(fixture);
@@ -2112,5 +2166,53 @@ describe("Omnipair V2 final model smoke", () => {
     expect(BigInt(positionAfter.fixed_quote_shares.toString()) < quoteDebtSharesBefore).to.equal(
       true
     );
+  });
+
+  it("schedules timelocked market authority rotations", async function () {
+    const fixture = await initializeFinalMarket(61);
+    const newOperator = Keypair.generate().publicKey;
+    const newManager = Keypair.generate().publicKey;
+
+    const scheduleOperatorTx = await program.methods
+      .setOperator({
+        newOperator,
+      })
+      .accounts({
+        market: fixture.market,
+        manager: payer.publicKey,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(scheduleOperatorTx, [payer]);
+    trackV2Instruction("setOperator", this.test?.title);
+
+    let marketAccount = svm.getAccount(fixture.market);
+    expect(marketAccount).to.not.equal(null);
+    let decoded = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
+    expect(decoded.operator.toString()).to.equal(payer.publicKey.toString());
+    expect(decoded.pending_operator.active).to.equal(true);
+    expect(decoded.pending_operator.new_authority.toString()).to.equal(newOperator.toString());
+
+    const scheduleManagerTx = await program.methods
+      .setManager({
+        newManager,
+      })
+      .accounts({
+        market: fixture.market,
+        manager: payer.publicKey,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(scheduleManagerTx, [payer]);
+    trackV2Instruction("setManager", this.test?.title);
+
+    marketAccount = svm.getAccount(fixture.market);
+    expect(marketAccount).to.not.equal(null);
+    decoded = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
+    expect(decoded.manager.toString()).to.equal(payer.publicKey.toString());
+    expect(decoded.pending_manager.active).to.equal(true);
+    expect(decoded.pending_manager.new_authority.toString()).to.equal(newManager.toString());
   });
 });
