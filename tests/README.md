@@ -37,7 +37,9 @@ when validating the on-chain metadata CPI with a compatible LiteSVM artifact.
 
 The smoke coverage report is maintained in
 `tests/utils/instruction-coverage.ts`. It tracks whether each Dusk instruction
-appears in at least one LiteSVM flow. It is a checklist, not statement,
+appears in at least one LiteSVM flow. The default run also reports
+`initializeLpMetadata` as a known skip because that path requires a compatible
+Metaplex Token Metadata program artifact. It is a checklist, not statement,
 branch, invariant, or full behavioral coverage.
 
 ## Layout

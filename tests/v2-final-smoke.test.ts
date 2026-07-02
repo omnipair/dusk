@@ -46,7 +46,11 @@ import {
   TOKEN_METADATA_PROGRAM_ID,
 } from "../packages/program-interface/src/constants.js";
 import { LiteSVMConnection } from "./utils/litesvm-connection.js";
-import { getCoverageReport, trackV2Instruction } from "./utils/instruction-coverage.js";
+import {
+  getCoverageReport,
+  skipV2Instruction,
+  trackV2Instruction,
+} from "./utils/instruction-coverage.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { AnchorProvider, BN, Program, Wallet } = anchor;
@@ -232,6 +236,12 @@ describe("Omnipair V2 final model smoke", () => {
   });
 
   after(() => {
+    if (!RUN_REAL_TOKEN_METADATA_CPI) {
+      skipV2Instruction(
+        "initializeLpMetadata",
+        "default LiteSVM smoke seeds metadata accounts; set OMNIPAIR_V2_TEST_REAL_METADATA_CPI=1 with a compatible Metaplex Token Metadata program to exercise the CPI"
+      );
+    }
     getCoverageReport();
   });
 
@@ -609,6 +619,7 @@ describe("Omnipair V2 final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
+    trackV2Instruction("initializeLpMetadata", "real Token Metadata CPI smoke");
   }
 
   async function createOwnerAssetAccounts(fixture: Awaited<ReturnType<typeof initializeFinalMarket>>) {
