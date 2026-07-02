@@ -18,9 +18,8 @@ pub fn compute_ema(last_ema: u64, last_update: u64, input: u64, half_life: u64) 
         let x = (dt as u128 * NATURAL_LOG_OF_TWO_NAD as u128) / half_life as u128;
         let alpha = taylor_exp(-(x as i64), NAD, TAYLOR_TERMS);
 
-        let result = ((input as u128 * (NAD - alpha) as u128 + last_ema as u128 * alpha as u128)
-            / NAD as u128) as u64;
-        result
+        ((input as u128 * (NAD - alpha) as u128 + last_ema as u128 * alpha as u128) / NAD as u128)
+            as u64
     } else {
         last_ema
     }
@@ -49,7 +48,7 @@ pub fn taylor_exp(x: i64, scale: u64, precision: u64) -> u64 {
             .and_then(|t| t.checked_div(i as u128 * scale as u128))
             .unwrap_or(0);
         // Add the term to the sum with overflow protection
-        sum = sum.checked_add(term).unwrap_or(u128::MAX);
+        sum = sum.saturating_add(term);
     }
 
     // Start with 1 (scaled by `scale`)

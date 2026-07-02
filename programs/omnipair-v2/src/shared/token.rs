@@ -179,6 +179,7 @@ pub fn transfer_from_vault_to_vault<'a>(
 ///   - `amount`: Number of tokens to transfer.
 ///   - `mint_decimals`: Decimals for the mint (to support checked instruction).
 ///   - `signer_seeds`: Seeds used for PDA authority (for cross-program invocation).
+///
 /// Returns:
 ///   - Result containing unit on success or an error on failure.
 pub fn transfer_from_vault_to_user<'a>(
