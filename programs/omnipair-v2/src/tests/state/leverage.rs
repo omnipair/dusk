@@ -220,6 +220,39 @@ fn close_leverage_clears_isolated_debt_and_residual_cash() {
 }
 
 #[test]
+fn add_margin_uses_actual_rounded_isolated_debt_reduction_for_reserves() {
+    let mut market = test_market(1_000_000, 1_000_000);
+    let mut position = seeded_position(&mut market, MarketAsset::Base, 100, 10_000);
+    market.debt.base_borrow_index_nad = (NAD as u128) * 3 / 2;
+    market.base_side.reserves.live_reserve += 50;
+    market
+        .assert_virtual_reserve_invariant(MarketAsset::Base)
+        .unwrap();
+    let live_before = market.base_side.reserves.live_reserve;
+    let cash_before = market.base_side.reserves.cash_reserve;
+
+    let receipt = market
+        .add_leverage_margin(&mut position, 2)
+        .unwrap();
+
+    assert_eq!(receipt.debt_delta, -3);
+    assert_eq!(receipt.debt_amount, 147);
+    assert_eq!(receipt.interest_paid, 1);
+    assert_eq!(position.debt_shares, 98);
+    assert_eq!(position.debt_principal, 98);
+    assert_eq!(market.debt.isolated_base_shares, 98);
+    assert_eq!(market.debt.isolated_base_principal, 98);
+    assert_eq!(market.base_side.reserves.live_reserve, live_before - 2);
+    assert_eq!(market.base_side.reserves.cash_reserve, cash_before + 1);
+    market
+        .assert_virtual_reserve_invariant(MarketAsset::Base)
+        .unwrap();
+    market
+        .assert_virtual_reserve_invariant(MarketAsset::Quote)
+        .unwrap();
+}
+
+#[test]
 fn solvent_liquidation_closes_position_and_pays_residual_incentive() {
     let mut market = test_market(1_000_000, 1_000_000);
     let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000, 1_010);
