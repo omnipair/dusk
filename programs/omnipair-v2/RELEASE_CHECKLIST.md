@@ -12,6 +12,10 @@ mainnet launch or upgrade.
   until this checklist and owner signoff are complete. Set it to `true` only
   for an approved release window, then set it back to `false` after the release
   artifacts are published.
+- Confirm repository variable `DUSK_MAINNET_BUFFER_DEPLOYS_ENABLED` is unset or
+  `false` until the approved mainnet buffer deployment window. Set it to `true`
+  only while deploying a signed-off release buffer, then set it back to `false`
+  after the buffer address and Squads authority transfer are recorded.
 - Confirm the emergency reduce-only authority is the intended signer and can
   reach `set_reduce_only` for incident response.
 - Confirm soft borrow and soft liquidation remain disabled unless a separate
@@ -103,6 +107,11 @@ yarn test-litesvm
 
 - Confirm repository variable `DUSK_RELEASES_ENABLED=true` is intentionally set
   for the approved release window before publishing release artifacts.
+- Confirm repository variable `DUSK_MAINNET_BUFFER_DEPLOYS_ENABLED=true` is
+  intentionally set before running the mainnet buffer deploy workflow.
+- For mainnet buffer deploys, use `source=release`, provide an explicit
+  `release_tag`, keep `transfer_to_squads=true`, and confirm
+  `SQUADS_VAULT_ADDRESS` is configured.
 - Confirm `programs/omnipair-v2/src/lib.rs` declares the intended program ID.
 - Build the verifiable V2 binary with production features:
 

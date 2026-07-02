@@ -92,6 +92,12 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 - Confirm repository variable `DUSK_RELEASES_ENABLED` is set to `true` only for
   an approved release window after this checklist is complete, and returned to
   `false` after release artifact publication.
+- Confirm repository variable `DUSK_MAINNET_BUFFER_DEPLOYS_ENABLED` is set to
+  `true` only during the approved mainnet buffer deployment window, and returned
+  to `false` after recording the buffer address and Squads authority transfer.
+- Confirm mainnet buffer deployments use `source=release`, an explicit
+  `release_tag`, `transfer_to_squads=true`, and a configured
+  `SQUADS_VAULT_ADDRESS`.
 - Confirm `programs/omnipair-v2/src/lib.rs` declares the intended program ID.
 - Build the verifiable binary with production features and embedded
   `GIT_REV`/`GIT_RELEASE` metadata.
