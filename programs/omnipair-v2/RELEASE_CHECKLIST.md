@@ -17,11 +17,11 @@ deploy with real funds until every item below has recorded evidence:
   invariants have reviewer signoff against the final code.
 - Economic assumptions and parameter bounds are signed off with adversarial
   simulation or fuzz evidence for hLP, leverage, liquidation, and liquidity-risk
-  paths.
+  paths using `SIMULATION_SIGNOFF.md`.
 - Release and buffer deployment workflows have been rehearsed on the intended
   cluster class with Squads authority transfer and binary verification.
 - Monitoring, alerting, emergency reduce-only authority, key management, and
-  incident-response runbooks are approved.
+  `INCIDENT_RESPONSE.md` are approved.
 - Post-deploy smoke tests have target-cluster transaction signatures for all
   critical user and admin flows listed below.
 
@@ -42,6 +42,8 @@ open.
   after the buffer address and Squads authority transfer are recorded.
 - Confirm the emergency reduce-only authority is the intended signer and can
   reach `set_reduce_only` for incident response.
+- Review `INCIDENT_RESPONSE.md` and confirm owners, dashboards, paging, and
+  reduce-only procedures are current for the release.
 - Confirm soft borrow and soft liquidation remain disabled unless a separate
   reviewed spec has been merged.
 - Confirm LLAMMA-style liquidation, Jupiter/external aggregator conversion
@@ -121,6 +123,10 @@ typecheck gates.
 
 - Complete the owner signoff register in
   `programs/omnipair-v2/SIGNOFF_CHECKLIST.md`.
+- Complete simulation/fuzz evidence in
+  `programs/omnipair-v2/SIMULATION_SIGNOFF.md`.
+- Complete incident-response evidence in
+  `programs/omnipair-v2/INCIDENT_RESPONSE.md`.
 - Review the integrator handoff in `programs/omnipair-v2/README.md` with app,
   SDK, indexer, analytics, and aggregator owners.
 - SDK consumers use `IDL`, `OmnipairV2`, and `PROGRAM_ID` or the explicit

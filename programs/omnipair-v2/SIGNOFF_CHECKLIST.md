@@ -12,7 +12,7 @@ branch, deployed artifacts, or target-cluster behavior.
 | Security review | TBD | Pending | Fresh review report or approval link. |
 | Core invariant review | TBD | Pending | Final-code review notes covering GAMM, yLP, hLP, leverage, liquidation, fees, and insurance invariants. |
 | Economic/risk parameters | TBD | Pending | Parameter signoff with assumptions, limits, and failure-mode notes. |
-| Fuzzing and simulation | TBD | Pending | Property, fuzz, or simulation report for adversarial hLP, leverage, liquidation, and liquidity-risk paths. |
+| Fuzzing and simulation | TBD | Pending | Completed `SIMULATION_SIGNOFF.md` evidence for adversarial hLP, leverage, liquidation, and liquidity-risk paths. |
 | App/front-end routing | TBD | Pending | App PR, staging URL, or routing test notes. |
 | SDK/package interface | TBD | Pending | Package diff, typed usage test, or release approval. |
 | Indexing/events | TBD | Pending | Indexer config PR or decoded event sample. |
@@ -20,8 +20,8 @@ branch, deployed artifacts, or target-cluster behavior.
 | Aggregator/router integration | TBD | Pending | Quote/swap adapter notes or integration test. |
 | Deployment/Squads | TBD | Pending | Buffer, proposal, approval, and execution links. |
 | Release rehearsal | TBD | Pending | Dry-run release, buffer deploy, Squads transfer, verification, and rollback notes. |
-| Monitoring and alerting | TBD | Pending | Dashboards, alert rules, indexer health, and incident paging notes. |
-| Incident response | TBD | Pending | Reduce-only procedure, key ceremony, contacts, and emergency runbook approval. |
+| Monitoring and alerting | TBD | Pending | Dashboard and alert links mapped to `INCIDENT_RESPONSE.md` signals. |
+| Incident response | TBD | Pending | Approved `INCIDENT_RESPONSE.md`, reduce-only procedure, key ceremony, contacts, and emergency runbook approval. |
 | Post-deploy smoke tests | TBD | Pending | Target-cluster smoke test transaction signatures. |
 
 Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
@@ -69,6 +69,7 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 
 ## Simulation And Fuzzing
 
+- Use `SIMULATION_SIGNOFF.md` as the evidence template.
 - Run adversarial sweeps for hLP rebalance, pending rebalance, leverage close,
   leverage liquidation, borrow liquidation, fee settlement, and reserve
   accounting.
@@ -77,6 +78,19 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
   insurance exhaustion.
 - Record the commands, seeds, datasets, commit hash, and pass/fail summary used
   for signoff.
+
+## Monitoring And Incident Response
+
+- Use `INCIDENT_RESPONSE.md` as the runbook and evidence template.
+- Confirm monitoring covers deployed program hash, upgrade authority, reduce-only
+  state, reserve/debt drift, hLP NAV, pending rebalance, fee liabilities,
+  liquidation events, insurance draws, LP socialization, risk EMA age, and
+  indexer lag.
+- Confirm emergency reduce-only keys, Squads owners, app/SDK/indexer contacts,
+  and paging channels are current.
+- Run a release rehearsal that toggles market reduce-only and global reduce-only
+  in a controlled environment, then records transaction signatures and recovery
+  steps.
 
 ## App / Front-End
 
