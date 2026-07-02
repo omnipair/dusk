@@ -1,4 +1,5 @@
 use super::*;
+    use proptest::prelude::*;
 
     fn market_with_roles(manager: Pubkey, operator: Pubkey) -> Market {
         Market {
@@ -101,6 +102,58 @@ use super::*;
             reduce_only: false,
             bump: 255,
         }
+    }
+
+    fn borrow_position_for_debt(debt_asset: MarketAsset, collateral_amount: u64) -> BorrowPosition {
+        let mut position = BorrowPosition {
+            owner: Pubkey::new_unique(),
+            market: Pubkey::new_unique(),
+            position_id: Pubkey::new_unique(),
+            base_collateral: 0,
+            quote_collateral: 0,
+            recognized_base_collateral_for_quote_debt: 0,
+            recognized_quote_collateral_for_base_debt: 0,
+            fixed_base_shares: 0,
+            fixed_quote_shares: 0,
+            risk_epoch: 0,
+            bump: 255,
+        };
+        match debt_asset {
+            MarketAsset::Base => position.quote_collateral = collateral_amount,
+            MarketAsset::Quote => position.base_collateral = collateral_amount,
+        }
+        position
+    }
+
+    fn reserve_pair(market: &Market, asset: MarketAsset) -> (u64, u64) {
+        let side = market.side(asset).unwrap();
+        (side.reserves.live_reserve, side.reserves.cash_reserve)
+    }
+
+    fn set_borrow_index(market: &mut Market, asset: MarketAsset, index_nad: u128) {
+        match asset {
+            MarketAsset::Base => market.debt.base_borrow_index_nad = index_nad,
+            MarketAsset::Quote => market.debt.quote_borrow_index_nad = index_nad,
+        }
+    }
+
+    fn add_accrued_cash_backed_interest_to_live_reserve(
+        market: &mut Market,
+        asset: MarketAsset,
+        shares: u128,
+        principal: u64,
+    ) -> u64 {
+        let index = market.debt.borrow_index(asset);
+        let current_debt = Debt::shares_to_debt(shares, index).unwrap();
+        let accrued_interest = current_debt.checked_sub(principal as u128).unwrap();
+        let accrued_interest = u64::try_from(accrued_interest).unwrap();
+        let side = market.side_mut(asset).unwrap();
+        side.reserves.live_reserve = side
+            .reserves
+            .live_reserve
+            .checked_add(accrued_interest)
+            .unwrap();
+        accrued_interest
     }
 
     #[test]
@@ -221,6 +274,197 @@ use super::*;
         market
             .assert_virtual_reserve_invariant(MarketAsset::Quote)
             .unwrap();
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(128))]
+
+        #[test]
+        fn borrow_preserves_cash_backed_virtual_reserve_invariant_across_assets(
+            borrow_base in any::<bool>(),
+            base_cash in 1_000_000u64..50_000_000,
+            quote_cash in 1_000_000u64..50_000_000,
+            borrow_bps in 1u64..=500,
+        ) {
+            let borrow_asset = if borrow_base {
+                MarketAsset::Base
+            } else {
+                MarketAsset::Quote
+            };
+            let collateral_asset = borrow_asset.opposite();
+            let mut market = invariant_market(base_cash, quote_cash);
+            let debt_cash_before = market.side(borrow_asset).unwrap().reserves.cash_reserve;
+            let debt_live_before = market.side(borrow_asset).unwrap().reserves.live_reserve;
+            let collateral_amount = market
+                .side(collateral_asset)
+                .unwrap()
+                .reserves
+                .live_reserve
+                / 2;
+            let mut borrow_position =
+                borrow_position_for_debt(borrow_asset, collateral_amount.max(1));
+            let borrow_amount = debt_cash_before
+                .checked_mul(borrow_bps)
+                .unwrap()
+                .checked_div(BPS_DENOMINATOR as u64)
+                .unwrap()
+                .max(1);
+
+            let receipt = market
+                .borrow(
+                    &mut borrow_position,
+                    borrow_asset,
+                    borrow_amount,
+                    BPS_DENOMINATOR as u64,
+                )
+                .unwrap();
+
+            let (live_after, cash_after) = reserve_pair(&market, borrow_asset);
+            prop_assert_eq!(receipt.interest_paid, 0);
+            prop_assert_eq!(live_after, debt_live_before);
+            prop_assert_eq!(cash_after, debt_cash_before - borrow_amount);
+            match borrow_asset {
+                MarketAsset::Base => {
+                    prop_assert_eq!(borrow_position.fixed_base_debt(&market.debt).unwrap(), borrow_amount as u128);
+                    prop_assert_eq!(market.debt.fixed_base_principal, borrow_amount as u128);
+                }
+                MarketAsset::Quote => {
+                    prop_assert_eq!(borrow_position.fixed_quote_debt(&market.debt).unwrap(), borrow_amount as u128);
+                    prop_assert_eq!(market.debt.fixed_quote_principal, borrow_amount as u128);
+                }
+            }
+            market.assert_market_invariants().unwrap();
+        }
+
+        #[test]
+        fn repay_preserves_cash_backed_virtual_reserve_invariant_across_principal_and_interest(
+            repay_base in any::<bool>(),
+            base_cash in 1_000_000u64..50_000_000,
+            quote_cash in 1_000_000u64..50_000_000,
+            borrow_bps in 1u64..=500,
+            interest_bps in 1u128..=2_000,
+            repay_bps in 1u128..=10_000,
+        ) {
+            let repay_asset = if repay_base {
+                MarketAsset::Base
+            } else {
+                MarketAsset::Quote
+            };
+            let collateral_asset = repay_asset.opposite();
+            let mut market = invariant_market(base_cash, quote_cash);
+            let debt_cash_before = market.side(repay_asset).unwrap().reserves.cash_reserve;
+            let collateral_amount = market
+                .side(collateral_asset)
+                .unwrap()
+                .reserves
+                .live_reserve
+                / 2;
+            let mut borrow_position =
+                borrow_position_for_debt(repay_asset, collateral_amount.max(1));
+            let borrow_amount = debt_cash_before
+                .checked_mul(borrow_bps)
+                .unwrap()
+                .checked_div(BPS_DENOMINATOR as u64)
+                .unwrap()
+                .max(1);
+            market
+                .borrow(
+                    &mut borrow_position,
+                    repay_asset,
+                    borrow_amount,
+                    BPS_DENOMINATOR as u64,
+                )
+                .unwrap();
+
+            let shares = match repay_asset {
+                MarketAsset::Base => borrow_position.fixed_base_shares,
+                MarketAsset::Quote => borrow_position.fixed_quote_shares,
+            };
+            let next_index = (NAD as u128)
+                .checked_mul((BPS_DENOMINATOR as u128).checked_add(interest_bps).unwrap())
+                .unwrap()
+                .checked_div(BPS_DENOMINATOR as u128)
+                .unwrap();
+            set_borrow_index(&mut market, repay_asset, next_index);
+            add_accrued_cash_backed_interest_to_live_reserve(
+                &mut market,
+                repay_asset,
+                shares,
+                borrow_amount,
+            );
+            market.assert_virtual_reserve_invariant(repay_asset).unwrap();
+
+            let debt_before = match repay_asset {
+                MarketAsset::Base => borrow_position.fixed_base_debt(&market.debt).unwrap(),
+                MarketAsset::Quote => borrow_position.fixed_quote_debt(&market.debt).unwrap(),
+            };
+            let repay_credit = debt_before
+                .checked_mul(repay_bps)
+                .unwrap()
+                .checked_div(BPS_DENOMINATOR as u128)
+                .unwrap()
+                .max(1)
+                .min(debt_before);
+            let repay_credit = u64::try_from(repay_credit).unwrap();
+            let (live_before, cash_before) = reserve_pair(&market, repay_asset);
+
+            let receipt = market
+                .repay(&mut borrow_position, repay_asset, repay_credit)
+                .unwrap();
+
+            let (live_after, cash_after) = reserve_pair(&market, repay_asset);
+            let principal_paid = repay_credit.checked_sub(receipt.interest_paid).unwrap();
+            let debt_reduction = receipt.debt_delta.unsigned_abs();
+            let live_debit = debt_reduction.checked_sub(principal_paid).unwrap();
+            prop_assert_eq!(live_after, live_before - live_debit);
+            prop_assert_eq!(cash_after, cash_before + principal_paid);
+            prop_assert!(receipt.interest_paid <= repay_credit);
+            prop_assert!(debt_reduction >= repay_credit);
+            market.assert_market_invariants().unwrap();
+        }
+    }
+
+    #[test]
+    fn partial_repay_rounding_writeoff_preserves_virtual_reserve_invariant() {
+        let repay_asset = MarketAsset::Quote;
+        let mut market = invariant_market(1_000_000, 28_642_837);
+        let mut borrow_position = borrow_position_for_debt(repay_asset, 500_000);
+        let borrow_amount = 28_642_837 * 346 / BPS_DENOMINATOR as u64;
+        market
+            .borrow(
+                &mut borrow_position,
+                repay_asset,
+                borrow_amount,
+                BPS_DENOMINATOR as u64,
+            )
+            .unwrap();
+
+        let shares = borrow_position.fixed_quote_shares;
+        let next_index = (NAD as u128) * 10_413 / BPS_DENOMINATOR as u128;
+        set_borrow_index(&mut market, repay_asset, next_index);
+        add_accrued_cash_backed_interest_to_live_reserve(
+            &mut market,
+            repay_asset,
+            shares,
+            borrow_amount,
+        );
+        market.assert_virtual_reserve_invariant(repay_asset).unwrap();
+
+        let debt_before = borrow_position.fixed_quote_debt(&market.debt).unwrap();
+        let repay_credit = u64::try_from(debt_before * 205 / BPS_DENOMINATOR as u128).unwrap();
+        let (live_before, cash_before) = reserve_pair(&market, repay_asset);
+
+        let receipt = market
+            .repay(&mut borrow_position, repay_asset, repay_credit)
+            .unwrap();
+
+        let (live_after, cash_after) = reserve_pair(&market, repay_asset);
+        let principal_paid = repay_credit.checked_sub(receipt.interest_paid).unwrap();
+        let debt_reduction = receipt.debt_delta.unsigned_abs();
+        assert_eq!(debt_reduction, repay_credit + 1);
+        assert_eq!(live_after, live_before - (debt_reduction - principal_paid));
+        assert_eq!(cash_after, cash_before + principal_paid);
+        market.assert_market_invariants().unwrap();
     }
 
     #[test]

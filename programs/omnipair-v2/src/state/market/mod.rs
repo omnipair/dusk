@@ -584,7 +584,6 @@ impl Market {
         repay_asset: MarketAsset,
         repay_credit: u64,
     ) -> Result<DebtReceipt> {
-        let debt_delta = -i64::try_from(repay_credit).map_err(|_| ErrorCode::Overflow)?;
         let debt_before = match repay_asset {
             MarketAsset::Base => borrow_position.fixed_base_debt(&self.debt)?,
             MarketAsset::Quote => borrow_position.fixed_quote_debt(&self.debt)?,
@@ -594,11 +593,7 @@ impl Market {
             repay_credit as u128,
             ErrorCode::InsufficientDebt
         );
-        let interest_paid = self.debt.realize_margin_repay(repay_asset, repay_credit)?;
-        let principal_credit = repay_credit
-            .checked_sub(interest_paid)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        match repay_asset {
+        let (interest_paid, debt_reduction) = match repay_asset {
             MarketAsset::Base => {
                 let shares_before = borrow_position.fixed_base_shares;
                 let shares_to_burn = if repay_credit as u128 == debt_before {
@@ -607,6 +602,27 @@ impl Market {
                     Debt::debt_to_shares(repay_credit, self.debt.base_borrow_index_nad)?
                         .min(shares_before)
                 };
+                let remaining_shares = shares_before
+                    .checked_sub(shares_to_burn)
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
+                let remaining_debt =
+                    Debt::shares_to_debt(remaining_shares, self.debt.base_borrow_index_nad)?;
+                let debt_reduction = debt_before
+                    .checked_sub(remaining_debt)
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
+                let debt_reduction =
+                    u64::try_from(debt_reduction).map_err(|_| ErrorCode::DebtMathOverflow)?;
+                let interest_paid = self.debt.realize_margin_liquidation(
+                    repay_asset,
+                    repay_credit,
+                    debt_reduction,
+                )?;
+                let principal_credit = repay_credit
+                    .checked_sub(interest_paid)
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
+                let live_debit = debt_reduction
+                    .checked_sub(principal_credit)
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
                 let release_collateral = proportional_release(
                     borrow_position.recognized_quote_collateral_for_base_debt,
                     shares_to_burn,
@@ -634,7 +650,7 @@ impl Market {
                     .base_side
                     .reserves
                     .live_reserve
-                    .checked_sub(interest_paid)
+                    .checked_sub(live_debit)
                     .ok_or(ErrorCode::ReserveUnderflow)?;
                 self.base_side.reserves.cash_reserve = self
                     .base_side
@@ -642,6 +658,7 @@ impl Market {
                     .cash_reserve
                     .checked_add(principal_credit)
                     .ok_or(ErrorCode::ReserveOverflow)?;
+                (interest_paid, debt_reduction)
             }
             MarketAsset::Quote => {
                 let shares_before = borrow_position.fixed_quote_shares;
@@ -651,6 +668,27 @@ impl Market {
                     Debt::debt_to_shares(repay_credit, self.debt.quote_borrow_index_nad)?
                         .min(shares_before)
                 };
+                let remaining_shares = shares_before
+                    .checked_sub(shares_to_burn)
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
+                let remaining_debt =
+                    Debt::shares_to_debt(remaining_shares, self.debt.quote_borrow_index_nad)?;
+                let debt_reduction = debt_before
+                    .checked_sub(remaining_debt)
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
+                let debt_reduction =
+                    u64::try_from(debt_reduction).map_err(|_| ErrorCode::DebtMathOverflow)?;
+                let interest_paid = self.debt.realize_margin_liquidation(
+                    repay_asset,
+                    repay_credit,
+                    debt_reduction,
+                )?;
+                let principal_credit = repay_credit
+                    .checked_sub(interest_paid)
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
+                let live_debit = debt_reduction
+                    .checked_sub(principal_credit)
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
                 let release_collateral = proportional_release(
                     borrow_position.recognized_base_collateral_for_quote_debt,
                     shares_to_burn,
@@ -678,7 +716,7 @@ impl Market {
                     .quote_side
                     .reserves
                     .live_reserve
-                    .checked_sub(interest_paid)
+                    .checked_sub(live_debit)
                     .ok_or(ErrorCode::ReserveUnderflow)?;
                 self.quote_side.reserves.cash_reserve = self
                     .quote_side
@@ -686,8 +724,10 @@ impl Market {
                     .cash_reserve
                     .checked_add(principal_credit)
                     .ok_or(ErrorCode::ReserveOverflow)?;
+                (interest_paid, debt_reduction)
             }
-        }
+        };
+        let debt_delta = -i64::try_from(debt_reduction).map_err(|_| ErrorCode::Overflow)?;
         borrow_position.record_risk_update()?;
         self.refresh_risk()?;
         self.assert_risk_circuit_breakers()?;
