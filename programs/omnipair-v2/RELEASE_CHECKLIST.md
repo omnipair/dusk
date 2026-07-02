@@ -15,9 +15,10 @@ deploy with real funds until every item below has recorded evidence:
   generated IDL/types, and deployment artifacts.
 - The core GAMM, yLP, hLP, isolated leverage, liquidation, fee, and insurance
   invariants have reviewer signoff against the final code.
-- Economic assumptions and parameter bounds are signed off with adversarial
-  simulation or fuzz evidence for hLP, leverage, liquidation, and liquidity-risk
-  paths using `SIMULATION_SIGNOFF.md`.
+- Economic assumptions and parameter bounds are signed off with
+  `RISK_PARAMETER_SIGNOFF.md` and adversarial simulation or fuzz evidence for
+  hLP, leverage, liquidation, and liquidity-risk paths using
+  `SIMULATION_SIGNOFF.md`.
 - Release and buffer deployment workflows have been rehearsed on the intended
   cluster class with Squads authority transfer and binary verification.
 - Monitoring, alerting, emergency reduce-only authority, key management, and
@@ -125,6 +126,8 @@ typecheck gates.
   `programs/omnipair-v2/SIGNOFF_CHECKLIST.md`.
 - Complete simulation/fuzz evidence in
   `programs/omnipair-v2/SIMULATION_SIGNOFF.md`.
+- Complete economic/risk parameter evidence in
+  `programs/omnipair-v2/RISK_PARAMETER_SIGNOFF.md`.
 - Complete incident-response evidence in
   `programs/omnipair-v2/INCIDENT_RESPONSE.md`.
 - Review the integrator handoff in `programs/omnipair-v2/README.md` with app,
