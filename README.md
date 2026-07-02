@@ -269,6 +269,7 @@ Core V2 verification gates:
 
 ```bash
 anchor build -p omnipair-v2
+anchor build -p leverage_delegate
 cargo fmt -p omnipair-v2 -- --check
 cargo check -p omnipair-v2 --lib
 cargo test -p omnipair-v2 --lib -- --nocapture

@@ -51,8 +51,14 @@ import { getCoverageReport, trackV2Instruction } from "./utils/instruction-cover
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { AnchorProvider, BN, Program, Wallet } = anchor;
 const OMNIPAIR_V2_PROGRAM_ID = new PublicKey("358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv");
+const LEVERAGE_DELEGATE_PROGRAM_ID = new PublicKey(
+  "EPGF9iFrbGnhWgC3To9rC9vxinEYuDHaz4RXgLPvuRkp"
+);
 const idl = JSON.parse(
   fs.readFileSync(path.join(__dirname, "../target/idl/omnipair_v2.json"), "utf-8")
+);
+const leverageDelegateIdl = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "../target/idl/leverage_delegate.json"), "utf-8")
 );
 const accountCoder = new anchor.BorshAccountsCoder(idl);
 const REDUCE_ONLY_EMERGENCY_AUTHORITY = new PublicKey(
@@ -64,6 +70,10 @@ const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
 const RUN_REAL_TOKEN_METADATA_CPI = process.env.OMNIPAIR_V2_TEST_REAL_METADATA_CPI === "1";
 const LEVERAGE_COLLATERAL_VAULT_SEED = Buffer.from("leverage_collateral");
 const LEVERAGE_DELEGATION_SEED = Buffer.from("leverage_delegation_v2");
+const LEVERAGE_ORDER_SEED = Buffer.from("leverage_order");
+const LEVERAGE_DELEGATE_CUSTODY_AUTHORITY_SEED = Buffer.from("leverage_delegate_authority");
+const LEVERAGE_DELEGATE_CLOSE = 1;
+const ORDER_KIND_TAKE_PROFIT = 1;
 
 function deriveLeverageCollateralVaultAddress(
   market: PublicKey,
@@ -82,20 +92,62 @@ function deriveLeverageDelegationAddress(position: PublicKey): [PublicKey, numbe
   );
 }
 
+function deriveLeverageOrderAddress(
+  position: PublicKey,
+  owner: PublicKey,
+  orderId: anchor.BN
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [
+      LEVERAGE_ORDER_SEED,
+      position.toBuffer(),
+      owner.toBuffer(),
+      orderId.toArrayLike(Buffer, "le", 8),
+    ],
+    LEVERAGE_DELEGATE_PROGRAM_ID
+  );
+}
+
+function deriveLeverageDelegateCustodyAuthority(order: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [LEVERAGE_DELEGATE_CUSTODY_AUTHORITY_SEED, order.toBuffer()],
+    LEVERAGE_DELEGATE_PROGRAM_ID
+  );
+}
+
 function tokenMetadataProgramPath() {
+  const override = process.env.OMNIPAIR_V2_TEST_TOKEN_METADATA_PROGRAM;
+  if (override) return override;
+
   const fallback =
     "/Users/User/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/trident-svm-0.2.0/src/solana-program-library/metaplex-token-metadata.so";
   if (fs.existsSync(fallback)) return fallback;
 
-  const depsDir = path.join(__dirname, "../target/sbpf-solana-solana/release/deps");
-  if (fs.existsSync(depsDir)) {
-    const candidate = fs
-      .readdirSync(depsDir)
-      .filter((name) => name.startsWith("mpl_token_metadata-") && name.endsWith(".so"))
-      .sort()[0];
-    if (candidate) return path.join(depsDir, candidate);
+  const depsDirs = [
+    path.join(__dirname, "../target/sbpf-solana-solana/release/deps"),
+    path.join(__dirname, "../target/sbpfv3-solana-solana/release/deps"),
+  ];
+  for (const depsDir of depsDirs) {
+    if (fs.existsSync(depsDir)) {
+      const candidate = fs
+        .readdirSync(depsDir)
+        .filter((name) => name.startsWith("mpl_token_metadata-") && name.endsWith(".so"))
+        .sort()[0];
+      if (candidate) return path.join(depsDir, candidate);
+    }
   }
+
   throw new Error("Token Metadata program file not found");
+}
+
+function leverageDelegateProgramPath() {
+  const programPath = path.join(__dirname, "../target/deploy/leverage_delegate.so");
+  if (!fs.existsSync(programPath)) {
+    throw new Error(
+      `Leverage delegate program file not found at ${programPath}. Run anchor build -p leverage_delegate.`
+    );
+  }
+  return programPath;
 }
 
 function marketConfig() {
@@ -124,6 +176,7 @@ describe("Omnipair V2 final model smoke", () => {
   let connection: LiteSVMConnection;
   let payer: Keypair;
   let program: any;
+  let leverageDelegateProgram: any;
   let teamTreasury: PublicKey;
   let teamTreasuryWsolAccount: PublicKey;
   let futarchyAuthority: PublicKey;
@@ -138,6 +191,7 @@ describe("Omnipair V2 final model smoke", () => {
       throw new Error(`Program file not found at ${programPath}`);
     }
     svm.addProgramFromFile(OMNIPAIR_V2_PROGRAM_ID, programPath);
+    svm.addProgramFromFile(LEVERAGE_DELEGATE_PROGRAM_ID, leverageDelegateProgramPath());
     if (RUN_REAL_TOKEN_METADATA_CPI) {
       svm.addProgramFromFile(TOKEN_METADATA_PROGRAM_ID, tokenMetadataProgramPath());
     }
@@ -147,6 +201,10 @@ describe("Omnipair V2 final model smoke", () => {
     await connection.requestAirdrop(payer.publicKey, 10 * LAMPORTS_PER_SOL);
     const provider = new AnchorProvider(connection as any, new Wallet(payer) as any, {});
     program = new Program({ ...idl, accounts: [] } as any, provider as any);
+    leverageDelegateProgram = new Program(
+      { ...leverageDelegateIdl, accounts: [] } as any,
+      provider as any
+    );
 
     teamTreasury = Keypair.generate().publicKey;
     const teamTreasuryWsol = Keypair.generate();
@@ -2505,6 +2563,147 @@ describe("Omnipair V2 final model smoke", () => {
     const ownerQuoteAfter = await getAccount(connection as any, fixture.ownerQuoteAccount);
     expect(ownerQuoteAfter.amount >= ownerQuoteBefore.amount).to.equal(true);
     expect(svm.getAccount(leveragePosition)).to.equal(null);
+  });
+
+  it("closes a leverage position through a delegated callback settlement", async function () {
+    const fixture = await addBalancedLiquidity(65);
+    const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(fixture);
+    trackV2Instruction("openLeverage", this.test?.title);
+
+    const leverageDelegation = deriveLeverageDelegationAddress(leveragePosition)[0];
+    const createDelegationTx = await program.methods
+      .createLeverageDelegation({
+        debtAsset: 1,
+        delegatedProgram: LEVERAGE_DELEGATE_PROGRAM_ID,
+        approvedActions: LEVERAGE_DELEGATE_CLOSE,
+      })
+      .accounts({
+        market: fixture.market,
+        leveragePosition,
+        leverageDelegation,
+        owner: payer.publicKey,
+        systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(createDelegationTx, [payer]);
+    trackV2Instruction("createLeverageDelegation", this.test?.title);
+
+    const orderId = new BN(1);
+    const order = deriveLeverageOrderAddress(leveragePosition, payer.publicKey, orderId)[0];
+    const custodyAuthority = deriveLeverageDelegateCustodyAuthority(order)[0];
+    const custodyTokenAccount = await createAccount(
+      connection as any,
+      payer,
+      fixture.quoteMint,
+      custodyAuthority,
+      Keypair.generate()
+    );
+    const executor = Keypair.generate();
+    await connection.requestAirdrop(executor.publicKey, LAMPORTS_PER_SOL);
+    const executorTokenAccount = await createAccount(
+      connection as any,
+      payer,
+      fixture.quoteMint,
+      executor.publicKey,
+      Keypair.generate()
+    );
+
+    const createOrderTx = await leverageDelegateProgram.methods
+      .createLeverageOrder({
+        orderId,
+        kind: ORDER_KIND_TAKE_PROFIT,
+        triggerCloseoutPriceNad: new BN(1),
+      })
+      .accounts({
+        market: fixture.market,
+        leveragePosition,
+        order,
+        owner: payer.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .transaction();
+    await connection.sendTransaction(createOrderTx, [payer]);
+
+    const beforeIx = await leverageDelegateProgram.methods
+      .beforeTakeProfit({ orderId })
+      .accounts({
+        order,
+        market: fixture.market,
+        leveragePosition,
+        leverageDelegation,
+        custodyAuthority,
+        custodyTokenAccount,
+        tokenMint: fixture.quoteMint,
+        executor: executor.publicKey,
+      })
+      .instruction();
+    const afterIx = await leverageDelegateProgram.methods
+      .afterCloseOrder({ orderId })
+      .accounts({
+        order,
+        owner: payer.publicKey,
+        leveragePosition,
+        leverageDelegation,
+        custodyAuthority,
+        custodyTokenAccount,
+        executorTokenAccount,
+        ownerTokenAccount: fixture.ownerQuoteAccount,
+        tokenMint: fixture.quoteMint,
+        executor: executor.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+      })
+      .instruction();
+
+    const ownerQuoteBefore = await getAccount(connection as any, fixture.ownerQuoteAccount);
+    const executorQuoteBefore = await getAccount(connection as any, executorTokenAccount);
+    const delegatedCloseTx = await program.methods
+      .delegatedCloseLeverage({
+        debtAsset: 1,
+        minAmountOut: new BN(0),
+        delegated: {
+          beforeIxData: Buffer.from(beforeIx.data),
+          afterIxData: Buffer.from(afterIx.data),
+          beforeAccountsLen: beforeIx.keys.length,
+        },
+      })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        positionOwner: payer.publicKey,
+        leveragePosition,
+        debtMint: fixture.quoteMint,
+        collateralMint: fixture.baseMint,
+        debtReserveVault: fixture.quoteReserveVault,
+        collateralReserveVault: fixture.baseReserveVault,
+        collateralFeeVault: fixture.baseFeeVault,
+        debtInterestVault: fixture.quoteInterestVault,
+        leverageCollateralVault,
+        ownerDebtAccount: custodyTokenAccount,
+        leverageDelegation,
+        delegatedProgram: LEVERAGE_DELEGATE_PROGRAM_ID,
+        authority: executor.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .remainingAccounts([...beforeIx.keys, ...afterIx.keys])
+      .transaction();
+    await connection.sendTransaction(delegatedCloseTx, [payer, executor]);
+    trackV2Instruction("delegatedCloseLeverage", this.test?.title);
+
+    const ownerQuoteAfter = await getAccount(connection as any, fixture.ownerQuoteAccount);
+    const executorQuoteAfter = await getAccount(connection as any, executorTokenAccount);
+    const custodyAfter = await getAccount(connection as any, custodyTokenAccount);
+
+    expect(ownerQuoteAfter.amount > ownerQuoteBefore.amount).to.equal(true);
+    expect(executorQuoteAfter.amount > executorQuoteBefore.amount).to.equal(true);
+    expect(custodyAfter.amount).to.equal(0n);
+    expect(svm.getAccount(leveragePosition)).to.equal(null);
+    expect(svm.getAccount(order)).to.equal(null);
   });
 
   it("liquidates an unhealthy leverage position", async function () {

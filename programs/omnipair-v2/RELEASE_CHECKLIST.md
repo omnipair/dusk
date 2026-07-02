@@ -48,6 +48,7 @@ cargo test -p omnipair-v2 --lib -- --nocapture
 cargo check -p omnipair-v2 --lib --features production
 cargo test -p omnipair-v2 --lib --features production -- --nocapture
 anchor build -p omnipair-v2
+anchor build -p leverage_delegate
 anchor build -p omnipair-v2 -- --features production
 npm run build --prefix packages/program-interface
 yarn test-litesvm
@@ -57,6 +58,9 @@ yarn test-litesvm
 
 - Confirm `target/idl/omnipair_v2.json` exists and matches the intended public
   V2 surface.
+- Confirm `target/deploy/leverage_delegate.so` and
+  `target/idl/leverage_delegate.json` exist before running the delegated close
+  LiteSVM smoke path.
 - Confirm `target/types/omnipair_v2.ts` exists and matches the same build.
 - Confirm `packages/program-interface/src/idl_v2.json` and
   `packages/program-interface/src/types_v2.ts` were regenerated from that build
