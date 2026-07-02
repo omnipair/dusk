@@ -19,7 +19,6 @@ pub struct MarketConfig {
     pub directional_ema_half_life_ms: u64,
     pub k_ema_half_life_ms: u64,
     pub max_daily_borrow_bps: u16,
-    pub max_daily_withdraw_bps: u16,
     pub spot_ema_divergence_bps: u16,
     pub k_ema_drawdown_bps: u16,
     pub recognized_collateral_cap_bps: u16,
@@ -50,7 +49,6 @@ impl MarketConfig {
         );
         require!(
             self.max_daily_borrow_bps <= BPS_DENOMINATOR
-                && self.max_daily_withdraw_bps <= BPS_DENOMINATOR
                 && self.spot_ema_divergence_bps <= BPS_DENOMINATOR
                 && self.k_ema_drawdown_bps <= BPS_DENOMINATOR
                 && self.settlement_divergence_bps <= BPS_DENOMINATOR

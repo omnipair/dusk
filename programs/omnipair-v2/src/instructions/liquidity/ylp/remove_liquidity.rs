@@ -188,14 +188,6 @@ impl<'info> RemoveLiquidity<'info> {
         )?;
 
         let receipt = ctx.accounts.market.remove_liquidity(args.ylp_amount)?;
-        ctx.accounts.market.enforce_daily_withdraw_limit(
-            crate::state::MarketAsset::Base,
-            receipt.base_amount_out,
-        )?;
-        ctx.accounts.market.enforce_daily_withdraw_limit(
-            crate::state::MarketAsset::Quote,
-            receipt.quote_amount_out,
-        )?;
 
         let base_balance_before = ctx.accounts.owner_base_account.amount;
         let quote_balance_before = ctx.accounts.owner_quote_account.amount;
@@ -246,7 +238,6 @@ impl<'info> RemoveLiquidity<'info> {
             ErrorCode::SlippageExceeded
         );
         ctx.accounts.market.refresh_risk()?;
-        ctx.accounts.market.assert_risk_circuit_breakers()?;
 
         emit_cpi!(LiquidityRemoved {
             market: market_key,

@@ -90,7 +90,6 @@ function marketConfig() {
     directionalEmaHalfLifeMs: new BN(60_000),
     kEmaHalfLifeMs: new BN(60_000),
     maxDailyBorrowBps: 2_000,
-    maxDailyWithdrawBps: 2_000,
     spotEmaDivergenceBps: 1_000,
     kEmaDrawdownBps: 1_000,
     recognizedCollateralCapBps: 15_000,
@@ -761,6 +760,11 @@ describe("Omnipair V2 final model smoke", () => {
         isWritable: true,
         isSigner: false,
       },
+      {
+        pubkey: fixture.quoteInterestVault,
+        isWritable: true,
+        isSigner: false,
+      },
     ];
   }
 
@@ -773,6 +777,11 @@ describe("Omnipair V2 final model smoke", () => {
       },
       {
         pubkey: fixture.quoteHlpYlpVault,
+        isWritable: true,
+        isSigner: false,
+      },
+      {
+        pubkey: fixture.baseInterestVault,
         isWritable: true,
         isSigner: false,
       },
@@ -999,14 +1008,14 @@ describe("Omnipair V2 final model smoke", () => {
       undefined,
       TOKEN_2022_PROGRAM_ID
     );
-    expect(ownerHlp.amount).to.equal(11_000n);
+    expect(ownerHlp.amount).to.equal(11_001n);
     expect(vaultYlp.amount).to.equal(15_556n);
 
     const account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
     const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
     expect(decoded.base_hlp_vault.ylp_shares.toNumber()).to.equal(15_556);
-    expect(decoded.base_hlp_vault.hlp_supply.toNumber()).to.equal(11_000);
+    expect(decoded.base_hlp_vault.hlp_supply.toNumber()).to.equal(11_001);
   });
 
   it("closes base hLP by burning vault yLP, repaying quote debt, and returning base", async function () {
@@ -1017,7 +1026,7 @@ describe("Omnipair V2 final model smoke", () => {
     const tx = await program.methods
       .withdrawSingleSided({
         hlpAmount: new BN(10_000),
-        minTargetAmountOut: new BN(9_999),
+        minTargetAmountOut: new BN(9_998),
       })
       .accounts({
         market: fixture.market,
@@ -1045,7 +1054,7 @@ describe("Omnipair V2 final model smoke", () => {
     trackV2Instruction("withdrawSingleSided", this.test?.title);
 
     const ownerBaseAfterClose = await getAccount(connection as any, fixture.ownerBaseAccount);
-    expect(ownerBaseAfterClose.amount).to.equal(ownerBaseBeforeOpen.amount);
+    expect(ownerBaseAfterClose.amount).to.equal(ownerBaseBeforeOpen.amount - 2n);
 
     const ownerHlp = await getAccount(
       connection as any,
@@ -1065,10 +1074,10 @@ describe("Omnipair V2 final model smoke", () => {
     const account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
     const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
-    expect(decoded.base_side.reserves.live_reserve.toNumber()).to.equal(100_000);
+    expect(decoded.base_side.reserves.live_reserve.toNumber()).to.equal(100_002);
     expect(decoded.quote_side.reserves.live_reserve.toNumber()).to.equal(200_000);
-    expect(decoded.base_side.shares.ylp_supply.toNumber()).to.equal(100_000);
-    expect(decoded.quote_side.shares.ylp_supply.toNumber()).to.equal(100_000);
+    expect(decoded.base_side.shares.ylp_supply.toNumber()).to.equal(141_421);
+    expect(decoded.quote_side.shares.ylp_supply.toNumber()).to.equal(141_421);
     expect(decoded.base_hlp_vault.ylp_shares.toNumber()).to.equal(0);
     expect(decoded.base_hlp_vault.hlp_supply.toNumber()).to.equal(0);
     expect(decoded.base_hlp_vault.debt_shares.toNumber()).to.equal(0);
@@ -1108,7 +1117,7 @@ describe("Omnipair V2 final model smoke", () => {
     const tx = await program.methods
       .withdrawSingleSided({
         hlpAmount: new BN(20_000),
-        minTargetAmountOut: new BN(19_999),
+        minTargetAmountOut: new BN(19_996),
       })
       .accounts({
         market: fixture.market,
@@ -1136,13 +1145,13 @@ describe("Omnipair V2 final model smoke", () => {
     trackV2Instruction("withdrawSingleSided", this.test?.title);
 
     const ownerQuoteAfterClose = await getAccount(connection as any, fixture.ownerQuoteAccount);
-    expect(ownerQuoteAfterClose.amount).to.equal(ownerQuoteBeforeOpen.amount);
+    expect(ownerQuoteAfterClose.amount).to.equal(ownerQuoteBeforeOpen.amount - 4n);
 
     account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
     decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
     expect(decoded.base_side.reserves.live_reserve.toNumber()).to.equal(100_000);
-    expect(decoded.quote_side.reserves.live_reserve.toNumber()).to.equal(200_000);
+    expect(decoded.quote_side.reserves.live_reserve.toNumber()).to.equal(200_004);
     expect(decoded.quote_hlp_vault.ylp_shares.toNumber()).to.equal(0);
     expect(decoded.quote_hlp_vault.hlp_supply.toNumber()).to.equal(0);
     expect(decoded.quote_hlp_vault.debt_shares.toNumber()).to.equal(0);
@@ -1156,8 +1165,8 @@ describe("Omnipair V2 final model smoke", () => {
     const tx = await program.methods
       .removeLiquidity({
         ylpAmount: new BN(1_000),
-        minBaseAmountOut: new BN(1_000),
-        minQuoteAmountOut: new BN(2_000),
+        minBaseAmountOut: new BN(707),
+        minQuoteAmountOut: new BN(1_414),
       })
       .accounts({
         market: fixture.market,
@@ -1193,8 +1202,8 @@ describe("Omnipair V2 final model smoke", () => {
 
     const ownerBaseAfter = await getAccount(connection as any, fixture.ownerBaseAccount);
     const ownerQuoteAfter = await getAccount(connection as any, fixture.ownerQuoteAccount);
-    expect(ownerBaseAfter.amount).to.equal(ownerBaseBefore.amount + 1_000n);
-    expect(ownerQuoteAfter.amount).to.equal(ownerQuoteBefore.amount + 2_000n);
+    expect(ownerBaseAfter.amount).to.equal(ownerBaseBefore.amount + 707n);
+    expect(ownerQuoteAfter.amount).to.equal(ownerQuoteBefore.amount + 1_414n);
 
     const ylpAccount = await getAccount(
       connection as any,
@@ -1202,15 +1211,15 @@ describe("Omnipair V2 final model smoke", () => {
       undefined,
       TOKEN_2022_PROGRAM_ID
     );
-    expect(ylpAccount.amount).to.equal(99_000n);
+    expect(ylpAccount.amount).to.equal(139_421n);
 
     const account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
     const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
-    expect(decoded.base_side.reserves.live_reserve.toNumber()).to.equal(99_000);
-    expect(decoded.quote_side.reserves.live_reserve.toNumber()).to.equal(198_000);
-    expect(decoded.base_side.shares.ylp_supply.toNumber()).to.equal(99_000);
-    expect(decoded.quote_side.shares.ylp_supply.toNumber()).to.equal(99_000);
+    expect(decoded.base_side.reserves.live_reserve.toNumber()).to.equal(99_293);
+    expect(decoded.quote_side.reserves.live_reserve.toNumber()).to.equal(198_586);
+    expect(decoded.base_side.shares.ylp_supply.toNumber()).to.equal(140_421);
+    expect(decoded.quote_side.shares.ylp_supply.toNumber()).to.equal(140_421);
   });
 
   it("swaps through the V2 market and routes non-compounding swap fees", async function () {
@@ -1231,7 +1240,8 @@ describe("Omnipair V2 final model smoke", () => {
     const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
     expect(decoded.base_side.reserves.live_reserve.toNumber()).to.equal(100_997);
     expect(decoded.quote_side.reserves.live_reserve.toNumber()).to.equal(198_026);
-    expect(decoded.base_side.fees.swap_fee_liability.toNumber()).to.equal(3);
+    expect(decoded.base_side.fees.swap_fee_liability.toNumber()).to.equal(2);
+    expect(decoded.base_side.fees.unallocated_swap_fee_liability.toNumber()).to.equal(1);
   });
 
   it("updates V2 futarchy revenue, recipients, authority, and market config", async function () {
@@ -1534,7 +1544,7 @@ describe("Omnipair V2 final model smoke", () => {
     expect(decoded.quote_hlp_vault.ylp_shares.toNumber()).to.be.lessThan(14_142);
   });
 
-  it("checkpoints both aggregate hLP vaults in one swap", async function () {
+  it("checkpoints one aggregate hLP vault per swap when both sides are active", async function () {
     const fixture = await addBalancedLiquidity(56);
     const baseHedge = await openBaseHedge(fixture);
     const quoteHedge = await openQuoteHedge(fixture);
@@ -1567,7 +1577,7 @@ describe("Omnipair V2 final model smoke", () => {
       TOKEN_2022_PROGRAM_ID
     );
     expect(baseHlpYlpAfter.amount).to.not.equal(baseHlpYlpBefore.amount);
-    expect(quoteHlpYlpAfter.amount).to.not.equal(quoteHlpYlpBefore.amount);
+    expect(quoteHlpYlpAfter.amount).to.equal(quoteHlpYlpBefore.amount);
 
     const account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
@@ -1635,15 +1645,16 @@ describe("Omnipair V2 final model smoke", () => {
     trackV2Instruction("claimYield", this.test?.title);
 
     const recipientBalance = await getAccount(connection as any, recipientBaseAccount);
-    expect(recipientBalance.amount).to.equal(3n);
+    expect(recipientBalance.amount).to.equal(2n);
     const feeVault = await getAccount(connection as any, fixture.baseFeeVault);
-    expect(feeVault.amount).to.equal(0n);
+    expect(feeVault.amount).to.equal(1n);
 
     const account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
     const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
     expect(decoded.base_side.fees.swap_fee_liability.toNumber()).to.equal(0);
-    expect(decoded.base_side.fees.swap_fee_vault_balance.toNumber()).to.equal(0);
+    expect(decoded.base_side.fees.unallocated_swap_fee_liability.toNumber()).to.equal(1);
+    expect(decoded.base_side.fees.swap_fee_vault_balance.toNumber()).to.equal(1);
   });
 
   it("checkpoints yLP yield accounts during a Token-2022 transfer hook", async function () {
@@ -1796,7 +1807,7 @@ describe("Omnipair V2 final model smoke", () => {
       "YieldAccount",
       Buffer.from(destinationQuoteYieldData!.data)
     ) as any;
-    expect(sourceBaseYield.accrued_swap_fee_amount.toNumber()).to.equal(3);
+    expect(sourceBaseYield.accrued_swap_fee_amount.toNumber()).to.equal(2);
     expect(destinationBaseYield.accrued_swap_fee_amount.toNumber()).to.equal(0);
     expect(sourceQuoteYield.accrued_swap_fee_amount.toNumber()).to.equal(0);
     expect(destinationQuoteYield.accrued_swap_fee_amount.toNumber()).to.equal(0);
@@ -1813,7 +1824,7 @@ describe("Omnipair V2 final model smoke", () => {
       undefined,
       TOKEN_2022_PROGRAM_ID
     );
-    expect(sourceYlpAfter.amount).to.equal(90_000n);
+    expect(sourceYlpAfter.amount).to.equal(130_421n);
     expect(destinationYlpAfter.amount).to.equal(10_000n);
   });
 

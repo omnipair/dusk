@@ -251,6 +251,9 @@ impl MarketSide {
         }
         let growth_delta = growth_delta_nad(self.fees.unallocated_swap_fee_liability, supply)?;
         let allocated = allocated_from_growth(growth_delta, supply)?;
+        if allocated == 0 {
+            return Ok(());
+        }
         self.fees.swap_fee_growth_index_nad = self
             .fees
             .swap_fee_growth_index_nad
@@ -276,6 +279,9 @@ impl MarketSide {
         }
         let growth_delta = growth_delta_nad(self.fees.unallocated_interest_liability, supply)?;
         let allocated = allocated_from_growth(growth_delta, supply)?;
+        if allocated == 0 {
+            return Ok(());
+        }
         self.fees.interest_growth_index_nad = self
             .fees
             .interest_growth_index_nad

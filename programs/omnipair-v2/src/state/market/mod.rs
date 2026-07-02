@@ -466,7 +466,6 @@ impl Market {
         collateral_debit: u64,
     ) -> Result<CollateralReceipt> {
         require!(collateral_debit > 0, ErrorCode::AmountZero);
-        self.enforce_daily_withdraw_limit(market_asset, collateral_debit)?;
         match market_asset {
             MarketAsset::Base => {
                 require_gte!(

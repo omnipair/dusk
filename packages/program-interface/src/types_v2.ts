@@ -7493,10 +7493,6 @@ export type OmnipairV2 = {
             "type": "u64"
           },
           {
-            "name": "withdrawnBucket",
-            "type": "u64"
-          },
-          {
             "name": "lastDecaySlot",
             "type": "u64"
           }
@@ -9088,10 +9084,6 @@ export type OmnipairV2 = {
           },
           {
             "name": "maxDailyBorrowBps",
-            "type": "u16"
-          },
-          {
-            "name": "maxDailyWithdrawBps",
             "type": "u16"
           },
           {

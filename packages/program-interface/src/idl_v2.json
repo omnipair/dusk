@@ -7487,10 +7487,6 @@
             "type": "u64"
           },
           {
-            "name": "withdrawn_bucket",
-            "type": "u64"
-          },
-          {
             "name": "last_decay_slot",
             "type": "u64"
           }
@@ -9082,10 +9078,6 @@
           },
           {
             "name": "max_daily_borrow_bps",
-            "type": "u16"
-          },
-          {
-            "name": "max_daily_withdraw_bps",
             "type": "u16"
           },
           {

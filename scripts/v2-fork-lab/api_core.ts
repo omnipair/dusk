@@ -519,7 +519,6 @@ function defaultMarketConfig() {
     ),
     kEmaHalfLifeMs: toBN(process.env.OMNIPAIR_V2_K_EMA_HALF_LIFE_MS ?? "60000"),
     maxDailyBorrowBps: Number(process.env.OMNIPAIR_V2_MAX_DAILY_BORROW_BPS ?? "2000"),
-    maxDailyWithdrawBps: Number(process.env.OMNIPAIR_V2_MAX_DAILY_WITHDRAW_BPS ?? "2000"),
     spotEmaDivergenceBps: Number(process.env.OMNIPAIR_V2_SPOT_EMA_DIVERGENCE_BPS ?? "1000"),
     kEmaDrawdownBps: Number(process.env.OMNIPAIR_V2_K_EMA_DRAWDOWN_BPS ?? "1000"),
     recognizedCollateralCapBps: Number(

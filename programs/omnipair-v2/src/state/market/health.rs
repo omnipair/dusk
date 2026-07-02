@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use super::{Market, MarketAsset, MarketHealth, Risk};
+use super::{Market, MarketAsset, MarketHealth, MarketSide, Risk};
 use crate::{
     constants::{BPS_DENOMINATOR, LIQUIDATION_INCENTIVE_BPS, LIQUIDATION_PENALTY_BPS},
     errors::ErrorCode,
@@ -87,19 +87,6 @@ impl Market {
         self.side_mut(market_asset)?
             .daily_limits
             .record_borrow(amount, limit, current_slot)
-    }
-
-    pub fn enforce_daily_withdraw_limit(
-        &mut self,
-        market_asset: MarketAsset,
-        amount: u64,
-    ) -> Result<()> {
-        self.refresh_risk()?;
-        let current_slot = self.risk.last_snapshot_slot;
-        let limit = self.daily_limit_for_side(market_asset, self.config.max_daily_withdraw_bps)?;
-        self.side_mut(market_asset)?
-            .daily_limits
-            .record_withdraw(amount, limit, current_slot)
     }
 
     pub fn assert_spot_ema_divergence(&self) -> Result<()> {
@@ -370,11 +357,15 @@ impl Market {
                     risk.directional_quote_price_ema_nad,
                 ),
             };
+        let collateral_reserve =
+            self.conservative_risk_reserve_depth(collateral_asset, collateral_side, risk)?;
+        let debt_reserve =
+            self.conservative_risk_reserve_depth(collateral_asset.opposite(), debt_side, risk)?;
 
         collateral_value_from_pessimistic_reserves_nad(
-            collateral_side.reserves.live_reserve,
+            collateral_reserve,
             collateral_side.asset_decimals,
-            debt_side.reserves.live_reserve,
+            debt_reserve,
             debt_side.asset_decimals,
             collateral_amount,
             price_ema_nad,
@@ -416,11 +407,14 @@ impl Market {
                     risk.directional_base_price_ema_nad,
                 ),
             };
+        let collateral_reserve =
+            self.conservative_risk_reserve_depth(debt_asset.opposite(), collateral_side, risk)?;
+        let debt_reserve = self.conservative_risk_reserve_depth(debt_asset, debt_side, risk)?;
 
         collateral_amount_for_debt_amount_ceil(
-            collateral_side.reserves.live_reserve,
+            collateral_reserve,
             collateral_side.asset_decimals,
-            debt_side.reserves.live_reserve,
+            debt_reserve,
             debt_side.asset_decimals,
             debt_with_penalty,
             price_ema_nad,
@@ -449,16 +443,36 @@ impl Market {
                     risk.directional_base_price_ema_nad,
                 ),
             };
+        let collateral_reserve =
+            self.conservative_risk_reserve_depth(debt_asset.opposite(), collateral_side, risk)?;
+        let debt_reserve = self.conservative_risk_reserve_depth(debt_asset, debt_side, risk)?;
 
         collateral_amount_for_debt_value_floor(
-            collateral_side.reserves.live_reserve,
+            collateral_reserve,
             collateral_side.asset_decimals,
-            debt_side.reserves.live_reserve,
+            debt_reserve,
             debt_side.asset_decimals,
             debt_value_nad,
             price_ema_nad,
             directional_price_ema_nad,
         )
+    }
+
+    fn conservative_risk_reserve_depth(
+        &self,
+        asset: MarketAsset,
+        side: &MarketSide,
+        risk: &Risk,
+    ) -> Result<u64> {
+        let liquidity_ema_nad = match asset {
+            MarketAsset::Base => risk.base_liquidity_ema,
+            MarketAsset::Quote => risk.quote_liquidity_ema,
+        };
+        if liquidity_ema_nad == 0 {
+            return Ok(side.reserves.live_reserve);
+        }
+        let liquidity_ema = denormalize_from_nad_floor(liquidity_ema_nad, side.asset_decimals)?;
+        Ok(side.reserves.live_reserve.min(liquidity_ema))
     }
 
     pub(crate) fn daily_limit_for_side(
