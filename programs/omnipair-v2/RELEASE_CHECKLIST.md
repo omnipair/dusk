@@ -12,7 +12,8 @@ deploy with real funds until every item below has recorded evidence:
 
 - `SIGNOFF_CHECKLIST.md` has no `Pending` or unresolved `Blocked` rows.
 - A security review covers the exact release commit, production feature set,
-  generated IDL/types, and deployment artifacts.
+  generated IDL/types, and deployment artifacts using
+  `SECURITY_REVIEW_SIGNOFF.md`.
 - The core GAMM, yLP, hLP, isolated leverage, liquidation, fee, and insurance
   invariants have reviewer signoff against the final code using
   `CORE_INVARIANT_SIGNOFF.md`.
@@ -125,6 +126,8 @@ typecheck gates.
 
 - Complete the owner signoff register in
   `programs/omnipair-v2/SIGNOFF_CHECKLIST.md`.
+- Complete security review evidence in
+  `programs/omnipair-v2/SECURITY_REVIEW_SIGNOFF.md`.
 - Complete core invariant review evidence in
   `programs/omnipair-v2/CORE_INVARIANT_SIGNOFF.md`.
 - Complete simulation/fuzz evidence in

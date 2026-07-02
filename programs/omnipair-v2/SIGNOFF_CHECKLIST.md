@@ -9,7 +9,7 @@ branch, deployed artifacts, or target-cluster behavior.
 
 | Area | Owner | Status | Evidence |
 | --- | --- | --- | --- |
-| Security review | TBD | Pending | Fresh review report or approval link. |
+| Security review | TBD | Pending | Completed `SECURITY_REVIEW_SIGNOFF.md` with fresh review report or approval link. |
 | Core invariant review | TBD | Pending | Completed `CORE_INVARIANT_SIGNOFF.md` covering GAMM, yLP, hLP, leverage, liquidation, fees, and insurance invariants. |
 | Economic/risk parameters | TBD | Pending | Completed `RISK_PARAMETER_SIGNOFF.md` with assumptions, limits, and failure-mode notes. |
 | Fuzzing and simulation | TBD | Pending | Completed `SIMULATION_SIGNOFF.md` evidence for adversarial hLP, leverage, liquidation, and liquidity-risk paths. |
@@ -28,6 +28,7 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 
 ## Security Review
 
+- Use `SECURITY_REVIEW_SIGNOFF.md` as the security review evidence template.
 - Confirm the reviewed source is the final standalone `programs/omnipair-v2`
   tree.
 - Review the core invariants listed in `programs/omnipair-v2/README.md`.
