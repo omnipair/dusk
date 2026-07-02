@@ -33,6 +33,12 @@ jobs:
       - name: Test Dusk program
         run: cargo test -p omnipair-v2
 
+      - name: Check Dusk production features
+        run: cargo check -p omnipair-v2 --lib --features production
+
+      - name: Test Dusk production features
+        run: cargo test -p omnipair-v2 --lib --features production
+
       - name: Test leverage delegate
         run: cargo test -p leverage_delegate
 
