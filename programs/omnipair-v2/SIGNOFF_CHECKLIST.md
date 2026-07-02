@@ -13,11 +13,11 @@ branch, deployed artifacts, or target-cluster behavior.
 | Core invariant review | TBD | Pending | Completed `CORE_INVARIANT_SIGNOFF.md` covering GAMM, yLP, hLP, leverage, liquidation, fees, and insurance invariants. |
 | Economic/risk parameters | TBD | Pending | Completed `RISK_PARAMETER_SIGNOFF.md` with assumptions, limits, and failure-mode notes. |
 | Fuzzing and simulation | TBD | Pending | Completed `SIMULATION_SIGNOFF.md` evidence for adversarial hLP, leverage, liquidation, and liquidity-risk paths. |
-| App/front-end routing | TBD | Pending | App PR, staging URL, or routing test notes. |
-| SDK/package interface | TBD | Pending | Package diff, typed usage test, or release approval. |
-| Indexing/events | TBD | Pending | Indexer config PR or decoded event sample. |
-| Analytics/reporting | TBD | Pending | Metric mapping or dashboard validation notes. |
-| Aggregator/router integration | TBD | Pending | Quote/swap adapter notes or integration test. |
+| App/front-end routing | TBD | Pending | Completed `INTEGRATION_SIGNOFF.md` app/front-end evidence. |
+| SDK/package interface | TBD | Pending | Completed `INTEGRATION_SIGNOFF.md` SDK/package evidence. |
+| Indexing/events | TBD | Pending | Completed `INTEGRATION_SIGNOFF.md` indexing/event evidence. |
+| Analytics/reporting | TBD | Pending | Completed `INTEGRATION_SIGNOFF.md` analytics/reporting evidence. |
+| Aggregator/router integration | TBD | Pending | Completed `INTEGRATION_SIGNOFF.md` aggregator/router evidence. |
 | Deployment/Squads | TBD | Pending | Completed `DEPLOYMENT_SIGNOFF.md` with buffer, proposal, approval, and execution links. |
 | Release rehearsal | TBD | Pending | Completed `DEPLOYMENT_SIGNOFF.md` with dry-run release, buffer deploy, Squads transfer, verification, and rollback notes. |
 | Monitoring and alerting | TBD | Pending | Dashboard and alert links mapped to `INCIDENT_RESPONSE.md` signals. |
@@ -99,6 +99,8 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 
 ## App / Front-End
 
+- Use `INTEGRATION_SIGNOFF.md` as the app, SDK, indexer, analytics, and
+  aggregator evidence template.
 - Route new V2 market creation, liquidity, swap, lending, liquidation,
   insurance, yield, protocol-fee, and hedge flows to `OMNIPAIR_V2_PROGRAM_ID`.
 - Do not sort V2 market mints client-side; creator-chosen base/quote order

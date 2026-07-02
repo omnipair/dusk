@@ -139,6 +139,8 @@ typecheck gates.
   `programs/omnipair-v2/INCIDENT_RESPONSE.md`.
 - Complete release/deployment evidence in
   `programs/omnipair-v2/DEPLOYMENT_SIGNOFF.md`.
+- Complete integration handoff evidence in
+  `programs/omnipair-v2/INTEGRATION_SIGNOFF.md`.
 - Review the integrator handoff in `programs/omnipair-v2/README.md` with app,
   SDK, indexer, analytics, and aggregator owners.
 - SDK consumers use `IDL`, `OmnipairV2`, and `PROGRAM_ID` or the explicit
