@@ -15,7 +15,6 @@ use super::*;
             base_hlp_vault: HlpVault::default(),
             quote_hlp_vault: HlpVault::default(),
             risk: Risk::default(),
-            health: MarketHealth::default(),
             insurance: Insurance::default(),
             pending_config: PendingConfigChange::default(),
             pending_operator: PendingAuthorityChange::default(),
@@ -39,13 +38,10 @@ use super::*;
             directional_ema_half_life_ms: MIN_HALF_LIFE_MS,
             k_ema_half_life_ms: MIN_HALF_LIFE_MS,
             max_daily_borrow_bps: BPS_DENOMINATOR,
-            max_daily_withdraw_bps: BPS_DENOMINATOR,
             spot_ema_divergence_bps: BPS_DENOMINATOR,
             k_ema_drawdown_bps: BPS_DENOMINATOR,
             recognized_collateral_cap_bps: 15_000,
             market_health_min_bps: BPS_DENOMINATOR,
-            liquidation_auction_duration_slots: 1_200,
-            liquidation_auction_start_incentive_bps: 0,
             hedged_lp_enabled: true,
             start_time: 0,
         }
@@ -96,7 +92,6 @@ use super::*;
             base_hlp_vault: HlpVault::default(),
             quote_hlp_vault: HlpVault::default(),
             risk: Risk::default(),
-            health: MarketHealth::default(),
             insurance: Insurance::default(),
             pending_config: PendingConfigChange::default(),
             pending_operator: PendingAuthorityChange::default(),
@@ -182,9 +177,6 @@ use super::*;
         config.ema_half_life_ms = MIN_HALF_LIFE_MS;
         config.directional_ema_half_life_ms = MIN_HALF_LIFE_MS;
         config.k_ema_half_life_ms = MIN_HALF_LIFE_MS;
-        config.liquidation_auction_duration_slots = 1_200;
-        config.liquidation_auction_start_incentive_bps = 0;
-
         let action = market.prepare_config_update(manager, config, 7).unwrap();
         assert_eq!(
             action,
@@ -229,6 +221,35 @@ use super::*;
         market
             .assert_virtual_reserve_invariant(MarketAsset::Quote)
             .unwrap();
+    }
+
+    #[test]
+    fn borrower_risk_valuation_uses_liquidity_ema_depth_cap() {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        market.risk = Risk {
+            base_price_ema_nad: NAD,
+            quote_price_ema_nad: NAD,
+            directional_base_price_ema_nad: NAD,
+            directional_quote_price_ema_nad: NAD,
+            base_liquidity_ema: 100_000_u128 * NAD as u128,
+            quote_liquidity_ema: 100_000_u128 * NAD as u128,
+            ..Risk::default()
+        };
+
+        let value = market
+            .collateral_value_nad(MarketAsset::Base, 50_000, &market.risk)
+            .unwrap();
+        let expected = crate::math::collateral_value_from_pessimistic_reserves_nad(
+            100_000, 0, 100_000, 0, 50_000, NAD, NAD,
+        )
+        .unwrap();
+        let live_depth_value = crate::math::collateral_value_from_pessimistic_reserves_nad(
+            1_000_000, 0, 1_000_000, 0, 50_000, NAD, NAD,
+        )
+        .unwrap();
+
+        assert_eq!(value, expected);
+        assert!(value < live_depth_value);
     }
 
     #[test]

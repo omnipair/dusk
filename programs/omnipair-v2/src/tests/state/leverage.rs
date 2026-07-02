@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, NAD},
     state::{
-        Debt, HlpVault, Insurance, MarketConfig, MarketHealth, MarketSide, PendingAuthorityChange,
+        Debt, HlpVault, Insurance, MarketConfig, MarketSide, PendingAuthorityChange,
         PendingConfigChange, ProtocolAuctionSplit, ReserveShares, Reserves, Risk,
     },
 };
@@ -49,7 +49,6 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
         base_hlp_vault: HlpVault::default(),
         quote_hlp_vault: HlpVault::default(),
         risk: Risk::default(),
-        health: MarketHealth::default(),
         insurance: Insurance::default(),
         pending_config: PendingConfigChange::default(),
         pending_operator: PendingAuthorityChange::default(),

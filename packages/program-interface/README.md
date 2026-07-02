@@ -89,7 +89,6 @@ console.log("quote mint:", market.quoteMint.toBase58());
 - `deriveLeveragePositionAddress(market, positionId)`.
 - `deriveYieldAccountAddress(market, owner, assetMint, tokenKind)`.
 - `deriveInsuranceAddress(market, assetMint)`.
-- `deriveLiquidationAuctionAddress(market, borrowPosition, debtMint)`.
 - Token-2022 transfer-hook validation and extra-account-meta helpers.
 
 ## ESM Compatibility

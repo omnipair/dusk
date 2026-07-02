@@ -3,7 +3,7 @@ use super::*;
     use crate::{
         constants::{BPS_DENOMINATOR, MARKET_VERSION},
         math::calculate_raw_amount_out,
-        state::{Insurance, MarketConfig, MarketHealth, MarketSide, Risk},
+        state::{Insurance, MarketConfig, MarketSide, Risk},
     };
 
     fn valid_config() -> MarketConfig {
@@ -18,13 +18,10 @@ use super::*;
             directional_ema_half_life_ms: 60_000,
             k_ema_half_life_ms: 60_000,
             max_daily_borrow_bps: 2_000,
-            max_daily_withdraw_bps: 2_000,
             spot_ema_divergence_bps: 1_000,
             k_ema_drawdown_bps: 1_000,
             recognized_collateral_cap_bps: 15_000,
             market_health_min_bps: 11_000,
-            liquidation_auction_duration_slots: 1_200,
-            liquidation_auction_start_incentive_bps: 0,
             hedged_lp_enabled: true,
             start_time: 0,
         }
@@ -74,7 +71,6 @@ use super::*;
             base_hlp_vault,
             quote_hlp_vault,
             risk: Risk::default(),
-            health: MarketHealth::default(),
             insurance: Insurance::default(),
             pending_config: PendingConfigChange::default(),
             pending_operator: PendingAuthorityChange::default(),

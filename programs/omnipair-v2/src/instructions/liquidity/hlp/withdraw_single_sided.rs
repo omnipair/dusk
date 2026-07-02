@@ -7,7 +7,7 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{HlpClosed, MarketEventMetadata, MarketHealthUpdated},
+    events::{HlpClosed, MarketEventMetadata},
     generate_market_seeds,
     shared::{
         account::get_size_with_discriminator,
@@ -345,24 +345,6 @@ impl<'info> WithdrawSingleSided<'info> {
             debt_repaid: receipt.debt_repaid,
             interest_paid: receipt.interest_paid,
             hlp_supply: receipt.hlp_supply,
-            metadata: MarketEventMetadata::new(owner_key, market_key)?,
-        });
-        emit_cpi!(MarketHealthUpdated {
-            market: market_key,
-            recognized_base_collateral_for_quote_debt: ctx
-                .accounts
-                .market
-                .health
-                .recognized_base_collateral_for_quote_debt,
-            recognized_quote_collateral_for_base_debt: ctx
-                .accounts
-                .market
-                .health
-                .recognized_quote_collateral_for_base_debt,
-            effective_base_debt_nad: ctx.accounts.market.health.effective_base_debt_nad,
-            effective_quote_debt_nad: ctx.accounts.market.health.effective_quote_debt_nad,
-            base_debt_health_bps: ctx.accounts.market.health.base_debt_health_bps,
-            quote_debt_health_bps: ctx.accounts.market.health.quote_debt_health_bps,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
 

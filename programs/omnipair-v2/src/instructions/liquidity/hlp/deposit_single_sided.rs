@@ -1,4 +1,5 @@
-use anchor_lang::prelude::*;
+use anchor_lang::solana_program::log::sol_log_data;
+use anchor_lang::{prelude::*, Discriminator};
 use anchor_spl::{
     token::Token,
     token_interface::{Mint, Token2022, TokenAccount},
@@ -7,11 +8,11 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{HlpOpened, MarketEventMetadata, MarketHealthUpdated},
+    events::HlpOpened,
     generate_market_seeds,
     shared::{
         account::get_size_with_discriminator,
-        token::{token_mint_to, transfer_from_user_to_vault},
+        token::{token_mint_to_with_scratch, transfer_from_user_to_vault, TokenInstructionScratch},
     },
     state::{FutarchyAuthority, Market, MarketAsset, YieldAccount, YieldTokenKind},
 };
@@ -227,8 +228,10 @@ impl<'info> DepositSingleSided<'info> {
                 MarketAsset::Quote => ctx.accounts.quote_mint.decimals,
             },
         )?;
-        ctx.accounts.base_reserve_vault.reload()?;
-        ctx.accounts.quote_reserve_vault.reload()?;
+        match target_asset {
+            MarketAsset::Base => ctx.accounts.base_reserve_vault.reload()?,
+            MarketAsset::Quote => ctx.accounts.quote_reserve_vault.reload()?,
+        }
         let deposit_credit = match target_asset {
             MarketAsset::Base => ctx
                 .accounts
@@ -273,55 +276,83 @@ impl<'info> DepositSingleSided<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        token_mint_to(
+        let market_seeds = generate_market_seeds!(ctx.accounts.market);
+        let signer_seeds = [&market_seeds[..]];
+        let mut mint_scratch = TokenInstructionScratch::new(*ylp_program.key);
+        token_mint_to_with_scratch(
+            &mut mint_scratch,
             ctx.accounts.market.to_account_info(),
-            ylp_program,
+            ylp_program.clone(),
             ctx.accounts.ylp_mint.to_account_info(),
             ctx.accounts.hlp_ylp_account.to_account_info(),
             receipt.ylp_amount,
-            &[&generate_market_seeds!(ctx.accounts.market)[..]],
+            &signer_seeds,
         )?;
-        token_mint_to(
+        token_mint_to_with_scratch(
+            &mut mint_scratch,
             ctx.accounts.market.to_account_info(),
             hlp_program,
             ctx.accounts.target_hlp_mint.to_account_info(),
             ctx.accounts.owner_hlp_account.to_account_info(),
             receipt.hlp_amount,
-            &[&generate_market_seeds!(ctx.accounts.market)[..]],
+            &signer_seeds,
         )?;
 
-        emit_cpi!(HlpOpened {
-            market: market_key,
-            owner: owner_key,
-            asset_mint: target_mint_key,
-            deposit_amount: receipt.deposit_amount,
-            borrowed_amount: receipt.borrowed_amount,
-            ylp_amount: receipt.ylp_amount,
-            hlp_amount: receipt.hlp_amount,
-            hlp_supply: receipt.hlp_supply,
-            metadata: MarketEventMetadata::new(owner_key, market_key)?,
-        });
-        emit_cpi!(MarketHealthUpdated {
-            market: market_key,
-            recognized_base_collateral_for_quote_debt: ctx
-                .accounts
-                .market
-                .health
-                .recognized_base_collateral_for_quote_debt,
-            recognized_quote_collateral_for_base_debt: ctx
-                .accounts
-                .market
-                .health
-                .recognized_quote_collateral_for_base_debt,
-            effective_base_debt_nad: ctx.accounts.market.health.effective_base_debt_nad,
-            effective_quote_debt_nad: ctx.accounts.market.health.effective_quote_debt_nad,
-            base_debt_health_bps: ctx.accounts.market.health.base_debt_health_bps,
-            quote_debt_health_bps: ctx.accounts.market.health.quote_debt_health_bps,
-            metadata: MarketEventMetadata::new(owner_key, market_key)?,
-        });
+        emit_hlp_opened_low_heap(
+            market_key,
+            owner_key,
+            target_mint_key,
+            receipt.deposit_amount,
+            receipt.borrowed_amount,
+            receipt.ylp_amount,
+            receipt.hlp_amount,
+            receipt.hlp_supply,
+        )?;
 
         Ok(())
     }
+}
+
+fn emit_hlp_opened_low_heap(
+    market: Pubkey,
+    owner: Pubkey,
+    asset_mint: Pubkey,
+    deposit_amount: u64,
+    borrowed_amount: u64,
+    ylp_amount: u64,
+    hlp_amount: u64,
+    hlp_supply: u64,
+) -> Result<()> {
+    const HLP_OPENED_EVENT_LEN: usize = 8 + (3 * 32) + (5 * 8) + 32 + 32 + 8;
+
+    let mut data = [0u8; HLP_OPENED_EVENT_LEN];
+    let mut offset = 0usize;
+    data[offset..offset + 8].copy_from_slice(HlpOpened::DISCRIMINATOR);
+    offset += 8;
+    data[offset..offset + 32].copy_from_slice(market.as_ref());
+    offset += 32;
+    data[offset..offset + 32].copy_from_slice(owner.as_ref());
+    offset += 32;
+    data[offset..offset + 32].copy_from_slice(asset_mint.as_ref());
+    offset += 32;
+    data[offset..offset + 8].copy_from_slice(&deposit_amount.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&borrowed_amount.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&ylp_amount.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&hlp_amount.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&hlp_supply.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 32].copy_from_slice(owner.as_ref());
+    offset += 32;
+    data[offset..offset + 32].copy_from_slice(market.as_ref());
+    offset += 32;
+    data[offset..offset + 8].copy_from_slice(&Clock::get()?.slot.to_le_bytes());
+
+    sol_log_data(&[&data]);
+    Ok(())
 }
 
 fn initialize_or_validate_hlp_yield_account(

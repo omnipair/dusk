@@ -248,6 +248,9 @@ fn credit_hlp_growth(
         .and_then(|value| value.checked_div(NAD as u128))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let allocated = u64::try_from(allocated).map_err(|_| ErrorCode::MarketMathOverflow)?;
+    if allocated == 0 {
+        return Ok(());
+    }
     *growth_index_nad = growth_index_nad
         .checked_add(growth_delta)
         .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -293,6 +296,21 @@ impl Market {
         crate::state::market::transitions::hedge::HlpRebalanceReceipt,
     )> {
         crate::state::market::transitions::hedge::rebalance_hlp_vaults(self, current_slot)
+    }
+
+    pub fn rebalance_hlp_vault_for_swap(
+        &mut self,
+        preferred_asset: MarketAsset,
+        current_slot: u64,
+    ) -> Result<(
+        crate::state::market::transitions::hedge::HlpRebalanceReceipt,
+        crate::state::market::transitions::hedge::HlpRebalanceReceipt,
+    )> {
+        crate::state::market::transitions::hedge::rebalance_hlp_vault_for_swap(
+            self,
+            preferred_asset,
+            current_slot,
+        )
     }
 
     pub fn checkpoint_hlp_yield_from_ylp(&mut self, target_asset: MarketAsset) -> Result<()> {

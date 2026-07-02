@@ -188,14 +188,6 @@ impl<'info> RemoveLiquidity<'info> {
         )?;
 
         let receipt = ctx.accounts.market.remove_liquidity(args.ylp_amount)?;
-        ctx.accounts.market.enforce_daily_withdraw_limit(
-            crate::state::MarketAsset::Base,
-            receipt.base_amount_out,
-        )?;
-        ctx.accounts.market.enforce_daily_withdraw_limit(
-            crate::state::MarketAsset::Quote,
-            receipt.quote_amount_out,
-        )?;
 
         let base_balance_before = ctx.accounts.owner_base_account.amount;
         let quote_balance_before = ctx.accounts.owner_quote_account.amount;
@@ -246,7 +238,6 @@ impl<'info> RemoveLiquidity<'info> {
             ErrorCode::SlippageExceeded
         );
         ctx.accounts.market.refresh_risk()?;
-        ctx.accounts.market.assert_risk_circuit_breakers()?;
 
         emit_cpi!(LiquidityRemoved {
             market: market_key,
@@ -257,22 +248,17 @@ impl<'info> RemoveLiquidity<'info> {
             ylp_supply: receipt.ylp_supply,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
+        let health = ctx.accounts.market.market_health()?;
         emit_cpi!(MarketHealthUpdated {
             market: market_key,
-            recognized_base_collateral_for_quote_debt: ctx
-                .accounts
-                .market
-                .health
+            recognized_base_collateral_for_quote_debt: health
                 .recognized_base_collateral_for_quote_debt,
-            recognized_quote_collateral_for_base_debt: ctx
-                .accounts
-                .market
-                .health
+            recognized_quote_collateral_for_base_debt: health
                 .recognized_quote_collateral_for_base_debt,
-            effective_base_debt_nad: ctx.accounts.market.health.effective_base_debt_nad,
-            effective_quote_debt_nad: ctx.accounts.market.health.effective_quote_debt_nad,
-            base_debt_health_bps: ctx.accounts.market.health.base_debt_health_bps,
-            quote_debt_health_bps: ctx.accounts.market.health.quote_debt_health_bps,
+            effective_base_debt_nad: health.effective_base_debt_nad,
+            effective_quote_debt_nad: health.effective_quote_debt_nad,
+            base_debt_health_bps: health.base_debt_health_bps,
+            quote_debt_health_bps: health.quote_debt_health_bps,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
 

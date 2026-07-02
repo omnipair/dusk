@@ -79,14 +79,19 @@ pub struct SwapReceipt {
 }
 
 impl DebtReceipt {
-    fn from_market(market: &Market, debt_delta: i64, interest_paid: u64) -> Result<Self> {
+    fn from_market(
+        market: &Market,
+        debt_delta: i64,
+        interest_paid: u64,
+        health: &MarketHealth,
+    ) -> Result<Self> {
         Ok(Self {
             debt_delta,
             interest_paid,
             fixed_base_debt: market.debt.fixed_base_debt()?,
             fixed_quote_debt: market.debt.fixed_quote_debt()?,
-            base_debt_health_bps: market.health.base_debt_health_bps,
-            quote_debt_health_bps: market.health.quote_debt_health_bps,
+            base_debt_health_bps: health.base_debt_health_bps,
+            quote_debt_health_bps: health.quote_debt_health_bps,
         })
     }
 }
@@ -170,7 +175,6 @@ pub struct Market {
     pub base_hlp_vault: HlpVault,
     pub quote_hlp_vault: HlpVault,
     pub risk: Risk,
-    pub health: MarketHealth,
     pub insurance: Insurance,
     pub pending_config: PendingConfigChange,
     pub pending_operator: PendingAuthorityChange,
@@ -238,7 +242,6 @@ impl Market {
                 last_snapshot_slot: current_slot,
                 ..Risk::default()
             },
-            health: MarketHealth::default(),
             insurance: Insurance::default(),
             pending_config: PendingConfigChange::default(),
             pending_operator: PendingAuthorityChange::default(),
@@ -284,7 +287,7 @@ impl Market {
         self.accrue_interest_to_slot(current_slot)?;
         if self.base_side.reserves.live_reserve > 0 && self.quote_side.reserves.live_reserve > 0 {
             self.checkpoint_hlp_vaults(current_slot)?;
-            self.refresh_market_health()?;
+            self.refresh_risk()?;
         }
         Ok(())
     }
@@ -463,7 +466,6 @@ impl Market {
         collateral_debit: u64,
     ) -> Result<CollateralReceipt> {
         require!(collateral_debit > 0, ErrorCode::AmountZero);
-        self.enforce_daily_withdraw_limit(market_asset, collateral_debit)?;
         match market_asset {
             MarketAsset::Base => {
                 require_gte!(
@@ -489,7 +491,7 @@ impl Market {
             }
         }
         borrow_position.record_risk_update()?;
-        self.refresh_market_health()?;
+        self.refresh_risk()?;
         self.assert_risk_circuit_breakers()?;
 
         Ok(CollateralReceipt {
@@ -516,7 +518,17 @@ impl Market {
                 Debt::debt_to_shares(borrow_amount, self.debt.quote_borrow_index_nad)?
             }
         };
-        self.enforce_daily_borrow_limit(borrow_asset, borrow_amount)?;
+        if self.risk.liquidity_ema == 0 {
+            self.refresh_risk()?;
+        }
+        let daily_limit_slot = self.risk.last_snapshot_slot;
+        let daily_borrow_limit =
+            self.daily_limit_for_side(borrow_asset, self.config.max_daily_borrow_bps)?;
+        self.side_mut(borrow_asset)?.daily_limits.record_borrow(
+            borrow_amount,
+            daily_borrow_limit,
+            daily_limit_slot,
+        )?;
         let debt_side = self.side_mut(borrow_asset)?;
         require_borrow_headroom(debt_side, borrow_amount)?;
         debt_side.reserves.cash_reserve = debt_side
@@ -551,16 +563,19 @@ impl Market {
         }
         self.debt
             .add_margin_principal(borrow_asset, borrow_amount)?;
-        sync_borrow_recognition(self, borrow_position, borrow_asset)?;
-        self.refresh_market_health()?;
-        self.assert_market_health()?;
+        let risk = self.risk;
+        sync_borrow_recognition(self, borrow_position, borrow_asset, &risk)?;
+        let market_health = self.market_health()?;
+        self.assert_market_health_snapshot(&market_health)?;
         self.assert_risk_circuit_breakers()?;
-        self.assert_recognition_cap(borrow_position, borrow_asset)?;
-        self.assert_position_health(borrow_position, borrow_asset, min_health_bps)?;
-        let health = self.position_health_bps(borrow_position, borrow_asset)?;
+        // Recognition was just reconciled against the current debt cap. Reuse
+        // the refreshed risk snapshot instead of recomputing the same cap/health
+        // path again, which is heap-expensive in SBF.
+        let health =
+            self.position_health_bps_with_risk(borrow_position, borrow_asset, &self.risk)?;
         require_gte!(health, min_health_bps, ErrorCode::InsufficientMarketHealth);
         borrow_position.record_risk_update()?;
-        DebtReceipt::from_market(self, debt_delta, 0)
+        DebtReceipt::from_market(self, debt_delta, 0, &market_health)
     }
 
     pub fn repay(
@@ -674,9 +689,10 @@ impl Market {
             }
         }
         borrow_position.record_risk_update()?;
-        self.refresh_market_health()?;
+        self.refresh_risk()?;
         self.assert_risk_circuit_breakers()?;
-        DebtReceipt::from_market(self, debt_delta, interest_paid)
+        let market_health = self.market_health()?;
+        DebtReceipt::from_market(self, debt_delta, interest_paid, &market_health)
     }
 
     pub fn add_liquidity(
@@ -1045,8 +1061,8 @@ fn sync_borrow_recognition(
     market: &mut Market,
     borrow_position: &mut BorrowPosition,
     debt_asset: MarketAsset,
+    risk: &Risk,
 ) -> Result<()> {
-    let risk = market.current_risk()?;
     let recognition_slot = Clock::get()
         .map(|clock| clock.slot)
         .unwrap_or(market.last_update_slot);
@@ -1055,7 +1071,7 @@ fn sync_borrow_recognition(
         MarketAsset::Base => {
             let old_recognized = borrow_position.recognized_quote_collateral_for_base_debt;
             let target_recognized =
-                market.debt_capped_recognized_collateral(borrow_position, debt_asset, &risk)?;
+                market.debt_capped_recognized_collateral(borrow_position, debt_asset, risk)?;
             reconcile_recognition(
                 &mut borrow_position.recognized_quote_collateral_for_base_debt,
                 &mut market.debt.recognized_quote_collateral_for_base_debt,
@@ -1066,7 +1082,7 @@ fn sync_borrow_recognition(
         MarketAsset::Quote => {
             let old_recognized = borrow_position.recognized_base_collateral_for_quote_debt;
             let target_recognized =
-                market.debt_capped_recognized_collateral(borrow_position, debt_asset, &risk)?;
+                market.debt_capped_recognized_collateral(borrow_position, debt_asset, risk)?;
             reconcile_recognition(
                 &mut borrow_position.recognized_base_collateral_for_quote_debt,
                 &mut market.debt.recognized_base_collateral_for_quote_debt,

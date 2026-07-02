@@ -158,22 +158,17 @@ impl<'info> Borrow<'info> {
             quote_debt_health_bps: debt_receipt.quote_debt_health_bps,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
+        let health = ctx.accounts.market.market_health()?;
         emit!(MarketHealthUpdated {
             market: market_key,
-            recognized_base_collateral_for_quote_debt: ctx
-                .accounts
-                .market
-                .health
+            recognized_base_collateral_for_quote_debt: health
                 .recognized_base_collateral_for_quote_debt,
-            recognized_quote_collateral_for_base_debt: ctx
-                .accounts
-                .market
-                .health
+            recognized_quote_collateral_for_base_debt: health
                 .recognized_quote_collateral_for_base_debt,
-            effective_base_debt_nad: ctx.accounts.market.health.effective_base_debt_nad,
-            effective_quote_debt_nad: ctx.accounts.market.health.effective_quote_debt_nad,
-            base_debt_health_bps: ctx.accounts.market.health.base_debt_health_bps,
-            quote_debt_health_bps: ctx.accounts.market.health.quote_debt_health_bps,
+            effective_base_debt_nad: health.effective_base_debt_nad,
+            effective_quote_debt_nad: health.effective_quote_debt_nad,
+            base_debt_health_bps: health.base_debt_health_bps,
+            quote_debt_health_bps: health.quote_debt_health_bps,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
         Ok(())

@@ -138,8 +138,7 @@ deposit_collateral
 withdraw_collateral
 borrow
 repay
-open_liquidation_auction
-settle_liquidation_auction
+liquidate_borrow_position
 deposit_single_sided
 withdraw_single_sided
 open_leverage

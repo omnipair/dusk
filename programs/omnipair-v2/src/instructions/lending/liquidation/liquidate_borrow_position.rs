@@ -1,4 +1,5 @@
-use anchor_lang::prelude::*;
+use anchor_lang::solana_program::log::sol_log_data;
+use anchor_lang::{prelude::*, Discriminator};
 use anchor_spl::{
     token::Token,
     token_interface::{Mint, Token2022, TokenAccount},
@@ -7,13 +8,16 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{LiquidationAuctionSettled, MarketEventMetadata},
+    events::PositionLiquidated,
     generate_market_seeds,
     shared::token::{
         get_transfer_fee, transfer_from_user_to_vault, transfer_from_vault_to_user,
         transfer_from_vault_to_vault,
     },
-    state::{BorrowPosition, FutarchyAuthority, LiquidationAuction, LiquidationPricing, Market},
+    state::{
+        market::transitions::liquidation::LiquidationPricing, BorrowPosition, FutarchyAuthority,
+        Market,
+    },
 };
 
 use super::common::validate_liquidation_accounts;
@@ -22,7 +26,7 @@ use crate::instructions::common::{
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct SettleLiquidationAuctionArgs {
+pub struct LiquidateBorrowPositionArgs {
     pub repay_amount: u64,
     pub min_collateral_out: u64,
     pub max_insurance_draw: u64,
@@ -30,8 +34,8 @@ pub struct SettleLiquidationAuctionArgs {
 }
 
 #[derive(Accounts)]
-#[instruction(args: SettleLiquidationAuctionArgs)]
-pub struct SettleLiquidationAuction<'info> {
+#[instruction(args: LiquidateBorrowPositionArgs)]
+pub struct LiquidateBorrowPosition<'info> {
     #[account(
         mut,
         seeds = [
@@ -51,7 +55,7 @@ pub struct SettleLiquidationAuction<'info> {
     pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
 
     #[account(mut)]
-    pub bidder: Signer<'info>,
+    pub liquidator: Signer<'info>,
 
     pub debt_asset_mint: Box<InterfaceAccount<'info, Mint>>,
     pub collateral_asset_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -67,9 +71,9 @@ pub struct SettleLiquidationAuction<'info> {
     #[account(mut)]
     pub collateral_insurance_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
-    pub bidder_debt_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub liquidator_debt_account: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
-    pub bidder_collateral_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub liquidator_collateral_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -82,42 +86,30 @@ pub struct SettleLiquidationAuction<'info> {
     )]
     pub borrow_position: Box<Account<'info, BorrowPosition>>,
 
-    #[account(
-        mut,
-        seeds = [
-            LIQUIDATION_AUCTION_SEED_PREFIX,
-            market.key().as_ref(),
-            borrow_position.key().as_ref(),
-            debt_asset_mint.key().as_ref(),
-        ],
-        bump = liquidation_auction.bump
-    )]
-    pub liquidation_auction: Box<Account<'info, LiquidationAuction>>,
-
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
 }
 
-impl<'info> SettleLiquidationAuction<'info> {
-    pub fn validate(&self, args: &SettleLiquidationAuctionArgs) -> Result<()> {
+impl<'info> LiquidateBorrowPosition<'info> {
+    pub fn validate(&self, args: &LiquidateBorrowPositionArgs) -> Result<()> {
         self.market.assert_started()?;
         require!(args.repay_amount > 0, ErrorCode::AmountZero);
         require_gte!(
-            self.bidder_debt_account.amount,
+            self.liquidator_debt_account.amount,
             args.repay_amount,
             ErrorCode::InsufficientBalance
         );
         let debt_asset = validate_liquidation_accounts(
             &self.market,
-            self.bidder.key(),
+            self.liquidator.key(),
             &self.debt_asset_mint,
             &self.collateral_asset_mint,
             &self.reserve_vault,
             &self.collateral_vault,
             &self.insurance_vault,
             &self.collateral_insurance_vault,
-            &self.bidder_debt_account,
-            &self.bidder_collateral_account,
+            &self.liquidator_debt_account,
+            &self.liquidator_collateral_account,
         )?;
         let interest_asset =
             validate_interest_accounts(&self.market, &self.debt_asset_mint, &self.interest_vault)?;
@@ -129,14 +121,6 @@ impl<'info> SettleLiquidationAuction<'info> {
             self.market.key(),
             ErrorCode::InvalidBorrowPosition
         );
-        self.liquidation_auction.assert_matches(
-            self.market.key(),
-            self.borrow_position.key(),
-            &self.borrow_position,
-            debt_asset,
-            self.debt_asset_mint.key(),
-            self.collateral_asset_mint.key(),
-        )?;
         Ok(())
     }
 
@@ -144,59 +128,43 @@ impl<'info> SettleLiquidationAuction<'info> {
         self.market.update()
     }
 
-    pub fn update_and_validate(&mut self, args: &SettleLiquidationAuctionArgs) -> Result<()> {
+    pub fn update_and_validate(&mut self, args: &LiquidateBorrowPositionArgs) -> Result<()> {
         self.update()?;
         self.validate(args)
     }
 
-    pub fn handle_settle(ctx: Context<Self>, args: SettleLiquidationAuctionArgs) -> Result<()> {
+    pub fn handle_liquidate(ctx: Context<Self>, args: LiquidateBorrowPositionArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let borrow_position_key = ctx.accounts.borrow_position.key();
         let borrower_key = ctx.accounts.borrow_position.owner;
-        let bidder_key = ctx.accounts.bidder.key();
+        let liquidator_key = ctx.accounts.liquidator.key();
         let debt_asset_mint_key = ctx.accounts.debt_asset_mint.key();
         let collateral_asset_mint_key = ctx.accounts.collateral_asset_mint.key();
-        let current_slot = Clock::get()?.slot;
         let debt_asset = ctx.accounts.market.asset_for_mint(debt_asset_mint_key)?;
 
-        ctx.accounts.liquidation_auction.assert_matches(
-            market_key,
-            borrow_position_key,
-            &ctx.accounts.borrow_position,
-            debt_asset,
-            debt_asset_mint_key,
-            collateral_asset_mint_key,
-        )?;
-        let health_bps = ctx
+        let liquidation_reference_price_nad = ctx
             .accounts
             .market
-            .position_health_bps(&ctx.accounts.borrow_position, debt_asset)?;
+            .liquidation_reference_price_nad(debt_asset)?;
+        let liquidation_pricing = LiquidationPricing::ReferencePrice {
+            debt_per_collateral_price_nad: liquidation_reference_price_nad,
+        };
+        let health_bps = ctx.accounts.market.liquidation_health_bps_with_pricing(
+            &ctx.accounts.borrow_position,
+            debt_asset,
+            liquidation_pricing,
+        )?;
         require!(
             health_bps < ctx.accounts.market.config.market_health_min_bps as u64,
             ErrorCode::PositionNotLiquidatable
         );
-        let live_terms = ctx
-            .accounts
-            .market
-            .liquidation_terms(&ctx.accounts.borrow_position, debt_asset)?;
-        let auction_incentive_bps = ctx
-            .accounts
-            .liquidation_auction
-            .current_incentive_bps(current_slot, live_terms.liquidation_incentive_bps)?;
-        let auction_pricing = LiquidationPricing::ReferencePrice {
-            debt_per_collateral_price_nad: ctx.accounts.liquidation_auction.reference_price_nad,
-        };
-        let auction_terms = ctx
-            .accounts
-            .market
-            .liquidation_terms_with_incentive_and_pricing(
-                &ctx.accounts.borrow_position,
-                debt_asset,
-                auction_incentive_bps,
-                LiquidationPricing::PessimisticReserves,
-            )?;
+        let liquidation_terms = ctx.accounts.market.liquidation_terms_with_pricing(
+            &ctx.accounts.borrow_position,
+            debt_asset,
+            liquidation_pricing,
+        )?;
         require_gte!(
-            auction_terms.max_repay_amount,
+            liquidation_terms.max_repay_amount,
             args.repay_amount,
             ErrorCode::LiquidationRepayTooLarge
         );
@@ -216,8 +184,8 @@ impl<'info> SettleLiquidationAuction<'info> {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require!(repay_credit > 0, ErrorCode::AmountZero);
         transfer_from_user_to_vault(
-            ctx.accounts.bidder.to_account_info(),
-            ctx.accounts.bidder_debt_account.to_account_info(),
+            ctx.accounts.liquidator.to_account_info(),
+            ctx.accounts.liquidator_debt_account.to_account_info(),
             ctx.accounts.reserve_vault.to_account_info(),
             ctx.accounts.debt_asset_mint.to_account_info(),
             debt_token_program.clone(),
@@ -233,8 +201,8 @@ impl<'info> SettleLiquidationAuction<'info> {
                     debt_asset,
                     repay_credit,
                     args.max_insurance_draw,
-                    auction_terms,
-                    auction_pricing,
+                    liquidation_terms,
+                    liquidation_pricing,
                 )?
         } else {
             0
@@ -275,8 +243,8 @@ impl<'info> SettleLiquidationAuction<'info> {
             insurance_spent,
             insurance_credit,
             args.max_socialized_loss,
-            auction_terms,
-            auction_pricing,
+            liquidation_terms,
+            liquidation_pricing,
         )?;
         if liquidation_receipt.interest_paid > 0 {
             transfer_from_vault_to_vault(
@@ -324,7 +292,7 @@ impl<'info> SettleLiquidationAuction<'info> {
             transfer_from_vault_to_user(
                 ctx.accounts.market.to_account_info(),
                 ctx.accounts.collateral_vault.to_account_info(),
-                ctx.accounts.bidder_collateral_account.to_account_info(),
+                ctx.accounts.liquidator_collateral_account.to_account_info(),
                 ctx.accounts.collateral_asset_mint.to_account_info(),
                 collateral_token_program.clone(),
                 liquidation_receipt.collateral_to_liquidator,
@@ -365,32 +333,78 @@ impl<'info> SettleLiquidationAuction<'info> {
             );
         }
 
-        ctx.accounts.liquidation_auction.record_settlement(
-            &ctx.accounts.borrow_position,
+        emit_position_liquidated_low_heap(
+            market_key,
+            borrow_position_key,
+            borrower_key,
+            liquidator_key,
+            debt_asset_mint_key,
+            collateral_asset_mint_key,
             liquidation_receipt.repaid_amount,
-            current_slot,
-            false,
+            liquidation_receipt.collateral_seized,
+            liquidation_receipt.collateral_to_liquidator,
+            liquidation_receipt.insurance_funded,
+            liquidation_receipt.insurance_drawn,
+            liquidation_receipt.socialized_loss,
+            liquidation_receipt.remaining_debt,
         )?;
-
-        emit!(LiquidationAuctionSettled {
-            market: market_key,
-            borrow_position: borrow_position_key,
-            borrower: borrower_key,
-            bidder: bidder_key,
-            debt_asset_mint: debt_asset_mint_key,
-            collateral_asset_mint: collateral_asset_mint_key,
-            repaid_amount: liquidation_receipt.repaid_amount,
-            collateral_to_bidder: liquidation_receipt.collateral_to_liquidator,
-            collateral_seized: liquidation_receipt.collateral_seized,
-            insurance_funded: liquidation_receipt.insurance_funded,
-            insurance_drawn: liquidation_receipt.insurance_drawn,
-            socialized_loss: liquidation_receipt.socialized_loss,
-            auction_incentive_bps,
-            max_repay_amount: liquidation_receipt.max_repay_amount,
-            remaining_debt: liquidation_receipt.remaining_debt,
-            auction_active: ctx.accounts.liquidation_auction.active,
-            metadata: MarketEventMetadata::new(bidder_key, market_key)?,
-        });
         Ok(())
     }
+}
+
+fn emit_position_liquidated_low_heap(
+    market: Pubkey,
+    borrow_position: Pubkey,
+    borrower: Pubkey,
+    liquidator: Pubkey,
+    debt_asset_mint: Pubkey,
+    collateral_asset_mint: Pubkey,
+    repaid_amount: u64,
+    collateral_seized: u64,
+    collateral_to_liquidator: u64,
+    insurance_funded: u64,
+    insurance_drawn: u64,
+    socialized_loss: u64,
+    remaining_debt: u128,
+) -> Result<()> {
+    const POSITION_LIQUIDATED_EVENT_LEN: usize = 8 + (6 * 32) + (6 * 8) + 16 + 32 + 32 + 8;
+
+    let mut data = [0u8; POSITION_LIQUIDATED_EVENT_LEN];
+    let mut offset = 0usize;
+    data[offset..offset + 8].copy_from_slice(PositionLiquidated::DISCRIMINATOR);
+    offset += 8;
+    data[offset..offset + 32].copy_from_slice(market.as_ref());
+    offset += 32;
+    data[offset..offset + 32].copy_from_slice(borrow_position.as_ref());
+    offset += 32;
+    data[offset..offset + 32].copy_from_slice(borrower.as_ref());
+    offset += 32;
+    data[offset..offset + 32].copy_from_slice(liquidator.as_ref());
+    offset += 32;
+    data[offset..offset + 32].copy_from_slice(debt_asset_mint.as_ref());
+    offset += 32;
+    data[offset..offset + 32].copy_from_slice(collateral_asset_mint.as_ref());
+    offset += 32;
+    data[offset..offset + 8].copy_from_slice(&repaid_amount.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&collateral_seized.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&collateral_to_liquidator.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&insurance_funded.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&insurance_drawn.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&socialized_loss.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 16].copy_from_slice(&remaining_debt.to_le_bytes());
+    offset += 16;
+    data[offset..offset + 32].copy_from_slice(liquidator.as_ref());
+    offset += 32;
+    data[offset..offset + 32].copy_from_slice(market.as_ref());
+    offset += 32;
+    data[offset..offset + 8].copy_from_slice(&Clock::get()?.slot.to_le_bytes());
+
+    sol_log_data(&[&data]);
+    Ok(())
 }

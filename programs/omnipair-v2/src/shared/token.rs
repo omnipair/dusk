@@ -4,7 +4,10 @@
 use crate::errors::ErrorCode;
 use anchor_lang::{
     prelude::*,
-    solana_program::program::{invoke, invoke_signed},
+    solana_program::{
+        instruction::{AccountMeta, Instruction},
+        program::{invoke, invoke_signed},
+    },
     system_program,
 };
 use anchor_spl::{
@@ -243,6 +246,67 @@ pub fn token_mint_to<'a>(
     } else {
         err!(ErrorCode::InvalidTokenProgram)
     }
+}
+
+pub struct TokenInstructionScratch {
+    instruction: Instruction,
+}
+
+impl TokenInstructionScratch {
+    pub fn new(program_id: Pubkey) -> Self {
+        Self {
+            instruction: Instruction {
+                program_id,
+                accounts: Vec::with_capacity(3),
+                data: Vec::with_capacity(9),
+            },
+        }
+    }
+
+    fn mint_to(&mut self, mint: Pubkey, destination: Pubkey, authority: Pubkey, amount: u64) {
+        self.instruction.accounts.clear();
+        self.instruction
+            .accounts
+            .push(AccountMeta::new(mint, false));
+        self.instruction
+            .accounts
+            .push(AccountMeta::new(destination, false));
+        self.instruction
+            .accounts
+            .push(AccountMeta::new_readonly(authority, true));
+
+        self.instruction.data.clear();
+        self.instruction.data.push(7);
+        self.instruction
+            .data
+            .extend_from_slice(&amount.to_le_bytes());
+    }
+}
+
+pub fn token_mint_to_with_scratch<'a>(
+    scratch: &mut TokenInstructionScratch,
+    authority: AccountInfo<'a>,
+    token_program: AccountInfo<'a>,
+    mint: AccountInfo<'a>,
+    destination: AccountInfo<'a>,
+    amount: u64,
+    signer_seeds: &[&[&[u8]]],
+) -> Result<()> {
+    if amount == 0 {
+        return Ok(());
+    }
+    require!(
+        *token_program.key == Token2022::id() || *token_program.key == Token::id(),
+        ErrorCode::InvalidTokenProgram
+    );
+    scratch.instruction.program_id = *token_program.key;
+    scratch.mint_to(*mint.key, *destination.key, *authority.key, amount);
+    invoke_signed(
+        &scratch.instruction,
+        &[mint, destination, authority, token_program],
+        signer_seeds,
+    )
+    .map_err(Into::into)
 }
 
 pub fn token_burn<'a>(

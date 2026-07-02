@@ -3237,6 +3237,185 @@
       ]
     },
     {
+      "name": "liquidate_borrow_position",
+      "discriminator": [
+        235,
+        201,
+        17,
+        133,
+        234,
+        72,
+        84,
+        210
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "futarchy_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "liquidator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "debt_asset_mint"
+        },
+        {
+          "name": "collateral_asset_mint"
+        },
+        {
+          "name": "reserve_vault",
+          "writable": true
+        },
+        {
+          "name": "interest_vault",
+          "writable": true
+        },
+        {
+          "name": "collateral_vault",
+          "writable": true
+        },
+        {
+          "name": "insurance_vault",
+          "writable": true
+        },
+        {
+          "name": "collateral_insurance_vault",
+          "writable": true
+        },
+        {
+          "name": "liquidator_debt_account",
+          "writable": true
+        },
+        {
+          "name": "liquidator_collateral_account",
+          "writable": true
+        },
+        {
+          "name": "borrow_position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  114,
+                  114,
+                  111,
+                  119,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.position_id",
+                "account": "BorrowPosition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "LiquidateBorrowPositionArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "liquidate_leverage",
       "discriminator": [
         188,
@@ -3732,157 +3911,6 @@
           }
         }
       ]
-    },
-    {
-      "name": "open_liquidation_auction",
-      "discriminator": [
-        71,
-        119,
-        13,
-        15,
-        59,
-        160,
-        197,
-        251
-      ],
-      "accounts": [
-        {
-          "name": "keeper",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "market",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market.base_mint",
-                "account": "Market"
-              },
-              {
-                "kind": "account",
-                "path": "market.quote_mint",
-                "account": "Market"
-              },
-              {
-                "kind": "account",
-                "path": "market.params_hash",
-                "account": "Market"
-              }
-            ]
-          }
-        },
-        {
-          "name": "debt_asset_mint"
-        },
-        {
-          "name": "collateral_asset_mint"
-        },
-        {
-          "name": "borrow_position",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  98,
-                  111,
-                  114,
-                  114,
-                  111,
-                  119,
-                  95,
-                  112,
-                  111,
-                  115,
-                  105,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "borrow_position.position_id",
-                "account": "BorrowPosition"
-              }
-            ]
-          }
-        },
-        {
-          "name": "liquidation_auction",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  108,
-                  105,
-                  113,
-                  117,
-                  105,
-                  100,
-                  97,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  97,
-                  117,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "borrow_position"
-              },
-              {
-                "kind": "account",
-                "path": "debt_asset_mint"
-              }
-            ]
-          }
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
     },
     {
       "name": "remove_leverage_margin",
@@ -4877,229 +4905,6 @@
           "type": {
             "defined": {
               "name": "SetYieldRecipientArgs"
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "settle_liquidation_auction",
-      "discriminator": [
-        116,
-        137,
-        231,
-        255,
-        220,
-        245,
-        108,
-        12
-      ],
-      "accounts": [
-        {
-          "name": "market",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market.base_mint",
-                "account": "Market"
-              },
-              {
-                "kind": "account",
-                "path": "market.quote_mint",
-                "account": "Market"
-              },
-              {
-                "kind": "account",
-                "path": "market.params_hash",
-                "account": "Market"
-              }
-            ]
-          }
-        },
-        {
-          "name": "futarchy_authority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  102,
-                  117,
-                  116,
-                  97,
-                  114,
-                  99,
-                  104,
-                  121,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "bidder",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "debt_asset_mint"
-        },
-        {
-          "name": "collateral_asset_mint"
-        },
-        {
-          "name": "reserve_vault",
-          "writable": true
-        },
-        {
-          "name": "interest_vault",
-          "writable": true
-        },
-        {
-          "name": "collateral_vault",
-          "writable": true
-        },
-        {
-          "name": "insurance_vault",
-          "writable": true
-        },
-        {
-          "name": "collateral_insurance_vault",
-          "writable": true
-        },
-        {
-          "name": "bidder_debt_account",
-          "writable": true
-        },
-        {
-          "name": "bidder_collateral_account",
-          "writable": true
-        },
-        {
-          "name": "borrow_position",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  98,
-                  111,
-                  114,
-                  114,
-                  111,
-                  119,
-                  95,
-                  112,
-                  111,
-                  115,
-                  105,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "borrow_position.position_id",
-                "account": "BorrowPosition"
-              }
-            ]
-          }
-        },
-        {
-          "name": "liquidation_auction",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  108,
-                  105,
-                  113,
-                  117,
-                  105,
-                  100,
-                  97,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  97,
-                  117,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "borrow_position"
-              },
-              {
-                "kind": "account",
-                "path": "debt_asset_mint"
-              }
-            ]
-          }
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "token_2022_program",
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "SettleLiquidationAuctionArgs"
             }
           }
         }
@@ -6499,19 +6304,6 @@
       ]
     },
     {
-      "name": "LiquidationAuction",
-      "discriminator": [
-        114,
-        80,
-        77,
-        48,
-        79,
-        174,
-        24,
-        141
-      ]
-    },
-    {
       "name": "Market",
       "discriminator": [
         219,
@@ -6641,32 +6433,6 @@
         163,
         44,
         170
-      ]
-    },
-    {
-      "name": "LiquidationAuctionOpened",
-      "discriminator": [
-        51,
-        74,
-        110,
-        0,
-        143,
-        66,
-        255,
-        109
-      ]
-    },
-    {
-      "name": "LiquidationAuctionSettled",
-      "discriminator": [
-        7,
-        101,
-        156,
-        17,
-        220,
-        37,
-        159,
-        218
       ]
     },
     {
@@ -7504,56 +7270,36 @@
     },
     {
       "code": 6109,
-      "name": "InvalidLiquidationAuction",
-      "msg": "Invalid liquidation auction"
-    },
-    {
-      "code": 6110,
-      "name": "LiquidationAuctionAlreadyActive",
-      "msg": "Liquidation auction is already active"
-    },
-    {
-      "code": 6111,
-      "name": "LiquidationAuctionInactive",
-      "msg": "Liquidation auction is inactive"
-    },
-    {
-      "code": 6112,
-      "name": "StaleLiquidationAuction",
-      "msg": "Liquidation auction is stale"
-    },
-    {
-      "code": 6113,
       "name": "LeverageMultiplierTooHigh",
       "msg": "Leverage multiplier exceeds circuit breaker"
     },
     {
-      "code": 6114,
+      "code": 6110,
       "name": "LeverageInitialMarginTooLow",
       "msg": "Leverage position does not have enough initial margin"
     },
     {
-      "code": 6115,
+      "code": 6111,
       "name": "LeverageUnwindImpactTooHigh",
       "msg": "Leverage unwind impact exceeds limit"
     },
     {
-      "code": 6116,
+      "code": 6112,
       "name": "LeveragePositionNotLiquidatable",
       "msg": "Leverage position is not liquidatable"
     },
     {
-      "code": 6117,
+      "code": 6113,
       "name": "InvalidSigner",
       "msg": "Invalid signer"
     },
     {
-      "code": 6118,
+      "code": 6114,
       "name": "InvalidLeveragePosition",
       "msg": "Invalid leverage position"
     },
     {
-      "code": 6119,
+      "code": 6115,
       "name": "InvalidLeverageDelegation",
       "msg": "Invalid leverage delegation"
     }
@@ -7738,10 +7484,6 @@
         "fields": [
           {
             "name": "borrowed_bucket",
-            "type": "u64"
-          },
-          {
-            "name": "withdrawn_bucket",
             "type": "u64"
           },
           {
@@ -8849,6 +8591,30 @@
       }
     },
     {
+      "name": "LiquidateBorrowPositionArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "repay_amount",
+            "type": "u64"
+          },
+          {
+            "name": "min_collateral_out",
+            "type": "u64"
+          },
+          {
+            "name": "max_insurance_draw",
+            "type": "u64"
+          },
+          {
+            "name": "max_socialized_loss",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "LiquidateLeverageArgs",
       "type": {
         "kind": "struct",
@@ -8856,238 +8622,6 @@
           {
             "name": "debt_asset",
             "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "LiquidationAuction",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "version",
-            "type": "u8"
-          },
-          {
-            "name": "active",
-            "type": "bool"
-          },
-          {
-            "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "borrow_position",
-            "type": "pubkey"
-          },
-          {
-            "name": "borrower",
-            "type": "pubkey"
-          },
-          {
-            "name": "debt_asset",
-            "type": "u8"
-          },
-          {
-            "name": "collateral_asset",
-            "type": "u8"
-          },
-          {
-            "name": "debt_mint",
-            "type": "pubkey"
-          },
-          {
-            "name": "collateral_mint",
-            "type": "pubkey"
-          },
-          {
-            "name": "position_risk_epoch",
-            "type": "u64"
-          },
-          {
-            "name": "start_slot",
-            "type": "u64"
-          },
-          {
-            "name": "end_slot",
-            "type": "u64"
-          },
-          {
-            "name": "start_health_bps",
-            "type": "u64"
-          },
-          {
-            "name": "start_incentive_bps",
-            "type": "u16"
-          },
-          {
-            "name": "max_incentive_bps",
-            "type": "u16"
-          },
-          {
-            "name": "max_repay_amount",
-            "type": "u64"
-          },
-          {
-            "name": "reference_price_nad",
-            "type": "u64"
-          },
-          {
-            "name": "settled_repay_amount",
-            "type": "u64"
-          },
-          {
-            "name": "last_settlement_slot",
-            "type": "u64"
-          },
-          {
-            "name": "bump",
-            "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "LiquidationAuctionOpened",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "borrow_position",
-            "type": "pubkey"
-          },
-          {
-            "name": "borrower",
-            "type": "pubkey"
-          },
-          {
-            "name": "debt_asset_mint",
-            "type": "pubkey"
-          },
-          {
-            "name": "collateral_asset_mint",
-            "type": "pubkey"
-          },
-          {
-            "name": "start_slot",
-            "type": "u64"
-          },
-          {
-            "name": "end_slot",
-            "type": "u64"
-          },
-          {
-            "name": "start_health_bps",
-            "type": "u64"
-          },
-          {
-            "name": "start_incentive_bps",
-            "type": "u16"
-          },
-          {
-            "name": "max_incentive_bps",
-            "type": "u16"
-          },
-          {
-            "name": "max_repay_amount",
-            "type": "u64"
-          },
-          {
-            "name": "reference_price_nad",
-            "type": "u64"
-          },
-          {
-            "name": "metadata",
-            "type": {
-              "defined": {
-                "name": "MarketEventMetadata"
-              }
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "LiquidationAuctionSettled",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "borrow_position",
-            "type": "pubkey"
-          },
-          {
-            "name": "borrower",
-            "type": "pubkey"
-          },
-          {
-            "name": "bidder",
-            "type": "pubkey"
-          },
-          {
-            "name": "debt_asset_mint",
-            "type": "pubkey"
-          },
-          {
-            "name": "collateral_asset_mint",
-            "type": "pubkey"
-          },
-          {
-            "name": "repaid_amount",
-            "type": "u64"
-          },
-          {
-            "name": "collateral_to_bidder",
-            "type": "u64"
-          },
-          {
-            "name": "collateral_seized",
-            "type": "u64"
-          },
-          {
-            "name": "insurance_funded",
-            "type": "u64"
-          },
-          {
-            "name": "insurance_drawn",
-            "type": "u64"
-          },
-          {
-            "name": "socialized_loss",
-            "type": "u64"
-          },
-          {
-            "name": "auction_incentive_bps",
-            "type": "u16"
-          },
-          {
-            "name": "max_repay_amount",
-            "type": "u64"
-          },
-          {
-            "name": "remaining_debt",
-            "type": "u128"
-          },
-          {
-            "name": "auction_active",
-            "type": "bool"
-          },
-          {
-            "name": "metadata",
-            "type": {
-              "defined": {
-                "name": "MarketEventMetadata"
-              }
-            }
           }
         ]
       }
@@ -9298,14 +8832,6 @@
             "type": {
               "defined": {
                 "name": "Risk"
-              }
-            }
-          },
-          {
-            "name": "health",
-            "type": {
-              "defined": {
-                "name": "MarketHealth"
               }
             }
           },
@@ -9555,10 +9081,6 @@
             "type": "u16"
           },
           {
-            "name": "max_daily_withdraw_bps",
-            "type": "u16"
-          },
-          {
             "name": "spot_ema_divergence_bps",
             "type": "u16"
           },
@@ -9572,14 +9094,6 @@
           },
           {
             "name": "market_health_min_bps",
-            "type": "u16"
-          },
-          {
-            "name": "liquidation_auction_duration_slots",
-            "type": "u64"
-          },
-          {
-            "name": "liquidation_auction_start_incentive_bps",
             "type": "u16"
           },
           {
@@ -9835,38 +9349,6 @@
       }
     },
     {
-      "name": "MarketHealth",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "recognized_base_collateral_for_quote_debt",
-            "type": "u64"
-          },
-          {
-            "name": "recognized_quote_collateral_for_base_debt",
-            "type": "u64"
-          },
-          {
-            "name": "effective_base_debt_nad",
-            "type": "u128"
-          },
-          {
-            "name": "effective_quote_debt_nad",
-            "type": "u128"
-          },
-          {
-            "name": "base_debt_health_bps",
-            "type": "u64"
-          },
-          {
-            "name": "quote_debt_health_bps",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "MarketHealthUpdated",
       "type": {
         "kind": "struct",
@@ -10113,6 +9595,10 @@
         "fields": [
           {
             "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "borrow_position",
             "type": "pubkey"
           },
           {
@@ -10741,30 +10227,6 @@
       }
     },
     {
-      "name": "SettleLiquidationAuctionArgs",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "repay_amount",
-            "type": "u64"
-          },
-          {
-            "name": "min_collateral_out",
-            "type": "u64"
-          },
-          {
-            "name": "max_insurance_draw",
-            "type": "u64"
-          },
-          {
-            "name": "max_socialized_loss",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "SettleProtocolAuctionArgs",
       "type": {
         "kind": "struct",
@@ -11327,9 +10789,9 @@
       "value": "[108, 101, 118, 101, 114, 97, 103, 101, 95, 112, 111, 115, 105, 116, 105, 111, 110, 95, 118, 50]"
     },
     {
-      "name": "LIQUIDATION_AUCTION_SEED_PREFIX",
-      "type": "bytes",
-      "value": "[108, 105, 113, 117, 105, 100, 97, 116, 105, 111, 110, 95, 97, 117, 99, 116, 105, 111, 110]"
+      "name": "LIQUIDATION_CLOSE_FACTOR_BPS",
+      "type": "u16",
+      "value": "5000"
     },
     {
       "name": "LIQUIDATION_INCENTIVE_BPS",

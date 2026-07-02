@@ -127,6 +127,8 @@ impl<'info> Swap<'info> {
         let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
         let protocol_fee_bps = ctx.accounts.futarchy_authority.revenue_share.swap_bps;
         let protocol_auction_split = ctx.accounts.futarchy_authority.protocol_auction_split;
+        let mut h_lp_token_scratch =
+            Token2022InstructionScratch::new(ctx.accounts.token_2022_program.key());
 
         validate_hlp_rebalance_accounts(&ctx.accounts.market, ctx.remaining_accounts)?;
         ctx.accounts.market.refresh_risk()?;
@@ -194,18 +196,23 @@ impl<'info> Swap<'info> {
             protocol_auction_split,
         )?;
         let current_slot = Clock::get()?.slot;
-        let (base_hlp_rebalance, quote_hlp_rebalance) =
-            ctx.accounts.market.rebalance_hlp_vaults(current_slot)?;
+        let (base_hlp_rebalance, quote_hlp_rebalance) = ctx
+            .accounts
+            .market
+            .rebalance_hlp_vault_for_swap(asset_in, current_slot)?;
         let h_lp_tokens_changed = rebalance_executes_token_changes(&base_hlp_rebalance)
             || rebalance_executes_token_changes(&quote_hlp_rebalance);
-        if h_lp_tokens_changed {
-            refresh_risk_snapshot(&mut ctx.accounts.market)?;
-        } else {
+        if !h_lp_tokens_changed {
             ctx.accounts.market.refresh_risk()?;
         }
 
         if h_lp_tokens_changed {
-            apply_hlp_rebalance_token_changes(&mut ctx, &base_hlp_rebalance, &quote_hlp_rebalance)?;
+            apply_hlp_rebalance_token_changes(
+                &mut ctx,
+                &base_hlp_rebalance,
+                &quote_hlp_rebalance,
+                &mut h_lp_token_scratch,
+            )?;
             emit_swap_settled_low_heap(
                 market_key,
                 trader_key,
@@ -261,22 +268,17 @@ impl<'info> Swap<'info> {
                     metadata: MarketEventMetadata::new(trader_key, market_key)?,
                 });
             }
+            let health = ctx.accounts.market.market_health()?;
             emit!(MarketHealthUpdated {
                 market: market_key,
-                recognized_base_collateral_for_quote_debt: ctx
-                    .accounts
-                    .market
-                    .health
+                recognized_base_collateral_for_quote_debt: health
                     .recognized_base_collateral_for_quote_debt,
-                recognized_quote_collateral_for_base_debt: ctx
-                    .accounts
-                    .market
-                    .health
+                recognized_quote_collateral_for_base_debt: health
                     .recognized_quote_collateral_for_base_debt,
-                effective_base_debt_nad: ctx.accounts.market.health.effective_base_debt_nad,
-                effective_quote_debt_nad: ctx.accounts.market.health.effective_quote_debt_nad,
-                base_debt_health_bps: ctx.accounts.market.health.base_debt_health_bps,
-                quote_debt_health_bps: ctx.accounts.market.health.quote_debt_health_bps,
+                effective_base_debt_nad: health.effective_base_debt_nad,
+                effective_quote_debt_nad: health.effective_quote_debt_nad,
+                base_debt_health_bps: health.base_debt_health_bps,
+                quote_debt_health_bps: health.quote_debt_health_bps,
                 metadata: MarketEventMetadata::new(trader_key, market_key)?,
             });
         }
@@ -291,13 +293,6 @@ fn should_emit_hlp_rebalance(ideal_delta: i128, pending_rebalance: i128, hlp_sup
 
 fn rebalance_executes_token_changes(receipt: &HlpRebalanceReceipt) -> bool {
     receipt.ylp_mint_amount > 0 || receipt.ylp_burn_amount > 0 || receipt.interest_paid > 0
-}
-
-fn refresh_risk_snapshot(market: &mut Market) -> Result<()> {
-    let risk = market.current_risk()?;
-    market.last_update_slot = risk.last_snapshot_slot;
-    market.risk = risk;
-    Ok(())
 }
 
 fn emit_swap_settled_low_heap(
@@ -402,15 +397,15 @@ fn apply_hlp_rebalance_token_changes<'info>(
     ctx: &mut anchor_lang::context::Context<'_, '_, '_, 'info, Swap<'info>>,
     base_receipt: &HlpRebalanceReceipt,
     quote_receipt: &HlpRebalanceReceipt,
+    scratch: &mut Token2022InstructionScratch,
 ) -> Result<()> {
     let mut cursor = 0usize;
-    let mut scratch = Token2022InstructionScratch::new(ctx.accounts.token_2022_program.key());
     if ctx.accounts.market.base_hlp_vault.hlp_supply > 0 {
-        apply_single_hlp_rebalance_token_changes(ctx, base_receipt, cursor, &mut scratch)?;
+        apply_single_hlp_rebalance_token_changes(ctx, base_receipt, cursor, scratch)?;
         cursor += 3;
     }
     if ctx.accounts.market.quote_hlp_vault.hlp_supply > 0 {
-        apply_single_hlp_rebalance_token_changes(ctx, quote_receipt, cursor, &mut scratch)?;
+        apply_single_hlp_rebalance_token_changes(ctx, quote_receipt, cursor, scratch)?;
     }
     Ok(())
 }
