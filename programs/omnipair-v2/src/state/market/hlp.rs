@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use super::{accrue_fee_liability, Debt, Market, MarketAsset, MarketSide};
+use super::{accrue_fee_liability, Debt, DebtClearance, Market, MarketAsset, MarketSide};
 use crate::{constants::NAD, errors::ErrorCode};
 
 pub(crate) use crate::state::market::transitions::hedge::HlpRebalanceReceipt;
@@ -135,21 +135,58 @@ impl HlpVault {
         Ok(())
     }
 
-    pub fn realize_debt_repay(&mut self, repaid: u64, borrow_index_nad: u128) -> Result<u64> {
+    pub fn clear_debt_repay(
+        &mut self,
+        repaid: u64,
+        shares_burned: u128,
+        borrow_index_nad: u128,
+    ) -> Result<DebtClearance> {
+        require!(repaid > 0, ErrorCode::AmountZero);
+        require!(shares_burned > 0, ErrorCode::DebtShareDivisionOverflow);
+        require_gte!(
+            self.debt_shares,
+            shares_burned,
+            ErrorCode::DebtShareMathOverflow
+        );
         let total_debt = Debt::shares_to_debt(self.debt_shares, borrow_index_nad)?;
-        let principal = self.debt_principal.min(total_debt);
-        let (principal_repaid, interest_paid) =
-            crate::math::realized_interest_split(repaid, total_debt, principal)?;
-        self.debt_principal = self.debt_principal.saturating_sub(principal_repaid as u128);
-        Ok(interest_paid)
-    }
-
-    pub fn remove_debt_shares(&mut self, shares: u128) -> Result<()> {
-        self.debt_shares = self
+        require_gte!(total_debt, repaid as u128, ErrorCode::InsufficientDebt);
+        let remaining_shares = self
             .debt_shares
-            .checked_sub(shares)
+            .checked_sub(shares_burned)
             .ok_or(ErrorCode::DebtShareMathOverflow)?;
-        Ok(())
+        let remaining_debt = Debt::shares_to_debt(remaining_shares, borrow_index_nad)?;
+        let debt_reduced_u128 = total_debt
+            .checked_sub(remaining_debt)
+            .ok_or(ErrorCode::DebtMathOverflow)?;
+        require_gte!(
+            debt_reduced_u128,
+            repaid as u128,
+            ErrorCode::DebtMathOverflow
+        );
+        let debt_reduced =
+            u64::try_from(debt_reduced_u128).map_err(|_| ErrorCode::DebtMathOverflow)?;
+
+        let principal = self.debt_principal.min(total_debt);
+        let (principal_paid, interest_paid) =
+            crate::math::realized_interest_split(repaid, total_debt, principal)?;
+        let (principal_reduced, _) =
+            crate::math::realized_interest_split(debt_reduced, total_debt, principal)?;
+        self.debt_shares = remaining_shares;
+        self.debt_principal = self
+            .debt_principal
+            .saturating_sub(principal_reduced as u128);
+        if self.debt_shares == 0 {
+            self.debt_principal = 0;
+        }
+
+        Ok(DebtClearance {
+            shares_burned,
+            debt_reduced,
+            principal_paid,
+            interest_paid,
+            remaining_debt: u64::try_from(remaining_debt)
+                .map_err(|_| ErrorCode::DebtMathOverflow)?,
+        })
     }
 
     pub fn checkpoint_yield_from_ylp(
