@@ -6,10 +6,16 @@ node_modules
 test-ledger
 .yarn
 .env
+.env.*
+!.env.example
 docker-target
 
 # Keypairs (never commit private keys)
 *-keypair.json
+*.pem
+*.key
+id_rsa*
+id_ed25519*
 mockTokens/*.json
 !mockTokens/*_metadata.json
 omni*.json
