@@ -1222,6 +1222,57 @@ describe("Omnipair V2 final model smoke", () => {
     expect(decoded.quote_side.shares.ylp_supply.toNumber()).to.equal(140_421);
   });
 
+  it("allows yLP exits without post-withdraw k drawdown gating", async function () {
+    const config = marketConfig();
+    config.kEmaDrawdownBps = 0;
+    const fixture = await addBalancedLiquidity(59, config);
+    const ownerBaseBefore = await getAccount(connection as any, fixture.ownerBaseAccount);
+    const ownerQuoteBefore = await getAccount(connection as any, fixture.ownerQuoteAccount);
+
+    const tx = await program.methods
+      .removeLiquidity({
+        ylpAmount: new BN(20_000),
+        minBaseAmountOut: new BN(14_000),
+        minQuoteAmountOut: new BN(28_000),
+      })
+      .accounts({
+        market: fixture.market,
+        owner: payer.publicKey,
+        baseMint: fixture.baseMint,
+        quoteMint: fixture.quoteMint,
+        ylpMint: fixture.ylpMint,
+        baseReserveVault: fixture.baseReserveVault,
+        quoteReserveVault: fixture.quoteReserveVault,
+        ownerBaseAccount: fixture.ownerBaseAccount,
+        ownerQuoteAccount: fixture.ownerQuoteAccount,
+        ownerYlpAccount: fixture.ownerYlpAccount,
+        baseYieldAccount: deriveYieldAccountAddress(
+          fixture.market,
+          payer.publicKey,
+          fixture.baseMint,
+          "ylp"
+        )[0],
+        quoteYieldAccount: deriveYieldAccountAddress(
+          fixture.market,
+          payer.publicKey,
+          fixture.quoteMint,
+          "ylp"
+        )[0],
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(tx, [payer]);
+    trackV2Instruction("removeLiquidity", this.test?.title);
+
+    const ownerBaseAfter = await getAccount(connection as any, fixture.ownerBaseAccount);
+    const ownerQuoteAfter = await getAccount(connection as any, fixture.ownerQuoteAccount);
+    expect(ownerBaseAfter.amount - ownerBaseBefore.amount).to.equal(14_142n);
+    expect(ownerQuoteAfter.amount - ownerQuoteBefore.amount).to.equal(28_284n);
+  });
+
   it("swaps through the V2 market and routes non-compounding swap fees", async function () {
     const fixture = await addBalancedLiquidity(47);
     const ownerQuoteBefore = await getAccount(connection as any, fixture.ownerQuoteAccount);

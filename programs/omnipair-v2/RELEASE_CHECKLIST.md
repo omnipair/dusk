@@ -24,8 +24,13 @@ mainnet launch or upgrade.
 - Run a fresh end-to-end review against the final Dusk source tree.
 - Re-check the V2 invariants in `programs/omnipair-v2/README.md`.
 - Re-check the cached-spot EMA flow for same-slot manipulation resistance.
-- Re-check daily-limit enforcement against liquidity EMA for borrow,
-  collateral withdrawal, and yLP/hLP settlement paths.
+- Re-check daily borrow-limit enforcement against liquidity EMA.
+- Re-check borrower risk valuation uses conservative depth
+  `min(live_reserve, liquidity_ema)`.
+- Confirm vanilla yLP withdrawal is not gated by daily withdrawal buckets or
+  post-withdraw spot/K circuit breakers; it remains constrained by cash
+  availability, user slippage bounds, pro-rata burn math, and reserve/share
+  invariants.
 - Re-check liquidation accounting for collateral seizure, insurance draw, and
   LP socialization.
 - Re-check fee liabilities: yLP, hLP, operator, protocol, and unallocated
