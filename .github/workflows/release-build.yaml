@@ -54,6 +54,21 @@ jobs:
       - name: Calculate release version
         id: version
         run: |
+          RELEASES_ENABLED="${{ vars.DUSK_RELEASES_ENABLED }}"
+          if [ "$RELEASES_ENABLED" != "true" ]; then
+            echo "Release publishing is disabled."
+            echo "Set repository variable DUSK_RELEASES_ENABLED=true only after release checklist and owner signoff are complete."
+            {
+              echo "### Release skipped"
+              echo ""
+              echo "Release publishing requires repository variable \`DUSK_RELEASES_ENABLED=true\`."
+              echo "Leave it unset or false until the Dusk release checklist and owner signoff are complete."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "bump_type=disabled" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
           LATEST_VERSION="${LATEST_TAG#v}"
           IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"

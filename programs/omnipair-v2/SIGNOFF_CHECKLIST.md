@@ -89,6 +89,9 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 
 ## Deployment And Verification
 
+- Confirm repository variable `DUSK_RELEASES_ENABLED` is set to `true` only for
+  an approved release window after this checklist is complete, and returned to
+  `false` after release artifact publication.
 - Confirm `programs/omnipair-v2/src/lib.rs` declares the intended program ID.
 - Build the verifiable binary with production features and embedded
   `GIT_REV`/`GIT_RELEASE` metadata.

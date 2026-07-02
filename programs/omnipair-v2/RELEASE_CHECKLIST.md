@@ -8,6 +8,10 @@ mainnet launch or upgrade.
 ## 1. Scope Freeze
 
 - Confirm V2 remains a standalone program: `programs/omnipair-v2`.
+- Confirm repository variable `DUSK_RELEASES_ENABLED` is unset or `false`
+  until this checklist and owner signoff are complete. Set it to `true` only
+  for an approved release window, then set it back to `false` after the release
+  artifacts are published.
 - Confirm the emergency reduce-only authority is the intended signer and can
   reach `set_reduce_only` for incident response.
 - Confirm soft borrow and soft liquidation remain disabled unless a separate
@@ -97,6 +101,8 @@ yarn test-litesvm
 
 ## 6. Mainnet Deployment
 
+- Confirm repository variable `DUSK_RELEASES_ENABLED=true` is intentionally set
+  for the approved release window before publishing release artifacts.
 - Confirm `programs/omnipair-v2/src/lib.rs` declares the intended program ID.
 - Build the verifiable V2 binary with production features:
 
