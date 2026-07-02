@@ -8,16 +8,13 @@ pub struct RevenueShare {
     pub interest_bps: u16,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, InitSpace)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, InitSpace,
+)]
 pub enum ProtocolAuctionLane {
+    #[default]
     Fee,
     Buyback,
-}
-
-impl Default for ProtocolAuctionLane {
-    fn default() -> Self {
-        Self::Fee
-    }
 }
 
 impl ProtocolAuctionLane {
