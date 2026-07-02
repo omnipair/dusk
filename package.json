@@ -9,6 +9,7 @@
     "build:litesvm": "anchor build -p omnipair-v2 && anchor build -p leverage_delegate",
     "test-litesvm": "yarn build:litesvm && yarn test-litesvm:no-build",
     "test-litesvm:no-build": "mocha --require ts-node/register --extensions ts tests/v2-final-smoke.test.ts",
+    "check:hygiene": "node scripts/check_repo_hygiene.js",
     "check:program-interface": "npm run check-idl-current --prefix packages/program-interface && npm run typecheck --prefix packages/program-interface",
     "test-coverage": "yarn test-litesvm",
     "coverage": "cargo tarpaulin -p omnipair-v2 --out Html --output-dir coverage --exclude-files tests",
