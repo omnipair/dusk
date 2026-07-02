@@ -168,6 +168,10 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: yarn
+
+      - name: Install JavaScript dependencies
+        run: yarn install --frozen-lockfile
 
       - name: Build verifiable Dusk artifact
         run: |
@@ -256,6 +260,10 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: yarn
+
+      - name: Install JavaScript dependencies
+        run: yarn install --frozen-lockfile
 
       - name: Build Dusk
         run: anchor build -p "${{ env.PROGRAM_CRATE }}" -- --features production

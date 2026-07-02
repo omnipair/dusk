@@ -64,6 +64,10 @@ npm run build --prefix packages/program-interface
 yarn test-litesvm
 ```
 
+Release and verify-only workflows must install JavaScript dependencies with
+`yarn install --frozen-lockfile` before running program-interface drift or
+typecheck gates.
+
 ## 4. Artifact Review
 
 - Confirm `target/idl/omnipair_v2.json` exists and matches the intended public
