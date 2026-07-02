@@ -18,11 +18,26 @@ const privateArtifactNames = [
 const allowedTrackedPrivateArtifacts = new Set([".env.example"]);
 
 const localPathPatterns = [
-  /\/Users\/[^/\s"'`]+/,
-  /\/home\/[^/\s"'`]+/,
-  /\/var\/folders\//,
-  /TemporaryItems/,
-  /Desktop\/Repos\//,
+  {
+    label: "macOS user-home absolute path",
+    pattern: new RegExp("\\/" + "Users" + "\\/[^/\\s\"'`]+"),
+  },
+  {
+    label: "Linux user-home absolute path",
+    pattern: new RegExp("\\/" + "home" + "\\/[^/\\s\"'`]+"),
+  },
+  {
+    label: "macOS screencapture temp path",
+    pattern: new RegExp("\\/" + "var" + "\\/" + "folders" + "\\/"),
+  },
+  {
+    label: "macOS screencapture temporary path",
+    pattern: new RegExp("Temporary" + "Items"),
+  },
+  {
+    label: "local workspace path",
+    pattern: new RegExp("Desktop" + "\\/" + "Repos" + "\\/"),
+  },
 ];
 
 const secretLiteralPatterns = [
@@ -51,9 +66,9 @@ for (const file of trackedFiles) {
   if (buffer.includes(0)) continue;
 
   const text = buffer.toString("utf8");
-  for (const pattern of localPathPatterns) {
+  for (const { label, pattern } of localPathPatterns) {
     if (pattern.test(text)) {
-      failures.push(`${file}: contains local absolute path matching ${pattern}`);
+      failures.push(`${file}: contains ${label}`);
       break;
     }
   }
