@@ -16,6 +16,7 @@ on:
 
 env:
   ANCHOR_VERSION: "0.31.1"
+  SOLANA_VERSION: "1.18.18"
 
 jobs:
   test:
@@ -61,6 +62,11 @@ jobs:
 
       - name: Typecheck test harness
         run: yarn typecheck
+
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v${{ env.SOLANA_VERSION }}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
       - name: Install Anchor CLI
         run: cargo install --git https://github.com/coral-xyz/anchor --tag v${{ env.ANCHOR_VERSION }} anchor-cli --locked
