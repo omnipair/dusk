@@ -27,7 +27,11 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 - Review the core invariants listed in `programs/omnipair-v2/README.md`.
 - Review the cached-spot EMA flow and pre-action risk snapshots for swap and
   liquidity-add paths.
-- Review liquidity-EMA daily limits and spot/K circuit breakers.
+- Review liquidity-EMA daily borrow limits, `min(live, liquidity_ema)`
+  borrower-risk depth, and spot/K circuit breakers on risk-increasing paths.
+- Confirm vanilla yLP withdrawal remains governed by cash availability, slippage,
+  pro-rata burn math, and reserve/share invariants, not post-withdraw spot/K
+  circuit breakers or daily withdrawal buckets.
 - Review floating yLP liquidity, matched yLP redemption, and Token-2022
   transfer checkpointing.
 - Review fee liabilities and settlement paths for yLP, hLP, operator,

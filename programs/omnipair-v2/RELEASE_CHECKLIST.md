@@ -24,8 +24,13 @@ mainnet launch or upgrade.
 - Run a fresh end-to-end review against the final Dusk source tree.
 - Re-check the V2 invariants in `programs/omnipair-v2/README.md`.
 - Re-check the cached-spot EMA flow for same-slot manipulation resistance.
-- Re-check daily-limit enforcement against liquidity EMA for borrow,
-  collateral withdrawal, and yLP/hLP settlement paths.
+- Re-check daily borrow-limit enforcement against liquidity EMA.
+- Re-check borrower risk valuation uses conservative depth
+  `min(live_reserve, liquidity_ema)`.
+- Confirm vanilla yLP withdrawal is not gated by daily withdrawal buckets or
+  post-withdraw spot/K circuit breakers; it remains constrained by cash
+  availability, user slippage bounds, pro-rata burn math, and reserve/share
+  invariants.
 - Re-check liquidation accounting for collateral seizure, insurance draw, and
   LP socialization.
 - Re-check fee liabilities: yLP, hLP, operator, protocol, and unallocated
@@ -40,9 +45,11 @@ Run these gates from the repository root:
 cargo fmt -p omnipair-v2 -- --check
 cargo check -p omnipair-v2 --lib
 cargo test -p omnipair-v2 --lib -- --nocapture
+cargo test -p leverage_delegate
 cargo check -p omnipair-v2 --lib --features production
 cargo test -p omnipair-v2 --lib --features production -- --nocapture
 anchor build -p omnipair-v2
+anchor build -p leverage_delegate
 anchor build -p omnipair-v2 -- --features production
 npm run build --prefix packages/program-interface
 yarn test-litesvm
@@ -52,7 +59,13 @@ yarn test-litesvm
 
 - Confirm `target/idl/omnipair_v2.json` exists and matches the intended public
   V2 surface.
+- Confirm `target/deploy/leverage_delegate.so` and
+  `target/idl/leverage_delegate.json` exist before running the delegated close
+  LiteSVM smoke path.
 - Confirm `target/types/omnipair_v2.ts` exists and matches the same build.
+- Confirm `initialize_lp_metadata` has been exercised against a real Metaplex
+  Token Metadata program on the target cluster or a compatible local validator;
+  the default LiteSVM smoke suite seeds LP metadata accounts directly.
 - Confirm `packages/program-interface/src/idl_v2.json` and
   `packages/program-interface/src/types_v2.ts` were regenerated from that build
   if any public IDL shape changed.

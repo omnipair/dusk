@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: yarn
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Install JavaScript dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Test Dusk program
+        run: cargo test -p omnipair-v2
+
+      - name: Check Dusk production features
+        run: cargo check -p omnipair-v2 --lib --features production
+
+      - name: Test Dusk production features
+        run: cargo test -p omnipair-v2 --lib --features production
+
+      - name: Test leverage delegate
+        run: cargo test -p leverage_delegate
+
+      - name: Typecheck test harness
+        run: yarn typecheck
+
+      - name: Typecheck program interface package
+        run: npm run typecheck --prefix packages/program-interface

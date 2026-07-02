@@ -39,6 +39,7 @@ import {
   deriveMarketInterestVaultAddress,
   deriveMarketReserveVaultAddress,
   deriveBorrowPositionAddress,
+  deriveLeveragePositionAddress,
   deriveYieldAccountAddress,
   deriveYieldTransferHookValidationAddress,
   deriveTokenMetadataAddress,
@@ -50,8 +51,14 @@ import { getCoverageReport, trackV2Instruction } from "./utils/instruction-cover
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { AnchorProvider, BN, Program, Wallet } = anchor;
 const OMNIPAIR_V2_PROGRAM_ID = new PublicKey("358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv");
+const LEVERAGE_DELEGATE_PROGRAM_ID = new PublicKey(
+  "EPGF9iFrbGnhWgC3To9rC9vxinEYuDHaz4RXgLPvuRkp"
+);
 const idl = JSON.parse(
   fs.readFileSync(path.join(__dirname, "../target/idl/omnipair_v2.json"), "utf-8")
+);
+const leverageDelegateIdl = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "../target/idl/leverage_delegate.json"), "utf-8")
 );
 const accountCoder = new anchor.BorshAccountsCoder(idl);
 const REDUCE_ONLY_EMERGENCY_AUTHORITY = new PublicKey(
@@ -61,27 +68,92 @@ const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
   "BPFLoaderUpgradeab1e11111111111111111111111"
 );
 const RUN_REAL_TOKEN_METADATA_CPI = process.env.OMNIPAIR_V2_TEST_REAL_METADATA_CPI === "1";
+const LEVERAGE_COLLATERAL_VAULT_SEED = Buffer.from("leverage_collateral");
+const LEVERAGE_DELEGATION_SEED = Buffer.from("leverage_delegation_v2");
+const LEVERAGE_ORDER_SEED = Buffer.from("leverage_order");
+const LEVERAGE_DELEGATE_CUSTODY_AUTHORITY_SEED = Buffer.from("leverage_delegate_authority");
+const LEVERAGE_DELEGATE_CLOSE = 1;
+const ORDER_KIND_TAKE_PROFIT = 1;
+
+function deriveLeverageCollateralVaultAddress(
+  market: PublicKey,
+  collateralMint: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [LEVERAGE_COLLATERAL_VAULT_SEED, market.toBuffer(), collateralMint.toBuffer()],
+    OMNIPAIR_V2_PROGRAM_ID
+  );
+}
+
+function deriveLeverageDelegationAddress(position: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [LEVERAGE_DELEGATION_SEED, position.toBuffer()],
+    OMNIPAIR_V2_PROGRAM_ID
+  );
+}
+
+function deriveLeverageOrderAddress(
+  position: PublicKey,
+  owner: PublicKey,
+  orderId: anchor.BN
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [
+      LEVERAGE_ORDER_SEED,
+      position.toBuffer(),
+      owner.toBuffer(),
+      orderId.toArrayLike(Buffer, "le", 8),
+    ],
+    LEVERAGE_DELEGATE_PROGRAM_ID
+  );
+}
+
+function deriveLeverageDelegateCustodyAuthority(order: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [LEVERAGE_DELEGATE_CUSTODY_AUTHORITY_SEED, order.toBuffer()],
+    LEVERAGE_DELEGATE_PROGRAM_ID
+  );
+}
 
 function tokenMetadataProgramPath() {
+  const override = process.env.OMNIPAIR_V2_TEST_TOKEN_METADATA_PROGRAM;
+  if (override) return override;
+
   const fallback =
     "/Users/User/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/trident-svm-0.2.0/src/solana-program-library/metaplex-token-metadata.so";
   if (fs.existsSync(fallback)) return fallback;
 
-  const depsDir = path.join(__dirname, "../target/sbpf-solana-solana/release/deps");
-  if (fs.existsSync(depsDir)) {
-    const candidate = fs
-      .readdirSync(depsDir)
-      .filter((name) => name.startsWith("mpl_token_metadata-") && name.endsWith(".so"))
-      .sort()[0];
-    if (candidate) return path.join(depsDir, candidate);
+  const depsDirs = [
+    path.join(__dirname, "../target/sbpf-solana-solana/release/deps"),
+    path.join(__dirname, "../target/sbpfv3-solana-solana/release/deps"),
+  ];
+  for (const depsDir of depsDirs) {
+    if (fs.existsSync(depsDir)) {
+      const candidate = fs
+        .readdirSync(depsDir)
+        .filter((name) => name.startsWith("mpl_token_metadata-") && name.endsWith(".so"))
+        .sort()[0];
+      if (candidate) return path.join(depsDir, candidate);
+    }
   }
+
   throw new Error("Token Metadata program file not found");
+}
+
+function leverageDelegateProgramPath() {
+  const programPath = path.join(__dirname, "../target/deploy/leverage_delegate.so");
+  if (!fs.existsSync(programPath)) {
+    throw new Error(
+      `Leverage delegate program file not found at ${programPath}. Run anchor build -p leverage_delegate.`
+    );
+  }
+  return programPath;
 }
 
 function marketConfig() {
   return {
     swapFeeBps: 30,
-    operatorFeeBps: 0,
+    managerFeeBps: 0,
     protocolFeeBps: 0,
     targetHlpLeverageBps: 20_000,
     settlementDivergenceBps: 500,
@@ -104,6 +176,7 @@ describe("Omnipair V2 final model smoke", () => {
   let connection: LiteSVMConnection;
   let payer: Keypair;
   let program: any;
+  let leverageDelegateProgram: any;
   let teamTreasury: PublicKey;
   let teamTreasuryWsolAccount: PublicKey;
   let futarchyAuthority: PublicKey;
@@ -118,6 +191,7 @@ describe("Omnipair V2 final model smoke", () => {
       throw new Error(`Program file not found at ${programPath}`);
     }
     svm.addProgramFromFile(OMNIPAIR_V2_PROGRAM_ID, programPath);
+    svm.addProgramFromFile(LEVERAGE_DELEGATE_PROGRAM_ID, leverageDelegateProgramPath());
     if (RUN_REAL_TOKEN_METADATA_CPI) {
       svm.addProgramFromFile(TOKEN_METADATA_PROGRAM_ID, tokenMetadataProgramPath());
     }
@@ -127,6 +201,10 @@ describe("Omnipair V2 final model smoke", () => {
     await connection.requestAirdrop(payer.publicKey, 10 * LAMPORTS_PER_SOL);
     const provider = new AnchorProvider(connection as any, new Wallet(payer) as any, {});
     program = new Program({ ...idl, accounts: [] } as any, provider as any);
+    leverageDelegateProgram = new Program(
+      { ...leverageDelegateIdl, accounts: [] } as any,
+      provider as any
+    );
 
     teamTreasury = Keypair.generate().publicKey;
     const teamTreasuryWsol = Keypair.generate();
@@ -860,6 +938,53 @@ describe("Omnipair V2 final model smoke", () => {
     await connection.sendTransaction(tx, [payer]);
   }
 
+  async function openQuoteDebtLeverage(
+    fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>,
+    marginAmount = 1_000
+  ) {
+    const positionId = Keypair.generate().publicKey;
+    const leveragePosition = deriveLeveragePositionAddress(fixture.market, positionId)[0];
+    const leverageCollateralVault = deriveLeverageCollateralVaultAddress(
+      fixture.market,
+      fixture.baseMint
+    )[0];
+
+    const tx = await program.methods
+      .openLeverage({
+        positionId,
+        debtAsset: 1,
+        marginAmount: new BN(marginAmount),
+        multiplierBps: new BN(20_000),
+        minCollateralOut: new BN(1),
+      })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        owner: payer.publicKey,
+        leveragePosition,
+        debtMint: fixture.quoteMint,
+        collateralMint: fixture.baseMint,
+        debtReserveVault: fixture.quoteReserveVault,
+        collateralReserveVault: fixture.baseReserveVault,
+        debtFeeVault: fixture.quoteFeeVault,
+        leverageCollateralVault,
+        ownerDebtAccount: fixture.ownerQuoteAccount,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(tx, [payer]);
+
+    return {
+      positionId,
+      leveragePosition,
+      leverageCollateralVault,
+    };
+  }
+
   it("initializes a final yLP/hLP market with hooked Token-2022 LP mints", async function () {
     const fixture = await initializeFinalMarket(42);
     trackV2Instruction("initialize", this.test?.title);
@@ -1222,6 +1347,57 @@ describe("Omnipair V2 final model smoke", () => {
     expect(decoded.quote_side.shares.ylp_supply.toNumber()).to.equal(140_421);
   });
 
+  it("allows yLP exits without post-withdraw k drawdown gating", async function () {
+    const config = marketConfig();
+    config.kEmaDrawdownBps = 0;
+    const fixture = await addBalancedLiquidity(59, config);
+    const ownerBaseBefore = await getAccount(connection as any, fixture.ownerBaseAccount);
+    const ownerQuoteBefore = await getAccount(connection as any, fixture.ownerQuoteAccount);
+
+    const tx = await program.methods
+      .removeLiquidity({
+        ylpAmount: new BN(20_000),
+        minBaseAmountOut: new BN(14_000),
+        minQuoteAmountOut: new BN(28_000),
+      })
+      .accounts({
+        market: fixture.market,
+        owner: payer.publicKey,
+        baseMint: fixture.baseMint,
+        quoteMint: fixture.quoteMint,
+        ylpMint: fixture.ylpMint,
+        baseReserveVault: fixture.baseReserveVault,
+        quoteReserveVault: fixture.quoteReserveVault,
+        ownerBaseAccount: fixture.ownerBaseAccount,
+        ownerQuoteAccount: fixture.ownerQuoteAccount,
+        ownerYlpAccount: fixture.ownerYlpAccount,
+        baseYieldAccount: deriveYieldAccountAddress(
+          fixture.market,
+          payer.publicKey,
+          fixture.baseMint,
+          "ylp"
+        )[0],
+        quoteYieldAccount: deriveYieldAccountAddress(
+          fixture.market,
+          payer.publicKey,
+          fixture.quoteMint,
+          "ylp"
+        )[0],
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(tx, [payer]);
+    trackV2Instruction("removeLiquidity", this.test?.title);
+
+    const ownerBaseAfter = await getAccount(connection as any, fixture.ownerBaseAccount);
+    const ownerQuoteAfter = await getAccount(connection as any, fixture.ownerQuoteAccount);
+    expect(ownerBaseAfter.amount - ownerBaseBefore.amount).to.equal(14_142n);
+    expect(ownerQuoteAfter.amount - ownerQuoteBefore.amount).to.equal(28_284n);
+  });
+
   it("swaps through the V2 market and routes non-compounding swap fees", async function () {
     const fixture = await addBalancedLiquidity(47);
     const ownerQuoteBefore = await getAccount(connection as any, fixture.ownerQuoteAccount);
@@ -1486,6 +1662,60 @@ describe("Omnipair V2 final model smoke", () => {
     expect(decoded.base_side.fees.swap_fee_vault_balance.toNumber()).to.equal(0);
 
     await resetFutarchyDefaults();
+  });
+
+  it("claims manager swap fees from the fee vault", async function () {
+    const config = marketConfig();
+    config.managerFeeBps = 500;
+    config.spotEmaDivergenceBps = 10_000;
+    config.kEmaDrawdownBps = 10_000;
+    const fixture = await addBalancedLiquidity(60, config);
+
+    await swapBaseForQuote(fixture, [], 10_000, 1);
+
+    const marketBeforeAccount = svm.getAccount(fixture.market);
+    expect(marketBeforeAccount).to.not.equal(null);
+    const marketBefore = accountCoder.decode(
+      "Market",
+      Buffer.from(marketBeforeAccount!.data)
+    ) as any;
+    const managerSwapFeeLiability =
+      marketBefore.base_side.fees.manager_swap_fee_liability.toNumber();
+    expect(managerSwapFeeLiability).to.equal(1);
+
+    const managerBaseBefore = await getAccount(connection as any, fixture.ownerBaseAccount);
+    const claimTx = await program.methods
+      .claimManagerFees()
+      .accounts({
+        market: fixture.market,
+        manager: payer.publicKey,
+        assetMint: fixture.baseMint,
+        feeVault: fixture.baseFeeVault,
+        interestVault: fixture.baseInterestVault,
+        managerAssetAccount: fixture.ownerBaseAccount,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(claimTx, [payer]);
+    trackV2Instruction("claimManagerFees", this.test?.title);
+
+    const managerBaseAfter = await getAccount(connection as any, fixture.ownerBaseAccount);
+    expect(managerBaseAfter.amount - managerBaseBefore.amount).to.equal(
+      BigInt(managerSwapFeeLiability)
+    );
+
+    const feeVault = await getAccount(connection as any, fixture.baseFeeVault);
+    const marketAfterAccount = svm.getAccount(fixture.market);
+    expect(marketAfterAccount).to.not.equal(null);
+    const marketAfter = accountCoder.decode("Market", Buffer.from(marketAfterAccount!.data)) as any;
+    expect(marketAfter.base_side.fees.manager_swap_fee_liability.toNumber()).to.equal(0);
+    expect(marketAfter.base_side.fees.manager_interest_fee_liability.toNumber()).to.equal(0);
+    expect(marketAfter.base_side.fees.swap_fee_vault_balance.toNumber()).to.equal(
+      Number(feeVault.amount)
+    );
   });
 
   it("checkpoints active hLP vaults during swaps with canonical vault accounts", async function () {
@@ -2061,5 +2291,517 @@ describe("Omnipair V2 final model smoke", () => {
     expect(BigInt(positionAfter.fixed_quote_shares.toString()) < quoteDebtSharesBefore).to.equal(
       true
     );
+  });
+
+  it("opens leverage, updates exposure, and manages delegated permissions", async function () {
+    const fixture = await addBalancedLiquidity(62);
+    const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(fixture);
+    trackV2Instruction("openLeverage", this.test?.title);
+
+    const positionAccount = svm.getAccount(leveragePosition);
+    expect(positionAccount).to.not.equal(null);
+    let position = accountCoder.decode("LeveragePosition", Buffer.from(positionAccount!.data)) as any;
+    expect(position.owner.toString()).to.equal(payer.publicKey.toString());
+    expect(position.market.toString()).to.equal(fixture.market.toString());
+    expect(position.debt_asset).to.equal(1);
+    expect(position.collateral_amount.toNumber()).to.be.greaterThan(0);
+    expect(BigInt(position.debt_shares.toString()) > 0n).to.equal(true);
+    const collateralAfterOpen = position.collateral_amount.toNumber();
+    const debtSharesAfterOpen = BigInt(position.debt_shares.toString());
+
+    const addMarginTx = await program.methods
+      .addLeverageMargin({
+        debtAsset: 1,
+        amount: new BN(100),
+      })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        positionOwner: payer.publicKey,
+        leveragePosition,
+        debtMint: fixture.quoteMint,
+        debtReserveVault: fixture.quoteReserveVault,
+        debtInterestVault: fixture.quoteInterestVault,
+        ownerDebtAccount: fixture.ownerQuoteAccount,
+        owner: payer.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(addMarginTx, [payer]);
+    trackV2Instruction("addLeverageMargin", this.test?.title);
+
+    let updatedPositionAccount = svm.getAccount(leveragePosition);
+    expect(updatedPositionAccount).to.not.equal(null);
+    position = accountCoder.decode(
+      "LeveragePosition",
+      Buffer.from(updatedPositionAccount!.data)
+    ) as any;
+    const debtSharesAfterAddMargin = BigInt(position.debt_shares.toString());
+    expect(debtSharesAfterAddMargin < debtSharesAfterOpen).to.equal(true);
+
+    const removeMarginTx = await program.methods
+      .removeLeverageMargin({
+        debtAsset: 1,
+        amount: new BN(50),
+        minAmountOut: new BN(50),
+      })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        positionOwner: payer.publicKey,
+        leveragePosition,
+        debtMint: fixture.quoteMint,
+        debtReserveVault: fixture.quoteReserveVault,
+        ownerDebtAccount: fixture.ownerQuoteAccount,
+        owner: payer.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(removeMarginTx, [payer]);
+    trackV2Instruction("removeLeverageMargin", this.test?.title);
+
+    updatedPositionAccount = svm.getAccount(leveragePosition);
+    expect(updatedPositionAccount).to.not.equal(null);
+    position = accountCoder.decode(
+      "LeveragePosition",
+      Buffer.from(updatedPositionAccount!.data)
+    ) as any;
+    expect(BigInt(position.debt_shares.toString()) > debtSharesAfterAddMargin).to.equal(true);
+
+    const increaseTx = await program.methods
+      .increaseLeverage({
+        debtAsset: 1,
+        debtAmount: new BN(100),
+        minCollateralOut: new BN(1),
+      })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        positionOwner: payer.publicKey,
+        leveragePosition,
+        debtMint: fixture.quoteMint,
+        collateralMint: fixture.baseMint,
+        debtReserveVault: fixture.quoteReserveVault,
+        collateralReserveVault: fixture.baseReserveVault,
+        debtFeeVault: fixture.quoteFeeVault,
+        leverageCollateralVault,
+        owner: payer.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(increaseTx, [payer]);
+    trackV2Instruction("increaseLeverage", this.test?.title);
+
+    updatedPositionAccount = svm.getAccount(leveragePosition);
+    expect(updatedPositionAccount).to.not.equal(null);
+    position = accountCoder.decode(
+      "LeveragePosition",
+      Buffer.from(updatedPositionAccount!.data)
+    ) as any;
+    expect(position.collateral_amount.toNumber()).to.be.greaterThan(collateralAfterOpen);
+    const collateralAfterIncrease = position.collateral_amount.toNumber();
+
+    const decreaseTx = await program.methods
+      .decreaseLeverage({
+        debtAsset: 1,
+        collateralAmount: new BN(25),
+        minRepayOut: new BN(1),
+      })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        positionOwner: payer.publicKey,
+        leveragePosition,
+        debtMint: fixture.quoteMint,
+        collateralMint: fixture.baseMint,
+        debtReserveVault: fixture.quoteReserveVault,
+        collateralReserveVault: fixture.baseReserveVault,
+        collateralFeeVault: fixture.baseFeeVault,
+        debtInterestVault: fixture.quoteInterestVault,
+        leverageCollateralVault,
+        owner: payer.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(decreaseTx, [payer]);
+    trackV2Instruction("decreaseLeverage", this.test?.title);
+
+    updatedPositionAccount = svm.getAccount(leveragePosition);
+    expect(updatedPositionAccount).to.not.equal(null);
+    position = accountCoder.decode(
+      "LeveragePosition",
+      Buffer.from(updatedPositionAccount!.data)
+    ) as any;
+    expect(position.collateral_amount.toNumber()).to.equal(collateralAfterIncrease - 25);
+
+    const leverageDelegation = deriveLeverageDelegationAddress(leveragePosition)[0];
+    const delegatedProgram = Keypair.generate().publicKey;
+    const createDelegationTx = await program.methods
+      .createLeverageDelegation({
+        debtAsset: 1,
+        delegatedProgram,
+        approvedActions: 1,
+      })
+      .accounts({
+        market: fixture.market,
+        leveragePosition,
+        leverageDelegation,
+        owner: payer.publicKey,
+        systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(createDelegationTx, [payer]);
+    trackV2Instruction("createLeverageDelegation", this.test?.title);
+
+    let delegationAccount = svm.getAccount(leverageDelegation);
+    expect(delegationAccount).to.not.equal(null);
+    let delegation = accountCoder.decode(
+      "LeverageDelegation",
+      Buffer.from(delegationAccount!.data)
+    ) as any;
+    expect(delegation.owner.toString()).to.equal(payer.publicKey.toString());
+    expect(delegation.market.toString()).to.equal(fixture.market.toString());
+    expect(delegation.position.toString()).to.equal(leveragePosition.toString());
+    expect(delegation.debt_asset).to.equal(1);
+    expect(delegation.delegated_program.toString()).to.equal(delegatedProgram.toString());
+    expect(delegation.approved_actions).to.equal(1);
+
+    const updatedProgram = Keypair.generate().publicKey;
+    const updateDelegationTx = await program.methods
+      .updateLeverageDelegation({
+        debtAsset: 1,
+        delegatedProgram: updatedProgram,
+        approvedActions: 1 | 2 | 4,
+      })
+      .accounts({
+        market: fixture.market,
+        leveragePosition,
+        leverageDelegation,
+        owner: payer.publicKey,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(updateDelegationTx, [payer]);
+    trackV2Instruction("updateLeverageDelegation", this.test?.title);
+
+    delegationAccount = svm.getAccount(leverageDelegation);
+    expect(delegationAccount).to.not.equal(null);
+    delegation = accountCoder.decode(
+      "LeverageDelegation",
+      Buffer.from(delegationAccount!.data)
+    ) as any;
+    expect(delegation.delegated_program.toString()).to.equal(updatedProgram.toString());
+    expect(delegation.approved_actions).to.equal(7);
+
+    const closeDelegationTx = await program.methods
+      .closeLeverageDelegation({
+        position: leveragePosition,
+      })
+      .accounts({
+        leverageDelegation,
+        owner: payer.publicKey,
+      })
+      .transaction();
+    await connection.sendTransaction(closeDelegationTx, [payer]);
+    trackV2Instruction("closeLeverageDelegation", this.test?.title);
+
+    delegationAccount = svm.getAccount(leverageDelegation);
+    expect(delegationAccount).to.equal(null);
+  });
+
+  it("closes an owner-controlled leverage position", async function () {
+    const fixture = await addBalancedLiquidity(63);
+    const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(fixture);
+    trackV2Instruction("openLeverage", this.test?.title);
+
+    const ownerQuoteBefore = await getAccount(connection as any, fixture.ownerQuoteAccount);
+    const closeTx = await program.methods
+      .closeLeverage({
+        debtAsset: 1,
+        minAmountOut: new BN(0),
+      })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        positionOwner: payer.publicKey,
+        leveragePosition,
+        debtMint: fixture.quoteMint,
+        collateralMint: fixture.baseMint,
+        debtReserveVault: fixture.quoteReserveVault,
+        collateralReserveVault: fixture.baseReserveVault,
+        collateralFeeVault: fixture.baseFeeVault,
+        debtInterestVault: fixture.quoteInterestVault,
+        leverageCollateralVault,
+        ownerDebtAccount: fixture.ownerQuoteAccount,
+        leverageDelegation: null,
+        delegatedProgram: null,
+        authority: payer.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(closeTx, [payer]);
+    trackV2Instruction("closeLeverage", this.test?.title);
+
+    const ownerQuoteAfter = await getAccount(connection as any, fixture.ownerQuoteAccount);
+    expect(ownerQuoteAfter.amount >= ownerQuoteBefore.amount).to.equal(true);
+    expect(svm.getAccount(leveragePosition)).to.equal(null);
+  });
+
+  it("closes a leverage position through a delegated callback settlement", async function () {
+    const fixture = await addBalancedLiquidity(65);
+    const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(fixture);
+    trackV2Instruction("openLeverage", this.test?.title);
+
+    const leverageDelegation = deriveLeverageDelegationAddress(leveragePosition)[0];
+    const createDelegationTx = await program.methods
+      .createLeverageDelegation({
+        debtAsset: 1,
+        delegatedProgram: LEVERAGE_DELEGATE_PROGRAM_ID,
+        approvedActions: LEVERAGE_DELEGATE_CLOSE,
+      })
+      .accounts({
+        market: fixture.market,
+        leveragePosition,
+        leverageDelegation,
+        owner: payer.publicKey,
+        systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(createDelegationTx, [payer]);
+    trackV2Instruction("createLeverageDelegation", this.test?.title);
+
+    const orderId = new BN(1);
+    const order = deriveLeverageOrderAddress(leveragePosition, payer.publicKey, orderId)[0];
+    const custodyAuthority = deriveLeverageDelegateCustodyAuthority(order)[0];
+    const custodyTokenAccount = await createAccount(
+      connection as any,
+      payer,
+      fixture.quoteMint,
+      custodyAuthority,
+      Keypair.generate()
+    );
+    const executor = Keypair.generate();
+    await connection.requestAirdrop(executor.publicKey, LAMPORTS_PER_SOL);
+    const executorTokenAccount = await createAccount(
+      connection as any,
+      payer,
+      fixture.quoteMint,
+      executor.publicKey,
+      Keypair.generate()
+    );
+
+    const createOrderTx = await leverageDelegateProgram.methods
+      .createLeverageOrder({
+        orderId,
+        kind: ORDER_KIND_TAKE_PROFIT,
+        triggerCloseoutPriceNad: new BN(1),
+      })
+      .accounts({
+        market: fixture.market,
+        leveragePosition,
+        order,
+        owner: payer.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .transaction();
+    await connection.sendTransaction(createOrderTx, [payer]);
+
+    const beforeIx = await leverageDelegateProgram.methods
+      .beforeTakeProfit({ orderId })
+      .accounts({
+        order,
+        market: fixture.market,
+        leveragePosition,
+        leverageDelegation,
+        custodyAuthority,
+        custodyTokenAccount,
+        tokenMint: fixture.quoteMint,
+        executor: executor.publicKey,
+      })
+      .instruction();
+    const afterIx = await leverageDelegateProgram.methods
+      .afterCloseOrder({ orderId })
+      .accounts({
+        order,
+        owner: payer.publicKey,
+        leveragePosition,
+        leverageDelegation,
+        custodyAuthority,
+        custodyTokenAccount,
+        executorTokenAccount,
+        ownerTokenAccount: fixture.ownerQuoteAccount,
+        tokenMint: fixture.quoteMint,
+        executor: executor.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+      })
+      .instruction();
+
+    const ownerQuoteBefore = await getAccount(connection as any, fixture.ownerQuoteAccount);
+    const executorQuoteBefore = await getAccount(connection as any, executorTokenAccount);
+    const delegatedCloseTx = await program.methods
+      .delegatedCloseLeverage({
+        debtAsset: 1,
+        minAmountOut: new BN(0),
+        delegated: {
+          beforeIxData: Buffer.from(beforeIx.data),
+          afterIxData: Buffer.from(afterIx.data),
+          beforeAccountsLen: beforeIx.keys.length,
+        },
+      })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        positionOwner: payer.publicKey,
+        leveragePosition,
+        debtMint: fixture.quoteMint,
+        collateralMint: fixture.baseMint,
+        debtReserveVault: fixture.quoteReserveVault,
+        collateralReserveVault: fixture.baseReserveVault,
+        collateralFeeVault: fixture.baseFeeVault,
+        debtInterestVault: fixture.quoteInterestVault,
+        leverageCollateralVault,
+        ownerDebtAccount: custodyTokenAccount,
+        leverageDelegation,
+        delegatedProgram: LEVERAGE_DELEGATE_PROGRAM_ID,
+        authority: executor.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .remainingAccounts([...beforeIx.keys, ...afterIx.keys])
+      .transaction();
+    await connection.sendTransaction(delegatedCloseTx, [payer, executor]);
+    trackV2Instruction("delegatedCloseLeverage", this.test?.title);
+
+    const ownerQuoteAfter = await getAccount(connection as any, fixture.ownerQuoteAccount);
+    const executorQuoteAfter = await getAccount(connection as any, executorTokenAccount);
+    const custodyAfter = await getAccount(connection as any, custodyTokenAccount);
+
+    expect(ownerQuoteAfter.amount > ownerQuoteBefore.amount).to.equal(true);
+    expect(executorQuoteAfter.amount > executorQuoteBefore.amount).to.equal(true);
+    expect(custodyAfter.amount).to.equal(0n);
+    expect(svm.getAccount(leveragePosition)).to.equal(null);
+    expect(svm.getAccount(order)).to.equal(null);
+  });
+
+  it("liquidates an unhealthy leverage position", async function () {
+    const config = marketConfig();
+    config.spotEmaDivergenceBps = 10_000;
+    config.kEmaDrawdownBps = 10_000;
+    const fixture = await addBalancedLiquidity(64, config);
+    const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(fixture);
+    trackV2Instruction("openLeverage", this.test?.title);
+
+    await swapBaseForQuote(fixture, [], 80_000, 1);
+
+    const liquidatorQuoteAccount = await createAccount(
+      connection as any,
+      payer,
+      fixture.quoteMint,
+      payer.publicKey,
+      Keypair.generate()
+    );
+    const liquidatorBefore = await getAccount(connection as any, liquidatorQuoteAccount);
+    const liquidateTx = await program.methods
+      .liquidateLeverage({
+        debtAsset: 1,
+      })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        positionOwner: payer.publicKey,
+        leveragePosition,
+        debtMint: fixture.quoteMint,
+        collateralMint: fixture.baseMint,
+        debtReserveVault: fixture.quoteReserveVault,
+        collateralReserveVault: fixture.baseReserveVault,
+        collateralFeeVault: fixture.baseFeeVault,
+        debtInterestVault: fixture.quoteInterestVault,
+        leverageCollateralVault,
+        liquidatorDebtAccount: liquidatorQuoteAccount,
+        ownerDebtAccount: fixture.ownerQuoteAccount,
+        liquidator: payer.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(liquidateTx, [payer]);
+    trackV2Instruction("liquidateLeverage", this.test?.title);
+
+    const liquidatorAfter = await getAccount(connection as any, liquidatorQuoteAccount);
+    expect(liquidatorAfter.amount >= liquidatorBefore.amount).to.equal(true);
+    expect(svm.getAccount(leveragePosition)).to.equal(null);
+  });
+
+  it("schedules timelocked market authority rotations", async function () {
+    const fixture = await initializeFinalMarket(61);
+    const newOperator = Keypair.generate().publicKey;
+    const newManager = Keypair.generate().publicKey;
+
+    const scheduleOperatorTx = await program.methods
+      .setOperator({
+        newOperator,
+      })
+      .accounts({
+        market: fixture.market,
+        manager: payer.publicKey,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(scheduleOperatorTx, [payer]);
+    trackV2Instruction("setOperator", this.test?.title);
+
+    let marketAccount = svm.getAccount(fixture.market);
+    expect(marketAccount).to.not.equal(null);
+    let decoded = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
+    expect(decoded.operator.toString()).to.equal(payer.publicKey.toString());
+    expect(decoded.pending_operator.active).to.equal(true);
+    expect(decoded.pending_operator.new_authority.toString()).to.equal(newOperator.toString());
+
+    const scheduleManagerTx = await program.methods
+      .setManager({
+        newManager,
+      })
+      .accounts({
+        market: fixture.market,
+        manager: payer.publicKey,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(scheduleManagerTx, [payer]);
+    trackV2Instruction("setManager", this.test?.title);
+
+    marketAccount = svm.getAccount(fixture.market);
+    expect(marketAccount).to.not.equal(null);
+    decoded = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
+    expect(decoded.manager.toString()).to.equal(payer.publicKey.toString());
+    expect(decoded.pending_manager.active).to.equal(true);
+    expect(decoded.pending_manager.new_authority.toString()).to.equal(newManager.toString());
   });
 });
