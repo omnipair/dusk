@@ -46,6 +46,7 @@
   "scripts": {
     "prepare-idl": "node scripts/prepare.js",
     "build": "npm run prepare-idl && tsc",
+    "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build"
   },

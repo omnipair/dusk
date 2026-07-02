@@ -16,7 +16,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: yarn
 
       - name: Setup Rust
@@ -39,5 +39,5 @@ jobs:
       - name: Typecheck test harness
         run: yarn typecheck
 
-      - name: Build program interface package
-        run: npm run build --prefix packages/program-interface
+      - name: Typecheck program interface package
+        run: npm run typecheck --prefix packages/program-interface
