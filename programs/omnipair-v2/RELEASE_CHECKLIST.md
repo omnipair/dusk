@@ -5,6 +5,30 @@ production-ready. The root README covers the shared CI/CD and Squads deployment
 mechanics; this file captures the V2-specific gates that must be cleared before
 mainnet launch or upgrade.
 
+## 0. Production Readiness Gate
+
+Do not describe Dusk as production-ready, enable production integrations, or
+deploy with real funds until every item below has recorded evidence:
+
+- `SIGNOFF_CHECKLIST.md` has no `Pending` or unresolved `Blocked` rows.
+- A security review covers the exact release commit, production feature set,
+  generated IDL/types, and deployment artifacts.
+- The core GAMM, yLP, hLP, isolated leverage, liquidation, fee, and insurance
+  invariants have reviewer signoff against the final code.
+- Economic assumptions and parameter bounds are signed off with adversarial
+  simulation or fuzz evidence for hLP, leverage, liquidation, and liquidity-risk
+  paths.
+- Release and buffer deployment workflows have been rehearsed on the intended
+  cluster class with Squads authority transfer and binary verification.
+- Monitoring, alerting, emergency reduce-only authority, key management, and
+  incident-response runbooks are approved.
+- Post-deploy smoke tests have target-cluster transaction signatures for all
+  critical user and admin flows listed below.
+
+`DUSK_RELEASES_ENABLED` and `DUSK_MAINNET_BUFFER_DEPLOYS_ENABLED` must remain
+unset or `false` until this gate is complete and an approved release window is
+open.
+
 ## 1. Scope Freeze
 
 - Confirm V2 remains a standalone program: `programs/omnipair-v2`.

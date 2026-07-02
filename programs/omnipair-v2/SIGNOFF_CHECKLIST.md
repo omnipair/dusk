@@ -10,12 +10,18 @@ branch, deployed artifacts, or target-cluster behavior.
 | Area | Owner | Status | Evidence |
 | --- | --- | --- | --- |
 | Security review | TBD | Pending | Fresh review report or approval link. |
+| Core invariant review | TBD | Pending | Final-code review notes covering GAMM, yLP, hLP, leverage, liquidation, fees, and insurance invariants. |
+| Economic/risk parameters | TBD | Pending | Parameter signoff with assumptions, limits, and failure-mode notes. |
+| Fuzzing and simulation | TBD | Pending | Property, fuzz, or simulation report for adversarial hLP, leverage, liquidation, and liquidity-risk paths. |
 | App/front-end routing | TBD | Pending | App PR, staging URL, or routing test notes. |
 | SDK/package interface | TBD | Pending | Package diff, typed usage test, or release approval. |
 | Indexing/events | TBD | Pending | Indexer config PR or decoded event sample. |
 | Analytics/reporting | TBD | Pending | Metric mapping or dashboard validation notes. |
 | Aggregator/router integration | TBD | Pending | Quote/swap adapter notes or integration test. |
 | Deployment/Squads | TBD | Pending | Buffer, proposal, approval, and execution links. |
+| Release rehearsal | TBD | Pending | Dry-run release, buffer deploy, Squads transfer, verification, and rollback notes. |
+| Monitoring and alerting | TBD | Pending | Dashboards, alert rules, indexer health, and incident paging notes. |
+| Incident response | TBD | Pending | Reduce-only procedure, key ceremony, contacts, and emergency runbook approval. |
 | Post-deploy smoke tests | TBD | Pending | Target-cluster smoke test transaction signatures. |
 
 Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
@@ -45,6 +51,32 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
   routing, explicit hedge premium pricing, user-selectable settlement side, and
   stale locked collateral-factor machinery remain out of scope unless separate
   reviewed specs have been merged.
+
+## Economic And Invariant Review
+
+- Confirm normal borrow, repay, interest, and liquidation paths preserve
+  `R_live = R_cash + D_cash_backed + R_hLP_live` with hLP funding debt excluded
+  from same-side cash-backed reserve debt.
+- Confirm hLP live-reserve adjustments are explicit, balanced, spot-neutral
+  within rounding, and bounded by settlement, NAV, and cash-headroom rules.
+- Confirm liquidation incentives, close factors, insurance draws, LP
+  socialization bounds, and dust behavior are safe under thin-liquidity and
+  bad-debt scenarios.
+- Confirm yLP withdrawal remains proportional, cash-constrained, and
+  slippage-bounded without hidden withdrawal throttles.
+- Confirm risk parameters have documented bounds, failure modes, and owner
+  approval before deployment.
+
+## Simulation And Fuzzing
+
+- Run adversarial sweeps for hLP rebalance, pending rebalance, leverage close,
+  leverage liquidation, borrow liquidation, fee settlement, and reserve
+  accounting.
+- Include historical or synthetic price/liquidity paths that stress cash
+  constraints, extreme utilization, stale EMA windows, dust, rounding, and
+  insurance exhaustion.
+- Record the commands, seeds, datasets, commit hash, and pass/fail summary used
+  for signoff.
 
 ## App / Front-End
 
