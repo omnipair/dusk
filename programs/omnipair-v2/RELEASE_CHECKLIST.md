@@ -62,6 +62,9 @@ yarn test-litesvm
   `target/idl/leverage_delegate.json` exist before running the delegated close
   LiteSVM smoke path.
 - Confirm `target/types/omnipair_v2.ts` exists and matches the same build.
+- Confirm `initialize_lp_metadata` has been exercised against a real Metaplex
+  Token Metadata program on the target cluster or a compatible local validator;
+  the default LiteSVM smoke suite seeds LP metadata accounts directly.
 - Confirm `packages/program-interface/src/idl_v2.json` and
   `packages/program-interface/src/types_v2.ts` were regenerated from that build
   if any public IDL shape changed.

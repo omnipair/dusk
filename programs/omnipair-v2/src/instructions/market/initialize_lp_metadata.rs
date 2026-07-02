@@ -139,3 +139,165 @@ fn require_vanity_suffix(mint: &InterfaceAccount<Mint>, suffix: &str) -> Result<
 fn require_vanity_suffix(_mint: &InterfaceAccount<Mint>, _suffix: &str) -> Result<()> {
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        constants::{BPS_DENOMINATOR, MIN_HALF_LIFE_MS},
+        state::{MarketConfig, MarketSide},
+    };
+
+    fn valid_metadata() -> InitializeLpMetadataArgs {
+        InitializeLpMetadataArgs {
+            name: "Omnipair Dusk yLP".to_string(),
+            symbol: "yLP".to_string(),
+            uri: "https://omnipair.fi/metadata/dusk/ylp.json".to_string(),
+        }
+    }
+
+    fn valid_config() -> MarketConfig {
+        MarketConfig {
+            swap_fee_bps: 30,
+            manager_fee_bps: 0,
+            protocol_fee_bps: 0,
+            target_hlp_leverage_bps: BPS_DENOMINATOR * 2,
+            settlement_divergence_bps: 500,
+            emergency_exit_haircut_bps: 250,
+            ema_half_life_ms: MIN_HALF_LIFE_MS,
+            directional_ema_half_life_ms: MIN_HALF_LIFE_MS,
+            k_ema_half_life_ms: MIN_HALF_LIFE_MS,
+            max_daily_borrow_bps: 2_000,
+            spot_ema_divergence_bps: 1_000,
+            k_ema_drawdown_bps: 1_000,
+            recognized_collateral_cap_bps: 15_000,
+            market_health_min_bps: 11_000,
+            hedged_lp_enabled: true,
+            start_time: 0,
+        }
+    }
+
+    struct MetadataMarketFixture {
+        market: Market,
+        ylp_mint: Pubkey,
+        base_hlp_mint: Pubkey,
+        quote_hlp_mint: Pubkey,
+    }
+
+    fn metadata_market() -> MetadataMarketFixture {
+        let base_mint = Pubkey::new_unique();
+        let quote_mint = Pubkey::new_unique();
+        let ylp_mint = Pubkey::new_unique();
+        let base_hlp_mint = Pubkey::new_unique();
+        let quote_hlp_mint = Pubkey::new_unique();
+        let base_side = MarketSide {
+            asset_mint: base_mint,
+            asset_decimals: 6,
+            hlp_mint: base_hlp_mint,
+            ..MarketSide::default()
+        };
+        let quote_side = MarketSide {
+            asset_mint: quote_mint,
+            asset_decimals: 8,
+            hlp_mint: quote_hlp_mint,
+            ..MarketSide::default()
+        };
+        let market = Market::initialize(
+            base_mint,
+            quote_mint,
+            ylp_mint,
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            base_side,
+            quote_side,
+            valid_config(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            [7; 32],
+            1,
+            255,
+        )
+        .unwrap();
+        MetadataMarketFixture {
+            market,
+            ylp_mint,
+            base_hlp_mint,
+            quote_hlp_mint,
+        }
+    }
+
+    #[test]
+    fn lp_metadata_validation_accepts_valid_bounds() {
+        let mut metadata = valid_metadata();
+        metadata.name = "n".repeat(32);
+        metadata.symbol = "s".repeat(10);
+        metadata.uri = format!("http{}", "u".repeat(196));
+
+        assert!(validate_lp_metadata(&metadata).is_ok());
+    }
+
+    #[test]
+    fn lp_metadata_validation_rejects_oversized_or_non_ascii_values() {
+        let mut metadata = valid_metadata();
+        metadata.name = "n".repeat(33);
+        assert!(validate_lp_metadata(&metadata).is_err());
+
+        metadata = valid_metadata();
+        metadata.name = "Omnipair Dusḱ".to_string();
+        assert!(validate_lp_metadata(&metadata).is_err());
+
+        metadata = valid_metadata();
+        metadata.symbol = "yLPTOOLONG!".to_string();
+        assert!(validate_lp_metadata(&metadata).is_err());
+
+        metadata = valid_metadata();
+        metadata.symbol = "γLP".to_string();
+        assert!(validate_lp_metadata(&metadata).is_err());
+    }
+
+    #[test]
+    fn lp_metadata_validation_rejects_bad_or_oversized_uri() {
+        let mut metadata = valid_metadata();
+        metadata.uri = "ipfs://omnipair/dusk/ylp.json".to_string();
+        assert!(validate_lp_metadata(&metadata).is_err());
+
+        metadata = valid_metadata();
+        metadata.uri = format!("https://{}", "u".repeat(193));
+        assert!(metadata.uri.len() > 200);
+        assert!(validate_lp_metadata(&metadata).is_err());
+    }
+
+    #[test]
+    fn lp_metadata_mint_classification_matches_market_lp_mints() {
+        let fixture = metadata_market();
+
+        assert_eq!(
+            lp_decimals_for_market_mint(&fixture.market, fixture.ylp_mint).unwrap(),
+            6
+        );
+        assert_eq!(
+            lp_decimals_for_market_mint(&fixture.market, fixture.base_hlp_mint).unwrap(),
+            6
+        );
+        assert_eq!(
+            lp_decimals_for_market_mint(&fixture.market, fixture.quote_hlp_mint).unwrap(),
+            8
+        );
+        assert_eq!(
+            lp_vanity_suffix(&fixture.market, fixture.ylp_mint).unwrap(),
+            "yLP"
+        );
+        assert_eq!(
+            lp_vanity_suffix(&fixture.market, fixture.base_hlp_mint).unwrap(),
+            "hLP"
+        );
+        assert_eq!(
+            lp_vanity_suffix(&fixture.market, fixture.quote_hlp_mint).unwrap(),
+            "hLP"
+        );
+
+        let unknown_mint = Pubkey::new_unique();
+        assert!(lp_decimals_for_market_mint(&fixture.market, unknown_mint).is_err());
+        assert!(lp_vanity_suffix(&fixture.market, unknown_mint).is_err());
+    }
+}
