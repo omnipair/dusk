@@ -122,11 +122,14 @@ function deriveLeverageDelegateCustodyAuthority(order: PublicKey): [PublicKey, n
 
 function tokenMetadataProgramPath() {
   const override = process.env.OMNIPAIR_V2_TEST_TOKEN_METADATA_PROGRAM;
-  if (override) return override;
+  if (override) {
+    if (fs.existsSync(override)) return override;
+    throw new Error(`Token Metadata program override not found at ${override}`);
+  }
 
-  const fallback =
-    "/Users/User/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/trident-svm-0.2.0/src/solana-program-library/metaplex-token-metadata.so";
-  if (fs.existsSync(fallback)) return fallback;
+  for (const candidate of tridentTokenMetadataProgramCandidates()) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
 
   const depsDirs = [
     path.join(__dirname, "../target/sbpf-solana-solana/release/deps"),
@@ -142,7 +145,37 @@ function tokenMetadataProgramPath() {
     }
   }
 
-  throw new Error("Token Metadata program file not found");
+  throw new Error(
+    "Token Metadata program file not found. Set OMNIPAIR_V2_TEST_TOKEN_METADATA_PROGRAM, install trident-svm, or run a compatible build that produces target/*/release/deps/mpl_token_metadata-*.so."
+  );
+}
+
+function tridentTokenMetadataProgramCandidates() {
+  const home = process.env.HOME;
+  const cargoHome = process.env.CARGO_HOME ?? (home ? path.join(home, ".cargo") : undefined);
+  if (!cargoHome) return [];
+
+  const registrySrc = path.join(cargoHome, "registry/src");
+  if (!fs.existsSync(registrySrc)) return [];
+
+  const candidates: string[] = [];
+  for (const registryName of fs.readdirSync(registrySrc)) {
+    const registryPath = path.join(registrySrc, registryName);
+    if (!fs.statSync(registryPath).isDirectory()) continue;
+
+    for (const crateName of fs.readdirSync(registryPath)) {
+      if (!crateName.startsWith("trident-svm-")) continue;
+      candidates.push(
+        path.join(
+          registryPath,
+          crateName,
+          "src/solana-program-library/metaplex-token-metadata.so"
+        )
+      );
+    }
+  }
+
+  return candidates.sort().reverse();
 }
 
 function leverageDelegateProgramPath() {
