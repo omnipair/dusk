@@ -26,7 +26,7 @@ on:
 env:
   ANCHOR_VERSION: "0.31.1"
   NODE_VERSION: "24"
-  SOLANA_VERSION: "1.18.18"
+  SOLANA_VERSION: "4.1.0"
   PROGRAM_CRATE: omnipair-v2
   PROGRAM_LIBRARY: omnipair_v2
   PROGRAM_SO: omnipair_v2.so

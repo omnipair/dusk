@@ -36,7 +36,7 @@ on:
         default: true
 
 env:
-  SOLANA_VERSION: "1.18.18"
+  SOLANA_VERSION: "4.1.0"
   PROGRAM_SO: omnipair_v2.so
 
 jobs:
