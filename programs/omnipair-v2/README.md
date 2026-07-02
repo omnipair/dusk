@@ -153,6 +153,7 @@ Useful focused checks while changing V2:
 cargo fmt -p omnipair-v2 -- --check
 cargo check -p omnipair-v2 --lib
 cargo test -p omnipair-v2 --lib -- --nocapture
+cargo test -p leverage_delegate
 anchor build -p omnipair-v2
 anchor build -p leverage_delegate
 npm run build --prefix packages/program-interface

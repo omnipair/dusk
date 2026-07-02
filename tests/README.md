@@ -5,10 +5,12 @@ This directory contains LiteSVM smoke tests for the standalone Dusk/V2 program.
 ## Running
 
 ```bash
-anchor build -p omnipair-v2
-anchor build -p leverage_delegate
 yarn test-litesvm
 ```
+
+`yarn test-litesvm` builds the Dusk and leverage delegate SBF artifacts before
+running Mocha. Use `yarn test-litesvm:no-build --grep <pattern>` only when the
+local artifacts are already fresh and you want a focused loop.
 
 The test runner loads `target/deploy/omnipair_v2.so`,
 `target/idl/omnipair_v2.json`, `target/deploy/leverage_delegate.so`, and

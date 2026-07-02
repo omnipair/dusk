@@ -273,6 +273,7 @@ anchor build -p leverage_delegate
 cargo fmt -p omnipair-v2 -- --check
 cargo check -p omnipair-v2 --lib
 cargo test -p omnipair-v2 --lib -- --nocapture
+cargo test -p leverage_delegate
 npm run build --prefix packages/program-interface
 yarn test-litesvm
 ```

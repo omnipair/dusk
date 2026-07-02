@@ -233,3 +233,6 @@ jobs:
 
       - name: Test Dusk
         run: cargo test -p omnipair-v2
+
+      - name: Test leverage delegate
+        run: cargo test -p leverage_delegate

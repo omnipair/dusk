@@ -45,6 +45,7 @@ Run these gates from the repository root:
 cargo fmt -p omnipair-v2 -- --check
 cargo check -p omnipair-v2 --lib
 cargo test -p omnipair-v2 --lib -- --nocapture
+cargo test -p leverage_delegate
 cargo check -p omnipair-v2 --lib --features production
 cargo test -p omnipair-v2 --lib --features production -- --nocapture
 anchor build -p omnipair-v2
