@@ -14,7 +14,8 @@ deploy with real funds until every item below has recorded evidence:
 - A security review covers the exact release commit, production feature set,
   generated IDL/types, and deployment artifacts.
 - The core GAMM, yLP, hLP, isolated leverage, liquidation, fee, and insurance
-  invariants have reviewer signoff against the final code.
+  invariants have reviewer signoff against the final code using
+  `CORE_INVARIANT_SIGNOFF.md`.
 - Economic assumptions and parameter bounds are signed off with
   `RISK_PARAMETER_SIGNOFF.md` and adversarial simulation or fuzz evidence for
   hLP, leverage, liquidation, and liquidity-risk paths using
@@ -124,6 +125,8 @@ typecheck gates.
 
 - Complete the owner signoff register in
   `programs/omnipair-v2/SIGNOFF_CHECKLIST.md`.
+- Complete core invariant review evidence in
+  `programs/omnipair-v2/CORE_INVARIANT_SIGNOFF.md`.
 - Complete simulation/fuzz evidence in
   `programs/omnipair-v2/SIMULATION_SIGNOFF.md`.
 - Complete economic/risk parameter evidence in

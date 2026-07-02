@@ -10,7 +10,7 @@ branch, deployed artifacts, or target-cluster behavior.
 | Area | Owner | Status | Evidence |
 | --- | --- | --- | --- |
 | Security review | TBD | Pending | Fresh review report or approval link. |
-| Core invariant review | TBD | Pending | Final-code review notes covering GAMM, yLP, hLP, leverage, liquidation, fees, and insurance invariants. |
+| Core invariant review | TBD | Pending | Completed `CORE_INVARIANT_SIGNOFF.md` covering GAMM, yLP, hLP, leverage, liquidation, fees, and insurance invariants. |
 | Economic/risk parameters | TBD | Pending | Completed `RISK_PARAMETER_SIGNOFF.md` with assumptions, limits, and failure-mode notes. |
 | Fuzzing and simulation | TBD | Pending | Completed `SIMULATION_SIGNOFF.md` evidence for adversarial hLP, leverage, liquidation, and liquidity-risk paths. |
 | App/front-end routing | TBD | Pending | App PR, staging URL, or routing test notes. |
@@ -54,6 +54,8 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 
 ## Economic And Invariant Review
 
+- Use `CORE_INVARIANT_SIGNOFF.md` as the core invariant review evidence
+  template.
 - Use `RISK_PARAMETER_SIGNOFF.md` as the economic/risk parameter evidence
   template.
 - Confirm normal borrow, repay, interest, and liquidation paths preserve
