@@ -22,7 +22,8 @@ deploy with real funds until every item below has recorded evidence:
   hLP, leverage, liquidation, and liquidity-risk paths using
   `SIMULATION_SIGNOFF.md`.
 - Release and buffer deployment workflows have been rehearsed on the intended
-  cluster class with Squads authority transfer and binary verification.
+  cluster class with Squads authority transfer and binary verification using
+  `DEPLOYMENT_SIGNOFF.md`.
 - Monitoring, alerting, emergency reduce-only authority, key management, and
   `INCIDENT_RESPONSE.md` are approved.
 - Post-deploy smoke tests have target-cluster transaction signatures for all
@@ -136,6 +137,8 @@ typecheck gates.
   `programs/omnipair-v2/RISK_PARAMETER_SIGNOFF.md`.
 - Complete incident-response evidence in
   `programs/omnipair-v2/INCIDENT_RESPONSE.md`.
+- Complete release/deployment evidence in
+  `programs/omnipair-v2/DEPLOYMENT_SIGNOFF.md`.
 - Review the integrator handoff in `programs/omnipair-v2/README.md` with app,
   SDK, indexer, analytics, and aggregator owners.
 - SDK consumers use `IDL`, `OmnipairV2`, and `PROGRAM_ID` or the explicit

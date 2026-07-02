@@ -18,11 +18,11 @@ branch, deployed artifacts, or target-cluster behavior.
 | Indexing/events | TBD | Pending | Indexer config PR or decoded event sample. |
 | Analytics/reporting | TBD | Pending | Metric mapping or dashboard validation notes. |
 | Aggregator/router integration | TBD | Pending | Quote/swap adapter notes or integration test. |
-| Deployment/Squads | TBD | Pending | Buffer, proposal, approval, and execution links. |
-| Release rehearsal | TBD | Pending | Dry-run release, buffer deploy, Squads transfer, verification, and rollback notes. |
+| Deployment/Squads | TBD | Pending | Completed `DEPLOYMENT_SIGNOFF.md` with buffer, proposal, approval, and execution links. |
+| Release rehearsal | TBD | Pending | Completed `DEPLOYMENT_SIGNOFF.md` with dry-run release, buffer deploy, Squads transfer, verification, and rollback notes. |
 | Monitoring and alerting | TBD | Pending | Dashboard and alert links mapped to `INCIDENT_RESPONSE.md` signals. |
 | Incident response | TBD | Pending | Approved `INCIDENT_RESPONSE.md`, reduce-only procedure, key ceremony, contacts, and emergency runbook approval. |
-| Post-deploy smoke tests | TBD | Pending | Target-cluster smoke test transaction signatures. |
+| Post-deploy smoke tests | TBD | Pending | Completed `DEPLOYMENT_SIGNOFF.md` post-deploy smoke matrix with target-cluster transaction signatures. |
 
 Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 
@@ -140,6 +140,8 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 
 ## Deployment And Verification
 
+- Use `DEPLOYMENT_SIGNOFF.md` as the deployment, release rehearsal, and
+  post-deploy smoke evidence template.
 - Confirm repository variable `DUSK_RELEASES_ENABLED` is set to `true` only for
   an approved release window after this checklist is complete, and returned to
   `false` after release artifact publication.
