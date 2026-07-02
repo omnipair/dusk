@@ -4,6 +4,7 @@ import {
   Keypair,
   PublicKey,
   SystemProgram,
+  SYSVAR_INSTRUCTIONS_PUBKEY,
   Transaction,
 } from "@solana/web3.js";
 import {
@@ -566,5 +567,11 @@ export async function tokenBalance(connection: Connection, tokenAccount: PublicK
   }
 }
 
-export { PublicKey, SystemProgram, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID };
+export {
+  PublicKey,
+  SystemProgram,
+  SYSVAR_INSTRUCTIONS_PUBKEY,
+  TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
+};
 export { NATIVE_MINT };

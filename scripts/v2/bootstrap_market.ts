@@ -6,6 +6,7 @@ import {
   TOKEN_METADATA_PROGRAM_ID,
   PublicKey,
   SystemProgram,
+  SYSVAR_INSTRUCTIONS_PUBKEY,
   bnFromUnits,
   createHookedLpMintIfMissing,
   defaultLpMetadata,
@@ -326,8 +327,9 @@ async function ensureLpMetadata(params: {
       lpMint: params.lpMint,
       lpTokenMetadata: params.lpTokenMetadata,
       systemProgram: SystemProgram.programId,
+      sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+      token2022Program: TOKEN_2022_PROGRAM_ID,
       tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
-      rent: anchor.web3.SYSVAR_RENT_PUBKEY,
     })
     .rpc();
   console.log(`LP metadata tx: ${explorerTx(signature)}`);

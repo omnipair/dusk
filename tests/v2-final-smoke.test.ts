@@ -23,6 +23,7 @@ import {
   LAMPORTS_PER_SOL,
   PublicKey,
   SystemProgram,
+  SYSVAR_INSTRUCTIONS_PUBKEY,
   Transaction,
 } from "@solana/web3.js";
 import { expect } from "chai";
@@ -614,8 +615,9 @@ describe("Omnipair V2 final model smoke", () => {
         lpMint: params.lpMint,
         lpTokenMetadata: params.lpTokenMetadata,
         systemProgram: SystemProgram.programId,
+        sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
         tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
-        rent: anchor.web3.SYSVAR_RENT_PUBKEY,
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);

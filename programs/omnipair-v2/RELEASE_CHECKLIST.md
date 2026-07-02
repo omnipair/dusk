@@ -65,7 +65,12 @@ yarn test-litesvm
 - Confirm `target/types/omnipair_v2.ts` exists and matches the same build.
 - Confirm `initialize_lp_metadata` has been exercised against a real Metaplex
   Token Metadata program on the target cluster or a compatible local validator;
-  the default LiteSVM smoke suite seeds LP metadata accounts directly.
+  the default LiteSVM smoke suite seeds LP metadata accounts directly. For the
+  focused local validator path:
+
+  ```bash
+  OMNIPAIR_V2_TEST_REAL_METADATA_CPI=1 yarn test-litesvm:no-build --grep "initializes a final yLP/hLP market"
+  ```
 - Confirm `packages/program-interface/src/idl_v2.json` and
   `packages/program-interface/src/types_v2.ts` were regenerated from that build
   if any public IDL shape changed.

@@ -22,6 +22,11 @@ not depend on a local Metaplex Token Metadata binary. Set
 `OMNIPAIR_V2_TEST_REAL_METADATA_CPI=1` and optionally
 `OMNIPAIR_V2_TEST_TOKEN_METADATA_PROGRAM=/path/to/metaplex-token-metadata.so`
 when validating the on-chain metadata CPI with a compatible LiteSVM artifact.
+For a focused local check, run:
+
+```bash
+OMNIPAIR_V2_TEST_REAL_METADATA_CPI=1 yarn test-litesvm:no-build --grep "initializes a final yLP/hLP market"
+```
 
 ## Current Suite
 

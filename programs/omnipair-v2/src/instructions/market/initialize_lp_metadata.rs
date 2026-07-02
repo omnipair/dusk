@@ -1,11 +1,14 @@
-use anchor_lang::prelude::*;
+use anchor_lang::{prelude::*, solana_program::sysvar::instructions as sysvar_instructions};
 use anchor_spl::{
     metadata::{
-        create_metadata_accounts_v3,
-        mpl_token_metadata::{types::DataV2, ID as MPL_TOKEN_METADATA_PROGRAM_ID},
-        CreateMetadataAccountsV3, Metadata,
+        mpl_token_metadata::{
+            instructions::{CreateV1Cpi, CreateV1CpiAccounts, CreateV1InstructionArgs},
+            types::TokenStandard,
+            ID as MPL_TOKEN_METADATA_PROGRAM_ID,
+        },
+        Metadata,
     },
-    token_interface::Mint,
+    token_interface::{Mint, Token2022},
 };
 
 use crate::{
@@ -27,6 +30,7 @@ pub struct InitializeLpMetadata<'info> {
 
     pub market: Box<Account<'info, Market>>,
 
+    #[account(mut)]
     pub lp_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
@@ -43,8 +47,14 @@ pub struct InitializeLpMetadata<'info> {
     pub lp_token_metadata: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
+
+    #[account(address = sysvar_instructions::ID)]
+    /// CHECK: the Metaplex create_v1 CPI requires the instructions sysvar.
+    pub sysvar_instructions: UncheckedAccount<'info>,
+
+    pub token_2022_program: Program<'info, Token2022>,
+
     pub token_metadata_program: Program<'info, Metadata>,
-    pub rent: Sysvar<'info, Rent>,
 }
 
 impl<'info> InitializeLpMetadata<'info> {
@@ -60,37 +70,45 @@ impl<'info> InitializeLpMetadata<'info> {
     }
 
     pub fn handle_initialize(ctx: Context<Self>, args: InitializeLpMetadataArgs) -> Result<()> {
-        let data = DataV2 {
+        let token_metadata_program = ctx.accounts.token_metadata_program.to_account_info();
+        let metadata = ctx.accounts.lp_token_metadata.to_account_info();
+        let mint = ctx.accounts.lp_mint.to_account_info();
+        let authority = ctx.accounts.market.to_account_info();
+        let payer = ctx.accounts.payer.to_account_info();
+        let system_program = ctx.accounts.system_program.to_account_info();
+        let instructions_sysvar = ctx.accounts.sysvar_instructions.to_account_info();
+        let token_2022_program = ctx.accounts.token_2022_program.to_account_info();
+        let cpi_accounts = CreateV1CpiAccounts {
+            metadata: &metadata,
+            master_edition: None,
+            mint: (&mint, false),
+            authority: &authority,
+            payer: &payer,
+            update_authority: (&authority, true),
+            system_program: &system_program,
+            sysvar_instructions: &instructions_sysvar,
+            spl_token_program: Some(&token_2022_program),
+        };
+        let cpi_args = CreateV1InstructionArgs {
             name: args.name,
             symbol: args.symbol,
             uri: args.uri,
             seller_fee_basis_points: 0,
             creators: None,
+            primary_sale_happened: false,
+            is_mutable: true,
+            token_standard: TokenStandard::Fungible,
             collection: None,
             uses: None,
+            collection_details: None,
+            rule_set: None,
+            decimals: None,
+            print_supply: None,
         };
 
-        let cpi_accounts = CreateMetadataAccountsV3 {
-            metadata: ctx.accounts.lp_token_metadata.to_account_info(),
-            mint: ctx.accounts.lp_mint.to_account_info(),
-            mint_authority: ctx.accounts.market.to_account_info(),
-            payer: ctx.accounts.payer.to_account_info(),
-            update_authority: ctx.accounts.market.to_account_info(),
-            system_program: ctx.accounts.system_program.to_account_info(),
-            rent: ctx.accounts.rent.to_account_info(),
-        };
-
-        create_metadata_accounts_v3(
-            CpiContext::new(
-                ctx.accounts.token_metadata_program.to_account_info(),
-                cpi_accounts,
-            )
-            .with_signer(&[&generate_market_seeds!(ctx.accounts.market)[..]]),
-            data,
-            true,
-            true,
-            None,
-        )
+        CreateV1Cpi::new(&token_metadata_program, cpi_accounts, cpi_args)
+            .invoke_signed(&[&generate_market_seeds!(ctx.accounts.market)[..]])
+            .map_err(Into::into)
     }
 }
 
