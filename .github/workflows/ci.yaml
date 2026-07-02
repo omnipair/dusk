@@ -30,7 +30,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
+          components: rustfmt, clippy
 
       - name: Install JavaScript dependencies
         run: yarn install --frozen-lockfile
@@ -40,6 +40,9 @@ jobs:
 
       - name: Check repository hygiene
         run: yarn check:hygiene
+
+      - name: Check actionable Clippy warnings
+        run: yarn check:clippy
 
       - name: Test Dusk program
         run: cargo test -p omnipair-v2
