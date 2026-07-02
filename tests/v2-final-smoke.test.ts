@@ -2507,6 +2507,57 @@ describe("Omnipair V2 final model smoke", () => {
     expect(svm.getAccount(leveragePosition)).to.equal(null);
   });
 
+  it("liquidates an unhealthy leverage position", async function () {
+    const config = marketConfig();
+    config.spotEmaDivergenceBps = 10_000;
+    config.kEmaDrawdownBps = 10_000;
+    const fixture = await addBalancedLiquidity(64, config);
+    const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(fixture);
+    trackV2Instruction("openLeverage", this.test?.title);
+
+    await swapBaseForQuote(fixture, [], 80_000, 1);
+
+    const liquidatorQuoteAccount = await createAccount(
+      connection as any,
+      payer,
+      fixture.quoteMint,
+      payer.publicKey,
+      Keypair.generate()
+    );
+    const liquidatorBefore = await getAccount(connection as any, liquidatorQuoteAccount);
+    const liquidateTx = await program.methods
+      .liquidateLeverage({
+        debtAsset: 1,
+      })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        positionOwner: payer.publicKey,
+        leveragePosition,
+        debtMint: fixture.quoteMint,
+        collateralMint: fixture.baseMint,
+        debtReserveVault: fixture.quoteReserveVault,
+        collateralReserveVault: fixture.baseReserveVault,
+        collateralFeeVault: fixture.baseFeeVault,
+        debtInterestVault: fixture.quoteInterestVault,
+        leverageCollateralVault,
+        liquidatorDebtAccount: liquidatorQuoteAccount,
+        ownerDebtAccount: fixture.ownerQuoteAccount,
+        liquidator: payer.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: OMNIPAIR_V2_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(liquidateTx, [payer]);
+    trackV2Instruction("liquidateLeverage", this.test?.title);
+
+    const liquidatorAfter = await getAccount(connection as any, liquidatorQuoteAccount);
+    expect(liquidatorAfter.amount >= liquidatorBefore.amount).to.equal(true);
+    expect(svm.getAccount(leveragePosition)).to.equal(null);
+  });
+
   it("schedules timelocked market authority rotations", async function () {
     const fixture = await initializeFinalMarket(61);
     const newOperator = Keypair.generate().publicKey;
