@@ -10,15 +10,6 @@
 
 Dusk is the next generation of Omnipair: a standalone market program that brings swaps, lending, yield-bearing liquidity, leveraged LP vaults, and isolated spot-margin leverage into one capital-efficient protocol without relying on external price oracles.
 
-## Production Status
-
-Dusk is not production-ready until the V2 release checklist and owner signoff
-register are complete. Before any mainnet deployment or production integration,
-the final source tree, artifacts, risk model, economic assumptions, deployment
-rehearsal, monitoring, and incident-response process must be approved in
-`programs/omnipair-v2/RELEASE_CHECKLIST.md` and
-`programs/omnipair-v2/SIGNOFF_CHECKLIST.md`.
-
 ## Overview
 
 Omnipair's GAMM (Generalized Automated Market Maker) combines a constant-product market maker with an integrated lending market. Liquidity providers deposit both sides of a pair, traders swap against the unified reserves, and borrowers can use one side of the market as collateral to borrow the other.
@@ -294,7 +285,6 @@ Run the program-interface build whenever public IDL, account, event, seed, or in
 
 Dusk is the standalone V2 Omnipair program.
 
-Before Dusk is treated as production-ready, the release readiness gate in
-`programs/omnipair-v2/RELEASE_CHECKLIST.md` and every required row in
-`programs/omnipair-v2/SIGNOFF_CHECKLIST.md` must be complete with recorded
-evidence.
+Before Dusk is treated as production-ready, it should complete final security
+review, release artifact verification, and owner signoff for app, SDK, indexing,
+analytics, aggregators, and deployment.

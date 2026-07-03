@@ -5,34 +5,6 @@ production-ready. The root README covers the shared CI/CD and Squads deployment
 mechanics; this file captures the V2-specific gates that must be cleared before
 mainnet launch or upgrade.
 
-## 0. Production Readiness Gate
-
-Do not describe Dusk as production-ready, enable production integrations, or
-deploy with real funds until every item below has recorded evidence:
-
-- `SIGNOFF_CHECKLIST.md` has no `Pending` or unresolved `Blocked` rows.
-- A security review covers the exact release commit, production feature set,
-  generated IDL/types, and deployment artifacts using
-  `SECURITY_REVIEW_SIGNOFF.md`.
-- The core GAMM, yLP, hLP, isolated leverage, liquidation, fee, and insurance
-  invariants have reviewer signoff against the final code using
-  `CORE_INVARIANT_SIGNOFF.md`.
-- Economic assumptions and parameter bounds are signed off with
-  `RISK_PARAMETER_SIGNOFF.md` and adversarial simulation or fuzz evidence for
-  hLP, leverage, liquidation, and liquidity-risk paths using
-  `SIMULATION_SIGNOFF.md`.
-- Release and buffer deployment workflows have been rehearsed on the intended
-  cluster class with Squads authority transfer and binary verification using
-  `DEPLOYMENT_SIGNOFF.md`.
-- Monitoring, alerting, emergency reduce-only authority, key management, and
-  `INCIDENT_RESPONSE.md` are approved.
-- Post-deploy smoke tests have target-cluster transaction signatures for all
-  critical user and admin flows listed below.
-
-`DUSK_RELEASES_ENABLED` and `DUSK_MAINNET_BUFFER_DEPLOYS_ENABLED` must remain
-unset or `false` until this gate is complete and an approved release window is
-open.
-
 ## 1. Scope Freeze
 
 - Confirm V2 remains a standalone program: `programs/omnipair-v2`.
@@ -46,8 +18,8 @@ open.
   after the buffer address and Squads authority transfer are recorded.
 - Confirm the emergency reduce-only authority is the intended signer and can
   reach `set_reduce_only` for incident response.
-- Review `INCIDENT_RESPONSE.md` and confirm owners, dashboards, paging, and
-  reduce-only procedures are current for the release.
+- Confirm owners, dashboards, paging, and reduce-only procedures are current
+  for the release.
 - Confirm soft borrow and soft liquidation remain disabled unless a separate
   reviewed spec has been merged.
 - Confirm LLAMMA-style liquidation, Jupiter/external aggregator conversion
@@ -127,20 +99,6 @@ typecheck gates.
 
 - Complete the owner signoff register in
   `programs/omnipair-v2/SIGNOFF_CHECKLIST.md`.
-- Complete security review evidence in
-  `programs/omnipair-v2/SECURITY_REVIEW_SIGNOFF.md`.
-- Complete core invariant review evidence in
-  `programs/omnipair-v2/CORE_INVARIANT_SIGNOFF.md`.
-- Complete simulation/fuzz evidence in
-  `programs/omnipair-v2/SIMULATION_SIGNOFF.md`.
-- Complete economic/risk parameter evidence in
-  `programs/omnipair-v2/RISK_PARAMETER_SIGNOFF.md`.
-- Complete incident-response evidence in
-  `programs/omnipair-v2/INCIDENT_RESPONSE.md`.
-- Complete release/deployment evidence in
-  `programs/omnipair-v2/DEPLOYMENT_SIGNOFF.md`.
-- Complete integration handoff evidence in
-  `programs/omnipair-v2/INTEGRATION_SIGNOFF.md`.
 - Review the integrator handoff in `programs/omnipair-v2/README.md` with app,
   SDK, indexer, analytics, and aggregator owners.
 - SDK consumers use `IDL`, `OmnipairV2`, and `PROGRAM_ID` or the explicit
