@@ -74,5 +74,5 @@ jobs:
       - name: Test LiteSVM smoke suite
         run: yarn test-litesvm
 
-      - name: Check program interface package
-        run: npm run check:program-interface
+      - name: Check Dusk SDK package
+        run: npm run check:dusk-sdk

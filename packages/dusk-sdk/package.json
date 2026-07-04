@@ -1,13 +1,13 @@
 {
-  "name": "@omnipair/program-interface",
+  "name": "@omnipair/dusk-sdk",
   "version": "2.0.0",
-  "description": "Omnipair Dusk program IDL, TypeScript types, and constants",
+  "description": "Omnipair Dusk SDK for program writes, RPC reads, previews, and indexer data",
   "license": "MIT",
   "author": "Omnipair <security@omnipair.fi>",
   "repository": {
     "type": "git",
     "url": "https://github.com/omnipair/dusk.git",
-    "directory": "packages/program-interface"
+    "directory": "packages/dusk-sdk"
   },
   "homepage": "https://omnipair.fi",
   "keywords": [
@@ -37,6 +37,14 @@
     "./idl-v2": {
       "import": "./dist/idl_v2.js",
       "types": "./dist/idl_v2.d.ts"
+    },
+    "./preview": {
+      "import": "./dist/preview.js",
+      "types": "./dist/preview.d.ts"
+    },
+    "./indexer": {
+      "import": "./dist/indexer.js",
+      "types": "./dist/indexer.d.ts"
     }
   },
   "files": [

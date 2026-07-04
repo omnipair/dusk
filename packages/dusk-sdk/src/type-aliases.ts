@@ -3,6 +3,8 @@ import type { OmnipairV2 } from "./types_v2.js";
 
 export type Market = IdlAccounts<OmnipairV2>["market"];
 export type BorrowPosition = IdlAccounts<OmnipairV2>["borrowPosition"];
+export type LeveragePosition = IdlAccounts<OmnipairV2>["leveragePosition"];
+export type LeverageDelegation = IdlAccounts<OmnipairV2>["leverageDelegation"];
 export type YieldAccount = IdlAccounts<OmnipairV2>["yieldAccount"];
 export type FutarchyAuthority = IdlAccounts<OmnipairV2>["futarchyAuthority"];
 export type V2FutarchyAuthority = FutarchyAuthority;

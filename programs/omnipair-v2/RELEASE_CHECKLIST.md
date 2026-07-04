@@ -61,13 +61,13 @@ cargo test -p omnipair-v2 --lib --features production -- --nocapture
 anchor build -p omnipair-v2
 anchor build -p leverage_delegate
 anchor build -p omnipair-v2 -- --features production
-npm run check-idl-current --prefix packages/program-interface
-npm run build --prefix packages/program-interface
+npm run check-idl-current --prefix packages/dusk-sdk
+npm run build --prefix packages/dusk-sdk
 yarn test-litesvm
 ```
 
 Release and verify-only workflows must install JavaScript dependencies with
-`yarn install --frozen-lockfile` before running program-interface drift or
+`yarn install --frozen-lockfile` before running dusk-sdk drift or
 typecheck gates.
 
 ## 4. Artifact Review
@@ -86,11 +86,11 @@ typecheck gates.
   ```bash
   OMNIPAIR_V2_TEST_REAL_METADATA_CPI=1 yarn test-litesvm:no-build --grep "initializes a final yLP/hLP market"
   ```
-- Confirm `packages/program-interface/src/idl_v2.json` and
-  `packages/program-interface/src/types_v2.ts` match the latest
+- Confirm `packages/dusk-sdk/src/idl_v2.json` and
+  `packages/dusk-sdk/src/types_v2.ts` match the latest
   `target/idl/omnipair_v2.json` and `target/types/omnipair_v2.ts` artifacts by
-  running `npm run check-idl-current --prefix packages/program-interface`.
-- Confirm `packages/program-interface/src/constants.ts` exports the intended V2
+  running `npm run check-idl-current --prefix packages/dusk-sdk`.
+- Confirm `packages/dusk-sdk/src/constants.ts` exports the intended V2
   program ID and PDA helpers.
 - Confirm yLP and hLP Token-2022 mint constraints remain represented in both
   code and IDL-visible account flows.
@@ -149,7 +149,7 @@ target/types/omnipair_v2.ts
 - Use trailing cargo args for production verification:
   `-- --features production --config "env.GIT_REV=\"...\"" --config "env.GIT_RELEASE=\"...\""`.
 - Submit the verified V2 build to the OtterSec registry.
-- Publish `@omnipair/program-interface` only after the verified IDL and types
+- Publish `@omnipair/dusk-sdk` only after the verified IDL and types
   match the deployed binary.
 - Confirm the app, SDK, and indexers are using the deployed V2 program ID.
 - Smoke-test market initialization, add/remove liquidity, swap, borrow/repay,

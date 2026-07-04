@@ -7,5 +7,11 @@ export * from "./types_v2.js";
 export * from "./type-aliases.js";
 
 // Re-export constants and utilities
+export * from "./address.js";
 export * from "./constants.js";
+export * from "./dusk.js";
+export * from "./get.js";
+export * from "./indexer.js";
 export * from "./preview.js";
+export * from "./program.js";
+export * from "./write.js";

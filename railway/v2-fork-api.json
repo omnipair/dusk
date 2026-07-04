@@ -9,7 +9,7 @@
       "package-lock.json",
       "tsconfig.json",
       "railway/v2-fork-api.json",
-      "packages/program-interface/src/idl_v2.json",
+      "packages/dusk-sdk/src/idl_v2.json",
       "scripts/v2-fork-lab/api.ts",
       "scripts/v2-fork-lab/api_core.ts",
       "scripts/v2-fork-lab/surfpool_v2_e2e.ts"
