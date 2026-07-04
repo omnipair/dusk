@@ -45,13 +45,13 @@ import {
   deriveYieldTransferHookValidationAddress,
   deriveTokenMetadataAddress,
   TOKEN_METADATA_PROGRAM_ID,
-} from "../packages/program-interface/src/constants.js";
+} from "../packages/dusk-sdk/src/constants.js";
 import {
   decodePreviewBorrowCapacityReturnData,
   decodePreviewBorrowPositionReturnData,
   decodePreviewMarketReturnData,
   decodePreviewSwapReturnData,
-} from "../packages/program-interface/src/preview.js";
+} from "../packages/dusk-sdk/src/preview.js";
 import { LiteSVMConnection } from "./utils/litesvm-connection.js";
 import {
   getCoverageReport,
