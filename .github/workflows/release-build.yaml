@@ -176,7 +176,7 @@ jobs:
           const idlPath = 'packages/program-interface/src/idl_v2.json';
           const idl = JSON.parse(fs.readFileSync(idlPath, 'utf8'));
           idl.metadata.version = version;
-          fs.writeFileSync(idlPath, `${JSON.stringify(idl, null, 2)}\n`);
+          fs.writeFileSync(idlPath, JSON.stringify(idl, null, 2));
 
           const typesPath = 'packages/program-interface/src/types_v2.ts';
           const types = fs.readFileSync(typesPath, 'utf8').replace(
