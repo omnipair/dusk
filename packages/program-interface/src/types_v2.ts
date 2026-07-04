@@ -3924,6 +3924,307 @@ export type OmnipairV2 = {
       ]
     },
     {
+      "name": "previewBorrowCapacity",
+      "discriminator": [
+        203,
+        170,
+        28,
+        79,
+        32,
+        180,
+        177,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "collateralAssetMint"
+        },
+        {
+          "name": "debtAssetMint"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "previewBorrowCapacityArgs"
+            }
+          }
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "borrowCapacityPreview"
+        }
+      }
+    },
+    {
+      "name": "previewBorrowPosition",
+      "discriminator": [
+        240,
+        236,
+        45,
+        30,
+        172,
+        146,
+        45,
+        163
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "borrowPosition",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  114,
+                  114,
+                  111,
+                  119,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.position_id",
+                "account": "borrowPosition"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [],
+      "returns": {
+        "defined": {
+          "name": "borrowPositionPreview"
+        }
+      }
+    },
+    {
+      "name": "previewMarket",
+      "discriminator": [
+        60,
+        231,
+        175,
+        17,
+        28,
+        221,
+        42,
+        236
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [],
+      "returns": {
+        "defined": {
+          "name": "marketPreview"
+        }
+      }
+    },
+    {
+      "name": "previewSwap",
+      "discriminator": [
+        98,
+        74,
+        197,
+        115,
+        135,
+        154,
+        188,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "assetInMint"
+        },
+        {
+          "name": "assetOutMint"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "previewSwapArgs"
+            }
+          }
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "swapPreview"
+        }
+      }
+    },
+    {
       "name": "removeLeverageMargin",
       "discriminator": [
         245,
@@ -7373,6 +7674,74 @@ export type OmnipairV2 = {
       }
     },
     {
+      "name": "borrowCapacityPreview",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "collateralAsset",
+            "type": {
+              "defined": {
+                "name": "marketAsset"
+              }
+            }
+          },
+          {
+            "name": "debtAsset",
+            "type": {
+              "defined": {
+                "name": "marketAsset"
+              }
+            }
+          },
+          {
+            "name": "collateralAmount",
+            "type": "u64"
+          },
+          {
+            "name": "collateralValueNad",
+            "type": "u128"
+          },
+          {
+            "name": "maxDebtByHealth",
+            "type": "u64"
+          },
+          {
+            "name": "maxDebtByCash",
+            "type": "u64"
+          },
+          {
+            "name": "maxDebtByDailyLimit",
+            "type": "u64"
+          },
+          {
+            "name": "maxDebt",
+            "type": "u64"
+          },
+          {
+            "name": "marketHealthMinBps",
+            "type": "u16"
+          },
+          {
+            "name": "recognizedCollateralCapBps",
+            "type": "u16"
+          },
+          {
+            "name": "projectedDebtAmount",
+            "type": "u64"
+          },
+          {
+            "name": "projectedHealthBps",
+            "type": "u64"
+          },
+          {
+            "name": "liquidationDebtPerCollateralPriceNad",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "borrowPosition",
       "type": {
         "kind": "struct",
@@ -7420,6 +7789,66 @@ export type OmnipairV2 = {
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "borrowPositionPreview",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "positionId",
+            "type": "pubkey"
+          },
+          {
+            "name": "baseCollateral",
+            "type": "u64"
+          },
+          {
+            "name": "quoteCollateral",
+            "type": "u64"
+          },
+          {
+            "name": "recognizedBaseCollateralForQuoteDebt",
+            "type": "u64"
+          },
+          {
+            "name": "recognizedQuoteCollateralForBaseDebt",
+            "type": "u64"
+          },
+          {
+            "name": "fixedBaseDebt",
+            "type": "u128"
+          },
+          {
+            "name": "fixedQuoteDebt",
+            "type": "u128"
+          },
+          {
+            "name": "baseDebt",
+            "type": {
+              "defined": {
+                "name": "positionDebtSidePreview"
+              }
+            }
+          },
+          {
+            "name": "quoteDebt",
+            "type": {
+              "defined": {
+                "name": "positionDebtSidePreview"
+              }
+            }
           }
         ]
       }
@@ -8903,6 +9332,20 @@ export type OmnipairV2 = {
       }
     },
     {
+      "name": "marketAsset",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "base"
+          },
+          {
+            "name": "quote"
+          }
+        ]
+      }
+    },
+    {
       "name": "marketAuthorityUpdateScheduled",
       "type": {
         "kind": "struct",
@@ -9360,6 +9803,38 @@ export type OmnipairV2 = {
       }
     },
     {
+      "name": "marketHealth",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "recognizedBaseCollateralForQuoteDebt",
+            "type": "u64"
+          },
+          {
+            "name": "recognizedQuoteCollateralForBaseDebt",
+            "type": "u64"
+          },
+          {
+            "name": "effectiveBaseDebtNad",
+            "type": "u128"
+          },
+          {
+            "name": "effectiveQuoteDebtNad",
+            "type": "u128"
+          },
+          {
+            "name": "baseDebtHealthBps",
+            "type": "u64"
+          },
+          {
+            "name": "quoteDebtHealthBps",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "marketHealthUpdated",
       "type": {
         "kind": "struct",
@@ -9397,6 +9872,50 @@ export type OmnipairV2 = {
             "type": {
               "defined": {
                 "name": "marketEventMetadata"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "marketPreview",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "base",
+            "type": {
+              "defined": {
+                "name": "previewSide"
+              }
+            }
+          },
+          {
+            "name": "quote",
+            "type": {
+              "defined": {
+                "name": "previewSide"
+              }
+            }
+          },
+          {
+            "name": "kNad",
+            "type": "u128"
+          },
+          {
+            "name": "liquidityNad",
+            "type": "u128"
+          },
+          {
+            "name": "health",
+            "type": {
+              "defined": {
+                "name": "marketHealth"
               }
             }
           }
@@ -9600,6 +10119,74 @@ export type OmnipairV2 = {
       }
     },
     {
+      "name": "positionDebtSidePreview",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "debtAsset",
+            "type": {
+              "defined": {
+                "name": "marketAsset"
+              }
+            }
+          },
+          {
+            "name": "collateralAsset",
+            "type": {
+              "defined": {
+                "name": "marketAsset"
+              }
+            }
+          },
+          {
+            "name": "fixedDebt",
+            "type": "u128"
+          },
+          {
+            "name": "recognizedCollateral",
+            "type": "u64"
+          },
+          {
+            "name": "collateralValueNad",
+            "type": "u128"
+          },
+          {
+            "name": "healthBps",
+            "type": "u64"
+          },
+          {
+            "name": "liquidationReferencePriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "liquidationHealthBps",
+            "type": "u64"
+          },
+          {
+            "name": "isLiquidatable",
+            "type": "bool"
+          },
+          {
+            "name": "liquidationIncentiveBps",
+            "type": "u16"
+          },
+          {
+            "name": "insuranceFundingBps",
+            "type": "u16"
+          },
+          {
+            "name": "totalPenaltyBps",
+            "type": "u16"
+          },
+          {
+            "name": "maxRepayAmount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "positionLiquidated",
       "type": {
         "kind": "struct",
@@ -9663,6 +10250,120 @@ export type OmnipairV2 = {
                 "name": "marketEventMetadata"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "previewBorrowCapacityArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "collateralAmount",
+            "type": "u64"
+          },
+          {
+            "name": "projectedDebtAmount",
+            "type": {
+              "option": "u64"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "previewSide",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "liveReserve",
+            "type": "u64"
+          },
+          {
+            "name": "cashReserve",
+            "type": "u64"
+          },
+          {
+            "name": "reservedLiability",
+            "type": "u64"
+          },
+          {
+            "name": "ylpSupply",
+            "type": "u64"
+          },
+          {
+            "name": "ylpExchangeRateNad",
+            "type": "u128"
+          },
+          {
+            "name": "spotPriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "priceEmaNad",
+            "type": "u64"
+          },
+          {
+            "name": "directionalPriceEmaNad",
+            "type": "u64"
+          },
+          {
+            "name": "liquidityEmaNad",
+            "type": "u128"
+          },
+          {
+            "name": "borrowIndexNad",
+            "type": "u128"
+          },
+          {
+            "name": "rateAtTargetNad",
+            "type": "u128"
+          },
+          {
+            "name": "borrowAprNad",
+            "type": "u128"
+          },
+          {
+            "name": "utilizationBps",
+            "type": "u64"
+          },
+          {
+            "name": "fixedDebt",
+            "type": "u128"
+          },
+          {
+            "name": "isolatedDebt",
+            "type": "u128"
+          },
+          {
+            "name": "hlpFundingDebt",
+            "type": "u128"
+          },
+          {
+            "name": "totalDebt",
+            "type": "u128"
+          },
+          {
+            "name": "dailyBorrowLimit",
+            "type": "u64"
+          },
+          {
+            "name": "dailyBorrowRemaining",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "previewSwapArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "exactAssetIn",
+            "type": "u64"
           }
         ]
       }
@@ -10329,6 +11030,66 @@ export type OmnipairV2 = {
                 "name": "marketEventMetadata"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "swapPreview",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "assetIn",
+            "type": {
+              "defined": {
+                "name": "marketAsset"
+              }
+            }
+          },
+          {
+            "name": "assetOut",
+            "type": {
+              "defined": {
+                "name": "marketAsset"
+              }
+            }
+          },
+          {
+            "name": "exactAssetIn",
+            "type": "u64"
+          },
+          {
+            "name": "transferFee",
+            "type": "u64"
+          },
+          {
+            "name": "reserveCredit",
+            "type": "u64"
+          },
+          {
+            "name": "swapFeeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "feeCredit",
+            "type": "u64"
+          },
+          {
+            "name": "amountInAfterFee",
+            "type": "u64"
+          },
+          {
+            "name": "amountOut",
+            "type": "u64"
+          },
+          {
+            "name": "reserveInLiveReserve",
+            "type": "u64"
+          },
+          {
+            "name": "reserveOutLiveReserve",
+            "type": "u64"
           }
         ]
       }
