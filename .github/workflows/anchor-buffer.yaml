@@ -36,7 +36,7 @@ on:
         default: true
 
 env:
-  SOLANA_VERSION: "1.18.18"
+  SOLANA_VERSION: "4.1.0"
   PROGRAM_SO: omnipair_v2.so
 
 jobs:
@@ -57,10 +57,45 @@ jobs:
           echo "program_id=$PROGRAM_ID" >> "$GITHUB_OUTPUT"
           echo "Dusk program ID: $PROGRAM_ID"
 
+      - name: Guard mainnet buffer deployment
+        if: inputs.network == 'mainnet-beta'
+        run: |
+          if [ "${{ vars.DUSK_MAINNET_BUFFER_DEPLOYS_ENABLED }}" != "true" ]; then
+            echo "Mainnet buffer deployment is disabled."
+            echo "Set repository variable DUSK_MAINNET_BUFFER_DEPLOYS_ENABLED=true only during an approved deployment window."
+            {
+              echo "### Mainnet buffer deploy blocked"
+              echo ""
+              echo "Mainnet buffer deployment requires repository variable \`DUSK_MAINNET_BUFFER_DEPLOYS_ENABLED=true\`."
+              echo "Leave it unset or false until release checklist and owner signoff are complete."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          if [ "${{ inputs.source }}" != "release" ]; then
+            echo "Mainnet buffer deployment must use source=release."
+            exit 1
+          fi
+
+          if [ -z "${{ inputs.release_tag }}" ]; then
+            echo "Mainnet buffer deployment requires an explicit release_tag."
+            exit 1
+          fi
+
+          if [ "${{ inputs.transfer_to_squads }}" != "true" ]; then
+            echo "Mainnet buffer deployment must transfer buffer authority to Squads."
+            exit 1
+          fi
+
+          if [ -z "${{ vars.SQUADS_VAULT_ADDRESS }}" ]; then
+            echo "SQUADS_VAULT_ADDRESS must be configured for mainnet buffer deployment."
+            exit 1
+          fi
+
       - name: Install Solana CLI
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/v${{ env.SOLANA_VERSION }}/install)"
-          echo "/home/runner/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
       - name: Setup deployer keypair
         run: |

@@ -1,4 +1,5 @@
 use super::*;
+    use proptest::prelude::*;
     use crate::state::{PendingAuthorityChange, PendingConfigChange};
     use crate::{
         constants::{BPS_DENOMINATOR, MARKET_VERSION},
@@ -363,6 +364,168 @@ use super::*;
             gap,
             max_gap_nad
         );
+    }
+
+    fn assert_market_hlp_invariants(market: &Market) {
+        market.base_side.assert_share_backing().unwrap();
+        market.quote_side.assert_share_backing().unwrap();
+        market
+            .assert_virtual_reserve_invariant(MarketAsset::Base)
+            .unwrap();
+        market
+            .assert_virtual_reserve_invariant(MarketAsset::Quote)
+            .unwrap();
+    }
+
+    fn price_diff_bps(before_nad: u64, after_nad: u64) -> u64 {
+        if before_nad == 0 {
+            return 0;
+        }
+        before_nad
+            .abs_diff(after_nad)
+            .saturating_mul(BPS_DENOMINATOR as u64)
+            / before_nad
+    }
+
+    fn set_side_live_preserving_hlp_invariant(
+        market: &mut Market,
+        asset: MarketAsset,
+        live_reserve: u64,
+    ) {
+        let hlp_live = market.hlp_live_reserve(asset).unwrap() as u64;
+        let live_reserve = live_reserve.max(hlp_live + 1);
+        let cash_reserve = live_reserve - hlp_live;
+        let side = market.side_mut(asset).unwrap();
+        side.reserves.live_reserve = live_reserve;
+        side.reserves.cash_reserve = cash_reserve;
+        match asset {
+            MarketAsset::Base => {
+                market.debt.fixed_base_shares = 0;
+                market.debt.fixed_base_principal = 0;
+            }
+            MarketAsset::Quote => {
+                market.debt.fixed_quote_shares = 0;
+                market.debt.fixed_quote_principal = 0;
+            }
+        }
+    }
+
+    fn constrain_side_cash_preserving_hlp_invariant(
+        market: &mut Market,
+        asset: MarketAsset,
+        cash_bps: u64,
+    ) {
+        let live_reserve = market.side(asset).unwrap().reserves.live_reserve;
+        let hlp_live = market.hlp_live_reserve(asset).unwrap() as u64;
+        let non_hlp_backing = live_reserve.checked_sub(hlp_live).unwrap();
+        let cash_reserve = non_hlp_backing
+            .checked_mul(cash_bps)
+            .unwrap()
+            .checked_div(BPS_DENOMINATOR as u64)
+            .unwrap();
+        let cash_backed_debt = non_hlp_backing.checked_sub(cash_reserve).unwrap();
+        market.side_mut(asset).unwrap().reserves.cash_reserve = cash_reserve;
+        match asset {
+            MarketAsset::Base => {
+                market.debt.fixed_base_shares = cash_backed_debt as u128;
+                market.debt.fixed_base_principal = cash_backed_debt as u128;
+            }
+            MarketAsset::Quote => {
+                market.debt.fixed_quote_shares = cash_backed_debt as u128;
+                market.debt.fixed_quote_principal = cash_backed_debt as u128;
+            }
+        }
+    }
+
+    fn configure_market_depth(market: &mut Market, base_reserve: u64, price_bps: u64) {
+        let quote_reserve = (base_reserve as u128)
+            .checked_mul(price_bps as u128)
+            .unwrap()
+            .checked_div(BPS_DENOMINATOR as u128)
+            .unwrap() as u64;
+        market.base_side.reserves.live_reserve = base_reserve;
+        market.base_side.reserves.cash_reserve = base_reserve;
+        market.base_side.shares.ylp_supply = base_reserve;
+        market.quote_side.reserves.live_reserve = quote_reserve;
+        market.quote_side.reserves.cash_reserve = quote_reserve;
+        market.quote_side.shares.ylp_supply = base_reserve;
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(128))]
+
+        #[test]
+        fn hlp_rebalance_preserves_virtual_invariant_under_price_and_cash_sweeps(
+            target_is_base in any::<bool>(),
+            base_reserve in 500_000u64..5_000_000,
+            price_bps in 5_000u64..30_000,
+            deposit_bps in 100u64..2_000,
+            move_bps in 6_500u64..15_000,
+            borrowed_cash_bps in 0u64..=10_000,
+        ) {
+            let target_asset = if target_is_base {
+                MarketAsset::Base
+            } else {
+                MarketAsset::Quote
+            };
+            let borrowed_asset = target_asset.opposite();
+            let mut market = seeded_market();
+            configure_market_depth(&mut market, base_reserve, price_bps);
+            assert_market_hlp_invariants(&market);
+
+            let target_reserve = market.side(target_asset).unwrap().reserves.live_reserve;
+            let deposit_amount = target_reserve
+                .checked_mul(deposit_bps)
+                .unwrap()
+                .checked_div(BPS_DENOMINATOR as u64)
+                .unwrap()
+                .max(1);
+            DepositSingleSided::new(target_asset, deposit_amount, 1)
+                .apply(&mut market)
+                .unwrap();
+            assert_market_hlp_invariants(&market);
+
+            let moved_live = market
+                .side(borrowed_asset)
+                .unwrap()
+                .reserves
+                .live_reserve
+                .checked_mul(move_bps)
+                .unwrap()
+                .checked_div(BPS_DENOMINATOR as u64)
+                .unwrap();
+            set_side_live_preserving_hlp_invariant(&mut market, borrowed_asset, moved_live);
+            constrain_side_cash_preserving_hlp_invariant(
+                &mut market,
+                borrowed_asset,
+                borrowed_cash_bps,
+            );
+            assert_market_hlp_invariants(&market);
+
+            let price_before =
+                market_spot_price_nad(&market.base_side, &market.quote_side).unwrap();
+            let (base_receipt, quote_receipt) = rebalance_hlp_vaults(&mut market, 99).unwrap();
+            let price_after =
+                market_spot_price_nad(&market.base_side, &market.quote_side).unwrap();
+
+            assert_market_hlp_invariants(&market);
+            prop_assert_eq!(
+                base_receipt.pending_rebalance,
+                base_receipt.ideal_delta - base_receipt.executed_delta
+            );
+            prop_assert_eq!(
+                quote_receipt.pending_rebalance,
+                quote_receipt.ideal_delta - quote_receipt.executed_delta
+            );
+            prop_assert!(
+                price_diff_bps(price_before, price_after) <= 2,
+                "hLP rebalance moved spot by more than 2 bps: before {}, after {}, base receipt {:?}, quote receipt {:?}",
+                price_before,
+                price_after,
+                base_receipt,
+                quote_receipt
+            );
+        }
     }
 
     #[test]

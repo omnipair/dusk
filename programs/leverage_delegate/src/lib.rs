@@ -109,12 +109,12 @@ pub struct LeverageOrder {
 #[derive(Accounts)]
 #[instruction(args: CreateLeverageOrderArgs)]
 pub struct CreateLeverageOrder<'info> {
-    pub market: Account<'info, Market>,
+    pub market: Box<Account<'info, Market>>,
     #[account(
         constraint = leverage_position.owner == owner.key() @ LeverageDelegateError::InvalidOrder,
         constraint = leverage_position.market == market.key() @ LeverageDelegateError::InvalidOrder,
     )]
-    pub leverage_position: Account<'info, LeveragePosition>,
+    pub leverage_position: Box<Account<'info, LeveragePosition>>,
     #[account(
         init,
         payer = owner,
@@ -127,7 +127,7 @@ pub struct CreateLeverageOrder<'info> {
         ],
         bump
     )]
-    pub order: Account<'info, LeverageOrder>,
+    pub order: Box<Account<'info, LeverageOrder>>,
     #[account(mut)]
     pub owner: Signer<'info>,
     pub system_program: Program<'info, System>,
@@ -136,12 +136,12 @@ pub struct CreateLeverageOrder<'info> {
 #[derive(Accounts)]
 #[instruction(args: UpdateLeverageOrderArgs)]
 pub struct UpdateLeverageOrder<'info> {
-    pub market: Account<'info, Market>,
+    pub market: Box<Account<'info, Market>>,
     #[account(
         constraint = leverage_position.owner == owner.key() @ LeverageDelegateError::InvalidOrder,
         constraint = leverage_position.market == market.key() @ LeverageDelegateError::InvalidOrder,
     )]
-    pub leverage_position: Account<'info, LeveragePosition>,
+    pub leverage_position: Box<Account<'info, LeveragePosition>>,
     #[account(
         mut,
         seeds = [
@@ -155,7 +155,7 @@ pub struct UpdateLeverageOrder<'info> {
         constraint = order.market == market.key() @ LeverageDelegateError::InvalidOrder,
         constraint = order.position == leverage_position.key() @ LeverageDelegateError::InvalidOrder,
     )]
-    pub order: Account<'info, LeverageOrder>,
+    pub order: Box<Account<'info, LeverageOrder>>,
     #[account(mut)]
     pub owner: Signer<'info>,
 }
@@ -175,7 +175,7 @@ pub struct CancelLeverageOrder<'info> {
         bump = order.bump,
         constraint = order.owner == owner.key() @ LeverageDelegateError::InvalidOrder,
     )]
-    pub order: Account<'info, LeverageOrder>,
+    pub order: Box<Account<'info, LeverageOrder>>,
     #[account(mut)]
     pub owner: Signer<'info>,
 }
@@ -195,13 +195,13 @@ pub struct BeforeLeverageOrder<'info> {
         constraint = order.market == market.key() @ LeverageDelegateError::InvalidOrder,
         constraint = order.position == leverage_position.key() @ LeverageDelegateError::InvalidOrder,
     )]
-    pub order: Account<'info, LeverageOrder>,
-    pub market: Account<'info, Market>,
+    pub order: Box<Account<'info, LeverageOrder>>,
+    pub market: Box<Account<'info, Market>>,
     #[account(
         constraint = leverage_position.owner == order.owner @ LeverageDelegateError::InvalidOrder,
         constraint = leverage_position.market == market.key() @ LeverageDelegateError::InvalidOrder,
     )]
-    pub leverage_position: Account<'info, LeveragePosition>,
+    pub leverage_position: Box<Account<'info, LeveragePosition>>,
     #[account(
         constraint = leverage_delegation.owner == order.owner @ LeverageDelegateError::InvalidOrder,
         constraint = leverage_delegation.market == market.key() @ LeverageDelegateError::InvalidOrder,
@@ -209,7 +209,7 @@ pub struct BeforeLeverageOrder<'info> {
         constraint = leverage_delegation.debt_asset == leverage_position.debt_asset @ LeverageDelegateError::InvalidOrder,
         constraint = leverage_delegation.delegated_program == crate::ID @ LeverageDelegateError::InvalidOrder,
     )]
-    pub leverage_delegation: Account<'info, LeverageDelegation>,
+    pub leverage_delegation: Box<Account<'info, LeverageDelegation>>,
     /// CHECK: PDA authority for the custody token account approved as close recipient.
     #[account(
         seeds = [CUSTODY_AUTHORITY_SEED_PREFIX, order.key().as_ref()],
@@ -220,8 +220,8 @@ pub struct BeforeLeverageOrder<'info> {
         constraint = custody_token_account.owner == custody_authority.key() @ LeverageDelegateError::InvalidTokenAccount,
         constraint = custody_token_account.mint == token_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
     )]
-    pub custody_token_account: InterfaceAccount<'info, TokenAccount>,
-    pub token_mint: InterfaceAccount<'info, Mint>,
+    pub custody_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub token_mint: Box<InterfaceAccount<'info, Mint>>,
     pub executor: Signer<'info>,
 }
 
@@ -239,7 +239,7 @@ pub struct AfterCloseOrder<'info> {
         ],
         bump = order.bump,
     )]
-    pub order: Account<'info, LeverageOrder>,
+    pub order: Box<Account<'info, LeverageOrder>>,
     /// CHECK: Order owner receives closed account rent.
     #[account(mut, address = order.owner)]
     pub owner: AccountInfo<'info>,
@@ -248,7 +248,7 @@ pub struct AfterCloseOrder<'info> {
         constraint = leverage_position.owner == order.owner @ LeverageDelegateError::InvalidOrder,
         constraint = leverage_position.market == order.market @ LeverageDelegateError::InvalidOrder,
     )]
-    pub leverage_position: Account<'info, LeveragePosition>,
+    pub leverage_position: Box<Account<'info, LeveragePosition>>,
     #[account(
         constraint = leverage_delegation.owner == order.owner @ LeverageDelegateError::InvalidOrder,
         constraint = leverage_delegation.market == order.market @ LeverageDelegateError::InvalidOrder,
@@ -256,7 +256,7 @@ pub struct AfterCloseOrder<'info> {
         constraint = leverage_delegation.debt_asset == leverage_position.debt_asset @ LeverageDelegateError::InvalidOrder,
         constraint = leverage_delegation.delegated_program == crate::ID @ LeverageDelegateError::InvalidOrder,
     )]
-    pub leverage_delegation: Account<'info, LeverageDelegation>,
+    pub leverage_delegation: Box<Account<'info, LeverageDelegation>>,
     /// CHECK: PDA authority for the custody token account.
     #[account(
         seeds = [CUSTODY_AUTHORITY_SEED_PREFIX, order.key().as_ref()],
@@ -269,22 +269,22 @@ pub struct AfterCloseOrder<'info> {
         constraint = custody_token_account.owner == custody_authority.key() @ LeverageDelegateError::InvalidTokenAccount,
         constraint = custody_token_account.mint == token_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
     )]
-    pub custody_token_account: InterfaceAccount<'info, TokenAccount>,
+    pub custody_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(
         mut,
         constraint = executor_token_account.mint == token_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
     )]
-    pub executor_token_account: InterfaceAccount<'info, TokenAccount>,
+    pub executor_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(
         mut,
         constraint = owner_token_account.mint == token_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
         constraint = owner_token_account.owner == owner.key() @ LeverageDelegateError::InvalidTokenAccount,
     )]
-    pub owner_token_account: InterfaceAccount<'info, TokenAccount>,
+    pub owner_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(
         constraint = token_mint.key() == order.staged_output_mint @ LeverageDelegateError::InvalidTokenAccount,
     )]
-    pub token_mint: InterfaceAccount<'info, Mint>,
+    pub token_mint: Box<InterfaceAccount<'info, Mint>>,
     pub executor: Signer<'info>,
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,

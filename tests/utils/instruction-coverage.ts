@@ -7,6 +7,7 @@ type InstructionId = string;
 
 const testedInstructions = new Set<InstructionId>();
 const instructionDetails = new Map<InstructionId, { count: number; tests: string[] }>();
+const skippedInstructions = new Map<InstructionId, string>();
 let lastPrintedReportSignature: string | undefined;
 
 const DUSK_INSTRUCTIONS = [
@@ -87,11 +88,20 @@ function coverageDataFor(instructions: InstructionId[]) {
 }
 
 function reportSignature(): string {
-  return Array.from(testedInstructions).sort().join("|");
+  const tested = Array.from(testedInstructions).sort().join("|");
+  const skipped = Array.from(skippedInstructions.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([instruction, reason]) => `${instruction}:${reason}`)
+    .join("|");
+  return `${tested}::${skipped}`;
 }
 
 function printCoverageSection(title: string, instructions: InstructionId[]) {
   const data = coverageDataFor(instructions);
+  const skippedUntested = data.untestedInstructions.filter((ix) => skippedInstructions.has(ix));
+  const untestedInstructions = data.untestedInstructions.filter(
+    (ix) => !skippedInstructions.has(ix)
+  );
 
   console.log(`\n${title}`);
   console.log(
@@ -109,10 +119,17 @@ function printCoverageSection(title: string, instructions: InstructionId[]) {
     }
   });
 
-  if (data.untestedInstructions.length > 0) {
-    console.log(`\nUnexercised Instructions: ${data.untestedInstructions.length}/${data.total}\n`);
-    data.untestedInstructions.forEach((ix) => {
+  if (untestedInstructions.length > 0) {
+    console.log(`\nUnexercised Instructions: ${untestedInstructions.length}/${data.total}\n`);
+    untestedInstructions.forEach((ix) => {
       console.log(`  ✗ ${instructionLabel(ix)}`);
+    });
+  }
+
+  if (skippedUntested.length > 0) {
+    console.log(`\nKnown Skips: ${skippedUntested.length}/${data.total}\n`);
+    skippedUntested.forEach((ix) => {
+      console.log(`  - ${instructionLabel(ix)}: ${skippedInstructions.get(ix)}`);
     });
   }
 }
@@ -131,6 +148,13 @@ export function trackInstruction(instructionName: string, testName?: string) {
  */
 export function trackV2Instruction(instructionName: string, testName?: string) {
   track(instructionName, testName);
+}
+
+/**
+ * Record an intentionally skipped Dusk instruction smoke path.
+ */
+export function skipV2Instruction(instructionName: string, reason: string) {
+  skippedInstructions.set(instructionName, reason);
 }
 
 /**
@@ -184,6 +208,7 @@ export function getCoverageReport() {
 export function resetCoverage() {
   testedInstructions.clear();
   instructionDetails.clear();
+  skippedInstructions.clear();
   lastPrintedReportSignature = undefined;
 }
 

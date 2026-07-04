@@ -349,9 +349,12 @@ fn withdraw_base_hlp(market: &mut Market, hlp_amount: u64) -> Result<HedgeReceip
         quote_redeemed,
         debt_repaid,
     )?;
-    let interest_paid = market
-        .base_hlp_vault
-        .realize_debt_repay(debt_repaid, market.debt.quote_borrow_index_nad)?;
+    let debt_clearance = market.base_hlp_vault.clear_debt_repay(
+        debt_repaid,
+        quote_debt_shares,
+        market.debt.quote_borrow_index_nad,
+    )?;
+    let interest_paid = debt_clearance.interest_paid;
     market.base_side.debit_reserve(base_out, true)?;
     debit_hlp_live_reserve(
         market,
@@ -371,9 +374,6 @@ fn withdraw_base_hlp(market: &mut Market, hlp_amount: u64) -> Result<HedgeReceip
     market.quote_side.assert_share_backing()?;
     market.base_hlp_vault.debit_ylp(ylp_amount)?;
     debit_cash_for_hlp_interest(&mut market.quote_side, interest_paid)?;
-    market
-        .base_hlp_vault
-        .remove_debt_shares(quote_debt_shares)?;
     market.base_hlp_vault.burn_hlp(hlp_amount)?;
     market.base_hlp_vault.last_nav_nad = hlp_nav_nad(market, MarketAsset::Base)?;
     market.base_hlp_vault.cached_settlement_price_nad =
@@ -383,7 +383,7 @@ fn withdraw_base_hlp(market: &mut Market, hlp_amount: u64) -> Result<HedgeReceip
         ylp_amount,
         hlp_supply: market.base_hlp_vault.hlp_supply,
         target_amount_out: base_out,
-        debt_repaid,
+        debt_repaid: debt_clearance.debt_reduced,
         interest_paid,
         ..HedgeReceipt::default()
     })
@@ -422,9 +422,12 @@ fn withdraw_quote_hlp(market: &mut Market, hlp_amount: u64) -> Result<HedgeRecei
         base_redeemed,
         debt_repaid,
     )?;
-    let interest_paid = market
-        .quote_hlp_vault
-        .realize_debt_repay(debt_repaid, market.debt.base_borrow_index_nad)?;
+    let debt_clearance = market.quote_hlp_vault.clear_debt_repay(
+        debt_repaid,
+        base_debt_shares,
+        market.debt.base_borrow_index_nad,
+    )?;
+    let interest_paid = debt_clearance.interest_paid;
     market.quote_side.debit_reserve(quote_out, true)?;
     debit_hlp_live_reserve(
         market,
@@ -444,9 +447,6 @@ fn withdraw_quote_hlp(market: &mut Market, hlp_amount: u64) -> Result<HedgeRecei
     market.quote_side.assert_share_backing()?;
     market.quote_hlp_vault.debit_ylp(ylp_amount)?;
     debit_cash_for_hlp_interest(&mut market.base_side, interest_paid)?;
-    market
-        .quote_hlp_vault
-        .remove_debt_shares(base_debt_shares)?;
     market.quote_hlp_vault.burn_hlp(hlp_amount)?;
     market.quote_hlp_vault.last_nav_nad = hlp_nav_nad(market, MarketAsset::Quote)?;
     market.quote_hlp_vault.cached_settlement_price_nad =
@@ -456,7 +456,7 @@ fn withdraw_quote_hlp(market: &mut Market, hlp_amount: u64) -> Result<HedgeRecei
         ylp_amount,
         hlp_supply: market.quote_hlp_vault.hlp_supply,
         target_amount_out: quote_out,
-        debt_repaid,
+        debt_repaid: debt_clearance.debt_reduced,
         interest_paid,
         ..HedgeReceipt::default()
     })
@@ -841,38 +841,37 @@ fn deleverage_balanced(
 
     let repay_amount = amounts.debt_amount.min(current_debt);
     let debt_shares_to_remove = Debt::debt_to_shares(repay_amount, borrow_index)?.min(debt_shares);
-    let interest_paid = match target_asset {
+    let debt_clearance = match target_asset {
         MarketAsset::Base => {
-            let interest_paid = market
-                .base_hlp_vault
-                .realize_debt_repay(repay_amount, borrow_index)?;
-            debit_cash_for_hlp_interest(&mut market.quote_side, interest_paid)?;
-            market
-                .base_hlp_vault
-                .remove_debt_shares(debt_shares_to_remove)?;
+            let clearance = market.base_hlp_vault.clear_debt_repay(
+                repay_amount,
+                debt_shares_to_remove,
+                borrow_index,
+            )?;
+            debit_cash_for_hlp_interest(&mut market.quote_side, clearance.interest_paid)?;
             market.base_hlp_vault.debit_ylp(ylp_burn)?;
-            interest_paid
+            clearance
         }
         MarketAsset::Quote => {
-            let interest_paid = market
-                .quote_hlp_vault
-                .realize_debt_repay(repay_amount, borrow_index)?;
-            debit_cash_for_hlp_interest(&mut market.base_side, interest_paid)?;
-            market
-                .quote_hlp_vault
-                .remove_debt_shares(debt_shares_to_remove)?;
+            let clearance = market.quote_hlp_vault.clear_debt_repay(
+                repay_amount,
+                debt_shares_to_remove,
+                borrow_index,
+            )?;
+            debit_cash_for_hlp_interest(&mut market.base_side, clearance.interest_paid)?;
             market.quote_hlp_vault.debit_ylp(ylp_burn)?;
-            interest_paid
+            clearance
         }
     };
-    let executed_abs = executed_delta_for_borrowed_amount(market, target_asset, repay_amount)?;
+    let executed_abs =
+        executed_delta_for_borrowed_amount(market, target_asset, debt_clearance.debt_reduced)?;
     Ok(HlpRebalanceReceipt {
         target_asset,
         ideal_delta,
         executed_delta: -executed_abs,
         ylp_burn_amount: ylp_burn,
-        debt_delta: -(repay_amount as i128),
-        interest_paid,
+        debt_delta: -(debt_clearance.debt_reduced as i128),
+        interest_paid: debt_clearance.interest_paid,
         ..HlpRebalanceReceipt::default()
     })
 }

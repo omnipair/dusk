@@ -321,18 +321,19 @@ impl Market {
             &mut position.debt_principal,
             swap.amount_out,
         )?;
+        let live_debit = clearance.live_debit_for_cash_repay()?;
         let fees = self.apply_leverage_swap(
             collateral_asset,
             swap,
             clearance.interest_paid,
-            clearance.interest_paid,
+            live_debit,
             manager_fee_bps,
             protocol_fee_bps,
             protocol_auction_split,
         )?;
         position.debit_collateral(collateral_debit)?;
         Ok(LeverageUpdateReceipt {
-            debt_delta: -i64::try_from(swap.amount_out).map_err(|_| ErrorCode::Overflow)?,
+            debt_delta: -i64::try_from(clearance.debt_reduced).map_err(|_| ErrorCode::Overflow)?,
             collateral_delta: -i64::try_from(collateral_debit).map_err(|_| ErrorCode::Overflow)?,
             debt_amount: clearance.remaining_debt,
             debt_shares: position.debt_shares,
@@ -370,6 +371,7 @@ impl Market {
             &mut position.debt_principal,
             debt_amount,
         )?;
+        let live_debit = clearance.live_debit_for_cash_repay()?;
         let cash_debit = residual
             .checked_add(clearance.interest_paid)
             .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -377,7 +379,7 @@ impl Market {
             collateral_asset,
             swap,
             cash_debit,
-            clearance.interest_paid,
+            live_debit,
             manager_fee_bps,
             protocol_fee_bps,
             protocol_auction_split,
@@ -425,6 +427,7 @@ impl Market {
         } else {
             Default::default()
         };
+        let live_debit = clearance.live_debit_for_cash_repay()?;
         let writeoff = if position.debt_shares > 0 {
             self.debt.writeoff_isolated_position(
                 debt_asset,
@@ -450,7 +453,7 @@ impl Market {
             collateral_asset,
             swap,
             cash_debit,
-            clearance.interest_paid,
+            live_debit,
             manager_fee_bps,
             protocol_fee_bps,
             protocol_auction_split,
@@ -466,7 +469,7 @@ impl Market {
         }
         position.collateral_amount = 0;
         Ok(LeverageLiquidationReceipt {
-            debt_repaid: repay_credit,
+            debt_repaid: clearance.debt_reduced,
             interest_paid: clearance.interest_paid,
             principal_written_off: writeoff.principal_written_off,
             collateral_sold,
@@ -500,11 +503,12 @@ impl Market {
             repay_credit,
         )?;
         let principal_paid = clearance.principal_paid;
+        let live_debit = clearance.live_debit_for_cash_repay()?;
         let side = self.side_mut(debt_asset)?;
         side.reserves.live_reserve = side
             .reserves
             .live_reserve
-            .checked_sub(clearance.interest_paid)
+            .checked_sub(live_debit)
             .ok_or(ErrorCode::ReserveUnderflow)?;
         side.reserves.cash_reserve = side
             .reserves
@@ -512,7 +516,7 @@ impl Market {
             .checked_add(principal_paid)
             .ok_or(ErrorCode::ReserveOverflow)?;
         Ok(LeverageUpdateReceipt {
-            debt_delta: -i64::try_from(repay_credit).map_err(|_| ErrorCode::Overflow)?,
+            debt_delta: -i64::try_from(clearance.debt_reduced).map_err(|_| ErrorCode::Overflow)?,
             collateral_delta: 0,
             debt_amount: clearance.remaining_debt,
             debt_shares: position.debt_shares,

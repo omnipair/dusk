@@ -33,9 +33,18 @@ pub struct Debt {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DebtClearance {
     pub shares_burned: u128,
+    pub debt_reduced: u64,
     pub principal_paid: u64,
     pub interest_paid: u64,
     pub remaining_debt: u64,
+}
+
+impl DebtClearance {
+    pub fn live_debit_for_cash_repay(&self) -> Result<u64> {
+        self.debt_reduced
+            .checked_sub(self.principal_paid)
+            .ok_or(ErrorCode::MarketMathOverflow.into())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -135,10 +144,21 @@ impl Debt {
             Self::debt_to_shares(repay_amount, self.borrow_index(asset))?.min(*position_shares)
         };
         require!(shares_burned > 0, ErrorCode::DebtShareDivisionOverflow);
+        let remaining_shares = position_shares
+            .checked_sub(shares_burned)
+            .ok_or(ErrorCode::DebtShareMathOverflow)?;
+        let remaining_debt_u128 = Self::shares_to_debt(remaining_shares, self.borrow_index(asset))?;
+        let debt_reduced_u128 = current_debt_u128
+            .checked_sub(remaining_debt_u128)
+            .ok_or(ErrorCode::DebtMathOverflow)?;
+        let debt_reduced =
+            u64::try_from(debt_reduced_u128).map_err(|_| ErrorCode::DebtMathOverflow)?;
 
         let principal = (*position_principal).min(current_debt_u128);
         let (principal_paid, interest_paid) =
             crate::math::realized_interest_split(repay_amount, current_debt_u128, principal)?;
+        let (principal_reduced, _) =
+            crate::math::realized_interest_split(debt_reduced, current_debt_u128, principal)?;
         let (aggregate_shares, aggregate_principal) = match asset {
             MarketAsset::Base => (
                 &mut self.isolated_base_shares,
@@ -149,14 +169,12 @@ impl Debt {
                 &mut self.isolated_quote_principal,
             ),
         };
-        *position_shares = position_shares
-            .checked_sub(shares_burned)
-            .ok_or(ErrorCode::DebtShareMathOverflow)?;
+        *position_shares = remaining_shares;
         *aggregate_shares = aggregate_shares
             .checked_sub(shares_burned)
             .ok_or(ErrorCode::DebtShareMathOverflow)?;
-        *position_principal = position_principal.saturating_sub(principal_paid as u128);
-        *aggregate_principal = aggregate_principal.saturating_sub(principal_paid as u128);
+        *position_principal = position_principal.saturating_sub(principal_reduced as u128);
+        *aggregate_principal = aggregate_principal.saturating_sub(principal_reduced as u128);
         if *position_shares == 0 {
             *position_principal = 0;
         }
@@ -166,9 +184,11 @@ impl Debt {
 
         Ok(DebtClearance {
             shares_burned,
+            debt_reduced,
             principal_paid,
             interest_paid,
-            remaining_debt: current_debt.saturating_sub(repay_amount),
+            remaining_debt: u64::try_from(remaining_debt_u128)
+                .map_err(|_| ErrorCode::DebtMathOverflow)?,
         })
     }
 

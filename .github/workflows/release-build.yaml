@@ -25,12 +25,14 @@ on:
 
 env:
   ANCHOR_VERSION: "0.31.1"
-  SOLANA_VERSION: "1.18.18"
+  NODE_VERSION: "24"
+  SOLANA_VERSION: "4.1.0"
   PROGRAM_CRATE: omnipair-v2
   PROGRAM_LIBRARY: omnipair_v2
   PROGRAM_SO: omnipair_v2.so
   PROGRAM_IDL: omnipair_v2.json
   PROGRAM_TYPES: omnipair_v2.ts
+  INITIAL_RELEASE_VERSION: "2.0.0"
 
 jobs:
   prepare-release:
@@ -53,7 +55,27 @@ jobs:
       - name: Calculate release version
         id: version
         run: |
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          RELEASES_ENABLED="${{ vars.DUSK_RELEASES_ENABLED }}"
+          if [ "$RELEASES_ENABLED" != "true" ]; then
+            echo "Release publishing is disabled."
+            echo "Set repository variable DUSK_RELEASES_ENABLED=true only after release checklist and owner signoff are complete."
+            {
+              echo "### Release skipped"
+              echo ""
+              echo "Release publishing requires repository variable \`DUSK_RELEASES_ENABLED=true\`."
+              echo "Leave it unset or false until the Dusk release checklist and owner signoff are complete."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "bump_type=disabled" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          LATEST_TAG=$(git tag --list 'v*' --sort=-v:refname | awk -F'[v.]' '$2 >= 2 { print; exit }')
+          HAS_RELEASE_TAG="true"
+          if [ -z "$LATEST_TAG" ]; then
+            HAS_RELEASE_TAG="false"
+            LATEST_TAG="v$INITIAL_RELEASE_VERSION"
+          fi
           LATEST_VERSION="${LATEST_TAG#v}"
           IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
           MAJOR=${MAJOR:-0}
@@ -88,12 +110,16 @@ jobs:
           fi
 
           if [ "$SHOULD_RELEASE" = "true" ] && [ "${BUMP_TYPE:-}" != "manual" ]; then
-            case "$BUMP_TYPE" in
-              major) NEW_VERSION="$((MAJOR + 1)).0.0" ;;
-              minor) NEW_VERSION="${MAJOR}.$((MINOR + 1)).0" ;;
-              patch) NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
-              *) SHOULD_RELEASE="false" ;;
-            esac
+            if [ "$HAS_RELEASE_TAG" = "false" ]; then
+              NEW_VERSION="$INITIAL_RELEASE_VERSION"
+            else
+              case "$BUMP_TYPE" in
+                major) NEW_VERSION="$((MAJOR + 1)).0.0" ;;
+                minor) NEW_VERSION="${MAJOR}.$((MINOR + 1)).0" ;;
+                patch) NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
+                *) SHOULD_RELEASE="false" ;;
+              esac
+            fi
           fi
 
           if [ "$SHOULD_RELEASE" = "true" ]; then
@@ -130,12 +156,47 @@ jobs:
         id: bump
         run: |
           VERSION="${{ needs.prepare-release.outputs.version }}"
+          export VERSION
           sed -i "s/^version = \".*\"/version = \"$VERSION\"/" programs/omnipair-v2/Cargo.toml
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" programs/leverage_delegate/Cargo.toml
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" programs/faucet/Cargo.toml
+          sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" package.json
           sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" packages/program-interface/package.json
           cargo metadata --format-version 1 > /dev/null
+          node <<'NODE'
+          const fs = require('fs');
+          const version = process.env.VERSION;
+
+          const packageLockPath = 'package-lock.json';
+          const packageLock = JSON.parse(fs.readFileSync(packageLockPath, 'utf8'));
+          packageLock.version = version;
+          packageLock.packages[''].version = version;
+          fs.writeFileSync(packageLockPath, `${JSON.stringify(packageLock, null, 2)}\n`);
+
+          const idlPath = 'packages/program-interface/src/idl_v2.json';
+          const idl = JSON.parse(fs.readFileSync(idlPath, 'utf8'));
+          idl.metadata.version = version;
+          fs.writeFileSync(idlPath, JSON.stringify(idl, null, 2));
+
+          const typesPath = 'packages/program-interface/src/types_v2.ts';
+          const types = fs.readFileSync(typesPath, 'utf8').replace(
+            /("metadata": \{\n    "name": "omnipairV2",\n    "version": ")[^"]+"/,
+            `$1${version}"`
+          );
+          fs.writeFileSync(typesPath, types);
+          NODE
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add programs/omnipair-v2/Cargo.toml packages/program-interface/package.json Cargo.lock
+          git add \
+            package.json \
+            package-lock.json \
+            programs/omnipair-v2/Cargo.toml \
+            programs/leverage_delegate/Cargo.toml \
+            programs/faucet/Cargo.toml \
+            packages/program-interface/package.json \
+            packages/program-interface/src/idl_v2.json \
+            packages/program-interface/src/types_v2.ts \
+            Cargo.lock
           git commit -m "chore: bump version to $VERSION [skip ci]" || true
           git push origin HEAD:main
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -143,10 +204,19 @@ jobs:
       - name: Install Solana CLI
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/v${{ env.SOLANA_VERSION }}/install)"
-          echo "/home/runner/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
       - name: Install Anchor CLI
         run: cargo install --git https://github.com/coral-xyz/anchor --tag v${{ env.ANCHOR_VERSION }} anchor-cli --locked
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: yarn
+
+      - name: Install JavaScript dependencies
+        run: yarn install --frozen-lockfile
 
       - name: Build verifiable Dusk artifact
         run: |
@@ -167,6 +237,9 @@ jobs:
           done
           strings "target/verifiable/${{ env.PROGRAM_SO }}" | grep -q source_release
           strings "target/verifiable/${{ env.PROGRAM_SO }}" | grep -q source_revision
+
+      - name: Verify program interface matches build artifacts
+        run: npm run check-idl-current --prefix packages/program-interface
 
       - name: Create and push tag
         run: |
@@ -223,13 +296,28 @@ jobs:
       - name: Install Solana CLI
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/v${{ env.SOLANA_VERSION }}/install)"
-          echo "/home/runner/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
       - name: Install Anchor CLI
         run: cargo install --git https://github.com/coral-xyz/anchor --tag v${{ env.ANCHOR_VERSION }} anchor-cli --locked
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: yarn
+
+      - name: Install JavaScript dependencies
+        run: yarn install --frozen-lockfile
+
       - name: Build Dusk
         run: anchor build -p "${{ env.PROGRAM_CRATE }}" -- --features production
 
+      - name: Verify program interface matches build artifacts
+        run: npm run check-idl-current --prefix packages/program-interface
+
       - name: Test Dusk
         run: cargo test -p omnipair-v2
+
+      - name: Test leverage delegate
+        run: cargo test -p leverage_delegate

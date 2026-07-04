@@ -114,3 +114,35 @@ use super::*;
         assert_eq!(position_principal, 500);
         assert_eq!(debt.fixed_base_principal, 777);
     }
+
+    #[test]
+    fn isolated_repay_reports_actual_debt_reduced_after_rounded_share_burn() {
+        let mut debt = Debt {
+            base_borrow_index_nad: (NAD as u128) * 3 / 2,
+            isolated_base_shares: 100,
+            isolated_base_principal: 100,
+            ..Debt::default()
+        };
+        let mut position_shares = 100;
+        let mut position_principal = 100;
+
+        let clearance = debt
+            .clear_isolated_debt(
+                MarketAsset::Base,
+                &mut position_shares,
+                &mut position_principal,
+                2,
+            )
+            .unwrap();
+
+        assert_eq!(clearance.shares_burned, 2);
+        assert_eq!(clearance.debt_reduced, 3);
+        assert_eq!(clearance.remaining_debt, 147);
+        assert_eq!(clearance.principal_paid, 1);
+        assert_eq!(clearance.interest_paid, 1);
+        assert_eq!(clearance.live_debit_for_cash_repay().unwrap(), 2);
+        assert_eq!(position_shares, 98);
+        assert_eq!(position_principal, 98);
+        assert_eq!(debt.isolated_base_shares, 98);
+        assert_eq!(debt.isolated_base_principal, 98);
+    }

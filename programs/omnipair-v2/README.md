@@ -153,9 +153,12 @@ Useful focused checks while changing V2:
 cargo fmt -p omnipair-v2 -- --check
 cargo check -p omnipair-v2 --lib
 cargo test -p omnipair-v2 --lib -- --nocapture
+cargo test -p leverage_delegate
 anchor build -p omnipair-v2
+anchor build -p leverage_delegate
+npm run check-idl-current --prefix packages/program-interface
 npm run build --prefix packages/program-interface
 yarn test-litesvm
 ```
 
-Run program-interface builds whenever public IDL, account, event, seed, or instruction shapes change.
+Run program-interface builds whenever public IDL, account, event, seed, or instruction shapes change. `check-idl-current` must pass after `anchor build -p omnipair-v2` so committed client files match generated build artifacts.

@@ -151,23 +151,23 @@ impl<'info> SettleProtocolAuction<'info> {
     }
 
     pub fn handle_settle(
-        mut ctx: Context<'_, '_, '_, 'info, Self>,
+        ctx: Context<'_, '_, '_, 'info, Self>,
         args: SettleProtocolAuctionArgs,
     ) -> Result<()> {
-        let quote = quote_auction_settlement(&ctx.accounts, &args)?;
+        let quote = quote_auction_settlement(ctx.accounts, &args)?;
 
         transfer_auction_payment(
-            &ctx.accounts,
+            ctx.accounts,
             quote.treasury_amount,
             quote.staking_vault_amount,
         )?;
-        transfer_sold_fee(&ctx.accounts, args.sold_amount)?;
+        transfer_sold_fee(ctx.accounts, args.sold_amount)?;
         let sold_side = ctx
             .accounts
             .market
             .asset_for_mint(ctx.accounts.sold_mint.key())?;
         let (remaining_fee_liability, remaining_buyback_liability) = settle_auction_state(
-            &mut ctx.accounts,
+            ctx.accounts,
             args.lane,
             sold_side,
             args.sold_amount,
@@ -385,7 +385,7 @@ fn reference_price_nad(
         return Ok((market.key(), price_nad));
     }
 
-    let price_nad = price_from_market(&reference_market, sold_mint, accepted_mint)
+    let price_nad = price_from_market(reference_market, sold_mint, accepted_mint)
         .ok_or(ErrorCode::InvalidMarket)?;
     assert_fresh_reference(
         reference_market.risk.last_snapshot_slot,

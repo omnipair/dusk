@@ -8,7 +8,7 @@ export type OmnipairV2 = {
   "address": "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv",
   "metadata": {
     "name": "omnipairV2",
-    "version": "0.1.0",
+    "version": "2.0.0",
     "spec": "0.1.0",
     "description": "Omnipair v2 market architecture program"
   },
@@ -3117,7 +3117,8 @@ export type OmnipairV2 = {
           "name": "market"
         },
         {
-          "name": "lpMint"
+          "name": "lpMint",
+          "writable": true
         },
         {
           "name": "lpTokenMetadata",
@@ -3223,12 +3224,16 @@ export type OmnipairV2 = {
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "tokenMetadataProgram",
-          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+          "name": "sysvarInstructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
         },
         {
-          "name": "rent",
-          "address": "SysvarRent111111111111111111111111111111111"
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "tokenMetadataProgram",
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
         }
       ],
       "args": [

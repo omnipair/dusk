@@ -50,6 +50,12 @@ pub struct LiquidationReceipt {
     pub max_repay_amount: u64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LiquidationDebtClearance {
+    shares_to_burn: u128,
+    debt_reduction: u128,
+}
+
 impl Liquidation {
     #[cfg(test)]
     pub fn new(
@@ -164,15 +170,22 @@ impl Liquidation {
             require!(socialized_loss == 0, ErrorCode::InsufficientInsurance);
         }
 
-        let debt_reduction = repay_plus_insurance
+        let requested_debt_reduction = repay_plus_insurance
             .checked_add(socialized_loss as u128)
             .ok_or(ErrorCode::MarketMathOverflow)?;
+        let debt_clearance = liquidation_debt_clearance(
+            market,
+            borrow_position,
+            self.debt_asset,
+            requested_debt_reduction,
+        )?;
         let cash_repaid =
             u64::try_from(repay_plus_insurance).map_err(|_| ErrorCode::MarketMathOverflow)?;
-        let debt_reduction_u64 =
-            u64::try_from(debt_reduction).map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let debt_reduction_u64 = u64::try_from(debt_clearance.debt_reduction)
+            .map_err(|_| ErrorCode::MarketMathOverflow)?;
         // Track the principal/interest split for cash-backed repayment without
-        // treating socialized loss as received interest.
+        // treating socialized loss or share-rounding writeoff as received
+        // interest.
         let interest_paid = market.debt.realize_margin_liquidation(
             self.debt_asset,
             cash_repaid,
@@ -185,20 +198,19 @@ impl Liquidation {
             market,
             borrow_position,
             self.debt_asset,
-            debt_reduction,
+            debt_clearance,
             collateral_seized,
         )?;
 
         {
             let debt_side = market.side_mut(self.debt_asset)?;
+            let live_debit = debt_reduction_u64
+                .checked_sub(principal_credit)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
             debt_side.reserves.live_reserve = debt_side
                 .reserves
                 .live_reserve
-                .checked_sub(
-                    interest_paid
-                        .checked_add(socialized_loss)
-                        .ok_or(ErrorCode::ReserveUnderflow)?,
-                )
+                .checked_sub(live_debit)
                 .ok_or(ErrorCode::ReserveUnderflow)?;
             debt_side.reserves.cash_reserve = debt_side
                 .reserves
@@ -371,23 +383,50 @@ pub(crate) fn liquidation_terms_with_incentive_and_pricing(
     })
 }
 
+fn liquidation_debt_clearance(
+    market: &Market,
+    borrow_position: &BorrowPosition,
+    debt_asset: MarketAsset,
+    debt_reduction: u128,
+) -> Result<LiquidationDebtClearance> {
+    let (shares_before, debt_before, borrow_index_nad) = match debt_asset {
+        MarketAsset::Base => (
+            borrow_position.fixed_base_shares,
+            borrow_position.fixed_base_debt(&market.debt)?,
+            market.debt.base_borrow_index_nad,
+        ),
+        MarketAsset::Quote => (
+            borrow_position.fixed_quote_shares,
+            borrow_position.fixed_quote_debt(&market.debt)?,
+            market.debt.quote_borrow_index_nad,
+        ),
+    };
+    let shares_to_burn =
+        shares_to_burn_for_reduction(debt_reduction, debt_before, shares_before, borrow_index_nad)?;
+    let remaining_shares = shares_before
+        .checked_sub(shares_to_burn)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let remaining_debt = Debt::shares_to_debt(remaining_shares, borrow_index_nad)?;
+    let actual_debt_reduction = debt_before
+        .checked_sub(remaining_debt)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    Ok(LiquidationDebtClearance {
+        shares_to_burn,
+        debt_reduction: actual_debt_reduction,
+    })
+}
+
 fn apply_liquidation_debt_reduction(
     market: &mut Market,
     borrow_position: &mut BorrowPosition,
     debt_asset: MarketAsset,
-    debt_reduction: u128,
+    debt_clearance: LiquidationDebtClearance,
     collateral_seized: u64,
 ) -> Result<()> {
     match debt_asset {
         MarketAsset::Base => {
             let shares_before = borrow_position.fixed_base_shares;
-            let debt_before = borrow_position.fixed_base_debt(&market.debt)?;
-            let shares_to_burn = shares_to_burn_for_reduction(
-                debt_reduction,
-                debt_before,
-                shares_before,
-                market.debt.base_borrow_index_nad,
-            )?;
+            let shares_to_burn = debt_clearance.shares_to_burn;
             borrow_position.quote_collateral = borrow_position
                 .quote_collateral
                 .checked_sub(collateral_seized)
@@ -419,13 +458,7 @@ fn apply_liquidation_debt_reduction(
         }
         MarketAsset::Quote => {
             let shares_before = borrow_position.fixed_quote_shares;
-            let debt_before = borrow_position.fixed_quote_debt(&market.debt)?;
-            let shares_to_burn = shares_to_burn_for_reduction(
-                debt_reduction,
-                debt_before,
-                shares_before,
-                market.debt.quote_borrow_index_nad,
-            )?;
+            let shares_to_burn = debt_clearance.shares_to_burn;
             borrow_position.base_collateral = borrow_position
                 .base_collateral
                 .checked_sub(collateral_seized)

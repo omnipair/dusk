@@ -1,0 +1,78 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches:
+      - main
+      - "feat/**"
+      - "fix/**"
+      - "chore/**"
+      - "docs/**"
+      - "refactor/**"
+      - "test/**"
+  workflow_dispatch:
+
+env:
+  ANCHOR_VERSION: "0.31.1"
+  SOLANA_VERSION: "4.1.0"
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: yarn
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install JavaScript dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check repository hygiene
+        run: yarn check:hygiene
+
+      - name: Check actionable Clippy warnings
+        run: yarn check:clippy
+
+      - name: Test Dusk program
+        run: cargo test -p omnipair-v2
+
+      - name: Check Dusk production features
+        run: cargo check -p omnipair-v2 --lib --features production
+
+      - name: Test Dusk production features
+        run: cargo test -p omnipair-v2 --lib --features production
+
+      - name: Test leverage delegate
+        run: cargo test -p leverage_delegate
+
+      - name: Typecheck test harness
+        run: yarn typecheck
+
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v${{ env.SOLANA_VERSION }}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Install Anchor CLI
+        run: cargo install --git https://github.com/coral-xyz/anchor --tag v${{ env.ANCHOR_VERSION }} anchor-cli --locked
+
+      - name: Test LiteSVM smoke suite
+        run: yarn test-litesvm
+
+      - name: Check program interface package
+        run: npm run check:program-interface

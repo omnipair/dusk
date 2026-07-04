@@ -2,7 +2,7 @@
   "address": "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv",
   "metadata": {
     "name": "omnipair_v2",
-    "version": "0.1.0",
+    "version": "2.0.0",
     "spec": "0.1.0",
     "description": "Omnipair v2 market architecture program"
   },
@@ -3111,7 +3111,8 @@
           "name": "market"
         },
         {
-          "name": "lp_mint"
+          "name": "lp_mint",
+          "writable": true
         },
         {
           "name": "lp_token_metadata",
@@ -3217,12 +3218,16 @@
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "token_metadata_program",
-          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+          "name": "sysvar_instructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
         },
         {
-          "name": "rent",
-          "address": "SysvarRent111111111111111111111111111111111"
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "token_metadata_program",
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
         }
       ],
       "args": [

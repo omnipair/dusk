@@ -30,15 +30,36 @@ use super::*;
     }
 
     #[test]
-    fn hlp_debt_principal_tracks_realized_interest_separately() {
+    fn hlp_debt_clearance_tracks_realized_interest_separately() {
         let mut vault = HlpVault::default();
         vault.add_debt_shares(1_000).unwrap();
         vault.add_debt_principal(1_000).unwrap();
 
-        let interest = vault
-            .realize_debt_repay(550, (NAD as u128) * 11 / 10)
+        let clearance = vault
+            .clear_debt_repay(550, 500, (NAD as u128) * 11 / 10)
             .unwrap();
 
-        assert_eq!(interest, 50);
+        assert_eq!(clearance.interest_paid, 50);
+        assert_eq!(clearance.principal_paid, 500);
+        assert_eq!(clearance.debt_reduced, 550);
         assert_eq!(vault.debt_principal, 500);
+    }
+
+    #[test]
+    fn hlp_debt_clearance_reports_actual_debt_reduced_after_rounded_share_burn() {
+        let mut vault = HlpVault::default();
+        vault.add_debt_shares(100).unwrap();
+        vault.add_debt_principal(100).unwrap();
+
+        let clearance = vault
+            .clear_debt_repay(2, 2, (NAD as u128) * 3 / 2)
+            .unwrap();
+
+        assert_eq!(clearance.shares_burned, 2);
+        assert_eq!(clearance.debt_reduced, 3);
+        assert_eq!(clearance.remaining_debt, 147);
+        assert_eq!(clearance.principal_paid, 1);
+        assert_eq!(clearance.interest_paid, 1);
+        assert_eq!(vault.debt_shares, 98);
+        assert_eq!(vault.debt_principal, 98);
     }

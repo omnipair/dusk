@@ -25,6 +25,7 @@ import {
   LAMPORTS_PER_SOL,
   PublicKey,
   SystemProgram,
+  SYSVAR_INSTRUCTIONS_PUBKEY,
   Transaction,
   TransactionInstruction,
 } from "@solana/web3.js";
@@ -891,8 +892,9 @@ async function ensureLpMetadata(params: {
       lpMint: params.lpMint,
       lpTokenMetadata: params.lpTokenMetadata,
       systemProgram: SystemProgram.programId,
+      sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+      token2022Program: TOKEN_2022_PROGRAM_ID,
       tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
-      rent: anchor.web3.SYSVAR_RENT_PUBKEY,
     })
     .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 })])
     .rpc();

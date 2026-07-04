@@ -269,17 +269,22 @@ Core V2 verification gates:
 
 ```bash
 anchor build -p omnipair-v2
+anchor build -p leverage_delegate
 cargo fmt -p omnipair-v2 -- --check
 cargo check -p omnipair-v2 --lib
 cargo test -p omnipair-v2 --lib -- --nocapture
+cargo test -p leverage_delegate
+npm run check-idl-current --prefix packages/program-interface
 npm run build --prefix packages/program-interface
 yarn test-litesvm
 ```
 
-Run the program-interface build whenever public IDL, account, event, seed, or instruction shapes change.
+Run the program-interface build whenever public IDL, account, event, seed, or instruction shapes change. `check-idl-current` must pass after `anchor build -p omnipair-v2` so committed client files match the generated build artifacts.
 
 ## Security And Status
 
 Dusk is the standalone V2 Omnipair program.
 
-Before Dusk is treated as production-ready, it should complete final security review, release artifact verification, and owner signoff for app, SDK, indexing, analytics, aggregators, and deployment.
+Before Dusk is treated as production-ready, it should complete final security
+review, release artifact verification, and owner signoff for app, SDK, indexing,
+analytics, aggregators, and deployment.
