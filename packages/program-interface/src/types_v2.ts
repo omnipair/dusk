@@ -8,7 +8,7 @@ export type OmnipairV2 = {
   "address": "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv",
   "metadata": {
     "name": "omnipairV2",
-    "version": "0.1.0",
+    "version": "2.0.0",
     "spec": "0.1.0",
     "description": "Omnipair v2 market architecture program"
   },
