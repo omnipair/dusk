@@ -11,7 +11,9 @@ use crate::{
     generate_market_seeds,
     shared::{
         account::get_size_with_discriminator,
-        token::{token_mint_to, transfer_from_user_to_vault},
+        token::{
+            get_transfer_fee, get_transfer_inverse_fee, token_mint_to, transfer_from_user_to_vault,
+        },
     },
     state::{FutarchyAuthority, Market, YieldAccount, YieldTokenKind},
 };
@@ -106,6 +108,11 @@ pub struct AddLiquidity<'info> {
     pub system_program: Program<'info, System>,
 }
 
+struct AddLiquidityTransferPlan {
+    base_transfer_amount: u64,
+    quote_transfer_amount: u64,
+}
+
 impl<'info> AddLiquidity<'info> {
     pub fn validate(&self, args: &AddLiquidityArgs) -> Result<()> {
         self.market
@@ -113,16 +120,6 @@ impl<'info> AddLiquidity<'info> {
         require!(
             args.base_deposit_amount > 0 && args.quote_deposit_amount > 0,
             ErrorCode::AmountZero
-        );
-        require_gte!(
-            self.owner_base_account.amount,
-            args.base_deposit_amount,
-            ErrorCode::InsufficientBalance
-        );
-        require_gte!(
-            self.owner_quote_account.amount,
-            args.quote_deposit_amount,
-            ErrorCode::InsufficientBalance
         );
         validate_side_vault_accounts(
             &self.market,
@@ -151,6 +148,17 @@ impl<'info> AddLiquidity<'info> {
         require_supported_asset_mint(&self.base_mint)?;
         require_supported_asset_mint(&self.quote_mint)?;
         validate_lp_mint(&self.ylp_mint, self.market.key(), self.base_mint.decimals)?;
+        let transfer_plan = self.transfer_plan(args)?;
+        require_gte!(
+            self.owner_base_account.amount,
+            transfer_plan.base_transfer_amount,
+            ErrorCode::InsufficientBalance
+        );
+        require_gte!(
+            self.owner_quote_account.amount,
+            transfer_plan.quote_transfer_amount,
+            ErrorCode::InsufficientBalance
+        );
         Ok(())
     }
 
@@ -161,6 +169,61 @@ impl<'info> AddLiquidity<'info> {
     pub fn update_and_validate(&mut self, args: &AddLiquidityArgs) -> Result<()> {
         self.update()?;
         self.validate(args)
+    }
+
+    fn transfer_plan(&self, args: &AddLiquidityArgs) -> Result<AddLiquidityTransferPlan> {
+        let base_transfer_fee =
+            get_transfer_fee(&self.base_mint.to_account_info(), args.base_deposit_amount)?;
+        let quote_transfer_fee = get_transfer_fee(
+            &self.quote_mint.to_account_info(),
+            args.quote_deposit_amount,
+        )?;
+        let max_base_reserve_credit = args
+            .base_deposit_amount
+            .checked_sub(base_transfer_fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let max_quote_reserve_credit = args
+            .quote_deposit_amount
+            .checked_sub(quote_transfer_fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let receipt = self
+            .market
+            .preview_add_liquidity(max_base_reserve_credit, max_quote_reserve_credit)?;
+        require_gte!(
+            receipt.ylp_amount,
+            args.min_ylp_amount,
+            ErrorCode::SlippageExceeded
+        );
+
+        let base_transfer_amount = receipt
+            .base_reserve_credit
+            .checked_add(get_transfer_inverse_fee(
+                &self.base_mint.to_account_info(),
+                receipt.base_reserve_credit,
+            )?)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let quote_transfer_amount = receipt
+            .quote_reserve_credit
+            .checked_add(get_transfer_inverse_fee(
+                &self.quote_mint.to_account_info(),
+                receipt.quote_reserve_credit,
+            )?)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        require_gte!(
+            args.base_deposit_amount,
+            base_transfer_amount,
+            ErrorCode::SlippageExceeded
+        );
+        require_gte!(
+            args.quote_deposit_amount,
+            quote_transfer_amount,
+            ErrorCode::SlippageExceeded
+        );
+
+        Ok(AddLiquidityTransferPlan {
+            base_transfer_amount,
+            quote_transfer_amount,
+        })
     }
 
     pub fn handle_add_liquidity(ctx: Context<Self>, args: AddLiquidityArgs) -> Result<()> {
@@ -200,6 +263,7 @@ impl<'info> AddLiquidity<'info> {
             )?;
         }
 
+        let transfer_plan = ctx.accounts.transfer_plan(&args)?;
         let base_reserve_before = ctx.accounts.base_reserve_vault.amount;
         let quote_reserve_before = ctx.accounts.quote_reserve_vault.amount;
         let base_token_program = token_program_for_mint(
@@ -218,7 +282,7 @@ impl<'info> AddLiquidity<'info> {
             ctx.accounts.base_reserve_vault.to_account_info(),
             ctx.accounts.base_mint.to_account_info(),
             base_token_program,
-            args.base_deposit_amount,
+            transfer_plan.base_transfer_amount,
             ctx.accounts.base_mint.decimals,
         )?;
         transfer_from_user_to_vault(
@@ -227,7 +291,7 @@ impl<'info> AddLiquidity<'info> {
             ctx.accounts.quote_reserve_vault.to_account_info(),
             ctx.accounts.quote_mint.to_account_info(),
             quote_token_program,
-            args.quote_deposit_amount,
+            transfer_plan.quote_transfer_amount,
             ctx.accounts.quote_mint.decimals,
         )?;
         ctx.accounts.base_reserve_vault.reload()?;

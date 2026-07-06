@@ -47,6 +47,7 @@ import {
   TOKEN_METADATA_PROGRAM_ID,
 } from "../packages/dusk-sdk/src/constants.js";
 import {
+  decodePreviewAddLiquidityReturnData,
   decodePreviewBorrowCapacityReturnData,
   decodePreviewBorrowPositionReturnData,
   decodePreviewMarketReturnData,
@@ -1177,6 +1178,32 @@ describe("Omnipair V2 final model smoke", () => {
     expect(marketPreview.quote.ylpSupply.toNumber()).to.equal(141_421);
     expect(marketPreview.base.spotPriceNad.toNumber()).to.equal(2_000_000_000);
     expect(marketPreview.quote.spotPriceNad.toNumber()).to.equal(500_000_000);
+
+    const addLiquidityPreview = decodePreviewAddLiquidityReturnData(
+      await simulateReturnData(
+        await program.methods
+          .previewAddLiquidity({
+            baseDepositAmount: new BN(10_000),
+            quoteDepositAmount: new BN(50_000),
+          })
+          .accounts({
+            market: fixture.market,
+            baseMint: fixture.baseMint,
+            quoteMint: fixture.quoteMint,
+          })
+          .transaction()
+      )
+    ) as any;
+    trackV2Instruction("previewAddLiquidity", this.test?.title);
+
+    expect(addLiquidityPreview.requestedBaseAmount.toNumber()).to.equal(10_000);
+    expect(addLiquidityPreview.requestedQuoteAmount.toNumber()).to.equal(50_000);
+    expect(addLiquidityPreview.baseTransferAmount.toNumber()).to.equal(10_000);
+    expect(addLiquidityPreview.quoteTransferAmount.toNumber()).to.equal(20_000);
+    expect(addLiquidityPreview.baseReserveCredit.toNumber()).to.equal(10_000);
+    expect(addLiquidityPreview.quoteReserveCredit.toNumber()).to.equal(20_000);
+    expect(addLiquidityPreview.unusedQuoteAmount.toNumber()).to.equal(30_000);
+    expect(addLiquidityPreview.ylpAmount.toNumber()).to.equal(14_142);
 
     const swapPreview = decodePreviewSwapReturnData(
       await simulateReturnData(

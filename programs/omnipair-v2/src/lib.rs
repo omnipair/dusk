@@ -286,6 +286,13 @@ pub mod omnipair_v2 {
         PreviewMarket::handle_preview(ctx)
     }
 
+    pub fn preview_add_liquidity(
+        ctx: Context<PreviewAddLiquidity>,
+        args: PreviewAddLiquidityArgs,
+    ) -> Result<AddLiquidityPreview> {
+        PreviewAddLiquidity::handle_preview(ctx, args)
+    }
+
     pub fn preview_swap(ctx: Context<PreviewSwap>, args: PreviewSwapArgs) -> Result<SwapPreview> {
         PreviewSwap::handle_preview(ctx, args)
     }

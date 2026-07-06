@@ -48,6 +48,7 @@ const DUSK_INSTRUCTIONS = [
   "closeLeverageDelegation",
   "liquidateBorrowPosition",
   "previewMarket",
+  "previewAddLiquidity",
   "previewSwap",
   "previewBorrowCapacity",
   "previewBorrowPosition",

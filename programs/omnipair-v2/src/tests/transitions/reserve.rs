@@ -92,6 +92,54 @@ use super::*;
     }
 
     #[test]
+    fn add_liquidity_uses_limiting_side_without_donating_excess() {
+        let mut market = empty_market();
+        market.add_liquidity(1_000_000, 2_000_000).unwrap();
+
+        let preview = market.preview_add_liquidity(100_000, 500_000).unwrap();
+
+        assert_eq!(preview.base_reserve_credit, 100_000);
+        assert_eq!(preview.quote_reserve_credit, 200_000);
+        assert_eq!(preview.ylp_amount, 141_421);
+        assert_eq!(preview.ylp_supply, 1_555_634);
+
+        let receipt = market.add_liquidity(100_000, 500_000).unwrap();
+
+        assert_eq!(receipt.base_reserve_credit, 100_000);
+        assert_eq!(receipt.quote_reserve_credit, 200_000);
+        assert_eq!(receipt.ylp_amount, 141_421);
+        assert_eq!(market.base_side.reserves.live_reserve, 1_100_000);
+        assert_eq!(market.quote_side.reserves.live_reserve, 2_200_000);
+        assert_eq!(market.base_side.shares.ylp_supply, 1_555_634);
+        assert_eq!(market.quote_side.shares.ylp_supply, 1_555_634);
+        market.assert_market_invariants().unwrap();
+    }
+
+    #[test]
+    fn add_liquidity_rounds_used_amounts_like_v1() {
+        let mut market = empty_market();
+        market.add_liquidity(1_000_000, 2_000_000).unwrap();
+
+        let preview = market.preview_add_liquidity(100_001, 200_002).unwrap();
+
+        assert_eq!(preview.base_reserve_credit, 100_001);
+        assert_eq!(preview.quote_reserve_credit, 200_001);
+        assert_eq!(preview.ylp_amount, 141_422);
+        assert_eq!(preview.ylp_supply, 1_555_635);
+
+        let receipt = market.add_liquidity(100_001, 200_002).unwrap();
+
+        assert_eq!(receipt.base_reserve_credit, 100_001);
+        assert_eq!(receipt.quote_reserve_credit, 200_001);
+        assert_eq!(receipt.ylp_amount, 141_422);
+        assert_eq!(market.base_side.reserves.live_reserve, 1_100_001);
+        assert_eq!(market.quote_side.reserves.live_reserve, 2_200_001);
+        assert_eq!(market.base_side.shares.ylp_supply, 1_555_635);
+        assert_eq!(market.quote_side.shares.ylp_supply, 1_555_635);
+        market.assert_market_invariants().unwrap();
+    }
+
+    #[test]
     fn remove_liquidity_burns_matched_proportions() {
         let mut market = empty_market();
         market.add_liquidity(1_000_000, 2_000_000).unwrap();

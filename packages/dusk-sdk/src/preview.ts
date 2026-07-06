@@ -8,12 +8,14 @@ const coder = new BorshCoder(IDL as unknown as Idl);
 type DuskPreviewTypes = IdlTypes<OmnipairV2>;
 
 export type MarketPreview = DuskPreviewTypes["marketPreview"];
+export type AddLiquidityPreview = DuskPreviewTypes["addLiquidityPreview"];
 export type SwapPreview = DuskPreviewTypes["swapPreview"];
 export type BorrowCapacityPreview = DuskPreviewTypes["borrowCapacityPreview"];
 export type BorrowPositionPreview = DuskPreviewTypes["borrowPositionPreview"];
 
 export const PREVIEW_RETURN_TYPES = {
   previewMarket: "MarketPreview",
+  previewAddLiquidity: "AddLiquidityPreview",
   previewSwap: "SwapPreview",
   previewBorrowCapacity: "BorrowCapacityPreview",
   previewBorrowPosition: "BorrowPositionPreview",
@@ -24,6 +26,7 @@ export type PreviewReturnTypeName = (typeof PREVIEW_RETURN_TYPES)[PreviewInstruc
 
 type PreviewReturnByIdlType = {
   MarketPreview: MarketPreview;
+  AddLiquidityPreview: AddLiquidityPreview;
   SwapPreview: SwapPreview;
   BorrowCapacityPreview: BorrowCapacityPreview;
   BorrowPositionPreview: BorrowPositionPreview;
@@ -66,6 +69,12 @@ export function decodePreviewInstructionReturnData<T extends PreviewInstructionN
 
 export function decodePreviewMarketReturnData(returnData: PreviewReturnData): MarketPreview {
   return decodePreviewReturnData("MarketPreview", returnData);
+}
+
+export function decodePreviewAddLiquidityReturnData(
+  returnData: PreviewReturnData
+): AddLiquidityPreview {
+  return decodePreviewReturnData("AddLiquidityPreview", returnData);
 }
 
 export function decodePreviewSwapReturnData(returnData: PreviewReturnData): SwapPreview {
