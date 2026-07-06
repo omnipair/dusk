@@ -6,5 +6,6 @@ pub mod risk;
 
 pub(crate) use fixed_point::*;
 pub(crate) use gamm::*;
+pub(crate) use hlp_solver::*;
 pub(crate) use interest::*;
 pub(crate) use risk::*;

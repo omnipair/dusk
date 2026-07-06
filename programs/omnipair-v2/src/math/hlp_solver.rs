@@ -45,19 +45,13 @@ pub fn sqrt_ratio_nad(r_nad: u128) -> Result<u128> {
     Ok(isqrt(scaled))
 }
 
-/// Discrete within-swap tracking loss `E0 * (sqrt(r) - 1)^2`, in NAD.
-///
-/// Returns 0 for `r <= 1` downside moves are handled symmetrically by the
-/// caller via the deleverage path; this estimator is used only to decide
-/// whether the solve is worth its compute, so the upside form suffices.
+/// Discrete within-swap tracking loss `E0 * abs(sqrt(r) - 1)^2`, in NAD.
 pub fn tracking_loss_nad(equity_nad: u128, r_nad: u128) -> Result<u128> {
-    if equity_nad == 0 || r_nad <= NAD as u128 {
+    if equity_nad == 0 || r_nad == NAD as u128 {
         return Ok(0);
     }
     let s = sqrt_ratio_nad(r_nad)?;
-    let gap = s
-        .checked_sub(NAD as u128)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let gap = s.abs_diff(NAD as u128);
     // equity * gap^2 / NAD^2
     equity_nad
         .checked_mul(gap)

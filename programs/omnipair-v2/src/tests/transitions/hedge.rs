@@ -847,3 +847,148 @@ use super::*;
             post_rebalance_price
         );
     }
+
+    #[test]
+    fn small_swap_skips_hlp_pre_solve() {
+        let mut market = seeded_market();
+        configure_market_depth(&mut market, 1_000_000, 20_000);
+        DepositSingleSided::new(MarketAsset::Base, 100_000, 1)
+            .apply(&mut market)
+            .unwrap();
+
+        let (base_receipt, quote_receipt) =
+            pre_solve_hlp_vaults_for_swap(&mut market, MarketAsset::Base, 1, 50).unwrap();
+
+        assert_eq!(base_receipt.executed_delta, 0);
+        assert_eq!(quote_receipt.executed_delta, 0);
+        assert_eq!(base_receipt.ylp_mint_amount, 0);
+        assert_eq!(quote_receipt.ylp_mint_amount, 0);
+        assert_market_hlp_invariants(&market);
+    }
+
+    #[test]
+    fn large_swap_pre_solve_changes_quote_visible_depth() {
+        let mut market = seeded_market();
+        configure_market_depth(&mut market, 1_000_000, 20_000);
+        DepositSingleSided::new(MarketAsset::Base, 100_000, 1)
+            .apply(&mut market)
+            .unwrap();
+        DepositSingleSided::new(MarketAsset::Quote, 200_000, 1)
+            .apply(&mut market)
+            .unwrap();
+
+        let amount_in_after_fee = 350_000;
+        let user_only_out = calculate_raw_amount_out(
+            market.base_side.reserves.live_reserve,
+            market.quote_side.reserves.live_reserve,
+            amount_in_after_fee,
+        )
+        .unwrap();
+        let price_before =
+            market_spot_price_nad(&market.base_side, &market.quote_side).unwrap();
+
+        let (base_receipt, quote_receipt) = pre_solve_hlp_vaults_for_swap(
+            &mut market,
+            MarketAsset::Base,
+            amount_in_after_fee,
+            51,
+        )
+        .unwrap();
+
+        assert!(
+            base_receipt.executed_delta != 0 || quote_receipt.executed_delta != 0,
+            "large swap should execute a quote-visible hLP pre-adjustment"
+        );
+        assert!(
+            base_receipt.executed_delta != 0 && quote_receipt.executed_delta != 0,
+            "both active hLP vaults should be eligible for pre-adjustment"
+        );
+        let pre_solved_out = calculate_raw_amount_out(
+            market.base_side.reserves.live_reserve,
+            market.quote_side.reserves.live_reserve,
+            amount_in_after_fee,
+        )
+        .unwrap();
+        assert_ne!(pre_solved_out, user_only_out);
+
+        let price_after =
+            market_spot_price_nad(&market.base_side, &market.quote_side).unwrap();
+        assert!(
+            price_diff_bps(price_before, price_after) <= 2,
+            "pre-adjustment must preserve marginal spot within rounding"
+        );
+        assert_market_hlp_invariants(&market);
+    }
+
+    #[test]
+    fn pre_solved_hlp_mints_start_earning_after_current_swap_fee() {
+        let mut market = seeded_market();
+        configure_market_depth(&mut market, 1_000_000, 20_000);
+        DepositSingleSided::new(MarketAsset::Quote, 200_000, 1)
+            .apply(&mut market)
+            .unwrap();
+        let quote_hlp_ylp_before = market.quote_hlp_vault.ylp_shares;
+
+        let amount_in_after_fee = 350_000;
+        let (base_receipt, quote_receipt) = pre_solve_hlp_vaults_for_swap(
+            &mut market,
+            MarketAsset::Base,
+            amount_in_after_fee,
+            52,
+        )
+        .unwrap();
+        assert_eq!(base_receipt.ylp_mint_amount, 0);
+        assert!(quote_receipt.ylp_mint_amount > 0);
+        assert_eq!(
+            quote_receipt.current_swap_fee_eligible_ylp_shares,
+            quote_hlp_ylp_before
+        );
+        assert!(
+            quote_receipt.current_swap_fee_eligible_ylp_shares
+                < market.quote_hlp_vault.ylp_shares
+        );
+
+        let pre_solve_minted = base_receipt
+            .ylp_mint_amount
+            .checked_add(quote_receipt.ylp_mint_amount)
+            .unwrap();
+        let fee_eligible_supply = market
+            .base_side
+            .shares
+            .ylp_supply
+            .checked_sub(pre_solve_minted)
+            .unwrap();
+        let amount_out = calculate_raw_amount_out(
+            market.base_side.reserves.live_reserve,
+            market.quote_side.reserves.live_reserve,
+            amount_in_after_fee,
+        )
+        .unwrap();
+        market
+            .swap_reserves_with_fee_supply(
+                MarketAsset::Base,
+                amount_in_after_fee,
+                amount_out,
+                10_000,
+                0,
+                0,
+                crate::state::ProtocolAuctionSplit::default(),
+                Some(fee_eligible_supply),
+            )
+            .unwrap();
+        checkpoint_hlp_yield_from_ylp_shares(
+            &mut market,
+            MarketAsset::Quote,
+            quote_receipt.current_swap_fee_eligible_ylp_shares,
+        )
+        .unwrap();
+        let growth_after_eligible_checkpoint =
+            market.quote_hlp_vault.base_swap_fee_growth_index_nad;
+
+        checkpoint_hlp_yield_from_ylp(&mut market, MarketAsset::Quote).unwrap();
+
+        assert_eq!(
+            market.quote_hlp_vault.base_swap_fee_growth_index_nad,
+            growth_after_eligible_checkpoint
+        );
+    }
