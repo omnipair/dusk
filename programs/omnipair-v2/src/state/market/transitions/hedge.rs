@@ -1,9 +1,7 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{
-        HLP_PRE_SOLVE_ENABLED, HLP_PRE_SOLVE_LOSS_THRESHOLD_NAD, HLP_PRE_SOLVE_MAX_ITERS, NAD,
-    },
+    constants::{HLP_PRE_SOLVE_LOSS_THRESHOLD_NAD, HLP_PRE_SOLVE_MAX_ITERS, NAD},
     errors::ErrorCode,
     math::{
         bisect, calculate_normalized_amount_in, calculate_raw_amount_out,
@@ -201,7 +199,7 @@ pub fn pre_solve_hlp_vaults_for_swap(
     amount_in_after_fee: u64,
     current_slot: u64,
 ) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
-    if !HLP_PRE_SOLVE_ENABLED || amount_in_after_fee == 0 {
+    if amount_in_after_fee == 0 {
         return Ok((
             empty_hlp_rebalance_receipt(MarketAsset::Base),
             empty_hlp_rebalance_receipt(MarketAsset::Quote),

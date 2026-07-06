@@ -11,7 +11,8 @@
 //! point `a = E0 * (sqrt(r(a)) - 1)`, solved with bounded bisection over the
 //! real swap simulator. These functions are the numeraire-only building blocks
 //! (loss estimate, closed-form guess, root finder); the market-state
-//! orchestration is gated behind `HLP_PRE_SOLVE_ENABLED` at the call site.
+//! orchestration runs only when the estimated tracking loss exceeds the
+//! configured threshold.
 //!
 //! All ratios/amounts are NAD fixed point (`NAD == 1.0`).
 
