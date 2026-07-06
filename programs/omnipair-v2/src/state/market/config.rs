@@ -23,7 +23,6 @@ pub struct MarketConfig {
     pub k_ema_drawdown_bps: u16,
     pub recognized_collateral_cap_bps: u16,
     pub market_health_min_bps: u16,
-    pub hedged_lp_enabled: bool,
     pub start_time: i64,
 }
 

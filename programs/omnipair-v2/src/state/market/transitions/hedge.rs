@@ -77,10 +77,6 @@ impl DepositSingleSided {
 
     pub fn apply(self, market: &mut Market) -> Result<HedgeReceipt> {
         require!(self.deposit_amount > 0, ErrorCode::AmountZero);
-        require!(
-            market.config.hedged_lp_enabled,
-            ErrorCode::InvalidMarketConfig
-        );
         require_hlp_settlement_available(market, self.target_asset)?;
         let borrowed_amount =
             market.spot_value_in_opposite(self.target_asset, self.deposit_amount)?;
