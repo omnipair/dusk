@@ -436,6 +436,112 @@ use super::*;
         }
     }
 
+    #[derive(Debug)]
+    struct TestCompositeSwapReceipt {
+        amount_out: u64,
+        base_pre_rebalance: HlpRebalanceReceipt,
+        quote_pre_rebalance: HlpRebalanceReceipt,
+        base_post_rebalance: HlpRebalanceReceipt,
+        quote_post_rebalance: HlpRebalanceReceipt,
+    }
+
+    fn active_hlp_market() -> Market {
+        let mut market = seeded_market();
+        configure_market_depth(&mut market, 1_000_000, 20_000);
+        DepositSingleSided::new(MarketAsset::Base, 100_000, 1)
+            .apply(&mut market)
+            .unwrap();
+        DepositSingleSided::new(MarketAsset::Quote, 200_000, 1)
+            .apply(&mut market)
+            .unwrap();
+        assert_market_hlp_invariants(&market);
+        market
+    }
+
+    fn checkpoint_test_pre_solve_fee_eligibility(
+        market: &mut Market,
+        receipt: &HlpRebalanceReceipt,
+    ) {
+        if receipt.ylp_mint_amount == 0 {
+            return;
+        }
+        checkpoint_hlp_yield_from_ylp_shares(
+            market,
+            receipt.target_asset,
+            receipt.current_swap_fee_eligible_ylp_shares,
+        )
+        .unwrap();
+    }
+
+    fn apply_test_composite_swap(
+        market: &mut Market,
+        asset_in: MarketAsset,
+        amount_in_after_fee: u64,
+        current_slot: u64,
+    ) -> TestCompositeSwapReceipt {
+        let (base_pre_rebalance, quote_pre_rebalance) =
+            pre_solve_hlp_vaults_for_swap(market, asset_in, amount_in_after_fee, current_slot)
+                .unwrap();
+        let pre_solve_ylp_mint_amount = base_pre_rebalance
+            .ylp_mint_amount
+            .checked_add(quote_pre_rebalance.ylp_mint_amount)
+            .unwrap();
+        let fee_eligible_ylp_supply = market
+            .side(asset_in)
+            .unwrap()
+            .shares
+            .ylp_supply
+            .checked_sub(pre_solve_ylp_mint_amount)
+            .unwrap();
+        let (market_side_in, market_side_out) = market.swap_sides(asset_in);
+        let amount_out = calculate_raw_amount_out(
+            market_side_in.reserves.live_reserve,
+            market_side_out.reserves.live_reserve,
+            amount_in_after_fee,
+        )
+        .unwrap();
+        market
+            .swap_reserves_with_fee_supply(
+                asset_in,
+                amount_in_after_fee,
+                amount_out,
+                0,
+                0,
+                0,
+                crate::state::ProtocolAuctionSplit::default(),
+                Some(fee_eligible_ylp_supply),
+            )
+            .unwrap();
+        checkpoint_test_pre_solve_fee_eligibility(market, &base_pre_rebalance);
+        checkpoint_test_pre_solve_fee_eligibility(market, &quote_pre_rebalance);
+        let (base_post_rebalance, quote_post_rebalance) =
+            rebalance_hlp_vaults(market, current_slot).unwrap();
+        assert_market_hlp_invariants(market);
+        TestCompositeSwapReceipt {
+            amount_out,
+            base_pre_rebalance,
+            quote_pre_rebalance,
+            base_post_rebalance,
+            quote_post_rebalance,
+        }
+    }
+
+    fn assert_no_hlp_residuals(market: &Market) {
+        assert_eq!(market.base_hlp_vault.hlp_supply, 0);
+        assert_eq!(market.base_hlp_vault.ylp_shares, 0);
+        assert_eq!(market.base_hlp_vault.debt_shares, 0);
+        assert_eq!(market.base_hlp_vault.debt_principal, 0);
+        assert_eq!(market.base_hlp_vault.base_hlp_live_reserve, 0);
+        assert_eq!(market.base_hlp_vault.quote_hlp_live_reserve, 0);
+        assert_eq!(market.quote_hlp_vault.hlp_supply, 0);
+        assert_eq!(market.quote_hlp_vault.ylp_shares, 0);
+        assert_eq!(market.quote_hlp_vault.debt_shares, 0);
+        assert_eq!(market.quote_hlp_vault.debt_principal, 0);
+        assert_eq!(market.quote_hlp_vault.base_hlp_live_reserve, 0);
+        assert_eq!(market.quote_hlp_vault.quote_hlp_live_reserve, 0);
+        assert_market_hlp_invariants(market);
+    }
+
     fn configure_market_depth(market: &mut Market, base_reserve: u64, price_bps: u64) {
         let quote_reserve = (base_reserve as u128)
             .checked_mul(price_bps as u128)
@@ -917,6 +1023,155 @@ use super::*;
             "pre-adjustment must preserve marginal spot within rounding"
         );
         assert_market_hlp_invariants(&market);
+    }
+
+    #[test]
+    fn pre_solve_handles_opposing_hlp_flows_without_order_asymmetry() {
+        let mut market = active_hlp_market();
+        let amount_in_after_fee = 350_000;
+
+        let (base_receipt, quote_receipt) = pre_solve_hlp_vaults_for_swap(
+            &mut market,
+            MarketAsset::Base,
+            amount_in_after_fee,
+            53,
+        )
+        .unwrap();
+
+        assert!(
+            base_receipt.executed_delta < 0,
+            "base hLP should deleverage when a base-in swap moves base down"
+        );
+        assert!(
+            quote_receipt.executed_delta > 0,
+            "quote hLP should lever up when a base-in swap moves quote up"
+        );
+        assert_eq!(
+            base_receipt.pending_rebalance,
+            base_receipt.ideal_delta - base_receipt.executed_delta
+        );
+        assert_eq!(
+            quote_receipt.pending_rebalance,
+            quote_receipt.ideal_delta - quote_receipt.executed_delta
+        );
+        assert_market_hlp_invariants(&market);
+    }
+
+    #[test]
+    fn quote_simulation_matches_composite_swap_execution() {
+        let mut quoted_market = active_hlp_market();
+        let mut executed_market = active_hlp_market();
+        let amount_in_after_fee = 350_000;
+
+        let quoted = apply_test_composite_swap(
+            &mut quoted_market,
+            MarketAsset::Base,
+            amount_in_after_fee,
+            54,
+        );
+        let executed = apply_test_composite_swap(
+            &mut executed_market,
+            MarketAsset::Base,
+            amount_in_after_fee,
+            54,
+        );
+
+        assert_eq!(quoted.amount_out, executed.amount_out);
+        assert_eq!(
+            quoted.base_pre_rebalance.executed_delta,
+            executed.base_pre_rebalance.executed_delta
+        );
+        assert_eq!(
+            quoted.quote_pre_rebalance.executed_delta,
+            executed.quote_pre_rebalance.executed_delta
+        );
+        assert_eq!(
+            quoted_market.base_side.reserves.live_reserve,
+            executed_market.base_side.reserves.live_reserve
+        );
+        assert_eq!(
+            quoted_market.quote_side.reserves.live_reserve,
+            executed_market.quote_side.reserves.live_reserve
+        );
+        assert!(
+            quoted.base_post_rebalance.executed_delta != 0
+                || quoted.quote_post_rebalance.executed_delta != 0,
+            "test must exercise the post-swap hLP phase too"
+        );
+    }
+
+    #[test]
+    fn swap_round_trip_then_hlp_close_leaves_no_synthetic_residuals() {
+        let mut market = active_hlp_market();
+        let base_hlp_deposit = 100_000;
+        let quote_hlp_deposit = 200_000;
+
+        let first_swap =
+            apply_test_composite_swap(&mut market, MarketAsset::Base, 350_000, 55);
+        let _second_swap =
+            apply_test_composite_swap(&mut market, MarketAsset::Quote, first_swap.amount_out, 56);
+
+        let base_hlp_supply = market.base_hlp_vault.hlp_supply;
+        let quote_hlp_supply = market.quote_hlp_vault.hlp_supply;
+        let base_close = WithdrawSingleSided::new(MarketAsset::Base, base_hlp_supply)
+            .apply(&mut market)
+            .unwrap();
+        let quote_close = WithdrawSingleSided::new(MarketAsset::Quote, quote_hlp_supply)
+            .apply(&mut market)
+            .unwrap();
+
+        let initial_value_at_final_spot = market
+            .spot_value_in_opposite(MarketAsset::Base, base_hlp_deposit)
+            .unwrap()
+            .checked_add(quote_hlp_deposit)
+            .unwrap();
+        let realized_value_at_final_spot = market
+            .spot_value_in_opposite(MarketAsset::Base, base_close.target_amount_out)
+            .unwrap()
+            .checked_add(quote_close.target_amount_out)
+            .unwrap();
+        assert!(
+            realized_value_at_final_spot <= initial_value_at_final_spot + 8,
+            "round-trip hLP close should not extract combined value: base {:?}, quote {:?}, realized {}, initial {}",
+            base_close,
+            quote_close,
+            realized_value_at_final_spot,
+            initial_value_at_final_spot
+        );
+        assert_no_hlp_residuals(&market);
+    }
+
+    #[test]
+    fn mass_unwind_is_order_independent_when_cash_is_available() {
+        let mut close_first = active_hlp_market();
+        let mut ylp_first = active_hlp_market();
+        let public_ylp_supply = 1_000_000;
+
+        WithdrawSingleSided::new(MarketAsset::Base, close_first.base_hlp_vault.hlp_supply)
+            .apply(&mut close_first)
+            .unwrap();
+        WithdrawSingleSided::new(MarketAsset::Quote, close_first.quote_hlp_vault.hlp_supply)
+            .apply(&mut close_first)
+            .unwrap();
+        assert_no_hlp_residuals(&close_first);
+        close_first.remove_liquidity(public_ylp_supply).unwrap();
+        assert_eq!(close_first.base_side.reserves.live_reserve, 0);
+        assert_eq!(close_first.quote_side.reserves.live_reserve, 0);
+        assert_eq!(close_first.base_side.shares.ylp_supply, 0);
+        assert_eq!(close_first.quote_side.shares.ylp_supply, 0);
+
+        ylp_first.remove_liquidity(public_ylp_supply).unwrap();
+        WithdrawSingleSided::new(MarketAsset::Base, ylp_first.base_hlp_vault.hlp_supply)
+            .apply(&mut ylp_first)
+            .unwrap();
+        WithdrawSingleSided::new(MarketAsset::Quote, ylp_first.quote_hlp_vault.hlp_supply)
+            .apply(&mut ylp_first)
+            .unwrap();
+        assert_no_hlp_residuals(&ylp_first);
+        assert_eq!(ylp_first.base_side.reserves.live_reserve, 0);
+        assert_eq!(ylp_first.quote_side.reserves.live_reserve, 0);
+        assert_eq!(ylp_first.base_side.shares.ylp_supply, 0);
+        assert_eq!(ylp_first.quote_side.shares.ylp_supply, 0);
     }
 
     #[test]
