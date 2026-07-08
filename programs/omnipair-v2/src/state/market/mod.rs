@@ -32,7 +32,7 @@ use crate::math::{
     accrued_index_nad, adapt_rate_at_target_nad, instantaneous_rate_apr_nad, utilization_bps,
     utilization_error_nad,
 };
-use crate::shared::math::SqrtU128;
+use crate::shared::math::{ceil_div, SqrtU128};
 use crate::state::{
     borrow_position::{BorrowPosition, CollateralReceipt},
     futarchy_authority::{FutarchyAuthority, ProtocolAuctionSplit},
@@ -737,11 +737,36 @@ impl Market {
 
     pub fn add_liquidity(
         &mut self,
-        base_reserve_credit: u64,
-        quote_reserve_credit: u64,
+        max_base_reserve_credit: u64,
+        max_quote_reserve_credit: u64,
+    ) -> Result<AddLiquidityReceipt> {
+        let receipt =
+            self.preview_add_liquidity(max_base_reserve_credit, max_quote_reserve_credit)?;
+        let supply_before = self.base_side.shares.ylp_supply;
+        let internal_mint_amount = receipt
+            .ylp_supply
+            .checked_sub(supply_before)
+            .ok_or(ErrorCode::SupplyUnderflow)?;
+
+        self.base_side
+            .credit_reserve(receipt.base_reserve_credit, true)?;
+        self.quote_side
+            .credit_reserve(receipt.quote_reserve_credit, true)?;
+        self.base_side.shares.mint(internal_mint_amount)?;
+        self.quote_side.shares.mint(internal_mint_amount)?;
+        self.base_side.assert_share_backing()?;
+        self.quote_side.assert_share_backing()?;
+
+        Ok(receipt)
+    }
+
+    pub fn preview_add_liquidity(
+        &self,
+        max_base_reserve_credit: u64,
+        max_quote_reserve_credit: u64,
     ) -> Result<AddLiquidityReceipt> {
         require!(
-            base_reserve_credit > 0 && quote_reserve_credit > 0,
+            max_base_reserve_credit > 0 && max_quote_reserve_credit > 0,
             ErrorCode::AmountZero
         );
         let base_reserve_before = self.base_side.reserves.live_reserve;
@@ -751,25 +776,41 @@ impl Market {
                 base_reserve_before > 0 && quote_reserve_before > 0,
                 ErrorCode::InsufficientLiquidity
             );
-            let lhs = (base_reserve_credit as u128)
-                .checked_mul(quote_reserve_before as u128)
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-            let rhs = (quote_reserve_credit as u128)
-                .checked_mul(base_reserve_before as u128)
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-            require_eq!(lhs, rhs, ErrorCode::SlippageExceeded);
         }
 
         let ylp_amount = self.ylp_for_deposit(
             base_reserve_before,
             quote_reserve_before,
-            base_reserve_credit,
-            quote_reserve_credit,
+            max_base_reserve_credit,
+            max_quote_reserve_credit,
         )?;
         require!(ylp_amount > 0, ErrorCode::SlippageExceeded);
 
-        self.base_side.credit_reserve(base_reserve_credit, true)?;
-        self.quote_side.credit_reserve(quote_reserve_credit, true)?;
+        let (base_reserve_credit, quote_reserve_credit) = if self.base_side.shares.ylp_supply == 0 {
+            (max_base_reserve_credit, max_quote_reserve_credit)
+        } else {
+            let supply_before = self.base_side.shares.ylp_supply;
+            let base_reserve_credit =
+                reserve_for_ylp_mint_ceil(base_reserve_before, supply_before, ylp_amount)?;
+            let quote_reserve_credit =
+                reserve_for_ylp_mint_ceil(quote_reserve_before, supply_before, ylp_amount)?;
+            require_gte!(
+                max_base_reserve_credit,
+                base_reserve_credit,
+                ErrorCode::SlippageExceeded
+            );
+            require_gte!(
+                max_quote_reserve_credit,
+                quote_reserve_credit,
+                ErrorCode::SlippageExceeded
+            );
+            (base_reserve_credit, quote_reserve_credit)
+        };
+        require!(
+            base_reserve_credit > 0 && quote_reserve_credit > 0,
+            ErrorCode::AmountZero
+        );
+
         let internal_mint_amount = if self.base_side.shares.ylp_supply == 0 {
             ylp_amount
                 .checked_add(MIN_LIQUIDITY)
@@ -777,16 +818,18 @@ impl Market {
         } else {
             ylp_amount
         };
-        self.base_side.shares.mint(internal_mint_amount)?;
-        self.quote_side.shares.mint(internal_mint_amount)?;
-        self.base_side.assert_share_backing()?;
-        self.quote_side.assert_share_backing()?;
+        let ylp_supply = self
+            .base_side
+            .shares
+            .ylp_supply
+            .checked_add(internal_mint_amount)
+            .ok_or(ErrorCode::SupplyOverflow)?;
 
         Ok(AddLiquidityReceipt {
             base_reserve_credit,
             quote_reserve_credit,
             ylp_amount,
-            ylp_supply: self.base_side.shares.ylp_supply,
+            ylp_supply,
         })
     }
 
@@ -1185,6 +1228,22 @@ fn proportional_release(recognized: u64, shares_to_burn: u128, shares_before: u1
         .and_then(|value| value.checked_div(shares_before))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     u64::try_from(release).map_err(|_| ErrorCode::MarketMathOverflow.into())
+}
+
+fn reserve_for_ylp_mint_ceil(
+    reserve_before: u64,
+    ylp_supply_before: u64,
+    ylp_amount: u64,
+) -> Result<u64> {
+    require!(ylp_supply_before > 0, ErrorCode::InsufficientLiquidity);
+    let reserve_amount = ceil_div(
+        (ylp_amount as u128)
+            .checked_mul(reserve_before as u128)
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+        ylp_supply_before as u128,
+    )
+    .ok_or(ErrorCode::MarketMathOverflow)?;
+    u64::try_from(reserve_amount).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
 #[macro_export]

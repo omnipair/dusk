@@ -79,6 +79,40 @@ use super::*;
             .unwrap()
     }
 
+    fn v1_style_liquidity_for_deposit(
+        base_reserve: u64,
+        quote_reserve: u64,
+        ylp_supply: u64,
+        max_base_reserve_credit: u64,
+        max_quote_reserve_credit: u64,
+    ) -> u64 {
+        let base_ylp = (max_base_reserve_credit as u128)
+            .checked_mul(ylp_supply as u128)
+            .unwrap()
+            .checked_div(base_reserve as u128)
+            .unwrap();
+        let quote_ylp = (max_quote_reserve_credit as u128)
+            .checked_mul(ylp_supply as u128)
+            .unwrap()
+            .checked_div(quote_reserve as u128)
+            .unwrap();
+        base_ylp.min(quote_ylp).try_into().unwrap()
+    }
+
+    fn v1_style_reserve_for_liquidity(
+        reserve: u64,
+        ylp_supply: u64,
+        ylp_amount: u64,
+    ) -> u64 {
+        ceil_div(
+            (ylp_amount as u128).checked_mul(reserve as u128).unwrap(),
+            ylp_supply as u128,
+        )
+        .unwrap()
+        .try_into()
+        .unwrap()
+    }
+
     #[test]
     fn add_liquidity_mints_locked_minimum_liquidity() {
         let mut market = empty_market();
@@ -88,6 +122,109 @@ use super::*;
         assert_eq!(receipt.ylp_amount, 1_413_213);
         assert_eq!(market.base_side.shares.ylp_supply, 1_414_213);
         assert_eq!(market.quote_side.shares.ylp_supply, 1_414_213);
+        market.assert_market_invariants().unwrap();
+    }
+
+    #[test]
+    fn add_liquidity_uses_limiting_side_without_donating_excess() {
+        let mut market = empty_market();
+        market.add_liquidity(1_000_000, 2_000_000).unwrap();
+
+        let preview = market.preview_add_liquidity(100_000, 500_000).unwrap();
+
+        assert_eq!(preview.base_reserve_credit, 100_000);
+        assert_eq!(preview.quote_reserve_credit, 200_000);
+        assert_eq!(preview.ylp_amount, 141_421);
+        assert_eq!(preview.ylp_supply, 1_555_634);
+
+        let receipt = market.add_liquidity(100_000, 500_000).unwrap();
+
+        assert_eq!(receipt.base_reserve_credit, 100_000);
+        assert_eq!(receipt.quote_reserve_credit, 200_000);
+        assert_eq!(receipt.ylp_amount, 141_421);
+        assert_eq!(market.base_side.reserves.live_reserve, 1_100_000);
+        assert_eq!(market.quote_side.reserves.live_reserve, 2_200_000);
+        assert_eq!(market.base_side.shares.ylp_supply, 1_555_634);
+        assert_eq!(market.quote_side.shares.ylp_supply, 1_555_634);
+        market.assert_market_invariants().unwrap();
+    }
+
+    #[test]
+    fn add_liquidity_rounds_used_amounts_like_v1() {
+        let mut market = empty_market();
+        market.add_liquidity(1_000_000, 2_000_000).unwrap();
+
+        let preview = market.preview_add_liquidity(100_001, 200_002).unwrap();
+
+        assert_eq!(preview.base_reserve_credit, 100_001);
+        assert_eq!(preview.quote_reserve_credit, 200_001);
+        assert_eq!(preview.ylp_amount, 141_422);
+        assert_eq!(preview.ylp_supply, 1_555_635);
+
+        let receipt = market.add_liquidity(100_001, 200_002).unwrap();
+
+        assert_eq!(receipt.base_reserve_credit, 100_001);
+        assert_eq!(receipt.quote_reserve_credit, 200_001);
+        assert_eq!(receipt.ylp_amount, 141_422);
+        assert_eq!(market.base_side.reserves.live_reserve, 1_100_001);
+        assert_eq!(market.quote_side.reserves.live_reserve, 2_200_001);
+        assert_eq!(market.base_side.shares.ylp_supply, 1_555_635);
+        assert_eq!(market.quote_side.shares.ylp_supply, 1_555_635);
+        market.assert_market_invariants().unwrap();
+    }
+
+    #[test]
+    fn add_liquidity_matches_v1_limiting_side_formula() {
+        let mut market = empty_market();
+        market.add_liquidity(1_000_000, 2_000_000).unwrap();
+
+        let base_reserve_before = market.base_side.reserves.live_reserve;
+        let quote_reserve_before = market.quote_side.reserves.live_reserve;
+        let ylp_supply_before = market.base_side.shares.ylp_supply;
+
+        let max_base_reserve_credit = 333_333;
+        let max_quote_reserve_credit = 999_999;
+        let expected_ylp = v1_style_liquidity_for_deposit(
+            base_reserve_before,
+            quote_reserve_before,
+            ylp_supply_before,
+            max_base_reserve_credit,
+            max_quote_reserve_credit,
+        );
+        let expected_base_credit = v1_style_reserve_for_liquidity(
+            base_reserve_before,
+            ylp_supply_before,
+            expected_ylp,
+        );
+        let expected_quote_credit = v1_style_reserve_for_liquidity(
+            quote_reserve_before,
+            ylp_supply_before,
+            expected_ylp,
+        );
+
+        let preview = market
+            .preview_add_liquidity(max_base_reserve_credit, max_quote_reserve_credit)
+            .unwrap();
+        assert_eq!(preview.ylp_amount, expected_ylp);
+        assert_eq!(preview.base_reserve_credit, expected_base_credit);
+        assert_eq!(preview.quote_reserve_credit, expected_quote_credit);
+        assert!(preview.base_reserve_credit <= max_base_reserve_credit);
+        assert!(preview.quote_reserve_credit <= max_quote_reserve_credit);
+
+        let receipt = market
+            .add_liquidity(max_base_reserve_credit, max_quote_reserve_credit)
+            .unwrap();
+        assert_eq!(receipt.ylp_amount, expected_ylp);
+        assert_eq!(receipt.base_reserve_credit, expected_base_credit);
+        assert_eq!(receipt.quote_reserve_credit, expected_quote_credit);
+        assert_eq!(
+            market.base_side.reserves.live_reserve,
+            base_reserve_before + expected_base_credit
+        );
+        assert_eq!(
+            market.quote_side.reserves.live_reserve,
+            quote_reserve_before + expected_quote_credit
+        );
         market.assert_market_invariants().unwrap();
     }
 
@@ -132,6 +269,72 @@ use super::*;
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(128))]
+
+        #[test]
+        fn add_liquidity_matches_v1_formula_for_existing_markets(
+            base_reserve in 500_000u64..20_000_000,
+            quote_reserve in 500_000u64..40_000_000,
+            ylp_supply in 500_000u64..20_000_000,
+            max_base_reserve_credit in 1_000u64..10_000_000,
+            max_quote_reserve_credit in 1_000u64..20_000_000,
+        ) {
+            let expected_ylp = v1_style_liquidity_for_deposit(
+                base_reserve,
+                quote_reserve,
+                ylp_supply,
+                max_base_reserve_credit,
+                max_quote_reserve_credit,
+            );
+            prop_assume!(expected_ylp > 0);
+
+            let expected_base_credit =
+                v1_style_reserve_for_liquidity(base_reserve, ylp_supply, expected_ylp);
+            let expected_quote_credit =
+                v1_style_reserve_for_liquidity(quote_reserve, ylp_supply, expected_ylp);
+            prop_assert!(expected_base_credit <= max_base_reserve_credit);
+            prop_assert!(expected_quote_credit <= max_quote_reserve_credit);
+
+            let mut preview_market = empty_market();
+            preview_market.base_side.reserves.live_reserve = base_reserve;
+            preview_market.base_side.reserves.cash_reserve = base_reserve;
+            preview_market.base_side.shares.ylp_supply = ylp_supply;
+            preview_market.quote_side.reserves.live_reserve = quote_reserve;
+            preview_market.quote_side.reserves.cash_reserve = quote_reserve;
+            preview_market.quote_side.shares.ylp_supply = ylp_supply;
+
+            let preview = preview_market
+                .preview_add_liquidity(max_base_reserve_credit, max_quote_reserve_credit)
+                .unwrap();
+            prop_assert_eq!(preview.ylp_amount, expected_ylp);
+            prop_assert_eq!(preview.base_reserve_credit, expected_base_credit);
+            prop_assert_eq!(preview.quote_reserve_credit, expected_quote_credit);
+            prop_assert_eq!(preview.ylp_supply, ylp_supply + expected_ylp);
+
+            let mut execution_market = preview_market;
+            let receipt = execution_market
+                .add_liquidity(max_base_reserve_credit, max_quote_reserve_credit)
+                .unwrap();
+            prop_assert_eq!(receipt.ylp_amount, preview.ylp_amount);
+            prop_assert_eq!(receipt.base_reserve_credit, preview.base_reserve_credit);
+            prop_assert_eq!(receipt.quote_reserve_credit, preview.quote_reserve_credit);
+            prop_assert_eq!(
+                execution_market.base_side.reserves.live_reserve,
+                base_reserve + expected_base_credit
+            );
+            prop_assert_eq!(
+                execution_market.quote_side.reserves.live_reserve,
+                quote_reserve + expected_quote_credit
+            );
+            prop_assert_eq!(
+                execution_market.base_side.shares.ylp_supply,
+                ylp_supply + expected_ylp
+            );
+            prop_assert_eq!(
+                execution_market.quote_side.shares.ylp_supply,
+                ylp_supply + expected_ylp
+            );
+            execution_market.assert_market_invariants().unwrap();
+        }
 
         #[test]
         fn remove_liquidity_is_spot_neutral_and_invariant_preserving_under_cash_backed_debt(

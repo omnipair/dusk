@@ -25,10 +25,12 @@ import {
 } from "./constants.js";
 import { address, DEFAULT_READONLY_PUBLIC_KEY, normalizeAccountKeys, type AddressLike } from "./address.js";
 import {
+  decodePreviewAddLiquidityReturnData,
   decodePreviewBorrowCapacityReturnData,
   decodePreviewBorrowPositionReturnData,
   decodePreviewMarketReturnData,
   decodePreviewSwapReturnData,
+  type AddLiquidityPreview,
   type BorrowCapacityPreview,
   type BorrowPositionPreview,
   type MarketPreview,
@@ -73,6 +75,14 @@ export interface PreviewSwapParams extends SimulateOptions {
   assetInMint: AddressLike;
   assetOutMint: AddressLike;
   exactAssetIn: BN;
+}
+
+export interface PreviewAddLiquidityParams extends SimulateOptions {
+  market: AddressLike;
+  baseMint: AddressLike;
+  quoteMint: AddressLike;
+  baseDepositAmount: BN;
+  quoteDepositAmount: BN;
 }
 
 export interface PreviewBorrowCapacityParams extends SimulateOptions {
@@ -163,6 +173,26 @@ export class DuskGet {
       .instruction();
 
     return decodePreviewMarketReturnData(await this.simulateReturnData(instruction, options));
+  }
+
+  async previewAddLiquidity(params: PreviewAddLiquidityParams): Promise<AddLiquidityPreview> {
+    const instruction = await this.program.methods
+      .previewAddLiquidity({
+        baseDepositAmount: params.baseDepositAmount,
+        quoteDepositAmount: params.quoteDepositAmount,
+      })
+      .accounts(
+        normalizeAccountKeys({
+          market: params.market,
+          baseMint: params.baseMint,
+          quoteMint: params.quoteMint,
+        })
+      )
+      .instruction();
+
+    return decodePreviewAddLiquidityReturnData(
+      await this.simulateReturnData(instruction, params)
+    );
   }
 
   async previewSwap(params: PreviewSwapParams): Promise<SwapPreview> {

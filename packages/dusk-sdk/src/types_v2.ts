@@ -3924,6 +3924,79 @@ export type OmnipairV2 = {
       ]
     },
     {
+      "name": "previewAddLiquidity",
+      "discriminator": [
+        109,
+        110,
+        51,
+        225,
+        17,
+        58,
+        243,
+        255
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "baseMint"
+        },
+        {
+          "name": "quoteMint"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "previewAddLiquidityArgs"
+            }
+          }
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "addLiquidityPreview"
+        }
+      }
+    },
+    {
       "name": "previewBorrowCapacity",
       "discriminator": [
         203,
@@ -7654,6 +7727,70 @@ export type OmnipairV2 = {
       }
     },
     {
+      "name": "addLiquidityPreview",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "requestedBaseAmount",
+            "type": "u64"
+          },
+          {
+            "name": "requestedQuoteAmount",
+            "type": "u64"
+          },
+          {
+            "name": "maxBaseReserveCredit",
+            "type": "u64"
+          },
+          {
+            "name": "maxQuoteReserveCredit",
+            "type": "u64"
+          },
+          {
+            "name": "baseTransferAmount",
+            "type": "u64"
+          },
+          {
+            "name": "quoteTransferAmount",
+            "type": "u64"
+          },
+          {
+            "name": "baseTransferFee",
+            "type": "u64"
+          },
+          {
+            "name": "quoteTransferFee",
+            "type": "u64"
+          },
+          {
+            "name": "baseReserveCredit",
+            "type": "u64"
+          },
+          {
+            "name": "quoteReserveCredit",
+            "type": "u64"
+          },
+          {
+            "name": "unusedBaseAmount",
+            "type": "u64"
+          },
+          {
+            "name": "unusedQuoteAmount",
+            "type": "u64"
+          },
+          {
+            "name": "ylpAmount",
+            "type": "u64"
+          },
+          {
+            "name": "ylpSupply",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "borrowArgs",
       "type": {
         "kind": "struct",
@@ -10250,6 +10387,22 @@ export type OmnipairV2 = {
                 "name": "marketEventMetadata"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "previewAddLiquidityArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "baseDepositAmount",
+            "type": "u64"
+          },
+          {
+            "name": "quoteDepositAmount",
+            "type": "u64"
           }
         ]
       }

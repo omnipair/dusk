@@ -10,7 +10,10 @@ use crate::{
         instantaneous_rate_apr_nad, market_k_nad, market_liquidity_nad, market_spot_price_nad,
         normalize_to_nad, utilization_bps, utilization_error_nad,
     },
-    shared::{math::ceil_div, token::get_transfer_fee},
+    shared::{
+        math::ceil_div,
+        token::{get_transfer_fee, get_transfer_inverse_fee},
+    },
     state::{
         market::transitions::liquidation::LiquidationPricing, BorrowPosition, Debt, Market,
         MarketAsset, MarketHealth,
@@ -34,6 +37,25 @@ pub struct PreviewMarket<'info> {
         bump = market.bump
     )]
     pub market: Box<Account<'info, Market>>,
+}
+
+#[derive(Accounts)]
+pub struct PreviewAddLiquidity<'info> {
+    #[account(
+        mut,
+        seeds = [
+            MARKET_V2_SEED_PREFIX,
+            market.base_mint.as_ref(),
+            market.quote_mint.as_ref(),
+            market.params_hash.as_ref(),
+        ],
+        bump = market.bump
+    )]
+    pub market: Box<Account<'info, Market>>,
+
+    pub base_mint: Box<InterfaceAccount<'info, Mint>>,
+
+    pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
 }
 
 #[derive(Accounts)]
@@ -134,6 +156,30 @@ pub struct MarketPreview {
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PreviewAddLiquidityArgs {
+    pub base_deposit_amount: u64,
+    pub quote_deposit_amount: u64,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AddLiquidityPreview {
+    pub requested_base_amount: u64,
+    pub requested_quote_amount: u64,
+    pub max_base_reserve_credit: u64,
+    pub max_quote_reserve_credit: u64,
+    pub base_transfer_amount: u64,
+    pub quote_transfer_amount: u64,
+    pub base_transfer_fee: u64,
+    pub quote_transfer_fee: u64,
+    pub base_reserve_credit: u64,
+    pub quote_reserve_credit: u64,
+    pub unused_base_amount: u64,
+    pub unused_quote_amount: u64,
+    pub ylp_amount: u64,
+    pub ylp_supply: u64,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PreviewSwapArgs {
     pub exact_asset_in: u64,
 }
@@ -220,6 +266,97 @@ impl<'info> PreviewMarket<'info> {
             k_nad: market_k_nad(&market.base_side, &market.quote_side)?,
             liquidity_nad: market_liquidity_nad(&market.base_side, &market.quote_side)?,
             health: market.market_health()?,
+        })
+    }
+}
+
+impl<'info> PreviewAddLiquidity<'info> {
+    pub fn handle_preview(
+        ctx: Context<Self>,
+        args: PreviewAddLiquidityArgs,
+    ) -> Result<AddLiquidityPreview> {
+        require!(args.base_deposit_amount > 0, ErrorCode::AmountZero);
+        require!(args.quote_deposit_amount > 0, ErrorCode::AmountZero);
+        require_supported_asset_mint(&ctx.accounts.base_mint)?;
+        require_supported_asset_mint(&ctx.accounts.quote_mint)?;
+
+        ctx.accounts.market.update()?;
+        let market: &Market = &ctx.accounts.market;
+        require_keys_eq!(
+            market.base_mint,
+            ctx.accounts.base_mint.key(),
+            ErrorCode::InvalidMint
+        );
+        require_keys_eq!(
+            market.quote_mint,
+            ctx.accounts.quote_mint.key(),
+            ErrorCode::InvalidMint
+        );
+
+        let requested_base_amount = args.base_deposit_amount;
+        let requested_quote_amount = args.quote_deposit_amount;
+        let max_base_transfer_fee = get_transfer_fee(
+            &ctx.accounts.base_mint.to_account_info(),
+            requested_base_amount,
+        )?;
+        let max_quote_transfer_fee = get_transfer_fee(
+            &ctx.accounts.quote_mint.to_account_info(),
+            requested_quote_amount,
+        )?;
+        let max_base_reserve_credit = requested_base_amount
+            .checked_sub(max_base_transfer_fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let max_quote_reserve_credit = requested_quote_amount
+            .checked_sub(max_quote_transfer_fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let receipt =
+            market.preview_add_liquidity(max_base_reserve_credit, max_quote_reserve_credit)?;
+        let base_transfer_fee = get_transfer_inverse_fee(
+            &ctx.accounts.base_mint.to_account_info(),
+            receipt.base_reserve_credit,
+        )?;
+        let quote_transfer_fee = get_transfer_inverse_fee(
+            &ctx.accounts.quote_mint.to_account_info(),
+            receipt.quote_reserve_credit,
+        )?;
+        let base_transfer_amount = receipt
+            .base_reserve_credit
+            .checked_add(base_transfer_fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let quote_transfer_amount = receipt
+            .quote_reserve_credit
+            .checked_add(quote_transfer_fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        require_gte!(
+            requested_base_amount,
+            base_transfer_amount,
+            ErrorCode::SlippageExceeded
+        );
+        require_gte!(
+            requested_quote_amount,
+            quote_transfer_amount,
+            ErrorCode::SlippageExceeded
+        );
+
+        Ok(AddLiquidityPreview {
+            requested_base_amount,
+            requested_quote_amount,
+            max_base_reserve_credit,
+            max_quote_reserve_credit,
+            base_transfer_amount,
+            quote_transfer_amount,
+            base_transfer_fee,
+            quote_transfer_fee,
+            base_reserve_credit: receipt.base_reserve_credit,
+            quote_reserve_credit: receipt.quote_reserve_credit,
+            unused_base_amount: requested_base_amount
+                .checked_sub(base_transfer_amount)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            unused_quote_amount: requested_quote_amount
+                .checked_sub(quote_transfer_amount)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            ylp_amount: receipt.ylp_amount,
+            ylp_supply: receipt.ylp_supply,
         })
     }
 }
