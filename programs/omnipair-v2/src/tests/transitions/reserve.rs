@@ -92,6 +92,47 @@ use super::*;
     }
 
     #[test]
+    fn add_liquidity_accepts_ratio_quote_with_raw_rounding_dust() {
+        let mut market = empty_market();
+        market
+            .add_liquidity(1_620_342_794_237, 1_579_912_601_954)
+            .unwrap();
+
+        let base_amount = 123_000_000;
+        let quote_amount = ((base_amount as u128)
+            .checked_mul(market.quote_side.reserves.live_reserve as u128)
+            .unwrap()
+            .checked_div(market.base_side.reserves.live_reserve as u128)
+            .unwrap()) as u64;
+
+        assert_eq!(quote_amount, 119_930_949);
+        let receipt = market.add_liquidity(base_amount, quote_amount).unwrap();
+
+        assert!(receipt.ylp_amount > 0);
+        market.assert_market_invariants().unwrap();
+    }
+
+    #[test]
+    fn add_liquidity_rejects_materially_imbalanced_ratio() {
+        let mut market = empty_market();
+        market
+            .add_liquidity(1_620_342_794_237, 1_579_912_601_954)
+            .unwrap();
+        let base_live_before = market.base_side.reserves.live_reserve;
+        let quote_live_before = market.quote_side.reserves.live_reserve;
+
+        let err = match market.add_liquidity(123_000_000, 100_000_000) {
+            Ok(_) => panic!("imbalanced liquidity unexpectedly succeeded"),
+            Err(err) => err,
+        };
+
+        assert_eq!(err, error!(ErrorCode::SlippageExceeded));
+        assert_eq!(market.base_side.reserves.live_reserve, base_live_before);
+        assert_eq!(market.quote_side.reserves.live_reserve, quote_live_before);
+        market.assert_market_invariants().unwrap();
+    }
+
+    #[test]
     fn remove_liquidity_burns_matched_proportions() {
         let mut market = empty_market();
         market.add_liquidity(1_000_000, 2_000_000).unwrap();

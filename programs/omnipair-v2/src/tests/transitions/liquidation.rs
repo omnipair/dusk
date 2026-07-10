@@ -94,6 +94,9 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
         fixed_base_shares: 0,
         fixed_quote_shares: 100,
         risk_epoch: 0,
+        auction_start_time: 0,
+        auction_start_price_nad: 0,
+        auction_floor_price_nad: 0,
         bump: 255,
     };
     (market, borrow_position)
@@ -150,6 +153,9 @@ fn market_with_cash_backed_debt(
         fixed_base_shares: 0,
         fixed_quote_shares: 0,
         risk_epoch: 0,
+        auction_start_time: 0,
+        auction_start_price_nad: 0,
+        auction_floor_price_nad: 0,
         bump: 255,
     };
 

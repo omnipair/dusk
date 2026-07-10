@@ -275,24 +275,40 @@ pub mod omnipair_v2 {
     }
 
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn liquidate_borrow_position(
-        ctx: Context<LiquidateBorrowPosition>,
-        args: LiquidateBorrowPositionArgs,
+    pub fn trigger_liquidation_auction(
+        ctx: Context<TriggerLiquidationAuction>,
+        args: TriggerLiquidationAuctionArgs,
     ) -> Result<()> {
-        LiquidateBorrowPosition::handle_liquidate(ctx, args)
+        TriggerLiquidationAuction::handle_trigger(ctx, args)
     }
 
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn deposit_single_sided(
-        ctx: Context<DepositSingleSided>,
+    pub fn bid_liquidation_auction(
+        ctx: Context<BidLiquidationAuction>,
+        args: BidLiquidationAuctionArgs,
+    ) -> Result<()> {
+        BidLiquidationAuction::handle_bid(ctx, args)
+    }
+
+    #[access_control(ctx.accounts.update_and_validate(&args))]
+    pub fn settle_liquidation_auction_amm(
+        ctx: Context<SettleLiquidationAuctionAmm>,
+        args: SettleLiquidationAuctionAmmArgs,
+    ) -> Result<()> {
+        SettleLiquidationAuctionAmm::handle_settle(ctx, args)
+    }
+
+    #[access_control(ctx.accounts.update_and_validate(&args))]
+    pub fn deposit_single_sided<'info>(
+        ctx: Context<'_, '_, '_, 'info, DepositSingleSided<'info>>,
         args: DepositSingleSidedArgs,
     ) -> Result<()> {
         DepositSingleSided::handle_deposit(ctx, args)
     }
 
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn withdraw_single_sided(
-        ctx: Context<WithdrawSingleSided>,
+    pub fn withdraw_single_sided<'info>(
+        ctx: Context<'_, '_, '_, 'info, WithdrawSingleSided<'info>>,
         args: WithdrawSingleSidedArgs,
     ) -> Result<()> {
         WithdrawSingleSided::handle_withdraw(ctx, args)
