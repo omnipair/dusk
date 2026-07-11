@@ -31,9 +31,15 @@ use super::*;
     }
 
     #[test]
-    fn tracking_loss_is_zero_below_unit_ratio() {
+    fn tracking_loss_is_zero_at_unit_ratio() {
         assert_eq!(tracking_loss_nad(nad(100), nad(1)).unwrap(), 0);
-        assert_eq!(tracking_loss_nad(nad(100), nad(8) / 10).unwrap(), 0);
+    }
+
+    #[test]
+    fn tracking_loss_matches_downside_closed_form() {
+        // E0 = 100, r = 0.64 -> loss = 100 * (0.8 - 1)^2 = 4.
+        let loss = tracking_loss_nad(nad(100), nad(64) / 100).unwrap();
+        assert_eq!(loss, nad(4));
     }
 
     #[test]

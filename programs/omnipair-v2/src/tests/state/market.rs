@@ -43,7 +43,6 @@ use super::*;
             k_ema_drawdown_bps: BPS_DENOMINATOR,
             recognized_collateral_cap_bps: 15_000,
             market_health_min_bps: BPS_DENOMINATOR,
-            hedged_lp_enabled: true,
             start_time: 0,
         }
     }

@@ -67,10 +67,6 @@ pub const INTEREST_MAX_ADAPTATION_STEP_NAD: i128 = (NAD as i128) / 2;
 pub const MAX_INTEREST_ACCRUAL_MS: u64 = MS_PER_YEAR;
 
 // HEDGED-LP PRE/POST TRACKING SOLVER (Phase 2)
-// Compile-time gate for the swap-time pre-adjustment solve. Kept `false` until
-// the hot-path orchestration has CU profiling and off-chain/on-chain quote
-// parity validated on a validator; when `false` the swap path is unchanged.
-pub const HLP_PRE_SOLVE_ENABLED: bool = false;
 /// Only run the (expensive) pre/post solve when the estimated within-swap
 /// tracking loss exceeds this NAD threshold; below it the cheap post-swap
 /// rebalance is sufficient.

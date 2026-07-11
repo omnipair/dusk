@@ -12,7 +12,7 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{HlpRebalanced, MarketEventMetadata, MarketHealthUpdated, SwapExecuted, SwapSettled},
+    events::{HlpRebalanced, MarketHealthUpdated, SwapExecuted, SwapSettled},
     generate_market_seeds,
     math::calculate_raw_amount_out,
     shared::{
@@ -149,6 +149,24 @@ impl<'info> Swap<'info> {
             .checked_sub(total_fee)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require!(amount_in_after_fee > 0, ErrorCode::InsufficientOutputAmount);
+        let current_slot = Clock::get()?.slot;
+
+        let (base_hlp_pre_rebalance, quote_hlp_pre_rebalance) = ctx
+            .accounts
+            .market
+            .pre_solve_hlp_vaults_for_swap(asset_in, amount_in_after_fee, current_slot)?;
+        let pre_solve_ylp_mint_amount = base_hlp_pre_rebalance
+            .ylp_mint_amount
+            .checked_add(quote_hlp_pre_rebalance.ylp_mint_amount)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let fee_eligible_ylp_supply = ctx
+            .accounts
+            .market
+            .side(asset_in)?
+            .shares
+            .ylp_supply
+            .checked_sub(pre_solve_ylp_mint_amount)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
 
         let amount_out = {
             let (market_side_in, market_side_out) = ctx.accounts.market.swap_sides(asset_in);
@@ -186,7 +204,7 @@ impl<'info> Swap<'info> {
             ErrorCode::SlippageExceeded
         );
 
-        let swap_receipt = ctx.accounts.market.swap_reserves(
+        let swap_receipt = ctx.accounts.market.swap_reserves_with_fee_supply(
             asset_in,
             amount_in_after_fee,
             amount_out,
@@ -194,12 +212,19 @@ impl<'info> Swap<'info> {
             manager_fee_bps,
             protocol_fee_bps,
             protocol_auction_split,
+            Some(fee_eligible_ylp_supply),
         )?;
-        let current_slot = Clock::get()?.slot;
-        let (base_hlp_rebalance, quote_hlp_rebalance) = ctx
-            .accounts
-            .market
-            .rebalance_hlp_vault_for_swap(asset_in, current_slot)?;
+        checkpoint_hlp_pre_solve_fee_eligibility(
+            &mut ctx.accounts.market,
+            &base_hlp_pre_rebalance,
+            &quote_hlp_pre_rebalance,
+        )?;
+        let (base_hlp_post_rebalance, quote_hlp_post_rebalance) =
+            ctx.accounts.market.rebalance_hlp_vaults(current_slot)?;
+        let base_hlp_rebalance =
+            combine_hlp_rebalance_receipts(base_hlp_pre_rebalance, base_hlp_post_rebalance)?;
+        let quote_hlp_rebalance =
+            combine_hlp_rebalance_receipts(quote_hlp_pre_rebalance, quote_hlp_post_rebalance)?;
         let h_lp_tokens_changed = rebalance_executes_token_changes(&base_hlp_rebalance)
             || rebalance_executes_token_changes(&quote_hlp_rebalance);
         if !h_lp_tokens_changed {
@@ -225,62 +250,63 @@ impl<'info> Swap<'info> {
                 ctx.accounts.market.quote_hlp_vault.pending_rebalance,
             );
         } else {
-            emit!(SwapExecuted {
-                market: market_key,
-                trader: trader_key,
-                asset_in_mint: asset_in_mint_key,
-                asset_out_mint: asset_out_mint_key,
+            emit_swap_executed_low_heap(
+                market_key,
+                trader_key,
+                asset_in_mint_key,
+                asset_out_mint_key,
                 reserve_credit,
-                amount_in_after_fee: swap_receipt.amount_in_after_fee,
-                amount_out: swap_receipt.amount_out,
-                fee_credit: swap_receipt.fee_credit,
-                base_hlp_pending_rebalance: ctx.accounts.market.base_hlp_vault.pending_rebalance,
-                quote_hlp_pending_rebalance: ctx.accounts.market.quote_hlp_vault.pending_rebalance,
-                metadata: MarketEventMetadata::new(trader_key, market_key)?,
-            });
+                swap_receipt.amount_in_after_fee,
+                swap_receipt.amount_out,
+                swap_receipt.fee_credit,
+                ctx.accounts.market.base_hlp_vault.pending_rebalance,
+                ctx.accounts.market.quote_hlp_vault.pending_rebalance,
+                current_slot,
+            );
             if should_emit_hlp_rebalance(
                 base_hlp_rebalance.ideal_delta,
                 ctx.accounts.market.base_hlp_vault.pending_rebalance,
                 ctx.accounts.market.base_hlp_vault.hlp_supply,
             ) {
-                emit!(HlpRebalanced {
-                    market: market_key,
-                    target_side: MarketAsset::Base.code(),
-                    ideal_delta: base_hlp_rebalance.ideal_delta,
-                    executed_delta: base_hlp_rebalance.executed_delta,
-                    pending_rebalance: ctx.accounts.market.base_hlp_vault.pending_rebalance,
-                    nav_nad: ctx.accounts.market.base_hlp_vault.last_nav_nad,
-                    metadata: MarketEventMetadata::new(trader_key, market_key)?,
-                });
+                emit_hlp_rebalanced_low_heap(
+                    market_key,
+                    trader_key,
+                    MarketAsset::Base.code(),
+                    base_hlp_rebalance.ideal_delta,
+                    base_hlp_rebalance.executed_delta,
+                    ctx.accounts.market.base_hlp_vault.pending_rebalance,
+                    ctx.accounts.market.base_hlp_vault.last_nav_nad,
+                    current_slot,
+                );
             }
             if should_emit_hlp_rebalance(
                 quote_hlp_rebalance.ideal_delta,
                 ctx.accounts.market.quote_hlp_vault.pending_rebalance,
                 ctx.accounts.market.quote_hlp_vault.hlp_supply,
             ) {
-                emit!(HlpRebalanced {
-                    market: market_key,
-                    target_side: MarketAsset::Quote.code(),
-                    ideal_delta: quote_hlp_rebalance.ideal_delta,
-                    executed_delta: quote_hlp_rebalance.executed_delta,
-                    pending_rebalance: ctx.accounts.market.quote_hlp_vault.pending_rebalance,
-                    nav_nad: ctx.accounts.market.quote_hlp_vault.last_nav_nad,
-                    metadata: MarketEventMetadata::new(trader_key, market_key)?,
-                });
+                emit_hlp_rebalanced_low_heap(
+                    market_key,
+                    trader_key,
+                    MarketAsset::Quote.code(),
+                    quote_hlp_rebalance.ideal_delta,
+                    quote_hlp_rebalance.executed_delta,
+                    ctx.accounts.market.quote_hlp_vault.pending_rebalance,
+                    ctx.accounts.market.quote_hlp_vault.last_nav_nad,
+                    current_slot,
+                );
             }
             let health = ctx.accounts.market.market_health()?;
-            emit!(MarketHealthUpdated {
-                market: market_key,
-                recognized_base_collateral_for_quote_debt: health
-                    .recognized_base_collateral_for_quote_debt,
-                recognized_quote_collateral_for_base_debt: health
-                    .recognized_quote_collateral_for_base_debt,
-                effective_base_debt_nad: health.effective_base_debt_nad,
-                effective_quote_debt_nad: health.effective_quote_debt_nad,
-                base_debt_health_bps: health.base_debt_health_bps,
-                quote_debt_health_bps: health.quote_debt_health_bps,
-                metadata: MarketEventMetadata::new(trader_key, market_key)?,
-            });
+            emit_market_health_updated_low_heap(
+                market_key,
+                trader_key,
+                health.recognized_base_collateral_for_quote_debt,
+                health.recognized_quote_collateral_for_base_debt,
+                health.effective_base_debt_nad,
+                health.effective_quote_debt_nad,
+                health.base_debt_health_bps,
+                health.quote_debt_health_bps,
+                current_slot,
+            );
         }
 
         Ok(())
@@ -293,6 +319,68 @@ fn should_emit_hlp_rebalance(ideal_delta: i128, pending_rebalance: i128, hlp_sup
 
 fn rebalance_executes_token_changes(receipt: &HlpRebalanceReceipt) -> bool {
     receipt.ylp_mint_amount > 0 || receipt.ylp_burn_amount > 0 || receipt.interest_paid > 0
+}
+
+fn checkpoint_hlp_pre_solve_fee_eligibility(
+    market: &mut Market,
+    base_receipt: &HlpRebalanceReceipt,
+    quote_receipt: &HlpRebalanceReceipt,
+) -> Result<()> {
+    checkpoint_single_hlp_pre_solve_fee_eligibility(market, base_receipt)?;
+    checkpoint_single_hlp_pre_solve_fee_eligibility(market, quote_receipt)
+}
+
+fn checkpoint_single_hlp_pre_solve_fee_eligibility(
+    market: &mut Market,
+    receipt: &HlpRebalanceReceipt,
+) -> Result<()> {
+    if receipt.ylp_mint_amount == 0 && receipt.ylp_burn_amount == 0 {
+        return Ok(());
+    }
+    market.checkpoint_hlp_yield_from_ylp_shares(
+        receipt.target_asset,
+        receipt.current_swap_fee_eligible_ylp_shares,
+    )
+}
+
+fn combine_hlp_rebalance_receipts(
+    pre: HlpRebalanceReceipt,
+    post: HlpRebalanceReceipt,
+) -> Result<HlpRebalanceReceipt> {
+    require!(
+        pre.target_asset == post.target_asset,
+        ErrorCode::BrokenInvariant
+    );
+    Ok(HlpRebalanceReceipt {
+        target_asset: pre.target_asset,
+        ideal_delta: pre
+            .ideal_delta
+            .checked_add(post.ideal_delta)
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+        executed_delta: pre
+            .executed_delta
+            .checked_add(post.executed_delta)
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+        pending_rebalance: post.pending_rebalance,
+        current_swap_fee_eligible_ylp_shares: 0,
+        ylp_mint_amount: pre
+            .ylp_mint_amount
+            .checked_add(post.ylp_mint_amount)
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+        ylp_burn_amount: pre
+            .ylp_burn_amount
+            .checked_add(post.ylp_burn_amount)
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+        debt_delta: pre
+            .debt_delta
+            .checked_add(post.debt_delta)
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+        interest_paid: pre
+            .interest_paid
+            .checked_add(post.interest_paid)
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+        nav_nad: post.nav_nad.max(pre.nav_nad),
+    })
 }
 
 fn emit_swap_settled_low_heap(
@@ -331,6 +419,141 @@ fn emit_swap_settled_low_heap(
     data[offset..offset + 16].copy_from_slice(&quote_hlp_pending_rebalance.to_le_bytes());
 
     sol_log_data(&[&data]);
+}
+
+fn emit_swap_executed_low_heap(
+    market: Pubkey,
+    trader: Pubkey,
+    asset_in_mint: Pubkey,
+    asset_out_mint: Pubkey,
+    reserve_credit: u64,
+    amount_in_after_fee: u64,
+    amount_out: u64,
+    fee_credit: u64,
+    base_hlp_pending_rebalance: i128,
+    quote_hlp_pending_rebalance: i128,
+    slot: u64,
+) {
+    const SWAP_EXECUTED_EVENT_LEN: usize =
+        8 + 32 + 32 + 32 + 32 + 8 + 8 + 8 + 8 + 16 + 16 + MARKET_EVENT_METADATA_LEN;
+
+    let mut data = [0u8; SWAP_EXECUTED_EVENT_LEN];
+    let mut offset = 0usize;
+    data[offset..offset + 8].copy_from_slice(SwapExecuted::DISCRIMINATOR);
+    offset += 8;
+    data[offset..offset + 32].copy_from_slice(market.as_ref());
+    offset += 32;
+    data[offset..offset + 32].copy_from_slice(trader.as_ref());
+    offset += 32;
+    data[offset..offset + 32].copy_from_slice(asset_in_mint.as_ref());
+    offset += 32;
+    data[offset..offset + 32].copy_from_slice(asset_out_mint.as_ref());
+    offset += 32;
+    data[offset..offset + 8].copy_from_slice(&reserve_credit.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&amount_in_after_fee.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&amount_out.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&fee_credit.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 16].copy_from_slice(&base_hlp_pending_rebalance.to_le_bytes());
+    offset += 16;
+    data[offset..offset + 16].copy_from_slice(&quote_hlp_pending_rebalance.to_le_bytes());
+    offset += 16;
+    write_market_event_metadata(&mut data, offset, trader, market, slot);
+
+    sol_log_data(&[&data]);
+}
+
+fn emit_hlp_rebalanced_low_heap(
+    market: Pubkey,
+    signer: Pubkey,
+    target_side: u8,
+    ideal_delta: i128,
+    executed_delta: i128,
+    pending_rebalance: i128,
+    nav_nad: u128,
+    slot: u64,
+) {
+    const HLP_REBALANCED_EVENT_LEN: usize =
+        8 + 32 + 1 + 16 + 16 + 16 + 16 + MARKET_EVENT_METADATA_LEN;
+
+    let mut data = [0u8; HLP_REBALANCED_EVENT_LEN];
+    let mut offset = 0usize;
+    data[offset..offset + 8].copy_from_slice(HlpRebalanced::DISCRIMINATOR);
+    offset += 8;
+    data[offset..offset + 32].copy_from_slice(market.as_ref());
+    offset += 32;
+    data[offset] = target_side;
+    offset += 1;
+    data[offset..offset + 16].copy_from_slice(&ideal_delta.to_le_bytes());
+    offset += 16;
+    data[offset..offset + 16].copy_from_slice(&executed_delta.to_le_bytes());
+    offset += 16;
+    data[offset..offset + 16].copy_from_slice(&pending_rebalance.to_le_bytes());
+    offset += 16;
+    data[offset..offset + 16].copy_from_slice(&nav_nad.to_le_bytes());
+    offset += 16;
+    write_market_event_metadata(&mut data, offset, signer, market, slot);
+
+    sol_log_data(&[&data]);
+}
+
+fn emit_market_health_updated_low_heap(
+    market: Pubkey,
+    signer: Pubkey,
+    recognized_base_collateral_for_quote_debt: u64,
+    recognized_quote_collateral_for_base_debt: u64,
+    effective_base_debt_nad: u128,
+    effective_quote_debt_nad: u128,
+    base_debt_health_bps: u64,
+    quote_debt_health_bps: u64,
+    slot: u64,
+) {
+    const MARKET_HEALTH_UPDATED_EVENT_LEN: usize =
+        8 + 32 + 8 + 8 + 16 + 16 + 8 + 8 + MARKET_EVENT_METADATA_LEN;
+
+    let mut data = [0u8; MARKET_HEALTH_UPDATED_EVENT_LEN];
+    let mut offset = 0usize;
+    data[offset..offset + 8].copy_from_slice(MarketHealthUpdated::DISCRIMINATOR);
+    offset += 8;
+    data[offset..offset + 32].copy_from_slice(market.as_ref());
+    offset += 32;
+    data[offset..offset + 8]
+        .copy_from_slice(&recognized_base_collateral_for_quote_debt.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8]
+        .copy_from_slice(&recognized_quote_collateral_for_base_debt.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 16].copy_from_slice(&effective_base_debt_nad.to_le_bytes());
+    offset += 16;
+    data[offset..offset + 16].copy_from_slice(&effective_quote_debt_nad.to_le_bytes());
+    offset += 16;
+    data[offset..offset + 8].copy_from_slice(&base_debt_health_bps.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&quote_debt_health_bps.to_le_bytes());
+    offset += 8;
+    write_market_event_metadata(&mut data, offset, signer, market, slot);
+
+    sol_log_data(&[&data]);
+}
+
+const MARKET_EVENT_METADATA_LEN: usize = 32 + 32 + 8;
+
+fn write_market_event_metadata(
+    data: &mut [u8],
+    offset: usize,
+    signer: Pubkey,
+    market: Pubkey,
+    slot: u64,
+) {
+    let mut cursor = offset;
+    data[cursor..cursor + 32].copy_from_slice(signer.as_ref());
+    cursor += 32;
+    data[cursor..cursor + 32].copy_from_slice(market.as_ref());
+    cursor += 32;
+    data[cursor..cursor + 8].copy_from_slice(&slot.to_le_bytes());
 }
 
 fn validate_hlp_rebalance_accounts(

@@ -1,11 +1,12 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::NAD,
+    constants::{HLP_PRE_SOLVE_LOSS_THRESHOLD_NAD, HLP_PRE_SOLVE_MAX_ITERS, NAD},
     errors::ErrorCode,
     math::{
-        calculate_normalized_amount_in, calculate_raw_amount_out, denormalize_from_nad_floor,
-        market_spot_price_nad, normalize_to_nad,
+        bisect, calculate_normalized_amount_in, calculate_raw_amount_out,
+        closed_form_pre_adjustment_nad, denormalize_from_nad_floor, market_spot_price_nad,
+        normalize_to_nad, tracking_loss_nad,
     },
     shared::math::ceil_div,
     state::{Debt, HlpVault, Market, MarketAsset},
@@ -40,6 +41,7 @@ pub struct HlpRebalanceReceipt {
     pub ideal_delta: i128,
     pub executed_delta: i128,
     pub pending_rebalance: i128,
+    pub current_swap_fee_eligible_ylp_shares: u64,
     pub ylp_mint_amount: u64,
     pub ylp_burn_amount: u64,
     pub debt_delta: i128,
@@ -54,6 +56,7 @@ impl Default for HlpRebalanceReceipt {
             ideal_delta: 0,
             executed_delta: 0,
             pending_rebalance: 0,
+            current_swap_fee_eligible_ylp_shares: 0,
             ylp_mint_amount: 0,
             ylp_burn_amount: 0,
             debt_delta: 0,
@@ -74,10 +77,6 @@ impl DepositSingleSided {
 
     pub fn apply(self, market: &mut Market) -> Result<HedgeReceipt> {
         require!(self.deposit_amount > 0, ErrorCode::AmountZero);
-        require!(
-            market.config.hedged_lp_enabled,
-            ErrorCode::InvalidMarketConfig
-        );
         require_hlp_settlement_available(market, self.target_asset)?;
         let borrowed_amount =
             market.spot_value_in_opposite(self.target_asset, self.deposit_amount)?;
@@ -187,6 +186,367 @@ pub fn rebalance_hlp_vault_for_swap(
     match target_asset {
         MarketAsset::Base => Ok((receipt, empty_hlp_rebalance_receipt(MarketAsset::Quote))),
         MarketAsset::Quote => Ok((empty_hlp_rebalance_receipt(MarketAsset::Base), receipt)),
+    }
+}
+
+pub fn pre_solve_hlp_vaults_for_swap(
+    market: &mut Market,
+    asset_in: MarketAsset,
+    amount_in_after_fee: u64,
+    current_slot: u64,
+) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
+    if amount_in_after_fee == 0 {
+        return Ok((
+            empty_hlp_rebalance_receipt(MarketAsset::Base),
+            empty_hlp_rebalance_receipt(MarketAsset::Quote),
+        ));
+    }
+
+    let base_receipt = pre_solve_one_hlp_for_swap(
+        market,
+        MarketAsset::Base,
+        asset_in,
+        amount_in_after_fee,
+        current_slot,
+    )?;
+    let quote_receipt = pre_solve_one_hlp_for_swap(
+        market,
+        MarketAsset::Quote,
+        asset_in,
+        amount_in_after_fee,
+        current_slot,
+    )?;
+    Ok((base_receipt, quote_receipt))
+}
+
+fn pre_solve_one_hlp_for_swap(
+    market: &mut Market,
+    target_asset: MarketAsset,
+    asset_in: MarketAsset,
+    amount_in_after_fee: u64,
+    current_slot: u64,
+) -> Result<HlpRebalanceReceipt> {
+    if !hlp_rebalance_needed(market, target_asset) {
+        return Ok(empty_hlp_rebalance_receipt(target_asset));
+    }
+
+    let equity_nad = hlp_nav_nad(market, target_asset)?;
+    if equity_nad == 0 {
+        return Ok(empty_hlp_rebalance_receipt(target_asset));
+    }
+
+    let provisional_ratio = simulated_swap_price_ratio_nad(
+        market,
+        target_asset,
+        asset_in,
+        amount_in_after_fee,
+        0,
+        true,
+    )?;
+    let estimated_loss = tracking_loss_nad(equity_nad, provisional_ratio)?;
+    if estimated_loss <= HLP_PRE_SOLVE_LOSS_THRESHOLD_NAD {
+        return Ok(empty_hlp_rebalance_receipt(target_asset));
+    }
+
+    let (_, lever_up) = closed_form_pre_adjustment_nad(equity_nad, provisional_ratio)?;
+    let pre_adjustment_nad = solve_pre_adjustment_nad(
+        market,
+        target_asset,
+        asset_in,
+        amount_in_after_fee,
+        equity_nad,
+        lever_up,
+    )?;
+    if pre_adjustment_nad == 0 {
+        return Ok(empty_hlp_rebalance_receipt(target_asset));
+    }
+
+    checkpoint_hlp_yield_from_ylp(market, target_asset)?;
+    let ylp_shares_before = match target_asset {
+        MarketAsset::Base => market.base_hlp_vault.ylp_shares,
+        MarketAsset::Quote => market.quote_hlp_vault.ylp_shares,
+    };
+    let valuation = current_hlp_valuation(market, target_asset)?;
+    let ideal_delta = if lever_up {
+        i128::try_from(pre_adjustment_nad).map_err(|_| ErrorCode::MarketMathOverflow)?
+    } else {
+        -i128::try_from(pre_adjustment_nad).map_err(|_| ErrorCode::MarketMathOverflow)?
+    };
+    let receipt = if ideal_delta > 0 {
+        leverage_up_balanced(market, target_asset, ideal_delta)?
+    } else {
+        deleverage_balanced(market, target_asset, ideal_delta)?
+    };
+    let ylp_shares_after = match target_asset {
+        MarketAsset::Base => market.base_hlp_vault.ylp_shares,
+        MarketAsset::Quote => market.quote_hlp_vault.ylp_shares,
+    };
+    let current_swap_fee_eligible_ylp_shares = if receipt.ylp_mint_amount > 0 {
+        ylp_shares_before
+    } else {
+        ylp_shares_after
+    };
+    let receipt = HlpRebalanceReceipt {
+        current_swap_fee_eligible_ylp_shares,
+        nav_nad: valuation.nav_nad,
+        ..receipt
+    };
+    refresh_hlp_after_rebalance(market, target_asset, current_slot, receipt)
+}
+
+fn solve_pre_adjustment_nad(
+    market: &Market,
+    target_asset: MarketAsset,
+    asset_in: MarketAsset,
+    amount_in_after_fee: u64,
+    equity_nad: u128,
+    lever_up: bool,
+) -> Result<u128> {
+    let provisional_ratio = simulated_swap_price_ratio_nad(
+        market,
+        target_asset,
+        asset_in,
+        amount_in_after_fee,
+        0,
+        lever_up,
+    )?;
+    let (guess, guess_lever_up) = closed_form_pre_adjustment_nad(equity_nad, provisional_ratio)?;
+    if guess == 0 || guess_lever_up != lever_up {
+        return Ok(0);
+    }
+
+    let cap = pre_adjustment_cap_nad(market, target_asset, lever_up)?;
+    if cap == 0 {
+        return Ok(0);
+    }
+
+    let mut hi = guess
+        .checked_mul(2)
+        .and_then(|value| value.checked_add(NAD as u128))
+        .unwrap_or(u128::MAX)
+        .min(cap);
+    if hi == 0 {
+        return Ok(0);
+    }
+
+    for _ in 0..8 {
+        let needed = needed_pre_adjustment_nad(
+            market,
+            target_asset,
+            asset_in,
+            amount_in_after_fee,
+            equity_nad,
+            hi,
+            lever_up,
+        )?;
+        if needed <= hi || hi == cap {
+            break;
+        }
+        hi = hi.saturating_mul(2).min(cap);
+    }
+
+    bisect(0, hi, HLP_PRE_SOLVE_MAX_ITERS, |candidate| {
+        let needed = needed_pre_adjustment_nad(
+            market,
+            target_asset,
+            asset_in,
+            amount_in_after_fee,
+            equity_nad,
+            candidate,
+            lever_up,
+        )?;
+        let candidate = i128::try_from(candidate).map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let needed = i128::try_from(needed).map_err(|_| ErrorCode::MarketMathOverflow)?;
+        candidate
+            .checked_sub(needed)
+            .ok_or(ErrorCode::MarketMathOverflow.into())
+    })
+    .map(|amount| amount.min(cap))
+}
+
+fn needed_pre_adjustment_nad(
+    market: &Market,
+    target_asset: MarketAsset,
+    asset_in: MarketAsset,
+    amount_in_after_fee: u64,
+    equity_nad: u128,
+    candidate_nad: u128,
+    lever_up: bool,
+) -> Result<u128> {
+    let ratio = simulated_swap_price_ratio_nad(
+        market,
+        target_asset,
+        asset_in,
+        amount_in_after_fee,
+        candidate_nad,
+        lever_up,
+    )?;
+    let (needed, needed_lever_up) = closed_form_pre_adjustment_nad(equity_nad, ratio)?;
+    if needed_lever_up == lever_up {
+        Ok(needed)
+    } else {
+        Ok(0)
+    }
+}
+
+fn pre_adjustment_cap_nad(
+    market: &Market,
+    target_asset: MarketAsset,
+    lever_up: bool,
+) -> Result<u128> {
+    if lever_up {
+        let borrowed_asset = target_asset.opposite();
+        let borrow_headroom = market.side(borrowed_asset)?.reserves.cash_reserve;
+        return asset_value_in_target_nad(market, borrowed_asset, borrow_headroom, target_asset);
+    }
+
+    let debt = hlp_debt_value_nad(market, target_asset)?;
+    let collateral = match target_asset {
+        MarketAsset::Base => {
+            hlp_collateral_value_nad(market, MarketAsset::Base, &market.base_hlp_vault)?
+        }
+        MarketAsset::Quote => {
+            hlp_collateral_value_nad(market, MarketAsset::Quote, &market.quote_hlp_vault)?
+        }
+    };
+    Ok(debt.min(collateral))
+}
+
+fn simulated_swap_price_ratio_nad(
+    market: &Market,
+    target_asset: MarketAsset,
+    asset_in: MarketAsset,
+    amount_in_after_fee: u64,
+    pre_adjustment_nad: u128,
+    lever_up: bool,
+) -> Result<u128> {
+    let mut base_side = market.base_side;
+    let mut quote_side = market.quote_side;
+    apply_simulated_pre_adjustment(
+        market,
+        target_asset,
+        pre_adjustment_nad,
+        lever_up,
+        &mut base_side,
+        &mut quote_side,
+    )?;
+
+    let price_before = spot_price_for_target_nad(&base_side, &quote_side, target_asset)?;
+    require!(price_before > 0, ErrorCode::InsufficientLiquidity);
+
+    if amount_in_after_fee > 0 {
+        let (side_in, side_out) = match asset_in {
+            MarketAsset::Base => (&mut base_side, &mut quote_side),
+            MarketAsset::Quote => (&mut quote_side, &mut base_side),
+        };
+        let amount_out = calculate_raw_amount_out(
+            side_in.reserves.live_reserve,
+            side_out.reserves.live_reserve,
+            amount_in_after_fee,
+        )?;
+        side_in.reserves.live_reserve = side_in
+            .reserves
+            .live_reserve
+            .checked_add(amount_in_after_fee)
+            .ok_or(ErrorCode::ReserveOverflow)?;
+        side_out.reserves.live_reserve = side_out
+            .reserves
+            .live_reserve
+            .checked_sub(amount_out)
+            .ok_or(ErrorCode::ReserveUnderflow)?;
+    }
+
+    let price_after = spot_price_for_target_nad(&base_side, &quote_side, target_asset)?;
+    price_after
+        .checked_mul(NAD as u128)
+        .and_then(|value| value.checked_div(price_before))
+        .ok_or(ErrorCode::MarketMathOverflow.into())
+}
+
+fn apply_simulated_pre_adjustment(
+    market: &Market,
+    target_asset: MarketAsset,
+    delta_nad: u128,
+    lever_up: bool,
+    base_side: &mut crate::state::MarketSide,
+    quote_side: &mut crate::state::MarketSide,
+) -> Result<()> {
+    if delta_nad == 0 {
+        return Ok(());
+    }
+    let target_total_amount = target_raw_amount_from_delta(market, target_asset, delta_nad)?;
+    let target_leg_amount = target_total_amount / 2;
+    if target_leg_amount == 0 {
+        return Ok(());
+    }
+    let borrowed_leg_amount =
+        simulated_spot_value_in_opposite(base_side, quote_side, target_asset, target_leg_amount)?;
+    let (base_leg_amount, quote_leg_amount) = match target_asset {
+        MarketAsset::Base => (target_leg_amount, borrowed_leg_amount),
+        MarketAsset::Quote => (borrowed_leg_amount, target_leg_amount),
+    };
+
+    if lever_up {
+        base_side.reserves.live_reserve = base_side
+            .reserves
+            .live_reserve
+            .checked_add(base_leg_amount)
+            .ok_or(ErrorCode::ReserveOverflow)?;
+        quote_side.reserves.live_reserve = quote_side
+            .reserves
+            .live_reserve
+            .checked_add(quote_leg_amount)
+            .ok_or(ErrorCode::ReserveOverflow)?;
+    } else {
+        base_side.reserves.live_reserve = base_side
+            .reserves
+            .live_reserve
+            .checked_sub(base_leg_amount)
+            .ok_or(ErrorCode::ReserveUnderflow)?;
+        quote_side.reserves.live_reserve = quote_side
+            .reserves
+            .live_reserve
+            .checked_sub(quote_leg_amount)
+            .ok_or(ErrorCode::ReserveUnderflow)?;
+    }
+    Ok(())
+}
+
+fn simulated_spot_value_in_opposite(
+    base_side: &crate::state::MarketSide,
+    quote_side: &crate::state::MarketSide,
+    asset: MarketAsset,
+    amount: u64,
+) -> Result<u64> {
+    let (from_reserve, to_reserve) = match asset {
+        MarketAsset::Base => (
+            base_side.reserves.live_reserve,
+            quote_side.reserves.live_reserve,
+        ),
+        MarketAsset::Quote => (
+            quote_side.reserves.live_reserve,
+            base_side.reserves.live_reserve,
+        ),
+    };
+    require!(
+        from_reserve > 0 && to_reserve > 0,
+        ErrorCode::InsufficientLiquidity
+    );
+    let value = (amount as u128)
+        .checked_mul(to_reserve as u128)
+        .and_then(|value| value.checked_div(from_reserve as u128))
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    u64::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow.into())
+}
+
+fn spot_price_for_target_nad(
+    base_side: &crate::state::MarketSide,
+    quote_side: &crate::state::MarketSide,
+    target_asset: MarketAsset,
+) -> Result<u128> {
+    match target_asset {
+        MarketAsset::Base => market_spot_price_nad(base_side, quote_side).map(u128::from),
+        MarketAsset::Quote => market_spot_price_nad(quote_side, base_side).map(u128::from),
     }
 }
 
@@ -1042,6 +1402,18 @@ fn checkpoint_one_hlp(
 }
 
 pub fn checkpoint_hlp_yield_from_ylp(market: &mut Market, target_asset: MarketAsset) -> Result<()> {
+    let ylp_shares = match target_asset {
+        MarketAsset::Base => market.base_hlp_vault.ylp_shares,
+        MarketAsset::Quote => market.quote_hlp_vault.ylp_shares,
+    };
+    checkpoint_hlp_yield_from_ylp_shares(market, target_asset, ylp_shares)
+}
+
+pub fn checkpoint_hlp_yield_from_ylp_shares(
+    market: &mut Market,
+    target_asset: MarketAsset,
+    eligible_ylp_shares: u64,
+) -> Result<()> {
     market.base_side.carry_forward_swap_fees()?;
     market.base_side.carry_forward_interest()?;
     market.quote_side.carry_forward_swap_fees()?;
@@ -1049,12 +1421,16 @@ pub fn checkpoint_hlp_yield_from_ylp(market: &mut Market, target_asset: MarketAs
     let base_side = market.base_side;
     let quote_side = market.quote_side;
     match target_asset {
-        MarketAsset::Base => market
-            .base_hlp_vault
-            .checkpoint_yield_from_ylp(&base_side, &quote_side),
-        MarketAsset::Quote => market
-            .quote_hlp_vault
-            .checkpoint_yield_from_ylp(&base_side, &quote_side),
+        MarketAsset::Base => market.base_hlp_vault.checkpoint_yield_from_ylp_shares(
+            &base_side,
+            &quote_side,
+            eligible_ylp_shares,
+        ),
+        MarketAsset::Quote => market.quote_hlp_vault.checkpoint_yield_from_ylp_shares(
+            &base_side,
+            &quote_side,
+            eligible_ylp_shares,
+        ),
     }
 }
 

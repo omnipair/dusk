@@ -110,10 +110,6 @@ impl<'info> DepositSingleSided<'info> {
     pub fn validate(&self, args: &DepositSingleSidedArgs) -> Result<()> {
         self.market
             .assert_live_with_futarchy(&self.futarchy_authority)?;
-        require!(
-            self.market.config.hedged_lp_enabled,
-            ErrorCode::InvalidMarketConfig
-        );
         require!(args.deposit_amount > 0, ErrorCode::AmountZero);
         validate_side_vault_accounts(
             &self.market,
