@@ -117,9 +117,9 @@ impl<'info> Swap<'info> {
     crate::instructions::common::market_update_and_validate!(SwapArgs);
 
     pub fn handle_swap(mut ctx: Context<'_, '_, '_, 'info, Self>, args: SwapArgs) -> Result<()> {
-        let keys = SwapKeys::new(&ctx.accounts);
+        let keys = SwapKeys::new(ctx.accounts);
         let asset_in = ctx.accounts.market.asset_for_mint(keys.asset_in_mint)?;
-        let fee_config = SwapFeeConfig::new(&ctx.accounts);
+        let fee_config = SwapFeeConfig::new(ctx.accounts);
 
         validate_hlp_rebalance_accounts(&ctx.accounts.market, ctx.remaining_accounts)?;
         ctx.accounts.market.refresh_risk()?;
