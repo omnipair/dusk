@@ -7,6 +7,7 @@ import {
   createAccount,
   createInitializeAccount3Instruction,
   createInitializeMintInstruction,
+  createInitializeTransferFeeConfigInstruction,
   createMint,
   createTransferCheckedWithTransferHookInstruction,
   ExtensionType,
@@ -45,7 +46,14 @@ import {
   deriveYieldTransferHookValidationAddress,
   deriveTokenMetadataAddress,
   TOKEN_METADATA_PROGRAM_ID,
-} from "../packages/program-interface/src/constants.js";
+} from "../packages/dusk-sdk/src/constants.js";
+import {
+  decodePreviewAddLiquidityReturnData,
+  decodePreviewBorrowCapacityReturnData,
+  decodePreviewBorrowPositionReturnData,
+  decodePreviewMarketReturnData,
+  decodePreviewSwapReturnData,
+} from "../packages/dusk-sdk/src/preview.js";
 import { LiteSVMConnection } from "./utils/litesvm-connection.js";
 import {
   getCoverageReport,
@@ -427,6 +435,44 @@ describe("Omnipair V2 final model smoke", () => {
     return mint.publicKey;
   }
 
+  async function createTransferFeeMint(
+    authority: PublicKey,
+    decimals = 6,
+    transferFeeBasisPoints = 100,
+    maximumFee = 10_000n
+  ) {
+    const mint = Keypair.generate();
+    const mintLen = getMintLen([ExtensionType.TransferFeeConfig]);
+    await connection.sendTransaction(
+      new Transaction().add(
+        SystemProgram.createAccount({
+          fromPubkey: payer.publicKey,
+          newAccountPubkey: mint.publicKey,
+          lamports: await connection.getMinimumBalanceForRentExemption(mintLen),
+          space: mintLen,
+          programId: TOKEN_2022_PROGRAM_ID,
+        }),
+        createInitializeTransferFeeConfigInstruction(
+          mint.publicKey,
+          payer.publicKey,
+          payer.publicKey,
+          transferFeeBasisPoints,
+          maximumFee,
+          TOKEN_2022_PROGRAM_ID
+        ),
+        createInitializeMintInstruction(
+          mint.publicKey,
+          decimals,
+          authority,
+          null,
+          TOKEN_2022_PROGRAM_ID
+        )
+      ),
+      [payer, mint]
+    );
+    return mint.publicKey;
+  }
+
   function eventAuthority() {
     return PublicKey.findProgramAddressSync(
       [Buffer.from("__event_authority")],
@@ -466,6 +512,28 @@ describe("Omnipair V2 final model smoke", () => {
     }
   }
 
+  async function simulateReturnData(transaction: Transaction): Promise<Buffer> {
+    const { blockhash } = await connection.getLatestBlockhash();
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = payer.publicKey;
+    transaction.sign(payer);
+
+    const result = svm.simulateTransaction(transaction as any) as any;
+    if (result && typeof result.err === "function") {
+      const err = result.err();
+      const prettyLogs = result.meta?.()?.prettyLogs?.() ?? result.prettyLogs?.();
+      throw new Error(`Simulation failed: ${err?.toString?.() ?? err}\n${prettyLogs ?? ""}`);
+    }
+    const meta = result?.meta?.();
+    const returnData = meta?.returnData?.();
+    if (!returnData) {
+      throw new Error(`Simulation did not return data\n${meta?.prettyLogs?.() ?? ""}`);
+    }
+    const programId = new PublicKey(returnData.programId());
+    expect(programId.toString()).to.equal(OMNIPAIR_V2_PROGRAM_ID.toString());
+    return Buffer.from(returnData.data());
+  }
+
   function upgradeableProgramData(authority: PublicKey) {
     const data = Buffer.alloc(45);
     data.writeUInt32LE(3, 0);
@@ -502,6 +570,15 @@ describe("Omnipair V2 final model smoke", () => {
   async function initializeFinalMarket(paramsSeed: number, config = marketConfig()) {
     const baseMint = await createMint(connection as any, payer, payer.publicKey, null, 6);
     const quoteMint = await createMint(connection as any, payer, payer.publicKey, null, 6);
+    return initializeFinalMarketWithMints(paramsSeed, baseMint, quoteMint, config);
+  }
+
+  async function initializeFinalMarketWithMints(
+    paramsSeed: number,
+    baseMint: PublicKey,
+    quoteMint: PublicKey,
+    config = marketConfig()
+  ) {
     const paramsHash = Buffer.alloc(32, paramsSeed);
     const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash);
     const ylpMint = await createHookedLpMint(market, 6);
@@ -1126,6 +1203,276 @@ describe("Omnipair V2 final model smoke", () => {
     expect(decoded.quote_side.reserves.live_reserve.toNumber()).to.equal(200_000);
     expect(decoded.base_side.shares.ylp_supply.toNumber()).to.equal(141_421);
     expect(decoded.quote_side.shares.ylp_supply.toNumber()).to.equal(141_421);
+  });
+
+  it("returns typed preview data for market state and swap quotes", async function () {
+    const fixture = await addBalancedLiquidity(60);
+
+    const marketPreview = decodePreviewMarketReturnData(
+      await simulateReturnData(
+        await program.methods
+          .previewMarket()
+          .accounts({
+            market: fixture.market,
+          })
+          .transaction()
+      )
+    ) as any;
+    trackV2Instruction("previewMarket", this.test?.title);
+
+    expect(marketPreview.base.liveReserve.toNumber()).to.equal(100_000);
+    expect(marketPreview.quote.liveReserve.toNumber()).to.equal(200_000);
+    expect(marketPreview.base.ylpSupply.toNumber()).to.equal(141_421);
+    expect(marketPreview.quote.ylpSupply.toNumber()).to.equal(141_421);
+    expect(marketPreview.base.spotPriceNad.toNumber()).to.equal(2_000_000_000);
+    expect(marketPreview.quote.spotPriceNad.toNumber()).to.equal(500_000_000);
+
+    const addLiquidityPreview = decodePreviewAddLiquidityReturnData(
+      await simulateReturnData(
+        await program.methods
+          .previewAddLiquidity({
+            baseDepositAmount: new BN(10_000),
+            quoteDepositAmount: new BN(50_000),
+          })
+          .accounts({
+            market: fixture.market,
+            baseMint: fixture.baseMint,
+            quoteMint: fixture.quoteMint,
+          })
+          .transaction()
+      )
+    ) as any;
+    trackV2Instruction("previewAddLiquidity", this.test?.title);
+
+    expect(addLiquidityPreview.requestedBaseAmount.toNumber()).to.equal(10_000);
+    expect(addLiquidityPreview.requestedQuoteAmount.toNumber()).to.equal(50_000);
+    expect(addLiquidityPreview.baseTransferAmount.toNumber()).to.equal(10_000);
+    expect(addLiquidityPreview.quoteTransferAmount.toNumber()).to.equal(20_000);
+    expect(addLiquidityPreview.baseReserveCredit.toNumber()).to.equal(10_000);
+    expect(addLiquidityPreview.quoteReserveCredit.toNumber()).to.equal(20_000);
+    expect(addLiquidityPreview.unusedQuoteAmount.toNumber()).to.equal(30_000);
+    expect(addLiquidityPreview.ylpAmount.toNumber()).to.equal(14_142);
+
+    const swapPreview = decodePreviewSwapReturnData(
+      await simulateReturnData(
+        await program.methods
+          .previewSwap({
+            exactAssetIn: new BN(1_000),
+          })
+          .accounts({
+            market: fixture.market,
+            assetInMint: fixture.baseMint,
+            assetOutMint: fixture.quoteMint,
+          })
+          .transaction()
+      )
+    ) as any;
+    trackV2Instruction("previewSwap", this.test?.title);
+
+    expect(swapPreview.assetIn).to.deep.equal({ base: {} });
+    expect(swapPreview.assetOut).to.deep.equal({ quote: {} });
+    expect(swapPreview.reserveCredit.toNumber()).to.equal(1_000);
+    expect(swapPreview.swapFeeDebit.toNumber()).to.equal(3);
+    expect(swapPreview.feeCredit.toNumber()).to.equal(3);
+    expect(swapPreview.amountInAfterFee.toNumber()).to.equal(997);
+    expect(swapPreview.amountOut.toNumber()).to.equal(1_974);
+    expect(swapPreview.reserveInLiveReserve.toNumber()).to.equal(100_997);
+    expect(swapPreview.reserveOutLiveReserve.toNumber()).to.equal(198_026);
+  });
+
+  it("adds V1-style limiting-side liquidity with Token-2022 transfer-fee assets", async function () {
+    const baseMint = await createTransferFeeMint(payer.publicKey, 6, 100, 10_000n);
+    const quoteMint = await createTransferFeeMint(payer.publicKey, 6, 50, 10_000n);
+    const fixture = await initializeFinalMarketWithMints(61, baseMint, quoteMint);
+    const ownerBaseAccount = await createAccount(
+      connection as any,
+      payer,
+      fixture.baseMint,
+      payer.publicKey,
+      Keypair.generate(),
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const ownerQuoteAccount = await createAccount(
+      connection as any,
+      payer,
+      fixture.quoteMint,
+      payer.publicKey,
+      Keypair.generate(),
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const ownerYlpAccount = await createAccount(
+      connection as any,
+      payer,
+      fixture.ylpMint,
+      payer.publicKey,
+      Keypair.generate(),
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    await mintTo(
+      connection as any,
+      payer,
+      fixture.baseMint,
+      ownerBaseAccount,
+      payer,
+      1_000_000,
+      [],
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    await mintTo(
+      connection as any,
+      payer,
+      fixture.quoteMint,
+      ownerQuoteAccount,
+      payer,
+      1_000_000,
+      [],
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+
+    const previewAddLiquidity = async (baseDepositAmount: number, quoteDepositAmount: number) =>
+      decodePreviewAddLiquidityReturnData(
+        await simulateReturnData(
+          await program.methods
+            .previewAddLiquidity({
+              baseDepositAmount: new BN(baseDepositAmount),
+              quoteDepositAmount: new BN(quoteDepositAmount),
+            })
+            .accounts({
+              market: fixture.market,
+              baseMint: fixture.baseMint,
+              quoteMint: fixture.quoteMint,
+            })
+            .transaction()
+        )
+      ) as any;
+
+    const sendAddLiquidity = async (
+      baseDepositAmount: number,
+      quoteDepositAmount: number,
+      minYlpAmount: anchor.BN | number
+    ) => {
+      const tx = await program.methods
+        .addLiquidity({
+          baseDepositAmount: new BN(baseDepositAmount),
+          quoteDepositAmount: new BN(quoteDepositAmount),
+          minYlpAmount: BN.isBN(minYlpAmount) ? minYlpAmount : new BN(minYlpAmount),
+        })
+        .accounts({
+          market: fixture.market,
+          futarchyAuthority,
+          owner: payer.publicKey,
+          baseMint: fixture.baseMint,
+          quoteMint: fixture.quoteMint,
+          ylpMint: fixture.ylpMint,
+          baseReserveVault: fixture.baseReserveVault,
+          quoteReserveVault: fixture.quoteReserveVault,
+          ownerBaseAccount,
+          ownerQuoteAccount,
+          ownerYlpAccount,
+          baseYieldAccount: deriveYieldAccountAddress(
+            fixture.market,
+            payer.publicKey,
+            fixture.baseMint,
+            "ylp"
+          )[0],
+          quoteYieldAccount: deriveYieldAccountAddress(
+            fixture.market,
+            payer.publicKey,
+            fixture.quoteMint,
+            "ylp"
+          )[0],
+          tokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          eventAuthority: eventAuthority(),
+          program: OMNIPAIR_V2_PROGRAM_ID,
+        })
+        .transaction();
+      await connection.sendTransaction(tx, [payer]);
+    };
+
+    const firstPreview = await previewAddLiquidity(101_000, 202_000);
+    expect(firstPreview.baseTransferFee.toNumber()).to.be.greaterThan(0);
+    expect(firstPreview.quoteTransferFee.toNumber()).to.be.greaterThan(0);
+
+    await sendAddLiquidity(101_000, 202_000, 1);
+    trackV2Instruction("addLiquidity", this.test?.title);
+
+    let marketAccount = svm.getAccount(fixture.market);
+    expect(marketAccount).to.not.equal(null);
+    let decoded = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
+    expect(decoded.base_side.reserves.live_reserve.toNumber()).to.equal(
+      firstPreview.baseReserveCredit.toNumber()
+    );
+    expect(decoded.quote_side.reserves.live_reserve.toNumber()).to.equal(
+      firstPreview.quoteReserveCredit.toNumber()
+    );
+
+    const baseOwnerBefore = await getAccount(
+      connection as any,
+      ownerBaseAccount,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const quoteOwnerBefore = await getAccount(
+      connection as any,
+      ownerQuoteAccount,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const secondPreview = await previewAddLiquidity(10_000, 50_000);
+    trackV2Instruction("previewAddLiquidity", this.test?.title);
+
+    expect(secondPreview.baseTransferFee.toNumber()).to.be.greaterThan(0);
+    expect(secondPreview.quoteTransferFee.toNumber()).to.be.greaterThan(0);
+    expect(secondPreview.unusedQuoteAmount.toNumber()).to.be.greaterThan(0);
+
+    await sendAddLiquidity(10_000, 50_000, secondPreview.ylpAmount);
+    trackV2Instruction("addLiquidity", this.test?.title);
+
+    const baseOwnerAfter = await getAccount(
+      connection as any,
+      ownerBaseAccount,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const quoteOwnerAfter = await getAccount(
+      connection as any,
+      ownerQuoteAccount,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    expect(baseOwnerBefore.amount - baseOwnerAfter.amount).to.equal(
+      BigInt(secondPreview.baseTransferAmount.toNumber())
+    );
+    expect(quoteOwnerBefore.amount - quoteOwnerAfter.amount).to.equal(
+      BigInt(secondPreview.quoteTransferAmount.toNumber())
+    );
+
+    marketAccount = svm.getAccount(fixture.market);
+    expect(marketAccount).to.not.equal(null);
+    decoded = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
+    expect(decoded.base_side.reserves.live_reserve.toNumber()).to.equal(
+      firstPreview.baseReserveCredit
+        .add(secondPreview.baseReserveCredit)
+        .toNumber()
+    );
+    expect(decoded.quote_side.reserves.live_reserve.toNumber()).to.equal(
+      firstPreview.quoteReserveCredit
+        .add(secondPreview.quoteReserveCredit)
+        .toNumber()
+    );
+    expect(decoded.base_side.shares.ylp_supply.toNumber()).to.equal(
+      secondPreview.ylpSupply.toNumber()
+    );
+    expect(decoded.quote_side.shares.ylp_supply.toNumber()).to.equal(
+      secondPreview.ylpSupply.toNumber()
+    );
   });
 
   it("opens base hLP by borrowing quote and locking both yLP sides", async function () {
@@ -2133,6 +2480,31 @@ describe("Omnipair V2 final model smoke", () => {
     await connection.sendTransaction(depositTx, [payer]);
     trackV2Instruction("depositCollateral", this.test?.title);
 
+    const capacityPreview = decodePreviewBorrowCapacityReturnData(
+      await simulateReturnData(
+        await program.methods
+          .previewBorrowCapacity({
+            collateralAmount: new BN(10_000),
+            projectedDebtAmount: new BN(5_000),
+          })
+          .accounts({
+            market: fixture.market,
+            collateralAssetMint: fixture.baseMint,
+            debtAssetMint: fixture.quoteMint,
+          })
+          .transaction()
+      )
+    ) as any;
+    trackV2Instruction("previewBorrowCapacity", this.test?.title);
+
+    expect(capacityPreview.collateralAsset).to.deep.equal({ base: {} });
+    expect(capacityPreview.debtAsset).to.deep.equal({ quote: {} });
+    expect(capacityPreview.collateralAmount.toNumber()).to.equal(10_000);
+    expect(capacityPreview.maxDebt.toNumber()).to.be.greaterThanOrEqual(5_000);
+    expect(capacityPreview.projectedDebtAmount.toNumber()).to.equal(5_000);
+    expect(capacityPreview.projectedHealthBps.toNumber()).to.be.greaterThanOrEqual(11_000);
+    expect(capacityPreview.liquidationDebtPerCollateralPriceNad.toNumber()).to.be.greaterThan(0);
+
     const borrowTx = await program.methods
       .borrow({
         borrowAmount: new BN(5_000),
@@ -2168,6 +2540,28 @@ describe("Omnipair V2 final model smoke", () => {
     expect(position.base_collateral.toNumber()).to.equal(10_000);
     expect(position.fixed_quote_shares.toNumber()).to.equal(5_000);
     expect(position.recognized_base_collateral_for_quote_debt.toNumber()).to.be.greaterThan(0);
+
+    const positionPreview = decodePreviewBorrowPositionReturnData(
+      await simulateReturnData(
+        await program.methods
+          .previewBorrowPosition()
+          .accounts({
+            market: fixture.market,
+            borrowPosition,
+          })
+          .transaction()
+      )
+    ) as any;
+    trackV2Instruction("previewBorrowPosition", this.test?.title);
+
+    expect(positionPreview.owner.toString()).to.equal(payer.publicKey.toString());
+    expect(positionPreview.positionId.toString()).to.equal(borrowPositionId.toString());
+    expect(positionPreview.baseCollateral.toNumber()).to.equal(10_000);
+    expect(positionPreview.fixedQuoteDebt.toNumber()).to.equal(5_000);
+    expect(positionPreview.baseDebt.fixedDebt.toNumber()).to.equal(0);
+    expect(positionPreview.quoteDebt.fixedDebt.toNumber()).to.equal(5_000);
+    expect(positionPreview.quoteDebt.isLiquidatable).to.equal(false);
+    expect(positionPreview.quoteDebt.maxRepayAmount.toNumber()).to.equal(0);
 
     const repayTx = await program.methods
       .repay({

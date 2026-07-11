@@ -1,14 +1,20 @@
-{
+/**
+ * Program IDL in camelCase format in order to be used in JS/TS.
+ *
+ * Note that this is only a type helper and is not the actual IDL. The original
+ * IDL can be found at `target/idl/omnipair_v2.json`.
+ */
+export type OmnipairV2 = {
   "address": "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv",
   "metadata": {
-    "name": "omnipair_v2",
+    "name": "omnipairV2",
     "version": "2.0.0",
     "spec": "0.1.0",
     "description": "Omnipair v2 market architecture program"
   },
   "instructions": [
     {
-      "name": "add_leverage_margin",
+      "name": "addLeverageMargin",
       "discriminator": [
         56,
         245,
@@ -42,23 +48,23 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "pda": {
             "seeds": [
               {
@@ -88,10 +94,10 @@
           }
         },
         {
-          "name": "position_owner"
+          "name": "positionOwner"
         },
         {
-          "name": "leverage_position",
+          "name": "leveragePosition",
           "writable": true,
           "pda": {
             "seeds": [
@@ -127,24 +133,24 @@
               {
                 "kind": "account",
                 "path": "leverage_position.position_id",
-                "account": "LeveragePosition"
+                "account": "leveragePosition"
               }
             ]
           }
         },
         {
-          "name": "debt_mint"
+          "name": "debtMint"
         },
         {
-          "name": "debt_reserve_vault",
+          "name": "debtReserveVault",
           "writable": true
         },
         {
-          "name": "debt_interest_vault",
+          "name": "debtInterestVault",
           "writable": true
         },
         {
-          "name": "owner_debt_account",
+          "name": "ownerDebtAccount",
           "writable": true
         },
         {
@@ -153,15 +159,15 @@
           "signer": true
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -198,14 +204,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "AddLeverageMarginArgs"
+              "name": "addLeverageMarginArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "add_liquidity",
+      "name": "addLiquidity",
       "discriminator": [
         181,
         157,
@@ -239,23 +245,23 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "pda": {
             "seeds": [
               {
@@ -290,57 +296,57 @@
           "signer": true
         },
         {
-          "name": "base_mint"
+          "name": "baseMint"
         },
         {
-          "name": "quote_mint"
+          "name": "quoteMint"
         },
         {
-          "name": "ylp_mint",
+          "name": "ylpMint",
           "writable": true
         },
         {
-          "name": "base_reserve_vault",
+          "name": "baseReserveVault",
           "writable": true
         },
         {
-          "name": "quote_reserve_vault",
+          "name": "quoteReserveVault",
           "writable": true
         },
         {
-          "name": "owner_base_account",
+          "name": "ownerBaseAccount",
           "writable": true
         },
         {
-          "name": "owner_quote_account",
+          "name": "ownerQuoteAccount",
           "writable": true
         },
         {
-          "name": "owner_ylp_account",
+          "name": "ownerYlpAccount",
           "writable": true
         },
         {
-          "name": "base_yield_account",
+          "name": "baseYieldAccount",
           "writable": true
         },
         {
-          "name": "quote_yield_account",
+          "name": "quoteYieldAccount",
           "writable": true
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "system_program",
+          "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -377,7 +383,7 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "AddLiquidityArgs"
+              "name": "addLiquidityArgs"
             }
           }
         }
@@ -418,23 +424,23 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "pda": {
             "seeds": [
               {
@@ -469,21 +475,21 @@
           "signer": true
         },
         {
-          "name": "debt_asset_mint"
+          "name": "debtAssetMint"
         },
         {
-          "name": "collateral_asset_mint"
+          "name": "collateralAssetMint"
         },
         {
-          "name": "reserve_vault",
+          "name": "reserveVault",
           "writable": true
         },
         {
-          "name": "owner_debt_account",
+          "name": "ownerDebtAccount",
           "writable": true
         },
         {
-          "name": "borrow_position",
+          "name": "borrowPosition",
           "writable": true,
           "pda": {
             "seeds": [
@@ -517,21 +523,21 @@
               {
                 "kind": "account",
                 "path": "borrow_position.position_id",
-                "account": "BorrowPosition"
+                "account": "borrowPosition"
               }
             ]
           }
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -568,14 +574,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "BorrowArgs"
+              "name": "borrowArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "claim_manager_fees",
+      "name": "claimManagerFees",
       "discriminator": [
         233,
         62,
@@ -609,17 +615,17 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
@@ -630,30 +636,30 @@
           "signer": true
         },
         {
-          "name": "asset_mint"
+          "name": "assetMint"
         },
         {
-          "name": "fee_vault",
+          "name": "feeVault",
           "writable": true
         },
         {
-          "name": "interest_vault",
+          "name": "interestVault",
           "writable": true
         },
         {
-          "name": "manager_asset_account",
+          "name": "managerAssetAccount",
           "writable": true
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -688,7 +694,7 @@
       "args": []
     },
     {
-      "name": "claim_yield",
+      "name": "claimYield",
       "discriminator": [
         49,
         74,
@@ -722,17 +728,17 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
@@ -743,41 +749,41 @@
           "signer": true
         },
         {
-          "name": "asset_mint"
+          "name": "assetMint"
         },
         {
-          "name": "lp_mint"
+          "name": "lpMint"
         },
         {
-          "name": "owner_lp_account",
+          "name": "ownerLpAccount",
           "writable": true
         },
         {
-          "name": "fee_vault",
+          "name": "feeVault",
           "writable": true
         },
         {
-          "name": "interest_vault",
+          "name": "interestVault",
           "writable": true
         },
         {
-          "name": "recipient_asset_account",
+          "name": "recipientAssetAccount",
           "writable": true
         },
         {
-          "name": "yield_account",
+          "name": "yieldAccount",
           "writable": true
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -814,14 +820,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "ClaimYieldArgs"
+              "name": "claimYieldArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "close_leverage",
+      "name": "closeLeverage",
       "discriminator": [
         45,
         157,
@@ -855,23 +861,23 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "pda": {
             "seeds": [
               {
@@ -901,11 +907,11 @@
           }
         },
         {
-          "name": "position_owner",
+          "name": "positionOwner",
           "writable": true
         },
         {
-          "name": "leverage_position",
+          "name": "leveragePosition",
           "writable": true,
           "pda": {
             "seeds": [
@@ -941,35 +947,35 @@
               {
                 "kind": "account",
                 "path": "leverage_position.position_id",
-                "account": "LeveragePosition"
+                "account": "leveragePosition"
               }
             ]
           }
         },
         {
-          "name": "debt_mint"
+          "name": "debtMint"
         },
         {
-          "name": "collateral_mint"
+          "name": "collateralMint"
         },
         {
-          "name": "debt_reserve_vault",
+          "name": "debtReserveVault",
           "writable": true
         },
         {
-          "name": "collateral_reserve_vault",
+          "name": "collateralReserveVault",
           "writable": true
         },
         {
-          "name": "collateral_fee_vault",
+          "name": "collateralFeeVault",
           "writable": true
         },
         {
-          "name": "debt_interest_vault",
+          "name": "debtInterestVault",
           "writable": true
         },
         {
-          "name": "leverage_collateral_vault",
+          "name": "leverageCollateralVault",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1003,21 +1009,21 @@
               },
               {
                 "kind": "account",
-                "path": "collateral_mint"
+                "path": "collateralMint"
               }
             ]
           }
         },
         {
-          "name": "owner_debt_account",
+          "name": "ownerDebtAccount",
           "writable": true
         },
         {
-          "name": "leverage_delegation",
+          "name": "leverageDelegation",
           "optional": true
         },
         {
-          "name": "delegated_program",
+          "name": "delegatedProgram",
           "optional": true
         },
         {
@@ -1026,15 +1032,15 @@
           "signer": true
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -1071,14 +1077,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "CloseLeverageArgs"
+              "name": "closeLeverageArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "close_leverage_delegation",
+      "name": "closeLeverageDelegation",
       "discriminator": [
         252,
         151,
@@ -1091,7 +1097,7 @@
       ],
       "accounts": [
         {
-          "name": "leverage_delegation",
+          "name": "leverageDelegation",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1140,14 +1146,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "CloseLeverageDelegationArgs"
+              "name": "closeLeverageDelegationArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "create_leverage_delegation",
+      "name": "createLeverageDelegation",
       "discriminator": [
         189,
         154,
@@ -1180,23 +1186,23 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "leverage_position",
+          "name": "leveragePosition",
           "pda": {
             "seeds": [
               {
@@ -1231,13 +1237,13 @@
               {
                 "kind": "account",
                 "path": "leverage_position.position_id",
-                "account": "LeveragePosition"
+                "account": "leveragePosition"
               }
             ]
           }
         },
         {
-          "name": "leverage_delegation",
+          "name": "leverageDelegation",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1270,7 +1276,7 @@
               },
               {
                 "kind": "account",
-                "path": "leverage_position"
+                "path": "leveragePosition"
               }
             ]
           }
@@ -1281,11 +1287,11 @@
           "signer": true
         },
         {
-          "name": "system_program",
+          "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -1322,14 +1328,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "CreateLeverageDelegationArgs"
+              "name": "createLeverageDelegationArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "decrease_leverage",
+      "name": "decreaseLeverage",
       "discriminator": [
         177,
         163,
@@ -1363,23 +1369,23 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "pda": {
             "seeds": [
               {
@@ -1409,10 +1415,10 @@
           }
         },
         {
-          "name": "position_owner"
+          "name": "positionOwner"
         },
         {
-          "name": "leverage_position",
+          "name": "leveragePosition",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1448,35 +1454,35 @@
               {
                 "kind": "account",
                 "path": "leverage_position.position_id",
-                "account": "LeveragePosition"
+                "account": "leveragePosition"
               }
             ]
           }
         },
         {
-          "name": "debt_mint"
+          "name": "debtMint"
         },
         {
-          "name": "collateral_mint"
+          "name": "collateralMint"
         },
         {
-          "name": "debt_reserve_vault",
+          "name": "debtReserveVault",
           "writable": true
         },
         {
-          "name": "collateral_reserve_vault",
+          "name": "collateralReserveVault",
           "writable": true
         },
         {
-          "name": "collateral_fee_vault",
+          "name": "collateralFeeVault",
           "writable": true
         },
         {
-          "name": "debt_interest_vault",
+          "name": "debtInterestVault",
           "writable": true
         },
         {
-          "name": "leverage_collateral_vault",
+          "name": "leverageCollateralVault",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1510,7 +1516,7 @@
               },
               {
                 "kind": "account",
-                "path": "collateral_mint"
+                "path": "collateralMint"
               }
             ]
           }
@@ -1521,15 +1527,15 @@
           "signer": true
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -1566,14 +1572,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "DecreaseLeverageArgs"
+              "name": "decreaseLeverageArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "delegated_close_leverage",
+      "name": "delegatedCloseLeverage",
       "discriminator": [
         14,
         218,
@@ -1607,23 +1613,23 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "pda": {
             "seeds": [
               {
@@ -1653,11 +1659,11 @@
           }
         },
         {
-          "name": "position_owner",
+          "name": "positionOwner",
           "writable": true
         },
         {
-          "name": "leverage_position",
+          "name": "leveragePosition",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1693,35 +1699,35 @@
               {
                 "kind": "account",
                 "path": "leverage_position.position_id",
-                "account": "LeveragePosition"
+                "account": "leveragePosition"
               }
             ]
           }
         },
         {
-          "name": "debt_mint"
+          "name": "debtMint"
         },
         {
-          "name": "collateral_mint"
+          "name": "collateralMint"
         },
         {
-          "name": "debt_reserve_vault",
+          "name": "debtReserveVault",
           "writable": true
         },
         {
-          "name": "collateral_reserve_vault",
+          "name": "collateralReserveVault",
           "writable": true
         },
         {
-          "name": "collateral_fee_vault",
+          "name": "collateralFeeVault",
           "writable": true
         },
         {
-          "name": "debt_interest_vault",
+          "name": "debtInterestVault",
           "writable": true
         },
         {
-          "name": "leverage_collateral_vault",
+          "name": "leverageCollateralVault",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1755,21 +1761,21 @@
               },
               {
                 "kind": "account",
-                "path": "collateral_mint"
+                "path": "collateralMint"
               }
             ]
           }
         },
         {
-          "name": "owner_debt_account",
+          "name": "ownerDebtAccount",
           "writable": true
         },
         {
-          "name": "leverage_delegation",
+          "name": "leverageDelegation",
           "optional": true
         },
         {
-          "name": "delegated_program",
+          "name": "delegatedProgram",
           "optional": true
         },
         {
@@ -1778,15 +1784,15 @@
           "signer": true
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -1823,14 +1829,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "DelegatedCloseLeverageArgs"
+              "name": "delegatedCloseLeverageArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "deposit_collateral",
+      "name": "depositCollateral",
       "discriminator": [
         156,
         131,
@@ -1864,17 +1870,17 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
@@ -1885,18 +1891,18 @@
           "signer": true
         },
         {
-          "name": "asset_mint"
+          "name": "assetMint"
         },
         {
-          "name": "collateral_vault",
+          "name": "collateralVault",
           "writable": true
         },
         {
-          "name": "owner_asset_account",
+          "name": "ownerAssetAccount",
           "writable": true
         },
         {
-          "name": "borrow_position",
+          "name": "borrowPosition",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1935,19 +1941,19 @@
           }
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "system_program",
+          "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -1984,14 +1990,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "DepositCollateralArgs"
+              "name": "depositCollateralArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "deposit_single_sided",
+      "name": "depositSingleSided",
       "discriminator": [
         5,
         14,
@@ -2025,23 +2031,23 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "pda": {
             "seeds": [
               {
@@ -2076,37 +2082,37 @@
           "signer": true
         },
         {
-          "name": "base_mint"
+          "name": "baseMint"
         },
         {
-          "name": "quote_mint"
+          "name": "quoteMint"
         },
         {
-          "name": "ylp_mint",
+          "name": "ylpMint",
           "writable": true
         },
         {
-          "name": "target_hlp_mint",
+          "name": "targetHlpMint",
           "writable": true
         },
         {
-          "name": "base_reserve_vault",
+          "name": "baseReserveVault",
           "writable": true
         },
         {
-          "name": "quote_reserve_vault",
+          "name": "quoteReserveVault",
           "writable": true
         },
         {
-          "name": "owner_target_account",
+          "name": "ownerTargetAccount",
           "writable": true
         },
         {
-          "name": "owner_hlp_account",
+          "name": "ownerHlpAccount",
           "writable": true
         },
         {
-          "name": "hlp_ylp_account",
+          "name": "hlpYlpAccount",
           "writable": true,
           "pda": {
             "seeds": [
@@ -2134,33 +2140,33 @@
               },
               {
                 "kind": "account",
-                "path": "target_hlp_mint"
+                "path": "targetHlpMint"
               },
               {
                 "kind": "account",
-                "path": "ylp_mint"
+                "path": "ylpMint"
               }
             ]
           }
         },
         {
-          "name": "target_yield_account",
+          "name": "targetYieldAccount",
           "writable": true
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "system_program",
+          "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -2197,14 +2203,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "DepositSingleSidedArgs"
+              "name": "depositSingleSidedArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "increase_leverage",
+      "name": "increaseLeverage",
       "discriminator": [
         61,
         30,
@@ -2238,23 +2244,23 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "pda": {
             "seeds": [
               {
@@ -2284,10 +2290,10 @@
           }
         },
         {
-          "name": "position_owner"
+          "name": "positionOwner"
         },
         {
-          "name": "leverage_position",
+          "name": "leveragePosition",
           "writable": true,
           "pda": {
             "seeds": [
@@ -2323,31 +2329,31 @@
               {
                 "kind": "account",
                 "path": "leverage_position.position_id",
-                "account": "LeveragePosition"
+                "account": "leveragePosition"
               }
             ]
           }
         },
         {
-          "name": "debt_mint"
+          "name": "debtMint"
         },
         {
-          "name": "collateral_mint"
+          "name": "collateralMint"
         },
         {
-          "name": "debt_reserve_vault",
+          "name": "debtReserveVault",
           "writable": true
         },
         {
-          "name": "collateral_reserve_vault",
+          "name": "collateralReserveVault",
           "writable": true
         },
         {
-          "name": "debt_fee_vault",
+          "name": "debtFeeVault",
           "writable": true
         },
         {
-          "name": "leverage_collateral_vault",
+          "name": "leverageCollateralVault",
           "writable": true,
           "pda": {
             "seeds": [
@@ -2381,7 +2387,7 @@
               },
               {
                 "kind": "account",
-                "path": "collateral_mint"
+                "path": "collateralMint"
               }
             ]
           }
@@ -2392,15 +2398,15 @@
           "signer": true
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -2437,14 +2443,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "IncreaseLeverageArgs"
+              "name": "increaseLeverageArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "init_futarchy_authority",
+      "name": "initFutarchyAuthority",
       "discriminator": [
         133,
         110,
@@ -2462,7 +2468,7 @@
           "signer": true
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "writable": true,
           "pda": {
             "seeds": [
@@ -2493,7 +2499,7 @@
           }
         },
         {
-          "name": "program_data",
+          "name": "programData",
           "pda": {
             "seeds": [
               {
@@ -2574,7 +2580,7 @@
           }
         },
         {
-          "name": "system_program",
+          "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
       ],
@@ -2583,7 +2589,7 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "InitFutarchyAuthorityArgs"
+              "name": "initFutarchyAuthorityArgs"
             }
           }
         }
@@ -2608,10 +2614,10 @@
           "signer": true
         },
         {
-          "name": "base_mint"
+          "name": "baseMint"
         },
         {
-          "name": "quote_mint"
+          "name": "quoteMint"
         },
         {
           "name": "market",
@@ -2634,11 +2640,11 @@
               },
               {
                 "kind": "account",
-                "path": "base_mint"
+                "path": "baseMint"
               },
               {
                 "kind": "account",
-                "path": "quote_mint"
+                "path": "quoteMint"
               },
               {
                 "kind": "arg",
@@ -2648,7 +2654,7 @@
           }
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "pda": {
             "seeds": [
               {
@@ -2678,16 +2684,16 @@
           }
         },
         {
-          "name": "ylp_mint"
+          "name": "ylpMint"
         },
         {
-          "name": "base_hlp_mint"
+          "name": "baseHlpMint"
         },
         {
-          "name": "quote_hlp_mint"
+          "name": "quoteHlpMint"
         },
         {
-          "name": "base_reserve_vault",
+          "name": "baseReserveVault",
           "writable": true,
           "pda": {
             "seeds": [
@@ -2716,13 +2722,13 @@
               },
               {
                 "kind": "account",
-                "path": "base_mint"
+                "path": "baseMint"
               }
             ]
           }
         },
         {
-          "name": "quote_reserve_vault",
+          "name": "quoteReserveVault",
           "writable": true,
           "pda": {
             "seeds": [
@@ -2751,13 +2757,13 @@
               },
               {
                 "kind": "account",
-                "path": "quote_mint"
+                "path": "quoteMint"
               }
             ]
           }
         },
         {
-          "name": "base_collateral_vault",
+          "name": "baseCollateralVault",
           "writable": true,
           "pda": {
             "seeds": [
@@ -2789,13 +2795,13 @@
               },
               {
                 "kind": "account",
-                "path": "base_mint"
+                "path": "baseMint"
               }
             ]
           }
         },
         {
-          "name": "quote_collateral_vault",
+          "name": "quoteCollateralVault",
           "writable": true,
           "pda": {
             "seeds": [
@@ -2827,13 +2833,13 @@
               },
               {
                 "kind": "account",
-                "path": "quote_mint"
+                "path": "quoteMint"
               }
             ]
           }
         },
         {
-          "name": "base_insurance_vault",
+          "name": "baseInsuranceVault",
           "writable": true,
           "pda": {
             "seeds": [
@@ -2857,13 +2863,13 @@
               },
               {
                 "kind": "account",
-                "path": "base_mint"
+                "path": "baseMint"
               }
             ]
           }
         },
         {
-          "name": "quote_insurance_vault",
+          "name": "quoteInsuranceVault",
           "writable": true,
           "pda": {
             "seeds": [
@@ -2887,13 +2893,13 @@
               },
               {
                 "kind": "account",
-                "path": "quote_mint"
+                "path": "quoteMint"
               }
             ]
           }
         },
         {
-          "name": "base_fee_vault",
+          "name": "baseFeeVault",
           "writable": true,
           "pda": {
             "seeds": [
@@ -2918,13 +2924,13 @@
               },
               {
                 "kind": "account",
-                "path": "base_mint"
+                "path": "baseMint"
               }
             ]
           }
         },
         {
-          "name": "quote_fee_vault",
+          "name": "quoteFeeVault",
           "writable": true,
           "pda": {
             "seeds": [
@@ -2949,13 +2955,13 @@
               },
               {
                 "kind": "account",
-                "path": "quote_mint"
+                "path": "quoteMint"
               }
             ]
           }
         },
         {
-          "name": "base_interest_vault",
+          "name": "baseInterestVault",
           "writable": true,
           "pda": {
             "seeds": [
@@ -2985,13 +2991,13 @@
               },
               {
                 "kind": "account",
-                "path": "base_mint"
+                "path": "baseMint"
               }
             ]
           }
         },
         {
-          "name": "quote_interest_vault",
+          "name": "quoteInterestVault",
           "writable": true,
           "pda": {
             "seeds": [
@@ -3021,32 +3027,32 @@
               },
               {
                 "kind": "account",
-                "path": "quote_mint"
+                "path": "quoteMint"
               }
             ]
           }
         },
         {
-          "name": "team_treasury"
+          "name": "teamTreasury"
         },
         {
-          "name": "team_treasury_wsol_account",
+          "name": "teamTreasuryWsolAccount",
           "writable": true
         },
         {
-          "name": "system_program",
+          "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -3083,14 +3089,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "InitializeMarketArgs"
+              "name": "initializeMarketArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "initialize_lp_metadata",
+      "name": "initializeLpMetadata",
       "discriminator": [
         214,
         99,
@@ -3111,11 +3117,11 @@
           "name": "market"
         },
         {
-          "name": "lp_mint",
+          "name": "lpMint",
           "writable": true
         },
         {
-          "name": "lp_token_metadata",
+          "name": "lpTokenMetadata",
           "writable": true,
           "pda": {
             "seeds": [
@@ -3171,7 +3177,7 @@
               },
               {
                 "kind": "account",
-                "path": "lp_mint"
+                "path": "lpMint"
               }
             ],
             "program": {
@@ -3214,19 +3220,19 @@
           }
         },
         {
-          "name": "system_program",
+          "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "sysvar_instructions",
+          "name": "sysvarInstructions",
           "address": "Sysvar1nstructions1111111111111111111111111"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "token_metadata_program",
+          "name": "tokenMetadataProgram",
           "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
         }
       ],
@@ -3235,14 +3241,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "InitializeLpMetadataArgs"
+              "name": "initializeLpMetadataArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "liquidate_borrow_position",
+      "name": "liquidateBorrowPosition",
       "discriminator": [
         235,
         201,
@@ -3276,23 +3282,23 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "pda": {
             "seeds": [
               {
@@ -3327,41 +3333,41 @@
           "signer": true
         },
         {
-          "name": "debt_asset_mint"
+          "name": "debtAssetMint"
         },
         {
-          "name": "collateral_asset_mint"
+          "name": "collateralAssetMint"
         },
         {
-          "name": "reserve_vault",
+          "name": "reserveVault",
           "writable": true
         },
         {
-          "name": "interest_vault",
+          "name": "interestVault",
           "writable": true
         },
         {
-          "name": "collateral_vault",
+          "name": "collateralVault",
           "writable": true
         },
         {
-          "name": "insurance_vault",
+          "name": "insuranceVault",
           "writable": true
         },
         {
-          "name": "collateral_insurance_vault",
+          "name": "collateralInsuranceVault",
           "writable": true
         },
         {
-          "name": "liquidator_debt_account",
+          "name": "liquidatorDebtAccount",
           "writable": true
         },
         {
-          "name": "liquidator_collateral_account",
+          "name": "liquidatorCollateralAccount",
           "writable": true
         },
         {
-          "name": "borrow_position",
+          "name": "borrowPosition",
           "writable": true,
           "pda": {
             "seeds": [
@@ -3395,17 +3401,17 @@
               {
                 "kind": "account",
                 "path": "borrow_position.position_id",
-                "account": "BorrowPosition"
+                "account": "borrowPosition"
               }
             ]
           }
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         }
       ],
@@ -3414,14 +3420,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "LiquidateBorrowPositionArgs"
+              "name": "liquidateBorrowPositionArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "liquidate_leverage",
+      "name": "liquidateLeverage",
       "discriminator": [
         188,
         132,
@@ -3455,23 +3461,23 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "pda": {
             "seeds": [
               {
@@ -3501,11 +3507,11 @@
           }
         },
         {
-          "name": "position_owner",
+          "name": "positionOwner",
           "writable": true
         },
         {
-          "name": "leverage_position",
+          "name": "leveragePosition",
           "writable": true,
           "pda": {
             "seeds": [
@@ -3541,35 +3547,35 @@
               {
                 "kind": "account",
                 "path": "leverage_position.position_id",
-                "account": "LeveragePosition"
+                "account": "leveragePosition"
               }
             ]
           }
         },
         {
-          "name": "debt_mint"
+          "name": "debtMint"
         },
         {
-          "name": "collateral_mint"
+          "name": "collateralMint"
         },
         {
-          "name": "debt_reserve_vault",
+          "name": "debtReserveVault",
           "writable": true
         },
         {
-          "name": "collateral_reserve_vault",
+          "name": "collateralReserveVault",
           "writable": true
         },
         {
-          "name": "collateral_fee_vault",
+          "name": "collateralFeeVault",
           "writable": true
         },
         {
-          "name": "debt_interest_vault",
+          "name": "debtInterestVault",
           "writable": true
         },
         {
-          "name": "leverage_collateral_vault",
+          "name": "leverageCollateralVault",
           "writable": true,
           "pda": {
             "seeds": [
@@ -3603,17 +3609,17 @@
               },
               {
                 "kind": "account",
-                "path": "collateral_mint"
+                "path": "collateralMint"
               }
             ]
           }
         },
         {
-          "name": "liquidator_debt_account",
+          "name": "liquidatorDebtAccount",
           "writable": true
         },
         {
-          "name": "owner_debt_account",
+          "name": "ownerDebtAccount",
           "writable": true
         },
         {
@@ -3622,15 +3628,15 @@
           "signer": true
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -3667,14 +3673,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "LiquidateLeverageArgs"
+              "name": "liquidateLeverageArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "open_leverage",
+      "name": "openLeverage",
       "discriminator": [
         182,
         198,
@@ -3708,23 +3714,23 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "pda": {
             "seeds": [
               {
@@ -3759,7 +3765,7 @@
           "signer": true
         },
         {
-          "name": "leverage_position",
+          "name": "leveragePosition",
           "writable": true,
           "pda": {
             "seeds": [
@@ -3800,25 +3806,25 @@
           }
         },
         {
-          "name": "debt_mint"
+          "name": "debtMint"
         },
         {
-          "name": "collateral_mint"
+          "name": "collateralMint"
         },
         {
-          "name": "debt_reserve_vault",
+          "name": "debtReserveVault",
           "writable": true
         },
         {
-          "name": "collateral_reserve_vault",
+          "name": "collateralReserveVault",
           "writable": true
         },
         {
-          "name": "debt_fee_vault",
+          "name": "debtFeeVault",
           "writable": true
         },
         {
-          "name": "leverage_collateral_vault",
+          "name": "leverageCollateralVault",
           "writable": true,
           "pda": {
             "seeds": [
@@ -3852,29 +3858,29 @@
               },
               {
                 "kind": "account",
-                "path": "collateral_mint"
+                "path": "collateralMint"
               }
             ]
           }
         },
         {
-          "name": "owner_debt_account",
+          "name": "ownerDebtAccount",
           "writable": true
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "system_program",
+          "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -3911,14 +3917,388 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "OpenLeverageArgs"
+              "name": "openLeverageArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "remove_leverage_margin",
+      "name": "previewAddLiquidity",
+      "discriminator": [
+        109,
+        110,
+        51,
+        225,
+        17,
+        58,
+        243,
+        255
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "baseMint"
+        },
+        {
+          "name": "quoteMint"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "previewAddLiquidityArgs"
+            }
+          }
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "addLiquidityPreview"
+        }
+      }
+    },
+    {
+      "name": "previewBorrowCapacity",
+      "discriminator": [
+        203,
+        170,
+        28,
+        79,
+        32,
+        180,
+        177,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "collateralAssetMint"
+        },
+        {
+          "name": "debtAssetMint"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "previewBorrowCapacityArgs"
+            }
+          }
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "borrowCapacityPreview"
+        }
+      }
+    },
+    {
+      "name": "previewBorrowPosition",
+      "discriminator": [
+        240,
+        236,
+        45,
+        30,
+        172,
+        146,
+        45,
+        163
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "borrowPosition",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  114,
+                  114,
+                  111,
+                  119,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.position_id",
+                "account": "borrowPosition"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [],
+      "returns": {
+        "defined": {
+          "name": "borrowPositionPreview"
+        }
+      }
+    },
+    {
+      "name": "previewMarket",
+      "discriminator": [
+        60,
+        231,
+        175,
+        17,
+        28,
+        221,
+        42,
+        236
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [],
+      "returns": {
+        "defined": {
+          "name": "marketPreview"
+        }
+      }
+    },
+    {
+      "name": "previewSwap",
+      "discriminator": [
+        98,
+        74,
+        197,
+        115,
+        135,
+        154,
+        188,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "assetInMint"
+        },
+        {
+          "name": "assetOutMint"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "previewSwapArgs"
+            }
+          }
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "swapPreview"
+        }
+      }
+    },
+    {
+      "name": "removeLeverageMargin",
       "discriminator": [
         245,
         142,
@@ -3952,23 +4332,23 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "pda": {
             "seeds": [
               {
@@ -3998,10 +4378,10 @@
           }
         },
         {
-          "name": "position_owner"
+          "name": "positionOwner"
         },
         {
-          "name": "leverage_position",
+          "name": "leveragePosition",
           "writable": true,
           "pda": {
             "seeds": [
@@ -4037,20 +4417,20 @@
               {
                 "kind": "account",
                 "path": "leverage_position.position_id",
-                "account": "LeveragePosition"
+                "account": "leveragePosition"
               }
             ]
           }
         },
         {
-          "name": "debt_mint"
+          "name": "debtMint"
         },
         {
-          "name": "debt_reserve_vault",
+          "name": "debtReserveVault",
           "writable": true
         },
         {
-          "name": "owner_debt_account",
+          "name": "ownerDebtAccount",
           "writable": true
         },
         {
@@ -4059,15 +4439,15 @@
           "signer": true
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -4104,14 +4484,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "RemoveLeverageMarginArgs"
+              "name": "removeLeverageMarginArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "remove_liquidity",
+      "name": "removeLiquidity",
       "discriminator": [
         80,
         85,
@@ -4145,17 +4525,17 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
@@ -4166,53 +4546,53 @@
           "signer": true
         },
         {
-          "name": "base_mint"
+          "name": "baseMint"
         },
         {
-          "name": "quote_mint"
+          "name": "quoteMint"
         },
         {
-          "name": "ylp_mint",
+          "name": "ylpMint",
           "writable": true
         },
         {
-          "name": "base_reserve_vault",
+          "name": "baseReserveVault",
           "writable": true
         },
         {
-          "name": "quote_reserve_vault",
+          "name": "quoteReserveVault",
           "writable": true
         },
         {
-          "name": "owner_base_account",
+          "name": "ownerBaseAccount",
           "writable": true
         },
         {
-          "name": "owner_quote_account",
+          "name": "ownerQuoteAccount",
           "writable": true
         },
         {
-          "name": "owner_ylp_account",
+          "name": "ownerYlpAccount",
           "writable": true
         },
         {
-          "name": "base_yield_account",
+          "name": "baseYieldAccount",
           "writable": true
         },
         {
-          "name": "quote_yield_account",
+          "name": "quoteYieldAccount",
           "writable": true
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -4249,7 +4629,7 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "RemoveLiquidityArgs"
+              "name": "removeLiquidityArgs"
             }
           }
         }
@@ -4290,23 +4670,23 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "pda": {
             "seeds": [
               {
@@ -4341,22 +4721,22 @@
           "signer": true
         },
         {
-          "name": "debt_asset_mint"
+          "name": "debtAssetMint"
         },
         {
-          "name": "reserve_vault",
+          "name": "reserveVault",
           "writable": true
         },
         {
-          "name": "interest_vault",
+          "name": "interestVault",
           "writable": true
         },
         {
-          "name": "owner_debt_account",
+          "name": "ownerDebtAccount",
           "writable": true
         },
         {
-          "name": "borrow_position",
+          "name": "borrowPosition",
           "writable": true,
           "pda": {
             "seeds": [
@@ -4390,21 +4770,21 @@
               {
                 "kind": "account",
                 "path": "borrow_position.position_id",
-                "account": "BorrowPosition"
+                "account": "borrowPosition"
               }
             ]
           }
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -4441,14 +4821,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "RepayArgs"
+              "name": "repayArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "set_global_reduce_only",
+      "name": "setGlobalReduceOnly",
       "discriminator": [
         242,
         151,
@@ -4461,13 +4841,13 @@
       ],
       "accounts": [
         {
-          "name": "authority_signer",
+          "name": "authoritySigner",
           "writable": true,
           "signer": true,
           "address": "3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV"
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "writable": true,
           "pda": {
             "seeds": [
@@ -4503,14 +4883,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "SetGlobalReduceOnlyArgs"
+              "name": "setGlobalReduceOnlyArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "set_manager",
+      "name": "setManager",
       "discriminator": [
         30,
         197,
@@ -4544,17 +4924,17 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
@@ -4567,7 +4947,7 @@
           "signer": true
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -4604,14 +4984,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "SetManagerArgs"
+              "name": "setManagerArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "set_operator",
+      "name": "setOperator",
       "discriminator": [
         238,
         153,
@@ -4645,17 +5025,17 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
@@ -4668,7 +5048,7 @@
           "signer": true
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -4705,14 +5085,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "SetOperatorArgs"
+              "name": "setOperatorArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "set_reduce_only",
+      "name": "setReduceOnly",
       "discriminator": [
         187,
         233,
@@ -4746,28 +5126,28 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "authority_signer",
+          "name": "authoritySigner",
           "signer": true,
           "address": "3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -4804,14 +5184,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "SetMarketReduceOnlyArgs"
+              "name": "setMarketReduceOnlyArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "set_yield_recipient",
+      "name": "setYieldRecipient",
       "discriminator": [
         178,
         211,
@@ -4844,17 +5224,17 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
@@ -4865,14 +5245,14 @@
           "signer": true
         },
         {
-          "name": "asset_mint"
+          "name": "assetMint"
         },
         {
-          "name": "yield_account",
+          "name": "yieldAccount",
           "writable": true
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -4909,14 +5289,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "SetYieldRecipientArgs"
+              "name": "setYieldRecipientArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "settle_protocol_auction",
+      "name": "settleProtocolAuction",
       "discriminator": [
         206,
         204,
@@ -4955,23 +5335,23 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "writable": true,
           "pda": {
             "seeds": [
@@ -5002,44 +5382,44 @@
           }
         },
         {
-          "name": "sold_mint"
+          "name": "soldMint"
         },
         {
-          "name": "accepted_mint"
+          "name": "acceptedMint"
         },
         {
-          "name": "sold_fee_vault",
+          "name": "soldFeeVault",
           "writable": true
         },
         {
-          "name": "bidder_payment_account",
+          "name": "bidderPaymentAccount",
           "writable": true
         },
         {
-          "name": "bidder_receive_account",
+          "name": "bidderReceiveAccount",
           "writable": true
         },
         {
-          "name": "treasury_payment_account",
+          "name": "treasuryPaymentAccount",
           "writable": true
         },
         {
-          "name": "staking_vault_payment_account",
+          "name": "stakingVaultPaymentAccount",
           "writable": true
         },
         {
-          "name": "reference_market"
+          "name": "referenceMarket"
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -5076,7 +5456,7 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "SettleProtocolAuctionArgs"
+              "name": "settleProtocolAuctionArgs"
             }
           }
         }
@@ -5117,23 +5497,23 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "pda": {
             "seeds": [
               {
@@ -5168,41 +5548,41 @@
           "signer": true
         },
         {
-          "name": "asset_in_mint"
+          "name": "assetInMint"
         },
         {
-          "name": "asset_out_mint"
+          "name": "assetOutMint"
         },
         {
-          "name": "reserve_in_vault",
+          "name": "reserveInVault",
           "writable": true
         },
         {
-          "name": "reserve_out_vault",
+          "name": "reserveOutVault",
           "writable": true
         },
         {
-          "name": "fee_in_vault",
+          "name": "feeInVault",
           "writable": true
         },
         {
-          "name": "trader_asset_in_account",
+          "name": "traderAssetInAccount",
           "writable": true
         },
         {
-          "name": "trader_asset_out_account",
+          "name": "traderAssetOutAccount",
           "writable": true
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -5239,14 +5619,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "SwapArgs"
+              "name": "swapArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "update_config",
+      "name": "updateConfig",
       "discriminator": [
         29,
         158,
@@ -5280,30 +5660,30 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "authority_signer",
+          "name": "authoritySigner",
           "docs": [
             "Must be the market manager (checked in the handler)."
           ],
           "signer": true
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -5340,14 +5720,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "UpdateMarketConfigArgs"
+              "name": "updateMarketConfigArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "update_futarchy_authority",
+      "name": "updateFutarchyAuthority",
       "discriminator": [
         15,
         196,
@@ -5360,12 +5740,12 @@
       ],
       "accounts": [
         {
-          "name": "authority_signer",
+          "name": "authoritySigner",
           "writable": true,
           "signer": true
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "writable": true,
           "pda": {
             "seeds": [
@@ -5396,7 +5776,7 @@
           }
         },
         {
-          "name": "system_program",
+          "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
       ],
@@ -5405,14 +5785,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "UpdateFutarchyAuthorityArgs"
+              "name": "updateFutarchyAuthorityArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "update_leverage_delegation",
+      "name": "updateLeverageDelegation",
       "discriminator": [
         185,
         52,
@@ -5445,23 +5825,23 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "leverage_position",
+          "name": "leveragePosition",
           "pda": {
             "seeds": [
               {
@@ -5496,13 +5876,13 @@
               {
                 "kind": "account",
                 "path": "leverage_position.position_id",
-                "account": "LeveragePosition"
+                "account": "leveragePosition"
               }
             ]
           }
         },
         {
-          "name": "leverage_delegation",
+          "name": "leverageDelegation",
           "writable": true,
           "pda": {
             "seeds": [
@@ -5535,7 +5915,7 @@
               },
               {
                 "kind": "account",
-                "path": "leverage_position"
+                "path": "leveragePosition"
               }
             ]
           }
@@ -5546,7 +5926,7 @@
           "signer": true
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -5583,14 +5963,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "UpdateLeverageDelegationArgs"
+              "name": "updateLeverageDelegationArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "update_protocol_auction_config",
+      "name": "updateProtocolAuctionConfig",
       "discriminator": [
         4,
         202,
@@ -5603,12 +5983,12 @@
       ],
       "accounts": [
         {
-          "name": "authority_signer",
+          "name": "authoritySigner",
           "writable": true,
           "signer": true
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "writable": true,
           "pda": {
             "seeds": [
@@ -5639,7 +6019,7 @@
           }
         },
         {
-          "name": "system_program",
+          "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
       ],
@@ -5648,14 +6028,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "UpdateProtocolAuctionConfigArgs"
+              "name": "updateProtocolAuctionConfigArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "update_protocol_auction_recipients",
+      "name": "updateProtocolAuctionRecipients",
       "discriminator": [
         210,
         210,
@@ -5668,12 +6048,12 @@
       ],
       "accounts": [
         {
-          "name": "authority_signer",
+          "name": "authoritySigner",
           "writable": true,
           "signer": true
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "writable": true,
           "pda": {
             "seeds": [
@@ -5704,7 +6084,7 @@
           }
         },
         {
-          "name": "system_program",
+          "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
       ],
@@ -5713,14 +6093,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "UpdateProtocolAuctionRecipientsArgs"
+              "name": "updateProtocolAuctionRecipientsArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "update_protocol_revenue",
+      "name": "updateProtocolRevenue",
       "discriminator": [
         176,
         139,
@@ -5733,12 +6113,12 @@
       ],
       "accounts": [
         {
-          "name": "authority_signer",
+          "name": "authoritySigner",
           "writable": true,
           "signer": true
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "writable": true,
           "pda": {
             "seeds": [
@@ -5769,7 +6149,7 @@
           }
         },
         {
-          "name": "system_program",
+          "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
       ],
@@ -5778,14 +6158,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "UpdateProtocolRevenueArgs"
+              "name": "updateProtocolRevenueArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "update_revenue_recipients",
+      "name": "updateRevenueRecipients",
       "discriminator": [
         116,
         179,
@@ -5798,12 +6178,12 @@
       ],
       "accounts": [
         {
-          "name": "authority_signer",
+          "name": "authoritySigner",
           "writable": true,
           "signer": true
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "writable": true,
           "pda": {
             "seeds": [
@@ -5834,7 +6214,7 @@
           }
         },
         {
-          "name": "system_program",
+          "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
       ],
@@ -5843,14 +6223,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "UpdateRevenueRecipientsArgs"
+              "name": "updateRevenueRecipientsArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "withdraw_collateral",
+      "name": "withdrawCollateral",
       "discriminator": [
         115,
         135,
@@ -5884,23 +6264,23 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "pda": {
             "seeds": [
               {
@@ -5935,18 +6315,18 @@
           "signer": true
         },
         {
-          "name": "asset_mint"
+          "name": "assetMint"
         },
         {
-          "name": "collateral_vault",
+          "name": "collateralVault",
           "writable": true
         },
         {
-          "name": "owner_asset_account",
+          "name": "ownerAssetAccount",
           "writable": true
         },
         {
-          "name": "borrow_position",
+          "name": "borrowPosition",
           "writable": true,
           "pda": {
             "seeds": [
@@ -5980,21 +6360,21 @@
               {
                 "kind": "account",
                 "path": "borrow_position.position_id",
-                "account": "BorrowPosition"
+                "account": "borrowPosition"
               }
             ]
           }
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -6031,14 +6411,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "WithdrawCollateralArgs"
+              "name": "withdrawCollateralArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "withdraw_single_sided",
+      "name": "withdrawSingleSided",
       "discriminator": [
         243,
         84,
@@ -6072,23 +6452,23 @@
               {
                 "kind": "account",
                 "path": "market.base_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.quote_mint",
-                "account": "Market"
+                "account": "market"
               },
               {
                 "kind": "account",
                 "path": "market.params_hash",
-                "account": "Market"
+                "account": "market"
               }
             ]
           }
         },
         {
-          "name": "futarchy_authority",
+          "name": "futarchyAuthority",
           "pda": {
             "seeds": [
               {
@@ -6123,41 +6503,41 @@
           "signer": true
         },
         {
-          "name": "base_mint"
+          "name": "baseMint"
         },
         {
-          "name": "quote_mint"
+          "name": "quoteMint"
         },
         {
-          "name": "ylp_mint",
+          "name": "ylpMint",
           "writable": true
         },
         {
-          "name": "target_hlp_mint",
+          "name": "targetHlpMint",
           "writable": true
         },
         {
-          "name": "base_reserve_vault",
+          "name": "baseReserveVault",
           "writable": true
         },
         {
-          "name": "quote_reserve_vault",
+          "name": "quoteReserveVault",
           "writable": true
         },
         {
-          "name": "borrowed_interest_vault",
+          "name": "borrowedInterestVault",
           "writable": true
         },
         {
-          "name": "owner_target_account",
+          "name": "ownerTargetAccount",
           "writable": true
         },
         {
-          "name": "owner_hlp_account",
+          "name": "ownerHlpAccount",
           "writable": true
         },
         {
-          "name": "hlp_ylp_account",
+          "name": "hlpYlpAccount",
           "writable": true,
           "pda": {
             "seeds": [
@@ -6185,33 +6565,33 @@
               },
               {
                 "kind": "account",
-                "path": "target_hlp_mint"
+                "path": "targetHlpMint"
               },
               {
                 "kind": "account",
-                "path": "ylp_mint"
+                "path": "ylpMint"
               }
             ]
           }
         },
         {
-          "name": "target_yield_account",
+          "name": "targetYieldAccount",
           "writable": true
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "token_2022_program",
+          "name": "token2022Program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
-          "name": "system_program",
+          "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "event_authority",
+          "name": "eventAuthority",
           "pda": {
             "seeds": [
               {
@@ -6248,7 +6628,7 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "WithdrawSingleSidedArgs"
+              "name": "withdrawSingleSidedArgs"
             }
           }
         }
@@ -6257,7 +6637,7 @@
   ],
   "accounts": [
     {
-      "name": "BorrowPosition",
+      "name": "borrowPosition",
       "discriminator": [
         243,
         140,
@@ -6270,7 +6650,7 @@
       ]
     },
     {
-      "name": "FutarchyAuthority",
+      "name": "futarchyAuthority",
       "discriminator": [
         175,
         247,
@@ -6283,7 +6663,7 @@
       ]
     },
     {
-      "name": "LeverageDelegation",
+      "name": "leverageDelegation",
       "discriminator": [
         49,
         60,
@@ -6296,7 +6676,7 @@
       ]
     },
     {
-      "name": "LeveragePosition",
+      "name": "leveragePosition",
       "discriminator": [
         88,
         78,
@@ -6309,7 +6689,7 @@
       ]
     },
     {
-      "name": "Market",
+      "name": "market",
       "discriminator": [
         219,
         190,
@@ -6322,7 +6702,7 @@
       ]
     },
     {
-      "name": "YieldAccount",
+      "name": "yieldAccount",
       "discriminator": [
         233,
         241,
@@ -6337,7 +6717,7 @@
   ],
   "events": [
     {
-      "name": "HlpClosed",
+      "name": "hlpClosed",
       "discriminator": [
         87,
         126,
@@ -6350,7 +6730,7 @@
       ]
     },
     {
-      "name": "HlpOpened",
+      "name": "hlpOpened",
       "discriminator": [
         188,
         231,
@@ -6363,7 +6743,7 @@
       ]
     },
     {
-      "name": "HlpRebalanced",
+      "name": "hlpRebalanced",
       "discriminator": [
         48,
         237,
@@ -6376,7 +6756,7 @@
       ]
     },
     {
-      "name": "LeverageDelegationUpdated",
+      "name": "leverageDelegationUpdated",
       "discriminator": [
         118,
         41,
@@ -6389,7 +6769,7 @@
       ]
     },
     {
-      "name": "LeveragePositionClosed",
+      "name": "leveragePositionClosed",
       "discriminator": [
         132,
         9,
@@ -6402,7 +6782,7 @@
       ]
     },
     {
-      "name": "LeveragePositionLiquidated",
+      "name": "leveragePositionLiquidated",
       "discriminator": [
         59,
         18,
@@ -6415,7 +6795,7 @@
       ]
     },
     {
-      "name": "LeveragePositionOpened",
+      "name": "leveragePositionOpened",
       "discriminator": [
         198,
         227,
@@ -6428,7 +6808,7 @@
       ]
     },
     {
-      "name": "LeveragePositionUpdated",
+      "name": "leveragePositionUpdated",
       "discriminator": [
         195,
         171,
@@ -6441,7 +6821,7 @@
       ]
     },
     {
-      "name": "LiquidityAdded",
+      "name": "liquidityAdded",
       "discriminator": [
         154,
         26,
@@ -6454,7 +6834,7 @@
       ]
     },
     {
-      "name": "LiquidityRemoved",
+      "name": "liquidityRemoved",
       "discriminator": [
         225,
         105,
@@ -6467,7 +6847,7 @@
       ]
     },
     {
-      "name": "ManagerFeesClaimed",
+      "name": "managerFeesClaimed",
       "discriminator": [
         125,
         121,
@@ -6480,7 +6860,7 @@
       ]
     },
     {
-      "name": "MarketAuthorityUpdateScheduled",
+      "name": "marketAuthorityUpdateScheduled",
       "discriminator": [
         39,
         31,
@@ -6493,7 +6873,7 @@
       ]
     },
     {
-      "name": "MarketAuthorityUpdated",
+      "name": "marketAuthorityUpdated",
       "discriminator": [
         203,
         38,
@@ -6506,7 +6886,7 @@
       ]
     },
     {
-      "name": "MarketCollateralDeposited",
+      "name": "marketCollateralDeposited",
       "discriminator": [
         41,
         53,
@@ -6519,7 +6899,7 @@
       ]
     },
     {
-      "name": "MarketCollateralWithdrawn",
+      "name": "marketCollateralWithdrawn",
       "discriminator": [
         68,
         208,
@@ -6532,7 +6912,7 @@
       ]
     },
     {
-      "name": "MarketConfigUpdateScheduled",
+      "name": "marketConfigUpdateScheduled",
       "discriminator": [
         138,
         36,
@@ -6545,7 +6925,7 @@
       ]
     },
     {
-      "name": "MarketCreated",
+      "name": "marketCreated",
       "discriminator": [
         88,
         184,
@@ -6558,7 +6938,7 @@
       ]
     },
     {
-      "name": "MarketDebtUpdated",
+      "name": "marketDebtUpdated",
       "discriminator": [
         135,
         150,
@@ -6571,7 +6951,7 @@
       ]
     },
     {
-      "name": "MarketFeeLiabilityClaimed",
+      "name": "marketFeeLiabilityClaimed",
       "discriminator": [
         8,
         222,
@@ -6584,7 +6964,7 @@
       ]
     },
     {
-      "name": "MarketHealthUpdated",
+      "name": "marketHealthUpdated",
       "discriminator": [
         99,
         12,
@@ -6597,7 +6977,7 @@
       ]
     },
     {
-      "name": "MarketUpdated",
+      "name": "marketUpdated",
       "discriminator": [
         170,
         51,
@@ -6610,7 +6990,7 @@
       ]
     },
     {
-      "name": "PositionLiquidated",
+      "name": "positionLiquidated",
       "discriminator": [
         40,
         107,
@@ -6623,7 +7003,7 @@
       ]
     },
     {
-      "name": "ProtocolAuctionConfigUpdated",
+      "name": "protocolAuctionConfigUpdated",
       "discriminator": [
         178,
         169,
@@ -6636,7 +7016,7 @@
       ]
     },
     {
-      "name": "ProtocolAuctionRecipientsUpdated",
+      "name": "protocolAuctionRecipientsUpdated",
       "discriminator": [
         174,
         178,
@@ -6649,7 +7029,7 @@
       ]
     },
     {
-      "name": "ProtocolAuctionSettled",
+      "name": "protocolAuctionSettled",
       "discriminator": [
         11,
         230,
@@ -6662,7 +7042,7 @@
       ]
     },
     {
-      "name": "ProtocolAuctionSplitUpdated",
+      "name": "protocolAuctionSplitUpdated",
       "discriminator": [
         17,
         255,
@@ -6675,7 +7055,7 @@
       ]
     },
     {
-      "name": "SwapExecuted",
+      "name": "swapExecuted",
       "discriminator": [
         150,
         166,
@@ -6688,7 +7068,7 @@
       ]
     },
     {
-      "name": "SwapSettled",
+      "name": "swapSettled",
       "discriminator": [
         104,
         192,
@@ -6701,7 +7081,7 @@
       ]
     },
     {
-      "name": "YieldClaimed",
+      "name": "yieldClaimed",
       "discriminator": [
         177,
         201,
@@ -6714,7 +7094,7 @@
       ]
     },
     {
-      "name": "YieldRecipientUpdated",
+      "name": "yieldRecipientUpdated",
       "discriminator": [
         154,
         113,
@@ -6730,593 +7110,593 @@
   "errors": [
     {
       "code": 6000,
-      "name": "InvalidDeployer",
+      "name": "invalidDeployer",
       "msg": "Invalid deployer"
     },
     {
       "code": 6001,
-      "name": "ArgumentMissing",
+      "name": "argumentMissing",
       "msg": "Argument missing"
     },
     {
       "code": 6002,
-      "name": "InvalidSwapFeeBps",
+      "name": "invalidSwapFeeBps",
       "msg": "Invalid swap fee bps"
     },
     {
       "code": 6003,
-      "name": "InvalidInterestFeeBps",
+      "name": "invalidInterestFeeBps",
       "msg": "Invalid interest fee bps"
     },
     {
       "code": 6004,
-      "name": "InvalidHalfLife",
+      "name": "invalidHalfLife",
       "msg": "Invalid half life"
     },
     {
       "code": 6005,
-      "name": "InvalidFutarchyAuthority",
+      "name": "invalidFutarchyAuthority",
       "msg": "Invalid futarchy authority"
     },
     {
       "code": 6006,
-      "name": "InvalidReduceOnlyAuthority",
+      "name": "invalidReduceOnlyAuthority",
       "msg": "Invalid reduce-only authority"
     },
     {
       "code": 6007,
-      "name": "InvalidMarketManager",
+      "name": "invalidMarketManager",
       "msg": "Invalid market manager"
     },
     {
       "code": 6008,
-      "name": "InvalidMarketConfigAuthority",
+      "name": "invalidMarketConfigAuthority",
       "msg": "Invalid market config authority"
     },
     {
       "code": 6009,
-      "name": "GovernanceTimelockNotReady",
+      "name": "governanceTimelockNotReady",
       "msg": "Market governance timelock is not ready"
     },
     {
       "code": 6010,
-      "name": "InvalidArgument",
+      "name": "invalidArgument",
       "msg": "Invalid argument"
     },
     {
       "code": 6011,
-      "name": "AmountZero",
+      "name": "amountZero",
       "msg": "Amount cannot be zero"
     },
     {
       "code": 6012,
-      "name": "InsufficientAmount0In",
+      "name": "insufficientAmount0In",
       "msg": "Insufficient amount0 in"
     },
     {
       "code": 6013,
-      "name": "InsufficientAmount1In",
+      "name": "insufficientAmount1In",
       "msg": "Insufficient amount1 in"
     },
     {
       "code": 6014,
-      "name": "BorrowingPowerExceeded",
+      "name": "borrowingPowerExceeded",
       "msg": "Borrowing power exceeded"
     },
     {
       "code": 6015,
-      "name": "InvalidTokenAccount",
+      "name": "invalidTokenAccount",
       "msg": "Invalid token account"
     },
     {
       "code": 6016,
-      "name": "InvalidTokenProgram",
+      "name": "invalidTokenProgram",
       "msg": "Invalid token program"
     },
     {
       "code": 6017,
-      "name": "BorrowExceedsReserve",
+      "name": "borrowExceedsReserve",
       "msg": "Borrow exceeds reserve"
     },
     {
       "code": 6018,
-      "name": "InsufficientAmount0",
+      "name": "insufficientAmount0",
       "msg": "Insufficient amount0"
     },
     {
       "code": 6019,
-      "name": "InsufficientAmount1",
+      "name": "insufficientAmount1",
       "msg": "Insufficient amount1"
     },
     {
       "code": 6020,
-      "name": "InsufficientOutputAmount",
+      "name": "insufficientOutputAmount",
       "msg": "Insufficient output amount"
     },
     {
       "code": 6021,
-      "name": "SlippageExceeded",
+      "name": "slippageExceeded",
       "msg": "Output amount below minimum requested (slippage exceeded)"
     },
     {
       "code": 6022,
-      "name": "InsufficientLiquidity",
+      "name": "insufficientLiquidity",
       "msg": "Insufficient liquidity"
     },
     {
       "code": 6023,
-      "name": "InsufficientCashReserve0",
+      "name": "insufficientCashReserve0",
       "msg": "Insufficient cash reserve0"
     },
     {
       "code": 6024,
-      "name": "InsufficientCashReserve1",
+      "name": "insufficientCashReserve1",
       "msg": "Insufficient cash reserve1"
     },
     {
       "code": 6025,
-      "name": "Overflow",
+      "name": "overflow",
       "msg": "Arithmetic overflow"
     },
     {
       "code": 6026,
-      "name": "Undercollateralized",
-      "msg": "Undercollateralized"
+      "name": "undercollateralized",
+      "msg": "undercollateralized"
     },
     {
       "code": 6027,
-      "name": "InsufficientBalanceForCollateral",
+      "name": "insufficientBalanceForCollateral",
       "msg": "Insufficient balance for collateral"
     },
     {
       "code": 6028,
-      "name": "InsufficientAmount",
+      "name": "insufficientAmount",
       "msg": "Insufficient amount"
     },
     {
       "code": 6029,
-      "name": "InsufficientBalance",
+      "name": "insufficientBalance",
       "msg": "User balance insufficient to cover requested amount"
     },
     {
       "code": 6030,
-      "name": "InsufficientDebt",
+      "name": "insufficientDebt",
       "msg": "Insufficient debt"
     },
     {
       "code": 6031,
-      "name": "UserPositionNotInitialized",
+      "name": "userPositionNotInitialized",
       "msg": "User position not initialized"
     },
     {
       "code": 6032,
-      "name": "ZeroDebtAmount",
+      "name": "zeroDebtAmount",
       "msg": "Zero debt amount"
     },
     {
       "code": 6033,
-      "name": "NotUndercollateralized",
+      "name": "notUndercollateralized",
       "msg": "Not undercollateralized"
     },
     {
       "code": 6034,
-      "name": "BrokenInvariant",
+      "name": "brokenInvariant",
       "msg": "Broken invariant"
     },
     {
       "code": 6035,
-      "name": "InvariantOverflow",
+      "name": "invariantOverflow",
       "msg": "Math overflow during invariant calculation"
     },
     {
       "code": 6036,
-      "name": "FeeMathOverflow",
+      "name": "feeMathOverflow",
       "msg": "Math overflow during fee calculation."
     },
     {
       "code": 6037,
-      "name": "OutputAmountOverflow",
+      "name": "outputAmountOverflow",
       "msg": "Math overflow during output amount calculation."
     },
     {
       "code": 6038,
-      "name": "ReserveOverflow",
+      "name": "reserveOverflow",
       "msg": "Math overflow during reserve calculation."
     },
     {
       "code": 6039,
-      "name": "ReserveUnderflow",
+      "name": "reserveUnderflow",
       "msg": "Math underflow during reserve calculation."
     },
     {
       "code": 6040,
-      "name": "CashReserveUnderflow",
+      "name": "cashReserveUnderflow",
       "msg": "Math underflow during cash reserve calculation."
     },
     {
       "code": 6041,
-      "name": "DenominatorOverflow",
+      "name": "denominatorOverflow",
       "msg": "Math overflow during denominator calculation."
     },
     {
       "code": 6042,
-      "name": "LiquidityMathOverflow",
+      "name": "liquidityMathOverflow",
       "msg": "Math overflow during liquidity calculation"
     },
     {
       "code": 6043,
-      "name": "LiquiditySqrtOverflow",
+      "name": "liquiditySqrtOverflow",
       "msg": "Math overflow during liquidity square root calculation"
     },
     {
       "code": 6044,
-      "name": "LiquidityUnderflow",
+      "name": "liquidityUnderflow",
       "msg": "Math underflow during liquidity calculation"
     },
     {
       "code": 6045,
-      "name": "LiquidityConversionOverflow",
+      "name": "liquidityConversionOverflow",
       "msg": "Math overflow during liquidity conversion"
     },
     {
       "code": 6046,
-      "name": "SupplyOverflow",
+      "name": "supplyOverflow",
       "msg": "Math overflow during supply calculation"
     },
     {
       "code": 6047,
-      "name": "SupplyUnderflow",
+      "name": "supplyUnderflow",
       "msg": "Math underflow during supply calculation"
     },
     {
       "code": 6048,
-      "name": "DebtMathOverflow",
+      "name": "debtMathOverflow",
       "msg": "Math overflow during debt calculation"
     },
     {
       "code": 6049,
-      "name": "DebtShareMathOverflow",
+      "name": "debtShareMathOverflow",
       "msg": "Math overflow during debt share calculation"
     },
     {
       "code": 6050,
-      "name": "DebtShareDivisionOverflow",
+      "name": "debtShareDivisionOverflow",
       "msg": "Math overflow during debt share division"
     },
     {
       "code": 6051,
-      "name": "DebtUtilizationOverflow",
+      "name": "debtUtilizationOverflow",
       "msg": "Math overflow during debt utilization calculation"
     },
     {
       "code": 6052,
-      "name": "InvalidMint",
+      "name": "invalidMint",
       "msg": "Invalid mint"
     },
     {
       "code": 6053,
-      "name": "InvalidMintLen",
+      "name": "invalidMintLen",
       "msg": "Invalid mint length"
     },
     {
       "code": 6054,
-      "name": "InvalidDistribution",
+      "name": "invalidDistribution",
       "msg": "Invalid distribution - percentages must sum to 100%"
     },
     {
       "code": 6055,
-      "name": "InvalidAuctionConfig",
+      "name": "invalidAuctionConfig",
       "msg": "Invalid protocol auction config"
     },
     {
       "code": 6056,
-      "name": "StaleAuctionReference",
+      "name": "staleAuctionReference",
       "msg": "Protocol auction reference price is stale"
     },
     {
       "code": 6057,
-      "name": "InsufficientAuctionPayment",
+      "name": "insufficientAuctionPayment",
       "msg": "Protocol auction payment is insufficient"
     },
     {
       "code": 6058,
-      "name": "InvalidLpMintKey",
+      "name": "invalidLpMintKey",
       "msg": "Invalid LP mint key"
     },
     {
       "code": 6059,
-      "name": "InvalidLpName",
+      "name": "invalidLpName",
       "msg": "Invalid LP name"
     },
     {
       "code": 6060,
-      "name": "InvalidLpSymbol",
+      "name": "invalidLpSymbol",
       "msg": "Invalid LP symbol"
     },
     {
       "code": 6061,
-      "name": "InvalidLpUri",
+      "name": "invalidLpUri",
       "msg": "Invalid LP URI"
     },
     {
       "code": 6062,
-      "name": "AccountNotEmpty",
+      "name": "accountNotEmpty",
       "msg": "Account not empty"
     },
     {
       "code": 6063,
-      "name": "InvalidMintAuthority",
+      "name": "invalidMintAuthority",
       "msg": "Invalid mint authority"
     },
     {
       "code": 6064,
-      "name": "FrozenLpMint",
+      "name": "frozenLpMint",
       "msg": "Frozen LP mint"
     },
     {
       "code": 6065,
-      "name": "NonZeroSupply",
+      "name": "nonZeroSupply",
       "msg": "Non-zero supply"
     },
     {
       "code": 6066,
-      "name": "WrongLpDecimals",
+      "name": "wrongLpDecimals",
       "msg": "Wrong LP decimals"
     },
     {
       "code": 6067,
-      "name": "InvalidVaultSameAccount",
+      "name": "invalidVaultSameAccount",
       "msg": "Invalid vault - token_in_vault and token_out_vault must be different"
     },
     {
       "code": 6068,
-      "name": "InvalidVault",
+      "name": "invalidVault",
       "msg": "Invalid vault"
     },
     {
       "code": 6069,
-      "name": "InvalidParamsHash",
+      "name": "invalidParamsHash",
       "msg": "Invalid params hash - hash does not match computed parameters"
     },
     {
       "code": 6070,
-      "name": "InvalidVersion",
+      "name": "invalidVersion",
       "msg": "Invalid version"
     },
     {
       "code": 6071,
-      "name": "InvalidTokenOrder",
+      "name": "invalidTokenOrder",
       "msg": "Invalid token order"
     },
     {
       "code": 6072,
-      "name": "InvalidRateModel",
+      "name": "invalidRateModel",
       "msg": "Invalid rate model - rate_model does not match market configuration"
     },
     {
       "code": 6073,
-      "name": "InvalidPositionMarket",
+      "name": "invalidPositionMarket",
       "msg": "Invalid position market - position does not match market"
     },
     {
       "code": 6074,
-      "name": "InvalidUtilBounds",
+      "name": "invalidUtilBounds",
       "msg": "Invalid utilization bounds - must satisfy: MIN <= start < end <= MAX"
     },
     {
       "code": 6075,
-      "name": "InvalidRateParams",
+      "name": "invalidRateParams",
       "msg": "Invalid rate parameters - check half_life_ms, min_rate_bps, max_rate_bps, initial_rate_bps bounds"
     },
     {
       "code": 6076,
-      "name": "ReduceOnlyMode",
+      "name": "reduceOnlyMode",
       "msg": "Operation blocked: reduce-only mode is active"
     },
     {
       "code": 6077,
-      "name": "ReduceOnlyHasDebt",
+      "name": "reduceOnlyHasDebt",
       "msg": "Cannot remove collateral in reduce-only mode while debt exists"
     },
     {
       "code": 6078,
-      "name": "LiquidityDeltaCircuitBreaker",
+      "name": "liquidityDeltaCircuitBreaker",
       "msg": "Operation blocked: same-transaction liquidity delta detected"
     },
     {
       "code": 6079,
-      "name": "LiquidityDeltaCircuitBreakerCpi",
+      "name": "liquidityDeltaCircuitBreakerCpi",
       "msg": "Operation blocked: liquidity delta instruction must be top-level"
     },
     {
       "code": 6080,
-      "name": "InvalidInstructionsSysvar",
+      "name": "invalidInstructionsSysvar",
       "msg": "Invalid instructions sysvar"
     },
     {
       "code": 6081,
-      "name": "InsufficientPostWithdrawDebtCoverage",
+      "name": "insufficientPostWithdrawDebtCoverage",
       "msg": "Insufficient post-withdraw debt coverage"
     },
     {
       "code": 6082,
-      "name": "InvalidRecipient",
+      "name": "invalidRecipient",
       "msg": "Invalid recipient - address does not match configured revenue recipient"
     },
     {
       "code": 6083,
-      "name": "InvalidMarket",
+      "name": "invalidMarket",
       "msg": "Invalid market"
     },
     {
       "code": 6084,
-      "name": "InvalidMarketConfig",
+      "name": "invalidMarketConfig",
       "msg": "Invalid market config"
     },
     {
       "code": 6085,
-      "name": "InvalidSettlementPrice",
+      "name": "invalidSettlementPrice",
       "msg": "Invalid settlement price"
     },
     {
       "code": 6086,
-      "name": "InsufficientMarketShareBacking",
+      "name": "insufficientMarketShareBacking",
       "msg": "Market reserve share backing is insufficient"
     },
     {
       "code": 6087,
-      "name": "InvalidMarketSide",
+      "name": "invalidMarketSide",
       "msg": "Invalid market side"
     },
     {
       "code": 6088,
-      "name": "InvalidYieldAccount",
+      "name": "invalidYieldAccount",
       "msg": "Invalid yield account"
     },
     {
       "code": 6089,
-      "name": "InvalidHlpVault",
+      "name": "invalidHlpVault",
       "msg": "Invalid hLP vault"
     },
     {
       "code": 6090,
-      "name": "NotEnoughAccounts",
+      "name": "notEnoughAccounts",
       "msg": "Not enough remaining accounts"
     },
     {
       "code": 6091,
-      "name": "HlpSettlementUnavailable",
+      "name": "hlpSettlementUnavailable",
       "msg": "hLP settlement is unavailable"
     },
     {
       "code": 6092,
-      "name": "InsufficientBorrowHeadroom",
+      "name": "insufficientBorrowHeadroom",
       "msg": "Borrow headroom is insufficient"
     },
     {
       "code": 6093,
-      "name": "InsufficientMarketHealth",
+      "name": "insufficientMarketHealth",
       "msg": "Market health is insufficient"
     },
     {
       "code": 6094,
-      "name": "InvalidBorrowPosition",
+      "name": "invalidBorrowPosition",
       "msg": "Invalid borrow position"
     },
     {
       "code": 6095,
-      "name": "InsufficientRecognizedCollateral",
+      "name": "insufficientRecognizedCollateral",
       "msg": "Recognized collateral is insufficient"
     },
     {
       "code": 6096,
-      "name": "PositionNotLiquidatable",
+      "name": "positionNotLiquidatable",
       "msg": "Position is not liquidatable"
     },
     {
       "code": 6097,
-      "name": "InsufficientInsurance",
+      "name": "insufficientInsurance",
       "msg": "Insurance coverage is insufficient"
     },
     {
       "code": 6098,
-      "name": "LiquidationSocializationExceeded",
+      "name": "liquidationSocializationExceeded",
       "msg": "Socialized liquidation loss exceeds caller cap"
     },
     {
       "code": 6099,
-      "name": "InvalidClaimMint",
+      "name": "invalidClaimMint",
       "msg": "Claim mint must not charge transfer fees"
     },
     {
       "code": 6100,
-      "name": "UnbackedFeeLiability",
+      "name": "unbackedFeeLiability",
       "msg": "Fee liability is not backed by fee vault balance"
     },
     {
       "code": 6101,
-      "name": "InvalidMarketFeeAuthority",
+      "name": "invalidMarketFeeAuthority",
       "msg": "Invalid market fee authority"
     },
     {
       "code": 6102,
-      "name": "MarketReduceOnly",
+      "name": "marketReduceOnly",
       "msg": "Market is reduce-only"
     },
     {
       "code": 6103,
-      "name": "MarketNotStarted",
+      "name": "marketNotStarted",
       "msg": "Market has not started"
     },
     {
       "code": 6104,
-      "name": "MarketMathOverflow",
+      "name": "marketMathOverflow",
       "msg": "Market math overflow"
     },
     {
       "code": 6105,
-      "name": "DailyLimitExceeded",
+      "name": "dailyLimitExceeded",
       "msg": "Daily liquidity limit exceeded"
     },
     {
       "code": 6106,
-      "name": "MarketRiskCircuitBreaker",
+      "name": "marketRiskCircuitBreaker",
       "msg": "Market risk circuit breaker triggered"
     },
     {
       "code": 6107,
-      "name": "InstructionNotLive",
+      "name": "instructionNotLive",
       "msg": "Instruction is intentionally not live yet"
     },
     {
       "code": 6108,
-      "name": "LiquidationRepayTooLarge",
+      "name": "liquidationRepayTooLarge",
       "msg": "Liquidation repay amount exceeds partial liquidation cap"
     },
     {
       "code": 6109,
-      "name": "LeverageMultiplierTooHigh",
+      "name": "leverageMultiplierTooHigh",
       "msg": "Leverage multiplier exceeds circuit breaker"
     },
     {
       "code": 6110,
-      "name": "LeverageInitialMarginTooLow",
+      "name": "leverageInitialMarginTooLow",
       "msg": "Leverage position does not have enough initial margin"
     },
     {
       "code": 6111,
-      "name": "LeverageUnwindImpactTooHigh",
+      "name": "leverageUnwindImpactTooHigh",
       "msg": "Leverage unwind impact exceeds limit"
     },
     {
       "code": 6112,
-      "name": "LeveragePositionNotLiquidatable",
+      "name": "leveragePositionNotLiquidatable",
       "msg": "Leverage position is not liquidatable"
     },
     {
       "code": 6113,
-      "name": "InvalidSigner",
+      "name": "invalidSigner",
       "msg": "Invalid signer"
     },
     {
       "code": 6114,
-      "name": "InvalidLeveragePosition",
+      "name": "invalidLeveragePosition",
       "msg": "Invalid leverage position"
     },
     {
       "code": 6115,
-      "name": "InvalidLeverageDelegation",
+      "name": "invalidLeverageDelegation",
       "msg": "Invalid leverage delegation"
     }
   ],
   "types": [
     {
-      "name": "AddLeverageMarginArgs",
+      "name": "addLeverageMarginArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "debt_asset",
+            "name": "debtAsset",
             "type": "u8"
           },
           {
@@ -7327,47 +7707,179 @@
       }
     },
     {
-      "name": "AddLiquidityArgs",
+      "name": "addLiquidityArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "base_deposit_amount",
+            "name": "baseDepositAmount",
             "type": "u64"
           },
           {
-            "name": "quote_deposit_amount",
+            "name": "quoteDepositAmount",
             "type": "u64"
           },
           {
-            "name": "min_ylp_amount",
+            "name": "minYlpAmount",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "BorrowArgs",
+      "name": "addLiquidityPreview",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "borrow_amount",
+            "name": "requestedBaseAmount",
             "type": "u64"
           },
           {
-            "name": "min_debt_amount_out",
+            "name": "requestedQuoteAmount",
             "type": "u64"
           },
           {
-            "name": "min_health_bps",
+            "name": "maxBaseReserveCredit",
+            "type": "u64"
+          },
+          {
+            "name": "maxQuoteReserveCredit",
+            "type": "u64"
+          },
+          {
+            "name": "baseTransferAmount",
+            "type": "u64"
+          },
+          {
+            "name": "quoteTransferAmount",
+            "type": "u64"
+          },
+          {
+            "name": "baseTransferFee",
+            "type": "u64"
+          },
+          {
+            "name": "quoteTransferFee",
+            "type": "u64"
+          },
+          {
+            "name": "baseReserveCredit",
+            "type": "u64"
+          },
+          {
+            "name": "quoteReserveCredit",
+            "type": "u64"
+          },
+          {
+            "name": "unusedBaseAmount",
+            "type": "u64"
+          },
+          {
+            "name": "unusedQuoteAmount",
+            "type": "u64"
+          },
+          {
+            "name": "ylpAmount",
+            "type": "u64"
+          },
+          {
+            "name": "ylpSupply",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "BorrowPosition",
+      "name": "borrowArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "borrowAmount",
+            "type": "u64"
+          },
+          {
+            "name": "minDebtAmountOut",
+            "type": "u64"
+          },
+          {
+            "name": "minHealthBps",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "borrowCapacityPreview",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "collateralAsset",
+            "type": {
+              "defined": {
+                "name": "marketAsset"
+              }
+            }
+          },
+          {
+            "name": "debtAsset",
+            "type": {
+              "defined": {
+                "name": "marketAsset"
+              }
+            }
+          },
+          {
+            "name": "collateralAmount",
+            "type": "u64"
+          },
+          {
+            "name": "collateralValueNad",
+            "type": "u128"
+          },
+          {
+            "name": "maxDebtByHealth",
+            "type": "u64"
+          },
+          {
+            "name": "maxDebtByCash",
+            "type": "u64"
+          },
+          {
+            "name": "maxDebtByDailyLimit",
+            "type": "u64"
+          },
+          {
+            "name": "maxDebt",
+            "type": "u64"
+          },
+          {
+            "name": "marketHealthMinBps",
+            "type": "u16"
+          },
+          {
+            "name": "recognizedCollateralCapBps",
+            "type": "u16"
+          },
+          {
+            "name": "projectedDebtAmount",
+            "type": "u64"
+          },
+          {
+            "name": "projectedHealthBps",
+            "type": "u64"
+          },
+          {
+            "name": "liquidationDebtPerCollateralPriceNad",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "borrowPosition",
       "type": {
         "kind": "struct",
         "fields": [
@@ -7380,35 +7892,35 @@
             "type": "pubkey"
           },
           {
-            "name": "position_id",
+            "name": "positionId",
             "type": "pubkey"
           },
           {
-            "name": "base_collateral",
+            "name": "baseCollateral",
             "type": "u64"
           },
           {
-            "name": "quote_collateral",
+            "name": "quoteCollateral",
             "type": "u64"
           },
           {
-            "name": "recognized_base_collateral_for_quote_debt",
+            "name": "recognizedBaseCollateralForQuoteDebt",
             "type": "u64"
           },
           {
-            "name": "recognized_quote_collateral_for_base_debt",
+            "name": "recognizedQuoteCollateralForBaseDebt",
             "type": "u64"
           },
           {
-            "name": "fixed_base_shares",
+            "name": "fixedBaseShares",
             "type": "u128"
           },
           {
-            "name": "fixed_quote_shares",
+            "name": "fixedQuoteShares",
             "type": "u128"
           },
           {
-            "name": "risk_epoch",
+            "name": "riskEpoch",
             "type": "u64"
           },
           {
@@ -7419,15 +7931,59 @@
       }
     },
     {
-      "name": "ClaimYieldArgs",
+      "name": "borrowPositionPreview",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "token_kind",
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "positionId",
+            "type": "pubkey"
+          },
+          {
+            "name": "baseCollateral",
+            "type": "u64"
+          },
+          {
+            "name": "quoteCollateral",
+            "type": "u64"
+          },
+          {
+            "name": "recognizedBaseCollateralForQuoteDebt",
+            "type": "u64"
+          },
+          {
+            "name": "recognizedQuoteCollateralForBaseDebt",
+            "type": "u64"
+          },
+          {
+            "name": "fixedBaseDebt",
+            "type": "u128"
+          },
+          {
+            "name": "fixedQuoteDebt",
+            "type": "u128"
+          },
+          {
+            "name": "baseDebt",
             "type": {
               "defined": {
-                "name": "YieldTokenKind"
+                "name": "positionDebtSidePreview"
+              }
+            }
+          },
+          {
+            "name": "quoteDebt",
+            "type": {
+              "defined": {
+                "name": "positionDebtSidePreview"
               }
             }
           }
@@ -7435,23 +7991,39 @@
       }
     },
     {
-      "name": "CloseLeverageArgs",
+      "name": "claimYieldArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "debt_asset",
+            "name": "tokenKind",
+            "type": {
+              "defined": {
+                "name": "yieldTokenKind"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "closeLeverageArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "debtAsset",
             "type": "u8"
           },
           {
-            "name": "min_amount_out",
+            "name": "minAmountOut",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "CloseLeverageDelegationArgs",
+      "name": "closeLeverageDelegationArgs",
       "type": {
         "kind": "struct",
         "fields": [
@@ -7463,88 +8035,88 @@
       }
     },
     {
-      "name": "CreateLeverageDelegationArgs",
+      "name": "createLeverageDelegationArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "debt_asset",
+            "name": "debtAsset",
             "type": "u8"
           },
           {
-            "name": "delegated_program",
+            "name": "delegatedProgram",
             "type": "pubkey"
           },
           {
-            "name": "approved_actions",
+            "name": "approvedActions",
             "type": "u32"
           }
         ]
       }
     },
     {
-      "name": "DailyLimits",
+      "name": "dailyLimits",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "borrowed_bucket",
+            "name": "borrowedBucket",
             "type": "u64"
           },
           {
-            "name": "last_decay_slot",
+            "name": "lastDecaySlot",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "Debt",
+      "name": "debt",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "fixed_base_shares",
+            "name": "fixedBaseShares",
             "type": "u128"
           },
           {
-            "name": "fixed_quote_shares",
+            "name": "fixedQuoteShares",
             "type": "u128"
           },
           {
-            "name": "base_borrow_index_nad",
+            "name": "baseBorrowIndexNad",
             "type": "u128"
           },
           {
-            "name": "quote_borrow_index_nad",
+            "name": "quoteBorrowIndexNad",
             "type": "u128"
           },
           {
-            "name": "base_rate_at_target_nad",
+            "name": "baseRateAtTargetNad",
             "type": "u128"
           },
           {
-            "name": "quote_rate_at_target_nad",
+            "name": "quoteRateAtTargetNad",
             "type": "u128"
           },
           {
-            "name": "recognized_base_collateral_for_quote_debt",
+            "name": "recognizedBaseCollateralForQuoteDebt",
             "type": "u64"
           },
           {
-            "name": "recognized_quote_collateral_for_base_debt",
+            "name": "recognizedQuoteCollateralForBaseDebt",
             "type": "u64"
           },
           {
-            "name": "last_recognition_slot",
+            "name": "lastRecognitionSlot",
             "type": "u64"
           },
           {
-            "name": "last_accrual_slot",
+            "name": "lastAccrualSlot",
             "type": "u64"
           },
           {
-            "name": "fixed_base_principal",
+            "name": "fixedBasePrincipal",
             "docs": [
               "Aggregate outstanding *principal* (borrowed token amount, excluding",
               "accrued interest) backing fixed margin debt on each side. Accrued",
@@ -7555,11 +8127,11 @@
             "type": "u128"
           },
           {
-            "name": "fixed_quote_principal",
+            "name": "fixedQuotePrincipal",
             "type": "u128"
           },
           {
-            "name": "isolated_base_shares",
+            "name": "isolatedBaseShares",
             "docs": [
               "Aggregate isolated leverage debt. This debt contributes to utilization",
               "and interest, but is intentionally not recognized as normal margin debt."
@@ -7567,58 +8139,58 @@
             "type": "u128"
           },
           {
-            "name": "isolated_quote_shares",
+            "name": "isolatedQuoteShares",
             "type": "u128"
           },
           {
-            "name": "isolated_base_principal",
+            "name": "isolatedBasePrincipal",
             "type": "u128"
           },
           {
-            "name": "isolated_quote_principal",
+            "name": "isolatedQuotePrincipal",
             "type": "u128"
           }
         ]
       }
     },
     {
-      "name": "DecreaseLeverageArgs",
+      "name": "decreaseLeverageArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "debt_asset",
+            "name": "debtAsset",
             "type": "u8"
           },
           {
-            "name": "collateral_amount",
+            "name": "collateralAmount",
             "type": "u64"
           },
           {
-            "name": "min_repay_out",
+            "name": "minRepayOut",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "DelegatedCloseLeverageArgs",
+      "name": "delegatedCloseLeverageArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "debt_asset",
+            "name": "debtAsset",
             "type": "u8"
           },
           {
-            "name": "min_amount_out",
+            "name": "minAmountOut",
             "type": "u64"
           },
           {
             "name": "delegated",
             "type": {
               "defined": {
-                "name": "DelegatedCpiArgs"
+                "name": "delegatedCpiArgs"
               }
             }
           }
@@ -7626,115 +8198,115 @@
       }
     },
     {
-      "name": "DelegatedCpiArgs",
+      "name": "delegatedCpiArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "before_ix_data",
+            "name": "beforeIxData",
             "type": "bytes"
           },
           {
-            "name": "after_ix_data",
+            "name": "afterIxData",
             "type": "bytes"
           },
           {
-            "name": "before_accounts_len",
+            "name": "beforeAccountsLen",
             "type": "u16"
           }
         ]
       }
     },
     {
-      "name": "DepositCollateralArgs",
+      "name": "depositCollateralArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "position_id",
+            "name": "positionId",
             "type": "pubkey"
           },
           {
-            "name": "deposit_amount",
+            "name": "depositAmount",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "DepositSingleSidedArgs",
+      "name": "depositSingleSidedArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "deposit_amount",
+            "name": "depositAmount",
             "type": "u64"
           },
           {
-            "name": "min_hlp_amount",
+            "name": "minHlpAmount",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "Fees",
+      "name": "fees",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "swap_fee_growth_index_nad",
+            "name": "swapFeeGrowthIndexNad",
             "type": "u128"
           },
           {
-            "name": "interest_growth_index_nad",
+            "name": "interestGrowthIndexNad",
             "type": "u128"
           },
           {
-            "name": "swap_fee_vault_balance",
+            "name": "swapFeeVaultBalance",
             "type": "u64"
           },
           {
-            "name": "interest_vault_balance",
+            "name": "interestVaultBalance",
             "type": "u64"
           },
           {
-            "name": "swap_fee_liability",
+            "name": "swapFeeLiability",
             "type": "u64"
           },
           {
-            "name": "interest_liability",
+            "name": "interestLiability",
             "type": "u64"
           },
           {
-            "name": "unallocated_swap_fee_liability",
+            "name": "unallocatedSwapFeeLiability",
             "type": "u64"
           },
           {
-            "name": "unallocated_interest_liability",
+            "name": "unallocatedInterestLiability",
             "type": "u64"
           },
           {
-            "name": "protocol_fee_liability",
+            "name": "protocolFeeLiability",
             "type": "u64"
           },
           {
-            "name": "buyback_fee_liability",
+            "name": "buybackFeeLiability",
             "type": "u64"
           },
           {
-            "name": "manager_swap_fee_liability",
+            "name": "managerSwapFeeLiability",
             "type": "u64"
           },
           {
-            "name": "manager_interest_fee_liability",
+            "name": "managerInterestFeeLiability",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "FutarchyAuthority",
+      "name": "futarchyAuthority",
       "type": {
         "kind": "struct",
         "fields": [
@@ -7750,52 +8322,52 @@
             "name": "recipients",
             "type": {
               "defined": {
-                "name": "RevenueRecipients"
+                "name": "revenueRecipients"
               }
             }
           },
           {
-            "name": "revenue_share",
+            "name": "revenueShare",
             "type": {
               "defined": {
-                "name": "RevenueShare"
+                "name": "revenueShare"
               }
             }
           },
           {
-            "name": "revenue_distribution",
+            "name": "revenueDistribution",
             "type": {
               "defined": {
-                "name": "RevenueDistribution"
+                "name": "revenueDistribution"
               }
             }
           },
           {
-            "name": "protocol_auction_split",
+            "name": "protocolAuctionSplit",
             "type": {
               "defined": {
-                "name": "ProtocolAuctionSplit"
+                "name": "protocolAuctionSplit"
               }
             }
           },
           {
-            "name": "fee_auction",
+            "name": "feeAuction",
             "type": {
               "defined": {
-                "name": "ProtocolAuctionConfig"
+                "name": "protocolAuctionConfig"
               }
             }
           },
           {
-            "name": "buyback_auction",
+            "name": "buybackAuction",
             "type": {
               "defined": {
-                "name": "ProtocolAuctionConfig"
+                "name": "protocolAuctionConfig"
               }
             }
           },
           {
-            "name": "global_reduce_only",
+            "name": "globalReduceOnly",
             "type": "bool"
           },
           {
@@ -7806,7 +8378,7 @@
       }
     },
     {
-      "name": "HlpClosed",
+      "name": "hlpClosed",
       "type": {
         "kind": "struct",
         "fields": [
@@ -7819,38 +8391,38 @@
             "type": "pubkey"
           },
           {
-            "name": "asset_mint",
+            "name": "assetMint",
             "type": "pubkey"
           },
           {
-            "name": "hlp_amount",
+            "name": "hlpAmount",
             "type": "u64"
           },
           {
-            "name": "ylp_amount",
+            "name": "ylpAmount",
             "type": "u64"
           },
           {
-            "name": "target_amount_out",
+            "name": "targetAmountOut",
             "type": "u64"
           },
           {
-            "name": "debt_repaid",
+            "name": "debtRepaid",
             "type": "u64"
           },
           {
-            "name": "interest_paid",
+            "name": "interestPaid",
             "type": "u64"
           },
           {
-            "name": "hlp_supply",
+            "name": "hlpSupply",
             "type": "u64"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -7858,7 +8430,7 @@
       }
     },
     {
-      "name": "HlpOpened",
+      "name": "hlpOpened",
       "type": {
         "kind": "struct",
         "fields": [
@@ -7871,34 +8443,34 @@
             "type": "pubkey"
           },
           {
-            "name": "asset_mint",
+            "name": "assetMint",
             "type": "pubkey"
           },
           {
-            "name": "deposit_amount",
+            "name": "depositAmount",
             "type": "u64"
           },
           {
-            "name": "borrowed_amount",
+            "name": "borrowedAmount",
             "type": "u64"
           },
           {
-            "name": "ylp_amount",
+            "name": "ylpAmount",
             "type": "u64"
           },
           {
-            "name": "hlp_amount",
+            "name": "hlpAmount",
             "type": "u64"
           },
           {
-            "name": "hlp_supply",
+            "name": "hlpSupply",
             "type": "u64"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -7906,7 +8478,7 @@
       }
     },
     {
-      "name": "HlpRebalanced",
+      "name": "hlpRebalanced",
       "type": {
         "kind": "struct",
         "fields": [
@@ -7915,30 +8487,30 @@
             "type": "pubkey"
           },
           {
-            "name": "target_side",
+            "name": "targetSide",
             "type": "u8"
           },
           {
-            "name": "ideal_delta",
+            "name": "idealDelta",
             "type": "i128"
           },
           {
-            "name": "executed_delta",
+            "name": "executedDelta",
             "type": "i128"
           },
           {
-            "name": "pending_rebalance",
+            "name": "pendingRebalance",
             "type": "i128"
           },
           {
-            "name": "nav_nad",
+            "name": "navNad",
             "type": "u128"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -7946,24 +8518,24 @@
       }
     },
     {
-      "name": "HlpVault",
+      "name": "hlpVault",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "target_side",
+            "name": "targetSide",
             "type": "u8"
           },
           {
-            "name": "ylp_vault",
+            "name": "ylpVault",
             "type": "pubkey"
           },
           {
-            "name": "ylp_shares",
+            "name": "ylpShares",
             "type": "u64"
           },
           {
-            "name": "base_hlp_live_reserve",
+            "name": "baseHlpLiveReserve",
             "docs": [
               "hLP-owned live reserve depth that is not backed by reserve cash or",
               "normal cash-backed debt. This is the explicit synthetic live component",
@@ -7972,11 +8544,11 @@
             "type": "u64"
           },
           {
-            "name": "quote_hlp_live_reserve",
+            "name": "quoteHlpLiveReserve",
             "type": "u64"
           },
           {
-            "name": "debt_shares",
+            "name": "debtShares",
             "docs": [
               "Funding debt used by the hLP vault. It accrues interest and counts",
               "toward utilization, but is not same-side cash-backed reserve debt."
@@ -7984,102 +8556,102 @@
             "type": "u128"
           },
           {
-            "name": "debt_principal",
+            "name": "debtPrincipal",
             "type": "u128"
           },
           {
-            "name": "hlp_supply",
+            "name": "hlpSupply",
             "type": "u64"
           },
           {
-            "name": "pending_rebalance",
+            "name": "pendingRebalance",
             "type": "i128"
           },
           {
-            "name": "base_swap_fee_growth_index_nad",
+            "name": "baseSwapFeeGrowthIndexNad",
             "type": "u128"
           },
           {
-            "name": "base_interest_growth_index_nad",
+            "name": "baseInterestGrowthIndexNad",
             "type": "u128"
           },
           {
-            "name": "quote_swap_fee_growth_index_nad",
+            "name": "quoteSwapFeeGrowthIndexNad",
             "type": "u128"
           },
           {
-            "name": "quote_interest_growth_index_nad",
+            "name": "quoteInterestGrowthIndexNad",
             "type": "u128"
           },
           {
-            "name": "base_swap_fee_checkpoint_nad",
+            "name": "baseSwapFeeCheckpointNad",
             "type": "u128"
           },
           {
-            "name": "base_interest_checkpoint_nad",
+            "name": "baseInterestCheckpointNad",
             "type": "u128"
           },
           {
-            "name": "quote_swap_fee_checkpoint_nad",
+            "name": "quoteSwapFeeCheckpointNad",
             "type": "u128"
           },
           {
-            "name": "quote_interest_checkpoint_nad",
+            "name": "quoteInterestCheckpointNad",
             "type": "u128"
           },
           {
-            "name": "unallocated_base_swap_fee_amount",
+            "name": "unallocatedBaseSwapFeeAmount",
             "type": "u64"
           },
           {
-            "name": "unallocated_base_interest_amount",
+            "name": "unallocatedBaseInterestAmount",
             "type": "u64"
           },
           {
-            "name": "unallocated_quote_swap_fee_amount",
+            "name": "unallocatedQuoteSwapFeeAmount",
             "type": "u64"
           },
           {
-            "name": "unallocated_quote_interest_amount",
+            "name": "unallocatedQuoteInterestAmount",
             "type": "u64"
           },
           {
-            "name": "last_nav_nad",
+            "name": "lastNavNad",
             "type": "u128"
           },
           {
-            "name": "cached_settlement_price_nad",
+            "name": "cachedSettlementPriceNad",
             "type": "u128"
           },
           {
-            "name": "last_rebalance_slot",
+            "name": "lastRebalanceSlot",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "IncreaseLeverageArgs",
+      "name": "increaseLeverageArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "debt_asset",
+            "name": "debtAsset",
             "type": "u8"
           },
           {
-            "name": "debt_amount",
+            "name": "debtAmount",
             "type": "u64"
           },
           {
-            "name": "min_collateral_out",
+            "name": "minCollateralOut",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "InitFutarchyAuthorityArgs",
+      "name": "initFutarchyAuthorityArgs",
       "type": {
         "kind": "struct",
         "fields": [
@@ -8088,54 +8660,54 @@
             "type": "pubkey"
           },
           {
-            "name": "swap_bps",
+            "name": "swapBps",
             "type": "u16"
           },
           {
-            "name": "interest_bps",
+            "name": "interestBps",
             "type": "u16"
           },
           {
-            "name": "futarchy_treasury",
+            "name": "futarchyTreasury",
             "type": "pubkey"
           },
           {
-            "name": "futarchy_treasury_bps",
+            "name": "futarchyTreasuryBps",
             "type": "u16"
           },
           {
-            "name": "buybacks_vault",
+            "name": "buybacksVault",
             "type": "pubkey"
           },
           {
-            "name": "buybacks_vault_bps",
+            "name": "buybacksVaultBps",
             "type": "u16"
           },
           {
-            "name": "team_treasury",
+            "name": "teamTreasury",
             "type": "pubkey"
           },
           {
-            "name": "team_treasury_bps",
+            "name": "teamTreasuryBps",
             "type": "u16"
           },
           {
-            "name": "staking_vault",
+            "name": "stakingVault",
             "type": "pubkey"
           },
           {
-            "name": "fee_auction_accepted_mint",
+            "name": "feeAuctionAcceptedMint",
             "type": "pubkey"
           },
           {
-            "name": "buyback_auction_accepted_mint",
+            "name": "buybackAuctionAcceptedMint",
             "type": "pubkey"
           }
         ]
       }
     },
     {
-      "name": "InitializeLpMetadataArgs",
+      "name": "initializeLpMetadataArgs",
       "type": {
         "kind": "struct",
         "fields": [
@@ -8155,7 +8727,7 @@
       }
     },
     {
-      "name": "InitializeMarketArgs",
+      "name": "initializeMarketArgs",
       "type": {
         "kind": "struct",
         "fields": [
@@ -8171,12 +8743,12 @@
             "name": "config",
             "type": {
               "defined": {
-                "name": "MarketConfig"
+                "name": "marketConfig"
               }
             }
           },
           {
-            "name": "params_hash",
+            "name": "paramsHash",
             "type": {
               "array": [
                 "u8",
@@ -8188,31 +8760,31 @@
       }
     },
     {
-      "name": "Insurance",
+      "name": "insurance",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "base_vault",
+            "name": "baseVault",
             "type": "pubkey"
           },
           {
-            "name": "quote_vault",
+            "name": "quoteVault",
             "type": "pubkey"
           },
           {
-            "name": "base_available",
+            "name": "baseAvailable",
             "type": "u64"
           },
           {
-            "name": "quote_available",
+            "name": "quoteAvailable",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "LeverageDelegation",
+      "name": "leverageDelegation",
       "type": {
         "kind": "struct",
         "fields": [
@@ -8229,15 +8801,15 @@
             "type": "pubkey"
           },
           {
-            "name": "debt_asset",
+            "name": "debtAsset",
             "type": "u8"
           },
           {
-            "name": "delegated_program",
+            "name": "delegatedProgram",
             "type": "pubkey"
           },
           {
-            "name": "approved_actions",
+            "name": "approvedActions",
             "type": "u32"
           },
           {
@@ -8248,7 +8820,7 @@
       }
     },
     {
-      "name": "LeverageDelegationUpdated",
+      "name": "leverageDelegationUpdated",
       "type": {
         "kind": "struct",
         "fields": [
@@ -8269,18 +8841,18 @@
             "type": "pubkey"
           },
           {
-            "name": "delegated_program",
+            "name": "delegatedProgram",
             "type": "pubkey"
           },
           {
-            "name": "approved_actions",
+            "name": "approvedActions",
             "type": "u32"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -8288,7 +8860,7 @@
       }
     },
     {
-      "name": "LeveragePosition",
+      "name": "leveragePosition",
       "type": {
         "kind": "struct",
         "fields": [
@@ -8301,43 +8873,43 @@
             "type": "pubkey"
           },
           {
-            "name": "position_id",
+            "name": "positionId",
             "type": "pubkey"
           },
           {
-            "name": "debt_asset",
+            "name": "debtAsset",
             "type": "u8"
           },
           {
-            "name": "collateral_amount",
+            "name": "collateralAmount",
             "type": "u64"
           },
           {
-            "name": "margin_amount",
+            "name": "marginAmount",
             "type": "u64"
           },
           {
-            "name": "open_notional",
+            "name": "openNotional",
             "type": "u64"
           },
           {
-            "name": "debt_principal",
+            "name": "debtPrincipal",
             "type": "u128"
           },
           {
-            "name": "debt_shares",
+            "name": "debtShares",
             "type": "u128"
           },
           {
-            "name": "multiplier_bps",
+            "name": "multiplierBps",
             "type": "u64"
           },
           {
-            "name": "opened_at",
+            "name": "openedAt",
             "type": "i64"
           },
           {
-            "name": "opened_slot",
+            "name": "openedSlot",
             "type": "u64"
           },
           {
@@ -8348,7 +8920,7 @@
       }
     },
     {
-      "name": "LeveragePositionClosed",
+      "name": "leveragePositionClosed",
       "type": {
         "kind": "struct",
         "fields": [
@@ -8365,27 +8937,27 @@
             "type": "pubkey"
           },
           {
-            "name": "debt_asset_mint",
+            "name": "debtAssetMint",
             "type": "pubkey"
           },
           {
-            "name": "collateral_asset_mint",
+            "name": "collateralAssetMint",
             "type": "pubkey"
           },
           {
-            "name": "debt_repaid",
+            "name": "debtRepaid",
             "type": "u64"
           },
           {
-            "name": "interest_paid",
+            "name": "interestPaid",
             "type": "u64"
           },
           {
-            "name": "collateral_sold",
+            "name": "collateralSold",
             "type": "u64"
           },
           {
-            "name": "closeout_value",
+            "name": "closeoutValue",
             "type": "u64"
           },
           {
@@ -8396,7 +8968,7 @@
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -8404,7 +8976,7 @@
       }
     },
     {
-      "name": "LeveragePositionLiquidated",
+      "name": "leveragePositionLiquidated",
       "type": {
         "kind": "struct",
         "fields": [
@@ -8425,46 +8997,46 @@
             "type": "pubkey"
           },
           {
-            "name": "debt_asset_mint",
+            "name": "debtAssetMint",
             "type": "pubkey"
           },
           {
-            "name": "collateral_asset_mint",
+            "name": "collateralAssetMint",
             "type": "pubkey"
           },
           {
-            "name": "debt_repaid",
+            "name": "debtRepaid",
             "type": "u64"
           },
           {
-            "name": "interest_paid",
+            "name": "interestPaid",
             "type": "u64"
           },
           {
-            "name": "principal_written_off",
+            "name": "principalWrittenOff",
             "type": "u64"
           },
           {
-            "name": "collateral_sold",
+            "name": "collateralSold",
             "type": "u64"
           },
           {
-            "name": "closeout_value",
+            "name": "closeoutValue",
             "type": "u64"
           },
           {
-            "name": "liquidator_amount",
+            "name": "liquidatorAmount",
             "type": "u64"
           },
           {
-            "name": "owner_residual",
+            "name": "ownerResidual",
             "type": "u64"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -8472,7 +9044,7 @@
       }
     },
     {
-      "name": "LeveragePositionOpened",
+      "name": "leveragePositionOpened",
       "type": {
         "kind": "struct",
         "fields": [
@@ -8489,31 +9061,31 @@
             "type": "pubkey"
           },
           {
-            "name": "debt_asset_mint",
+            "name": "debtAssetMint",
             "type": "pubkey"
           },
           {
-            "name": "collateral_asset_mint",
+            "name": "collateralAssetMint",
             "type": "pubkey"
           },
           {
-            "name": "margin_amount",
+            "name": "marginAmount",
             "type": "u64"
           },
           {
-            "name": "debt_amount",
+            "name": "debtAmount",
             "type": "u64"
           },
           {
-            "name": "debt_shares",
+            "name": "debtShares",
             "type": "u128"
           },
           {
-            "name": "collateral_amount",
+            "name": "collateralAmount",
             "type": "u64"
           },
           {
-            "name": "closeout_value",
+            "name": "closeoutValue",
             "type": "u64"
           },
           {
@@ -8521,14 +9093,14 @@
             "type": "u64"
           },
           {
-            "name": "multiplier_bps",
+            "name": "multiplierBps",
             "type": "u64"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -8536,7 +9108,7 @@
       }
     },
     {
-      "name": "LeveragePositionUpdated",
+      "name": "leveragePositionUpdated",
       "type": {
         "kind": "struct",
         "fields": [
@@ -8553,42 +9125,42 @@
             "type": "pubkey"
           },
           {
-            "name": "debt_asset_mint",
+            "name": "debtAssetMint",
             "type": "pubkey"
           },
           {
-            "name": "collateral_asset_mint",
+            "name": "collateralAssetMint",
             "type": "pubkey"
           },
           {
-            "name": "debt_delta",
+            "name": "debtDelta",
             "type": "i64"
           },
           {
-            "name": "collateral_delta",
+            "name": "collateralDelta",
             "type": "i64"
           },
           {
-            "name": "debt_amount",
+            "name": "debtAmount",
             "type": "u64"
           },
           {
-            "name": "debt_shares",
+            "name": "debtShares",
             "type": "u128"
           },
           {
-            "name": "collateral_amount",
+            "name": "collateralAmount",
             "type": "u64"
           },
           {
-            "name": "closeout_value",
+            "name": "closeoutValue",
             "type": "u64"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -8596,43 +9168,43 @@
       }
     },
     {
-      "name": "LiquidateBorrowPositionArgs",
+      "name": "liquidateBorrowPositionArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "repay_amount",
+            "name": "repayAmount",
             "type": "u64"
           },
           {
-            "name": "min_collateral_out",
+            "name": "minCollateralOut",
             "type": "u64"
           },
           {
-            "name": "max_insurance_draw",
+            "name": "maxInsuranceDraw",
             "type": "u64"
           },
           {
-            "name": "max_socialized_loss",
+            "name": "maxSocializedLoss",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "LiquidateLeverageArgs",
+      "name": "liquidateLeverageArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "debt_asset",
+            "name": "debtAsset",
             "type": "u8"
           }
         ]
       }
     },
     {
-      "name": "LiquidityAdded",
+      "name": "liquidityAdded",
       "type": {
         "kind": "struct",
         "fields": [
@@ -8645,26 +9217,26 @@
             "type": "pubkey"
           },
           {
-            "name": "base_reserve_credit",
+            "name": "baseReserveCredit",
             "type": "u64"
           },
           {
-            "name": "quote_reserve_credit",
+            "name": "quoteReserveCredit",
             "type": "u64"
           },
           {
-            "name": "ylp_amount",
+            "name": "ylpAmount",
             "type": "u64"
           },
           {
-            "name": "ylp_supply",
+            "name": "ylpSupply",
             "type": "u64"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -8672,7 +9244,7 @@
       }
     },
     {
-      "name": "LiquidityRemoved",
+      "name": "liquidityRemoved",
       "type": {
         "kind": "struct",
         "fields": [
@@ -8685,26 +9257,26 @@
             "type": "pubkey"
           },
           {
-            "name": "ylp_amount",
+            "name": "ylpAmount",
             "type": "u64"
           },
           {
-            "name": "base_amount_out",
+            "name": "baseAmountOut",
             "type": "u64"
           },
           {
-            "name": "quote_amount_out",
+            "name": "quoteAmountOut",
             "type": "u64"
           },
           {
-            "name": "ylp_supply",
+            "name": "ylpSupply",
             "type": "u64"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -8712,7 +9284,7 @@
       }
     },
     {
-      "name": "ManagerFeesClaimed",
+      "name": "managerFeesClaimed",
       "type": {
         "kind": "struct",
         "fields": [
@@ -8725,30 +9297,30 @@
             "type": "pubkey"
           },
           {
-            "name": "asset_mint",
+            "name": "assetMint",
             "type": "pubkey"
           },
           {
-            "name": "swap_fee_amount",
+            "name": "swapFeeAmount",
             "type": "u64"
           },
           {
-            "name": "interest_fee_amount",
+            "name": "interestFeeAmount",
             "type": "u64"
           },
           {
-            "name": "remaining_manager_swap_fee_liability",
+            "name": "remainingManagerSwapFeeLiability",
             "type": "u64"
           },
           {
-            "name": "remaining_manager_interest_fee_liability",
+            "name": "remainingManagerInterestFeeLiability",
             "type": "u64"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -8756,7 +9328,7 @@
       }
     },
     {
-      "name": "Market",
+      "name": "market",
       "type": {
         "kind": "struct",
         "fields": [
@@ -8765,15 +9337,15 @@
             "type": "u8"
           },
           {
-            "name": "base_mint",
+            "name": "baseMint",
             "type": "pubkey"
           },
           {
-            "name": "quote_mint",
+            "name": "quoteMint",
             "type": "pubkey"
           },
           {
-            "name": "ylp_mint",
+            "name": "ylpMint",
             "type": "pubkey"
           },
           {
@@ -8785,18 +9357,18 @@
             "type": "pubkey"
           },
           {
-            "name": "base_side",
+            "name": "baseSide",
             "type": {
               "defined": {
-                "name": "MarketSide"
+                "name": "marketSide"
               }
             }
           },
           {
-            "name": "quote_side",
+            "name": "quoteSide",
             "type": {
               "defined": {
-                "name": "MarketSide"
+                "name": "marketSide"
               }
             }
           },
@@ -8804,7 +9376,7 @@
             "name": "config",
             "type": {
               "defined": {
-                "name": "MarketConfig"
+                "name": "marketConfig"
               }
             }
           },
@@ -8812,23 +9384,23 @@
             "name": "debt",
             "type": {
               "defined": {
-                "name": "Debt"
+                "name": "debt"
               }
             }
           },
           {
-            "name": "base_hlp_vault",
+            "name": "baseHlpVault",
             "type": {
               "defined": {
-                "name": "HlpVault"
+                "name": "hlpVault"
               }
             }
           },
           {
-            "name": "quote_hlp_vault",
+            "name": "quoteHlpVault",
             "type": {
               "defined": {
-                "name": "HlpVault"
+                "name": "hlpVault"
               }
             }
           },
@@ -8836,7 +9408,7 @@
             "name": "risk",
             "type": {
               "defined": {
-                "name": "Risk"
+                "name": "risk"
               }
             }
           },
@@ -8844,36 +9416,36 @@
             "name": "insurance",
             "type": {
               "defined": {
-                "name": "Insurance"
+                "name": "insurance"
               }
             }
           },
           {
-            "name": "pending_config",
+            "name": "pendingConfig",
             "type": {
               "defined": {
-                "name": "PendingConfigChange"
+                "name": "pendingConfigChange"
               }
             }
           },
           {
-            "name": "pending_operator",
+            "name": "pendingOperator",
             "type": {
               "defined": {
-                "name": "PendingAuthorityChange"
+                "name": "pendingAuthorityChange"
               }
             }
           },
           {
-            "name": "pending_manager",
+            "name": "pendingManager",
             "type": {
               "defined": {
-                "name": "PendingAuthorityChange"
+                "name": "pendingAuthorityChange"
               }
             }
           },
           {
-            "name": "params_hash",
+            "name": "paramsHash",
             "type": {
               "array": [
                 "u8",
@@ -8882,11 +9454,11 @@
             }
           },
           {
-            "name": "last_update_slot",
+            "name": "lastUpdateSlot",
             "type": "u64"
           },
           {
-            "name": "reduce_only",
+            "name": "reduceOnly",
             "type": "bool"
           },
           {
@@ -8897,7 +9469,21 @@
       }
     },
     {
-      "name": "MarketAuthorityUpdateScheduled",
+      "name": "marketAsset",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "base"
+          },
+          {
+            "name": "quote"
+          }
+        ]
+      }
+    },
+    {
+      "name": "marketAuthorityUpdateScheduled",
       "type": {
         "kind": "struct",
         "fields": [
@@ -8910,18 +9496,18 @@
             "type": "u8"
           },
           {
-            "name": "pending_authority",
+            "name": "pendingAuthority",
             "type": "pubkey"
           },
           {
-            "name": "execute_after_slot",
+            "name": "executeAfterSlot",
             "type": "u64"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -8929,7 +9515,7 @@
       }
     },
     {
-      "name": "MarketAuthorityUpdated",
+      "name": "marketAuthorityUpdated",
       "type": {
         "kind": "struct",
         "fields": [
@@ -8949,7 +9535,7 @@
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -8957,7 +9543,7 @@
       }
     },
     {
-      "name": "MarketCollateralDeposited",
+      "name": "marketCollateralDeposited",
       "type": {
         "kind": "struct",
         "fields": [
@@ -8970,26 +9556,26 @@
             "type": "pubkey"
           },
           {
-            "name": "asset_mint",
+            "name": "assetMint",
             "type": "pubkey"
           },
           {
-            "name": "collateral_credit",
+            "name": "collateralCredit",
             "type": "u64"
           },
           {
-            "name": "base_collateral",
+            "name": "baseCollateral",
             "type": "u64"
           },
           {
-            "name": "quote_collateral",
+            "name": "quoteCollateral",
             "type": "u64"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -8997,7 +9583,7 @@
       }
     },
     {
-      "name": "MarketCollateralWithdrawn",
+      "name": "marketCollateralWithdrawn",
       "type": {
         "kind": "struct",
         "fields": [
@@ -9010,30 +9596,30 @@
             "type": "pubkey"
           },
           {
-            "name": "asset_mint",
+            "name": "assetMint",
             "type": "pubkey"
           },
           {
-            "name": "collateral_debit",
+            "name": "collateralDebit",
             "type": "u64"
           },
           {
-            "name": "asset_credit",
+            "name": "assetCredit",
             "type": "u64"
           },
           {
-            "name": "base_collateral",
+            "name": "baseCollateral",
             "type": "u64"
           },
           {
-            "name": "quote_collateral",
+            "name": "quoteCollateral",
             "type": "u64"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -9041,75 +9627,75 @@
       }
     },
     {
-      "name": "MarketConfig",
+      "name": "marketConfig",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "swap_fee_bps",
+            "name": "swapFeeBps",
             "type": "u16"
           },
           {
-            "name": "manager_fee_bps",
+            "name": "managerFeeBps",
             "type": "u16"
           },
           {
-            "name": "protocol_fee_bps",
+            "name": "protocolFeeBps",
             "type": "u16"
           },
           {
-            "name": "target_hlp_leverage_bps",
+            "name": "targetHlpLeverageBps",
             "type": "u16"
           },
           {
-            "name": "settlement_divergence_bps",
+            "name": "settlementDivergenceBps",
             "type": "u16"
           },
           {
-            "name": "emergency_exit_haircut_bps",
+            "name": "emergencyExitHaircutBps",
             "type": "u16"
           },
           {
-            "name": "ema_half_life_ms",
+            "name": "emaHalfLifeMs",
             "type": "u64"
           },
           {
-            "name": "directional_ema_half_life_ms",
+            "name": "directionalEmaHalfLifeMs",
             "type": "u64"
           },
           {
-            "name": "k_ema_half_life_ms",
+            "name": "kEmaHalfLifeMs",
             "type": "u64"
           },
           {
-            "name": "max_daily_borrow_bps",
+            "name": "maxDailyBorrowBps",
             "type": "u16"
           },
           {
-            "name": "spot_ema_divergence_bps",
+            "name": "spotEmaDivergenceBps",
             "type": "u16"
           },
           {
-            "name": "k_ema_drawdown_bps",
+            "name": "kEmaDrawdownBps",
             "type": "u16"
           },
           {
-            "name": "recognized_collateral_cap_bps",
+            "name": "recognizedCollateralCapBps",
             "type": "u16"
           },
           {
-            "name": "market_health_min_bps",
+            "name": "marketHealthMinBps",
             "type": "u16"
           },
           {
-            "name": "start_time",
+            "name": "startTime",
             "type": "i64"
           }
         ]
       }
     },
     {
-      "name": "MarketConfigUpdateScheduled",
+      "name": "marketConfigUpdateScheduled",
       "type": {
         "kind": "struct",
         "fields": [
@@ -9118,30 +9704,30 @@
             "type": "pubkey"
           },
           {
-            "name": "execute_after_slot",
+            "name": "executeAfterSlot",
             "type": "u64"
           },
           {
-            "name": "target_hlp_leverage_bps",
+            "name": "targetHlpLeverageBps",
             "type": "u16"
           },
           {
-            "name": "swap_fee_bps",
+            "name": "swapFeeBps",
             "type": "u16"
           },
           {
-            "name": "manager_fee_bps",
+            "name": "managerFeeBps",
             "type": "u16"
           },
           {
-            "name": "protocol_fee_bps",
+            "name": "protocolFeeBps",
             "type": "u16"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -9149,7 +9735,7 @@
       }
     },
     {
-      "name": "MarketCreated",
+      "name": "marketCreated",
       "type": {
         "kind": "struct",
         "fields": [
@@ -9158,39 +9744,39 @@
             "type": "pubkey"
           },
           {
-            "name": "base_mint",
+            "name": "baseMint",
             "type": "pubkey"
           },
           {
-            "name": "quote_mint",
+            "name": "quoteMint",
             "type": "pubkey"
           },
           {
-            "name": "ylp_mint",
+            "name": "ylpMint",
             "type": "pubkey"
           },
           {
-            "name": "base_collateral_vault",
+            "name": "baseCollateralVault",
             "type": "pubkey"
           },
           {
-            "name": "quote_collateral_vault",
+            "name": "quoteCollateralVault",
             "type": "pubkey"
           },
           {
-            "name": "base_insurance_vault",
+            "name": "baseInsuranceVault",
             "type": "pubkey"
           },
           {
-            "name": "quote_insurance_vault",
+            "name": "quoteInsuranceVault",
             "type": "pubkey"
           },
           {
-            "name": "base_hlp_mint",
+            "name": "baseHlpMint",
             "type": "pubkey"
           },
           {
-            "name": "quote_hlp_mint",
+            "name": "quoteHlpMint",
             "type": "pubkey"
           },
           {
@@ -9202,23 +9788,23 @@
             "type": "pubkey"
           },
           {
-            "name": "target_hlp_leverage_bps",
+            "name": "targetHlpLeverageBps",
             "type": "u16"
           },
           {
-            "name": "swap_fee_bps",
+            "name": "swapFeeBps",
             "type": "u16"
           },
           {
-            "name": "manager_fee_bps",
+            "name": "managerFeeBps",
             "type": "u16"
           },
           {
-            "name": "protocol_fee_bps",
+            "name": "protocolFeeBps",
             "type": "u16"
           },
           {
-            "name": "params_hash",
+            "name": "paramsHash",
             "type": {
               "array": [
                 "u8",
@@ -9234,7 +9820,7 @@
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -9242,7 +9828,7 @@
       }
     },
     {
-      "name": "MarketDebtUpdated",
+      "name": "marketDebtUpdated",
       "type": {
         "kind": "struct",
         "fields": [
@@ -9255,34 +9841,34 @@
             "type": "pubkey"
           },
           {
-            "name": "debt_asset_mint",
+            "name": "debtAssetMint",
             "type": "pubkey"
           },
           {
-            "name": "debt_delta",
+            "name": "debtDelta",
             "type": "i64"
           },
           {
-            "name": "fixed_base_debt",
+            "name": "fixedBaseDebt",
             "type": "u128"
           },
           {
-            "name": "fixed_quote_debt",
+            "name": "fixedQuoteDebt",
             "type": "u128"
           },
           {
-            "name": "base_debt_health_bps",
+            "name": "baseDebtHealthBps",
             "type": "u64"
           },
           {
-            "name": "quote_debt_health_bps",
+            "name": "quoteDebtHealthBps",
             "type": "u64"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -9290,7 +9876,7 @@
       }
     },
     {
-      "name": "MarketEventMetadata",
+      "name": "marketEventMetadata",
       "type": {
         "kind": "struct",
         "fields": [
@@ -9310,7 +9896,7 @@
       }
     },
     {
-      "name": "MarketFeeLiabilityClaimed",
+      "name": "marketFeeLiabilityClaimed",
       "type": {
         "kind": "struct",
         "fields": [
@@ -9323,26 +9909,26 @@
             "type": "pubkey"
           },
           {
-            "name": "asset_mint",
+            "name": "assetMint",
             "type": "pubkey"
           },
           {
-            "name": "claim_kind",
+            "name": "claimKind",
             "type": "u8"
           },
           {
-            "name": "fee_amount",
+            "name": "feeAmount",
             "type": "u64"
           },
           {
-            "name": "remaining_fee_liability",
+            "name": "remainingFeeLiability",
             "type": "u64"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -9350,7 +9936,39 @@
       }
     },
     {
-      "name": "MarketHealthUpdated",
+      "name": "marketHealth",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "recognizedBaseCollateralForQuoteDebt",
+            "type": "u64"
+          },
+          {
+            "name": "recognizedQuoteCollateralForBaseDebt",
+            "type": "u64"
+          },
+          {
+            "name": "effectiveBaseDebtNad",
+            "type": "u128"
+          },
+          {
+            "name": "effectiveQuoteDebtNad",
+            "type": "u128"
+          },
+          {
+            "name": "baseDebtHealthBps",
+            "type": "u64"
+          },
+          {
+            "name": "quoteDebtHealthBps",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "marketHealthUpdated",
       "type": {
         "kind": "struct",
         "fields": [
@@ -9359,34 +9977,34 @@
             "type": "pubkey"
           },
           {
-            "name": "recognized_base_collateral_for_quote_debt",
+            "name": "recognizedBaseCollateralForQuoteDebt",
             "type": "u64"
           },
           {
-            "name": "recognized_quote_collateral_for_base_debt",
+            "name": "recognizedQuoteCollateralForBaseDebt",
             "type": "u64"
           },
           {
-            "name": "effective_base_debt_nad",
+            "name": "effectiveBaseDebtNad",
             "type": "u128"
           },
           {
-            "name": "effective_quote_debt_nad",
+            "name": "effectiveQuoteDebtNad",
             "type": "u128"
           },
           {
-            "name": "base_debt_health_bps",
+            "name": "baseDebtHealthBps",
             "type": "u64"
           },
           {
-            "name": "quote_debt_health_bps",
+            "name": "quoteDebtHealthBps",
             "type": "u64"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -9394,43 +10012,87 @@
       }
     },
     {
-      "name": "MarketSide",
+      "name": "marketPreview",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "asset_mint",
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "base",
+            "type": {
+              "defined": {
+                "name": "previewSide"
+              }
+            }
+          },
+          {
+            "name": "quote",
+            "type": {
+              "defined": {
+                "name": "previewSide"
+              }
+            }
+          },
+          {
+            "name": "kNad",
+            "type": "u128"
+          },
+          {
+            "name": "liquidityNad",
+            "type": "u128"
+          },
+          {
+            "name": "health",
+            "type": {
+              "defined": {
+                "name": "marketHealth"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "marketSide",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "assetMint",
             "type": "pubkey"
           },
           {
-            "name": "asset_decimals",
+            "name": "assetDecimals",
             "type": "u8"
           },
           {
-            "name": "hlp_mint",
+            "name": "hlpMint",
             "type": "pubkey"
           },
           {
-            "name": "reserve_vault",
+            "name": "reserveVault",
             "type": "pubkey"
           },
           {
-            "name": "collateral_vault",
+            "name": "collateralVault",
             "type": "pubkey"
           },
           {
-            "name": "fee_vault",
+            "name": "feeVault",
             "type": "pubkey"
           },
           {
-            "name": "interest_vault",
+            "name": "interestVault",
             "type": "pubkey"
           },
           {
             "name": "reserves",
             "type": {
               "defined": {
-                "name": "Reserves"
+                "name": "reserves"
               }
             }
           },
@@ -9438,7 +10100,7 @@
             "name": "shares",
             "type": {
               "defined": {
-                "name": "ReserveShares"
+                "name": "reserveShares"
               }
             }
           },
@@ -9446,15 +10108,15 @@
             "name": "fees",
             "type": {
               "defined": {
-                "name": "Fees"
+                "name": "fees"
               }
             }
           },
           {
-            "name": "daily_limits",
+            "name": "dailyLimits",
             "type": {
               "defined": {
-                "name": "DailyLimits"
+                "name": "dailyLimits"
               }
             }
           }
@@ -9462,7 +10124,7 @@
       }
     },
     {
-      "name": "MarketUpdated",
+      "name": "marketUpdated",
       "type": {
         "kind": "struct",
         "fields": [
@@ -9471,30 +10133,30 @@
             "type": "pubkey"
           },
           {
-            "name": "reduce_only",
+            "name": "reduceOnly",
             "type": "bool"
           },
           {
-            "name": "target_hlp_leverage_bps",
+            "name": "targetHlpLeverageBps",
             "type": "u16"
           },
           {
-            "name": "swap_fee_bps",
+            "name": "swapFeeBps",
             "type": "u16"
           },
           {
-            "name": "manager_fee_bps",
+            "name": "managerFeeBps",
             "type": "u16"
           },
           {
-            "name": "protocol_fee_bps",
+            "name": "protocolFeeBps",
             "type": "u16"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -9502,35 +10164,35 @@
       }
     },
     {
-      "name": "OpenLeverageArgs",
+      "name": "openLeverageArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "position_id",
+            "name": "positionId",
             "type": "pubkey"
           },
           {
-            "name": "debt_asset",
+            "name": "debtAsset",
             "type": "u8"
           },
           {
-            "name": "margin_amount",
+            "name": "marginAmount",
             "type": "u64"
           },
           {
-            "name": "multiplier_bps",
+            "name": "multiplierBps",
             "type": "u64"
           },
           {
-            "name": "min_collateral_out",
+            "name": "minCollateralOut",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "PendingAuthorityChange",
+      "name": "pendingAuthorityChange",
       "type": {
         "kind": "struct",
         "fields": [
@@ -9539,26 +10201,26 @@
             "type": "bool"
           },
           {
-            "name": "new_authority",
+            "name": "newAuthority",
             "type": "pubkey"
           },
           {
-            "name": "scheduled_by",
+            "name": "scheduledBy",
             "type": "pubkey"
           },
           {
-            "name": "scheduled_slot",
+            "name": "scheduledSlot",
             "type": "u64"
           },
           {
-            "name": "execute_after_slot",
+            "name": "executeAfterSlot",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "PendingConfigChange",
+      "name": "pendingConfigChange",
       "type": {
         "kind": "struct",
         "fields": [
@@ -9570,27 +10232,95 @@
             "name": "config",
             "type": {
               "defined": {
-                "name": "MarketConfig"
+                "name": "marketConfig"
               }
             }
           },
           {
-            "name": "scheduled_by",
+            "name": "scheduledBy",
             "type": "pubkey"
           },
           {
-            "name": "scheduled_slot",
+            "name": "scheduledSlot",
             "type": "u64"
           },
           {
-            "name": "execute_after_slot",
+            "name": "executeAfterSlot",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "PositionLiquidated",
+      "name": "positionDebtSidePreview",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "debtAsset",
+            "type": {
+              "defined": {
+                "name": "marketAsset"
+              }
+            }
+          },
+          {
+            "name": "collateralAsset",
+            "type": {
+              "defined": {
+                "name": "marketAsset"
+              }
+            }
+          },
+          {
+            "name": "fixedDebt",
+            "type": "u128"
+          },
+          {
+            "name": "recognizedCollateral",
+            "type": "u64"
+          },
+          {
+            "name": "collateralValueNad",
+            "type": "u128"
+          },
+          {
+            "name": "healthBps",
+            "type": "u64"
+          },
+          {
+            "name": "liquidationReferencePriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "liquidationHealthBps",
+            "type": "u64"
+          },
+          {
+            "name": "isLiquidatable",
+            "type": "bool"
+          },
+          {
+            "name": "liquidationIncentiveBps",
+            "type": "u16"
+          },
+          {
+            "name": "insuranceFundingBps",
+            "type": "u16"
+          },
+          {
+            "name": "totalPenaltyBps",
+            "type": "u16"
+          },
+          {
+            "name": "maxRepayAmount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "positionLiquidated",
       "type": {
         "kind": "struct",
         "fields": [
@@ -9599,7 +10329,7 @@
             "type": "pubkey"
           },
           {
-            "name": "borrow_position",
+            "name": "borrowPosition",
             "type": "pubkey"
           },
           {
@@ -9611,46 +10341,46 @@
             "type": "pubkey"
           },
           {
-            "name": "debt_asset_mint",
+            "name": "debtAssetMint",
             "type": "pubkey"
           },
           {
-            "name": "collateral_asset_mint",
+            "name": "collateralAssetMint",
             "type": "pubkey"
           },
           {
-            "name": "repaid_amount",
+            "name": "repaidAmount",
             "type": "u64"
           },
           {
-            "name": "collateral_seized",
+            "name": "collateralSeized",
             "type": "u64"
           },
           {
-            "name": "collateral_to_liquidator",
+            "name": "collateralToLiquidator",
             "type": "u64"
           },
           {
-            "name": "insurance_funded",
+            "name": "insuranceFunded",
             "type": "u64"
           },
           {
-            "name": "insurance_drawn",
+            "name": "insuranceDrawn",
             "type": "u64"
           },
           {
-            "name": "socialized_loss",
+            "name": "socializedLoss",
             "type": "u64"
           },
           {
-            "name": "remaining_debt",
+            "name": "remainingDebt",
             "type": "u128"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -9658,19 +10388,149 @@
       }
     },
     {
-      "name": "ProtocolAuctionConfig",
+      "name": "previewAddLiquidityArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "accepted_mint",
+            "name": "baseDepositAmount",
+            "type": "u64"
+          },
+          {
+            "name": "quoteDepositAmount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "previewBorrowCapacityArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "collateralAmount",
+            "type": "u64"
+          },
+          {
+            "name": "projectedDebtAmount",
+            "type": {
+              "option": "u64"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "previewSide",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "liveReserve",
+            "type": "u64"
+          },
+          {
+            "name": "cashReserve",
+            "type": "u64"
+          },
+          {
+            "name": "reservedLiability",
+            "type": "u64"
+          },
+          {
+            "name": "ylpSupply",
+            "type": "u64"
+          },
+          {
+            "name": "ylpExchangeRateNad",
+            "type": "u128"
+          },
+          {
+            "name": "spotPriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "priceEmaNad",
+            "type": "u64"
+          },
+          {
+            "name": "directionalPriceEmaNad",
+            "type": "u64"
+          },
+          {
+            "name": "liquidityEmaNad",
+            "type": "u128"
+          },
+          {
+            "name": "borrowIndexNad",
+            "type": "u128"
+          },
+          {
+            "name": "rateAtTargetNad",
+            "type": "u128"
+          },
+          {
+            "name": "borrowAprNad",
+            "type": "u128"
+          },
+          {
+            "name": "utilizationBps",
+            "type": "u64"
+          },
+          {
+            "name": "fixedDebt",
+            "type": "u128"
+          },
+          {
+            "name": "isolatedDebt",
+            "type": "u128"
+          },
+          {
+            "name": "hlpFundingDebt",
+            "type": "u128"
+          },
+          {
+            "name": "totalDebt",
+            "type": "u128"
+          },
+          {
+            "name": "dailyBorrowLimit",
+            "type": "u64"
+          },
+          {
+            "name": "dailyBorrowRemaining",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "previewSwapArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "exactAssetIn",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "protocolAuctionConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "acceptedMint",
             "type": "pubkey"
           },
           {
             "name": "recipients",
             "type": {
               "defined": {
-                "name": "ProtocolAuctionRecipients"
+                "name": "protocolAuctionRecipients"
               }
             }
           },
@@ -9678,23 +10538,23 @@
             "name": "params",
             "type": {
               "defined": {
-                "name": "ProtocolAuctionParams"
+                "name": "protocolAuctionParams"
               }
             }
           },
           {
-            "name": "last_settlement_slot",
+            "name": "lastSettlementSlot",
             "type": "u64"
           },
           {
-            "name": "last_settlement_price_nad",
+            "name": "lastSettlementPriceNad",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "ProtocolAuctionConfigUpdated",
+      "name": "protocolAuctionConfigUpdated",
       "type": {
         "kind": "struct",
         "fields": [
@@ -9707,23 +10567,23 @@
             "type": "u8"
           },
           {
-            "name": "accepted_mint",
+            "name": "acceptedMint",
             "type": "pubkey"
           },
           {
-            "name": "start_multiplier_bps",
+            "name": "startMultiplierBps",
             "type": "u16"
           },
           {
-            "name": "floor_multiplier_bps",
+            "name": "floorMultiplierBps",
             "type": "u16"
           },
           {
-            "name": "duration_slots",
+            "name": "durationSlots",
             "type": "u64"
           },
           {
-            "name": "max_reference_age_slots",
+            "name": "maxReferenceAgeSlots",
             "type": "u64"
           },
           {
@@ -9734,45 +10594,45 @@
       }
     },
     {
-      "name": "ProtocolAuctionLane",
+      "name": "protocolAuctionLane",
       "type": {
         "kind": "enum",
         "variants": [
           {
-            "name": "Fee"
+            "name": "fee"
           },
           {
-            "name": "Buyback"
+            "name": "buyback"
           }
         ]
       }
     },
     {
-      "name": "ProtocolAuctionParams",
+      "name": "protocolAuctionParams",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "start_multiplier_bps",
+            "name": "startMultiplierBps",
             "type": "u16"
           },
           {
-            "name": "floor_multiplier_bps",
+            "name": "floorMultiplierBps",
             "type": "u16"
           },
           {
-            "name": "duration_slots",
+            "name": "durationSlots",
             "type": "u64"
           },
           {
-            "name": "max_reference_age_slots",
+            "name": "maxReferenceAgeSlots",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "ProtocolAuctionRecipients",
+      "name": "protocolAuctionRecipients",
       "type": {
         "kind": "struct",
         "fields": [
@@ -9781,22 +10641,22 @@
             "type": "pubkey"
           },
           {
-            "name": "staking_vault",
+            "name": "stakingVault",
             "type": "pubkey"
           },
           {
-            "name": "treasury_bps",
+            "name": "treasuryBps",
             "type": "u16"
           },
           {
-            "name": "staking_vault_bps",
+            "name": "stakingVaultBps",
             "type": "u16"
           }
         ]
       }
     },
     {
-      "name": "ProtocolAuctionRecipientsUpdated",
+      "name": "protocolAuctionRecipientsUpdated",
       "type": {
         "kind": "struct",
         "fields": [
@@ -9813,15 +10673,15 @@
             "type": "pubkey"
           },
           {
-            "name": "staking_vault",
+            "name": "stakingVault",
             "type": "pubkey"
           },
           {
-            "name": "treasury_bps",
+            "name": "treasuryBps",
             "type": "u16"
           },
           {
-            "name": "staking_vault_bps",
+            "name": "stakingVaultBps",
             "type": "u16"
           },
           {
@@ -9832,7 +10692,7 @@
       }
     },
     {
-      "name": "ProtocolAuctionSettled",
+      "name": "protocolAuctionSettled",
       "type": {
         "kind": "struct",
         "fields": [
@@ -9841,7 +10701,7 @@
             "type": "pubkey"
           },
           {
-            "name": "reference_market",
+            "name": "referenceMarket",
             "type": "pubkey"
           },
           {
@@ -9857,50 +10717,50 @@
             "type": "pubkey"
           },
           {
-            "name": "sold_mint",
+            "name": "soldMint",
             "type": "pubkey"
           },
           {
-            "name": "accepted_mint",
+            "name": "acceptedMint",
             "type": "pubkey"
           },
           {
-            "name": "sold_amount",
+            "name": "soldAmount",
             "type": "u64"
           },
           {
-            "name": "payment_amount",
+            "name": "paymentAmount",
             "type": "u64"
           },
           {
-            "name": "treasury_amount",
+            "name": "treasuryAmount",
             "type": "u64"
           },
           {
-            "name": "staking_vault_amount",
+            "name": "stakingVaultAmount",
             "type": "u64"
           },
           {
-            "name": "reference_price_nad",
+            "name": "referencePriceNad",
             "type": "u64"
           },
           {
-            "name": "auction_price_nad",
+            "name": "auctionPriceNad",
             "type": "u64"
           },
           {
-            "name": "remaining_fee_liability",
+            "name": "remainingFeeLiability",
             "type": "u64"
           },
           {
-            "name": "remaining_buyback_liability",
+            "name": "remainingBuybackLiability",
             "type": "u64"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -9908,23 +10768,23 @@
       }
     },
     {
-      "name": "ProtocolAuctionSplit",
+      "name": "protocolAuctionSplit",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "fee_auction_bps",
+            "name": "feeAuctionBps",
             "type": "u16"
           },
           {
-            "name": "buyback_auction_bps",
+            "name": "buybackAuctionBps",
             "type": "u16"
           }
         ]
       }
     },
     {
-      "name": "ProtocolAuctionSplitUpdated",
+      "name": "protocolAuctionSplitUpdated",
       "type": {
         "kind": "struct",
         "fields": [
@@ -9933,11 +10793,11 @@
             "type": "pubkey"
           },
           {
-            "name": "fee_auction_bps",
+            "name": "feeAuctionBps",
             "type": "u16"
           },
           {
-            "name": "buyback_auction_bps",
+            "name": "buybackAuctionBps",
             "type": "u16"
           },
           {
@@ -9948,12 +10808,12 @@
       }
     },
     {
-      "name": "RemoveLeverageMarginArgs",
+      "name": "removeLeverageMarginArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "debt_asset",
+            "name": "debtAsset",
             "type": "u8"
           },
           {
@@ -9961,98 +10821,98 @@
             "type": "u64"
           },
           {
-            "name": "min_amount_out",
+            "name": "minAmountOut",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "RemoveLiquidityArgs",
+      "name": "removeLiquidityArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "ylp_amount",
+            "name": "ylpAmount",
             "type": "u64"
           },
           {
-            "name": "min_base_amount_out",
+            "name": "minBaseAmountOut",
             "type": "u64"
           },
           {
-            "name": "min_quote_amount_out",
+            "name": "minQuoteAmountOut",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "RepayArgs",
+      "name": "repayArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "repay_amount",
+            "name": "repayAmount",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "ReserveShares",
+      "name": "reserveShares",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "ylp_supply",
+            "name": "ylpSupply",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "Reserves",
+      "name": "reserves",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "live_reserve",
+            "name": "liveReserve",
             "type": "u64"
           },
           {
-            "name": "cash_reserve",
+            "name": "cashReserve",
             "type": "u64"
           },
           {
-            "name": "reserved_liability",
+            "name": "reservedLiability",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "RevenueDistribution",
+      "name": "revenueDistribution",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "futarchy_treasury_bps",
+            "name": "futarchyTreasuryBps",
             "type": "u16"
           },
           {
-            "name": "buybacks_vault_bps",
+            "name": "buybacksVaultBps",
             "type": "u16"
           },
           {
-            "name": "team_treasury_bps",
+            "name": "teamTreasuryBps",
             "type": "u16"
           }
         ]
       }
     },
     {
-      "name": "RevenueRecipients",
+      "name": "revenueRecipients",
       "docs": [
         "Revenue recipient wallet addresses. Recipient token accounts are derived or",
         "validated against these owners when protocol fees are claimed."
@@ -10061,162 +10921,162 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "futarchy_treasury",
+            "name": "futarchyTreasury",
             "type": "pubkey"
           },
           {
-            "name": "buybacks_vault",
+            "name": "buybacksVault",
             "type": "pubkey"
           },
           {
-            "name": "team_treasury",
+            "name": "teamTreasury",
             "type": "pubkey"
           }
         ]
       }
     },
     {
-      "name": "RevenueShare",
+      "name": "revenueShare",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "swap_bps",
+            "name": "swapBps",
             "type": "u16"
           },
           {
-            "name": "interest_bps",
+            "name": "interestBps",
             "type": "u16"
           }
         ]
       }
     },
     {
-      "name": "Risk",
+      "name": "risk",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "base_price_ema_nad",
+            "name": "basePriceEmaNad",
             "type": "u64"
           },
           {
-            "name": "quote_price_ema_nad",
+            "name": "quotePriceEmaNad",
             "type": "u64"
           },
           {
-            "name": "directional_base_price_ema_nad",
+            "name": "directionalBasePriceEmaNad",
             "type": "u64"
           },
           {
-            "name": "directional_quote_price_ema_nad",
+            "name": "directionalQuotePriceEmaNad",
             "type": "u64"
           },
           {
-            "name": "cached_spot_base_price_nad",
+            "name": "cachedSpotBasePriceNad",
             "type": "u64"
           },
           {
-            "name": "cached_spot_quote_price_nad",
+            "name": "cachedSpotQuotePriceNad",
             "type": "u64"
           },
           {
-            "name": "cached_k_nad",
+            "name": "cachedKNad",
             "type": "u128"
           },
           {
-            "name": "cached_liquidity_nad",
+            "name": "cachedLiquidityNad",
             "type": "u128"
           },
           {
-            "name": "cached_base_liquidity_nad",
+            "name": "cachedBaseLiquidityNad",
             "type": "u128"
           },
           {
-            "name": "cached_quote_liquidity_nad",
+            "name": "cachedQuoteLiquidityNad",
             "type": "u128"
           },
           {
-            "name": "k_ema",
+            "name": "kEma",
             "type": "u128"
           },
           {
-            "name": "liquidity_ema",
+            "name": "liquidityEma",
             "type": "u128"
           },
           {
-            "name": "base_liquidity_ema",
+            "name": "baseLiquidityEma",
             "type": "u128"
           },
           {
-            "name": "quote_liquidity_ema",
+            "name": "quoteLiquidityEma",
             "type": "u128"
           },
           {
-            "name": "last_snapshot_slot",
+            "name": "lastSnapshotSlot",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "SetGlobalReduceOnlyArgs",
+      "name": "setGlobalReduceOnlyArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "reduce_only",
+            "name": "reduceOnly",
             "type": "bool"
           }
         ]
       }
     },
     {
-      "name": "SetManagerArgs",
+      "name": "setManagerArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "new_manager",
+            "name": "newManager",
             "type": "pubkey"
           }
         ]
       }
     },
     {
-      "name": "SetMarketReduceOnlyArgs",
+      "name": "setMarketReduceOnlyArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "reduce_only",
+            "name": "reduceOnly",
             "type": "bool"
           }
         ]
       }
     },
     {
-      "name": "SetOperatorArgs",
+      "name": "setOperatorArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "new_operator",
+            "name": "newOperator",
             "type": "pubkey"
           }
         ]
       }
     },
     {
-      "name": "SetYieldRecipientArgs",
+      "name": "setYieldRecipientArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "token_kind",
+            "name": "tokenKind",
             "type": {
               "defined": {
-                "name": "YieldTokenKind"
+                "name": "yieldTokenKind"
               }
             }
           },
@@ -10228,7 +11088,7 @@
       }
     },
     {
-      "name": "SettleProtocolAuctionArgs",
+      "name": "settleProtocolAuctionArgs",
       "type": {
         "kind": "struct",
         "fields": [
@@ -10236,39 +11096,39 @@
             "name": "lane",
             "type": {
               "defined": {
-                "name": "ProtocolAuctionLane"
+                "name": "protocolAuctionLane"
               }
             }
           },
           {
-            "name": "sold_amount",
+            "name": "soldAmount",
             "type": "u64"
           },
           {
-            "name": "max_payment_amount",
+            "name": "maxPaymentAmount",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "SwapArgs",
+      "name": "swapArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "exact_asset_in",
+            "name": "exactAssetIn",
             "type": "u64"
           },
           {
-            "name": "min_asset_out",
+            "name": "minAssetOut",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "SwapExecuted",
+      "name": "swapExecuted",
       "type": {
         "kind": "struct",
         "fields": [
@@ -10281,42 +11141,42 @@
             "type": "pubkey"
           },
           {
-            "name": "asset_in_mint",
+            "name": "assetInMint",
             "type": "pubkey"
           },
           {
-            "name": "asset_out_mint",
+            "name": "assetOutMint",
             "type": "pubkey"
           },
           {
-            "name": "reserve_credit",
+            "name": "reserveCredit",
             "type": "u64"
           },
           {
-            "name": "amount_in_after_fee",
+            "name": "amountInAfterFee",
             "type": "u64"
           },
           {
-            "name": "amount_out",
+            "name": "amountOut",
             "type": "u64"
           },
           {
-            "name": "fee_credit",
+            "name": "feeCredit",
             "type": "u64"
           },
           {
-            "name": "base_hlp_pending_rebalance",
+            "name": "baseHlpPendingRebalance",
             "type": "i128"
           },
           {
-            "name": "quote_hlp_pending_rebalance",
+            "name": "quoteHlpPendingRebalance",
             "type": "i128"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -10324,7 +11184,67 @@
       }
     },
     {
-      "name": "SwapSettled",
+      "name": "swapPreview",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "assetIn",
+            "type": {
+              "defined": {
+                "name": "marketAsset"
+              }
+            }
+          },
+          {
+            "name": "assetOut",
+            "type": {
+              "defined": {
+                "name": "marketAsset"
+              }
+            }
+          },
+          {
+            "name": "exactAssetIn",
+            "type": "u64"
+          },
+          {
+            "name": "transferFee",
+            "type": "u64"
+          },
+          {
+            "name": "reserveCredit",
+            "type": "u64"
+          },
+          {
+            "name": "swapFeeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "feeCredit",
+            "type": "u64"
+          },
+          {
+            "name": "amountInAfterFee",
+            "type": "u64"
+          },
+          {
+            "name": "amountOut",
+            "type": "u64"
+          },
+          {
+            "name": "reserveInLiveReserve",
+            "type": "u64"
+          },
+          {
+            "name": "reserveOutLiveReserve",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "swapSettled",
       "type": {
         "kind": "struct",
         "fields": [
@@ -10337,70 +11257,70 @@
             "type": "pubkey"
           },
           {
-            "name": "asset_in_side",
+            "name": "assetInSide",
             "type": "u8"
           },
           {
-            "name": "reserve_credit",
+            "name": "reserveCredit",
             "type": "u64"
           },
           {
-            "name": "amount_in_after_fee",
+            "name": "amountInAfterFee",
             "type": "u64"
           },
           {
-            "name": "amount_out",
+            "name": "amountOut",
             "type": "u64"
           },
           {
-            "name": "fee_credit",
+            "name": "feeCredit",
             "type": "u64"
           },
           {
-            "name": "base_hlp_pending_rebalance",
+            "name": "baseHlpPendingRebalance",
             "type": "i128"
           },
           {
-            "name": "quote_hlp_pending_rebalance",
+            "name": "quoteHlpPendingRebalance",
             "type": "i128"
           }
         ]
       }
     },
     {
-      "name": "UpdateFutarchyAuthorityArgs",
+      "name": "updateFutarchyAuthorityArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "new_authority",
+            "name": "newAuthority",
             "type": "pubkey"
           }
         ]
       }
     },
     {
-      "name": "UpdateLeverageDelegationArgs",
+      "name": "updateLeverageDelegationArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "debt_asset",
+            "name": "debtAsset",
             "type": "u8"
           },
           {
-            "name": "delegated_program",
+            "name": "delegatedProgram",
             "type": "pubkey"
           },
           {
-            "name": "approved_actions",
+            "name": "approvedActions",
             "type": "u32"
           }
         ]
       }
     },
     {
-      "name": "UpdateMarketConfigArgs",
+      "name": "updateMarketConfigArgs",
       "type": {
         "kind": "struct",
         "fields": [
@@ -10408,7 +11328,7 @@
             "name": "config",
             "type": {
               "defined": {
-                "name": "MarketConfig"
+                "name": "marketConfig"
               }
             }
           }
@@ -10416,7 +11336,7 @@
       }
     },
     {
-      "name": "UpdateProtocolAuctionConfigArgs",
+      "name": "updateProtocolAuctionConfigArgs",
       "type": {
         "kind": "struct",
         "fields": [
@@ -10424,12 +11344,12 @@
             "name": "lane",
             "type": {
               "defined": {
-                "name": "ProtocolAuctionLane"
+                "name": "protocolAuctionLane"
               }
             }
           },
           {
-            "name": "accepted_mint",
+            "name": "acceptedMint",
             "type": {
               "option": "pubkey"
             }
@@ -10439,7 +11359,7 @@
             "type": {
               "option": {
                 "defined": {
-                  "name": "ProtocolAuctionParams"
+                  "name": "protocolAuctionParams"
                 }
               }
             }
@@ -10448,7 +11368,7 @@
       }
     },
     {
-      "name": "UpdateProtocolAuctionRecipientsArgs",
+      "name": "updateProtocolAuctionRecipientsArgs",
       "type": {
         "kind": "struct",
         "fields": [
@@ -10456,7 +11376,7 @@
             "name": "lane",
             "type": {
               "defined": {
-                "name": "ProtocolAuctionLane"
+                "name": "protocolAuctionLane"
               }
             }
           },
@@ -10467,19 +11387,19 @@
             }
           },
           {
-            "name": "staking_vault",
+            "name": "stakingVault",
             "type": {
               "option": "pubkey"
             }
           },
           {
-            "name": "treasury_bps",
+            "name": "treasuryBps",
             "type": {
               "option": "u16"
             }
           },
           {
-            "name": "staking_vault_bps",
+            "name": "stakingVaultBps",
             "type": {
               "option": "u16"
             }
@@ -10488,38 +11408,38 @@
       }
     },
     {
-      "name": "UpdateProtocolRevenueArgs",
+      "name": "updateProtocolRevenueArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "swap_bps",
+            "name": "swapBps",
             "type": {
               "option": "u16"
             }
           },
           {
-            "name": "interest_bps",
+            "name": "interestBps",
             "type": {
               "option": "u16"
             }
           },
           {
-            "name": "revenue_distribution",
+            "name": "revenueDistribution",
             "type": {
               "option": {
                 "defined": {
-                  "name": "RevenueDistribution"
+                  "name": "revenueDistribution"
                 }
               }
             }
           },
           {
-            "name": "protocol_auction_split",
+            "name": "protocolAuctionSplit",
             "type": {
               "option": {
                 "defined": {
-                  "name": "ProtocolAuctionSplit"
+                  "name": "protocolAuctionSplit"
                 }
               }
             }
@@ -10528,24 +11448,24 @@
       }
     },
     {
-      "name": "UpdateRevenueRecipientsArgs",
+      "name": "updateRevenueRecipientsArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "futarchy_treasury",
+            "name": "futarchyTreasury",
             "type": {
               "option": "pubkey"
             }
           },
           {
-            "name": "buybacks_vault",
+            "name": "buybacksVault",
             "type": {
               "option": "pubkey"
             }
           },
           {
-            "name": "team_treasury",
+            "name": "teamTreasury",
             "type": {
               "option": "pubkey"
             }
@@ -10554,39 +11474,39 @@
       }
     },
     {
-      "name": "WithdrawCollateralArgs",
+      "name": "withdrawCollateralArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "withdraw_amount",
+            "name": "withdrawAmount",
             "type": "u64"
           },
           {
-            "name": "min_asset_amount_out",
+            "name": "minAssetAmountOut",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "WithdrawSingleSidedArgs",
+      "name": "withdrawSingleSidedArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "hlp_amount",
+            "name": "hlpAmount",
             "type": "u64"
           },
           {
-            "name": "min_target_amount_out",
+            "name": "minTargetAmountOut",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "YieldAccount",
+      "name": "yieldAccount",
       "type": {
         "kind": "struct",
         "fields": [
@@ -10599,11 +11519,11 @@
             "type": "pubkey"
           },
           {
-            "name": "asset_mint",
+            "name": "assetMint",
             "type": "pubkey"
           },
           {
-            "name": "token_kind",
+            "name": "tokenKind",
             "type": "u8"
           },
           {
@@ -10611,19 +11531,19 @@
             "type": "pubkey"
           },
           {
-            "name": "swap_fee_checkpoint_nad",
+            "name": "swapFeeCheckpointNad",
             "type": "u128"
           },
           {
-            "name": "interest_checkpoint_nad",
+            "name": "interestCheckpointNad",
             "type": "u128"
           },
           {
-            "name": "accrued_swap_fee_amount",
+            "name": "accruedSwapFeeAmount",
             "type": "u64"
           },
           {
-            "name": "accrued_interest_amount",
+            "name": "accruedInterestAmount",
             "type": "u64"
           },
           {
@@ -10634,7 +11554,7 @@
       }
     },
     {
-      "name": "YieldClaimed",
+      "name": "yieldClaimed",
       "type": {
         "kind": "struct",
         "fields": [
@@ -10647,11 +11567,11 @@
             "type": "pubkey"
           },
           {
-            "name": "asset_mint",
+            "name": "assetMint",
             "type": "pubkey"
           },
           {
-            "name": "token_kind",
+            "name": "tokenKind",
             "type": "u8"
           },
           {
@@ -10659,18 +11579,18 @@
             "type": "pubkey"
           },
           {
-            "name": "swap_fee_amount",
+            "name": "swapFeeAmount",
             "type": "u64"
           },
           {
-            "name": "interest_amount",
+            "name": "interestAmount",
             "type": "u64"
           },
           {
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -10678,7 +11598,7 @@
       }
     },
     {
-      "name": "YieldRecipientUpdated",
+      "name": "yieldRecipientUpdated",
       "type": {
         "kind": "struct",
         "fields": [
@@ -10691,11 +11611,11 @@
             "type": "pubkey"
           },
           {
-            "name": "asset_mint",
+            "name": "assetMint",
             "type": "pubkey"
           },
           {
-            "name": "token_kind",
+            "name": "tokenKind",
             "type": "u8"
           },
           {
@@ -10706,7 +11626,7 @@
             "name": "metadata",
             "type": {
               "defined": {
-                "name": "MarketEventMetadata"
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -10714,15 +11634,15 @@
       }
     },
     {
-      "name": "YieldTokenKind",
+      "name": "yieldTokenKind",
       "type": {
         "kind": "enum",
         "variants": [
           {
-            "name": "Ylp"
+            "name": "ylp"
           },
           {
-            "name": "Hlp"
+            "name": "hlp"
           }
         ]
       }
@@ -10730,142 +11650,142 @@
   ],
   "constants": [
     {
-      "name": "BORROW_POSITION_SEED_PREFIX",
+      "name": "borrowPositionSeedPrefix",
       "type": "bytes",
       "value": "[98, 111, 114, 114, 111, 119, 95, 112, 111, 115, 105, 116, 105, 111, 110, 95, 118, 50]"
     },
     {
-      "name": "BPS_DENOMINATOR",
+      "name": "bpsDenominator",
       "type": "u16",
       "value": "10000"
     },
     {
-      "name": "FUTARCHY_AUTHORITY_SEED_PREFIX",
+      "name": "futarchyAuthoritySeedPrefix",
       "type": "bytes",
       "value": "[102, 117, 116, 97, 114, 99, 104, 121, 95, 97, 117, 116, 104, 111, 114, 105, 116, 121]"
     },
     {
-      "name": "HLP_YLP_VAULT_SEED_PREFIX",
+      "name": "hlpYlpVaultSeedPrefix",
       "type": "bytes",
       "value": "[104, 108, 112, 95, 121, 108, 112, 95, 118, 97, 117, 108, 116]"
     },
     {
-      "name": "INSURANCE_SEED_PREFIX",
+      "name": "insuranceSeedPrefix",
       "type": "bytes",
       "value": "[105, 110, 115, 117, 114, 97, 110, 99, 101]"
     },
     {
-      "name": "LEVERAGE_COLLATERAL_VAULT_SEED_PREFIX",
+      "name": "leverageCollateralVaultSeedPrefix",
       "type": "bytes",
       "value": "[108, 101, 118, 101, 114, 97, 103, 101, 95, 99, 111, 108, 108, 97, 116, 101, 114, 97, 108]"
     },
     {
-      "name": "LEVERAGE_DELEGATION_SEED_PREFIX",
+      "name": "leverageDelegationSeedPrefix",
       "type": "bytes",
       "value": "[108, 101, 118, 101, 114, 97, 103, 101, 95, 100, 101, 108, 101, 103, 97, 116, 105, 111, 110, 95, 118, 50]"
     },
     {
-      "name": "LEVERAGE_INITIAL_MARGIN_BPS",
+      "name": "leverageInitialMarginBps",
       "type": "u16",
       "value": "1000"
     },
     {
-      "name": "LEVERAGE_MAINTENANCE_BUFFER_BPS",
+      "name": "leverageMaintenanceBufferBps",
       "type": "u16",
       "value": "700"
     },
     {
-      "name": "LEVERAGE_MAX_MULTIPLIER_BPS",
+      "name": "leverageMaxMultiplierBps",
       "type": "u64",
       "value": "200000"
     },
     {
-      "name": "LEVERAGE_MAX_UNWIND_IMPACT_BPS",
+      "name": "leverageMaxUnwindImpactBps",
       "type": "u16",
       "value": "200"
     },
     {
-      "name": "LEVERAGE_POSITION_SEED_PREFIX",
+      "name": "leveragePositionSeedPrefix",
       "type": "bytes",
       "value": "[108, 101, 118, 101, 114, 97, 103, 101, 95, 112, 111, 115, 105, 116, 105, 111, 110, 95, 118, 50]"
     },
     {
-      "name": "LIQUIDATION_CLOSE_FACTOR_BPS",
+      "name": "liquidationCloseFactorBps",
       "type": "u16",
       "value": "5000"
     },
     {
-      "name": "LIQUIDATION_INCENTIVE_BPS",
+      "name": "liquidationIncentiveBps",
       "type": "u16",
       "value": "100"
     },
     {
-      "name": "LIQUIDATION_INSURANCE_FUNDING_BPS",
+      "name": "liquidationInsuranceFundingBps",
       "type": "u16",
       "value": "200"
     },
     {
-      "name": "LIQUIDATION_MAX_INCENTIVE_BPS",
+      "name": "liquidationMaxIncentiveBps",
       "type": "u16",
       "value": "500"
     },
     {
-      "name": "LIQUIDATION_PENALTY_BPS",
+      "name": "liquidationPenaltyBps",
       "type": "u16",
       "value": "300"
     },
     {
-      "name": "MARKET_COLLATERAL_VAULT_SEED_PREFIX",
+      "name": "marketCollateralVaultSeedPrefix",
       "type": "bytes",
       "value": "[109, 97, 114, 107, 101, 116, 95, 99, 111, 108, 108, 97, 116, 101, 114, 97, 108]"
     },
     {
-      "name": "MARKET_CREATION_FEE_LAMPORTS",
+      "name": "marketCreationFeeLamports",
       "type": "u64",
       "value": "200000000"
     },
     {
-      "name": "MARKET_FEE_VAULT_SEED_PREFIX",
+      "name": "marketFeeVaultSeedPrefix",
       "type": "bytes",
       "value": "[109, 97, 114, 107, 101, 116, 95, 102, 101, 101]"
     },
     {
-      "name": "MARKET_GOVERNANCE_DELAY_SLOTS",
+      "name": "marketGovernanceDelaySlots",
       "type": "u64",
       "value": "216000"
     },
     {
-      "name": "MARKET_INTEREST_VAULT_SEED_PREFIX",
+      "name": "marketInterestVaultSeedPrefix",
       "type": "bytes",
       "value": "[109, 97, 114, 107, 101, 116, 95, 105, 110, 116, 101, 114, 101, 115, 116]"
     },
     {
-      "name": "MARKET_RESERVE_VAULT_SEED_PREFIX",
+      "name": "marketReserveVaultSeedPrefix",
       "type": "bytes",
       "value": "[109, 97, 114, 107, 101, 116, 95, 114, 101, 115, 101, 114, 118, 101]"
     },
     {
-      "name": "MARKET_V2_SEED_PREFIX",
+      "name": "marketV2SeedPrefix",
       "type": "bytes",
       "value": "[109, 97, 114, 107, 101, 116, 95, 118, 50]"
     },
     {
-      "name": "MARKET_VERSION",
+      "name": "marketVersion",
       "type": "u8",
       "value": "2"
     },
     {
-      "name": "MAX_MANAGER_FEE_BPS",
+      "name": "maxManagerFeeBps",
       "type": "u16",
       "value": "500"
     },
     {
-      "name": "METADATA_SEED_PREFIX",
+      "name": "metadataSeedPrefix",
       "type": "bytes",
       "value": "[109, 101, 116, 97, 100, 97, 116, 97]"
     },
     {
-      "name": "NAD",
+      "name": "nad",
       "docs": [
         "NAD: Nine-decimal fixed point unit (1e9 scaling), similar to WAD (1e18) by Maker."
       ],
@@ -10873,19 +11793,19 @@
       "value": "1000000000"
     },
     {
-      "name": "NAD_DECIMALS",
+      "name": "nadDecimals",
       "type": "u8",
       "value": "9"
     },
     {
-      "name": "TARGET_MS_PER_SLOT",
+      "name": "targetMsPerSlot",
       "type": "u64",
       "value": "400"
     },
     {
-      "name": "YIELD_ACCOUNT_SEED_PREFIX",
+      "name": "yieldAccountSeedPrefix",
       "type": "bytes",
       "value": "[121, 105, 101, 108, 100]"
     }
   ]
-}
+};

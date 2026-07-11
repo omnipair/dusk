@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Verifies that committed program-interface files match the latest Anchor build
+ * Verifies that committed Dusk SDK files match the latest Anchor build
  * output. Run this after `anchor build -p omnipair-v2`.
  */
 
@@ -53,9 +53,9 @@ for (const { generated, committed } of pairs) {
 
 if (failed) {
   console.error(
-    "\nRun `anchor build -p omnipair-v2` and `npm run prepare-idl --prefix packages/program-interface`, then commit the updated interface files."
+    "\nRun `anchor build -p omnipair-v2` and `npm run prepare-idl --prefix packages/dusk-sdk`, then commit the updated interface files."
   );
   process.exit(1);
 }
 
-console.log("Program interface files match the latest Anchor build artifacts.");
+console.log("Dusk SDK interface files match the latest Anchor build artifacts.");

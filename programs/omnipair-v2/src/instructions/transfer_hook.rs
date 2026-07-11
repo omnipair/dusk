@@ -31,7 +31,7 @@ struct TransferBalances {
     destination_pre_balance: u64,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct YieldContext {
     asset_mint: Pubkey,
     token_kind: YieldTokenKind,
