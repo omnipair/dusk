@@ -59,6 +59,86 @@ use super::*;
     }
 
     #[test]
+    fn infers_one_revenue_context_for_each_hlp_mint() {
+        let base_mint = Pubkey::new_unique();
+        let quote_mint = Pubkey::new_unique();
+        let ylp_mint = Pubkey::new_unique();
+        let base_hlp_mint = Pubkey::new_unique();
+        let quote_hlp_mint = Pubkey::new_unique();
+        let market = Market {
+            version: 0,
+            base_mint,
+            quote_mint,
+            ylp_mint,
+            operator: Pubkey::new_unique(),
+            manager: Pubkey::new_unique(),
+            base_side: crate::state::MarketSide {
+                asset_mint: base_mint,
+                hlp_mint: base_hlp_mint,
+                ..Default::default()
+            },
+            quote_side: crate::state::MarketSide {
+                asset_mint: quote_mint,
+                hlp_mint: quote_hlp_mint,
+                ..Default::default()
+            },
+            config: Default::default(),
+            debt: Default::default(),
+            base_hlp_vault: crate::state::HlpVault {
+                base_swap_fee_growth_index_nad: 10,
+                base_interest_growth_index_nad: 11,
+                quote_swap_fee_growth_index_nad: 20,
+                quote_interest_growth_index_nad: 21,
+                ..Default::default()
+            },
+            quote_hlp_vault: crate::state::HlpVault {
+                base_swap_fee_growth_index_nad: 30,
+                base_interest_growth_index_nad: 31,
+                quote_swap_fee_growth_index_nad: 40,
+                quote_interest_growth_index_nad: 41,
+                ..Default::default()
+            },
+            risk: Default::default(),
+            insurance: Default::default(),
+            pending_config: Default::default(),
+            pending_operator: Default::default(),
+            pending_manager: Default::default(),
+            params_hash: [0; 32],
+            last_update_slot: 0,
+            reduce_only: false,
+            bump: 0,
+        };
+
+        let base_contexts = infer_yield_context(&market, base_hlp_mint).unwrap();
+        assert_eq!(
+            base_contexts.items,
+            [
+                Some(YieldContext {
+                    asset_mint: base_mint,
+                    token_kind: YieldTokenKind::Hlp,
+                    swap_fee_growth_index_nad: 10,
+                    interest_growth_index_nad: 11,
+                }),
+                None,
+            ]
+        );
+
+        let quote_contexts = infer_yield_context(&market, quote_hlp_mint).unwrap();
+        assert_eq!(
+            quote_contexts.items,
+            [
+                Some(YieldContext {
+                    asset_mint: quote_mint,
+                    token_kind: YieldTokenKind::Hlp,
+                    swap_fee_growth_index_nad: 40,
+                    interest_growth_index_nad: 41,
+                }),
+                None,
+            ]
+        );
+    }
+
+    #[test]
     fn accepts_only_canonical_yield_account_pda() {
         let program_id = Pubkey::new_unique();
         let owner = Pubkey::new_unique();

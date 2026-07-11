@@ -22,6 +22,8 @@ use crate::instructions::common::{
     validate_owner_lp_account, validate_side_vault_accounts,
 };
 
+use super::initialize_or_validate_hlp_yield_account;
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct WithdrawSingleSidedArgs {
     pub hlp_amount: u64,
@@ -179,14 +181,7 @@ impl<'info> WithdrawSingleSided<'info> {
         Ok(())
     }
 
-    pub fn update(&mut self) -> Result<()> {
-        self.market.update()
-    }
-
-    pub fn update_and_validate(&mut self, args: &WithdrawSingleSidedArgs) -> Result<()> {
-        self.update()?;
-        self.validate(args)
-    }
+    crate::instructions::common::market_update_and_validate!(WithdrawSingleSidedArgs);
 
     pub fn handle_withdraw(ctx: Context<Self>, args: WithdrawSingleSidedArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
@@ -211,7 +206,7 @@ impl<'info> WithdrawSingleSided<'info> {
             .market
             .checkpoint_hlp_yield_from_ylp(target_asset)?;
         let (swap_fee_growth_index_nad, interest_growth_index_nad) =
-            hlp_yield_growth_indexes(&ctx.accounts.market, target_asset);
+            ctx.accounts.market.hlp_yield_growth_indexes(target_asset);
         ctx.accounts.target_yield_account.accrue(
             ctx.accounts.owner_hlp_account.amount,
             swap_fee_growth_index_nad,
@@ -349,29 +344,5 @@ impl<'info> WithdrawSingleSided<'info> {
         });
 
         Ok(())
-    }
-}
-
-fn initialize_or_validate_hlp_yield_account(
-    yield_account: &mut Account<YieldAccount>,
-    owner: Pubkey,
-    market: Pubkey,
-    asset_mint: Pubkey,
-    bump: u8,
-) -> Result<()> {
-    if yield_account.owner == Pubkey::default() {
-        yield_account.initialize(owner, market, asset_mint, YieldTokenKind::Hlp, owner, bump);
-    }
-    yield_account.assert_account(owner, market, asset_mint, YieldTokenKind::Hlp)
-}
-
-fn hlp_yield_growth_indexes(market: &Market, market_asset: MarketAsset) -> (u128, u128) {
-    match market_asset {
-        MarketAsset::Base => market
-            .base_hlp_vault
-            .yield_growth_indexes(MarketAsset::Base),
-        MarketAsset::Quote => market
-            .quote_hlp_vault
-            .yield_growth_indexes(MarketAsset::Quote),
     }
 }

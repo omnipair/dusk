@@ -110,14 +110,7 @@ impl<'info> AddLeverageMargin<'info> {
         Ok(())
     }
 
-    pub fn update(&mut self) -> Result<()> {
-        self.market.update()
-    }
-
-    pub fn update_and_validate(&mut self, args: &AddLeverageMarginArgs) -> Result<()> {
-        self.update()?;
-        self.validate(args)
-    }
+    crate::instructions::common::market_update_and_validate!(AddLeverageMarginArgs);
 
     pub fn handle_add_margin(
         ctx: Context<'_, '_, '_, 'info, Self>,

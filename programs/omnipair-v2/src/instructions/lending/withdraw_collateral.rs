@@ -115,14 +115,7 @@ impl<'info> WithdrawCollateral<'info> {
         Ok(())
     }
 
-    pub fn update(&mut self) -> Result<()> {
-        self.market.update()
-    }
-
-    pub fn update_and_validate(&mut self, args: &WithdrawCollateralArgs) -> Result<()> {
-        self.update()?;
-        self.validate(args)
-    }
+    crate::instructions::common::market_update_and_validate!(WithdrawCollateralArgs);
 
     pub fn handle_withdraw(ctx: Context<Self>, args: WithdrawCollateralArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();

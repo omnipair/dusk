@@ -1,5 +1,7 @@
 use anchor_lang::prelude::*;
 
+pub mod log;
+
 #[derive(AnchorSerialize, AnchorDeserialize)]
 pub struct MarketEventMetadata {
     pub signer: Pubkey,

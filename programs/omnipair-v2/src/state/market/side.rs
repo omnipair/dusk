@@ -163,6 +163,23 @@ impl MarketSide {
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
     ) -> Result<FeesReceipt> {
+        self.record_swap_fee_credit_with_supply(
+            fee_credit,
+            manager_fee_bps,
+            protocol_fee_bps,
+            protocol_auction_split,
+            self.shares.ylp_supply,
+        )
+    }
+
+    pub fn record_swap_fee_credit_with_supply(
+        &mut self,
+        fee_credit: u64,
+        manager_fee_bps: u16,
+        protocol_fee_bps: u16,
+        protocol_auction_split: ProtocolAuctionSplit,
+        eligible_ylp_supply: u64,
+    ) -> Result<FeesReceipt> {
         if fee_credit == 0 {
             return Ok(FeesReceipt::from_side(self));
         }
@@ -195,7 +212,7 @@ impl MarketSide {
             .unallocated_swap_fee_liability
             .checked_add(lp_fee)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.carry_forward_swap_fees()?;
+        self.carry_forward_swap_fees_with_supply(eligible_ylp_supply)?;
         self.fees.assert_backed()?;
         Ok(FeesReceipt::from_side(self))
     }
@@ -245,7 +262,10 @@ impl MarketSide {
     }
 
     pub fn carry_forward_swap_fees(&mut self) -> Result<()> {
-        let supply = self.shares.ylp_supply;
+        self.carry_forward_swap_fees_with_supply(self.shares.ylp_supply)
+    }
+
+    pub fn carry_forward_swap_fees_with_supply(&mut self, supply: u64) -> Result<()> {
         if supply == 0 || self.fees.unallocated_swap_fee_liability == 0 {
             return Ok(());
         }

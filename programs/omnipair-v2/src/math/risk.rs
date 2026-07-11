@@ -258,6 +258,27 @@ pub(crate) fn assert_k_drawdown(
     Ok(())
 }
 
+pub(crate) fn exponential_price_decay(
+    start_price_nad: u64,
+    elapsed_ms: u64,
+    half_life_ms: u64,
+) -> Result<u64> {
+    if half_life_ms == 0 || start_price_nad == 0 {
+        return Ok(0); // If half-life is 0, it decays instantly.
+    }
+    let x = (elapsed_ms as u128)
+        .saturating_mul(NATURAL_LOG_OF_TWO_NAD as u128)
+        .checked_div(half_life_ms as u128)
+        .unwrap_or(u128::MAX)
+        .min(i64::MAX as u128) as i64;
+    let alpha = taylor_exp(-x, NAD, TAYLOR_TERMS) as u128;
+    let result = (start_price_nad as u128)
+        .checked_mul(alpha)
+        .and_then(|value| value.checked_div(NAD as u128))
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    u64::try_from(result).map_err(|_| ErrorCode::MarketMathOverflow.into())
+}
+
 #[cfg(test)]
 mod tests {
     include!("../tests/math/risk.rs");

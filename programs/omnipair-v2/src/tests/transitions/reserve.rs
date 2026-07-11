@@ -126,6 +126,27 @@ use super::*;
     }
 
     #[test]
+    fn add_liquidity_accepts_ratio_quote_with_raw_rounding_dust() {
+        let mut market = empty_market();
+        market
+            .add_liquidity(1_620_342_794_237, 1_579_912_601_954)
+            .unwrap();
+
+        let base_amount = 123_000_000;
+        let quote_amount = ((base_amount as u128)
+            .checked_mul(market.quote_side.reserves.live_reserve as u128)
+            .unwrap()
+            .checked_div(market.base_side.reserves.live_reserve as u128)
+            .unwrap()) as u64;
+
+        assert_eq!(quote_amount, 119_930_949);
+        let receipt = market.add_liquidity(base_amount, quote_amount).unwrap();
+
+        assert!(receipt.ylp_amount > 0);
+        market.assert_market_invariants().unwrap();
+    }
+
+    #[test]
     fn add_liquidity_uses_limiting_side_without_donating_excess() {
         let mut market = empty_market();
         market.add_liquidity(1_000_000, 2_000_000).unwrap();
@@ -191,16 +212,10 @@ use super::*;
             max_base_reserve_credit,
             max_quote_reserve_credit,
         );
-        let expected_base_credit = v1_style_reserve_for_liquidity(
-            base_reserve_before,
-            ylp_supply_before,
-            expected_ylp,
-        );
-        let expected_quote_credit = v1_style_reserve_for_liquidity(
-            quote_reserve_before,
-            ylp_supply_before,
-            expected_ylp,
-        );
+        let expected_base_credit =
+            v1_style_reserve_for_liquidity(base_reserve_before, ylp_supply_before, expected_ylp);
+        let expected_quote_credit =
+            v1_style_reserve_for_liquidity(quote_reserve_before, ylp_supply_before, expected_ylp);
 
         let preview = market
             .preview_add_liquidity(max_base_reserve_credit, max_quote_reserve_credit)

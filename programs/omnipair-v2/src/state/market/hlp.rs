@@ -194,23 +194,32 @@ impl HlpVault {
         base_side: &MarketSide,
         quote_side: &MarketSide,
     ) -> Result<()> {
+        self.checkpoint_yield_from_ylp_shares(base_side, quote_side, self.ylp_shares)
+    }
+
+    pub fn checkpoint_yield_from_ylp_shares(
+        &mut self,
+        base_side: &MarketSide,
+        quote_side: &MarketSide,
+        eligible_ylp_shares: u64,
+    ) -> Result<()> {
         let base_swap_fee_amount = accrue_fee_liability(
-            self.ylp_shares,
+            eligible_ylp_shares,
             base_side.fees.swap_fee_growth_index_nad,
             self.base_swap_fee_checkpoint_nad,
         )?;
         let base_interest_amount = accrue_fee_liability(
-            self.ylp_shares,
+            eligible_ylp_shares,
             base_side.fees.interest_growth_index_nad,
             self.base_interest_checkpoint_nad,
         )?;
         let quote_swap_fee_amount = accrue_fee_liability(
-            self.ylp_shares,
+            eligible_ylp_shares,
             quote_side.fees.swap_fee_growth_index_nad,
             self.quote_swap_fee_checkpoint_nad,
         )?;
         let quote_interest_amount = accrue_fee_liability(
-            self.ylp_shares,
+            eligible_ylp_shares,
             quote_side.fees.interest_growth_index_nad,
             self.quote_interest_checkpoint_nad,
         )?;
@@ -298,6 +307,15 @@ fn credit_hlp_growth(
 }
 
 impl Market {
+    pub fn hlp_yield_growth_indexes(&self, market_asset: MarketAsset) -> (u128, u128) {
+        match market_asset {
+            MarketAsset::Base => self.base_hlp_vault.yield_growth_indexes(MarketAsset::Base),
+            MarketAsset::Quote => self
+                .quote_hlp_vault
+                .yield_growth_indexes(MarketAsset::Quote),
+        }
+    }
+
     pub fn deposit_single_sided(
         &mut self,
         target_asset: MarketAsset,
@@ -350,8 +368,37 @@ impl Market {
         )
     }
 
+    pub fn pre_solve_hlp_vaults_for_swap(
+        &mut self,
+        asset_in: MarketAsset,
+        amount_in_after_fee: u64,
+        current_slot: u64,
+    ) -> Result<(
+        crate::state::market::transitions::hedge::HlpRebalanceReceipt,
+        crate::state::market::transitions::hedge::HlpRebalanceReceipt,
+    )> {
+        crate::state::market::transitions::hedge::pre_solve_hlp_vaults_for_swap(
+            self,
+            asset_in,
+            amount_in_after_fee,
+            current_slot,
+        )
+    }
+
     pub fn checkpoint_hlp_yield_from_ylp(&mut self, target_asset: MarketAsset) -> Result<()> {
         crate::state::market::transitions::hedge::checkpoint_hlp_yield_from_ylp(self, target_asset)
+    }
+
+    pub fn checkpoint_hlp_yield_from_ylp_shares(
+        &mut self,
+        target_asset: MarketAsset,
+        eligible_ylp_shares: u64,
+    ) -> Result<()> {
+        crate::state::market::transitions::hedge::checkpoint_hlp_yield_from_ylp_shares(
+            self,
+            target_asset,
+            eligible_ylp_shares,
+        )
     }
 }
 

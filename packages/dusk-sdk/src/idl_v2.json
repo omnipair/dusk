@@ -9682,10 +9682,6 @@
             "type": "u16"
           },
           {
-            "name": "hedged_lp_enabled",
-            "type": "bool"
-          },
-          {
             "name": "start_time",
             "type": "i64"
           }

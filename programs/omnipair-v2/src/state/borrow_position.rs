@@ -24,6 +24,9 @@ pub struct BorrowPosition {
     pub fixed_base_shares: u128,
     pub fixed_quote_shares: u128,
     pub risk_epoch: u64,
+    pub auction_start_time: i64,
+    pub auction_start_price_nad: u64,
+    pub auction_floor_price_nad: u64,
     pub bump: u8,
 }
 
@@ -33,6 +36,9 @@ impl BorrowPosition {
         self.market = market;
         self.position_id = position_id;
         self.risk_epoch = 0;
+        self.auction_start_time = 0;
+        self.auction_start_price_nad = 0;
+        self.auction_floor_price_nad = 0;
         self.bump = bump;
     }
 

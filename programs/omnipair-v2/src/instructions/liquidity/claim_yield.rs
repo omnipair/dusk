@@ -10,7 +10,7 @@ use crate::{
     events::{MarketEventMetadata, YieldClaimed},
     generate_market_seeds,
     shared::token::transfer_from_vault_to_user,
-    state::{Market, MarketAsset, YieldAccount, YieldClaimReceipt, YieldTokenKind},
+    state::{Market, YieldAccount, YieldClaimReceipt, YieldTokenKind},
 };
 
 use crate::instructions::common::{
@@ -128,14 +128,7 @@ impl<'info> ClaimYield<'info> {
         )
     }
 
-    pub fn update(&mut self) -> Result<()> {
-        self.market.update()
-    }
-
-    pub fn update_and_validate(&mut self, args: &ClaimYieldArgs) -> Result<()> {
-        self.update()?;
-        self.validate(args)
-    }
+    crate::instructions::common::market_update_and_validate!(ClaimYieldArgs);
 
     pub fn handle_claim(ctx: Context<Self>, args: ClaimYieldArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
@@ -167,7 +160,7 @@ impl<'info> ClaimYield<'info> {
                     .market
                     .checkpoint_hlp_yield_from_ylp(market_asset)?;
                 let (swap_fee_growth_index_nad, interest_growth_index_nad) =
-                    hlp_yield_growth_indexes(&ctx.accounts.market, market_asset);
+                    ctx.accounts.market.hlp_yield_growth_indexes(market_asset);
                 ctx.accounts.yield_account.accrue(
                     ctx.accounts.owner_lp_account.amount,
                     swap_fee_growth_index_nad,
@@ -243,16 +236,5 @@ impl<'info> ClaimYield<'info> {
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
         Ok(())
-    }
-}
-
-fn hlp_yield_growth_indexes(market: &Market, market_asset: MarketAsset) -> (u128, u128) {
-    match market_asset {
-        MarketAsset::Base => market
-            .base_hlp_vault
-            .yield_growth_indexes(MarketAsset::Base),
-        MarketAsset::Quote => market
-            .quote_hlp_vault
-            .yield_growth_indexes(MarketAsset::Quote),
     }
 }

@@ -9688,10 +9688,6 @@ export type OmnipairV2 = {
             "type": "u16"
           },
           {
-            "name": "hedgedLpEnabled",
-            "type": "bool"
-          },
-          {
             "name": "startTime",
             "type": "i64"
           }

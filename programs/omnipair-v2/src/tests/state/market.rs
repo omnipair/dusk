@@ -43,7 +43,6 @@ use super::*;
             k_ema_drawdown_bps: BPS_DENOMINATOR,
             recognized_collateral_cap_bps: 15_000,
             market_health_min_bps: BPS_DENOMINATOR,
-            hedged_lp_enabled: true,
             start_time: 0,
         }
     }
@@ -116,6 +115,9 @@ use super::*;
             fixed_base_shares: 0,
             fixed_quote_shares: 0,
             risk_epoch: 0,
+            auction_start_time: 0,
+            auction_start_price_nad: 0,
+            auction_floor_price_nad: 0,
             bump: 255,
         };
         match debt_asset {
@@ -258,6 +260,9 @@ use super::*;
             fixed_base_shares: 0,
             fixed_quote_shares: 0,
             risk_epoch: 0,
+            auction_start_time: 0,
+            auction_start_price_nad: 0,
+            auction_floor_price_nad: 0,
             bump: 255,
         };
 
@@ -515,6 +520,9 @@ use super::*;
             fixed_base_shares: 100,
             fixed_quote_shares: 0,
             risk_epoch: 0,
+            auction_start_time: 0,
+            auction_start_price_nad: 0,
+            auction_floor_price_nad: 0,
             bump: 255,
         };
 

@@ -925,6 +925,29 @@ impl Market {
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
     ) -> Result<SwapReceipt> {
+        self.swap_reserves_with_fee_supply(
+            asset_in,
+            amount_in_after_fee,
+            amount_out,
+            fee_credit,
+            manager_fee_bps,
+            protocol_fee_bps,
+            protocol_auction_split,
+            None,
+        )
+    }
+
+    pub fn swap_reserves_with_fee_supply(
+        &mut self,
+        asset_in: MarketAsset,
+        amount_in_after_fee: u64,
+        amount_out: u64,
+        fee_credit: u64,
+        manager_fee_bps: u16,
+        protocol_fee_bps: u16,
+        protocol_auction_split: ProtocolAuctionSplit,
+        fee_eligible_ylp_supply: Option<u64>,
+    ) -> Result<SwapReceipt> {
         let (market_side_in, market_side_out) = self.swap_sides_mut(asset_in);
         require_gte!(
             market_side_out.reserves.cash_reserve,
@@ -953,12 +976,21 @@ impl Market {
             .checked_sub(amount_out)
             .ok_or(ErrorCode::CashReserveUnderflow)?;
 
-        let fees = market_side_in.record_swap_fee_credit(
-            fee_credit,
-            manager_fee_bps,
-            protocol_fee_bps,
-            protocol_auction_split,
-        )?;
+        let fees = match fee_eligible_ylp_supply {
+            Some(supply) => market_side_in.record_swap_fee_credit_with_supply(
+                fee_credit,
+                manager_fee_bps,
+                protocol_fee_bps,
+                protocol_auction_split,
+                supply,
+            )?,
+            None => market_side_in.record_swap_fee_credit(
+                fee_credit,
+                manager_fee_bps,
+                protocol_fee_bps,
+                protocol_auction_split,
+            )?,
+        };
         market_side_in.assert_share_backing()?;
         market_side_out.assert_share_backing()?;
         market_side_in.fees.assert_backed()?;
