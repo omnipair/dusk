@@ -282,6 +282,34 @@ pub mod omnipair_v2 {
         TriggerLiquidationAuction::handle_trigger(ctx, args)
     }
 
+    pub fn preview_market(ctx: Context<PreviewMarket>) -> Result<MarketPreview> {
+        PreviewMarket::handle_preview(ctx)
+    }
+
+    pub fn preview_add_liquidity(
+        ctx: Context<PreviewAddLiquidity>,
+        args: PreviewAddLiquidityArgs,
+    ) -> Result<AddLiquidityPreview> {
+        PreviewAddLiquidity::handle_preview(ctx, args)
+    }
+
+    pub fn preview_swap(ctx: Context<PreviewSwap>, args: PreviewSwapArgs) -> Result<SwapPreview> {
+        PreviewSwap::handle_preview(ctx, args)
+    }
+
+    pub fn preview_borrow_capacity(
+        ctx: Context<PreviewBorrowCapacity>,
+        args: PreviewBorrowCapacityArgs,
+    ) -> Result<BorrowCapacityPreview> {
+        PreviewBorrowCapacity::handle_preview(ctx, args)
+    }
+
+    pub fn preview_borrow_position(
+        ctx: Context<PreviewBorrowPosition>,
+    ) -> Result<BorrowPositionPreview> {
+        PreviewBorrowPosition::handle_preview(ctx)
+    }
+
     #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn bid_liquidation_auction(
         ctx: Context<BidLiquidationAuction>,

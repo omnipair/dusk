@@ -23,7 +23,7 @@ const files = [
   },
 ];
 
-console.log("Preparing @omnipair/program-interface...\n");
+console.log("Preparing @omnipair/dusk-sdk...\n");
 
 for (const { src, dest } of files) {
   if (!existsSync(src)) {

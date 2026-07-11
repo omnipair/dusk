@@ -142,7 +142,6 @@ impl<'info> SettleLiquidationAuctionAmm<'info> {
         let collateral_asset_mint_key = ctx.accounts.collateral_asset_mint.key();
         let debt_asset = ctx.accounts.market.asset_for_mint(debt_asset_mint_key)?;
 
-
         require!(
             ctx.accounts.borrow_position.auction_start_time > 0,
             ErrorCode::PositionNotLiquidatable
@@ -158,7 +157,7 @@ impl<'info> SettleLiquidationAuctionAmm<'info> {
             elapsed_ms,
             300_000,
         )?;
-        
+
         let floor_price = ctx.accounts.borrow_position.auction_floor_price_nad;
         require!(
             decayed_price <= floor_price,

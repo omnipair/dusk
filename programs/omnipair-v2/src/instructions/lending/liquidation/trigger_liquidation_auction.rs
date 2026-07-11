@@ -62,33 +62,33 @@ impl<'info> TriggerLiquidationAuction<'info> {
     pub fn handle_trigger(ctx: Context<Self>, _args: TriggerLiquidationAuctionArgs) -> Result<()> {
         let debt_asset_mint_key = ctx.accounts.debt_asset_mint.key();
         let debt_asset = ctx.accounts.market.asset_for_mint(debt_asset_mint_key)?;
-        
+
         let liquidation_reference_price_nad = ctx
             .accounts
             .market
             .liquidation_reference_price_nad(debt_asset)?;
-            
+
         let liquidation_pricing = LiquidationPricing::ReferencePrice {
             debt_per_collateral_price_nad: liquidation_reference_price_nad,
         };
-        
+
         let health_bps = ctx.accounts.market.liquidation_health_bps_with_pricing(
             &ctx.accounts.borrow_position,
             debt_asset,
             liquidation_pricing,
         )?;
-        
+
         require!(
             health_bps < ctx.accounts.market.config.market_health_min_bps as u64,
             ErrorCode::PositionNotLiquidatable
         );
-        
+
         require!(
             ctx.accounts.borrow_position.auction_start_time == 0,
-            ErrorCode::PositionNotLiquidatable 
+            ErrorCode::PositionNotLiquidatable
         );
 
-        let floor_price = liquidation_reference_price_nad; 
+        let floor_price = liquidation_reference_price_nad;
         let start_price = floor_price
             .checked_mul(105)
             .and_then(|v| v.checked_div(100))

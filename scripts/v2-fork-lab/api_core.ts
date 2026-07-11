@@ -139,7 +139,7 @@ function loadIdl(): anchor.Idl {
   const candidates = [
     process.env.OMNIPAIR_V2_IDL_PATH,
     "target/idl/omnipair_v2.json",
-    "packages/program-interface/src/idl_v2.json",
+    "packages/dusk-sdk/src/idl_v2.json",
   ].filter(Boolean) as string[];
 
   for (const candidate of candidates) {

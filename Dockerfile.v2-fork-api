@@ -6,7 +6,7 @@ COPY package.json package-lock.json tsconfig.json ./
 RUN npm ci --include=dev
 
 COPY scripts/v2-fork-lab ./scripts/v2-fork-lab
-COPY packages/program-interface/src/idl_v2.json ./packages/program-interface/src/idl_v2.json
+COPY packages/dusk-sdk/src/idl_v2.json ./packages/dusk-sdk/src/idl_v2.json
 
 RUN ./node_modules/.bin/tsc \
     --target es2022 \

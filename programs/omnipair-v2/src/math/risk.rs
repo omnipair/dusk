@@ -264,7 +264,7 @@ pub(crate) fn exponential_price_decay(
     half_life_ms: u64,
 ) -> Result<u64> {
     if half_life_ms == 0 || start_price_nad == 0 {
-        return Ok(0); // If half-life is 0, it decays instantly. 
+        return Ok(0); // If half-life is 0, it decays instantly.
     }
     let x = (elapsed_ms as u128)
         .saturating_mul(NATURAL_LOG_OF_TWO_NAD as u128)

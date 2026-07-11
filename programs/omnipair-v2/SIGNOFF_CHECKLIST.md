@@ -57,7 +57,7 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 
 - Use `IDL`, `OmnipairV2`, and `PROGRAM_ID` for Dusk flows. The explicit
   `IDL_V2` and `OMNIPAIR_V2_PROGRAM_ID` aliases are also available.
-- Use V2 PDA helpers from `packages/program-interface/src/constants.ts`.
+- Use V2 PDA helpers from `packages/dusk-sdk/src/constants.ts`.
 - Confirm V2 IDL and generated TypeScript copies match `target/idl` and
   `target/types` artifacts from the release build.
 - Confirm consumer examples use Dusk `Market` accounts.

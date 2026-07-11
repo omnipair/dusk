@@ -158,17 +158,22 @@ impl<'info> BidLiquidationAuction<'info> {
         )?;
 
         let floor_price = ctx.accounts.borrow_position.auction_floor_price_nad;
-        
+
         let mut final_price = decayed_price.max(floor_price);
-        
+
         // Liquidator pays LP fee (e.g. 0.20%) to beat the floor
-        let reservation_fee = final_price.checked_mul(20).and_then(|v| v.checked_div(10000)).ok_or(ErrorCode::MarketMathOverflow)?;
-        final_price = final_price.checked_add(reservation_fee).ok_or(ErrorCode::MarketMathOverflow)?;
+        let reservation_fee = final_price
+            .checked_mul(20)
+            .and_then(|v| v.checked_div(10000))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        final_price = final_price
+            .checked_add(reservation_fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
 
         let liquidation_pricing = LiquidationPricing::ReferencePrice {
             debt_per_collateral_price_nad: final_price,
         };
-        
+
         let liquidation_terms = ctx.accounts.market.liquidation_terms_with_pricing(
             &ctx.accounts.borrow_position,
             debt_asset,
@@ -215,7 +220,7 @@ impl<'info> BidLiquidationAuction<'info> {
             liquidation_terms,
             liquidation_pricing,
         )?;
-        
+
         if liquidation_receipt.interest_paid > 0 {
             transfer_from_vault_to_vault(
                 ctx.accounts.market.to_account_info(),
@@ -278,7 +283,7 @@ impl<'info> BidLiquidationAuction<'info> {
             args.min_collateral_out,
             ErrorCode::SlippageExceeded
         );
-        
+
         // Clear auction fields if full liquidation, else leave them for next bid
         if liquidation_receipt.remaining_debt == 0 {
             ctx.accounts.borrow_position.auction_start_time = 0;

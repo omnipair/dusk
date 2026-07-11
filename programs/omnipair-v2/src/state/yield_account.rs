@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 use super::accrue_fee_liability;
 use crate::errors::ErrorCode;
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum YieldTokenKind {
     Ylp,
     Hlp,

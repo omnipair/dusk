@@ -85,7 +85,7 @@ jobs:
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} 2>/dev/null || true)
-            if ! echo "$CHANGED_FILES" | grep -Eq '^(programs/omnipair-v2/|programs/leverage_delegate/|packages/program-interface/|Anchor.toml|Cargo.toml|Cargo.lock)'; then
+            if ! echo "$CHANGED_FILES" | grep -Eq '^(programs/omnipair-v2/|programs/leverage_delegate/|packages/dusk-sdk/|Anchor.toml|Cargo.toml|Cargo.lock)'; then
               SHOULD_RELEASE="false"
             fi
             COMMITS=$(git log --format="%s" ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} 2>/dev/null || git log --format="%s" -10)
@@ -161,7 +161,7 @@ jobs:
           sed -i "s/^version = \".*\"/version = \"$VERSION\"/" programs/leverage_delegate/Cargo.toml
           sed -i "s/^version = \".*\"/version = \"$VERSION\"/" programs/faucet/Cargo.toml
           sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" package.json
-          sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" packages/program-interface/package.json
+          sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" packages/dusk-sdk/package.json
           cargo metadata --format-version 1 > /dev/null
           node <<'NODE'
           const fs = require('fs');
@@ -173,12 +173,12 @@ jobs:
           packageLock.packages[''].version = version;
           fs.writeFileSync(packageLockPath, `${JSON.stringify(packageLock, null, 2)}\n`);
 
-          const idlPath = 'packages/program-interface/src/idl_v2.json';
+          const idlPath = 'packages/dusk-sdk/src/idl_v2.json';
           const idl = JSON.parse(fs.readFileSync(idlPath, 'utf8'));
           idl.metadata.version = version;
           fs.writeFileSync(idlPath, JSON.stringify(idl, null, 2));
 
-          const typesPath = 'packages/program-interface/src/types_v2.ts';
+          const typesPath = 'packages/dusk-sdk/src/types_v2.ts';
           const types = fs.readFileSync(typesPath, 'utf8').replace(
             /("metadata": \{\n    "name": "omnipairV2",\n    "version": ")[^"]+"/,
             `$1${version}"`
@@ -193,9 +193,9 @@ jobs:
             programs/omnipair-v2/Cargo.toml \
             programs/leverage_delegate/Cargo.toml \
             programs/faucet/Cargo.toml \
-            packages/program-interface/package.json \
-            packages/program-interface/src/idl_v2.json \
-            packages/program-interface/src/types_v2.ts \
+            packages/dusk-sdk/package.json \
+            packages/dusk-sdk/src/idl_v2.json \
+            packages/dusk-sdk/src/types_v2.ts \
             Cargo.lock
           git commit -m "chore: bump version to $VERSION [skip ci]" || true
           git push origin HEAD:main
@@ -239,7 +239,7 @@ jobs:
           strings "target/verifiable/${{ env.PROGRAM_SO }}" | grep -q source_revision
 
       - name: Verify program interface matches build artifacts
-        run: npm run check-idl-current --prefix packages/program-interface
+        run: npm run check-idl-current --prefix packages/dusk-sdk
 
       - name: Create and push tag
         run: |
@@ -314,7 +314,7 @@ jobs:
         run: anchor build -p "${{ env.PROGRAM_CRATE }}" -- --features production
 
       - name: Verify program interface matches build artifacts
-        run: npm run check-idl-current --prefix packages/program-interface
+        run: npm run check-idl-current --prefix packages/dusk-sdk
 
       - name: Test Dusk
         run: cargo test -p omnipair-v2

@@ -24,12 +24,10 @@ use super::*;
         let owner = Pubkey::new_unique();
         let market = Pubkey::new_unique();
         let asset_mint = Pubkey::new_unique();
-        let lp_mint = Pubkey::new_unique();
         let mut yield_account = YieldAccount {
             owner: Pubkey::default(),
             market: Pubkey::default(),
             asset_mint: Pubkey::default(),
-            lp_mint: Pubkey::default(),
             token_kind: 0,
             recipient: Pubkey::default(),
             swap_fee_checkpoint_nad: 0,
@@ -38,18 +36,9 @@ use super::*;
             accrued_interest_amount: 0,
             bump: 0,
         };
-        yield_account.initialize(
-            owner,
-            market,
-            asset_mint,
-            lp_mint,
-            YieldTokenKind::Ylp,
-            owner,
-            255,
-        );
+        yield_account.initialize(owner, market, asset_mint, YieldTokenKind::Ylp, owner, 255);
         let yield_context = YieldContext {
             asset_mint,
-            lp_mint,
             token_kind: YieldTokenKind::Ylp,
             swap_fee_growth_index_nad: 3 * NAD as u128,
             interest_growth_index_nad: 2 * NAD as u128,
@@ -70,7 +59,7 @@ use super::*;
     }
 
     #[test]
-    fn infers_two_revenue_contexts_for_each_hlp_mint() {
+    fn infers_one_revenue_context_for_each_hlp_mint() {
         let base_mint = Pubkey::new_unique();
         let quote_mint = Pubkey::new_unique();
         let ylp_mint = Pubkey::new_unique();
@@ -126,18 +115,11 @@ use super::*;
             [
                 Some(YieldContext {
                     asset_mint: base_mint,
-                    lp_mint: base_hlp_mint,
                     token_kind: YieldTokenKind::Hlp,
                     swap_fee_growth_index_nad: 10,
                     interest_growth_index_nad: 11,
                 }),
-                Some(YieldContext {
-                    asset_mint: quote_mint,
-                    lp_mint: base_hlp_mint,
-                    token_kind: YieldTokenKind::Hlp,
-                    swap_fee_growth_index_nad: 20,
-                    interest_growth_index_nad: 21,
-                }),
+                None,
             ]
         );
 
@@ -146,19 +128,12 @@ use super::*;
             quote_contexts.items,
             [
                 Some(YieldContext {
-                    asset_mint: base_mint,
-                    lp_mint: quote_hlp_mint,
-                    token_kind: YieldTokenKind::Hlp,
-                    swap_fee_growth_index_nad: 30,
-                    interest_growth_index_nad: 31,
-                }),
-                Some(YieldContext {
                     asset_mint: quote_mint,
-                    lp_mint: quote_hlp_mint,
                     token_kind: YieldTokenKind::Hlp,
                     swap_fee_growth_index_nad: 40,
                     interest_growth_index_nad: 41,
                 }),
+                None,
             ]
         );
     }
@@ -169,14 +144,12 @@ use super::*;
         let owner = Pubkey::new_unique();
         let market = Pubkey::new_unique();
         let asset_mint = Pubkey::new_unique();
-        let lp_mint = Pubkey::new_unique();
         let (yield_account_key, bump) = Pubkey::find_program_address(
             &[
                 YIELD_ACCOUNT_SEED_PREFIX,
                 market.as_ref(),
                 owner.as_ref(),
                 asset_mint.as_ref(),
-                lp_mint.as_ref(),
                 &[YieldTokenKind::Ylp.code()],
             ],
             &program_id,
@@ -188,7 +161,6 @@ use super::*;
             owner,
             market,
             asset_mint,
-            lp_mint,
             YieldTokenKind::Ylp,
             bump,
         )
@@ -201,14 +173,12 @@ use super::*;
         let owner = Pubkey::new_unique();
         let market = Pubkey::new_unique();
         let asset_mint = Pubkey::new_unique();
-        let lp_mint = Pubkey::new_unique();
         let (_, bump) = Pubkey::find_program_address(
             &[
                 YIELD_ACCOUNT_SEED_PREFIX,
                 market.as_ref(),
                 owner.as_ref(),
                 asset_mint.as_ref(),
-                lp_mint.as_ref(),
                 &[YieldTokenKind::Ylp.code()],
             ],
             &program_id,
@@ -221,7 +191,6 @@ use super::*;
             owner,
             market,
             asset_mint,
-            lp_mint,
             YieldTokenKind::Ylp,
             bump,
         )
@@ -236,14 +205,12 @@ use super::*;
         let owner = Pubkey::new_unique();
         let market = Pubkey::new_unique();
         let asset_mint = Pubkey::new_unique();
-        let lp_mint = Pubkey::new_unique();
         let (yield_account_key, bump) = Pubkey::find_program_address(
             &[
                 YIELD_ACCOUNT_SEED_PREFIX,
                 market.as_ref(),
                 owner.as_ref(),
                 asset_mint.as_ref(),
-                lp_mint.as_ref(),
                 &[YieldTokenKind::Ylp.code()],
             ],
             &program_id,
@@ -255,7 +222,6 @@ use super::*;
             owner,
             market,
             asset_mint,
-            lp_mint,
             YieldTokenKind::Ylp,
             bump.wrapping_add(1),
         )
