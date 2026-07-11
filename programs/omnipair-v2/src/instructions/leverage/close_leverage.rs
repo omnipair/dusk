@@ -205,14 +205,7 @@ impl<'info> CloseLeverage<'info> {
         Ok(())
     }
 
-    pub fn update(&mut self) -> Result<()> {
-        self.market.update()
-    }
-
-    pub fn update_and_validate(&mut self, args: &CloseLeverageArgs) -> Result<()> {
-        self.update()?;
-        self.validate(args)
-    }
+    crate::instructions::common::market_update_and_validate!(CloseLeverageArgs);
 
     pub fn update_and_validate_delegated(
         &mut self,

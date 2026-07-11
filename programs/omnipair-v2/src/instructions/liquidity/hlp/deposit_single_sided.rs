@@ -1,5 +1,4 @@
-use anchor_lang::solana_program::log::sol_log_data;
-use anchor_lang::{prelude::*, Discriminator};
+use anchor_lang::prelude::*;
 use anchor_spl::{
     token::Token,
     token_interface::{Mint, Token2022, TokenAccount},
@@ -8,7 +7,7 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::HlpOpened,
+    events::log::emit_hlp_opened_low_heap,
     generate_market_seeds,
     shared::{
         account::get_size_with_discriminator,
@@ -21,6 +20,8 @@ use crate::instructions::common::{
     require_supported_asset_mint, token_program_for_mint, validate_lp_mint,
     validate_owner_asset_account, validate_owner_lp_account, validate_side_vault_accounts,
 };
+
+use super::initialize_or_validate_hlp_yield_account;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct DepositSingleSidedArgs {
@@ -166,14 +167,7 @@ impl<'info> DepositSingleSided<'info> {
         Ok(())
     }
 
-    pub fn update(&mut self) -> Result<()> {
-        self.market.update()
-    }
-
-    pub fn update_and_validate(&mut self, args: &DepositSingleSidedArgs) -> Result<()> {
-        self.update()?;
-        self.validate(args)
-    }
+    crate::instructions::common::market_update_and_validate!(DepositSingleSidedArgs);
 
     pub fn handle_deposit(ctx: Context<Self>, args: DepositSingleSidedArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
@@ -255,7 +249,7 @@ impl<'info> DepositSingleSided<'info> {
             ctx.bumps.target_yield_account,
         )?;
         let (swap_fee_growth_index_nad, interest_growth_index_nad) =
-            hlp_yield_growth_indexes(&ctx.accounts.market, target_asset);
+            ctx.accounts.market.hlp_yield_growth_indexes(target_asset);
         ctx.accounts.target_yield_account.accrue(
             ctx.accounts.owner_hlp_account.amount,
             swap_fee_growth_index_nad,
@@ -306,71 +300,5 @@ impl<'info> DepositSingleSided<'info> {
         )?;
 
         Ok(())
-    }
-}
-
-fn emit_hlp_opened_low_heap(
-    market: Pubkey,
-    owner: Pubkey,
-    asset_mint: Pubkey,
-    deposit_amount: u64,
-    borrowed_amount: u64,
-    ylp_amount: u64,
-    hlp_amount: u64,
-    hlp_supply: u64,
-) -> Result<()> {
-    const HLP_OPENED_EVENT_LEN: usize = 8 + (3 * 32) + (5 * 8) + 32 + 32 + 8;
-
-    let mut data = [0u8; HLP_OPENED_EVENT_LEN];
-    let mut offset = 0usize;
-    data[offset..offset + 8].copy_from_slice(HlpOpened::DISCRIMINATOR);
-    offset += 8;
-    data[offset..offset + 32].copy_from_slice(market.as_ref());
-    offset += 32;
-    data[offset..offset + 32].copy_from_slice(owner.as_ref());
-    offset += 32;
-    data[offset..offset + 32].copy_from_slice(asset_mint.as_ref());
-    offset += 32;
-    data[offset..offset + 8].copy_from_slice(&deposit_amount.to_le_bytes());
-    offset += 8;
-    data[offset..offset + 8].copy_from_slice(&borrowed_amount.to_le_bytes());
-    offset += 8;
-    data[offset..offset + 8].copy_from_slice(&ylp_amount.to_le_bytes());
-    offset += 8;
-    data[offset..offset + 8].copy_from_slice(&hlp_amount.to_le_bytes());
-    offset += 8;
-    data[offset..offset + 8].copy_from_slice(&hlp_supply.to_le_bytes());
-    offset += 8;
-    data[offset..offset + 32].copy_from_slice(owner.as_ref());
-    offset += 32;
-    data[offset..offset + 32].copy_from_slice(market.as_ref());
-    offset += 32;
-    data[offset..offset + 8].copy_from_slice(&Clock::get()?.slot.to_le_bytes());
-
-    sol_log_data(&[&data]);
-    Ok(())
-}
-
-fn initialize_or_validate_hlp_yield_account(
-    yield_account: &mut Account<YieldAccount>,
-    owner: Pubkey,
-    market: Pubkey,
-    asset_mint: Pubkey,
-    bump: u8,
-) -> Result<()> {
-    if yield_account.owner == Pubkey::default() {
-        yield_account.initialize(owner, market, asset_mint, YieldTokenKind::Hlp, owner, bump);
-    }
-    yield_account.assert_account(owner, market, asset_mint, YieldTokenKind::Hlp)
-}
-
-fn hlp_yield_growth_indexes(market: &Market, market_asset: MarketAsset) -> (u128, u128) {
-    match market_asset {
-        MarketAsset::Base => market
-            .base_hlp_vault
-            .yield_growth_indexes(MarketAsset::Base),
-        MarketAsset::Quote => market
-            .quote_hlp_vault
-            .yield_growth_indexes(MarketAsset::Quote),
     }
 }

@@ -307,6 +307,15 @@ fn credit_hlp_growth(
 }
 
 impl Market {
+    pub fn hlp_yield_growth_indexes(&self, market_asset: MarketAsset) -> (u128, u128) {
+        match market_asset {
+            MarketAsset::Base => self.base_hlp_vault.yield_growth_indexes(MarketAsset::Base),
+            MarketAsset::Quote => self
+                .quote_hlp_vault
+                .yield_growth_indexes(MarketAsset::Quote),
+        }
+    }
+
     pub fn deposit_single_sided(
         &mut self,
         target_asset: MarketAsset,

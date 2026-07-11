@@ -67,14 +67,7 @@ impl<'info> ClaimManagerFees<'info> {
         Ok(())
     }
 
-    pub fn update(&mut self) -> Result<()> {
-        self.market.update()
-    }
-
-    pub fn update_and_validate(&mut self) -> Result<()> {
-        self.update()?;
-        self.validate()
-    }
+    crate::instructions::common::market_update_and_validate!();
 
     pub fn handle_claim(ctx: Context<Self>) -> Result<()> {
         let market_key = ctx.accounts.market.key();
