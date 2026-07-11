@@ -128,14 +128,7 @@ impl<'info> ClaimYield<'info> {
         )
     }
 
-    pub fn update(&mut self) -> Result<()> {
-        self.market.update()
-    }
-
-    pub fn update_and_validate(&mut self, args: &ClaimYieldArgs) -> Result<()> {
-        self.update()?;
-        self.validate(args)
-    }
+    crate::instructions::common::market_update_and_validate!(ClaimYieldArgs);
 
     pub fn handle_claim(ctx: Context<Self>, args: ClaimYieldArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();

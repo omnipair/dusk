@@ -154,14 +154,7 @@ impl<'info> AddLiquidity<'info> {
         Ok(())
     }
 
-    pub fn update(&mut self) -> Result<()> {
-        self.market.update()
-    }
-
-    pub fn update_and_validate(&mut self, args: &AddLiquidityArgs) -> Result<()> {
-        self.update()?;
-        self.validate(args)
-    }
+    crate::instructions::common::market_update_and_validate!(AddLiquidityArgs);
 
     pub fn handle_add_liquidity(ctx: Context<Self>, args: AddLiquidityArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();

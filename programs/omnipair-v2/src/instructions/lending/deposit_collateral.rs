@@ -91,14 +91,7 @@ impl<'info> DepositCollateral<'info> {
         Ok(())
     }
 
-    pub fn update(&mut self) -> Result<()> {
-        self.market.update()
-    }
-
-    pub fn update_and_validate(&mut self, args: &DepositCollateralArgs) -> Result<()> {
-        self.update()?;
-        self.validate(args)
-    }
+    crate::instructions::common::market_update_and_validate!(DepositCollateralArgs);
 
     pub fn handle_deposit(ctx: Context<Self>, args: DepositCollateralArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();

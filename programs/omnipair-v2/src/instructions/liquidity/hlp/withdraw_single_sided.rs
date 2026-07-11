@@ -181,14 +181,7 @@ impl<'info> WithdrawSingleSided<'info> {
         Ok(())
     }
 
-    pub fn update(&mut self) -> Result<()> {
-        self.market.update()
-    }
-
-    pub fn update_and_validate(&mut self, args: &WithdrawSingleSidedArgs) -> Result<()> {
-        self.update()?;
-        self.validate(args)
-    }
+    crate::instructions::common::market_update_and_validate!(WithdrawSingleSidedArgs);
 
     pub fn handle_withdraw(ctx: Context<Self>, args: WithdrawSingleSidedArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();

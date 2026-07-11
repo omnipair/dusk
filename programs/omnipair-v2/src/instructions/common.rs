@@ -12,6 +12,30 @@ use crate::{
     state::{Market, MarketAsset},
 };
 
+macro_rules! market_update_and_validate {
+    ($args:ty) => {
+        pub fn update(&mut self) -> Result<()> {
+            self.market.update()
+        }
+
+        pub fn update_and_validate(&mut self, args: &$args) -> Result<()> {
+            self.update()?;
+            self.validate(args)
+        }
+    };
+    () => {
+        pub fn update(&mut self) -> Result<()> {
+            self.market.update()
+        }
+
+        pub fn update_and_validate(&mut self) -> Result<()> {
+            self.update()?;
+            self.validate()
+        }
+    };
+}
+pub(crate) use market_update_and_validate;
+
 pub fn token_program_for_mint<'info>(
     mint: &InterfaceAccount<'info, Mint>,
     token_program: &Program<'info, Token>,

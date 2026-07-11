@@ -128,13 +128,16 @@ impl WithdrawSingleSided {
     }
 }
 
-pub fn checkpoint_hlp_vaults(market: &mut Market, current_slot: u64) -> Result<(i128, i128)> {
+pub(in crate::state::market) fn checkpoint_hlp_vaults(
+    market: &mut Market,
+    current_slot: u64,
+) -> Result<(i128, i128)> {
     let base_delta = checkpoint_one_hlp(market, MarketAsset::Base, current_slot)?;
     let quote_delta = checkpoint_one_hlp(market, MarketAsset::Quote, current_slot)?;
     Ok((base_delta, quote_delta))
 }
 
-pub fn rebalance_hlp_vaults(
+pub(in crate::state::market) fn rebalance_hlp_vaults(
     market: &mut Market,
     current_slot: u64,
 ) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
@@ -163,7 +166,7 @@ pub fn rebalance_hlp_vaults(
     Ok((base_receipt, quote_receipt))
 }
 
-pub fn rebalance_hlp_vault_for_swap(
+pub(in crate::state::market) fn rebalance_hlp_vault_for_swap(
     market: &mut Market,
     preferred_asset: MarketAsset,
     current_slot: u64,
@@ -189,7 +192,7 @@ pub fn rebalance_hlp_vault_for_swap(
     }
 }
 
-pub fn pre_solve_hlp_vaults_for_swap(
+pub(in crate::state::market) fn pre_solve_hlp_vaults_for_swap(
     market: &mut Market,
     asset_in: MarketAsset,
     amount_in_after_fee: u64,
@@ -1401,7 +1404,10 @@ fn checkpoint_one_hlp(
     Ok(ideal_delta)
 }
 
-pub fn checkpoint_hlp_yield_from_ylp(market: &mut Market, target_asset: MarketAsset) -> Result<()> {
+pub(in crate::state::market) fn checkpoint_hlp_yield_from_ylp(
+    market: &mut Market,
+    target_asset: MarketAsset,
+) -> Result<()> {
     let ylp_shares = match target_asset {
         MarketAsset::Base => market.base_hlp_vault.ylp_shares,
         MarketAsset::Quote => market.quote_hlp_vault.ylp_shares,
@@ -1409,7 +1415,7 @@ pub fn checkpoint_hlp_yield_from_ylp(market: &mut Market, target_asset: MarketAs
     checkpoint_hlp_yield_from_ylp_shares(market, target_asset, ylp_shares)
 }
 
-pub fn checkpoint_hlp_yield_from_ylp_shares(
+pub(in crate::state::market) fn checkpoint_hlp_yield_from_ylp_shares(
     market: &mut Market,
     target_asset: MarketAsset,
     eligible_ylp_shares: u64,

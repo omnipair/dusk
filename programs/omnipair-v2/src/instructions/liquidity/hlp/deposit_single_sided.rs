@@ -1,5 +1,4 @@
-use anchor_lang::solana_program::log::sol_log_data;
-use anchor_lang::{prelude::*, Discriminator};
+use anchor_lang::prelude::*;
 use anchor_spl::{
     token::Token,
     token_interface::{Mint, Token2022, TokenAccount},
@@ -8,7 +7,7 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::HlpOpened,
+    events::log::emit_hlp_opened_low_heap,
     generate_market_seeds,
     shared::{
         account::get_size_with_discriminator,
@@ -168,14 +167,7 @@ impl<'info> DepositSingleSided<'info> {
         Ok(())
     }
 
-    pub fn update(&mut self) -> Result<()> {
-        self.market.update()
-    }
-
-    pub fn update_and_validate(&mut self, args: &DepositSingleSidedArgs) -> Result<()> {
-        self.update()?;
-        self.validate(args)
-    }
+    crate::instructions::common::market_update_and_validate!(DepositSingleSidedArgs);
 
     pub fn handle_deposit(ctx: Context<Self>, args: DepositSingleSidedArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
@@ -309,46 +301,4 @@ impl<'info> DepositSingleSided<'info> {
 
         Ok(())
     }
-}
-
-fn emit_hlp_opened_low_heap(
-    market: Pubkey,
-    owner: Pubkey,
-    asset_mint: Pubkey,
-    deposit_amount: u64,
-    borrowed_amount: u64,
-    ylp_amount: u64,
-    hlp_amount: u64,
-    hlp_supply: u64,
-) -> Result<()> {
-    const HLP_OPENED_EVENT_LEN: usize = 8 + (3 * 32) + (5 * 8) + 32 + 32 + 8;
-
-    let mut data = [0u8; HLP_OPENED_EVENT_LEN];
-    let mut offset = 0usize;
-    data[offset..offset + 8].copy_from_slice(HlpOpened::DISCRIMINATOR);
-    offset += 8;
-    data[offset..offset + 32].copy_from_slice(market.as_ref());
-    offset += 32;
-    data[offset..offset + 32].copy_from_slice(owner.as_ref());
-    offset += 32;
-    data[offset..offset + 32].copy_from_slice(asset_mint.as_ref());
-    offset += 32;
-    data[offset..offset + 8].copy_from_slice(&deposit_amount.to_le_bytes());
-    offset += 8;
-    data[offset..offset + 8].copy_from_slice(&borrowed_amount.to_le_bytes());
-    offset += 8;
-    data[offset..offset + 8].copy_from_slice(&ylp_amount.to_le_bytes());
-    offset += 8;
-    data[offset..offset + 8].copy_from_slice(&hlp_amount.to_le_bytes());
-    offset += 8;
-    data[offset..offset + 8].copy_from_slice(&hlp_supply.to_le_bytes());
-    offset += 8;
-    data[offset..offset + 32].copy_from_slice(owner.as_ref());
-    offset += 32;
-    data[offset..offset + 32].copy_from_slice(market.as_ref());
-    offset += 32;
-    data[offset..offset + 8].copy_from_slice(&Clock::get()?.slot.to_le_bytes());
-
-    sol_log_data(&[&data]);
-    Ok(())
 }

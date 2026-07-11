@@ -100,14 +100,7 @@ impl<'info> Borrow<'info> {
         Ok(())
     }
 
-    pub fn update(&mut self) -> Result<()> {
-        self.market.update()
-    }
-
-    pub fn update_and_validate(&mut self, args: &BorrowArgs) -> Result<()> {
-        self.update()?;
-        self.validate(args)
-    }
+    crate::instructions::common::market_update_and_validate!(BorrowArgs);
 
     pub fn handle_borrow(ctx: Context<Self>, args: BorrowArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();

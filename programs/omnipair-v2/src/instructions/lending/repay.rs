@@ -100,14 +100,7 @@ impl<'info> Repay<'info> {
         Ok(())
     }
 
-    pub fn update(&mut self) -> Result<()> {
-        self.market.update()
-    }
-
-    pub fn update_and_validate(&mut self, args: &RepayArgs) -> Result<()> {
-        self.update()?;
-        self.validate(args)
-    }
+    crate::instructions::common::market_update_and_validate!(RepayArgs);
 
     pub fn handle_repay(ctx: Context<Self>, args: RepayArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();

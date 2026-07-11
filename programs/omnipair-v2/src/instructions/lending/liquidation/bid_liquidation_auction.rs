@@ -1,5 +1,4 @@
-use anchor_lang::solana_program::log::sol_log_data;
-use anchor_lang::{prelude::*, Discriminator};
+use anchor_lang::prelude::*;
 use anchor_spl::{
     token::Token,
     token_interface::{Mint, Token2022, TokenAccount},
@@ -8,7 +7,7 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::PositionLiquidated,
+    events::log::emit_position_liquidated_low_heap,
     generate_market_seeds,
     math::risk::exponential_price_decay,
     shared::token::{
@@ -123,14 +122,7 @@ impl<'info> BidLiquidationAuction<'info> {
         Ok(())
     }
 
-    pub fn update(&mut self) -> Result<()> {
-        self.market.update()
-    }
-
-    pub fn update_and_validate(&mut self, args: &BidLiquidationAuctionArgs) -> Result<()> {
-        self.update()?;
-        self.validate(args)
-    }
+    crate::instructions::common::market_update_and_validate!(BidLiquidationAuctionArgs);
 
     pub fn handle_bid(ctx: Context<Self>, args: BidLiquidationAuctionArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
@@ -158,17 +150,22 @@ impl<'info> BidLiquidationAuction<'info> {
         )?;
 
         let floor_price = ctx.accounts.borrow_position.auction_floor_price_nad;
-        
+
         let mut final_price = decayed_price.max(floor_price);
-        
+
         // Liquidator pays LP fee (e.g. 0.20%) to beat the floor
-        let reservation_fee = final_price.checked_mul(20).and_then(|v| v.checked_div(10000)).ok_or(ErrorCode::MarketMathOverflow)?;
-        final_price = final_price.checked_add(reservation_fee).ok_or(ErrorCode::MarketMathOverflow)?;
+        let reservation_fee = final_price
+            .checked_mul(20)
+            .and_then(|v| v.checked_div(10000))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        final_price = final_price
+            .checked_add(reservation_fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
 
         let liquidation_pricing = LiquidationPricing::ReferencePrice {
             debt_per_collateral_price_nad: final_price,
         };
-        
+
         let liquidation_terms = ctx.accounts.market.liquidation_terms_with_pricing(
             &ctx.accounts.borrow_position,
             debt_asset,
@@ -215,7 +212,7 @@ impl<'info> BidLiquidationAuction<'info> {
             liquidation_terms,
             liquidation_pricing,
         )?;
-        
+
         if liquidation_receipt.interest_paid > 0 {
             transfer_from_vault_to_vault(
                 ctx.accounts.market.to_account_info(),
@@ -278,7 +275,7 @@ impl<'info> BidLiquidationAuction<'info> {
             args.min_collateral_out,
             ErrorCode::SlippageExceeded
         );
-        
+
         // Clear auction fields if full liquidation, else leave them for next bid
         if liquidation_receipt.remaining_debt == 0 {
             ctx.accounts.borrow_position.auction_start_time = 0;
@@ -303,61 +300,4 @@ impl<'info> BidLiquidationAuction<'info> {
         )?;
         Ok(())
     }
-}
-
-fn emit_position_liquidated_low_heap(
-    market: Pubkey,
-    borrow_position: Pubkey,
-    borrower: Pubkey,
-    liquidator: Pubkey,
-    debt_asset_mint: Pubkey,
-    collateral_asset_mint: Pubkey,
-    repaid_amount: u64,
-    collateral_seized: u64,
-    collateral_to_liquidator: u64,
-    insurance_funded: u64,
-    insurance_drawn: u64,
-    socialized_loss: u64,
-    remaining_debt: u128,
-) -> Result<()> {
-    const POSITION_LIQUIDATED_EVENT_LEN: usize = 8 + (6 * 32) + (6 * 8) + 16 + 32 + 32 + 8;
-
-    let mut data = [0u8; POSITION_LIQUIDATED_EVENT_LEN];
-    let mut offset = 0usize;
-    data[offset..offset + 8].copy_from_slice(PositionLiquidated::DISCRIMINATOR);
-    offset += 8;
-    data[offset..offset + 32].copy_from_slice(market.as_ref());
-    offset += 32;
-    data[offset..offset + 32].copy_from_slice(borrow_position.as_ref());
-    offset += 32;
-    data[offset..offset + 32].copy_from_slice(borrower.as_ref());
-    offset += 32;
-    data[offset..offset + 32].copy_from_slice(liquidator.as_ref());
-    offset += 32;
-    data[offset..offset + 32].copy_from_slice(debt_asset_mint.as_ref());
-    offset += 32;
-    data[offset..offset + 32].copy_from_slice(collateral_asset_mint.as_ref());
-    offset += 32;
-    data[offset..offset + 8].copy_from_slice(&repaid_amount.to_le_bytes());
-    offset += 8;
-    data[offset..offset + 8].copy_from_slice(&collateral_seized.to_le_bytes());
-    offset += 8;
-    data[offset..offset + 8].copy_from_slice(&collateral_to_liquidator.to_le_bytes());
-    offset += 8;
-    data[offset..offset + 8].copy_from_slice(&insurance_funded.to_le_bytes());
-    offset += 8;
-    data[offset..offset + 8].copy_from_slice(&insurance_drawn.to_le_bytes());
-    offset += 8;
-    data[offset..offset + 8].copy_from_slice(&socialized_loss.to_le_bytes());
-    offset += 8;
-    data[offset..offset + 16].copy_from_slice(&remaining_debt.to_le_bytes());
-    offset += 16;
-    data[offset..offset + 32].copy_from_slice(liquidator.as_ref());
-    offset += 32;
-    data[offset..offset + 32].copy_from_slice(market.as_ref());
-    offset += 32;
-    data[offset..offset + 8].copy_from_slice(&Clock::get()?.slot.to_le_bytes());
-
-    sol_log_data(&[&data]);
-    Ok(())
 }
