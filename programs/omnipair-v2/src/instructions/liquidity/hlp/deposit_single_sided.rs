@@ -22,6 +22,8 @@ use crate::instructions::common::{
     validate_owner_asset_account, validate_owner_lp_account, validate_side_vault_accounts,
 };
 
+use super::initialize_or_validate_hlp_yield_account;
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct DepositSingleSidedArgs {
     pub deposit_amount: u64,
@@ -255,7 +257,7 @@ impl<'info> DepositSingleSided<'info> {
             ctx.bumps.target_yield_account,
         )?;
         let (swap_fee_growth_index_nad, interest_growth_index_nad) =
-            hlp_yield_growth_indexes(&ctx.accounts.market, target_asset);
+            ctx.accounts.market.hlp_yield_growth_indexes(target_asset);
         ctx.accounts.target_yield_account.accrue(
             ctx.accounts.owner_hlp_account.amount,
             swap_fee_growth_index_nad,
@@ -349,28 +351,4 @@ fn emit_hlp_opened_low_heap(
 
     sol_log_data(&[&data]);
     Ok(())
-}
-
-fn initialize_or_validate_hlp_yield_account(
-    yield_account: &mut Account<YieldAccount>,
-    owner: Pubkey,
-    market: Pubkey,
-    asset_mint: Pubkey,
-    bump: u8,
-) -> Result<()> {
-    if yield_account.owner == Pubkey::default() {
-        yield_account.initialize(owner, market, asset_mint, YieldTokenKind::Hlp, owner, bump);
-    }
-    yield_account.assert_account(owner, market, asset_mint, YieldTokenKind::Hlp)
-}
-
-fn hlp_yield_growth_indexes(market: &Market, market_asset: MarketAsset) -> (u128, u128) {
-    match market_asset {
-        MarketAsset::Base => market
-            .base_hlp_vault
-            .yield_growth_indexes(MarketAsset::Base),
-        MarketAsset::Quote => market
-            .quote_hlp_vault
-            .yield_growth_indexes(MarketAsset::Quote),
-    }
 }
