@@ -1,5 +1,5 @@
 pub mod bid_liquidation_auction;
-pub mod common;
+mod common;
 pub mod settle_liquidation_auction_amm;
 pub mod trigger_liquidation_auction;
 
