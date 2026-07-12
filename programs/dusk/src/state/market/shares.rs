@@ -21,11 +21,7 @@ impl ReserveShares {
 
     pub fn reserve_for_burn(&self, reserve_before: u64, share_amount: u64) -> Result<u64> {
         require!(share_amount > 0, ErrorCode::AmountZero);
-        require_gte!(
-            self.ylp_supply,
-            share_amount,
-            ErrorCode::InsufficientBalance
-        );
+        require_gte!(self.ylp_supply, share_amount, ErrorCode::InsufficientBalance);
         let reserve_amount = (share_amount as u128)
             .checked_mul(reserve_before as u128)
             .and_then(|value| value.checked_div(self.ylp_supply as u128))

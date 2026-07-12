@@ -14,8 +14,8 @@ use crate::{
 };
 
 use super::common::{
-    leverage_collateral_credit, move_leverage_swap_fee, validate_leverage_fee_account,
-    validate_leverage_mints, validate_leverage_reserve_accounts,
+    leverage_collateral_credit, move_leverage_swap_fee, validate_leverage_fee_account, validate_leverage_mints,
+    validate_leverage_reserve_accounts,
 };
 use crate::instructions::common::token_program_for_mint;
 
@@ -93,21 +93,11 @@ pub struct IncreaseLeverage<'info> {
 
 impl<'info> IncreaseLeverage<'info> {
     pub fn validate(&self, args: &IncreaseLeverageArgs) -> Result<()> {
-        self.market
-            .assert_live_with_futarchy(&self.futarchy_authority)?;
-        require_keys_eq!(
-            self.owner.key(),
-            self.position_owner.key(),
-            ErrorCode::InvalidSigner
-        );
+        self.market.assert_live_with_futarchy(&self.futarchy_authority)?;
+        require_keys_eq!(self.owner.key(), self.position_owner.key(), ErrorCode::InvalidSigner);
         require!(args.debt_amount > 0, ErrorCode::AmountZero);
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
-        validate_leverage_mints(
-            &self.market,
-            debt_asset,
-            &self.debt_mint,
-            &self.collateral_mint,
-        )?;
+        validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
         validate_leverage_reserve_accounts(
             &self.market,
             debt_asset,
@@ -116,22 +106,14 @@ impl<'info> IncreaseLeverage<'info> {
             &self.debt_reserve_vault,
             &self.collateral_reserve_vault,
         )?;
-        validate_leverage_fee_account(
-            &self.market,
-            &self.debt_mint,
-            &self.debt_fee_vault,
-            debt_asset,
-        )?;
+        validate_leverage_fee_account(&self.market, &self.debt_mint, &self.debt_fee_vault, debt_asset)?;
         self.leverage_position.require_open()?;
         Ok(())
     }
 
     crate::instructions::common::market_update_and_validate!(IncreaseLeverageArgs);
 
-    pub fn handle_increase(
-        ctx: Context<'_, '_, '_, 'info, Self>,
-        args: IncreaseLeverageArgs,
-    ) -> Result<()> {
+    pub fn handle_increase(ctx: Context<'_, '_, '_, 'info, Self>, args: IncreaseLeverageArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.owner.key();
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
@@ -139,17 +121,9 @@ impl<'info> IncreaseLeverage<'info> {
         let collateral_mint_key = ctx.accounts.collateral_mint.key();
         let position_key = ctx.accounts.leverage_position.key();
 
-        let swap = ctx
-            .accounts
-            .market
-            .quote_leverage_swap(debt_asset, args.debt_amount)?;
-        let collateral_credit =
-            leverage_collateral_credit(&ctx.accounts.collateral_mint, swap.amount_out)?;
-        require_gte!(
-            collateral_credit,
-            args.min_collateral_out,
-            ErrorCode::SlippageExceeded
-        );
+        let swap = ctx.accounts.market.quote_leverage_swap(debt_asset, args.debt_amount)?;
+        let collateral_credit = leverage_collateral_credit(&ctx.accounts.collateral_mint, swap.amount_out)?;
+        require_gte!(collateral_credit, args.min_collateral_out, ErrorCode::SlippageExceeded);
 
         move_leverage_swap_fee(
             &ctx.accounts.market,

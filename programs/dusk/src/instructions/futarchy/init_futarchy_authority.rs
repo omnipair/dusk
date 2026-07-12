@@ -78,42 +78,32 @@ impl<'info> InitFutarchyAuthority<'info> {
             ErrorCode::InvalidDeployer
         );
         require_gte!(BPS_DENOMINATOR, args.swap_bps, ErrorCode::InvalidSwapFeeBps);
-        require_gte!(
-            BPS_DENOMINATOR,
-            args.interest_bps,
-            ErrorCode::InvalidInterestFeeBps
-        );
+        require_gte!(BPS_DENOMINATOR, args.interest_bps, ErrorCode::InvalidInterestFeeBps);
         let total_percentage = args
             .futarchy_treasury_bps
             .checked_add(args.buybacks_vault_bps)
             .ok_or(ErrorCode::FeeMathOverflow)?
             .checked_add(args.team_treasury_bps)
             .ok_or(ErrorCode::FeeMathOverflow)?;
-        require_eq!(
-            total_percentage,
-            BPS_DENOMINATOR,
-            ErrorCode::InvalidDistribution
-        );
+        require_eq!(total_percentage, BPS_DENOMINATOR, ErrorCode::InvalidDistribution);
 
         let current_slot = Clock::get()?.slot;
-        ctx.accounts
-            .futarchy_authority
-            .set_inner(FutarchyAuthority::initialize(
-                args.authority,
-                args.swap_bps,
-                args.interest_bps,
-                args.futarchy_treasury,
-                args.buybacks_vault,
-                args.team_treasury,
-                args.staking_vault,
-                args.fee_auction_accepted_mint,
-                args.buyback_auction_accepted_mint,
-                args.futarchy_treasury_bps,
-                args.buybacks_vault_bps,
-                args.team_treasury_bps,
-                current_slot,
-                ctx.bumps.futarchy_authority,
-            )?);
+        ctx.accounts.futarchy_authority.set_inner(FutarchyAuthority::initialize(
+            args.authority,
+            args.swap_bps,
+            args.interest_bps,
+            args.futarchy_treasury,
+            args.buybacks_vault,
+            args.team_treasury,
+            args.staking_vault,
+            args.fee_auction_accepted_mint,
+            args.buyback_auction_accepted_mint,
+            args.futarchy_treasury_bps,
+            args.buybacks_vault_bps,
+            args.team_treasury_bps,
+            current_slot,
+            ctx.bumps.futarchy_authority,
+        )?);
         Ok(())
     }
 }

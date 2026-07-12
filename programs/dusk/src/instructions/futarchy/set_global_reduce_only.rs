@@ -28,10 +28,7 @@ pub struct SetGlobalReduceOnly<'info> {
 }
 
 impl<'info> SetGlobalReduceOnly<'info> {
-    pub fn handle_set_global_reduce_only(
-        ctx: Context<Self>,
-        args: SetGlobalReduceOnlyArgs,
-    ) -> Result<()> {
+    pub fn handle_set_global_reduce_only(ctx: Context<Self>, args: SetGlobalReduceOnlyArgs) -> Result<()> {
         ctx.accounts.futarchy_authority.global_reduce_only = args.reduce_only;
         msg!("Global reduce-only mode set to: {}", args.reduce_only);
         Ok(())

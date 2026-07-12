@@ -15,8 +15,7 @@ use crate::{
 
 use super::common::{
     move_leverage_swap_fee, record_leverage_interest, validate_leverage_fee_account,
-    validate_leverage_interest_account, validate_leverage_mints,
-    validate_leverage_reserve_accounts,
+    validate_leverage_interest_account, validate_leverage_mints, validate_leverage_reserve_accounts,
 };
 use crate::instructions::common::token_program_for_mint;
 
@@ -97,19 +96,10 @@ pub struct DecreaseLeverage<'info> {
 impl<'info> DecreaseLeverage<'info> {
     pub fn validate(&self, args: &DecreaseLeverageArgs) -> Result<()> {
         self.market.assert_started()?;
-        require_keys_eq!(
-            self.owner.key(),
-            self.position_owner.key(),
-            ErrorCode::InvalidSigner
-        );
+        require_keys_eq!(self.owner.key(), self.position_owner.key(), ErrorCode::InvalidSigner);
         require!(args.collateral_amount > 0, ErrorCode::AmountZero);
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
-        validate_leverage_mints(
-            &self.market,
-            debt_asset,
-            &self.debt_mint,
-            &self.collateral_mint,
-        )?;
+        validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
         validate_leverage_reserve_accounts(
             &self.market,
             debt_asset,
@@ -124,22 +114,14 @@ impl<'info> DecreaseLeverage<'info> {
             &self.collateral_fee_vault,
             debt_asset.opposite(),
         )?;
-        validate_leverage_interest_account(
-            &self.market,
-            &self.debt_mint,
-            &self.debt_interest_vault,
-            debt_asset,
-        )?;
+        validate_leverage_interest_account(&self.market, &self.debt_mint, &self.debt_interest_vault, debt_asset)?;
         self.leverage_position.require_open()?;
         Ok(())
     }
 
     crate::instructions::common::market_update_and_validate!(DecreaseLeverageArgs);
 
-    pub fn handle_decrease(
-        ctx: Context<'_, '_, '_, 'info, Self>,
-        args: DecreaseLeverageArgs,
-    ) -> Result<()> {
+    pub fn handle_decrease(ctx: Context<'_, '_, '_, 'info, Self>, args: DecreaseLeverageArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.owner.key();
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;

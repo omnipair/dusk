@@ -18,11 +18,7 @@ pub struct Fees {
     pub manager_interest_fee_liability: u64,
 }
 
-pub fn accrue_fee_liability(
-    shares: u64,
-    fee_growth_index_nad: u128,
-    fee_growth_checkpoint_nad: u128,
-) -> Result<u64> {
+pub fn accrue_fee_liability(shares: u64, fee_growth_index_nad: u128, fee_growth_checkpoint_nad: u128) -> Result<u64> {
     if shares == 0 || fee_growth_index_nad <= fee_growth_checkpoint_nad {
         return Ok(0);
     }
@@ -69,11 +65,7 @@ impl Fees {
         }
     }
 
-    pub fn settle_protocol_auction_liability(
-        &mut self,
-        lane: ProtocolAuctionLane,
-        amount: u64,
-    ) -> Result<()> {
+    pub fn settle_protocol_auction_liability(&mut self, lane: ProtocolAuctionLane, amount: u64) -> Result<()> {
         require!(amount > 0, ErrorCode::AmountZero);
         match lane {
             ProtocolAuctionLane::Fee => {

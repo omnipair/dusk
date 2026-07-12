@@ -14,9 +14,7 @@ use crate::{
     state::{FutarchyAuthority, Market, MarketAsset, ProtocolAuctionLane},
 };
 
-use crate::instructions::common::{
-    require_supported_asset_mint, token_program_for_mint, validate_owner_asset_account,
-};
+use crate::instructions::common::{require_supported_asset_mint, token_program_for_mint, validate_owner_asset_account};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct SettleProtocolAuctionArgs {
@@ -76,44 +74,22 @@ impl<'info> SettleProtocolAuction<'info> {
         self.market.assert_started()?;
         self.futarchy_authority.validate()?;
         require!(args.sold_amount > 0, ErrorCode::AmountZero);
-        require!(
-            args.max_payment_amount > 0,
-            ErrorCode::InsufficientAuctionPayment
-        );
+        require!(args.max_payment_amount > 0, ErrorCode::InsufficientAuctionPayment);
 
         let auction = self.futarchy_authority.auction_config(args.lane);
-        require_keys_eq!(
-            self.accepted_mint.key(),
-            auction.accepted_mint,
-            ErrorCode::InvalidMint
-        );
-        require!(
-            is_fee_free_mint(&self.accepted_mint)?,
-            ErrorCode::InvalidMint
-        );
+        require_keys_eq!(self.accepted_mint.key(), auction.accepted_mint, ErrorCode::InvalidMint);
+        require!(is_fee_free_mint(&self.accepted_mint)?, ErrorCode::InvalidMint);
 
         let sold_side = self.market.asset_for_mint(self.sold_mint.key())?;
         let market_side = self.market.side(sold_side)?;
-        require_keys_eq!(
-            self.sold_mint.key(),
-            market_side.asset_mint,
-            ErrorCode::InvalidMint
-        );
+        require_keys_eq!(self.sold_mint.key(), market_side.asset_mint, ErrorCode::InvalidMint);
         require_keys_eq!(
             self.sold_fee_vault.key(),
             market_side.fee_vault,
             ErrorCode::InvalidVault
         );
-        require_keys_eq!(
-            self.sold_fee_vault.mint,
-            self.sold_mint.key(),
-            ErrorCode::InvalidVault
-        );
-        require_keys_eq!(
-            self.sold_fee_vault.owner,
-            self.market.key(),
-            ErrorCode::InvalidVault
-        );
+        require_keys_eq!(self.sold_fee_vault.mint, self.sold_mint.key(), ErrorCode::InvalidVault);
+        require_keys_eq!(self.sold_fee_vault.owner, self.market.key(), ErrorCode::InvalidVault);
         require_gte!(
             market_side.fees.protocol_auction_liability(args.lane),
             args.sold_amount,
@@ -125,16 +101,8 @@ impl<'info> SettleProtocolAuction<'info> {
             ErrorCode::UnbackedFeeLiability
         );
 
-        validate_owner_asset_account(
-            self.bidder.key(),
-            &self.accepted_mint,
-            &self.bidder_payment_account,
-        )?;
-        validate_owner_asset_account(
-            self.bidder.key(),
-            &self.sold_mint,
-            &self.bidder_receive_account,
-        )?;
+        validate_owner_asset_account(self.bidder.key(), &self.accepted_mint, &self.bidder_payment_account)?;
+        validate_owner_asset_account(self.bidder.key(), &self.sold_mint, &self.bidder_receive_account)?;
         validate_recipient_payment_account(
             &self.treasury_payment_account,
             auction.recipients.treasury,
@@ -150,22 +118,12 @@ impl<'info> SettleProtocolAuction<'info> {
         Ok(())
     }
 
-    pub fn handle_settle(
-        ctx: Context<'_, '_, '_, 'info, Self>,
-        args: SettleProtocolAuctionArgs,
-    ) -> Result<()> {
+    pub fn handle_settle(ctx: Context<'_, '_, '_, 'info, Self>, args: SettleProtocolAuctionArgs) -> Result<()> {
         let quote = quote_auction_settlement(ctx.accounts, &args)?;
 
-        transfer_auction_payment(
-            ctx.accounts,
-            quote.treasury_amount,
-            quote.staking_vault_amount,
-        )?;
+        transfer_auction_payment(ctx.accounts, quote.treasury_amount, quote.staking_vault_amount)?;
         transfer_sold_fee(ctx.accounts, args.sold_amount)?;
-        let sold_side = ctx
-            .accounts
-            .market
-            .asset_for_mint(ctx.accounts.sold_mint.key())?;
+        let sold_side = ctx.accounts.market.asset_for_mint(ctx.accounts.sold_mint.key())?;
         let (remaining_fee_liability, remaining_buyback_liability) = settle_auction_state(
             ctx.accounts,
             args.lane,
@@ -228,8 +186,7 @@ fn quote_auction_settlement<'info>(
         payment_amount,
         ErrorCode::InsufficientBalance
     );
-    let (treasury_amount, staking_vault_amount) =
-        split_payment(payment_amount, auction.recipients.staking_vault_bps)?;
+    let (treasury_amount, staking_vault_amount) = split_payment(payment_amount, auction.recipients.staking_vault_bps)?;
     Ok(AuctionSettlementQuote {
         current_slot,
         reference_market,
@@ -305,10 +262,7 @@ fn transfer_auction_payment<'info>(
 }
 
 #[inline(never)]
-fn transfer_sold_fee<'info>(
-    accounts: &SettleProtocolAuction<'info>,
-    sold_amount: u64,
-) -> Result<()> {
+fn transfer_sold_fee<'info>(accounts: &SettleProtocolAuction<'info>, sold_amount: u64) -> Result<()> {
     let sold_token_program = token_program_for_mint(
         &accounts.sold_mint,
         &accounts.token_program,
@@ -337,9 +291,7 @@ fn settle_auction_state<'info>(
 ) -> Result<(u64, u64)> {
     accounts.sold_fee_vault.reload()?;
     let market_side = accounts.market.side_mut(side)?;
-    market_side
-        .fees
-        .settle_protocol_auction_liability(lane, sold_amount)?;
+    market_side.fees.settle_protocol_auction_liability(lane, sold_amount)?;
     market_side.fees.swap_fee_vault_balance = accounts.sold_fee_vault.amount;
     market_side.fees.assert_backed()?;
     let remaining_fee_liability = market_side.fees.protocol_fee_liability;
@@ -356,11 +308,7 @@ fn validate_recipient_payment_account(
     expected_owner: Pubkey,
     expected_mint: Pubkey,
 ) -> Result<()> {
-    require_keys_eq!(
-        token_account.owner,
-        expected_owner,
-        ErrorCode::InvalidRecipient
-    );
+    require_keys_eq!(token_account.owner, expected_owner, ErrorCode::InvalidRecipient);
     require_keys_eq!(token_account.mint, expected_mint, ErrorCode::InvalidMint);
     Ok(())
 }
@@ -377,16 +325,11 @@ fn reference_price_nad(
         return Ok((market.key(), NAD));
     }
     if let Some(price_nad) = price_from_market(market, sold_mint, accepted_mint) {
-        assert_fresh_reference(
-            market.risk.last_snapshot_slot,
-            current_slot,
-            max_reference_age_slots,
-        )?;
+        assert_fresh_reference(market.risk.last_snapshot_slot, current_slot, max_reference_age_slots)?;
         return Ok((market.key(), price_nad));
     }
 
-    let price_nad = price_from_market(reference_market, sold_mint, accepted_mint)
-        .ok_or(ErrorCode::InvalidMarket)?;
+    let price_nad = price_from_market(reference_market, sold_mint, accepted_mint).ok_or(ErrorCode::InvalidMarket)?;
     assert_fresh_reference(
         reference_market.risk.last_snapshot_slot,
         current_slot,
@@ -405,17 +348,10 @@ fn price_from_market(market: &Market, sold_mint: Pubkey, accepted_mint: Pubkey) 
     }
 }
 
-fn assert_fresh_reference(
-    last_snapshot_slot: u64,
-    current_slot: u64,
-    max_reference_age_slots: u64,
-) -> Result<()> {
+fn assert_fresh_reference(last_snapshot_slot: u64, current_slot: u64, max_reference_age_slots: u64) -> Result<()> {
     require!(last_snapshot_slot > 0, ErrorCode::StaleAuctionReference);
     let age = current_slot.saturating_sub(last_snapshot_slot);
-    require!(
-        age <= max_reference_age_slots,
-        ErrorCode::StaleAuctionReference
-    );
+    require!(age <= max_reference_age_slots, ErrorCode::StaleAuctionReference);
     Ok(())
 }
 
@@ -442,9 +378,7 @@ fn decayed_auction_price_nad(
         .checked_mul(elapsed_slots as u128)
         .and_then(|value| value.checked_div(auction.params.duration_slots as u128))
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    let price = start_price
-        .checked_sub(decay)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let price = start_price.checked_sub(decay).ok_or(ErrorCode::MarketMathOverflow)?;
     u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
@@ -463,17 +397,12 @@ fn auction_payment_amount(
 }
 
 fn split_payment(payment_amount: u64, staking_vault_bps: u16) -> Result<(u64, u64)> {
-    require_gte!(
-        BPS_DENOMINATOR,
-        staking_vault_bps,
-        ErrorCode::InvalidDistribution
-    );
+    require_gte!(BPS_DENOMINATOR, staking_vault_bps, ErrorCode::InvalidDistribution);
     let staking_vault_amount = (payment_amount as u128)
         .checked_mul(staking_vault_bps as u128)
         .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    let staking_vault_amount =
-        u64::try_from(staking_vault_amount).map_err(|_| ErrorCode::MarketMathOverflow)?;
+    let staking_vault_amount = u64::try_from(staking_vault_amount).map_err(|_| ErrorCode::MarketMathOverflow)?;
     let treasury_amount = payment_amount
         .checked_sub(staking_vault_amount)
         .ok_or(ErrorCode::MarketMathOverflow)?;

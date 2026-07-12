@@ -15,9 +15,7 @@ use crate::{
     state::{FutarchyAuthority, HlpVault, Market, MarketAsset, MarketConfig, MarketSide},
 };
 
-use crate::instructions::common::{
-    require_supported_asset_mint, token_program_for_mint, validate_lp_mint,
-};
+use crate::instructions::common::{require_supported_asset_mint, token_program_for_mint, validate_lp_mint};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct InitializeMarketArgs {
@@ -191,11 +189,7 @@ pub struct InitializeMarket<'info> {
 
 impl<'info> InitializeMarket<'info> {
     pub fn validate(&self, args: &InitializeMarketArgs) -> Result<()> {
-        require_keys_neq!(
-            self.base_mint.key(),
-            self.quote_mint.key(),
-            ErrorCode::InvalidMint
-        );
+        require_keys_neq!(self.base_mint.key(), self.quote_mint.key(), ErrorCode::InvalidMint);
         require_supported_asset_mint(&self.base_mint)?;
         require_supported_asset_mint(&self.quote_mint)?;
         let market = self.market.key();
@@ -214,18 +208,22 @@ impl<'info> InitializeMarket<'info> {
     pub fn handle_initialize(ctx: Context<Self>, args: InitializeMarketArgs) -> Result<()> {
         let current_slot = Clock::get()?.slot;
         let market_key = ctx.accounts.market.key();
+        let payer_key = ctx.accounts.payer.key();
+        let base_mint = ctx.accounts.base_mint.key();
+        let quote_mint = ctx.accounts.quote_mint.key();
+        let ylp_mint = ctx.accounts.ylp_mint.key();
+        let base_hlp_mint = ctx.accounts.base_hlp_mint.key();
+        let quote_hlp_mint = ctx.accounts.quote_hlp_mint.key();
+        let base_collateral_vault = ctx.accounts.base_collateral_vault.key();
+        let quote_collateral_vault = ctx.accounts.quote_collateral_vault.key();
+        let base_insurance_vault = ctx.accounts.base_insurance_vault.key();
+        let quote_insurance_vault = ctx.accounts.quote_insurance_vault.key();
 
         Self::create_vault_accounts(&ctx)?;
         collect_market_creation_fee(&ctx)?;
 
-        let market = &mut ctx.accounts.market;
-        market.version = MARKET_VERSION;
-        market.base_mint = ctx.accounts.base_mint.key();
-        market.quote_mint = ctx.accounts.quote_mint.key();
-        market.ylp_mint = ctx.accounts.ylp_mint.key();
         // Default both roles to the deployer; an explicit non-default value in
         // args lets a deployer hand control to a multisig/operator at creation.
-        let payer_key = ctx.accounts.payer.key();
         let resolved_operator = if args.operator == Pubkey::default() {
             payer_key
         } else {
@@ -236,30 +234,36 @@ impl<'info> InitializeMarket<'info> {
         } else {
             args.manager
         };
+
+        let market = &mut ctx.accounts.market;
+        market.version = MARKET_VERSION;
+        market.base_mint = base_mint;
+        market.quote_mint = quote_mint;
+        market.ylp_mint = ylp_mint;
         market.operator = resolved_operator;
         market.manager = resolved_manager;
         market.base_side = MarketSide {
-            asset_mint: ctx.accounts.base_mint.key(),
+            asset_mint: base_mint,
             asset_decimals: ctx.accounts.base_mint.decimals,
-            hlp_mint: ctx.accounts.base_hlp_mint.key(),
+            hlp_mint: base_hlp_mint,
             reserve_vault: ctx.accounts.base_reserve_vault.key(),
-            collateral_vault: ctx.accounts.base_collateral_vault.key(),
+            collateral_vault: base_collateral_vault,
             fee_vault: ctx.accounts.base_fee_vault.key(),
             interest_vault: ctx.accounts.base_interest_vault.key(),
             ..MarketSide::default()
         };
         market.quote_side = MarketSide {
-            asset_mint: ctx.accounts.quote_mint.key(),
+            asset_mint: quote_mint,
             asset_decimals: ctx.accounts.quote_mint.decimals,
-            hlp_mint: ctx.accounts.quote_hlp_mint.key(),
+            hlp_mint: quote_hlp_mint,
             reserve_vault: ctx.accounts.quote_reserve_vault.key(),
-            collateral_vault: ctx.accounts.quote_collateral_vault.key(),
+            collateral_vault: quote_collateral_vault,
             fee_vault: ctx.accounts.quote_fee_vault.key(),
             interest_vault: ctx.accounts.quote_interest_vault.key(),
             ..MarketSide::default()
         };
-        market.insurance.base_vault = ctx.accounts.base_insurance_vault.key();
-        market.insurance.quote_vault = ctx.accounts.quote_insurance_vault.key();
+        market.insurance.base_vault = base_insurance_vault;
+        market.insurance.quote_vault = quote_insurance_vault;
         market.config = args.config;
         market.debt = crate::state::Debt {
             base_borrow_index_nad: NAD as u128,
@@ -272,21 +276,13 @@ impl<'info> InitializeMarket<'info> {
         };
         market.base_hlp_vault = {
             let mut vault = HlpVault::default();
-            let ylp_vault = derive_hlp_ylp_vault(
-                market_key,
-                ctx.accounts.base_hlp_mint.key(),
-                ctx.accounts.ylp_mint.key(),
-            );
+            let ylp_vault = derive_hlp_ylp_vault(market_key, base_hlp_mint, ylp_mint);
             vault.initialize(MarketAsset::Base, ylp_vault, current_slot);
             vault
         };
         market.quote_hlp_vault = {
             let mut vault = HlpVault::default();
-            let ylp_vault = derive_hlp_ylp_vault(
-                market_key,
-                ctx.accounts.quote_hlp_mint.key(),
-                ctx.accounts.ylp_mint.key(),
-            );
+            let ylp_vault = derive_hlp_ylp_vault(market_key, quote_hlp_mint, ylp_mint);
             vault.initialize(MarketAsset::Quote, ylp_vault, current_slot);
             vault
         };
@@ -301,15 +297,15 @@ impl<'info> InitializeMarket<'info> {
 
         emit_cpi!(MarketCreated {
             market: market_key,
-            base_mint: ctx.accounts.base_mint.key(),
-            quote_mint: ctx.accounts.quote_mint.key(),
-            ylp_mint: ctx.accounts.ylp_mint.key(),
-            base_collateral_vault: ctx.accounts.base_collateral_vault.key(),
-            quote_collateral_vault: ctx.accounts.quote_collateral_vault.key(),
-            base_insurance_vault: ctx.accounts.base_insurance_vault.key(),
-            quote_insurance_vault: ctx.accounts.quote_insurance_vault.key(),
-            base_hlp_mint: ctx.accounts.base_hlp_mint.key(),
-            quote_hlp_mint: ctx.accounts.quote_hlp_mint.key(),
+            base_mint,
+            quote_mint,
+            ylp_mint,
+            base_collateral_vault,
+            quote_collateral_vault,
+            base_insurance_vault,
+            quote_insurance_vault,
+            base_hlp_mint,
+            quote_hlp_mint,
             operator: resolved_operator,
             manager: resolved_manager,
             target_hlp_leverage_bps: args.config.target_hlp_leverage_bps,
@@ -318,7 +314,7 @@ impl<'info> InitializeMarket<'info> {
             protocol_fee_bps: args.config.protocol_fee_bps,
             params_hash: args.params_hash,
             version: MARKET_VERSION,
-            metadata: MarketEventMetadata::new(ctx.accounts.payer.key(), market_key)?,
+            metadata: MarketEventMetadata::new(payer_key, market_key)?,
         });
 
         Ok(())
@@ -475,12 +471,7 @@ fn create_vault_token_account<'info>(
         &mint.to_account_info(),
         &system_program.to_account_info(),
         token_program,
-        &[
-            seed_prefix,
-            market_key.as_ref(),
-            mint_key.as_ref(),
-            &bump_seed,
-        ],
+        &[seed_prefix, market_key.as_ref(), mint_key.as_ref(), &bump_seed],
     )
 }
 

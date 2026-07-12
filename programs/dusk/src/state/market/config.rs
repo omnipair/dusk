@@ -5,9 +5,7 @@ use crate::{
     errors::ErrorCode,
 };
 
-#[derive(
-    AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq,
-)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct MarketConfig {
     pub swap_fee_bps: u16,
     pub manager_fee_bps: u16,
@@ -28,11 +26,7 @@ pub struct MarketConfig {
 
 impl MarketConfig {
     pub fn validate(&self) -> Result<()> {
-        require_gte!(
-            BPS_DENOMINATOR,
-            self.swap_fee_bps,
-            ErrorCode::InvalidSwapFeeBps
-        );
+        require_gte!(BPS_DENOMINATOR, self.swap_fee_bps, ErrorCode::InvalidSwapFeeBps);
         require_gte!(
             MAX_MANAGER_FEE_BPS,
             self.manager_fee_bps,
@@ -41,9 +35,7 @@ impl MarketConfig {
         require!(self.protocol_fee_bps == 0, ErrorCode::InvalidMarketConfig);
         require_eq!(
             self.target_hlp_leverage_bps,
-            BPS_DENOMINATOR
-                .checked_mul(2)
-                .ok_or(ErrorCode::InvalidMarketConfig)?,
+            BPS_DENOMINATOR.checked_mul(2).ok_or(ErrorCode::InvalidMarketConfig)?,
             ErrorCode::InvalidMarketConfig
         );
         require!(

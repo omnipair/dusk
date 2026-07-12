@@ -14,8 +14,8 @@ use crate::{
 };
 
 use crate::instructions::common::{
-    require_supported_asset_mint, token_program_for_mint, validate_fee_accounts,
-    validate_interest_accounts, validate_owner_asset_account,
+    require_supported_asset_mint, token_program_for_mint, validate_fee_accounts, validate_interest_accounts,
+    validate_owner_asset_account,
 };
 
 #[event_cpi]
@@ -55,14 +55,9 @@ impl<'info> ClaimManagerFees<'info> {
     pub fn validate(&self) -> Result<()> {
         self.market.assert_manager(self.manager.key())?;
         let fee_asset = validate_fee_accounts(&self.market, &self.asset_mint, &self.fee_vault)?;
-        let interest_asset =
-            validate_interest_accounts(&self.market, &self.asset_mint, &self.interest_vault)?;
+        let interest_asset = validate_interest_accounts(&self.market, &self.asset_mint, &self.interest_vault)?;
         require!(fee_asset == interest_asset, ErrorCode::InvalidVault);
-        validate_owner_asset_account(
-            self.manager.key(),
-            &self.asset_mint,
-            &self.manager_asset_account,
-        )?;
+        validate_owner_asset_account(self.manager.key(), &self.asset_mint, &self.manager_asset_account)?;
         require_supported_asset_mint(&self.asset_mint)?;
         Ok(())
     }
@@ -81,10 +76,7 @@ impl<'info> ClaimManagerFees<'info> {
                 market_side.fees.manager_interest_fee_liability,
             )
         };
-        require!(
-            swap_fee_amount > 0 || interest_fee_amount > 0,
-            ErrorCode::AmountZero
-        );
+        require!(swap_fee_amount > 0 || interest_fee_amount > 0, ErrorCode::AmountZero);
 
         let asset_token_program = token_program_for_mint(
             &ctx.accounts.asset_mint,

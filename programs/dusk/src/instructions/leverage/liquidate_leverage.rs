@@ -15,8 +15,7 @@ use crate::{
 
 use super::common::{
     move_leverage_swap_fee, record_leverage_interest, validate_leverage_fee_account,
-    validate_leverage_interest_account, validate_leverage_mints,
-    validate_leverage_reserve_accounts,
+    validate_leverage_interest_account, validate_leverage_mints, validate_leverage_reserve_accounts,
 };
 use crate::instructions::common::{token_account_credit, token_program_for_mint};
 
@@ -111,12 +110,7 @@ impl<'info> LiquidateLeverage<'info> {
     pub fn validate(&self, args: &LiquidateLeverageArgs) -> Result<()> {
         self.market.assert_started()?;
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
-        validate_leverage_mints(
-            &self.market,
-            debt_asset,
-            &self.debt_mint,
-            &self.collateral_mint,
-        )?;
+        validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
         validate_leverage_reserve_accounts(
             &self.market,
             debt_asset,
@@ -131,22 +125,14 @@ impl<'info> LiquidateLeverage<'info> {
             &self.collateral_fee_vault,
             debt_asset.opposite(),
         )?;
-        validate_leverage_interest_account(
-            &self.market,
-            &self.debt_mint,
-            &self.debt_interest_vault,
-            debt_asset,
-        )?;
+        validate_leverage_interest_account(&self.market, &self.debt_mint, &self.debt_interest_vault, debt_asset)?;
         self.leverage_position.require_open()?;
         Ok(())
     }
 
     crate::instructions::common::market_update_and_validate!(LiquidateLeverageArgs);
 
-    pub fn handle_liquidate(
-        ctx: Context<'_, '_, '_, 'info, Self>,
-        args: LiquidateLeverageArgs,
-    ) -> Result<()> {
+    pub fn handle_liquidate(ctx: Context<'_, '_, '_, 'info, Self>, args: LiquidateLeverageArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let liquidator_key = ctx.accounts.liquidator.key();
         let owner_key = ctx.accounts.position_owner.key();
@@ -211,10 +197,7 @@ impl<'info> LiquidateLeverage<'info> {
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
         )?;
         ctx.accounts.liquidator_debt_account.reload()?;
-        let liquidator_amount = token_account_credit(
-            liquidator_balance_before,
-            &ctx.accounts.liquidator_debt_account,
-        )?;
+        let liquidator_amount = token_account_credit(liquidator_balance_before, &ctx.accounts.liquidator_debt_account)?;
 
         let owner_balance_before = ctx.accounts.owner_debt_account.amount;
         transfer_from_vault_to_user(
@@ -228,8 +211,7 @@ impl<'info> LiquidateLeverage<'info> {
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
         )?;
         ctx.accounts.owner_debt_account.reload()?;
-        let owner_residual =
-            token_account_credit(owner_balance_before, &ctx.accounts.owner_debt_account)?;
+        let owner_residual = token_account_credit(owner_balance_before, &ctx.accounts.owner_debt_account)?;
 
         record_leverage_interest(
             &mut ctx.accounts.market,

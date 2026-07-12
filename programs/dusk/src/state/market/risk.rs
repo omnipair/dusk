@@ -2,8 +2,8 @@ use anchor_lang::prelude::*;
 
 use super::{MarketConfig, MarketSide};
 use crate::math::{
-    directional_ema_u64, ema_u128, ema_u64, market_k_nad, market_liquidity_nad,
-    market_spot_price_nad, normalize_to_nad, observed_or_current_u128, observed_or_current_u64,
+    directional_ema_u64, ema_u128, ema_u64, market_k_nad, market_liquidity_nad, market_spot_price_nad,
+    normalize_to_nad, observed_or_current_u128, observed_or_current_u64,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
@@ -45,14 +45,10 @@ impl Risk {
     ) -> Result<Self> {
         let current_base_price_nad = market_spot_price_nad(base_side, quote_side)?;
         let current_quote_price_nad = market_spot_price_nad(quote_side, base_side)?;
-        let current_base_liquidity_nad = normalize_to_nad(
-            base_side.reserves.live_reserve as u128,
-            base_side.asset_decimals,
-        )?;
-        let current_quote_liquidity_nad = normalize_to_nad(
-            quote_side.reserves.live_reserve as u128,
-            quote_side.asset_decimals,
-        )?;
+        let current_base_liquidity_nad =
+            normalize_to_nad(base_side.reserves.live_reserve as u128, base_side.asset_decimals)?;
+        let current_quote_liquidity_nad =
+            normalize_to_nad(quote_side.reserves.live_reserve as u128, quote_side.asset_decimals)?;
         let current_liquidity_nad = market_liquidity_nad(base_side, quote_side)?;
         let current_k_nad = market_k_nad(base_side, quote_side)?;
 
@@ -64,8 +60,7 @@ impl Risk {
             observed_or_current_u128(self.cached_base_liquidity_nad, current_base_liquidity_nad);
         let cached_quote_liquidity_nad =
             observed_or_current_u128(self.cached_quote_liquidity_nad, current_quote_liquidity_nad);
-        let cached_liquidity_nad =
-            observed_or_current_u128(self.cached_liquidity_nad, current_liquidity_nad);
+        let cached_liquidity_nad = observed_or_current_u128(self.cached_liquidity_nad, current_liquidity_nad);
         let cached_k_nad = observed_or_current_u128(self.cached_k_nad, current_k_nad);
 
         let base_price_ema_nad = ema_u64(

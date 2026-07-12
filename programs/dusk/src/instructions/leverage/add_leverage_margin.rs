@@ -12,12 +12,9 @@ use crate::{
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset},
 };
 
-use super::common::{
-    record_leverage_interest, validate_leverage_interest_account, validate_owner_debt_account,
-};
+use super::common::{record_leverage_interest, validate_leverage_interest_account, validate_owner_debt_account};
 use crate::instructions::common::{
-    require_supported_asset_mint, token_account_credit, token_program_for_mint,
-    validate_side_vault_accounts,
+    require_supported_asset_mint, token_account_credit, token_program_for_mint, validate_side_vault_accounts,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -80,25 +77,11 @@ pub struct AddLeverageMargin<'info> {
 impl<'info> AddLeverageMargin<'info> {
     pub fn validate(&self, args: &AddLeverageMarginArgs) -> Result<()> {
         self.market.assert_started()?;
-        require_keys_eq!(
-            self.owner.key(),
-            self.position_owner.key(),
-            ErrorCode::InvalidSigner
-        );
+        require_keys_eq!(self.owner.key(), self.position_owner.key(), ErrorCode::InvalidSigner);
         require!(args.amount > 0, ErrorCode::AmountZero);
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
-        validate_side_vault_accounts(
-            &self.market,
-            debt_asset,
-            &self.debt_mint,
-            &self.debt_reserve_vault,
-        )?;
-        validate_leverage_interest_account(
-            &self.market,
-            &self.debt_mint,
-            &self.debt_interest_vault,
-            debt_asset,
-        )?;
+        validate_side_vault_accounts(&self.market, debt_asset, &self.debt_mint, &self.debt_reserve_vault)?;
+        validate_leverage_interest_account(&self.market, &self.debt_mint, &self.debt_interest_vault, debt_asset)?;
         validate_owner_debt_account(self.owner.key(), &self.debt_mint, &self.owner_debt_account)?;
         require_supported_asset_mint(&self.debt_mint)?;
         require_gte!(
@@ -112,10 +95,7 @@ impl<'info> AddLeverageMargin<'info> {
 
     crate::instructions::common::market_update_and_validate!(AddLeverageMarginArgs);
 
-    pub fn handle_add_margin(
-        ctx: Context<'_, '_, '_, 'info, Self>,
-        args: AddLeverageMarginArgs,
-    ) -> Result<()> {
+    pub fn handle_add_margin(ctx: Context<'_, '_, '_, 'info, Self>, args: AddLeverageMarginArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.owner.key();
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
@@ -138,8 +118,7 @@ impl<'info> AddLeverageMargin<'info> {
             ctx.accounts.debt_mint.decimals,
         )?;
         ctx.accounts.debt_reserve_vault.reload()?;
-        let repay_credit =
-            token_account_credit(reserve_balance_before, &ctx.accounts.debt_reserve_vault)?;
+        let repay_credit = token_account_credit(reserve_balance_before, &ctx.accounts.debt_reserve_vault)?;
         require!(repay_credit > 0, ErrorCode::AmountZero);
 
         let receipt = ctx

@@ -35,10 +35,7 @@ pub struct UpdateProtocolAuctionRecipients<'info> {
 }
 
 impl<'info> UpdateProtocolAuctionRecipients<'info> {
-    pub fn handle_update(
-        ctx: Context<Self>,
-        args: UpdateProtocolAuctionRecipientsArgs,
-    ) -> Result<()> {
+    pub fn handle_update(ctx: Context<Self>, args: UpdateProtocolAuctionRecipientsArgs) -> Result<()> {
         let lane = args.lane;
         let authority = ctx.accounts.futarchy_authority.key();
         let signer = ctx.accounts.authority_signer.key();
@@ -51,25 +48,14 @@ impl<'info> UpdateProtocolAuctionRecipients<'info> {
             auction.recipients.staking_vault = staking_vault;
         }
         if let Some(treasury_bps) = args.treasury_bps {
-            require_gte!(
-                BPS_DENOMINATOR,
-                treasury_bps,
-                ErrorCode::InvalidDistribution
-            );
+            require_gte!(BPS_DENOMINATOR, treasury_bps, ErrorCode::InvalidDistribution);
             auction.recipients.treasury_bps = treasury_bps;
         }
         if let Some(staking_vault_bps) = args.staking_vault_bps {
-            require_gte!(
-                BPS_DENOMINATOR,
-                staking_vault_bps,
-                ErrorCode::InvalidDistribution
-            );
+            require_gte!(BPS_DENOMINATOR, staking_vault_bps, ErrorCode::InvalidDistribution);
             auction.recipients.staking_vault_bps = staking_vault_bps;
         }
-        require!(
-            auction.recipients.is_valid(),
-            ErrorCode::InvalidDistribution
-        );
+        require!(auction.recipients.is_valid(), ErrorCode::InvalidDistribution);
         let recipients = auction.recipients;
 
         emit!(ProtocolAuctionRecipientsUpdated {

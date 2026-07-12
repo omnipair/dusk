@@ -9,18 +9,12 @@ use crate::{
 
 use super::fixed_point::normalize_to_nad;
 
-pub(crate) fn market_spot_price_nad(
-    collateral_side: &MarketSide,
-    debt_side: &MarketSide,
-) -> Result<u64> {
+pub(crate) fn market_spot_price_nad(collateral_side: &MarketSide, debt_side: &MarketSide) -> Result<u64> {
     let collateral_reserve = normalize_to_nad(
         collateral_side.reserves.live_reserve as u128,
         collateral_side.asset_decimals,
     )?;
-    let debt_reserve = normalize_to_nad(
-        debt_side.reserves.live_reserve as u128,
-        debt_side.asset_decimals,
-    )?;
+    let debt_reserve = normalize_to_nad(debt_side.reserves.live_reserve as u128, debt_side.asset_decimals)?;
     if collateral_reserve == 0 {
         return Ok(0);
     }
@@ -32,21 +26,15 @@ pub(crate) fn market_spot_price_nad(
 }
 
 pub(crate) fn market_k_nad(base_side: &MarketSide, quote_side: &MarketSide) -> Result<u128> {
-    normalize_to_nad(
-        base_side.reserves.live_reserve as u128,
-        base_side.asset_decimals,
-    )?
-    .checked_mul(normalize_to_nad(
-        quote_side.reserves.live_reserve as u128,
-        quote_side.asset_decimals,
-    )?)
-    .ok_or(ErrorCode::MarketMathOverflow.into())
+    normalize_to_nad(base_side.reserves.live_reserve as u128, base_side.asset_decimals)?
+        .checked_mul(normalize_to_nad(
+            quote_side.reserves.live_reserve as u128,
+            quote_side.asset_decimals,
+        )?)
+        .ok_or(ErrorCode::MarketMathOverflow.into())
 }
 
-pub(crate) fn market_liquidity_nad(
-    base_side: &MarketSide,
-    quote_side: &MarketSide,
-) -> Result<u128> {
+pub(crate) fn market_liquidity_nad(base_side: &MarketSide, quote_side: &MarketSide) -> Result<u128> {
     market_k_nad(base_side, quote_side)?
         .sqrt()
         .ok_or(ErrorCode::MarketMathOverflow.into())
@@ -70,9 +58,7 @@ pub(crate) fn construct_normalized_virtual_reserves_at_pessimistic_price(
         return Ok((x_spot, y_spot));
     }
 
-    let k = x_spot
-        .checked_mul(y_spot)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let k = x_spot.checked_mul(y_spot).ok_or(ErrorCode::MarketMathOverflow)?;
 
     // k * NAD / P_pessimistic
     // Try direct multiplication first; on overflow, split as (x * NAD / P) * y
@@ -87,9 +73,7 @@ pub(crate) fn construct_normalized_virtual_reserves_at_pessimistic_price(
                 .ok_or(ErrorCode::MarketMathOverflow)?
                 .checked_div(pessimistic_price_nad)
                 .ok_or(ErrorCode::DenominatorOverflow)?;
-            partial
-                .checked_mul(y_spot)
-                .ok_or(ErrorCode::MarketMathOverflow)?
+            partial.checked_mul(y_spot).ok_or(ErrorCode::MarketMathOverflow)?
         }
     };
     // sqrt(k * NAD / P_pessimistic)
@@ -98,18 +82,14 @@ pub(crate) fn construct_normalized_virtual_reserves_at_pessimistic_price(
     // k * P_pessimistic / NAD
     // Try direct multiplication first; on overflow, split as (y * P / NAD) * x.
     let y_virt_squared = match k.checked_mul(pessimistic_price_nad) {
-        Some(value) => value
-            .checked_div(NAD as u128)
-            .ok_or(ErrorCode::DenominatorOverflow)?,
+        Some(value) => value.checked_div(NAD as u128).ok_or(ErrorCode::DenominatorOverflow)?,
         None => {
             let partial = y_spot
                 .checked_mul(pessimistic_price_nad)
                 .ok_or(ErrorCode::MarketMathOverflow)?
                 .checked_div(NAD as u128)
                 .ok_or(ErrorCode::DenominatorOverflow)?;
-            partial
-                .checked_mul(x_spot)
-                .ok_or(ErrorCode::MarketMathOverflow)?
+            partial.checked_mul(x_spot).ok_or(ErrorCode::MarketMathOverflow)?
         }
     };
     // sqrt(k * P_pessimistic / NAD)

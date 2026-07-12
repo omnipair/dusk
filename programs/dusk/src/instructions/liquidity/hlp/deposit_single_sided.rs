@@ -17,8 +17,8 @@ use crate::{
 };
 
 use crate::instructions::common::{
-    require_supported_asset_mint, token_program_for_mint, validate_lp_mint,
-    validate_owner_asset_account, validate_owner_lp_account, validate_side_vault_accounts,
+    require_supported_asset_mint, token_program_for_mint, validate_lp_mint, validate_owner_asset_account,
+    validate_owner_lp_account, validate_side_vault_accounts,
 };
 
 use super::initialize_or_validate_hlp_yield_account;
@@ -109,8 +109,7 @@ pub struct DepositSingleSided<'info> {
 
 impl<'info> DepositSingleSided<'info> {
     pub fn validate(&self, args: &DepositSingleSidedArgs) -> Result<()> {
-        self.market
-            .assert_live_with_futarchy(&self.futarchy_authority)?;
+        self.market.assert_live_with_futarchy(&self.futarchy_authority)?;
         require!(args.deposit_amount > 0, ErrorCode::AmountZero);
         validate_side_vault_accounts(
             &self.market,
@@ -124,44 +123,24 @@ impl<'info> DepositSingleSided<'info> {
             &self.quote_mint,
             &self.quote_reserve_vault,
         )?;
-        require_keys_eq!(
-            self.market.ylp_mint,
-            self.ylp_mint.key(),
-            ErrorCode::InvalidLpMintKey
-        );
+        require_keys_eq!(self.market.ylp_mint, self.ylp_mint.key(), ErrorCode::InvalidLpMintKey);
         let target_asset = self.market.asset_for_hlp_mint(self.target_hlp_mint.key())?;
         let target_mint = match target_asset {
             MarketAsset::Base => &self.base_mint,
             MarketAsset::Quote => &self.quote_mint,
         };
         let target_hlp_mint = self.market.side(target_asset)?.hlp_mint;
-        require_keys_eq!(
-            target_hlp_mint,
-            self.target_hlp_mint.key(),
-            ErrorCode::InvalidMint
-        );
+        require_keys_eq!(target_hlp_mint, self.target_hlp_mint.key(), ErrorCode::InvalidMint);
         validate_owner_asset_account(self.owner.key(), target_mint, &self.owner_target_account)?;
-        validate_owner_lp_account(
-            self.owner.key(),
-            &self.target_hlp_mint,
-            &self.owner_hlp_account,
-        )?;
-        validate_lp_mint(
-            &self.target_hlp_mint,
-            self.market.key(),
-            target_mint.decimals,
-        )?;
+        validate_owner_lp_account(self.owner.key(), &self.target_hlp_mint, &self.owner_hlp_account)?;
+        validate_lp_mint(&self.target_hlp_mint, self.market.key(), target_mint.decimals)?;
         validate_lp_mint(&self.ylp_mint, self.market.key(), self.base_mint.decimals)?;
         require_keys_eq!(
             self.hlp_ylp_account.mint,
             self.ylp_mint.key(),
             ErrorCode::InvalidTokenAccount
         );
-        require_keys_eq!(
-            self.hlp_ylp_account.owner,
-            self.market.key(),
-            ErrorCode::InvalidVault
-        );
+        require_keys_eq!(self.hlp_ylp_account.owner, self.market.key(), ErrorCode::InvalidVault);
         require_supported_asset_mint(&self.base_mint)?;
         require_supported_asset_mint(&self.quote_mint)?;
         Ok(())
@@ -223,24 +202,15 @@ impl<'info> DepositSingleSided<'info> {
             MarketAsset::Quote => ctx.accounts.quote_reserve_vault.reload()?,
         }
         let deposit_credit = match target_asset {
-            MarketAsset::Base => ctx
-                .accounts
-                .base_reserve_vault
-                .amount
-                .checked_sub(reserve_before),
-            MarketAsset::Quote => ctx
-                .accounts
-                .quote_reserve_vault
-                .amount
-                .checked_sub(reserve_before),
+            MarketAsset::Base => ctx.accounts.base_reserve_vault.amount.checked_sub(reserve_before),
+            MarketAsset::Quote => ctx.accounts.quote_reserve_vault.amount.checked_sub(reserve_before),
         }
         .ok_or(ErrorCode::MarketMathOverflow)?;
 
-        let receipt = ctx.accounts.market.deposit_single_sided(
-            target_asset,
-            deposit_credit,
-            args.min_hlp_amount,
-        )?;
+        let receipt = ctx
+            .accounts
+            .market
+            .deposit_single_sided(target_asset, deposit_credit, args.min_hlp_amount)?;
         initialize_or_validate_hlp_yield_account(
             &mut ctx.accounts.target_yield_account,
             owner_key,

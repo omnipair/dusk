@@ -61,11 +61,7 @@ impl YieldAccount {
         require_keys_eq!(self.owner, owner, ErrorCode::InvalidYieldAccount);
         require_keys_eq!(self.market, market, ErrorCode::InvalidYieldAccount);
         require_keys_eq!(self.asset_mint, asset_mint, ErrorCode::InvalidYieldAccount);
-        require_eq!(
-            self.token_kind,
-            token_kind.code(),
-            ErrorCode::InvalidYieldAccount
-        );
+        require_eq!(self.token_kind, token_kind.code(), ErrorCode::InvalidYieldAccount);
         Ok(())
     }
 
@@ -75,16 +71,8 @@ impl YieldAccount {
         swap_fee_growth_index_nad: u128,
         interest_growth_index_nad: u128,
     ) -> Result<()> {
-        let swap_fee_amount = accrue_fee_liability(
-            balance,
-            swap_fee_growth_index_nad,
-            self.swap_fee_checkpoint_nad,
-        )?;
-        let interest_amount = accrue_fee_liability(
-            balance,
-            interest_growth_index_nad,
-            self.interest_checkpoint_nad,
-        )?;
+        let swap_fee_amount = accrue_fee_liability(balance, swap_fee_growth_index_nad, self.swap_fee_checkpoint_nad)?;
+        let interest_amount = accrue_fee_liability(balance, interest_growth_index_nad, self.interest_checkpoint_nad)?;
         self.accrued_swap_fee_amount = self
             .accrued_swap_fee_amount
             .checked_add(swap_fee_amount)

@@ -1,9 +1,7 @@
 use anchor_lang::solana_program::log::sol_log_data;
 use anchor_lang::{prelude::*, Discriminator};
 
-use super::{
-    HlpOpened, HlpRebalanced, MarketHealthUpdated, PositionLiquidated, SwapExecuted, SwapSettled,
-};
+use super::{HlpOpened, HlpRebalanced, MarketHealthUpdated, PositionLiquidated, SwapExecuted, SwapSettled};
 
 const MARKET_EVENT_METADATA_LEN: usize = 32 + 32 + 8;
 
@@ -58,8 +56,7 @@ pub(crate) fn emit_swap_executed_low_heap(
     quote_hlp_pending_rebalance: i128,
     slot: u64,
 ) {
-    const SWAP_EXECUTED_EVENT_LEN: usize =
-        8 + 32 + 32 + 32 + 32 + 8 + 8 + 8 + 8 + 16 + 16 + MARKET_EVENT_METADATA_LEN;
+    const SWAP_EXECUTED_EVENT_LEN: usize = 8 + 32 + 32 + 32 + 32 + 8 + 8 + 8 + 8 + 16 + 16 + MARKET_EVENT_METADATA_LEN;
 
     let mut data = [0u8; SWAP_EXECUTED_EVENT_LEN];
     let mut offset = 0usize;
@@ -100,8 +97,7 @@ pub(crate) fn emit_hlp_rebalanced_low_heap(
     nav_nad: u128,
     slot: u64,
 ) {
-    const HLP_REBALANCED_EVENT_LEN: usize =
-        8 + 32 + 1 + 16 + 16 + 16 + 16 + MARKET_EVENT_METADATA_LEN;
+    const HLP_REBALANCED_EVENT_LEN: usize = 8 + 32 + 1 + 16 + 16 + 16 + 16 + MARKET_EVENT_METADATA_LEN;
 
     let mut data = [0u8; HLP_REBALANCED_EVENT_LEN];
     let mut offset = 0usize;
@@ -135,8 +131,7 @@ pub(crate) fn emit_market_health_updated_low_heap(
     quote_debt_health_bps: u64,
     slot: u64,
 ) {
-    const MARKET_HEALTH_UPDATED_EVENT_LEN: usize =
-        8 + 32 + 8 + 8 + 16 + 16 + 8 + 8 + MARKET_EVENT_METADATA_LEN;
+    const MARKET_HEALTH_UPDATED_EVENT_LEN: usize = 8 + 32 + 8 + 8 + 16 + 16 + 8 + 8 + MARKET_EVENT_METADATA_LEN;
 
     let mut data = [0u8; MARKET_HEALTH_UPDATED_EVENT_LEN];
     let mut offset = 0usize;
@@ -144,11 +139,9 @@ pub(crate) fn emit_market_health_updated_low_heap(
     offset += 8;
     data[offset..offset + 32].copy_from_slice(market.as_ref());
     offset += 32;
-    data[offset..offset + 8]
-        .copy_from_slice(&recognized_base_collateral_for_quote_debt.to_le_bytes());
+    data[offset..offset + 8].copy_from_slice(&recognized_base_collateral_for_quote_debt.to_le_bytes());
     offset += 8;
-    data[offset..offset + 8]
-        .copy_from_slice(&recognized_quote_collateral_for_base_debt.to_le_bytes());
+    data[offset..offset + 8].copy_from_slice(&recognized_quote_collateral_for_base_debt.to_le_bytes());
     offset += 8;
     data[offset..offset + 16].copy_from_slice(&effective_base_debt_nad.to_le_bytes());
     offset += 16;
@@ -216,8 +209,7 @@ pub(crate) fn emit_position_liquidated_low_heap(
     socialized_loss: u64,
     remaining_debt: u128,
 ) -> Result<()> {
-    const POSITION_LIQUIDATED_EVENT_LEN: usize =
-        8 + (6 * 32) + (6 * 8) + 16 + MARKET_EVENT_METADATA_LEN;
+    const POSITION_LIQUIDATED_EVENT_LEN: usize = 8 + (6 * 32) + (6 * 8) + 16 + MARKET_EVENT_METADATA_LEN;
 
     let mut data = [0u8; POSITION_LIQUIDATED_EVENT_LEN];
     let mut offset = 0usize;
@@ -255,13 +247,7 @@ pub(crate) fn emit_position_liquidated_low_heap(
     Ok(())
 }
 
-fn write_market_event_metadata(
-    data: &mut [u8],
-    offset: usize,
-    signer: Pubkey,
-    market: Pubkey,
-    slot: u64,
-) {
+fn write_market_event_metadata(data: &mut [u8], offset: usize, signer: Pubkey, market: Pubkey, slot: u64) {
     let mut cursor = offset;
     data[cursor..cursor + 32].copy_from_slice(signer.as_ref());
     cursor += 32;

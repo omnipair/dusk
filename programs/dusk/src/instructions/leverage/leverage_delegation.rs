@@ -172,10 +172,7 @@ impl<'info> CreateLeverageDelegation<'info> {
             owner: ctx.accounts.owner.key(),
             delegated_program: args.delegated_program,
             approved_actions: args.approved_actions,
-            metadata: MarketEventMetadata::new(
-                ctx.accounts.owner.key(),
-                ctx.accounts.market.key()
-            )?,
+            metadata: MarketEventMetadata::new(ctx.accounts.owner.key(), ctx.accounts.market.key())?,
         });
         Ok(())
     }
@@ -213,10 +210,7 @@ impl<'info> UpdateLeverageDelegation<'info> {
             owner: ctx.accounts.owner.key(),
             delegated_program: args.delegated_program,
             approved_actions: args.approved_actions,
-            metadata: MarketEventMetadata::new(
-                ctx.accounts.owner.key(),
-                ctx.accounts.market.key()
-            )?,
+            metadata: MarketEventMetadata::new(ctx.accounts.owner.key(), ctx.accounts.market.key())?,
         });
         Ok(())
     }

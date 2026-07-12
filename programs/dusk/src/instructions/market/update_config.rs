@@ -2,9 +2,7 @@ use anchor_lang::prelude::*;
 
 use crate::{
     constants::*,
-    events::{
-        MarketConfigUpdateScheduled, MarketEventMetadata, MarketHealthUpdated, MarketUpdated,
-    },
+    events::{MarketConfigUpdateScheduled, MarketEventMetadata, MarketHealthUpdated, MarketUpdated},
     state::{Market, MarketConfig, MarketTimelockAction},
 };
 
@@ -67,10 +65,8 @@ impl<'info> UpdateMarketConfig<'info> {
         let health = market.market_health()?;
         emit_cpi!(MarketHealthUpdated {
             market: market.key(),
-            recognized_base_collateral_for_quote_debt: health
-                .recognized_base_collateral_for_quote_debt,
-            recognized_quote_collateral_for_base_debt: health
-                .recognized_quote_collateral_for_base_debt,
+            recognized_base_collateral_for_quote_debt: health.recognized_base_collateral_for_quote_debt,
+            recognized_quote_collateral_for_base_debt: health.recognized_quote_collateral_for_base_debt,
             effective_base_debt_nad: health.effective_base_debt_nad,
             effective_quote_debt_nad: health.effective_quote_debt_nad,
             base_debt_health_bps: health.base_debt_health_bps,
@@ -89,9 +85,7 @@ fn apply_config_update(market: &mut Market, config: MarketConfig) -> Result<()> 
     let previous_last_update_slot = market.last_update_slot;
 
     market.config = config;
-    let result = market
-        .refresh_risk()
-        .and_then(|_| market.assert_market_health());
+    let result = market.refresh_risk().and_then(|_| market.assert_market_health());
     if result.is_err() {
         market.config = previous_config;
         market.risk = previous_risk;

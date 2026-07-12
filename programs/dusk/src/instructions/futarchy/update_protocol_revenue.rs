@@ -40,25 +40,15 @@ impl<'info> UpdateProtocolRevenue<'info> {
             ctx.accounts.futarchy_authority.revenue_share.swap_bps = swap_bps;
         }
         if let Some(interest_bps) = args.interest_bps {
-            require_gte!(
-                BPS_DENOMINATOR,
-                interest_bps,
-                ErrorCode::InvalidInterestFeeBps
-            );
+            require_gte!(BPS_DENOMINATOR, interest_bps, ErrorCode::InvalidInterestFeeBps);
             ctx.accounts.futarchy_authority.revenue_share.interest_bps = interest_bps;
         }
         if let Some(revenue_distribution) = args.revenue_distribution {
-            require!(
-                revenue_distribution.is_valid(),
-                ErrorCode::InvalidDistribution
-            );
+            require!(revenue_distribution.is_valid(), ErrorCode::InvalidDistribution);
             ctx.accounts.futarchy_authority.revenue_distribution = revenue_distribution;
         }
         if let Some(protocol_auction_split) = args.protocol_auction_split {
-            require!(
-                protocol_auction_split.is_valid(),
-                ErrorCode::InvalidDistribution
-            );
+            require!(protocol_auction_split.is_valid(), ErrorCode::InvalidDistribution);
             ctx.accounts.futarchy_authority.protocol_auction_split = protocol_auction_split;
             emit!(ProtocolAuctionSplitUpdated {
                 authority: ctx.accounts.futarchy_authority.key(),

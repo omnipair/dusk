@@ -112,17 +112,9 @@ impl<'info> RemoveLiquidity<'info> {
             &self.quote_mint,
             &self.quote_reserve_vault,
         )?;
-        require_keys_eq!(
-            self.market.ylp_mint,
-            self.ylp_mint.key(),
-            ErrorCode::InvalidLpMintKey
-        );
+        require_keys_eq!(self.market.ylp_mint, self.ylp_mint.key(), ErrorCode::InvalidLpMintKey);
         validate_owner_asset_account(self.owner.key(), &self.base_mint, &self.owner_base_account)?;
-        validate_owner_asset_account(
-            self.owner.key(),
-            &self.quote_mint,
-            &self.owner_quote_account,
-        )?;
+        validate_owner_asset_account(self.owner.key(), &self.quote_mint, &self.owner_quote_account)?;
         validate_owner_lp_account(self.owner.key(), &self.ylp_mint, &self.owner_ylp_account)?;
         require_supported_asset_mint(&self.base_mint)?;
         require_supported_asset_mint(&self.quote_mint)?;
@@ -216,20 +208,10 @@ impl<'info> RemoveLiquidity<'info> {
         )?;
         ctx.accounts.owner_base_account.reload()?;
         ctx.accounts.owner_quote_account.reload()?;
-        let base_credit =
-            token_account_credit(base_balance_before, &ctx.accounts.owner_base_account)?;
-        let quote_credit =
-            token_account_credit(quote_balance_before, &ctx.accounts.owner_quote_account)?;
-        require_gte!(
-            base_credit,
-            args.min_base_amount_out,
-            ErrorCode::SlippageExceeded
-        );
-        require_gte!(
-            quote_credit,
-            args.min_quote_amount_out,
-            ErrorCode::SlippageExceeded
-        );
+        let base_credit = token_account_credit(base_balance_before, &ctx.accounts.owner_base_account)?;
+        let quote_credit = token_account_credit(quote_balance_before, &ctx.accounts.owner_quote_account)?;
+        require_gte!(base_credit, args.min_base_amount_out, ErrorCode::SlippageExceeded);
+        require_gte!(quote_credit, args.min_quote_amount_out, ErrorCode::SlippageExceeded);
         ctx.accounts.market.refresh_risk()?;
 
         emit_cpi!(LiquidityRemoved {
@@ -244,10 +226,8 @@ impl<'info> RemoveLiquidity<'info> {
         let health = ctx.accounts.market.market_health()?;
         emit_cpi!(MarketHealthUpdated {
             market: market_key,
-            recognized_base_collateral_for_quote_debt: health
-                .recognized_base_collateral_for_quote_debt,
-            recognized_quote_collateral_for_base_debt: health
-                .recognized_quote_collateral_for_base_debt,
+            recognized_base_collateral_for_quote_debt: health.recognized_base_collateral_for_quote_debt,
+            recognized_quote_collateral_for_base_debt: health.recognized_quote_collateral_for_base_debt,
             effective_base_debt_nad: health.effective_base_debt_nad,
             effective_quote_debt_nad: health.effective_quote_debt_nad,
             base_debt_health_bps: health.base_debt_health_bps,

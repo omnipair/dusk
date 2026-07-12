@@ -32,10 +32,8 @@ declare_id!("358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv");
 pub mod dusk {
     use super::*;
 
-    pub fn init_futarchy_authority(
-        ctx: Context<InitFutarchyAuthority>,
-        args: InitFutarchyAuthorityArgs,
-    ) -> Result<()> {
+    // Futarchy authority instructions
+    pub fn init_futarchy_authority(ctx: Context<InitFutarchyAuthority>, args: InitFutarchyAuthorityArgs) -> Result<()> {
         InitFutarchyAuthority::handle_init(ctx, args)
     }
 
@@ -46,10 +44,7 @@ pub mod dusk {
         UpdateFutarchyAuthority::handle_update(ctx, args)
     }
 
-    pub fn update_protocol_revenue(
-        ctx: Context<UpdateProtocolRevenue>,
-        args: UpdateProtocolRevenueArgs,
-    ) -> Result<()> {
+    pub fn update_protocol_revenue(ctx: Context<UpdateProtocolRevenue>, args: UpdateProtocolRevenueArgs) -> Result<()> {
         UpdateProtocolRevenue::handle_update(ctx, args)
     }
 
@@ -74,10 +69,7 @@ pub mod dusk {
         UpdateProtocolAuctionRecipients::handle_update(ctx, args)
     }
 
-    pub fn set_global_reduce_only(
-        ctx: Context<SetGlobalReduceOnly>,
-        args: SetGlobalReduceOnlyArgs,
-    ) -> Result<()> {
+    pub fn set_global_reduce_only(ctx: Context<SetGlobalReduceOnly>, args: SetGlobalReduceOnlyArgs) -> Result<()> {
         SetGlobalReduceOnly::handle_set_global_reduce_only(ctx, args)
     }
 
@@ -89,31 +81,23 @@ pub mod dusk {
         SettleProtocolAuction::handle_settle(ctx, args)
     }
 
+    // Market instructions
     #[access_control(ctx.accounts.validate(&args))]
     pub fn initialize(ctx: Context<InitializeMarket>, args: InitializeMarketArgs) -> Result<()> {
         InitializeMarket::handle_initialize(ctx, args)
     }
 
     #[access_control(ctx.accounts.validate(&args))]
-    pub fn initialize_lp_metadata(
-        ctx: Context<InitializeLpMetadata>,
-        args: InitializeLpMetadataArgs,
-    ) -> Result<()> {
+    pub fn initialize_lp_metadata(ctx: Context<InitializeLpMetadata>, args: InitializeLpMetadataArgs) -> Result<()> {
         InitializeLpMetadata::handle_initialize(ctx, args)
     }
 
-    pub fn update_config(
-        ctx: Context<UpdateMarketConfig>,
-        args: UpdateMarketConfigArgs,
-    ) -> Result<()> {
+    pub fn update_config(ctx: Context<UpdateMarketConfig>, args: UpdateMarketConfigArgs) -> Result<()> {
         UpdateMarketConfig::handle_update(ctx, args)
     }
 
     #[access_control(ctx.accounts.validate())]
-    pub fn set_reduce_only(
-        ctx: Context<SetMarketReduceOnly>,
-        args: SetMarketReduceOnlyArgs,
-    ) -> Result<()> {
+    pub fn set_reduce_only(ctx: Context<SetMarketReduceOnly>, args: SetMarketReduceOnlyArgs) -> Result<()> {
         SetMarketReduceOnly::handle_set(ctx, args)
     }
 
@@ -130,24 +114,19 @@ pub mod dusk {
         ClaimManagerFees::handle_claim(ctx)
     }
 
+    // Liquidity instructions
     #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn add_liquidity(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()> {
         AddLiquidity::handle_add_liquidity(ctx, args)
     }
 
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn remove_liquidity(
-        ctx: Context<RemoveLiquidity>,
-        args: RemoveLiquidityArgs,
-    ) -> Result<()> {
+    pub fn remove_liquidity(ctx: Context<RemoveLiquidity>, args: RemoveLiquidityArgs) -> Result<()> {
         RemoveLiquidity::handle_remove_liquidity(ctx, args)
     }
 
     #[access_control(ctx.accounts.validate(&args))]
-    pub fn set_yield_recipient(
-        ctx: Context<SetYieldRecipient>,
-        args: SetYieldRecipientArgs,
-    ) -> Result<()> {
+    pub fn set_yield_recipient(ctx: Context<SetYieldRecipient>, args: SetYieldRecipientArgs) -> Result<()> {
         SetYieldRecipient::handle_set(ctx, args)
     }
 
@@ -156,24 +135,20 @@ pub mod dusk {
         ClaimYield::handle_claim(ctx, args)
     }
 
+    // Spot instructions
     #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn swap<'info>(ctx: Context<'_, '_, '_, 'info, Swap<'info>>, args: SwapArgs) -> Result<()> {
         Swap::handle_swap(ctx, args)
     }
 
+    // Lending instructions
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn deposit_collateral(
-        ctx: Context<DepositCollateral>,
-        args: DepositCollateralArgs,
-    ) -> Result<()> {
+    pub fn deposit_collateral(ctx: Context<DepositCollateral>, args: DepositCollateralArgs) -> Result<()> {
         DepositCollateral::handle_deposit(ctx, args)
     }
 
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn withdraw_collateral(
-        ctx: Context<WithdrawCollateral>,
-        args: WithdrawCollateralArgs,
-    ) -> Result<()> {
+    pub fn withdraw_collateral(ctx: Context<WithdrawCollateral>, args: WithdrawCollateralArgs) -> Result<()> {
         WithdrawCollateral::handle_withdraw(ctx, args)
     }
 
@@ -187,6 +162,7 @@ pub mod dusk {
         Repay::handle_repay(ctx, args)
     }
 
+    // Leverage instructions
     #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn open_leverage<'info>(
         ctx: Context<'_, '_, '_, 'info, OpenLeverage<'info>>,
@@ -274,6 +250,7 @@ pub mod dusk {
         CloseLeverageDelegation::handle_close(ctx, args)
     }
 
+    // Liquidation auction instructions
     #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn trigger_liquidation_auction(
         ctx: Context<TriggerLiquidationAuction>,
@@ -282,6 +259,7 @@ pub mod dusk {
         TriggerLiquidationAuction::handle_trigger(ctx, args)
     }
 
+    // Preview instructions
     pub fn preview_market(ctx: Context<PreviewMarket>) -> Result<MarketPreview> {
         PreviewMarket::handle_preview(ctx)
     }
@@ -304,17 +282,13 @@ pub mod dusk {
         PreviewBorrowCapacity::handle_preview(ctx, args)
     }
 
-    pub fn preview_borrow_position(
-        ctx: Context<PreviewBorrowPosition>,
-    ) -> Result<BorrowPositionPreview> {
+    pub fn preview_borrow_position(ctx: Context<PreviewBorrowPosition>) -> Result<BorrowPositionPreview> {
         PreviewBorrowPosition::handle_preview(ctx)
     }
 
+    // Liquidation auction instructions
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn bid_liquidation_auction(
-        ctx: Context<BidLiquidationAuction>,
-        args: BidLiquidationAuctionArgs,
-    ) -> Result<()> {
+    pub fn bid_liquidation_auction(ctx: Context<BidLiquidationAuction>, args: BidLiquidationAuctionArgs) -> Result<()> {
         BidLiquidationAuction::handle_bid(ctx, args)
     }
 
@@ -326,6 +300,7 @@ pub mod dusk {
         SettleLiquidationAuctionAmm::handle_settle(ctx, args)
     }
 
+    // HLP instructions
     #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn deposit_single_sided<'info>(
         ctx: Context<'_, '_, '_, 'info, DepositSingleSided<'info>>,
@@ -342,11 +317,7 @@ pub mod dusk {
         WithdrawSingleSided::handle_withdraw(ctx, args)
     }
 
-    pub fn fallback<'info>(
-        program_id: &Pubkey,
-        accounts: &'info [AccountInfo<'info>],
-        data: &[u8],
-    ) -> Result<()> {
+    pub fn fallback<'info>(program_id: &Pubkey, accounts: &'info [AccountInfo<'info>], data: &[u8]) -> Result<()> {
         crate::instructions::transfer_hook::handle_transfer_hook(program_id, accounts, data)
     }
 }

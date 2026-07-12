@@ -29,8 +29,7 @@ use anchor_lang::prelude::*;
 use crate::constants::*;
 use crate::errors::ErrorCode;
 use crate::math::{
-    accrued_index_nad, adapt_rate_at_target_nad, instantaneous_rate_apr_nad, utilization_bps,
-    utilization_error_nad,
+    accrued_index_nad, adapt_rate_at_target_nad, instantaneous_rate_apr_nad, utilization_bps, utilization_error_nad,
 };
 use crate::shared::math::{ceil_div, SqrtU128};
 use crate::state::{
@@ -79,12 +78,7 @@ pub struct SwapReceipt {
 }
 
 impl DebtReceipt {
-    fn from_market(
-        market: &Market,
-        debt_delta: i64,
-        interest_paid: u64,
-        health: &MarketHealth,
-    ) -> Result<Self> {
+    fn from_market(market: &Market, debt_delta: i64, interest_paid: u64, health: &MarketHealth) -> Result<Self> {
         Ok(Self {
             debt_delta,
             interest_paid,
@@ -96,9 +90,7 @@ impl DebtReceipt {
     }
 }
 
-#[derive(
-    AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq, InitSpace,
-)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq, InitSpace)]
 pub struct PendingAuthorityChange {
     pub active: bool,
     pub new_authority: Pubkey,
@@ -108,12 +100,7 @@ pub struct PendingAuthorityChange {
 }
 
 impl PendingAuthorityChange {
-    fn schedule(
-        &mut self,
-        new_authority: Pubkey,
-        signer: Pubkey,
-        current_slot: u64,
-    ) -> Result<u64> {
+    fn schedule(&mut self, new_authority: Pubkey, signer: Pubkey, current_slot: u64) -> Result<u64> {
         let execute_after_slot = current_slot
             .checked_add(MARKET_GOVERNANCE_DELAY_SLOTS)
             .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -130,9 +117,7 @@ impl PendingAuthorityChange {
     }
 }
 
-#[derive(
-    AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq, InitSpace,
-)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq, InitSpace)]
 pub struct PendingConfigChange {
     pub active: bool,
     pub config: MarketConfig,
@@ -318,11 +303,7 @@ impl Market {
     /// Config authority is manager-only. The operator remains the market's
     /// operational/economic identity, not a config admin.
     pub fn assert_config_authority(&self, signer: Pubkey) -> Result<()> {
-        require_keys_eq!(
-            signer,
-            self.manager,
-            ErrorCode::InvalidMarketConfigAuthority
-        );
+        require_keys_eq!(signer, self.manager, ErrorCode::InvalidMarketConfigAuthority);
         Ok(())
     }
 
@@ -368,9 +349,7 @@ impl Market {
             );
             return Ok(MarketTimelockAction::Ready);
         }
-        let execute_after_slot =
-            self.pending_operator
-                .schedule(new_operator, signer, current_slot)?;
+        let execute_after_slot = self.pending_operator.schedule(new_operator, signer, current_slot)?;
         Ok(MarketTimelockAction::Scheduled { execute_after_slot })
     }
 
@@ -396,9 +375,7 @@ impl Market {
             );
             return Ok(MarketTimelockAction::Ready);
         }
-        let execute_after_slot =
-            self.pending_manager
-                .schedule(new_manager, signer, current_slot)?;
+        let execute_after_slot = self.pending_manager.schedule(new_manager, signer, current_slot)?;
         Ok(MarketTimelockAction::Scheduled { execute_after_slot })
     }
 
@@ -511,24 +488,17 @@ impl Market {
     ) -> Result<DebtReceipt> {
         let debt_delta = i64::try_from(borrow_amount).map_err(|_| ErrorCode::Overflow)?;
         let debt_shares = match borrow_asset {
-            MarketAsset::Base => {
-                Debt::debt_to_shares(borrow_amount, self.debt.base_borrow_index_nad)?
-            }
-            MarketAsset::Quote => {
-                Debt::debt_to_shares(borrow_amount, self.debt.quote_borrow_index_nad)?
-            }
+            MarketAsset::Base => Debt::debt_to_shares(borrow_amount, self.debt.base_borrow_index_nad)?,
+            MarketAsset::Quote => Debt::debt_to_shares(borrow_amount, self.debt.quote_borrow_index_nad)?,
         };
         if self.risk.liquidity_ema == 0 {
             self.refresh_risk()?;
         }
         let daily_limit_slot = self.risk.last_snapshot_slot;
-        let daily_borrow_limit =
-            self.daily_limit_for_side(borrow_asset, self.config.max_daily_borrow_bps)?;
-        self.side_mut(borrow_asset)?.daily_limits.record_borrow(
-            borrow_amount,
-            daily_borrow_limit,
-            daily_limit_slot,
-        )?;
+        let daily_borrow_limit = self.daily_limit_for_side(borrow_asset, self.config.max_daily_borrow_bps)?;
+        self.side_mut(borrow_asset)?
+            .daily_limits
+            .record_borrow(borrow_amount, daily_borrow_limit, daily_limit_slot)?;
         let debt_side = self.side_mut(borrow_asset)?;
         require_borrow_headroom(debt_side, borrow_amount)?;
         debt_side.reserves.cash_reserve = debt_side
@@ -561,8 +531,7 @@ impl Market {
                     .ok_or(ErrorCode::MarketMathOverflow)?;
             }
         }
-        self.debt
-            .add_margin_principal(borrow_asset, borrow_amount)?;
+        self.debt.add_margin_principal(borrow_asset, borrow_amount)?;
         let risk = self.risk;
         sync_borrow_recognition(self, borrow_position, borrow_asset, &risk)?;
         let market_health = self.market_health()?;
@@ -571,8 +540,7 @@ impl Market {
         // Recognition was just reconciled against the current debt cap. Reuse
         // the refreshed risk snapshot instead of recomputing the same cap/health
         // path again, which is heap-expensive in SBF.
-        let health =
-            self.position_health_bps_with_risk(borrow_position, borrow_asset, &self.risk)?;
+        let health = self.position_health_bps_with_risk(borrow_position, borrow_asset, &self.risk)?;
         require_gte!(health, min_health_bps, ErrorCode::InsufficientMarketHealth);
         borrow_position.record_risk_update()?;
         DebtReceipt::from_market(self, debt_delta, 0, &market_health)
@@ -588,35 +556,26 @@ impl Market {
             MarketAsset::Base => borrow_position.fixed_base_debt(&self.debt)?,
             MarketAsset::Quote => borrow_position.fixed_quote_debt(&self.debt)?,
         };
-        require_gte!(
-            debt_before,
-            repay_credit as u128,
-            ErrorCode::InsufficientDebt
-        );
+        require_gte!(debt_before, repay_credit as u128, ErrorCode::InsufficientDebt);
         let (interest_paid, debt_reduction) = match repay_asset {
             MarketAsset::Base => {
                 let shares_before = borrow_position.fixed_base_shares;
                 let shares_to_burn = if repay_credit as u128 == debt_before {
                     shares_before
                 } else {
-                    Debt::debt_to_shares(repay_credit, self.debt.base_borrow_index_nad)?
-                        .min(shares_before)
+                    Debt::debt_to_shares(repay_credit, self.debt.base_borrow_index_nad)?.min(shares_before)
                 };
                 let remaining_shares = shares_before
                     .checked_sub(shares_to_burn)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-                let remaining_debt =
-                    Debt::shares_to_debt(remaining_shares, self.debt.base_borrow_index_nad)?;
+                let remaining_debt = Debt::shares_to_debt(remaining_shares, self.debt.base_borrow_index_nad)?;
                 let debt_reduction = debt_before
                     .checked_sub(remaining_debt)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-                let debt_reduction =
-                    u64::try_from(debt_reduction).map_err(|_| ErrorCode::DebtMathOverflow)?;
-                let interest_paid = self.debt.realize_margin_liquidation(
-                    repay_asset,
-                    repay_credit,
-                    debt_reduction,
-                )?;
+                let debt_reduction = u64::try_from(debt_reduction).map_err(|_| ErrorCode::DebtMathOverflow)?;
+                let interest_paid = self
+                    .debt
+                    .realize_margin_liquidation(repay_asset, repay_credit, debt_reduction)?;
                 let principal_credit = repay_credit
                     .checked_sub(interest_paid)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -665,24 +624,19 @@ impl Market {
                 let shares_to_burn = if repay_credit as u128 == debt_before {
                     shares_before
                 } else {
-                    Debt::debt_to_shares(repay_credit, self.debt.quote_borrow_index_nad)?
-                        .min(shares_before)
+                    Debt::debt_to_shares(repay_credit, self.debt.quote_borrow_index_nad)?.min(shares_before)
                 };
                 let remaining_shares = shares_before
                     .checked_sub(shares_to_burn)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-                let remaining_debt =
-                    Debt::shares_to_debt(remaining_shares, self.debt.quote_borrow_index_nad)?;
+                let remaining_debt = Debt::shares_to_debt(remaining_shares, self.debt.quote_borrow_index_nad)?;
                 let debt_reduction = debt_before
                     .checked_sub(remaining_debt)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-                let debt_reduction =
-                    u64::try_from(debt_reduction).map_err(|_| ErrorCode::DebtMathOverflow)?;
-                let interest_paid = self.debt.realize_margin_liquidation(
-                    repay_asset,
-                    repay_credit,
-                    debt_reduction,
-                )?;
+                let debt_reduction = u64::try_from(debt_reduction).map_err(|_| ErrorCode::DebtMathOverflow)?;
+                let interest_paid = self
+                    .debt
+                    .realize_margin_liquidation(repay_asset, repay_credit, debt_reduction)?;
                 let principal_credit = repay_credit
                     .checked_sub(interest_paid)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -740,18 +694,15 @@ impl Market {
         max_base_reserve_credit: u64,
         max_quote_reserve_credit: u64,
     ) -> Result<AddLiquidityReceipt> {
-        let receipt =
-            self.preview_add_liquidity(max_base_reserve_credit, max_quote_reserve_credit)?;
+        let receipt = self.preview_add_liquidity(max_base_reserve_credit, max_quote_reserve_credit)?;
         let supply_before = self.base_side.shares.ylp_supply;
         let internal_mint_amount = receipt
             .ylp_supply
             .checked_sub(supply_before)
             .ok_or(ErrorCode::SupplyUnderflow)?;
 
-        self.base_side
-            .credit_reserve(receipt.base_reserve_credit, true)?;
-        self.quote_side
-            .credit_reserve(receipt.quote_reserve_credit, true)?;
+        self.base_side.credit_reserve(receipt.base_reserve_credit, true)?;
+        self.quote_side.credit_reserve(receipt.quote_reserve_credit, true)?;
         self.base_side.shares.mint(internal_mint_amount)?;
         self.quote_side.shares.mint(internal_mint_amount)?;
         self.base_side.assert_share_backing()?;
@@ -790,10 +741,8 @@ impl Market {
             (max_base_reserve_credit, max_quote_reserve_credit)
         } else {
             let supply_before = self.base_side.shares.ylp_supply;
-            let base_reserve_credit =
-                reserve_for_ylp_mint_ceil(base_reserve_before, supply_before, ylp_amount)?;
-            let quote_reserve_credit =
-                reserve_for_ylp_mint_ceil(quote_reserve_before, supply_before, ylp_amount)?;
+            let base_reserve_credit = reserve_for_ylp_mint_ceil(base_reserve_before, supply_before, ylp_amount)?;
+            let quote_reserve_credit = reserve_for_ylp_mint_ceil(quote_reserve_before, supply_before, ylp_amount)?;
             require_gte!(
                 max_base_reserve_credit,
                 base_reserve_credit,
@@ -812,9 +761,7 @@ impl Market {
         );
 
         let internal_mint_amount = if self.base_side.shares.ylp_supply == 0 {
-            ylp_amount
-                .checked_add(MIN_LIQUIDITY)
-                .ok_or(ErrorCode::SupplyOverflow)?
+            ylp_amount.checked_add(MIN_LIQUIDITY).ok_or(ErrorCode::SupplyOverflow)?
         } else {
             ylp_amount
         };
@@ -1064,10 +1011,7 @@ impl Market {
                 self.base_side.reserves.live_reserve,
             ),
         };
-        require!(
-            from_reserve > 0 && to_reserve > 0,
-            ErrorCode::InsufficientLiquidity
-        );
+        require!(from_reserve > 0 && to_reserve > 0, ErrorCode::InsufficientLiquidity);
         let value = (amount as u128)
             .checked_mul(to_reserve as u128)
             .and_then(|value| value.checked_div(from_reserve as u128))
@@ -1078,14 +1022,8 @@ impl Market {
 
 fn accrue_side(market: &mut Market, asset: MarketAsset, dt_ms: u64) -> Result<()> {
     let (index, rate_at_target) = match asset {
-        MarketAsset::Base => (
-            market.debt.base_borrow_index_nad,
-            market.debt.base_rate_at_target_nad,
-        ),
-        MarketAsset::Quote => (
-            market.debt.quote_borrow_index_nad,
-            market.debt.quote_rate_at_target_nad,
-        ),
+        MarketAsset::Base => (market.debt.base_borrow_index_nad, market.debt.base_rate_at_target_nad),
+        MarketAsset::Quote => (market.debt.quote_borrow_index_nad, market.debt.quote_rate_at_target_nad),
     };
     let cash = match asset {
         MarketAsset::Base => market.base_side.reserves.cash_reserve,
@@ -1114,8 +1052,7 @@ fn accrue_side(market: &mut Market, asset: MarketAsset, dt_ms: u64) -> Result<()
         .checked_sub(cash_backed_before)
         .ok_or(ErrorCode::MarketMathOverflow)?;
     if accrued_interest > 0 {
-        let accrued_interest =
-            u64::try_from(accrued_interest).map_err(|_| ErrorCode::ReserveOverflow)?;
+        let accrued_interest = u64::try_from(accrued_interest).map_err(|_| ErrorCode::ReserveOverflow)?;
         let side = market.side_mut(asset)?;
         side.reserves.live_reserve = side
             .reserves
@@ -1143,20 +1080,10 @@ fn total_borrowed(market: &Market, asset: MarketAsset, index_nad: u128) -> Resul
         .ok_or(ErrorCode::MarketMathOverflow.into())
 }
 
-fn total_cash_backed_borrowed(
-    market: &Market,
-    asset: MarketAsset,
-    index_nad: u128,
-) -> Result<u128> {
+fn total_cash_backed_borrowed(market: &Market, asset: MarketAsset, index_nad: u128) -> Result<u128> {
     let (margin_fixed, isolated) = match asset {
-        MarketAsset::Base => (
-            market.debt.fixed_base_shares,
-            market.debt.isolated_base_shares,
-        ),
-        MarketAsset::Quote => (
-            market.debt.fixed_quote_shares,
-            market.debt.isolated_quote_shares,
-        ),
+        MarketAsset::Base => (market.debt.fixed_base_shares, market.debt.isolated_base_shares),
+        MarketAsset::Quote => (market.debt.fixed_quote_shares, market.debt.isolated_quote_shares),
     };
     let total_shares = margin_fixed
         .checked_add(isolated)
@@ -1178,15 +1105,12 @@ fn sync_borrow_recognition(
     debt_asset: MarketAsset,
     risk: &Risk,
 ) -> Result<()> {
-    let recognition_slot = Clock::get()
-        .map(|clock| clock.slot)
-        .unwrap_or(market.last_update_slot);
+    let recognition_slot = Clock::get().map(|clock| clock.slot).unwrap_or(market.last_update_slot);
 
     match debt_asset {
         MarketAsset::Base => {
             let old_recognized = borrow_position.recognized_quote_collateral_for_base_debt;
-            let target_recognized =
-                market.debt_capped_recognized_collateral(borrow_position, debt_asset, risk)?;
+            let target_recognized = market.debt_capped_recognized_collateral(borrow_position, debt_asset, risk)?;
             reconcile_recognition(
                 &mut borrow_position.recognized_quote_collateral_for_base_debt,
                 &mut market.debt.recognized_quote_collateral_for_base_debt,
@@ -1196,8 +1120,7 @@ fn sync_borrow_recognition(
         }
         MarketAsset::Quote => {
             let old_recognized = borrow_position.recognized_base_collateral_for_quote_debt;
-            let target_recognized =
-                market.debt_capped_recognized_collateral(borrow_position, debt_asset, risk)?;
+            let target_recognized = market.debt_capped_recognized_collateral(borrow_position, debt_asset, risk)?;
             reconcile_recognition(
                 &mut borrow_position.recognized_base_collateral_for_quote_debt,
                 &mut market.debt.recognized_base_collateral_for_quote_debt,
@@ -1262,11 +1185,7 @@ fn proportional_release(recognized: u64, shares_to_burn: u128, shares_before: u1
     u64::try_from(release).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
-fn reserve_for_ylp_mint_ceil(
-    reserve_before: u64,
-    ylp_supply_before: u64,
-    ylp_amount: u64,
-) -> Result<u64> {
+fn reserve_for_ylp_mint_ceil(reserve_before: u64, ylp_supply_before: u64, ylp_amount: u64) -> Result<u64> {
     require!(ylp_supply_before > 0, ErrorCode::InsufficientLiquidity);
     let reserve_amount = ceil_div(
         (ylp_amount as u128)

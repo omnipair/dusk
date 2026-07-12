@@ -13,9 +13,7 @@ use crate::{
     state::{Market, YieldAccount, YieldClaimReceipt, YieldTokenKind},
 };
 
-use crate::instructions::common::{
-    token_program_for_mint, validate_fee_accounts, validate_interest_accounts,
-};
+use crate::instructions::common::{token_program_for_mint, validate_fee_accounts, validate_interest_accounts};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct ClaimYieldArgs {
@@ -74,25 +72,13 @@ impl<'info> ClaimYield<'info> {
     pub fn validate(&self, args: &ClaimYieldArgs) -> Result<()> {
         let market_asset = self.market.asset_for_mint(self.asset_mint.key())?;
         let market_side = self.market.side(market_asset)?;
-        require_keys_eq!(
-            market_side.asset_mint,
-            self.asset_mint.key(),
-            ErrorCode::InvalidMint
-        );
+        require_keys_eq!(market_side.asset_mint, self.asset_mint.key(), ErrorCode::InvalidMint);
         match args.token_kind {
             YieldTokenKind::Ylp => {
-                require_keys_eq!(
-                    self.market.ylp_mint,
-                    self.lp_mint.key(),
-                    ErrorCode::InvalidMint
-                )
+                require_keys_eq!(self.market.ylp_mint, self.lp_mint.key(), ErrorCode::InvalidMint)
             }
             YieldTokenKind::Hlp => {
-                require_keys_eq!(
-                    market_side.hlp_mint,
-                    self.lp_mint.key(),
-                    ErrorCode::InvalidMint
-                )
+                require_keys_eq!(market_side.hlp_mint, self.lp_mint.key(), ErrorCode::InvalidMint)
             }
         }
         require_keys_eq!(
@@ -116,8 +102,7 @@ impl<'info> ClaimYield<'info> {
             ErrorCode::InvalidTokenAccount
         );
         let fee_asset = validate_fee_accounts(&self.market, &self.asset_mint, &self.fee_vault)?;
-        let interest_asset =
-            validate_interest_accounts(&self.market, &self.asset_mint, &self.interest_vault)?;
+        let interest_asset = validate_interest_accounts(&self.market, &self.asset_mint, &self.interest_vault)?;
         require!(fee_asset == market_asset, ErrorCode::InvalidVault);
         require!(interest_asset == market_asset, ErrorCode::InvalidVault);
         self.yield_account.assert_account(
@@ -156,9 +141,7 @@ impl<'info> ClaimYield<'info> {
                 )?
             }
             YieldTokenKind::Hlp => {
-                ctx.accounts
-                    .market
-                    .checkpoint_hlp_yield_from_ylp(market_asset)?;
+                ctx.accounts.market.checkpoint_hlp_yield_from_ylp(market_asset)?;
                 let (swap_fee_growth_index_nad, interest_growth_index_nad) =
                     ctx.accounts.market.hlp_yield_growth_indexes(market_asset);
                 ctx.accounts.yield_account.accrue(
@@ -173,18 +156,8 @@ impl<'info> ClaimYield<'info> {
                     claim_amount,
                     swap_fee_amount: ctx.accounts.yield_account.accrued_swap_fee_amount,
                     interest_amount: ctx.accounts.yield_account.accrued_interest_amount,
-                    remaining_swap_fee_liability: ctx
-                        .accounts
-                        .market
-                        .side(market_asset)?
-                        .fees
-                        .swap_fee_liability,
-                    remaining_interest_liability: ctx
-                        .accounts
-                        .market
-                        .side(market_asset)?
-                        .fees
-                        .interest_liability,
+                    remaining_swap_fee_liability: ctx.accounts.market.side(market_asset)?.fees.swap_fee_liability,
+                    remaining_interest_liability: ctx.accounts.market.side(market_asset)?.fees.interest_liability,
                 }
             }
         };

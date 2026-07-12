@@ -24,8 +24,7 @@ use anchor_spl::{
         Token2022,
     },
     token_interface::{
-        initialize_account3, spl_token_2022::extension::BaseStateWithExtensions,
-        InitializeAccount3, Mint,
+        initialize_account3, spl_token_2022::extension::BaseStateWithExtensions, InitializeAccount3, Mint,
     },
 };
 
@@ -232,14 +231,7 @@ pub fn token_mint_to<'a>(
         .map_err(Into::into)
     } else if *token_program.key == Token::id() {
         invoke_signed(
-            &spl_token::instruction::mint_to(
-                token_program.key,
-                mint.key,
-                destination.key,
-                authority.key,
-                &[],
-                amount,
-            )?,
+            &spl_token::instruction::mint_to(token_program.key, mint.key, destination.key, authority.key, &[], amount)?,
             &[mint, destination, authority, token_program],
             signer_seeds,
         )
@@ -266,21 +258,15 @@ impl TokenInstructionScratch {
 
     fn mint_to(&mut self, mint: Pubkey, destination: Pubkey, authority: Pubkey, amount: u64) {
         self.instruction.accounts.clear();
-        self.instruction
-            .accounts
-            .push(AccountMeta::new(mint, false));
-        self.instruction
-            .accounts
-            .push(AccountMeta::new(destination, false));
+        self.instruction.accounts.push(AccountMeta::new(mint, false));
+        self.instruction.accounts.push(AccountMeta::new(destination, false));
         self.instruction
             .accounts
             .push(AccountMeta::new_readonly(authority, true));
 
         self.instruction.data.clear();
         self.instruction.data.push(7);
-        self.instruction
-            .data
-            .extend_from_slice(&amount.to_le_bytes());
+        self.instruction.data.extend_from_slice(&amount.to_le_bytes());
     }
 }
 
@@ -323,28 +309,14 @@ pub fn token_burn<'a>(
     }
     if *token_program.key == Token2022::id() {
         invoke_signed(
-            &spl_token_2022::instruction::burn(
-                token_program.key,
-                from.key,
-                mint.key,
-                authority.key,
-                &[],
-                amount,
-            )?,
+            &spl_token_2022::instruction::burn(token_program.key, from.key, mint.key, authority.key, &[], amount)?,
             &[from, mint, authority, token_program],
             signer_seeds,
         )
         .map_err(Into::into)
     } else if *token_program.key == Token::id() {
         invoke_signed(
-            &spl_token::instruction::burn(
-                token_program.key,
-                from.key,
-                mint.key,
-                authority.key,
-                &[],
-                amount,
-            )?,
+            &spl_token::instruction::burn(token_program.key, from.key, mint.key, authority.key, &[], amount)?,
             &[from, mint, authority, token_program],
             signer_seeds,
         )
@@ -434,9 +406,7 @@ pub fn is_fee_free_mint(mint_account: &InterfaceAccount<Mint>) -> Result<bool> {
         if e == ExtensionType::TransferFeeConfig {
             return Ok(false);
         }
-        if e != ExtensionType::MetadataPointer
-            && e != ExtensionType::TokenMetadata
-            && e != ExtensionType::TransferHook
+        if e != ExtensionType::MetadataPointer && e != ExtensionType::TokenMetadata && e != ExtensionType::TransferHook
         {
             return Ok(false);
         }
@@ -472,14 +442,10 @@ pub fn create_token_account<'a>(
         let mint_info = mint_account.to_account_info();
         if *mint_info.owner == token_2022::Token2022::id() {
             let mint_data = mint_info.try_borrow_data()?;
-            let mint_state =
-                StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
+            let mint_state = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
             let mint_extensions = mint_state.get_extension_types()?;
-            let required_extensions =
-                ExtensionType::get_required_init_account_extensions(&mint_extensions);
-            ExtensionType::try_calculate_account_len::<spl_token_2022::state::Account>(
-                &required_extensions,
-            )?
+            let required_extensions = ExtensionType::get_required_init_account_extensions(&mint_extensions);
+            ExtensionType::try_calculate_account_len::<spl_token_2022::state::Account>(&required_extensions)?
         } else {
             TokenAccount::LEN
         }
@@ -527,10 +493,7 @@ pub fn create_or_allocate_account<'a>(
             program_id,
         )?;
     } else {
-        let required_lamports = rent
-            .minimum_balance(space)
-            .max(1)
-            .saturating_sub(current_lamports);
+        let required_lamports = rent.minimum_balance(space).max(1).saturating_sub(current_lamports);
         if required_lamports > 0 {
             let cpi_accounts = system_program::Transfer {
                 from: payer.to_account_info(),

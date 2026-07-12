@@ -6,17 +6,15 @@ use crate::{
     constants::*,
     errors::ErrorCode,
     math::{
-        calculate_raw_amount_out, denormalize_from_nad_floor, health_bps,
-        instantaneous_rate_apr_nad, market_k_nad, market_liquidity_nad, market_spot_price_nad,
-        normalize_to_nad, utilization_bps, utilization_error_nad,
+        calculate_raw_amount_out, denormalize_from_nad_floor, health_bps, instantaneous_rate_apr_nad, market_k_nad,
+        market_liquidity_nad, market_spot_price_nad, normalize_to_nad, utilization_bps, utilization_error_nad,
     },
     shared::{
         math::ceil_div,
         token::{get_transfer_fee, get_transfer_inverse_fee},
     },
     state::{
-        market::transitions::liquidation::LiquidationPricing, BorrowPosition, Debt, Market,
-        MarketAsset, MarketHealth,
+        market::transitions::liquidation::LiquidationPricing, BorrowPosition, Debt, Market, MarketAsset, MarketHealth,
     },
 };
 
@@ -271,10 +269,7 @@ impl<'info> PreviewMarket<'info> {
 }
 
 impl<'info> PreviewAddLiquidity<'info> {
-    pub fn handle_preview(
-        ctx: Context<Self>,
-        args: PreviewAddLiquidityArgs,
-    ) -> Result<AddLiquidityPreview> {
+    pub fn handle_preview(ctx: Context<Self>, args: PreviewAddLiquidityArgs) -> Result<AddLiquidityPreview> {
         require!(args.base_deposit_amount > 0, ErrorCode::AmountZero);
         require!(args.quote_deposit_amount > 0, ErrorCode::AmountZero);
         require_supported_asset_mint(&ctx.accounts.base_mint)?;
@@ -282,43 +277,25 @@ impl<'info> PreviewAddLiquidity<'info> {
 
         ctx.accounts.market.update()?;
         let market: &Market = &ctx.accounts.market;
-        require_keys_eq!(
-            market.base_mint,
-            ctx.accounts.base_mint.key(),
-            ErrorCode::InvalidMint
-        );
-        require_keys_eq!(
-            market.quote_mint,
-            ctx.accounts.quote_mint.key(),
-            ErrorCode::InvalidMint
-        );
+        require_keys_eq!(market.base_mint, ctx.accounts.base_mint.key(), ErrorCode::InvalidMint);
+        require_keys_eq!(market.quote_mint, ctx.accounts.quote_mint.key(), ErrorCode::InvalidMint);
 
         let requested_base_amount = args.base_deposit_amount;
         let requested_quote_amount = args.quote_deposit_amount;
-        let max_base_transfer_fee = get_transfer_fee(
-            &ctx.accounts.base_mint.to_account_info(),
-            requested_base_amount,
-        )?;
-        let max_quote_transfer_fee = get_transfer_fee(
-            &ctx.accounts.quote_mint.to_account_info(),
-            requested_quote_amount,
-        )?;
+        let max_base_transfer_fee = get_transfer_fee(&ctx.accounts.base_mint.to_account_info(), requested_base_amount)?;
+        let max_quote_transfer_fee =
+            get_transfer_fee(&ctx.accounts.quote_mint.to_account_info(), requested_quote_amount)?;
         let max_base_reserve_credit = requested_base_amount
             .checked_sub(max_base_transfer_fee)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let max_quote_reserve_credit = requested_quote_amount
             .checked_sub(max_quote_transfer_fee)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let receipt =
-            market.preview_add_liquidity(max_base_reserve_credit, max_quote_reserve_credit)?;
-        let base_transfer_fee = get_transfer_inverse_fee(
-            &ctx.accounts.base_mint.to_account_info(),
-            receipt.base_reserve_credit,
-        )?;
-        let quote_transfer_fee = get_transfer_inverse_fee(
-            &ctx.accounts.quote_mint.to_account_info(),
-            receipt.quote_reserve_credit,
-        )?;
+        let receipt = market.preview_add_liquidity(max_base_reserve_credit, max_quote_reserve_credit)?;
+        let base_transfer_fee =
+            get_transfer_inverse_fee(&ctx.accounts.base_mint.to_account_info(), receipt.base_reserve_credit)?;
+        let quote_transfer_fee =
+            get_transfer_inverse_fee(&ctx.accounts.quote_mint.to_account_info(), receipt.quote_reserve_credit)?;
         let base_transfer_amount = receipt
             .base_reserve_credit
             .checked_add(base_transfer_fee)
@@ -327,11 +304,7 @@ impl<'info> PreviewAddLiquidity<'info> {
             .quote_reserve_credit
             .checked_add(quote_transfer_fee)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        require_gte!(
-            requested_base_amount,
-            base_transfer_amount,
-            ErrorCode::SlippageExceeded
-        );
+        require_gte!(requested_base_amount, base_transfer_amount, ErrorCode::SlippageExceeded);
         require_gte!(
             requested_quote_amount,
             quote_transfer_amount,
@@ -373,10 +346,7 @@ impl<'info> PreviewSwap<'info> {
         let asset_out = market.asset_for_mint(ctx.accounts.asset_out_mint.key())?;
         require!(asset_out == asset_in.opposite(), ErrorCode::InvalidMint);
 
-        let transfer_fee = get_transfer_fee(
-            &ctx.accounts.asset_in_mint.to_account_info(),
-            args.exact_asset_in,
-        )?;
+        let transfer_fee = get_transfer_fee(&ctx.accounts.asset_in_mint.to_account_info(), args.exact_asset_in)?;
         let reserve_credit = args
             .exact_asset_in
             .checked_sub(transfer_fee)
@@ -389,10 +359,7 @@ impl<'info> PreviewSwap<'info> {
         )
         .ok_or(ErrorCode::FeeMathOverflow)?
         .min(reserve_credit as u128) as u64;
-        let fee_transfer_fee = get_transfer_fee(
-            &ctx.accounts.asset_in_mint.to_account_info(),
-            swap_fee_debit,
-        )?;
+        let fee_transfer_fee = get_transfer_fee(&ctx.accounts.asset_in_mint.to_account_info(), swap_fee_debit)?;
         let fee_credit = swap_fee_debit
             .checked_sub(fee_transfer_fee)
             .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -432,10 +399,7 @@ impl<'info> PreviewSwap<'info> {
 }
 
 impl<'info> PreviewBorrowCapacity<'info> {
-    pub fn handle_preview(
-        ctx: Context<Self>,
-        args: PreviewBorrowCapacityArgs,
-    ) -> Result<BorrowCapacityPreview> {
+    pub fn handle_preview(ctx: Context<Self>, args: PreviewBorrowCapacityArgs) -> Result<BorrowCapacityPreview> {
         require!(args.collateral_amount > 0, ErrorCode::AmountZero);
         require_supported_asset_mint(&ctx.accounts.collateral_asset_mint)?;
         require_supported_asset_mint(&ctx.accounts.debt_asset_mint)?;
@@ -444,16 +408,12 @@ impl<'info> PreviewBorrowCapacity<'info> {
         let market: &Market = &ctx.accounts.market;
         let collateral_asset = market.asset_for_mint(ctx.accounts.collateral_asset_mint.key())?;
         let debt_asset = market.asset_for_mint(ctx.accounts.debt_asset_mint.key())?;
-        require!(
-            debt_asset == collateral_asset.opposite(),
-            ErrorCode::InvalidMint
-        );
+        require!(debt_asset == collateral_asset.opposite(), ErrorCode::InvalidMint);
 
         let collateral_side = market.side(collateral_asset)?;
         let debt_side = market.side(debt_asset)?;
         let risk = market.current_risk()?;
-        let collateral_value_nad =
-            market.collateral_value_nad(collateral_asset, args.collateral_amount, &risk)?;
+        let collateral_value_nad = market.collateral_value_nad(collateral_asset, args.collateral_amount, &risk)?;
         let max_debt_by_health = max_debt_from_collateral_value_nad(
             collateral_value_nad,
             debt_side.asset_decimals,
@@ -462,12 +422,9 @@ impl<'info> PreviewBorrowCapacity<'info> {
         let max_debt_by_cash = debt_side.reserves.cash_reserve;
         let slot = Clock::get()?.slot;
         let max_debt_by_daily_limit = daily_borrow_remaining(market, debt_asset, slot)?;
-        let max_debt = max_debt_by_health
-            .min(max_debt_by_cash)
-            .min(max_debt_by_daily_limit);
+        let max_debt = max_debt_by_health.min(max_debt_by_cash).min(max_debt_by_daily_limit);
         let projected_debt_amount = args.projected_debt_amount.unwrap_or(max_debt);
-        let projected_debt_nad =
-            normalize_to_nad(projected_debt_amount as u128, debt_side.asset_decimals)?;
+        let projected_debt_nad = normalize_to_nad(projected_debt_amount as u128, debt_side.asset_decimals)?;
         let projected_health_bps = if projected_debt_nad == 0 {
             u64::MAX
         } else {
@@ -510,10 +467,8 @@ impl<'info> PreviewBorrowPosition<'info> {
             position_id: borrow_position.position_id,
             base_collateral: borrow_position.base_collateral,
             quote_collateral: borrow_position.quote_collateral,
-            recognized_base_collateral_for_quote_debt: borrow_position
-                .recognized_base_collateral_for_quote_debt,
-            recognized_quote_collateral_for_base_debt: borrow_position
-                .recognized_quote_collateral_for_base_debt,
+            recognized_base_collateral_for_quote_debt: borrow_position.recognized_base_collateral_for_quote_debt,
+            recognized_quote_collateral_for_base_debt: borrow_position.recognized_quote_collateral_for_base_debt,
             fixed_base_debt: borrow_position.fixed_base_debt(&market.debt)?,
             fixed_quote_debt: borrow_position.fixed_quote_debt(&market.debt)?,
             base_debt: preview_position_debt_side(market, borrow_position, MarketAsset::Base)?,
@@ -550,15 +505,10 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
         .and_then(|value| value.checked_add(hlp_funding_debt))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let utilization_bps = utilization_bps(total_debt, side.reserves.cash_reserve as u128)?;
-    let utilization_error_nad =
-        utilization_error_nad(utilization_bps, INTEREST_TARGET_UTILIZATION_BPS)?;
-    let borrow_apr_nad = instantaneous_rate_apr_nad(
-        rate_at_target_nad,
-        utilization_error_nad,
-        INTEREST_CURVE_STEEPNESS_NAD,
-    )?;
-    let daily_borrow_limit =
-        market.daily_limit_for_side(asset, market.config.max_daily_borrow_bps)?;
+    let utilization_error_nad = utilization_error_nad(utilization_bps, INTEREST_TARGET_UTILIZATION_BPS)?;
+    let borrow_apr_nad =
+        instantaneous_rate_apr_nad(rate_at_target_nad, utilization_error_nad, INTEREST_CURVE_STEEPNESS_NAD)?;
+    let daily_borrow_limit = market.daily_limit_for_side(asset, market.config.max_daily_borrow_bps)?;
     let daily_borrow_remaining = daily_borrow_remaining(market, asset, slot)?;
 
     Ok(PreviewSide {
@@ -593,14 +543,8 @@ fn fixed_debt(market: &Market, asset: MarketAsset) -> Result<u128> {
 
 fn hlp_funding_debt(market: &Market, asset: MarketAsset) -> Result<u128> {
     let (shares, borrow_index_nad) = match asset {
-        MarketAsset::Base => (
-            market.quote_hlp_vault.debt_shares,
-            market.debt.base_borrow_index_nad,
-        ),
-        MarketAsset::Quote => (
-            market.base_hlp_vault.debt_shares,
-            market.debt.quote_borrow_index_nad,
-        ),
+        MarketAsset::Base => (market.quote_hlp_vault.debt_shares, market.debt.base_borrow_index_nad),
+        MarketAsset::Quote => (market.base_hlp_vault.debt_shares, market.debt.quote_borrow_index_nad),
     };
     Debt::shares_to_debt(shares, borrow_index_nad)
 }
@@ -669,16 +613,12 @@ fn preview_position_debt_side(
         MarketAsset::Quote => borrow_position.recognized_base_collateral_for_quote_debt,
     };
     let risk = market.current_risk()?;
-    let collateral_value_nad =
-        market.collateral_value_nad(collateral_asset, recognized_collateral, &risk)?;
+    let collateral_value_nad = market.collateral_value_nad(collateral_asset, recognized_collateral, &risk)?;
     let health_bps = if debt == 0 {
         u64::MAX
     } else {
         let debt_side = market.side(debt_asset)?;
-        health_bps(
-            collateral_value_nad,
-            normalize_to_nad(debt, debt_side.asset_decimals)?,
-        )?
+        health_bps(collateral_value_nad, normalize_to_nad(debt, debt_side.asset_decimals)?)?
     };
     let liquidation_reference_price_nad = if debt == 0 {
         0
@@ -708,8 +648,7 @@ fn preview_position_debt_side(
         health_bps,
         liquidation_reference_price_nad,
         liquidation_health_bps,
-        is_liquidatable: debt > 0
-            && liquidation_health_bps < market.config.market_health_min_bps as u64,
+        is_liquidatable: debt > 0 && liquidation_health_bps < market.config.market_health_min_bps as u64,
         liquidation_incentive_bps: terms.liquidation_incentive_bps,
         insurance_funding_bps: terms.insurance_funding_bps,
         total_penalty_bps: terms.total_penalty_bps,

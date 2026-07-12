@@ -115,5 +115,4 @@ pub const LEVERAGE_MAINTENANCE_BUFFER_BPS: u16 = 700; // 7%
 pub const MARKET_VERSION: u8 = 2;
 
 /// Emergency signer authorized to toggle reduce-only mode.
-pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey =
-    pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");
+pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");

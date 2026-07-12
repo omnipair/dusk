@@ -43,11 +43,7 @@ pub struct SetMarketAuthority<'info> {
 
 impl<'info> SetMarketAuthority<'info> {
     pub fn handle_set_operator(ctx: Context<Self>, args: SetOperatorArgs) -> Result<()> {
-        require_keys_neq!(
-            args.new_operator,
-            Pubkey::default(),
-            ErrorCode::InvalidArgument
-        );
+        require_keys_neq!(args.new_operator, Pubkey::default(), ErrorCode::InvalidArgument);
         let signer = ctx.accounts.manager.key();
         let current_slot = Clock::get()?.slot;
         let market = &mut ctx.accounts.market;
@@ -75,11 +71,7 @@ impl<'info> SetMarketAuthority<'info> {
     }
 
     pub fn handle_set_manager(ctx: Context<Self>, args: SetManagerArgs) -> Result<()> {
-        require_keys_neq!(
-            args.new_manager,
-            Pubkey::default(),
-            ErrorCode::InvalidArgument
-        );
+        require_keys_neq!(args.new_manager, Pubkey::default(), ErrorCode::InvalidArgument);
         let signer = ctx.accounts.manager.key();
         let current_slot = Clock::get()?.slot;
         let market = &mut ctx.accounts.market;

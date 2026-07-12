@@ -14,10 +14,9 @@ use crate::{
 };
 
 use super::common::{
-    approved_for, invoke_delegated_approval_callback, move_leverage_swap_fee,
-    record_leverage_interest, split_delegated_accounts, validate_leverage_fee_account,
-    validate_leverage_interest_account, validate_leverage_mints,
-    validate_leverage_reserve_accounts, DelegatedCpiArgs, LEVERAGE_DELEGATE_CLOSE,
+    approved_for, invoke_delegated_approval_callback, move_leverage_swap_fee, record_leverage_interest,
+    split_delegated_accounts, validate_leverage_fee_account, validate_leverage_interest_account,
+    validate_leverage_mints, validate_leverage_reserve_accounts, DelegatedCpiArgs, LEVERAGE_DELEGATE_CLOSE,
     LEVERAGE_DELEGATE_CLOSE_SETTLED,
 };
 use crate::instructions::common::{token_account_credit, token_program_for_mint};
@@ -122,12 +121,7 @@ impl<'info> CloseLeverage<'info> {
     fn validate_common(&self, args: &CloseLeverageArgs) -> Result<MarketAsset> {
         self.market.assert_started()?;
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
-        validate_leverage_mints(
-            &self.market,
-            debt_asset,
-            &self.debt_mint,
-            &self.collateral_mint,
-        )?;
+        validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
         validate_leverage_reserve_accounts(
             &self.market,
             debt_asset,
@@ -142,23 +136,15 @@ impl<'info> CloseLeverage<'info> {
             &self.collateral_fee_vault,
             debt_asset.opposite(),
         )?;
-        validate_leverage_interest_account(
-            &self.market,
-            &self.debt_mint,
-            &self.debt_interest_vault,
-            debt_asset,
-        )?;
+        validate_leverage_interest_account(&self.market, &self.debt_mint, &self.debt_interest_vault, debt_asset)?;
         require_keys_eq!(
             self.owner_debt_account.mint,
             self.debt_mint.key(),
             ErrorCode::InvalidTokenAccount
         );
         self.leverage_position.require_open()?;
-        self.leverage_position.assert_position(
-            self.position_owner.key(),
-            self.market.key(),
-            debt_asset,
-        )?;
+        self.leverage_position
+            .assert_position(self.position_owner.key(), self.market.key(), debt_asset)?;
         Ok(debt_asset)
     }
 
@@ -207,18 +193,12 @@ impl<'info> CloseLeverage<'info> {
 
     crate::instructions::common::market_update_and_validate!(CloseLeverageArgs);
 
-    pub fn update_and_validate_delegated(
-        &mut self,
-        args: &DelegatedCloseLeverageArgs,
-    ) -> Result<()> {
+    pub fn update_and_validate_delegated(&mut self, args: &DelegatedCloseLeverageArgs) -> Result<()> {
         self.update()?;
         self.validate_delegated(args)
     }
 
-    pub fn handle_close(
-        ctx: Context<'_, '_, '_, 'info, Self>,
-        args: CloseLeverageArgs,
-    ) -> Result<()> {
+    pub fn handle_close(ctx: Context<'_, '_, '_, 'info, Self>, args: CloseLeverageArgs) -> Result<()> {
         Self::execute(ctx, args, None, CloseMode::Owner)
     }
 
@@ -256,25 +236,17 @@ impl<'info> CloseLeverage<'info> {
         let collateral_mint_key = ctx.accounts.collateral_mint.key();
         let position_key = ctx.accounts.leverage_position.key();
         let collateral_sold = ctx.accounts.leverage_position.collateral_amount;
-        let debt_amount = ctx
-            .accounts
-            .leverage_position
-            .debt_amount(&ctx.accounts.market.debt)?;
+        let debt_amount = ctx.accounts.leverage_position.debt_amount(&ctx.accounts.market.debt)?;
         let close_quote = ctx
             .accounts
             .market
             .quote_leverage_swap(collateral_asset, collateral_sold)?;
-        require_gte!(
-            close_quote.amount_out,
-            debt_amount,
-            ErrorCode::InsufficientAmount
-        );
+        require_gte!(close_quote.amount_out, debt_amount, ErrorCode::InsufficientAmount);
         let expected_residual = close_quote
             .amount_out
             .checked_sub(debt_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let expected_residual_net =
-            transfer_net_amount(&ctx.accounts.debt_mint.to_account_info(), expected_residual)?;
+        let expected_residual_net = transfer_net_amount(&ctx.accounts.debt_mint.to_account_info(), expected_residual)?;
 
         if matches!(mode, CloseMode::Delegate) {
             let delegation = ctx
@@ -287,8 +259,7 @@ impl<'info> CloseLeverage<'info> {
                 .delegated_program
                 .as_ref()
                 .ok_or(ErrorCode::InvalidLeverageDelegation)?;
-            let (before_accounts, _) =
-                split_delegated_accounts(ctx.remaining_accounts, delegated.before_accounts_len)?;
+            let (before_accounts, _) = split_delegated_accounts(ctx.remaining_accounts, delegated.before_accounts_len)?;
             let protected_accounts = [
                 ctx.accounts.market.key(),
                 ctx.accounts.leverage_position.key(),
@@ -376,13 +347,8 @@ impl<'info> CloseLeverage<'info> {
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
         )?;
         ctx.accounts.owner_debt_account.reload()?;
-        let residual_credit =
-            token_account_credit(owner_balance_before, &ctx.accounts.owner_debt_account)?;
-        require_gte!(
-            residual_credit,
-            args.min_amount_out,
-            ErrorCode::SlippageExceeded
-        );
+        let residual_credit = token_account_credit(owner_balance_before, &ctx.accounts.owner_debt_account)?;
+        require_gte!(residual_credit, args.min_amount_out, ErrorCode::SlippageExceeded);
 
         let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
         record_leverage_interest(
@@ -424,8 +390,7 @@ impl<'info> CloseLeverage<'info> {
                 .delegated_program
                 .as_ref()
                 .ok_or(ErrorCode::InvalidLeverageDelegation)?;
-            let (_, after_accounts) =
-                split_delegated_accounts(ctx.remaining_accounts, delegated.before_accounts_len)?;
+            let (_, after_accounts) = split_delegated_accounts(ctx.remaining_accounts, delegated.before_accounts_len)?;
             let protected_accounts = [
                 ctx.accounts.market.key(),
                 ctx.accounts.leverage_position.key(),

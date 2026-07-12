@@ -15,8 +15,7 @@ use crate::{
 
 use super::common::validate_owner_debt_account;
 use crate::instructions::common::{
-    require_supported_asset_mint, token_account_credit, token_program_for_mint,
-    validate_side_vault_accounts,
+    require_supported_asset_mint, token_account_credit, token_program_for_mint, validate_side_vault_accounts,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -77,21 +76,11 @@ pub struct RemoveLeverageMargin<'info> {
 
 impl<'info> RemoveLeverageMargin<'info> {
     pub fn validate(&self, args: &RemoveLeverageMarginArgs) -> Result<()> {
-        self.market
-            .assert_live_with_futarchy(&self.futarchy_authority)?;
-        require_keys_eq!(
-            self.owner.key(),
-            self.position_owner.key(),
-            ErrorCode::InvalidSigner
-        );
+        self.market.assert_live_with_futarchy(&self.futarchy_authority)?;
+        require_keys_eq!(self.owner.key(), self.position_owner.key(), ErrorCode::InvalidSigner);
         require!(args.amount > 0, ErrorCode::AmountZero);
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
-        validate_side_vault_accounts(
-            &self.market,
-            debt_asset,
-            &self.debt_mint,
-            &self.debt_reserve_vault,
-        )?;
+        validate_side_vault_accounts(&self.market, debt_asset, &self.debt_mint, &self.debt_reserve_vault)?;
         validate_owner_debt_account(self.owner.key(), &self.debt_mint, &self.owner_debt_account)?;
         require_supported_asset_mint(&self.debt_mint)?;
         self.leverage_position.require_open()?;
@@ -100,10 +89,7 @@ impl<'info> RemoveLeverageMargin<'info> {
 
     crate::instructions::common::market_update_and_validate!(RemoveLeverageMarginArgs);
 
-    pub fn handle_remove_margin(
-        ctx: Context<'_, '_, '_, 'info, Self>,
-        args: RemoveLeverageMarginArgs,
-    ) -> Result<()> {
+    pub fn handle_remove_margin(ctx: Context<'_, '_, '_, 'info, Self>, args: RemoveLeverageMarginArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.owner.key();
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
@@ -131,8 +117,7 @@ impl<'info> RemoveLeverageMargin<'info> {
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
         )?;
         ctx.accounts.owner_debt_account.reload()?;
-        let amount_out =
-            token_account_credit(owner_balance_before, &ctx.accounts.owner_debt_account)?;
+        let amount_out = token_account_credit(owner_balance_before, &ctx.accounts.owner_debt_account)?;
         require_gte!(amount_out, args.min_amount_out, ErrorCode::SlippageExceeded);
 
         emit_cpi!(LeveragePositionUpdated {
