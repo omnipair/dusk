@@ -45,12 +45,8 @@ impl Market {
             )?
         };
         Ok(MarketHealth {
-            recognized_base_collateral_for_quote_debt: self
-                .debt
-                .recognized_base_collateral_for_quote_debt,
-            recognized_quote_collateral_for_base_debt: self
-                .debt
-                .recognized_quote_collateral_for_base_debt,
+            recognized_base_collateral_for_quote_debt: self.debt.recognized_base_collateral_for_quote_debt,
+            recognized_quote_collateral_for_base_debt: self.debt.recognized_quote_collateral_for_base_debt,
             effective_base_debt_nad,
             effective_quote_debt_nad,
             base_debt_health_bps,
@@ -59,15 +55,9 @@ impl Market {
     }
 
     pub fn current_risk(&self) -> Result<Risk> {
-        let current_slot = Clock::get()
-            .map(|clock| clock.slot)
-            .unwrap_or(self.last_update_slot);
-        self.risk.refreshed(
-            &self.base_side,
-            &self.quote_side,
-            &self.config,
-            current_slot,
-        )
+        let current_slot = Clock::get().map(|clock| clock.slot).unwrap_or(self.last_update_slot);
+        self.risk
+            .refreshed(&self.base_side, &self.quote_side, &self.config, current_slot)
     }
 
     pub fn refresh_risk(&mut self) -> Result<()> {
@@ -76,11 +66,7 @@ impl Market {
         Ok(())
     }
 
-    pub fn enforce_daily_borrow_limit(
-        &mut self,
-        market_asset: MarketAsset,
-        amount: u64,
-    ) -> Result<()> {
+    pub fn enforce_daily_borrow_limit(&mut self, market_asset: MarketAsset, amount: u64) -> Result<()> {
         self.refresh_risk()?;
         let current_slot = self.risk.last_snapshot_slot;
         let limit = self.daily_limit_for_side(market_asset, self.config.max_daily_borrow_bps)?;
@@ -126,10 +112,7 @@ impl Market {
         self.effective_debt_nad(MarketAsset::Quote)
     }
 
-    pub fn quote_collateral_value_for_base_debt_nad(
-        &self,
-        quote_collateral_amount: u64,
-    ) -> Result<u128> {
+    pub fn quote_collateral_value_for_base_debt_nad(&self, quote_collateral_amount: u64) -> Result<u128> {
         self.quote_collateral_value_for_base_debt_nad_with_risk(quote_collateral_amount, &self.risk)
     }
 
@@ -141,10 +124,7 @@ impl Market {
         self.collateral_value_nad(MarketAsset::Quote, quote_collateral_amount, risk)
     }
 
-    pub fn base_collateral_value_for_quote_debt_nad(
-        &self,
-        base_collateral_amount: u64,
-    ) -> Result<u128> {
+    pub fn base_collateral_value_for_quote_debt_nad(&self, base_collateral_amount: u64) -> Result<u128> {
         self.base_collateral_value_for_quote_debt_nad_with_risk(base_collateral_amount, &self.risk)
     }
 
@@ -156,16 +136,8 @@ impl Market {
         self.collateral_value_nad(MarketAsset::Base, base_collateral_amount, risk)
     }
 
-    pub fn collateral_amount_for_debt_value(
-        &self,
-        debt_asset: MarketAsset,
-        debt_amount: u64,
-    ) -> Result<u64> {
-        self.collateral_amount_for_debt_value_with_penalty_bps(
-            debt_asset,
-            debt_amount,
-            LIQUIDATION_PENALTY_BPS,
-        )
+    pub fn collateral_amount_for_debt_value(&self, debt_asset: MarketAsset, debt_amount: u64) -> Result<u64> {
+        self.collateral_amount_for_debt_value_with_penalty_bps(debt_asset, debt_amount, LIQUIDATION_PENALTY_BPS)
     }
 
     pub fn collateral_amount_for_liquidator_debt_value(
@@ -173,11 +145,7 @@ impl Market {
         debt_asset: MarketAsset,
         debt_amount: u64,
     ) -> Result<u64> {
-        self.collateral_amount_for_debt_value_with_penalty_bps(
-            debt_asset,
-            debt_amount,
-            LIQUIDATION_INCENTIVE_BPS,
-        )
+        self.collateral_amount_for_debt_value_with_penalty_bps(debt_asset, debt_amount, LIQUIDATION_INCENTIVE_BPS)
     }
 
     pub(crate) fn collateral_amount_for_debt_value_with_penalty_bps(
@@ -186,12 +154,7 @@ impl Market {
         debt_amount: u64,
         penalty_bps: u16,
     ) -> Result<u64> {
-        self.collateral_amount_for_debt_value_with_penalty(
-            debt_asset,
-            debt_amount,
-            penalty_bps,
-            &self.current_risk()?,
-        )
+        self.collateral_amount_for_debt_value_with_penalty(debt_asset, debt_amount, penalty_bps, &self.current_risk()?)
     }
 
     pub fn debt_capped_recognized_collateral(
@@ -222,19 +185,12 @@ impl Market {
             .checked_mul(cap_bps)
             .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let capped_collateral = self.collateral_amount_for_debt_value_cap_with_risk(
-            debt_asset,
-            recognized_value_cap_nad,
-            risk,
-        )?;
+        let capped_collateral =
+            self.collateral_amount_for_debt_value_cap_with_risk(debt_asset, recognized_value_cap_nad, risk)?;
         Ok(total_collateral.min(capped_collateral))
     }
 
-    pub fn position_health_bps(
-        &self,
-        borrow_position: &BorrowPosition,
-        debt_asset: MarketAsset,
-    ) -> Result<u64> {
+    pub fn position_health_bps(&self, borrow_position: &BorrowPosition, debt_asset: MarketAsset) -> Result<u64> {
         let risk = self.current_risk()?;
         self.position_health_bps_with_risk(borrow_position, debt_asset, &risk)
     }
@@ -285,23 +241,14 @@ impl Market {
         Ok(())
     }
 
-    pub fn assert_recognition_cap(
-        &self,
-        borrow_position: &BorrowPosition,
-        debt_asset: MarketAsset,
-    ) -> Result<()> {
+    pub fn assert_recognition_cap(&self, borrow_position: &BorrowPosition, debt_asset: MarketAsset) -> Result<()> {
         let risk = self.current_risk()?;
-        let max_recognized =
-            self.debt_capped_recognized_collateral(borrow_position, debt_asset, &risk)?;
+        let max_recognized = self.debt_capped_recognized_collateral(borrow_position, debt_asset, &risk)?;
         let recognized = match debt_asset {
             MarketAsset::Base => borrow_position.recognized_quote_collateral_for_base_debt,
             MarketAsset::Quote => borrow_position.recognized_base_collateral_for_quote_debt,
         };
-        require_gte!(
-            max_recognized,
-            recognized,
-            ErrorCode::InsufficientRecognizedCollateral
-        );
+        require_gte!(max_recognized, recognized, ErrorCode::InsufficientRecognizedCollateral);
         Ok(())
     }
 
@@ -342,25 +289,22 @@ impl Market {
         collateral_amount: u64,
         risk: &Risk,
     ) -> Result<u128> {
-        let (collateral_side, debt_side, price_ema_nad, directional_price_ema_nad) =
-            match collateral_asset {
-                MarketAsset::Base => (
-                    &self.base_side,
-                    &self.quote_side,
-                    risk.base_price_ema_nad,
-                    risk.directional_base_price_ema_nad,
-                ),
-                MarketAsset::Quote => (
-                    &self.quote_side,
-                    &self.base_side,
-                    risk.quote_price_ema_nad,
-                    risk.directional_quote_price_ema_nad,
-                ),
-            };
-        let collateral_reserve =
-            self.conservative_risk_reserve_depth(collateral_asset, collateral_side, risk)?;
-        let debt_reserve =
-            self.conservative_risk_reserve_depth(collateral_asset.opposite(), debt_side, risk)?;
+        let (collateral_side, debt_side, price_ema_nad, directional_price_ema_nad) = match collateral_asset {
+            MarketAsset::Base => (
+                &self.base_side,
+                &self.quote_side,
+                risk.base_price_ema_nad,
+                risk.directional_base_price_ema_nad,
+            ),
+            MarketAsset::Quote => (
+                &self.quote_side,
+                &self.base_side,
+                risk.quote_price_ema_nad,
+                risk.directional_quote_price_ema_nad,
+            ),
+        };
+        let collateral_reserve = self.conservative_risk_reserve_depth(collateral_asset, collateral_side, risk)?;
+        let debt_reserve = self.conservative_risk_reserve_depth(collateral_asset.opposite(), debt_side, risk)?;
 
         collateral_value_from_pessimistic_reserves_nad(
             collateral_reserve,
@@ -392,23 +336,21 @@ impl Market {
             BPS_DENOMINATOR as u128,
         )
         .ok_or(ErrorCode::MarketMathOverflow)?;
-        let (collateral_side, debt_side, price_ema_nad, directional_price_ema_nad) =
-            match debt_asset {
-                MarketAsset::Base => (
-                    &self.quote_side,
-                    &self.base_side,
-                    risk.quote_price_ema_nad,
-                    risk.directional_quote_price_ema_nad,
-                ),
-                MarketAsset::Quote => (
-                    &self.base_side,
-                    &self.quote_side,
-                    risk.base_price_ema_nad,
-                    risk.directional_base_price_ema_nad,
-                ),
-            };
-        let collateral_reserve =
-            self.conservative_risk_reserve_depth(debt_asset.opposite(), collateral_side, risk)?;
+        let (collateral_side, debt_side, price_ema_nad, directional_price_ema_nad) = match debt_asset {
+            MarketAsset::Base => (
+                &self.quote_side,
+                &self.base_side,
+                risk.quote_price_ema_nad,
+                risk.directional_quote_price_ema_nad,
+            ),
+            MarketAsset::Quote => (
+                &self.base_side,
+                &self.quote_side,
+                risk.base_price_ema_nad,
+                risk.directional_base_price_ema_nad,
+            ),
+        };
+        let collateral_reserve = self.conservative_risk_reserve_depth(debt_asset.opposite(), collateral_side, risk)?;
         let debt_reserve = self.conservative_risk_reserve_depth(debt_asset, debt_side, risk)?;
 
         collateral_amount_for_debt_amount_ceil(
@@ -428,23 +370,21 @@ impl Market {
         debt_value_nad: u128,
         risk: &Risk,
     ) -> Result<u64> {
-        let (collateral_side, debt_side, price_ema_nad, directional_price_ema_nad) =
-            match debt_asset {
-                MarketAsset::Base => (
-                    &self.quote_side,
-                    &self.base_side,
-                    risk.quote_price_ema_nad,
-                    risk.directional_quote_price_ema_nad,
-                ),
-                MarketAsset::Quote => (
-                    &self.base_side,
-                    &self.quote_side,
-                    risk.base_price_ema_nad,
-                    risk.directional_base_price_ema_nad,
-                ),
-            };
-        let collateral_reserve =
-            self.conservative_risk_reserve_depth(debt_asset.opposite(), collateral_side, risk)?;
+        let (collateral_side, debt_side, price_ema_nad, directional_price_ema_nad) = match debt_asset {
+            MarketAsset::Base => (
+                &self.quote_side,
+                &self.base_side,
+                risk.quote_price_ema_nad,
+                risk.directional_quote_price_ema_nad,
+            ),
+            MarketAsset::Quote => (
+                &self.base_side,
+                &self.quote_side,
+                risk.base_price_ema_nad,
+                risk.directional_base_price_ema_nad,
+            ),
+        };
+        let collateral_reserve = self.conservative_risk_reserve_depth(debt_asset.opposite(), collateral_side, risk)?;
         let debt_reserve = self.conservative_risk_reserve_depth(debt_asset, debt_side, risk)?;
 
         collateral_amount_for_debt_value_floor(
@@ -458,12 +398,7 @@ impl Market {
         )
     }
 
-    fn conservative_risk_reserve_depth(
-        &self,
-        asset: MarketAsset,
-        side: &MarketSide,
-        risk: &Risk,
-    ) -> Result<u64> {
+    fn conservative_risk_reserve_depth(&self, asset: MarketAsset, side: &MarketSide, risk: &Risk) -> Result<u64> {
         let liquidity_ema_nad = match asset {
             MarketAsset::Base => risk.base_liquidity_ema,
             MarketAsset::Quote => risk.quote_liquidity_ema,
@@ -475,17 +410,10 @@ impl Market {
         Ok(side.reserves.live_reserve.min(liquidity_ema))
     }
 
-    pub(crate) fn daily_limit_for_side(
-        &self,
-        market_asset: MarketAsset,
-        limit_bps: u16,
-    ) -> Result<u64> {
+    pub(crate) fn daily_limit_for_side(&self, market_asset: MarketAsset, limit_bps: u16) -> Result<u64> {
         let (liquidity_ema, asset_decimals) = match market_asset {
             MarketAsset::Base => (self.risk.base_liquidity_ema, self.base_side.asset_decimals),
-            MarketAsset::Quote => (
-                self.risk.quote_liquidity_ema,
-                self.quote_side.asset_decimals,
-            ),
+            MarketAsset::Quote => (self.risk.quote_liquidity_ema, self.quote_side.asset_decimals),
         };
         daily_limit_from_liquidity_ema(liquidity_ema, asset_decimals, limit_bps)
     }

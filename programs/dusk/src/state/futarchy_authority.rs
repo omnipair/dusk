@@ -8,9 +8,7 @@ pub struct RevenueShare {
     pub interest_bps: u16,
 }
 
-#[derive(
-    Clone, Copy, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, InitSpace,
-)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, InitSpace)]
 pub enum ProtocolAuctionLane {
     #[default]
     Fee,
@@ -68,15 +66,11 @@ impl Default for ProtocolAuctionSplit {
 
 impl ProtocolAuctionSplit {
     pub fn is_valid(&self) -> bool {
-        self.fee_auction_bps
-            .saturating_add(self.buyback_auction_bps)
-            == BPS_DENOMINATOR
+        self.fee_auction_bps.saturating_add(self.buyback_auction_bps) == BPS_DENOMINATOR
     }
 }
 
-#[derive(
-    Clone, Copy, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, InitSpace,
-)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, InitSpace)]
 pub struct ProtocolAuctionParams {
     pub start_multiplier_bps: u16,
     pub floor_multiplier_bps: u16,
@@ -95,31 +89,20 @@ impl ProtocolAuctionParams {
     }
 
     pub fn validate(&self) -> Result<()> {
-        require!(
-            self.start_multiplier_bps > 0,
-            ErrorCode::InvalidAuctionConfig
-        );
-        require!(
-            self.floor_multiplier_bps > 0,
-            ErrorCode::InvalidAuctionConfig
-        );
+        require!(self.start_multiplier_bps > 0, ErrorCode::InvalidAuctionConfig);
+        require!(self.floor_multiplier_bps > 0, ErrorCode::InvalidAuctionConfig);
         require_gte!(
             self.start_multiplier_bps,
             self.floor_multiplier_bps,
             ErrorCode::InvalidAuctionConfig
         );
         require!(self.duration_slots > 0, ErrorCode::InvalidAuctionConfig);
-        require!(
-            self.max_reference_age_slots > 0,
-            ErrorCode::InvalidAuctionConfig
-        );
+        require!(self.max_reference_age_slots > 0, ErrorCode::InvalidAuctionConfig);
         Ok(())
     }
 }
 
-#[derive(
-    Clone, Copy, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, InitSpace,
-)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, InitSpace)]
 pub struct ProtocolAuctionRecipients {
     pub treasury: Pubkey,
     pub staking_vault: Pubkey,
@@ -142,9 +125,7 @@ impl ProtocolAuctionRecipients {
     }
 }
 
-#[derive(
-    Clone, Copy, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, InitSpace,
-)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, InitSpace)]
 pub struct ProtocolAuctionConfig {
     pub accepted_mint: Pubkey,
     pub recipients: ProtocolAuctionRecipients,
@@ -172,11 +153,7 @@ impl ProtocolAuctionConfig {
     }
 
     pub fn validate(&self) -> Result<()> {
-        require_keys_neq!(
-            self.accepted_mint,
-            Pubkey::default(),
-            ErrorCode::InvalidMint
-        );
+        require_keys_neq!(self.accepted_mint, Pubkey::default(), ErrorCode::InvalidMint);
         require!(self.recipients.is_valid(), ErrorCode::InvalidDistribution);
         self.params.validate()
     }
@@ -201,14 +178,8 @@ impl FutarchyAuthority {
     pub const CURRENT_VERSION: u8 = 1;
 
     pub fn validate(&self) -> Result<()> {
-        require!(
-            self.revenue_distribution.is_valid(),
-            ErrorCode::InvalidDistribution
-        );
-        require!(
-            self.protocol_auction_split.is_valid(),
-            ErrorCode::InvalidDistribution
-        );
+        require!(self.revenue_distribution.is_valid(), ErrorCode::InvalidDistribution);
+        require!(self.protocol_auction_split.is_valid(), ErrorCode::InvalidDistribution);
         self.fee_auction.validate()?;
         self.buyback_auction.validate()?;
         Ok(())
@@ -240,10 +211,7 @@ impl FutarchyAuthority {
             buybacks_vault_bps,
             team_treasury_bps,
         };
-        require!(
-            revenue_distribution.is_valid(),
-            ErrorCode::InvalidDistribution
-        );
+        require!(revenue_distribution.is_valid(), ErrorCode::InvalidDistribution);
 
         Ok(Self {
             version: Self::CURRENT_VERSION,
@@ -253,10 +221,7 @@ impl FutarchyAuthority {
                 buybacks_vault,
                 team_treasury,
             },
-            revenue_share: RevenueShare {
-                swap_bps,
-                interest_bps,
-            },
+            revenue_share: RevenueShare { swap_bps, interest_bps },
             revenue_distribution,
             protocol_auction_split: ProtocolAuctionSplit::default(),
             fee_auction: ProtocolAuctionConfig::initialize(

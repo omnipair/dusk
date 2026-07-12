@@ -72,10 +72,7 @@ pub(crate) fn observed_or_current_u64(cached_observation: u64, current_observati
     }
 }
 
-pub(crate) fn observed_or_current_u128(
-    cached_observation: u128,
-    current_observation: u128,
-) -> u128 {
+pub(crate) fn observed_or_current_u128(cached_observation: u128, current_observation: u128) -> u128 {
     if cached_observation == 0 {
         current_observation
     } else {

@@ -10,19 +10,13 @@ use crate::{
     events::log::emit_position_liquidated_low_heap,
     generate_market_seeds,
     shared::token::{
-        get_transfer_fee, transfer_from_user_to_vault, transfer_from_vault_to_user,
-        transfer_from_vault_to_vault,
+        get_transfer_fee, transfer_from_user_to_vault, transfer_from_vault_to_user, transfer_from_vault_to_vault,
     },
-    state::{
-        market::transitions::liquidation::LiquidationPricing, BorrowPosition, FutarchyAuthority,
-        Market,
-    },
+    state::{market::transitions::liquidation::LiquidationPricing, BorrowPosition, FutarchyAuthority, Market},
 };
 
 use super::common::validate_liquidation_accounts;
-use crate::instructions::common::{
-    require_supported_asset_mint, token_program_for_mint, validate_interest_accounts,
-};
+use crate::instructions::common::{require_supported_asset_mint, token_program_for_mint, validate_interest_accounts};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct SettleLiquidationAuctionAmmArgs {
@@ -110,8 +104,7 @@ impl<'info> SettleLiquidationAuctionAmm<'info> {
             &self.liquidator_debt_account,
             &self.liquidator_collateral_account,
         )?;
-        let interest_asset =
-            validate_interest_accounts(&self.market, &self.debt_asset_mint, &self.interest_vault)?;
+        let interest_asset = validate_interest_accounts(&self.market, &self.debt_asset_mint, &self.interest_vault)?;
         require!(interest_asset == debt_asset, ErrorCode::InvalidVault);
         require_supported_asset_mint(&self.debt_asset_mint)?;
         require_supported_asset_mint(&self.collateral_asset_mint)?;
@@ -175,10 +168,7 @@ impl<'info> SettleLiquidationAuctionAmm<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        let debt_transfer_fee = get_transfer_fee(
-            &ctx.accounts.debt_asset_mint.to_account_info(),
-            args.repay_amount,
-        )?;
+        let debt_transfer_fee = get_transfer_fee(&ctx.accounts.debt_asset_mint.to_account_info(), args.repay_amount)?;
         let repay_credit = args
             .repay_amount
             .checked_sub(debt_transfer_fee)
@@ -260,15 +250,12 @@ impl<'info> SettleLiquidationAuctionAmm<'info> {
             )?;
             ctx.accounts.interest_vault.reload()?;
             let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
-            ctx.accounts
-                .market
-                .side_mut(debt_asset)?
-                .record_interest_credit(
-                    liquidation_receipt.interest_paid,
-                    manager_fee_bps,
-                    ctx.accounts.futarchy_authority.revenue_share.interest_bps,
-                    ctx.accounts.futarchy_authority.protocol_auction_split,
-                )?;
+            ctx.accounts.market.side_mut(debt_asset)?.record_interest_credit(
+                liquidation_receipt.interest_paid,
+                manager_fee_bps,
+                ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+                ctx.accounts.futarchy_authority.protocol_auction_split,
+            )?;
         }
 
         let collateral_token_program = token_program_for_mint(
@@ -285,11 +272,7 @@ impl<'info> SettleLiquidationAuctionAmm<'info> {
                 .collateral_to_liquidator
                 .checked_sub(transfer_fee)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
-            require_gte!(
-                collateral_credit,
-                args.min_collateral_out,
-                ErrorCode::SlippageExceeded
-            );
+            require_gte!(collateral_credit, args.min_collateral_out, ErrorCode::SlippageExceeded);
             transfer_from_vault_to_user(
                 ctx.accounts.market.to_account_info(),
                 ctx.accounts.collateral_vault.to_account_info(),
@@ -304,14 +287,9 @@ impl<'info> SettleLiquidationAuctionAmm<'info> {
         } else {
             0
         };
-        require_gte!(
-            collateral_credit,
-            args.min_collateral_out,
-            ErrorCode::SlippageExceeded
-        );
+        require_gte!(collateral_credit, args.min_collateral_out, ErrorCode::SlippageExceeded);
         if liquidation_receipt.insurance_funded > 0 {
-            let collateral_insurance_balance_before =
-                ctx.accounts.collateral_insurance_vault.amount;
+            let collateral_insurance_balance_before = ctx.accounts.collateral_insurance_vault.amount;
             transfer_from_vault_to_vault(
                 ctx.accounts.market.to_account_info(),
                 ctx.accounts.collateral_vault.to_account_info(),

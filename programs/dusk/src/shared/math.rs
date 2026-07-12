@@ -4,9 +4,7 @@ use crate::constants::{NAD, NATURAL_LOG_OF_TWO_NAD, TARGET_MS_PER_SLOT, TAYLOR_T
 
 /// Approximates the elapsed time in milliseconds between two slots.
 pub fn slots_to_ms(start_slot: u64, end_slot: u64) -> Option<u64> {
-    end_slot
-        .checked_sub(start_slot)?
-        .checked_mul(TARGET_MS_PER_SLOT)
+    end_slot.checked_sub(start_slot)?.checked_mul(TARGET_MS_PER_SLOT)
 }
 
 pub fn compute_ema(last_ema: u64, last_update: u64, input: u64, half_life: u64) -> u64 {
@@ -18,8 +16,7 @@ pub fn compute_ema(last_ema: u64, last_update: u64, input: u64, half_life: u64) 
         let x = (dt as u128 * NATURAL_LOG_OF_TWO_NAD as u128) / half_life as u128;
         let alpha = taylor_exp(-(x as i64), NAD, TAYLOR_TERMS);
 
-        ((input as u128 * (NAD - alpha) as u128 + last_ema as u128 * alpha as u128) / NAD as u128)
-            as u64
+        ((input as u128 * (NAD - alpha) as u128 + last_ema as u128 * alpha as u128) / NAD as u128) as u64
     } else {
         last_ema
     }

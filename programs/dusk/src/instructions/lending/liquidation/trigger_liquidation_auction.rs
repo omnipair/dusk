@@ -56,10 +56,7 @@ impl<'info> TriggerLiquidationAuction<'info> {
         let debt_asset_mint_key = ctx.accounts.debt_asset_mint.key();
         let debt_asset = ctx.accounts.market.asset_for_mint(debt_asset_mint_key)?;
 
-        let liquidation_reference_price_nad = ctx
-            .accounts
-            .market
-            .liquidation_reference_price_nad(debt_asset)?;
+        let liquidation_reference_price_nad = ctx.accounts.market.liquidation_reference_price_nad(debt_asset)?;
 
         let liquidation_pricing = LiquidationPricing::ReferencePrice {
             debt_per_collateral_price_nad: liquidation_reference_price_nad,

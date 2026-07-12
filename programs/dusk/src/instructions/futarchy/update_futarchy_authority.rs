@@ -1,8 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::{
-    constants::FUTARCHY_AUTHORITY_SEED_PREFIX, errors::ErrorCode, state::FutarchyAuthority,
-};
+use crate::{constants::FUTARCHY_AUTHORITY_SEED_PREFIX, errors::ErrorCode, state::FutarchyAuthority};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct UpdateFutarchyAuthorityArgs {

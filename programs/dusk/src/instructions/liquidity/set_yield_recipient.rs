@@ -50,11 +50,7 @@ pub struct SetYieldRecipient<'info> {
 
 impl<'info> SetYieldRecipient<'info> {
     pub fn validate(&self, args: &SetYieldRecipientArgs) -> Result<()> {
-        require_keys_neq!(
-            args.recipient,
-            Pubkey::default(),
-            ErrorCode::InvalidRecipient
-        );
+        require_keys_neq!(args.recipient, Pubkey::default(), ErrorCode::InvalidRecipient);
         self.yield_account.assert_account(
             self.owner.key(),
             self.market.key(),
@@ -71,10 +67,7 @@ impl<'info> SetYieldRecipient<'info> {
             asset_mint: ctx.accounts.asset_mint.key(),
             token_kind: args.token_kind.code(),
             recipient: args.recipient,
-            metadata: MarketEventMetadata::new(
-                ctx.accounts.owner.key(),
-                ctx.accounts.market.key()
-            )?,
+            metadata: MarketEventMetadata::new(ctx.accounts.owner.key(), ctx.accounts.market.key())?,
         });
         Ok(())
     }

@@ -20,26 +20,14 @@ pub(super) fn validate_collateral_accounts<'info>(
         collateral_vault.key(),
         ErrorCode::InvalidVault
     );
-    require_keys_eq!(
-        collateral_vault.mint,
-        asset_mint.key(),
-        ErrorCode::InvalidVault
-    );
-    require_keys_eq!(
-        collateral_vault.owner,
-        market.key(),
-        ErrorCode::InvalidVault
-    );
+    require_keys_eq!(collateral_vault.mint, asset_mint.key(), ErrorCode::InvalidVault);
+    require_keys_eq!(collateral_vault.owner, market.key(), ErrorCode::InvalidVault);
     require_keys_eq!(
         owner_asset_account.mint,
         asset_mint.key(),
         ErrorCode::InvalidTokenAccount
     );
-    require_keys_eq!(
-        owner_asset_account.owner,
-        owner,
-        ErrorCode::InvalidTokenAccount
-    );
+    require_keys_eq!(owner_asset_account.owner, owner, ErrorCode::InvalidTokenAccount);
     Ok(market_asset)
 }
 
@@ -98,31 +86,15 @@ fn validate_debt_reserve_accounts<'info>(
     reserve_vault: &InterfaceAccount<'info, TokenAccount>,
     owner_debt_account: &InterfaceAccount<'info, TokenAccount>,
 ) -> Result<()> {
-    require_keys_eq!(
-        debt_side.asset_mint,
-        debt_asset_mint.key(),
-        ErrorCode::InvalidMint
-    );
-    require_keys_eq!(
-        debt_side.reserve_vault,
-        reserve_vault.key(),
-        ErrorCode::InvalidVault
-    );
-    require_keys_eq!(
-        reserve_vault.mint,
-        debt_asset_mint.key(),
-        ErrorCode::InvalidVault
-    );
+    require_keys_eq!(debt_side.asset_mint, debt_asset_mint.key(), ErrorCode::InvalidMint);
+    require_keys_eq!(debt_side.reserve_vault, reserve_vault.key(), ErrorCode::InvalidVault);
+    require_keys_eq!(reserve_vault.mint, debt_asset_mint.key(), ErrorCode::InvalidVault);
     require_keys_eq!(reserve_vault.owner, market.key(), ErrorCode::InvalidVault);
     require_keys_eq!(
         owner_debt_account.mint,
         debt_asset_mint.key(),
         ErrorCode::InvalidTokenAccount
     );
-    require_keys_eq!(
-        owner_debt_account.owner,
-        owner,
-        ErrorCode::InvalidTokenAccount
-    );
+    require_keys_eq!(owner_debt_account.owner, owner, ErrorCode::InvalidTokenAccount);
     Ok(())
 }

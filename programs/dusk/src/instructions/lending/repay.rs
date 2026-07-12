@@ -13,9 +13,7 @@ use crate::{
     state::{BorrowPosition, FutarchyAuthority, Market},
 };
 
-use crate::instructions::common::{
-    require_supported_asset_mint, token_program_for_mint, validate_interest_accounts,
-};
+use crate::instructions::common::{require_supported_asset_mint, token_program_for_mint, validate_interest_accounts};
 
 use super::common::validate_repay_accounts;
 
@@ -91,8 +89,7 @@ impl<'info> Repay<'info> {
             &self.reserve_vault,
             &self.owner_debt_account,
         )?;
-        let interest_asset =
-            validate_interest_accounts(&self.market, &self.debt_asset_mint, &self.interest_vault)?;
+        let interest_asset = validate_interest_accounts(&self.market, &self.debt_asset_mint, &self.interest_vault)?;
         require!(interest_asset == repay_asset, ErrorCode::InvalidVault);
         require_supported_asset_mint(&self.debt_asset_mint)?;
         self.borrow_position
@@ -102,63 +99,67 @@ impl<'info> Repay<'info> {
 
     crate::instructions::common::market_update_and_validate!(RepayArgs);
 
-    pub fn handle_repay(ctx: Context<Self>, args: RepayArgs) -> Result<()> {
-        let market_key = ctx.accounts.market.key();
-        let owner_key = ctx.accounts.owner.key();
-        let debt_asset_mint_key = ctx.accounts.debt_asset_mint.key();
-        let repay_asset = ctx.accounts.market.asset_for_mint(debt_asset_mint_key)?;
-        let reserve_balance_before = ctx.accounts.reserve_vault.amount;
-        let debt_token_program = token_program_for_mint(
-            &ctx.accounts.debt_asset_mint,
-            &ctx.accounts.token_program,
-            &ctx.accounts.token_2022_program,
-        )?;
-        transfer_from_user_to_vault(
-            ctx.accounts.owner.to_account_info(),
-            ctx.accounts.owner_debt_account.to_account_info(),
-            ctx.accounts.reserve_vault.to_account_info(),
-            ctx.accounts.debt_asset_mint.to_account_info(),
-            debt_token_program.clone(),
-            args.repay_amount,
-            ctx.accounts.debt_asset_mint.decimals,
-        )?;
-        ctx.accounts.reserve_vault.reload()?;
-        let repay_credit = ctx
-            .accounts
-            .reserve_vault
-            .amount
-            .checked_sub(reserve_balance_before)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        require!(repay_credit > 0, ErrorCode::AmountZero);
+    pub fn handle_repay(mut ctx: Context<Self>, args: RepayArgs) -> Result<()> {
+        let (market_key, owner_key, debt_asset_mint_key, debt_receipt) = {
+            let accounts = &mut ctx.accounts;
+            let market_key = accounts.market.key();
+            let owner_key = accounts.owner.key();
+            let debt_asset_mint_key = accounts.debt_asset_mint.key();
+            let repay_asset = accounts.market.asset_for_mint(debt_asset_mint_key)?;
+            let reserve_balance_before = accounts.reserve_vault.amount;
 
-        let debt_receipt = ctx.accounts.market.repay(
-            &mut ctx.accounts.borrow_position,
-            repay_asset,
-            repay_credit,
-        )?;
-        if debt_receipt.interest_paid > 0 {
-            transfer_from_vault_to_vault(
-                ctx.accounts.market.to_account_info(),
-                ctx.accounts.reserve_vault.to_account_info(),
-                ctx.accounts.interest_vault.to_account_info(),
-                ctx.accounts.debt_asset_mint.to_account_info(),
-                debt_token_program,
-                debt_receipt.interest_paid,
-                ctx.accounts.debt_asset_mint.decimals,
-                &[&generate_market_seeds!(ctx.accounts.market)[..]],
+            let debt_token_program = token_program_for_mint(
+                &accounts.debt_asset_mint,
+                &accounts.token_program,
+                &accounts.token_2022_program,
             )?;
-            ctx.accounts.interest_vault.reload()?;
-            let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
-            ctx.accounts
+            transfer_from_user_to_vault(
+                accounts.owner.to_account_info(),
+                accounts.owner_debt_account.to_account_info(),
+                accounts.reserve_vault.to_account_info(),
+                accounts.debt_asset_mint.to_account_info(),
+                debt_token_program.clone(),
+                args.repay_amount,
+                accounts.debt_asset_mint.decimals,
+            )?;
+            accounts.reserve_vault.reload()?;
+            let repay_credit = accounts
+                .reserve_vault
+                .amount
+                .checked_sub(reserve_balance_before)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            require!(repay_credit > 0, ErrorCode::AmountZero);
+
+            let debt_receipt = accounts
                 .market
-                .side_mut(repay_asset)?
-                .record_interest_credit(
+                .repay(&mut accounts.borrow_position, repay_asset, repay_credit)?;
+
+            if debt_receipt.interest_paid > 0 {
+                transfer_from_vault_to_vault(
+                    accounts.market.to_account_info(),
+                    accounts.reserve_vault.to_account_info(),
+                    accounts.interest_vault.to_account_info(),
+                    accounts.debt_asset_mint.to_account_info(),
+                    debt_token_program,
+                    debt_receipt.interest_paid,
+                    accounts.debt_asset_mint.decimals,
+                    &[&generate_market_seeds!(accounts.market)[..]],
+                )?;
+                accounts.interest_vault.reload()?;
+
+                let manager_fee_bps = accounts.market.config.manager_fee_bps;
+                let revenue_share_interest_bps = accounts.futarchy_authority.revenue_share.interest_bps;
+                let protocol_auction_split = accounts.futarchy_authority.protocol_auction_split;
+                accounts.market.side_mut(repay_asset)?.record_interest_credit(
                     debt_receipt.interest_paid,
                     manager_fee_bps,
-                    ctx.accounts.futarchy_authority.revenue_share.interest_bps,
-                    ctx.accounts.futarchy_authority.protocol_auction_split,
+                    revenue_share_interest_bps,
+                    protocol_auction_split,
                 )?;
-        }
+            }
+
+            (market_key, owner_key, debt_asset_mint_key, debt_receipt)
+        };
 
         emit_cpi!(MarketDebtUpdated {
             market: market_key,
@@ -171,13 +172,12 @@ impl<'info> Repay<'info> {
             quote_debt_health_bps: debt_receipt.quote_debt_health_bps,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
+
         let health = ctx.accounts.market.market_health()?;
         emit!(MarketHealthUpdated {
             market: market_key,
-            recognized_base_collateral_for_quote_debt: health
-                .recognized_base_collateral_for_quote_debt,
-            recognized_quote_collateral_for_base_debt: health
-                .recognized_quote_collateral_for_base_debt,
+            recognized_base_collateral_for_quote_debt: health.recognized_base_collateral_for_quote_debt,
+            recognized_quote_collateral_for_base_debt: health.recognized_quote_collateral_for_base_debt,
             effective_base_debt_nad: health.effective_base_debt_nad,
             effective_quote_debt_nad: health.effective_quote_debt_nad,
             base_debt_health_bps: health.base_debt_health_bps,

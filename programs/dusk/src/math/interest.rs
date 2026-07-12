@@ -27,9 +27,7 @@ use crate::errors::ErrorCode;
 /// Utilization of a side, in bps, as `borrowed / (borrowed + idle_cash)`.
 /// Returns 0 when nothing is supplied, clamped to `BPS_DENOMINATOR`.
 pub fn utilization_bps(borrowed: u128, idle_cash: u128) -> Result<u64> {
-    let supplied = borrowed
-        .checked_add(idle_cash)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let supplied = borrowed.checked_add(idle_cash).ok_or(ErrorCode::MarketMathOverflow)?;
     if supplied == 0 {
         return Ok(0);
     }
@@ -93,11 +91,7 @@ pub fn curve_multiplier_nad(error_nad: i128, steepness_nad: u128) -> Result<u128
 }
 
 /// Instantaneous borrow APR (NAD) = `rate_at_target * curve(error)`.
-pub fn instantaneous_rate_apr_nad(
-    rate_at_target_nad: u128,
-    error_nad: i128,
-    steepness_nad: u128,
-) -> Result<u128> {
+pub fn instantaneous_rate_apr_nad(rate_at_target_nad: u128, error_nad: i128, steepness_nad: u128) -> Result<u128> {
     let mult = curve_multiplier_nad(error_nad, steepness_nad)?;
     rate_at_target_nad
         .checked_mul(mult)
@@ -156,9 +150,7 @@ pub fn accrued_index_nad(index_nad: u128, rate_apr_nad: u128, dt_ms: u64) -> Res
         .checked_mul(growth_nad)
         .and_then(|value| value.checked_div(NAD as u128))
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    index_nad
-        .checked_add(delta)
-        .ok_or(ErrorCode::MarketMathOverflow.into())
+    index_nad.checked_add(delta).ok_or(ErrorCode::MarketMathOverflow.into())
 }
 
 /// Split a debt repayment into the principal returned to the reserve and the
@@ -169,11 +161,7 @@ pub fn accrued_index_nad(index_nad: u128, rate_apr_nad: u128, dt_ms: u64) -> Res
 /// portion is what a repay/close/liquidate path should move into the interest
 /// vault instead of leaving in the reserve. Principal is rounded **down** (so
 /// interest rounds up), ensuring the interest vault is never under-funded.
-pub fn realized_interest_split(
-    repaid: u64,
-    total_debt: u128,
-    principal: u128,
-) -> Result<(u64, u64)> {
+pub fn realized_interest_split(repaid: u64, total_debt: u128, principal: u128) -> Result<(u64, u64)> {
     require!(total_debt >= principal, ErrorCode::MarketMathOverflow);
     let repaid_u = repaid as u128;
     require!(repaid_u <= total_debt, ErrorCode::InsufficientDebt);
@@ -191,8 +179,7 @@ pub fn realized_interest_split(
     let interest_paid = repaid_u
         .checked_sub(principal_paid)
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    let principal_paid =
-        u64::try_from(principal_paid).map_err(|_| ErrorCode::MarketMathOverflow)?;
+    let principal_paid = u64::try_from(principal_paid).map_err(|_| ErrorCode::MarketMathOverflow)?;
     let interest_paid = u64::try_from(interest_paid).map_err(|_| ErrorCode::MarketMathOverflow)?;
     Ok((principal_paid, interest_paid))
 }

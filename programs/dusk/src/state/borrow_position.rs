@@ -73,10 +73,7 @@ impl BorrowPosition {
     }
 
     pub fn record_risk_update(&mut self) -> Result<()> {
-        self.risk_epoch = self
-            .risk_epoch
-            .checked_add(1)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.risk_epoch = self.risk_epoch.checked_add(1).ok_or(ErrorCode::MarketMathOverflow)?;
         Ok(())
     }
 

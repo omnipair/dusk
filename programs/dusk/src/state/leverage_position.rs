@@ -69,15 +69,8 @@ impl LeverageDelegation {
     ) -> Result<()> {
         require_keys_eq!(self.owner, owner, ErrorCode::InvalidLeverageDelegation);
         require_keys_eq!(self.market, market, ErrorCode::InvalidLeverageDelegation);
-        require_keys_eq!(
-            self.position,
-            position,
-            ErrorCode::InvalidLeverageDelegation
-        );
-        require!(
-            self.debt_asset()? == debt_asset,
-            ErrorCode::InvalidLeverageDelegation
-        );
+        require_keys_eq!(self.position, position, ErrorCode::InvalidLeverageDelegation);
+        require!(self.debt_asset()? == debt_asset, ErrorCode::InvalidLeverageDelegation);
         Ok(())
     }
 
@@ -122,18 +115,10 @@ impl LeveragePosition {
         self.owner != Pubkey::default() && self.market != Pubkey::default()
     }
 
-    pub fn assert_position(
-        &self,
-        owner: Pubkey,
-        market: Pubkey,
-        debt_asset: MarketAsset,
-    ) -> Result<()> {
+    pub fn assert_position(&self, owner: Pubkey, market: Pubkey, debt_asset: MarketAsset) -> Result<()> {
         require_keys_eq!(self.owner, owner, ErrorCode::InvalidLeveragePosition);
         require_keys_eq!(self.market, market, ErrorCode::InvalidLeveragePosition);
-        require!(
-            self.debt_asset()? == debt_asset,
-            ErrorCode::InvalidLeveragePosition
-        );
+        require!(self.debt_asset()? == debt_asset, ErrorCode::InvalidLeveragePosition);
         Ok(())
     }
 

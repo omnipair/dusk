@@ -40,9 +40,7 @@ pub fn isqrt(value: u128) -> u128 {
 /// `sqrt(r)` in NAD, where `r_nad = r * NAD`. Returns `sqrt(r) * NAD`.
 pub fn sqrt_ratio_nad(r_nad: u128) -> Result<u128> {
     // sqrt(r) * NAD = sqrt(r_nad * NAD).
-    let scaled = r_nad
-        .checked_mul(NAD as u128)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let scaled = r_nad.checked_mul(NAD as u128).ok_or(ErrorCode::MarketMathOverflow)?;
     Ok(isqrt(scaled))
 }
 

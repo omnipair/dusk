@@ -12,8 +12,8 @@ use crate::{
     constants::*,
     errors::ErrorCode,
     events::log::{
-        emit_hlp_rebalanced_low_heap, emit_market_health_updated_low_heap,
-        emit_swap_executed_low_heap, emit_swap_settled_low_heap,
+        emit_hlp_rebalanced_low_heap, emit_market_health_updated_low_heap, emit_swap_executed_low_heap,
+        emit_swap_settled_low_heap,
     },
     generate_market_seeds,
     math::calculate_raw_amount_out,
@@ -21,15 +21,10 @@ use crate::{
         math::ceil_div,
         token::{get_transfer_fee, transfer_from_user_to_vault},
     },
-    state::{
-        FutarchyAuthority, HlpRebalanceReceipt, Market, MarketAsset, ProtocolAuctionSplit,
-        SwapReceipt,
-    },
+    state::{FutarchyAuthority, HlpRebalanceReceipt, Market, MarketAsset, ProtocolAuctionSplit, SwapReceipt},
 };
 
-use crate::instructions::common::{
-    require_supported_asset_mint, token_program_for_mint, validate_swap_accounts,
-};
+use crate::instructions::common::{require_supported_asset_mint, token_program_for_mint, validate_swap_accounts};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct SwapArgs {
@@ -87,8 +82,7 @@ pub struct Swap<'info> {
 
 impl<'info> Swap<'info> {
     pub fn validate(&self, args: &SwapArgs) -> Result<()> {
-        self.market
-            .assert_live_with_futarchy(&self.futarchy_authority)?;
+        self.market.assert_live_with_futarchy(&self.futarchy_authority)?;
         require!(args.exact_asset_in > 0, ErrorCode::AmountZero);
         require_gte!(
             self.trader_asset_in_account.amount,
@@ -138,11 +132,7 @@ impl<'info> Swap<'info> {
             charged_input.amount_in_after_fee,
             current_slot,
         )?;
-        let amount_out = quote(
-            &ctx.accounts.market,
-            asset_in,
-            charged_input.amount_in_after_fee,
-        )?;
+        let amount_out = quote(&ctx.accounts.market, asset_in, charged_input.amount_in_after_fee)?;
 
         let swap_receipt = record_swap(
             &mut ctx.accounts.market,
@@ -239,26 +229,16 @@ impl HlpRebalancePair {
     }
 
     fn executes_token_changes(&self) -> bool {
-        rebalance_executes_token_changes(&self.base)
-            || rebalance_executes_token_changes(&self.quote)
+        rebalance_executes_token_changes(&self.base) || rebalance_executes_token_changes(&self.quote)
     }
 }
 
-fn receive_input<'info>(
-    ctx: &mut Context<'_, '_, '_, 'info, Swap<'info>>,
-    exact_asset_in: u64,
-) -> Result<u64> {
+fn receive_input<'info>(ctx: &mut Context<'_, '_, '_, 'info, Swap<'info>>, exact_asset_in: u64) -> Result<u64> {
     receive_swap_inventory(ctx, exact_asset_in)
 }
 
-fn input_credit<'info>(
-    ctx: &Context<'_, '_, '_, 'info, Swap<'info>>,
-    exact_asset_in: u64,
-) -> Result<u64> {
-    let transfer_fee = get_transfer_fee(
-        &ctx.accounts.asset_in_mint.to_account_info(),
-        exact_asset_in,
-    )?;
+fn input_credit<'info>(ctx: &Context<'_, '_, '_, 'info, Swap<'info>>, exact_asset_in: u64) -> Result<u64> {
+    let transfer_fee = get_transfer_fee(&ctx.accounts.asset_in_mint.to_account_info(), exact_asset_in)?;
     exact_asset_in
         .checked_sub(transfer_fee)
         .ok_or(ErrorCode::MarketMathOverflow.into())
@@ -300,8 +280,7 @@ fn maybe_rebalance_hlp_before_quote(
     amount_in_after_fee: u64,
     current_slot: u64,
 ) -> Result<PreQuoteHlpRebalance> {
-    let (base, quote) =
-        market.pre_solve_hlp_vaults_for_swap(asset_in, amount_in_after_fee, current_slot)?;
+    let (base, quote) = market.pre_solve_hlp_vaults_for_swap(asset_in, amount_in_after_fee, current_slot)?;
     let pre_solve_ylp_mint_amount = base
         .ylp_mint_amount
         .checked_add(quote.ylp_mint_amount)
@@ -350,8 +329,7 @@ fn settle_swap<'info>(
         ctx.accounts.asset_out_mint.decimals,
         &[&generate_market_seeds!(ctx.accounts.market)[..]],
     )?;
-    let transfer_fee =
-        get_transfer_fee(&ctx.accounts.asset_out_mint.to_account_info(), amount_out)?;
+    let transfer_fee = get_transfer_fee(&ctx.accounts.asset_out_mint.to_account_info(), amount_out)?;
     let asset_out_credit = amount_out
         .checked_sub(transfer_fee)
         .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -527,27 +505,15 @@ fn checkpoint_hlp_pre_solve_fee_eligibility(
     checkpoint_single_hlp_pre_solve_fee_eligibility(market, quote_receipt)
 }
 
-fn checkpoint_single_hlp_pre_solve_fee_eligibility(
-    market: &mut Market,
-    receipt: &HlpRebalanceReceipt,
-) -> Result<()> {
+fn checkpoint_single_hlp_pre_solve_fee_eligibility(market: &mut Market, receipt: &HlpRebalanceReceipt) -> Result<()> {
     if receipt.ylp_mint_amount == 0 && receipt.ylp_burn_amount == 0 {
         return Ok(());
     }
-    market.checkpoint_hlp_yield_from_ylp_shares(
-        receipt.target_asset,
-        receipt.current_swap_fee_eligible_ylp_shares,
-    )
+    market.checkpoint_hlp_yield_from_ylp_shares(receipt.target_asset, receipt.current_swap_fee_eligible_ylp_shares)
 }
 
-fn combine_hlp_rebalance_receipts(
-    pre: HlpRebalanceReceipt,
-    post: HlpRebalanceReceipt,
-) -> Result<HlpRebalanceReceipt> {
-    require!(
-        pre.target_asset == post.target_asset,
-        ErrorCode::BrokenInvariant
-    );
+fn combine_hlp_rebalance_receipts(pre: HlpRebalanceReceipt, post: HlpRebalanceReceipt) -> Result<HlpRebalanceReceipt> {
+    require!(pre.target_asset == post.target_asset, ErrorCode::BrokenInvariant);
     Ok(HlpRebalanceReceipt {
         target_asset: pre.target_asset,
         ideal_delta: pre
@@ -587,31 +553,13 @@ fn validate_hlp_rebalance_accounts(
 ) -> Result<()> {
     let mut cursor = 0usize;
     if rebalance_executes_token_changes(&rebalance.base) {
-        require_gte!(
-            remaining_accounts.len(),
-            cursor + 3,
-            ErrorCode::NotEnoughAccounts
-        );
-        require_hlp_rebalance_accounts(
-            market,
-            rebalance.base.target_asset,
-            remaining_accounts,
-            cursor,
-        )?;
+        require_gte!(remaining_accounts.len(), cursor + 3, ErrorCode::NotEnoughAccounts);
+        require_hlp_rebalance_accounts(market, rebalance.base.target_asset, remaining_accounts, cursor)?;
         cursor += 3;
     }
     if rebalance_executes_token_changes(&rebalance.quote) {
-        require_gte!(
-            remaining_accounts.len(),
-            cursor + 3,
-            ErrorCode::NotEnoughAccounts
-        );
-        require_hlp_rebalance_accounts(
-            market,
-            rebalance.quote.target_asset,
-            remaining_accounts,
-            cursor,
-        )?;
+        require_gte!(remaining_accounts.len(), cursor + 3, ErrorCode::NotEnoughAccounts);
+        require_hlp_rebalance_accounts(market, rebalance.quote.target_asset, remaining_accounts, cursor)?;
     }
     Ok(())
 }
@@ -685,40 +633,28 @@ impl TokenInstructionScratch {
 
     fn mint_to(&mut self, mint: Pubkey, destination: Pubkey, authority: Pubkey, amount: u64) {
         self.instruction.accounts.clear();
-        self.instruction
-            .accounts
-            .push(AccountMeta::new(mint, false));
-        self.instruction
-            .accounts
-            .push(AccountMeta::new(destination, false));
+        self.instruction.accounts.push(AccountMeta::new(mint, false));
+        self.instruction.accounts.push(AccountMeta::new(destination, false));
         self.instruction
             .accounts
             .push(AccountMeta::new_readonly(authority, true));
 
         self.instruction.data.clear();
         self.instruction.data.push(7);
-        self.instruction
-            .data
-            .extend_from_slice(&amount.to_le_bytes());
+        self.instruction.data.extend_from_slice(&amount.to_le_bytes());
     }
 
     fn burn(&mut self, source: Pubkey, mint: Pubkey, authority: Pubkey, amount: u64) {
         self.instruction.accounts.clear();
-        self.instruction
-            .accounts
-            .push(AccountMeta::new(source, false));
-        self.instruction
-            .accounts
-            .push(AccountMeta::new(mint, false));
+        self.instruction.accounts.push(AccountMeta::new(source, false));
+        self.instruction.accounts.push(AccountMeta::new(mint, false));
         self.instruction
             .accounts
             .push(AccountMeta::new_readonly(authority, true));
 
         self.instruction.data.clear();
         self.instruction.data.push(8);
-        self.instruction
-            .data
-            .extend_from_slice(&amount.to_le_bytes());
+        self.instruction.data.extend_from_slice(&amount.to_le_bytes());
     }
 
     fn transfer_checked(
@@ -733,24 +669,16 @@ impl TokenInstructionScratch {
     ) {
         self.instruction.program_id = token_program;
         self.instruction.accounts.clear();
-        self.instruction
-            .accounts
-            .push(AccountMeta::new(source, false));
-        self.instruction
-            .accounts
-            .push(AccountMeta::new_readonly(mint, false));
-        self.instruction
-            .accounts
-            .push(AccountMeta::new(destination, false));
+        self.instruction.accounts.push(AccountMeta::new(source, false));
+        self.instruction.accounts.push(AccountMeta::new_readonly(mint, false));
+        self.instruction.accounts.push(AccountMeta::new(destination, false));
         self.instruction
             .accounts
             .push(AccountMeta::new_readonly(authority, true));
 
         self.instruction.data.clear();
         self.instruction.data.push(12);
-        self.instruction
-            .data
-            .extend_from_slice(&amount.to_le_bytes());
+        self.instruction.data.extend_from_slice(&amount.to_le_bytes());
         self.instruction.data.push(decimals);
     }
 }
@@ -817,33 +745,20 @@ fn move_hlp_rebalance_interest<'info>(
         &[&generate_market_seeds!(ctx.accounts.market)[..]],
     )?;
     let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
-    ctx.accounts
-        .market
-        .side_mut(borrowed_asset)?
-        .record_interest_credit(
-            receipt.interest_paid,
-            manager_fee_bps,
-            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
-            ctx.accounts.futarchy_authority.protocol_auction_split,
-        )?;
+    ctx.accounts.market.side_mut(borrowed_asset)?.record_interest_credit(
+        receipt.interest_paid,
+        manager_fee_bps,
+        ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+        ctx.accounts.futarchy_authority.protocol_auction_split,
+    )?;
     Ok(())
 }
 
 fn rebalance_interest_transfer_accounts<'info>(
     ctx: &anchor_lang::context::Context<'_, '_, '_, 'info, Swap<'info>>,
     asset: MarketAsset,
-) -> Result<(
-    AccountInfo<'info>,
-    AccountInfo<'info>,
-    AccountInfo<'info>,
-    u8,
-)> {
-    if ctx
-        .accounts
-        .market
-        .asset_for_mint(ctx.accounts.asset_in_mint.key())?
-        == asset
-    {
+) -> Result<(AccountInfo<'info>, AccountInfo<'info>, AccountInfo<'info>, u8)> {
+    if ctx.accounts.market.asset_for_mint(ctx.accounts.asset_in_mint.key())? == asset {
         let token_program = token_program_for_mint(
             &ctx.accounts.asset_in_mint,
             &ctx.accounts.token_program,
@@ -856,12 +771,7 @@ fn rebalance_interest_transfer_accounts<'info>(
             ctx.accounts.asset_in_mint.decimals,
         ));
     }
-    if ctx
-        .accounts
-        .market
-        .asset_for_mint(ctx.accounts.asset_out_mint.key())?
-        == asset
-    {
+    if ctx.accounts.market.asset_for_mint(ctx.accounts.asset_out_mint.key())? == asset {
         let token_program = token_program_for_mint(
             &ctx.accounts.asset_out_mint,
             &ctx.accounts.token_program,

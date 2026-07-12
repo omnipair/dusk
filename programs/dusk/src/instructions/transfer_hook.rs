@@ -1,9 +1,7 @@
 use anchor_lang::{prelude::*, solana_program::program_error::ProgramError};
 use anchor_spl::token_2022::{
     spl_token_2022::{
-        extension::{
-            transfer_hook::TransferHookAccount, BaseStateWithExtensions, StateWithExtensions,
-        },
+        extension::{transfer_hook::TransferHookAccount, BaseStateWithExtensions, StateWithExtensions},
         state::Account as SplTokenAccount,
     },
     Token2022,
@@ -69,11 +67,7 @@ pub fn handle_transfer_hook<'info>(
     }
 }
 
-fn handle_execute<'info>(
-    program_id: &Pubkey,
-    accounts: &'info [AccountInfo<'info>],
-    amount: u64,
-) -> Result<()> {
+fn handle_execute<'info>(program_id: &Pubkey, accounts: &'info [AccountInfo<'info>], amount: u64) -> Result<()> {
     require_gte!(
         accounts.len(),
         TRANSFER_HOOK_BASE_ACCOUNT_COUNT,
@@ -107,15 +101,12 @@ fn handle_execute<'info>(
 fn parse_transferring_token_account(info: &AccountInfo) -> Result<TokenAccountSnapshot> {
     require_keys_eq!(*info.owner, Token2022::id(), ErrorCode::InvalidTokenAccount);
     let data = info.try_borrow_data()?;
-    let token_account = StateWithExtensions::<SplTokenAccount>::unpack(&data)
-        .map_err(|_| error!(ErrorCode::InvalidTokenAccount))?;
+    let token_account =
+        StateWithExtensions::<SplTokenAccount>::unpack(&data).map_err(|_| error!(ErrorCode::InvalidTokenAccount))?;
     let hook_account = token_account
         .get_extension::<TransferHookAccount>()
         .map_err(|_| error!(ErrorCode::InvalidTokenAccount))?;
-    require!(
-        bool::from(hook_account.transferring),
-        ErrorCode::InvalidTokenAccount
-    );
+    require!(bool::from(hook_account.transferring), ErrorCode::InvalidTokenAccount);
     Ok(TokenAccountSnapshot {
         owner: token_account.base.owner,
         mint: token_account.base.mint,
@@ -145,11 +136,7 @@ fn find_market_context<'info>(
     accounts: &'info [AccountInfo<'info>],
     lp_mint: Pubkey,
 ) -> Result<(usize, YieldContexts)> {
-    for (index, account_info) in accounts
-        .iter()
-        .enumerate()
-        .skip(TRANSFER_HOOK_BASE_ACCOUNT_COUNT)
-    {
+    for (index, account_info) in accounts.iter().enumerate().skip(TRANSFER_HOOK_BASE_ACCOUNT_COUNT) {
         if account_info.owner != program_id {
             continue;
         }
@@ -165,8 +152,7 @@ fn find_market_context<'info>(
 fn load_market_context(account_info: &AccountInfo, lp_mint: Pubkey) -> Result<YieldContexts> {
     let data = account_info.try_borrow_data()?;
     let mut data_cursor: &[u8] = &data;
-    let market =
-        Market::try_deserialize(&mut data_cursor).map_err(|_| error!(ErrorCode::InvalidMarket))?;
+    let market = Market::try_deserialize(&mut data_cursor).map_err(|_| error!(ErrorCode::InvalidMarket))?;
     infer_yield_context(&market, lp_mint).ok_or(error!(ErrorCode::InvalidMint))
 }
 
@@ -273,11 +259,7 @@ fn find_yield_account_index<'info>(
     asset_mint: Pubkey,
     token_kind: YieldTokenKind,
 ) -> Result<usize> {
-    for (index, account_info) in accounts
-        .iter()
-        .enumerate()
-        .skip(TRANSFER_HOOK_BASE_ACCOUNT_COUNT)
-    {
+    for (index, account_info) in accounts.iter().enumerate().skip(TRANSFER_HOOK_BASE_ACCOUNT_COUNT) {
         if account_info.owner != program_id {
             continue;
         }
@@ -312,21 +294,12 @@ fn checkpoint_yield_account(
     yield_context: YieldContext,
     pre_transfer_balance: u64,
 ) -> Result<()> {
-    require_keys_eq!(
-        *account_info.owner,
-        *program_id,
-        ErrorCode::InvalidYieldAccount
-    );
+    require_keys_eq!(*account_info.owner, *program_id, ErrorCode::InvalidYieldAccount);
     let mut data = account_info.try_borrow_mut_data()?;
     let mut data_cursor: &[u8] = &data;
-    let mut yield_account = YieldAccount::try_deserialize(&mut data_cursor)
-        .map_err(|_| error!(ErrorCode::InvalidYieldAccount))?;
-    yield_account.assert_account(
-        owner,
-        market,
-        yield_context.asset_mint,
-        yield_context.token_kind,
-    )?;
+    let mut yield_account =
+        YieldAccount::try_deserialize(&mut data_cursor).map_err(|_| error!(ErrorCode::InvalidYieldAccount))?;
+    yield_account.assert_account(owner, market, yield_context.asset_mint, yield_context.token_kind)?;
     validate_yield_account_pda(
         account_info.key,
         program_id,
@@ -383,8 +356,7 @@ fn validate_yield_account_pda(
 fn load_yield_account(account_info: &AccountInfo) -> Result<YieldAccount> {
     let data = account_info.try_borrow_data()?;
     let mut data_cursor: &[u8] = &data;
-    YieldAccount::try_deserialize(&mut data_cursor)
-        .map_err(|_| error!(ErrorCode::InvalidYieldAccount))
+    YieldAccount::try_deserialize(&mut data_cursor).map_err(|_| error!(ErrorCode::InvalidYieldAccount))
 }
 
 #[cfg(test)]

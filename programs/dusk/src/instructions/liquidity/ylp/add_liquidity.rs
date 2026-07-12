@@ -11,16 +11,14 @@ use crate::{
     generate_market_seeds,
     shared::{
         account::get_size_with_discriminator,
-        token::{
-            get_transfer_fee, get_transfer_inverse_fee, token_mint_to, transfer_from_user_to_vault,
-        },
+        token::{get_transfer_fee, get_transfer_inverse_fee, token_mint_to, transfer_from_user_to_vault},
     },
     state::{FutarchyAuthority, Market, YieldAccount, YieldTokenKind},
 };
 
 use crate::instructions::common::{
-    require_supported_asset_mint, token_program_for_mint, validate_lp_mint,
-    validate_owner_asset_account, validate_owner_lp_account, validate_side_vault_accounts,
+    require_supported_asset_mint, token_program_for_mint, validate_lp_mint, validate_owner_asset_account,
+    validate_owner_lp_account, validate_side_vault_accounts,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -115,8 +113,7 @@ struct AddLiquidityTransferPlan {
 
 impl<'info> AddLiquidity<'info> {
     pub fn validate(&self, args: &AddLiquidityArgs) -> Result<()> {
-        self.market
-            .assert_live_with_futarchy(&self.futarchy_authority)?;
+        self.market.assert_live_with_futarchy(&self.futarchy_authority)?;
         require!(
             args.base_deposit_amount > 0 && args.quote_deposit_amount > 0,
             ErrorCode::AmountZero
@@ -133,17 +130,9 @@ impl<'info> AddLiquidity<'info> {
             &self.quote_mint,
             &self.quote_reserve_vault,
         )?;
-        require_keys_eq!(
-            self.market.ylp_mint,
-            self.ylp_mint.key(),
-            ErrorCode::InvalidLpMintKey
-        );
+        require_keys_eq!(self.market.ylp_mint, self.ylp_mint.key(), ErrorCode::InvalidLpMintKey);
         validate_owner_asset_account(self.owner.key(), &self.base_mint, &self.owner_base_account)?;
-        validate_owner_asset_account(
-            self.owner.key(),
-            &self.quote_mint,
-            &self.owner_quote_account,
-        )?;
+        validate_owner_asset_account(self.owner.key(), &self.quote_mint, &self.owner_quote_account)?;
         validate_owner_lp_account(self.owner.key(), &self.ylp_mint, &self.owner_ylp_account)?;
         require_supported_asset_mint(&self.base_mint)?;
         require_supported_asset_mint(&self.quote_mint)?;
@@ -165,12 +154,8 @@ impl<'info> AddLiquidity<'info> {
     crate::instructions::common::market_update_and_validate!(AddLiquidityArgs);
 
     fn transfer_plan(&self, args: &AddLiquidityArgs) -> Result<AddLiquidityTransferPlan> {
-        let base_transfer_fee =
-            get_transfer_fee(&self.base_mint.to_account_info(), args.base_deposit_amount)?;
-        let quote_transfer_fee = get_transfer_fee(
-            &self.quote_mint.to_account_info(),
-            args.quote_deposit_amount,
-        )?;
+        let base_transfer_fee = get_transfer_fee(&self.base_mint.to_account_info(), args.base_deposit_amount)?;
+        let quote_transfer_fee = get_transfer_fee(&self.quote_mint.to_account_info(), args.quote_deposit_amount)?;
         let max_base_reserve_credit = args
             .base_deposit_amount
             .checked_sub(base_transfer_fee)
@@ -182,11 +167,7 @@ impl<'info> AddLiquidity<'info> {
         let receipt = self
             .market
             .preview_add_liquidity(max_base_reserve_credit, max_quote_reserve_credit)?;
-        require_gte!(
-            receipt.ylp_amount,
-            args.min_ylp_amount,
-            ErrorCode::SlippageExceeded
-        );
+        require_gte!(receipt.ylp_amount, args.min_ylp_amount, ErrorCode::SlippageExceeded);
 
         let base_transfer_amount = receipt
             .base_reserve_credit
@@ -306,11 +287,7 @@ impl<'info> AddLiquidity<'info> {
             .accounts
             .market
             .add_liquidity(base_reserve_credit, quote_reserve_credit)?;
-        require_gte!(
-            receipt.ylp_amount,
-            args.min_ylp_amount,
-            ErrorCode::SlippageExceeded
-        );
+        require_gte!(receipt.ylp_amount, args.min_ylp_amount, ErrorCode::SlippageExceeded);
 
         let ylp_program = token_program_for_mint(
             &ctx.accounts.ylp_mint,

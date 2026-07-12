@@ -10,8 +10,7 @@ pub struct DailyLimits {
 
 impl DailyLimits {
     pub fn decay_to_slot(&mut self, current_slot: u64) -> Result<()> {
-        self.borrowed_bucket =
-            decayed_daily_bucket(self.borrowed_bucket, self.last_decay_slot, current_slot)?;
+        self.borrowed_bucket = decayed_daily_bucket(self.borrowed_bucket, self.last_decay_slot, current_slot)?;
         self.last_decay_slot = current_slot;
         Ok(())
     }

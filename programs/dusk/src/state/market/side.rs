@@ -183,8 +183,7 @@ impl MarketSide {
         if fee_credit == 0 {
             return Ok(FeesReceipt::from_side(self));
         }
-        let (manager_fee, protocol_fee, lp_fee) =
-            split_revenue(fee_credit, manager_fee_bps, protocol_fee_bps)?;
+        let (manager_fee, protocol_fee, lp_fee) = split_revenue(fee_credit, manager_fee_bps, protocol_fee_bps)?;
         let (fee_auction_amount, buyback_auction_amount) =
             split_protocol_auction_fee(protocol_fee, &protocol_auction_split)?;
         self.fees.swap_fee_vault_balance = self
@@ -380,11 +379,7 @@ impl MarketSide {
 
 fn split_revenue(amount: u64, manager_bps: u16, protocol_bps: u16) -> Result<(u64, u64, u64)> {
     require_gte!(BPS_DENOMINATOR, manager_bps, ErrorCode::InvalidMarketConfig);
-    require_gte!(
-        BPS_DENOMINATOR,
-        protocol_bps,
-        ErrorCode::InvalidMarketConfig
-    );
+    require_gte!(BPS_DENOMINATOR, protocol_bps, ErrorCode::InvalidMarketConfig);
     require_gte!(
         BPS_DENOMINATOR,
         manager_bps
@@ -401,10 +396,7 @@ fn split_revenue(amount: u64, manager_bps: u16, protocol_bps: u16) -> Result<(u6
     Ok((manager_fee, protocol_fee, lp_amount))
 }
 
-fn split_protocol_auction_fee(
-    protocol_fee: u64,
-    split: &ProtocolAuctionSplit,
-) -> Result<(u64, u64)> {
+fn split_protocol_auction_fee(protocol_fee: u64, split: &ProtocolAuctionSplit) -> Result<(u64, u64)> {
     require!(split.is_valid(), ErrorCode::InvalidDistribution);
     let buyback_amount = proportional_bps(protocol_fee, split.buyback_auction_bps)?;
     let fee_amount = protocol_fee

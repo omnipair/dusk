@@ -15,9 +15,8 @@ use crate::{
     errors::ErrorCode,
     generate_market_seeds,
     instructions::common::{
-        require_supported_asset_mint, token_account_credit, token_program_for_mint,
-        validate_fee_accounts, validate_interest_accounts, validate_owner_asset_account,
-        validate_side_vault_accounts,
+        require_supported_asset_mint, token_account_credit, token_program_for_mint, validate_fee_accounts,
+        validate_interest_accounts, validate_owner_asset_account, validate_side_vault_accounts,
     },
     shared::token::{get_transfer_fee, transfer_from_vault_to_vault},
     state::{Market, MarketAsset},
@@ -110,13 +109,9 @@ pub fn invoke_delegated_callback<'info>(
     writable_protected_accounts: &[Pubkey],
 ) -> Result<()> {
     require!(!data.is_empty(), ErrorCode::InvalidLeverageDelegation);
-    require!(
-        delegated_program.executable,
-        ErrorCode::InvalidLeverageDelegation
-    );
+    require!(delegated_program.executable, ErrorCode::InvalidLeverageDelegation);
 
-    let account_metas =
-        delegated_account_metas(accounts, protected_accounts, writable_protected_accounts)?;
+    let account_metas = delegated_account_metas(accounts, protected_accounts, writable_protected_accounts)?;
     let mut account_infos = Vec::with_capacity(accounts.len() + 1);
     account_infos.push(delegated_program.to_account_info());
     account_infos.extend(accounts.iter().cloned());
@@ -189,14 +184,10 @@ pub fn validate_delegation_approval(
     expected_output_mint: Pubkey,
     expected_output_amount: u64,
 ) -> Result<()> {
-    require_keys_eq!(
-        program_id,
-        expected_program,
-        ErrorCode::InvalidLeverageDelegation
-    );
+    require_keys_eq!(program_id, expected_program, ErrorCode::InvalidLeverageDelegation);
     let mut data_ref = data;
-    let approval = LeverageDelegationApproval::deserialize(&mut data_ref)
-        .map_err(|_| ErrorCode::InvalidLeverageDelegation)?;
+    let approval =
+        LeverageDelegationApproval::deserialize(&mut data_ref).map_err(|_| ErrorCode::InvalidLeverageDelegation)?;
     require!(data_ref.is_empty(), ErrorCode::InvalidLeverageDelegation);
     require!(
         approval.magic == LEVERAGE_DELEGATION_APPROVAL_MAGIC,
@@ -206,20 +197,9 @@ pub fn validate_delegation_approval(
         approval.version == LEVERAGE_DELEGATION_APPROVAL_VERSION,
         ErrorCode::InvalidLeverageDelegation
     );
-    require!(
-        approval.action == expected_action,
-        ErrorCode::InvalidLeverageDelegation
-    );
-    require_keys_eq!(
-        approval.market,
-        expected_market,
-        ErrorCode::InvalidLeverageDelegation
-    );
-    require_keys_eq!(
-        approval.owner,
-        expected_owner,
-        ErrorCode::InvalidLeverageDelegation
-    );
+    require!(approval.action == expected_action, ErrorCode::InvalidLeverageDelegation);
+    require_keys_eq!(approval.market, expected_market, ErrorCode::InvalidLeverageDelegation);
+    require_keys_eq!(approval.owner, expected_owner, ErrorCode::InvalidLeverageDelegation);
     require_keys_eq!(
         approval.position,
         expected_position,
@@ -258,11 +238,7 @@ fn delegated_account_metas(
 ) -> Result<Vec<AccountMeta>> {
     for (index, account) in accounts.iter().enumerate() {
         for prior in accounts.iter().take(index) {
-            require_keys_neq!(
-                account.key(),
-                prior.key(),
-                ErrorCode::InvalidLeverageDelegation
-            );
+            require_keys_neq!(account.key(), prior.key(), ErrorCode::InvalidLeverageDelegation);
         }
     }
 
@@ -294,11 +270,7 @@ pub fn validate_leverage_mints<'info>(
 ) -> Result<()> {
     let debt_side = market.side(debt_asset)?;
     let collateral_side = market.side(debt_asset.opposite())?;
-    require_keys_eq!(
-        debt_mint.key(),
-        debt_side.asset_mint,
-        ErrorCode::InvalidMint
-    );
+    require_keys_eq!(debt_mint.key(), debt_side.asset_mint, ErrorCode::InvalidMint);
     require_keys_eq!(
         collateral_mint.key(),
         collateral_side.asset_mint,
@@ -318,12 +290,7 @@ pub fn validate_leverage_reserve_accounts<'info>(
     collateral_reserve_vault: &InterfaceAccount<'info, TokenAccount>,
 ) -> Result<()> {
     validate_side_vault_accounts(market, debt_asset, debt_mint, debt_reserve_vault)?;
-    validate_side_vault_accounts(
-        market,
-        debt_asset.opposite(),
-        collateral_mint,
-        collateral_reserve_vault,
-    )?;
+    validate_side_vault_accounts(market, debt_asset.opposite(), collateral_mint, collateral_reserve_vault)?;
     Ok(())
 }
 
@@ -369,8 +336,7 @@ pub fn move_leverage_swap_fee<'info>(
         return Ok(0);
     }
     let fee_balance_before = fee_vault.amount;
-    let asset_token_program =
-        token_program_for_mint(asset_mint, token_program, token_2022_program)?;
+    let asset_token_program = token_program_for_mint(asset_mint, token_program, token_2022_program)?;
     transfer_from_vault_to_vault(
         market.to_account_info(),
         reserve_vault.to_account_info(),

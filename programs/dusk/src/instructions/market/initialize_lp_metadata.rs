@@ -12,8 +12,7 @@ use anchor_spl::{
 };
 
 use crate::{
-    constants::*, errors::ErrorCode, generate_market_seeds, instructions::common::validate_lp_mint,
-    state::Market,
+    constants::*, errors::ErrorCode, generate_market_seeds, instructions::common::validate_lp_mint, state::Market,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -62,10 +61,7 @@ impl<'info> InitializeLpMetadata<'info> {
         validate_lp_metadata(args)?;
         let decimals = lp_decimals_for_market_mint(&self.market, self.lp_mint.key())?;
         validate_lp_mint(&self.lp_mint, self.market.key(), decimals)?;
-        require_vanity_suffix(
-            &self.lp_mint,
-            lp_vanity_suffix(&self.market, self.lp_mint.key())?,
-        )?;
+        require_vanity_suffix(&self.lp_mint, lp_vanity_suffix(&self.market, self.lp_mint.key())?)?;
         Ok(())
     }
 
@@ -300,14 +296,8 @@ mod tests {
             lp_decimals_for_market_mint(&fixture.market, fixture.quote_hlp_mint).unwrap(),
             8
         );
-        assert_eq!(
-            lp_vanity_suffix(&fixture.market, fixture.ylp_mint).unwrap(),
-            "yLP"
-        );
-        assert_eq!(
-            lp_vanity_suffix(&fixture.market, fixture.base_hlp_mint).unwrap(),
-            "hLP"
-        );
+        assert_eq!(lp_vanity_suffix(&fixture.market, fixture.ylp_mint).unwrap(), "yLP");
+        assert_eq!(lp_vanity_suffix(&fixture.market, fixture.base_hlp_mint).unwrap(), "hLP");
         assert_eq!(
             lp_vanity_suffix(&fixture.market, fixture.quote_hlp_mint).unwrap(),
             "hLP"

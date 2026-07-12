@@ -2,8 +2,8 @@ use anchor_lang::prelude::*;
 
 use crate::{
     constants::{
-        BPS_DENOMINATOR, LIQUIDATION_CLOSE_FACTOR_BPS, LIQUIDATION_INCENTIVE_BPS,
-        LIQUIDATION_INSURANCE_FUNDING_BPS, LIQUIDATION_MAX_INCENTIVE_BPS, NAD,
+        BPS_DENOMINATOR, LIQUIDATION_CLOSE_FACTOR_BPS, LIQUIDATION_INCENTIVE_BPS, LIQUIDATION_INSURANCE_FUNDING_BPS,
+        LIQUIDATION_MAX_INCENTIVE_BPS, NAD,
     },
     errors::ErrorCode,
     math::{denormalize_from_nad_ceil, health_bps, normalize_to_nad},
@@ -97,17 +97,9 @@ impl Liquidation {
         }
     }
 
-    pub fn apply(
-        self,
-        market: &mut Market,
-        borrow_position: &mut BorrowPosition,
-    ) -> Result<LiquidationReceipt> {
+    pub fn apply(self, market: &mut Market, borrow_position: &mut BorrowPosition) -> Result<LiquidationReceipt> {
         let debt_before = position_debt(market, borrow_position, self.debt_asset)?;
-        require_gte!(
-            debt_before,
-            self.repay_credit as u128,
-            ErrorCode::InsufficientDebt
-        );
+        require_gte!(debt_before, self.repay_credit as u128, ErrorCode::InsufficientDebt);
         require_gte!(
             self.terms.max_repay_amount,
             self.repay_credit,
@@ -137,11 +129,7 @@ impl Liquidation {
         let repay_plus_insurance = (self.repay_credit as u128)
             .checked_add(self.insurance_credit as u128)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        require_gte!(
-            debt_before,
-            repay_plus_insurance,
-            ErrorCode::InsufficientDebt
-        );
+        require_gte!(debt_before, repay_plus_insurance, ErrorCode::InsufficientDebt);
         let cap_remaining = self
             .terms
             .max_repay_amount
@@ -173,24 +161,17 @@ impl Liquidation {
         let requested_debt_reduction = repay_plus_insurance
             .checked_add(socialized_loss as u128)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let debt_clearance = liquidation_debt_clearance(
-            market,
-            borrow_position,
-            self.debt_asset,
-            requested_debt_reduction,
-        )?;
-        let cash_repaid =
-            u64::try_from(repay_plus_insurance).map_err(|_| ErrorCode::MarketMathOverflow)?;
-        let debt_reduction_u64 = u64::try_from(debt_clearance.debt_reduction)
-            .map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let debt_clearance =
+            liquidation_debt_clearance(market, borrow_position, self.debt_asset, requested_debt_reduction)?;
+        let cash_repaid = u64::try_from(repay_plus_insurance).map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let debt_reduction_u64 =
+            u64::try_from(debt_clearance.debt_reduction).map_err(|_| ErrorCode::MarketMathOverflow)?;
         // Track the principal/interest split for cash-backed repayment without
         // treating socialized loss or share-rounding writeoff as received
         // interest.
-        let interest_paid = market.debt.realize_margin_liquidation(
-            self.debt_asset,
-            cash_repaid,
-            debt_reduction_u64,
-        )?;
+        let interest_paid = market
+            .debt
+            .realize_margin_liquidation(self.debt_asset, cash_repaid, debt_reduction_u64)?;
         let principal_credit = cash_repaid
             .checked_sub(interest_paid)
             .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -275,11 +256,7 @@ pub(crate) fn insurance_request_for_liquidation_with_terms_and_pricing(
     pricing: LiquidationPricing,
 ) -> Result<u64> {
     let debt_before = position_debt(market, borrow_position, debt_asset)?;
-    require_gte!(
-        debt_before,
-        repay_credit as u128,
-        ErrorCode::InsufficientDebt
-    );
+    require_gte!(debt_before, repay_credit as u128, ErrorCode::InsufficientDebt);
     require_gte!(
         terms.max_repay_amount,
         repay_credit,
@@ -334,8 +311,7 @@ pub(crate) fn liquidation_terms_with_pricing(
     debt_asset: MarketAsset,
     pricing: LiquidationPricing,
 ) -> Result<LiquidationTerms> {
-    let health_before =
-        liquidation_health_bps_with_pricing(market, borrow_position, debt_asset, pricing)?;
+    let health_before = liquidation_health_bps_with_pricing(market, borrow_position, debt_asset, pricing)?;
     let liquidation_incentive_bps =
         liquidation_incentive_bps(health_before, market.config.market_health_min_bps as u64);
     liquidation_terms_with_incentive_and_pricing(
@@ -354,27 +330,19 @@ pub(crate) fn liquidation_terms_with_incentive_and_pricing(
     liquidation_incentive_bps: u16,
     pricing: LiquidationPricing,
 ) -> Result<LiquidationTerms> {
-    let health_before =
-        liquidation_health_bps_with_pricing(market, borrow_position, debt_asset, pricing)?;
-    let max_incentive_bps =
-        liquidation_max_incentive_bps(health_before, market.config.market_health_min_bps as u64);
+    let health_before = liquidation_health_bps_with_pricing(market, borrow_position, debt_asset, pricing)?;
+    let max_incentive_bps = liquidation_max_incentive_bps(health_before, market.config.market_health_min_bps as u64);
     require_gte!(
         max_incentive_bps,
         liquidation_incentive_bps,
         ErrorCode::InvalidMarketConfig
     );
-    let insurance_funding_bps =
-        liquidation_insurance_funding_bps(liquidation_incentive_bps, &market.config)?;
+    let insurance_funding_bps = liquidation_insurance_funding_bps(liquidation_incentive_bps, &market.config)?;
     let total_penalty_bps = liquidation_incentive_bps
         .checked_add(insurance_funding_bps)
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    let max_repay_amount = max_liquidation_repay_amount_with_pricing(
-        market,
-        borrow_position,
-        debt_asset,
-        total_penalty_bps,
-        pricing,
-    )?;
+    let max_repay_amount =
+        max_liquidation_repay_amount_with_pricing(market, borrow_position, debt_asset, total_penalty_bps, pricing)?;
     Ok(LiquidationTerms {
         liquidation_incentive_bps,
         insurance_funding_bps,
@@ -401,8 +369,7 @@ fn liquidation_debt_clearance(
             market.debt.quote_borrow_index_nad,
         ),
     };
-    let shares_to_burn =
-        shares_to_burn_for_reduction(debt_reduction, debt_before, shares_before, borrow_index_nad)?;
+    let shares_to_burn = shares_to_burn_for_reduction(debt_reduction, debt_before, shares_before, borrow_index_nad)?;
     let remaining_shares = shares_before
         .checked_sub(shares_to_burn)
         .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -492,11 +459,7 @@ fn apply_liquidation_debt_reduction(
     Ok(())
 }
 
-fn position_debt(
-    market: &Market,
-    borrow_position: &BorrowPosition,
-    debt_asset: MarketAsset,
-) -> Result<u128> {
+fn position_debt(market: &Market, borrow_position: &BorrowPosition, debt_asset: MarketAsset) -> Result<u128> {
     match debt_asset {
         MarketAsset::Base => borrow_position.fixed_base_debt(&market.debt),
         MarketAsset::Quote => borrow_position.fixed_quote_debt(&market.debt),
@@ -518,13 +481,8 @@ fn collateral_to_seize(
     total_penalty_bps: u16,
     pricing: LiquidationPricing,
 ) -> Result<u64> {
-    let seizure = collateral_amount_for_debt_value_with_pricing(
-        market,
-        debt_asset,
-        repay_credit,
-        total_penalty_bps,
-        pricing,
-    )?;
+    let seizure =
+        collateral_amount_for_debt_value_with_pricing(market, debt_asset, repay_credit, total_penalty_bps, pricing)?;
     Ok(seizure.min(collateral_before))
 }
 
@@ -555,17 +513,14 @@ pub(crate) fn liquidation_max_incentive_bps(health_bps: u64, min_health_bps: u64
     let max_for_config = min_health_bps
         .saturating_sub(BPS_DENOMINATOR as u64 + 1)
         .min(LIQUIDATION_MAX_INCENTIVE_BPS as u64);
-    shortfall
-        .max(LIQUIDATION_INCENTIVE_BPS as u64)
-        .min(max_for_config) as u16
+    shortfall.max(LIQUIDATION_INCENTIVE_BPS as u64).min(max_for_config) as u16
 }
 
 pub(crate) fn liquidation_insurance_funding_bps(
     liquidation_incentive_bps: u16,
     config: &crate::state::MarketConfig,
 ) -> Result<u16> {
-    let max_total_penalty =
-        (config.market_health_min_bps as u64).saturating_sub(BPS_DENOMINATOR as u64 + 1);
+    let max_total_penalty = (config.market_health_min_bps as u64).saturating_sub(BPS_DENOMINATOR as u64 + 1);
     let remaining = max_total_penalty.saturating_sub(liquidation_incentive_bps as u64);
     Ok(LIQUIDATION_INSURANCE_FUNDING_BPS.min(u16::try_from(remaining).unwrap_or(u16::MAX)))
 }
@@ -581,13 +536,8 @@ fn max_liquidation_repay_amount_with_pricing(
     if debt_before == 0 {
         return Ok(0);
     }
-    let restore_cap = max_repay_to_restore_health_with_pricing(
-        market,
-        borrow_position,
-        debt_asset,
-        total_penalty_bps,
-        pricing,
-    )?;
+    let restore_cap =
+        max_repay_to_restore_health_with_pricing(market, borrow_position, debt_asset, total_penalty_bps, pricing)?;
     if restore_cap == 0 {
         return Ok(0);
     }
@@ -603,13 +553,7 @@ fn max_liquidation_repay_amount_with_pricing(
     let mut max_repay = restore_cap.min(u64::try_from(close_factor_cap).unwrap_or(u64::MAX));
 
     if max_repay >= debt_before_u64
-        || liquidation_repay_would_leave_dust(
-            market,
-            borrow_position,
-            debt_asset,
-            debt_before,
-            max_repay,
-        )?
+        || liquidation_repay_would_leave_dust(market, borrow_position, debt_asset, debt_before, max_repay)?
     {
         max_repay = debt_before_u64;
     }
@@ -629,16 +573,12 @@ fn max_repay_to_restore_health_with_pricing(
         MarketAsset::Quote => market.quote_side.asset_decimals,
     };
     let debt_value_nad = normalize_to_nad(debt_before, debt_decimals)?;
-    let collateral_value_nad =
-        recognized_collateral_value_with_pricing(market, borrow_position, debt_asset, pricing)?;
+    let collateral_value_nad = recognized_collateral_value_with_pricing(market, borrow_position, debt_asset, pricing)?;
     let target_bps = market.config.market_health_min_bps as u128;
     let penalty_multiplier_bps = (BPS_DENOMINATOR as u128)
         .checked_add(total_penalty_bps as u128)
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    require!(
-        target_bps > penalty_multiplier_bps,
-        ErrorCode::InvalidMarketConfig
-    );
+    require!(target_bps > penalty_multiplier_bps, ErrorCode::InvalidMarketConfig);
     let target_debt_value = debt_value_nad
         .checked_mul(target_bps)
         .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -654,8 +594,7 @@ fn max_repay_to_restore_health_with_pricing(
     let denominator = target_bps
         .checked_sub(penalty_multiplier_bps)
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    let repay_value_nad =
-        ceil_div(shortfall_value, denominator).ok_or(ErrorCode::MarketMathOverflow)?;
+    let repay_value_nad = ceil_div(shortfall_value, denominator).ok_or(ErrorCode::MarketMathOverflow)?;
     let repay_amount = denormalize_from_nad_ceil(repay_value_nad, debt_decimals)?;
     Ok(repay_amount.min(u64::try_from(debt_before).unwrap_or(u64::MAX)))
 }
@@ -666,8 +605,7 @@ pub(crate) fn liquidation_health_bps_with_pricing(
     debt_asset: MarketAsset,
     pricing: LiquidationPricing,
 ) -> Result<u64> {
-    let collateral_value_nad =
-        recognized_collateral_value_with_pricing(market, borrow_position, debt_asset, pricing)?;
+    let collateral_value_nad = recognized_collateral_value_with_pricing(market, borrow_position, debt_asset, pricing)?;
     let (debt_before, debt_decimals) = match debt_asset {
         MarketAsset::Base => (
             borrow_position.fixed_base_debt(&market.debt)?,
@@ -678,10 +616,7 @@ pub(crate) fn liquidation_health_bps_with_pricing(
             market.quote_side.asset_decimals,
         ),
     };
-    health_bps(
-        collateral_value_nad,
-        normalize_to_nad(debt_before, debt_decimals)?,
-    )
+    health_bps(collateral_value_nad, normalize_to_nad(debt_before, debt_decimals)?)
 }
 
 fn recognized_collateral_value_with_pricing(
@@ -730,10 +665,7 @@ fn collateral_value_at_reference_price_nad(
     collateral_amount: u64,
     debt_per_collateral_price_nad: u64,
 ) -> Result<u128> {
-    require!(
-        debt_per_collateral_price_nad > 0,
-        ErrorCode::InvalidSettlementPrice
-    );
+    require!(debt_per_collateral_price_nad > 0, ErrorCode::InvalidSettlementPrice);
     let collateral_decimals = market.side(collateral_asset)?.asset_decimals;
     let collateral_amount_nad = normalize_to_nad(collateral_amount as u128, collateral_decimals)?;
     collateral_amount_nad
@@ -750,12 +682,9 @@ fn collateral_amount_for_debt_value_with_pricing(
     pricing: LiquidationPricing,
 ) -> Result<u64> {
     match pricing {
-        LiquidationPricing::PessimisticReserves => market
-            .collateral_amount_for_debt_value_with_penalty_bps(
-                debt_asset,
-                debt_amount,
-                penalty_bps,
-            ),
+        LiquidationPricing::PessimisticReserves => {
+            market.collateral_amount_for_debt_value_with_penalty_bps(debt_asset, debt_amount, penalty_bps)
+        }
         LiquidationPricing::ReferencePrice {
             debt_per_collateral_price_nad,
         } => collateral_amount_for_debt_value_at_reference_price(
@@ -775,10 +704,7 @@ fn collateral_amount_for_debt_value_at_reference_price(
     penalty_bps: u16,
     debt_per_collateral_price_nad: u64,
 ) -> Result<u64> {
-    require!(
-        debt_per_collateral_price_nad > 0,
-        ErrorCode::InvalidSettlementPrice
-    );
+    require!(debt_per_collateral_price_nad > 0, ErrorCode::InvalidSettlementPrice);
     let debt_decimals = market.side(debt_asset)?.asset_decimals;
     let collateral_decimals = market.side(debt_asset.opposite())?.asset_decimals;
     let debt_with_penalty = ceil_div(
@@ -805,15 +731,11 @@ fn shares_to_burn_for_reduction(
     shares_before: u128,
     borrow_index_nad: u128,
 ) -> Result<u128> {
-    require!(
-        shares_before > 0 && debt_before > 0,
-        ErrorCode::InsufficientDebt
-    );
+    require!(shares_before > 0 && debt_before > 0, ErrorCode::InsufficientDebt);
     if debt_reduction >= debt_before {
         return Ok(shares_before);
     }
-    let debt_reduction =
-        u64::try_from(debt_reduction).map_err(|_| ErrorCode::MarketMathOverflow)?;
+    let debt_reduction = u64::try_from(debt_reduction).map_err(|_| ErrorCode::MarketMathOverflow)?;
     Debt::debt_to_shares(debt_reduction, borrow_index_nad).map(|shares| shares.min(shares_before))
 }
 
@@ -831,14 +753,8 @@ fn liquidation_repay_would_leave_dust(
         return Ok(true);
     }
     let (shares_before, borrow_index_nad) = match debt_asset {
-        MarketAsset::Base => (
-            borrow_position.fixed_base_shares,
-            market.debt.base_borrow_index_nad,
-        ),
-        MarketAsset::Quote => (
-            borrow_position.fixed_quote_shares,
-            market.debt.quote_borrow_index_nad,
-        ),
+        MarketAsset::Base => (borrow_position.fixed_base_shares, market.debt.base_borrow_index_nad),
+        MarketAsset::Quote => (borrow_position.fixed_quote_shares, market.debt.quote_borrow_index_nad),
     };
     if shares_before == 0 {
         return Ok(false);

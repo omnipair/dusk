@@ -17,9 +17,8 @@ use crate::{
 };
 
 use crate::instructions::common::{
-    require_supported_asset_mint, token_account_credit, token_program_for_mint,
-    validate_interest_accounts, validate_lp_mint, validate_owner_asset_account,
-    validate_owner_lp_account, validate_side_vault_accounts,
+    require_supported_asset_mint, token_account_credit, token_program_for_mint, validate_interest_accounts,
+    validate_lp_mint, validate_owner_asset_account, validate_owner_lp_account, validate_side_vault_accounts,
 };
 
 use super::initialize_or_validate_hlp_yield_account;
@@ -126,11 +125,7 @@ impl<'info> WithdrawSingleSided<'info> {
             &self.quote_mint,
             &self.quote_reserve_vault,
         )?;
-        require_keys_eq!(
-            self.market.ylp_mint,
-            self.ylp_mint.key(),
-            ErrorCode::InvalidLpMintKey
-        );
+        require_keys_eq!(self.market.ylp_mint, self.ylp_mint.key(), ErrorCode::InvalidLpMintKey);
         let target_asset = self.market.asset_for_hlp_mint(self.target_hlp_mint.key())?;
         let target_mint = match target_asset {
             MarketAsset::Base => &self.base_mint,
@@ -146,36 +141,23 @@ impl<'info> WithdrawSingleSided<'info> {
             self.target_hlp_mint.key(),
             ErrorCode::InvalidMint
         );
-        let interest_asset =
-            validate_interest_accounts(&self.market, borrowed_mint, &self.borrowed_interest_vault)?;
+        let interest_asset = validate_interest_accounts(&self.market, borrowed_mint, &self.borrowed_interest_vault)?;
         require!(interest_asset == borrowed_asset, ErrorCode::InvalidVault);
         validate_owner_asset_account(self.owner.key(), target_mint, &self.owner_target_account)?;
-        validate_owner_lp_account(
-            self.owner.key(),
-            &self.target_hlp_mint,
-            &self.owner_hlp_account,
-        )?;
+        validate_owner_lp_account(self.owner.key(), &self.target_hlp_mint, &self.owner_hlp_account)?;
         require_gte!(
             self.owner_hlp_account.amount,
             args.hlp_amount,
             ErrorCode::InsufficientBalance
         );
-        validate_lp_mint(
-            &self.target_hlp_mint,
-            self.market.key(),
-            target_mint.decimals,
-        )?;
+        validate_lp_mint(&self.target_hlp_mint, self.market.key(), target_mint.decimals)?;
         validate_lp_mint(&self.ylp_mint, self.market.key(), self.base_mint.decimals)?;
         require_keys_eq!(
             self.hlp_ylp_account.mint,
             self.ylp_mint.key(),
             ErrorCode::InvalidTokenAccount
         );
-        require_keys_eq!(
-            self.hlp_ylp_account.owner,
-            self.market.key(),
-            ErrorCode::InvalidVault
-        );
+        require_keys_eq!(self.hlp_ylp_account.owner, self.market.key(), ErrorCode::InvalidVault);
         require_supported_asset_mint(&self.base_mint)?;
         require_supported_asset_mint(&self.quote_mint)?;
         Ok(())
@@ -202,9 +184,7 @@ impl<'info> WithdrawSingleSided<'info> {
             target_mint_key,
             ctx.bumps.target_yield_account,
         )?;
-        ctx.accounts
-            .market
-            .checkpoint_hlp_yield_from_ylp(target_asset)?;
+        ctx.accounts.market.checkpoint_hlp_yield_from_ylp(target_asset)?;
         let (swap_fee_growth_index_nad, interest_growth_index_nad) =
             ctx.accounts.market.hlp_yield_growth_indexes(target_asset);
         ctx.accounts.target_yield_account.accrue(
@@ -265,15 +245,12 @@ impl<'info> WithdrawSingleSided<'info> {
             )?;
             ctx.accounts.borrowed_interest_vault.reload()?;
             let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
-            ctx.accounts
-                .market
-                .side_mut(borrowed_asset)?
-                .record_interest_credit(
-                    receipt.interest_paid,
-                    manager_fee_bps,
-                    ctx.accounts.futarchy_authority.revenue_share.interest_bps,
-                    ctx.accounts.futarchy_authority.protocol_auction_split,
-                )?;
+            ctx.accounts.market.side_mut(borrowed_asset)?.record_interest_credit(
+                receipt.interest_paid,
+                manager_fee_bps,
+                ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+                ctx.accounts.futarchy_authority.protocol_auction_split,
+            )?;
         }
 
         let ylp_program = token_program_for_mint(
@@ -322,13 +299,8 @@ impl<'info> WithdrawSingleSided<'info> {
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
         )?;
         ctx.accounts.owner_target_account.reload()?;
-        let target_credit =
-            token_account_credit(target_balance_before, &ctx.accounts.owner_target_account)?;
-        require_gte!(
-            target_credit,
-            args.min_target_amount_out,
-            ErrorCode::SlippageExceeded
-        );
+        let target_credit = token_account_credit(target_balance_before, &ctx.accounts.owner_target_account)?;
+        require_gte!(target_credit, args.min_target_amount_out, ErrorCode::SlippageExceeded);
 
         emit_cpi!(HlpClosed {
             market: market_key,

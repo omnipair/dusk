@@ -89,14 +89,8 @@ impl Debt {
         let borrow_index_nad = self.borrow_index(asset);
         let shares = Self::debt_to_shares(amount, borrow_index_nad)?;
         let (aggregate_shares, principal) = match asset {
-            MarketAsset::Base => (
-                &mut self.isolated_base_shares,
-                &mut self.isolated_base_principal,
-            ),
-            MarketAsset::Quote => (
-                &mut self.isolated_quote_shares,
-                &mut self.isolated_quote_principal,
-            ),
+            MarketAsset::Base => (&mut self.isolated_base_shares, &mut self.isolated_base_principal),
+            MarketAsset::Quote => (&mut self.isolated_quote_shares, &mut self.isolated_quote_principal),
         };
         *aggregate_shares = aggregate_shares
             .checked_add(shares)
@@ -131,13 +125,8 @@ impl Debt {
     ) -> Result<DebtClearance> {
         require!(repay_amount > 0, ErrorCode::AmountZero);
         let current_debt_u128 = Self::shares_to_debt(*position_shares, self.borrow_index(asset))?;
-        require_gte!(
-            current_debt_u128,
-            repay_amount as u128,
-            ErrorCode::InsufficientDebt
-        );
-        let current_debt =
-            u64::try_from(current_debt_u128).map_err(|_| ErrorCode::DebtMathOverflow)?;
+        require_gte!(current_debt_u128, repay_amount as u128, ErrorCode::InsufficientDebt);
+        let current_debt = u64::try_from(current_debt_u128).map_err(|_| ErrorCode::DebtMathOverflow)?;
         let shares_burned = if repay_amount == current_debt {
             *position_shares
         } else {
@@ -151,23 +140,15 @@ impl Debt {
         let debt_reduced_u128 = current_debt_u128
             .checked_sub(remaining_debt_u128)
             .ok_or(ErrorCode::DebtMathOverflow)?;
-        let debt_reduced =
-            u64::try_from(debt_reduced_u128).map_err(|_| ErrorCode::DebtMathOverflow)?;
+        let debt_reduced = u64::try_from(debt_reduced_u128).map_err(|_| ErrorCode::DebtMathOverflow)?;
 
         let principal = (*position_principal).min(current_debt_u128);
         let (principal_paid, interest_paid) =
             crate::math::realized_interest_split(repay_amount, current_debt_u128, principal)?;
-        let (principal_reduced, _) =
-            crate::math::realized_interest_split(debt_reduced, current_debt_u128, principal)?;
+        let (principal_reduced, _) = crate::math::realized_interest_split(debt_reduced, current_debt_u128, principal)?;
         let (aggregate_shares, aggregate_principal) = match asset {
-            MarketAsset::Base => (
-                &mut self.isolated_base_shares,
-                &mut self.isolated_base_principal,
-            ),
-            MarketAsset::Quote => (
-                &mut self.isolated_quote_shares,
-                &mut self.isolated_quote_principal,
-            ),
+            MarketAsset::Base => (&mut self.isolated_base_shares, &mut self.isolated_base_principal),
+            MarketAsset::Quote => (&mut self.isolated_quote_shares, &mut self.isolated_quote_principal),
         };
         *position_shares = remaining_shares;
         *aggregate_shares = aggregate_shares
@@ -187,8 +168,7 @@ impl Debt {
             debt_reduced,
             principal_paid,
             interest_paid,
-            remaining_debt: u64::try_from(remaining_debt_u128)
-                .map_err(|_| ErrorCode::DebtMathOverflow)?,
+            remaining_debt: u64::try_from(remaining_debt_u128).map_err(|_| ErrorCode::DebtMathOverflow)?,
         })
     }
 
@@ -199,28 +179,14 @@ impl Debt {
         position_principal: &mut u128,
     ) -> Result<DebtWriteoff> {
         require!(*position_shares > 0, ErrorCode::DebtShareDivisionOverflow);
-        let debt_written_off = u64::try_from(Self::shares_to_debt(
-            *position_shares,
-            self.borrow_index(asset),
-        )?)
-        .map_err(|_| ErrorCode::DebtMathOverflow)?;
+        let debt_written_off = u64::try_from(Self::shares_to_debt(*position_shares, self.borrow_index(asset))?)
+            .map_err(|_| ErrorCode::DebtMathOverflow)?;
         let (aggregate_shares, aggregate_principal) = match asset {
-            MarketAsset::Base => (
-                &mut self.isolated_base_shares,
-                &mut self.isolated_base_principal,
-            ),
-            MarketAsset::Quote => (
-                &mut self.isolated_quote_shares,
-                &mut self.isolated_quote_principal,
-            ),
+            MarketAsset::Base => (&mut self.isolated_base_shares, &mut self.isolated_base_principal),
+            MarketAsset::Quote => (&mut self.isolated_quote_shares, &mut self.isolated_quote_principal),
         };
-        require_gte!(
-            *aggregate_shares,
-            *position_shares,
-            ErrorCode::DebtShareMathOverflow
-        );
-        let principal_written_off =
-            u64::try_from(*position_principal).map_err(|_| ErrorCode::DebtMathOverflow)?;
+        require_gte!(*aggregate_shares, *position_shares, ErrorCode::DebtShareMathOverflow);
+        let principal_written_off = u64::try_from(*position_principal).map_err(|_| ErrorCode::DebtMathOverflow)?;
         *aggregate_shares = aggregate_shares
             .checked_sub(*position_shares)
             .ok_or(ErrorCode::DebtShareMathOverflow)?;
@@ -258,12 +224,7 @@ impl Debt {
         self.realize_margin_clearance(asset, cash_repaid, debt_reduction)
     }
 
-    fn realize_margin_clearance(
-        &mut self,
-        asset: MarketAsset,
-        cash_repaid: u64,
-        debt_reduction: u64,
-    ) -> Result<u64> {
+    fn realize_margin_clearance(&mut self, asset: MarketAsset, cash_repaid: u64, debt_reduction: u64) -> Result<u64> {
         require!(
             (cash_repaid as u128) <= debt_reduction as u128,
             ErrorCode::MarketMathOverflow
@@ -278,10 +239,8 @@ impl Debt {
         }
         // Clamp guards against rounding making principal momentarily exceed debt.
         .min(fixed_debt);
-        let (_, interest_paid) =
-            crate::math::realized_interest_split(cash_repaid, fixed_debt, principal)?;
-        let (principal_reduced, _) =
-            crate::math::realized_interest_split(debt_reduction, fixed_debt, principal)?;
+        let (_, interest_paid) = crate::math::realized_interest_split(cash_repaid, fixed_debt, principal)?;
+        let (principal_reduced, _) = crate::math::realized_interest_split(debt_reduction, fixed_debt, principal)?;
         let principal_slot = match asset {
             MarketAsset::Base => &mut self.fixed_base_principal,
             MarketAsset::Quote => &mut self.fixed_quote_principal,
