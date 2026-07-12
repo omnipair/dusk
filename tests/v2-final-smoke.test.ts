@@ -996,10 +996,6 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     ];
   }
 
-  function allHlpRebalanceAccounts(fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>) {
-    return [...baseHlpRebalanceAccounts(fixture), ...quoteHlpRebalanceAccounts(fixture)];
-  }
-
   async function swapBaseForQuote(
     fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>,
     remainingAccounts: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] = [],
@@ -2191,7 +2187,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       TOKEN_2022_PROGRAM_ID
     );
 
-    await swapBaseForQuote(fixture, allHlpRebalanceAccounts(fixture));
+    await swapBaseForQuote(fixture, baseHlpRebalanceAccounts(fixture));
     trackV2Instruction("swap", this.test?.title);
 
     const baseHlpYlpAfter = await getAccount(
@@ -2687,6 +2683,9 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
 
     await swapBaseForQuote(fixture, [], 20_000, 30_000);
     svm.warpToSlot(10_000n);
+    const clock = svm.getClock();
+    clock.unixTimestamp = 1_000n;
+    svm.setClock(clock);
 
     const positionBeforeAccount = svm.getAccount(borrowPosition);
     expect(positionBeforeAccount).to.not.equal(null);
@@ -2697,12 +2696,21 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     const baseCollateralBefore = positionBefore.base_collateral.toNumber();
     const quoteDebtSharesBefore = BigInt(positionBefore.fixed_quote_shares.toString());
     const ownerBaseBefore = await getAccount(connection as any, fixture.ownerBaseAccount);
-    const liquidateTx = await program.methods
-      .liquidateBorrowPosition({
-        repayAmount: new BN(1),
+    const triggerAuctionTx = await program.methods
+      .triggerLiquidationAuction({})
+      .accounts({
+        market: fixture.market,
+        borrowPosition,
+        debtAssetMint: fixture.quoteMint,
+      })
+      .transaction();
+    await connection.sendTransaction(triggerAuctionTx, [payer]);
+    trackV2Instruction("triggerLiquidationAuction", this.test?.title);
+
+    const bidTx = await program.methods
+      .bidLiquidationAuction({
+        repayAmount: new BN(1_000),
         minCollateralOut: new BN(1),
-        maxInsuranceDraw: new BN(0),
-        maxSocializedLoss: new BN(0),
       })
       .accounts({
         market: fixture.market,
@@ -2722,8 +2730,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         token2022Program: TOKEN_2022_PROGRAM_ID,
       })
       .transaction();
-    await connection.sendTransaction(liquidateTx, [payer]);
-    trackV2Instruction("liquidateBorrowPosition", this.test?.title);
+    await connection.sendTransaction(bidTx, [payer]);
+    trackV2Instruction("bidLiquidationAuction", this.test?.title);
 
     const ownerBaseAfter = await getAccount(connection as any, fixture.ownerBaseAccount);
     expect(ownerBaseAfter.amount > ownerBaseBefore.amount).to.equal(true);
