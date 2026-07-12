@@ -122,9 +122,8 @@ import {
 const program = createDuskProgram({ provider });
 ```
 
-`IDL_V2`, `DUSK_PROGRAM_ID`, `OmnipairV2`, and `OMNIPAIR_V2_PROGRAM_ID` are
-exported as compatibility aliases for integrations that prefer
-generation-qualified names.
+`DUSK_PROGRAM_ID` is exported for integrations that prefer an explicit program
+name over the generic `PROGRAM_ID` constant.
 
 ## ESM Compatibility
 

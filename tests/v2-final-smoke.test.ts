@@ -32,7 +32,7 @@ import { ComputeBudget, LiteSVM } from "litesvm";
 import {
   buildYlpTransferHookAccountMetas,
   buildYlpTransferHookValidationAccountData,
-  deriveFutarchyAuthorityV2Address,
+  deriveFutarchyAuthorityAddress,
   deriveHlpYlpVaultAddress,
   deriveInsuranceAddress,
   deriveMarketAddress,
@@ -81,10 +81,8 @@ const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
   "BPFLoaderUpgradeab1e11111111111111111111111"
 );
 function duskTestEnv(name: string): string | undefined {
-  const suffix = name
-    .replace(/^DUSK_TEST_/, "")
-    .replace(/^OMNIPAIR_V2_TEST_/, "");
-  return process.env[`DUSK_TEST_${suffix}`] ?? process.env[`OMNIPAIR_V2_TEST_${suffix}`];
+  const suffix = name.replace(/^DUSK_TEST_/, "");
+  return process.env[`DUSK_TEST_${suffix}`];
 }
 
 const RUN_REAL_TOKEN_METADATA_CPI = duskTestEnv("REAL_METADATA_CPI") === "1";
@@ -299,7 +297,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
   });
 
   async function seedFutarchyAuthority() {
-    const [authority, bump] = deriveFutarchyAuthorityV2Address();
+    const [authority, bump] = deriveFutarchyAuthorityAddress();
     futarchyAuthority = authority;
     const auctionRecipients = {
       treasury: payer.publicKey,
@@ -1137,7 +1135,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
   it("initializes the Dusk futarchy authority from upgradeable ProgramData", async function () {
     const { isolatedSvm, isolatedConnection, isolatedPayer, isolatedProgram } =
       await createIsolatedProgram();
-    const [isolatedFutarchyAuthority] = deriveFutarchyAuthorityV2Address();
+    const [isolatedFutarchyAuthority] = deriveFutarchyAuthorityAddress();
     const [programData] = PublicKey.findProgramAddressSync(
       [DUSK_PROGRAM_ID.toBuffer()],
       BPF_LOADER_UPGRADEABLE_PROGRAM_ID

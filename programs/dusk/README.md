@@ -98,7 +98,7 @@ hLP checkpointing computes NAV, attempts the spot-based leverage adjustment, rec
 
 | Account | Seeds | SDK helper |
 | --- | --- | --- |
-| `Market` | `market_v2`, `base_mint`, `quote_mint`, `params_hash` | `deriveMarketAddress` / `deriveMarketV2Address` |
+| `Market` | `market_v2`, `base_mint`, `quote_mint`, `params_hash` | `deriveMarketAddress` |
 | Reserve vault | `market_reserve`, `market`, `asset_mint` | `deriveMarketReserveVaultAddress` |
 | Collateral vault | `market_collateral`, `market`, `asset_mint` | `deriveMarketCollateralVaultAddress` |
 | Swap fee vault | `market_fee`, `market`, `asset_mint` | `deriveMarketFeeVaultAddress` |

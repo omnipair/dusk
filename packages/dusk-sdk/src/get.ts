@@ -9,7 +9,6 @@ import {
 import {
   deriveBorrowPositionAddress,
   deriveFutarchyAuthorityAddress,
-  deriveFutarchyAuthorityV2Address,
   deriveHlpYlpVaultAddress,
   deriveInsuranceAddress,
   deriveLeveragePositionAddress,
@@ -18,7 +17,6 @@ import {
   deriveMarketFeeVaultAddress,
   deriveMarketInterestVaultAddress,
   deriveMarketReserveVaultAddress,
-  deriveMarketV2Address,
   deriveTokenMetadataAddress,
   deriveYieldAccountAddress,
   deriveYieldTransferHookValidationAddress,
@@ -49,9 +47,7 @@ import type { Dusk } from "./types_v2.js";
 
 export const pda = {
   futarchyAuthority: deriveFutarchyAuthorityAddress,
-  futarchyAuthorityV2: deriveFutarchyAuthorityV2Address,
   market: deriveMarketAddress,
-  marketV2: deriveMarketV2Address,
   tokenMetadata: deriveTokenMetadataAddress,
   marketReserveVault: deriveMarketReserveVaultAddress,
   marketCollateralVault: deriveMarketCollateralVaultAddress,

@@ -21,7 +21,7 @@ const pairs = [
   {
     generated: resolve(repoRoot, "target/types/dusk.ts"),
     committed: resolve(packageRoot, "src/types_v2.ts"),
-    normalize: (contents) => `${contents.trimEnd()}\n\nexport type OmnipairV2 = Dusk;\n`,
+    normalize: (contents) => contents,
   },
 ];
 

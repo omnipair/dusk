@@ -37,7 +37,7 @@ on:
 
 env:
   SOLANA_VERSION: "4.1.0"
-  PROGRAM_SO: omnipair_v2.so
+  PROGRAM_SO: dusk.so
 
 jobs:
   deploy-buffer:
@@ -52,7 +52,7 @@ jobs:
       - name: Extract Dusk program ID
         id: program
         run: |
-          PROGRAM_ID=$(grep 'declare_id!' programs/omnipair-v2/src/lib.rs | sed 's/declare_id!("//;s/");$//')
+          PROGRAM_ID=$(grep 'declare_id!' programs/dusk/src/lib.rs | sed 's/declare_id!("//;s/");$//')
           echo "PROGRAM_ID=$PROGRAM_ID" >> "$GITHUB_ENV"
           echo "program_id=$PROGRAM_ID" >> "$GITHUB_OUTPUT"
           echo "Dusk program ID: $PROGRAM_ID"

@@ -12128,5 +12128,3 @@ export type Dusk = {
     }
   ]
 };
-
-export type OmnipairV2 = Dusk;

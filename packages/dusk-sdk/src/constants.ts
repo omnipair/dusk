@@ -3,28 +3,18 @@ import { AccountMeta, PublicKey } from "@solana/web3.js";
 const DEFAULT_PROGRAM_ID = "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv";
 const MPL_TOKEN_METADATA_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
 
-function getProgramIdFromEnv(envNames: string[], fallback: string): string {
+function getProgramIdFromEnv(fallback: string): string {
   if (typeof process === "undefined" || !process.env) return fallback;
-  for (const envName of envNames) {
-    const value = process.env[envName];
-    if (value) return value;
-  }
-  return fallback;
+  return process.env.DUSK_PROGRAM_ID ?? fallback;
 }
 
 /**
  * Omnipair Dusk (v2) program ID.
- * Reads from env DUSK_PROGRAM_ID, OMNIPAIR_V2_PROGRAM_ID, PROGRAM_ID_V2, or PROGRAM_ID.
+ * Reads from env DUSK_PROGRAM_ID.
  */
-export const DUSK_PROGRAM_ID = new PublicKey(
-  getProgramIdFromEnv(
-    ["DUSK_PROGRAM_ID", "OMNIPAIR_V2_PROGRAM_ID", "PROGRAM_ID_V2", "PROGRAM_ID"],
-    DEFAULT_PROGRAM_ID
-  )
-);
+export const DUSK_PROGRAM_ID = new PublicKey(getProgramIdFromEnv(DEFAULT_PROGRAM_ID));
 
 export const PROGRAM_ID = DUSK_PROGRAM_ID;
-export const OMNIPAIR_V2_PROGRAM_ID = DUSK_PROGRAM_ID;
 export const TOKEN_METADATA_PROGRAM_ID = new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID);
 
 /**
@@ -60,8 +50,6 @@ export function deriveFutarchyAuthorityAddress(): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([SEEDS.FUTARCHY_AUTHORITY], DUSK_PROGRAM_ID);
 }
 
-export const deriveFutarchyAuthorityV2Address = deriveFutarchyAuthorityAddress;
-
 /**
  * Derive Dusk market PDA address
  */
@@ -80,8 +68,6 @@ export function deriveMarketAddress(
     DUSK_PROGRAM_ID
   );
 }
-
-export const deriveMarketV2Address = deriveMarketAddress;
 
 /**
  * Derive a Metaplex Token Metadata PDA for a mint.

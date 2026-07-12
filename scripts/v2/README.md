@@ -2,7 +2,7 @@
 
 These scripts create a disposable Omnipair Dusk (v2) devnet market and tester balances without committing keypairs.
 
-Local state and generated keypairs live in `~/.config/omnipair/dusk-devnet` by default. Override with `DUSK_DEVNET_CONFIG_DIR` or `DUSK_DEVNET_STATE`. Legacy `OMNIPAIR_V2_*` names are still accepted by the scripts.
+Local state and generated keypairs live in `~/.config/omnipair/dusk-devnet` by default. Override with `DUSK_DEVNET_CONFIG_DIR` or `DUSK_DEVNET_STATE`.
 
 ```bash
 export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com

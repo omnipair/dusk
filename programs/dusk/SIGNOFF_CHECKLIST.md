@@ -55,8 +55,7 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 
 ## SDK / Package Interface
 
-- Use `IDL`, `Dusk`, and `PROGRAM_ID` for Dusk flows. The explicit
-  `IDL_V2`, `OmnipairV2`, and `OMNIPAIR_V2_PROGRAM_ID` aliases are also available.
+- Use `IDL`, `Dusk`, and `PROGRAM_ID` or `DUSK_PROGRAM_ID` for Dusk flows.
 - Use Dusk PDA helpers from `packages/dusk-sdk/src/constants.ts`.
 - Confirm Dusk IDL and generated TypeScript copies match `target/idl` and
   `target/types` artifacts from the release build.

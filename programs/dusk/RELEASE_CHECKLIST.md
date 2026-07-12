@@ -101,9 +101,8 @@ typecheck gates.
   `programs/dusk/SIGNOFF_CHECKLIST.md`.
 - Review the integrator handoff in `programs/dusk/README.md` with app,
   SDK, indexer, analytics, and aggregator owners.
-- SDK consumers use `IDL`, `Dusk`, and `PROGRAM_ID` or the explicit
-  `IDL_V2`, `OmnipairV2`, and `OMNIPAIR_V2_PROGRAM_ID` compatibility aliases.
-- Market PDA derivation uses `deriveMarketAddress` or `deriveMarketV2Address`.
+- SDK consumers use `IDL`, `Dusk`, and `PROGRAM_ID` or `DUSK_PROGRAM_ID`.
+- Market PDA derivation uses `deriveMarketAddress`.
 - Indexers consume Dusk events from the standalone Dusk IDL.
 - App routing points Dusk market flows at the Dusk program ID.
 - Analytics track yLP, hLP, debt, insurance, and fee state as Dusk market

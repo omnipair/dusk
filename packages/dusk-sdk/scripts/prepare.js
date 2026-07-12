@@ -21,7 +21,7 @@ const files = [
   {
     src: resolve(repoRoot, "target/types/dusk.ts"),
     dest: resolve(rootDir, "src/types_v2.ts"),
-    prepare: (contents) => `${contents.trimEnd()}\n\nexport type OmnipairV2 = Dusk;\n`,
+    prepare: (contents) => contents,
   },
 ];
 

@@ -39,10 +39,8 @@ export const TOKEN_METADATA_PROGRAM_ID = new PublicKey(
 export function duskEnv(name: string): string | undefined;
 export function duskEnv(name: string, fallback: string): string;
 export function duskEnv(name: string, fallback?: string): string | undefined {
-  const suffix = name
-    .replace(/^DUSK_/, "")
-    .replace(/^OMNIPAIR_V2_/, "");
-  return process.env[`DUSK_${suffix}`] ?? process.env[`OMNIPAIR_V2_${suffix}`] ?? fallback;
+  const suffix = name.replace(/^DUSK_/, "");
+  return process.env[`DUSK_${suffix}`] ?? fallback;
 }
 
 export type StoredMint = {

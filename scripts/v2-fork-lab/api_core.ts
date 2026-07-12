@@ -40,19 +40,15 @@ const NAD = 1_000_000_000n;
 function duskEnv(name: string): string | undefined;
 function duskEnv(name: string, fallback: string): string;
 function duskEnv(name: string, fallback?: string): string | undefined {
-  const suffix = name
-    .replace(/^DUSK_/, "")
-    .replace(/^OMNIPAIR_V2_/, "");
-  return process.env[`DUSK_${suffix}`] ?? process.env[`OMNIPAIR_V2_${suffix}`] ?? fallback;
+  const suffix = name.replace(/^DUSK_/, "");
+  return process.env[`DUSK_${suffix}`] ?? fallback;
 }
 
 const SURFPOOL_RPC_URL = process.env.SURFPOOL_RPC_URL ?? "http://127.0.0.1:8899";
 const PUBLIC_RPC_URL = normalizePublicUrl(
   process.env.PUBLIC_SURFPOOL_RPC_URL ?? process.env.SURFPOOL_RPC_PROXY_URL ?? SURFPOOL_RPC_URL
 );
-const PROGRAM_ID = new PublicKey(
-  duskEnv("PROGRAM_ID") ?? process.env.PROGRAM_ID_V2 ?? DEFAULT_PROGRAM_ID
-);
+const PROGRAM_ID = new PublicKey(duskEnv("PROGRAM_ID", DEFAULT_PROGRAM_ID));
 const DEFAULT_SOL_FUNDING = Number(process.env.FORK_DEFAULT_SOL_FUNDING ?? "10");
 const DEFAULT_TOKEN_FUNDING_UI = process.env.FORK_DEFAULT_TOKEN_FUNDING ?? "10000";
 const MAX_SOL_FUNDING = Number(process.env.FORK_MAX_SOL_FUNDING ?? "100");
