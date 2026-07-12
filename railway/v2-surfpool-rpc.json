@@ -12,7 +12,7 @@
       "package.json",
       "package-lock.json",
       "railway/v2-surfpool-rpc.json",
-      "programs/omnipair-v2/**",
+      "programs/dusk/**",
       "scripts/v2-fork-lab/start_surfpool.sh"
     ]
   },

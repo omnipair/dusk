@@ -4,7 +4,7 @@ use anchor_spl::{
     token_2022::{self, Token2022},
     token_interface::{Mint, TokenAccount},
 };
-use omnipair_v2::{
+use dusk::{
     constants::{BPS_DENOMINATOR, NAD},
     instructions::{
         LeverageDelegationApproval, LEVERAGE_DELEGATE_CLOSE, LEVERAGE_DELEGATE_CLOSE_SETTLED,
@@ -759,7 +759,7 @@ mod tests {
             owner,
             position,
             delegation,
-            omnipair_v2::state::MarketAsset::Base,
+            dusk::state::MarketAsset::Base,
             recipient,
             mint,
             123,
@@ -773,10 +773,7 @@ mod tests {
         assert_eq!(decoded.owner, owner);
         assert_eq!(decoded.position, position);
         assert_eq!(decoded.delegation, delegation);
-        assert_eq!(
-            decoded.debt_asset,
-            omnipair_v2::state::MarketAsset::Base.code()
-        );
+        assert_eq!(decoded.debt_asset, dusk::state::MarketAsset::Base.code());
         assert_eq!(decoded.recipient_token_account, recipient);
         assert_eq!(decoded.output_mint, mint);
         assert_eq!(decoded.output_amount, 123);

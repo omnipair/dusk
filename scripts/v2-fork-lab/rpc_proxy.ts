@@ -122,5 +122,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`V2 fork RPC proxy listening on :${PORT}, target ${TARGET_RPC_URL}`);
+  console.log(`Dusk fork RPC proxy listening on :${PORT}, target ${TARGET_RPC_URL}`);
 });

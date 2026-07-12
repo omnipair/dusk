@@ -63,12 +63,12 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { AnchorProvider, BN, Program, Wallet } = anchor;
-const OMNIPAIR_V2_PROGRAM_ID = new PublicKey("358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv");
+const DUSK_PROGRAM_ID = new PublicKey("358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv");
 const LEVERAGE_DELEGATE_PROGRAM_ID = new PublicKey(
   "EPGF9iFrbGnhWgC3To9rC9vxinEYuDHaz4RXgLPvuRkp"
 );
 const idl = JSON.parse(
-  fs.readFileSync(path.join(__dirname, "../target/idl/omnipair_v2.json"), "utf-8")
+  fs.readFileSync(path.join(__dirname, "../target/idl/dusk.json"), "utf-8")
 );
 const leverageDelegateIdl = JSON.parse(
   fs.readFileSync(path.join(__dirname, "../target/idl/leverage_delegate.json"), "utf-8")
@@ -80,7 +80,14 @@ const REDUCE_ONLY_EMERGENCY_AUTHORITY = new PublicKey(
 const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
   "BPFLoaderUpgradeab1e11111111111111111111111"
 );
-const RUN_REAL_TOKEN_METADATA_CPI = process.env.OMNIPAIR_V2_TEST_REAL_METADATA_CPI === "1";
+function duskTestEnv(name: string): string | undefined {
+  const suffix = name
+    .replace(/^DUSK_TEST_/, "")
+    .replace(/^OMNIPAIR_V2_TEST_/, "");
+  return process.env[`DUSK_TEST_${suffix}`] ?? process.env[`OMNIPAIR_V2_TEST_${suffix}`];
+}
+
+const RUN_REAL_TOKEN_METADATA_CPI = duskTestEnv("REAL_METADATA_CPI") === "1";
 const LEVERAGE_COLLATERAL_VAULT_SEED = Buffer.from("leverage_collateral");
 const LEVERAGE_DELEGATION_SEED = Buffer.from("leverage_delegation_v2");
 const LEVERAGE_ORDER_SEED = Buffer.from("leverage_order");
@@ -94,14 +101,14 @@ function deriveLeverageCollateralVaultAddress(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [LEVERAGE_COLLATERAL_VAULT_SEED, market.toBuffer(), collateralMint.toBuffer()],
-    OMNIPAIR_V2_PROGRAM_ID
+    DUSK_PROGRAM_ID
   );
 }
 
 function deriveLeverageDelegationAddress(position: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [LEVERAGE_DELEGATION_SEED, position.toBuffer()],
-    OMNIPAIR_V2_PROGRAM_ID
+    DUSK_PROGRAM_ID
   );
 }
 
@@ -129,7 +136,7 @@ function deriveLeverageDelegateCustodyAuthority(order: PublicKey): [PublicKey, n
 }
 
 function tokenMetadataProgramPath() {
-  const override = process.env.OMNIPAIR_V2_TEST_TOKEN_METADATA_PROGRAM;
+  const override = duskTestEnv("TOKEN_METADATA_PROGRAM");
   if (override) {
     if (fs.existsSync(override)) return override;
     throw new Error(`Token Metadata program override not found at ${override}`);
@@ -154,7 +161,7 @@ function tokenMetadataProgramPath() {
   }
 
   throw new Error(
-    "Token Metadata program file not found. Set OMNIPAIR_V2_TEST_TOKEN_METADATA_PROGRAM, install trident-svm, or run a compatible build that produces target/*/release/deps/mpl_token_metadata-*.so."
+    "Token Metadata program file not found. Set DUSK_TEST_TOKEN_METADATA_PROGRAM, install trident-svm, or run a compatible build that produces target/*/release/deps/mpl_token_metadata-*.so."
   );
 }
 
@@ -217,7 +224,7 @@ function marketConfig() {
   };
 }
 
-describe("Omnipair V2 final model smoke", () => {
+describe("Omnipair Dusk (v2) final model smoke", () => {
   let svm: LiteSVM;
   let connection: LiteSVMConnection;
   let payer: Keypair;
@@ -232,11 +239,11 @@ describe("Omnipair V2 final model smoke", () => {
     computeBudget.computeUnitLimit = 600_000n;
     svm = new LiteSVM().withComputeBudget(computeBudget);
     svm.warpToSlot(1n);
-    const programPath = path.join(__dirname, "../target/deploy/omnipair_v2.so");
+    const programPath = path.join(__dirname, "../target/deploy/dusk.so");
     if (!fs.existsSync(programPath)) {
       throw new Error(`Program file not found at ${programPath}`);
     }
-    svm.addProgramFromFile(OMNIPAIR_V2_PROGRAM_ID, programPath);
+    svm.addProgramFromFile(DUSK_PROGRAM_ID, programPath);
     svm.addProgramFromFile(LEVERAGE_DELEGATE_PROGRAM_ID, leverageDelegateProgramPath());
     if (RUN_REAL_TOKEN_METADATA_CPI) {
       svm.addProgramFromFile(TOKEN_METADATA_PROGRAM_ID, tokenMetadataProgramPath());
@@ -281,7 +288,7 @@ describe("Omnipair V2 final model smoke", () => {
     if (!RUN_REAL_TOKEN_METADATA_CPI) {
       skipV2Instruction(
         "initializeLpMetadata",
-        "default LiteSVM smoke seeds metadata accounts; set OMNIPAIR_V2_TEST_REAL_METADATA_CPI=1 with a compatible Metaplex Token Metadata program to exercise the CPI"
+        "default LiteSVM smoke seeds metadata accounts; set DUSK_TEST_REAL_METADATA_CPI=1 with a compatible Metaplex Token Metadata program to exercise the CPI"
       );
     }
     getCoverageReport();
@@ -342,7 +349,7 @@ describe("Omnipair V2 final model smoke", () => {
     svm.setAccount(futarchyAuthority, {
       lamports: Number(svm.minimumBalanceForRentExemption(BigInt(data.length))),
       data: new Uint8Array(data),
-      owner: OMNIPAIR_V2_PROGRAM_ID,
+      owner: DUSK_PROGRAM_ID,
       executable: false,
       rentEpoch: 0,
     });
@@ -376,7 +383,7 @@ describe("Omnipair V2 final model smoke", () => {
     svm.setAccount(address, {
       lamports: Number(svm.minimumBalanceForRentExemption(BigInt(data.length))),
       data: new Uint8Array(data),
-      owner: OMNIPAIR_V2_PROGRAM_ID,
+      owner: DUSK_PROGRAM_ID,
       executable: false,
       rentEpoch: 0,
     });
@@ -397,7 +404,7 @@ describe("Omnipair V2 final model smoke", () => {
     svm.setAccount(validationAccount, {
       lamports: Number(svm.minimumBalanceForRentExemption(BigInt(data.length))),
       data: new Uint8Array(data),
-      owner: OMNIPAIR_V2_PROGRAM_ID,
+      owner: DUSK_PROGRAM_ID,
       executable: false,
       rentEpoch: 0,
     });
@@ -419,7 +426,7 @@ describe("Omnipair V2 final model smoke", () => {
         createInitializeTransferHookInstruction(
           mint.publicKey,
           payer.publicKey,
-          OMNIPAIR_V2_PROGRAM_ID,
+          DUSK_PROGRAM_ID,
           TOKEN_2022_PROGRAM_ID
         ),
         createInitializeMintInstruction(
@@ -476,7 +483,7 @@ describe("Omnipair V2 final model smoke", () => {
   function eventAuthority() {
     return PublicKey.findProgramAddressSync(
       [Buffer.from("__event_authority")],
-      OMNIPAIR_V2_PROGRAM_ID
+      DUSK_PROGRAM_ID
     )[0];
   }
 
@@ -530,7 +537,7 @@ describe("Omnipair V2 final model smoke", () => {
       throw new Error(`Simulation did not return data\n${meta?.prettyLogs?.() ?? ""}`);
     }
     const programId = new PublicKey(returnData.programId());
-    expect(programId.toString()).to.equal(OMNIPAIR_V2_PROGRAM_ID.toString());
+    expect(programId.toString()).to.equal(DUSK_PROGRAM_ID.toString());
     return Buffer.from(returnData.data());
   }
 
@@ -545,8 +552,8 @@ describe("Omnipair V2 final model smoke", () => {
 
   async function createIsolatedProgram() {
     const isolatedSvm = new LiteSVM().withComputeBudget(new ComputeBudget());
-    const programPath = path.join(__dirname, "../target/deploy/omnipair_v2.so");
-    isolatedSvm.addProgramFromFile(OMNIPAIR_V2_PROGRAM_ID, programPath);
+    const programPath = path.join(__dirname, "../target/deploy/dusk.so");
+    isolatedSvm.addProgramFromFile(DUSK_PROGRAM_ID, programPath);
     if (RUN_REAL_TOKEN_METADATA_CPI) {
       isolatedSvm.addProgramFromFile(TOKEN_METADATA_PROGRAM_ID, tokenMetadataProgramPath());
     }
@@ -632,7 +639,7 @@ describe("Omnipair V2 final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
@@ -641,7 +648,7 @@ describe("Omnipair V2 final model smoke", () => {
       market,
       lpMint: ylpMint,
       lpTokenMetadata: ylpTokenMetadata,
-      name: "Omnipair Dusk yLP",
+      name: "Omnipair Dusk (v2) yLP",
       symbol: "yLP",
       uri: "https://omnipair.fi/metadata/dusk/ylp.json",
     });
@@ -649,7 +656,7 @@ describe("Omnipair V2 final model smoke", () => {
       market,
       lpMint: baseHlpMint,
       lpTokenMetadata: baseHlpTokenMetadata,
-      name: "Omnipair Dusk Base hLP",
+      name: "Omnipair Dusk (v2) Base hLP",
       symbol: "hLP",
       uri: "https://omnipair.fi/metadata/dusk/base-hlp.json",
     });
@@ -657,7 +664,7 @@ describe("Omnipair V2 final model smoke", () => {
       market,
       lpMint: quoteHlpMint,
       lpTokenMetadata: quoteHlpTokenMetadata,
-      name: "Omnipair Dusk Quote hLP",
+      name: "Omnipair Dusk (v2) Quote hLP",
       symbol: "hLP",
       uri: "https://omnipair.fi/metadata/dusk/quote-hlp.json",
     });
@@ -812,7 +819,7 @@ describe("Omnipair V2 final model smoke", () => {
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
@@ -874,7 +881,7 @@ describe("Omnipair V2 final model smoke", () => {
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
@@ -937,7 +944,7 @@ describe("Omnipair V2 final model smoke", () => {
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
@@ -1018,7 +1025,7 @@ describe("Omnipair V2 final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       });
     if (remainingAccounts.length > 0) {
       builder = builder.remainingAccounts(remainingAccounts);
@@ -1052,7 +1059,7 @@ describe("Omnipair V2 final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       });
     if (remainingAccounts.length > 0) {
       builder = builder.remainingAccounts(remainingAccounts);
@@ -1096,7 +1103,7 @@ describe("Omnipair V2 final model smoke", () => {
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
@@ -1131,12 +1138,12 @@ describe("Omnipair V2 final model smoke", () => {
     expect(svm.getAccount(fixture.quoteHlpTokenMetadata)).to.not.equal(null);
   });
 
-  it("initializes the V2 futarchy authority from upgradeable ProgramData", async function () {
+  it("initializes the Dusk futarchy authority from upgradeable ProgramData", async function () {
     const { isolatedSvm, isolatedConnection, isolatedPayer, isolatedProgram } =
       await createIsolatedProgram();
     const [isolatedFutarchyAuthority] = deriveFutarchyAuthorityV2Address();
     const [programData] = PublicKey.findProgramAddressSync(
-      [OMNIPAIR_V2_PROGRAM_ID.toBuffer()],
+      [DUSK_PROGRAM_ID.toBuffer()],
       BPF_LOADER_UPGRADEABLE_PROGRAM_ID
     );
     const programDataBytes = upgradeableProgramData(isolatedPayer.publicKey);
@@ -1390,7 +1397,7 @@ describe("Omnipair V2 final model smoke", () => {
           token2022Program: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           eventAuthority: eventAuthority(),
-          program: OMNIPAIR_V2_PROGRAM_ID,
+          program: DUSK_PROGRAM_ID,
         })
         .transaction();
       await connection.sendTransaction(tx, [payer]);
@@ -1565,7 +1572,7 @@ describe("Omnipair V2 final model smoke", () => {
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
@@ -1656,7 +1663,7 @@ describe("Omnipair V2 final model smoke", () => {
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
@@ -1712,7 +1719,7 @@ describe("Omnipair V2 final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
@@ -1779,7 +1786,7 @@ describe("Omnipair V2 final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
@@ -1791,7 +1798,7 @@ describe("Omnipair V2 final model smoke", () => {
     expect(ownerQuoteAfter.amount - ownerQuoteBefore.amount).to.equal(28_284n);
   });
 
-  it("swaps through the V2 market and routes non-compounding swap fees", async function () {
+  it("swaps through the Dusk market and routes non-compounding swap fees", async function () {
     const fixture = await addBalancedLiquidity(47);
     const ownerQuoteBefore = await getAccount(connection as any, fixture.ownerQuoteAccount);
 
@@ -1813,7 +1820,7 @@ describe("Omnipair V2 final model smoke", () => {
     expect(decoded.base_side.fees.unallocated_swap_fee_liability.toNumber()).to.equal(1);
   });
 
-  it("updates V2 futarchy revenue, recipients, authority, and market config", async function () {
+  it("updates Dusk futarchy revenue, recipients, authority, and market config", async function () {
     const fixture = await initializeFinalMarket(52);
     const futarchyTreasury = Keypair.generate().publicKey;
     const buybacksVault = Keypair.generate().publicKey;
@@ -1878,7 +1885,7 @@ describe("Omnipair V2 final model smoke", () => {
         futarchyAuthority,
         authoritySigner: payer.publicKey,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(updateConfigTx, [payer]);
@@ -1941,7 +1948,7 @@ describe("Omnipair V2 final model smoke", () => {
         market: fixture.market,
         authoritySigner: REDUCE_ONLY_EMERGENCY_AUTHORITY,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await sendTransactionWithUncheckedSigners(marketTx, [payer], [REDUCE_ONLY_EMERGENCY_AUTHORITY]);
@@ -2037,7 +2044,7 @@ describe("Omnipair V2 final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(settleTx, [payer]);
@@ -2089,7 +2096,7 @@ describe("Omnipair V2 final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(claimTx, [payer]);
@@ -2236,7 +2243,7 @@ describe("Omnipair V2 final model smoke", () => {
         assetMint: fixture.baseMint,
         yieldAccount: baseYieldAccount,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(setRecipientTx, [payer]);
@@ -2261,7 +2268,7 @@ describe("Omnipair V2 final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(claimTx, [payer]);
@@ -2340,7 +2347,7 @@ describe("Omnipair V2 final model smoke", () => {
       destinationBaseYieldAccount.toString(),
       sourceQuoteYieldAccount.toString(),
       destinationQuoteYieldAccount.toString(),
-      OMNIPAIR_V2_PROGRAM_ID.toString(),
+      DUSK_PROGRAM_ID.toString(),
       validationAccount.toString(),
     ]);
     expect(metas.map((meta) => meta.isWritable)).to.deep.equal([
@@ -2370,7 +2377,7 @@ describe("Omnipair V2 final model smoke", () => {
       sourceBaseYieldAccount.toString(),
       sourceQuoteYieldAccount.toString(),
       sourceQuoteYieldAccount.toString(),
-      OMNIPAIR_V2_PROGRAM_ID.toString(),
+      DUSK_PROGRAM_ID.toString(),
       validationAccount.toString(),
     ]);
 
@@ -2474,7 +2481,7 @@ describe("Omnipair V2 final model smoke", () => {
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(depositTx, [payer]);
@@ -2523,7 +2530,7 @@ describe("Omnipair V2 final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(borrowTx, [payer]);
@@ -2578,7 +2585,7 @@ describe("Omnipair V2 final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(repayTx, [payer]);
@@ -2600,7 +2607,7 @@ describe("Omnipair V2 final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(withdrawTx, [payer]);
@@ -2650,7 +2657,7 @@ describe("Omnipair V2 final model smoke", () => {
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(depositTx, [payer]);
@@ -2673,7 +2680,7 @@ describe("Omnipair V2 final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(borrowTx, [payer]);
@@ -2767,7 +2774,7 @@ describe("Omnipair V2 final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(addMarginTx, [payer]);
@@ -2800,7 +2807,7 @@ describe("Omnipair V2 final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(removeMarginTx, [payer]);
@@ -2835,7 +2842,7 @@ describe("Omnipair V2 final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(increaseTx, [payer]);
@@ -2872,7 +2879,7 @@ describe("Omnipair V2 final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(decreaseTx, [payer]);
@@ -2901,7 +2908,7 @@ describe("Omnipair V2 final model smoke", () => {
         owner: payer.publicKey,
         systemProgram: SystemProgram.programId,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(createDelegationTx, [payer]);
@@ -2933,7 +2940,7 @@ describe("Omnipair V2 final model smoke", () => {
         leverageDelegation,
         owner: payer.publicKey,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(updateDelegationTx, [payer]);
@@ -2994,7 +3001,7 @@ describe("Omnipair V2 final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(closeTx, [payer]);
@@ -3024,7 +3031,7 @@ describe("Omnipair V2 final model smoke", () => {
         owner: payer.publicKey,
         systemProgram: SystemProgram.programId,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(createDelegationTx, [payer]);
@@ -3128,7 +3135,7 @@ describe("Omnipair V2 final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .remainingAccounts([...beforeIx.keys, ...afterIx.keys])
       .transaction();
@@ -3186,7 +3193,7 @@ describe("Omnipair V2 final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(liquidateTx, [payer]);
@@ -3210,7 +3217,7 @@ describe("Omnipair V2 final model smoke", () => {
         market: fixture.market,
         manager: payer.publicKey,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(scheduleOperatorTx, [payer]);
@@ -3231,7 +3238,7 @@ describe("Omnipair V2 final model smoke", () => {
         market: fixture.market,
         manager: payer.publicKey,
         eventAuthority: eventAuthority(),
-        program: OMNIPAIR_V2_PROGRAM_ID,
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(scheduleManagerTx, [payer]);

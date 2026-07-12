@@ -8,9 +8,9 @@ RPC_PORT="${SURFPOOL_RPC_PORT:-8899}"
 WS_PORT="${SURFPOOL_WS_PORT:-8900}"
 HOST="${SURFPOOL_HOST:-0.0.0.0}"
 NETWORK="${SURFPOOL_NETWORK:-mainnet}"
-LOG_PATH="${SURFPOOL_LOG_PATH:-/tmp/omnipair-v2-surfpool-logs}"
+LOG_PATH="${SURFPOOL_LOG_PATH:-/tmp/dusk-surfpool-logs}"
 WALLET_PATH="${ANCHOR_WALLET:-deployer-keypair.json}"
-PROGRAM_ID="${OMNIPAIR_V2_PROGRAM_ID:-358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv}"
+PROGRAM_ID="${DUSK_PROGRAM_ID:-${OMNIPAIR_V2_PROGRAM_ID:-358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv}}"
 DEPLOYMENT_TIMEOUT_SECONDS="${FORK_LAB_DEPLOYMENT_TIMEOUT_SECONDS:-180}"
 
 if [[ "$RPC_PORT" != "8899" && "${FORK_LAB_ALLOW_NONSTANDARD_SURFPOOL_PORT:-false}" != "true" ]]; then
@@ -31,16 +31,16 @@ if [[ ! -f "$WALLET_PATH" ]]; then
 fi
 
 if [[ "${FORK_LAB_BUILD:-true}" != "false" ]]; then
-  anchor build -p omnipair-v2 -- --features "development"
+  anchor build -p dusk -- --features "development"
 fi
 
 for artifact in \
-  target/deploy/omnipair_v2.so \
-  target/deploy/omnipair_v2-keypair.json
+  target/deploy/dusk.so \
+  target/deploy/dusk-keypair.json
 do
   if [[ ! -f "$artifact" ]]; then
-    echo "Missing required V2 Surfpool deployment artifact: $artifact" >&2
-    echo "Run anchor build -p omnipair-v2 -- --features \"development\" before starting the fork." >&2
+    echo "Missing required Dusk Surfpool deployment artifact: $artifact" >&2
+    echo "Run anchor build -p dusk -- --features \"development\" before starting the fork." >&2
     exit 1
   fi
 done
@@ -49,10 +49,10 @@ mkdir -p "$HOME/.config/solana"
 cp "$WALLET_PATH" "$HOME/.config/solana/id.json"
 solana config set --keypair "$HOME/.config/solana/id.json" >/dev/null
 
-echo "Starting V2 Surfpool fork on ${HOST}:${RPC_PORT} with local artifact:"
-ls -lh target/deploy/omnipair_v2.so
+echo "Starting Dusk Surfpool fork on ${HOST}:${RPC_PORT} with local artifact:"
+ls -lh target/deploy/dusk.so
 
-BOOT_LOG="$(mktemp -t omnipair-v2-surfpool-start.XXXXXX.log)"
+BOOT_LOG="$(mktemp -t dusk-surfpool-start.XXXXXX.log)"
 
 cleanup() {
   if [[ -n "${SURFPOOL_PID:-}" ]] && kill -0 "$SURFPOOL_PID" 2>/dev/null; then
@@ -81,19 +81,19 @@ deadline=$((SECONDS + DEPLOYMENT_TIMEOUT_SECONDS))
 
 while kill -0 "$SURFPOOL_PID" 2>/dev/null; do
   if grep -q "Runbook execution aborted" "$BOOT_LOG"; then
-    echo "Surfpool deployment runbook aborted before the local V2 program was upgraded." >&2
+    echo "Surfpool deployment runbook aborted before the local Dusk program was upgraded." >&2
     cleanup
     exit 1
   fi
 
   if grep -Eq "Program (Created|Upgraded) - Program ${PROGRAM_ID}" "$BOOT_LOG"; then
-    echo "Surfpool fork is running local omnipair_v2 artifact for ${PROGRAM_ID}."
+    echo "Surfpool fork is running local dusk artifact for ${PROGRAM_ID}."
     wait "$SURFPOOL_PID"
     exit $?
   fi
 
   if (( SECONDS >= deadline )); then
-    echo "Timed out waiting for Surfpool to deploy local V2 program artifact." >&2
+    echo "Timed out waiting for Surfpool to deploy local Dusk program artifact." >&2
     echo "Expected deploy log for ${PROGRAM_ID}." >&2
     cleanup
     exit 1

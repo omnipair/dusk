@@ -1,6 +1,6 @@
 # @omnipair/dusk-sdk
 
-TypeScript SDK for Omnipair Dusk.
+TypeScript SDK for Omnipair Dusk (v2).
 
 The package exports the generated Anchor IDL/types, PDA helpers, typed preview
 decoders, a small write/read facade over the Dusk program, and an indexer client
@@ -116,14 +116,15 @@ import {
   deriveMarketAddress,
   IDL,
   PROGRAM_ID,
-  type OmnipairV2,
+  type Dusk,
 } from "@omnipair/dusk-sdk";
 
 const program = createDuskProgram({ provider });
 ```
 
-`IDL_V2`, `OMNIPAIR_V2_PROGRAM_ID`, and `DUSK_PROGRAM_ID` are exported as
-explicit aliases for integrations that prefer generation-qualified names.
+`IDL_V2`, `DUSK_PROGRAM_ID`, `OmnipairV2`, and `OMNIPAIR_V2_PROGRAM_ID` are
+exported as compatibility aliases for integrations that prefer
+generation-qualified names.
 
 ## ESM Compatibility
 

@@ -17,6 +17,7 @@ import {
   deriveProgramDataAddress,
   deriveTokenMetadataAddress,
   deriveYieldAccountAddress,
+  duskEnv,
   explorerTx,
   getOrCreateAta,
   mintDecimals,
@@ -28,19 +29,19 @@ import {
   providerFromEnv,
   readState,
   tokenProgramForMint,
-  v2Program,
+  duskProgram,
   writeState,
 } from "./common.ts";
-import idl from "../../target/idl/omnipair_v2.json" with { type: "json" };
+import idl from "../../target/idl/dusk.json" with { type: "json" };
 
 async function main() {
   const provider = providerFromEnv();
   const payer = payerFromProvider(provider);
-  const program = v2Program(idl, provider);
+  const program = duskProgram(idl, provider);
   const state = readState();
-  const baseLabel = process.env.OMNIPAIR_V2_MARKET_BASE_LABEL ?? "base";
-  const quoteLabel = process.env.OMNIPAIR_V2_MARKET_QUOTE_LABEL ?? "quote";
-  const marketLabel = process.env.OMNIPAIR_V2_MARKET_LABEL ?? `${baseLabel}-${quoteLabel}`;
+  const baseLabel = duskEnv("MARKET_BASE_LABEL") ?? "base";
+  const quoteLabel = duskEnv("MARKET_QUOTE_LABEL") ?? "quote";
+  const marketLabel = duskEnv("MARKET_LABEL") ?? `${baseLabel}-${quoteLabel}`;
   const storedBaseMint = state.mockMints[baseLabel];
   const storedQuoteMint = state.mockMints[quoteLabel];
 
@@ -124,7 +125,7 @@ async function main() {
 
   const marketAccount = await provider.connection.getAccountInfo(market, "confirmed");
   if (!marketAccount) {
-    console.log(`Initializing V2 yLP/hLP market ${market.toBase58()}`);
+    console.log(`Initializing Dusk yLP/hLP market ${market.toBase58()}`);
     const signature = await program.methods
       .initialize({
         operator: payer.publicKey,
@@ -229,17 +230,17 @@ async function main() {
   writeState(state);
 
   const shouldSeed =
-    process.env.OMNIPAIR_V2_SEED_LIQUIDITY !== "0" &&
-    (!storedMarket.seededLiquidity || process.env.OMNIPAIR_V2_FORCE_SEED === "1");
+    duskEnv("SEED_LIQUIDITY") !== "0" &&
+    (!storedMarket.seededLiquidity || duskEnv("FORCE_SEED") === "1");
   if (!shouldSeed) {
     console.log("Skipping reserve seeding");
     console.log(JSON.stringify(storedMarket, null, 2));
     return;
   }
 
-  const baseAmount = parseUnits(process.env.OMNIPAIR_V2_BASE_LIQUIDITY ?? "100000", baseDecimals);
+  const baseAmount = parseUnits(duskEnv("BASE_LIQUIDITY") ?? "100000", baseDecimals);
   const quoteAmount = parseUnits(
-    process.env.OMNIPAIR_V2_QUOTE_LIQUIDITY ?? "100000",
+    duskEnv("QUOTE_LIQUIDITY") ?? "100000",
     quoteDecimals
   );
   await seedBalancedLiquidity({
@@ -263,7 +264,7 @@ async function main() {
     seededLiquidity: true,
   };
   writeState(state);
-  console.log("V2 yLP/hLP market bootstrap complete");
+  console.log("Dusk yLP/hLP market bootstrap complete");
   console.log(JSON.stringify(state.markets[marketLabel], null, 2));
 }
 
@@ -280,12 +281,12 @@ async function ensureFutarchyAuthority(params: {
     return existing;
   }
 
-  console.log(`Initializing V2 futarchy authority ${params.futarchyAuthority.toBase58()}`);
+  console.log(`Initializing Dusk futarchy authority ${params.futarchyAuthority.toBase58()}`);
   const signature = await params.program.methods
     .initFutarchyAuthority({
       authority: params.payer,
-      swapBps: Number(process.env.OMNIPAIR_V2_PROTOCOL_SWAP_BPS ?? "0"),
-      interestBps: Number(process.env.OMNIPAIR_V2_PROTOCOL_INTEREST_BPS ?? "0"),
+      swapBps: Number(duskEnv("PROTOCOL_SWAP_BPS") ?? "0"),
+      interestBps: Number(duskEnv("PROTOCOL_INTEREST_BPS") ?? "0"),
       futarchyTreasury: params.payer,
       futarchyTreasuryBps: 0,
       buybacksVault: params.payer,

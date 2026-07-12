@@ -5,11 +5,11 @@ import { type AddressLike } from "./address.js";
 import { DuskGet } from "./get.js";
 import { DuskIndexerClient, type FetchLike } from "./indexer.js";
 import { createDuskProgram } from "./program.js";
-import type { OmnipairV2 } from "./types_v2.js";
+import type { Dusk as DuskIdl } from "./types_v2.js";
 import { DuskWrite } from "./write.js";
 
 export interface DuskOptions {
-  program?: Program<OmnipairV2>;
+  program?: Program<DuskIdl>;
   provider?: AnchorProvider;
   connection?: Connection;
   programId?: AddressLike;
@@ -19,7 +19,7 @@ export interface DuskOptions {
 }
 
 export class Dusk {
-  readonly program: Program<OmnipairV2>;
+  readonly program: Program<DuskIdl>;
   readonly get: DuskGet;
   readonly write: DuskWrite;
   readonly fetch: DuskIndexerClient;

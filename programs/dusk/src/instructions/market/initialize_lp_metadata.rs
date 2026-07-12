@@ -168,7 +168,7 @@ mod tests {
 
     fn valid_metadata() -> InitializeLpMetadataArgs {
         InitializeLpMetadataArgs {
-            name: "Omnipair Dusk yLP".to_string(),
+            name: "Omnipair Dusk (v2) yLP".to_string(),
             symbol: "yLP".to_string(),
             uri: "https://omnipair.fi/metadata/dusk/ylp.json".to_string(),
         }

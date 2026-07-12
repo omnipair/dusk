@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Verifies that committed Dusk SDK files match the latest Anchor build
- * output. Run this after `anchor build -p omnipair-v2`.
+ * output. Run this after `anchor build -p dusk`.
  */
 
 import { existsSync, readFileSync } from "fs";
@@ -14,18 +14,20 @@ const repoRoot = resolve(packageRoot, "../..");
 
 const pairs = [
   {
-    generated: resolve(repoRoot, "target/idl/omnipair_v2.json"),
+    generated: resolve(repoRoot, "target/idl/dusk.json"),
     committed: resolve(packageRoot, "src/idl_v2.json"),
+    normalize: (contents) => contents,
   },
   {
-    generated: resolve(repoRoot, "target/types/omnipair_v2.ts"),
+    generated: resolve(repoRoot, "target/types/dusk.ts"),
     committed: resolve(packageRoot, "src/types_v2.ts"),
+    normalize: (contents) => `${contents.trimEnd()}\n\nexport type OmnipairV2 = Dusk;\n`,
   },
 ];
 
 let failed = false;
 
-for (const { generated, committed } of pairs) {
+for (const { generated, committed, normalize } of pairs) {
   if (!existsSync(generated)) {
     console.error(`Missing build artifact: ${relative(repoRoot, generated)}`);
     failed = true;
@@ -37,7 +39,7 @@ for (const { generated, committed } of pairs) {
     continue;
   }
 
-  const generatedContents = readFileSync(generated, "utf8");
+  const generatedContents = normalize(readFileSync(generated, "utf8"));
   const committedContents = readFileSync(committed, "utf8");
 
   if (generatedContents !== committedContents) {
@@ -53,7 +55,7 @@ for (const { generated, committed } of pairs) {
 
 if (failed) {
   console.error(
-    "\nRun `anchor build -p omnipair-v2` and `npm run prepare-idl --prefix packages/dusk-sdk`, then commit the updated interface files."
+    "\nRun `anchor build -p dusk` and `npm run prepare-idl --prefix packages/dusk-sdk`, then commit the updated interface files."
   );
   process.exit(1);
 }

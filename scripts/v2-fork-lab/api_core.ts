@@ -37,19 +37,28 @@ const BPF_LOADER_UPGRADEABLE_ID = new PublicKey("BPFLoaderUpgradeab1e11111111111
 const TOKEN_METADATA_PROGRAM_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
 const NAD = 1_000_000_000n;
 
+function duskEnv(name: string): string | undefined;
+function duskEnv(name: string, fallback: string): string;
+function duskEnv(name: string, fallback?: string): string | undefined {
+  const suffix = name
+    .replace(/^DUSK_/, "")
+    .replace(/^OMNIPAIR_V2_/, "");
+  return process.env[`DUSK_${suffix}`] ?? process.env[`OMNIPAIR_V2_${suffix}`] ?? fallback;
+}
+
 const SURFPOOL_RPC_URL = process.env.SURFPOOL_RPC_URL ?? "http://127.0.0.1:8899";
 const PUBLIC_RPC_URL = normalizePublicUrl(
   process.env.PUBLIC_SURFPOOL_RPC_URL ?? process.env.SURFPOOL_RPC_PROXY_URL ?? SURFPOOL_RPC_URL
 );
 const PROGRAM_ID = new PublicKey(
-  process.env.OMNIPAIR_V2_PROGRAM_ID ?? process.env.PROGRAM_ID_V2 ?? DEFAULT_PROGRAM_ID
+  duskEnv("PROGRAM_ID") ?? process.env.PROGRAM_ID_V2 ?? DEFAULT_PROGRAM_ID
 );
 const DEFAULT_SOL_FUNDING = Number(process.env.FORK_DEFAULT_SOL_FUNDING ?? "10");
 const DEFAULT_TOKEN_FUNDING_UI = process.env.FORK_DEFAULT_TOKEN_FUNDING ?? "10000";
 const MAX_SOL_FUNDING = Number(process.env.FORK_MAX_SOL_FUNDING ?? "100");
 const MAX_TOKEN_FUNDING_UI = process.env.FORK_MAX_TOKEN_FUNDING ?? "1000000";
-const DEFAULT_SEED_BASE_UI = process.env.OMNIPAIR_V2_BASE_LIQUIDITY ?? "100000";
-const DEFAULT_SEED_QUOTE_UI = process.env.OMNIPAIR_V2_QUOTE_LIQUIDITY ?? "100000";
+const DEFAULT_SEED_BASE_UI = duskEnv("BASE_LIQUIDITY") ?? "100000";
+const DEFAULT_SEED_QUOTE_UI = duskEnv("QUOTE_LIQUIDITY") ?? "100000";
 const ALLOW_PUBLIC_FUNDING = process.env.FORK_ALLOW_PUBLIC_FUNDING !== "false";
 
 type MarketAsset = "base" | "quote";
@@ -137,8 +146,8 @@ function normalizePublicUrl(value: string): string {
 
 function loadIdl(): anchor.Idl {
   const candidates = [
-    process.env.OMNIPAIR_V2_IDL_PATH,
-    "target/idl/omnipair_v2.json",
+    duskEnv("IDL_PATH"),
+    "target/idl/dusk.json",
     "packages/dusk-sdk/src/idl_v2.json",
   ].filter(Boolean) as string[];
 
@@ -151,7 +160,7 @@ function loadIdl(): anchor.Idl {
   }
 
   throw new Error(
-    `V2 IDL not found. Tried ${candidates.map((path) => resolve(path)).join(", ")}`
+    `Dusk IDL not found. Tried ${candidates.map((path) => resolve(path)).join(", ")}`
   );
 }
 
@@ -221,7 +230,7 @@ function initializeRuntime() {
     return runtime;
   } catch (error) {
     runtimeError = error instanceof Error ? error.message : String(error);
-    console.error("V2 fork API runtime initialization failed:", runtimeError);
+    console.error("Dusk fork API runtime initialization failed:", runtimeError);
     throw error;
   }
 }
@@ -319,14 +328,14 @@ function orderedMints(mintA: PublicKey, mintB: PublicKey): [PublicKey, PublicKey
 
 function paramsHashForMarket(label: string, baseMint: PublicKey, quoteMint: PublicKey): Buffer {
   const override =
-    process.env.OMNIPAIR_V2_FORK_PARAMS_HASH ?? process.env.OMNIPAIR_V2_MARKET_PARAMS_HASH;
+    duskEnv("FORK_PARAMS_HASH") ?? duskEnv("MARKET_PARAMS_HASH");
   if (override) {
     const bytes = Buffer.from(override.replace(/^0x/, ""), "hex");
-    if (bytes.length !== 32) throw new Error("OMNIPAIR_V2_FORK_PARAMS_HASH must be 32 bytes");
+    if (bytes.length !== 32) throw new Error("DUSK_FORK_PARAMS_HASH must be 32 bytes");
     return bytes;
   }
   return createHash("sha256")
-    .update(`omnipair-v2-mainnet-fork:${label}:${baseMint.toBase58()}:${quoteMint.toBase58()}`)
+    .update(`dusk-mainnet-fork:${label}:${baseMint.toBase58()}:${quoteMint.toBase58()}`)
     .digest();
 }
 
@@ -508,56 +517,56 @@ async function createAtaIfMissing(params: {
 
 function defaultMarketConfig() {
   return {
-    swapFeeBps: Number(process.env.OMNIPAIR_V2_SWAP_FEE_BPS ?? "30"),
-    operatorFeeBps: Number(process.env.OMNIPAIR_V2_OPERATOR_FEE_BPS ?? "0"),
-    protocolFeeBps: Number(process.env.OMNIPAIR_V2_PROTOCOL_FEE_BPS ?? "0"),
-    targetHlpLeverageBps: Number(process.env.OMNIPAIR_V2_TARGET_HLP_LEVERAGE_BPS ?? "20000"),
-    settlementDivergenceBps: Number(process.env.OMNIPAIR_V2_SETTLEMENT_DIVERGENCE_BPS ?? "500"),
-    emergencyExitHaircutBps: Number(process.env.OMNIPAIR_V2_EMERGENCY_EXIT_HAIRCUT_BPS ?? "250"),
-    emaHalfLifeMs: toBN(process.env.OMNIPAIR_V2_EMA_HALF_LIFE_MS ?? "60000"),
+    swapFeeBps: Number(duskEnv("SWAP_FEE_BPS") ?? "30"),
+    operatorFeeBps: Number(duskEnv("OPERATOR_FEE_BPS") ?? "0"),
+    protocolFeeBps: Number(duskEnv("PROTOCOL_FEE_BPS") ?? "0"),
+    targetHlpLeverageBps: Number(duskEnv("TARGET_HLP_LEVERAGE_BPS") ?? "20000"),
+    settlementDivergenceBps: Number(duskEnv("SETTLEMENT_DIVERGENCE_BPS") ?? "500"),
+    emergencyExitHaircutBps: Number(duskEnv("EMERGENCY_EXIT_HAIRCUT_BPS") ?? "250"),
+    emaHalfLifeMs: toBN(duskEnv("EMA_HALF_LIFE_MS") ?? "60000"),
     directionalEmaHalfLifeMs: toBN(
-      process.env.OMNIPAIR_V2_DIRECTIONAL_EMA_HALF_LIFE_MS ?? "60000"
+      duskEnv("DIRECTIONAL_EMA_HALF_LIFE_MS") ?? "60000"
     ),
-    kEmaHalfLifeMs: toBN(process.env.OMNIPAIR_V2_K_EMA_HALF_LIFE_MS ?? "60000"),
-    maxDailyBorrowBps: Number(process.env.OMNIPAIR_V2_MAX_DAILY_BORROW_BPS ?? "2000"),
-    spotEmaDivergenceBps: Number(process.env.OMNIPAIR_V2_SPOT_EMA_DIVERGENCE_BPS ?? "1000"),
-    kEmaDrawdownBps: Number(process.env.OMNIPAIR_V2_K_EMA_DRAWDOWN_BPS ?? "1000"),
+    kEmaHalfLifeMs: toBN(duskEnv("K_EMA_HALF_LIFE_MS") ?? "60000"),
+    maxDailyBorrowBps: Number(duskEnv("MAX_DAILY_BORROW_BPS") ?? "2000"),
+    spotEmaDivergenceBps: Number(duskEnv("SPOT_EMA_DIVERGENCE_BPS") ?? "1000"),
+    kEmaDrawdownBps: Number(duskEnv("K_EMA_DRAWDOWN_BPS") ?? "1000"),
     recognizedCollateralCapBps: Number(
-      process.env.OMNIPAIR_V2_RECOGNIZED_COLLATERAL_CAP_BPS ?? "15000"
+      duskEnv("RECOGNIZED_COLLATERAL_CAP_BPS") ?? "15000"
     ),
-    marketHealthMinBps: Number(process.env.OMNIPAIR_V2_MARKET_HEALTH_MIN_BPS ?? "11000"),
-    startTime: toBN(process.env.OMNIPAIR_V2_MARKET_START_TIME ?? "0"),
+    marketHealthMinBps: Number(duskEnv("MARKET_HEALTH_MIN_BPS") ?? "11000"),
+    startTime: toBN(duskEnv("MARKET_START_TIME") ?? "0"),
   };
 }
 
 function defaultLpMetadata(kind: "ylp" | "baseHlp" | "quoteHlp") {
-  const prefix =
+  const suffix =
     kind === "ylp"
-      ? "OMNIPAIR_V2_YLP"
+      ? "YLP"
       : kind === "baseHlp"
-        ? "OMNIPAIR_V2_BASE_HLP"
-        : "OMNIPAIR_V2_QUOTE_HLP";
+        ? "BASE_HLP"
+        : "QUOTE_HLP";
   const defaults = {
     ylp: {
-      name: "Omnipair Dusk yLP",
+      name: "Omnipair Dusk (v2) yLP",
       symbol: "yLP",
       uri: "https://omnipair.fi/metadata/dusk/ylp.json",
     },
     baseHlp: {
-      name: "Omnipair Dusk Base hLP",
+      name: "Omnipair Dusk (v2) Base hLP",
       symbol: "hLP",
       uri: "https://omnipair.fi/metadata/dusk/base-hlp.json",
     },
     quoteHlp: {
-      name: "Omnipair Dusk Quote hLP",
+      name: "Omnipair Dusk (v2) Quote hLP",
       symbol: "hLP",
       uri: "https://omnipair.fi/metadata/dusk/quote-hlp.json",
     },
   }[kind];
   return {
-    name: process.env[`${prefix}_NAME`] ?? defaults.name,
-    symbol: process.env[`${prefix}_SYMBOL`] ?? defaults.symbol,
-    uri: process.env[`${prefix}_URI`] ?? defaults.uri,
+    name: duskEnv(`${suffix}_NAME`, defaults.name),
+    symbol: duskEnv(`${suffix}_SYMBOL`, defaults.symbol),
+    uri: duskEnv(`${suffix}_URI`, defaults.uri),
   };
 }
 
@@ -572,8 +581,8 @@ async function ensureFutarchyAuthority(futarchyAuthority: PublicKey) {
     const signature = await program.methods
       .initFutarchyAuthority({
         authority: payer.publicKey,
-        swapBps: Number(process.env.OMNIPAIR_V2_PROTOCOL_SWAP_BPS ?? "0"),
-        interestBps: Number(process.env.OMNIPAIR_V2_PROTOCOL_INTEREST_BPS ?? "0"),
+        swapBps: Number(duskEnv("PROTOCOL_SWAP_BPS") ?? "0"),
+        interestBps: Number(duskEnv("PROTOCOL_INTEREST_BPS") ?? "0"),
         futarchyTreasury: payer.publicKey,
         futarchyTreasuryBps: 0,
         buybacksVault: payer.publicKey,
@@ -588,7 +597,7 @@ async function ensureFutarchyAuthority(futarchyAuthority: PublicKey) {
         systemProgram: SystemProgram.programId,
       })
       .rpc();
-    console.log(`V2 futarchy authority initialized: ${signature}`);
+    console.log(`Dusk futarchy authority initialized: ${signature}`);
     return await program.account.futarchyAuthority.fetch(futarchyAuthority);
   } catch (error) {
     console.warn(
@@ -608,8 +617,8 @@ async function ensureFutarchyAuthority(futarchyAuthority: PublicKey) {
       team_treasury: payer.publicKey,
     },
     revenue_share: {
-      swap_bps: Number(process.env.OMNIPAIR_V2_PROTOCOL_SWAP_BPS ?? "0"),
-      interest_bps: Number(process.env.OMNIPAIR_V2_PROTOCOL_INTEREST_BPS ?? "0"),
+      swap_bps: Number(duskEnv("PROTOCOL_SWAP_BPS") ?? "0"),
+      interest_bps: Number(duskEnv("PROTOCOL_INTEREST_BPS") ?? "0"),
     },
     revenue_distribution: {
       futarchy_treasury_bps: 0,
@@ -897,7 +906,7 @@ async function ensureLpMetadata(params: {
     })
     .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 })])
     .rpc();
-  console.log(`V2 fork LP metadata initialized: ${signature}`);
+  console.log(`Dusk fork LP metadata initialized: ${signature}`);
 }
 
 async function bootstrap(): Promise<StoredMarket> {
@@ -909,9 +918,9 @@ async function bootstrap(): Promise<StoredMarket> {
 async function bootstrapUncached(): Promise<StoredMarket> {
   const { connection, payer, program } = initializeRuntime();
   const state = readState();
-  const marketLabel = process.env.OMNIPAIR_V2_MARKET_LABEL ?? "meta-usdc-mainnet-fork";
-  const defaultBase = new PublicKey(process.env.OMNIPAIR_V2_BASE_MINT ?? DEFAULT_META_MINT);
-  const defaultQuote = new PublicKey(process.env.OMNIPAIR_V2_QUOTE_MINT ?? DEFAULT_USDC_MINT);
+  const marketLabel = duskEnv("MARKET_LABEL") ?? "meta-usdc-mainnet-fork";
+  const defaultBase = new PublicKey(duskEnv("BASE_MINT") ?? DEFAULT_META_MINT);
+  const defaultQuote = new PublicKey(duskEnv("QUOTE_MINT") ?? DEFAULT_USDC_MINT);
   const [baseMint, quoteMint] = orderedMints(defaultBase, defaultQuote);
   const paramsHash = paramsHashForMarket(marketLabel, baseMint, quoteMint);
   const addresses = deriveMarketAddresses(baseMint, quoteMint, paramsHash);
@@ -976,7 +985,7 @@ async function bootstrapUncached(): Promise<StoredMarket> {
   }
 
   if (!ylpMint || !baseHlpMint || !quoteHlpMint) {
-    throw new Error(`Unable to resolve V2 LP mints for market ${addresses.market.toBase58()}`);
+    throw new Error(`Unable to resolve Dusk LP mints for market ${addresses.market.toBase58()}`);
   }
 
   const ylpTokenMetadata = tokenMetadataPda(ylpMint);
@@ -1049,7 +1058,7 @@ async function bootstrapUncached(): Promise<StoredMarket> {
       })
       .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
       .rpc();
-    console.log(`V2 fork market initialized: ${signature}`);
+    console.log(`Dusk fork market initialized: ${signature}`);
   }
 
   await ensureLpMetadata({
@@ -1109,7 +1118,7 @@ async function bootstrapUncached(): Promise<StoredMarket> {
   state.markets[marketLabel] = stored;
   writeState(state);
 
-  if (process.env.OMNIPAIR_V2_SEED_LIQUIDITY !== "0" && !stored.seededLiquidity) {
+  if (duskEnv("SEED_LIQUIDITY") !== "0" && !stored.seededLiquidity) {
     await seedInitialLiquidity(stored);
     stored.seededLiquidity = true;
     state.markets[marketLabel] = stored;
@@ -1141,7 +1150,7 @@ async function seedInitialLiquidity(market: StoredMarket) {
   tx.sign(payer);
   const signature = await provider.connection.sendRawTransaction(tx.serialize());
   await provider.connection.confirmTransaction(signature, "confirmed");
-  console.log(`V2 fork market seeded with initial liquidity: ${signature}`);
+  console.log(`Dusk fork market seeded with initial liquidity: ${signature}`);
 }
 
 function marketConfigPayload(marketAccount: any) {

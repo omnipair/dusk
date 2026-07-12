@@ -1,12 +1,12 @@
-# V2 Surfpool Mainnet-Fork Lab
+# Omnipair Dusk (v2) Surfpool Mainnet-Fork Lab
 
-This stack runs `omnipair_v2` against a private Surfpool mainnet fork and exposes a small fork API for the V2 webapp. It is intentionally separate from the Helius-backed indexer path because private Surfpool transactions are not visible to Helius Atlas.
+This stack runs `dusk` against a private Surfpool mainnet fork and exposes a small fork API for the Dusk webapp. It is intentionally separate from the Helius-backed indexer path because private Surfpool transactions are not visible to Helius Atlas.
 
 ## Services
 
-- `v2-surfpool-rpc`: private Surfpool RPC. Builds `anchor build -p omnipair-v2 -- --features "development"`, starts a mainnet fork, deploys `target/deploy/omnipair_v2.so`, and waits for the local program deployment log.
+- `v2-surfpool-rpc`: private Surfpool RPC. Builds `anchor build -p dusk -- --features "development"`, starts a mainnet fork, deploys `target/deploy/dusk.so`, and waits for the local program deployment log.
 - `v2-surfpool-rpc-proxy`: public Solana RPC proxy for wallets. It forwards normal RPC calls and blocks unauthenticated `surfnet_*` cheatcodes. Set `FORK_ADMIN_TOKEN` for admin access.
-- `v2-fork-api`: public V2 fork API. It bootstraps a fork-only META/USDC market by default, funds wallets through bounded Surfpool cheatcodes, serves webapp-compatible V2 read endpoints, and builds unsigned browser transactions.
+- `v2-fork-api`: public Dusk fork API. It bootstraps a fork-only META/USDC market by default, funds wallets through bounded Surfpool cheatcodes, serves webapp-compatible Dusk read endpoints, and builds unsigned browser transactions.
 
 ## Local Commands
 
@@ -23,9 +23,9 @@ npm run surfpool-v2-e2e
 ```sh
 SURFPOOL_RPC_URL=http://127.0.0.1:8899
 PUBLIC_SURFPOOL_RPC_URL=http://127.0.0.1:8898
-OMNIPAIR_V2_PROGRAM_ID=358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv
-OMNIPAIR_V2_BASE_MINT=METAwkXcqyXKy1AtsSgJ8JiUHwGCafnZL38n3vYmeta
-OMNIPAIR_V2_QUOTE_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+DUSK_PROGRAM_ID=358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv
+DUSK_BASE_MINT=METAwkXcqyXKy1AtsSgJ8JiUHwGCafnZL38n3vYmeta
+DUSK_QUOTE_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
 FORK_ADMIN_TOKEN=<shared-secret>
 ```
 

@@ -1,13 +1,13 @@
 [package]
-name = "omnipair-v2"
+name = "dusk"
 version = "2.0.0"
-description = "Omnipair v2 market architecture program"
+description = "Omnipair Dusk (v2) market architecture program"
 edition = "2021"
 resolver = "2"
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "omnipair_v2"
+name = "dusk"
 
 [features]
 no-entrypoint = []

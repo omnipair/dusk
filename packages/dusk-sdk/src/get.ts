@@ -45,7 +45,7 @@ import type {
   Market,
   YieldAccount,
 } from "./type-aliases.js";
-import type { OmnipairV2 } from "./types_v2.js";
+import type { Dusk } from "./types_v2.js";
 
 export const pda = {
   futarchyAuthority: deriveFutarchyAuthorityAddress,
@@ -101,7 +101,7 @@ export interface PreviewBorrowPositionParams extends SimulateOptions {
 export class DuskSimulationError extends Error {
   constructor(
     message: string,
-    readonly simulation: Awaited<ReturnType<Program<OmnipairV2>["provider"]["connection"]["simulateTransaction"]>>
+    readonly simulation: Awaited<ReturnType<Program<Dusk>["provider"]["connection"]["simulateTransaction"]>>
   ) {
     super(message);
     this.name = "DuskSimulationError";
@@ -112,7 +112,7 @@ export class DuskGet {
   readonly pda = pda;
 
   constructor(
-    readonly program: Program<OmnipairV2>,
+    readonly program: Program<Dusk>,
     private readonly defaultFeePayer: AddressLike = DEFAULT_READONLY_PUBLIC_KEY
   ) {}
 

@@ -47,6 +47,7 @@ function healthPayload() {
     rpcUrl: SURFPOOL_RPC_URL,
     publicRpcUrl: PUBLIC_RPC_URL,
     programId:
+      process.env.DUSK_PROGRAM_ID ??
       process.env.OMNIPAIR_V2_PROGRAM_ID ??
       process.env.PROGRAM_ID_V2 ??
       "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv",
@@ -79,8 +80,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`V2 fork API listening on :${PORT}`);
+  console.log(`Dusk fork API listening on :${PORT}`);
   console.log(`Surfpool RPC: ${SURFPOOL_RPC_URL}`);
   console.log(`Public RPC: ${PUBLIC_RPC_URL}`);
-  console.log("V2 fork runtime will initialize on first non-health request");
+  console.log("Dusk fork runtime will initialize on first non-health request");
 });

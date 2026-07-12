@@ -1,10 +1,10 @@
 {
   "address": "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv",
   "metadata": {
-    "name": "omnipair_v2",
+    "name": "dusk",
     "version": "2.0.0",
     "spec": "0.1.0",
-    "description": "Omnipair v2 market architecture program"
+    "description": "Omnipair Dusk (v2) market architecture program"
   },
   "instructions": [
     {
@@ -378,6 +378,185 @@
           "type": {
             "defined": {
               "name": "AddLiquidityArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "bid_liquidation_auction",
+      "discriminator": [
+        6,
+        223,
+        30,
+        228,
+        147,
+        197,
+        27,
+        49
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "futarchy_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "liquidator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "debt_asset_mint"
+        },
+        {
+          "name": "collateral_asset_mint"
+        },
+        {
+          "name": "reserve_vault",
+          "writable": true
+        },
+        {
+          "name": "interest_vault",
+          "writable": true
+        },
+        {
+          "name": "collateral_vault",
+          "writable": true
+        },
+        {
+          "name": "insurance_vault",
+          "writable": true
+        },
+        {
+          "name": "collateral_insurance_vault",
+          "writable": true
+        },
+        {
+          "name": "liquidator_debt_account",
+          "writable": true
+        },
+        {
+          "name": "liquidator_collateral_account",
+          "writable": true
+        },
+        {
+          "name": "borrow_position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  114,
+                  114,
+                  111,
+                  119,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.position_id",
+                "account": "BorrowPosition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "BidLiquidationAuctionArgs"
             }
           }
         }
@@ -3242,185 +3421,6 @@
       ]
     },
     {
-      "name": "liquidate_borrow_position",
-      "discriminator": [
-        235,
-        201,
-        17,
-        133,
-        234,
-        72,
-        84,
-        210
-      ],
-      "accounts": [
-        {
-          "name": "market",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market.base_mint",
-                "account": "Market"
-              },
-              {
-                "kind": "account",
-                "path": "market.quote_mint",
-                "account": "Market"
-              },
-              {
-                "kind": "account",
-                "path": "market.params_hash",
-                "account": "Market"
-              }
-            ]
-          }
-        },
-        {
-          "name": "futarchy_authority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  102,
-                  117,
-                  116,
-                  97,
-                  114,
-                  99,
-                  104,
-                  121,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "liquidator",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "debt_asset_mint"
-        },
-        {
-          "name": "collateral_asset_mint"
-        },
-        {
-          "name": "reserve_vault",
-          "writable": true
-        },
-        {
-          "name": "interest_vault",
-          "writable": true
-        },
-        {
-          "name": "collateral_vault",
-          "writable": true
-        },
-        {
-          "name": "insurance_vault",
-          "writable": true
-        },
-        {
-          "name": "collateral_insurance_vault",
-          "writable": true
-        },
-        {
-          "name": "liquidator_debt_account",
-          "writable": true
-        },
-        {
-          "name": "liquidator_collateral_account",
-          "writable": true
-        },
-        {
-          "name": "borrow_position",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  98,
-                  111,
-                  114,
-                  114,
-                  111,
-                  119,
-                  95,
-                  112,
-                  111,
-                  115,
-                  105,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "borrow_position.position_id",
-                "account": "BorrowPosition"
-              }
-            ]
-          }
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "token_2022_program",
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "LiquidateBorrowPositionArgs"
-            }
-          }
-        }
-      ]
-    },
-    {
       "name": "liquidate_leverage",
       "discriminator": [
         188,
@@ -5290,6 +5290,185 @@
       ]
     },
     {
+      "name": "settle_liquidation_auction_amm",
+      "discriminator": [
+        120,
+        34,
+        60,
+        33,
+        86,
+        21,
+        72,
+        121
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "futarchy_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "liquidator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "debt_asset_mint"
+        },
+        {
+          "name": "collateral_asset_mint"
+        },
+        {
+          "name": "reserve_vault",
+          "writable": true
+        },
+        {
+          "name": "interest_vault",
+          "writable": true
+        },
+        {
+          "name": "collateral_vault",
+          "writable": true
+        },
+        {
+          "name": "insurance_vault",
+          "writable": true
+        },
+        {
+          "name": "collateral_insurance_vault",
+          "writable": true
+        },
+        {
+          "name": "liquidator_debt_account",
+          "writable": true
+        },
+        {
+          "name": "liquidator_collateral_account",
+          "writable": true
+        },
+        {
+          "name": "borrow_position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  114,
+                  114,
+                  111,
+                  119,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.position_id",
+                "account": "BorrowPosition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "SettleLiquidationAuctionAmmArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "settle_protocol_auction",
       "discriminator": [
         206,
@@ -5614,6 +5793,111 @@
           "type": {
             "defined": {
               "name": "SwapArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "trigger_liquidation_auction",
+      "discriminator": [
+        181,
+        172,
+        83,
+        88,
+        101,
+        55,
+        246,
+        111
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "borrow_position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  114,
+                  114,
+                  111,
+                  119,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.position_id",
+                "account": "BorrowPosition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "debt_asset_mint"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "TriggerLiquidationAuctionArgs"
             }
           }
         }
@@ -7785,6 +8069,22 @@
       }
     },
     {
+      "name": "BidLiquidationAuctionArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "repay_amount",
+            "type": "u64"
+          },
+          {
+            "name": "min_collateral_out",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "BorrowArgs",
       "type": {
         "kind": "struct",
@@ -7915,6 +8215,18 @@
           },
           {
             "name": "risk_epoch",
+            "type": "u64"
+          },
+          {
+            "name": "auction_start_time",
+            "type": "i64"
+          },
+          {
+            "name": "auction_start_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "auction_floor_price_nad",
             "type": "u64"
           },
           {
@@ -9157,30 +9469,6 @@
                 "name": "MarketEventMetadata"
               }
             }
-          }
-        ]
-      }
-    },
-    {
-      "name": "LiquidateBorrowPositionArgs",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "repay_amount",
-            "type": "u64"
-          },
-          {
-            "name": "min_collateral_out",
-            "type": "u64"
-          },
-          {
-            "name": "max_insurance_draw",
-            "type": "u64"
-          },
-          {
-            "name": "max_socialized_loss",
-            "type": "u64"
           }
         ]
       }
@@ -11082,6 +11370,30 @@
       }
     },
     {
+      "name": "SettleLiquidationAuctionAmmArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "repay_amount",
+            "type": "u64"
+          },
+          {
+            "name": "min_collateral_out",
+            "type": "u64"
+          },
+          {
+            "name": "max_insurance_draw",
+            "type": "u64"
+          },
+          {
+            "name": "max_socialized_loss",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "SettleProtocolAuctionArgs",
       "type": {
         "kind": "struct",
@@ -11279,6 +11591,13 @@
             "type": "i128"
           }
         ]
+      }
+    },
+    {
+      "name": "TriggerLiquidationAuctionArgs",
+      "type": {
+        "kind": "struct",
+        "fields": []
       }
     },
     {
