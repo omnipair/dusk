@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "programs/omnipair-v2",
+    "programs/dusk",
     "programs/leverage_delegate",
     "programs/faucet",
 ]

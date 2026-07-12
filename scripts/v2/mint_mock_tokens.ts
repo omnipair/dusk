@@ -1,5 +1,6 @@
 import {
   PublicKey,
+  duskEnv,
   explorerTx,
   mintMockTokens,
   parseUnits,
@@ -13,9 +14,9 @@ async function main() {
   const payer = payerFromProvider(provider);
   const state = readState();
   const recipient = new PublicKey(
-    process.argv[2] ?? process.env.OMNIPAIR_V2_TESTER_WALLET ?? payer.publicKey.toBase58()
+    process.argv[2] ?? duskEnv("TESTER_WALLET") ?? payer.publicKey.toBase58()
   );
-  const labels = (process.env.OMNIPAIR_V2_MINT_LABELS ?? Object.keys(state.mockMints).join(","))
+  const labels = (duskEnv("MINT_LABELS") ?? Object.keys(state.mockMints).join(","))
     .split(",")
     .map((label) => label.trim())
     .filter(Boolean);
@@ -24,11 +25,11 @@ async function main() {
     throw new Error("No mock mints found. Run yarn v2:create-mock-tokens first.");
   }
 
-  console.log(`Minting V2 mock tokens to ${recipient.toBase58()}`);
+  console.log(`Minting Dusk mock tokens to ${recipient.toBase58()}`);
   for (const label of labels) {
     const storedMint = state.mockMints[label];
     if (!storedMint) throw new Error(`Unknown mock mint label: ${label}`);
-    const amount = parseUnits(process.env.OMNIPAIR_V2_MINT_AMOUNT ?? "1000000", storedMint.decimals);
+    const amount = parseUnits(duskEnv("MINT_AMOUNT") ?? "1000000", storedMint.decimals);
     const result = await mintMockTokens({
       connection: provider.connection,
       payer,

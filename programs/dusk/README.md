@@ -1,6 +1,6 @@
-# Omnipair V2
+# Omnipair Dusk (v2)
 
-Omnipair V2 is the standalone Dusk market program. It uses market terminology, floating yield LP shares, aggregate hedged LP vault accounting, and isolated spot-margin leverage.
+Omnipair Dusk (v2) is the standalone Dusk market program. It uses market terminology, floating yield LP shares, aggregate hedged LP vault accounting, and isolated spot-margin leverage.
 
 ## Source Boundaries
 
@@ -15,7 +15,7 @@ Instruction modules are split by domain: `market`, `liquidity`, `yielding`, `spo
 
 ## Public Instructions
 
-V2 exposes the current market instruction set:
+Omnipair Dusk (v2) exposes the current market instruction set:
 
 - `initialize`, `update_config`, `set_reduce_only`
 - `add_liquidity`, `remove_liquidity`
@@ -35,7 +35,7 @@ Each market records three Token-2022 LP mints:
 - `hLP_base`: one-sided hedged LP shares targeting base exposure.
 - `hLP_quote`: one-sided hedged LP shares targeting quote exposure.
 
-yLP and hLP mints must be fee-free Token-2022 mints with a transfer hook configured to the V2 program, mint authority set to the market PDA, and no freeze authority. `initialize_lp_metadata` creates Metaplex metadata for each LP mint with the market PDA as update authority. Production builds additionally enforce vanity suffixes: `yLP` for yLP and `hLP` for each hLP mint. Underlying asset mints may be SPL Token or Token-2022 mints accepted by the shared mint validator.
+yLP and hLP mints must be fee-free Token-2022 mints with a transfer hook configured to the Dusk program, mint authority set to the market PDA, and no freeze authority. `initialize_lp_metadata` creates Metaplex metadata for each LP mint with the market PDA as update authority. Production builds additionally enforce vanity suffixes: `yLP` for yLP and `hLP` for each hLP mint. Underlying asset mints may be SPL Token or Token-2022 mints accepted by the shared mint validator.
 
 ## yLP Liquidity
 
@@ -90,7 +90,7 @@ Owners can approve a position-scoped `LeverageDelegation` PDA for a delegate pro
 
 ## Swaps And Rebalancing
 
-`swap` is the V2 swap entry. It transfers inventory, routes swap fees to the fee vault, applies GAMM reserve movement, and checkpoints both aggregate hLP vaults in O(1).
+`swap` is the Dusk swap entry. It transfers inventory, routes swap fees to the fee vault, applies GAMM reserve movement, and checkpoints both aggregate hLP vaults in O(1).
 
 hLP checkpointing computes NAV, attempts the spot-based leverage adjustment, records any unexecuted amount in `pending_rebalance`, and refreshes a cached settlement reference. The adjustment mints or burns balanced yLP, so the quoted post-swap spot is preserved within rounding and there is no hidden second price move after the user output. Leverage-up is capped by borrowed-side cash headroom; when cash is unavailable, ordinary swaps remain live and the gap is carried forward as pending rebalance. hLP open/close uses the cached reference to block settlement when spot has moved beyond `settlement_divergence_bps`.
 
@@ -98,7 +98,7 @@ hLP checkpointing computes NAV, attempts the spot-based leverage adjustment, rec
 
 | Account | Seeds | SDK helper |
 | --- | --- | --- |
-| `Market` | `market_v2`, `base_mint`, `quote_mint`, `params_hash` | `deriveMarketAddress` / `deriveMarketV2Address` |
+| `Market` | `market_v2`, `base_mint`, `quote_mint`, `params_hash` | `deriveMarketAddress` |
 | Reserve vault | `market_reserve`, `market`, `asset_mint` | `deriveMarketReserveVaultAddress` |
 | Collateral vault | `market_collateral`, `market`, `asset_mint` | `deriveMarketCollateralVaultAddress` |
 | Swap fee vault | `market_fee`, `market`, `asset_mint` | `deriveMarketFeeVaultAddress` |
@@ -115,7 +115,7 @@ yLP and hLP mints are supplied to `initialize` and validated by mint authority, 
 
 ## Event Surface
 
-Indexers should consume V2 events from the standalone V2 IDL:
+Indexers should consume Dusk events from the standalone Dusk IDL:
 
 - `MarketCreated`, `MarketUpdated`, `MarketHealthUpdated`
 - `LiquidityAdded`, `LiquidityRemoved`
@@ -127,7 +127,7 @@ Indexers should consume V2 events from the standalone V2 IDL:
 - `LeveragePositionOpened`, `LeveragePositionClosed`, `LeveragePositionUpdated`, `LeveragePositionLiquidated`
 - `LeverageDelegationUpdated`
 
-Every V2 event carries `MarketEventMetadata` with signer, market, and slot.
+Every Dusk event carries `MarketEventMetadata` with signer, market, and slot.
 
 ## Core Invariants
 
@@ -147,18 +147,18 @@ Every V2 event carries `MarketEventMetadata` with signer, market, and slot.
 
 ## Verification
 
-Useful focused checks while changing V2:
+Useful focused checks while changing Omnipair Dusk (v2):
 
 ```bash
-cargo fmt -p omnipair-v2 -- --check
-cargo check -p omnipair-v2 --lib
-cargo test -p omnipair-v2 --lib -- --nocapture
+cargo fmt -p dusk -- --check
+cargo check -p dusk --lib
+cargo test -p dusk --lib -- --nocapture
 cargo test -p leverage_delegate
-anchor build -p omnipair-v2
+anchor build -p dusk
 anchor build -p leverage_delegate
 npm run check-idl-current --prefix packages/dusk-sdk
 npm run build --prefix packages/dusk-sdk
 yarn test-litesvm
 ```
 
-Run dusk-sdk builds whenever public IDL, account, event, seed, or instruction shapes change. `check-idl-current` must pass after `anchor build -p omnipair-v2` so committed client files match generated build artifacts.
+Run dusk-sdk builds whenever public IDL, account, event, seed, or instruction shapes change. `check-idl-current` must pass after `anchor build -p dusk` so committed client files match generated build artifacts.

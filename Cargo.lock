@@ -635,6 +635,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "dusk"
+version = "2.0.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "arrayref",
+ "bincode",
+ "bytemuck",
+ "num-traits",
+ "proptest",
+ "quickcheck",
+ "rand 0.8.5",
+ "solana-security-txt",
+ "spl-math",
+ "spl-token 4.0.2",
+ "spl-token-2022",
+ "spl-transfer-hook-interface",
+ "uint 0.9.5",
+]
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -865,7 +886,7 @@ version = "2.0.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
- "omnipair-v2",
+ "dusk",
 ]
 
 [[package]]
@@ -1052,27 +1073,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.101",
-]
-
-[[package]]
-name = "omnipair-v2"
-version = "2.0.0"
-dependencies = [
- "anchor-lang",
- "anchor-spl",
- "arrayref",
- "bincode",
- "bytemuck",
- "num-traits",
- "proptest",
- "quickcheck",
- "rand 0.8.5",
- "solana-security-txt",
- "spl-math",
- "spl-token 4.0.2",
- "spl-token-2022",
- "spl-transfer-hook-interface",
- "uint 0.9.5",
 ]
 
 [[package]]

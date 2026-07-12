@@ -4,7 +4,7 @@
  * Run this before building the package
  */
 
-import { copyFileSync, existsSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 
@@ -14,18 +14,20 @@ const repoRoot = resolve(rootDir, "../..");
 
 const files = [
   {
-    src: resolve(repoRoot, "target/idl/omnipair_v2.json"),
+    src: resolve(repoRoot, "target/idl/dusk.json"),
     dest: resolve(rootDir, "src/idl_v2.json"),
+    prepare: (contents) => contents,
   },
   {
-    src: resolve(repoRoot, "target/types/omnipair_v2.ts"),
+    src: resolve(repoRoot, "target/types/dusk.ts"),
     dest: resolve(rootDir, "src/types_v2.ts"),
+    prepare: (contents) => contents,
   },
 ];
 
 console.log("Preparing @omnipair/dusk-sdk...\n");
 
-for (const { src, dest } of files) {
+for (const { src, dest, prepare } of files) {
   if (!existsSync(src)) {
     console.error(`ERROR: Source file not found: ${src}`);
     console.error("Run 'anchor build' first to generate IDL and types.");
@@ -35,7 +37,8 @@ for (const { src, dest } of files) {
   // Ensure destination directory exists
   mkdirSync(dirname(dest), { recursive: true });
 
-  copyFileSync(src, dest);
+  const contents = prepare(readFileSync(src, "utf8"));
+  writeFileSync(dest, contents);
   console.log(`✓ Copied ${src.split("/").pop()} -> src/`);
 }
 

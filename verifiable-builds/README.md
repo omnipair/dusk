@@ -1,12 +1,12 @@
 # Verifiable Builds
 
-This directory is reserved for generated Omnipair Dusk build artifacts.
+This directory is reserved for generated Omnipair Dusk (v2) build artifacts.
 
 Expected generated files:
 
-- `omnipair_v2.so`
-- `omnipair_v2.json`
-- `omnipair_v2.ts`
+- `dusk.so`
+- `dusk.json`
+- `dusk.ts`
 
 ## Verify Dusk
 
@@ -22,11 +22,11 @@ solana-verify verify-from-repo \
   --program-id 358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv \
   https://github.com/omnipair/dusk \
   --commit-hash "$COMMIT_SHA" \
-  --library-name omnipair_v2 \
+  --library-name dusk \
   -u mainnet-beta \
   -- --features production \
      --config "env.GIT_REV=\"$COMMIT_SHA\"" \
      --config "env.GIT_RELEASE=\"$RELEASE_TAG\""
 ```
 
-Release artifacts are produced by the V2-only release workflow.
+Release artifacts are produced by the Dusk release workflow.

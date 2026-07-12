@@ -51,7 +51,7 @@ RUN npm ci --include=dev
 
 COPY . .
 
-RUN anchor build -p omnipair-v2 -- --features "development"
+RUN anchor build -p dusk -- --features "development"
 
 EXPOSE 8899 8900
 

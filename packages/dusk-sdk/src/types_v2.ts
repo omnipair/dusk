@@ -2,15 +2,15 @@
  * Program IDL in camelCase format in order to be used in JS/TS.
  *
  * Note that this is only a type helper and is not the actual IDL. The original
- * IDL can be found at `target/idl/omnipair_v2.json`.
+ * IDL can be found at `target/idl/dusk.json`.
  */
-export type OmnipairV2 = {
+export type Dusk = {
   "address": "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv",
   "metadata": {
-    "name": "omnipairV2",
+    "name": "dusk",
     "version": "2.0.0",
     "spec": "0.1.0",
-    "description": "Omnipair v2 market architecture program"
+    "description": "Omnipair Dusk (v2) market architecture program"
   },
   "instructions": [
     {

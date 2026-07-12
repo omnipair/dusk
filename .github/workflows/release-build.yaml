@@ -27,11 +27,11 @@ env:
   ANCHOR_VERSION: "0.31.1"
   NODE_VERSION: "24"
   SOLANA_VERSION: "4.1.0"
-  PROGRAM_CRATE: omnipair-v2
-  PROGRAM_LIBRARY: omnipair_v2
-  PROGRAM_SO: omnipair_v2.so
-  PROGRAM_IDL: omnipair_v2.json
-  PROGRAM_TYPES: omnipair_v2.ts
+  PROGRAM_CRATE: dusk
+  PROGRAM_LIBRARY: dusk
+  PROGRAM_SO: dusk.so
+  PROGRAM_IDL: dusk.json
+  PROGRAM_TYPES: dusk.ts
   INITIAL_RELEASE_VERSION: "2.0.0"
 
 jobs:
@@ -85,7 +85,7 @@ jobs:
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} 2>/dev/null || true)
-            if ! echo "$CHANGED_FILES" | grep -Eq '^(programs/omnipair-v2/|programs/leverage_delegate/|packages/dusk-sdk/|Anchor.toml|Cargo.toml|Cargo.lock)'; then
+            if ! echo "$CHANGED_FILES" | grep -Eq '^(programs/dusk/|programs/leverage_delegate/|packages/dusk-sdk/|Anchor.toml|Cargo.toml|Cargo.lock)'; then
               SHOULD_RELEASE="false"
             fi
             COMMITS=$(git log --format="%s" ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} 2>/dev/null || git log --format="%s" -10)
@@ -149,7 +149,7 @@ jobs:
       - name: Extract Dusk program ID
         id: program
         run: |
-          PROGRAM_ID=$(grep 'declare_id!' programs/omnipair-v2/src/lib.rs | sed 's/declare_id!("//;s/");$//')
+          PROGRAM_ID=$(grep 'declare_id!' programs/dusk/src/lib.rs | sed 's/declare_id!("//;s/");$//')
           echo "program_id=$PROGRAM_ID" >> "$GITHUB_OUTPUT"
 
       - name: Bump versions
@@ -157,7 +157,7 @@ jobs:
         run: |
           VERSION="${{ needs.prepare-release.outputs.version }}"
           export VERSION
-          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" programs/omnipair-v2/Cargo.toml
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" programs/dusk/Cargo.toml
           sed -i "s/^version = \".*\"/version = \"$VERSION\"/" programs/leverage_delegate/Cargo.toml
           sed -i "s/^version = \".*\"/version = \"$VERSION\"/" programs/faucet/Cargo.toml
           sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" package.json
@@ -180,7 +180,7 @@ jobs:
 
           const typesPath = 'packages/dusk-sdk/src/types_v2.ts';
           const types = fs.readFileSync(typesPath, 'utf8').replace(
-            /("metadata": \{\n    "name": "omnipairV2",\n    "version": ")[^"]+"/,
+            /("metadata": \{\n    "name": "dusk",\n    "version": ")[^"]+"/,
             `$1${version}"`
           );
           fs.writeFileSync(typesPath, types);
@@ -190,7 +190,7 @@ jobs:
           git add \
             package.json \
             package-lock.json \
-            programs/omnipair-v2/Cargo.toml \
+            programs/dusk/Cargo.toml \
             programs/leverage_delegate/Cargo.toml \
             programs/faucet/Cargo.toml \
             packages/dusk-sdk/package.json \
@@ -317,7 +317,7 @@ jobs:
         run: npm run check-idl-current --prefix packages/dusk-sdk
 
       - name: Test Dusk
-        run: cargo test -p omnipair-v2
+        run: cargo test -p dusk
 
       - name: Test leverage delegate
         run: cargo test -p leverage_delegate

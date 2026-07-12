@@ -3,25 +3,18 @@ import { AccountMeta, PublicKey } from "@solana/web3.js";
 const DEFAULT_PROGRAM_ID = "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv";
 const MPL_TOKEN_METADATA_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
 
-function getProgramIdFromEnv(envNames: string[], fallback: string): string {
+function getProgramIdFromEnv(fallback: string): string {
   if (typeof process === "undefined" || !process.env) return fallback;
-  for (const envName of envNames) {
-    const value = process.env[envName];
-    if (value) return value;
-  }
-  return fallback;
+  return process.env.DUSK_PROGRAM_ID ?? fallback;
 }
 
 /**
- * Omnipair Dusk program ID.
- * Reads from env OMNIPAIR_V2_PROGRAM_ID, PROGRAM_ID_V2, or PROGRAM_ID.
+ * Omnipair Dusk (v2) program ID.
+ * Reads from env DUSK_PROGRAM_ID.
  */
-export const OMNIPAIR_V2_PROGRAM_ID = new PublicKey(
-  getProgramIdFromEnv(["OMNIPAIR_V2_PROGRAM_ID", "PROGRAM_ID_V2", "PROGRAM_ID"], DEFAULT_PROGRAM_ID)
-);
+export const DUSK_PROGRAM_ID = new PublicKey(getProgramIdFromEnv(DEFAULT_PROGRAM_ID));
 
-export const PROGRAM_ID = OMNIPAIR_V2_PROGRAM_ID;
-export const DUSK_PROGRAM_ID = OMNIPAIR_V2_PROGRAM_ID;
+export const PROGRAM_ID = DUSK_PROGRAM_ID;
 export const TOKEN_METADATA_PROGRAM_ID = new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID);
 
 /**
@@ -54,13 +47,11 @@ function normalizeParamsHash(paramsHash: Uint8Array | Buffer | number[]): Buffer
  * Derive Futarchy Authority PDA address
  */
 export function deriveFutarchyAuthorityAddress(): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([SEEDS.FUTARCHY_AUTHORITY], OMNIPAIR_V2_PROGRAM_ID);
+  return PublicKey.findProgramAddressSync([SEEDS.FUTARCHY_AUTHORITY], DUSK_PROGRAM_ID);
 }
 
-export const deriveFutarchyAuthorityV2Address = deriveFutarchyAuthorityAddress;
-
 /**
- * Derive V2 market PDA address
+ * Derive Dusk market PDA address
  */
 export function deriveMarketAddress(
   baseMint: PublicKey,
@@ -74,11 +65,9 @@ export function deriveMarketAddress(
       quoteMint.toBuffer(),
       normalizeParamsHash(paramsHash),
     ],
-    OMNIPAIR_V2_PROGRAM_ID
+    DUSK_PROGRAM_ID
   );
 }
-
-export const deriveMarketV2Address = deriveMarketAddress;
 
 /**
  * Derive a Metaplex Token Metadata PDA for a mint.
@@ -99,7 +88,7 @@ export function deriveMarketReserveVaultAddress(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.MARKET_RESERVE_VAULT, market.toBuffer(), reserveMint.toBuffer()],
-    OMNIPAIR_V2_PROGRAM_ID
+    DUSK_PROGRAM_ID
   );
 }
 
@@ -112,7 +101,7 @@ export function deriveMarketCollateralVaultAddress(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.MARKET_COLLATERAL_VAULT, market.toBuffer(), collateralMint.toBuffer()],
-    OMNIPAIR_V2_PROGRAM_ID
+    DUSK_PROGRAM_ID
   );
 }
 
@@ -125,7 +114,7 @@ export function deriveMarketFeeVaultAddress(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.MARKET_FEE_VAULT, market.toBuffer(), feeMint.toBuffer()],
-    OMNIPAIR_V2_PROGRAM_ID
+    DUSK_PROGRAM_ID
   );
 }
 
@@ -138,7 +127,7 @@ export function deriveMarketInterestVaultAddress(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.MARKET_INTEREST_VAULT, market.toBuffer(), interestMint.toBuffer()],
-    OMNIPAIR_V2_PROGRAM_ID
+    DUSK_PROGRAM_ID
   );
 }
 
@@ -151,7 +140,7 @@ export function deriveBorrowPositionAddress(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.BORROW_POSITION, market.toBuffer(), positionId.toBuffer()],
-    OMNIPAIR_V2_PROGRAM_ID
+    DUSK_PROGRAM_ID
   );
 }
 
@@ -164,7 +153,7 @@ export function deriveLeveragePositionAddress(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.LEVERAGE_POSITION, market.toBuffer(), positionId.toBuffer()],
-    OMNIPAIR_V2_PROGRAM_ID
+    DUSK_PROGRAM_ID
   );
 }
 
@@ -193,7 +182,7 @@ export function deriveYieldAccountAddress(
       assetMint.toBuffer(),
       Buffer.from([yieldTokenKindCode(tokenKind)]),
     ],
-    OMNIPAIR_V2_PROGRAM_ID
+    DUSK_PROGRAM_ID
   );
 }
 
@@ -244,12 +233,12 @@ export interface YlpTransferHookValidationArgs {
 }
 
 /**
- * Derive the standard Token-2022 transfer-hook validation PDA for a V2 LP mint.
+ * Derive the standard Token-2022 transfer-hook validation PDA for a Dusk LP mint.
  */
 export function deriveYieldTransferHookValidationAddress(lpMint: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [Buffer.from("extra-account-metas"), lpMint.toBuffer()],
-    OMNIPAIR_V2_PROGRAM_ID
+    DUSK_PROGRAM_ID
   );
 }
 
@@ -378,7 +367,7 @@ export function buildYieldTransferHookValidationAccountData(extraMetas: AccountM
 }
 
 /**
- * Encode the production Token-2022 transfer-hook validation account for V2
+ * Encode the production Token-2022 transfer-hook validation account for Dusk
  * yLP/hLP mints.
  *
  * The validation state resolves static market/asset-mint accounts and derives
@@ -441,10 +430,10 @@ export function buildYlpTransferHookValidationAccountData({
 }
 
 /**
- * Build V2 yLP/hLP transfer-hook extra account metas.
+ * Build Dusk yLP/hLP transfer-hook extra account metas.
  *
  * Token-2022 passes the source token account, LP mint, destination token
- * account, and transfer authority as the base hook accounts. Omnipair V2 needs
+ * account, and transfer authority as the base hook accounts. Omnipair Dusk (v2) needs
  * the market, underlying asset mint, canonical source/destination yield
  * accounts, hook program, and standard validation PDA as extra metas so the
  * hook can checkpoint revenue before the balance move is finalized.
@@ -476,7 +465,7 @@ export function buildYieldTransferHookAccountMetas({
     { pubkey: assetMint, isSigner: false, isWritable: false },
     { pubkey: sourceYieldAccount, isSigner: false, isWritable: true },
     { pubkey: destinationYieldAccount, isSigner: false, isWritable: true },
-    { pubkey: OMNIPAIR_V2_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: DUSK_PROGRAM_ID, isSigner: false, isWritable: false },
     { pubkey: validationAccount, isSigner: false, isWritable: false },
   ];
 }
@@ -526,7 +515,7 @@ export function buildYlpTransferHookAccountMetas({
     { pubkey: destinationBaseYieldAccount, isSigner: false, isWritable: true },
     { pubkey: sourceQuoteYieldAccount, isSigner: false, isWritable: true },
     { pubkey: destinationQuoteYieldAccount, isSigner: false, isWritable: true },
-    { pubkey: OMNIPAIR_V2_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: DUSK_PROGRAM_ID, isSigner: false, isWritable: false },
     { pubkey: validationAccount, isSigner: false, isWritable: false },
   ];
 }
@@ -546,7 +535,7 @@ export function deriveHlpYlpVaultAddress(
       targetHlpMint.toBuffer(),
       ylpMint.toBuffer(),
     ],
-    OMNIPAIR_V2_PROGRAM_ID
+    DUSK_PROGRAM_ID
   );
 }
 
@@ -559,6 +548,6 @@ export function deriveInsuranceAddress(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.INSURANCE, market.toBuffer(), assetMint.toBuffer()],
-    OMNIPAIR_V2_PROGRAM_ID
+    DUSK_PROGRAM_ID
   );
 }

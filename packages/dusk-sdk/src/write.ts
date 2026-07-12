@@ -2,9 +2,9 @@ import type { Program } from "@coral-xyz/anchor";
 import type { AccountMeta, Transaction, TransactionInstruction } from "@solana/web3.js";
 
 import { normalizeAccountKeys } from "./address.js";
-import type { OmnipairV2 } from "./types_v2.js";
+import type { Dusk } from "./types_v2.js";
 
-export type DuskInstructionName = OmnipairV2["instructions"][number]["name"];
+export type DuskInstructionName = Dusk["instructions"][number]["name"];
 export type DuskInstructionArgs = unknown[] | unknown | undefined;
 export type DuskAccounts = Record<string, unknown>;
 
@@ -24,7 +24,7 @@ type AnchorMethodBuilder = {
 type AnchorMethods = Record<string, (...args: unknown[]) => AnchorMethodBuilder>;
 
 export class DuskWrite {
-  constructor(readonly program: Program<OmnipairV2>) {}
+  constructor(readonly program: Program<Dusk>) {}
 
   method(name: DuskInstructionName, args?: DuskInstructionArgs): AnchorMethodBuilder {
     const method = (this.program.methods as unknown as AnchorMethods)[name];

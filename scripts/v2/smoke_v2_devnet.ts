@@ -8,6 +8,7 @@ import {
   deriveFutarchyAuthorityAddress,
   deriveHlpYlpVaultAddress,
   deriveYieldAccountAddress,
+  duskEnv,
   explorerTx,
   getOrCreateAta,
   mintDecimals,
@@ -18,25 +19,25 @@ import {
   readState,
   tokenBalance,
   tokenProgramForMint,
-  v2Program,
+  duskProgram,
 } from "./common.ts";
-import idl from "../../target/idl/omnipair_v2.json" with { type: "json" };
+import idl from "../../target/idl/dusk.json" with { type: "json" };
 
 async function main() {
   const provider = providerFromEnv();
   const payer = payerFromProvider(provider);
-  const program = v2Program(idl, provider);
+  const program = duskProgram(idl, provider);
   const state = readState();
-  const marketLabel = process.env.OMNIPAIR_V2_MARKET_LABEL ?? Object.keys(state.markets)[0];
+  const marketLabel = duskEnv("MARKET_LABEL") ?? Object.keys(state.markets)[0];
   if (!marketLabel || !state.markets[marketLabel]) {
-    throw new Error("No V2 market in state. Run yarn v2:bootstrap-market first.");
+    throw new Error("No Dusk market in state. Run yarn v2:bootstrap-market first.");
   }
   const market = state.markets[marketLabel];
   const marketAddress = new PublicKey(market.market);
   const marketAccount = await program.account.market.fetchNullable(marketAddress);
   if (!marketAccount) throw new Error(`Market account not found: ${market.market}`);
 
-  console.log(`Fetched V2 yLP/hLP market ${market.market}`);
+  console.log(`Fetched Dusk yLP/hLP market ${market.market}`);
   console.log(`Base mint: ${market.baseMint}`);
   console.log(`Quote mint: ${market.quoteMint}`);
   console.log(`yLP mint: ${market.ylpMint}`);
@@ -74,9 +75,9 @@ async function main() {
     tokenProgram: quoteProgram,
   });
 
-  if (process.env.OMNIPAIR_V2_SMOKE_HLP_DEPOSIT !== "0") {
+  if (duskEnv("SMOKE_HLP_DEPOSIT") !== "0") {
     const hedgeAmount = parseUnits(
-      process.env.OMNIPAIR_V2_SMOKE_HLP_DEPOSIT_AMOUNT ?? "10",
+      duskEnv("SMOKE_HLP_DEPOSIT_AMOUNT") ?? "10",
       baseDecimals
     );
     await mintMockTokens({
@@ -131,9 +132,9 @@ async function main() {
     console.log(`Smoke hLP deposit sent: ${explorerTx(signature)}`);
   }
 
-  if (process.env.OMNIPAIR_V2_SMOKE_SWAP === "0") return;
+  if (duskEnv("SMOKE_SWAP") === "0") return;
 
-  const swapAmount = parseUnits(process.env.OMNIPAIR_V2_SMOKE_SWAP_AMOUNT ?? "1", baseDecimals);
+  const swapAmount = parseUnits(duskEnv("SMOKE_SWAP_AMOUNT") ?? "1", baseDecimals);
   await mintMockTokens({
     connection: provider.connection,
     payer,

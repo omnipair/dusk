@@ -1,11 +1,11 @@
 import { BorshCoder, type Idl, type IdlTypes } from "@coral-xyz/anchor";
 
 import IDL from "./idl_v2.js";
-import type { OmnipairV2 } from "./types_v2.js";
+import type { Dusk } from "./types_v2.js";
 
 const coder = new BorshCoder(IDL as unknown as Idl);
 
-type DuskPreviewTypes = IdlTypes<OmnipairV2>;
+type DuskPreviewTypes = IdlTypes<Dusk>;
 
 export type MarketPreview = DuskPreviewTypes["marketPreview"];
 export type AddLiquidityPreview = DuskPreviewTypes["addLiquidityPreview"];

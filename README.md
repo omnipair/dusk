@@ -2,9 +2,9 @@
   <img src="assets/omnipair-dusk-hero.png" alt="Omnipair Dusk (v2)" width="100%" />
 </p>
 
-> **Experimental software.** Omnipair Dusk is unaudited, incomplete, and under active development. It is published for research, review, and testing only. Do not deploy it to mainnet, integrate it in production, or use it with real funds until the implementation, tests, audits, and launch process are complete.
+> **Experimental software.** Omnipair Dusk (v2) is unaudited, incomplete, and under active development. It is published for research, review, and testing only. Do not deploy it to mainnet, integrate it in production, or use it with real funds until the implementation, tests, audits, and launch process are complete.
 
-# Omnipair Dusk
+# Omnipair Dusk (v2)
 
 **Omnipair Dusk (v2)** is an oracle-less lending protocol on Solana.
 
@@ -18,7 +18,7 @@ Dusk keeps that core Omnipair GAMM idea and rebuilds it around a market-native a
 
 - **Oracle-less markets**: pricing and risk use in-protocol reserve state, EMA books, and conservative settlement references instead of external oracle feeds.
 - **Unified liquidity and lending**: LP inventory backs both swaps and borrow demand, letting capital serve multiple protocol flows.
-- **Standalone V2 program**: Dusk has its own program ID, IDL, account model, event surface, and SDK helpers.
+- **Standalone Dusk program**: Dusk has its own program ID, IDL, account model, event surface, and SDK helpers.
 - **Yield-bearing LP shares**: `yLP` represents a two-sided liquidity claim while reserve-side yield is checkpointed through base and quote growth indexes.
 - **Leveraged LP vaults**: base and quote `hLP` mints are aggregate 2x LP vault shares that target one-sided market exposure through explicit hLP live-reserve accounting.
 - **Isolated leverage**: traders can open market-local leverage positions that borrow one side, swap through the GAMM, hold the opposite side as collateral, delegate TP/SL close execution, and liquidate through the same reserve accounting.
@@ -123,7 +123,7 @@ Dusk is designed around market-local risk accounting:
 
 ## Instruction Surface
 
-The V2 program exposes simple market actions:
+Omnipair Dusk (v2) exposes simple market actions:
 
 ```text
 initialize
@@ -172,7 +172,7 @@ claim_manager_fees
 
 ## Integrator Notes
 
-Dusk is a standalone V2 program and should be integrated through its own IDL, program ID, and market account model:
+Dusk is a standalone program and should be integrated through its own IDL, program ID, and market account model:
 
 - Use the Dusk IDL and market PDAs for markets.
 - Do not sort Dusk market mints client-side. The creator's `base_mint` and `quote_mint` order defines the market and its price direction.
@@ -265,25 +265,25 @@ Dusk extends the invariant set only where hLP needs native 2x LP tracking:
 
 ## Verification
 
-Core V2 verification gates:
+Core Omnipair Dusk (v2) verification gates:
 
 ```bash
-anchor build -p omnipair-v2
+anchor build -p dusk
 anchor build -p leverage_delegate
-cargo fmt -p omnipair-v2 -- --check
-cargo check -p omnipair-v2 --lib
-cargo test -p omnipair-v2 --lib -- --nocapture
+cargo fmt -p dusk -- --check
+cargo check -p dusk --lib
+cargo test -p dusk --lib -- --nocapture
 cargo test -p leverage_delegate
 npm run check-idl-current --prefix packages/dusk-sdk
 npm run build --prefix packages/dusk-sdk
 yarn test-litesvm
 ```
 
-Run the dusk-sdk build whenever public IDL, account, event, seed, or instruction shapes change. `check-idl-current` must pass after `anchor build -p omnipair-v2` so committed client files match the generated build artifacts.
+Run the dusk-sdk build whenever public IDL, account, event, seed, or instruction shapes change. `check-idl-current` must pass after `anchor build -p dusk` so committed client files match the generated build artifacts.
 
 ## Security And Status
 
-Dusk is the standalone V2 Omnipair program.
+Omnipair Dusk (v2) is the standalone Dusk market program.
 
 Before Dusk is treated as production-ready, it should complete final security
 review, release artifact verification, and owner signoff for app, SDK, indexing,

@@ -16,20 +16,20 @@ use solana_security_txt::security_txt;
 
 #[cfg(not(feature = "no-entrypoint"))]
 security_txt! {
-    name: "Omnipair V2",
+    name: "Omnipair Dusk (v2)",
     project_url: "https://omnipair.fi",
     contacts: "email:security@omnipair.fi,telegram:rustfully",
     source_code: "https://github.com/omnipair/dusk",
     source_release: env!("GIT_RELEASE"),
     source_revision: env!("GIT_REV"),
-    auditors: "Pending final V2 security review",
+    auditors: "Pending final Dusk security review",
     policy: "https://omnipair.fi/security"
 }
 
 declare_id!("358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv");
 
 #[program]
-pub mod omnipair_v2 {
+pub mod dusk {
     use super::*;
 
     pub fn init_futarchy_authority(

@@ -3,10 +3,10 @@ import type { Connection, Transaction, VersionedTransaction } from "@solana/web3
 
 import { address, DEFAULT_READONLY_PUBLIC_KEY, type AddressLike } from "./address.js";
 import IDL from "./idl_v2.js";
-import type { OmnipairV2 } from "./types_v2.js";
+import type { Dusk } from "./types_v2.js";
 import { PROGRAM_ID } from "./constants.js";
 
-export type DuskProgram = Program<OmnipairV2>;
+export type DuskProgram = Program<Dusk>;
 
 export interface ReadonlyWallet {
   publicKey: ReturnType<typeof address>;
@@ -20,9 +20,9 @@ export interface DuskProgramOptions {
   programId?: AddressLike;
 }
 
-export function duskIdl(programId: AddressLike = PROGRAM_ID): OmnipairV2 {
-  const idl = JSON.parse(JSON.stringify(IDL)) as OmnipairV2;
-  idl.address = address(programId).toBase58() as OmnipairV2["address"];
+export function duskIdl(programId: AddressLike = PROGRAM_ID): Dusk {
+  const idl = JSON.parse(JSON.stringify(IDL)) as Dusk;
+  idl.address = address(programId).toBase58() as Dusk["address"];
   return idl;
 }
 
@@ -50,5 +50,5 @@ export function createDuskProgram(options: DuskProgramOptions): DuskProgram {
     throw new Error("Dusk SDK requires either an Anchor provider or a Solana connection.");
   }
 
-  return new Program<OmnipairV2>(duskIdl(options.programId), provider);
+  return new Program<Dusk>(duskIdl(options.programId), provider);
 }

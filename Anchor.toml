@@ -8,16 +8,16 @@ skip-lint = false
 
 [programs.devnet]
 faucet = "3Ckfn1LMByoDfVpcDPf7nouk5nQAUm51Zkdf1oprQTAK"
-omnipair_v2 = "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv"
+dusk = "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv"
 leverage_delegate = "EPGF9iFrbGnhWgC3To9rC9vxinEYuDHaz4RXgLPvuRkp"
 
 [programs.localnet]
 faucet = "3Ckfn1LMByoDfVpcDPf7nouk5nQAUm51Zkdf1oprQTAK"
-omnipair_v2 = "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv"
+dusk = "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv"
 leverage_delegate = "EPGF9iFrbGnhWgC3To9rC9vxinEYuDHaz4RXgLPvuRkp"
 
 [programs.mainnet]
-omnipair_v2 = "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv"
+dusk = "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv"
 leverage_delegate = "EPGF9iFrbGnhWgC3To9rC9vxinEYuDHaz4RXgLPvuRkp"
 
 [registry]
@@ -28,8 +28,8 @@ cluster = "mainnet"
 wallet = "deployer-keypair.json"
 
 [workspace]
-members = ["programs/omnipair-v2", "programs/leverage_delegate", "programs/faucet"]
+members = ["programs/dusk", "programs/leverage_delegate", "programs/faucet"]
 
 [scripts]
-build-devnet = "anchor build -p omnipair-v2 -- --features \"development\""
-build-mainnet = "anchor build -p omnipair-v2 -- --features \"production\""
+build-devnet = "anchor build -p dusk -- --features \"development\""
+build-mainnet = "anchor build -p dusk -- --features \"production\""

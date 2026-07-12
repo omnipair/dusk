@@ -36,6 +36,13 @@ export const TOKEN_METADATA_PROGRAM_ID = new PublicKey(
   "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
 );
 
+export function duskEnv(name: string): string | undefined;
+export function duskEnv(name: string, fallback: string): string;
+export function duskEnv(name: string, fallback?: string): string | undefined {
+  const suffix = name.replace(/^DUSK_/, "");
+  return process.env[`DUSK_${suffix}`] ?? fallback;
+}
+
 export type StoredMint = {
   label: string;
   mint: string;
@@ -82,13 +89,13 @@ export type DevnetState = {
 
 export function configDir(): string {
   return (
-    process.env.OMNIPAIR_V2_DEVNET_CONFIG_DIR ??
-    path.join(os.homedir(), ".config", "omnipair", "v2-devnet")
+    duskEnv("DEVNET_CONFIG_DIR") ??
+    path.join(os.homedir(), ".config", "omnipair", "dusk-devnet")
   );
 }
 
 export function statePath(): string {
-  return process.env.OMNIPAIR_V2_DEVNET_STATE ?? path.join(configDir(), "devnet-state.json");
+  return duskEnv("DEVNET_STATE") ?? path.join(configDir(), "devnet-state.json");
 }
 
 export function ensureConfigDir(): void {
@@ -387,7 +394,7 @@ export function bnFromUnits(value: bigint): anchor.BN {
 }
 
 export function publicKeyFromEnv(name: string, fallback?: PublicKey): PublicKey {
-  const value = process.env[name];
+  const value = duskEnv(name) ?? process.env[name];
   if (value) return new PublicKey(value);
   if (fallback) return fallback;
   throw new Error(`${name} is required`);
@@ -398,17 +405,17 @@ export function orderedMints(mintA: PublicKey, mintB: PublicKey): [PublicKey, Pu
 }
 
 export function paramsHashForMarket(label: string, baseMint: PublicKey, quoteMint: PublicKey): Buffer {
-  const override = process.env.OMNIPAIR_V2_MARKET_PARAMS_HASH;
+  const override = duskEnv("MARKET_PARAMS_HASH");
   if (override) {
     const bytes = Buffer.from(override.replace(/^0x/, ""), "hex");
     if (bytes.length !== 32) {
-      throw new Error("OMNIPAIR_V2_MARKET_PARAMS_HASH must be 32 bytes of hex");
+      throw new Error("DUSK_MARKET_PARAMS_HASH must be 32 bytes of hex");
     }
     return bytes;
   }
   return crypto
     .createHash("sha256")
-    .update(`omnipair-v2-final-devnet:${label}:${baseMint.toBase58()}:${quoteMint.toBase58()}`)
+    .update(`dusk-final-devnet:${label}:${baseMint.toBase58()}:${quoteMint.toBase58()}`)
     .digest();
 }
 
@@ -498,61 +505,63 @@ export function deriveHlpYlpVaultAddress(
 }
 
 export function defaultMarketConfig() {
-  const startTime = process.env.OMNIPAIR_V2_MARKET_START_TIME ?? "0";
+  const startTime = duskEnv("MARKET_START_TIME", "0");
   return {
-    swapFeeBps: Number(process.env.OMNIPAIR_V2_SWAP_FEE_BPS ?? "30"),
-    operatorFeeBps: Number(process.env.OMNIPAIR_V2_OPERATOR_FEE_BPS ?? "0"),
-    protocolFeeBps: Number(process.env.OMNIPAIR_V2_PROTOCOL_FEE_BPS ?? "0"),
-    targetHlpLeverageBps: Number(process.env.OMNIPAIR_V2_TARGET_HLP_LEVERAGE_BPS ?? "20000"),
-    settlementDivergenceBps: Number(process.env.OMNIPAIR_V2_SETTLEMENT_DIVERGENCE_BPS ?? "500"),
-    emergencyExitHaircutBps: Number(process.env.OMNIPAIR_V2_EMERGENCY_EXIT_HAIRCUT_BPS ?? "250"),
-    emaHalfLifeMs: new anchor.BN(process.env.OMNIPAIR_V2_EMA_HALF_LIFE_MS ?? "60000"),
-    directionalEmaHalfLifeMs: new anchor.BN(process.env.OMNIPAIR_V2_DIRECTIONAL_EMA_HALF_LIFE_MS ?? "60000"),
-    kEmaHalfLifeMs: new anchor.BN(process.env.OMNIPAIR_V2_K_EMA_HALF_LIFE_MS ?? "60000"),
-    maxDailyBorrowBps: Number(process.env.OMNIPAIR_V2_MAX_DAILY_BORROW_BPS ?? "2000"),
-    spotEmaDivergenceBps: Number(process.env.OMNIPAIR_V2_SPOT_EMA_DIVERGENCE_BPS ?? "1000"),
-    kEmaDrawdownBps: Number(process.env.OMNIPAIR_V2_K_EMA_DRAWDOWN_BPS ?? "1000"),
-    recognizedCollateralCapBps: Number(process.env.OMNIPAIR_V2_RECOGNIZED_COLLATERAL_CAP_BPS ?? "15000"),
-    marketHealthMinBps: Number(process.env.OMNIPAIR_V2_MARKET_HEALTH_MIN_BPS ?? "11000"),
+    swapFeeBps: Number(duskEnv("SWAP_FEE_BPS", "30")),
+    operatorFeeBps: Number(duskEnv("OPERATOR_FEE_BPS", "0")),
+    protocolFeeBps: Number(duskEnv("PROTOCOL_FEE_BPS", "0")),
+    targetHlpLeverageBps: Number(duskEnv("TARGET_HLP_LEVERAGE_BPS", "20000")),
+    settlementDivergenceBps: Number(duskEnv("SETTLEMENT_DIVERGENCE_BPS", "500")),
+    emergencyExitHaircutBps: Number(duskEnv("EMERGENCY_EXIT_HAIRCUT_BPS", "250")),
+    emaHalfLifeMs: new anchor.BN(duskEnv("EMA_HALF_LIFE_MS", "60000")),
+    directionalEmaHalfLifeMs: new anchor.BN(duskEnv("DIRECTIONAL_EMA_HALF_LIFE_MS", "60000")),
+    kEmaHalfLifeMs: new anchor.BN(duskEnv("K_EMA_HALF_LIFE_MS", "60000")),
+    maxDailyBorrowBps: Number(duskEnv("MAX_DAILY_BORROW_BPS", "2000")),
+    spotEmaDivergenceBps: Number(duskEnv("SPOT_EMA_DIVERGENCE_BPS", "1000")),
+    kEmaDrawdownBps: Number(duskEnv("K_EMA_DRAWDOWN_BPS", "1000")),
+    recognizedCollateralCapBps: Number(duskEnv("RECOGNIZED_COLLATERAL_CAP_BPS", "15000")),
+    marketHealthMinBps: Number(duskEnv("MARKET_HEALTH_MIN_BPS", "11000")),
     startTime: new anchor.BN(startTime),
   };
 }
 
 export function defaultLpMetadata(kind: "ylp" | "baseHlp" | "quoteHlp") {
-  const prefix =
+  const suffix =
     kind === "ylp"
-      ? "OMNIPAIR_V2_YLP"
+      ? "YLP"
       : kind === "baseHlp"
-        ? "OMNIPAIR_V2_BASE_HLP"
-        : "OMNIPAIR_V2_QUOTE_HLP";
+        ? "BASE_HLP"
+        : "QUOTE_HLP";
   const defaults = {
     ylp: {
-      name: "Omnipair Dusk yLP",
+      name: "Omnipair Dusk (v2) yLP",
       symbol: "yLP",
       uri: "https://omnipair.fi/metadata/dusk/ylp.json",
     },
     baseHlp: {
-      name: "Omnipair Dusk Base hLP",
+      name: "Omnipair Dusk (v2) Base hLP",
       symbol: "hLP",
       uri: "https://omnipair.fi/metadata/dusk/base-hlp.json",
     },
     quoteHlp: {
-      name: "Omnipair Dusk Quote hLP",
+      name: "Omnipair Dusk (v2) Quote hLP",
       symbol: "hLP",
       uri: "https://omnipair.fi/metadata/dusk/quote-hlp.json",
     },
   }[kind];
   return {
-    name: process.env[`${prefix}_NAME`] ?? defaults.name,
-    symbol: process.env[`${prefix}_SYMBOL`] ?? defaults.symbol,
-    uri: process.env[`${prefix}_URI`] ?? defaults.uri,
+    name: duskEnv(`${suffix}_NAME`, defaults.name),
+    symbol: duskEnv(`${suffix}_SYMBOL`, defaults.symbol),
+    uri: duskEnv(`${suffix}_URI`, defaults.uri),
   };
 }
 
-export function v2Program(idl: any, provider: anchor.AnchorProvider): any {
-  const programId = process.env.OMNIPAIR_V2_PROGRAM_ID ?? idl.address;
+export function duskProgram(idl: any, provider: anchor.AnchorProvider): any {
+  const programId = duskEnv("PROGRAM_ID", idl.address);
   return new anchor.Program({ ...idl, address: programId } as any, provider as any);
 }
+
+export const v2Program = duskProgram;
 
 export function explorerTx(signature: string): string {
   return `https://explorer.solana.com/tx/${signature}?cluster=devnet`;
