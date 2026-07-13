@@ -1769,14 +1769,16 @@ async function buildCloseLeverageTx(params: {
   const { program } = initializeRuntime();
   const m = marketFromStored(params.market);
   const isDebtBase = params.debtAsset === 0;
+  const debtMint = isDebtBase ? m.baseMint : m.quoteMint;
   const collateralMint = isDebtBase ? m.quoteMint : m.baseMint;
+  const leverageCollateralVault = deriveLeverageCollateralVault(m.market, collateralMint);
 
   const instructions: TransactionInstruction[] = [];
-  const ownerCollateralAccount = await maybeAddAta(
+  const ownerDebtAccount = await maybeAddAta(
     instructions,
     params.owner,
-    collateralMint,
-    isDebtBase ? m.quoteTokenProgram : m.baseTokenProgram
+    debtMint,
+    isDebtBase ? m.baseTokenProgram : m.quoteTokenProgram
   );
 
   instructions.push(
@@ -1788,11 +1790,19 @@ async function buildCloseLeverageTx(params: {
       .accounts({
         market: m.market,
         futarchyAuthority: m.futarchyAuthority,
-        owner: params.owner,
+        positionOwner: params.owner,
         leveragePosition: deriveLeveragePosition(m.market, params.positionId),
+        debtMint,
+        collateralMint,
+        debtReserveVault: isDebtBase ? m.baseReserveVault : m.quoteReserveVault,
         collateralReserveVault: isDebtBase ? m.quoteReserveVault : m.baseReserveVault,
         collateralFeeVault: isDebtBase ? m.quoteFeeVault : m.baseFeeVault,
-        ownerCollateralAccount,
+        debtInterestVault: isDebtBase ? m.baseInterestVault : m.quoteInterestVault,
+        leverageCollateralVault,
+        ownerDebtAccount,
+        leverageDelegation: SystemProgram.programId,
+        delegatedProgram: SystemProgram.programId,
+        authority: params.owner,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: m.eventAuthority,
@@ -1997,20 +2007,15 @@ async function leveragePositionsPayload(wallet: PublicKey, stored: StoredMarket)
 
   try {
     const { connection } = initializeRuntime();
-    const accounts = await connection.getProgramAccounts(PROGRAM_ID, {
-      filters: [
-        { dataSize: 237 },
-        { memcmp: { offset: 40, bytes: wallet.toBase58() } },
-      ],
-    });
+    const accounts = await connection.getProgramAccounts(PROGRAM_ID, {});
     for (const { pubkey, account } of accounts) {
       try {
         const pos = program.account.leveragePosition.coder.accounts.decode(
           "LeveragePosition",
           account.data
         );
-        const posMarket = pos.market?.toBase58?.() ?? "";
-        if (posMarket === stored.market) {
+        const posOwner = pos.owner?.toBase58?.() ?? "";
+        if (posOwner === wallet.toBase58()) {
           positions.push({
             id: positions.length + 1,
             eventType: "leverage_position",
