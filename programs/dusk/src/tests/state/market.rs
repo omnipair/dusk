@@ -41,7 +41,7 @@ use super::*;
             max_daily_borrow_bps: BPS_DENOMINATOR,
             spot_ema_divergence_bps: BPS_DENOMINATOR,
             k_ema_drawdown_bps: BPS_DENOMINATOR,
-            recognized_collateral_cap_bps: 15_000,
+            utilized_collateral_cap_bps: 15_000,
             market_health_min_bps: BPS_DENOMINATOR,
             start_time: 0,
         }
@@ -110,8 +110,8 @@ use super::*;
             position_id: Pubkey::new_unique(),
             base_collateral: 0,
             quote_collateral: 0,
-            recognized_base_collateral_for_quote_debt: 0,
-            recognized_quote_collateral_for_base_debt: 0,
+            utilized_base_collateral_for_quote_debt: 0,
+            utilized_quote_collateral_for_base_debt: 0,
             fixed_base_shares: 0,
             fixed_quote_shares: 0,
             risk_epoch: 0,
@@ -227,7 +227,7 @@ use super::*;
         let mut market = market_with_roles(manager, operator);
         let mut config = MarketConfig::default();
         config.target_hlp_leverage_bps = BPS_DENOMINATOR * 2;
-        config.recognized_collateral_cap_bps = BPS_DENOMINATOR;
+        config.utilized_collateral_cap_bps = BPS_DENOMINATOR;
         config.market_health_min_bps = BPS_DENOMINATOR;
         config.ema_half_life_ms = MIN_HALF_LIFE_MS;
         config.directional_ema_half_life_ms = MIN_HALF_LIFE_MS;
@@ -255,8 +255,8 @@ use super::*;
             position_id: Pubkey::new_unique(),
             base_collateral: 0,
             quote_collateral: 250_000,
-            recognized_base_collateral_for_quote_debt: 0,
-            recognized_quote_collateral_for_base_debt: 0,
+            utilized_base_collateral_for_quote_debt: 0,
+            utilized_quote_collateral_for_base_debt: 0,
             fixed_base_shares: 0,
             fixed_quote_shares: 0,
             risk_epoch: 0,
@@ -515,8 +515,8 @@ use super::*;
             position_id: Pubkey::new_unique(),
             base_collateral: 0,
             quote_collateral: 0,
-            recognized_base_collateral_for_quote_debt: 0,
-            recognized_quote_collateral_for_base_debt: 0,
+            utilized_base_collateral_for_quote_debt: 0,
+            utilized_quote_collateral_for_base_debt: 0,
             fixed_base_shares: 100,
             fixed_quote_shares: 0,
             risk_epoch: 0,

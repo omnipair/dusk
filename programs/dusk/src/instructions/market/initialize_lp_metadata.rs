@@ -184,7 +184,7 @@ mod tests {
             max_daily_borrow_bps: 2_000,
             spot_ema_divergence_bps: 1_000,
             k_ema_drawdown_bps: 1_000,
-            recognized_collateral_cap_bps: 15_000,
+            utilized_collateral_cap_bps: 15_000,
             market_health_min_bps: 11_000,
             start_time: 0,
         }

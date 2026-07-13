@@ -14,11 +14,11 @@ use super::{
     },
 };
 
-pub(crate) fn health_bps(recognized_collateral_value_nad: u128, effective_debt_nad: u128) -> Result<u64> {
+pub(crate) fn health_bps(utilized_collateral_value_nad: u128, effective_debt_nad: u128) -> Result<u64> {
     if effective_debt_nad == 0 {
         return Ok(u64::MAX);
     }
-    let health = recognized_collateral_value_nad
+    let health = utilized_collateral_value_nad
         .checked_mul(BPS_DENOMINATOR as u128)
         .and_then(|value| value.checked_div(effective_debt_nad))
         .ok_or(ErrorCode::MarketMathOverflow)?;

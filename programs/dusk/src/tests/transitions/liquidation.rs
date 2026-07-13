@@ -22,7 +22,7 @@ fn valid_config() -> MarketConfig {
         max_daily_borrow_bps: 2_000,
         spot_ema_divergence_bps: 1_000,
         k_ema_drawdown_bps: 1_000,
-        recognized_collateral_cap_bps: 15_000,
+        utilized_collateral_cap_bps: 15_000,
         market_health_min_bps: 11_000,
         start_time: 0,
     }
@@ -57,7 +57,7 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
         quote_borrow_index_nad: NAD as u128,
         base_borrow_index_nad: NAD as u128,
         fixed_quote_principal: 100,
-        recognized_base_collateral_for_quote_debt: 109,
+        utilized_base_collateral_for_quote_debt: 109,
         ..Debt::default()
     };
     let market = Market {
@@ -89,8 +89,8 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
         position_id: Pubkey::new_unique(),
         base_collateral: 109,
         quote_collateral: 0,
-        recognized_base_collateral_for_quote_debt: 109,
-        recognized_quote_collateral_for_base_debt: 0,
+        utilized_base_collateral_for_quote_debt: 109,
+        utilized_quote_collateral_for_base_debt: 0,
         fixed_base_shares: 0,
         fixed_quote_shares: 100,
         risk_epoch: 0,
@@ -148,8 +148,8 @@ fn market_with_cash_backed_debt(
         position_id: Pubkey::new_unique(),
         base_collateral: 0,
         quote_collateral: 0,
-        recognized_base_collateral_for_quote_debt: 0,
-        recognized_quote_collateral_for_base_debt: 0,
+        utilized_base_collateral_for_quote_debt: 0,
+        utilized_quote_collateral_for_base_debt: 0,
         fixed_base_shares: 0,
         fixed_quote_shares: 0,
         risk_epoch: 0,
@@ -176,10 +176,10 @@ fn market_with_cash_backed_debt(
             debt.base_borrow_index_nad = next_index;
             debt.fixed_base_shares = shares;
             debt.fixed_base_principal = borrow_amount as u128;
-            debt.recognized_quote_collateral_for_base_debt = collateral_amount;
+            debt.utilized_quote_collateral_for_base_debt = collateral_amount;
             borrow_position.fixed_base_shares = shares;
             borrow_position.quote_collateral = collateral_amount;
-            borrow_position.recognized_quote_collateral_for_base_debt = collateral_amount;
+            borrow_position.utilized_quote_collateral_for_base_debt = collateral_amount;
         }
         MarketAsset::Quote => {
             base_side.reserves = Reserves {
@@ -197,10 +197,10 @@ fn market_with_cash_backed_debt(
             debt.quote_borrow_index_nad = next_index;
             debt.fixed_quote_shares = shares;
             debt.fixed_quote_principal = borrow_amount as u128;
-            debt.recognized_base_collateral_for_quote_debt = collateral_amount;
+            debt.utilized_base_collateral_for_quote_debt = collateral_amount;
             borrow_position.fixed_quote_shares = shares;
             borrow_position.base_collateral = collateral_amount;
-            borrow_position.recognized_base_collateral_for_quote_debt = collateral_amount;
+            borrow_position.utilized_base_collateral_for_quote_debt = collateral_amount;
         }
     }
 
@@ -426,8 +426,8 @@ fn collateral_exhausted_liquidation_socializes_loss_without_breaking_virtual_res
     let (mut market, mut borrow_position) =
         market_with_cash_backed_debt(debt_asset, 2_000_000, 2_000_000, 100_000, 500);
     borrow_position.base_collateral = 1;
-    borrow_position.recognized_base_collateral_for_quote_debt = 1;
-    market.debt.recognized_base_collateral_for_quote_debt = 1;
+    borrow_position.utilized_base_collateral_for_quote_debt = 1;
+    market.debt.utilized_base_collateral_for_quote_debt = 1;
     let debt_before = position_debt_after(&market, &borrow_position, debt_asset);
     let debt_before_u64 = u64::try_from(debt_before).unwrap();
     let repay_credit = debt_before_u64 / 2;
@@ -546,8 +546,8 @@ fn direct_liquidation_restore_cap_uses_reference_price() {
 fn max_repay_respects_close_factor_for_deep_partial_liquidation() {
     let (mut market, mut borrow_position) = liquidatable_quote_debt_position();
     borrow_position.base_collateral = 50;
-    borrow_position.recognized_base_collateral_for_quote_debt = 50;
-    market.debt.recognized_base_collateral_for_quote_debt = 50;
+    borrow_position.utilized_base_collateral_for_quote_debt = 50;
+    market.debt.utilized_base_collateral_for_quote_debt = 50;
     let pricing = LiquidationPricing::ReferencePrice {
         debt_per_collateral_price_nad: NAD as u64,
     };
@@ -567,10 +567,10 @@ fn max_repay_full_closes_when_partial_would_leave_dust() {
     let (mut market, mut borrow_position) = liquidatable_quote_debt_position();
     market.debt.fixed_quote_shares = 2;
     market.debt.fixed_quote_principal = 2;
-    market.debt.recognized_base_collateral_for_quote_debt = 1;
+    market.debt.utilized_base_collateral_for_quote_debt = 1;
     borrow_position.fixed_quote_shares = 2;
     borrow_position.base_collateral = 1;
-    borrow_position.recognized_base_collateral_for_quote_debt = 1;
+    borrow_position.utilized_base_collateral_for_quote_debt = 1;
     let pricing = LiquidationPricing::ReferencePrice {
         debt_per_collateral_price_nad: NAD as u64,
     };

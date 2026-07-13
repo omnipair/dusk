@@ -27,8 +27,8 @@ pub struct Risk {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
 pub struct MarketHealth {
-    pub recognized_base_collateral_for_quote_debt: u64,
-    pub recognized_quote_collateral_for_base_debt: u64,
+    pub utilized_base_collateral_for_quote_debt: u64,
+    pub utilized_quote_collateral_for_base_debt: u64,
     pub effective_base_debt_nad: u128,
     pub effective_quote_debt_nad: u128,
     pub base_debt_health_bps: u64,

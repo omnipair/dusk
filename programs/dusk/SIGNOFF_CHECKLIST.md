@@ -32,7 +32,7 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
   transfer checkpointing.
 - Review fee liabilities and settlement paths for yLP, hLP, operator,
   protocol, and unallocated buckets.
-- Review fixed debt, recognized collateral, normalized valuation, and
+- Review fixed debt, utilized collateral, normalized valuation, and
   liquidation/insurance/socialization accounting.
 - Review Token-2022 constraints and measured inventory-credit settlement.
 - Confirm soft borrow and soft liquidation remain disabled unless a separate
@@ -65,7 +65,7 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 
 - Subscribe to the standalone Dusk program ID and Dusk IDL events.
 - Use `MarketEventMetadata.market` as the Dusk market key.
-- Track yLP supply, hLP vault-owned yLP, hLP supply, hLP debt, recognized
+- Track yLP supply, hLP vault-owned yLP, hLP supply, hLP debt, utilized
   collateral, insurance, fee liabilities, and market health as separate Dusk
   metrics.
 - Decode `LiquidityAdded`, `LiquidityRemoved`, `SwapExecuted`,

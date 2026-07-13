@@ -65,8 +65,8 @@ impl<'info> UpdateMarketConfig<'info> {
         let health = market.market_health()?;
         emit_cpi!(MarketHealthUpdated {
             market: market.key(),
-            recognized_base_collateral_for_quote_debt: health.recognized_base_collateral_for_quote_debt,
-            recognized_quote_collateral_for_base_debt: health.recognized_quote_collateral_for_base_debt,
+            utilized_base_collateral_for_quote_debt: health.utilized_base_collateral_for_quote_debt,
+            utilized_quote_collateral_for_base_debt: health.utilized_quote_collateral_for_base_debt,
             effective_base_debt_nad: health.effective_base_debt_nad,
             effective_quote_debt_nad: health.effective_quote_debt_nad,
             base_debt_health_bps: health.base_debt_health_bps,

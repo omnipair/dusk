@@ -19,8 +19,8 @@ pub struct BorrowPosition {
     pub position_id: Pubkey,
     pub base_collateral: u64,
     pub quote_collateral: u64,
-    pub recognized_base_collateral_for_quote_debt: u64,
-    pub recognized_quote_collateral_for_base_debt: u64,
+    pub utilized_base_collateral_for_quote_debt: u64,
+    pub utilized_quote_collateral_for_base_debt: u64,
     pub fixed_base_shares: u128,
     pub fixed_quote_shares: u128,
     pub risk_epoch: u64,
@@ -54,14 +54,14 @@ impl BorrowPosition {
 
     pub fn idle_base_collateral(&self) -> Result<u64> {
         self.base_collateral
-            .checked_sub(self.recognized_base_collateral_for_quote_debt)
-            .ok_or(ErrorCode::InsufficientRecognizedCollateral.into())
+            .checked_sub(self.utilized_base_collateral_for_quote_debt)
+            .ok_or(ErrorCode::InsufficientUtilizedCollateral.into())
     }
 
     pub fn idle_quote_collateral(&self) -> Result<u64> {
         self.quote_collateral
-            .checked_sub(self.recognized_quote_collateral_for_base_debt)
-            .ok_or(ErrorCode::InsufficientRecognizedCollateral.into())
+            .checked_sub(self.utilized_quote_collateral_for_base_debt)
+            .ok_or(ErrorCode::InsufficientUtilizedCollateral.into())
     }
 
     pub fn fixed_base_debt(&self, debt: &Debt) -> Result<u128> {

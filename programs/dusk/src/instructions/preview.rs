@@ -214,7 +214,7 @@ pub struct BorrowCapacityPreview {
     pub max_debt_by_daily_limit: u64,
     pub max_debt: u64,
     pub market_health_min_bps: u16,
-    pub recognized_collateral_cap_bps: u16,
+    pub utilized_collateral_cap_bps: u16,
     pub projected_debt_amount: u64,
     pub projected_health_bps: u64,
     pub liquidation_debt_per_collateral_price_nad: u64,
@@ -225,7 +225,7 @@ pub struct PositionDebtSidePreview {
     pub debt_asset: MarketAsset,
     pub collateral_asset: MarketAsset,
     pub fixed_debt: u128,
-    pub recognized_collateral: u64,
+    pub utilized_collateral: u64,
     pub collateral_value_nad: u128,
     pub health_bps: u64,
     pub liquidation_reference_price_nad: u64,
@@ -244,8 +244,8 @@ pub struct BorrowPositionPreview {
     pub position_id: Pubkey,
     pub base_collateral: u64,
     pub quote_collateral: u64,
-    pub recognized_base_collateral_for_quote_debt: u64,
-    pub recognized_quote_collateral_for_base_debt: u64,
+    pub utilized_base_collateral_for_quote_debt: u64,
+    pub utilized_quote_collateral_for_base_debt: u64,
     pub fixed_base_debt: u128,
     pub fixed_quote_debt: u128,
     pub base_debt: PositionDebtSidePreview,
@@ -441,7 +441,7 @@ impl<'info> PreviewBorrowCapacity<'info> {
             max_debt_by_daily_limit,
             max_debt,
             market_health_min_bps: market.config.market_health_min_bps,
-            recognized_collateral_cap_bps: market.config.recognized_collateral_cap_bps,
+            utilized_collateral_cap_bps: market.config.utilized_collateral_cap_bps,
             projected_debt_amount,
             projected_health_bps,
             liquidation_debt_per_collateral_price_nad: liquidation_threshold_price_nad(
@@ -467,8 +467,8 @@ impl<'info> PreviewBorrowPosition<'info> {
             position_id: borrow_position.position_id,
             base_collateral: borrow_position.base_collateral,
             quote_collateral: borrow_position.quote_collateral,
-            recognized_base_collateral_for_quote_debt: borrow_position.recognized_base_collateral_for_quote_debt,
-            recognized_quote_collateral_for_base_debt: borrow_position.recognized_quote_collateral_for_base_debt,
+            utilized_base_collateral_for_quote_debt: borrow_position.utilized_base_collateral_for_quote_debt,
+            utilized_quote_collateral_for_base_debt: borrow_position.utilized_quote_collateral_for_base_debt,
             fixed_base_debt: borrow_position.fixed_base_debt(&market.debt)?,
             fixed_quote_debt: borrow_position.fixed_quote_debt(&market.debt)?,
             base_debt: preview_position_debt_side(market, borrow_position, MarketAsset::Base)?,
@@ -608,12 +608,12 @@ fn preview_position_debt_side(
         MarketAsset::Base => borrow_position.fixed_base_debt(&market.debt)?,
         MarketAsset::Quote => borrow_position.fixed_quote_debt(&market.debt)?,
     };
-    let recognized_collateral = match debt_asset {
-        MarketAsset::Base => borrow_position.recognized_quote_collateral_for_base_debt,
-        MarketAsset::Quote => borrow_position.recognized_base_collateral_for_quote_debt,
+    let utilized_collateral = match debt_asset {
+        MarketAsset::Base => borrow_position.utilized_quote_collateral_for_base_debt,
+        MarketAsset::Quote => borrow_position.utilized_base_collateral_for_quote_debt,
     };
     let risk = market.current_risk()?;
-    let collateral_value_nad = market.collateral_value_nad(collateral_asset, recognized_collateral, &risk)?;
+    let collateral_value_nad = market.collateral_value_nad(collateral_asset, utilized_collateral, &risk)?;
     let health_bps = if debt == 0 {
         u64::MAX
     } else {
@@ -643,7 +643,7 @@ fn preview_position_debt_side(
         debt_asset,
         collateral_asset,
         fixed_debt: debt,
-        recognized_collateral,
+        utilized_collateral,
         collateral_value_nad,
         health_bps,
         liquidation_reference_price_nad,

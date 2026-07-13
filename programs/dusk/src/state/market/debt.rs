@@ -10,9 +10,9 @@ pub struct Debt {
     pub quote_borrow_index_nad: u128,
     pub base_rate_at_target_nad: u128,
     pub quote_rate_at_target_nad: u128,
-    pub recognized_base_collateral_for_quote_debt: u64,
-    pub recognized_quote_collateral_for_base_debt: u64,
-    pub last_recognition_slot: u64,
+    pub utilized_base_collateral_for_quote_debt: u64,
+    pub utilized_quote_collateral_for_base_debt: u64,
+    pub last_utilization_slot: u64,
     pub last_accrual_slot: u64,
     // Debt tracking (r_debt)
     /// Aggregate outstanding *principal* (borrowed token amount, excluding
@@ -23,7 +23,7 @@ pub struct Debt {
     pub fixed_base_principal: u128,
     pub fixed_quote_principal: u128,
     /// Aggregate isolated leverage debt. This debt contributes to utilization
-    /// and interest, but is intentionally not recognized as normal margin debt.
+    /// and interest, but is intentionally not utilized as normal margin debt.
     pub isolated_base_shares: u128,
     pub isolated_quote_shares: u128,
     pub isolated_base_principal: u128,

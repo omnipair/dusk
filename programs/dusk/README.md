@@ -141,7 +141,7 @@ Every Dusk event carries `MarketEventMetadata` with signer, market, and slot.
 - Isolated leverage debt contributes to utilization without entering normal borrower health.
 - Leverage collateral vault balances are matched by open leverage position collateral accounting.
 - Delegated close must validate both the delegate's close approval and settlement approval return data.
-- Market health uses recognized debt-bearing collateral for borrower debt; idle collateral contributes zero.
+- Market health uses utilized debt-bearing collateral for borrower debt; idle collateral contributes zero.
 - Risk books update EMA values from cached pre-transition observations and store current observations for the next refresh.
 - Liquidation follows the waterfall: borrower collateral, liquidator incentive, insurance, then bounded LP socialization.
 

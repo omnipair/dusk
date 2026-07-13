@@ -209,7 +209,7 @@ impl Market {
                 quote_borrow_index_nad: NAD as u128,
                 base_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
                 quote_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
-                last_recognition_slot: current_slot,
+                last_utilization_slot: current_slot,
                 last_accrual_slot: current_slot,
                 ..Debt::default()
             },
@@ -448,7 +448,7 @@ impl Market {
                 require_gte!(
                     borrow_position.idle_base_collateral()?,
                     collateral_debit,
-                    ErrorCode::InsufficientRecognizedCollateral
+                    ErrorCode::InsufficientUtilizedCollateral
                 );
                 borrow_position.base_collateral = borrow_position
                     .base_collateral
@@ -459,7 +459,7 @@ impl Market {
                 require_gte!(
                     borrow_position.idle_quote_collateral()?,
                     collateral_debit,
-                    ErrorCode::InsufficientRecognizedCollateral
+                    ErrorCode::InsufficientUtilizedCollateral
                 );
                 borrow_position.quote_collateral = borrow_position
                     .quote_collateral
@@ -533,11 +533,11 @@ impl Market {
         }
         self.debt.add_margin_principal(borrow_asset, borrow_amount)?;
         let risk = self.risk;
-        sync_borrow_recognition(self, borrow_position, borrow_asset, &risk)?;
+        sync_borrow_utilization(self, borrow_position, borrow_asset, &risk)?;
         let market_health = self.market_health()?;
         self.assert_market_health_snapshot(&market_health)?;
         self.assert_risk_circuit_breakers()?;
-        // Recognition was just reconciled against the current debt cap. Reuse
+        // Utilization was just reconciled against the current debt cap. Reuse
         // the refreshed risk snapshot instead of recomputing the same cap/health
         // path again, which is heap-expensive in SBF.
         let health = self.position_health_bps_with_risk(borrow_position, borrow_asset, &self.risk)?;
@@ -583,7 +583,7 @@ impl Market {
                     .checked_sub(principal_credit)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
                 let release_collateral = proportional_release(
-                    borrow_position.recognized_quote_collateral_for_base_debt,
+                    borrow_position.utilized_quote_collateral_for_base_debt,
                     shares_to_burn,
                     shares_before,
                 )?;
@@ -591,8 +591,8 @@ impl Market {
                     .fixed_base_shares
                     .checked_sub(shares_to_burn)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-                borrow_position.recognized_quote_collateral_for_base_debt = borrow_position
-                    .recognized_quote_collateral_for_base_debt
+                borrow_position.utilized_quote_collateral_for_base_debt = borrow_position
+                    .utilized_quote_collateral_for_base_debt
                     .checked_sub(release_collateral)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
                 self.debt.fixed_base_shares = self
@@ -600,9 +600,9 @@ impl Market {
                     .fixed_base_shares
                     .checked_sub(shares_to_burn)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-                self.debt.recognized_quote_collateral_for_base_debt = self
+                self.debt.utilized_quote_collateral_for_base_debt = self
                     .debt
-                    .recognized_quote_collateral_for_base_debt
+                    .utilized_quote_collateral_for_base_debt
                     .checked_sub(release_collateral)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
                 self.base_side.reserves.live_reserve = self
@@ -644,7 +644,7 @@ impl Market {
                     .checked_sub(principal_credit)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
                 let release_collateral = proportional_release(
-                    borrow_position.recognized_base_collateral_for_quote_debt,
+                    borrow_position.utilized_base_collateral_for_quote_debt,
                     shares_to_burn,
                     shares_before,
                 )?;
@@ -652,8 +652,8 @@ impl Market {
                     .fixed_quote_shares
                     .checked_sub(shares_to_burn)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-                borrow_position.recognized_base_collateral_for_quote_debt = borrow_position
-                    .recognized_base_collateral_for_quote_debt
+                borrow_position.utilized_base_collateral_for_quote_debt = borrow_position
+                    .utilized_base_collateral_for_quote_debt
                     .checked_sub(release_collateral)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
                 self.debt.fixed_quote_shares = self
@@ -661,9 +661,9 @@ impl Market {
                     .fixed_quote_shares
                     .checked_sub(shares_to_burn)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-                self.debt.recognized_base_collateral_for_quote_debt = self
+                self.debt.utilized_base_collateral_for_quote_debt = self
                     .debt
-                    .recognized_base_collateral_for_quote_debt
+                    .utilized_base_collateral_for_quote_debt
                     .checked_sub(release_collateral)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
                 self.quote_side.reserves.live_reserve = self
@@ -1099,68 +1099,68 @@ fn total_hlp_funding_debt(market: &Market, asset: MarketAsset, index_nad: u128) 
     Debt::shares_to_debt(hlp_shares, index_nad)
 }
 
-fn sync_borrow_recognition(
+fn sync_borrow_utilization(
     market: &mut Market,
     borrow_position: &mut BorrowPosition,
     debt_asset: MarketAsset,
     risk: &Risk,
 ) -> Result<()> {
-    let recognition_slot = Clock::get().map(|clock| clock.slot).unwrap_or(market.last_update_slot);
+    let utilization_slot = Clock::get().map(|clock| clock.slot).unwrap_or(market.last_update_slot);
 
     match debt_asset {
         MarketAsset::Base => {
-            let old_recognized = borrow_position.recognized_quote_collateral_for_base_debt;
-            let target_recognized = market.debt_capped_recognized_collateral(borrow_position, debt_asset, risk)?;
-            reconcile_recognition(
-                &mut borrow_position.recognized_quote_collateral_for_base_debt,
-                &mut market.debt.recognized_quote_collateral_for_base_debt,
-                old_recognized,
-                target_recognized,
+            let old_utilized = borrow_position.utilized_quote_collateral_for_base_debt;
+            let target_utilized = market.debt_capped_utilized_collateral(borrow_position, debt_asset, risk)?;
+            reconcile_utilization(
+                &mut borrow_position.utilized_quote_collateral_for_base_debt,
+                &mut market.debt.utilized_quote_collateral_for_base_debt,
+                old_utilized,
+                target_utilized,
             )?;
         }
         MarketAsset::Quote => {
-            let old_recognized = borrow_position.recognized_base_collateral_for_quote_debt;
-            let target_recognized = market.debt_capped_recognized_collateral(borrow_position, debt_asset, risk)?;
-            reconcile_recognition(
-                &mut borrow_position.recognized_base_collateral_for_quote_debt,
-                &mut market.debt.recognized_base_collateral_for_quote_debt,
-                old_recognized,
-                target_recognized,
+            let old_utilized = borrow_position.utilized_base_collateral_for_quote_debt;
+            let target_utilized = market.debt_capped_utilized_collateral(borrow_position, debt_asset, risk)?;
+            reconcile_utilization(
+                &mut borrow_position.utilized_base_collateral_for_quote_debt,
+                &mut market.debt.utilized_base_collateral_for_quote_debt,
+                old_utilized,
+                target_utilized,
             )?;
         }
     }
 
-    market.debt.last_recognition_slot = recognition_slot;
+    market.debt.last_utilization_slot = utilization_slot;
     Ok(())
 }
 
-fn reconcile_recognition(
-    position_recognized: &mut u64,
-    market_recognized: &mut u64,
-    old_recognized: u64,
-    target_recognized: u64,
+fn reconcile_utilization(
+    position_utilized: &mut u64,
+    market_utilized: &mut u64,
+    old_utilized: u64,
+    target_utilized: u64,
 ) -> Result<()> {
-    match target_recognized.cmp(&old_recognized) {
+    match target_utilized.cmp(&old_utilized) {
         std::cmp::Ordering::Greater => {
-            let delta = target_recognized
-                .checked_sub(old_recognized)
+            let delta = target_utilized
+                .checked_sub(old_utilized)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
-            *market_recognized = market_recognized
+            *market_utilized = market_utilized
                 .checked_add(delta)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
         }
         std::cmp::Ordering::Less => {
-            let delta = old_recognized
-                .checked_sub(target_recognized)
+            let delta = old_utilized
+                .checked_sub(target_utilized)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
-            *market_recognized = market_recognized
+            *market_utilized = market_utilized
                 .checked_sub(delta)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
         }
         std::cmp::Ordering::Equal => {}
     }
 
-    *position_recognized = target_recognized;
+    *position_utilized = target_utilized;
     Ok(())
 }
 
@@ -1173,12 +1173,12 @@ fn require_borrow_headroom(debt_side: &MarketSide, borrow_amount: u64) -> Result
     Ok(())
 }
 
-fn proportional_release(recognized: u64, shares_to_burn: u128, shares_before: u128) -> Result<u64> {
+fn proportional_release(utilized: u64, shares_to_burn: u128, shares_before: u128) -> Result<u64> {
     require!(shares_before > 0, ErrorCode::InsufficientDebt);
     if shares_to_burn == shares_before {
-        return Ok(recognized);
+        return Ok(utilized);
     }
-    let release = (recognized as u128)
+    let release = (utilized as u128)
         .checked_mul(shares_to_burn)
         .and_then(|value| value.checked_div(shares_before))
         .ok_or(ErrorCode::MarketMathOverflow)?;

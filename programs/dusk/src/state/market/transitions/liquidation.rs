@@ -397,16 +397,16 @@ fn apply_liquidation_debt_reduction(
             borrow_position.quote_collateral = borrow_position
                 .quote_collateral
                 .checked_sub(collateral_seized)
-                .ok_or(ErrorCode::InsufficientRecognizedCollateral)?;
-            let recognized_decrease = recognized_decrease_after_seizure(
-                borrow_position.recognized_quote_collateral_for_base_debt,
+                .ok_or(ErrorCode::InsufficientUtilizedCollateral)?;
+            let utilized_decrease = utilized_decrease_after_seizure(
+                borrow_position.utilized_quote_collateral_for_base_debt,
                 borrow_position.quote_collateral,
                 shares_to_burn,
                 shares_before,
             )?;
-            borrow_position.recognized_quote_collateral_for_base_debt = borrow_position
-                .recognized_quote_collateral_for_base_debt
-                .checked_sub(recognized_decrease)
+            borrow_position.utilized_quote_collateral_for_base_debt = borrow_position
+                .utilized_quote_collateral_for_base_debt
+                .checked_sub(utilized_decrease)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
             borrow_position.fixed_base_shares = borrow_position
                 .fixed_base_shares
@@ -417,10 +417,10 @@ fn apply_liquidation_debt_reduction(
                 .fixed_base_shares
                 .checked_sub(shares_to_burn)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
-            market.debt.recognized_quote_collateral_for_base_debt = market
+            market.debt.utilized_quote_collateral_for_base_debt = market
                 .debt
-                .recognized_quote_collateral_for_base_debt
-                .checked_sub(recognized_decrease)
+                .utilized_quote_collateral_for_base_debt
+                .checked_sub(utilized_decrease)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
         }
         MarketAsset::Quote => {
@@ -429,16 +429,16 @@ fn apply_liquidation_debt_reduction(
             borrow_position.base_collateral = borrow_position
                 .base_collateral
                 .checked_sub(collateral_seized)
-                .ok_or(ErrorCode::InsufficientRecognizedCollateral)?;
-            let recognized_decrease = recognized_decrease_after_seizure(
-                borrow_position.recognized_base_collateral_for_quote_debt,
+                .ok_or(ErrorCode::InsufficientUtilizedCollateral)?;
+            let utilized_decrease = utilized_decrease_after_seizure(
+                borrow_position.utilized_base_collateral_for_quote_debt,
                 borrow_position.base_collateral,
                 shares_to_burn,
                 shares_before,
             )?;
-            borrow_position.recognized_base_collateral_for_quote_debt = borrow_position
-                .recognized_base_collateral_for_quote_debt
-                .checked_sub(recognized_decrease)
+            borrow_position.utilized_base_collateral_for_quote_debt = borrow_position
+                .utilized_base_collateral_for_quote_debt
+                .checked_sub(utilized_decrease)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
             borrow_position.fixed_quote_shares = borrow_position
                 .fixed_quote_shares
@@ -449,10 +449,10 @@ fn apply_liquidation_debt_reduction(
                 .fixed_quote_shares
                 .checked_sub(shares_to_burn)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
-            market.debt.recognized_base_collateral_for_quote_debt = market
+            market.debt.utilized_base_collateral_for_quote_debt = market
                 .debt
-                .recognized_base_collateral_for_quote_debt
-                .checked_sub(recognized_decrease)
+                .utilized_base_collateral_for_quote_debt
+                .checked_sub(utilized_decrease)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
         }
     }
@@ -573,7 +573,7 @@ fn max_repay_to_restore_health_with_pricing(
         MarketAsset::Quote => market.quote_side.asset_decimals,
     };
     let debt_value_nad = normalize_to_nad(debt_before, debt_decimals)?;
-    let collateral_value_nad = recognized_collateral_value_with_pricing(market, borrow_position, debt_asset, pricing)?;
+    let collateral_value_nad = utilized_collateral_value_with_pricing(market, borrow_position, debt_asset, pricing)?;
     let target_bps = market.config.market_health_min_bps as u128;
     let penalty_multiplier_bps = (BPS_DENOMINATOR as u128)
         .checked_add(total_penalty_bps as u128)
@@ -582,14 +582,14 @@ fn max_repay_to_restore_health_with_pricing(
     let target_debt_value = debt_value_nad
         .checked_mul(target_bps)
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    let recognized_collateral_value = collateral_value_nad
+    let utilized_collateral_value = collateral_value_nad
         .checked_mul(BPS_DENOMINATOR as u128)
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    if target_debt_value <= recognized_collateral_value {
+    if target_debt_value <= utilized_collateral_value {
         return Ok(0);
     }
     let shortfall_value = target_debt_value
-        .checked_sub(recognized_collateral_value)
+        .checked_sub(utilized_collateral_value)
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let denominator = target_bps
         .checked_sub(penalty_multiplier_bps)
@@ -605,7 +605,7 @@ pub(crate) fn liquidation_health_bps_with_pricing(
     debt_asset: MarketAsset,
     pricing: LiquidationPricing,
 ) -> Result<u64> {
-    let collateral_value_nad = recognized_collateral_value_with_pricing(market, borrow_position, debt_asset, pricing)?;
+    let collateral_value_nad = utilized_collateral_value_with_pricing(market, borrow_position, debt_asset, pricing)?;
     let (debt_before, debt_decimals) = match debt_asset {
         MarketAsset::Base => (
             borrow_position.fixed_base_debt(&market.debt)?,
@@ -619,7 +619,7 @@ pub(crate) fn liquidation_health_bps_with_pricing(
     health_bps(collateral_value_nad, normalize_to_nad(debt_before, debt_decimals)?)
 }
 
-fn recognized_collateral_value_with_pricing(
+fn utilized_collateral_value_with_pricing(
     market: &Market,
     borrow_position: &BorrowPosition,
     debt_asset: MarketAsset,
@@ -631,12 +631,12 @@ fn recognized_collateral_value_with_pricing(
             match debt_asset {
                 MarketAsset::Base => market.collateral_value_nad(
                     MarketAsset::Quote,
-                    borrow_position.recognized_quote_collateral_for_base_debt,
+                    borrow_position.utilized_quote_collateral_for_base_debt,
                     &risk,
                 ),
                 MarketAsset::Quote => market.collateral_value_nad(
                     MarketAsset::Base,
-                    borrow_position.recognized_base_collateral_for_quote_debt,
+                    borrow_position.utilized_base_collateral_for_quote_debt,
                     &risk,
                 ),
             }
@@ -646,8 +646,8 @@ fn recognized_collateral_value_with_pricing(
         } => {
             let collateral_asset = debt_asset.opposite();
             let collateral_amount = match debt_asset {
-                MarketAsset::Base => borrow_position.recognized_quote_collateral_for_base_debt,
-                MarketAsset::Quote => borrow_position.recognized_base_collateral_for_quote_debt,
+                MarketAsset::Base => borrow_position.utilized_quote_collateral_for_base_debt,
+                MarketAsset::Quote => borrow_position.utilized_base_collateral_for_quote_debt,
             };
             collateral_value_at_reference_price_nad(
                 market,
@@ -763,27 +763,27 @@ fn liquidation_repay_would_leave_dust(
     Ok(shares_to_burn == shares_before)
 }
 
-fn recognized_decrease_after_seizure(
-    recognized_before: u64,
+fn utilized_decrease_after_seizure(
+    utilized_before: u64,
     collateral_after: u64,
     shares_to_burn: u128,
     shares_before: u128,
 ) -> Result<u64> {
     if shares_to_burn == shares_before {
-        return Ok(recognized_before);
+        return Ok(utilized_before);
     }
-    let proportional = (recognized_before as u128)
+    let proportional = (utilized_before as u128)
         .checked_mul(shares_to_burn)
         .and_then(|value| value.checked_div(shares_before))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let proportional = u64::try_from(proportional).map_err(|_| ErrorCode::MarketMathOverflow)?;
-    let recognized_after_proportional = recognized_before
+    let utilized_after_proportional = utilized_before
         .checked_sub(proportional)
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    if recognized_after_proportional <= collateral_after {
+    if utilized_after_proportional <= collateral_after {
         Ok(proportional)
     } else {
-        let extra = recognized_after_proportional
+        let extra = utilized_after_proportional
             .checked_sub(collateral_after)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         proportional

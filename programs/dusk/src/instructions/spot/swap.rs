@@ -477,8 +477,8 @@ fn emit_market_health_event<'info>(
     emit_market_health_updated_low_heap(
         keys.market,
         keys.trader,
-        health.recognized_base_collateral_for_quote_debt,
-        health.recognized_quote_collateral_for_base_debt,
+        health.utilized_base_collateral_for_quote_debt,
+        health.utilized_quote_collateral_for_base_debt,
         health.effective_base_debt_nad,
         health.effective_quote_debt_nad,
         health.base_debt_health_bps,

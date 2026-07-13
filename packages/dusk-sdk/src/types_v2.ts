@@ -7869,8 +7869,8 @@ export type Dusk = {
     },
     {
       "code": 6095,
-      "name": "insufficientRecognizedCollateral",
-      "msg": "Recognized collateral is insufficient"
+      "name": "insufficientUtilizedCollateral",
+      "msg": "Utilized collateral is insufficient"
     },
     {
       "code": 6096,
@@ -8160,7 +8160,7 @@ export type Dusk = {
             "type": "u16"
           },
           {
-            "name": "recognizedCollateralCapBps",
+            "name": "utilizedCollateralCapBps",
             "type": "u16"
           },
           {
@@ -8204,11 +8204,11 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "recognizedBaseCollateralForQuoteDebt",
+            "name": "utilizedBaseCollateralForQuoteDebt",
             "type": "u64"
           },
           {
-            "name": "recognizedQuoteCollateralForBaseDebt",
+            "name": "utilizedQuoteCollateralForBaseDebt",
             "type": "u64"
           },
           {
@@ -8268,11 +8268,11 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "recognizedBaseCollateralForQuoteDebt",
+            "name": "utilizedBaseCollateralForQuoteDebt",
             "type": "u64"
           },
           {
-            "name": "recognizedQuoteCollateralForBaseDebt",
+            "name": "utilizedQuoteCollateralForBaseDebt",
             "type": "u64"
           },
           {
@@ -8412,15 +8412,15 @@ export type Dusk = {
             "type": "u128"
           },
           {
-            "name": "recognizedBaseCollateralForQuoteDebt",
+            "name": "utilizedBaseCollateralForQuoteDebt",
             "type": "u64"
           },
           {
-            "name": "recognizedQuoteCollateralForBaseDebt",
+            "name": "utilizedQuoteCollateralForBaseDebt",
             "type": "u64"
           },
           {
-            "name": "lastRecognitionSlot",
+            "name": "lastUtilizationSlot",
             "type": "u64"
           },
           {
@@ -8446,7 +8446,7 @@ export type Dusk = {
             "name": "isolatedBaseShares",
             "docs": [
               "Aggregate isolated leverage debt. This debt contributes to utilization",
-              "and interest, but is intentionally not recognized as normal margin debt."
+              "and interest, but is intentionally not utilized as normal margin debt."
             ],
             "type": "u128"
           },
@@ -9968,7 +9968,7 @@ export type Dusk = {
             "type": "u16"
           },
           {
-            "name": "recognizedCollateralCapBps",
+            "name": "utilizedCollateralCapBps",
             "type": "u16"
           },
           {
@@ -10229,11 +10229,11 @@ export type Dusk = {
         "kind": "struct",
         "fields": [
           {
-            "name": "recognizedBaseCollateralForQuoteDebt",
+            "name": "utilizedBaseCollateralForQuoteDebt",
             "type": "u64"
           },
           {
-            "name": "recognizedQuoteCollateralForBaseDebt",
+            "name": "utilizedQuoteCollateralForBaseDebt",
             "type": "u64"
           },
           {
@@ -10265,11 +10265,11 @@ export type Dusk = {
             "type": "pubkey"
           },
           {
-            "name": "recognizedBaseCollateralForQuoteDebt",
+            "name": "utilizedBaseCollateralForQuoteDebt",
             "type": "u64"
           },
           {
-            "name": "recognizedQuoteCollateralForBaseDebt",
+            "name": "utilizedQuoteCollateralForBaseDebt",
             "type": "u64"
           },
           {
@@ -10565,7 +10565,7 @@ export type Dusk = {
             "type": "u128"
           },
           {
-            "name": "recognizedCollateral",
+            "name": "utilizedCollateral",
             "type": "u64"
           },
           {

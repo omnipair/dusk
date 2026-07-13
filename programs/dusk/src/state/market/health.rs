@@ -27,7 +27,7 @@ impl Market {
         } else {
             health_bps(
                 self.quote_collateral_value_for_base_debt_nad_with_risk(
-                    self.debt.recognized_quote_collateral_for_base_debt,
+                    self.debt.utilized_quote_collateral_for_base_debt,
                     risk,
                 )?,
                 effective_base_debt_nad,
@@ -38,15 +38,15 @@ impl Market {
         } else {
             health_bps(
                 self.base_collateral_value_for_quote_debt_nad_with_risk(
-                    self.debt.recognized_base_collateral_for_quote_debt,
+                    self.debt.utilized_base_collateral_for_quote_debt,
                     risk,
                 )?,
                 effective_quote_debt_nad,
             )?
         };
         Ok(MarketHealth {
-            recognized_base_collateral_for_quote_debt: self.debt.recognized_base_collateral_for_quote_debt,
-            recognized_quote_collateral_for_base_debt: self.debt.recognized_quote_collateral_for_base_debt,
+            utilized_base_collateral_for_quote_debt: self.debt.utilized_base_collateral_for_quote_debt,
+            utilized_quote_collateral_for_base_debt: self.debt.utilized_quote_collateral_for_base_debt,
             effective_base_debt_nad,
             effective_quote_debt_nad,
             base_debt_health_bps,
@@ -157,13 +157,13 @@ impl Market {
         self.collateral_amount_for_debt_value_with_penalty(debt_asset, debt_amount, penalty_bps, &self.current_risk()?)
     }
 
-    pub fn debt_capped_recognized_collateral(
+    pub fn debt_capped_utilized_collateral(
         &self,
         borrow_position: &BorrowPosition,
         debt_asset: MarketAsset,
         risk: &Risk,
     ) -> Result<u64> {
-        let cap_bps = self.config.recognized_collateral_cap_bps as u128;
+        let cap_bps = self.config.utilized_collateral_cap_bps as u128;
         let (fixed_debt, debt_decimals, total_collateral) = match debt_asset {
             MarketAsset::Base => (
                 borrow_position.fixed_base_debt(&self.debt)?,
@@ -181,12 +181,12 @@ impl Market {
         }
 
         let debt_value_nad = normalize_to_nad(fixed_debt, debt_decimals)?;
-        let recognized_value_cap_nad = debt_value_nad
+        let utilized_value_cap_nad = debt_value_nad
             .checked_mul(cap_bps)
             .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let capped_collateral =
-            self.collateral_amount_for_debt_value_cap_with_risk(debt_asset, recognized_value_cap_nad, risk)?;
+            self.collateral_amount_for_debt_value_cap_with_risk(debt_asset, utilized_value_cap_nad, risk)?;
         Ok(total_collateral.min(capped_collateral))
     }
 
@@ -205,7 +205,7 @@ impl Market {
             MarketAsset::Base => health_bps(
                 self.collateral_value_nad(
                     MarketAsset::Quote,
-                    borrow_position.recognized_quote_collateral_for_base_debt,
+                    borrow_position.utilized_quote_collateral_for_base_debt,
                     risk,
                 )?,
                 normalize_to_nad(
@@ -216,7 +216,7 @@ impl Market {
             MarketAsset::Quote => health_bps(
                 self.collateral_value_nad(
                     MarketAsset::Base,
-                    borrow_position.recognized_base_collateral_for_quote_debt,
+                    borrow_position.utilized_base_collateral_for_quote_debt,
                     risk,
                 )?,
                 normalize_to_nad(
@@ -241,14 +241,14 @@ impl Market {
         Ok(())
     }
 
-    pub fn assert_recognition_cap(&self, borrow_position: &BorrowPosition, debt_asset: MarketAsset) -> Result<()> {
+    pub fn assert_utilization_cap(&self, borrow_position: &BorrowPosition, debt_asset: MarketAsset) -> Result<()> {
         let risk = self.current_risk()?;
-        let max_recognized = self.debt_capped_recognized_collateral(borrow_position, debt_asset, &risk)?;
-        let recognized = match debt_asset {
-            MarketAsset::Base => borrow_position.recognized_quote_collateral_for_base_debt,
-            MarketAsset::Quote => borrow_position.recognized_base_collateral_for_quote_debt,
+        let max_utilized = self.debt_capped_utilized_collateral(borrow_position, debt_asset, &risk)?;
+        let utilized = match debt_asset {
+            MarketAsset::Base => borrow_position.utilized_quote_collateral_for_base_debt,
+            MarketAsset::Quote => borrow_position.utilized_base_collateral_for_quote_debt,
         };
-        require_gte!(max_recognized, recognized, ErrorCode::InsufficientRecognizedCollateral);
+        require_gte!(max_utilized, utilized, ErrorCode::InsufficientUtilizedCollateral);
         Ok(())
     }
 

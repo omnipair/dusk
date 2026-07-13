@@ -215,7 +215,7 @@ function marketConfig() {
     maxDailyBorrowBps: 2_000,
     spotEmaDivergenceBps: 1_000,
     kEmaDrawdownBps: 1_000,
-    recognizedCollateralCapBps: 15_000,
+    utilizedCollateralCapBps: 15_000,
     marketHealthMinBps: 11_000,
     hedgedLpEnabled: true,
     startTime: new BN(0),
@@ -2540,7 +2540,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     let position = accountCoder.decode("BorrowPosition", Buffer.from(positionAccount!.data)) as any;
     expect(position.base_collateral.toNumber()).to.equal(10_000);
     expect(position.fixed_quote_shares.toNumber()).to.equal(5_000);
-    expect(position.recognized_base_collateral_for_quote_debt.toNumber()).to.be.greaterThan(0);
+    expect(position.utilized_base_collateral_for_quote_debt.toNumber()).to.be.greaterThan(0);
 
     const positionPreview = decodePreviewBorrowPositionReturnData(
       await simulateReturnData(
@@ -2617,7 +2617,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     position = accountCoder.decode("BorrowPosition", Buffer.from(positionAccount!.data)) as any;
     expect(position.base_collateral.toNumber()).to.equal(0);
     expect(position.fixed_quote_shares.toNumber()).to.equal(0);
-    expect(position.recognized_base_collateral_for_quote_debt.toNumber()).to.equal(0);
+    expect(position.utilized_base_collateral_for_quote_debt.toNumber()).to.equal(0);
 
     const decoded = accountCoder.decode(
       "Market",

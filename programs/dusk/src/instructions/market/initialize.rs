@@ -270,7 +270,7 @@ impl<'info> InitializeMarket<'info> {
             quote_borrow_index_nad: NAD as u128,
             base_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
             quote_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
-            last_recognition_slot: current_slot,
+            last_utilization_slot: current_slot,
             last_accrual_slot: current_slot,
             ..crate::state::Debt::default()
         };

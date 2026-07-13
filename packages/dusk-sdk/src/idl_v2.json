@@ -7863,8 +7863,8 @@
     },
     {
       "code": 6095,
-      "name": "InsufficientRecognizedCollateral",
-      "msg": "Recognized collateral is insufficient"
+      "name": "InsufficientUtilizedCollateral",
+      "msg": "Utilized collateral is insufficient"
     },
     {
       "code": 6096,
@@ -8154,7 +8154,7 @@
             "type": "u16"
           },
           {
-            "name": "recognized_collateral_cap_bps",
+            "name": "utilized_collateral_cap_bps",
             "type": "u16"
           },
           {
@@ -8198,11 +8198,11 @@
             "type": "u64"
           },
           {
-            "name": "recognized_base_collateral_for_quote_debt",
+            "name": "utilized_base_collateral_for_quote_debt",
             "type": "u64"
           },
           {
-            "name": "recognized_quote_collateral_for_base_debt",
+            "name": "utilized_quote_collateral_for_base_debt",
             "type": "u64"
           },
           {
@@ -8262,11 +8262,11 @@
             "type": "u64"
           },
           {
-            "name": "recognized_base_collateral_for_quote_debt",
+            "name": "utilized_base_collateral_for_quote_debt",
             "type": "u64"
           },
           {
-            "name": "recognized_quote_collateral_for_base_debt",
+            "name": "utilized_quote_collateral_for_base_debt",
             "type": "u64"
           },
           {
@@ -8406,15 +8406,15 @@
             "type": "u128"
           },
           {
-            "name": "recognized_base_collateral_for_quote_debt",
+            "name": "utilized_base_collateral_for_quote_debt",
             "type": "u64"
           },
           {
-            "name": "recognized_quote_collateral_for_base_debt",
+            "name": "utilized_quote_collateral_for_base_debt",
             "type": "u64"
           },
           {
-            "name": "last_recognition_slot",
+            "name": "last_utilization_slot",
             "type": "u64"
           },
           {
@@ -8440,7 +8440,7 @@
             "name": "isolated_base_shares",
             "docs": [
               "Aggregate isolated leverage debt. This debt contributes to utilization",
-              "and interest, but is intentionally not recognized as normal margin debt."
+              "and interest, but is intentionally not utilized as normal margin debt."
             ],
             "type": "u128"
           },
@@ -9962,7 +9962,7 @@
             "type": "u16"
           },
           {
-            "name": "recognized_collateral_cap_bps",
+            "name": "utilized_collateral_cap_bps",
             "type": "u16"
           },
           {
@@ -10223,11 +10223,11 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "recognized_base_collateral_for_quote_debt",
+            "name": "utilized_base_collateral_for_quote_debt",
             "type": "u64"
           },
           {
-            "name": "recognized_quote_collateral_for_base_debt",
+            "name": "utilized_quote_collateral_for_base_debt",
             "type": "u64"
           },
           {
@@ -10259,11 +10259,11 @@
             "type": "pubkey"
           },
           {
-            "name": "recognized_base_collateral_for_quote_debt",
+            "name": "utilized_base_collateral_for_quote_debt",
             "type": "u64"
           },
           {
-            "name": "recognized_quote_collateral_for_base_debt",
+            "name": "utilized_quote_collateral_for_base_debt",
             "type": "u64"
           },
           {
@@ -10559,7 +10559,7 @@
             "type": "u128"
           },
           {
-            "name": "recognized_collateral",
+            "name": "utilized_collateral",
             "type": "u64"
           },
           {

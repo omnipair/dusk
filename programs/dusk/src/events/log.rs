@@ -123,8 +123,8 @@ pub(crate) fn emit_hlp_rebalanced_low_heap(
 pub(crate) fn emit_market_health_updated_low_heap(
     market: Pubkey,
     signer: Pubkey,
-    recognized_base_collateral_for_quote_debt: u64,
-    recognized_quote_collateral_for_base_debt: u64,
+    utilized_base_collateral_for_quote_debt: u64,
+    utilized_quote_collateral_for_base_debt: u64,
     effective_base_debt_nad: u128,
     effective_quote_debt_nad: u128,
     base_debt_health_bps: u64,
@@ -139,9 +139,9 @@ pub(crate) fn emit_market_health_updated_low_heap(
     offset += 8;
     data[offset..offset + 32].copy_from_slice(market.as_ref());
     offset += 32;
-    data[offset..offset + 8].copy_from_slice(&recognized_base_collateral_for_quote_debt.to_le_bytes());
+    data[offset..offset + 8].copy_from_slice(&utilized_base_collateral_for_quote_debt.to_le_bytes());
     offset += 8;
-    data[offset..offset + 8].copy_from_slice(&recognized_quote_collateral_for_base_debt.to_le_bytes());
+    data[offset..offset + 8].copy_from_slice(&utilized_quote_collateral_for_base_debt.to_le_bytes());
     offset += 8;
     data[offset..offset + 16].copy_from_slice(&effective_base_debt_nad.to_le_bytes());
     offset += 16;

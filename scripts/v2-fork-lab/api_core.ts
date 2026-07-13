@@ -527,8 +527,8 @@ function defaultMarketConfig() {
     maxDailyBorrowBps: Number(duskEnv("MAX_DAILY_BORROW_BPS") ?? "2000"),
     spotEmaDivergenceBps: Number(duskEnv("SPOT_EMA_DIVERGENCE_BPS") ?? "1000"),
     kEmaDrawdownBps: Number(duskEnv("K_EMA_DRAWDOWN_BPS") ?? "1000"),
-    recognizedCollateralCapBps: Number(
-      duskEnv("RECOGNIZED_COLLATERAL_CAP_BPS") ?? "15000"
+    utilizedCollateralCapBps: Number(
+      duskEnv("UTILIZED_COLLATERAL_CAP_BPS") ?? "15000"
     ),
     marketHealthMinBps: Number(duskEnv("MARKET_HEALTH_MIN_BPS") ?? "11000"),
     startTime: toBN(duskEnv("MARKET_START_TIME") ?? "0"),
@@ -1206,18 +1206,18 @@ async function marketPayload(stored: StoredMarket) {
       quoteReserveYlpSupply: stringValue(field(field(quoteSide, "shares"), "ylpSupply", "ylp_supply")),
       fixedBaseDebt: stringValue(field(debt, "fixedBaseShares", "fixed_base_shares")),
       fixedQuoteDebt: stringValue(field(debt, "fixedQuoteShares", "fixed_quote_shares")),
-      recognizedBaseCollateralForQuoteDebt: stringValue(
+      utilizedBaseCollateralForQuoteDebt: stringValue(
         field(
           health,
-          "recognizedBaseCollateralForQuoteDebt",
-          "recognized_base_collateral_for_quote_debt"
+          "utilizedBaseCollateralForQuoteDebt",
+          "utilized_base_collateral_for_quote_debt"
         )
       ),
-      recognizedQuoteCollateralForBaseDebt: stringValue(
+      utilizedQuoteCollateralForBaseDebt: stringValue(
         field(
           health,
-          "recognizedQuoteCollateralForBaseDebt",
-          "recognized_quote_collateral_for_base_debt"
+          "utilizedQuoteCollateralForBaseDebt",
+          "utilized_quote_collateral_for_base_debt"
         )
       ),
       effectiveBaseDebtNad: stringValue(field(health, "effectiveBaseDebtNad", "effective_base_debt_nad")),
