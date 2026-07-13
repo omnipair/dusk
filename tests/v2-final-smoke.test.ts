@@ -208,7 +208,6 @@ function marketConfig() {
     protocolFeeBps: 0,
     targetHlpLeverageBps: 20_000,
     settlementDivergenceBps: 500,
-    emergencyExitHaircutBps: 250,
     emaHalfLifeMs: new BN(60_000),
     directionalEmaHalfLifeMs: new BN(60_000),
     kEmaHalfLifeMs: new BN(60_000),
@@ -316,7 +315,6 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       recipients: auctionRecipients,
       params: auctionParams,
       last_settlement_slot: new BN(0),
-      last_settlement_price_nad: new BN(0),
     };
     const data = await accountCoder.encode("FutarchyAuthority", {
       version: 1,

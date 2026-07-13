@@ -226,7 +226,6 @@ impl Liquidation {
             }
         }
 
-        borrow_position.record_risk_update()?;
         market.assert_virtual_reserve_invariant(MarketAsset::Base)?;
         market.assert_virtual_reserve_invariant(MarketAsset::Quote)?;
 

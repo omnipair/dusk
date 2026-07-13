@@ -131,7 +131,6 @@ pub struct ProtocolAuctionConfig {
     pub recipients: ProtocolAuctionRecipients,
     pub params: ProtocolAuctionParams,
     pub last_settlement_slot: u64,
-    pub last_settlement_price_nad: u64,
 }
 
 impl ProtocolAuctionConfig {
@@ -148,7 +147,6 @@ impl ProtocolAuctionConfig {
             recipients: ProtocolAuctionRecipients::treasury_only(treasury, staking_vault),
             params,
             last_settlement_slot: current_slot,
-            last_settlement_price_nad: 0,
         })
     }
 

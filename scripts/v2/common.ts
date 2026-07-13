@@ -512,7 +512,6 @@ export function defaultMarketConfig() {
     protocolFeeBps: Number(duskEnv("PROTOCOL_FEE_BPS", "0")),
     targetHlpLeverageBps: Number(duskEnv("TARGET_HLP_LEVERAGE_BPS", "20000")),
     settlementDivergenceBps: Number(duskEnv("SETTLEMENT_DIVERGENCE_BPS", "500")),
-    emergencyExitHaircutBps: Number(duskEnv("EMERGENCY_EXIT_HAIRCUT_BPS", "250")),
     emaHalfLifeMs: new anchor.BN(duskEnv("EMA_HALF_LIFE_MS", "60000")),
     directionalEmaHalfLifeMs: new anchor.BN(duskEnv("DIRECTIONAL_EMA_HALF_LIFE_MS", "60000")),
     kEmaHalfLifeMs: new anchor.BN(duskEnv("K_EMA_HALF_LIFE_MS", "60000")),

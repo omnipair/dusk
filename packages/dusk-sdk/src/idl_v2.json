@@ -8214,10 +8214,6 @@
             "type": "u128"
           },
           {
-            "name": "risk_epoch",
-            "type": "u64"
-          },
-          {
             "name": "auction_start_time",
             "type": "i64"
           },
@@ -8411,10 +8407,6 @@
           },
           {
             "name": "utilized_quote_collateral_for_base_debt",
-            "type": "u64"
-          },
-          {
-            "name": "last_utilization_slot",
             "type": "u64"
           },
           {
@@ -8928,10 +8920,6 @@
           {
             "name": "cached_settlement_price_nad",
             "type": "u128"
-          },
-          {
-            "name": "last_rebalance_slot",
-            "type": "u64"
           }
         ]
       }
@@ -9934,10 +9922,6 @@
             "type": "u16"
           },
           {
-            "name": "emergency_exit_haircut_bps",
-            "type": "u16"
-          },
-          {
             "name": "ema_half_life_ms",
             "type": "u64"
           },
@@ -10826,10 +10810,6 @@
           },
           {
             "name": "last_settlement_slot",
-            "type": "u64"
-          },
-          {
-            "name": "last_settlement_price_nad",
             "type": "u64"
           }
         ]

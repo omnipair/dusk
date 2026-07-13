@@ -124,14 +124,8 @@ impl<'info> SettleProtocolAuction<'info> {
         transfer_auction_payment(ctx.accounts, quote.treasury_amount, quote.staking_vault_amount)?;
         transfer_sold_fee(ctx.accounts, args.sold_amount)?;
         let sold_side = ctx.accounts.market.asset_for_mint(ctx.accounts.sold_mint.key())?;
-        let (remaining_fee_liability, remaining_buyback_liability) = settle_auction_state(
-            ctx.accounts,
-            args.lane,
-            sold_side,
-            args.sold_amount,
-            quote.current_slot,
-            quote.auction_price_nad,
-        )?;
+        let (remaining_fee_liability, remaining_buyback_liability) =
+            settle_auction_state(ctx.accounts, args.lane, sold_side, args.sold_amount, quote.current_slot)?;
         emit_auction_settled(
             &ctx,
             &args,
@@ -287,7 +281,6 @@ fn settle_auction_state<'info>(
     side: MarketAsset,
     sold_amount: u64,
     current_slot: u64,
-    auction_price_nad: u64,
 ) -> Result<(u64, u64)> {
     accounts.sold_fee_vault.reload()?;
     let market_side = accounts.market.side_mut(side)?;
@@ -299,7 +292,6 @@ fn settle_auction_state<'info>(
 
     let auction = accounts.futarchy_authority.auction_config_mut(lane);
     auction.last_settlement_slot = current_slot;
-    auction.last_settlement_price_nad = auction_price_nad;
     Ok((remaining_fee_liability, remaining_buyback_liability))
 }
 

@@ -126,12 +126,8 @@ impl<'info> Swap<'info> {
         let reserve_credit = input_credit(&ctx, args.exact_asset_in)?;
         let charged_input = charge_fee(&mut ctx, reserve_credit)?;
         let current_slot = Clock::get()?.slot;
-        let pre_quote_rebalance = maybe_rebalance_hlp_before_quote(
-            &mut ctx.accounts.market,
-            asset_in,
-            charged_input.amount_in_after_fee,
-            current_slot,
-        )?;
+        let pre_quote_rebalance =
+            maybe_rebalance_hlp_before_quote(&mut ctx.accounts.market, asset_in, charged_input.amount_in_after_fee)?;
         let amount_out = quote(&ctx.accounts.market, asset_in, charged_input.amount_in_after_fee)?;
 
         let swap_receipt = record_swap(
@@ -143,12 +139,8 @@ impl<'info> Swap<'info> {
             pre_quote_rebalance.fee_eligible_ylp_supply,
         )?;
 
-        let rebalance = maybe_rebalance_hlp_after_swap(
-            &mut ctx.accounts.market,
-            asset_in,
-            pre_quote_rebalance.receipts,
-            current_slot,
-        )?;
+        let rebalance =
+            maybe_rebalance_hlp_after_swap(&mut ctx.accounts.market, asset_in, pre_quote_rebalance.receipts)?;
         validate_hlp_rebalance_accounts(&ctx.accounts.market, &rebalance, ctx.remaining_accounts)?;
         let received_credit = receive_input(&mut ctx, args.exact_asset_in)?;
         require_eq!(received_credit, reserve_credit, ErrorCode::BrokenInvariant);
@@ -278,9 +270,8 @@ fn maybe_rebalance_hlp_before_quote(
     market: &mut Market,
     asset_in: MarketAsset,
     amount_in_after_fee: u64,
-    current_slot: u64,
 ) -> Result<PreQuoteHlpRebalance> {
-    let (base, quote) = market.pre_solve_hlp_vaults_for_swap(asset_in, amount_in_after_fee, current_slot)?;
+    let (base, quote) = market.pre_solve_hlp_vaults_for_swap(asset_in, amount_in_after_fee)?;
     let pre_solve_ylp_mint_amount = base
         .ylp_mint_amount
         .checked_add(quote.ylp_mint_amount)
@@ -361,11 +352,9 @@ fn maybe_rebalance_hlp_after_swap(
     market: &mut Market,
     preferred_asset: MarketAsset,
     pre_rebalance: HlpRebalancePair,
-    current_slot: u64,
 ) -> Result<HlpRebalancePair> {
     checkpoint_hlp_pre_solve_fee_eligibility(market, &pre_rebalance.base, &pre_rebalance.quote)?;
-    let (base_post_rebalance, quote_post_rebalance) =
-        market.rebalance_hlp_vault_for_swap(preferred_asset, current_slot)?;
+    let (base_post_rebalance, quote_post_rebalance) = market.rebalance_hlp_vault_for_swap(preferred_asset)?;
     Ok(HlpRebalancePair::new(
         combine_hlp_rebalance_receipts(pre_rebalance.base, base_post_rebalance)?,
         combine_hlp_rebalance_receipts(pre_rebalance.quote, quote_post_rebalance)?,

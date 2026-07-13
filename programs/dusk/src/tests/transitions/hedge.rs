@@ -14,7 +14,6 @@ use super::*;
             protocol_fee_bps: 0,
             target_hlp_leverage_bps: BPS_DENOMINATOR * 2,
             settlement_divergence_bps: 500,
-            emergency_exit_haircut_bps: 250,
             ema_half_life_ms: 60_000,
             directional_ema_half_life_ms: 60_000,
             k_ema_half_life_ms: 60_000,
@@ -49,9 +48,9 @@ use super::*;
         quote_side.shares.ylp_supply = 1_000;
 
         let mut base_hlp_vault = HlpVault::default();
-        base_hlp_vault.initialize(MarketAsset::Base, Pubkey::new_unique(), 0);
+        base_hlp_vault.initialize(MarketAsset::Base, Pubkey::new_unique());
         let mut quote_hlp_vault = HlpVault::default();
-        quote_hlp_vault.initialize(MarketAsset::Quote, Pubkey::new_unique(), 0);
+        quote_hlp_vault.initialize(MarketAsset::Quote, Pubkey::new_unique());
 
         Market {
             version: MARKET_VERSION,
@@ -346,9 +345,7 @@ use super::*;
             .assert_virtual_reserve_invariant(MarketAsset::Quote)
             .unwrap();
 
-        checkpoint_hlp_vaults(&mut market, 42).unwrap();
-
-        assert_eq!(market.base_hlp_vault.last_rebalance_slot, 42);
+        checkpoint_hlp_vaults(&mut market).unwrap();
         assert_eq!(
             market.base_hlp_vault.cached_settlement_price_nad,
             current_settlement_price_nad(&market, MarketAsset::Base).unwrap()
@@ -477,10 +474,9 @@ use super::*;
         market: &mut Market,
         asset_in: MarketAsset,
         amount_in_after_fee: u64,
-        current_slot: u64,
     ) -> TestCompositeSwapReceipt {
         let (base_pre_rebalance, quote_pre_rebalance) =
-            pre_solve_hlp_vaults_for_swap(market, asset_in, amount_in_after_fee, current_slot)
+            pre_solve_hlp_vaults_for_swap(market, asset_in, amount_in_after_fee)
                 .unwrap();
         let pre_solve_ylp_mint_amount = base_pre_rebalance
             .ylp_mint_amount
@@ -515,7 +511,7 @@ use super::*;
         checkpoint_test_pre_solve_fee_eligibility(market, &base_pre_rebalance);
         checkpoint_test_pre_solve_fee_eligibility(market, &quote_pre_rebalance);
         let (base_post_rebalance, quote_post_rebalance) =
-            rebalance_hlp_vaults(market, current_slot).unwrap();
+            rebalance_hlp_vaults(market).unwrap();
         assert_market_hlp_invariants(market);
         TestCompositeSwapReceipt {
             amount_out,
@@ -609,7 +605,7 @@ use super::*;
 
             let price_before =
                 market_spot_price_nad(&market.base_side, &market.quote_side).unwrap();
-            let (base_receipt, quote_receipt) = rebalance_hlp_vaults(&mut market, 99).unwrap();
+            let (base_receipt, quote_receipt) = rebalance_hlp_vaults(&mut market).unwrap();
             let price_after =
                 market_spot_price_nad(&market.base_side, &market.quote_side).unwrap();
 
@@ -648,7 +644,7 @@ use super::*;
         let debt_before = market.base_hlp_vault.debt_shares;
         let principal_before = market.base_hlp_vault.debt_principal;
 
-        let (base_receipt, _) = rebalance_hlp_vaults(&mut market, 43).unwrap();
+        let (base_receipt, _) = rebalance_hlp_vaults(&mut market).unwrap();
 
         assert!(base_receipt.ideal_delta > 0);
         assert!(base_receipt.executed_delta > 0);
@@ -659,7 +655,6 @@ use super::*;
         assert!(market.base_hlp_vault.debt_principal > principal_before);
         assert!(market.base_hlp_vault.base_hlp_live_reserve > 0);
         assert!(market.base_hlp_vault.quote_hlp_live_reserve > 200);
-        assert_eq!(market.base_hlp_vault.last_rebalance_slot, 43);
         assert_eq!(
             market.base_hlp_vault.pending_rebalance,
             base_receipt.pending_rebalance
@@ -685,7 +680,7 @@ use super::*;
             .assert_virtual_reserve_invariant(MarketAsset::Quote)
             .unwrap();
 
-        let (base_receipt, _) = rebalance_hlp_vaults(&mut market, 43).unwrap();
+        let (base_receipt, _) = rebalance_hlp_vaults(&mut market).unwrap();
 
         assert!(base_receipt.ylp_mint_amount > 0);
         assert!(market.base_hlp_vault.base_hlp_live_reserve > 0);
@@ -725,7 +720,7 @@ use super::*;
         let ideal_before = current_hlp_ideal_delta(&market, MarketAsset::Base).unwrap();
         assert!(ideal_before > 0);
 
-        let (base_receipt, _) = rebalance_hlp_vaults(&mut market, 47).unwrap();
+        let (base_receipt, _) = rebalance_hlp_vaults(&mut market).unwrap();
 
         assert!(base_receipt.executed_delta > 0);
         assert!(base_receipt.executed_delta < ideal_before);
@@ -759,7 +754,7 @@ use super::*;
         let ideal_before = current_hlp_ideal_delta(&market, MarketAsset::Base).unwrap();
         assert!(ideal_before > 0);
 
-        let (base_receipt, _) = rebalance_hlp_vaults(&mut market, 48).unwrap();
+        let (base_receipt, _) = rebalance_hlp_vaults(&mut market).unwrap();
 
         assert_eq!(base_receipt.executed_delta, 0);
         assert_eq!(base_receipt.pending_rebalance, ideal_before);
@@ -788,7 +783,7 @@ use super::*;
         let debt_before = market.base_hlp_vault.debt_shares;
         let principal_before = market.base_hlp_vault.debt_principal;
 
-        let (base_receipt, _) = rebalance_hlp_vaults(&mut market, 44).unwrap();
+        let (base_receipt, _) = rebalance_hlp_vaults(&mut market).unwrap();
 
         assert!(base_receipt.ideal_delta < 0);
         assert!(base_receipt.executed_delta < 0);
@@ -797,7 +792,6 @@ use super::*;
         assert!(market.base_hlp_vault.ylp_shares < ylp_before);
         assert!(market.base_hlp_vault.debt_shares < debt_before);
         assert!(market.base_hlp_vault.debt_principal < principal_before);
-        assert_eq!(market.base_hlp_vault.last_rebalance_slot, 44);
         assert_eq!(
             market.base_hlp_vault.pending_rebalance,
             base_receipt.pending_rebalance
@@ -826,7 +820,7 @@ use super::*;
         let quote_cash_before = market.quote_side.reserves.cash_reserve;
         let principal_before = market.base_hlp_vault.debt_principal;
 
-        let (base_receipt, _) = rebalance_hlp_vaults(&mut market, 44).unwrap();
+        let (base_receipt, _) = rebalance_hlp_vaults(&mut market).unwrap();
 
         assert!(base_receipt.executed_delta < 0);
         let principal_repaid = principal_before
@@ -868,7 +862,7 @@ use super::*;
         let debt_before = market.quote_hlp_vault.debt_shares;
         let principal_before = market.quote_hlp_vault.debt_principal;
 
-        let (_, quote_receipt) = rebalance_hlp_vaults(&mut market, 45).unwrap();
+        let (_, quote_receipt) = rebalance_hlp_vaults(&mut market).unwrap();
 
         assert!(quote_receipt.ideal_delta > 0);
         assert!(quote_receipt.executed_delta > 0);
@@ -876,7 +870,6 @@ use super::*;
         assert!(market.quote_hlp_vault.ylp_shares > ylp_before);
         assert!(market.quote_hlp_vault.debt_shares > debt_before);
         assert!(market.quote_hlp_vault.debt_principal > principal_before);
-        assert_eq!(market.quote_hlp_vault.last_rebalance_slot, 45);
         market
             .assert_virtual_reserve_invariant(MarketAsset::Base)
             .unwrap();
@@ -927,7 +920,7 @@ use super::*;
         let base_liquidity_before = market.base_side.reserves.live_reserve;
         let quote_liquidity_before = market.quote_side.reserves.live_reserve;
 
-        let (base_receipt, quote_receipt) = rebalance_hlp_vaults(&mut market, 46).unwrap();
+        let (base_receipt, quote_receipt) = rebalance_hlp_vaults(&mut market).unwrap();
 
         assert!(
             base_receipt.executed_delta != 0 || quote_receipt.executed_delta != 0,
@@ -962,7 +955,7 @@ use super::*;
             .unwrap();
 
         let (base_receipt, quote_receipt) =
-            pre_solve_hlp_vaults_for_swap(&mut market, MarketAsset::Base, 1, 50).unwrap();
+            pre_solve_hlp_vaults_for_swap(&mut market, MarketAsset::Base, 1).unwrap();
 
         assert_eq!(base_receipt.executed_delta, 0);
         assert_eq!(quote_receipt.executed_delta, 0);
@@ -996,7 +989,6 @@ use super::*;
             &mut market,
             MarketAsset::Base,
             amount_in_after_fee,
-            51,
         )
         .unwrap();
 
@@ -1034,7 +1026,6 @@ use super::*;
             &mut market,
             MarketAsset::Base,
             amount_in_after_fee,
-            53,
         )
         .unwrap();
 
@@ -1067,13 +1058,11 @@ use super::*;
             &mut quoted_market,
             MarketAsset::Base,
             amount_in_after_fee,
-            54,
         );
         let executed = apply_test_composite_swap(
             &mut executed_market,
             MarketAsset::Base,
             amount_in_after_fee,
-            54,
         );
 
         assert_eq!(quoted.amount_out, executed.amount_out);
@@ -1107,9 +1096,9 @@ use super::*;
         let quote_hlp_deposit = 200_000;
 
         let first_swap =
-            apply_test_composite_swap(&mut market, MarketAsset::Base, 350_000, 55);
+            apply_test_composite_swap(&mut market, MarketAsset::Base, 350_000);
         let _second_swap =
-            apply_test_composite_swap(&mut market, MarketAsset::Quote, first_swap.amount_out, 56);
+            apply_test_composite_swap(&mut market, MarketAsset::Quote, first_swap.amount_out);
 
         let base_hlp_supply = market.base_hlp_vault.hlp_supply;
         let quote_hlp_supply = market.quote_hlp_vault.hlp_supply;
@@ -1188,7 +1177,6 @@ use super::*;
             &mut market,
             MarketAsset::Base,
             amount_in_after_fee,
-            52,
         )
         .unwrap();
         assert_eq!(base_receipt.ylp_mint_amount, 0);

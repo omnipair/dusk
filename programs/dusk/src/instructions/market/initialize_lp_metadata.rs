@@ -177,7 +177,6 @@ mod tests {
             protocol_fee_bps: 0,
             target_hlp_leverage_bps: BPS_DENOMINATOR * 2,
             settlement_divergence_bps: 500,
-            emergency_exit_haircut_bps: 250,
             ema_half_life_ms: MIN_HALF_LIFE_MS,
             directional_ema_half_life_ms: MIN_HALF_LIFE_MS,
             k_ema_half_life_ms: MIN_HALF_LIFE_MS,

@@ -518,7 +518,6 @@ function defaultMarketConfig() {
     protocolFeeBps: Number(duskEnv("PROTOCOL_FEE_BPS") ?? "0"),
     targetHlpLeverageBps: Number(duskEnv("TARGET_HLP_LEVERAGE_BPS") ?? "20000"),
     settlementDivergenceBps: Number(duskEnv("SETTLEMENT_DIVERGENCE_BPS") ?? "500"),
-    emergencyExitHaircutBps: Number(duskEnv("EMERGENCY_EXIT_HAIRCUT_BPS") ?? "250"),
     emaHalfLifeMs: toBN(duskEnv("EMA_HALF_LIFE_MS") ?? "60000"),
     directionalEmaHalfLifeMs: toBN(
       duskEnv("DIRECTIONAL_EMA_HALF_LIFE_MS") ?? "60000"

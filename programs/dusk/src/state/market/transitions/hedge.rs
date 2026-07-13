@@ -86,7 +86,7 @@ impl DepositSingleSided {
             MarketAsset::Quote => deposit_quote_hlp(market, self.deposit_amount, borrowed_amount)?,
         };
         require_gte!(hlp_amount, self.min_hlp_amount, ErrorCode::SlippageExceeded);
-        let health = market.refresh_market_health()?;
+        let health = market.market_health()?;
         market.assert_market_health_snapshot(&health)?;
         market.assert_virtual_reserve_invariant(MarketAsset::Base)?;
         market.assert_virtual_reserve_invariant(MarketAsset::Quote)?;
@@ -126,15 +126,14 @@ impl WithdrawSingleSided {
     }
 }
 
-pub(in crate::state::market) fn checkpoint_hlp_vaults(market: &mut Market, current_slot: u64) -> Result<(i128, i128)> {
-    let base_delta = checkpoint_one_hlp(market, MarketAsset::Base, current_slot)?;
-    let quote_delta = checkpoint_one_hlp(market, MarketAsset::Quote, current_slot)?;
+pub(in crate::state::market) fn checkpoint_hlp_vaults(market: &mut Market) -> Result<(i128, i128)> {
+    let base_delta = checkpoint_one_hlp(market, MarketAsset::Base)?;
+    let quote_delta = checkpoint_one_hlp(market, MarketAsset::Quote)?;
     Ok((base_delta, quote_delta))
 }
 
 pub(in crate::state::market) fn rebalance_hlp_vaults(
     market: &mut Market,
-    current_slot: u64,
 ) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
     if market.base_hlp_vault.hlp_supply == 0
         && market.base_hlp_vault.pending_rebalance == 0
@@ -147,12 +146,12 @@ pub(in crate::state::market) fn rebalance_hlp_vaults(
         ));
     }
     let base_receipt = if market.base_hlp_vault.hlp_supply > 0 || market.base_hlp_vault.pending_rebalance != 0 {
-        rebalance_one_hlp(market, MarketAsset::Base, current_slot)?
+        rebalance_one_hlp(market, MarketAsset::Base)?
     } else {
         empty_hlp_rebalance_receipt(MarketAsset::Base)
     };
     let quote_receipt = if market.quote_hlp_vault.hlp_supply > 0 || market.quote_hlp_vault.pending_rebalance != 0 {
-        rebalance_one_hlp(market, MarketAsset::Quote, current_slot)?
+        rebalance_one_hlp(market, MarketAsset::Quote)?
     } else {
         empty_hlp_rebalance_receipt(MarketAsset::Quote)
     };
@@ -162,7 +161,6 @@ pub(in crate::state::market) fn rebalance_hlp_vaults(
 pub(in crate::state::market) fn rebalance_hlp_vault_for_swap(
     market: &mut Market,
     preferred_asset: MarketAsset,
-    current_slot: u64,
 ) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
     // Keep swap-triggered hLP rebalancing bounded for SBF heap: one vault per swap.
     let base_needed = hlp_rebalance_needed(market, MarketAsset::Base);
@@ -178,7 +176,7 @@ pub(in crate::state::market) fn rebalance_hlp_vault_for_swap(
     } else {
         preferred_asset.opposite()
     };
-    let receipt = rebalance_one_hlp(market, target_asset, current_slot)?;
+    let receipt = rebalance_one_hlp(market, target_asset)?;
     match target_asset {
         MarketAsset::Base => Ok((receipt, empty_hlp_rebalance_receipt(MarketAsset::Quote))),
         MarketAsset::Quote => Ok((empty_hlp_rebalance_receipt(MarketAsset::Base), receipt)),
@@ -189,7 +187,6 @@ pub(in crate::state::market) fn pre_solve_hlp_vaults_for_swap(
     market: &mut Market,
     asset_in: MarketAsset,
     amount_in_after_fee: u64,
-    current_slot: u64,
 ) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
     if amount_in_after_fee == 0 {
         return Ok((
@@ -198,10 +195,8 @@ pub(in crate::state::market) fn pre_solve_hlp_vaults_for_swap(
         ));
     }
 
-    let base_receipt =
-        pre_solve_one_hlp_for_swap(market, MarketAsset::Base, asset_in, amount_in_after_fee, current_slot)?;
-    let quote_receipt =
-        pre_solve_one_hlp_for_swap(market, MarketAsset::Quote, asset_in, amount_in_after_fee, current_slot)?;
+    let base_receipt = pre_solve_one_hlp_for_swap(market, MarketAsset::Base, asset_in, amount_in_after_fee)?;
+    let quote_receipt = pre_solve_one_hlp_for_swap(market, MarketAsset::Quote, asset_in, amount_in_after_fee)?;
     Ok((base_receipt, quote_receipt))
 }
 
@@ -210,7 +205,6 @@ fn pre_solve_one_hlp_for_swap(
     target_asset: MarketAsset,
     asset_in: MarketAsset,
     amount_in_after_fee: u64,
-    current_slot: u64,
 ) -> Result<HlpRebalanceReceipt> {
     if !hlp_rebalance_needed(market, target_asset) {
         return Ok(empty_hlp_rebalance_receipt(target_asset));
@@ -271,7 +265,7 @@ fn pre_solve_one_hlp_for_swap(
         nav_nad: valuation.nav_nad,
         ..receipt
     };
-    refresh_hlp_after_rebalance(market, target_asset, current_slot, receipt)
+    refresh_hlp_after_rebalance(market, target_asset, receipt)
 }
 
 fn solve_pre_adjustment_nad(
@@ -833,7 +827,7 @@ fn settled_close_target_amount(
         .ok_or(ErrorCode::MarketMathOverflow.into())
 }
 
-fn rebalance_one_hlp(market: &mut Market, target_asset: MarketAsset, current_slot: u64) -> Result<HlpRebalanceReceipt> {
+fn rebalance_one_hlp(market: &mut Market, target_asset: MarketAsset) -> Result<HlpRebalanceReceipt> {
     checkpoint_hlp_yield_from_ylp(market, target_asset)?;
     let valuation = current_hlp_valuation(market, target_asset)?;
     let ideal_delta = valuation.ideal_delta;
@@ -851,7 +845,7 @@ fn rebalance_one_hlp(market: &mut Market, target_asset: MarketAsset, current_slo
         nav_nad: valuation.nav_nad,
         ..receipt
     };
-    refresh_hlp_after_rebalance(market, target_asset, current_slot, receipt)
+    refresh_hlp_after_rebalance(market, target_asset, receipt)
 }
 
 #[cfg(test)]
@@ -1106,7 +1100,6 @@ fn feasible_deleverage_target_amount(
 fn refresh_hlp_after_rebalance(
     market: &mut Market,
     target_asset: MarketAsset,
-    current_slot: u64,
     mut receipt: HlpRebalanceReceipt,
 ) -> Result<HlpRebalanceReceipt> {
     let nav = if receipt.nav_nad > 0 {
@@ -1126,7 +1119,6 @@ fn refresh_hlp_after_rebalance(
     vault.last_nav_nad = nav;
     vault.pending_rebalance = pending_rebalance;
     vault.cached_settlement_price_nad = settlement_price;
-    vault.last_rebalance_slot = current_slot;
     receipt.pending_rebalance = pending_rebalance;
     receipt.nav_nad = nav;
     market.assert_virtual_reserve_invariant(MarketAsset::Base)?;
@@ -1175,7 +1167,7 @@ fn require_hlp_borrow_headroom(side: &crate::state::MarketSide, amount: u64) -> 
     Ok(())
 }
 
-fn checkpoint_one_hlp(market: &mut Market, target_asset: MarketAsset, current_slot: u64) -> Result<i128> {
+fn checkpoint_one_hlp(market: &mut Market, target_asset: MarketAsset) -> Result<i128> {
     checkpoint_hlp_yield_from_ylp(market, target_asset)?;
     let nav = hlp_nav_nad(market, target_asset)?;
     let settlement_price = current_settlement_price_nad(market, target_asset)?;
@@ -1197,7 +1189,6 @@ fn checkpoint_one_hlp(market: &mut Market, target_asset: MarketAsset, current_sl
     vault.last_nav_nad = nav;
     vault.pending_rebalance = ideal_delta;
     vault.cached_settlement_price_nad = settlement_price;
-    vault.last_rebalance_slot = current_slot;
     Ok(ideal_delta)
 }
 

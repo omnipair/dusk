@@ -12,7 +12,6 @@ pub struct Debt {
     pub quote_rate_at_target_nad: u128,
     pub utilized_base_collateral_for_quote_debt: u64,
     pub utilized_quote_collateral_for_base_debt: u64,
-    pub last_utilization_slot: u64,
     pub last_accrual_slot: u64,
     // Debt tracking (r_debt)
     /// Aggregate outstanding *principal* (borrowed token amount, excluding

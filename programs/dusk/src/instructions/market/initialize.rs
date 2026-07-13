@@ -270,20 +270,19 @@ impl<'info> InitializeMarket<'info> {
             quote_borrow_index_nad: NAD as u128,
             base_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
             quote_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
-            last_utilization_slot: current_slot,
             last_accrual_slot: current_slot,
             ..crate::state::Debt::default()
         };
         market.base_hlp_vault = {
             let mut vault = HlpVault::default();
             let ylp_vault = derive_hlp_ylp_vault(market_key, base_hlp_mint, ylp_mint);
-            vault.initialize(MarketAsset::Base, ylp_vault, current_slot);
+            vault.initialize(MarketAsset::Base, ylp_vault);
             vault
         };
         market.quote_hlp_vault = {
             let mut vault = HlpVault::default();
             let ylp_vault = derive_hlp_ylp_vault(market_key, quote_hlp_mint, ylp_mint);
-            vault.initialize(MarketAsset::Quote, ylp_vault, current_slot);
+            vault.initialize(MarketAsset::Quote, ylp_vault);
             vault
         };
         market.risk = crate::state::Risk {

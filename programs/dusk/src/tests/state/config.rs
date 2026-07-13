@@ -7,7 +7,6 @@ use super::*;
             protocol_fee_bps: 0,
             target_hlp_leverage_bps: 20_000,
             settlement_divergence_bps: 500,
-            emergency_exit_haircut_bps: 250,
             ema_half_life_ms: 60_000,
             directional_ema_half_life_ms: 60_000,
             k_ema_half_life_ms: 60_000,

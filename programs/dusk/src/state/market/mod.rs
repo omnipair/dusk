@@ -209,18 +209,17 @@ impl Market {
                 quote_borrow_index_nad: NAD as u128,
                 base_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
                 quote_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
-                last_utilization_slot: current_slot,
                 last_accrual_slot: current_slot,
                 ..Debt::default()
             },
             base_hlp_vault: {
                 let mut vault = HlpVault::default();
-                vault.initialize(MarketAsset::Base, base_hlp_ylp_vault, current_slot);
+                vault.initialize(MarketAsset::Base, base_hlp_ylp_vault);
                 vault
             },
             quote_hlp_vault: {
                 let mut vault = HlpVault::default();
-                vault.initialize(MarketAsset::Quote, quote_hlp_ylp_vault, current_slot);
+                vault.initialize(MarketAsset::Quote, quote_hlp_ylp_vault);
                 vault
             },
             risk: Risk {
@@ -271,7 +270,7 @@ impl Market {
         let current_slot = Clock::get()?.slot;
         self.accrue_interest_to_slot(current_slot)?;
         if self.base_side.reserves.live_reserve > 0 && self.quote_side.reserves.live_reserve > 0 {
-            self.checkpoint_hlp_vaults(current_slot)?;
+            self.checkpoint_hlp_vaults()?;
             self.refresh_risk()?;
         }
         Ok(())
@@ -467,7 +466,6 @@ impl Market {
                     .ok_or(ErrorCode::MarketMathOverflow)?;
             }
         }
-        borrow_position.record_risk_update()?;
         self.refresh_risk()?;
         self.assert_risk_circuit_breakers()?;
 
@@ -542,7 +540,6 @@ impl Market {
         // path again, which is heap-expensive in SBF.
         let health = self.position_health_bps_with_risk(borrow_position, borrow_asset, &self.risk)?;
         require_gte!(health, min_health_bps, ErrorCode::InsufficientMarketHealth);
-        borrow_position.record_risk_update()?;
         DebtReceipt::from_market(self, debt_delta, 0, &market_health)
     }
 
@@ -682,7 +679,6 @@ impl Market {
             }
         };
         let debt_delta = -i64::try_from(debt_reduction).map_err(|_| ErrorCode::Overflow)?;
-        borrow_position.record_risk_update()?;
         self.refresh_risk()?;
         self.assert_risk_circuit_breakers()?;
         let market_health = self.market_health()?;
@@ -1105,8 +1101,6 @@ fn sync_borrow_utilization(
     debt_asset: MarketAsset,
     risk: &Risk,
 ) -> Result<()> {
-    let utilization_slot = Clock::get().map(|clock| clock.slot).unwrap_or(market.last_update_slot);
-
     match debt_asset {
         MarketAsset::Base => {
             let old_utilized = borrow_position.utilized_quote_collateral_for_base_debt;
@@ -1130,7 +1124,6 @@ fn sync_borrow_utilization(
         }
     }
 
-    market.debt.last_utilization_slot = utilization_slot;
     Ok(())
 }
 

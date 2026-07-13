@@ -8220,10 +8220,6 @@ export type Dusk = {
             "type": "u128"
           },
           {
-            "name": "riskEpoch",
-            "type": "u64"
-          },
-          {
             "name": "auctionStartTime",
             "type": "i64"
           },
@@ -8417,10 +8413,6 @@ export type Dusk = {
           },
           {
             "name": "utilizedQuoteCollateralForBaseDebt",
-            "type": "u64"
-          },
-          {
-            "name": "lastUtilizationSlot",
             "type": "u64"
           },
           {
@@ -8934,10 +8926,6 @@ export type Dusk = {
           {
             "name": "cachedSettlementPriceNad",
             "type": "u128"
-          },
-          {
-            "name": "lastRebalanceSlot",
-            "type": "u64"
           }
         ]
       }
@@ -9940,10 +9928,6 @@ export type Dusk = {
             "type": "u16"
           },
           {
-            "name": "emergencyExitHaircutBps",
-            "type": "u16"
-          },
-          {
             "name": "emaHalfLifeMs",
             "type": "u64"
           },
@@ -10832,10 +10816,6 @@ export type Dusk = {
           },
           {
             "name": "lastSettlementSlot",
-            "type": "u64"
-          },
-          {
-            "name": "lastSettlementPriceNad",
             "type": "u64"
           }
         ]
