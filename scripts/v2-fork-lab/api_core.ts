@@ -273,6 +273,14 @@ function deriveBorrowPosition(market: PublicKey, positionId: PublicKey): PublicK
   return pda(seed("borrow_position_v2"), market.toBuffer(), positionId.toBuffer());
 }
 
+function deriveLeveragePosition(market: PublicKey, positionId: PublicKey): PublicKey {
+  return pda(seed("leverage_position_v2"), market.toBuffer(), positionId.toBuffer());
+}
+
+function deriveLeverageCollateralVault(market: PublicKey, collateralMint: PublicKey): PublicKey {
+  return pda(seed("leverage_collateral"), market.toBuffer(), collateralMint.toBuffer());
+}
+
 function optionalPublicKey(value: unknown): PublicKey | null {
   if (value == null || value === "") return null;
   return new PublicKey(String(value));
@@ -1550,6 +1558,7 @@ async function buildRepayTx(params: {
         owner: params.owner,
         debtAssetMint: isBase ? m.baseMint : m.quoteMint,
         reserveVault: isBase ? m.baseReserveVault : m.quoteReserveVault,
+        interestVault: isBase ? m.baseInterestVault : m.quoteInterestVault,
         ownerDebtAccount: ownerDebt,
         borrowPosition: deriveBorrowPosition(m.market, params.positionId),
         tokenProgram: TOKEN_PROGRAM_ID,
