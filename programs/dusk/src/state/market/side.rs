@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use super::{DailyLimits, Fees, ReserveShares, Reserves};
+use super::{DailyLimits, Fees, ReserveShares};
 use crate::{
     constants::{BPS_DENOMINATOR, NAD},
     errors::ErrorCode,
@@ -30,6 +30,15 @@ pub struct YieldClaimReceipt {
     pub interest_amount: u64,
     pub remaining_swap_fee_liability: u64,
     pub remaining_interest_liability: u64,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
+pub struct Reserves {
+    // Virtual Reserves (r_virtual = r_cash + r_cash_backed_debt + r_hlp_live)
+    pub live_reserve: u64,
+    // Cash Reserves (r_cash)
+    pub cash_reserve: u64,
+    pub reserved_liability: u64,
 }
 
 impl FeesReceipt {

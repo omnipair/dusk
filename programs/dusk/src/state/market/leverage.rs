@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 
-use super::{FeesReceipt, Market, MarketAsset, ProtocolAuctionSplit};
+use super::{FeesReceipt, Market, MarketAsset};
+use crate::state::ProtocolAuctionSplit;
 use crate::{
     constants::{
         BPS_DENOMINATOR, LEVERAGE_INITIAL_MARGIN_BPS, LEVERAGE_MAINTENANCE_BUFFER_BPS, LEVERAGE_MAX_MULTIPLIER_BPS,
