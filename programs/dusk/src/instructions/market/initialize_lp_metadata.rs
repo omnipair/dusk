@@ -214,20 +214,24 @@ mod tests {
             hlp_mint: quote_hlp_mint,
             ..MarketSide::default()
         };
-        let market = Market::initialize(
-            ylp_mint,
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            base_side,
-            quote_side,
-            valid_config(),
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            [7; 32],
-            1,
-            255,
-        )
-        .unwrap();
+        let mut market = Market::default();
+        market
+            .initialize(
+                ylp_mint,
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+                base_side,
+                quote_side,
+                valid_config(),
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+                [7; 32],
+                1,
+                255,
+            )
+            .unwrap();
         MetadataMarketFixture {
             market,
             ylp_mint,

@@ -132,7 +132,7 @@ impl PendingConfigChange {
 }
 
 #[account]
-#[derive(InitSpace)]
+#[derive(InitSpace, Default)]
 pub struct Market {
     pub version: u8,
     pub ylp_mint: Pubkey,
@@ -158,6 +158,7 @@ pub struct Market {
 impl Market {
     #[allow(clippy::too_many_arguments)]
     pub fn initialize(
+        &mut self,
         ylp_mint: Pubkey,
         operator: Pubkey,
         manager: Pubkey,
@@ -166,54 +167,59 @@ impl Market {
         config: MarketConfig,
         base_hlp_ylp_vault: Pubkey,
         quote_hlp_ylp_vault: Pubkey,
+        base_insurance_vault: Pubkey,
+        quote_insurance_vault: Pubkey,
         params_hash: [u8; 32],
         current_slot: u64,
         bump: u8,
-    ) -> Result<Self> {
+    ) -> Result<()> {
         config.validate()?;
         require_keys_neq!(base_side.asset_mint, quote_side.asset_mint, ErrorCode::InvalidMint);
         require_keys_neq!(operator, Pubkey::default(), ErrorCode::InvalidMarketConfig);
         require_keys_neq!(manager, Pubkey::default(), ErrorCode::InvalidMarketConfig);
 
-        Ok(Self {
-            version: MARKET_VERSION,
-            ylp_mint,
-            operator,
-            manager,
-            base_side,
-            quote_side,
-            config,
-            debt: Debt {
-                base_borrow_index_nad: NAD as u128,
-                quote_borrow_index_nad: NAD as u128,
-                base_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
-                quote_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
-                last_accrual_slot: current_slot,
-                ..Debt::default()
-            },
-            base_hlp_vault: {
-                let mut vault = HlpVault::default();
-                vault.initialize(base_hlp_ylp_vault);
-                vault
-            },
-            quote_hlp_vault: {
-                let mut vault = HlpVault::default();
-                vault.initialize(quote_hlp_ylp_vault);
-                vault
-            },
-            risk: Risk {
-                last_snapshot_slot: current_slot,
-                ..Risk::default()
-            },
-            insurance: Insurance::default(),
-            pending_config: PendingConfigChange::default(),
-            pending_operator: PendingAuthorityChange::default(),
-            pending_manager: PendingAuthorityChange::default(),
-            params_hash,
-            last_update_slot: current_slot,
-            reduce_only: false,
-            bump,
-        })
+        self.version = MARKET_VERSION;
+        self.ylp_mint = ylp_mint;
+        self.operator = operator;
+        self.manager = manager;
+        self.base_side = base_side;
+        self.quote_side = quote_side;
+        self.config = config;
+        self.debt = Debt {
+            base_borrow_index_nad: NAD as u128,
+            quote_borrow_index_nad: NAD as u128,
+            base_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
+            quote_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
+            last_accrual_slot: current_slot,
+            ..Debt::default()
+        };
+        self.base_hlp_vault = {
+            let mut vault = HlpVault::default();
+            vault.initialize(base_hlp_ylp_vault);
+            vault
+        };
+        self.quote_hlp_vault = {
+            let mut vault = HlpVault::default();
+            vault.initialize(quote_hlp_ylp_vault);
+            vault
+        };
+        self.risk = Risk {
+            last_snapshot_slot: current_slot,
+            ..Risk::default()
+        };
+        self.insurance = Insurance {
+            base_vault: base_insurance_vault,
+            quote_vault: quote_insurance_vault,
+            ..Insurance::default()
+        };
+        self.pending_config = PendingConfigChange::default();
+        self.pending_operator = PendingAuthorityChange::default();
+        self.pending_manager = PendingAuthorityChange::default();
+        self.params_hash = params_hash;
+        self.last_update_slot = current_slot;
+        self.reduce_only = false;
+        self.bump = bump;
+        Ok(())
     }
 
     pub fn assert_live(&self) -> Result<()> {

@@ -12,7 +12,7 @@ use crate::{
     errors::ErrorCode,
     events::{MarketCreated, MarketEventMetadata},
     shared::{account::get_size_with_discriminator, token::create_token_account},
-    state::{FutarchyAuthority, HlpVault, Market, MarketConfig, MarketSide},
+    state::{FutarchyAuthority, Market, MarketConfig, MarketSide},
 };
 
 use crate::instructions::common::{require_supported_asset_mint, token_program_for_mint, validate_lp_mint};
@@ -235,12 +235,7 @@ impl<'info> InitializeMarket<'info> {
             args.manager
         };
 
-        let market = &mut ctx.accounts.market;
-        market.version = MARKET_VERSION;
-        market.ylp_mint = ylp_mint;
-        market.operator = resolved_operator;
-        market.manager = resolved_manager;
-        market.base_side = MarketSide {
+        let base_side = MarketSide {
             asset_mint: base_mint,
             asset_decimals: ctx.accounts.base_mint.decimals,
             hlp_mint: base_hlp_mint,
@@ -250,7 +245,7 @@ impl<'info> InitializeMarket<'info> {
             interest_vault: ctx.accounts.base_interest_vault.key(),
             ..MarketSide::default()
         };
-        market.quote_side = MarketSide {
+        let quote_side = MarketSide {
             asset_mint: quote_mint,
             asset_decimals: ctx.accounts.quote_mint.decimals,
             hlp_mint: quote_hlp_mint,
@@ -260,37 +255,24 @@ impl<'info> InitializeMarket<'info> {
             interest_vault: ctx.accounts.quote_interest_vault.key(),
             ..MarketSide::default()
         };
-        market.insurance.base_vault = base_insurance_vault;
-        market.insurance.quote_vault = quote_insurance_vault;
-        market.config = args.config;
-        market.debt = crate::state::Debt {
-            base_borrow_index_nad: NAD as u128,
-            quote_borrow_index_nad: NAD as u128,
-            base_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
-            quote_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
-            last_accrual_slot: current_slot,
-            ..crate::state::Debt::default()
-        };
-        market.base_hlp_vault = {
-            let mut vault = HlpVault::default();
-            let ylp_vault = derive_hlp_ylp_vault(market_key, base_hlp_mint, ylp_mint);
-            vault.initialize(ylp_vault);
-            vault
-        };
-        market.quote_hlp_vault = {
-            let mut vault = HlpVault::default();
-            let ylp_vault = derive_hlp_ylp_vault(market_key, quote_hlp_mint, ylp_mint);
-            vault.initialize(ylp_vault);
-            vault
-        };
-        market.risk = crate::state::Risk {
-            last_snapshot_slot: current_slot,
-            ..crate::state::Risk::default()
-        };
-        market.params_hash = args.params_hash;
-        market.last_update_slot = current_slot;
-        market.reduce_only = false;
-        market.bump = ctx.bumps.market;
+        let base_hlp_ylp_vault = derive_hlp_ylp_vault(market_key, base_hlp_mint, ylp_mint);
+        let quote_hlp_ylp_vault = derive_hlp_ylp_vault(market_key, quote_hlp_mint, ylp_mint);
+
+        ctx.accounts.market.initialize(
+            ylp_mint,
+            resolved_operator,
+            resolved_manager,
+            base_side,
+            quote_side,
+            args.config,
+            base_hlp_ylp_vault,
+            quote_hlp_ylp_vault,
+            base_insurance_vault,
+            quote_insurance_vault,
+            args.params_hash,
+            current_slot,
+            ctx.bumps.market,
+        )?;
 
         emit_cpi!(MarketCreated {
             market: market_key,
