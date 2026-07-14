@@ -84,7 +84,7 @@ use super::*;
         assert_eq!(debt.isolated_base_shares, 1_000);
         assert_eq!(debt.isolated_base_principal, 1_000);
         assert_eq!(debt.fixed_base_shares, 0);
-        assert_eq!(debt.total_base_debt().unwrap(), 1_000);
+        assert_eq!(debt.isolated_debt(MarketAsset::Base).unwrap(), 1_000);
     }
 
     #[test]

@@ -89,10 +89,6 @@ impl MarketAsset {
             Self::Quote => Self::Base,
         }
     }
-
-    pub fn is_base(self) -> bool {
-        matches!(self, Self::Base)
-    }
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]

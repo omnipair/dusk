@@ -137,7 +137,7 @@ impl Market {
             debt_amount,
         )?;
         {
-            let debt_side = self.side_mut(debt_asset)?;
+            let debt_side = self.side_mut(debt_asset);
             debt_side.reserves.cash_reserve = debt_side
                 .reserves
                 .cash_reserve
@@ -217,7 +217,7 @@ impl Market {
             debt_after,
         )?;
         {
-            let debt_side = self.side_mut(debt_asset)?;
+            let debt_side = self.side_mut(debt_asset);
             debt_side.reserves.cash_reserve = debt_side
                 .reserves
                 .cash_reserve
@@ -428,7 +428,7 @@ impl Market {
             protocol_auction_split,
         )?;
         if writeoff.debt_written_off > 0 {
-            let debt_side = self.side_mut(debt_asset)?;
+            let debt_side = self.side_mut(debt_asset);
             debt_side.reserves.live_reserve = debt_side
                 .reserves
                 .live_reserve
@@ -473,7 +473,7 @@ impl Market {
         )?;
         let principal_paid = clearance.principal_paid;
         let live_debit = clearance.live_debit_for_cash_repay()?;
-        let side = self.side_mut(debt_asset)?;
+        let side = self.side_mut(debt_asset);
         side.reserves.live_reserve = side
             .reserves
             .live_reserve
@@ -511,12 +511,12 @@ impl Market {
         let closeout_value = self.leverage_closeout_value(position)?;
         require_initial_leverage_health(
             position.collateral_amount,
-            self.side(position.collateral_asset()?)?.reserves.live_reserve,
-            self.side(debt_asset)?.reserves.live_reserve,
+            self.side(position.collateral_asset()?).reserves.live_reserve,
+            self.side(debt_asset).reserves.live_reserve,
             closeout_value,
             debt_after,
         )?;
-        let side = self.side_mut(debt_asset)?;
+        let side = self.side_mut(debt_asset);
         side.reserves.cash_reserve = side
             .reserves
             .cash_reserve
@@ -585,7 +585,7 @@ impl Market {
     }
 
     fn post_swap_reserve(&self, asset: MarketAsset, asset_in: MarketAsset, delta: u64) -> Result<u64> {
-        let reserve = self.side(asset)?.reserves.live_reserve;
+        let reserve = self.side(asset).reserves.live_reserve;
         if asset == asset_in {
             reserve.checked_add(delta).ok_or(ErrorCode::ReserveOverflow.into())
         } else {

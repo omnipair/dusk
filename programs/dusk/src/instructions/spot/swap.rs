@@ -277,7 +277,7 @@ fn maybe_rebalance_hlp_before_quote(
         .checked_add(quote.ylp_mint_amount)
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let fee_eligible_ylp_supply = market
-        .side(asset_in)?
+        .side(asset_in)
         .shares
         .ylp_supply
         .checked_sub(pre_solve_ylp_mint_amount)
@@ -563,7 +563,7 @@ fn require_hlp_rebalance_accounts(
         MarketAsset::Base => market.base_hlp_vault.ylp_vault,
         MarketAsset::Quote => market.quote_hlp_vault.ylp_vault,
     };
-    let expected_interest_vault = market.side(target_asset.opposite())?.interest_vault;
+    let expected_interest_vault = market.side(target_asset.opposite()).interest_vault;
     require_hlp_mint_account(&remaining_accounts[cursor], market.ylp_mint)?;
     require_hlp_vault_account(&remaining_accounts[cursor + 1], expected_ylp_vault)?;
     require_hlp_interest_vault_account(&remaining_accounts[cursor + 2], expected_interest_vault)?;
@@ -734,7 +734,7 @@ fn move_hlp_rebalance_interest<'info>(
         &[&generate_market_seeds!(ctx.accounts.market)[..]],
     )?;
     let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
-    ctx.accounts.market.side_mut(borrowed_asset)?.record_interest_credit(
+    ctx.accounts.market.side_mut(borrowed_asset).record_interest_credit(
         receipt.interest_paid,
         manager_fee_bps,
         ctx.accounts.futarchy_authority.revenue_share.interest_bps,

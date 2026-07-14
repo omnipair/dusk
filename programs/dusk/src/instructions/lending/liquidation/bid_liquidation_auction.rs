@@ -216,7 +216,7 @@ impl<'info> BidLiquidationAuction<'info> {
             )?;
             ctx.accounts.interest_vault.reload()?;
             let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
-            ctx.accounts.market.side_mut(debt_asset)?.record_interest_credit(
+            ctx.accounts.market.side_mut(debt_asset).record_interest_credit(
                 liquidation_receipt.interest_paid,
                 manager_fee_bps,
                 ctx.accounts.futarchy_authority.revenue_share.interest_bps,

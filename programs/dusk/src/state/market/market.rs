@@ -222,12 +222,6 @@ impl Market {
         Ok(())
     }
 
-    pub fn assert_live(&self) -> Result<()> {
-        self.assert_started()?;
-        require!(!self.reduce_only, ErrorCode::MarketReduceOnly);
-        Ok(())
-    }
-
     pub fn assert_live_with_futarchy(&self, futarchy_authority: &FutarchyAuthority) -> Result<()> {
         self.assert_started()?;
         require!(
@@ -368,17 +362,17 @@ impl Market {
         self.pending_manager.clear();
     }
 
-    pub fn side(&self, market_asset: MarketAsset) -> Result<&MarketSide> {
+    pub fn side(&self, market_asset: MarketAsset) -> &MarketSide {
         match market_asset {
-            MarketAsset::Base => Ok(&self.base_side),
-            MarketAsset::Quote => Ok(&self.quote_side),
+            MarketAsset::Base => &self.base_side,
+            MarketAsset::Quote => &self.quote_side,
         }
     }
 
-    pub fn side_mut(&mut self, market_asset: MarketAsset) -> Result<&mut MarketSide> {
+    pub fn side_mut(&mut self, market_asset: MarketAsset) -> &mut MarketSide {
         match market_asset {
-            MarketAsset::Base => Ok(&mut self.base_side),
-            MarketAsset::Quote => Ok(&mut self.quote_side),
+            MarketAsset::Base => &mut self.base_side,
+            MarketAsset::Quote => &mut self.quote_side,
         }
     }
 
@@ -414,10 +408,6 @@ impl Market {
             MarketAsset::Base => (&mut self.base_side, &mut self.quote_side),
             MarketAsset::Quote => (&mut self.quote_side, &mut self.base_side),
         }
-    }
-
-    pub fn base_quote_sides_mut(&mut self) -> (&mut MarketSide, &mut MarketSide) {
-        (&mut self.base_side, &mut self.quote_side)
     }
 
     pub fn withdraw_collateral(
@@ -479,10 +469,10 @@ impl Market {
         }
         let daily_limit_slot = self.risk.last_snapshot_slot;
         let daily_borrow_limit = self.daily_limit_for_side(borrow_asset, self.config.max_daily_borrow_bps)?;
-        self.side_mut(borrow_asset)?
+        self.side_mut(borrow_asset)
             .daily_limits
             .record_borrow(borrow_amount, daily_borrow_limit, daily_limit_slot)?;
-        let debt_side = self.side_mut(borrow_asset)?;
+        let debt_side = self.side_mut(borrow_asset);
         require_borrow_headroom(debt_side, borrow_amount)?;
         debt_side.reserves.cash_reserve = debt_side
             .reserves
@@ -1034,7 +1024,7 @@ fn accrue_side(market: &mut Market, asset: MarketAsset, dt_ms: u64) -> Result<()
         .ok_or(ErrorCode::MarketMathOverflow)?;
     if accrued_interest > 0 {
         let accrued_interest = u64::try_from(accrued_interest).map_err(|_| ErrorCode::ReserveOverflow)?;
-        let side = market.side_mut(asset)?;
+        let side = market.side_mut(asset);
         side.reserves.live_reserve = side
             .reserves
             .live_reserve

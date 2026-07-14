@@ -268,8 +268,8 @@ pub fn validate_leverage_mints<'info>(
     debt_mint: &InterfaceAccount<'info, Mint>,
     collateral_mint: &InterfaceAccount<'info, Mint>,
 ) -> Result<()> {
-    let debt_side = market.side(debt_asset)?;
-    let collateral_side = market.side(debt_asset.opposite())?;
+    let debt_side = market.side(debt_asset);
+    let collateral_side = market.side(debt_asset.opposite());
     require_keys_eq!(debt_mint.key(), debt_side.asset_mint, ErrorCode::InvalidMint);
     require_keys_eq!(
         collateral_mint.key(),
@@ -381,7 +381,7 @@ pub fn record_leverage_interest<'info>(
     )?;
     debt_reserve_vault.reload()?;
     interest_vault.reload()?;
-    market.side_mut(debt_asset)?.record_interest_credit(
+    market.side_mut(debt_asset).record_interest_credit(
         interest_paid,
         manager_fee_bps,
         protocol_fee_bps,

@@ -129,7 +129,7 @@ impl<'info> DepositSingleSided<'info> {
             MarketAsset::Base => &self.base_mint,
             MarketAsset::Quote => &self.quote_mint,
         };
-        let target_hlp_mint = self.market.side(target_asset)?.hlp_mint;
+        let target_hlp_mint = self.market.side(target_asset).hlp_mint;
         require_keys_eq!(target_hlp_mint, self.target_hlp_mint.key(), ErrorCode::InvalidMint);
         validate_owner_asset_account(self.owner.key(), target_mint, &self.owner_target_account)?;
         validate_owner_lp_account(self.owner.key(), &self.target_hlp_mint, &self.owner_hlp_account)?;

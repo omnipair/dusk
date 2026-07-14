@@ -255,18 +255,6 @@ impl Debt {
     pub fn fixed_quote_debt(&self) -> Result<u128> {
         Self::shares_to_debt(self.fixed_quote_shares, self.quote_borrow_index_nad)
     }
-
-    pub fn total_base_debt(&self) -> Result<u128> {
-        self.fixed_base_debt()?
-            .checked_add(self.isolated_debt(MarketAsset::Base)?)
-            .ok_or(ErrorCode::MarketMathOverflow.into())
-    }
-
-    pub fn total_quote_debt(&self) -> Result<u128> {
-        self.fixed_quote_debt()?
-            .checked_add(self.isolated_debt(MarketAsset::Quote)?)
-            .ok_or(ErrorCode::MarketMathOverflow.into())
-    }
 }
 
 #[cfg(test)]

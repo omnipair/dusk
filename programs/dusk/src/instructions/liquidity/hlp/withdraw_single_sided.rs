@@ -137,7 +137,7 @@ impl<'info> WithdrawSingleSided<'info> {
             MarketAsset::Quote => &self.quote_mint,
         };
         require_keys_eq!(
-            self.market.side(target_asset)?.hlp_mint,
+            self.market.side(target_asset).hlp_mint,
             self.target_hlp_mint.key(),
             ErrorCode::InvalidMint
         );
@@ -245,7 +245,7 @@ impl<'info> WithdrawSingleSided<'info> {
             )?;
             ctx.accounts.borrowed_interest_vault.reload()?;
             let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
-            ctx.accounts.market.side_mut(borrowed_asset)?.record_interest_credit(
+            ctx.accounts.market.side_mut(borrowed_asset).record_interest_credit(
                 receipt.interest_paid,
                 manager_fee_bps,
                 ctx.accounts.futarchy_authority.revenue_share.interest_bps,

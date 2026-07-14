@@ -184,7 +184,7 @@ impl Liquidation {
         )?;
 
         {
-            let debt_side = market.side_mut(self.debt_asset)?;
+            let debt_side = market.side_mut(self.debt_asset);
             let live_debit = debt_reduction_u64
                 .checked_sub(principal_credit)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -665,7 +665,7 @@ fn collateral_value_at_reference_price_nad(
     debt_per_collateral_price_nad: u64,
 ) -> Result<u128> {
     require!(debt_per_collateral_price_nad > 0, ErrorCode::InvalidSettlementPrice);
-    let collateral_decimals = market.side(collateral_asset)?.asset_decimals;
+    let collateral_decimals = market.side(collateral_asset).asset_decimals;
     let collateral_amount_nad = normalize_to_nad(collateral_amount as u128, collateral_decimals)?;
     collateral_amount_nad
         .checked_mul(debt_per_collateral_price_nad as u128)
@@ -704,8 +704,8 @@ fn collateral_amount_for_debt_value_at_reference_price(
     debt_per_collateral_price_nad: u64,
 ) -> Result<u64> {
     require!(debt_per_collateral_price_nad > 0, ErrorCode::InvalidSettlementPrice);
-    let debt_decimals = market.side(debt_asset)?.asset_decimals;
-    let collateral_decimals = market.side(debt_asset.opposite())?.asset_decimals;
+    let debt_decimals = market.side(debt_asset).asset_decimals;
+    let collateral_decimals = market.side(debt_asset.opposite()).asset_decimals;
     let debt_with_penalty = ceil_div(
         (debt_amount as u128)
             .checked_mul((BPS_DENOMINATOR + penalty_bps) as u128)

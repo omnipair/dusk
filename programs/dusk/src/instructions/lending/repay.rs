@@ -150,7 +150,7 @@ impl<'info> Repay<'info> {
                 let manager_fee_bps = accounts.market.config.manager_fee_bps;
                 let revenue_share_interest_bps = accounts.futarchy_authority.revenue_share.interest_bps;
                 let protocol_auction_split = accounts.futarchy_authority.protocol_auction_split;
-                accounts.market.side_mut(repay_asset)?.record_interest_credit(
+                accounts.market.side_mut(repay_asset).record_interest_credit(
                     debt_receipt.interest_paid,
                     manager_fee_bps,
                     revenue_share_interest_bps,

@@ -389,7 +389,7 @@ use super::*;
         let hlp_live = market.hlp_live_reserve(asset).unwrap() as u64;
         let live_reserve = live_reserve.max(hlp_live + 1);
         let cash_reserve = live_reserve - hlp_live;
-        let side = market.side_mut(asset).unwrap();
+        let side = market.side_mut(asset);
         side.reserves.live_reserve = live_reserve;
         side.reserves.cash_reserve = cash_reserve;
         match asset {
@@ -409,7 +409,7 @@ use super::*;
         asset: MarketAsset,
         cash_bps: u64,
     ) {
-        let live_reserve = market.side(asset).unwrap().reserves.live_reserve;
+        let live_reserve = market.side(asset).reserves.live_reserve;
         let hlp_live = market.hlp_live_reserve(asset).unwrap() as u64;
         let non_hlp_backing = live_reserve.checked_sub(hlp_live).unwrap();
         let cash_reserve = non_hlp_backing
@@ -418,7 +418,7 @@ use super::*;
             .checked_div(BPS_DENOMINATOR as u64)
             .unwrap();
         let cash_backed_debt = non_hlp_backing.checked_sub(cash_reserve).unwrap();
-        market.side_mut(asset).unwrap().reserves.cash_reserve = cash_reserve;
+        market.side_mut(asset).reserves.cash_reserve = cash_reserve;
         match asset {
             MarketAsset::Base => {
                 market.debt.fixed_base_shares = cash_backed_debt as u128;
@@ -482,7 +482,6 @@ use super::*;
             .unwrap();
         let fee_eligible_ylp_supply = market
             .side(asset_in)
-            .unwrap()
             .shares
             .ylp_supply
             .checked_sub(pre_solve_ylp_mint_amount)
@@ -572,7 +571,7 @@ use super::*;
             configure_market_depth(&mut market, base_reserve, price_bps);
             assert_market_hlp_invariants(&market);
 
-            let target_reserve = market.side(target_asset).unwrap().reserves.live_reserve;
+            let target_reserve = market.side(target_asset).reserves.live_reserve;
             let deposit_amount = target_reserve
                 .checked_mul(deposit_bps)
                 .unwrap()
@@ -586,7 +585,6 @@ use super::*;
 
             let moved_live = market
                 .side(borrowed_asset)
-                .unwrap()
                 .reserves
                 .live_reserve
                 .checked_mul(move_bps)

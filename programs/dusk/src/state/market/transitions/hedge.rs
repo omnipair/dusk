@@ -360,7 +360,7 @@ fn needed_pre_adjustment_nad(
 fn pre_adjustment_cap_nad(market: &Market, target_asset: MarketAsset, lever_up: bool) -> Result<u128> {
     if lever_up {
         let borrowed_asset = target_asset.opposite();
-        let borrow_headroom = market.side(borrowed_asset)?.reserves.cash_reserve;
+        let borrow_headroom = market.side(borrowed_asset).reserves.cash_reserve;
         return asset_value_in_target_nad(market, borrowed_asset, borrow_headroom, target_asset);
     }
 
@@ -732,7 +732,7 @@ fn credit_hlp_live_reserve(
     if amount == 0 {
         return Ok(());
     }
-    market.side_mut(reserve_asset)?.credit_reserve(amount, false)?;
+    market.side_mut(reserve_asset).credit_reserve(amount, false)?;
     match target_asset {
         MarketAsset::Base => market.base_hlp_vault.credit_hlp_live_reserve(reserve_asset, amount),
         MarketAsset::Quote => market.quote_hlp_vault.credit_hlp_live_reserve(reserve_asset, amount),
@@ -748,7 +748,7 @@ fn debit_hlp_live_reserve(
     if amount == 0 {
         return Ok(());
     }
-    market.side_mut(reserve_asset)?.debit_reserve(amount, false)?;
+    market.side_mut(reserve_asset).debit_reserve(amount, false)?;
     match target_asset {
         MarketAsset::Base => market.base_hlp_vault.debit_hlp_live_reserve(reserve_asset, amount),
         MarketAsset::Quote => market.quote_hlp_vault.debit_hlp_live_reserve(reserve_asset, amount),
@@ -774,7 +774,7 @@ fn debit_hlp_rebalance_reserve(
         .checked_sub(hlp_live_debit)
         .ok_or(ErrorCode::MarketMathOverflow)?;
     if cash_debit > 0 {
-        market.side_mut(reserve_asset)?.debit_reserve(cash_debit, true)?;
+        market.side_mut(reserve_asset).debit_reserve(cash_debit, true)?;
     }
     Ok(())
 }
@@ -899,7 +899,7 @@ fn leverage_up_balanced(
         });
     }
     let borrowed_asset = target_asset.opposite();
-    require_hlp_borrow_headroom(market.side(borrowed_asset)?, amounts.debt_amount)?;
+    require_hlp_borrow_headroom(market.side(borrowed_asset), amounts.debt_amount)?;
     let (base_leg_amount, quote_leg_amount) = match target_asset {
         MarketAsset::Base => (amounts.target_leg_amount, amounts.borrowed_leg_amount),
         MarketAsset::Quote => (amounts.borrowed_leg_amount, amounts.target_leg_amount),
@@ -959,7 +959,7 @@ fn feasible_leverage_up_target_amount(
     requested_delta_nad: u128,
 ) -> Result<u64> {
     let requested_target_amount = target_raw_amount_from_delta(market, target_asset, requested_delta_nad)?;
-    let borrow_headroom = market.side(target_asset.opposite())?.reserves.cash_reserve;
+    let borrow_headroom = market.side(target_asset.opposite()).reserves.cash_reserve;
     if borrow_headroom == 0 {
         return Ok(0);
     }
@@ -989,8 +989,8 @@ fn deleverage_balanced(
     };
     let current_debt = Debt::shares_to_debt(debt_shares, borrow_index)?;
     let current_debt = u64::try_from(current_debt).unwrap_or(u64::MAX);
-    let target_side = market.side(target_asset)?;
-    let borrowed_side = market.side(borrowed_asset)?;
+    let target_side = market.side(target_asset);
+    let borrowed_side = market.side(borrowed_asset);
     let target_underlying = ylp_underlying_amount(target_side, vault_ylp)?;
     let borrowed_underlying = ylp_underlying_amount(borrowed_side, vault_ylp)?;
     let target_total_amount = feasible_deleverage_target_amount(
@@ -1127,7 +1127,7 @@ fn refresh_hlp_after_rebalance(
 }
 
 fn target_raw_amount_from_delta(market: &Market, target_asset: MarketAsset, delta_nad: u128) -> Result<u64> {
-    let decimals = market.side(target_asset)?.asset_decimals;
+    let decimals = market.side(target_asset).asset_decimals;
     denormalize_from_nad_floor(delta_nad, decimals)
 }
 
@@ -1320,12 +1320,12 @@ fn asset_value_in_target_nad(
     amount: u64,
     target_asset: MarketAsset,
 ) -> Result<u128> {
-    let asset_side = market.side(asset)?;
+    let asset_side = market.side(asset);
     let amount_nad = normalize_to_nad(amount as u128, asset_side.asset_decimals)?;
     if asset == target_asset {
         return Ok(amount_nad);
     }
-    let target_side = market.side(target_asset)?;
+    let target_side = market.side(target_asset);
     let price_nad = market_spot_price_nad(asset_side, target_side)? as u128;
     amount_nad
         .checked_mul(price_nad)

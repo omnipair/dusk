@@ -122,7 +122,7 @@ use super::*;
     }
 
     fn reserve_pair(market: &Market, asset: MarketAsset) -> (u64, u64) {
-        let side = market.side(asset).unwrap();
+        let side = market.side(asset);
         (side.reserves.live_reserve, side.reserves.cash_reserve)
     }
 
@@ -143,7 +143,7 @@ use super::*;
         let current_debt = Debt::shares_to_debt(shares, index).unwrap();
         let accrued_interest = current_debt.checked_sub(principal as u128).unwrap();
         let accrued_interest = u64::try_from(accrued_interest).unwrap();
-        let side = market.side_mut(asset).unwrap();
+        let side = market.side_mut(asset);
         side.reserves.live_reserve = side
             .reserves
             .live_reserve
@@ -291,14 +291,9 @@ use super::*;
             };
             let collateral_asset = borrow_asset.opposite();
             let mut market = invariant_market(base_cash, quote_cash);
-            let debt_cash_before = market.side(borrow_asset).unwrap().reserves.cash_reserve;
-            let debt_live_before = market.side(borrow_asset).unwrap().reserves.live_reserve;
-            let collateral_amount = market
-                .side(collateral_asset)
-                .unwrap()
-                .reserves
-                .live_reserve
-                / 2;
+            let debt_cash_before = market.side(borrow_asset).reserves.cash_reserve;
+            let debt_live_before = market.side(borrow_asset).reserves.live_reserve;
+            let collateral_amount = market.side(collateral_asset).reserves.live_reserve / 2;
             let mut borrow_position =
                 borrow_position_for_debt(borrow_asset, collateral_amount.max(1));
             let borrow_amount = debt_cash_before
@@ -350,13 +345,8 @@ use super::*;
             };
             let collateral_asset = repay_asset.opposite();
             let mut market = invariant_market(base_cash, quote_cash);
-            let debt_cash_before = market.side(repay_asset).unwrap().reserves.cash_reserve;
-            let collateral_amount = market
-                .side(collateral_asset)
-                .unwrap()
-                .reserves
-                .live_reserve
-                / 2;
+            let debt_cash_before = market.side(repay_asset).reserves.cash_reserve;
+            let collateral_amount = market.side(collateral_asset).reserves.live_reserve / 2;
             let mut borrow_position =
                 borrow_position_for_debt(repay_asset, collateral_amount.max(1));
             let borrow_amount = debt_cash_before

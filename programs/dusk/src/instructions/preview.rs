@@ -418,8 +418,8 @@ impl<'info> PreviewBorrowCapacity<'info> {
         let debt_asset = market.asset_for_mint(ctx.accounts.debt_asset_mint.key())?;
         require!(debt_asset == collateral_asset.opposite(), ErrorCode::InvalidMint);
 
-        let collateral_side = market.side(collateral_asset)?;
-        let debt_side = market.side(debt_asset)?;
+        let collateral_side = market.side(collateral_asset);
+        let debt_side = market.side(debt_asset);
         let risk = market.current_risk()?;
         let collateral_value_nad = market.collateral_value_nad(collateral_asset, args.collateral_amount, &risk)?;
         let max_debt_by_health = max_debt_from_collateral_value_nad(
@@ -486,8 +486,8 @@ impl<'info> PreviewBorrowPosition<'info> {
 }
 
 fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<PreviewSide> {
-    let side = market.side(asset)?;
-    let opposite_side = market.side(asset.opposite())?;
+    let side = market.side(asset);
+    let opposite_side = market.side(asset.opposite());
     let (price_ema_nad, directional_price_ema_nad, liquidity_ema_nad) = match asset {
         MarketAsset::Base => (
             market.risk.base_price_ema_nad,
@@ -558,7 +558,7 @@ fn hlp_funding_debt(market: &Market, asset: MarketAsset) -> Result<u128> {
 }
 
 fn daily_borrow_remaining(market: &Market, asset: MarketAsset, slot: u64) -> Result<u64> {
-    let side = market.side(asset)?;
+    let side = market.side(asset);
     let limit = market.daily_limit_for_side(asset, market.config.max_daily_borrow_bps)?;
     let mut limits = side.daily_limits;
     limits.decay_to_slot(slot)?;
@@ -625,7 +625,7 @@ fn preview_position_debt_side(
     let health_bps = if debt == 0 {
         u64::MAX
     } else {
-        let debt_side = market.side(debt_asset)?;
+        let debt_side = market.side(debt_asset);
         health_bps(collateral_value_nad, normalize_to_nad(debt, debt_side.asset_decimals)?)?
     };
     let liquidation_reference_price_nad = if debt == 0 {

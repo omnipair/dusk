@@ -245,7 +245,7 @@ fn position_debt_after(
 }
 
 fn reserve_pair(market: &Market, asset: MarketAsset) -> (u64, u64) {
-    let side = market.side(asset).unwrap();
+    let side = market.side(asset);
     (side.reserves.live_reserve, side.reserves.cash_reserve)
 }
 

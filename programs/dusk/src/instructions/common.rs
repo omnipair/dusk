@@ -89,7 +89,7 @@ pub fn validate_side_vault_accounts<'info>(
     asset_mint: &InterfaceAccount<'info, Mint>,
     reserve_vault: &InterfaceAccount<'info, TokenAccount>,
 ) -> Result<()> {
-    let market_side = market.side(market_asset)?;
+    let market_side = market.side(market_asset);
     require_keys_eq!(market_side.asset_mint, asset_mint.key(), ErrorCode::InvalidMint);
     require_keys_eq!(market_side.reserve_vault, reserve_vault.key(), ErrorCode::InvalidVault);
     require_keys_eq!(reserve_vault.mint, asset_mint.key(), ErrorCode::InvalidVault);
@@ -127,7 +127,7 @@ pub fn validate_fee_accounts<'info>(
     fee_vault: &InterfaceAccount<'info, TokenAccount>,
 ) -> Result<MarketAsset> {
     let market_asset = market.asset_for_mint(asset_mint.key())?;
-    let market_side = market.side(market_asset)?;
+    let market_side = market.side(market_asset);
     require_keys_eq!(market_side.fee_vault, fee_vault.key(), ErrorCode::InvalidVault);
     require_keys_eq!(fee_vault.mint, asset_mint.key(), ErrorCode::InvalidVault);
     require_keys_eq!(fee_vault.owner, market.key(), ErrorCode::InvalidVault);
@@ -140,7 +140,7 @@ pub fn validate_interest_accounts<'info>(
     interest_vault: &InterfaceAccount<'info, TokenAccount>,
 ) -> Result<MarketAsset> {
     let market_asset = market.asset_for_mint(asset_mint.key())?;
-    let market_side = market.side(market_asset)?;
+    let market_side = market.side(market_asset);
     require_keys_eq!(
         market_side.interest_vault,
         interest_vault.key(),

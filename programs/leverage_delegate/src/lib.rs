@@ -350,7 +350,7 @@ impl<'info> BeforeLeverageOrder<'info> {
             order.trigger_closeout_price_nad,
         )?;
         let debt_asset = ctx.accounts.leverage_position.debt_asset()?;
-        let debt_mint = ctx.accounts.market.side(debt_asset)?.asset_mint;
+        let debt_mint = ctx.accounts.market.side(debt_asset).asset_mint;
         require_keys_eq!(
             ctx.accounts.token_mint.key(),
             debt_mint,

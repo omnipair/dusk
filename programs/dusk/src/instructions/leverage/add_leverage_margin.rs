@@ -145,7 +145,7 @@ impl<'info> AddLeverageMargin<'info> {
             position: position_key,
             owner: owner_key,
             debt_asset_mint: debt_mint_key,
-            collateral_asset_mint: ctx.accounts.market.side(debt_asset.opposite())?.asset_mint,
+            collateral_asset_mint: ctx.accounts.market.side(debt_asset.opposite()).asset_mint,
             debt_delta: receipt.debt_delta,
             collateral_delta: receipt.collateral_delta,
             debt_amount: receipt.debt_amount,

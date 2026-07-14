@@ -10,11 +10,6 @@ use crate::{
 };
 
 impl Market {
-    pub fn refresh_market_health(&mut self) -> Result<MarketHealth> {
-        self.refresh_risk()?;
-        self.market_health()
-    }
-
     pub fn market_health(&self) -> Result<MarketHealth> {
         self.market_health_from_risk(&self.risk)
     }
@@ -66,15 +61,6 @@ impl Market {
         Ok(())
     }
 
-    pub fn enforce_daily_borrow_limit(&mut self, market_asset: MarketAsset, amount: u64) -> Result<()> {
-        self.refresh_risk()?;
-        let current_slot = self.risk.last_snapshot_slot;
-        let limit = self.daily_limit_for_side(market_asset, self.config.max_daily_borrow_bps)?;
-        self.side_mut(market_asset)?
-            .daily_limits
-            .record_borrow(amount, limit, current_slot)
-    }
-
     pub fn assert_spot_ema_divergence(&self) -> Result<()> {
         assert_price_divergence(
             market_spot_price_nad(&self.base_side, &self.quote_side)?,
@@ -112,10 +98,6 @@ impl Market {
         self.effective_debt_nad(MarketAsset::Quote)
     }
 
-    pub fn quote_collateral_value_for_base_debt_nad(&self, quote_collateral_amount: u64) -> Result<u128> {
-        self.quote_collateral_value_for_base_debt_nad_with_risk(quote_collateral_amount, &self.risk)
-    }
-
     fn quote_collateral_value_for_base_debt_nad_with_risk(
         &self,
         quote_collateral_amount: u64,
@@ -124,28 +106,12 @@ impl Market {
         self.collateral_value_nad(MarketAsset::Quote, quote_collateral_amount, risk)
     }
 
-    pub fn base_collateral_value_for_quote_debt_nad(&self, base_collateral_amount: u64) -> Result<u128> {
-        self.base_collateral_value_for_quote_debt_nad_with_risk(base_collateral_amount, &self.risk)
-    }
-
     fn base_collateral_value_for_quote_debt_nad_with_risk(
         &self,
         base_collateral_amount: u64,
         risk: &Risk,
     ) -> Result<u128> {
         self.collateral_value_nad(MarketAsset::Base, base_collateral_amount, risk)
-    }
-
-    pub fn collateral_amount_for_debt_value(&self, debt_asset: MarketAsset, debt_amount: u64) -> Result<u64> {
-        self.collateral_amount_for_debt_value_with_penalty_bps(debt_asset, debt_amount, LIQUIDATION_PENALTY_BPS)
-    }
-
-    pub fn collateral_amount_for_liquidator_debt_value(
-        &self,
-        debt_asset: MarketAsset,
-        debt_amount: u64,
-    ) -> Result<u64> {
-        self.collateral_amount_for_debt_value_with_penalty_bps(debt_asset, debt_amount, LIQUIDATION_INCENTIVE_BPS)
     }
 
     pub(crate) fn collateral_amount_for_debt_value_with_penalty_bps(
@@ -190,11 +156,6 @@ impl Market {
         Ok(total_collateral.min(capped_collateral))
     }
 
-    pub fn position_health_bps(&self, borrow_position: &BorrowPosition, debt_asset: MarketAsset) -> Result<u64> {
-        let risk = self.current_risk()?;
-        self.position_health_bps_with_risk(borrow_position, debt_asset, &risk)
-    }
-
     pub fn position_health_bps_with_risk(
         &self,
         borrow_position: &BorrowPosition,
@@ -225,31 +186,6 @@ impl Market {
                 )?,
             ),
         }
-    }
-
-    pub fn assert_position_health(
-        &self,
-        borrow_position: &BorrowPosition,
-        debt_asset: MarketAsset,
-        min_health_bps: u64,
-    ) -> Result<()> {
-        require_gte!(
-            self.position_health_bps(borrow_position, debt_asset)?,
-            min_health_bps,
-            ErrorCode::InsufficientMarketHealth
-        );
-        Ok(())
-    }
-
-    pub fn assert_utilization_cap(&self, borrow_position: &BorrowPosition, debt_asset: MarketAsset) -> Result<()> {
-        let risk = self.current_risk()?;
-        let max_utilized = self.debt_capped_utilized_collateral(borrow_position, debt_asset, &risk)?;
-        let utilized = match debt_asset {
-            MarketAsset::Base => borrow_position.utilized_quote_collateral_for_base_debt,
-            MarketAsset::Quote => borrow_position.utilized_base_collateral_for_quote_debt,
-        };
-        require_gte!(max_utilized, utilized, ErrorCode::InsufficientUtilizedCollateral);
-        Ok(())
     }
 
     pub fn assert_market_health(&self) -> Result<()> {

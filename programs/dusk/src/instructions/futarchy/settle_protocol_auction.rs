@@ -81,7 +81,7 @@ impl<'info> SettleProtocolAuction<'info> {
         require!(is_fee_free_mint(&self.accepted_mint)?, ErrorCode::InvalidMint);
 
         let sold_side = self.market.asset_for_mint(self.sold_mint.key())?;
-        let market_side = self.market.side(sold_side)?;
+        let market_side = self.market.side(sold_side);
         require_keys_eq!(self.sold_mint.key(), market_side.asset_mint, ErrorCode::InvalidMint);
         require_keys_eq!(
             self.sold_fee_vault.key(),
@@ -283,7 +283,7 @@ fn settle_auction_state<'info>(
     current_slot: u64,
 ) -> Result<(u64, u64)> {
     accounts.sold_fee_vault.reload()?;
-    let market_side = accounts.market.side_mut(side)?;
+    let market_side = accounts.market.side_mut(side);
     market_side.fees.settle_protocol_auction_liability(lane, sold_amount)?;
     market_side.fees.swap_fee_vault_balance = accounts.sold_fee_vault.amount;
     market_side.fees.assert_backed()?;
