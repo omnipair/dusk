@@ -29,7 +29,6 @@ pub struct DepositSingleSidedArgs {
     pub min_hlp_amount: u64,
 }
 
-#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: DepositSingleSidedArgs)]
 pub struct DepositSingleSided<'info> {

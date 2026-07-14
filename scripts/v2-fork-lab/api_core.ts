@@ -1106,7 +1106,10 @@ async function bootstrapUncached(): Promise<StoredMarket> {
     baseHlpYlpVault: baseHlpYlpVault.toBase58(),
     quoteHlpYlpVault: quoteHlpYlpVault.toBase58(),
     eventAuthority: addresses.eventAuthority.toBase58(),
-    seededLiquidity: previous?.market === addresses.market.toBase58() && previous.seededLiquidity,
+    seededLiquidity:
+      Boolean(existingMarketAccount) &&
+      previous?.market === addresses.market.toBase58() &&
+      previous.seededLiquidity,
     transferHookValidationAccounts,
   };
 
@@ -1286,7 +1289,11 @@ async function ownerTransaction(
 ): Promise<Transaction> {
   const { connection, payer } = initializeRuntime();
   const tx = new Transaction();
-  tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }), ...instructions);
+  tx.add(
+    ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }),
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }),
+    ...instructions
+  );
   tx.feePayer = payerCanSign ? payer.publicKey : owner;
   tx.recentBlockhash = (await connection.getLatestBlockhash("confirmed")).blockhash;
   return tx;
@@ -1422,13 +1429,15 @@ async function buildSwapTx(params: {
   if (baseHlpSupply > 0n) {
     remainingAccounts.push(
       { pubkey: m.ylpMint, isWritable: true, isSigner: false },
-      { pubkey: m.baseHlpYlpVault, isWritable: true, isSigner: false }
+      { pubkey: m.baseHlpYlpVault, isWritable: true, isSigner: false },
+      { pubkey: m.quoteInterestVault, isWritable: true, isSigner: false }
     );
   }
   if (quoteHlpSupply > 0n) {
     remainingAccounts.push(
       { pubkey: m.ylpMint, isWritable: true, isSigner: false },
-      { pubkey: m.quoteHlpYlpVault, isWritable: true, isSigner: false }
+      { pubkey: m.quoteHlpYlpVault, isWritable: true, isSigner: false },
+      { pubkey: m.baseInterestVault, isWritable: true, isSigner: false }
     );
   }
   if (remainingAccounts.length > 0) builder = builder.remainingAccounts(remainingAccounts);
@@ -1469,8 +1478,6 @@ async function buildDepositCollateralTx(params: {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
-        eventAuthority: m.eventAuthority,
-        program: PROGRAM_ID,
       })
       .instruction()
   );
@@ -1546,9 +1553,11 @@ async function buildRepayTx(params: {
       })
       .accounts({
         market: m.market,
+        futarchyAuthority: m.futarchyAuthority,
         owner: params.owner,
         debtAssetMint: isBase ? m.baseMint : m.quoteMint,
         reserveVault: isBase ? m.baseReserveVault : m.quoteReserveVault,
+        interestVault: isBase ? m.baseInterestVault : m.quoteInterestVault,
         ownerDebtAccount: ownerDebt,
         borrowPosition: deriveBorrowPosition(m.market, params.positionId),
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -1612,8 +1621,6 @@ async function buildDepositSingleSidedTx(params: {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
-        eventAuthority: m.eventAuthority,
-        program: PROGRAM_ID,
       })
       .instruction()
   );
@@ -1672,8 +1679,6 @@ async function buildWithdrawSingleSidedTx(params: {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
-        eventAuthority: m.eventAuthority,
-        program: PROGRAM_ID,
       })
       .instruction()
   );

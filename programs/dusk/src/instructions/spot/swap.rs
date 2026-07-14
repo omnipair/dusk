@@ -354,6 +354,9 @@ fn maybe_rebalance_hlp_after_swap(
     pre_rebalance: HlpRebalancePair,
 ) -> Result<HlpRebalancePair> {
     checkpoint_hlp_pre_solve_fee_eligibility(market, &pre_rebalance.base, &pre_rebalance.quote)?;
+    if pre_rebalance.executes_token_changes() {
+        return Ok(pre_rebalance);
+    }
     let (base_post_rebalance, quote_post_rebalance) = market.rebalance_hlp_vault_for_swap(preferred_asset)?;
     Ok(HlpRebalancePair::new(
         combine_hlp_rebalance_receipts(pre_rebalance.base, base_post_rebalance)?,

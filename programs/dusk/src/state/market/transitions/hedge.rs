@@ -1,10 +1,10 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{HLP_PRE_SOLVE_LOSS_THRESHOLD_NAD, HLP_PRE_SOLVE_MAX_ITERS, NAD},
+    constants::{HLP_PRE_SOLVE_LOSS_THRESHOLD_NAD, NAD},
     errors::ErrorCode,
     math::{
-        bisect, calculate_normalized_amount_in, calculate_raw_amount_out, closed_form_pre_adjustment_nad,
+        calculate_normalized_amount_in, calculate_raw_amount_out, closed_form_pre_adjustment_nad,
         denormalize_from_nad_floor, market_spot_price_nad, normalize_to_nad, tracking_loss_nad,
     },
     shared::math::ceil_div,
@@ -288,73 +288,7 @@ fn solve_pre_adjustment_nad(
         return Ok(0);
     }
 
-    let mut hi = guess
-        .checked_mul(2)
-        .and_then(|value| value.checked_add(NAD as u128))
-        .unwrap_or(u128::MAX)
-        .min(cap);
-    if hi == 0 {
-        return Ok(0);
-    }
-
-    for _ in 0..8 {
-        let needed = needed_pre_adjustment_nad(
-            market,
-            target_asset,
-            asset_in,
-            amount_in_after_fee,
-            equity_nad,
-            hi,
-            lever_up,
-        )?;
-        if needed <= hi || hi == cap {
-            break;
-        }
-        hi = hi.saturating_mul(2).min(cap);
-    }
-
-    bisect(0, hi, HLP_PRE_SOLVE_MAX_ITERS, |candidate| {
-        let needed = needed_pre_adjustment_nad(
-            market,
-            target_asset,
-            asset_in,
-            amount_in_after_fee,
-            equity_nad,
-            candidate,
-            lever_up,
-        )?;
-        let candidate = i128::try_from(candidate).map_err(|_| ErrorCode::MarketMathOverflow)?;
-        let needed = i128::try_from(needed).map_err(|_| ErrorCode::MarketMathOverflow)?;
-        candidate
-            .checked_sub(needed)
-            .ok_or(ErrorCode::MarketMathOverflow.into())
-    })
-    .map(|amount| amount.min(cap))
-}
-
-fn needed_pre_adjustment_nad(
-    market: &Market,
-    target_asset: MarketAsset,
-    asset_in: MarketAsset,
-    amount_in_after_fee: u64,
-    equity_nad: u128,
-    candidate_nad: u128,
-    lever_up: bool,
-) -> Result<u128> {
-    let ratio = simulated_swap_price_ratio_nad(
-        market,
-        target_asset,
-        asset_in,
-        amount_in_after_fee,
-        candidate_nad,
-        lever_up,
-    )?;
-    let (needed, needed_lever_up) = closed_form_pre_adjustment_nad(equity_nad, ratio)?;
-    if needed_lever_up == lever_up {
-        Ok(needed)
-    } else {
-        Ok(0)
-    }
+    Ok(guess.min(cap))
 }
 
 fn pre_adjustment_cap_nad(market: &Market, target_asset: MarketAsset, lever_up: bool) -> Result<u128> {

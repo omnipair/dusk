@@ -7,7 +7,7 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{HlpClosed, MarketEventMetadata},
+    events::log::emit_hlp_closed_low_heap,
     generate_market_seeds,
     shared::{
         account::get_size_with_discriminator,
@@ -29,7 +29,6 @@ pub struct WithdrawSingleSidedArgs {
     pub min_target_amount_out: u64,
 }
 
-#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: WithdrawSingleSidedArgs)]
 pub struct WithdrawSingleSided<'info> {
@@ -302,18 +301,17 @@ impl<'info> WithdrawSingleSided<'info> {
         let target_credit = token_account_credit(target_balance_before, &ctx.accounts.owner_target_account)?;
         require_gte!(target_credit, args.min_target_amount_out, ErrorCode::SlippageExceeded);
 
-        emit_cpi!(HlpClosed {
-            market: market_key,
-            owner: owner_key,
-            asset_mint: target_mint_key,
-            hlp_amount: receipt.hlp_amount,
-            ylp_amount: receipt.ylp_amount,
-            target_amount_out: receipt.target_amount_out,
-            debt_repaid: receipt.debt_repaid,
-            interest_paid: receipt.interest_paid,
-            hlp_supply: receipt.hlp_supply,
-            metadata: MarketEventMetadata::new(owner_key, market_key)?,
-        });
+        emit_hlp_closed_low_heap(
+            market_key,
+            owner_key,
+            target_mint_key,
+            receipt.hlp_amount,
+            receipt.ylp_amount,
+            receipt.target_amount_out,
+            receipt.debt_repaid,
+            receipt.interest_paid,
+            receipt.hlp_supply,
+        )?;
 
         Ok(())
     }

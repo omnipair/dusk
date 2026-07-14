@@ -1,7 +1,7 @@
 use anchor_lang::solana_program::log::sol_log_data;
 use anchor_lang::{prelude::*, Discriminator};
 
-use super::{HlpOpened, HlpRebalanced, MarketHealthUpdated, PositionLiquidated, SwapExecuted, SwapSettled};
+use super::{HlpClosed, HlpOpened, HlpRebalanced, MarketHealthUpdated, PositionLiquidated, SwapExecuted, SwapSettled};
 
 const MARKET_EVENT_METADATA_LEN: usize = 32 + 32 + 8;
 
@@ -185,6 +185,47 @@ pub(crate) fn emit_hlp_opened_low_heap(
     data[offset..offset + 8].copy_from_slice(&ylp_amount.to_le_bytes());
     offset += 8;
     data[offset..offset + 8].copy_from_slice(&hlp_amount.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&hlp_supply.to_le_bytes());
+    offset += 8;
+    write_market_event_metadata(&mut data, offset, owner, market, Clock::get()?.slot);
+
+    sol_log_data(&[&data]);
+    Ok(())
+}
+
+pub(crate) fn emit_hlp_closed_low_heap(
+    market: Pubkey,
+    owner: Pubkey,
+    asset_mint: Pubkey,
+    hlp_amount: u64,
+    ylp_amount: u64,
+    target_amount_out: u64,
+    debt_repaid: u64,
+    interest_paid: u64,
+    hlp_supply: u64,
+) -> Result<()> {
+    const HLP_CLOSED_EVENT_LEN: usize = 8 + (3 * 32) + (6 * 8) + MARKET_EVENT_METADATA_LEN;
+
+    let mut data = [0u8; HLP_CLOSED_EVENT_LEN];
+    let mut offset = 0usize;
+    data[offset..offset + 8].copy_from_slice(HlpClosed::DISCRIMINATOR);
+    offset += 8;
+    data[offset..offset + 32].copy_from_slice(market.as_ref());
+    offset += 32;
+    data[offset..offset + 32].copy_from_slice(owner.as_ref());
+    offset += 32;
+    data[offset..offset + 32].copy_from_slice(asset_mint.as_ref());
+    offset += 32;
+    data[offset..offset + 8].copy_from_slice(&hlp_amount.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&ylp_amount.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&target_amount_out.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&debt_repaid.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 8].copy_from_slice(&interest_paid.to_le_bytes());
     offset += 8;
     data[offset..offset + 8].copy_from_slice(&hlp_supply.to_le_bytes());
     offset += 8;
