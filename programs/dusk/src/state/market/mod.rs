@@ -148,8 +148,6 @@ impl PendingConfigChange {
 #[derive(InitSpace)]
 pub struct Market {
     pub version: u8,
-    pub base_mint: Pubkey,
-    pub quote_mint: Pubkey,
     pub ylp_mint: Pubkey,
     pub operator: Pubkey,
     pub manager: Pubkey,
@@ -173,8 +171,6 @@ pub struct Market {
 impl Market {
     #[allow(clippy::too_many_arguments)]
     pub fn initialize(
-        base_mint: Pubkey,
-        quote_mint: Pubkey,
         ylp_mint: Pubkey,
         operator: Pubkey,
         manager: Pubkey,
@@ -188,16 +184,12 @@ impl Market {
         bump: u8,
     ) -> Result<Self> {
         config.validate()?;
-        require_keys_neq!(base_mint, quote_mint, ErrorCode::InvalidMint);
+        require_keys_neq!(base_side.asset_mint, quote_side.asset_mint, ErrorCode::InvalidMint);
         require_keys_neq!(operator, Pubkey::default(), ErrorCode::InvalidMarketConfig);
         require_keys_neq!(manager, Pubkey::default(), ErrorCode::InvalidMarketConfig);
-        require_keys_eq!(base_mint, base_side.asset_mint, ErrorCode::InvalidMint);
-        require_keys_eq!(quote_mint, quote_side.asset_mint, ErrorCode::InvalidMint);
 
         Ok(Self {
             version: MARKET_VERSION,
-            base_mint,
-            quote_mint,
             ylp_mint,
             operator,
             manager,
@@ -214,12 +206,12 @@ impl Market {
             },
             base_hlp_vault: {
                 let mut vault = HlpVault::default();
-                vault.initialize(MarketAsset::Base, base_hlp_ylp_vault);
+                vault.initialize(base_hlp_ylp_vault);
                 vault
             },
             quote_hlp_vault: {
                 let mut vault = HlpVault::default();
-                vault.initialize(MarketAsset::Quote, quote_hlp_ylp_vault);
+                vault.initialize(quote_hlp_ylp_vault);
                 vault
             },
             risk: Risk {
@@ -1195,8 +1187,8 @@ macro_rules! generate_market_seeds {
     ($market:expr) => {
         [
             MARKET_V2_SEED_PREFIX,
-            $market.base_mint.as_ref(),
-            $market.quote_mint.as_ref(),
+            $market.base_side.asset_mint.as_ref(),
+            $market.quote_side.asset_mint.as_ref(),
             $market.params_hash.as_ref(),
             &[$market.bump],
         ]

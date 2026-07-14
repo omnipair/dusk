@@ -12,7 +12,7 @@ use crate::{
     errors::ErrorCode,
     events::{MarketCreated, MarketEventMetadata},
     shared::{account::get_size_with_discriminator, token::create_token_account},
-    state::{FutarchyAuthority, HlpVault, Market, MarketAsset, MarketConfig, MarketSide},
+    state::{FutarchyAuthority, HlpVault, Market, MarketConfig, MarketSide},
 };
 
 use crate::instructions::common::{require_supported_asset_mint, token_program_for_mint, validate_lp_mint};
@@ -237,8 +237,6 @@ impl<'info> InitializeMarket<'info> {
 
         let market = &mut ctx.accounts.market;
         market.version = MARKET_VERSION;
-        market.base_mint = base_mint;
-        market.quote_mint = quote_mint;
         market.ylp_mint = ylp_mint;
         market.operator = resolved_operator;
         market.manager = resolved_manager;
@@ -276,13 +274,13 @@ impl<'info> InitializeMarket<'info> {
         market.base_hlp_vault = {
             let mut vault = HlpVault::default();
             let ylp_vault = derive_hlp_ylp_vault(market_key, base_hlp_mint, ylp_mint);
-            vault.initialize(MarketAsset::Base, ylp_vault);
+            vault.initialize(ylp_vault);
             vault
         };
         market.quote_hlp_vault = {
             let mut vault = HlpVault::default();
             let ylp_vault = derive_hlp_ylp_vault(market_key, quote_hlp_mint, ylp_mint);
-            vault.initialize(MarketAsset::Quote, ylp_vault);
+            vault.initialize(ylp_vault);
             vault
         };
         market.risk = crate::state::Risk {

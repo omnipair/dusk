@@ -47,12 +47,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -244,12 +244,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -423,12 +423,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -602,12 +602,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -793,12 +793,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -906,12 +906,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -1039,12 +1039,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -1364,12 +1364,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -1547,12 +1547,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -1791,12 +1791,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -2048,12 +2048,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -2209,12 +2209,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -2422,12 +2422,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -3460,12 +3460,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -3713,12 +3713,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -3957,12 +3957,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -4030,12 +4030,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -4103,12 +4103,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -4200,12 +4200,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -4258,12 +4258,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -4331,12 +4331,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -4524,12 +4524,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -4669,12 +4669,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -4923,12 +4923,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -5024,12 +5024,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -5125,12 +5125,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -5223,12 +5223,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -5329,12 +5329,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -5513,12 +5513,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -5675,12 +5675,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -5838,12 +5838,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -5943,12 +5943,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -6108,12 +6108,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -6547,12 +6547,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -6735,12 +6735,12 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "market"
               },
               {
@@ -8827,10 +8827,6 @@ export type Dusk = {
         "kind": "struct",
         "fields": [
           {
-            "name": "targetSide",
-            "type": "u8"
-          },
-          {
             "name": "ylpVault",
             "type": "pubkey"
           },
@@ -9611,14 +9607,6 @@ export type Dusk = {
           {
             "name": "version",
             "type": "u8"
-          },
-          {
-            "name": "baseMint",
-            "type": "pubkey"
-          },
-          {
-            "name": "quoteMint",
-            "type": "pubkey"
           },
           {
             "name": "ylpMint",

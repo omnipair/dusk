@@ -215,8 +215,6 @@ mod tests {
             ..MarketSide::default()
         };
         let market = Market::initialize(
-            base_mint,
-            quote_mint,
             ylp_mint,
             Pubkey::new_unique(),
             Pubkey::new_unique(),

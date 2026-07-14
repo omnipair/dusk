@@ -34,8 +34,8 @@ pub struct SettleProtocolAuction<'info> {
         mut,
         seeds = [
             MARKET_V2_SEED_PREFIX,
-            market.base_mint.as_ref(),
-            market.quote_mint.as_ref(),
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
             market.params_hash.as_ref(),
         ],
         bump = market.bump
@@ -331,9 +331,9 @@ fn reference_price_nad(
 }
 
 fn price_from_market(market: &Market, sold_mint: Pubkey, accepted_mint: Pubkey) -> Option<u64> {
-    if sold_mint == market.base_mint && accepted_mint == market.quote_mint {
+    if sold_mint == market.base_side.asset_mint && accepted_mint == market.quote_side.asset_mint {
         Some(market.risk.base_price_ema_nad)
-    } else if sold_mint == market.quote_mint && accepted_mint == market.base_mint {
+    } else if sold_mint == market.quote_side.asset_mint && accepted_mint == market.base_side.asset_mint {
         Some(market.risk.quote_price_ema_nad)
     } else {
         None

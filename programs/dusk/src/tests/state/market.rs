@@ -4,8 +4,6 @@ use super::*;
     fn market_with_roles(manager: Pubkey, operator: Pubkey) -> Market {
         Market {
             version: MARKET_VERSION,
-            base_mint: Pubkey::new_unique(),
-            quote_mint: Pubkey::new_unique(),
             ylp_mint: Pubkey::new_unique(),
             operator,
             manager,
@@ -73,8 +71,6 @@ use super::*;
         quote_side.shares.ylp_supply = quote_cash;
         Market {
             version: MARKET_VERSION,
-            base_mint,
-            quote_mint,
             ylp_mint: Pubkey::new_unique(),
             operator: Pubkey::new_unique(),
             manager: Pubkey::new_unique(),

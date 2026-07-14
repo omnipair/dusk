@@ -28,8 +28,8 @@ pub struct PreviewMarket<'info> {
         mut,
         seeds = [
             MARKET_V2_SEED_PREFIX,
-            market.base_mint.as_ref(),
-            market.quote_mint.as_ref(),
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
             market.params_hash.as_ref(),
         ],
         bump = market.bump
@@ -43,8 +43,8 @@ pub struct PreviewAddLiquidity<'info> {
         mut,
         seeds = [
             MARKET_V2_SEED_PREFIX,
-            market.base_mint.as_ref(),
-            market.quote_mint.as_ref(),
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
             market.params_hash.as_ref(),
         ],
         bump = market.bump
@@ -62,8 +62,8 @@ pub struct PreviewSwap<'info> {
         mut,
         seeds = [
             MARKET_V2_SEED_PREFIX,
-            market.base_mint.as_ref(),
-            market.quote_mint.as_ref(),
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
             market.params_hash.as_ref(),
         ],
         bump = market.bump
@@ -81,8 +81,8 @@ pub struct PreviewBorrowCapacity<'info> {
         mut,
         seeds = [
             MARKET_V2_SEED_PREFIX,
-            market.base_mint.as_ref(),
-            market.quote_mint.as_ref(),
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
             market.params_hash.as_ref(),
         ],
         bump = market.bump
@@ -100,8 +100,8 @@ pub struct PreviewBorrowPosition<'info> {
         mut,
         seeds = [
             MARKET_V2_SEED_PREFIX,
-            market.base_mint.as_ref(),
-            market.quote_mint.as_ref(),
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
             market.params_hash.as_ref(),
         ],
         bump = market.bump
@@ -277,8 +277,16 @@ impl<'info> PreviewAddLiquidity<'info> {
 
         ctx.accounts.market.update()?;
         let market: &Market = &ctx.accounts.market;
-        require_keys_eq!(market.base_mint, ctx.accounts.base_mint.key(), ErrorCode::InvalidMint);
-        require_keys_eq!(market.quote_mint, ctx.accounts.quote_mint.key(), ErrorCode::InvalidMint);
+        require_keys_eq!(
+            market.base_side.asset_mint,
+            ctx.accounts.base_mint.key(),
+            ErrorCode::InvalidMint
+        );
+        require_keys_eq!(
+            market.quote_side.asset_mint,
+            ctx.accounts.quote_mint.key(),
+            ErrorCode::InvalidMint
+        );
 
         let requested_base_amount = args.base_deposit_amount;
         let requested_quote_amount = args.quote_deposit_amount;

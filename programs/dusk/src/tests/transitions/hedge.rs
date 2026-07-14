@@ -48,14 +48,12 @@ use super::*;
         quote_side.shares.ylp_supply = 1_000;
 
         let mut base_hlp_vault = HlpVault::default();
-        base_hlp_vault.initialize(MarketAsset::Base, Pubkey::new_unique());
+        base_hlp_vault.initialize(Pubkey::new_unique());
         let mut quote_hlp_vault = HlpVault::default();
-        quote_hlp_vault.initialize(MarketAsset::Quote, Pubkey::new_unique());
+        quote_hlp_vault.initialize(Pubkey::new_unique());
 
         Market {
             version: MARKET_VERSION,
-            base_mint,
-            quote_mint,
             ylp_mint: Pubkey::new_unique(),
             operator: Pubkey::new_unique(),
             manager: Pubkey::new_unique(),

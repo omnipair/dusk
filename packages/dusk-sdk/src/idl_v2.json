@@ -41,12 +41,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -238,12 +238,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -417,12 +417,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -596,12 +596,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -787,12 +787,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -900,12 +900,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -1033,12 +1033,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -1358,12 +1358,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -1541,12 +1541,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -1785,12 +1785,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -2042,12 +2042,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -2203,12 +2203,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -2416,12 +2416,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -3454,12 +3454,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -3707,12 +3707,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -3951,12 +3951,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -4024,12 +4024,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -4097,12 +4097,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -4194,12 +4194,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -4252,12 +4252,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -4325,12 +4325,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -4518,12 +4518,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -4663,12 +4663,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -4917,12 +4917,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -5018,12 +5018,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -5119,12 +5119,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -5217,12 +5217,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -5323,12 +5323,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -5507,12 +5507,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -5669,12 +5669,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -5832,12 +5832,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -5937,12 +5937,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -6102,12 +6102,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -6541,12 +6541,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -6729,12 +6729,12 @@
               },
               {
                 "kind": "account",
-                "path": "market.base_mint",
+                "path": "market.base_side.asset_mint",
                 "account": "Market"
               },
               {
                 "kind": "account",
-                "path": "market.quote_mint",
+                "path": "market.quote_side.asset_mint",
                 "account": "Market"
               },
               {
@@ -8821,10 +8821,6 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "target_side",
-            "type": "u8"
-          },
-          {
             "name": "ylp_vault",
             "type": "pubkey"
           },
@@ -9605,14 +9601,6 @@
           {
             "name": "version",
             "type": "u8"
-          },
-          {
-            "name": "base_mint",
-            "type": "pubkey"
-          },
-          {
-            "name": "quote_mint",
-            "type": "pubkey"
           },
           {
             "name": "ylp_mint",

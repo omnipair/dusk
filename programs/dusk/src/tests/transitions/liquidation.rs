@@ -61,8 +61,6 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
     };
     let market = Market {
         version: MARKET_VERSION,
-        base_mint,
-        quote_mint,
         ylp_mint: Pubkey::new_unique(),
         operator: Pubkey::new_unique(),
         manager: Pubkey::new_unique(),
@@ -203,8 +201,6 @@ fn market_with_cash_backed_debt(
 
     let market = Market {
         version: MARKET_VERSION,
-        base_mint,
-        quote_mint,
         ylp_mint: Pubkey::new_unique(),
         operator: Pubkey::new_unique(),
         manager: Pubkey::new_unique(),

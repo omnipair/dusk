@@ -7,7 +7,6 @@ pub(crate) use crate::state::market::transitions::hedge::HlpRebalanceReceipt;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
 pub struct HlpVault {
-    pub target_side: u8,
     pub ylp_vault: Pubkey,
     pub ylp_shares: u64,
     /// hLP-owned live reserve depth that is not backed by reserve cash or
@@ -38,13 +37,8 @@ pub struct HlpVault {
 }
 
 impl HlpVault {
-    pub fn initialize(&mut self, target_side: MarketAsset, ylp_vault: Pubkey) {
-        self.target_side = target_side.code();
+    pub fn initialize(&mut self, ylp_vault: Pubkey) {
         self.ylp_vault = ylp_vault;
-    }
-
-    pub fn target_asset(&self) -> Result<MarketAsset> {
-        MarketAsset::try_from_code(self.target_side)
     }
 
     pub fn mint_hlp(&mut self, amount: u64) -> Result<()> {
