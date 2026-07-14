@@ -251,12 +251,9 @@ pub mod dusk {
     }
 
     // Liquidation auction instructions
-    #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn trigger_liquidation_auction(
-        ctx: Context<TriggerLiquidationAuction>,
-        args: TriggerLiquidationAuctionArgs,
-    ) -> Result<()> {
-        TriggerLiquidationAuction::handle_trigger(ctx, args)
+    #[access_control(ctx.accounts.update_and_validate())]
+    pub fn trigger_liquidation_auction(ctx: Context<TriggerLiquidationAuction>) -> Result<()> {
+        TriggerLiquidationAuction::handle_trigger(ctx)
     }
 
     // Preview instructions

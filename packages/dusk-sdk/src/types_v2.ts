@@ -5898,16 +5898,7 @@ export type Dusk = {
           "name": "debtAssetMint"
         }
       ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "triggerLiquidationAuctionArgs"
-            }
-          }
-        }
-      ]
+      "args": []
     },
     {
       "name": "updateConfig",
@@ -6058,10 +6049,6 @@ export type Dusk = {
               }
             ]
           }
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -6301,10 +6288,6 @@ export type Dusk = {
               }
             ]
           }
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -6366,10 +6349,6 @@ export type Dusk = {
               }
             ]
           }
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -6431,10 +6410,6 @@ export type Dusk = {
               }
             ]
           }
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -6496,10 +6471,6 @@ export type Dusk = {
               }
             ]
           }
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -11565,13 +11536,6 @@ export type Dusk = {
             "type": "i128"
           }
         ]
-      }
-    },
-    {
-      "name": "triggerLiquidationAuctionArgs",
-      "type": {
-        "kind": "struct",
-        "fields": []
       }
     },
     {

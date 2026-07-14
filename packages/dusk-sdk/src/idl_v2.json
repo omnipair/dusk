@@ -5892,16 +5892,7 @@
           "name": "debt_asset_mint"
         }
       ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "TriggerLiquidationAuctionArgs"
-            }
-          }
-        }
-      ]
+      "args": []
     },
     {
       "name": "update_config",
@@ -6052,10 +6043,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -6295,10 +6282,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -6360,10 +6343,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -6425,10 +6404,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -6490,10 +6465,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -11559,13 +11530,6 @@
             "type": "i128"
           }
         ]
-      }
-    },
-    {
-      "name": "TriggerLiquidationAuctionArgs",
-      "type": {
-        "kind": "struct",
-        "fields": []
       }
     },
     {

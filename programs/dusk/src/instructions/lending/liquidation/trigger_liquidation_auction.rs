@@ -7,11 +7,7 @@ use crate::{
     state::{market::transitions::liquidation::LiquidationPricing, BorrowPosition, Market},
 };
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct TriggerLiquidationAuctionArgs {}
-
 #[derive(Accounts)]
-#[instruction(args: TriggerLiquidationAuctionArgs)]
 pub struct TriggerLiquidationAuction<'info> {
     #[account(
         mut,
@@ -40,7 +36,7 @@ pub struct TriggerLiquidationAuction<'info> {
 }
 
 impl<'info> TriggerLiquidationAuction<'info> {
-    pub fn validate(&self, _args: &TriggerLiquidationAuctionArgs) -> Result<()> {
+    pub fn validate(&self) -> Result<()> {
         self.market.assert_started()?;
         require_keys_eq!(
             self.borrow_position.market,
@@ -50,9 +46,9 @@ impl<'info> TriggerLiquidationAuction<'info> {
         Ok(())
     }
 
-    crate::instructions::common::market_update_and_validate!(TriggerLiquidationAuctionArgs);
+    crate::instructions::common::market_update_and_validate!();
 
-    pub fn handle_trigger(ctx: Context<Self>, _args: TriggerLiquidationAuctionArgs) -> Result<()> {
+    pub fn handle_trigger(ctx: Context<Self>) -> Result<()> {
         let debt_asset_mint_key = ctx.accounts.debt_asset_mint.key();
         let debt_asset = ctx.accounts.market.asset_for_mint(debt_asset_mint_key)?;
 
