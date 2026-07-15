@@ -184,7 +184,6 @@ pub struct DelegatedCloseCollateralMarginLeverage<'info> {
     /// CHECK: Validated against the delegation and required to be executable by the callback helper.
     pub delegated_program: UncheckedAccount<'info>,
 
-    #[account(mut)]
     pub authority: Signer<'info>,
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,

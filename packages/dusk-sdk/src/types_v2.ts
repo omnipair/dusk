@@ -1452,7 +1452,6 @@ export type Dusk = {
         },
         {
           "name": "authority",
-          "writable": true,
           "signer": true
         },
         {
@@ -2202,7 +2201,6 @@ export type Dusk = {
         },
         {
           "name": "authority",
-          "writable": true,
           "signer": true
         },
         {
@@ -2459,7 +2457,6 @@ export type Dusk = {
         },
         {
           "name": "authority",
-          "writable": true,
           "signer": true
         },
         {
@@ -4320,7 +4317,6 @@ export type Dusk = {
         },
         {
           "name": "liquidator",
-          "writable": true,
           "signer": true
         },
         {

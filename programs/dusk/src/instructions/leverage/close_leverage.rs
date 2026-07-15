@@ -111,7 +111,6 @@ pub struct CloseLeverage<'info> {
     /// CHECK: Optional delegated program, validated in delegated mode.
     pub delegated_program: Option<UncheckedAccount<'info>>,
 
-    #[account(mut)]
     pub authority: Signer<'info>,
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,

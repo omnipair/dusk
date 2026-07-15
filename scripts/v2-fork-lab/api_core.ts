@@ -1115,7 +1115,11 @@ async function bootstrapUncached(): Promise<StoredMarket> {
     baseHlpYlpVault: baseHlpYlpVault.toBase58(),
     quoteHlpYlpVault: quoteHlpYlpVault.toBase58(),
     eventAuthority: addresses.eventAuthority.toBase58(),
-    seededLiquidity: previous?.market === addresses.market.toBase58() && previous.seededLiquidity,
+    seededLiquidity: Boolean(
+      existingMarketAccount &&
+        previous?.market === addresses.market.toBase58() &&
+        previous.seededLiquidity
+    ),
     transferHookValidationAccounts,
   };
 
@@ -1920,8 +1924,8 @@ async function buildCloseLeverageTx(params: {
         debtInterestVault: isDebtBase ? m.baseInterestVault : m.quoteInterestVault,
         leverageCollateralVault,
         ownerDebtAccount,
-        leverageDelegation: SystemProgram.programId,
-        delegatedProgram: SystemProgram.programId,
+        leverageDelegation: null,
+        delegatedProgram: null,
         authority: params.owner,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -2267,14 +2271,12 @@ async function leveragePositionsPayload(wallet: PublicKey, stored: StoredMarket)
   const positions: any[] = [];
 
   try {
-    const { connection } = initializeRuntime();
-    const accounts = await connection.getProgramAccounts(PROGRAM_ID, {});
-    for (const { pubkey, account } of accounts) {
+    const accounts = await program.account.leveragePosition.all([
+      { memcmp: { offset: 8, bytes: wallet.toBase58() } },
+      { memcmp: { offset: 40, bytes: stored.market } },
+    ]);
+    for (const { publicKey, account: pos } of accounts) {
       try {
-        const pos = program.account.leveragePosition.coder.accounts.decode(
-          "LeveragePosition",
-          account.data
-        );
         const owner = stringValue(field(pos, "owner"));
         const market = stringValue(field(pos, "market"));
         if (owner !== wallet.toBase58() || market !== stored.market) continue;
@@ -2282,7 +2284,7 @@ async function leveragePositionsPayload(wallet: PublicKey, stored: StoredMarket)
         const debtAsset = Number(field(pos, "debtAsset", "debt_asset"));
         if (debtAsset !== 0 && debtAsset !== 1) continue;
 
-        const positionAddress = pubkey.toBase58();
+        const positionAddress = publicKey.toBase58();
         const positionId = stringValue(field(pos, "positionId", "position_id"));
         const debtMint = debtAsset === 0 ? stored.baseMint : stored.quoteMint;
         const collateralMint = debtAsset === 0 ? stored.quoteMint : stored.baseMint;

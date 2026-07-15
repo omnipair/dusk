@@ -105,7 +105,6 @@ pub struct LiquidateLeverage<'info> {
     )]
     pub owner_debt_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    #[account(mut)]
     pub liquidator: Signer<'info>,
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,

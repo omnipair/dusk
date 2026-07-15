@@ -1446,7 +1446,6 @@
         },
         {
           "name": "authority",
-          "writable": true,
           "signer": true
         },
         {
@@ -2196,7 +2195,6 @@
         },
         {
           "name": "authority",
-          "writable": true,
           "signer": true
         },
         {
@@ -2453,7 +2451,6 @@
         },
         {
           "name": "authority",
-          "writable": true,
           "signer": true
         },
         {
@@ -4314,7 +4311,6 @@
         },
         {
           "name": "liquidator",
-          "writable": true,
           "signer": true
         },
         {

@@ -16,6 +16,7 @@ npm run v2-fork:rpc-proxy
 npm run v2-fork:api
 npm run test-surfpool-v2
 npm run surfpool-v2-e2e
+LEVERAGE_ONLY=true node scripts/v2-fork-lab/test_leverage.mjs
 ```
 
 ## Core Env

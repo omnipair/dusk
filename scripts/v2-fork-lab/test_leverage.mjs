@@ -25,6 +25,9 @@ import {
 
 const API = process.env.FORK_API_URL ?? "http://127.0.0.1:8080";
 const RPC = process.env.SURFPOOL_RPC_URL ?? "http://127.0.0.1:8899";
+const LEVERAGE_ONLY = /^(1|true|yes)$/i.test(
+  process.env.LEVERAGE_ONLY ?? ""
+);
 const PAYER_PATH = resolve(
   process.env.FORK_LAB_PAYER_KEYPAIR ?? process.env.ANCHOR_WALLET ?? "deployer-keypair.json"
 );
@@ -74,7 +77,12 @@ async function signAndSend(txBase64, keypair) {
   const sig = await connection.sendRawTransaction(tx.serialize(), {
     skipPreflight: true,
   });
-  await connection.confirmTransaction(sig, "confirmed");
+  const confirmation = await connection.confirmTransaction(sig, "confirmed");
+  if (confirmation.value.err) {
+    throw new Error(
+      `Transaction ${sig} failed: ${JSON.stringify(confirmation.value.err)}`
+    );
+  }
   return sig;
 }
 
@@ -160,6 +168,7 @@ async function main() {
 
   const { randomBytes } = await import("node:crypto");
 
+  if (!LEVERAGE_ONLY) {
   test("POST /api/v2/fork/tx/deposit-collateral + borrow + repay + hLP deposit/withdraw");
   const posId = new PublicKey(randomBytes(32));
 
@@ -250,6 +259,7 @@ async function main() {
   });
   await signAndSend(swapRevResp.data.transaction, payer);
   ok("Swap (quote->base, 100 USDC)");
+  }
 
   // === LEVERAGE FLOW TESTS ===========================================
 
@@ -295,7 +305,12 @@ async function main() {
   }
   ok("wallet and owner query aliases return the same position set");
   if (posCount > 0) {
-    const pos1 = levPosResp.data.positions[0];
+    const pos1 = levPosResp.data.positions.find(
+      (item) => item.positionId === levPosId1.toBase58()
+    );
+    if (!pos1) {
+      throw new Error("Newly opened leverage position was not returned by the owner query");
+    }
     const requiredFields = [
       "positionAddress",
       "positionId",
