@@ -19,6 +19,11 @@ const files = [
     prepare: (contents) => contents,
   },
   {
+    src: resolve(repoRoot, "target/idl/leverage_delegate.json"),
+    dest: resolve(rootDir, "src/leverage_delegate_idl.json"),
+    prepare: (contents) => contents,
+  },
+  {
     src: resolve(repoRoot, "target/types/dusk.ts"),
     dest: resolve(rootDir, "src/types_v2.ts"),
     prepare: (contents) => contents,

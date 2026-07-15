@@ -11,6 +11,7 @@ NETWORK="${SURFPOOL_NETWORK:-mainnet}"
 LOG_PATH="${SURFPOOL_LOG_PATH:-/tmp/dusk-surfpool-logs}"
 WALLET_PATH="${ANCHOR_WALLET:-deployer-keypair.json}"
 PROGRAM_ID="${DUSK_PROGRAM_ID:-358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv}"
+LEVERAGE_DELEGATE_PROGRAM_ID="${LEVERAGE_DELEGATE_PROGRAM_ID:-EPGF9iFrbGnhWgC3To9rC9vxinEYuDHaz4RXgLPvuRkp}"
 DEPLOYMENT_TIMEOUT_SECONDS="${FORK_LAB_DEPLOYMENT_TIMEOUT_SECONDS:-180}"
 
 if [[ "$RPC_PORT" != "8899" && "${FORK_LAB_ALLOW_NONSTANDARD_SURFPOOL_PORT:-false}" != "true" ]]; then
@@ -32,11 +33,14 @@ fi
 
 if [[ "${FORK_LAB_BUILD:-true}" != "false" ]]; then
   anchor build -p dusk -- --features "development"
+  anchor build -p leverage_delegate
 fi
 
 for artifact in \
   target/deploy/dusk.so \
-  target/deploy/dusk-keypair.json
+  target/deploy/dusk-keypair.json \
+  target/deploy/leverage_delegate.so \
+  target/deploy/leverage_delegate-keypair.json
 do
   if [[ ! -f "$artifact" ]]; then
     echo "Missing required Dusk Surfpool deployment artifact: $artifact" >&2
@@ -78,6 +82,8 @@ surfpool start \
 
 SURFPOOL_PID=$!
 deadline=$((SECONDS + DEPLOYMENT_TIMEOUT_SECONDS))
+dusk_deployed=false
+delegate_deployed=false
 
 while kill -0 "$SURFPOOL_PID" 2>/dev/null; do
   if grep -q "Runbook execution aborted" "$BOOT_LOG"; then
@@ -87,14 +93,20 @@ while kill -0 "$SURFPOOL_PID" 2>/dev/null; do
   fi
 
   if grep -Eq "Program (Created|Upgraded) - Program ${PROGRAM_ID}" "$BOOT_LOG"; then
-    echo "Surfpool fork is running local dusk artifact for ${PROGRAM_ID}."
+    dusk_deployed=true
+  fi
+  if grep -Eq "Program (Created|Upgraded) - Program ${LEVERAGE_DELEGATE_PROGRAM_ID}" "$BOOT_LOG"; then
+    delegate_deployed=true
+  fi
+  if [[ "$dusk_deployed" == "true" && "$delegate_deployed" == "true" ]]; then
+    echo "Surfpool fork is running local dusk and leverage-delegate artifacts."
     wait "$SURFPOOL_PID"
     exit $?
   fi
 
   if (( SECONDS >= deadline )); then
     echo "Timed out waiting for Surfpool to deploy local Dusk program artifact." >&2
-    echo "Expected deploy log for ${PROGRAM_ID}." >&2
+    echo "Expected deploy logs for ${PROGRAM_ID} and ${LEVERAGE_DELEGATE_PROGRAM_ID}." >&2
     cleanup
     exit 1
   fi

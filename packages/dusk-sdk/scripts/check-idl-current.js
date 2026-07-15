@@ -19,6 +19,11 @@ const pairs = [
     normalize: (contents) => contents,
   },
   {
+    generated: resolve(repoRoot, "target/idl/leverage_delegate.json"),
+    committed: resolve(packageRoot, "src/leverage_delegate_idl.json"),
+    normalize: (contents) => contents,
+  },
+  {
     generated: resolve(repoRoot, "target/types/dusk.ts"),
     committed: resolve(packageRoot, "src/types_v2.ts"),
     normalize: (contents) => contents,
@@ -34,7 +39,9 @@ for (const { generated, committed, normalize } of pairs) {
     continue;
   }
   if (!existsSync(committed)) {
-    console.error(`Missing committed interface file: ${relative(repoRoot, committed)}`);
+    console.error(
+      `Missing committed interface file: ${relative(repoRoot, committed)}`,
+    );
     failed = true;
     continue;
   }
@@ -46,8 +53,8 @@ for (const { generated, committed, normalize } of pairs) {
     console.error(
       `Program interface drift: ${relative(repoRoot, committed)} does not match ${relative(
         repoRoot,
-        generated
-      )}`
+        generated,
+      )}`,
     );
     failed = true;
   }
@@ -55,9 +62,11 @@ for (const { generated, committed, normalize } of pairs) {
 
 if (failed) {
   console.error(
-    "\nRun `anchor build -p dusk` and `npm run prepare-idl --prefix packages/dusk-sdk`, then commit the updated interface files."
+    "\nRun `anchor build -p dusk` and `npm run prepare-idl --prefix packages/dusk-sdk`, then commit the updated interface files.",
   );
   process.exit(1);
 }
 
-console.log("Dusk SDK interface files match the latest Anchor build artifacts.");
+console.log(
+  "Dusk SDK interface files match the latest Anchor build artifacts.",
+);

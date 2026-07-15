@@ -14,7 +14,7 @@ use crate::{
 };
 
 use super::common::{
-    move_leverage_swap_fee, record_leverage_interest, validate_leverage_fee_account,
+    leverage_collateral_credit, move_leverage_swap_fee, record_leverage_interest, validate_leverage_fee_account,
     validate_leverage_interest_account, validate_leverage_mints, validate_leverage_reserve_accounts,
 };
 use crate::instructions::common::{token_account_credit, token_program_for_mint};
@@ -49,8 +49,8 @@ pub struct LiquidateLeverage<'info> {
     pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
 
     /// CHECK: Receives closed account rent and any non-incentive residual.
-    #[account(mut, address = leverage_position.owner)]
-    pub position_owner: AccountInfo<'info>,
+    #[account(mut)]
+    pub position_owner: UncheckedAccount<'info>,
 
     #[account(
         mut,
@@ -61,8 +61,6 @@ pub struct LiquidateLeverage<'info> {
             leverage_position.position_id.as_ref(),
         ],
         bump = leverage_position.bump,
-        constraint = leverage_position.market == market.key() @ ErrorCode::InvalidLeveragePosition,
-        constraint = leverage_position.debt_asset == args.debt_asset @ ErrorCode::InvalidLeveragePosition,
     )]
     pub leverage_position: Box<Account<'info, LeveragePosition>>,
 
@@ -86,23 +84,13 @@ pub struct LiquidateLeverage<'info> {
             collateral_mint.key().as_ref(),
         ],
         bump,
-        constraint = leverage_collateral_vault.mint == collateral_mint.key() @ ErrorCode::InvalidVault,
-        constraint = leverage_collateral_vault.owner == market.key() @ ErrorCode::InvalidVault
     )]
     pub leverage_collateral_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    #[account(
-        mut,
-        constraint = liquidator_debt_account.mint == debt_mint.key() @ ErrorCode::InvalidTokenAccount,
-        constraint = liquidator_debt_account.owner == liquidator.key() @ ErrorCode::InvalidTokenAccount,
-    )]
+    #[account(mut)]
     pub liquidator_debt_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    #[account(
-        mut,
-        constraint = owner_debt_account.mint == debt_mint.key() @ ErrorCode::InvalidTokenAccount,
-        constraint = owner_debt_account.owner == position_owner.key() @ ErrorCode::InvalidTokenAccount,
-    )]
+    #[account(mut)]
     pub owner_debt_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     pub liquidator: Signer<'info>,
@@ -131,6 +119,38 @@ impl<'info> LiquidateLeverage<'info> {
         )?;
         validate_leverage_interest_account(&self.market, &self.debt_mint, &self.debt_interest_vault, debt_asset)?;
         self.leverage_position.require_open()?;
+        self.leverage_position
+            .assert_position(self.position_owner.key(), self.market.key(), debt_asset)?;
+        require_keys_eq!(
+            self.leverage_collateral_vault.mint,
+            self.collateral_mint.key(),
+            ErrorCode::InvalidVault
+        );
+        require_keys_eq!(
+            self.leverage_collateral_vault.owner,
+            self.market.key(),
+            ErrorCode::InvalidVault
+        );
+        require_keys_eq!(
+            self.liquidator_debt_account.mint,
+            self.debt_mint.key(),
+            ErrorCode::InvalidTokenAccount
+        );
+        require_keys_eq!(
+            self.liquidator_debt_account.owner,
+            self.liquidator.key(),
+            ErrorCode::InvalidTokenAccount
+        );
+        require_keys_eq!(
+            self.owner_debt_account.mint,
+            self.debt_mint.key(),
+            ErrorCode::InvalidTokenAccount
+        );
+        require_keys_eq!(
+            self.owner_debt_account.owner,
+            self.position_owner.key(),
+            ErrorCode::InvalidTokenAccount
+        );
         Ok(())
     }
 
@@ -152,6 +172,7 @@ impl<'info> LiquidateLeverage<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
+        let collateral_swap_input = leverage_collateral_credit(&ctx.accounts.collateral_mint, collateral_sold)?;
         transfer_from_vault_to_vault(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.leverage_collateral_vault.to_account_info(),
@@ -165,7 +186,7 @@ impl<'info> LiquidateLeverage<'info> {
         let swap = ctx
             .accounts
             .market
-            .quote_leverage_swap(collateral_asset, collateral_sold)?;
+            .quote_leverage_swap(collateral_asset, collateral_swap_input)?;
         move_leverage_swap_fee(
             &ctx.accounts.market,
             &ctx.accounts.collateral_mint,
@@ -179,6 +200,7 @@ impl<'info> LiquidateLeverage<'info> {
         let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
         let receipt = ctx.accounts.market.liquidate_leverage(
             &mut ctx.accounts.leverage_position,
+            collateral_swap_input,
             manager_fee_bps,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,

@@ -14,7 +14,7 @@ use crate::{
 };
 
 use super::common::{
-    move_leverage_swap_fee, record_leverage_interest, validate_leverage_fee_account,
+    leverage_collateral_credit, move_leverage_swap_fee, record_leverage_interest, validate_leverage_fee_account,
     validate_leverage_interest_account, validate_leverage_mints, validate_leverage_reserve_accounts,
 };
 use crate::instructions::common::token_program_for_mint;
@@ -135,6 +135,7 @@ impl<'info> DecreaseLeverage<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
+        let collateral_swap_input = leverage_collateral_credit(&ctx.accounts.collateral_mint, args.collateral_amount)?;
         transfer_from_vault_to_vault(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.leverage_collateral_vault.to_account_info(),
@@ -148,7 +149,7 @@ impl<'info> DecreaseLeverage<'info> {
         let swap = ctx
             .accounts
             .market
-            .quote_leverage_swap(collateral_asset, args.collateral_amount)?;
+            .quote_leverage_swap(collateral_asset, collateral_swap_input)?;
         move_leverage_swap_fee(
             &ctx.accounts.market,
             &ctx.accounts.collateral_mint,
@@ -163,6 +164,7 @@ impl<'info> DecreaseLeverage<'info> {
         let receipt = ctx.accounts.market.decrease_leverage(
             &mut ctx.accounts.leverage_position,
             args.collateral_amount,
+            collateral_swap_input,
             args.min_repay_out,
             manager_fee_bps,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,

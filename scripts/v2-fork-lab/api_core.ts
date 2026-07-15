@@ -13,12 +13,15 @@ import {
   createAssociatedTokenAccountInstruction,
   createInitializeMintInstruction,
   createInitializeTransferHookInstruction,
+  getEpochFee,
   getAccount,
   getAssociatedTokenAddressSync,
   getMint,
   getMintLen,
+  getTransferFeeConfig,
 } from "@solana/spl-token";
 import {
+  type AccountMeta,
   ComputeBudgetProgram,
   Connection,
   Keypair,
@@ -31,10 +34,16 @@ import {
 } from "@solana/web3.js";
 
 const DEFAULT_PROGRAM_ID = "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv";
+const DEFAULT_LEVERAGE_DELEGATE_PROGRAM_ID =
+  "EPGF9iFrbGnhWgC3To9rC9vxinEYuDHaz4RXgLPvuRkp";
 const DEFAULT_META_MINT = "METAwkXcqyXKy1AtsSgJ8JiUHwGCafnZL38n3vYmeta";
 const DEFAULT_USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-const BPF_LOADER_UPGRADEABLE_ID = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
-const TOKEN_METADATA_PROGRAM_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
+const BPF_LOADER_UPGRADEABLE_ID = new PublicKey(
+  "BPFLoaderUpgradeab1e11111111111111111111111",
+);
+const TOKEN_METADATA_PROGRAM_ID = new PublicKey(
+  "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",
+);
 const NAD = 1_000_000_000n;
 
 function duskEnv(name: string): string | undefined;
@@ -44,13 +53,27 @@ function duskEnv(name: string, fallback?: string): string | undefined {
   return process.env[`DUSK_${suffix}`] ?? fallback;
 }
 
-const SURFPOOL_RPC_URL = process.env.SURFPOOL_RPC_URL ?? "http://127.0.0.1:8899";
+const SURFPOOL_RPC_URL =
+  process.env.SURFPOOL_RPC_URL ?? "http://127.0.0.1:8899";
 const PUBLIC_RPC_URL = normalizePublicUrl(
-  process.env.PUBLIC_SURFPOOL_RPC_URL ?? process.env.SURFPOOL_RPC_PROXY_URL ?? SURFPOOL_RPC_URL
+  process.env.PUBLIC_SURFPOOL_RPC_URL ??
+    process.env.SURFPOOL_RPC_PROXY_URL ??
+    SURFPOOL_RPC_URL,
 );
 const PROGRAM_ID = new PublicKey(duskEnv("PROGRAM_ID", DEFAULT_PROGRAM_ID));
-const DEFAULT_SOL_FUNDING = Number(process.env.FORK_DEFAULT_SOL_FUNDING ?? "10");
-const DEFAULT_TOKEN_FUNDING_UI = process.env.FORK_DEFAULT_TOKEN_FUNDING ?? "10000";
+const LEVERAGE_DELEGATE_PROGRAM_ID = new PublicKey(
+  duskEnv("LEVERAGE_DELEGATE_PROGRAM_ID", DEFAULT_LEVERAGE_DELEGATE_PROGRAM_ID),
+);
+const LEVERAGE_DELEGATE_CLOSE = 1;
+const TAKE_PROFIT_ORDER_ID = 1;
+const STOP_LOSS_ORDER_ID = 2;
+const ORDER_KIND_TAKE_PROFIT = 1;
+const ORDER_KIND_STOP_LOSS = 2;
+const DEFAULT_SOL_FUNDING = Number(
+  process.env.FORK_DEFAULT_SOL_FUNDING ?? "10",
+);
+const DEFAULT_TOKEN_FUNDING_UI =
+  process.env.FORK_DEFAULT_TOKEN_FUNDING ?? "10000";
 const MAX_SOL_FUNDING = Number(process.env.FORK_MAX_SOL_FUNDING ?? "100");
 const MAX_TOKEN_FUNDING_UI = process.env.FORK_MAX_TOKEN_FUNDING ?? "1000000";
 const DEFAULT_SEED_BASE_UI = duskEnv("BASE_LIQUIDITY") ?? "100000";
@@ -106,6 +129,9 @@ let runtime:
       program: any;
       idl: anchor.Idl;
       accountCoder: anchor.BorshAccountsCoder;
+      leverageDelegateProgram: any;
+      leverageDelegateIdl: anchor.Idl;
+      leverageDelegateAccountCoder: anchor.BorshAccountsCoder;
     }
   | undefined;
 let runtimeError: string | null = null;
@@ -131,12 +157,15 @@ function readState(): ForkState {
 
 function writeState(state: ForkState) {
   ensureStateDir();
-  writeFileSync(statePath(), `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(statePath(), `${JSON.stringify(state, null, 2)}\n`, {
+    mode: 0o600,
+  });
 }
 
 function normalizePublicUrl(value: string): string {
   if (/^https?:\/\//i.test(value)) return value.replace(/\/$/, "");
-  if (value.includes("localhost") || value.includes("127.0.0.1")) return `http://${value}`;
+  if (value.includes("localhost") || value.includes("127.0.0.1"))
+    return `http://${value}`;
   return `https://${value}`;
 }
 
@@ -156,12 +185,39 @@ function loadIdl(): anchor.Idl {
   }
 
   throw new Error(
-    `Dusk IDL not found. Tried ${candidates.map((path) => resolve(path)).join(", ")}`
+    `Dusk IDL not found. Tried ${candidates.map((path) => resolve(path)).join(", ")}`,
+  );
+}
+
+function loadLeverageDelegateIdl(): anchor.Idl {
+  const candidates = [
+    duskEnv("LEVERAGE_DELEGATE_IDL_PATH"),
+    "target/idl/leverage_delegate.json",
+    "packages/dusk-sdk/src/leverage_delegate_idl.json",
+  ].filter(Boolean) as string[];
+
+  for (const candidate of candidates) {
+    const path = resolve(candidate);
+    if (existsSync(path)) {
+      const idl = JSON.parse(readFileSync(path, "utf8"));
+      return {
+        ...idl,
+        address: LEVERAGE_DELEGATE_PROGRAM_ID.toBase58(),
+      } as anchor.Idl;
+    }
+  }
+
+  throw new Error(
+    `Leverage delegate IDL not found. Tried ${candidates
+      .map((path) => resolve(path))
+      .join(", ")}`,
   );
 }
 
 function readKeypairFile(path: string): Keypair {
-  return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(path, "utf8"))));
+  return Keypair.fromSecretKey(
+    Uint8Array.from(JSON.parse(readFileSync(path, "utf8"))),
+  );
 }
 
 function parseKeypairSecret(value: string): Keypair {
@@ -172,7 +228,11 @@ function parseKeypairSecret(value: string): Keypair {
   return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(json) as number[]));
 }
 
-function loadOrCreateKeypair(label: string): { keypair: Keypair; path: string; created: boolean } {
+function loadOrCreateKeypair(label: string): {
+  keypair: Keypair;
+  path: string;
+  created: boolean;
+} {
   ensureStateDir();
   const safeLabel = label.replace(/[^a-zA-Z0-9_-]/g, "-");
   const path = resolve(stateDir(), `${safeLabel}.json`);
@@ -180,26 +240,35 @@ function loadOrCreateKeypair(label: string): { keypair: Keypair; path: string; c
     return { keypair: readKeypairFile(path), path, created: false };
   }
   const keypair = Keypair.generate();
-  writeFileSync(path, JSON.stringify(Array.from(keypair.secretKey)), { mode: 0o600 });
+  writeFileSync(path, JSON.stringify(Array.from(keypair.secretKey)), {
+    mode: 0o600,
+  });
   return { keypair, path, created: true };
 }
 
 function loadPayer(): Keypair {
   const inline =
-    process.env.FORK_LAB_PAYER_KEYPAIR_JSON ?? process.env.FORK_LAB_PAYER_KEYPAIR_BASE64;
+    process.env.FORK_LAB_PAYER_KEYPAIR_JSON ??
+    process.env.FORK_LAB_PAYER_KEYPAIR_BASE64;
   const materializedPath = resolve(
-    process.env.FORK_LAB_MATERIALIZED_PAYER_PATH ?? `${stateDir()}/payer.json`
+    process.env.FORK_LAB_MATERIALIZED_PAYER_PATH ?? `${stateDir()}/payer.json`,
   );
 
   if (inline) {
     const payer = parseKeypairSecret(inline);
     mkdirSync(dirname(materializedPath), { recursive: true, mode: 0o700 });
-    writeFileSync(materializedPath, JSON.stringify(Array.from(payer.secretKey)), { mode: 0o600 });
+    writeFileSync(
+      materializedPath,
+      JSON.stringify(Array.from(payer.secretKey)),
+      { mode: 0o600 },
+    );
     return payer;
   }
 
   const keypairPath =
-    process.env.FORK_LAB_PAYER_KEYPAIR ?? process.env.ANCHOR_WALLET ?? "deployer-keypair.json";
+    process.env.FORK_LAB_PAYER_KEYPAIR ??
+    process.env.ANCHOR_WALLET ??
+    "deployer-keypair.json";
   const resolved = resolve(keypairPath);
   if (existsSync(resolved)) return readKeypairFile(resolved);
 
@@ -212,16 +281,44 @@ function initializeRuntime() {
   try {
     const payer = loadPayer();
     const connection = new Connection(SURFPOOL_RPC_URL, "confirmed");
-    const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(payer), {
-      commitment: "confirmed",
-      preflightCommitment: "confirmed",
-      skipPreflight: false,
-    });
+    const provider = new anchor.AnchorProvider(
+      connection,
+      new anchor.Wallet(payer),
+      {
+        commitment: "confirmed",
+        preflightCommitment: "confirmed",
+        skipPreflight: false,
+      },
+    );
     const idl = loadIdl();
-    const program = new anchor.Program({ ...idl, address: PROGRAM_ID.toBase58() } as any, provider);
+    const program = new anchor.Program(
+      { ...idl, address: PROGRAM_ID.toBase58() } as any,
+      provider,
+    );
     const accountCoder = new anchor.BorshAccountsCoder(idl);
+    const leverageDelegateIdl = loadLeverageDelegateIdl();
+    const leverageDelegateProgram = new anchor.Program(
+      {
+        ...leverageDelegateIdl,
+        address: LEVERAGE_DELEGATE_PROGRAM_ID.toBase58(),
+      } as any,
+      provider,
+    );
+    const leverageDelegateAccountCoder = new anchor.BorshAccountsCoder(
+      leverageDelegateIdl,
+    );
     anchor.setProvider(provider);
-    runtime = { payer, connection, provider, program, idl, accountCoder };
+    runtime = {
+      payer,
+      connection,
+      provider,
+      program,
+      idl,
+      accountCoder,
+      leverageDelegateProgram,
+      leverageDelegateIdl,
+      leverageDelegateAccountCoder,
+    };
     runtimeError = null;
     return runtime;
   } catch (error) {
@@ -242,43 +339,143 @@ function pda(...seeds: Buffer[]): PublicKey {
 function tokenMetadataPda(mint: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync(
     [seed("metadata"), TOKEN_METADATA_PROGRAM_ID.toBuffer(), mint.toBuffer()],
-    TOKEN_METADATA_PROGRAM_ID
+    TOKEN_METADATA_PROGRAM_ID,
   )[0];
 }
 
-function marketPda(baseMint: PublicKey, quoteMint: PublicKey, paramsHash: Buffer): PublicKey {
-  return pda(seed("market_v2"), baseMint.toBuffer(), quoteMint.toBuffer(), paramsHash);
+function marketPda(
+  baseMint: PublicKey,
+  quoteMint: PublicKey,
+  paramsHash: Buffer,
+): PublicKey {
+  return pda(
+    seed("market_v2"),
+    baseMint.toBuffer(),
+    quoteMint.toBuffer(),
+    paramsHash,
+  );
 }
 
-function deriveMarketAddresses(baseMint: PublicKey, quoteMint: PublicKey, paramsHash: Buffer) {
+function deriveMarketAddresses(
+  baseMint: PublicKey,
+  quoteMint: PublicKey,
+  paramsHash: Buffer,
+) {
   const market = marketPda(baseMint, quoteMint, paramsHash);
   return {
     market,
     futarchyAuthority: pda(seed("futarchy_authority")),
     eventAuthority: pda(seed("__event_authority")),
-    baseReserveVault: pda(seed("market_reserve"), market.toBuffer(), baseMint.toBuffer()),
-    quoteReserveVault: pda(seed("market_reserve"), market.toBuffer(), quoteMint.toBuffer()),
-    baseCollateralVault: pda(seed("market_collateral"), market.toBuffer(), baseMint.toBuffer()),
-    quoteCollateralVault: pda(seed("market_collateral"), market.toBuffer(), quoteMint.toBuffer()),
-    baseInsuranceVault: pda(seed("insurance"), market.toBuffer(), baseMint.toBuffer()),
-    quoteInsuranceVault: pda(seed("insurance"), market.toBuffer(), quoteMint.toBuffer()),
-    baseFeeVault: pda(seed("market_fee"), market.toBuffer(), baseMint.toBuffer()),
-    quoteFeeVault: pda(seed("market_fee"), market.toBuffer(), quoteMint.toBuffer()),
-    baseInterestVault: pda(seed("market_interest"), market.toBuffer(), baseMint.toBuffer()),
-    quoteInterestVault: pda(seed("market_interest"), market.toBuffer(), quoteMint.toBuffer()),
+    baseReserveVault: pda(
+      seed("market_reserve"),
+      market.toBuffer(),
+      baseMint.toBuffer(),
+    ),
+    quoteReserveVault: pda(
+      seed("market_reserve"),
+      market.toBuffer(),
+      quoteMint.toBuffer(),
+    ),
+    baseCollateralVault: pda(
+      seed("market_collateral"),
+      market.toBuffer(),
+      baseMint.toBuffer(),
+    ),
+    quoteCollateralVault: pda(
+      seed("market_collateral"),
+      market.toBuffer(),
+      quoteMint.toBuffer(),
+    ),
+    baseInsuranceVault: pda(
+      seed("insurance"),
+      market.toBuffer(),
+      baseMint.toBuffer(),
+    ),
+    quoteInsuranceVault: pda(
+      seed("insurance"),
+      market.toBuffer(),
+      quoteMint.toBuffer(),
+    ),
+    baseFeeVault: pda(
+      seed("market_fee"),
+      market.toBuffer(),
+      baseMint.toBuffer(),
+    ),
+    quoteFeeVault: pda(
+      seed("market_fee"),
+      market.toBuffer(),
+      quoteMint.toBuffer(),
+    ),
+    baseInterestVault: pda(
+      seed("market_interest"),
+      market.toBuffer(),
+      baseMint.toBuffer(),
+    ),
+    quoteInterestVault: pda(
+      seed("market_interest"),
+      market.toBuffer(),
+      quoteMint.toBuffer(),
+    ),
   };
 }
 
-function deriveBorrowPosition(market: PublicKey, positionId: PublicKey): PublicKey {
-  return pda(seed("borrow_position_v2"), market.toBuffer(), positionId.toBuffer());
+function deriveBorrowPosition(
+  market: PublicKey,
+  positionId: PublicKey,
+): PublicKey {
+  return pda(
+    seed("borrow_position_v2"),
+    market.toBuffer(),
+    positionId.toBuffer(),
+  );
 }
 
-function deriveLeveragePosition(market: PublicKey, positionId: PublicKey): PublicKey {
-  return pda(seed("leverage_position_v2"), market.toBuffer(), positionId.toBuffer());
+function deriveLeveragePosition(
+  market: PublicKey,
+  positionId: PublicKey,
+): PublicKey {
+  return pda(
+    seed("leverage_position_v2"),
+    market.toBuffer(),
+    positionId.toBuffer(),
+  );
 }
 
-function deriveLeverageCollateralVault(market: PublicKey, collateralMint: PublicKey): PublicKey {
-  return pda(seed("leverage_collateral"), market.toBuffer(), collateralMint.toBuffer());
+function deriveLeverageCollateralVault(
+  market: PublicKey,
+  collateralMint: PublicKey,
+): PublicKey {
+  return pda(
+    seed("leverage_collateral"),
+    market.toBuffer(),
+    collateralMint.toBuffer(),
+  );
+}
+
+function deriveLeverageDelegation(position: PublicKey): PublicKey {
+  return pda(seed("leverage_delegation_v2"), position.toBuffer());
+}
+
+function u64Le(value: number): Buffer {
+  const data = Buffer.alloc(8);
+  data.writeBigUInt64LE(BigInt(value));
+  return data;
+}
+
+function deriveLeverageOrder(
+  position: PublicKey,
+  owner: PublicKey,
+  orderId: number,
+): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [
+      seed("leverage_order"),
+      position.toBuffer(),
+      owner.toBuffer(),
+      u64Le(orderId),
+    ],
+    LEVERAGE_DELEGATE_PROGRAM_ID,
+  )[0];
 }
 
 function optionalPublicKey(value: unknown): PublicKey | null {
@@ -287,7 +484,9 @@ function optionalPublicKey(value: unknown): PublicKey | null {
 }
 
 function requiredPositionId(body: Record<string, unknown>): PublicKey {
-  const positionId = optionalPublicKey(body.positionId ?? body.borrowPositionId ?? body.position_id);
+  const positionId = optionalPublicKey(
+    body.positionId ?? body.borrowPositionId ?? body.position_id,
+  );
   if (!positionId) {
     throw new Error("positionId is required for this borrow position action");
   }
@@ -298,48 +497,62 @@ function deriveYieldAccount(
   market: PublicKey,
   owner: PublicKey,
   assetMint: PublicKey,
-  tokenKind: YieldTokenKind
+  tokenKind: YieldTokenKind,
 ): PublicKey {
   return pda(
     seed("yield"),
     market.toBuffer(),
     owner.toBuffer(),
     assetMint.toBuffer(),
-    Buffer.from([tokenKind === "ylp" ? 0 : 1])
+    Buffer.from([tokenKind === "ylp" ? 0 : 1]),
   );
 }
 
 function deriveHlpYlpVault(
   market: PublicKey,
   targetHlpMint: PublicKey,
-  ylpMint: PublicKey
+  ylpMint: PublicKey,
 ): PublicKey {
   return pda(
     seed("hlp_ylp_vault"),
     market.toBuffer(),
     targetHlpMint.toBuffer(),
-    ylpMint.toBuffer()
+    ylpMint.toBuffer(),
   );
 }
 
 function deriveProgramDataAddress(): PublicKey {
-  return PublicKey.findProgramAddressSync([PROGRAM_ID.toBuffer()], BPF_LOADER_UPGRADEABLE_ID)[0];
+  return PublicKey.findProgramAddressSync(
+    [PROGRAM_ID.toBuffer()],
+    BPF_LOADER_UPGRADEABLE_ID,
+  )[0];
 }
 
-function orderedMints(mintA: PublicKey, mintB: PublicKey): [PublicKey, PublicKey] {
-  return Buffer.compare(mintA.toBuffer(), mintB.toBuffer()) < 0 ? [mintA, mintB] : [mintB, mintA];
+function orderedMints(
+  mintA: PublicKey,
+  mintB: PublicKey,
+): [PublicKey, PublicKey] {
+  return Buffer.compare(mintA.toBuffer(), mintB.toBuffer()) < 0
+    ? [mintA, mintB]
+    : [mintB, mintA];
 }
 
-function paramsHashForMarket(label: string, baseMint: PublicKey, quoteMint: PublicKey): Buffer {
-  const override =
-    duskEnv("FORK_PARAMS_HASH") ?? duskEnv("MARKET_PARAMS_HASH");
+function paramsHashForMarket(
+  label: string,
+  baseMint: PublicKey,
+  quoteMint: PublicKey,
+): Buffer {
+  const override = duskEnv("FORK_PARAMS_HASH") ?? duskEnv("MARKET_PARAMS_HASH");
   if (override) {
     const bytes = Buffer.from(override.replace(/^0x/, ""), "hex");
-    if (bytes.length !== 32) throw new Error("DUSK_FORK_PARAMS_HASH must be 32 bytes");
+    if (bytes.length !== 32)
+      throw new Error("DUSK_FORK_PARAMS_HASH must be 32 bytes");
     return bytes;
   }
   return createHash("sha256")
-    .update(`dusk-mainnet-fork:${label}:${baseMint.toBase58()}:${quoteMint.toBase58()}`)
+    .update(
+      `dusk-mainnet-fork:${label}:${baseMint.toBase58()}:${quoteMint.toBase58()}`,
+    )
     .digest();
 }
 
@@ -347,7 +560,9 @@ function toBN(value: bigint | number | string): BN {
   return new BN(value.toString());
 }
 
-function toBigInt(value: BN | bigint | number | string | null | undefined): bigint {
+function toBigInt(
+  value: BN | bigint | number | string | null | undefined,
+): bigint {
   if (value == null) return 0n;
   if (typeof value === "bigint") return value;
   if (typeof value === "number") return BigInt(value);
@@ -375,13 +590,19 @@ function field<T = unknown>(obj: any, camel: string, snake?: string): T {
   return undefined as T;
 }
 
-function parseUnits(value: string | number | bigint | undefined, decimals: number): bigint {
+function parseUnits(
+  value: string | number | bigint | undefined,
+  decimals: number,
+): bigint {
   if (typeof value === "bigint") return value;
   const raw = String(value ?? "0").trim();
-  if (!/^\d+(\.\d+)?$/.test(raw)) throw new Error(`Invalid decimal amount: ${raw}`);
+  if (!/^\d+(\.\d+)?$/.test(raw))
+    throw new Error(`Invalid decimal amount: ${raw}`);
   const [whole, fraction = ""] = raw.split(".");
   const normalizedFraction = fraction.padEnd(decimals, "0").slice(0, decimals);
-  return BigInt(whole) * 10n ** BigInt(decimals) + BigInt(normalizedFraction || "0");
+  return (
+    BigInt(whole) * 10n ** BigInt(decimals) + BigInt(normalizedFraction || "0")
+  );
 }
 
 async function rpcRequest(method: string, params: unknown[]) {
@@ -390,15 +611,22 @@ async function rpcRequest(method: string, params: unknown[]) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
   });
-  const payload = (await response.json()) as { result?: unknown; error?: unknown };
-  if (payload.error) throw new Error(`${method} failed: ${JSON.stringify(payload.error)}`);
+  const payload = (await response.json()) as {
+    result?: unknown;
+    error?: unknown;
+  };
+  if (payload.error)
+    throw new Error(`${method} failed: ${JSON.stringify(payload.error)}`);
   return payload.result;
 }
 
 async function setLamports(pubkey: PublicKey, sol: number) {
   const { connection } = initializeRuntime();
   try {
-    const signature = await connection.requestAirdrop(pubkey, sol * LAMPORTS_PER_SOL);
+    const signature = await connection.requestAirdrop(
+      pubkey,
+      sol * LAMPORTS_PER_SOL,
+    );
     await connection.confirmTransaction(signature, "confirmed");
   } catch {
     await rpcRequest("surfnet_setAccount", [
@@ -415,10 +643,12 @@ async function setTokenBalance(
   owner: PublicKey,
   mint: PublicKey,
   amount: bigint,
-  tokenProgram: PublicKey
+  tokenProgram: PublicKey,
 ) {
   if (amount > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new Error(`surfnet_setTokenAccount amount is above JSON safe integer range: ${amount}`);
+    throw new Error(
+      `surfnet_setTokenAccount amount is above JSON safe integer range: ${amount}`,
+    );
   }
   await rpcRequest("surfnet_setTokenAccount", [
     owner.toBase58(),
@@ -449,20 +679,55 @@ async function setRawAccount(params: {
 async function tokenProgramForMint(mint: PublicKey): Promise<PublicKey> {
   const { connection } = initializeRuntime();
   const account = await connection.getAccountInfo(mint, "confirmed");
-  if (!account) throw new Error(`Mint account not found in fork: ${mint.toBase58()}`);
-  return account.owner.equals(TOKEN_2022_PROGRAM_ID) ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+  if (!account)
+    throw new Error(`Mint account not found in fork: ${mint.toBase58()}`);
+  return account.owner.equals(TOKEN_2022_PROGRAM_ID)
+    ? TOKEN_2022_PROGRAM_ID
+    : TOKEN_PROGRAM_ID;
 }
 
-async function mintDecimals(mint: PublicKey, tokenProgram?: PublicKey): Promise<number> {
+async function mintDecimals(
+  mint: PublicKey,
+  tokenProgram?: PublicKey,
+): Promise<number> {
   const { connection } = initializeRuntime();
   const programId = tokenProgram ?? (await tokenProgramForMint(mint));
   return (await getMint(connection, mint, "confirmed", programId)).decimals;
 }
 
-async function tokenAccountAmount(tokenAccount: PublicKey, tokenProgram: PublicKey): Promise<bigint> {
+async function mintTransferFee(
+  mint: PublicKey,
+  tokenProgram: PublicKey,
+  epoch: bigint,
+): Promise<{ basisPoints: number; maximumFee: string }> {
+  if (!tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) {
+    return { basisPoints: 0, maximumFee: "0" };
+  }
+  const { connection } = initializeRuntime();
+  const mintAccount = await getMint(
+    connection,
+    mint,
+    "confirmed",
+    tokenProgram,
+  );
+  const config = getTransferFeeConfig(mintAccount);
+  if (!config) return { basisPoints: 0, maximumFee: "0" };
+  const fee = getEpochFee(config, epoch);
+  return {
+    basisPoints: fee.transferFeeBasisPoints,
+    maximumFee: fee.maximumFee.toString(),
+  };
+}
+
+async function tokenAccountAmount(
+  tokenAccount: PublicKey,
+  tokenProgram: PublicKey,
+): Promise<bigint> {
   const { connection } = initializeRuntime();
   try {
-    return (await getAccount(connection, tokenAccount, "confirmed", tokenProgram)).amount;
+    return (
+      await getAccount(connection, tokenAccount, "confirmed", tokenProgram)
+    ).amount;
   } catch {
     return 0n;
   }
@@ -481,7 +746,7 @@ async function ataInstructionIfMissing(params: {
     params.owner,
     params.allowOwnerOffCurve ?? false,
     params.tokenProgram,
-    ASSOCIATED_TOKEN_PROGRAM_ID
+    ASSOCIATED_TOKEN_PROGRAM_ID,
   );
   const existing = await connection.getAccountInfo(address, "confirmed");
   if (existing) return { address };
@@ -493,7 +758,7 @@ async function ataInstructionIfMissing(params: {
       params.owner,
       params.mint,
       params.tokenProgram,
-      ASSOCIATED_TOKEN_PROGRAM_ID
+      ASSOCIATED_TOKEN_PROGRAM_ID,
     ),
   };
 }
@@ -514,7 +779,9 @@ async function createAtaIfMissing(params: {
     allowOwnerOffCurve: params.allowOwnerOffCurve,
   });
   if (ata.instruction) {
-    await provider.sendAndConfirm(new Transaction().add(ata.instruction), [params.payer]);
+    await provider.sendAndConfirm(new Transaction().add(ata.instruction), [
+      params.payer,
+    ]);
   }
   return ata.address;
 }
@@ -525,18 +792,22 @@ function defaultMarketConfig() {
     operatorFeeBps: Number(duskEnv("OPERATOR_FEE_BPS") ?? "0"),
     protocolFeeBps: Number(duskEnv("PROTOCOL_FEE_BPS") ?? "0"),
     targetHlpLeverageBps: Number(duskEnv("TARGET_HLP_LEVERAGE_BPS") ?? "20000"),
-    settlementDivergenceBps: Number(duskEnv("SETTLEMENT_DIVERGENCE_BPS") ?? "500"),
-    emergencyExitHaircutBps: Number(duskEnv("EMERGENCY_EXIT_HAIRCUT_BPS") ?? "250"),
+    settlementDivergenceBps: Number(
+      duskEnv("SETTLEMENT_DIVERGENCE_BPS") ?? "500",
+    ),
+    emergencyExitHaircutBps: Number(
+      duskEnv("EMERGENCY_EXIT_HAIRCUT_BPS") ?? "250",
+    ),
     emaHalfLifeMs: toBN(duskEnv("EMA_HALF_LIFE_MS") ?? "60000"),
     directionalEmaHalfLifeMs: toBN(
-      duskEnv("DIRECTIONAL_EMA_HALF_LIFE_MS") ?? "60000"
+      duskEnv("DIRECTIONAL_EMA_HALF_LIFE_MS") ?? "60000",
     ),
     kEmaHalfLifeMs: toBN(duskEnv("K_EMA_HALF_LIFE_MS") ?? "60000"),
     maxDailyBorrowBps: Number(duskEnv("MAX_DAILY_BORROW_BPS") ?? "2000"),
     spotEmaDivergenceBps: Number(duskEnv("SPOT_EMA_DIVERGENCE_BPS") ?? "1000"),
     kEmaDrawdownBps: Number(duskEnv("K_EMA_DRAWDOWN_BPS") ?? "1000"),
     recognizedCollateralCapBps: Number(
-      duskEnv("RECOGNIZED_COLLATERAL_CAP_BPS") ?? "15000"
+      duskEnv("RECOGNIZED_COLLATERAL_CAP_BPS") ?? "15000",
     ),
     marketHealthMinBps: Number(duskEnv("MARKET_HEALTH_MIN_BPS") ?? "11000"),
     startTime: toBN(duskEnv("MARKET_START_TIME") ?? "0"),
@@ -545,11 +816,7 @@ function defaultMarketConfig() {
 
 function defaultLpMetadata(kind: "ylp" | "baseHlp" | "quoteHlp") {
   const suffix =
-    kind === "ylp"
-      ? "YLP"
-      : kind === "baseHlp"
-        ? "BASE_HLP"
-        : "QUOTE_HLP";
+    kind === "ylp" ? "YLP" : kind === "baseHlp" ? "BASE_HLP" : "QUOTE_HLP";
   const defaults = {
     ylp: {
       name: "Omnipair Dusk (v2) yLP",
@@ -576,7 +843,8 @@ function defaultLpMetadata(kind: "ylp" | "baseHlp" | "quoteHlp") {
 
 async function ensureFutarchyAuthority(futarchyAuthority: PublicKey) {
   const { program, payer, accountCoder, connection } = initializeRuntime();
-  const existing = await program.account.futarchyAuthority.fetchNullable(futarchyAuthority);
+  const existing =
+    await program.account.futarchyAuthority.fetchNullable(futarchyAuthority);
   if (existing) return existing;
 
   await setLamports(payer.publicKey, DEFAULT_SOL_FUNDING);
@@ -607,11 +875,14 @@ async function ensureFutarchyAuthority(futarchyAuthority: PublicKey) {
     console.warn(
       `initFutarchyAuthority failed; seeding authority account through Surfpool: ${
         error instanceof Error ? error.message : String(error)
-      }`
+      }`,
     );
   }
 
-  const [, bump] = PublicKey.findProgramAddressSync([seed("futarchy_authority")], PROGRAM_ID);
+  const [, bump] = PublicKey.findProgramAddressSync(
+    [seed("futarchy_authority")],
+    PROGRAM_ID,
+  );
   const data = await accountCoder.encode("FutarchyAuthority", {
     version: 1,
     authority: payer.publicKey,
@@ -648,11 +919,15 @@ async function createHookedLpMintIfMissing(params: {
 }) {
   const { connection, payer } = initializeRuntime();
   const { keypair, path } = loadOrCreateKeypair(`mint-${params.label}`);
-  const existing = await connection.getAccountInfo(keypair.publicKey, "confirmed");
+  const existing = await connection.getAccountInfo(
+    keypair.publicKey,
+    "confirmed",
+  );
   if (!existing) {
     await setLamports(payer.publicKey, DEFAULT_SOL_FUNDING);
     const mintLen = getMintLen([ExtensionType.TransferHook]);
-    const lamports = await connection.getMinimumBalanceForRentExemption(mintLen);
+    const lamports =
+      await connection.getMinimumBalanceForRentExemption(mintLen);
     const transaction = new Transaction().add(
       SystemProgram.createAccount({
         fromPubkey: payer.publicKey,
@@ -665,20 +940,25 @@ async function createHookedLpMintIfMissing(params: {
         keypair.publicKey,
         payer.publicKey,
         PROGRAM_ID,
-        TOKEN_2022_PROGRAM_ID
+        TOKEN_2022_PROGRAM_ID,
       ),
       createInitializeMintInstruction(
         keypair.publicKey,
         params.decimals,
         params.mintAuthority,
         null,
-        TOKEN_2022_PROGRAM_ID
-      )
+        TOKEN_2022_PROGRAM_ID,
+      ),
     );
     transaction.feePayer = payer.publicKey;
-    await anchor.web3.sendAndConfirmTransaction(connection, transaction, [payer, keypair], {
-      commitment: "confirmed",
-    });
+    await anchor.web3.sendAndConfirmTransaction(
+      connection,
+      transaction,
+      [payer, keypair],
+      {
+        commitment: "confirmed",
+      },
+    );
   }
   return {
     mint: keypair.publicKey,
@@ -689,7 +969,12 @@ async function createHookedLpMintIfMissing(params: {
 type TransferHookSeed =
   | { kind: "literal"; bytes: Uint8Array | Buffer | number[] }
   | { kind: "accountKey"; index: number }
-  | { kind: "accountData"; accountIndex: number; dataIndex: number; length: number };
+  | {
+      kind: "accountData";
+      accountIndex: number;
+      dataIndex: number;
+      length: number;
+    };
 
 function packTransferHookSeedConfig(seeds: TransferHookSeed[]): Buffer {
   const config = Buffer.alloc(32);
@@ -698,7 +983,8 @@ function packTransferHookSeedConfig(seeds: TransferHookSeed[]): Buffer {
     if (value < 0 || value > 255 || !Number.isInteger(value)) {
       throw new Error(`transfer-hook seed byte out of range: ${value}`);
     }
-    if (offset >= config.length) throw new Error("transfer-hook seed config exceeds 32 bytes");
+    if (offset >= config.length)
+      throw new Error("transfer-hook seed config exceeds 32 bytes");
     config[offset] = value;
     offset += 1;
   };
@@ -732,9 +1018,16 @@ function encodeTransferHookValidationAccountData(params: {
   assetMint: PublicKey;
   tokenKind: YieldTokenKind;
 }): Buffer {
-  const executeDiscriminator = Buffer.from([105, 37, 101, 197, 75, 251, 102, 26]);
+  const executeDiscriminator = Buffer.from([
+    105, 37, 101, 197, 75, 251, 102, 26,
+  ]);
   const metas = [
-    { discriminator: 0, addressConfig: params.market.toBuffer(), isSigner: false, isWritable: false },
+    {
+      discriminator: 0,
+      addressConfig: params.market.toBuffer(),
+      isSigner: false,
+      isWritable: false,
+    },
     {
       discriminator: 0,
       addressConfig: params.assetMint.toBuffer(),
@@ -791,23 +1084,65 @@ function encodeYlpTransferHookValidationAccountData(params: {
   baseMint: PublicKey;
   quoteMint: PublicKey;
 }): Buffer {
-  const executeDiscriminator = Buffer.from([105, 37, 101, 197, 75, 251, 102, 26]);
+  const executeDiscriminator = Buffer.from([
+    105, 37, 101, 197, 75, 251, 102, 26,
+  ]);
   const ylpSeed = (ownerAccountIndex: number, assetMintAccountIndex: number) =>
     packTransferHookSeedConfig([
       { kind: "literal", bytes: seed("yield") },
       { kind: "accountKey", index: 5 },
-      { kind: "accountData", accountIndex: ownerAccountIndex, dataIndex: 32, length: 32 },
+      {
+        kind: "accountData",
+        accountIndex: ownerAccountIndex,
+        dataIndex: 32,
+        length: 32,
+      },
       { kind: "accountKey", index: assetMintAccountIndex },
       { kind: "literal", bytes: [0] },
     ]);
   const metas = [
-    { discriminator: 0, addressConfig: params.market.toBuffer(), isSigner: false, isWritable: false },
-    { discriminator: 0, addressConfig: params.baseMint.toBuffer(), isSigner: false, isWritable: false },
-    { discriminator: 0, addressConfig: params.quoteMint.toBuffer(), isSigner: false, isWritable: false },
-    { discriminator: 1, addressConfig: ylpSeed(0, 6), isSigner: false, isWritable: true },
-    { discriminator: 1, addressConfig: ylpSeed(2, 6), isSigner: false, isWritable: true },
-    { discriminator: 1, addressConfig: ylpSeed(0, 7), isSigner: false, isWritable: true },
-    { discriminator: 1, addressConfig: ylpSeed(2, 7), isSigner: false, isWritable: true },
+    {
+      discriminator: 0,
+      addressConfig: params.market.toBuffer(),
+      isSigner: false,
+      isWritable: false,
+    },
+    {
+      discriminator: 0,
+      addressConfig: params.baseMint.toBuffer(),
+      isSigner: false,
+      isWritable: false,
+    },
+    {
+      discriminator: 0,
+      addressConfig: params.quoteMint.toBuffer(),
+      isSigner: false,
+      isWritable: false,
+    },
+    {
+      discriminator: 1,
+      addressConfig: ylpSeed(0, 6),
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      discriminator: 1,
+      addressConfig: ylpSeed(2, 6),
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      discriminator: 1,
+      addressConfig: ylpSeed(0, 7),
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      discriminator: 1,
+      addressConfig: ylpSeed(2, 7),
+      isSigner: false,
+      isWritable: true,
+    },
   ];
 
   const podSliceLength = 4 + metas.length * 35;
@@ -841,7 +1176,8 @@ async function seedTransferHookValidationAccount(params: {
 }) {
   const { connection } = initializeRuntime();
   const validationAccount = deriveTransferHookValidationAddress(params.lpMint);
-  if (await connection.getAccountInfo(validationAccount, "confirmed")) return validationAccount;
+  if (await connection.getAccountInfo(validationAccount, "confirmed"))
+    return validationAccount;
   const data = encodeTransferHookValidationAccountData(params);
   try {
     await setRawAccount({
@@ -854,7 +1190,7 @@ async function seedTransferHookValidationAccount(params: {
     console.warn(
       `Unable to seed transfer-hook validation account ${validationAccount.toBase58()}: ${
         error instanceof Error ? error.message : String(error)
-      }`
+      }`,
     );
   }
   return validationAccount;
@@ -868,7 +1204,8 @@ async function seedYlpTransferHookValidationAccount(params: {
 }) {
   const { connection } = initializeRuntime();
   const validationAccount = deriveTransferHookValidationAddress(params.lpMint);
-  if (await connection.getAccountInfo(validationAccount, "confirmed")) return validationAccount;
+  if (await connection.getAccountInfo(validationAccount, "confirmed"))
+    return validationAccount;
   const data = encodeYlpTransferHookValidationAccountData(params);
   try {
     await setRawAccount({
@@ -881,7 +1218,7 @@ async function seedYlpTransferHookValidationAccount(params: {
     console.warn(
       `Unable to seed transfer-hook validation account ${validationAccount.toBase58()}: ${
         error instanceof Error ? error.message : String(error)
-      }`
+      }`,
     );
   }
   return validationAccount;
@@ -894,7 +1231,8 @@ async function ensureLpMetadata(params: {
   metadata: { name: string; symbol: string; uri: string };
 }) {
   const { connection, program, payer } = initializeRuntime();
-  if (await connection.getAccountInfo(params.lpTokenMetadata, "confirmed")) return;
+  if (await connection.getAccountInfo(params.lpTokenMetadata, "confirmed"))
+    return;
 
   const signature = await program.methods
     .initializeLpMetadata(params.metadata)
@@ -908,7 +1246,9 @@ async function ensureLpMetadata(params: {
       token2022Program: TOKEN_2022_PROGRAM_ID,
       tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
     })
-    .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 })])
+    .preInstructions([
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 }),
+    ])
     .rpc();
   console.log(`Dusk fork LP metadata initialized: ${signature}`);
 }
@@ -924,7 +1264,9 @@ async function bootstrapUncached(): Promise<StoredMarket> {
   const state = readState();
   const marketLabel = duskEnv("MARKET_LABEL") ?? "meta-usdc-mainnet-fork";
   const defaultBase = new PublicKey(duskEnv("BASE_MINT") ?? DEFAULT_META_MINT);
-  const defaultQuote = new PublicKey(duskEnv("QUOTE_MINT") ?? DEFAULT_USDC_MINT);
+  const defaultQuote = new PublicKey(
+    duskEnv("QUOTE_MINT") ?? DEFAULT_USDC_MINT,
+  );
   const [baseMint, quoteMint] = orderedMints(defaultBase, defaultQuote);
   const paramsHash = paramsHashForMarket(marketLabel, baseMint, quoteMint);
   const addresses = deriveMarketAddresses(baseMint, quoteMint, paramsHash);
@@ -942,8 +1284,11 @@ async function bootstrapUncached(): Promise<StoredMarket> {
 
   const futarchy = await ensureFutarchyAuthority(addresses.futarchyAuthority);
   const teamTreasury =
-    field<PublicKey>(field(futarchy, "recipients"), "teamTreasury", "team_treasury") ??
-    payer.publicKey;
+    field<PublicKey>(
+      field(futarchy, "recipients"),
+      "teamTreasury",
+      "team_treasury",
+    ) ?? payer.publicKey;
   const teamTreasuryWsolAccount = await createAtaIfMissing({
     payer,
     owner: teamTreasury,
@@ -958,10 +1303,20 @@ async function bootstrapUncached(): Promise<StoredMarket> {
     quoteHlp: `${marketLabel}-quote-hlp`,
   };
 
-  const existingMarketAccount = await program.account.market.fetchNullable(addresses.market);
+  const existingMarketAccount = await program.account.market.fetchNullable(
+    addresses.market,
+  );
   let ylpMint = field<PublicKey>(existingMarketAccount, "ylpMint", "ylp_mint");
-  const existingBaseSide = field<any>(existingMarketAccount, "baseSide", "base_side");
-  const existingQuoteSide = field<any>(existingMarketAccount, "quoteSide", "quote_side");
+  const existingBaseSide = field<any>(
+    existingMarketAccount,
+    "baseSide",
+    "base_side",
+  );
+  const existingQuoteSide = field<any>(
+    existingMarketAccount,
+    "quoteSide",
+    "quote_side",
+  );
   let baseHlpMint = field<PublicKey>(existingBaseSide, "hlpMint", "hlp_mint");
   let quoteHlpMint = field<PublicKey>(existingQuoteSide, "hlpMint", "hlp_mint");
 
@@ -989,14 +1344,24 @@ async function bootstrapUncached(): Promise<StoredMarket> {
   }
 
   if (!ylpMint || !baseHlpMint || !quoteHlpMint) {
-    throw new Error(`Unable to resolve Dusk LP mints for market ${addresses.market.toBase58()}`);
+    throw new Error(
+      `Unable to resolve Dusk LP mints for market ${addresses.market.toBase58()}`,
+    );
   }
 
   const ylpTokenMetadata = tokenMetadataPda(ylpMint);
   const baseHlpTokenMetadata = tokenMetadataPda(baseHlpMint);
   const quoteHlpTokenMetadata = tokenMetadataPda(quoteHlpMint);
-  const baseHlpYlpVault = deriveHlpYlpVault(addresses.market, baseHlpMint, ylpMint);
-  const quoteHlpYlpVault = deriveHlpYlpVault(addresses.market, quoteHlpMint, ylpMint);
+  const baseHlpYlpVault = deriveHlpYlpVault(
+    addresses.market,
+    baseHlpMint,
+    ylpMint,
+  );
+  const quoteHlpYlpVault = deriveHlpYlpVault(
+    addresses.market,
+    quoteHlpMint,
+    ylpMint,
+  );
 
   const transferHookValidationAccounts = {
     ylp: (
@@ -1060,7 +1425,9 @@ async function bootstrapUncached(): Promise<StoredMarket> {
         eventAuthority: addresses.eventAuthority,
         program: PROGRAM_ID,
       })
-      .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
+      .preInstructions([
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }),
+      ])
       .rpc();
     console.log(`Dusk fork market initialized: ${signature}`);
   }
@@ -1117,8 +1484,8 @@ async function bootstrapUncached(): Promise<StoredMarket> {
     eventAuthority: addresses.eventAuthority.toBase58(),
     seededLiquidity: Boolean(
       existingMarketAccount &&
-        previous?.market === addresses.market.toBase58() &&
-        previous.seededLiquidity
+      previous?.market === addresses.market.toBase58() &&
+      previous.seededLiquidity,
     ),
     transferHookValidationAccounts,
   };
@@ -1156,7 +1523,9 @@ async function seedInitialLiquidity(market: StoredMarket) {
     payerCanSign: true,
   });
   tx.sign(payer);
-  const signature = await provider.connection.sendRawTransaction(tx.serialize());
+  const signature = await provider.connection.sendRawTransaction(
+    tx.serialize(),
+  );
   await provider.connection.confirmTransaction(signature, "confirmed");
   console.log(`Dusk fork market seeded with initial liquidity: ${signature}`);
 }
@@ -1164,32 +1533,53 @@ async function seedInitialLiquidity(market: StoredMarket) {
 function marketConfigPayload(marketAccount: any) {
   const config = field<any>(marketAccount, "config");
   return {
-    targetHlpLeverageBps: Number(field(config, "targetHlpLeverageBps", "target_hlp_leverage_bps") ?? 0),
+    targetHlpLeverageBps: Number(
+      field(config, "targetHlpLeverageBps", "target_hlp_leverage_bps") ?? 0,
+    ),
     swapFeeBps: Number(field(config, "swapFeeBps", "swap_fee_bps") ?? 0),
-    operatorFeeBps: Number(field(config, "operatorFeeBps", "operator_fee_bps") ?? 0),
-    protocolFeeBps: Number(field(config, "protocolFeeBps", "protocol_fee_bps") ?? 0),
+    operatorFeeBps: Number(
+      field(config, "operatorFeeBps", "operator_fee_bps") ?? 0,
+    ),
+    protocolFeeBps: Number(
+      field(config, "protocolFeeBps", "protocol_fee_bps") ?? 0,
+    ),
   };
 }
 
 async function marketPayload(stored: StoredMarket) {
-  const { program } = initializeRuntime();
-  const marketAccount = await program.account.market.fetch(new PublicKey(stored.market));
+  const { program, connection } = initializeRuntime();
+  const marketAccount = await program.account.market.fetch(
+    new PublicKey(stored.market),
+  );
+  const epoch = BigInt((await connection.getEpochInfo("confirmed")).epoch);
+  const [baseTransferFee, quoteTransferFee] = await Promise.all([
+    mintTransferFee(
+      new PublicKey(stored.baseMint),
+      new PublicKey(stored.baseTokenProgram),
+      epoch,
+    ),
+    mintTransferFee(
+      new PublicKey(stored.quoteMint),
+      new PublicKey(stored.quoteTokenProgram),
+      epoch,
+    ),
+  ]);
   const config = marketConfigPayload(marketAccount);
   const baseSide = field<any>(marketAccount, "baseSide", "base_side");
   const quoteSide = field<any>(marketAccount, "quoteSide", "quote_side");
   const debt = field<any>(marketAccount, "debt");
   const health = field<any>(marketAccount, "health");
   const baseBorrowIndexNad = toBigInt(
-    field(debt, "baseBorrowIndexNad", "base_borrow_index_nad")
+    field(debt, "baseBorrowIndexNad", "base_borrow_index_nad"),
   );
   const quoteBorrowIndexNad = toBigInt(
-    field(debt, "quoteBorrowIndexNad", "quote_borrow_index_nad")
+    field(debt, "quoteBorrowIndexNad", "quote_borrow_index_nad"),
   );
   const isolatedBaseShares = toBigInt(
-    field(debt, "isolatedBaseShares", "isolated_base_shares")
+    field(debt, "isolatedBaseShares", "isolated_base_shares"),
   );
   const isolatedQuoteShares = toBigInt(
-    field(debt, "isolatedQuoteShares", "isolated_quote_shares")
+    field(debt, "isolatedQuoteShares", "isolated_quote_shares"),
   );
   const now = new Date().toISOString();
 
@@ -1199,6 +1589,8 @@ async function marketPayload(stored: StoredMarket) {
     quoteMint: stored.quoteMint,
     baseDecimals: stored.baseDecimals,
     quoteDecimals: stored.quoteDecimals,
+    baseTransferFee,
+    quoteTransferFee,
     ylpMint: stored.ylpMint,
     baseHlpMint: stored.baseHlpMint,
     quoteHlpMint: stored.quoteHlpMint,
@@ -1216,7 +1608,9 @@ async function marketPayload(stored: StoredMarket) {
     protocolFeeBps: config.protocolFeeBps,
     paramsHash: stored.paramsHash,
     version: Number(field(marketAccount, "version") ?? 1),
-    reduceOnly: Boolean(field(marketAccount, "reduceOnly", "reduce_only") ?? false),
+    reduceOnly: Boolean(
+      field(marketAccount, "reduceOnly", "reduce_only") ?? false,
+    ),
     createdTxSig: null,
     createdSlot: null,
     createdAt: now,
@@ -1224,14 +1618,30 @@ async function marketPayload(stored: StoredMarket) {
     swapCount: 0,
     lastSwapAt: null,
     state: {
-      baseReserve: stringValue(field(field(baseSide, "reserves"), "liveReserve", "live_reserve")),
-      quoteReserve: stringValue(field(field(quoteSide, "reserves"), "liveReserve", "live_reserve")),
-      baseReserveYlpSupply: stringValue(field(field(baseSide, "shares"), "ylpSupply", "ylp_supply")),
-      quoteReserveYlpSupply: stringValue(field(field(quoteSide, "shares"), "ylpSupply", "ylp_supply")),
-      fixedBaseDebt: stringValue(field(debt, "fixedBaseShares", "fixed_base_shares")),
-      fixedQuoteDebt: stringValue(field(debt, "fixedQuoteShares", "fixed_quote_shares")),
-      isolatedBaseDebt: stringValue(isolatedBaseShares * baseBorrowIndexNad / NAD),
-      isolatedQuoteDebt: stringValue(isolatedQuoteShares * quoteBorrowIndexNad / NAD),
+      baseReserve: stringValue(
+        field(field(baseSide, "reserves"), "liveReserve", "live_reserve"),
+      ),
+      quoteReserve: stringValue(
+        field(field(quoteSide, "reserves"), "liveReserve", "live_reserve"),
+      ),
+      baseReserveYlpSupply: stringValue(
+        field(field(baseSide, "shares"), "ylpSupply", "ylp_supply"),
+      ),
+      quoteReserveYlpSupply: stringValue(
+        field(field(quoteSide, "shares"), "ylpSupply", "ylp_supply"),
+      ),
+      fixedBaseDebt: stringValue(
+        field(debt, "fixedBaseShares", "fixed_base_shares"),
+      ),
+      fixedQuoteDebt: stringValue(
+        field(debt, "fixedQuoteShares", "fixed_quote_shares"),
+      ),
+      isolatedBaseDebt: stringValue(
+        (isolatedBaseShares * baseBorrowIndexNad) / NAD,
+      ),
+      isolatedQuoteDebt: stringValue(
+        (isolatedQuoteShares * quoteBorrowIndexNad) / NAD,
+      ),
       isolatedBaseShares: stringValue(isolatedBaseShares),
       isolatedQuoteShares: stringValue(isolatedQuoteShares),
       baseBorrowIndexNad: stringValue(baseBorrowIndexNad),
@@ -1240,22 +1650,28 @@ async function marketPayload(stored: StoredMarket) {
         field(
           health,
           "recognizedBaseCollateralForQuoteDebt",
-          "recognized_base_collateral_for_quote_debt"
-        )
+          "recognized_base_collateral_for_quote_debt",
+        ),
       ),
       recognizedQuoteCollateralForBaseDebt: stringValue(
         field(
           health,
           "recognizedQuoteCollateralForBaseDebt",
-          "recognized_quote_collateral_for_base_debt"
-        )
+          "recognized_quote_collateral_for_base_debt",
+        ),
       ),
-      effectiveBaseDebtNad: stringValue(field(health, "effectiveBaseDebtNad", "effective_base_debt_nad")),
+      effectiveBaseDebtNad: stringValue(
+        field(health, "effectiveBaseDebtNad", "effective_base_debt_nad"),
+      ),
       effectiveQuoteDebtNad: stringValue(
-        field(health, "effectiveQuoteDebtNad", "effective_quote_debt_nad")
+        field(health, "effectiveQuoteDebtNad", "effective_quote_debt_nad"),
       ),
-      baseDebtHealthBps: stringValue(field(health, "baseDebtHealthBps", "base_debt_health_bps")),
-      quoteDebtHealthBps: stringValue(field(health, "quoteDebtHealthBps", "quote_debt_health_bps")),
+      baseDebtHealthBps: stringValue(
+        field(health, "baseDebtHealthBps", "base_debt_health_bps"),
+      ),
+      quoteDebtHealthBps: stringValue(
+        field(health, "quoteDebtHealthBps", "quote_debt_health_bps"),
+      ),
       sourceTxSig: null,
       sourceSlot: null,
       updatedAt: now,
@@ -1339,25 +1755,41 @@ function marketFromStored(stored: StoredMarket) {
 async function ownerTransaction(
   owner: PublicKey,
   instructions: TransactionInstruction[],
-  payerCanSign = false
+  payerCanSign = false,
 ): Promise<Transaction> {
   const { connection, payer } = initializeRuntime();
   const tx = new Transaction();
-  tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }), ...instructions);
+  tx.add(
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }),
+    ...instructions,
+  );
   tx.feePayer = payerCanSign ? payer.publicKey : owner;
-  tx.recentBlockhash = (await connection.getLatestBlockhash("confirmed")).blockhash;
+  tx.recentBlockhash = (
+    await connection.getLatestBlockhash("confirmed")
+  ).blockhash;
   return tx;
 }
 
-async function serializeOwnerTransaction(owner: PublicKey, instructions: TransactionInstruction[]) {
+async function serializeOwnerTransaction(
+  owner: PublicKey,
+  instructions: TransactionInstruction[],
+) {
   const tx = await ownerTransaction(owner, instructions);
-  return tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
+  return tx
+    .serialize({ requireAllSignatures: false, verifySignatures: false })
+    .toString("base64");
 }
 
-function rawAmount(body: Record<string, unknown>, keys: string[], decimals: number, fallback: string) {
+function rawAmount(
+  body: Record<string, unknown>,
+  keys: string[],
+  decimals: number,
+  fallback: string,
+) {
   for (const key of keys) {
     const value = body[key];
-    if (value != null && value !== "") return parseUnits(value as any, decimals);
+    if (value != null && value !== "")
+      return parseUnits(value as any, decimals);
   }
   return parseUnits(fallback, decimals);
 }
@@ -1367,16 +1799,31 @@ function rawOrUiAmount(
   rawKeys: string[],
   uiKeys: string[],
   decimals: number,
-  fallback: string
+  fallback: string,
 ) {
   for (const key of rawKeys) {
     const value = body[key];
     if (value == null || value === "") continue;
     const raw = String(value);
-    if (!/^\d+$/.test(raw)) throw new Error(`${key} must be an unsigned base-unit integer`);
+    if (!/^\d+$/.test(raw))
+      throw new Error(`${key} must be an unsigned base-unit integer`);
     return BigInt(raw);
   }
   return rawAmount(body, uiKeys, decimals, fallback);
+}
+
+function optionalOrderTrigger(value: unknown): bigint | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const raw = String(value);
+  if (!/^\d+$/.test(raw)) {
+    throw new Error("Leverage order trigger must be an unsigned integer");
+  }
+  const trigger = BigInt(raw);
+  if (trigger === 0n) {
+    throw new Error("Leverage order trigger must be greater than zero");
+  }
+  return trigger;
 }
 
 function assetFromBody(value: unknown, fallback: MarketAsset): MarketAsset {
@@ -1388,9 +1835,14 @@ async function maybeAddAta(
   instructions: TransactionInstruction[],
   owner: PublicKey,
   mint: PublicKey,
-  tokenProgram: PublicKey
+  tokenProgram: PublicKey,
 ) {
-  const ata = await ataInstructionIfMissing({ payer: owner, owner, mint, tokenProgram });
+  const ata = await ataInstructionIfMissing({
+    payer: owner,
+    owner,
+    mint,
+    tokenProgram,
+  });
   if (ata.instruction) instructions.push(ata.instruction);
   return ata.address;
 }
@@ -1406,9 +1858,24 @@ async function buildAddLiquidityTx(params: {
   const { program } = initializeRuntime();
   const m = marketFromStored(params.market);
   const instructions: TransactionInstruction[] = [];
-  const ownerBase = await maybeAddAta(instructions, params.owner, m.baseMint, m.baseTokenProgram);
-  const ownerQuote = await maybeAddAta(instructions, params.owner, m.quoteMint, m.quoteTokenProgram);
-  const ownerYlp = await maybeAddAta(instructions, params.owner, m.ylpMint, TOKEN_2022_PROGRAM_ID);
+  const ownerBase = await maybeAddAta(
+    instructions,
+    params.owner,
+    m.baseMint,
+    m.baseTokenProgram,
+  );
+  const ownerQuote = await maybeAddAta(
+    instructions,
+    params.owner,
+    m.quoteMint,
+    m.quoteTokenProgram,
+  );
+  const ownerYlp = await maybeAddAta(
+    instructions,
+    params.owner,
+    m.ylpMint,
+    TOKEN_2022_PROGRAM_ID,
+  );
 
   const ix = await program.methods
     .addLiquidity({
@@ -1428,8 +1895,18 @@ async function buildAddLiquidityTx(params: {
       ownerBaseAccount: ownerBase,
       ownerQuoteAccount: ownerQuote,
       ownerYlpAccount: ownerYlp,
-      baseYieldAccount: deriveYieldAccount(m.market, params.owner, m.baseMint, "ylp"),
-      quoteYieldAccount: deriveYieldAccount(m.market, params.owner, m.quoteMint, "ylp"),
+      baseYieldAccount: deriveYieldAccount(
+        m.market,
+        params.owner,
+        m.baseMint,
+        "ylp",
+      ),
+      quoteYieldAccount: deriveYieldAccount(
+        m.market,
+        params.owner,
+        m.quoteMint,
+        "ylp",
+      ),
       tokenProgram: TOKEN_PROGRAM_ID,
       token2022Program: TOKEN_2022_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
@@ -1456,13 +1933,13 @@ async function buildSwapTx(params: {
     instructions,
     params.owner,
     inIsBase ? m.baseMint : m.quoteMint,
-    inIsBase ? m.baseTokenProgram : m.quoteTokenProgram
+    inIsBase ? m.baseTokenProgram : m.quoteTokenProgram,
   );
   const ownerOut = await maybeAddAta(
     instructions,
     params.owner,
     inIsBase ? m.quoteMint : m.baseMint,
-    inIsBase ? m.quoteTokenProgram : m.baseTokenProgram
+    inIsBase ? m.quoteTokenProgram : m.baseTokenProgram,
   );
 
   let builder = program.methods
@@ -1488,24 +1965,35 @@ async function buildSwapTx(params: {
     });
 
   const refreshedMarket = await program.account.market.fetch(m.market);
-  const baseHlpSupply = toBigInt(field(field(refreshedMarket, "baseHlpVault", "base_hlp_vault"), "hlpSupply", "hlp_supply"));
-  const quoteHlpSupply = toBigInt(
-    field(field(refreshedMarket, "quoteHlpVault", "quote_hlp_vault"), "hlpSupply", "hlp_supply")
+  const baseHlpSupply = toBigInt(
+    field(
+      field(refreshedMarket, "baseHlpVault", "base_hlp_vault"),
+      "hlpSupply",
+      "hlp_supply",
+    ),
   );
-  const remainingAccounts = [];
+  const quoteHlpSupply = toBigInt(
+    field(
+      field(refreshedMarket, "quoteHlpVault", "quote_hlp_vault"),
+      "hlpSupply",
+      "hlp_supply",
+    ),
+  );
+  const remainingAccounts: AccountMeta[] = [];
   if (baseHlpSupply > 0n) {
     remainingAccounts.push(
       { pubkey: m.ylpMint, isWritable: true, isSigner: false },
-      { pubkey: m.baseHlpYlpVault, isWritable: true, isSigner: false }
+      { pubkey: m.baseHlpYlpVault, isWritable: true, isSigner: false },
     );
   }
   if (quoteHlpSupply > 0n) {
     remainingAccounts.push(
       { pubkey: m.ylpMint, isWritable: true, isSigner: false },
-      { pubkey: m.quoteHlpYlpVault, isWritable: true, isSigner: false }
+      { pubkey: m.quoteHlpYlpVault, isWritable: true, isSigner: false },
     );
   }
-  if (remainingAccounts.length > 0) builder = builder.remainingAccounts(remainingAccounts);
+  if (remainingAccounts.length > 0)
+    builder = builder.remainingAccounts(remainingAccounts);
   instructions.push(await builder.instruction());
   return serializeOwnerTransaction(params.owner, instructions);
 }
@@ -1525,7 +2013,7 @@ async function buildDepositCollateralTx(params: {
     instructions,
     params.owner,
     isBase ? m.baseMint : m.quoteMint,
-    isBase ? m.baseTokenProgram : m.quoteTokenProgram
+    isBase ? m.baseTokenProgram : m.quoteTokenProgram,
   );
   instructions.push(
     await program.methods
@@ -1537,7 +2025,9 @@ async function buildDepositCollateralTx(params: {
         market: m.market,
         owner: params.owner,
         assetMint: isBase ? m.baseMint : m.quoteMint,
-        collateralVault: isBase ? m.baseCollateralVault : m.quoteCollateralVault,
+        collateralVault: isBase
+          ? m.baseCollateralVault
+          : m.quoteCollateralVault,
         ownerAssetAccount: ownerAsset,
         borrowPosition: deriveBorrowPosition(m.market, params.positionId),
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -1546,7 +2036,7 @@ async function buildDepositCollateralTx(params: {
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
       })
-      .instruction()
+      .instruction(),
   );
   return serializeOwnerTransaction(params.owner, instructions);
 }
@@ -1568,7 +2058,7 @@ async function buildBorrowTx(params: {
     instructions,
     params.owner,
     isBase ? m.baseMint : m.quoteMint,
-    isBase ? m.baseTokenProgram : m.quoteTokenProgram
+    isBase ? m.baseTokenProgram : m.quoteTokenProgram,
   );
   instructions.push(
     await program.methods
@@ -1591,7 +2081,7 @@ async function buildBorrowTx(params: {
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
       })
-      .instruction()
+      .instruction(),
   );
   return serializeOwnerTransaction(params.owner, instructions);
 }
@@ -1611,7 +2101,7 @@ async function buildRepayTx(params: {
     instructions,
     params.owner,
     isBase ? m.baseMint : m.quoteMint,
-    isBase ? m.baseTokenProgram : m.quoteTokenProgram
+    isBase ? m.baseTokenProgram : m.quoteTokenProgram,
   );
   instructions.push(
     await program.methods
@@ -1631,7 +2121,7 @@ async function buildRepayTx(params: {
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
       })
-      .instruction()
+      .instruction(),
   );
   return serializeOwnerTransaction(params.owner, instructions);
 }
@@ -1651,13 +2141,13 @@ async function buildDepositSingleSidedTx(params: {
     instructions,
     params.owner,
     isBase ? m.baseMint : m.quoteMint,
-    isBase ? m.baseTokenProgram : m.quoteTokenProgram
+    isBase ? m.baseTokenProgram : m.quoteTokenProgram,
   );
   const ownerHlp = await maybeAddAta(
     instructions,
     params.owner,
     isBase ? m.baseHlpMint : m.quoteHlpMint,
-    TOKEN_2022_PROGRAM_ID
+    TOKEN_2022_PROGRAM_ID,
   );
   instructions.push(
     await program.methods
@@ -1682,7 +2172,7 @@ async function buildDepositSingleSidedTx(params: {
           m.market,
           params.owner,
           isBase ? m.baseMint : m.quoteMint,
-          "hlp"
+          "hlp",
         ),
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -1690,7 +2180,7 @@ async function buildDepositSingleSidedTx(params: {
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
       })
-      .instruction()
+      .instruction(),
   );
   return serializeOwnerTransaction(params.owner, instructions);
 }
@@ -1710,13 +2200,13 @@ async function buildWithdrawSingleSidedTx(params: {
     instructions,
     params.owner,
     isBase ? m.baseMint : m.quoteMint,
-    isBase ? m.baseTokenProgram : m.quoteTokenProgram
+    isBase ? m.baseTokenProgram : m.quoteTokenProgram,
   );
   const ownerHlp = await maybeAddAta(
     instructions,
     params.owner,
     isBase ? m.baseHlpMint : m.quoteHlpMint,
-    TOKEN_2022_PROGRAM_ID
+    TOKEN_2022_PROGRAM_ID,
   );
   instructions.push(
     await program.methods
@@ -1734,7 +2224,9 @@ async function buildWithdrawSingleSidedTx(params: {
         targetHlpMint: isBase ? m.baseHlpMint : m.quoteHlpMint,
         baseReserveVault: m.baseReserveVault,
         quoteReserveVault: m.quoteReserveVault,
-        borrowedInterestVault: isBase ? m.quoteInterestVault : m.baseInterestVault,
+        borrowedInterestVault: isBase
+          ? m.quoteInterestVault
+          : m.baseInterestVault,
         ownerTargetAccount: ownerTarget,
         ownerHlpAccount: ownerHlp,
         hlpYlpAccount: isBase ? m.baseHlpYlpVault : m.quoteHlpYlpVault,
@@ -1742,7 +2234,7 @@ async function buildWithdrawSingleSidedTx(params: {
           m.market,
           params.owner,
           isBase ? m.baseMint : m.quoteMint,
-          "hlp"
+          "hlp",
         ),
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -1750,14 +2242,17 @@ async function buildWithdrawSingleSidedTx(params: {
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
       })
-      .instruction()
+      .instruction(),
   );
   return serializeOwnerTransaction(params.owner, instructions);
 }
 
 // ── Leverage Builder Functions ───────────────────────────────────────
 
-function debtAssetFromBody(body: Record<string, unknown>, fallback: number = 1): number {
+function debtAssetFromBody(
+  body: Record<string, unknown>,
+  fallback: number = 1,
+): number {
   const raw = body.debtAsset ?? body.debt_asset;
   if (raw === "base" || raw === 0 || raw === "0") return 0;
   if (raw === "quote" || raw === 1 || raw === "1") return 1;
@@ -1782,17 +2277,24 @@ async function buildOpenLeverageTx(params: {
   const isDebtBase = params.debtAsset === 0;
   const debtMint = isDebtBase ? m.baseMint : m.quoteMint;
   const collateralMint = isDebtBase ? m.quoteMint : m.baseMint;
-  const debtReserveVault = isDebtBase ? m.baseReserveVault : m.quoteReserveVault;
-  const collateralReserveVault = isDebtBase ? m.quoteReserveVault : m.baseReserveVault;
+  const debtReserveVault = isDebtBase
+    ? m.baseReserveVault
+    : m.quoteReserveVault;
+  const collateralReserveVault = isDebtBase
+    ? m.quoteReserveVault
+    : m.baseReserveVault;
   const debtFeeVault = isDebtBase ? m.baseFeeVault : m.quoteFeeVault;
-  const leverageCollateralVault = deriveLeverageCollateralVault(m.market, collateralMint);
+  const leverageCollateralVault = deriveLeverageCollateralVault(
+    m.market,
+    collateralMint,
+  );
 
   const instructions: TransactionInstruction[] = [];
   const ownerDebtAccount = await maybeAddAta(
     instructions,
     params.owner,
     debtMint,
-    isDebtBase ? m.baseTokenProgram : m.quoteTokenProgram
+    isDebtBase ? m.baseTokenProgram : m.quoteTokenProgram,
   );
 
   instructions.push(
@@ -1822,7 +2324,7 @@ async function buildOpenLeverageTx(params: {
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
       })
-      .instruction()
+      .instruction(),
   );
   return ownerTransaction(params.owner, instructions);
 }
@@ -1841,14 +2343,17 @@ async function buildOpenCollateralMarginLeverageTx(params: {
   const isDebtBase = params.debtAsset === 0;
   const debtMint = isDebtBase ? m.baseMint : m.quoteMint;
   const collateralMint = isDebtBase ? m.quoteMint : m.baseMint;
-  const leverageCollateralVault = deriveLeverageCollateralVault(m.market, collateralMint);
+  const leverageCollateralVault = deriveLeverageCollateralVault(
+    m.market,
+    collateralMint,
+  );
 
   const instructions: TransactionInstruction[] = [];
   const ownerCollateralAccount = await maybeAddAta(
     instructions,
     params.owner,
     collateralMint,
-    isDebtBase ? m.quoteTokenProgram : m.baseTokenProgram
+    isDebtBase ? m.quoteTokenProgram : m.baseTokenProgram,
   );
 
   instructions.push(
@@ -1868,7 +2373,9 @@ async function buildOpenCollateralMarginLeverageTx(params: {
         debtMint,
         collateralMint,
         debtReserveVault: isDebtBase ? m.baseReserveVault : m.quoteReserveVault,
-        collateralReserveVault: isDebtBase ? m.quoteReserveVault : m.baseReserveVault,
+        collateralReserveVault: isDebtBase
+          ? m.quoteReserveVault
+          : m.baseReserveVault,
         debtFeeVault: isDebtBase ? m.baseFeeVault : m.quoteFeeVault,
         leverageCollateralVault,
         ownerCollateralAccount,
@@ -1878,9 +2385,50 @@ async function buildOpenCollateralMarginLeverageTx(params: {
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
       })
-      .instruction()
+      .instruction(),
   );
   return ownerTransaction(params.owner, instructions);
+}
+
+async function leverageCloseCleanupInstructions(
+  owner: PublicKey,
+  stored: StoredMarket,
+  leveragePosition: PublicKey,
+): Promise<{
+  beforeClose: TransactionInstruction[];
+  afterClose: TransactionInstruction[];
+}> {
+  const { program, leverageDelegateProgram, connection } = initializeRuntime();
+  const beforeClose: TransactionInstruction[] = [];
+  const afterClose: TransactionInstruction[] = [];
+  const orders = await leverageOrdersPayload(owner, stored);
+
+  for (const entry of orders) {
+    if (entry.order.position !== leveragePosition.toBase58()) continue;
+    beforeClose.push(
+      await leverageDelegateProgram.methods
+        .cancelLeverageOrder({
+          orderId: new BN(entry.order.orderId),
+        })
+        .accounts({
+          order: new PublicKey(entry.address),
+          owner,
+        })
+        .instruction(),
+    );
+  }
+
+  const leverageDelegation = deriveLeverageDelegation(leveragePosition);
+  if (await connection.getAccountInfo(leverageDelegation, "confirmed")) {
+    afterClose.push(
+      await program.methods
+        .closeLeverageDelegation({ position: leveragePosition })
+        .accounts({ leverageDelegation, owner })
+        .instruction(),
+    );
+  }
+
+  return { beforeClose, afterClose };
 }
 
 async function buildCloseLeverageTx(params: {
@@ -1895,15 +2443,25 @@ async function buildCloseLeverageTx(params: {
   const isDebtBase = params.debtAsset === 0;
   const debtMint = isDebtBase ? m.baseMint : m.quoteMint;
   const collateralMint = isDebtBase ? m.quoteMint : m.baseMint;
-  const leverageCollateralVault = deriveLeverageCollateralVault(m.market, collateralMint);
+  const leverageCollateralVault = deriveLeverageCollateralVault(
+    m.market,
+    collateralMint,
+  );
+  const leveragePosition = deriveLeveragePosition(m.market, params.positionId);
 
   const instructions: TransactionInstruction[] = [];
   const ownerDebtAccount = await maybeAddAta(
     instructions,
     params.owner,
     debtMint,
-    isDebtBase ? m.baseTokenProgram : m.quoteTokenProgram
+    isDebtBase ? m.baseTokenProgram : m.quoteTokenProgram,
   );
+  const cleanup = await leverageCloseCleanupInstructions(
+    params.owner,
+    params.market,
+    leveragePosition,
+  );
+  instructions.push(...cleanup.beforeClose);
 
   instructions.push(
     await program.methods
@@ -1915,13 +2473,17 @@ async function buildCloseLeverageTx(params: {
         market: m.market,
         futarchyAuthority: m.futarchyAuthority,
         positionOwner: params.owner,
-        leveragePosition: deriveLeveragePosition(m.market, params.positionId),
+        leveragePosition,
         debtMint,
         collateralMint,
         debtReserveVault: isDebtBase ? m.baseReserveVault : m.quoteReserveVault,
-        collateralReserveVault: isDebtBase ? m.quoteReserveVault : m.baseReserveVault,
+        collateralReserveVault: isDebtBase
+          ? m.quoteReserveVault
+          : m.baseReserveVault,
         collateralFeeVault: isDebtBase ? m.quoteFeeVault : m.baseFeeVault,
-        debtInterestVault: isDebtBase ? m.baseInterestVault : m.quoteInterestVault,
+        debtInterestVault: isDebtBase
+          ? m.baseInterestVault
+          : m.quoteInterestVault,
         leverageCollateralVault,
         ownerDebtAccount,
         leverageDelegation: null,
@@ -1932,8 +2494,9 @@ async function buildCloseLeverageTx(params: {
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
       })
-      .instruction()
+      .instruction(),
   );
+  instructions.push(...cleanup.afterClose);
   return ownerTransaction(params.owner, instructions);
 }
 
@@ -1950,15 +2513,25 @@ async function buildCloseCollateralMarginLeverageTx(params: {
   const isDebtBase = params.debtAsset === 0;
   const debtMint = isDebtBase ? m.baseMint : m.quoteMint;
   const collateralMint = isDebtBase ? m.quoteMint : m.baseMint;
-  const leverageCollateralVault = deriveLeverageCollateralVault(m.market, collateralMint);
+  const leverageCollateralVault = deriveLeverageCollateralVault(
+    m.market,
+    collateralMint,
+  );
+  const leveragePosition = deriveLeveragePosition(m.market, params.positionId);
 
   const instructions: TransactionInstruction[] = [];
   const ownerCollateralAccount = await maybeAddAta(
     instructions,
     params.owner,
     collateralMint,
-    isDebtBase ? m.quoteTokenProgram : m.baseTokenProgram
+    isDebtBase ? m.quoteTokenProgram : m.baseTokenProgram,
   );
+  const cleanup = await leverageCloseCleanupInstructions(
+    params.owner,
+    params.market,
+    leveragePosition,
+  );
+  instructions.push(...cleanup.beforeClose);
 
   instructions.push(
     await program.methods
@@ -1971,13 +2544,17 @@ async function buildCloseCollateralMarginLeverageTx(params: {
         market: m.market,
         futarchyAuthority: m.futarchyAuthority,
         owner: params.owner,
-        leveragePosition: deriveLeveragePosition(m.market, params.positionId),
+        leveragePosition,
         debtMint,
         collateralMint,
         debtReserveVault: isDebtBase ? m.baseReserveVault : m.quoteReserveVault,
-        collateralReserveVault: isDebtBase ? m.quoteReserveVault : m.baseReserveVault,
+        collateralReserveVault: isDebtBase
+          ? m.quoteReserveVault
+          : m.baseReserveVault,
         collateralFeeVault: isDebtBase ? m.quoteFeeVault : m.baseFeeVault,
-        debtInterestVault: isDebtBase ? m.baseInterestVault : m.quoteInterestVault,
+        debtInterestVault: isDebtBase
+          ? m.baseInterestVault
+          : m.quoteInterestVault,
         leverageCollateralVault,
         ownerCollateralAccount,
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -1985,8 +2562,9 @@ async function buildCloseCollateralMarginLeverageTx(params: {
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
       })
-      .instruction()
+      .instruction(),
   );
+  instructions.push(...cleanup.afterClose);
   return ownerTransaction(params.owner, instructions);
 }
 
@@ -2001,13 +2579,16 @@ async function buildDepositLeverageCollateralTx(params: {
   const m = marketFromStored(params.market);
   const isDebtBase = params.debtAsset === 0;
   const collateralMint = isDebtBase ? m.quoteMint : m.baseMint;
-  const leverageCollateralVault = deriveLeverageCollateralVault(m.market, collateralMint);
+  const leverageCollateralVault = deriveLeverageCollateralVault(
+    m.market,
+    collateralMint,
+  );
   const instructions: TransactionInstruction[] = [];
   const ownerCollateralAccount = await maybeAddAta(
     instructions,
     params.owner,
     collateralMint,
-    isDebtBase ? m.quoteTokenProgram : m.baseTokenProgram
+    isDebtBase ? m.quoteTokenProgram : m.baseTokenProgram,
   );
 
   instructions.push(
@@ -2028,7 +2609,7 @@ async function buildDepositLeverageCollateralTx(params: {
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
       })
-      .instruction()
+      .instruction(),
   );
   return ownerTransaction(params.owner, instructions);
 }
@@ -2045,13 +2626,16 @@ async function buildWithdrawLeverageCollateralTx(params: {
   const m = marketFromStored(params.market);
   const isDebtBase = params.debtAsset === 0;
   const collateralMint = isDebtBase ? m.quoteMint : m.baseMint;
-  const leverageCollateralVault = deriveLeverageCollateralVault(m.market, collateralMint);
+  const leverageCollateralVault = deriveLeverageCollateralVault(
+    m.market,
+    collateralMint,
+  );
   const instructions: TransactionInstruction[] = [];
   const ownerCollateralAccount = await maybeAddAta(
     instructions,
     params.owner,
     collateralMint,
-    isDebtBase ? m.quoteTokenProgram : m.baseTokenProgram
+    isDebtBase ? m.quoteTokenProgram : m.baseTokenProgram,
   );
 
   instructions.push(
@@ -2074,9 +2658,203 @@ async function buildWithdrawLeverageCollateralTx(params: {
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
       })
-      .instruction()
+      .instruction(),
   );
   return ownerTransaction(params.owner, instructions);
+}
+
+async function buildSetLeverageOrdersTx(params: {
+  owner: PublicKey;
+  market: StoredMarket;
+  positionId: PublicKey;
+  debtAsset: number;
+  takeProfit?: bigint | null;
+  stopLoss?: bigint | null;
+}) {
+  const { program, accountCoder, leverageDelegateProgram, connection } =
+    initializeRuntime();
+  const m = marketFromStored(params.market);
+  const leveragePosition = deriveLeveragePosition(m.market, params.positionId);
+  const leverageDelegation = deriveLeverageDelegation(leveragePosition);
+  const instructions: TransactionInstruction[] = [];
+  const applied: Array<{
+    kind: number;
+    action: "create" | "update" | "cancel";
+    order: string;
+    trigger?: string;
+  }> = [];
+
+  const positionAccount = await connection.getAccountInfo(
+    leveragePosition,
+    "confirmed",
+  );
+  if (!positionAccount) throw new Error("Leverage position is no longer open");
+  const position = accountCoder.decode(
+    "LeveragePosition",
+    positionAccount.data,
+  );
+  const positionOwner = new PublicKey(stringValue(field(position, "owner")));
+  if (!positionOwner.equals(params.owner)) {
+    throw new Error("Leverage position owner does not match");
+  }
+  if (Number(field(position, "debtAsset", "debt_asset")) !== params.debtAsset) {
+    throw new Error("debtAsset does not match the leverage position");
+  }
+
+  const wantsOrder =
+    typeof params.takeProfit === "bigint" ||
+    typeof params.stopLoss === "bigint";
+  if (wantsOrder) {
+    const delegationAccount = await connection.getAccountInfo(
+      leverageDelegation,
+      "confirmed",
+    );
+    if (!delegationAccount) {
+      instructions.push(
+        await program.methods
+          .createLeverageDelegation({
+            debtAsset: params.debtAsset,
+            delegatedProgram: LEVERAGE_DELEGATE_PROGRAM_ID,
+            approvedActions: LEVERAGE_DELEGATE_CLOSE,
+          })
+          .accounts({
+            market: m.market,
+            leveragePosition,
+            leverageDelegation,
+            owner: params.owner,
+            systemProgram: SystemProgram.programId,
+            eventAuthority: m.eventAuthority,
+            program: PROGRAM_ID,
+          })
+          .instruction(),
+      );
+    } else {
+      const delegation = accountCoder.decode(
+        "LeverageDelegation",
+        delegationAccount.data,
+      );
+      const delegatedProgram = new PublicKey(
+        stringValue(field(delegation, "delegatedProgram", "delegated_program")),
+      );
+      const approvedActions = Number(
+        field(delegation, "approvedActions", "approved_actions"),
+      );
+      if (
+        !delegatedProgram.equals(LEVERAGE_DELEGATE_PROGRAM_ID) ||
+        (approvedActions & LEVERAGE_DELEGATE_CLOSE) === 0
+      ) {
+        instructions.push(
+          await program.methods
+            .updateLeverageDelegation({
+              debtAsset: params.debtAsset,
+              delegatedProgram: LEVERAGE_DELEGATE_PROGRAM_ID,
+              approvedActions: approvedActions | LEVERAGE_DELEGATE_CLOSE,
+            })
+            .accounts({
+              market: m.market,
+              leveragePosition,
+              leverageDelegation,
+              owner: params.owner,
+              eventAuthority: m.eventAuthority,
+              program: PROGRAM_ID,
+            })
+            .instruction(),
+        );
+      }
+    }
+  }
+
+  for (const orderSpec of [
+    {
+      kind: ORDER_KIND_TAKE_PROFIT,
+      orderId: TAKE_PROFIT_ORDER_ID,
+      trigger: params.takeProfit,
+    },
+    {
+      kind: ORDER_KIND_STOP_LOSS,
+      orderId: STOP_LOSS_ORDER_ID,
+      trigger: params.stopLoss,
+    },
+  ]) {
+    if (orderSpec.trigger === undefined) continue;
+    const order = deriveLeverageOrder(
+      leveragePosition,
+      params.owner,
+      orderSpec.orderId,
+    );
+    const exists = Boolean(await connection.getAccountInfo(order, "confirmed"));
+
+    if (orderSpec.trigger === null) {
+      if (!exists) continue;
+      instructions.push(
+        await leverageDelegateProgram.methods
+          .cancelLeverageOrder({ orderId: new BN(orderSpec.orderId) })
+          .accounts({ order, owner: params.owner })
+          .instruction(),
+      );
+      applied.push({
+        kind: orderSpec.kind,
+        action: "cancel",
+        order: order.toBase58(),
+      });
+      continue;
+    }
+
+    if (
+      orderSpec.trigger <= 0n ||
+      orderSpec.trigger > BigInt("18446744073709551615")
+    ) {
+      throw new Error("Leverage order trigger must fit in an unsigned u64");
+    }
+    const args = {
+      orderId: new BN(orderSpec.orderId),
+      kind: orderSpec.kind,
+      triggerCloseoutPriceNad: new BN(orderSpec.trigger.toString()),
+    };
+    if (exists) {
+      instructions.push(
+        await leverageDelegateProgram.methods
+          .updateLeverageOrder(args)
+          .accounts({
+            market: m.market,
+            leveragePosition,
+            order,
+            owner: params.owner,
+          })
+          .instruction(),
+      );
+    } else {
+      instructions.push(
+        await leverageDelegateProgram.methods
+          .createLeverageOrder(args)
+          .accounts({
+            market: m.market,
+            leveragePosition,
+            order,
+            owner: params.owner,
+            systemProgram: SystemProgram.programId,
+          })
+          .instruction(),
+      );
+    }
+    applied.push({
+      kind: orderSpec.kind,
+      action: exists ? "update" : "create",
+      order: order.toBase58(),
+      trigger: orderSpec.trigger.toString(),
+    });
+  }
+
+  if (applied.length === 0) {
+    throw new Error("No leverage order changes to apply");
+  }
+
+  return {
+    transaction: await ownerTransaction(params.owner, instructions),
+    leveragePosition,
+    leverageDelegation,
+    applied,
+  };
 }
 
 async function buildAddLeverageMarginTx(params: {
@@ -2096,7 +2874,7 @@ async function buildAddLeverageMarginTx(params: {
     instructions,
     params.owner,
     debtMint,
-    isDebtBase ? m.baseTokenProgram : m.quoteTokenProgram
+    isDebtBase ? m.baseTokenProgram : m.quoteTokenProgram,
   );
 
   instructions.push(
@@ -2112,7 +2890,9 @@ async function buildAddLeverageMarginTx(params: {
         leveragePosition: deriveLeveragePosition(m.market, params.positionId),
         debtMint,
         debtReserveVault: isDebtBase ? m.baseReserveVault : m.quoteReserveVault,
-        debtInterestVault: isDebtBase ? m.baseInterestVault : m.quoteInterestVault,
+        debtInterestVault: isDebtBase
+          ? m.baseInterestVault
+          : m.quoteInterestVault,
         ownerDebtAccount,
         owner: params.owner,
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -2120,7 +2900,7 @@ async function buildAddLeverageMarginTx(params: {
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
       })
-      .instruction()
+      .instruction(),
   );
   return ownerTransaction(params.owner, instructions);
 }
@@ -2143,7 +2923,7 @@ async function buildRemoveLeverageMarginTx(params: {
     instructions,
     params.owner,
     debtMint,
-    isDebtBase ? m.baseTokenProgram : m.quoteTokenProgram
+    isDebtBase ? m.baseTokenProgram : m.quoteTokenProgram,
   );
 
   instructions.push(
@@ -2167,7 +2947,7 @@ async function buildRemoveLeverageMarginTx(params: {
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
       })
-      .instruction()
+      .instruction(),
   );
   return ownerTransaction(params.owner, instructions);
 }
@@ -2185,7 +2965,10 @@ async function buildIncreaseLeverageTx(params: {
   const isDebtBase = params.debtAsset === 0;
   const debtMint = isDebtBase ? m.baseMint : m.quoteMint;
   const collateralMint = isDebtBase ? m.quoteMint : m.baseMint;
-  const leverageCollateralVault = deriveLeverageCollateralVault(m.market, collateralMint);
+  const leverageCollateralVault = deriveLeverageCollateralVault(
+    m.market,
+    collateralMint,
+  );
 
   const instructions: TransactionInstruction[] = [];
 
@@ -2204,7 +2987,9 @@ async function buildIncreaseLeverageTx(params: {
         debtMint,
         collateralMint,
         debtReserveVault: isDebtBase ? m.baseReserveVault : m.quoteReserveVault,
-        collateralReserveVault: isDebtBase ? m.quoteReserveVault : m.baseReserveVault,
+        collateralReserveVault: isDebtBase
+          ? m.quoteReserveVault
+          : m.baseReserveVault,
         debtFeeVault: isDebtBase ? m.baseFeeVault : m.quoteFeeVault,
         leverageCollateralVault,
         owner: params.owner,
@@ -2213,7 +2998,7 @@ async function buildIncreaseLeverageTx(params: {
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
       })
-      .instruction()
+      .instruction(),
   );
   return ownerTransaction(params.owner, instructions);
 }
@@ -2230,7 +3015,10 @@ async function buildDecreaseLeverageTx(params: {
   const m = marketFromStored(params.market);
   const isDebtBase = params.debtAsset === 0;
   const collateralMint = isDebtBase ? m.quoteMint : m.baseMint;
-  const leverageCollateralVault = deriveLeverageCollateralVault(m.market, collateralMint);
+  const leverageCollateralVault = deriveLeverageCollateralVault(
+    m.market,
+    collateralMint,
+  );
 
   const instructions: TransactionInstruction[] = [];
 
@@ -2249,9 +3037,13 @@ async function buildDecreaseLeverageTx(params: {
         debtMint: isDebtBase ? m.baseMint : m.quoteMint,
         collateralMint,
         debtReserveVault: isDebtBase ? m.baseReserveVault : m.quoteReserveVault,
-        collateralReserveVault: isDebtBase ? m.quoteReserveVault : m.baseReserveVault,
+        collateralReserveVault: isDebtBase
+          ? m.quoteReserveVault
+          : m.baseReserveVault,
         collateralFeeVault: isDebtBase ? m.quoteFeeVault : m.baseFeeVault,
-        debtInterestVault: isDebtBase ? m.baseInterestVault : m.quoteInterestVault,
+        debtInterestVault: isDebtBase
+          ? m.baseInterestVault
+          : m.quoteInterestVault,
         leverageCollateralVault,
         owner: params.owner,
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -2259,14 +3051,17 @@ async function buildDecreaseLeverageTx(params: {
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
       })
-      .instruction()
+      .instruction(),
   );
   return ownerTransaction(params.owner, instructions);
 }
 
 // ── Leverage Position Query ────────────────────────────────────────────
 
-async function leveragePositionsPayload(wallet: PublicKey, stored: StoredMarket) {
+async function leveragePositionsPayload(
+  wallet: PublicKey,
+  stored: StoredMarket,
+) {
   const { program } = initializeRuntime();
   const positions: any[] = [];
 
@@ -2287,8 +3082,11 @@ async function leveragePositionsPayload(wallet: PublicKey, stored: StoredMarket)
         const positionAddress = publicKey.toBase58();
         const positionId = stringValue(field(pos, "positionId", "position_id"));
         const debtMint = debtAsset === 0 ? stored.baseMint : stored.quoteMint;
-        const collateralMint = debtAsset === 0 ? stored.quoteMint : stored.baseMint;
-        const debtPrincipal = stringValue(field(pos, "debtPrincipal", "debt_principal"));
+        const collateralMint =
+          debtAsset === 0 ? stored.quoteMint : stored.baseMint;
+        const debtPrincipal = stringValue(
+          field(pos, "debtPrincipal", "debt_principal"),
+        );
         const marginMode = Number(field(pos, "marginMode", "margin_mode") ?? 0);
 
         positions.push({
@@ -2299,12 +3097,20 @@ async function leveragePositionsPayload(wallet: PublicKey, stored: StoredMarket)
           debtAsset,
           debtMint,
           collateralMint,
-          collateralAmount: stringValue(field(pos, "collateralAmount", "collateral_amount")),
-          marginAmount: stringValue(field(pos, "marginAmount", "margin_amount")),
-          openNotional: stringValue(field(pos, "openNotional", "open_notional")),
+          collateralAmount: stringValue(
+            field(pos, "collateralAmount", "collateral_amount"),
+          ),
+          marginAmount: stringValue(
+            field(pos, "marginAmount", "margin_amount"),
+          ),
+          openNotional: stringValue(
+            field(pos, "openNotional", "open_notional"),
+          ),
           debtShares: stringValue(field(pos, "debtShares", "debt_shares")),
           debtPrincipal,
-          multiplierBps: stringValue(field(pos, "multiplierBps", "multiplier_bps")),
+          multiplierBps: stringValue(
+            field(pos, "multiplierBps", "multiplier_bps"),
+          ),
           marginMode,
           openedAt: stringValue(field(pos, "openedAt", "opened_at")),
           openedSlot: stringValue(field(pos, "openedSlot", "opened_slot")),
@@ -2326,23 +3132,64 @@ async function leveragePositionsPayload(wallet: PublicKey, stored: StoredMarket)
   return positions;
 }
 
-async function leverageOrdersPayload(_wallet: PublicKey, _stored: StoredMarket) {
-  return [];
+async function leverageOrdersPayload(wallet: PublicKey, stored: StoredMarket) {
+  const { connection, leverageDelegateAccountCoder } = initializeRuntime();
+  const accounts = await connection.getProgramAccounts(
+    LEVERAGE_DELEGATE_PROGRAM_ID,
+    {
+      commitment: "confirmed",
+      filters: [{ memcmp: { offset: 8, bytes: wallet.toBase58() } }],
+    },
+  );
+
+  return accounts.flatMap(({ pubkey, account }) => {
+    try {
+      const order = leverageDelegateAccountCoder.decode(
+        "LeverageOrder",
+        account.data,
+      );
+      const market = stringValue(field(order, "market"));
+      if (market !== stored.market) return [];
+      return [
+        {
+          address: pubkey.toBase58(),
+          order: {
+            owner: stringValue(field(order, "owner")),
+            pair: market,
+            position: stringValue(field(order, "position")),
+            orderId: stringValue(field(order, "orderId", "order_id")),
+            kind: Number(field(order, "kind")),
+            triggerCloseoutPriceNad: stringValue(
+              field(
+                order,
+                "triggerCloseoutPriceNad",
+                "trigger_closeout_price_nad",
+              ),
+            ),
+          },
+        },
+      ];
+    } catch {
+      return [];
+    }
+  });
 }
 
 async function userPositionsPayload(
   wallet: PublicKey,
   stored: StoredMarket,
-  positionId: PublicKey | null = null
+  positionId: PublicKey | null = null,
 ) {
   const { program } = initializeRuntime();
   const market = new PublicKey(stored.market);
   const now = new Date().toISOString();
-  const positions = [];
+  const positions: Record<string, unknown>[] = [];
   if (!positionId) return positions;
 
   const borrowPositionAddress = deriveBorrowPosition(market, positionId);
-  const borrowPosition = await program.account.borrowPosition.fetchNullable(borrowPositionAddress);
+  const borrowPosition = await program.account.borrowPosition.fetchNullable(
+    borrowPositionAddress,
+  );
   if (borrowPosition) {
     positions.push({
       id: 1,
@@ -2358,10 +3205,18 @@ async function userPositionsPayload(
       payload: {
         positionId: positionId.toBase58(),
         address: borrowPositionAddress.toBase58(),
-        baseCollateral: stringValue(field(borrowPosition, "baseCollateral", "base_collateral")),
-        quoteCollateral: stringValue(field(borrowPosition, "quoteCollateral", "quote_collateral")),
-        fixedBaseShares: stringValue(field(borrowPosition, "fixedBaseShares", "fixed_base_shares")),
-        fixedQuoteShares: stringValue(field(borrowPosition, "fixedQuoteShares", "fixed_quote_shares")),
+        baseCollateral: stringValue(
+          field(borrowPosition, "baseCollateral", "base_collateral"),
+        ),
+        quoteCollateral: stringValue(
+          field(borrowPosition, "quoteCollateral", "quote_collateral"),
+        ),
+        fixedBaseShares: stringValue(
+          field(borrowPosition, "fixedBaseShares", "fixed_base_shares"),
+        ),
+        fixedQuoteShares: stringValue(
+          field(borrowPosition, "fixedQuoteShares", "fixed_quote_shares"),
+        ),
       },
     });
   }
@@ -2369,27 +3224,49 @@ async function userPositionsPayload(
 }
 
 async function fundWallet(body: Record<string, unknown>, stored: StoredMarket) {
-  if (!ALLOW_PUBLIC_FUNDING) throw new Error("Public fork wallet funding is disabled");
-  const owner = new PublicKey(String(body.wallet ?? body.owner ?? body.publicKey ?? ""));
+  if (!ALLOW_PUBLIC_FUNDING)
+    throw new Error("Public fork wallet funding is disabled");
+  const owner = new PublicKey(
+    String(body.wallet ?? body.owner ?? body.publicKey ?? ""),
+  );
   const sol = Number(body.sol ?? DEFAULT_SOL_FUNDING);
-  const baseAmount = rawAmount(body, ["baseAmount", "baseUiAmount", "tokenAmount"], stored.baseDecimals, DEFAULT_TOKEN_FUNDING_UI);
+  const baseAmount = rawAmount(
+    body,
+    ["baseAmount", "baseUiAmount", "tokenAmount"],
+    stored.baseDecimals,
+    DEFAULT_TOKEN_FUNDING_UI,
+  );
   const quoteAmount = rawAmount(
     body,
     ["quoteAmount", "quoteUiAmount", "tokenAmount"],
     stored.quoteDecimals,
-    DEFAULT_TOKEN_FUNDING_UI
+    DEFAULT_TOKEN_FUNDING_UI,
   );
   const maxBaseAmount = parseUnits(MAX_TOKEN_FUNDING_UI, stored.baseDecimals);
   const maxQuoteAmount = parseUnits(MAX_TOKEN_FUNDING_UI, stored.quoteDecimals);
   if (!Number.isFinite(sol) || sol < 0 || sol > MAX_SOL_FUNDING) {
-    throw new Error(`Fork SOL funding must be between 0 and ${MAX_SOL_FUNDING}`);
+    throw new Error(
+      `Fork SOL funding must be between 0 and ${MAX_SOL_FUNDING}`,
+    );
   }
   if (baseAmount > maxBaseAmount || quoteAmount > maxQuoteAmount) {
-    throw new Error(`Fork token funding is capped at ${MAX_TOKEN_FUNDING_UI} UI units`);
+    throw new Error(
+      `Fork token funding is capped at ${MAX_TOKEN_FUNDING_UI} UI units`,
+    );
   }
   await setLamports(owner, sol);
-  await setTokenBalance(owner, new PublicKey(stored.baseMint), baseAmount, new PublicKey(stored.baseTokenProgram));
-  await setTokenBalance(owner, new PublicKey(stored.quoteMint), quoteAmount, new PublicKey(stored.quoteTokenProgram));
+  await setTokenBalance(
+    owner,
+    new PublicKey(stored.baseMint),
+    baseAmount,
+    new PublicKey(stored.baseTokenProgram),
+  );
+  await setTokenBalance(
+    owner,
+    new PublicKey(stored.quoteMint),
+    quoteAmount,
+    new PublicKey(stored.quoteTokenProgram),
+  );
   return {
     wallet: owner.toBase58(),
     sol,
@@ -2405,7 +3282,7 @@ async function txResponse(
   owner: PublicKey,
   stored: StoredMarket,
   transaction: string,
-  extra: Record<string, unknown> = {}
+  extra: Record<string, unknown> = {},
 ) {
   return {
     success: true,
@@ -2420,7 +3297,10 @@ async function txResponse(
   };
 }
 
-export async function route(req: http.IncomingMessage, body: Record<string, unknown>) {
+export async function route(
+  req: http.IncomingMessage,
+  body: Record<string, unknown>,
+) {
   const url = new URL(req.url ?? "/", "http://localhost");
   const path = url.pathname.replace(/\/$/, "") || "/";
 
@@ -2454,14 +3334,19 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     return { success: true, data: await marketPayload(stored) };
   }
 
-  if (req.method === "GET" && path === `/api/v2/markets/${stored.market}/swaps`) {
+  if (
+    req.method === "GET" &&
+    path === `/api/v2/markets/${stored.market}/swaps`
+  ) {
     return {
       success: true,
       data: { swaps: [], pagination: { limit: 100, offset: 0, total: 0 } },
     };
   }
 
-  const userPositionsMatch = path.match(/^\/api\/v2\/users\/([^/]+)\/positions$/);
+  const userPositionsMatch = path.match(
+    /^\/api\/v2\/users\/([^/]+)\/positions$/,
+  );
   if (req.method === "GET" && userPositionsMatch) {
     const wallet = new PublicKey(userPositionsMatch[1]);
     return {
@@ -2470,7 +3355,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         positions: await userPositionsPayload(
           wallet,
           stored,
-          optionalPublicKey(url.searchParams.get("positionId"))
+          optionalPublicKey(url.searchParams.get("positionId")),
         ),
       },
     };
@@ -2494,26 +3379,34 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     return { success: true, data: await marketPayload(stored) };
   }
 
-  if (req.method === "GET" && (
-    path === "/api/v1/fork/leverage/positions" ||
-    path === "/api/v2/fork/leverage/positions"
-  )) {
-    const leverageWallet = new PublicKey(String(
-      url.searchParams.get("wallet") ?? url.searchParams.get("owner") ?? ""
-    ));
+  if (
+    req.method === "GET" &&
+    (path === "/api/v1/fork/leverage/positions" ||
+      path === "/api/v2/fork/leverage/positions")
+  ) {
+    const leverageWallet = new PublicKey(
+      String(
+        url.searchParams.get("wallet") ?? url.searchParams.get("owner") ?? "",
+      ),
+    );
     return {
       success: true,
-      data: { positions: await leveragePositionsPayload(leverageWallet, stored) },
+      data: {
+        positions: await leveragePositionsPayload(leverageWallet, stored),
+      },
     };
   }
 
-  if (req.method === "GET" && (
-    path === "/api/v1/fork/leverage/orders" ||
-    path === "/api/v2/fork/leverage/orders"
-  )) {
-    const leverageWallet = new PublicKey(String(
-      url.searchParams.get("wallet") ?? url.searchParams.get("owner") ?? ""
-    ));
+  if (
+    req.method === "GET" &&
+    (path === "/api/v1/fork/leverage/orders" ||
+      path === "/api/v2/fork/leverage/orders")
+  ) {
+    const leverageWallet = new PublicKey(
+      String(
+        url.searchParams.get("wallet") ?? url.searchParams.get("owner") ?? "",
+      ),
+    );
     return {
       success: true,
       data: { orders: await leverageOrdersPayload(leverageWallet, stored) },
@@ -2528,34 +3421,59 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     return { success: true, data: await fundWallet(body, stored) };
   }
 
-  const owner = new PublicKey(String(body.owner ?? body.wallet ?? body.publicKey ?? ""));
+  const owner = new PublicKey(
+    String(body.owner ?? body.wallet ?? body.publicKey ?? ""),
+  );
 
   if (path === "/api/v2/fork/tx/add-liquidity") {
     const transaction = (
       await buildAddLiquidityTx({
         owner,
         market: stored,
-        baseDepositAmount: rawAmount(body, ["baseDepositAmount", "baseAmount"], stored.baseDecimals, "1"),
-        quoteDepositAmount: rawAmount(body, ["quoteDepositAmount", "quoteAmount"], stored.quoteDecimals, "1"),
-        minYlpAmount: rawAmount(body, ["minYlpAmount", "minBaseYlpAmount"], stored.baseDecimals, "0"),
+        baseDepositAmount: rawAmount(
+          body,
+          ["baseDepositAmount", "baseAmount"],
+          stored.baseDecimals,
+          "1",
+        ),
+        quoteDepositAmount: rawAmount(
+          body,
+          ["quoteDepositAmount", "quoteAmount"],
+          stored.quoteDecimals,
+          "1",
+        ),
+        minYlpAmount: rawAmount(
+          body,
+          ["minYlpAmount", "minBaseYlpAmount"],
+          stored.baseDecimals,
+          "0",
+        ),
       })
-    ).serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
+    )
+      .serialize({ requireAllSignatures: false, verifySignatures: false })
+      .toString("base64");
     return txResponse("add-liquidity", owner, stored, transaction);
   }
 
   if (path === "/api/v2/fork/tx/swap") {
     const assetIn = assetFromBody(body.assetIn, "base");
-    const decimals = assetIn === "base" ? stored.baseDecimals : stored.quoteDecimals;
+    const decimals =
+      assetIn === "base" ? stored.baseDecimals : stored.quoteDecimals;
     const transaction = await buildSwapTx({
       owner,
       market: stored,
       assetIn,
-      exactAssetIn: rawAmount(body, ["exactAssetIn", "amountIn", "amount"], decimals, "1"),
+      exactAssetIn: rawAmount(
+        body,
+        ["exactAssetIn", "amountIn", "amount"],
+        decimals,
+        "1",
+      ),
       minAssetOut: rawAmount(
         body,
         ["minAssetOut", "minAmountOut"],
         assetIn === "base" ? stored.quoteDecimals : stored.baseDecimals,
-        "0"
+        "0",
       ),
     });
     return txResponse("swap", owner, stored, transaction, { assetIn });
@@ -2563,8 +3481,13 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
 
   if (path === "/api/v2/fork/tx/deposit-collateral") {
     const marketAsset = assetFromBody(body.marketAsset ?? body.asset, "base");
-    const positionId = optionalPublicKey(body.positionId ?? body.borrowPositionId) ?? Keypair.generate().publicKey;
-    const borrowPosition = deriveBorrowPosition(new PublicKey(stored.market), positionId);
+    const positionId =
+      optionalPublicKey(body.positionId ?? body.borrowPositionId) ??
+      Keypair.generate().publicKey;
+    const borrowPosition = deriveBorrowPosition(
+      new PublicKey(stored.market),
+      positionId,
+    );
     const transaction = await buildDepositCollateralTx({
       owner,
       market: stored,
@@ -2574,7 +3497,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         body,
         ["depositAmount", "amount"],
         marketAsset === "base" ? stored.baseDecimals : stored.quoteDecimals,
-        "1"
+        "1",
       ),
     });
     return txResponse("deposit-collateral", owner, stored, transaction, {
@@ -2587,8 +3510,12 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
   if (path === "/api/v2/fork/tx/borrow") {
     const borrowAsset = assetFromBody(body.borrowAsset ?? body.asset, "quote");
     const positionId = requiredPositionId(body);
-    const borrowPosition = deriveBorrowPosition(new PublicKey(stored.market), positionId);
-    const decimals = borrowAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
+    const borrowPosition = deriveBorrowPosition(
+      new PublicKey(stored.market),
+      positionId,
+    );
+    const decimals =
+      borrowAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
     const amount = rawAmount(body, ["borrowAmount", "amount"], decimals, "1");
     const minDebtAmountOut =
       body.minDebtAmountOut != null && body.minDebtAmountOut !== ""
@@ -2613,7 +3540,10 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
   if (path === "/api/v2/fork/tx/repay") {
     const repayAsset = assetFromBody(body.repayAsset ?? body.asset, "quote");
     const positionId = requiredPositionId(body);
-    const borrowPosition = deriveBorrowPosition(new PublicKey(stored.market), positionId);
+    const borrowPosition = deriveBorrowPosition(
+      new PublicKey(stored.market),
+      positionId,
+    );
     const transaction = await buildRepayTx({
       owner,
       market: stored,
@@ -2623,7 +3553,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         body,
         ["repayAmount", "amount"],
         repayAsset === "base" ? stored.baseDecimals : stored.quoteDecimals,
-        "1"
+        "1",
       ),
     });
     return txResponse("repay", owner, stored, transaction, {
@@ -2643,16 +3573,18 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         body,
         ["depositAmount", "amount"],
         targetAsset === "base" ? stored.baseDecimals : stored.quoteDecimals,
-        "1"
+        "1",
       ),
       minHlpAmount: rawAmount(
         body,
         ["minHlpAmount"],
         targetAsset === "base" ? stored.baseDecimals : stored.quoteDecimals,
-        "0"
+        "0",
       ),
     });
-    return txResponse("deposit-single-sided", owner, stored, transaction, { targetAsset });
+    return txResponse("deposit-single-sided", owner, stored, transaction, {
+      targetAsset,
+    });
   }
 
   if (path === "/api/v2/fork/tx/withdraw-single-sided") {
@@ -2665,142 +3597,182 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         body,
         ["hlpAmount", "amount"],
         targetAsset === "base" ? stored.baseDecimals : stored.quoteDecimals,
-        "1"
+        "1",
       ),
       minTargetAmountOut: rawAmount(
         body,
         ["minTargetAmountOut", "minAmountOut"],
         targetAsset === "base" ? stored.baseDecimals : stored.quoteDecimals,
-        "0"
+        "0",
       ),
     });
-    return txResponse("withdraw-single-sided", owner, stored, transaction, { targetAsset });
+    return txResponse("withdraw-single-sided", owner, stored, transaction, {
+      targetAsset,
+    });
   }
 
   // ── Leverage Endpoints (v1-compatible) ────────────────────────────
 
-  if (path === "/api/v1/fork/tx/open-leverage" || path === "/api/v2/fork/tx/open-leverage") {
-    const positionId = optionalPublicKey(body.positionId) ?? Keypair.generate().publicKey;
+  if (
+    path === "/api/v1/fork/tx/open-leverage" ||
+    path === "/api/v2/fork/tx/open-leverage"
+  ) {
+    const positionId =
+      optionalPublicKey(body.positionId) ?? Keypair.generate().publicKey;
     const debtAsset = debtAssetFromBody(body, 1);
     const marginMode = Number(body.marginMode ?? body.margin_mode ?? 0);
     if (marginMode !== 0 && marginMode !== 1) {
       throw new Error("marginMode must be 0 (debt) or 1 (collateral)");
     }
-    const debtDecimals = debtAsset === 0 ? stored.baseDecimals : stored.quoteDecimals;
-    const collateralDecimals = debtAsset === 0 ? stored.quoteDecimals : stored.baseDecimals;
+    const debtDecimals =
+      debtAsset === 0 ? stored.baseDecimals : stored.quoteDecimals;
+    const collateralDecimals =
+      debtAsset === 0 ? stored.quoteDecimals : stored.baseDecimals;
     const marginAmount = rawOrUiAmount(
       body,
       ["marginAmountRaw"],
       ["marginAmount", "margin"],
       marginMode === 0 ? debtDecimals : collateralDecimals,
-      "100"
+      "100",
     );
     const multiplierBps = Number(body.multiplierBps ?? 20000);
-    const transactionBuilder = marginMode === 0
-      ? buildOpenLeverageTx({
-        owner,
-        market: stored,
-        positionId,
-        debtAsset,
-        marginAmount,
-        multiplierBps,
-        minCollateralOut: rawOrUiAmount(
-          body,
-          ["minCollateralOutRaw"],
-          ["minCollateralOut", "minAmountOut"],
-          collateralDecimals,
-          "0"
-        ),
-      })
-      : buildOpenCollateralMarginLeverageTx({
-        owner,
-        market: stored,
-        positionId,
-        debtAsset,
-        marginAmount,
-        multiplierBps,
-        maxDebtIn: rawOrUiAmount(
-          body,
-          ["maxDebtInRaw"],
-          ["maxDebtIn"],
-          debtDecimals,
-          "0"
-        ),
-      });
-    const transaction = (
-      await transactionBuilder
-    ).serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
+    const transactionBuilder =
+      marginMode === 0
+        ? buildOpenLeverageTx({
+            owner,
+            market: stored,
+            positionId,
+            debtAsset,
+            marginAmount,
+            multiplierBps,
+            minCollateralOut: rawOrUiAmount(
+              body,
+              ["minCollateralOutRaw"],
+              ["minCollateralOut", "minAmountOut"],
+              collateralDecimals,
+              "0",
+            ),
+          })
+        : buildOpenCollateralMarginLeverageTx({
+            owner,
+            market: stored,
+            positionId,
+            debtAsset,
+            marginAmount,
+            multiplierBps,
+            maxDebtIn: rawOrUiAmount(
+              body,
+              ["maxDebtInRaw"],
+              ["maxDebtIn"],
+              debtDecimals,
+              "0",
+            ),
+          });
+    const transaction = (await transactionBuilder)
+      .serialize({ requireAllSignatures: false, verifySignatures: false })
+      .toString("base64");
     return txResponse("open-leverage", owner, stored, transaction, {
       positionId: positionId.toBase58(),
       positionAddress: deriveLeveragePosition(
         new PublicKey(stored.market),
-        positionId
+        positionId,
       ).toBase58(),
       debtAsset,
       marginMode,
     });
   }
 
-  if (path === "/api/v1/fork/tx/close-leverage" || path === "/api/v2/fork/tx/close-leverage") {
+  if (
+    path === "/api/v1/fork/tx/close-leverage" ||
+    path === "/api/v2/fork/tx/close-leverage"
+  ) {
     const positionId = requiredPositionId(body);
-    const debtAsset = debtAssetFromBody(body, 1);
-    const marginMode = Number(body.marginMode ?? body.margin_mode ?? 0);
+    const openPosition = (await leveragePositionsPayload(owner, stored)).find(
+      (position) => position.positionId === positionId.toBase58(),
+    );
+    if (!openPosition) throw new Error("Leverage position is no longer open");
+    const hasDebtAsset =
+      body.debtAsset !== undefined ||
+      body.debt_asset !== undefined ||
+      body.isDebtToken0 !== undefined;
+    const debtAsset = hasDebtAsset
+      ? debtAssetFromBody(body, 1)
+      : Number(openPosition.debtAsset);
+    if (debtAsset !== Number(openPosition.debtAsset)) {
+      throw new Error("debtAsset does not match the leverage position");
+    }
+    const hasMarginMode =
+      body.marginMode !== undefined || body.margin_mode !== undefined;
+    const marginMode = hasMarginMode
+      ? Number(body.marginMode ?? body.margin_mode)
+      : Number(openPosition.marginMode);
     if (marginMode !== 0 && marginMode !== 1) {
       throw new Error("marginMode must be 0 (debt) or 1 (collateral)");
     }
-    const collateralDecimals = debtAsset === 0 ? stored.quoteDecimals : stored.baseDecimals;
-    const transactionBuilder = marginMode === 0
-      ? buildCloseLeverageTx({
-        owner,
-        market: stored,
-        positionId,
-        debtAsset,
-        minAmountOut: rawOrUiAmount(
-          body,
-          ["minCollateralOutRaw"],
-          ["minCollateralOut", "minAmountOut"],
-          collateralDecimals,
-          "0"
-        ),
-      })
-      : buildCloseCollateralMarginLeverageTx({
-        owner,
-        market: stored,
-        positionId,
-        debtAsset,
-        maxCollateralIn: rawOrUiAmount(
-          body,
-          ["maxCollateralInRaw"],
-          ["maxCollateralIn"],
-          collateralDecimals,
-          "0"
-        ),
-        minResidualOut: rawOrUiAmount(
-          body,
-          ["minResidualOutRaw"],
-          ["minResidualOut", "minAmountOut"],
-          collateralDecimals,
-          "0"
-        ),
-      });
-    const transaction = (
-      await transactionBuilder
-    ).serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
+    if (marginMode !== Number(openPosition.marginMode)) {
+      throw new Error("marginMode does not match the leverage position");
+    }
+    const debtDecimals =
+      debtAsset === 0 ? stored.baseDecimals : stored.quoteDecimals;
+    const collateralDecimals =
+      debtAsset === 0 ? stored.quoteDecimals : stored.baseDecimals;
+    const transactionBuilder =
+      marginMode === 0
+        ? buildCloseLeverageTx({
+            owner,
+            market: stored,
+            positionId,
+            debtAsset,
+            minAmountOut: rawOrUiAmount(
+              body,
+              ["minDebtOutRaw", "minAmountOutRaw", "minCollateralOutRaw"],
+              ["minDebtOut", "minAmountOut", "minCollateralOut"],
+              debtDecimals,
+              "0",
+            ),
+          })
+        : buildCloseCollateralMarginLeverageTx({
+            owner,
+            market: stored,
+            positionId,
+            debtAsset,
+            maxCollateralIn: rawOrUiAmount(
+              body,
+              ["maxCollateralInRaw"],
+              ["maxCollateralIn"],
+              collateralDecimals,
+              "0",
+            ),
+            minResidualOut: rawOrUiAmount(
+              body,
+              ["minResidualOutRaw"],
+              ["minResidualOut", "minAmountOut"],
+              collateralDecimals,
+              "0",
+            ),
+          });
+    const transaction = (await transactionBuilder)
+      .serialize({ requireAllSignatures: false, verifySignatures: false })
+      .toString("base64");
     return txResponse("close-leverage", owner, stored, transaction, {
       positionId: positionId.toBase58(),
       positionAddress: deriveLeveragePosition(
         new PublicKey(stored.market),
-        positionId
+        positionId,
       ).toBase58(),
       debtAsset,
       marginMode,
     });
   }
 
-  if (path === "/api/v1/fork/tx/add-leverage-margin" || path === "/api/v2/fork/tx/add-leverage-margin") {
+  if (
+    path === "/api/v1/fork/tx/add-leverage-margin" ||
+    path === "/api/v2/fork/tx/add-leverage-margin"
+  ) {
     const positionId = requiredPositionId(body);
     const debtAsset = debtAssetFromBody(body, 1);
-    const assetDecimals = debtAsset === 0 ? stored.baseDecimals : stored.quoteDecimals;
+    const assetDecimals =
+      debtAsset === 0 ? stored.baseDecimals : stored.quoteDecimals;
     const transaction = (
       await buildAddLeverageMarginTx({
         owner,
@@ -2809,17 +3781,23 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         debtAsset,
         amount: rawAmount(body, ["amount", "marginAmount"], assetDecimals, "1"),
       })
-    ).serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
+    )
+      .serialize({ requireAllSignatures: false, verifySignatures: false })
+      .toString("base64");
     return txResponse("add-leverage-margin", owner, stored, transaction, {
       positionId: positionId.toBase58(),
       debtAsset,
     });
   }
 
-  if (path === "/api/v1/fork/tx/remove-leverage-margin" || path === "/api/v2/fork/tx/remove-leverage-margin") {
+  if (
+    path === "/api/v1/fork/tx/remove-leverage-margin" ||
+    path === "/api/v2/fork/tx/remove-leverage-margin"
+  ) {
     const positionId = requiredPositionId(body);
     const debtAsset = debtAssetFromBody(body, 1);
-    const assetDecimals = debtAsset === 0 ? stored.baseDecimals : stored.quoteDecimals;
+    const assetDecimals =
+      debtAsset === 0 ? stored.baseDecimals : stored.quoteDecimals;
     const transaction = (
       await buildRemoveLeverageMarginTx({
         owner,
@@ -2829,7 +3807,9 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         amount: rawAmount(body, ["amount", "marginAmount"], assetDecimals, "1"),
         minAmountOut: rawAmount(body, ["minAmountOut"], assetDecimals, "0"),
       })
-    ).serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
+    )
+      .serialize({ requireAllSignatures: false, verifySignatures: false })
+      .toString("base64");
     return txResponse("remove-leverage-margin", owner, stored, transaction, {
       positionId: positionId.toBase58(),
       debtAsset,
@@ -2842,7 +3822,8 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
   ) {
     const positionId = requiredPositionId(body);
     const debtAsset = debtAssetFromBody(body, 1);
-    const collateralDecimals = debtAsset === 0 ? stored.quoteDecimals : stored.baseDecimals;
+    const collateralDecimals =
+      debtAsset === 0 ? stored.quoteDecimals : stored.baseDecimals;
     const transaction = (
       await buildDepositLeverageCollateralTx({
         owner,
@@ -2854,14 +3835,22 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
           ["amountRaw"],
           ["amount", "collateralAmount"],
           collateralDecimals,
-          "1"
+          "1",
         ),
       })
-    ).serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
-    return txResponse("deposit-leverage-collateral", owner, stored, transaction, {
-      positionId: positionId.toBase58(),
-      debtAsset,
-    });
+    )
+      .serialize({ requireAllSignatures: false, verifySignatures: false })
+      .toString("base64");
+    return txResponse(
+      "deposit-leverage-collateral",
+      owner,
+      stored,
+      transaction,
+      {
+        positionId: positionId.toBase58(),
+        debtAsset,
+      },
+    );
   }
 
   if (
@@ -2870,7 +3859,8 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
   ) {
     const positionId = requiredPositionId(body);
     const debtAsset = debtAssetFromBody(body, 1);
-    const collateralDecimals = debtAsset === 0 ? stored.quoteDecimals : stored.baseDecimals;
+    const collateralDecimals =
+      debtAsset === 0 ? stored.quoteDecimals : stored.baseDecimals;
     const transaction = (
       await buildWithdrawLeverageCollateralTx({
         owner,
@@ -2882,52 +3872,75 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
           ["amountRaw"],
           ["amount", "collateralAmount"],
           collateralDecimals,
-          "1"
+          "1",
         ),
         minAmountOut: rawOrUiAmount(
           body,
           ["minAmountOutRaw"],
           ["minAmountOut"],
           collateralDecimals,
-          "0"
+          "0",
         ),
       })
-    ).serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
-    return txResponse("withdraw-leverage-collateral", owner, stored, transaction, {
-      positionId: positionId.toBase58(),
-      debtAsset,
-    });
+    )
+      .serialize({ requireAllSignatures: false, verifySignatures: false })
+      .toString("base64");
+    return txResponse(
+      "withdraw-leverage-collateral",
+      owner,
+      stored,
+      transaction,
+      {
+        positionId: positionId.toBase58(),
+        debtAsset,
+      },
+    );
   }
 
-  if (path === "/api/v1/fork/tx/increase-leverage" || path === "/api/v2/fork/tx/increase-leverage") {
+  if (
+    path === "/api/v1/fork/tx/increase-leverage" ||
+    path === "/api/v2/fork/tx/increase-leverage"
+  ) {
     const positionId = requiredPositionId(body);
     const debtAsset = debtAssetFromBody(body, 1);
-    const assetDecimals = debtAsset === 0 ? stored.baseDecimals : stored.quoteDecimals;
+    const assetDecimals =
+      debtAsset === 0 ? stored.baseDecimals : stored.quoteDecimals;
     const transaction = (
       await buildIncreaseLeverageTx({
         owner,
         market: stored,
         positionId,
         debtAsset,
-        debtAmount: rawAmount(body, ["debtAmount", "amount"], assetDecimals, "1"),
+        debtAmount: rawAmount(
+          body,
+          ["debtAmount", "amount"],
+          assetDecimals,
+          "1",
+        ),
         minCollateralOut: rawAmount(
           body,
           ["minCollateralOut", "minAmountOut"],
           debtAsset === 0 ? stored.quoteDecimals : stored.baseDecimals,
-          "0"
+          "0",
         ),
       })
-    ).serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
+    )
+      .serialize({ requireAllSignatures: false, verifySignatures: false })
+      .toString("base64");
     return txResponse("increase-leverage", owner, stored, transaction, {
       positionId: positionId.toBase58(),
       debtAsset,
     });
   }
 
-  if (path === "/api/v1/fork/tx/decrease-leverage" || path === "/api/v2/fork/tx/decrease-leverage") {
+  if (
+    path === "/api/v1/fork/tx/decrease-leverage" ||
+    path === "/api/v2/fork/tx/decrease-leverage"
+  ) {
     const positionId = requiredPositionId(body);
     const debtAsset = debtAssetFromBody(body, 1);
-    const collateralDecimals = debtAsset === 0 ? stored.quoteDecimals : stored.baseDecimals;
+    const collateralDecimals =
+      debtAsset === 0 ? stored.quoteDecimals : stored.baseDecimals;
     const transaction = (
       await buildDecreaseLeverageTx({
         owner,
@@ -2938,23 +3951,81 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
           body,
           ["collateralAmount", "amount"],
           collateralDecimals,
-          "1"
+          "1",
         ),
         minRepayOut: rawAmount(
           body,
           ["minRepayOut", "minAmountOut"],
           debtAsset === 0 ? stored.baseDecimals : stored.quoteDecimals,
-          "0"
+          "0",
         ),
       })
-    ).serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
+    )
+      .serialize({ requireAllSignatures: false, verifySignatures: false })
+      .toString("base64");
     return txResponse("decrease-leverage", owner, stored, transaction, {
       positionId: positionId.toBase58(),
       debtAsset,
     });
   }
 
-  if (path === "/api/v1/fork/tx/create-current-price-take-profit" || path === "/api/v2/fork/tx/create-current-price-take-profit") {
+  if (
+    path === "/api/v1/fork/tx/set-leverage-orders" ||
+    path === "/api/v2/fork/tx/set-leverage-orders"
+  ) {
+    const positionId = requiredPositionId(body);
+    const openPosition = (await leveragePositionsPayload(owner, stored)).find(
+      (position) => position.positionId === positionId.toBase58(),
+    );
+    if (!openPosition) throw new Error("Leverage position is no longer open");
+    const hasDebtAsset =
+      body.debtAsset !== undefined ||
+      body.debt_asset !== undefined ||
+      body.isDebtToken0 !== undefined;
+    const debtAsset = hasDebtAsset
+      ? debtAssetFromBody(body, 1)
+      : Number(openPosition.debtAsset);
+    if (debtAsset !== Number(openPosition.debtAsset)) {
+      throw new Error("debtAsset does not match the leverage position");
+    }
+    const takeProfitValue = Object.prototype.hasOwnProperty.call(
+      body,
+      "takeProfit",
+    )
+      ? body.takeProfit
+      : body.take_profit;
+    const stopLossValue = Object.prototype.hasOwnProperty.call(body, "stopLoss")
+      ? body.stopLoss
+      : body.stop_loss;
+    const result = await buildSetLeverageOrdersTx({
+      owner,
+      market: stored,
+      positionId,
+      debtAsset,
+      takeProfit: optionalOrderTrigger(takeProfitValue),
+      stopLoss: optionalOrderTrigger(stopLossValue),
+    });
+    const transaction = result.transaction
+      .serialize({ requireAllSignatures: false, verifySignatures: false })
+      .toString("base64");
+    return {
+      success: true,
+      data: {
+        transaction,
+        rpcUrl: PUBLIC_RPC_URL,
+        pair: stored.market,
+        owner: owner.toBase58(),
+        userLeveragePosition: result.leveragePosition.toBase58(),
+        userLeverageDelegation: result.leverageDelegation.toBase58(),
+        applied: result.applied,
+      },
+    };
+  }
+
+  if (
+    path === "/api/v1/fork/tx/create-current-price-take-profit" ||
+    path === "/api/v2/fork/tx/create-current-price-take-profit"
+  ) {
     return {
       success: true,
       data: {
@@ -2968,7 +4039,10 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     };
   }
 
-  if (path === "/api/v1/fork/keeper/execute-take-profit" || path === "/api/v2/fork/keeper/execute-take-profit") {
+  if (
+    path === "/api/v1/fork/keeper/execute-take-profit" ||
+    path === "/api/v2/fork/keeper/execute-take-profit"
+  ) {
     return {
       success: true,
       data: {
@@ -2984,7 +4058,10 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
 export async function localE2E() {
   const stored = await bootstrap();
   const { payer, provider } = initializeRuntime();
-  await fundWallet({ wallet: payer.publicKey.toBase58(), sol: DEFAULT_SOL_FUNDING }, stored);
+  await fundWallet(
+    { wallet: payer.publicKey.toBase58(), sol: DEFAULT_SOL_FUNDING },
+    stored,
+  );
 
   const addLiquidityTx = await buildAddLiquidityTx({
     owner: payer.publicKey,
@@ -2995,7 +4072,9 @@ export async function localE2E() {
     payerCanSign: true,
   });
   addLiquidityTx.sign(payer);
-  const addLiquiditySig = await provider.connection.sendRawTransaction(addLiquidityTx.serialize());
+  const addLiquiditySig = await provider.connection.sendRawTransaction(
+    addLiquidityTx.serialize(),
+  );
   await provider.connection.confirmTransaction(addLiquiditySig, "confirmed");
 
   const swapBase64 = await buildSwapTx({
@@ -3007,7 +4086,9 @@ export async function localE2E() {
   });
   const swapTx = Transaction.from(Buffer.from(swapBase64, "base64"));
   swapTx.sign(payer);
-  const swapSig = await provider.connection.sendRawTransaction(swapTx.serialize());
+  const swapSig = await provider.connection.sendRawTransaction(
+    swapTx.serialize(),
+  );
   await provider.connection.confirmTransaction(swapSig, "confirmed");
 
   return {

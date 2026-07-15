@@ -213,6 +213,7 @@ pub struct BeforeLeverageOrder<'info> {
         constraint = leverage_delegation.delegated_program == crate::ID @ LeverageDelegateError::InvalidOrder,
     )]
     pub leverage_delegation: Box<Account<'info, LeverageDelegation>>,
+    pub collateral_mint: Option<Box<InterfaceAccount<'info, Mint>>>,
     /// CHECK: PDA authority for the custody token account approved as close recipient.
     #[account(
         seeds = [CUSTODY_AUTHORITY_SEED_PREFIX, order.key().as_ref()],
@@ -345,16 +346,43 @@ impl<'info> BeforeLeverageOrder<'info> {
             order.kind == expected_kind,
             LeverageDelegateError::InvalidOrder
         );
-        let closeout_price_nad =
-            closeout_price_per_unit_nad(&ctx.accounts.market, &ctx.accounts.leverage_position)?;
+        let collateral_asset = ctx.accounts.leverage_position.collateral_asset()?;
+        let expected_collateral_mint = ctx.accounts.market.side(collateral_asset)?.asset_mint;
+        let collateral_mint_info = if ctx.accounts.token_mint.key() == expected_collateral_mint {
+            ctx.accounts.token_mint.to_account_info()
+        } else {
+            let collateral_mint = ctx
+                .accounts
+                .collateral_mint
+                .as_ref()
+                .ok_or(LeverageDelegateError::InvalidTokenAccount)?;
+            require_keys_eq!(
+                collateral_mint.key(),
+                expected_collateral_mint,
+                LeverageDelegateError::InvalidTokenAccount
+            );
+            collateral_mint.to_account_info()
+        };
+        let collateral_swap_input = transfer_net_amount(
+            &collateral_mint_info,
+            ctx.accounts.leverage_position.collateral_amount,
+        )?;
+        let closeout_price_nad = closeout_price_per_unit_nad(
+            &ctx.accounts.market,
+            &ctx.accounts.leverage_position,
+            collateral_swap_input,
+        )?;
         require_trigger_met(
             expected_kind,
             closeout_price_nad,
             order.trigger_closeout_price_nad,
         )?;
         let debt_asset = ctx.accounts.leverage_position.debt_asset()?;
-        let settlement_plan =
-            close_settlement_plan(&ctx.accounts.market, &ctx.accounts.leverage_position)?;
+        let settlement_plan = close_settlement_plan(
+            &ctx.accounts.market,
+            &ctx.accounts.leverage_position,
+            collateral_swap_input,
+        )?;
         let settlement_mint = ctx
             .accounts
             .market
@@ -504,6 +532,7 @@ struct CloseSettlementPlan {
 fn close_settlement_plan(
     market: &Market,
     position: &LeveragePosition,
+    collateral_swap_input: u64,
 ) -> Result<CloseSettlementPlan> {
     let debt_amount = position.debt_amount(&market.debt)?;
     let settlement_asset = position.settlement_asset()?;
@@ -511,7 +540,8 @@ fn close_settlement_plan(
         LeverageMarginMode::Debt => Ok(CloseSettlementPlan {
             settlement_asset,
             gross_residual_before_input_transfer_fee: market
-                .leverage_closeout_value(position)?
+                .quote_leverage_swap(position.collateral_asset()?, collateral_swap_input)?
+                .amount_out
                 .checked_sub(debt_amount)
                 .ok_or(LeverageDelegateError::InvalidOrder)?,
             collateral_swap_input: None,
@@ -683,8 +713,14 @@ fn require_closed_leverage_position(position: &LeveragePosition) -> Result<()> {
     Ok(())
 }
 
-fn closeout_price_per_unit_nad(market: &Market, position: &LeveragePosition) -> Result<u64> {
-    let closeout_value = market.leverage_closeout_value(position)?;
+fn closeout_price_per_unit_nad(
+    market: &Market,
+    position: &LeveragePosition,
+    collateral_swap_input: u64,
+) -> Result<u64> {
+    let closeout_value = market
+        .quote_leverage_swap(position.collateral_asset()?, collateral_swap_input)?
+        .amount_out;
     Ok((closeout_value as u128)
         .checked_mul(NAD as u128)
         .ok_or(LeverageDelegateError::MathOverflow)?
@@ -824,17 +860,28 @@ mod tests {
         let market = test_market(1_000_000, 1_000_000);
 
         let debt_margin = leverage_position(LeverageMarginMode::Debt);
-        let debt_plan = close_settlement_plan(&market, &debt_margin).unwrap();
+        let collateral_swap_input = debt_margin.collateral_amount - 10;
+        let debt_plan =
+            close_settlement_plan(&market, &debt_margin, collateral_swap_input).unwrap();
         let debt_amount = debt_margin.debt_amount(&market.debt).unwrap();
         assert_eq!(debt_plan.settlement_asset, MarketAsset::Base);
         assert_eq!(debt_plan.collateral_swap_input, None);
         assert_eq!(
             debt_plan.gross_residual_before_input_transfer_fee,
-            market.leverage_closeout_value(&debt_margin).unwrap() - debt_amount
+            market
+                .quote_leverage_swap(MarketAsset::Quote, collateral_swap_input)
+                .unwrap()
+                .amount_out
+                - debt_amount
         );
 
         let collateral_margin = leverage_position(LeverageMarginMode::Collateral);
-        let collateral_plan = close_settlement_plan(&market, &collateral_margin).unwrap();
+        let collateral_plan = close_settlement_plan(
+            &market,
+            &collateral_margin,
+            collateral_margin.collateral_amount,
+        )
+        .unwrap();
         let collateral_swap = market
             .quote_leverage_swap_exact_output(MarketAsset::Quote, debt_amount)
             .unwrap();

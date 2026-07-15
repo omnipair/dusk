@@ -131,8 +131,8 @@ pub struct DelegatedCloseCollateralMarginLeverage<'info> {
     pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
 
     /// CHECK: Bound to the position owner and receives closed account rent.
-    #[account(mut, address = leverage_position.owner)]
-    pub position_owner: AccountInfo<'info>,
+    #[account(mut)]
+    pub position_owner: UncheckedAccount<'info>,
 
     #[account(
         mut,
@@ -143,8 +143,6 @@ pub struct DelegatedCloseCollateralMarginLeverage<'info> {
             leverage_position.position_id.as_ref(),
         ],
         bump = leverage_position.bump,
-        constraint = leverage_position.market == market.key() @ ErrorCode::InvalidLeveragePosition,
-        constraint = leverage_position.debt_asset == args.debt_asset @ ErrorCode::InvalidLeveragePosition,
     )]
     pub leverage_position: Box<Account<'info, LeveragePosition>>,
 
@@ -168,15 +166,10 @@ pub struct DelegatedCloseCollateralMarginLeverage<'info> {
             collateral_mint.key().as_ref(),
         ],
         bump,
-        constraint = leverage_collateral_vault.mint == collateral_mint.key() @ ErrorCode::InvalidVault,
-        constraint = leverage_collateral_vault.owner == market.key() @ ErrorCode::InvalidVault
     )]
     pub leverage_collateral_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    #[account(
-        mut,
-        constraint = recipient_collateral_account.mint == collateral_mint.key() @ ErrorCode::InvalidTokenAccount,
-    )]
+    #[account(mut)]
     pub recipient_collateral_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     pub leverage_delegation: Box<Account<'info, LeverageDelegation>>,
@@ -369,6 +362,21 @@ impl<'info> DelegatedCloseCollateralMarginLeverage<'info> {
             .assert_position(self.position_owner.key(), self.market.key(), debt_asset)?;
         self.leverage_position
             .require_margin_mode(LeverageMarginMode::Collateral)?;
+        require_keys_eq!(
+            self.leverage_collateral_vault.mint,
+            self.collateral_mint.key(),
+            ErrorCode::InvalidVault
+        );
+        require_keys_eq!(
+            self.leverage_collateral_vault.owner,
+            self.market.key(),
+            ErrorCode::InvalidVault
+        );
+        require_keys_eq!(
+            self.recipient_collateral_account.mint,
+            self.collateral_mint.key(),
+            ErrorCode::InvalidTokenAccount
+        );
         self.leverage_delegation.assert_delegation(
             self.position_owner.key(),
             self.market.key(),

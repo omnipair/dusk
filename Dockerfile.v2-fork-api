@@ -7,6 +7,7 @@ RUN npm ci --include=dev
 
 COPY scripts/v2-fork-lab ./scripts/v2-fork-lab
 COPY packages/dusk-sdk/src/idl_v2.json ./packages/dusk-sdk/src/idl_v2.json
+COPY packages/dusk-sdk/src/leverage_delegate_idl.json ./packages/dusk-sdk/src/leverage_delegate_idl.json
 
 RUN ./node_modules/.bin/tsc \
     --target es2022 \

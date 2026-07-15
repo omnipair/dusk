@@ -51,7 +51,8 @@ RUN npm ci --include=dev
 
 COPY . .
 
-RUN anchor build -p dusk -- --features "development"
+RUN anchor build -p dusk -- --features "development" \
+    && anchor build -p leverage_delegate
 
 EXPOSE 8899 8900
 

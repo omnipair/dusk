@@ -393,6 +393,7 @@ impl Market {
         &mut self,
         position: &mut LeveragePosition,
         collateral_debit: u64,
+        collateral_swap_input: u64,
         min_repay_out: u64,
         manager_fee_bps: u16,
         protocol_fee_bps: u16,
@@ -400,6 +401,12 @@ impl Market {
     ) -> Result<LeverageUpdateReceipt> {
         position.require_open()?;
         require!(collateral_debit > 0, ErrorCode::AmountZero);
+        require!(collateral_swap_input > 0, ErrorCode::AmountZero);
+        require_gte!(
+            collateral_debit,
+            collateral_swap_input,
+            ErrorCode::UnexpectedTokenTransferAmount
+        );
         require_gt!(
             position.collateral_amount,
             collateral_debit,
@@ -408,7 +415,7 @@ impl Market {
         let debt_asset = position.debt_asset()?;
         let collateral_asset = debt_asset.opposite();
         let debt_before = position.debt_amount(&self.debt)?;
-        let swap = self.quote_leverage_swap(collateral_asset, collateral_debit)?;
+        let swap = self.quote_leverage_swap(collateral_asset, collateral_swap_input)?;
         require_gte!(swap.amount_out, min_repay_out, ErrorCode::SlippageExceeded);
         require_gt!(debt_before, swap.amount_out, ErrorCode::InsufficientDebt);
         let collateral_after = position
@@ -453,18 +460,26 @@ impl Market {
     pub fn close_leverage(
         &mut self,
         position: &mut LeveragePosition,
+        collateral_swap_input: u64,
         min_residual_out: u64,
         manager_fee_bps: u16,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
     ) -> Result<LeverageCloseReceipt> {
         position.require_open()?;
+        position.require_margin_mode(LeverageMarginMode::Debt)?;
         let debt_asset = position.debt_asset()?;
         let collateral_asset = debt_asset.opposite();
         let debt_amount = position.debt_amount(&self.debt)?;
         require_gt!(debt_amount, 0, ErrorCode::ZeroDebtAmount);
         let collateral_sold = position.collateral_amount;
-        let swap = self.quote_leverage_swap(collateral_asset, collateral_sold)?;
+        require!(collateral_swap_input > 0, ErrorCode::AmountZero);
+        require_gte!(
+            collateral_sold,
+            collateral_swap_input,
+            ErrorCode::UnexpectedTokenTransferAmount
+        );
+        let swap = self.quote_leverage_swap(collateral_asset, collateral_swap_input)?;
         require_gte!(swap.amount_out, debt_amount, ErrorCode::InsufficientAmount);
         let residual = swap
             .amount_out
@@ -566,6 +581,7 @@ impl Market {
     pub fn liquidate_leverage(
         &mut self,
         position: &mut LeveragePosition,
+        collateral_swap_input: u64,
         manager_fee_bps: u16,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
@@ -576,7 +592,13 @@ impl Market {
         let debt_amount = position.debt_amount(&self.debt)?;
         require_gt!(debt_amount, 0, ErrorCode::ZeroDebtAmount);
         let collateral_sold = position.collateral_amount;
-        let swap = self.quote_leverage_swap(collateral_asset, collateral_sold)?;
+        require!(collateral_swap_input > 0, ErrorCode::AmountZero);
+        require_gte!(
+            collateral_sold,
+            collateral_swap_input,
+            ErrorCode::UnexpectedTokenTransferAmount
+        );
+        let swap = self.quote_leverage_swap(collateral_asset, collateral_swap_input)?;
         let margin_bps = equity_bps(swap.amount_out, debt_amount)?;
         require!(
             swap.amount_out <= debt_amount || margin_bps <= LEVERAGE_MAINTENANCE_BUFFER_BPS as u128,
@@ -769,6 +791,7 @@ impl Market {
         &self,
         position: &mut LeveragePosition,
         collateral_debit: u64,
+        remaining_collateral_swap_input: u64,
     ) -> Result<LeverageUpdateReceipt> {
         position.require_open()?;
         require!(collateral_debit > 0, ErrorCode::AmountZero);
@@ -783,8 +806,16 @@ impl Market {
             .collateral_amount
             .checked_sub(collateral_debit)
             .ok_or(ErrorCode::InsufficientAmount)?;
+        require!(remaining_collateral_swap_input > 0, ErrorCode::AmountZero);
+        require_gte!(
+            collateral_after,
+            remaining_collateral_swap_input,
+            ErrorCode::UnexpectedTokenTransferAmount
+        );
         let debt_amount = position.debt_amount(&self.debt)?;
-        let closeout_value = self.quote_leverage_swap(collateral_asset, collateral_after)?.amount_out;
+        let closeout_value = self
+            .quote_leverage_swap(collateral_asset, remaining_collateral_swap_input)?
+            .amount_out;
         require_initial_leverage_health(
             collateral_after,
             self.side(collateral_asset)?.reserves.live_reserve,

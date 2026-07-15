@@ -6,7 +6,10 @@
 type InstructionId = string;
 
 const testedInstructions = new Set<InstructionId>();
-const instructionDetails = new Map<InstructionId, { count: number; tests: string[] }>();
+const instructionDetails = new Map<
+  InstructionId,
+  { count: number; tests: string[] }
+>();
 const skippedInstructions = new Map<InstructionId, string>();
 let lastPrintedReportSignature: string | undefined;
 
@@ -40,6 +43,7 @@ const DUSK_INSTRUCTIONS = [
   "closeLeverage",
   "closeCollateralMarginLeverage",
   "delegatedCloseLeverage",
+  "delegatedCloseCollateralMarginLeverage",
   "increaseLeverage",
   "decreaseLeverage",
   "addLeverageMargin",
@@ -83,11 +87,16 @@ function track(instructionName: string, testName?: string) {
 }
 
 function coverageDataFor(instructions: InstructionId[]) {
-  const coveredInstructions = instructions.filter((ix) => testedInstructions.has(ix));
-  const untestedInstructions = instructions.filter((ix) => !testedInstructions.has(ix));
+  const coveredInstructions = instructions.filter((ix) =>
+    testedInstructions.has(ix),
+  );
+  const untestedInstructions = instructions.filter(
+    (ix) => !testedInstructions.has(ix),
+  );
   const covered = coveredInstructions.length;
   const total = instructions.length;
-  const percentage = total === 0 ? "100.00" : ((covered / total) * 100).toFixed(2);
+  const percentage =
+    total === 0 ? "100.00" : ((covered / total) * 100).toFixed(2);
 
   return {
     covered,
@@ -109,20 +118,24 @@ function reportSignature(): string {
 
 function printCoverageSection(title: string, instructions: InstructionId[]) {
   const data = coverageDataFor(instructions);
-  const skippedUntested = data.untestedInstructions.filter((ix) => skippedInstructions.has(ix));
+  const skippedUntested = data.untestedInstructions.filter((ix) =>
+    skippedInstructions.has(ix),
+  );
   const untestedInstructions = data.untestedInstructions.filter(
-    (ix) => !skippedInstructions.has(ix)
+    (ix) => !skippedInstructions.has(ix),
   );
 
   console.log(`\n${title}`);
   console.log(
-    `Instructions Exercised: ${data.covered}/${data.total} (${data.percentage}%)\n`
+    `Instructions Exercised: ${data.covered}/${data.total} (${data.percentage}%)\n`,
   );
 
   data.testedInstructions.forEach((ix) => {
     const detail = instructionDetails.get(ix);
     const testCount = detail?.tests.length || 0;
-    console.log(`  ✓ ${instructionLabel(ix).padEnd(28)} [${testCount} test(s)]`);
+    console.log(
+      `  ✓ ${instructionLabel(ix).padEnd(28)} [${testCount} test(s)]`,
+    );
     if (detail?.tests.length) {
       detail.tests.forEach((test) => {
         console.log(`    └─ ${test}`);
@@ -131,7 +144,9 @@ function printCoverageSection(title: string, instructions: InstructionId[]) {
   });
 
   if (untestedInstructions.length > 0) {
-    console.log(`\nUnexercised Instructions: ${untestedInstructions.length}/${data.total}\n`);
+    console.log(
+      `\nUnexercised Instructions: ${untestedInstructions.length}/${data.total}\n`,
+    );
     untestedInstructions.forEach((ix) => {
       console.log(`  ✗ ${instructionLabel(ix)}`);
     });
@@ -140,7 +155,9 @@ function printCoverageSection(title: string, instructions: InstructionId[]) {
   if (skippedUntested.length > 0) {
     console.log(`\nKnown Skips: ${skippedUntested.length}/${data.total}\n`);
     skippedUntested.forEach((ix) => {
-      console.log(`  - ${instructionLabel(ix)}: ${skippedInstructions.get(ix)}`);
+      console.log(
+        `  - ${instructionLabel(ix)}: ${skippedInstructions.get(ix)}`,
+      );
     });
   }
 }
@@ -181,29 +198,30 @@ export function getCoverageReport() {
       total: aggregate.total,
       percentage: parseFloat(aggregate.percentage),
       testedInstructions: aggregate.testedInstructions.map(instructionLabel),
-      untestedInstructions: aggregate.untestedInstructions.map(instructionLabel),
+      untestedInstructions:
+        aggregate.untestedInstructions.map(instructionLabel),
     };
   }
   lastPrintedReportSignature = signature;
-  
+
   console.log("\n" + "═".repeat(70));
   console.log("📊 INSTRUCTION SMOKE COVERAGE REPORT");
   console.log("═".repeat(70));
   console.log(
-    "This tracks whether each instruction is exercised by at least one LiteSVM test."
+    "This tracks whether each instruction is exercised by at least one LiteSVM test.",
   );
   console.log(
-    "It is not statement, branch, invariant, or full behavioral coverage."
+    "It is not statement, branch, invariant, or full behavioral coverage.",
   );
 
   printCoverageSection("Dusk Instruction Smoke Coverage", ALL_INSTRUCTIONS);
-  
+
   console.log("\n" + "═".repeat(70));
   console.log(
-    `Aggregate Smoke Coverage: ${aggregate.percentage}% | Instructions Exercised: ${aggregate.covered}/${aggregate.total}`
+    `Aggregate Smoke Coverage: ${aggregate.percentage}% | Instructions Exercised: ${aggregate.covered}/${aggregate.total}`,
   );
   console.log("═".repeat(70) + "\n");
-  
+
   return {
     covered: aggregate.covered,
     total: aggregate.total,

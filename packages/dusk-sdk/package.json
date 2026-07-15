@@ -55,6 +55,7 @@
     "prepare-idl": "node scripts/prepare.js",
     "check-idl-current": "node scripts/check-idl-current.js",
     "build": "npm run prepare-idl && tsc",
+    "test": "npm run build && node --test test/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build"

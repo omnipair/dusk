@@ -435,6 +435,8 @@ mod tests {
     fn approved_for_requires_action_bit() {
         assert!(approved_for(LEVERAGE_DELEGATE_CLOSE, LEVERAGE_DELEGATE_CLOSE).is_ok());
         assert!(approved_for(LEVERAGE_DELEGATE_CLOSE, LEVERAGE_DELEGATE_INCREASE).is_err());
+        assert!(split_delegated_accounts(&[], 0).is_ok());
+        assert!(split_delegated_accounts(&[], 1).is_err());
     }
 
     #[test]
@@ -533,6 +535,124 @@ mod tests {
             recipient,
             mint,
             122,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn delegation_approval_rejects_every_mutated_binding_and_malformed_payload() {
+        let program = Pubkey::new_unique();
+        let market = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let position = Pubkey::new_unique();
+        let delegation = Pubkey::new_unique();
+        let recipient = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let approval = LeverageDelegationApproval::new(
+            LEVERAGE_DELEGATE_CLOSE_SETTLED,
+            market,
+            owner,
+            position,
+            delegation,
+            MarketAsset::Quote,
+            recipient,
+            mint,
+            456,
+        );
+        let validate = |candidate: &LeverageDelegationApproval, return_program: Pubkey| {
+            let mut data = Vec::new();
+            candidate.serialize(&mut data).unwrap();
+            validate_delegation_approval(
+                return_program,
+                &data,
+                program,
+                LEVERAGE_DELEGATE_CLOSE_SETTLED,
+                market,
+                owner,
+                position,
+                delegation,
+                MarketAsset::Quote,
+                recipient,
+                mint,
+                456,
+            )
+        };
+
+        assert!(validate(&approval, program).is_ok());
+        assert!(validate(&approval, Pubkey::new_unique()).is_err());
+
+        let mut mutations = Vec::new();
+        let mut candidate = approval.clone();
+        candidate.magic = *b"BADMAGIC";
+        mutations.push(candidate);
+        let mut candidate = approval.clone();
+        candidate.version += 1;
+        mutations.push(candidate);
+        let mut candidate = approval.clone();
+        candidate.action = LEVERAGE_DELEGATE_CLOSE;
+        mutations.push(candidate);
+        let mut candidate = approval.clone();
+        candidate.market = Pubkey::new_unique();
+        mutations.push(candidate);
+        let mut candidate = approval.clone();
+        candidate.owner = Pubkey::new_unique();
+        mutations.push(candidate);
+        let mut candidate = approval.clone();
+        candidate.position = Pubkey::new_unique();
+        mutations.push(candidate);
+        let mut candidate = approval.clone();
+        candidate.delegation = Pubkey::new_unique();
+        mutations.push(candidate);
+        let mut candidate = approval.clone();
+        candidate.debt_asset = MarketAsset::Base.code();
+        mutations.push(candidate);
+        let mut candidate = approval.clone();
+        candidate.recipient_token_account = Pubkey::new_unique();
+        mutations.push(candidate);
+        let mut candidate = approval.clone();
+        candidate.output_mint = Pubkey::new_unique();
+        mutations.push(candidate);
+        let mut candidate = approval.clone();
+        candidate.output_amount += 1;
+        mutations.push(candidate);
+
+        for candidate in mutations {
+            assert!(validate(&candidate, program).is_err());
+        }
+
+        let mut serialized = Vec::new();
+        approval.serialize(&mut serialized).unwrap();
+        let mut trailing = serialized.clone();
+        trailing.push(0);
+        assert!(validate_delegation_approval(
+            program,
+            &trailing,
+            program,
+            LEVERAGE_DELEGATE_CLOSE_SETTLED,
+            market,
+            owner,
+            position,
+            delegation,
+            MarketAsset::Quote,
+            recipient,
+            mint,
+            456,
+        )
+        .is_err());
+        serialized.pop();
+        assert!(validate_delegation_approval(
+            program,
+            &serialized,
+            program,
+            LEVERAGE_DELEGATE_CLOSE_SETTLED,
+            market,
+            owner,
+            position,
+            delegation,
+            MarketAsset::Quote,
+            recipient,
+            mint,
+            456,
         )
         .is_err());
     }

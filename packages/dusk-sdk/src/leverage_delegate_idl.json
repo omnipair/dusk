@@ -1,0 +1,1680 @@
+{
+  "address": "EPGF9iFrbGnhWgC3To9rC9vxinEYuDHaz4RXgLPvuRkp",
+  "metadata": {
+    "name": "leverage_delegate",
+    "version": "2.0.0",
+    "spec": "0.1.0",
+    "description": "Permissionless leverage delegation strategies for Omnipair Dusk (v2)"
+  },
+  "instructions": [
+    {
+      "name": "after_close_order",
+      "discriminator": [
+        156,
+        224,
+        238,
+        250,
+        95,
+        229,
+        235,
+        59
+      ],
+      "accounts": [
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  111,
+                  114,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "order.position",
+                "account": "LeverageOrder"
+              },
+              {
+                "kind": "account",
+                "path": "order.owner",
+                "account": "LeverageOrder"
+              },
+              {
+                "kind": "arg",
+                "path": "args.order_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true
+        },
+        {
+          "name": "leverage_position"
+        },
+        {
+          "name": "leverage_delegation"
+        },
+        {
+          "name": "custody_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  101,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "order"
+              }
+            ]
+          }
+        },
+        {
+          "name": "custody_token_account",
+          "writable": true
+        },
+        {
+          "name": "executor_token_account",
+          "writable": true
+        },
+        {
+          "name": "owner_token_account",
+          "writable": true
+        },
+        {
+          "name": "token_mint"
+        },
+        {
+          "name": "executor",
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ExecuteOrderArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "before_stop_loss",
+      "discriminator": [
+        246,
+        62,
+        82,
+        232,
+        168,
+        199,
+        121,
+        78
+      ],
+      "accounts": [
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  111,
+                  114,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position"
+              },
+              {
+                "kind": "account",
+                "path": "order.owner",
+                "account": "LeverageOrder"
+              },
+              {
+                "kind": "arg",
+                "path": "args.order_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "market"
+        },
+        {
+          "name": "leverage_position"
+        },
+        {
+          "name": "leverage_delegation"
+        },
+        {
+          "name": "collateral_mint",
+          "optional": true
+        },
+        {
+          "name": "custody_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  101,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "order"
+              }
+            ]
+          }
+        },
+        {
+          "name": "custody_token_account"
+        },
+        {
+          "name": "token_mint"
+        },
+        {
+          "name": "executor",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ExecuteOrderArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "before_take_profit",
+      "discriminator": [
+        5,
+        35,
+        111,
+        0,
+        223,
+        131,
+        193,
+        31
+      ],
+      "accounts": [
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  111,
+                  114,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position"
+              },
+              {
+                "kind": "account",
+                "path": "order.owner",
+                "account": "LeverageOrder"
+              },
+              {
+                "kind": "arg",
+                "path": "args.order_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "market"
+        },
+        {
+          "name": "leverage_position"
+        },
+        {
+          "name": "leverage_delegation"
+        },
+        {
+          "name": "collateral_mint",
+          "optional": true
+        },
+        {
+          "name": "custody_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  101,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "order"
+              }
+            ]
+          }
+        },
+        {
+          "name": "custody_token_account"
+        },
+        {
+          "name": "token_mint"
+        },
+        {
+          "name": "executor",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ExecuteOrderArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "cancel_leverage_order",
+      "discriminator": [
+        26,
+        88,
+        173,
+        106,
+        175,
+        242,
+        203,
+        122
+      ],
+      "accounts": [
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  111,
+                  114,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "order.position",
+                "account": "LeverageOrder"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "arg",
+                "path": "args.order_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "_args",
+          "type": {
+            "defined": {
+              "name": "CancelLeverageOrderArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_leverage_order",
+      "discriminator": [
+        197,
+        206,
+        10,
+        223,
+        89,
+        46,
+        93,
+        17
+      ],
+      "accounts": [
+        {
+          "name": "market"
+        },
+        {
+          "name": "leverage_position"
+        },
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  111,
+                  114,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "arg",
+                "path": "args.order_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "CreateLeverageOrderArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "update_leverage_order",
+      "discriminator": [
+        25,
+        101,
+        101,
+        3,
+        125,
+        229,
+        46,
+        242
+      ],
+      "accounts": [
+        {
+          "name": "market"
+        },
+        {
+          "name": "leverage_position"
+        },
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  111,
+                  114,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "arg",
+                "path": "args.order_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "UpdateLeverageOrderArgs"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "LeverageDelegation",
+      "discriminator": [
+        49,
+        60,
+        29,
+        23,
+        243,
+        219,
+        16,
+        214
+      ]
+    },
+    {
+      "name": "LeverageOrder",
+      "discriminator": [
+        232,
+        162,
+        45,
+        148,
+        106,
+        106,
+        37,
+        132
+      ]
+    },
+    {
+      "name": "LeveragePosition",
+      "discriminator": [
+        88,
+        78,
+        124,
+        68,
+        228,
+        129,
+        34,
+        251
+      ]
+    },
+    {
+      "name": "Market",
+      "discriminator": [
+        219,
+        190,
+        213,
+        55,
+        0,
+        227,
+        198,
+        154
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidOrder",
+      "msg": "Invalid leverage order"
+    },
+    {
+      "code": 6001,
+      "name": "TriggerNotMet",
+      "msg": "Order trigger is not met"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidTokenAccount",
+      "msg": "Invalid token account"
+    },
+    {
+      "code": 6003,
+      "name": "MathOverflow",
+      "msg": "Math overflow"
+    },
+    {
+      "code": 6004,
+      "name": "ApprovalSerializationFailed",
+      "msg": "Approval serialization failed"
+    }
+  ],
+  "types": [
+    {
+      "name": "CancelLeverageOrderArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "order_id",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreateLeverageOrderArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "order_id",
+            "type": "u64"
+          },
+          {
+            "name": "kind",
+            "type": "u8"
+          },
+          {
+            "name": "trigger_closeout_price_nad",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DailyLimits",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "borrowed_bucket",
+            "type": "u64"
+          },
+          {
+            "name": "last_decay_slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Debt",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "fixed_base_shares",
+            "type": "u128"
+          },
+          {
+            "name": "fixed_quote_shares",
+            "type": "u128"
+          },
+          {
+            "name": "base_borrow_index_nad",
+            "type": "u128"
+          },
+          {
+            "name": "quote_borrow_index_nad",
+            "type": "u128"
+          },
+          {
+            "name": "base_rate_at_target_nad",
+            "type": "u128"
+          },
+          {
+            "name": "quote_rate_at_target_nad",
+            "type": "u128"
+          },
+          {
+            "name": "recognized_base_collateral_for_quote_debt",
+            "type": "u64"
+          },
+          {
+            "name": "recognized_quote_collateral_for_base_debt",
+            "type": "u64"
+          },
+          {
+            "name": "last_recognition_slot",
+            "type": "u64"
+          },
+          {
+            "name": "last_accrual_slot",
+            "type": "u64"
+          },
+          {
+            "name": "fixed_base_principal",
+            "docs": [
+              "Aggregate outstanding *principal* (borrowed token amount, excluding",
+              "accrued interest) backing fixed margin debt on each side. Accrued",
+              "interest is `fixed_*_debt - fixed_*_principal`; tracked so interest can",
+              "be routed to the interest vault (non-compounding) instead of",
+              "compounding into reserves."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "fixed_quote_principal",
+            "type": "u128"
+          },
+          {
+            "name": "isolated_base_shares",
+            "docs": [
+              "Aggregate isolated leverage debt. This debt contributes to utilization",
+              "and interest, but is intentionally not recognized as normal margin debt."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "isolated_quote_shares",
+            "type": "u128"
+          },
+          {
+            "name": "isolated_base_principal",
+            "type": "u128"
+          },
+          {
+            "name": "isolated_quote_principal",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExecuteOrderArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "order_id",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Fees",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "swap_fee_growth_index_nad",
+            "type": "u128"
+          },
+          {
+            "name": "interest_growth_index_nad",
+            "type": "u128"
+          },
+          {
+            "name": "swap_fee_vault_balance",
+            "type": "u64"
+          },
+          {
+            "name": "interest_vault_balance",
+            "type": "u64"
+          },
+          {
+            "name": "swap_fee_liability",
+            "type": "u64"
+          },
+          {
+            "name": "interest_liability",
+            "type": "u64"
+          },
+          {
+            "name": "unallocated_swap_fee_liability",
+            "type": "u64"
+          },
+          {
+            "name": "unallocated_interest_liability",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_fee_liability",
+            "type": "u64"
+          },
+          {
+            "name": "buyback_fee_liability",
+            "type": "u64"
+          },
+          {
+            "name": "manager_swap_fee_liability",
+            "type": "u64"
+          },
+          {
+            "name": "manager_interest_fee_liability",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "HlpVault",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "target_side",
+            "type": "u8"
+          },
+          {
+            "name": "ylp_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "ylp_shares",
+            "type": "u64"
+          },
+          {
+            "name": "base_hlp_live_reserve",
+            "docs": [
+              "hLP-owned live reserve depth that is not backed by reserve cash or",
+              "normal cash-backed debt. This is the explicit synthetic live component",
+              "in `r_virtual = r_cash + r_cash_backed_debt + r_hlp_live`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "quote_hlp_live_reserve",
+            "type": "u64"
+          },
+          {
+            "name": "debt_shares",
+            "docs": [
+              "Funding debt used by the hLP vault. It accrues interest and counts",
+              "toward utilization, but is not same-side cash-backed reserve debt."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "debt_principal",
+            "type": "u128"
+          },
+          {
+            "name": "hlp_supply",
+            "type": "u64"
+          },
+          {
+            "name": "pending_rebalance",
+            "type": "i128"
+          },
+          {
+            "name": "base_swap_fee_growth_index_nad",
+            "type": "u128"
+          },
+          {
+            "name": "base_interest_growth_index_nad",
+            "type": "u128"
+          },
+          {
+            "name": "quote_swap_fee_growth_index_nad",
+            "type": "u128"
+          },
+          {
+            "name": "quote_interest_growth_index_nad",
+            "type": "u128"
+          },
+          {
+            "name": "base_swap_fee_checkpoint_nad",
+            "type": "u128"
+          },
+          {
+            "name": "base_interest_checkpoint_nad",
+            "type": "u128"
+          },
+          {
+            "name": "quote_swap_fee_checkpoint_nad",
+            "type": "u128"
+          },
+          {
+            "name": "quote_interest_checkpoint_nad",
+            "type": "u128"
+          },
+          {
+            "name": "unallocated_base_swap_fee_amount",
+            "type": "u64"
+          },
+          {
+            "name": "unallocated_base_interest_amount",
+            "type": "u64"
+          },
+          {
+            "name": "unallocated_quote_swap_fee_amount",
+            "type": "u64"
+          },
+          {
+            "name": "unallocated_quote_interest_amount",
+            "type": "u64"
+          },
+          {
+            "name": "last_nav_nad",
+            "type": "u128"
+          },
+          {
+            "name": "cached_settlement_price_nad",
+            "type": "u128"
+          },
+          {
+            "name": "last_rebalance_slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Insurance",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "base_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "quote_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "base_available",
+            "type": "u64"
+          },
+          {
+            "name": "quote_available",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LeverageDelegation",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "debt_asset",
+            "type": "u8"
+          },
+          {
+            "name": "delegated_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "approved_actions",
+            "type": "u32"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LeverageOrder",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "order_id",
+            "type": "u64"
+          },
+          {
+            "name": "kind",
+            "type": "u8"
+          },
+          {
+            "name": "trigger_closeout_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "staged_incentive_basis",
+            "type": "u64"
+          },
+          {
+            "name": "staged_custody_token_account",
+            "type": "pubkey"
+          },
+          {
+            "name": "staged_output_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "staged_output_amount",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LeveragePosition",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "position_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "debt_asset",
+            "type": "u8"
+          },
+          {
+            "name": "margin_mode",
+            "docs": [
+              "Stable wire value: debt margin = 0, collateral margin = 1."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "collateral_amount",
+            "type": "u64"
+          },
+          {
+            "name": "margin_amount",
+            "docs": [
+              "Initial net margin credit, denominated in `margin_asset()`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "open_notional",
+            "docs": [
+              "Debt-token notional for debt margin; collateral-token notional for collateral margin."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "debt_principal",
+            "type": "u128"
+          },
+          {
+            "name": "debt_shares",
+            "type": "u128"
+          },
+          {
+            "name": "multiplier_bps",
+            "type": "u64"
+          },
+          {
+            "name": "opened_at",
+            "type": "i64"
+          },
+          {
+            "name": "opened_slot",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Market",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "base_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "quote_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "ylp_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "operator",
+            "type": "pubkey"
+          },
+          {
+            "name": "manager",
+            "type": "pubkey"
+          },
+          {
+            "name": "base_side",
+            "type": {
+              "defined": {
+                "name": "MarketSide"
+              }
+            }
+          },
+          {
+            "name": "quote_side",
+            "type": {
+              "defined": {
+                "name": "MarketSide"
+              }
+            }
+          },
+          {
+            "name": "config",
+            "type": {
+              "defined": {
+                "name": "MarketConfig"
+              }
+            }
+          },
+          {
+            "name": "debt",
+            "type": {
+              "defined": {
+                "name": "Debt"
+              }
+            }
+          },
+          {
+            "name": "base_hlp_vault",
+            "type": {
+              "defined": {
+                "name": "HlpVault"
+              }
+            }
+          },
+          {
+            "name": "quote_hlp_vault",
+            "type": {
+              "defined": {
+                "name": "HlpVault"
+              }
+            }
+          },
+          {
+            "name": "risk",
+            "type": {
+              "defined": {
+                "name": "Risk"
+              }
+            }
+          },
+          {
+            "name": "insurance",
+            "type": {
+              "defined": {
+                "name": "Insurance"
+              }
+            }
+          },
+          {
+            "name": "pending_config",
+            "type": {
+              "defined": {
+                "name": "PendingConfigChange"
+              }
+            }
+          },
+          {
+            "name": "pending_operator",
+            "type": {
+              "defined": {
+                "name": "PendingAuthorityChange"
+              }
+            }
+          },
+          {
+            "name": "pending_manager",
+            "type": {
+              "defined": {
+                "name": "PendingAuthorityChange"
+              }
+            }
+          },
+          {
+            "name": "params_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "last_update_slot",
+            "type": "u64"
+          },
+          {
+            "name": "reduce_only",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "swap_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "manager_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "protocol_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "target_hlp_leverage_bps",
+            "type": "u16"
+          },
+          {
+            "name": "settlement_divergence_bps",
+            "type": "u16"
+          },
+          {
+            "name": "emergency_exit_haircut_bps",
+            "type": "u16"
+          },
+          {
+            "name": "ema_half_life_ms",
+            "type": "u64"
+          },
+          {
+            "name": "directional_ema_half_life_ms",
+            "type": "u64"
+          },
+          {
+            "name": "k_ema_half_life_ms",
+            "type": "u64"
+          },
+          {
+            "name": "max_daily_borrow_bps",
+            "type": "u16"
+          },
+          {
+            "name": "spot_ema_divergence_bps",
+            "type": "u16"
+          },
+          {
+            "name": "k_ema_drawdown_bps",
+            "type": "u16"
+          },
+          {
+            "name": "recognized_collateral_cap_bps",
+            "type": "u16"
+          },
+          {
+            "name": "market_health_min_bps",
+            "type": "u16"
+          },
+          {
+            "name": "start_time",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketSide",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_decimals",
+            "type": "u8"
+          },
+          {
+            "name": "hlp_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "reserve_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "collateral_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "interest_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "reserves",
+            "type": {
+              "defined": {
+                "name": "Reserves"
+              }
+            }
+          },
+          {
+            "name": "shares",
+            "type": {
+              "defined": {
+                "name": "ReserveShares"
+              }
+            }
+          },
+          {
+            "name": "fees",
+            "type": {
+              "defined": {
+                "name": "Fees"
+              }
+            }
+          },
+          {
+            "name": "daily_limits",
+            "type": {
+              "defined": {
+                "name": "DailyLimits"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingAuthorityChange",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "new_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "scheduled_by",
+            "type": "pubkey"
+          },
+          {
+            "name": "scheduled_slot",
+            "type": "u64"
+          },
+          {
+            "name": "execute_after_slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingConfigChange",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "config",
+            "type": {
+              "defined": {
+                "name": "MarketConfig"
+              }
+            }
+          },
+          {
+            "name": "scheduled_by",
+            "type": "pubkey"
+          },
+          {
+            "name": "scheduled_slot",
+            "type": "u64"
+          },
+          {
+            "name": "execute_after_slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReserveShares",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ylp_supply",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Reserves",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "live_reserve",
+            "type": "u64"
+          },
+          {
+            "name": "cash_reserve",
+            "type": "u64"
+          },
+          {
+            "name": "reserved_liability",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Risk",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "base_price_ema_nad",
+            "type": "u64"
+          },
+          {
+            "name": "quote_price_ema_nad",
+            "type": "u64"
+          },
+          {
+            "name": "directional_base_price_ema_nad",
+            "type": "u64"
+          },
+          {
+            "name": "directional_quote_price_ema_nad",
+            "type": "u64"
+          },
+          {
+            "name": "cached_spot_base_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "cached_spot_quote_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "cached_k_nad",
+            "type": "u128"
+          },
+          {
+            "name": "cached_liquidity_nad",
+            "type": "u128"
+          },
+          {
+            "name": "cached_base_liquidity_nad",
+            "type": "u128"
+          },
+          {
+            "name": "cached_quote_liquidity_nad",
+            "type": "u128"
+          },
+          {
+            "name": "k_ema",
+            "type": "u128"
+          },
+          {
+            "name": "liquidity_ema",
+            "type": "u128"
+          },
+          {
+            "name": "base_liquidity_ema",
+            "type": "u128"
+          },
+          {
+            "name": "quote_liquidity_ema",
+            "type": "u128"
+          },
+          {
+            "name": "last_snapshot_slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateLeverageOrderArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "order_id",
+            "type": "u64"
+          },
+          {
+            "name": "kind",
+            "type": "u8"
+          },
+          {
+            "name": "trigger_closeout_price_nad",
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ]
+}

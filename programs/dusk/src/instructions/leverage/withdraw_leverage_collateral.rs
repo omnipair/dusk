@@ -4,6 +4,7 @@ use anchor_spl::{
     token_interface::{Mint, Token2022, TokenAccount},
 };
 
+use super::common::leverage_collateral_credit;
 use crate::{
     constants::*,
     errors::ErrorCode,
@@ -116,11 +117,20 @@ impl<'info> WithdrawLeverageCollateral<'info> {
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
         let debt_mint_key = ctx.accounts.market.side(debt_asset)?.asset_mint;
         let collateral_mint_key = ctx.accounts.collateral_mint.key();
-
-        let receipt = ctx
+        let collateral_after = ctx
             .accounts
-            .market
-            .withdraw_leverage_collateral(&mut ctx.accounts.leverage_position, args.amount)?;
+            .leverage_position
+            .collateral_amount
+            .checked_sub(args.amount)
+            .ok_or(ErrorCode::InsufficientAmount)?;
+        let remaining_collateral_swap_input =
+            leverage_collateral_credit(&ctx.accounts.collateral_mint, collateral_after)?;
+
+        let receipt = ctx.accounts.market.withdraw_leverage_collateral(
+            &mut ctx.accounts.leverage_position,
+            args.amount,
+            remaining_collateral_swap_input,
+        )?;
         let collateral_token_program = token_program_for_mint(
             &ctx.accounts.collateral_mint,
             &ctx.accounts.token_program,

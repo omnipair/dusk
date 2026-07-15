@@ -25,11 +25,11 @@ import {
 
 const API = process.env.FORK_API_URL ?? "http://127.0.0.1:8080";
 const RPC = process.env.SURFPOOL_RPC_URL ?? "http://127.0.0.1:8899";
-const LEVERAGE_ONLY = /^(1|true|yes)$/i.test(
-  process.env.LEVERAGE_ONLY ?? ""
-);
+const LEVERAGE_ONLY = /^(1|true|yes)$/i.test(process.env.LEVERAGE_ONLY ?? "");
 const PAYER_PATH = resolve(
-  process.env.FORK_LAB_PAYER_KEYPAIR ?? process.env.ANCHOR_WALLET ?? "deployer-keypair.json"
+  process.env.FORK_LAB_PAYER_KEYPAIR ??
+    process.env.ANCHOR_WALLET ??
+    "deployer-keypair.json",
 );
 
 let testCount = 0;
@@ -80,10 +80,20 @@ async function signAndSend(txBase64, keypair) {
   const confirmation = await connection.confirmTransaction(sig, "confirmed");
   if (confirmation.value.err) {
     throw new Error(
-      `Transaction ${sig} failed: ${JSON.stringify(confirmation.value.err)}`
+      `Transaction ${sig} failed: ${JSON.stringify(confirmation.value.err)}`,
     );
   }
   return sig;
+}
+
+async function expectRejected(action, label) {
+  try {
+    await action();
+  } catch {
+    ok(label);
+    return;
+  }
+  throw new Error(`Expected failure: ${label}`);
 }
 
 function ui(amount, decimals = 6) {
@@ -105,7 +115,9 @@ function withSlippage(amount, slippageBps = 200n) {
 
 async function main() {
   console.log("\u2554" + "\u2550".repeat(58) + "\u2557");
-  console.log("\u2551   Dusk v2 Surfpool \u2014 Full Feature Test Suite       \u2551");
+  console.log(
+    "\u2551   Dusk v2 Surfpool \u2014 Full Feature Test Suite       \u2551",
+  );
   console.log("\u255A" + "\u2550".repeat(58) + "\u255D");
   console.log(`  API: ${API}`);
   console.log(`  RPC: ${RPC}`);
@@ -115,7 +127,9 @@ async function main() {
 
   test("Setup \u2014 load payer & get market config");
 
-  const payerSecret = Uint8Array.from(JSON.parse(readFileSync(PAYER_PATH, "utf8")));
+  const payerSecret = Uint8Array.from(
+    JSON.parse(readFileSync(PAYER_PATH, "utf8")),
+  );
   const payer = Keypair.fromSecretKey(payerSecret);
   const connection = new Connection(RPC, "confirmed");
   log("\uD83D\uDD11", "SETUP", `Payer: ${payer.publicKey.toBase58()}`);
@@ -123,8 +137,16 @@ async function main() {
   const configResp = await fetchJson(`${API}/api/v2/fork/config`);
   const config = configResp.data;
   log("\uD83D\uDCCB", "SETUP", `Market: ${config.market}`);
-  log("\uD83D\uDCCB", "SETUP", `Base: ${config.baseMint} (${config.baseDecimals} dp)`);
-  log("\uD83D\uDCCB", "SETUP", `Quote: ${config.quoteMint} (${config.quoteDecimals} dp)`);
+  log(
+    "\uD83D\uDCCB",
+    "SETUP",
+    `Base: ${config.baseMint} (${config.baseDecimals} dp)`,
+  );
+  log(
+    "\uD83D\uDCCB",
+    "SETUP",
+    `Quote: ${config.quoteMint} (${config.quoteDecimals} dp)`,
+  );
   ok(`Market ${config.market} configured`);
 
   // === BORROW FLOW TESTS =============================================
@@ -139,7 +161,9 @@ async function main() {
       quoteAmount: "20000",
     }),
   });
-  ok(`Funded: ${fundResp.data.sol} SOL, ${ui(fundResp.data.baseAmount)} META, ${ui(fundResp.data.quoteAmount)} USDC`);
+  ok(
+    `Funded: ${fundResp.data.sol} SOL, ${ui(fundResp.data.baseAmount)} META, ${ui(fundResp.data.quoteAmount)} USDC`,
+  );
 
   test("POST /api/v2/fork/tx/add-liquidity");
   const addLiqResp = await fetchJson(`${API}/api/v2/fork/tx/add-liquidity`, {
@@ -169,99 +193,143 @@ async function main() {
   const { randomBytes } = await import("node:crypto");
 
   if (!LEVERAGE_ONLY) {
-  test("POST /api/v2/fork/tx/deposit-collateral + borrow + repay + hLP deposit/withdraw");
-  const posId = new PublicKey(randomBytes(32));
+    test(
+      "POST /api/v2/fork/tx/deposit-collateral + borrow + repay + hLP deposit/withdraw",
+    );
+    const posId = new PublicKey(randomBytes(32));
 
-  // Deposit base collateral
-  const collatResp = await fetchJson(`${API}/api/v2/fork/tx/deposit-collateral`, {
-    method: "POST",
-    body: JSON.stringify({
-      owner: payer.publicKey.toBase58(),
-      marketAsset: "base",
-      positionId: posId.toBase58(),
-      depositAmount: "500",
-    }),
-  });
-  await signAndSend(collatResp.data.transaction, payer);
-  ok("Deposit collateral (500 META)");
-  ok(`Borrow position PDA: ${collatResp.data.borrowPosition}`);
+    // Deposit base collateral
+    const collatResp = await fetchJson(
+      `${API}/api/v2/fork/tx/deposit-collateral`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          owner: payer.publicKey.toBase58(),
+          marketAsset: "base",
+          positionId: posId.toBase58(),
+          depositAmount: "500",
+        }),
+      },
+    );
+    await signAndSend(collatResp.data.transaction, payer);
+    ok("Deposit collateral (500 META)");
+    ok(`Borrow position PDA: ${collatResp.data.borrowPosition}`);
 
-  // Borrow quote
-  const borrowResp = await fetchJson(`${API}/api/v2/fork/tx/borrow`, {
-    method: "POST",
-    body: JSON.stringify({
-      owner: payer.publicKey.toBase58(),
-      positionId: posId.toBase58(),
-      borrowAsset: "quote",
-      borrowAmount: "250",
-      minHealthBps: "11000",
-    }),
-  });
-  await signAndSend(borrowResp.data.transaction, payer);
-  ok("Borrow (250 USDC against 500 META)");
+    // Borrow quote
+    const borrowResp = await fetchJson(`${API}/api/v2/fork/tx/borrow`, {
+      method: "POST",
+      body: JSON.stringify({
+        owner: payer.publicKey.toBase58(),
+        positionId: posId.toBase58(),
+        borrowAsset: "quote",
+        borrowAmount: "250",
+        minHealthBps: "11000",
+      }),
+    });
+    await signAndSend(borrowResp.data.transaction, payer);
+    ok("Borrow (250 USDC against 500 META)");
 
-  // Query position
-  const posResp = await fetchJson(
-    `${API}/api/v2/users/${payer.publicKey.toBase58()}/positions?positionId=${posId.toBase58()}`
-  );
-  const pos = posResp.data.positions[0];
-  ok(`Position: ${ui(pos.payload.baseCollateral)} META collat, ${ui(pos.payload.fixedQuoteShares)} debt shares`);
+    // Query position
+    const posResp = await fetchJson(
+      `${API}/api/v2/users/${payer.publicKey.toBase58()}/positions?positionId=${posId.toBase58()}`,
+    );
+    const pos = posResp.data.positions[0];
+    ok(
+      `Position: ${ui(pos.payload.baseCollateral)} META collat, ${ui(pos.payload.fixedQuoteShares)} debt shares`,
+    );
 
-  // Repay half
-  const repayResp = await fetchJson(`${API}/api/v2/fork/tx/repay`, {
-    method: "POST",
-    body: JSON.stringify({
-      owner: payer.publicKey.toBase58(),
-      positionId: posId.toBase58(),
-      repayAsset: "quote",
-      repayAmount: "100",
-    }),
-  });
-  await signAndSend(repayResp.data.transaction, payer);
-  ok("Repay (100 USDC)");
+    // Repay half
+    const repayResp = await fetchJson(`${API}/api/v2/fork/tx/repay`, {
+      method: "POST",
+      body: JSON.stringify({
+        owner: payer.publicKey.toBase58(),
+        positionId: posId.toBase58(),
+        repayAsset: "quote",
+        repayAmount: "100",
+      }),
+    });
+    await signAndSend(repayResp.data.transaction, payer);
+    ok("Repay (100 USDC)");
 
-  // hLP deposit
-  const hlpDepResp = await fetchJson(`${API}/api/v2/fork/tx/deposit-single-sided`, {
-    method: "POST",
-    body: JSON.stringify({
-      owner: payer.publicKey.toBase58(),
-      targetAsset: "base",
-      depositAmount: "50",
-      minHlpAmount: "0",
-    }),
-  });
-  await signAndSend(hlpDepResp.data.transaction, payer);
-  ok("Deposit single-sided (50 META -> base hLP)");
+    // hLP deposit
+    const hlpDepResp = await fetchJson(
+      `${API}/api/v2/fork/tx/deposit-single-sided`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          owner: payer.publicKey.toBase58(),
+          targetAsset: "base",
+          depositAmount: "50",
+          minHlpAmount: "0",
+        }),
+      },
+    );
+    await signAndSend(hlpDepResp.data.transaction, payer);
+    ok("Deposit single-sided (50 META -> base hLP)");
 
-  // hLP withdraw
-  const hlpWdrResp = await fetchJson(`${API}/api/v2/fork/tx/withdraw-single-sided`, {
-    method: "POST",
-    body: JSON.stringify({
-      owner: payer.publicKey.toBase58(),
-      targetAsset: "base",
-      hlpAmount: "10",
-      minTargetAmountOut: "0",
-    }),
-  });
-  await signAndSend(hlpWdrResp.data.transaction, payer);
-  ok("Withdraw single-sided (10 base hLP -> META)");
+    // hLP withdraw
+    const hlpWdrResp = await fetchJson(
+      `${API}/api/v2/fork/tx/withdraw-single-sided`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          owner: payer.publicKey.toBase58(),
+          targetAsset: "base",
+          hlpAmount: "10",
+          minTargetAmountOut: "0",
+        }),
+      },
+    );
+    await signAndSend(hlpWdrResp.data.transaction, payer);
+    ok("Withdraw single-sided (10 base hLP -> META)");
 
-  // Swap reverse
-  test("Swap (quote -> base, reverse direction)");
-  const swapRevResp = await fetchJson(`${API}/api/v2/fork/tx/swap`, {
-    method: "POST",
-    body: JSON.stringify({
-      owner: payer.publicKey.toBase58(),
-      assetIn: "quote",
-      exactAssetIn: "100",
-      minAssetOut: "0",
-    }),
-  });
-  await signAndSend(swapRevResp.data.transaction, payer);
-  ok("Swap (quote->base, 100 USDC)");
+    // Swap reverse
+    test("Swap (quote -> base, reverse direction)");
+    const swapRevResp = await fetchJson(`${API}/api/v2/fork/tx/swap`, {
+      method: "POST",
+      body: JSON.stringify({
+        owner: payer.publicKey.toBase58(),
+        assetIn: "quote",
+        exactAssetIn: "100",
+        minAssetOut: "0",
+      }),
+    });
+    await signAndSend(swapRevResp.data.transaction, payer);
+    ok("Swap (quote->base, 100 USDC)");
   }
 
   // === LEVERAGE FLOW TESTS ===========================================
+
+  test(
+    "Leverage API validation rejects malformed modes and missing position IDs",
+  );
+  await expectRejected(
+    () =>
+      fetchJson(`${API}/api/v2/fork/tx/open-leverage`, {
+        method: "POST",
+        body: JSON.stringify({
+          owner: payer.publicKey.toBase58(),
+          positionId: new PublicKey(randomBytes(32)).toBase58(),
+          debtAsset: 1,
+          marginMode: 2,
+          marginAmountRaw: "1",
+          multiplierBps: 20_000,
+        }),
+      }),
+    "Reject unknown leverage margin mode",
+  );
+  await expectRejected(
+    () =>
+      fetchJson(`${API}/api/v2/fork/tx/close-leverage`, {
+        method: "POST",
+        body: JSON.stringify({
+          owner: payer.publicKey.toBase58(),
+          debtAsset: 1,
+          marginMode: 0,
+        }),
+      }),
+    "Reject close without a position ID",
+  );
 
   test("POST /api/v2/fork/tx/open-leverage (quote debt, 2x)");
   const levPosId1 = new PublicKey(randomBytes(32));
@@ -279,37 +347,45 @@ async function main() {
     }),
   });
   const openLevSig = await signAndSend(openLevResp.data.transaction, payer);
-  ok(`Open leverage (100 USDC margin, 2x, quote debt): ${openLevSig.slice(0, 12)}...`);
+  ok(
+    `Open leverage (100 USDC margin, 2x, quote debt): ${openLevSig.slice(0, 12)}...`,
+  );
   ok(`Debt asset: ${openLevResp.data.debtAsset} (1=quote)`);
   if (
     openLevResp.data.positionId !== levPosId1.toBase58() ||
     typeof openLevResp.data.positionAddress !== "string" ||
     openLevResp.data.marginMode !== 0
   ) {
-    throw new Error(`Unexpected v2 open response: ${JSON.stringify(openLevResp.data)}`);
+    throw new Error(
+      `Unexpected v2 open response: ${JSON.stringify(openLevResp.data)}`,
+    );
   }
   ok("Open response includes the v2 position ID/address and debt margin mode");
 
   test("GET /api/v2/fork/leverage/positions");
   const [levPosResp, ownerAliasResp] = await Promise.all([
     fetchJson(
-      `${API}/api/v2/fork/leverage/positions?wallet=${payer.publicKey.toBase58()}`
+      `${API}/api/v2/fork/leverage/positions?wallet=${payer.publicKey.toBase58()}`,
     ),
     fetchJson(
-      `${API}/api/v2/fork/leverage/positions?owner=${payer.publicKey.toBase58()}`
+      `${API}/api/v2/fork/leverage/positions?owner=${payer.publicKey.toBase58()}`,
     ),
   ]);
   const posCount = levPosResp.data.positions.length;
   if (ownerAliasResp.data.positions.length !== posCount) {
-    throw new Error("wallet and owner leverage-position filters returned different counts");
+    throw new Error(
+      "wallet and owner leverage-position filters returned different counts",
+    );
   }
   ok("wallet and owner query aliases return the same position set");
   if (posCount > 0) {
     const pos1 = levPosResp.data.positions.find(
-      (item) => item.positionId === levPosId1.toBase58()
+      (item) => item.positionId === levPosId1.toBase58(),
     );
     if (!pos1) {
-      throw new Error("Newly opened leverage position was not returned by the owner query");
+      throw new Error(
+        "Newly opened leverage position was not returned by the owner query",
+      );
     }
     const requiredFields = [
       "positionAddress",
@@ -328,68 +404,99 @@ async function main() {
     ];
     const missingFields = requiredFields.filter((field) => !(field in pos1));
     if (missingFields.length > 0) {
-      throw new Error(`Leverage position missing fields: ${missingFields.join(", ")}`);
+      throw new Error(
+        `Leverage position missing fields: ${missingFields.join(", ")}`,
+      );
     }
-    if (pos1.positionId !== levPosId1.toBase58() || pos1.owner !== payer.publicKey.toBase58()) {
-      throw new Error(`Leverage position identity mismatch: ${JSON.stringify(pos1)}`);
+    if (
+      pos1.positionId !== levPosId1.toBase58() ||
+      pos1.owner !== payer.publicKey.toBase58()
+    ) {
+      throw new Error(
+        `Leverage position identity mismatch: ${JSON.stringify(pos1)}`,
+      );
     }
     ok(`Found ${posCount} position(s)`);
     ok("Position payload exposes the stable v2 leverage contract");
-    log("  ", "LEV", `Collateral: ${ui(pos1.collateralAmount)}, Debt: ${ui(pos1.debtShares)}`);
-    log("  ", "LEV", `Multiplier: ${(Number(pos1.multiplierBps) / 10000).toFixed(2)}x`);
+    log(
+      "  ",
+      "LEV",
+      `Collateral: ${ui(pos1.collateralAmount)}, Debt: ${ui(pos1.debtShares)}`,
+    );
+    log(
+      "  ",
+      "LEV",
+      `Multiplier: ${(Number(pos1.multiplierBps) / 10000).toFixed(2)}x`,
+    );
   } else {
-    log("  ", "LEV", "Position query returned 0 (getProgramAccounts limited on fork)");
+    log(
+      "  ",
+      "LEV",
+      "Position query returned 0 (getProgramAccounts limited on fork)",
+    );
     ok("Open leverage tx confirmed (verified by signature)");
   }
 
   test("POST /api/v1/fork/tx/add-leverage-margin");
-  const addMarginResp = await fetchJson(`${API}/api/v1/fork/tx/add-leverage-margin`, {
-    method: "POST",
-    body: JSON.stringify({
-      owner: payer.publicKey.toBase58(),
-      positionId: levPosId1.toBase58(),
-      amount: "25",
-    }),
-  });
+  const addMarginResp = await fetchJson(
+    `${API}/api/v1/fork/tx/add-leverage-margin`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        owner: payer.publicKey.toBase58(),
+        positionId: levPosId1.toBase58(),
+        amount: "25",
+      }),
+    },
+  );
   await signAndSend(addMarginResp.data.transaction, payer);
   ok("Add margin (25 USDC)");
 
   test("POST /api/v1/fork/tx/remove-leverage-margin");
-  const remMarginResp = await fetchJson(`${API}/api/v1/fork/tx/remove-leverage-margin`, {
-    method: "POST",
-    body: JSON.stringify({
-      owner: payer.publicKey.toBase58(),
-      positionId: levPosId1.toBase58(),
-      amount: "10",
-      minAmountOut: "0",
-    }),
-  });
+  const remMarginResp = await fetchJson(
+    `${API}/api/v1/fork/tx/remove-leverage-margin`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        owner: payer.publicKey.toBase58(),
+        positionId: levPosId1.toBase58(),
+        amount: "10",
+        minAmountOut: "0",
+      }),
+    },
+  );
   await signAndSend(remMarginResp.data.transaction, payer);
   ok("Remove margin (10 USDC equivalent)");
 
   test("POST /api/v1/fork/tx/increase-leverage");
-  const incLevResp = await fetchJson(`${API}/api/v1/fork/tx/increase-leverage`, {
-    method: "POST",
-    body: JSON.stringify({
-      owner: payer.publicKey.toBase58(),
-      positionId: levPosId1.toBase58(),
-      debtAmount: "25",
-      minCollateralOut: "0",
-    }),
-  });
+  const incLevResp = await fetchJson(
+    `${API}/api/v1/fork/tx/increase-leverage`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        owner: payer.publicKey.toBase58(),
+        positionId: levPosId1.toBase58(),
+        debtAmount: "25",
+        minCollateralOut: "0",
+      }),
+    },
+  );
   await signAndSend(incLevResp.data.transaction, payer);
   ok("Increase leverage (+25 USDC debt)");
 
   test("POST /api/v1/fork/tx/decrease-leverage");
-  const decLevResp = await fetchJson(`${API}/api/v1/fork/tx/decrease-leverage`, {
-    method: "POST",
-    body: JSON.stringify({
-      owner: payer.publicKey.toBase58(),
-      positionId: levPosId1.toBase58(),
-      collateralAmount: "15",
-      minRepayOut: "0",
-    }),
-  });
+  const decLevResp = await fetchJson(
+    `${API}/api/v1/fork/tx/decrease-leverage`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        owner: payer.publicKey.toBase58(),
+        positionId: levPosId1.toBase58(),
+        collateralAmount: "15",
+        minRepayOut: "0",
+      }),
+    },
+  );
   await signAndSend(decLevResp.data.transaction, payer);
   ok("Decrease leverage (sell 15 collateral)");
 
@@ -410,38 +517,44 @@ async function main() {
   test("Base debt leverage (open + close, opposite direction)");
   const levPosId2 = new PublicKey(randomBytes(32));
 
-  const openBaseLevResp = await fetchJson(`${API}/api/v1/fork/tx/open-leverage`, {
-    method: "POST",
-    body: JSON.stringify({
-      owner: payer.publicKey.toBase58(),
-      positionId: levPosId2.toBase58(),
-      isDebtToken0: true,
-      marginAmount: "500",
-      multiplierBps: 20000,
-    }),
-  });
+  const openBaseLevResp = await fetchJson(
+    `${API}/api/v1/fork/tx/open-leverage`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        owner: payer.publicKey.toBase58(),
+        positionId: levPosId2.toBase58(),
+        isDebtToken0: true,
+        marginAmount: "500",
+        multiplierBps: 20000,
+      }),
+    },
+  );
   await signAndSend(openBaseLevResp.data.transaction, payer);
-  ok(`Open base debt leverage (500 USDC margin, 2x): debtAsset=${openBaseLevResp.data.debtAsset}`);
+  ok(
+    `Open base debt leverage (500 USDC margin, 2x): debtAsset=${openBaseLevResp.data.debtAsset}`,
+  );
 
-  const closeBaseLevResp = await fetchJson(`${API}/api/v1/fork/tx/close-leverage`, {
-    method: "POST",
-    body: JSON.stringify({
-      owner: payer.publicKey.toBase58(),
-      positionId: levPosId2.toBase58(),
-      isDebtToken0: true,
-      minAmountOut: "0",
-    }),
-  });
+  const closeBaseLevResp = await fetchJson(
+    `${API}/api/v1/fork/tx/close-leverage`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        owner: payer.publicKey.toBase58(),
+        positionId: levPosId2.toBase58(),
+        isDebtToken0: true,
+        minAmountOut: "0",
+      }),
+    },
+  );
   await signAndSend(closeBaseLevResp.data.transaction, payer);
   ok("Close base debt leverage");
 
-  async function collateralMarginRoundTrip({
-    debtAsset,
-    marginUi,
-    label,
-  }) {
+  async function collateralMarginRoundTrip({ debtAsset, marginUi, label }) {
     const positionId = new PublicKey(randomBytes(32));
-    const marketBefore = (await fetchJson(`${API}/api/v2/markets/${config.market}`)).data;
+    const marketBefore = (
+      await fetchJson(`${API}/api/v2/markets/${config.market}`)
+    ).data;
     const collateralDecimals =
       debtAsset === 0 ? config.quoteDecimals : config.baseDecimals;
     const marginRaw = BigInt(marginUi) * 10n ** BigInt(collateralDecimals);
@@ -449,20 +562,20 @@ async function main() {
     const reserveIn = BigInt(
       debtAsset === 0
         ? marketBefore.state.baseReserve
-        : marketBefore.state.quoteReserve
+        : marketBefore.state.quoteReserve,
     );
     const reserveOut = BigInt(
       debtAsset === 0
         ? marketBefore.state.quoteReserve
-        : marketBefore.state.baseReserve
+        : marketBefore.state.baseReserve,
     );
     const maxDebtIn = withSlippage(
       quoteExactOutput(
         reserveIn,
         reserveOut,
         supplementalOut,
-        marketBefore.swapFeeBps
-      )
+        marketBefore.swapFeeBps,
+      ),
     );
 
     const open = await fetchJson(`${API}/api/v2/fork/tx/open-leverage`, {
@@ -480,44 +593,133 @@ async function main() {
     await signAndSend(open.data.transaction, payer);
     ok(`Open ${label} with collateral-asset margin`);
 
-    const [positionsResponse, marketAfter] = await Promise.all([
-      fetchJson(
-        `${API}/api/v2/fork/leverage/positions?owner=${payer.publicKey.toBase58()}`
-      ),
-      fetchJson(`${API}/api/v2/markets/${config.market}`),
-    ]);
-    const position = positionsResponse.data.positions.find(
-      (item) => item.positionId === positionId.toBase58()
+    const positionsResponse = await fetchJson(
+      `${API}/api/v2/fork/leverage/positions?owner=${payer.publicKey.toBase58()}`,
+    );
+    let position = positionsResponse.data.positions.find(
+      (item) => item.positionId === positionId.toBase58(),
     );
     if (!position || position.marginMode !== 1) {
       throw new Error(`Collateral-margin position missing for ${label}`);
     }
+
+    const adjustmentRaw = marginRaw / 10n;
+    const collateralBeforeDeposit = BigInt(position.collateralAmount);
+    const deposit = await fetchJson(
+      `${API}/api/v2/fork/tx/deposit-leverage-collateral`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          owner: payer.publicKey.toBase58(),
+          positionId: positionId.toBase58(),
+          debtAsset,
+          amountRaw: adjustmentRaw.toString(),
+        }),
+      },
+    );
+    await signAndSend(deposit.data.transaction, payer);
+    const afterDeposit = await fetchJson(
+      `${API}/api/v2/fork/leverage/positions?owner=${payer.publicKey.toBase58()}`,
+    );
+    position = afterDeposit.data.positions.find(
+      (item) => item.positionId === positionId.toBase58(),
+    );
+    if (
+      !position ||
+      BigInt(position.collateralAmount) !==
+        collateralBeforeDeposit + adjustmentRaw
+    ) {
+      throw new Error(`Collateral deposit did not update ${label}`);
+    }
+    ok(`Deposit additional collateral into ${label}`);
+
+    const withdraw = await fetchJson(
+      `${API}/api/v2/fork/tx/withdraw-leverage-collateral`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          owner: payer.publicKey.toBase58(),
+          positionId: positionId.toBase58(),
+          debtAsset,
+          amountRaw: adjustmentRaw.toString(),
+          minAmountOutRaw: adjustmentRaw.toString(),
+        }),
+      },
+    );
+    await signAndSend(withdraw.data.transaction, payer);
+    const [afterWithdraw, marketAfter] = await Promise.all([
+      fetchJson(
+        `${API}/api/v2/fork/leverage/positions?owner=${payer.publicKey.toBase58()}`,
+      ),
+      fetchJson(`${API}/api/v2/markets/${config.market}`),
+    ]);
+    position = afterWithdraw.data.positions.find(
+      (item) => item.positionId === positionId.toBase58(),
+    );
+    if (
+      !position ||
+      BigInt(position.collateralAmount) !== collateralBeforeDeposit
+    ) {
+      throw new Error(`Collateral withdrawal did not restore ${label}`);
+    }
+    ok(`Withdraw healthy collateral from ${label}`);
+
     const marketState = marketAfter.data;
     const borrowIndex = BigInt(
       debtAsset === 0
         ? marketState.state.baseBorrowIndexNad
-        : marketState.state.quoteBorrowIndexNad
+        : marketState.state.quoteBorrowIndexNad,
     );
     const debtAmount =
       (BigInt(position.debtShares) * borrowIndex) / 1_000_000_000n;
     const closeReserveIn = BigInt(
       debtAsset === 0
         ? marketState.state.quoteReserve
-        : marketState.state.baseReserve
+        : marketState.state.baseReserve,
     );
     const closeReserveOut = BigInt(
       debtAsset === 0
         ? marketState.state.baseReserve
-        : marketState.state.quoteReserve
+        : marketState.state.quoteReserve,
     );
     const maxCollateralIn = withSlippage(
       quoteExactOutput(
         closeReserveIn,
         closeReserveOut,
         debtAmount,
-        marketState.swapFeeBps
-      )
+        marketState.swapFeeBps,
+      ),
     );
+
+    const rejectedClose = await fetchJson(
+      `${API}/api/v2/fork/tx/close-leverage`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          owner: payer.publicKey.toBase58(),
+          positionId: positionId.toBase58(),
+          debtAsset,
+          marginMode: 1,
+          maxCollateralInRaw: "0",
+          minResidualOutRaw: "0",
+        }),
+      },
+    );
+    await expectRejected(
+      () => signAndSend(rejectedClose.data.transaction, payer),
+      `Reject underquoted collateral close for ${label}`,
+    );
+    const afterRejectedClose = await fetchJson(
+      `${API}/api/v2/fork/leverage/positions?owner=${payer.publicKey.toBase58()}`,
+    );
+    if (
+      !afterRejectedClose.data.positions.some(
+        (item) => item.positionId === positionId.toBase58(),
+      )
+    ) {
+      throw new Error(`Rejected close mutated ${label}`);
+    }
+
     const close = await fetchJson(`${API}/api/v2/fork/tx/close-leverage`, {
       method: "POST",
       body: JSON.stringify({
@@ -558,6 +760,74 @@ async function main() {
   });
   await signAndSend(openV2Resp.data.transaction, payer);
   ok("v2 open leverage (50 META, 3x)");
+  await expectRejected(
+    () =>
+      fetchJson(`${API}/api/v2/fork/tx/close-leverage`, {
+        method: "POST",
+        body: JSON.stringify({
+          owner: payer.publicKey.toBase58(),
+          positionId: levPosId3.toBase58(),
+          debtAsset: openV2Resp.data.debtAsset,
+          marginMode: 1,
+        }),
+      }),
+    "Reject a close mode that does not match the position",
+  );
+
+  const createOrders = await fetchJson(
+    `${API}/api/v2/fork/tx/set-leverage-orders`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        owner: payer.publicKey.toBase58(),
+        positionId: levPosId3.toBase58(),
+        debtAsset: openV2Resp.data.debtAsset,
+        takeProfit: "1",
+        stopLoss: "2",
+      }),
+    },
+  );
+  await signAndSend(createOrders.data.transaction, payer);
+  let orders = (
+    await fetchJson(
+      `${API}/api/v2/fork/leverage/orders?owner=${payer.publicKey.toBase58()}`,
+    )
+  ).data.orders.filter(
+    (entry) => entry.order.position === openV2Resp.data.positionAddress,
+  );
+  if (orders.length !== 2) throw new Error("TP/SL orders were not created");
+  ok("Create and index take-profit / stop-loss orders");
+
+  const updateOrders = await fetchJson(
+    `${API}/api/v2/fork/tx/set-leverage-orders`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        owner: payer.publicKey.toBase58(),
+        positionId: levPosId3.toBase58(),
+        debtAsset: openV2Resp.data.debtAsset,
+        takeProfit: "3",
+        stopLoss: null,
+      }),
+    },
+  );
+  await signAndSend(updateOrders.data.transaction, payer);
+  orders = (
+    await fetchJson(
+      `${API}/api/v2/fork/leverage/orders?owner=${payer.publicKey.toBase58()}`,
+    )
+  ).data.orders.filter(
+    (entry) => entry.order.position === openV2Resp.data.positionAddress,
+  );
+  if (
+    orders.length !== 1 ||
+    orders[0].order.kind !== 1 ||
+    orders[0].order.triggerCloseoutPriceNad !== "3"
+  ) {
+    throw new Error("TP/SL order update or cancellation was not indexed");
+  }
+  ok("Update take-profit and cancel stop-loss");
+
   const closeV2Resp = await fetchJson(`${API}/api/v2/fork/tx/close-leverage`, {
     method: "POST",
     body: JSON.stringify({
@@ -568,6 +838,21 @@ async function main() {
   });
   await signAndSend(closeV2Resp.data.transaction, payer);
   ok("v2 close leverage");
+  orders = (
+    await fetchJson(
+      `${API}/api/v2/fork/leverage/orders?owner=${payer.publicKey.toBase58()}`,
+    )
+  ).data.orders.filter(
+    (entry) => entry.order.position === openV2Resp.data.positionAddress,
+  );
+  const delegationAfterClose = await connection.getAccountInfo(
+    new PublicKey(createOrders.data.userLeverageDelegation),
+    "confirmed",
+  );
+  if (orders.length !== 0 || delegationAfterClose !== null) {
+    throw new Error("Direct close did not clean up TP/SL delegation state");
+  }
+  ok("Direct close cleans up remaining orders and delegation");
   ok("v1 and v2 endpoint paths both work");
 
   // === FINAL MARKET STATE =============================================
@@ -585,7 +870,9 @@ async function main() {
   // === SUMMARY ========================================================
 
   console.log(`\n${"\u2550".repeat(60)}`);
-  console.log(`\u2551  RESULTS: ${passed} passed, ${failed} failed, ${testCount} total`);
+  console.log(
+    `\u2551  RESULTS: ${passed} passed, ${failed} failed, ${testCount} total`,
+  );
   console.log(`${"\u2550".repeat(60)}`);
 
   if (failed > 0) {
