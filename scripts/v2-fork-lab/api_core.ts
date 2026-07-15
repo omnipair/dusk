@@ -2702,7 +2702,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         debtAsset,
         marginAmount,
         multiplierBps,
-        minAmountOut: rawOrUiAmount(
+        minCollateralOut: rawOrUiAmount(
           body,
           ["minCollateralOutRaw"],
           ["minCollateralOut", "minAmountOut"],
@@ -2753,7 +2753,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         market: stored,
         positionId,
         debtAsset,
-        minCollateralOut: rawOrUiAmount(
+        minAmountOut: rawOrUiAmount(
           body,
           ["minCollateralOutRaw"],
           ["minCollateralOut", "minAmountOut"],
