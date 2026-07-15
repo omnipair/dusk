@@ -7,27 +7,30 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{LeveragePositionLiquidated, MarketEventMetadata},
+    events::{LeveragePositionClosed, MarketEventMetadata},
     generate_market_seeds,
+    instructions::common::{token_account_credit, token_program_for_mint, validate_owner_asset_account},
     shared::token::{transfer_from_vault_to_user, transfer_from_vault_to_vault},
-    state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset},
+    state::{FutarchyAuthority, LeverageMarginMode, LeveragePosition, Market, MarketAsset},
 };
 
 use super::common::{
-    move_leverage_swap_fee, record_leverage_interest, validate_leverage_fee_account,
-    validate_leverage_interest_account, validate_leverage_mints, validate_leverage_reserve_accounts,
+    leverage_transfer_amount_for_credit, move_leverage_swap_fee, record_leverage_interest,
+    validate_leverage_fee_account, validate_leverage_interest_account, validate_leverage_mints,
+    validate_leverage_reserve_accounts,
 };
-use crate::instructions::common::{token_account_credit, token_program_for_mint};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct LiquidateLeverageArgs {
+pub struct CloseCollateralMarginLeverageArgs {
     pub debt_asset: u8,
+    pub max_collateral_in: u64,
+    pub min_residual_out: u64,
 }
 
 #[event_cpi]
 #[derive(Accounts)]
-#[instruction(args: LiquidateLeverageArgs)]
-pub struct LiquidateLeverage<'info> {
+#[instruction(args: CloseCollateralMarginLeverageArgs)]
+pub struct CloseCollateralMarginLeverage<'info> {
     #[account(
         mut,
         seeds = [
@@ -40,22 +43,25 @@ pub struct LiquidateLeverage<'info> {
     )]
     pub market: Box<Account<'info, Market>>,
 
-    #[account(seeds = [FUTARCHY_AUTHORITY_SEED_PREFIX], bump = futarchy_authority.bump)]
+    #[account(
+        seeds = [FUTARCHY_AUTHORITY_SEED_PREFIX],
+        bump = futarchy_authority.bump
+    )]
     pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
 
-    /// CHECK: Receives closed account rent and any non-incentive residual.
-    #[account(mut, address = leverage_position.owner)]
-    pub position_owner: AccountInfo<'info>,
+    #[account(mut)]
+    pub owner: Signer<'info>,
 
     #[account(
         mut,
-        close = position_owner,
+        close = owner,
         seeds = [
             LEVERAGE_POSITION_SEED_PREFIX,
             market.key().as_ref(),
             leverage_position.position_id.as_ref(),
         ],
         bump = leverage_position.bump,
+        constraint = leverage_position.owner == owner.key() @ ErrorCode::InvalidLeveragePosition,
         constraint = leverage_position.market == market.key() @ ErrorCode::InvalidLeveragePosition,
         constraint = leverage_position.debt_asset == args.debt_asset @ ErrorCode::InvalidLeveragePosition,
     )]
@@ -86,28 +92,15 @@ pub struct LiquidateLeverage<'info> {
     )]
     pub leverage_collateral_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    #[account(
-        mut,
-        constraint = liquidator_debt_account.mint == debt_mint.key() @ ErrorCode::InvalidTokenAccount,
-        constraint = liquidator_debt_account.owner == liquidator.key() @ ErrorCode::InvalidTokenAccount,
-    )]
-    pub liquidator_debt_account: Box<InterfaceAccount<'info, TokenAccount>>,
-
-    #[account(
-        mut,
-        constraint = owner_debt_account.mint == debt_mint.key() @ ErrorCode::InvalidTokenAccount,
-        constraint = owner_debt_account.owner == position_owner.key() @ ErrorCode::InvalidTokenAccount,
-    )]
-    pub owner_debt_account: Box<InterfaceAccount<'info, TokenAccount>>,
-
     #[account(mut)]
-    pub liquidator: Signer<'info>,
+    pub owner_collateral_account: Box<InterfaceAccount<'info, TokenAccount>>,
+
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
 }
 
-impl<'info> LiquidateLeverage<'info> {
-    pub fn validate(&self, args: &LiquidateLeverageArgs) -> Result<()> {
+impl<'info> CloseCollateralMarginLeverage<'info> {
+    pub fn validate(&self, args: &CloseCollateralMarginLeverageArgs) -> Result<()> {
         self.market.assert_started()?;
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
         validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
@@ -126,42 +119,71 @@ impl<'info> LiquidateLeverage<'info> {
             debt_asset.opposite(),
         )?;
         validate_leverage_interest_account(&self.market, &self.debt_mint, &self.debt_interest_vault, debt_asset)?;
+        validate_owner_asset_account(self.owner.key(), &self.collateral_mint, &self.owner_collateral_account)?;
         self.leverage_position.require_open()?;
+        self.leverage_position
+            .assert_position(self.owner.key(), self.market.key(), debt_asset)?;
+        self.leverage_position
+            .require_margin_mode(LeverageMarginMode::Collateral)?;
+
+        let debt_amount = self.leverage_position.debt_amount(&self.market.debt)?;
+        let swap = self
+            .market
+            .quote_leverage_swap_exact_output(debt_asset.opposite(), debt_amount)?;
+        let collateral_debit = leverage_transfer_amount_for_credit(&self.collateral_mint, swap.amount_in)?;
+        require_gte!(args.max_collateral_in, collateral_debit, ErrorCode::SlippageExceeded);
+        require_gte!(
+            self.leverage_position.collateral_amount,
+            collateral_debit,
+            ErrorCode::InsufficientAmount
+        );
         Ok(())
     }
 
-    crate::instructions::common::market_update_and_validate!(LiquidateLeverageArgs);
+    crate::instructions::common::market_update_and_validate!(CloseCollateralMarginLeverageArgs);
 
-    pub fn handle_liquidate(ctx: Context<'_, '_, '_, 'info, Self>, args: LiquidateLeverageArgs) -> Result<()> {
+    pub fn handle_close(ctx: Context<'_, '_, '_, 'info, Self>, args: CloseCollateralMarginLeverageArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
-        let liquidator_key = ctx.accounts.liquidator.key();
-        let owner_key = ctx.accounts.position_owner.key();
+        let owner_key = ctx.accounts.owner.key();
+        let position_key = ctx.accounts.leverage_position.key();
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
         let collateral_asset = debt_asset.opposite();
         let debt_mint_key = ctx.accounts.debt_mint.key();
         let collateral_mint_key = ctx.accounts.collateral_mint.key();
-        let position_key = ctx.accounts.leverage_position.key();
-        let collateral_sold = ctx.accounts.leverage_position.collateral_amount;
+        let debt_amount = ctx.accounts.leverage_position.debt_amount(&ctx.accounts.market.debt)?;
+        let swap = ctx
+            .accounts
+            .market
+            .quote_leverage_swap_exact_output(collateral_asset, debt_amount)?;
+        let collateral_debit = leverage_transfer_amount_for_credit(&ctx.accounts.collateral_mint, swap.amount_in)?;
+        require_gte!(args.max_collateral_in, collateral_debit, ErrorCode::SlippageExceeded);
+        require_gte!(
+            ctx.accounts.leverage_position.collateral_amount,
+            collateral_debit,
+            ErrorCode::InsufficientAmount
+        );
 
         let collateral_token_program = token_program_for_mint(
             &ctx.accounts.collateral_mint,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
+        let reserve_balance_before = ctx.accounts.collateral_reserve_vault.amount;
         transfer_from_vault_to_vault(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.leverage_collateral_vault.to_account_info(),
             ctx.accounts.collateral_reserve_vault.to_account_info(),
             ctx.accounts.collateral_mint.to_account_info(),
-            collateral_token_program,
-            collateral_sold,
+            collateral_token_program.clone(),
+            collateral_debit,
             ctx.accounts.collateral_mint.decimals,
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
         )?;
-        let swap = ctx
-            .accounts
-            .market
-            .quote_leverage_swap(collateral_asset, collateral_sold)?;
+        ctx.accounts.collateral_reserve_vault.reload()?;
+        ctx.accounts.leverage_collateral_vault.reload()?;
+        let reserve_credit = token_account_credit(reserve_balance_before, &ctx.accounts.collateral_reserve_vault)?;
+        require_eq!(reserve_credit, swap.amount_in, ErrorCode::UnexpectedTokenTransferAmount);
+
         move_leverage_swap_fee(
             &ctx.accounts.market,
             &ctx.accounts.collateral_mint,
@@ -173,45 +195,30 @@ impl<'info> LiquidateLeverage<'info> {
         )?;
 
         let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
-        let receipt = ctx.accounts.market.liquidate_leverage(
+        let receipt = ctx.accounts.market.close_collateral_margin_leverage(
             &mut ctx.accounts.leverage_position,
+            collateral_debit,
+            args.max_collateral_in,
             manager_fee_bps,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
         )?;
 
-        let debt_token_program = token_program_for_mint(
-            &ctx.accounts.debt_mint,
-            &ctx.accounts.token_program,
-            &ctx.accounts.token_2022_program,
-        )?;
-        let liquidator_balance_before = ctx.accounts.liquidator_debt_account.amount;
+        let owner_balance_before = ctx.accounts.owner_collateral_account.amount;
         transfer_from_vault_to_user(
             ctx.accounts.market.to_account_info(),
-            ctx.accounts.debt_reserve_vault.to_account_info(),
-            ctx.accounts.liquidator_debt_account.to_account_info(),
-            ctx.accounts.debt_mint.to_account_info(),
-            debt_token_program.clone(),
-            receipt.liquidator_amount,
-            ctx.accounts.debt_mint.decimals,
+            ctx.accounts.leverage_collateral_vault.to_account_info(),
+            ctx.accounts.owner_collateral_account.to_account_info(),
+            ctx.accounts.collateral_mint.to_account_info(),
+            collateral_token_program,
+            receipt.residual,
+            ctx.accounts.collateral_mint.decimals,
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
         )?;
-        ctx.accounts.liquidator_debt_account.reload()?;
-        let liquidator_amount = token_account_credit(liquidator_balance_before, &ctx.accounts.liquidator_debt_account)?;
-
-        let owner_balance_before = ctx.accounts.owner_debt_account.amount;
-        transfer_from_vault_to_user(
-            ctx.accounts.market.to_account_info(),
-            ctx.accounts.debt_reserve_vault.to_account_info(),
-            ctx.accounts.owner_debt_account.to_account_info(),
-            ctx.accounts.debt_mint.to_account_info(),
-            debt_token_program,
-            receipt.owner_residual,
-            ctx.accounts.debt_mint.decimals,
-            &[&generate_market_seeds!(ctx.accounts.market)[..]],
-        )?;
-        ctx.accounts.owner_debt_account.reload()?;
-        let owner_residual = token_account_credit(owner_balance_before, &ctx.accounts.owner_debt_account)?;
+        ctx.accounts.owner_collateral_account.reload()?;
+        ctx.accounts.leverage_collateral_vault.reload()?;
+        let residual_credit = token_account_credit(owner_balance_before, &ctx.accounts.owner_collateral_account)?;
+        require_gte!(residual_credit, args.min_residual_out, ErrorCode::SlippageExceeded);
 
         record_leverage_interest(
             &mut ctx.accounts.market,
@@ -226,32 +233,22 @@ impl<'info> LiquidateLeverage<'info> {
             ctx.accounts.futarchy_authority.protocol_auction_split,
             receipt.interest_paid,
         )?;
-        let margin_asset_mint = ctx
-            .accounts
-            .market
-            .side(ctx.accounts.leverage_position.margin_asset()?)?
-            .asset_mint;
 
-        emit_cpi!(LeveragePositionLiquidated {
+        emit_cpi!(LeveragePositionClosed {
             market: market_key,
             position: position_key,
             owner: owner_key,
-            liquidator: liquidator_key,
             debt_asset_mint: debt_mint_key,
             collateral_asset_mint: collateral_mint_key,
-            margin_mode: ctx.accounts.leverage_position.margin_mode,
-            margin_asset_mint,
-            // Liquidation residual settlement remains debt-denominated until the
-            // dedicated mode-aware liquidation work is implemented.
-            settlement_asset_mint: debt_mint_key,
+            margin_mode: LeverageMarginMode::Collateral.code(),
+            margin_asset_mint: collateral_mint_key,
+            settlement_asset_mint: collateral_mint_key,
             debt_repaid: receipt.debt_repaid,
             interest_paid: receipt.interest_paid,
-            principal_written_off: receipt.principal_written_off,
             collateral_sold: receipt.collateral_sold,
             closeout_value: receipt.closeout_value,
-            liquidator_amount,
-            owner_residual,
-            metadata: MarketEventMetadata::new(liquidator_key, market_key)?,
+            residual: residual_credit,
+            metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
         Ok(())
     }

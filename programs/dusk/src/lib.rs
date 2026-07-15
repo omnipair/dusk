@@ -172,11 +172,27 @@ pub mod dusk {
     }
 
     #[access_control(ctx.accounts.update_and_validate(&args))]
+    pub fn open_collateral_margin_leverage<'info>(
+        ctx: Context<'_, '_, '_, 'info, OpenCollateralMarginLeverage<'info>>,
+        args: OpenCollateralMarginLeverageArgs,
+    ) -> Result<()> {
+        OpenCollateralMarginLeverage::handle_open(ctx, args)
+    }
+
+    #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn close_leverage<'info>(
         ctx: Context<'_, '_, '_, 'info, CloseLeverage<'info>>,
         args: CloseLeverageArgs,
     ) -> Result<()> {
         CloseLeverage::handle_close(ctx, args)
+    }
+
+    #[access_control(ctx.accounts.update_and_validate(&args))]
+    pub fn close_collateral_margin_leverage<'info>(
+        ctx: Context<'_, '_, '_, 'info, CloseCollateralMarginLeverage<'info>>,
+        args: CloseCollateralMarginLeverageArgs,
+    ) -> Result<()> {
+        CloseCollateralMarginLeverage::handle_close(ctx, args)
     }
 
     #[access_control(ctx.accounts.update_and_validate_delegated(&args))]
@@ -217,6 +233,22 @@ pub mod dusk {
         args: RemoveLeverageMarginArgs,
     ) -> Result<()> {
         RemoveLeverageMargin::handle_remove_margin(ctx, args)
+    }
+
+    #[access_control(ctx.accounts.update_and_validate(&args))]
+    pub fn deposit_leverage_collateral<'info>(
+        ctx: Context<'_, '_, '_, 'info, DepositLeverageCollateral<'info>>,
+        args: DepositLeverageCollateralArgs,
+    ) -> Result<()> {
+        DepositLeverageCollateral::handle_deposit(ctx, args)
+    }
+
+    #[access_control(ctx.accounts.update_and_validate(&args))]
+    pub fn withdraw_leverage_collateral<'info>(
+        ctx: Context<'_, '_, '_, 'info, WithdrawLeverageCollateral<'info>>,
+        args: WithdrawLeverageCollateralArgs,
+    ) -> Result<()> {
+        WithdrawLeverageCollateral::handle_withdraw(ctx, args)
     }
 
     #[access_control(ctx.accounts.update_and_validate(&args))]

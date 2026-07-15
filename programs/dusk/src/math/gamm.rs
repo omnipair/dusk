@@ -123,9 +123,15 @@ pub(crate) fn calculate_raw_amount_out(x: u64, y: u64, dx: u64) -> Result<u64> {
 /// ```
 pub(crate) fn calculate_normalized_amount_in(x: u128, y: u128, dy: u128) -> Result<u128> {
     let denominator = y.checked_sub(dy).ok_or(ErrorCode::DenominatorOverflow)?;
+    require!(denominator > 0, ErrorCode::DenominatorOverflow);
     let numerator = dy.checked_mul(x).ok_or(ErrorCode::OutputAmountOverflow)?;
     let dx = ceil_div(numerator, denominator).ok_or(ErrorCode::OutputAmountOverflow)?;
     Ok(dx)
+}
+
+pub(crate) fn calculate_raw_amount_in(x: u64, y: u64, dy: u64) -> Result<u64> {
+    let dx = calculate_normalized_amount_in(x as u128, y as u128, dy as u128)?;
+    u64::try_from(dx).map_err(|_| ErrorCode::OutputAmountOverflow.into())
 }
 
 pub(crate) fn calculate_normalized_amount_in_floor(x: u128, y: u128, dy: u128) -> Result<u128> {

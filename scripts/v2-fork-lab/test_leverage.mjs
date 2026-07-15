@@ -2,7 +2,7 @@
  * Dusk v2 Surfpool — Full Feature Test Suite
  *
  * Tests all fork API endpoints including borrow, leverage, swaps, hLP.
- * Uses v1-compatible endpoints for leverage flow.
+ * Uses v2 leverage endpoints and exercises selected v1 compatibility aliases.
  *
  * Usage:
  *   node test_leverage.mjs
@@ -240,33 +240,75 @@ async function main() {
 
   // === LEVERAGE FLOW TESTS ===========================================
 
-  test("POST /api/v1/fork/tx/open-leverage (quote debt, 2x)");
+  test("POST /api/v2/fork/tx/open-leverage (quote debt, 2x)");
   const levPosId1 = new PublicKey(randomBytes(32));
   log("\uD83D\uDCDD", "LEV", `Position ID: ${levPosId1.toBase58()}`);
 
-  const openLevResp = await fetchJson(`${API}/api/v1/fork/tx/open-leverage`, {
+  const openLevResp = await fetchJson(`${API}/api/v2/fork/tx/open-leverage`, {
     method: "POST",
     body: JSON.stringify({
       owner: payer.publicKey.toBase58(),
       positionId: levPosId1.toBase58(),
+      debtAsset: 1,
+      marginMode: 0,
       marginAmount: "100",
       multiplierBps: 20000,
     }),
   });
   const openLevSig = await signAndSend(openLevResp.data.transaction, payer);
-  ok(`Open leverage (100 META margin, 2x, quote debt): ${openLevSig.slice(0, 12)}...`);
+  ok(`Open leverage (100 USDC margin, 2x, quote debt): ${openLevSig.slice(0, 12)}...`);
   ok(`Debt asset: ${openLevResp.data.debtAsset} (1=quote)`);
+  if (
+    openLevResp.data.positionId !== levPosId1.toBase58() ||
+    typeof openLevResp.data.positionAddress !== "string" ||
+    openLevResp.data.marginMode !== 0
+  ) {
+    throw new Error(`Unexpected v2 open response: ${JSON.stringify(openLevResp.data)}`);
+  }
+  ok("Open response includes the v2 position ID/address and debt margin mode");
 
-  test("GET /api/v1/fork/leverage/positions");
-  const levPosResp = await fetchJson(
-    `${API}/api/v1/fork/leverage/positions?wallet=${payer.publicKey.toBase58()}`
-  );
+  test("GET /api/v2/fork/leverage/positions");
+  const [levPosResp, ownerAliasResp] = await Promise.all([
+    fetchJson(
+      `${API}/api/v2/fork/leverage/positions?wallet=${payer.publicKey.toBase58()}`
+    ),
+    fetchJson(
+      `${API}/api/v2/fork/leverage/positions?owner=${payer.publicKey.toBase58()}`
+    ),
+  ]);
   const posCount = levPosResp.data.positions.length;
+  if (ownerAliasResp.data.positions.length !== posCount) {
+    throw new Error("wallet and owner leverage-position filters returned different counts");
+  }
+  ok("wallet and owner query aliases return the same position set");
   if (posCount > 0) {
     const pos1 = levPosResp.data.positions[0];
+    const requiredFields = [
+      "positionAddress",
+      "positionId",
+      "owner",
+      "debtAsset",
+      "debtMint",
+      "collateralMint",
+      "collateralAmount",
+      "marginAmount",
+      "openNotional",
+      "debtShares",
+      "debtPrincipal",
+      "multiplierBps",
+      "marginMode",
+    ];
+    const missingFields = requiredFields.filter((field) => !(field in pos1));
+    if (missingFields.length > 0) {
+      throw new Error(`Leverage position missing fields: ${missingFields.join(", ")}`);
+    }
+    if (pos1.positionId !== levPosId1.toBase58() || pos1.owner !== payer.publicKey.toBase58()) {
+      throw new Error(`Leverage position identity mismatch: ${JSON.stringify(pos1)}`);
+    }
     ok(`Found ${posCount} position(s)`);
-    log("  ", "LEV", `Collateral: ${ui(pos1.payload.collateralAmount)}, Debt: ${ui(pos1.payload.debtShares)}`);
-    log("  ", "LEV", `Multiplier: ${(Number(pos1.payload.multiplierBps) / 100).toFixed(2)}x`);
+    ok("Position payload exposes the stable v2 leverage contract");
+    log("  ", "LEV", `Collateral: ${ui(pos1.collateralAmount)}, Debt: ${ui(pos1.debtShares)}`);
+    log("  ", "LEV", `Multiplier: ${(Number(pos1.multiplierBps) / 10000).toFixed(2)}x`);
   } else {
     log("  ", "LEV", "Position query returned 0 (getProgramAccounts limited on fork)");
     ok("Open leverage tx confirmed (verified by signature)");
@@ -323,12 +365,14 @@ async function main() {
   await signAndSend(decLevResp.data.transaction, payer);
   ok("Decrease leverage (sell 15 collateral)");
 
-  test("POST /api/v1/fork/tx/close-leverage");
-  const closeLevResp = await fetchJson(`${API}/api/v1/fork/tx/close-leverage`, {
+  test("POST /api/v2/fork/tx/close-leverage");
+  const closeLevResp = await fetchJson(`${API}/api/v2/fork/tx/close-leverage`, {
     method: "POST",
     body: JSON.stringify({
       owner: payer.publicKey.toBase58(),
       positionId: levPosId1.toBase58(),
+      debtAsset: 1,
+      marginMode: 0,
       minAmountOut: "0",
     }),
   });

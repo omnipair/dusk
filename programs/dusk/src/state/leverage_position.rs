@@ -5,6 +5,28 @@ use crate::{
     state::market::{Debt, MarketAsset},
 };
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum LeverageMarginMode {
+    #[default]
+    Debt = 0,
+    Collateral = 1,
+}
+
+impl LeverageMarginMode {
+    pub const fn code(self) -> u8 {
+        self as u8
+    }
+
+    pub fn try_from_code(code: u8) -> Result<Self> {
+        match code {
+            0 => Ok(Self::Debt),
+            1 => Ok(Self::Collateral),
+            _ => err!(ErrorCode::InvalidLeverageMarginMode),
+        }
+    }
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct LeveragePosition {
@@ -12,8 +34,12 @@ pub struct LeveragePosition {
     pub market: Pubkey,
     pub position_id: Pubkey,
     pub debt_asset: u8,
+    /// Stable wire value: debt margin = 0, collateral margin = 1.
+    pub margin_mode: u8,
     pub collateral_amount: u64,
+    /// Initial net margin credit, denominated in `margin_asset()`.
     pub margin_amount: u64,
+    /// Debt-token notional for debt margin; collateral-token notional for collateral margin.
     pub open_notional: u64,
     pub debt_principal: u128,
     pub debt_shares: u128,
@@ -80,6 +106,7 @@ impl LeverageDelegation {
 }
 
 impl LeveragePosition {
+    #[allow(clippy::too_many_arguments)]
     pub fn initialize(
         &mut self,
         owner: Pubkey,
@@ -96,10 +123,47 @@ impl LeveragePosition {
         opened_slot: u64,
         bump: u8,
     ) {
+        self.initialize_with_margin_mode(
+            owner,
+            market,
+            position_id,
+            debt_asset,
+            LeverageMarginMode::Debt,
+            collateral_amount,
+            margin_amount,
+            open_notional,
+            debt_principal,
+            debt_shares,
+            multiplier_bps,
+            opened_at,
+            opened_slot,
+            bump,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn initialize_with_margin_mode(
+        &mut self,
+        owner: Pubkey,
+        market: Pubkey,
+        position_id: Pubkey,
+        debt_asset: MarketAsset,
+        margin_mode: LeverageMarginMode,
+        collateral_amount: u64,
+        margin_amount: u64,
+        open_notional: u64,
+        debt_principal: u64,
+        debt_shares: u128,
+        multiplier_bps: u64,
+        opened_at: i64,
+        opened_slot: u64,
+        bump: u8,
+    ) {
         self.owner = owner;
         self.market = market;
         self.position_id = position_id;
         self.debt_asset = debt_asset.code();
+        self.margin_mode = margin_mode.code();
         self.collateral_amount = collateral_amount;
         self.margin_amount = margin_amount;
         self.open_notional = open_notional;
@@ -128,6 +192,26 @@ impl LeveragePosition {
 
     pub fn collateral_asset(&self) -> Result<MarketAsset> {
         Ok(self.debt_asset()?.opposite())
+    }
+
+    pub fn margin_mode(&self) -> Result<LeverageMarginMode> {
+        LeverageMarginMode::try_from_code(self.margin_mode)
+    }
+
+    pub fn margin_asset(&self) -> Result<MarketAsset> {
+        match self.margin_mode()? {
+            LeverageMarginMode::Debt => self.debt_asset(),
+            LeverageMarginMode::Collateral => self.collateral_asset(),
+        }
+    }
+
+    pub fn settlement_asset(&self) -> Result<MarketAsset> {
+        self.margin_asset()
+    }
+
+    pub fn require_margin_mode(&self, expected: LeverageMarginMode) -> Result<()> {
+        require!(self.margin_mode()? == expected, ErrorCode::InvalidLeverageMarginMode);
+        Ok(())
     }
 
     pub fn debt_amount(&self, debt: &Debt) -> Result<u64> {

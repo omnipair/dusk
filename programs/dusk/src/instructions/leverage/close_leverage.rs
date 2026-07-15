@@ -10,7 +10,7 @@ use crate::{
     events::{LeveragePositionClosed, MarketEventMetadata},
     generate_market_seeds,
     shared::token::{get_transfer_fee, transfer_from_vault_to_user, transfer_from_vault_to_vault},
-    state::{FutarchyAuthority, LeverageDelegation, LeveragePosition, Market, MarketAsset},
+    state::{FutarchyAuthority, LeverageDelegation, LeverageMarginMode, LeveragePosition, Market, MarketAsset},
 };
 
 use super::common::{
@@ -145,6 +145,7 @@ impl<'info> CloseLeverage<'info> {
         self.leverage_position.require_open()?;
         self.leverage_position
             .assert_position(self.position_owner.key(), self.market.key(), debt_asset)?;
+        self.leverage_position.require_margin_mode(LeverageMarginMode::Debt)?;
         Ok(debt_asset)
     }
 
@@ -371,6 +372,9 @@ impl<'info> CloseLeverage<'info> {
             owner: owner_key,
             debt_asset_mint: debt_mint_key,
             collateral_asset_mint: collateral_mint_key,
+            margin_mode: LeverageMarginMode::Debt.code(),
+            margin_asset_mint: debt_mint_key,
+            settlement_asset_mint: debt_mint_key,
             debt_repaid: receipt.debt_repaid,
             interest_paid: receipt.interest_paid,
             collateral_sold: receipt.collateral_sold,

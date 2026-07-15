@@ -10,6 +10,7 @@ fn leverage_position_tracks_debt_asset_and_current_debt() {
         market: Pubkey::default(),
         position_id: Pubkey::default(),
         debt_asset: 0,
+        margin_mode: 0,
         collateral_amount: 0,
         margin_amount: 0,
         open_notional: 0,
@@ -43,6 +44,9 @@ fn leverage_position_tracks_debt_asset_and_current_debt() {
     assert!(position.is_initialized());
     assert_eq!(position.debt_asset().unwrap(), MarketAsset::Quote);
     assert_eq!(position.collateral_asset().unwrap(), MarketAsset::Base);
+    assert_eq!(position.margin_mode().unwrap(), LeverageMarginMode::Debt);
+    assert_eq!(position.margin_asset().unwrap(), MarketAsset::Quote);
+    assert_eq!(position.settlement_asset().unwrap(), MarketAsset::Quote);
     assert_eq!(position.debt_amount(&debt).unwrap(), 1_100);
     assert!(position
         .assert_position(owner, market, MarketAsset::Quote)
@@ -50,4 +54,47 @@ fn leverage_position_tracks_debt_asset_and_current_debt() {
     assert!(position
         .assert_position(owner, market, MarketAsset::Base)
         .is_err());
+}
+
+#[test]
+fn collateral_margin_mode_uses_collateral_for_margin_and_settlement() {
+    let mut position = LeveragePosition {
+        owner: Pubkey::default(),
+        market: Pubkey::default(),
+        position_id: Pubkey::default(),
+        debt_asset: 0,
+        margin_mode: 0,
+        collateral_amount: 0,
+        margin_amount: 0,
+        open_notional: 0,
+        debt_principal: 0,
+        debt_shares: 0,
+        multiplier_bps: 0,
+        opened_at: 0,
+        opened_slot: 0,
+        bump: 0,
+    };
+    position.initialize_with_margin_mode(
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+        MarketAsset::Base,
+        LeverageMarginMode::Collateral,
+        3_000,
+        1_000,
+        3_000,
+        2_000,
+        2_000,
+        30_000,
+        42,
+        7,
+        255,
+    );
+
+    assert_eq!(LeverageMarginMode::Debt.code(), 0);
+    assert_eq!(LeverageMarginMode::Collateral.code(), 1);
+    assert_eq!(position.margin_mode().unwrap(), LeverageMarginMode::Collateral);
+    assert_eq!(position.margin_asset().unwrap(), MarketAsset::Quote);
+    assert_eq!(position.settlement_asset().unwrap(), MarketAsset::Quote);
+    assert!(LeverageMarginMode::try_from_code(2).is_err());
 }

@@ -43,6 +43,9 @@ The fork API accepts `FORK_LAB_PAYER_KEYPAIR_JSON`, `FORK_LAB_PAYER_KEYPAIR_BASE
 - `POST /api/v2/fork/tx/repay`
 - `POST /api/v2/fork/tx/deposit-single-sided`
 - `POST /api/v2/fork/tx/withdraw-single-sided`
+- `POST /api/v2/fork/tx/open-leverage`
+- `POST /api/v2/fork/tx/close-leverage`
+- `GET /api/v2/fork/leverage/positions?owner=:wallet`
 - `GET /api/v2/markets`
 - `GET /api/v2/markets/:marketAddress`
 - `GET /api/v2/markets/:marketAddress/swaps`

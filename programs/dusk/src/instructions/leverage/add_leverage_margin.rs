@@ -139,13 +139,22 @@ impl<'info> AddLeverageMargin<'info> {
             ctx.accounts.futarchy_authority.protocol_auction_split,
             receipt.interest_paid,
         )?;
+        let collateral_asset_mint = ctx.accounts.market.side(debt_asset.opposite())?.asset_mint;
+        let settlement_asset_mint = ctx
+            .accounts
+            .market
+            .side(ctx.accounts.leverage_position.settlement_asset()?)?
+            .asset_mint;
 
         emit_cpi!(LeveragePositionUpdated {
             market: market_key,
             position: position_key,
             owner: owner_key,
             debt_asset_mint: debt_mint_key,
-            collateral_asset_mint: ctx.accounts.market.side(debt_asset.opposite())?.asset_mint,
+            collateral_asset_mint,
+            margin_mode: ctx.accounts.leverage_position.margin_mode,
+            margin_asset_mint: settlement_asset_mint,
+            settlement_asset_mint,
             debt_delta: receipt.debt_delta,
             collateral_delta: receipt.collateral_delta,
             debt_amount: receipt.debt_amount,

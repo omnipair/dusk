@@ -8,32 +8,33 @@ use crate::{
     constants::*,
     errors::ErrorCode,
     events::{LeveragePositionOpened, MarketEventMetadata},
-    shared::{
-        account::get_size_with_discriminator,
-        token::{create_token_account, transfer_from_user_to_vault, transfer_from_vault_to_vault},
+    instructions::common::{token_program_for_mint, validate_owner_asset_account},
+    shared::token::{create_token_account, transfer_from_user_to_vault, transfer_from_vault_to_vault},
+    state::{
+        leverage_target_collateral_from_margin, FutarchyAuthority, LeverageMarginMode, LeveragePosition, Market,
+        MarketAsset,
     },
-    state::{leverage_debt_from_margin, FutarchyAuthority, LeverageMarginMode, LeveragePosition, Market, MarketAsset},
 };
 
 use super::common::{
-    leverage_collateral_credit, move_leverage_swap_fee, validate_leverage_fee_account, validate_leverage_mints,
-    validate_leverage_reserve_accounts, validate_owner_debt_account, validate_unchecked_leverage_collateral_vault,
+    leverage_collateral_credit, leverage_transfer_amount_for_credit, move_leverage_swap_fee,
+    unchecked_token_account_amount, validate_leverage_fee_account, validate_leverage_mints,
+    validate_leverage_reserve_accounts, validate_unchecked_leverage_collateral_vault,
 };
-use crate::instructions::common::{token_account_credit, token_program_for_mint};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct OpenLeverageArgs {
+pub struct OpenCollateralMarginLeverageArgs {
     pub position_id: Pubkey,
     pub debt_asset: u8,
     pub margin_amount: u64,
     pub multiplier_bps: u64,
-    pub min_collateral_out: u64,
+    pub max_debt_in: u64,
 }
 
 #[event_cpi]
 #[derive(Accounts)]
-#[instruction(args: OpenLeverageArgs)]
-pub struct OpenLeverage<'info> {
+#[instruction(args: OpenCollateralMarginLeverageArgs)]
+pub struct OpenCollateralMarginLeverage<'info> {
     #[account(
         mut,
         seeds = [
@@ -58,7 +59,7 @@ pub struct OpenLeverage<'info> {
     #[account(
         init,
         payer = owner,
-        space = get_size_with_discriminator::<LeveragePosition>(),
+        space = crate::shared::account::get_size_with_discriminator::<LeveragePosition>(),
         seeds = [
             LEVERAGE_POSITION_SEED_PREFIX,
             market.key().as_ref(),
@@ -87,19 +88,19 @@ pub struct OpenLeverage<'info> {
         ],
         bump
     )]
-    /// CHECK: Created lazily with the collateral mint's token program.
+    /// CHECK: Created lazily with the collateral mint's token program and validated when it exists.
     pub leverage_collateral_vault: UncheckedAccount<'info>,
 
     #[account(mut)]
-    pub owner_debt_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub owner_collateral_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
 }
 
-impl<'info> OpenLeverage<'info> {
-    pub fn validate(&self, args: &OpenLeverageArgs) -> Result<()> {
+impl<'info> OpenCollateralMarginLeverage<'info> {
+    pub fn validate(&self, args: &OpenCollateralMarginLeverageArgs) -> Result<()> {
         self.market.assert_live_with_futarchy(&self.futarchy_authority)?;
         require!(args.margin_amount > 0, ErrorCode::AmountZero);
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
@@ -113,9 +114,9 @@ impl<'info> OpenLeverage<'info> {
             &self.collateral_reserve_vault,
         )?;
         validate_leverage_fee_account(&self.market, &self.debt_mint, &self.debt_fee_vault, debt_asset)?;
-        validate_owner_debt_account(self.owner.key(), &self.debt_mint, &self.owner_debt_account)?;
+        validate_owner_asset_account(self.owner.key(), &self.collateral_mint, &self.owner_collateral_account)?;
         require_gte!(
-            self.owner_debt_account.amount,
+            self.owner_collateral_account.amount,
             args.margin_amount,
             ErrorCode::InsufficientBalance
         );
@@ -126,50 +127,34 @@ impl<'info> OpenLeverage<'info> {
                 &self.collateral_mint,
             )?;
         }
+
+        let margin_credit = leverage_collateral_credit(&self.collateral_mint, args.margin_amount)?;
+        let target_collateral = leverage_target_collateral_from_margin(margin_credit, args.multiplier_bps)?;
+        let supplemental_target = target_collateral
+            .checked_sub(margin_credit)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let supplemental_amount_out = leverage_transfer_amount_for_credit(&self.collateral_mint, supplemental_target)?;
+        let swap = self
+            .market
+            .quote_leverage_swap_exact_output(debt_asset, supplemental_amount_out)?;
+        require_gte!(args.max_debt_in, swap.amount_in, ErrorCode::SlippageExceeded);
         Ok(())
     }
 
-    crate::instructions::common::market_update_and_validate!(OpenLeverageArgs);
+    crate::instructions::common::market_update_and_validate!(OpenCollateralMarginLeverageArgs);
 
-    pub fn handle_open(ctx: Context<'_, '_, '_, 'info, Self>, args: OpenLeverageArgs) -> Result<()> {
+    pub fn handle_open(ctx: Context<'_, '_, '_, 'info, Self>, args: OpenCollateralMarginLeverageArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.owner.key();
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
         let debt_mint_key = ctx.accounts.debt_mint.key();
         let collateral_mint_key = ctx.accounts.collateral_mint.key();
-
-        let debt_token_program = token_program_for_mint(
-            &ctx.accounts.debt_mint,
-            &ctx.accounts.token_program,
-            &ctx.accounts.token_2022_program,
-        )?;
-        let reserve_balance_before = ctx.accounts.debt_reserve_vault.amount;
-        transfer_from_user_to_vault(
-            ctx.accounts.owner.to_account_info(),
-            ctx.accounts.owner_debt_account.to_account_info(),
-            ctx.accounts.debt_reserve_vault.to_account_info(),
-            ctx.accounts.debt_mint.to_account_info(),
-            debt_token_program,
-            args.margin_amount,
-            ctx.accounts.debt_mint.decimals,
-        )?;
-        ctx.accounts.debt_reserve_vault.reload()?;
-        let margin_credit = token_account_credit(reserve_balance_before, &ctx.accounts.debt_reserve_vault)?;
-        require!(margin_credit > 0, ErrorCode::AmountZero);
-
-        let debt_amount = leverage_debt_from_margin(margin_credit, args.multiplier_bps)?;
-        let notional = margin_credit
-            .checked_add(debt_amount)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let swap = ctx.accounts.market.quote_leverage_swap(debt_asset, notional)?;
-        let collateral_credit = leverage_collateral_credit(&ctx.accounts.collateral_mint, swap.amount_out)?;
-        require_gte!(collateral_credit, args.min_collateral_out, ErrorCode::SlippageExceeded);
-
         let collateral_token_program = token_program_for_mint(
             &ctx.accounts.collateral_mint,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
+
         if ctx.accounts.leverage_collateral_vault.lamports() == 0 {
             create_token_account(
                 &ctx.accounts.market.to_account_info(),
@@ -193,6 +178,36 @@ impl<'info> OpenLeverage<'info> {
             )?;
         }
 
+        let margin_balance_before =
+            unchecked_token_account_amount(&ctx.accounts.leverage_collateral_vault.to_account_info())?;
+        transfer_from_user_to_vault(
+            ctx.accounts.owner.to_account_info(),
+            ctx.accounts.owner_collateral_account.to_account_info(),
+            ctx.accounts.leverage_collateral_vault.to_account_info(),
+            ctx.accounts.collateral_mint.to_account_info(),
+            collateral_token_program.clone(),
+            args.margin_amount,
+            ctx.accounts.collateral_mint.decimals,
+        )?;
+        let margin_balance_after =
+            unchecked_token_account_amount(&ctx.accounts.leverage_collateral_vault.to_account_info())?;
+        let margin_credit = margin_balance_after
+            .checked_sub(margin_balance_before)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        require!(margin_credit > 0, ErrorCode::AmountZero);
+
+        let target_collateral = leverage_target_collateral_from_margin(margin_credit, args.multiplier_bps)?;
+        let supplemental_target = target_collateral
+            .checked_sub(margin_credit)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let supplemental_amount_out =
+            leverage_transfer_amount_for_credit(&ctx.accounts.collateral_mint, supplemental_target)?;
+        let swap = ctx
+            .accounts
+            .market
+            .quote_leverage_swap_exact_output(debt_asset, supplemental_amount_out)?;
+        require_gte!(args.max_debt_in, swap.amount_in, ErrorCode::SlippageExceeded);
+
         move_leverage_swap_fee(
             &ctx.accounts.market,
             &ctx.accounts.debt_mint,
@@ -202,6 +217,8 @@ impl<'info> OpenLeverage<'info> {
             &ctx.accounts.token_2022_program,
             swap.fee_credit,
         )?;
+        let supplemental_balance_before =
+            unchecked_token_account_amount(&ctx.accounts.leverage_collateral_vault.to_account_info())?;
         transfer_from_vault_to_vault(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.collateral_reserve_vault.to_account_info(),
@@ -212,10 +229,20 @@ impl<'info> OpenLeverage<'info> {
             ctx.accounts.collateral_mint.decimals,
             &[&crate::generate_market_seeds!(ctx.accounts.market)[..]],
         )?;
+        let supplemental_balance_after =
+            unchecked_token_account_amount(&ctx.accounts.leverage_collateral_vault.to_account_info())?;
+        let supplemental_credit = supplemental_balance_after
+            .checked_sub(supplemental_balance_before)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        require_gte!(
+            supplemental_credit,
+            supplemental_target,
+            ErrorCode::UnexpectedTokenTransferAmount
+        );
 
         let clock = Clock::get()?;
         let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
-        let receipt = ctx.accounts.market.open_leverage(
+        let receipt = ctx.accounts.market.open_collateral_margin_leverage(
             &mut ctx.accounts.leverage_position,
             owner_key,
             market_key,
@@ -223,7 +250,9 @@ impl<'info> OpenLeverage<'info> {
             debt_asset,
             margin_credit,
             args.multiplier_bps,
-            collateral_credit,
+            supplemental_amount_out,
+            supplemental_credit,
+            args.max_debt_in,
             clock.unix_timestamp,
             clock.slot,
             ctx.bumps.leverage_position,
@@ -238,9 +267,9 @@ impl<'info> OpenLeverage<'info> {
             owner: owner_key,
             debt_asset_mint: debt_mint_key,
             collateral_asset_mint: collateral_mint_key,
-            margin_mode: LeverageMarginMode::Debt.code(),
-            margin_asset_mint: debt_mint_key,
-            settlement_asset_mint: debt_mint_key,
+            margin_mode: LeverageMarginMode::Collateral.code(),
+            margin_asset_mint: collateral_mint_key,
+            settlement_asset_mint: collateral_mint_key,
             margin_amount: margin_credit,
             debt_amount: receipt.debt_amount,
             debt_shares: receipt.debt_shares,

@@ -36,3 +36,18 @@ use super::*;
 
         assert_eq!(dy, 181);
     }
+
+    #[test]
+    fn raw_amount_in_is_the_minimum_exact_output_input() {
+        let target_out = 181;
+        let amount_in = calculate_raw_amount_in(1_000, 2_000, target_out).unwrap();
+
+        assert_eq!(amount_in, 100);
+        assert!(calculate_raw_amount_out(1_000, 2_000, amount_in).unwrap() >= target_out);
+        assert!(calculate_raw_amount_out(1_000, 2_000, amount_in - 1).unwrap() < target_out);
+    }
+
+    #[test]
+    fn raw_amount_in_rejects_draining_the_output_reserve() {
+        assert!(calculate_raw_amount_in(1_000, 2_000, 2_000).is_err());
+    }

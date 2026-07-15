@@ -1175,6 +1175,18 @@ async function marketPayload(stored: StoredMarket) {
   const quoteSide = field<any>(marketAccount, "quoteSide", "quote_side");
   const debt = field<any>(marketAccount, "debt");
   const health = field<any>(marketAccount, "health");
+  const baseBorrowIndexNad = toBigInt(
+    field(debt, "baseBorrowIndexNad", "base_borrow_index_nad")
+  );
+  const quoteBorrowIndexNad = toBigInt(
+    field(debt, "quoteBorrowIndexNad", "quote_borrow_index_nad")
+  );
+  const isolatedBaseShares = toBigInt(
+    field(debt, "isolatedBaseShares", "isolated_base_shares")
+  );
+  const isolatedQuoteShares = toBigInt(
+    field(debt, "isolatedQuoteShares", "isolated_quote_shares")
+  );
   const now = new Date().toISOString();
 
   return {
@@ -1214,6 +1226,12 @@ async function marketPayload(stored: StoredMarket) {
       quoteReserveYlpSupply: stringValue(field(field(quoteSide, "shares"), "ylpSupply", "ylp_supply")),
       fixedBaseDebt: stringValue(field(debt, "fixedBaseShares", "fixed_base_shares")),
       fixedQuoteDebt: stringValue(field(debt, "fixedQuoteShares", "fixed_quote_shares")),
+      isolatedBaseDebt: stringValue(isolatedBaseShares * baseBorrowIndexNad / NAD),
+      isolatedQuoteDebt: stringValue(isolatedQuoteShares * quoteBorrowIndexNad / NAD),
+      isolatedBaseShares: stringValue(isolatedBaseShares),
+      isolatedQuoteShares: stringValue(isolatedQuoteShares),
+      baseBorrowIndexNad: stringValue(baseBorrowIndexNad),
+      quoteBorrowIndexNad: stringValue(quoteBorrowIndexNad),
       recognizedBaseCollateralForQuoteDebt: stringValue(
         field(
           health,
@@ -1241,7 +1259,29 @@ async function marketPayload(stored: StoredMarket) {
   };
 }
 
+function configuredTokenMetadata(mint: string) {
+  const configured = [
+    {
+      mint: duskEnv("BASE_MINT", DEFAULT_META_MINT),
+      symbol: duskEnv("BASE_SYMBOL", "META"),
+      name: duskEnv("BASE_NAME", "MetaDAO"),
+    },
+    {
+      mint: duskEnv("QUOTE_MINT", DEFAULT_USDC_MINT),
+      symbol: duskEnv("QUOTE_SYMBOL", "USDC"),
+      name: duskEnv("QUOTE_NAME", "USD Coin"),
+    },
+  ].find((token) => token.mint === mint);
+
+  return {
+    symbol: configured?.symbol ?? `${mint.slice(0, 4)}…${mint.slice(-4)}`,
+    name: configured?.name ?? mint,
+  };
+}
+
 function forkConfigPayload(stored: StoredMarket) {
+  const baseToken = configuredTokenMetadata(stored.baseMint);
+  const quoteToken = configuredTokenMetadata(stored.quoteMint);
   return {
     rpcUrl: PUBLIC_RPC_URL,
     privateRpcUrl: SURFPOOL_RPC_URL,
@@ -1253,6 +1293,10 @@ function forkConfigPayload(stored: StoredMarket) {
     quoteMint: stored.quoteMint,
     baseDecimals: stored.baseDecimals,
     quoteDecimals: stored.quoteDecimals,
+    baseSymbol: baseToken.symbol,
+    quoteSymbol: quoteToken.symbol,
+    baseName: baseToken.name,
+    quoteName: quoteToken.name,
     baseTokenProgram: stored.baseTokenProgram,
     quoteTokenProgram: stored.quoteTokenProgram,
     ylpMint: stored.ylpMint,
@@ -1312,6 +1356,23 @@ function rawAmount(body: Record<string, unknown>, keys: string[], decimals: numb
     if (value != null && value !== "") return parseUnits(value as any, decimals);
   }
   return parseUnits(fallback, decimals);
+}
+
+function rawOrUiAmount(
+  body: Record<string, unknown>,
+  rawKeys: string[],
+  uiKeys: string[],
+  decimals: number,
+  fallback: string
+) {
+  for (const key of rawKeys) {
+    const value = body[key];
+    if (value == null || value === "") continue;
+    const raw = String(value);
+    if (!/^\d+$/.test(raw)) throw new Error(`${key} must be an unsigned base-unit integer`);
+    return BigInt(raw);
+  }
+  return rawAmount(body, uiKeys, decimals, fallback);
 }
 
 function assetFromBody(value: unknown, fallback: MarketAsset): MarketAsset {
@@ -1693,10 +1754,13 @@ async function buildWithdrawSingleSidedTx(params: {
 // ── Leverage Builder Functions ───────────────────────────────────────
 
 function debtAssetFromBody(body: Record<string, unknown>, fallback: number = 1): number {
-  const raw = body.debtAsset ?? body.isDebtToken0 ?? body.debt_asset;
+  const raw = body.debtAsset ?? body.debt_asset;
   if (raw === "base" || raw === 0 || raw === "0") return 0;
   if (raw === "quote" || raw === 1 || raw === "1") return 1;
-  if (typeof raw === "boolean") return raw ? 1 : 0;
+  const token0Alias = body.isDebtToken0;
+  if (typeof token0Alias === "boolean") return token0Alias ? 0 : 1;
+  if (token0Alias === "true") return 0;
+  if (token0Alias === "false") return 1;
   return fallback;
 }
 
@@ -2003,7 +2067,6 @@ async function buildDecreaseLeverageTx(params: {
 async function leveragePositionsPayload(wallet: PublicKey, stored: StoredMarket) {
   const { program } = initializeRuntime();
   const positions: any[] = [];
-  const now = new Date().toISOString();
 
   try {
     const { connection } = initializeRuntime();
@@ -2014,24 +2077,44 @@ async function leveragePositionsPayload(wallet: PublicKey, stored: StoredMarket)
           "LeveragePosition",
           account.data
         );
-        const posOwner = pos.owner?.toBase58?.() ?? "";
-        if (posOwner === wallet.toBase58()) {
-          positions.push({
-            id: positions.length + 1,
-            eventType: "leverage_position",
-            address: pubkey.toBase58(),
-            market: stored.market,
-            owner: wallet.toBase58(),
-            timestamp: now,
-            payload: {
-              positionId: pos.positionId?.toBase58?.() ?? "",
-              debtAsset: pos.debtAsset ?? pos.debt_asset,
-              collateralAmount: stringValue(pos.collateralAmount ?? pos.collateral_amount),
-              debtShares: stringValue(pos.debtShares ?? pos.debt_shares),
-              multiplierBps: stringValue(pos.multiplierBps ?? pos.multiplier_bps),
-            },
-          });
-        }
+        const owner = stringValue(field(pos, "owner"));
+        const market = stringValue(field(pos, "market"));
+        if (owner !== wallet.toBase58() || market !== stored.market) continue;
+
+        const debtAsset = Number(field(pos, "debtAsset", "debt_asset"));
+        if (debtAsset !== 0 && debtAsset !== 1) continue;
+
+        const positionAddress = pubkey.toBase58();
+        const positionId = stringValue(field(pos, "positionId", "position_id"));
+        const debtMint = debtAsset === 0 ? stored.baseMint : stored.quoteMint;
+        const collateralMint = debtAsset === 0 ? stored.quoteMint : stored.baseMint;
+        const debtPrincipal = stringValue(field(pos, "debtPrincipal", "debt_principal"));
+        const marginMode = Number(field(pos, "marginMode", "margin_mode") ?? 0);
+
+        positions.push({
+          positionAddress,
+          positionId,
+          owner,
+          market,
+          debtAsset,
+          debtMint,
+          collateralMint,
+          collateralAmount: stringValue(field(pos, "collateralAmount", "collateral_amount")),
+          marginAmount: stringValue(field(pos, "marginAmount", "margin_amount")),
+          openNotional: stringValue(field(pos, "openNotional", "open_notional")),
+          debtShares: stringValue(field(pos, "debtShares", "debt_shares")),
+          debtPrincipal,
+          multiplierBps: stringValue(field(pos, "multiplierBps", "multiplier_bps")),
+          marginMode,
+          openedAt: stringValue(field(pos, "openedAt", "opened_at")),
+          openedSlot: stringValue(field(pos, "openedSlot", "opened_slot")),
+          // Transitional aliases for older fork clients.
+          address: positionAddress,
+          id: positionId,
+          principal: debtPrincipal,
+          debtAmount: debtPrincipal,
+          isDebtToken0: debtAsset === 0,
+        });
       } catch {
         /* skip non-matching accounts */
       }
@@ -2216,7 +2299,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     path === "/api/v2/fork/leverage/positions"
   )) {
     const leverageWallet = new PublicKey(String(
-      url.searchParams.get("wallet") ?? ""
+      url.searchParams.get("wallet") ?? url.searchParams.get("owner") ?? ""
     ));
     return {
       success: true,
@@ -2229,7 +2312,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     path === "/api/v2/fork/leverage/orders"
   )) {
     const leverageWallet = new PublicKey(String(
-      url.searchParams.get("wallet") ?? ""
+      url.searchParams.get("wallet") ?? url.searchParams.get("owner") ?? ""
     ));
     return {
       success: true,
@@ -2399,6 +2482,10 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
   if (path === "/api/v1/fork/tx/open-leverage" || path === "/api/v2/fork/tx/open-leverage") {
     const positionId = optionalPublicKey(body.positionId) ?? Keypair.generate().publicKey;
     const debtAsset = debtAssetFromBody(body, 1);
+    const marginMode = Number(body.marginMode ?? body.margin_mode ?? 0);
+    if (marginMode !== 0) {
+      throw new Error("Only debt-asset margin (marginMode=0) is supported by open-leverage");
+    }
     const assetDecimals = debtAsset === 0 ? stored.baseDecimals : stored.quoteDecimals;
     const transaction = (
       await buildOpenLeverageTx({
@@ -2406,10 +2493,17 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         market: stored,
         positionId,
         debtAsset,
-        marginAmount: rawAmount(body, ["marginAmount", "margin"], assetDecimals, "100"),
-        multiplierBps: Number(body.multiplierBps ?? 20000),
-        minCollateralOut: rawAmount(
+        marginAmount: rawOrUiAmount(
           body,
+          ["marginAmountRaw"],
+          ["marginAmount", "margin"],
+          assetDecimals,
+          "100"
+        ),
+        multiplierBps: Number(body.multiplierBps ?? 20000),
+        minCollateralOut: rawOrUiAmount(
+          body,
+          ["minCollateralOutRaw"],
           ["minCollateralOut", "minAmountOut"],
           debtAsset === 0 ? stored.quoteDecimals : stored.baseDecimals,
           "0"
@@ -2418,21 +2512,31 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     ).serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
     return txResponse("open-leverage", owner, stored, transaction, {
       positionId: positionId.toBase58(),
+      positionAddress: deriveLeveragePosition(
+        new PublicKey(stored.market),
+        positionId
+      ).toBase58(),
       debtAsset,
+      marginMode,
     });
   }
 
   if (path === "/api/v1/fork/tx/close-leverage" || path === "/api/v2/fork/tx/close-leverage") {
     const positionId = requiredPositionId(body);
     const debtAsset = debtAssetFromBody(body, 1);
+    const marginMode = Number(body.marginMode ?? body.margin_mode ?? 0);
+    if (marginMode !== 0) {
+      throw new Error("Only debt-asset margin (marginMode=0) is supported by close-leverage");
+    }
     const transaction = (
       await buildCloseLeverageTx({
         owner,
         market: stored,
         positionId,
         debtAsset,
-        minCollateralOut: rawAmount(
+        minCollateralOut: rawOrUiAmount(
           body,
+          ["minCollateralOutRaw"],
           ["minCollateralOut", "minAmountOut"],
           debtAsset === 0 ? stored.quoteDecimals : stored.baseDecimals,
           "0"
@@ -2441,7 +2545,12 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     ).serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
     return txResponse("close-leverage", owner, stored, transaction, {
       positionId: positionId.toBase58(),
+      positionAddress: deriveLeveragePosition(
+        new PublicKey(stored.market),
+        positionId
+      ).toBase58(),
       debtAsset,
+      marginMode,
     });
   }
 

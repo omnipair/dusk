@@ -18,7 +18,9 @@ use crate::{
         require_supported_asset_mint, token_account_credit, token_program_for_mint, validate_fee_accounts,
         validate_interest_accounts, validate_owner_asset_account, validate_side_vault_accounts,
     },
-    shared::token::{get_transfer_fee, transfer_from_vault_to_vault},
+    shared::token::{
+        get_token_account_snapshot, get_transfer_fee, get_transfer_inverse_fee, transfer_from_vault_to_vault,
+    },
     state::{Market, MarketAsset},
 };
 
@@ -321,6 +323,33 @@ pub fn leverage_collateral_credit(mint: &InterfaceAccount<Mint>, gross_amount: u
     gross_amount
         .checked_sub(fee)
         .ok_or(ErrorCode::MarketMathOverflow.into())
+}
+
+pub fn leverage_transfer_amount_for_credit(mint: &InterfaceAccount<Mint>, credit: u64) -> Result<u64> {
+    require!(credit > 0, ErrorCode::AmountZero);
+    credit
+        .checked_add(get_transfer_inverse_fee(&mint.to_account_info(), credit)?)
+        .ok_or(ErrorCode::MarketMathOverflow.into())
+}
+
+pub fn validate_unchecked_leverage_collateral_vault(
+    vault: &AccountInfo,
+    market: Pubkey,
+    collateral_mint: &InterfaceAccount<Mint>,
+) -> Result<()> {
+    require_keys_eq!(
+        *vault.owner,
+        *collateral_mint.to_account_info().owner,
+        ErrorCode::InvalidTokenProgram
+    );
+    let snapshot = get_token_account_snapshot(vault)?;
+    require_keys_eq!(snapshot.mint, collateral_mint.key(), ErrorCode::InvalidVault);
+    require_keys_eq!(snapshot.owner, market, ErrorCode::InvalidVault);
+    Ok(())
+}
+
+pub fn unchecked_token_account_amount(account: &AccountInfo) -> Result<u64> {
+    Ok(get_token_account_snapshot(account)?.amount)
 }
 
 pub fn move_leverage_swap_fee<'info>(

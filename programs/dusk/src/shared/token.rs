@@ -7,6 +7,7 @@ use anchor_lang::{
     solana_program::{
         instruction::{AccountMeta, Instruction},
         program::{invoke, invoke_signed},
+        program_pack::Pack,
     },
     system_program,
 };
@@ -27,6 +28,34 @@ use anchor_spl::{
         initialize_account3, spl_token_2022::extension::BaseStateWithExtensions, InitializeAccount3, Mint,
     },
 };
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TokenAccountSnapshot {
+    pub mint: Pubkey,
+    pub owner: Pubkey,
+    pub amount: u64,
+}
+
+pub fn get_token_account_snapshot(account_info: &AccountInfo) -> Result<TokenAccountSnapshot> {
+    let data = account_info.try_borrow_data()?;
+    if *account_info.owner == Token::id() {
+        let account = spl_token::state::Account::unpack(&data)?;
+        return Ok(TokenAccountSnapshot {
+            mint: account.mint,
+            owner: account.owner,
+            amount: account.amount,
+        });
+    }
+    if *account_info.owner == Token2022::id() {
+        let account = StateWithExtensions::<spl_token_2022::state::Account>::unpack(&data)?;
+        return Ok(TokenAccountSnapshot {
+            mint: account.base.mint,
+            owner: account.base.owner,
+            amount: account.base.amount,
+        });
+    }
+    err!(ErrorCode::InvalidTokenProgram)
+}
 
 /// Syncs native SOL balance for a WSOL token account if the mint is the native mint.
 /// This ensures the token account's `amount` field reflects any native SOL that was

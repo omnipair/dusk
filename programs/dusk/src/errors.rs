@@ -349,4 +349,10 @@ pub enum ErrorCode {
 
     #[msg("Invalid leverage delegation")]
     InvalidLeverageDelegation,
+
+    #[msg("Invalid leverage margin mode")]
+    InvalidLeverageMarginMode,
+
+    #[msg("Observed token transfer amount differs from the required amount")]
+    UnexpectedTokenTransferAmount,
 }
