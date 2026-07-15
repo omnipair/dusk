@@ -490,5 +490,50 @@ mod tests {
             123,
         )
         .is_err());
+        assert!(validate_delegation_approval(
+            program,
+            &data,
+            program,
+            LEVERAGE_DELEGATE_CLOSE,
+            market,
+            owner,
+            position,
+            delegation,
+            MarketAsset::Base,
+            Pubkey::new_unique(),
+            mint,
+            123,
+        )
+        .is_err());
+        assert!(validate_delegation_approval(
+            program,
+            &data,
+            program,
+            LEVERAGE_DELEGATE_CLOSE,
+            market,
+            owner,
+            position,
+            delegation,
+            MarketAsset::Base,
+            recipient,
+            Pubkey::new_unique(),
+            123,
+        )
+        .is_err());
+        assert!(validate_delegation_approval(
+            program,
+            &data,
+            program,
+            LEVERAGE_DELEGATE_CLOSE,
+            market,
+            owner,
+            position,
+            delegation,
+            MarketAsset::Base,
+            recipient,
+            mint,
+            122,
+        )
+        .is_err());
     }
 }

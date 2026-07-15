@@ -45,6 +45,8 @@ The fork API accepts `FORK_LAB_PAYER_KEYPAIR_JSON`, `FORK_LAB_PAYER_KEYPAIR_BASE
 - `POST /api/v2/fork/tx/withdraw-single-sided`
 - `POST /api/v2/fork/tx/open-leverage`
 - `POST /api/v2/fork/tx/close-leverage`
+- `POST /api/v2/fork/tx/deposit-leverage-collateral`
+- `POST /api/v2/fork/tx/withdraw-leverage-collateral`
 - `GET /api/v2/fork/leverage/positions?owner=:wallet`
 - `GET /api/v2/markets`
 - `GET /api/v2/markets/:marketAddress`
@@ -53,3 +55,8 @@ The fork API accepts `FORK_LAB_PAYER_KEYPAIR_JSON`, `FORK_LAB_PAYER_KEYPAIR_BASE
 - `GET /api/v2/users/:wallet/activity`
 
 Transaction endpoints return an unsigned base64 legacy transaction in `data.transaction`. The browser wallet signs and submits it to `data.rpcUrl`, which should be the public RPC proxy.
+
+Leverage open/close accepts `marginMode`: `0` keeps the debt-funded path,
+while `1` deposits and settles in the collateral token. Collateral-margin opens
+require `maxDebtInRaw`; collateral-margin closes require
+`maxCollateralInRaw` and accept `minResidualOutRaw`.

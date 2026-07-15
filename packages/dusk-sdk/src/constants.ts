@@ -28,12 +28,21 @@ export const SEEDS = {
   MARKET_INTEREST_VAULT: Buffer.from("market_interest"),
   BORROW_POSITION: Buffer.from("borrow_position_v2"),
   LEVERAGE_POSITION: Buffer.from("leverage_position_v2"),
+  LEVERAGE_COLLATERAL_VAULT: Buffer.from("leverage_collateral"),
   YIELD_ACCOUNT: Buffer.from("yield"),
   HLP_YLP_VAULT: Buffer.from("hlp_ylp_vault"),
   INSURANCE: Buffer.from("insurance"),
   FUTARCHY_AUTHORITY: Buffer.from("futarchy_authority"),
   METADATA: Buffer.from("metadata"),
 } as const;
+
+export const LEVERAGE_MARGIN_MODE = {
+  DEBT: 0,
+  COLLATERAL: 1,
+} as const;
+
+export type LeverageMarginMode =
+  (typeof LEVERAGE_MARGIN_MODE)[keyof typeof LEVERAGE_MARGIN_MODE];
 
 function normalizeParamsHash(paramsHash: Uint8Array | Buffer | number[]): Buffer {
   const hash = Buffer.from(paramsHash);
@@ -153,6 +162,19 @@ export function deriveLeveragePositionAddress(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.LEVERAGE_POSITION, market.toBuffer(), positionId.toBuffer()],
+    DUSK_PROGRAM_ID
+  );
+}
+
+/**
+ * Derive the shared isolated-leverage collateral vault for one market asset.
+ */
+export function deriveLeverageCollateralVaultAddress(
+  market: PublicKey,
+  collateralMint: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [SEEDS.LEVERAGE_COLLATERAL_VAULT, market.toBuffer(), collateralMint.toBuffer()],
     DUSK_PROGRAM_ID
   );
 }

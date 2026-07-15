@@ -12,6 +12,7 @@ export * from "./constants.js";
 export * from "./dusk.js";
 export * from "./get.js";
 export * from "./indexer.js";
+export * from "./leverage.js";
 export * from "./preview.js";
 export * from "./program.js";
 export * from "./write.js";

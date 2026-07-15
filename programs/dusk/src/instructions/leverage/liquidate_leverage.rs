@@ -27,6 +27,11 @@ pub struct LiquidateLeverageArgs {
 #[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: LiquidateLeverageArgs)]
+/// Full-unwind liquidation for both margin modes.
+///
+/// This account set intentionally settles liquidator incentive and owner residual
+/// in debt tokens. A collateral-settled path needs both debt and collateral
+/// recipient accounts to preserve an atomic exact-output-to-writeoff fallback.
 pub struct LiquidateLeverage<'info> {
     #[account(
         mut,
@@ -241,8 +246,8 @@ impl<'info> LiquidateLeverage<'info> {
             collateral_asset_mint: collateral_mint_key,
             margin_mode: ctx.accounts.leverage_position.margin_mode,
             margin_asset_mint,
-            // Liquidation residual settlement remains debt-denominated until the
-            // dedicated mode-aware liquidation work is implemented.
+            // Full-unwind liquidation deliberately settles both margin modes in
+            // debt tokens so insolvent positions can atomically use writeoff.
             settlement_asset_mint: debt_mint_key,
             debt_repaid: receipt.debt_repaid,
             interest_paid: receipt.interest_paid,

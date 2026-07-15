@@ -1823,12 +1823,68 @@ async function buildOpenLeverageTx(params: {
   return ownerTransaction(params.owner, instructions);
 }
 
+async function buildOpenCollateralMarginLeverageTx(params: {
+  owner: PublicKey;
+  market: StoredMarket;
+  positionId: PublicKey;
+  debtAsset: number;
+  marginAmount: bigint;
+  multiplierBps: number;
+  maxDebtIn: bigint;
+}) {
+  const { program } = initializeRuntime();
+  const m = marketFromStored(params.market);
+  const isDebtBase = params.debtAsset === 0;
+  const debtMint = isDebtBase ? m.baseMint : m.quoteMint;
+  const collateralMint = isDebtBase ? m.quoteMint : m.baseMint;
+  const leverageCollateralVault = deriveLeverageCollateralVault(m.market, collateralMint);
+
+  const instructions: TransactionInstruction[] = [];
+  const ownerCollateralAccount = await maybeAddAta(
+    instructions,
+    params.owner,
+    collateralMint,
+    isDebtBase ? m.quoteTokenProgram : m.baseTokenProgram
+  );
+
+  instructions.push(
+    await program.methods
+      .openCollateralMarginLeverage({
+        positionId: params.positionId,
+        debtAsset: params.debtAsset,
+        marginAmount: toBN(params.marginAmount),
+        multiplierBps: toBN(params.multiplierBps),
+        maxDebtIn: toBN(params.maxDebtIn),
+      })
+      .accounts({
+        market: m.market,
+        futarchyAuthority: m.futarchyAuthority,
+        owner: params.owner,
+        leveragePosition: deriveLeveragePosition(m.market, params.positionId),
+        debtMint,
+        collateralMint,
+        debtReserveVault: isDebtBase ? m.baseReserveVault : m.quoteReserveVault,
+        collateralReserveVault: isDebtBase ? m.quoteReserveVault : m.baseReserveVault,
+        debtFeeVault: isDebtBase ? m.baseFeeVault : m.quoteFeeVault,
+        leverageCollateralVault,
+        ownerCollateralAccount,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        eventAuthority: m.eventAuthority,
+        program: PROGRAM_ID,
+      })
+      .instruction()
+  );
+  return ownerTransaction(params.owner, instructions);
+}
+
 async function buildCloseLeverageTx(params: {
   owner: PublicKey;
   market: StoredMarket;
   positionId: PublicKey;
   debtAsset: number;
-  minCollateralOut: bigint;
+  minAmountOut: bigint;
 }) {
   const { program } = initializeRuntime();
   const m = marketFromStored(params.market);
@@ -1849,7 +1905,7 @@ async function buildCloseLeverageTx(params: {
     await program.methods
       .closeLeverage({
         debtAsset: params.debtAsset,
-        minCollateralOut: toBN(params.minCollateralOut),
+        minAmountOut: toBN(params.minAmountOut),
       })
       .accounts({
         market: m.market,
@@ -1867,6 +1923,148 @@ async function buildCloseLeverageTx(params: {
         leverageDelegation: SystemProgram.programId,
         delegatedProgram: SystemProgram.programId,
         authority: params.owner,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: m.eventAuthority,
+        program: PROGRAM_ID,
+      })
+      .instruction()
+  );
+  return ownerTransaction(params.owner, instructions);
+}
+
+async function buildCloseCollateralMarginLeverageTx(params: {
+  owner: PublicKey;
+  market: StoredMarket;
+  positionId: PublicKey;
+  debtAsset: number;
+  maxCollateralIn: bigint;
+  minResidualOut: bigint;
+}) {
+  const { program } = initializeRuntime();
+  const m = marketFromStored(params.market);
+  const isDebtBase = params.debtAsset === 0;
+  const debtMint = isDebtBase ? m.baseMint : m.quoteMint;
+  const collateralMint = isDebtBase ? m.quoteMint : m.baseMint;
+  const leverageCollateralVault = deriveLeverageCollateralVault(m.market, collateralMint);
+
+  const instructions: TransactionInstruction[] = [];
+  const ownerCollateralAccount = await maybeAddAta(
+    instructions,
+    params.owner,
+    collateralMint,
+    isDebtBase ? m.quoteTokenProgram : m.baseTokenProgram
+  );
+
+  instructions.push(
+    await program.methods
+      .closeCollateralMarginLeverage({
+        debtAsset: params.debtAsset,
+        maxCollateralIn: toBN(params.maxCollateralIn),
+        minResidualOut: toBN(params.minResidualOut),
+      })
+      .accounts({
+        market: m.market,
+        futarchyAuthority: m.futarchyAuthority,
+        owner: params.owner,
+        leveragePosition: deriveLeveragePosition(m.market, params.positionId),
+        debtMint,
+        collateralMint,
+        debtReserveVault: isDebtBase ? m.baseReserveVault : m.quoteReserveVault,
+        collateralReserveVault: isDebtBase ? m.quoteReserveVault : m.baseReserveVault,
+        collateralFeeVault: isDebtBase ? m.quoteFeeVault : m.baseFeeVault,
+        debtInterestVault: isDebtBase ? m.baseInterestVault : m.quoteInterestVault,
+        leverageCollateralVault,
+        ownerCollateralAccount,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: m.eventAuthority,
+        program: PROGRAM_ID,
+      })
+      .instruction()
+  );
+  return ownerTransaction(params.owner, instructions);
+}
+
+async function buildDepositLeverageCollateralTx(params: {
+  owner: PublicKey;
+  market: StoredMarket;
+  positionId: PublicKey;
+  debtAsset: number;
+  amount: bigint;
+}) {
+  const { program } = initializeRuntime();
+  const m = marketFromStored(params.market);
+  const isDebtBase = params.debtAsset === 0;
+  const collateralMint = isDebtBase ? m.quoteMint : m.baseMint;
+  const leverageCollateralVault = deriveLeverageCollateralVault(m.market, collateralMint);
+  const instructions: TransactionInstruction[] = [];
+  const ownerCollateralAccount = await maybeAddAta(
+    instructions,
+    params.owner,
+    collateralMint,
+    isDebtBase ? m.quoteTokenProgram : m.baseTokenProgram
+  );
+
+  instructions.push(
+    await program.methods
+      .depositLeverageCollateral({
+        debtAsset: params.debtAsset,
+        amount: toBN(params.amount),
+      })
+      .accounts({
+        market: m.market,
+        owner: params.owner,
+        leveragePosition: deriveLeveragePosition(m.market, params.positionId),
+        collateralMint,
+        leverageCollateralVault,
+        ownerCollateralAccount,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: m.eventAuthority,
+        program: PROGRAM_ID,
+      })
+      .instruction()
+  );
+  return ownerTransaction(params.owner, instructions);
+}
+
+async function buildWithdrawLeverageCollateralTx(params: {
+  owner: PublicKey;
+  market: StoredMarket;
+  positionId: PublicKey;
+  debtAsset: number;
+  amount: bigint;
+  minAmountOut: bigint;
+}) {
+  const { program } = initializeRuntime();
+  const m = marketFromStored(params.market);
+  const isDebtBase = params.debtAsset === 0;
+  const collateralMint = isDebtBase ? m.quoteMint : m.baseMint;
+  const leverageCollateralVault = deriveLeverageCollateralVault(m.market, collateralMint);
+  const instructions: TransactionInstruction[] = [];
+  const ownerCollateralAccount = await maybeAddAta(
+    instructions,
+    params.owner,
+    collateralMint,
+    isDebtBase ? m.quoteTokenProgram : m.baseTokenProgram
+  );
+
+  instructions.push(
+    await program.methods
+      .withdrawLeverageCollateral({
+        debtAsset: params.debtAsset,
+        amount: toBN(params.amount),
+        minAmountOut: toBN(params.minAmountOut),
+      })
+      .accounts({
+        market: m.market,
+        futarchyAuthority: m.futarchyAuthority,
+        owner: params.owner,
+        leveragePosition: deriveLeveragePosition(m.market, params.positionId),
+        collateralMint,
+        leverageCollateralVault,
+        ownerCollateralAccount,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: m.eventAuthority,
@@ -2483,32 +2681,52 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     const positionId = optionalPublicKey(body.positionId) ?? Keypair.generate().publicKey;
     const debtAsset = debtAssetFromBody(body, 1);
     const marginMode = Number(body.marginMode ?? body.margin_mode ?? 0);
-    if (marginMode !== 0) {
-      throw new Error("Only debt-asset margin (marginMode=0) is supported by open-leverage");
+    if (marginMode !== 0 && marginMode !== 1) {
+      throw new Error("marginMode must be 0 (debt) or 1 (collateral)");
     }
-    const assetDecimals = debtAsset === 0 ? stored.baseDecimals : stored.quoteDecimals;
-    const transaction = (
-      await buildOpenLeverageTx({
+    const debtDecimals = debtAsset === 0 ? stored.baseDecimals : stored.quoteDecimals;
+    const collateralDecimals = debtAsset === 0 ? stored.quoteDecimals : stored.baseDecimals;
+    const marginAmount = rawOrUiAmount(
+      body,
+      ["marginAmountRaw"],
+      ["marginAmount", "margin"],
+      marginMode === 0 ? debtDecimals : collateralDecimals,
+      "100"
+    );
+    const multiplierBps = Number(body.multiplierBps ?? 20000);
+    const transactionBuilder = marginMode === 0
+      ? buildOpenLeverageTx({
         owner,
         market: stored,
         positionId,
         debtAsset,
-        marginAmount: rawOrUiAmount(
-          body,
-          ["marginAmountRaw"],
-          ["marginAmount", "margin"],
-          assetDecimals,
-          "100"
-        ),
-        multiplierBps: Number(body.multiplierBps ?? 20000),
-        minCollateralOut: rawOrUiAmount(
+        marginAmount,
+        multiplierBps,
+        minAmountOut: rawOrUiAmount(
           body,
           ["minCollateralOutRaw"],
           ["minCollateralOut", "minAmountOut"],
-          debtAsset === 0 ? stored.quoteDecimals : stored.baseDecimals,
+          collateralDecimals,
           "0"
         ),
       })
+      : buildOpenCollateralMarginLeverageTx({
+        owner,
+        market: stored,
+        positionId,
+        debtAsset,
+        marginAmount,
+        multiplierBps,
+        maxDebtIn: rawOrUiAmount(
+          body,
+          ["maxDebtInRaw"],
+          ["maxDebtIn"],
+          debtDecimals,
+          "0"
+        ),
+      });
+    const transaction = (
+      await transactionBuilder
     ).serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
     return txResponse("open-leverage", owner, stored, transaction, {
       positionId: positionId.toBase58(),
@@ -2525,11 +2743,12 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     const positionId = requiredPositionId(body);
     const debtAsset = debtAssetFromBody(body, 1);
     const marginMode = Number(body.marginMode ?? body.margin_mode ?? 0);
-    if (marginMode !== 0) {
-      throw new Error("Only debt-asset margin (marginMode=0) is supported by close-leverage");
+    if (marginMode !== 0 && marginMode !== 1) {
+      throw new Error("marginMode must be 0 (debt) or 1 (collateral)");
     }
-    const transaction = (
-      await buildCloseLeverageTx({
+    const collateralDecimals = debtAsset === 0 ? stored.quoteDecimals : stored.baseDecimals;
+    const transactionBuilder = marginMode === 0
+      ? buildCloseLeverageTx({
         owner,
         market: stored,
         positionId,
@@ -2538,10 +2757,32 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
           body,
           ["minCollateralOutRaw"],
           ["minCollateralOut", "minAmountOut"],
-          debtAsset === 0 ? stored.quoteDecimals : stored.baseDecimals,
+          collateralDecimals,
           "0"
         ),
       })
+      : buildCloseCollateralMarginLeverageTx({
+        owner,
+        market: stored,
+        positionId,
+        debtAsset,
+        maxCollateralIn: rawOrUiAmount(
+          body,
+          ["maxCollateralInRaw"],
+          ["maxCollateralIn"],
+          collateralDecimals,
+          "0"
+        ),
+        minResidualOut: rawOrUiAmount(
+          body,
+          ["minResidualOutRaw"],
+          ["minResidualOut", "minAmountOut"],
+          collateralDecimals,
+          "0"
+        ),
+      });
+    const transaction = (
+      await transactionBuilder
     ).serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
     return txResponse("close-leverage", owner, stored, transaction, {
       positionId: positionId.toBase58(),
@@ -2588,6 +2829,69 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
       })
     ).serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
     return txResponse("remove-leverage-margin", owner, stored, transaction, {
+      positionId: positionId.toBase58(),
+      debtAsset,
+    });
+  }
+
+  if (
+    path === "/api/v1/fork/tx/deposit-leverage-collateral" ||
+    path === "/api/v2/fork/tx/deposit-leverage-collateral"
+  ) {
+    const positionId = requiredPositionId(body);
+    const debtAsset = debtAssetFromBody(body, 1);
+    const collateralDecimals = debtAsset === 0 ? stored.quoteDecimals : stored.baseDecimals;
+    const transaction = (
+      await buildDepositLeverageCollateralTx({
+        owner,
+        market: stored,
+        positionId,
+        debtAsset,
+        amount: rawOrUiAmount(
+          body,
+          ["amountRaw"],
+          ["amount", "collateralAmount"],
+          collateralDecimals,
+          "1"
+        ),
+      })
+    ).serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
+    return txResponse("deposit-leverage-collateral", owner, stored, transaction, {
+      positionId: positionId.toBase58(),
+      debtAsset,
+    });
+  }
+
+  if (
+    path === "/api/v1/fork/tx/withdraw-leverage-collateral" ||
+    path === "/api/v2/fork/tx/withdraw-leverage-collateral"
+  ) {
+    const positionId = requiredPositionId(body);
+    const debtAsset = debtAssetFromBody(body, 1);
+    const collateralDecimals = debtAsset === 0 ? stored.quoteDecimals : stored.baseDecimals;
+    const transaction = (
+      await buildWithdrawLeverageCollateralTx({
+        owner,
+        market: stored,
+        positionId,
+        debtAsset,
+        amount: rawOrUiAmount(
+          body,
+          ["amountRaw"],
+          ["amount", "collateralAmount"],
+          collateralDecimals,
+          "1"
+        ),
+        minAmountOut: rawOrUiAmount(
+          body,
+          ["minAmountOutRaw"],
+          ["minAmountOut"],
+          collateralDecimals,
+          "0"
+        ),
+      })
+    ).serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
+    return txResponse("withdraw-leverage-collateral", owner, stored, transaction, {
       positionId: positionId.toBase58(),
       debtAsset,
     });

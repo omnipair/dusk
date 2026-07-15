@@ -69,6 +69,29 @@ const ix = await dusk.write.instruction(
 `write.builder(...)`, `write.transaction(...)`, and `write.rpc(...)` expose the
 same generic path for every Dusk instruction in the IDL.
 
+## Isolated Leverage
+
+`deriveLeverageRoute` maps the held asset and wallet funding asset to Dusk's
+debt side and margin mode:
+
+```typescript
+const route = deriveLeverageRoute({
+  baseMint: metaMint,
+  quoteMint: usdcMint,
+  longAssetMint: metaMint,
+  fundingMint: metaMint,
+});
+
+// route.debtAsset === 1
+// route.marginMode === LEVERAGE_MARGIN_MODE.COLLATERAL
+```
+
+Debt margin uses `openLeverage`/`closeLeverage`. Collateral margin uses
+`openCollateralMarginLeverage`/`closeCollateralMarginLeverage`, preserving the
+funding token as the normal-close settlement token. The SDK also exports
+`quoteLeverageExactOutput` and `addLeverageSlippage` for constructing
+`maxDebtIn` and `maxCollateralIn` bounds.
+
 ## Get On-Chain State
 
 ```typescript

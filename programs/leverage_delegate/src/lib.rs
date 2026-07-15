@@ -9,8 +9,11 @@ use dusk::{
     instructions::{
         LeverageDelegationApproval, LEVERAGE_DELEGATE_CLOSE, LEVERAGE_DELEGATE_CLOSE_SETTLED,
     },
-    shared::{math::ceil_div, token::get_transfer_fee},
-    state::{LeverageDelegation, LeveragePosition, Market},
+    shared::{
+        math::ceil_div,
+        token::{get_transfer_fee, get_transfer_inverse_fee},
+    },
+    state::{LeverageDelegation, LeverageMarginMode, LeveragePosition, Market, MarketAsset},
 };
 use std::cmp::min;
 
@@ -99,7 +102,7 @@ pub struct LeverageOrder {
     pub order_id: u64,
     pub kind: u8,
     pub trigger_closeout_price_nad: u64,
-    pub staged_margin: u64,
+    pub staged_incentive_basis: u64,
     pub staged_custody_token_account: Pubkey,
     pub staged_output_mint: Pubkey,
     pub staged_output_amount: u64,
@@ -350,32 +353,38 @@ impl<'info> BeforeLeverageOrder<'info> {
             order.trigger_closeout_price_nad,
         )?;
         let debt_asset = ctx.accounts.leverage_position.debt_asset()?;
-        let debt_mint = ctx.accounts.market.side(debt_asset)?.asset_mint;
+        let settlement_plan =
+            close_settlement_plan(&ctx.accounts.market, &ctx.accounts.leverage_position)?;
+        let settlement_mint = ctx
+            .accounts
+            .market
+            .side(settlement_plan.settlement_asset)?
+            .asset_mint;
         require_keys_eq!(
             ctx.accounts.token_mint.key(),
-            debt_mint,
+            settlement_mint,
             LeverageDelegateError::InvalidTokenAccount
         );
         require!(
             ctx.accounts.custody_token_account.amount == 0,
             LeverageDelegateError::InvalidTokenAccount
         );
-        let closeout_value = ctx
-            .accounts
-            .market
-            .leverage_closeout_value(&ctx.accounts.leverage_position)?;
-        let debt_amount = ctx
-            .accounts
-            .leverage_position
-            .debt_amount(&ctx.accounts.market.debt)?;
-        let residual = closeout_value
-            .checked_sub(debt_amount)
+        let input_transfer_fee = settlement_plan
+            .collateral_swap_input
+            .map(|amount| {
+                get_transfer_inverse_fee(&ctx.accounts.token_mint.to_account_info(), amount)
+            })
+            .transpose()?
+            .unwrap_or(0);
+        let residual = settlement_plan
+            .gross_residual_before_input_transfer_fee
+            .checked_sub(input_transfer_fee)
             .ok_or(LeverageDelegateError::InvalidOrder)?;
         let output_amount =
             transfer_net_amount(&ctx.accounts.token_mint.to_account_info(), residual)?;
         stage_close_settlement(
             order,
-            ctx.accounts.leverage_position.margin_amount,
+            output_amount,
             ctx.accounts.custody_token_account.key(),
             ctx.accounts.token_mint.key(),
             output_amount,
@@ -414,7 +423,7 @@ impl<'info> AfterCloseOrder<'info> {
         let order_market = ctx.accounts.order.market;
         let order_owner = ctx.accounts.order.owner;
         let order_position = ctx.accounts.order.position;
-        let staged_margin = ctx.accounts.order.staged_margin;
+        let staged_incentive_basis = ctx.accounts.order.staged_incentive_basis;
         let staged_output_amount = ctx.accounts.order.staged_output_amount;
         let custody_token_account_key = ctx.accounts.custody_token_account.key();
         let token_mint_key = ctx.accounts.token_mint.key();
@@ -423,7 +432,7 @@ impl<'info> AfterCloseOrder<'info> {
         let amount = ctx.accounts.custody_token_account.amount;
 
         if amount > 0 {
-            let incentive = executor_incentive(amount, staged_margin)?;
+            let incentive = executor_incentive(amount, staged_incentive_basis)?;
             let owner_amount = amount
                 .checked_sub(incentive)
                 .ok_or(LeverageDelegateError::MathOverflow)?;
@@ -485,8 +494,44 @@ impl<'info> AfterCloseOrder<'info> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CloseSettlementPlan {
+    settlement_asset: MarketAsset,
+    gross_residual_before_input_transfer_fee: u64,
+    collateral_swap_input: Option<u64>,
+}
+
+fn close_settlement_plan(
+    market: &Market,
+    position: &LeveragePosition,
+) -> Result<CloseSettlementPlan> {
+    let debt_amount = position.debt_amount(&market.debt)?;
+    let settlement_asset = position.settlement_asset()?;
+    match position.margin_mode()? {
+        LeverageMarginMode::Debt => Ok(CloseSettlementPlan {
+            settlement_asset,
+            gross_residual_before_input_transfer_fee: market
+                .leverage_closeout_value(position)?
+                .checked_sub(debt_amount)
+                .ok_or(LeverageDelegateError::InvalidOrder)?,
+            collateral_swap_input: None,
+        }),
+        LeverageMarginMode::Collateral => {
+            let swap = market.quote_leverage_swap_exact_output(settlement_asset, debt_amount)?;
+            Ok(CloseSettlementPlan {
+                settlement_asset,
+                gross_residual_before_input_transfer_fee: position
+                    .collateral_amount
+                    .checked_sub(swap.amount_in)
+                    .ok_or(LeverageDelegateError::InvalidOrder)?,
+                collateral_swap_input: Some(swap.amount_in),
+            })
+        }
+    }
+}
+
 fn reset_staged_settlement(order: &mut LeverageOrder) {
-    order.staged_margin = 0;
+    order.staged_incentive_basis = 0;
     order.staged_custody_token_account = Pubkey::default();
     order.staged_output_mint = Pubkey::default();
     order.staged_output_amount = 0;
@@ -494,12 +539,12 @@ fn reset_staged_settlement(order: &mut LeverageOrder) {
 
 fn stage_close_settlement(
     order: &mut LeverageOrder,
-    margin: u64,
+    incentive_basis: u64,
     custody_token_account: Pubkey,
     output_mint: Pubkey,
     output_amount: u64,
 ) {
-    order.staged_margin = margin;
+    order.staged_incentive_basis = incentive_basis;
     order.staged_custody_token_account = custody_token_account;
     order.staged_output_mint = output_mint;
     order.staged_output_amount = output_amount;
@@ -617,11 +662,11 @@ fn require_trigger_met(
     Ok(())
 }
 
-fn executor_incentive(amount: u64, staged_margin: u64) -> Result<u64> {
+fn executor_incentive(amount: u64, settlement_basis: u64) -> Result<u64> {
     Ok(min(
         amount,
         ceil_div(
-            (staged_margin as u128)
+            (settlement_basis as u128)
                 .checked_mul(EXECUTOR_INCENTIVE_BPS as u128)
                 .ok_or(LeverageDelegateError::MathOverflow)?,
             BPS_DENOMINATOR as u128,
@@ -666,6 +711,63 @@ pub enum LeverageDelegateError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dusk::state::{
+        Debt, HlpVault, Insurance, MarketConfig, MarketSide, PendingAuthorityChange,
+        PendingConfigChange, ReserveShares, Reserves, Risk,
+    };
+
+    fn test_market(base_cash: u64, quote_cash: u64) -> Market {
+        let mut base_side = MarketSide::default();
+        base_side.reserves = Reserves {
+            live_reserve: base_cash,
+            cash_reserve: base_cash,
+            reserved_liability: 0,
+        };
+        base_side.shares = ReserveShares {
+            ylp_supply: base_cash,
+        };
+        let mut quote_side = MarketSide::default();
+        quote_side.reserves = Reserves {
+            live_reserve: quote_cash,
+            cash_reserve: quote_cash,
+            reserved_liability: 0,
+        };
+        quote_side.shares = ReserveShares {
+            ylp_supply: quote_cash,
+        };
+        Market {
+            version: 2,
+            base_mint: Pubkey::new_unique(),
+            quote_mint: Pubkey::new_unique(),
+            ylp_mint: Pubkey::new_unique(),
+            operator: Pubkey::new_unique(),
+            manager: Pubkey::new_unique(),
+            base_side,
+            quote_side,
+            config: MarketConfig {
+                swap_fee_bps: 0,
+                ..MarketConfig::default()
+            },
+            debt: Debt {
+                base_borrow_index_nad: NAD as u128,
+                quote_borrow_index_nad: NAD as u128,
+                base_rate_at_target_nad: dusk::constants::INTEREST_INITIAL_RATE_AT_TARGET_NAD,
+                quote_rate_at_target_nad: dusk::constants::INTEREST_INITIAL_RATE_AT_TARGET_NAD,
+                ..Debt::default()
+            },
+            base_hlp_vault: HlpVault::default(),
+            quote_hlp_vault: HlpVault::default(),
+            risk: Risk::default(),
+            insurance: Insurance::default(),
+            pending_config: PendingConfigChange::default(),
+            pending_operator: PendingAuthorityChange::default(),
+            pending_manager: PendingAuthorityChange::default(),
+            params_hash: [0u8; 32],
+            last_update_slot: 0,
+            reduce_only: false,
+            bump: 255,
+        }
+    }
 
     fn leverage_order() -> LeverageOrder {
         LeverageOrder {
@@ -675,12 +777,76 @@ mod tests {
             order_id: 1,
             kind: ORDER_KIND_TAKE_PROFIT,
             trigger_closeout_price_nad: NAD,
-            staged_margin: 0,
+            staged_incentive_basis: 0,
             staged_custody_token_account: Pubkey::default(),
             staged_output_mint: Pubkey::default(),
             staged_output_amount: 0,
             bump: 255,
         }
+    }
+
+    fn leverage_position(margin_mode: LeverageMarginMode) -> LeveragePosition {
+        LeveragePosition {
+            owner: Pubkey::new_unique(),
+            market: Pubkey::new_unique(),
+            position_id: Pubkey::new_unique(),
+            debt_asset: dusk::state::MarketAsset::Base.code(),
+            margin_mode: margin_mode.code(),
+            collateral_amount: 2_000,
+            margin_amount: 1_000,
+            open_notional: 2_000,
+            debt_principal: 1_000,
+            debt_shares: 1_000,
+            multiplier_bps: 20_000,
+            opened_at: 0,
+            opened_slot: 0,
+            bump: 255,
+        }
+    }
+
+    #[test]
+    fn settlement_asset_selection_supports_both_margin_modes() {
+        let debt_margin = leverage_position(LeverageMarginMode::Debt);
+        assert_eq!(
+            debt_margin.settlement_asset().unwrap(),
+            dusk::state::MarketAsset::Base
+        );
+
+        let collateral_margin = leverage_position(LeverageMarginMode::Collateral);
+        assert_eq!(
+            collateral_margin.settlement_asset().unwrap(),
+            dusk::state::MarketAsset::Quote
+        );
+    }
+
+    #[test]
+    fn close_settlement_plans_match_each_margin_mode() {
+        let market = test_market(1_000_000, 1_000_000);
+
+        let debt_margin = leverage_position(LeverageMarginMode::Debt);
+        let debt_plan = close_settlement_plan(&market, &debt_margin).unwrap();
+        let debt_amount = debt_margin.debt_amount(&market.debt).unwrap();
+        assert_eq!(debt_plan.settlement_asset, MarketAsset::Base);
+        assert_eq!(debt_plan.collateral_swap_input, None);
+        assert_eq!(
+            debt_plan.gross_residual_before_input_transfer_fee,
+            market.leverage_closeout_value(&debt_margin).unwrap() - debt_amount
+        );
+
+        let collateral_margin = leverage_position(LeverageMarginMode::Collateral);
+        let collateral_plan = close_settlement_plan(&market, &collateral_margin).unwrap();
+        let collateral_swap = market
+            .quote_leverage_swap_exact_output(MarketAsset::Quote, debt_amount)
+            .unwrap();
+        assert_eq!(collateral_plan.settlement_asset, MarketAsset::Quote);
+        assert_eq!(
+            collateral_plan.collateral_swap_input,
+            Some(collateral_swap.amount_in)
+        );
+        assert_eq!(
+            collateral_plan.gross_residual_before_input_transfer_fee,
+            collateral_margin.collateral_amount - collateral_swap.amount_in
+        );
     }
 
     #[test]
@@ -691,9 +857,9 @@ mod tests {
     }
 
     #[test]
-    fn executor_incentive_is_five_percent_of_margin_capped_by_residual() {
-        assert_eq!(executor_incentive(1_000, 10_000).unwrap(), 500);
-        assert_eq!(executor_incentive(300, 10_000).unwrap(), 300);
+    fn executor_incentive_uses_settlement_denominated_basis() {
+        assert_eq!(executor_incentive(1_000, 1_000).unwrap(), 50);
+        assert_eq!(executor_incentive(3, 10_000).unwrap(), 3);
     }
 
     #[test]
@@ -717,7 +883,7 @@ mod tests {
         let mint = Pubkey::new_unique();
         stage_close_settlement(&mut order, 10_000, custody, mint, 123);
 
-        assert_eq!(order.staged_margin, 10_000);
+        assert_eq!(order.staged_incentive_basis, 10_000);
         assert_eq!(order.staged_custody_token_account, custody);
         assert_eq!(order.staged_output_mint, mint);
         assert_eq!(order.staged_output_amount, 123);
@@ -768,6 +934,7 @@ mod tests {
         approval.serialize(&mut data).unwrap();
         let decoded = LeverageDelegationApproval::deserialize(&mut data.as_slice()).unwrap();
 
+        assert_eq!(decoded.version, 1);
         assert_eq!(decoded.action, LEVERAGE_DELEGATE_CLOSE);
         assert_eq!(decoded.market, market);
         assert_eq!(decoded.owner, owner);

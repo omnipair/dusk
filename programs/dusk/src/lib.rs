@@ -195,6 +195,14 @@ pub mod dusk {
         CloseCollateralMarginLeverage::handle_close(ctx, args)
     }
 
+    #[access_control(ctx.accounts.update_and_validate(&args))]
+    pub fn delegated_close_collateral_margin_leverage<'info>(
+        ctx: Context<'_, '_, '_, 'info, DelegatedCloseCollateralMarginLeverage<'info>>,
+        args: DelegatedCloseCollateralMarginLeverageArgs,
+    ) -> Result<()> {
+        DelegatedCloseCollateralMarginLeverage::handle_delegated_close(ctx, args)
+    }
+
     #[access_control(ctx.accounts.update_and_validate_delegated(&args))]
     pub fn delegated_close_leverage<'info>(
         ctx: Context<'_, '_, '_, 'info, CloseLeverage<'info>>,

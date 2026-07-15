@@ -82,6 +82,19 @@ function ui(amount, decimals = 6) {
   return (Number(amount) / 10 ** decimals).toFixed(decimals);
 }
 
+function ceilDiv(numerator, denominator) {
+  return (numerator + denominator - 1n) / denominator;
+}
+
+function quoteExactOutput(reserveIn, reserveOut, amountOut, swapFeeBps) {
+  const netInput = ceilDiv(amountOut * reserveIn, reserveOut - amountOut);
+  return ceilDiv(netInput * 10_000n, 10_000n - BigInt(swapFeeBps));
+}
+
+function withSlippage(amount, slippageBps = 200n) {
+  return ceilDiv(amount * (10_000n + slippageBps), 10_000n);
+}
+
 async function main() {
   console.log("\u2554" + "\u2550".repeat(58) + "\u2557");
   console.log("\u2551   Dusk v2 Surfpool \u2014 Full Feature Test Suite       \u2551");
@@ -406,6 +419,116 @@ async function main() {
   });
   await signAndSend(closeBaseLevResp.data.transaction, payer);
   ok("Close base debt leverage");
+
+  async function collateralMarginRoundTrip({
+    debtAsset,
+    marginUi,
+    label,
+  }) {
+    const positionId = new PublicKey(randomBytes(32));
+    const marketBefore = (await fetchJson(`${API}/api/v2/markets/${config.market}`)).data;
+    const collateralDecimals =
+      debtAsset === 0 ? config.quoteDecimals : config.baseDecimals;
+    const marginRaw = BigInt(marginUi) * 10n ** BigInt(collateralDecimals);
+    const supplementalOut = marginRaw; // 2x target: one additional margin unit.
+    const reserveIn = BigInt(
+      debtAsset === 0
+        ? marketBefore.state.baseReserve
+        : marketBefore.state.quoteReserve
+    );
+    const reserveOut = BigInt(
+      debtAsset === 0
+        ? marketBefore.state.quoteReserve
+        : marketBefore.state.baseReserve
+    );
+    const maxDebtIn = withSlippage(
+      quoteExactOutput(
+        reserveIn,
+        reserveOut,
+        supplementalOut,
+        marketBefore.swapFeeBps
+      )
+    );
+
+    const open = await fetchJson(`${API}/api/v2/fork/tx/open-leverage`, {
+      method: "POST",
+      body: JSON.stringify({
+        owner: payer.publicKey.toBase58(),
+        positionId: positionId.toBase58(),
+        debtAsset,
+        marginMode: 1,
+        marginAmountRaw: marginRaw.toString(),
+        multiplierBps: 20_000,
+        maxDebtInRaw: maxDebtIn.toString(),
+      }),
+    });
+    await signAndSend(open.data.transaction, payer);
+    ok(`Open ${label} with collateral-asset margin`);
+
+    const [positionsResponse, marketAfter] = await Promise.all([
+      fetchJson(
+        `${API}/api/v2/fork/leverage/positions?owner=${payer.publicKey.toBase58()}`
+      ),
+      fetchJson(`${API}/api/v2/markets/${config.market}`),
+    ]);
+    const position = positionsResponse.data.positions.find(
+      (item) => item.positionId === positionId.toBase58()
+    );
+    if (!position || position.marginMode !== 1) {
+      throw new Error(`Collateral-margin position missing for ${label}`);
+    }
+    const marketState = marketAfter.data;
+    const borrowIndex = BigInt(
+      debtAsset === 0
+        ? marketState.state.baseBorrowIndexNad
+        : marketState.state.quoteBorrowIndexNad
+    );
+    const debtAmount =
+      (BigInt(position.debtShares) * borrowIndex) / 1_000_000_000n;
+    const closeReserveIn = BigInt(
+      debtAsset === 0
+        ? marketState.state.quoteReserve
+        : marketState.state.baseReserve
+    );
+    const closeReserveOut = BigInt(
+      debtAsset === 0
+        ? marketState.state.baseReserve
+        : marketState.state.quoteReserve
+    );
+    const maxCollateralIn = withSlippage(
+      quoteExactOutput(
+        closeReserveIn,
+        closeReserveOut,
+        debtAmount,
+        marketState.swapFeeBps
+      )
+    );
+    const close = await fetchJson(`${API}/api/v2/fork/tx/close-leverage`, {
+      method: "POST",
+      body: JSON.stringify({
+        owner: payer.publicKey.toBase58(),
+        positionId: positionId.toBase58(),
+        debtAsset,
+        marginMode: 1,
+        maxCollateralInRaw: maxCollateralIn.toString(),
+        minResidualOutRaw: "0",
+      }),
+    });
+    await signAndSend(close.data.transaction, payer);
+    ok(`Close ${label} back into its collateral funding token`);
+  }
+
+  test("Collateral-margin paths (META-funded long and USDC-funded short)");
+  await collateralMarginRoundTrip({
+    debtAsset: 1,
+    marginUi: 10,
+    label: "META long funded with META",
+  });
+  await collateralMarginRoundTrip({
+    debtAsset: 0,
+    marginUi: 100,
+    label: "META short funded with USDC",
+  });
 
   test("v2 endpoint alias ( /api/v2/fork/tx/open-leverage )");
   const levPosId3 = new PublicKey(randomBytes(32));

@@ -484,6 +484,36 @@ fn solvent_liquidation_closes_position_and_pays_residual_incentive() {
 }
 
 #[test]
+fn collateral_margin_liquidation_deliberately_uses_debt_settled_full_unwind() {
+    let mut market = test_market(1_000_000, 1_000_000);
+    let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000, 1_010);
+    position.margin_mode = LeverageMarginMode::Collateral.code();
+    position.margin_amount = 1_010;
+    let expected_swap = market
+        .quote_leverage_swap(MarketAsset::Quote, position.collateral_amount)
+        .unwrap();
+
+    let receipt = market
+        .liquidate_leverage(&mut position, 0, 0, ProtocolAuctionSplit::default())
+        .unwrap();
+
+    let debt_settled_residual = receipt
+        .liquidator_amount
+        .checked_add(receipt.owner_residual)
+        .unwrap();
+    assert_eq!(receipt.swap, expected_swap);
+    assert_eq!(receipt.collateral_sold, 1_010);
+    assert_eq!(receipt.closeout_value, expected_swap.amount_out);
+    assert_eq!(
+        debt_settled_residual,
+        expected_swap.amount_out.saturating_sub(receipt.debt_repaid)
+    );
+    assert_eq!(position.margin_mode, LeverageMarginMode::Collateral.code());
+    assert_eq!(position.debt_shares, 0);
+    assert_eq!(position.collateral_amount, 0);
+}
+
+#[test]
 fn insolvent_liquidation_socializes_unrepaid_principal() {
     let mut market = test_market(1_000_000, 1_000_000);
     let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000, 500);

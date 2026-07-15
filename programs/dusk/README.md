@@ -23,7 +23,7 @@ Omnipair Dusk (v2) exposes the current market instruction set:
 - `swap`
 - `deposit_collateral`, `withdraw_collateral`, `borrow`, `repay`, `liquidate_borrow_position`
 - `deposit_single_sided`, `withdraw_single_sided`
-- `open_leverage`, `close_leverage`, `delegated_close_leverage`, `increase_leverage`, `decrease_leverage`, `add_leverage_margin`, `remove_leverage_margin`, `liquidate_leverage`
+- `open_leverage`, `open_collateral_margin_leverage`, `close_leverage`, `close_collateral_margin_leverage`, `delegated_close_leverage`, `increase_leverage`, `decrease_leverage`, `add_leverage_margin`, `remove_leverage_margin`, `deposit_leverage_collateral`, `withdraw_leverage_collateral`, `liquidate_leverage`
 - `create_leverage_delegation`, `update_leverage_delegation`, `close_leverage_delegation`
 - Futarchy, operator, and revenue administration: `init_futarchy_authority`, `update_futarchy_authority`, `update_protocol_revenue`, `update_revenue_recipients`, `update_protocol_auction_config`, `update_protocol_auction_recipients`, `set_global_reduce_only`, `settle_protocol_auction`, `set_operator`, `set_manager`, `claim_manager_fees`
 
@@ -75,14 +75,30 @@ Closing hLP burns hLP shares, burns the vault's proportional yLP, repays the bor
 
 Dusk includes isolated spot-margin leverage inside the market account model. A leverage position is a user-owned PDA that records margin, collateral, borrowed principal, debt shares, and the debt side for a single market-local position.
 
-Opening leverage:
+Debt-margin opening keeps the original flow:
 
 ```text
-user margin + isolated borrow
+user debt-asset margin + isolated debt borrow
   -> internal GAMM swap
   -> collateral held in a leverage collateral vault
   -> debt tracked in isolated debt buckets
 ```
+
+Collateral-margin opening lets the same directional position be funded with the
+held asset:
+
+```text
+user collateral-asset margin stays in the leverage vault
+  + isolated debt borrow swapped with exact output
+  -> target collateral multiplier
+  -> debt tracked in the same isolated debt buckets
+```
+
+Debt-margin closes sell all collateral, repay debt, and settle in the debt
+asset. Collateral-margin closes buy exactly the debt required for repayment and
+return untouched collateral. Thus either directional exposure can be funded and
+settled with either token in the market. Users can also deposit or withdraw
+collateral independently from repaying or drawing debt.
 
 Users can increase or decrease exposure, add or remove margin, and close the position. Liquidation is permissionless once closeout value falls below the maintenance threshold. Isolated leverage debt contributes to utilization and interest accrual, but it is kept separate from normal borrower debt and aggregate hLP vault debt.
 

@@ -306,6 +306,8 @@ pub struct LeveragePositionLiquidated {
     pub collateral_asset_mint: Pubkey,
     pub margin_mode: u8,
     pub margin_asset_mint: Pubkey,
+    /// Actual payout denomination. Full-unwind liquidation currently sets this
+    /// to the debt mint for both margin modes.
     pub settlement_asset_mint: Pubkey,
     pub debt_repaid: u64,
     pub interest_paid: u64,
