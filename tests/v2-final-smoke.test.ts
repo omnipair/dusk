@@ -1559,6 +1559,9 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         buybacksVaultBps: 2_000,
         teamTreasury: isolatedPayer.publicKey,
         teamTreasuryBps: 3_000,
+        stakingVault: isolatedPayer.publicKey,
+        feeAuctionAcceptedMint: NATIVE_MINT,
+        buybackAuctionAcceptedMint: NATIVE_MINT,
       })
       .accounts({
         deployer: isolatedPayer.publicKey,
@@ -1586,6 +1589,15 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     );
     expect(authority.revenue_distribution.buybacks_vault_bps).to.equal(2_000);
     expect(authority.revenue_distribution.team_treasury_bps).to.equal(3_000);
+    expect(authority.protocol_auction_split.fee_auction_bps).to.equal(10_000);
+    expect(authority.protocol_auction_split.buyback_auction_bps).to.equal(0);
+    expect(authority.fee_auction.accepted_mint.toString()).to.equal(
+      NATIVE_MINT.toString(),
+    );
+    expect(authority.fee_auction.recipients.treasury_bps).to.equal(10_000);
+    expect(authority.buyback_auction.params.duration_slots.toNumber()).to.equal(
+      216_000,
+    );
   });
 
   it("adds balanced liquidity and mints floating yLP shares", async function () {

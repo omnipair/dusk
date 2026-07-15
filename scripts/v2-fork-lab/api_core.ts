@@ -841,48 +841,148 @@ function defaultLpMetadata(kind: "ylp" | "baseHlp" | "quoteHlp") {
   };
 }
 
-async function ensureFutarchyAuthority(futarchyAuthority: PublicKey) {
+function protocolAuctionConfigIsValid(config: unknown): boolean {
+  const acceptedMint = field<PublicKey>(
+    config,
+    "acceptedMint",
+    "accepted_mint",
+  );
+  const recipients = field(config, "recipients");
+  const params = field(config, "params");
+  const treasuryBps = Number(
+    field(recipients, "treasuryBps", "treasury_bps") ?? 0,
+  );
+  const stakingVaultBps = Number(
+    field(recipients, "stakingVaultBps", "staking_vault_bps") ?? 0,
+  );
+  const startMultiplierBps = Number(
+    field(params, "startMultiplierBps", "start_multiplier_bps") ?? 0,
+  );
+  const floorMultiplierBps = Number(
+    field(params, "floorMultiplierBps", "floor_multiplier_bps") ?? 0,
+  );
+  const durationSlots = toBigInt(
+    field(params, "durationSlots", "duration_slots") ?? 0,
+  );
+  const maxReferenceAgeSlots = toBigInt(
+    field(params, "maxReferenceAgeSlots", "max_reference_age_slots") ?? 0,
+  );
+  return Boolean(
+    acceptedMint &&
+    !acceptedMint.equals(PublicKey.default) &&
+    treasuryBps + stakingVaultBps === 10_000 &&
+    startMultiplierBps >= floorMultiplierBps &&
+    floorMultiplierBps > 0 &&
+    durationSlots > 0n &&
+    maxReferenceAgeSlots > 0n,
+  );
+}
+
+function futarchyAuthorityIsValid(authority: unknown): boolean {
+  const distribution = field(
+    authority,
+    "revenueDistribution",
+    "revenue_distribution",
+  );
+  const split = field(
+    authority,
+    "protocolAuctionSplit",
+    "protocol_auction_split",
+  );
+  const distributionTotal =
+    Number(
+      field(distribution, "futarchyTreasuryBps", "futarchy_treasury_bps") ?? 0,
+    ) +
+    Number(field(distribution, "buybacksVaultBps", "buybacks_vault_bps") ?? 0) +
+    Number(field(distribution, "teamTreasuryBps", "team_treasury_bps") ?? 0);
+  const splitTotal =
+    Number(field(split, "feeAuctionBps", "fee_auction_bps") ?? 0) +
+    Number(field(split, "buybackAuctionBps", "buyback_auction_bps") ?? 0);
+  return (
+    distributionTotal === 10_000 &&
+    splitTotal === 10_000 &&
+    protocolAuctionConfigIsValid(
+      field(authority, "feeAuction", "fee_auction"),
+    ) &&
+    protocolAuctionConfigIsValid(
+      field(authority, "buybackAuction", "buyback_auction"),
+    )
+  );
+}
+
+async function ensureFutarchyAuthority(
+  futarchyAuthority: PublicKey,
+  quoteMint: PublicKey,
+) {
   const { program, payer, accountCoder, connection } = initializeRuntime();
   const existing =
     await program.account.futarchyAuthority.fetchNullable(futarchyAuthority);
-  if (existing) return existing;
+  if (existing && futarchyAuthorityIsValid(existing)) return existing;
+  if (existing) {
+    console.warn(
+      `Repairing invalid Dusk futarchy authority ${futarchyAuthority.toBase58()} through Surfpool`,
+    );
+  }
 
   await setLamports(payer.publicKey, DEFAULT_SOL_FUNDING);
 
-  try {
-    const signature = await program.methods
-      .initFutarchyAuthority({
-        authority: payer.publicKey,
-        swapBps: Number(duskEnv("PROTOCOL_SWAP_BPS") ?? "0"),
-        interestBps: Number(duskEnv("PROTOCOL_INTEREST_BPS") ?? "0"),
-        futarchyTreasury: payer.publicKey,
-        futarchyTreasuryBps: 0,
-        buybacksVault: payer.publicKey,
-        buybacksVaultBps: 0,
-        teamTreasury: payer.publicKey,
-        teamTreasuryBps: 10_000,
-      })
-      .accounts({
-        deployer: payer.publicKey,
-        futarchyAuthority,
-        programData: deriveProgramDataAddress(),
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-    console.log(`Dusk futarchy authority initialized: ${signature}`);
-    return await program.account.futarchyAuthority.fetch(futarchyAuthority);
-  } catch (error) {
-    console.warn(
-      `initFutarchyAuthority failed; seeding authority account through Surfpool: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
+  if (!existing) {
+    try {
+      const signature = await program.methods
+        .initFutarchyAuthority({
+          authority: payer.publicKey,
+          swapBps: Number(duskEnv("PROTOCOL_SWAP_BPS") ?? "0"),
+          interestBps: Number(duskEnv("PROTOCOL_INTEREST_BPS") ?? "0"),
+          futarchyTreasury: payer.publicKey,
+          futarchyTreasuryBps: 0,
+          buybacksVault: payer.publicKey,
+          buybacksVaultBps: 0,
+          teamTreasury: payer.publicKey,
+          teamTreasuryBps: 10_000,
+          stakingVault: payer.publicKey,
+          feeAuctionAcceptedMint: quoteMint,
+          buybackAuctionAcceptedMint: quoteMint,
+        })
+        .accounts({
+          deployer: payer.publicKey,
+          futarchyAuthority,
+          programData: deriveProgramDataAddress(),
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+      console.log(`Dusk futarchy authority initialized: ${signature}`);
+      return await program.account.futarchyAuthority.fetch(futarchyAuthority);
+    } catch (error) {
+      console.warn(
+        `initFutarchyAuthority failed; seeding authority account through Surfpool: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   const [, bump] = PublicKey.findProgramAddressSync(
     [seed("futarchy_authority")],
     PROGRAM_ID,
   );
+  const currentSlot = await connection.getSlot("confirmed");
+  const auctionConfig = {
+    accepted_mint: quoteMint,
+    recipients: {
+      treasury: payer.publicKey,
+      staking_vault: payer.publicKey,
+      treasury_bps: 10_000,
+      staking_vault_bps: 0,
+    },
+    params: {
+      start_multiplier_bps: 12_000,
+      floor_multiplier_bps: 8_000,
+      duration_slots: new BN(216_000),
+      max_reference_age_slots: new BN(21_600),
+    },
+    last_settlement_slot: new BN(currentSlot),
+    last_settlement_price_nad: new BN(0),
+  };
   const data = await accountCoder.encode("FutarchyAuthority", {
     version: 1,
     authority: payer.publicKey,
@@ -900,6 +1000,12 @@ async function ensureFutarchyAuthority(futarchyAuthority: PublicKey) {
       buybacks_vault_bps: 0,
       team_treasury_bps: 10_000,
     },
+    protocol_auction_split: {
+      fee_auction_bps: 10_000,
+      buyback_auction_bps: 0,
+    },
+    fee_auction: auctionConfig,
+    buyback_auction: auctionConfig,
     global_reduce_only: false,
     bump,
   });
@@ -1282,7 +1388,10 @@ async function bootstrapUncached(): Promise<StoredMarket> {
     mintDecimals(quoteMint, quoteTokenProgram),
   ]);
 
-  const futarchy = await ensureFutarchyAuthority(addresses.futarchyAuthority);
+  const futarchy = await ensureFutarchyAuthority(
+    addresses.futarchyAuthority,
+    quoteMint,
+  );
   const teamTreasury =
     field<PublicKey>(
       field(futarchy, "recipients"),
