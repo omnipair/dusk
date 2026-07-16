@@ -160,7 +160,6 @@ impl<'info> DepositSingleSided<'info> {
         };
 
         ctx.accounts.market.refresh_risk()?;
-        ctx.accounts.market.assert_risk_circuit_breakers()?;
 
         let (target_reserve_vault, target_mint) = match target_asset {
             MarketAsset::Base => (

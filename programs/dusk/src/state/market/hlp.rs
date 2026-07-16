@@ -300,14 +300,19 @@ impl Market {
         crate::state::market::transitions::hedge::rebalance_hlp_vaults(self)
     }
 
-    pub fn rebalance_hlp_vault_for_swap(
+    pub fn finalize_hlp_vaults_for_swap(
         &mut self,
-        preferred_asset: MarketAsset,
+        base_pre_rebalance: crate::state::market::transitions::hedge::HlpRebalanceReceipt,
+        quote_pre_rebalance: crate::state::market::transitions::hedge::HlpRebalanceReceipt,
     ) -> Result<(
         crate::state::market::transitions::hedge::HlpRebalanceReceipt,
         crate::state::market::transitions::hedge::HlpRebalanceReceipt,
     )> {
-        crate::state::market::transitions::hedge::rebalance_hlp_vault_for_swap(self, preferred_asset)
+        crate::state::market::transitions::hedge::finalize_hlp_vaults_for_swap(
+            self,
+            base_pre_rebalance,
+            quote_pre_rebalance,
+        )
     }
 
     pub fn pre_solve_hlp_vaults_for_swap(

@@ -168,49 +168,6 @@ pub(crate) fn decayed_daily_bucket(bucket: u64, last_slot: u64, current_slot: u6
     u64::try_from(decayed).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
-pub(crate) fn daily_limit_from_liquidity_ema(liquidity_ema: u128, asset_decimals: u8, limit_bps: u16) -> Result<u64> {
-    require!(liquidity_ema > 0, ErrorCode::InsufficientLiquidity);
-    let limit_nad = liquidity_ema
-        .checked_mul(limit_bps as u128)
-        .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    denormalize_from_nad_floor(limit_nad, asset_decimals)
-}
-
-pub(crate) fn assert_price_divergence(spot_price_nad: u64, ema_price_nad: u64, max_divergence_bps: u16) -> Result<()> {
-    require!(
-        spot_price_nad > 0 && ema_price_nad > 0,
-        ErrorCode::InsufficientLiquidity
-    );
-    let diff = spot_price_nad.abs_diff(ema_price_nad);
-    let divergence_bps = (diff as u128)
-        .checked_mul(BPS_DENOMINATOR as u128)
-        .and_then(|value| value.checked_div(ema_price_nad as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    require!(
-        divergence_bps <= max_divergence_bps as u128,
-        ErrorCode::MarketRiskCircuitBreaker
-    );
-    Ok(())
-}
-
-pub(crate) fn assert_k_drawdown(current_k_nad: u128, k_ema_nad: u128, max_drawdown_bps: u16) -> Result<()> {
-    if current_k_nad >= k_ema_nad {
-        return Ok(());
-    }
-    require!(k_ema_nad > 0, ErrorCode::InsufficientLiquidity);
-    let drawdown_bps = k_ema_nad
-        .checked_sub(current_k_nad)
-        .and_then(|value| value.checked_mul(BPS_DENOMINATOR as u128))
-        .and_then(|value| value.checked_div(k_ema_nad))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    require!(
-        drawdown_bps <= max_drawdown_bps as u128,
-        ErrorCode::MarketRiskCircuitBreaker
-    );
-    Ok(())
-}
-
 pub(crate) fn exponential_price_decay(start_price_nad: u64, elapsed_ms: u64, half_life_ms: u64) -> Result<u64> {
     if half_life_ms == 0 || start_price_nad == 0 {
         return Ok(0); // If half-life is 0, it decays instantly.

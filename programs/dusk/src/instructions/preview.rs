@@ -488,17 +488,20 @@ impl<'info> PreviewBorrowPosition<'info> {
 fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<PreviewSide> {
     let side = market.side(asset);
     let opposite_side = market.side(asset.opposite());
-    let (price_ema_nad, directional_price_ema_nad, liquidity_ema_nad) = match asset {
+    let (price_ema_nad, directional_price_ema_nad) = match asset {
         MarketAsset::Base => (
             market.risk.base_price_ema_nad,
             market.risk.directional_base_price_ema_nad,
-            market.risk.base_liquidity_ema,
         ),
         MarketAsset::Quote => (
             market.risk.quote_price_ema_nad,
             market.risk.directional_quote_price_ema_nad,
-            market.risk.quote_liquidity_ema,
         ),
+    };
+    let (base_depth, quote_depth) = market.conservative_risk_reserve_depths(&market.risk)?;
+    let liquidity_ema_nad = match asset {
+        MarketAsset::Base => normalize_to_nad(base_depth as u128, side.asset_decimals)?,
+        MarketAsset::Quote => normalize_to_nad(quote_depth as u128, side.asset_decimals)?,
     };
     let borrow_index_nad = market.debt.borrow_index(asset);
     let rate_at_target_nad = match asset {

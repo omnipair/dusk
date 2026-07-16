@@ -11,8 +11,6 @@ use super::*;
             directional_ema_half_life_ms: 60_000,
             k_ema_half_life_ms: 60_000,
             max_daily_borrow_bps: 2_000,
-            spot_ema_divergence_bps: 1_000,
-            k_ema_drawdown_bps: 1_000,
             utilized_collateral_cap_bps: 15_000,
             market_health_min_bps: 11_000,
             start_time: 0,
@@ -76,19 +74,6 @@ use super::*;
     fn market_config_rejects_invalid_hlp_leverage() {
         let mut config = valid_config();
         config.target_hlp_leverage_bps = 19_999;
-
-        let err = config.validate().unwrap_err();
-
-        assert_eq!(
-            err,
-            anchor_lang::prelude::error!(ErrorCode::InvalidMarketConfig)
-        );
-    }
-
-    #[test]
-    fn market_config_rejects_invalid_k_drawdown_limit() {
-        let mut config = valid_config();
-        config.k_ema_drawdown_bps = BPS_DENOMINATOR + 1;
 
         let err = config.validate().unwrap_err();
 

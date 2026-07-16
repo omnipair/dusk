@@ -16,8 +16,6 @@ pub struct MarketConfig {
     pub directional_ema_half_life_ms: u64,
     pub k_ema_half_life_ms: u64,
     pub max_daily_borrow_bps: u16,
-    pub spot_ema_divergence_bps: u16,
-    pub k_ema_drawdown_bps: u16,
     pub utilized_collateral_cap_bps: u16,
     pub market_health_min_bps: u16,
     pub start_time: i64,
@@ -38,10 +36,7 @@ impl MarketConfig {
             ErrorCode::InvalidMarketConfig
         );
         require!(
-            self.max_daily_borrow_bps <= BPS_DENOMINATOR
-                && self.spot_ema_divergence_bps <= BPS_DENOMINATOR
-                && self.k_ema_drawdown_bps <= BPS_DENOMINATOR
-                && self.settlement_divergence_bps <= BPS_DENOMINATOR,
+            self.max_daily_borrow_bps <= BPS_DENOMINATOR && self.settlement_divergence_bps <= BPS_DENOMINATOR,
             ErrorCode::InvalidMarketConfig
         );
         require!(

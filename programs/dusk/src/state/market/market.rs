@@ -442,7 +442,6 @@ impl Market {
             }
         }
         self.refresh_risk()?;
-        self.assert_risk_circuit_breakers()?;
 
         Ok(CollateralReceipt {
             collateral_credit: 0,
@@ -464,7 +463,7 @@ impl Market {
             MarketAsset::Base => Debt::debt_to_shares(borrow_amount, self.debt.base_borrow_index_nad)?,
             MarketAsset::Quote => Debt::debt_to_shares(borrow_amount, self.debt.quote_borrow_index_nad)?,
         };
-        if self.risk.liquidity_ema == 0 {
+        if self.risk.k_ema == 0 {
             self.refresh_risk()?;
         }
         let daily_limit_slot = self.risk.last_snapshot_slot;
@@ -509,7 +508,6 @@ impl Market {
         sync_borrow_utilization(self, borrow_position, borrow_asset, &risk)?;
         let market_health = self.market_health()?;
         self.assert_market_health_snapshot(&market_health)?;
-        self.assert_risk_circuit_breakers()?;
         // Utilization was just reconciled against the current debt cap. Reuse
         // the refreshed risk snapshot instead of recomputing the same cap/health
         // path again, which is heap-expensive in SBF.
@@ -655,7 +653,6 @@ impl Market {
         };
         let debt_delta = -i64::try_from(debt_reduction).map_err(|_| ErrorCode::Overflow)?;
         self.refresh_risk()?;
-        self.assert_risk_circuit_breakers()?;
         let market_health = self.market_health()?;
         DebtReceipt::from_market(self, debt_delta, interest_paid, &market_health)
     }

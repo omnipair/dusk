@@ -524,8 +524,6 @@ function defaultMarketConfig() {
     ),
     kEmaHalfLifeMs: toBN(duskEnv("K_EMA_HALF_LIFE_MS") ?? "60000"),
     maxDailyBorrowBps: Number(duskEnv("MAX_DAILY_BORROW_BPS") ?? "2000"),
-    spotEmaDivergenceBps: Number(duskEnv("SPOT_EMA_DIVERGENCE_BPS") ?? "1000"),
-    kEmaDrawdownBps: Number(duskEnv("K_EMA_DRAWDOWN_BPS") ?? "1000"),
     utilizedCollateralCapBps: Number(
       duskEnv("UTILIZED_COLLATERAL_CAP_BPS") ?? "15000"
     ),

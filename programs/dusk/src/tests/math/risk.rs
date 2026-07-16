@@ -42,17 +42,3 @@ use super::*;
         assert_eq!(ceil_amount, 52_632);
         assert_eq!(floor_amount, 52_631);
     }
-
-    #[test]
-    fn daily_limit_from_liquidity_ema_sizes_by_bps_and_decimals() {
-        let limit = daily_limit_from_liquidity_ema(1_000 * NAD as u128, 6, 2_000).unwrap();
-
-        assert_eq!(limit, 200_000_000);
-    }
-
-    #[test]
-    fn daily_limit_from_liquidity_ema_rejects_zero_liquidity() {
-        let err = daily_limit_from_liquidity_ema(0, 6, 2_000).unwrap_err();
-
-        assert_eq!(err, error!(ErrorCode::InsufficientLiquidity));
-    }

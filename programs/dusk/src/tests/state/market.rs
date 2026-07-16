@@ -36,8 +36,6 @@ use super::*;
             directional_ema_half_life_ms: MIN_HALF_LIFE_MS,
             k_ema_half_life_ms: MIN_HALF_LIFE_MS,
             max_daily_borrow_bps: BPS_DENOMINATOR,
-            spot_ema_divergence_bps: BPS_DENOMINATOR,
-            k_ema_drawdown_bps: BPS_DENOMINATOR,
             utilized_collateral_cap_bps: 15_000,
             market_health_min_bps: BPS_DENOMINATOR,
             start_time: 0,
@@ -456,15 +454,14 @@ use super::*;
     }
 
     #[test]
-    fn borrower_risk_valuation_uses_liquidity_ema_depth_cap() {
+    fn borrower_risk_valuation_uses_k_ema_depth_cap() {
         let mut market = invariant_market(1_000_000, 1_000_000);
         market.risk = Risk {
             base_price_ema_nad: NAD,
             quote_price_ema_nad: NAD,
             directional_base_price_ema_nad: NAD,
             directional_quote_price_ema_nad: NAD,
-            base_liquidity_ema: 100_000_u128 * NAD as u128,
-            quote_liquidity_ema: 100_000_u128 * NAD as u128,
+            k_ema: (100_000_u128 * NAD as u128).pow(2),
             ..Risk::default()
         };
 
@@ -482,6 +479,140 @@ use super::*;
 
         assert_eq!(value, expected);
         assert!(value < live_depth_value);
+    }
+
+    #[test]
+    fn daily_limits_use_conservative_k_at_current_spot_ratio() {
+        let mut market = invariant_market(4_000_000, 1_000_000);
+        market.risk.k_ema = (1_000_000_u128 * NAD as u128).pow(2);
+
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Base, 2_000)
+                .unwrap(),
+            400_000
+        );
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Quote, 2_000)
+                .unwrap(),
+            100_000
+        );
+    }
+
+    #[test]
+    fn daily_limits_use_live_depth_when_k_ema_is_empty_or_above_spot() {
+        let mut market = invariant_market(800_000, 1_200_000);
+
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Base, 2_500)
+                .unwrap(),
+            200_000
+        );
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Quote, 2_500)
+                .unwrap(),
+            300_000
+        );
+
+        market.risk.k_ema = (2_000_000_u128 * NAD as u128).pow(2);
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Base, 2_500)
+                .unwrap(),
+            200_000
+        );
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Quote, 2_500)
+                .unwrap(),
+            300_000
+        );
+    }
+
+    #[test]
+    fn daily_limits_follow_k_drawdown_growth_and_proportional_liquidity() {
+        let mut market = invariant_market(2_000_000, 2_000_000);
+        market.risk.k_ema = (1_000_000_u128 * NAD as u128).pow(2);
+
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Base, 1_000)
+                .unwrap(),
+            100_000
+        );
+
+        market.base_side.reserves.live_reserve = 500_000;
+        market.quote_side.reserves.live_reserve = 500_000;
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Base, 1_000)
+                .unwrap(),
+            50_000
+        );
+
+        market.base_side.reserves.live_reserve = 2_000_000;
+        market.quote_side.reserves.live_reserve = 500_000;
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Base, 1_000)
+                .unwrap(),
+            200_000
+        );
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Quote, 1_000)
+                .unwrap(),
+            50_000
+        );
+    }
+
+    #[test]
+    fn daily_limits_respect_mixed_token_decimals() {
+        let mut market = invariant_market(1_000_000_000, 2_000_000_000_000);
+        market.base_side.asset_decimals = 6;
+        market.quote_side.asset_decimals = 9;
+
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Base, 1_000)
+                .unwrap(),
+            100_000_000
+        );
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Quote, 1_000)
+                .unwrap(),
+            200_000_000_000
+        );
+    }
+
+    proptest! {
+        #[test]
+        fn conservative_k_depth_and_daily_limit_never_exceed_live_inventory(
+            base in 1_000_u64..1_000_000_000,
+            quote in 1_000_u64..1_000_000_000,
+            k_scale_bps in 1_u128..20_001,
+            limit_bps in 0_u16..=BPS_DENOMINATOR,
+        ) {
+            let mut market = invariant_market(base, quote);
+            let spot_k = (base as u128 * NAD as u128)
+                .checked_mul(quote as u128 * NAD as u128)
+                .unwrap();
+            market.risk.k_ema = (spot_k / BPS_DENOMINATOR as u128)
+                .checked_mul(k_scale_bps)
+                .unwrap();
+
+            let (base_depth, quote_depth) = market
+                .conservative_risk_reserve_depths(&market.risk)
+                .unwrap();
+            prop_assert!(base_depth <= base);
+            prop_assert!(quote_depth <= quote);
+            prop_assert!(market.daily_limit_for_side(MarketAsset::Base, limit_bps).unwrap() <= base);
+            prop_assert!(market.daily_limit_for_side(MarketAsset::Quote, limit_bps).unwrap() <= quote);
+        }
     }
 
     #[test]

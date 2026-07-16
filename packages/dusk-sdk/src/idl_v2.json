@@ -2337,38 +2337,6 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
-        },
-        {
-          "name": "event_authority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  95,
-                  95,
-                  101,
-                  118,
-                  101,
-                  110,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "program"
         }
       ],
       "args": [
@@ -6838,38 +6806,6 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
-        },
-        {
-          "name": "event_authority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  95,
-                  95,
-                  101,
-                  118,
-                  101,
-                  110,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "program"
         }
       ],
       "args": [
@@ -7749,191 +7685,176 @@
     },
     {
       "code": 6078,
-      "name": "LiquidityDeltaCircuitBreaker",
-      "msg": "Operation blocked: same-transaction liquidity delta detected"
-    },
-    {
-      "code": 6079,
-      "name": "LiquidityDeltaCircuitBreakerCpi",
-      "msg": "Operation blocked: liquidity delta instruction must be top-level"
-    },
-    {
-      "code": 6080,
       "name": "InvalidInstructionsSysvar",
       "msg": "Invalid instructions sysvar"
     },
     {
-      "code": 6081,
+      "code": 6079,
       "name": "InsufficientPostWithdrawDebtCoverage",
       "msg": "Insufficient post-withdraw debt coverage"
     },
     {
-      "code": 6082,
+      "code": 6080,
       "name": "InvalidRecipient",
       "msg": "Invalid recipient - address does not match configured revenue recipient"
     },
     {
-      "code": 6083,
+      "code": 6081,
       "name": "InvalidMarket",
       "msg": "Invalid market"
     },
     {
-      "code": 6084,
+      "code": 6082,
       "name": "InvalidMarketConfig",
       "msg": "Invalid market config"
     },
     {
-      "code": 6085,
+      "code": 6083,
       "name": "InvalidSettlementPrice",
       "msg": "Invalid settlement price"
     },
     {
-      "code": 6086,
+      "code": 6084,
       "name": "InsufficientMarketShareBacking",
       "msg": "Market reserve share backing is insufficient"
     },
     {
-      "code": 6087,
+      "code": 6085,
       "name": "InvalidMarketSide",
       "msg": "Invalid market side"
     },
     {
-      "code": 6088,
+      "code": 6086,
       "name": "InvalidYieldAccount",
       "msg": "Invalid yield account"
     },
     {
-      "code": 6089,
+      "code": 6087,
       "name": "InvalidHlpVault",
       "msg": "Invalid hLP vault"
     },
     {
-      "code": 6090,
+      "code": 6088,
       "name": "NotEnoughAccounts",
       "msg": "Not enough remaining accounts"
     },
     {
-      "code": 6091,
+      "code": 6089,
       "name": "HlpSettlementUnavailable",
       "msg": "hLP settlement is unavailable"
     },
     {
-      "code": 6092,
+      "code": 6090,
       "name": "InsufficientBorrowHeadroom",
       "msg": "Borrow headroom is insufficient"
     },
     {
-      "code": 6093,
+      "code": 6091,
       "name": "InsufficientMarketHealth",
       "msg": "Market health is insufficient"
     },
     {
-      "code": 6094,
+      "code": 6092,
       "name": "InvalidBorrowPosition",
       "msg": "Invalid borrow position"
     },
     {
-      "code": 6095,
+      "code": 6093,
       "name": "InsufficientUtilizedCollateral",
       "msg": "Utilized collateral is insufficient"
     },
     {
-      "code": 6096,
+      "code": 6094,
       "name": "PositionNotLiquidatable",
       "msg": "Position is not liquidatable"
     },
     {
-      "code": 6097,
+      "code": 6095,
       "name": "InsufficientInsurance",
       "msg": "Insurance coverage is insufficient"
     },
     {
-      "code": 6098,
+      "code": 6096,
       "name": "LiquidationSocializationExceeded",
       "msg": "Socialized liquidation loss exceeds caller cap"
     },
     {
-      "code": 6099,
+      "code": 6097,
       "name": "InvalidClaimMint",
       "msg": "Claim mint must not charge transfer fees"
     },
     {
-      "code": 6100,
+      "code": 6098,
       "name": "UnbackedFeeLiability",
       "msg": "Fee liability is not backed by fee vault balance"
     },
     {
-      "code": 6101,
+      "code": 6099,
       "name": "InvalidMarketFeeAuthority",
       "msg": "Invalid market fee authority"
     },
     {
-      "code": 6102,
+      "code": 6100,
       "name": "MarketReduceOnly",
       "msg": "Market is reduce-only"
     },
     {
-      "code": 6103,
+      "code": 6101,
       "name": "MarketNotStarted",
       "msg": "Market has not started"
     },
     {
-      "code": 6104,
+      "code": 6102,
       "name": "MarketMathOverflow",
       "msg": "Market math overflow"
     },
     {
-      "code": 6105,
+      "code": 6103,
       "name": "DailyLimitExceeded",
       "msg": "Daily liquidity limit exceeded"
     },
     {
-      "code": 6106,
-      "name": "MarketRiskCircuitBreaker",
-      "msg": "Market risk circuit breaker triggered"
-    },
-    {
-      "code": 6107,
+      "code": 6104,
       "name": "InstructionNotLive",
       "msg": "Instruction is intentionally not live yet"
     },
     {
-      "code": 6108,
+      "code": 6105,
       "name": "LiquidationRepayTooLarge",
       "msg": "Liquidation repay amount exceeds partial liquidation cap"
     },
     {
-      "code": 6109,
+      "code": 6106,
       "name": "LeverageMultiplierTooHigh",
       "msg": "Leverage multiplier exceeds circuit breaker"
     },
     {
-      "code": 6110,
+      "code": 6107,
       "name": "LeverageInitialMarginTooLow",
       "msg": "Leverage position does not have enough initial margin"
     },
     {
-      "code": 6111,
+      "code": 6108,
       "name": "LeverageUnwindImpactTooHigh",
       "msg": "Leverage unwind impact exceeds limit"
     },
     {
-      "code": 6112,
+      "code": 6109,
       "name": "LeveragePositionNotLiquidatable",
       "msg": "Leverage position is not liquidatable"
     },
     {
-      "code": 6113,
+      "code": 6110,
       "name": "InvalidSigner",
       "msg": "Invalid signer"
     },
     {
-      "code": 6114,
+      "code": 6111,
       "name": "InvalidLeveragePosition",
       "msg": "Invalid leverage position"
     },
     {
-      "code": 6115,
+      "code": 6112,
       "name": "InvalidLeverageDelegation",
       "msg": "Invalid leverage delegation"
     }
@@ -9897,14 +9818,6 @@
             "type": "u16"
           },
           {
-            "name": "spot_ema_divergence_bps",
-            "type": "u16"
-          },
-          {
-            "name": "k_ema_drawdown_bps",
-            "type": "u16"
-          },
-          {
             "name": "utilized_collateral_cap_bps",
             "type": "u16"
           },
@@ -11206,31 +11119,7 @@
             "type": "u128"
           },
           {
-            "name": "cached_liquidity_nad",
-            "type": "u128"
-          },
-          {
-            "name": "cached_base_liquidity_nad",
-            "type": "u128"
-          },
-          {
-            "name": "cached_quote_liquidity_nad",
-            "type": "u128"
-          },
-          {
             "name": "k_ema",
-            "type": "u128"
-          },
-          {
-            "name": "liquidity_ema",
-            "type": "u128"
-          },
-          {
-            "name": "base_liquidity_ema",
-            "type": "u128"
-          },
-          {
-            "name": "quote_liquidity_ema",
             "type": "u128"
           },
           {

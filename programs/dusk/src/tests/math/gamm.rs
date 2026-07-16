@@ -36,3 +36,30 @@ use super::*;
 
         assert_eq!(dy, 181);
     }
+
+    #[test]
+    fn conservative_k_reconstruction_preserves_spot_ratio() {
+        let x = 4_000 * NAD as u128;
+        let y = 1_000 * NAD as u128;
+        let conservative_k = (1_000 * NAD as u128).pow(2);
+
+        let (x_depth, y_depth) =
+            construct_normalized_reserves_from_k_at_spot_ratio(x, y, conservative_k).unwrap();
+
+        assert_eq!(x_depth, 2_000 * NAD as u128);
+        assert_eq!(y_depth, 500 * NAD as u128);
+        assert_eq!(x_depth * y_depth, conservative_k);
+        assert_eq!(x_depth * y, y_depth * x);
+    }
+
+    #[test]
+    fn conservative_k_reconstruction_never_expands_spot_depth() {
+        let x = 700 * NAD as u128;
+        let y = 1_300 * NAD as u128;
+        let spot_k = x * y;
+
+        let (x_depth, y_depth) =
+            construct_normalized_reserves_from_k_at_spot_ratio(x, y, spot_k * 2).unwrap();
+
+        assert_eq!((x_depth, y_depth), (x, y));
+    }

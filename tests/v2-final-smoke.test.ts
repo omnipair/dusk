@@ -212,8 +212,6 @@ function marketConfig() {
     directionalEmaHalfLifeMs: new BN(60_000),
     kEmaHalfLifeMs: new BN(60_000),
     maxDailyBorrowBps: 2_000,
-    spotEmaDivergenceBps: 1_000,
-    kEmaDrawdownBps: 1_000,
     utilizedCollateralCapBps: 15_000,
     marketHealthMinBps: 11_000,
     hedgedLpEnabled: true,
@@ -234,6 +232,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
   before(async () => {
     const computeBudget = new ComputeBudget();
     computeBudget.computeUnitLimit = 600_000n;
+    computeBudget.heapSize = 256 * 1024;
     svm = new LiteSVM().withComputeBudget(computeBudget);
     svm.warpToSlot(1n);
     const programPath = path.join(__dirname, "../target/deploy/dusk.so");
@@ -737,7 +736,11 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     trackV2Instruction("initializeLpMetadata", "real Token Metadata CPI smoke");
   }
 
-  async function createOwnerAssetAccounts(fixture: Awaited<ReturnType<typeof initializeFinalMarket>>) {
+  async function createOwnerAssetAccounts(
+    fixture: Awaited<ReturnType<typeof initializeFinalMarket>>,
+    baseMintAmount = 1_000_000,
+    quoteMintAmount = 2_000_000
+  ) {
     const ownerBaseAccount = await createAccount(
       connection as any,
       payer,
@@ -759,8 +762,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       undefined,
       TOKEN_2022_PROGRAM_ID
     );
-    await mintTo(connection as any, payer, fixture.baseMint, ownerBaseAccount, payer, 1_000_000);
-    await mintTo(connection as any, payer, fixture.quoteMint, ownerQuoteAccount, payer, 2_000_000);
+    await mintTo(connection as any, payer, fixture.baseMint, ownerBaseAccount, payer, baseMintAmount);
+    await mintTo(connection as any, payer, fixture.quoteMint, ownerQuoteAccount, payer, quoteMintAmount);
     return {
       ownerBaseAccount,
       ownerQuoteAccount,
@@ -777,15 +780,25 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     return { baseAccount, quoteAccount };
   }
 
-  async function addBalancedLiquidity(paramsSeed: number, config = marketConfig()) {
+  async function addBalancedLiquidity(
+    paramsSeed: number,
+    config = marketConfig(),
+    amounts = {
+      baseDeposit: 100_000,
+      quoteDeposit: 200_000,
+      minYlp: 100_000,
+      baseMint: 1_000_000,
+      quoteMint: 2_000_000,
+    }
+  ) {
     const fixture = await initializeFinalMarket(paramsSeed, config);
-    const ownerAccounts = await createOwnerAssetAccounts(fixture);
+    const ownerAccounts = await createOwnerAssetAccounts(fixture, amounts.baseMint, amounts.quoteMint);
 
     const tx = await program.methods
       .addLiquidity({
-        baseDepositAmount: new BN(100_000),
-        quoteDepositAmount: new BN(200_000),
-        minYlpAmount: new BN(100_000),
+        baseDepositAmount: new BN(amounts.baseDeposit),
+        quoteDepositAmount: new BN(amounts.quoteDeposit),
+        minYlpAmount: new BN(amounts.minYlp),
       })
       .accounts({
         market: fixture.market,
@@ -1114,8 +1127,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     const account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
     const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
-    expect(decoded.base_mint.toString()).to.equal(fixture.baseMint.toString());
-    expect(decoded.quote_mint.toString()).to.equal(fixture.quoteMint.toString());
+    expect(decoded.base_side.asset_mint.toString()).to.equal(fixture.baseMint.toString());
+    expect(decoded.quote_side.asset_mint.toString()).to.equal(fixture.quoteMint.toString());
     expect(decoded.ylp_mint.toString()).to.equal(fixture.ylpMint.toString());
     expect(decoded.base_side.hlp_mint.toString()).to.equal(fixture.baseHlpMint.toString());
     expect(decoded.quote_side.hlp_mint.toString()).to.equal(fixture.quoteHlpMint.toString());
@@ -1739,10 +1752,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     expect(decoded.quote_side.shares.ylp_supply.toNumber()).to.equal(140_421);
   });
 
-  it("allows yLP exits without post-withdraw k drawdown gating", async function () {
-    const config = marketConfig();
-    config.kEmaDrawdownBps = 0;
-    const fixture = await addBalancedLiquidity(59, config);
+  it("allows yLP exits through the normal liquidity path", async function () {
+    const fixture = await addBalancedLiquidity(59);
     const ownerBaseBefore = await getAccount(connection as any, fixture.ownerBaseAccount);
     const ownerQuoteBefore = await getAccount(connection as any, fixture.ownerQuoteAccount);
 
@@ -2059,8 +2070,6 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
   it("claims manager swap fees from the fee vault", async function () {
     const config = marketConfig();
     config.managerFeeBps = 500;
-    config.spotEmaDivergenceBps = 10_000;
-    config.kEmaDrawdownBps = 10_000;
     const fixture = await addBalancedLiquidity(60, config);
 
     await swapBaseForQuote(fixture, [], 10_000, 1);
@@ -2138,6 +2147,56 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     expect(decoded.base_hlp_vault.ylp_shares.toNumber()).to.be.lessThan(14_142);
   });
 
+  it("settles an active base hLP vault during a large opposite-direction swap", async function () {
+    const fixture = await addBalancedLiquidity(57, marketConfig(), {
+      baseDeposit: 100_000_000_000,
+      quoteDeposit: 100_000_000_000,
+      minYlp: 1,
+      baseMint: 500_000_000_000,
+      quoteMint: 500_000_000_000,
+    });
+    const hedge = await openBaseHedge(fixture, 10_000_000_000);
+    const ylpBefore = await getAccount(
+      connection as any,
+      hedge.hlpYlpAccount,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+
+    await swapBaseForQuote(
+      fixture,
+      baseHlpRebalanceAccounts(fixture),
+      1_100_000_000,
+      1
+    );
+    await swapBaseForQuote(
+      fixture,
+      baseHlpRebalanceAccounts(fixture),
+      1_000_000_000,
+      1
+    );
+    await swapQuoteForBase(
+      fixture,
+      baseHlpRebalanceAccounts(fixture),
+      5_000_000_000,
+      1
+    );
+    trackV2Instruction("swap", this.test?.title);
+
+    const ylpAfter = await getAccount(
+      connection as any,
+      hedge.hlpYlpAccount,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    expect(ylpAfter.amount).to.not.equal(ylpBefore.amount);
+
+    const account = svm.getAccount(fixture.market);
+    expect(account).to.not.equal(null);
+    const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
+    expect(decoded.base_hlp_vault.hlp_supply.toString()).to.equal("10000000000");
+  });
+
   it("checkpoints quote hLP vaults during opposite-direction swaps", async function () {
     const fixture = await addBalancedLiquidity(55);
     const hedge = await openQuoteHedge(fixture);
@@ -2166,7 +2225,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     expect(decoded.quote_hlp_vault.ylp_shares.toNumber()).to.be.lessThan(14_142);
   });
 
-  it("checkpoints one aggregate hLP vault per swap when both sides are active", async function () {
+  it("pre-solves and finishes both aggregate hLP vaults in one large swap", async function () {
     const fixture = await addBalancedLiquidity(56);
     const baseHedge = await openBaseHedge(fixture);
     const quoteHedge = await openQuoteHedge(fixture);
@@ -2183,7 +2242,15 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       TOKEN_2022_PROGRAM_ID
     );
 
-    await swapBaseForQuote(fixture, baseHlpRebalanceAccounts(fixture));
+    await swapBaseForQuote(
+      fixture,
+      [
+        ...baseHlpRebalanceAccounts(fixture),
+        ...quoteHlpRebalanceAccounts(fixture),
+      ],
+      20_000,
+      1
+    );
     trackV2Instruction("swap", this.test?.title);
 
     const baseHlpYlpAfter = await getAccount(
@@ -2199,7 +2266,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       TOKEN_2022_PROGRAM_ID
     );
     expect(baseHlpYlpAfter.amount).to.not.equal(baseHlpYlpBefore.amount);
-    expect(quoteHlpYlpAfter.amount).to.equal(quoteHlpYlpBefore.amount);
+    expect(quoteHlpYlpAfter.amount).to.not.equal(quoteHlpYlpBefore.amount);
 
     const account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
@@ -2628,7 +2695,6 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
 
   it("liquidates unhealthy fixed quote debt after collateral price moves", async function () {
     const liquidationConfig = marketConfig();
-    liquidationConfig.spotEmaDivergenceBps = 10_000;
     const fixture = await addBalancedLiquidity(54, liquidationConfig);
     const borrowPositionId = Keypair.generate().publicKey;
     const borrowPosition = deriveBorrowPositionAddress(fixture.market, borrowPositionId)[0];
@@ -2693,7 +2759,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     const quoteDebtSharesBefore = BigInt(positionBefore.fixed_quote_shares.toString());
     const ownerBaseBefore = await getAccount(connection as any, fixture.ownerBaseAccount);
     const triggerAuctionTx = await program.methods
-      .triggerLiquidationAuction({})
+      .triggerLiquidationAuction()
       .accounts({
         market: fixture.market,
         borrowPosition,
@@ -3159,8 +3225,6 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
 
   it("liquidates an unhealthy leverage position", async function () {
     const config = marketConfig();
-    config.spotEmaDivergenceBps = 10_000;
-    config.kEmaDrawdownBps = 10_000;
     const fixture = await addBalancedLiquidity(64, config);
     const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(fixture);
     trackV2Instruction("openLeverage", this.test?.title);

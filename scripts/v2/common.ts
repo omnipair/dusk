@@ -516,8 +516,6 @@ export function defaultMarketConfig() {
     directionalEmaHalfLifeMs: new anchor.BN(duskEnv("DIRECTIONAL_EMA_HALF_LIFE_MS", "60000")),
     kEmaHalfLifeMs: new anchor.BN(duskEnv("K_EMA_HALF_LIFE_MS", "60000")),
     maxDailyBorrowBps: Number(duskEnv("MAX_DAILY_BORROW_BPS", "2000")),
-    spotEmaDivergenceBps: Number(duskEnv("SPOT_EMA_DIVERGENCE_BPS", "1000")),
-    kEmaDrawdownBps: Number(duskEnv("K_EMA_DRAWDOWN_BPS", "1000")),
     utilizedCollateralCapBps: Number(duskEnv("UTILIZED_COLLATERAL_CAP_BPS", "15000")),
     marketHealthMinBps: Number(duskEnv("MARKET_HEALTH_MIN_BPS", "11000")),
     startTime: new anchor.BN(startTime),

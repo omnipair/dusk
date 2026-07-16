@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use super::{Market, MarketAsset, MarketHealth, MarketSide, Risk};
+use super::{Market, MarketAsset, MarketHealth, Risk};
 use crate::{
     constants::{BPS_DENOMINATOR, LIQUIDATION_INCENTIVE_BPS, LIQUIDATION_PENALTY_BPS},
     errors::ErrorCode,
@@ -59,35 +59,6 @@ impl Market {
         self.risk = self.current_risk()?;
         self.last_update_slot = self.risk.last_snapshot_slot;
         Ok(())
-    }
-
-    pub fn assert_spot_ema_divergence(&self) -> Result<()> {
-        assert_price_divergence(
-            market_spot_price_nad(&self.base_side, &self.quote_side)?,
-            self.risk.base_price_ema_nad,
-            self.config.spot_ema_divergence_bps,
-        )?;
-        assert_price_divergence(
-            market_spot_price_nad(&self.quote_side, &self.base_side)?,
-            self.risk.quote_price_ema_nad,
-            self.config.spot_ema_divergence_bps,
-        )
-    }
-
-    pub fn assert_risk_circuit_breakers(&self) -> Result<()> {
-        self.assert_spot_ema_divergence()?;
-        self.assert_k_ema_drawdown()
-    }
-
-    pub fn assert_k_ema_drawdown(&self) -> Result<()> {
-        if self.risk.k_ema == 0 {
-            return Ok(());
-        }
-        assert_k_drawdown(
-            market_k_nad(&self.base_side, &self.quote_side)?,
-            self.risk.k_ema,
-            self.config.k_ema_drawdown_bps,
-        )
     }
 
     pub fn effective_base_debt_nad(&self) -> Result<u128> {
@@ -239,8 +210,11 @@ impl Market {
                 risk.directional_quote_price_ema_nad,
             ),
         };
-        let collateral_reserve = self.conservative_risk_reserve_depth(collateral_asset, collateral_side, risk)?;
-        let debt_reserve = self.conservative_risk_reserve_depth(collateral_asset.opposite(), debt_side, risk)?;
+        let (base_depth, quote_depth) = self.conservative_risk_reserve_depths(risk)?;
+        let (collateral_reserve, debt_reserve) = match collateral_asset {
+            MarketAsset::Base => (base_depth, quote_depth),
+            MarketAsset::Quote => (quote_depth, base_depth),
+        };
 
         collateral_value_from_pessimistic_reserves_nad(
             collateral_reserve,
@@ -286,8 +260,11 @@ impl Market {
                 risk.directional_base_price_ema_nad,
             ),
         };
-        let collateral_reserve = self.conservative_risk_reserve_depth(debt_asset.opposite(), collateral_side, risk)?;
-        let debt_reserve = self.conservative_risk_reserve_depth(debt_asset, debt_side, risk)?;
+        let (base_depth, quote_depth) = self.conservative_risk_reserve_depths(risk)?;
+        let (collateral_reserve, debt_reserve) = match debt_asset {
+            MarketAsset::Base => (quote_depth, base_depth),
+            MarketAsset::Quote => (base_depth, quote_depth),
+        };
 
         collateral_amount_for_debt_amount_ceil(
             collateral_reserve,
@@ -320,8 +297,11 @@ impl Market {
                 risk.directional_base_price_ema_nad,
             ),
         };
-        let collateral_reserve = self.conservative_risk_reserve_depth(debt_asset.opposite(), collateral_side, risk)?;
-        let debt_reserve = self.conservative_risk_reserve_depth(debt_asset, debt_side, risk)?;
+        let (base_depth, quote_depth) = self.conservative_risk_reserve_depths(risk)?;
+        let (collateral_reserve, debt_reserve) = match debt_asset {
+            MarketAsset::Base => (quote_depth, base_depth),
+            MarketAsset::Quote => (base_depth, quote_depth),
+        };
 
         collateral_amount_for_debt_value_floor(
             collateral_reserve,
@@ -334,23 +314,43 @@ impl Market {
         )
     }
 
-    fn conservative_risk_reserve_depth(&self, asset: MarketAsset, side: &MarketSide, risk: &Risk) -> Result<u64> {
-        let liquidity_ema_nad = match asset {
-            MarketAsset::Base => risk.base_liquidity_ema,
-            MarketAsset::Quote => risk.quote_liquidity_ema,
+    pub(crate) fn conservative_risk_reserve_depths(&self, risk: &Risk) -> Result<(u64, u64)> {
+        let base_spot = normalize_to_nad(
+            self.base_side.reserves.live_reserve as u128,
+            self.base_side.asset_decimals,
+        )?;
+        let quote_spot = normalize_to_nad(
+            self.quote_side.reserves.live_reserve as u128,
+            self.quote_side.asset_decimals,
+        )?;
+        let spot_k = base_spot.checked_mul(quote_spot).ok_or(ErrorCode::MarketMathOverflow)?;
+        let conservative_k = if risk.k_ema == 0 {
+            spot_k
+        } else {
+            spot_k.min(risk.k_ema)
         };
-        if liquidity_ema_nad == 0 {
-            return Ok(side.reserves.live_reserve);
-        }
-        let liquidity_ema = denormalize_from_nad_floor(liquidity_ema_nad, side.asset_decimals)?;
-        Ok(side.reserves.live_reserve.min(liquidity_ema))
+        let (base_depth_nad, quote_depth_nad) =
+            construct_normalized_reserves_from_k_at_spot_ratio(base_spot, quote_spot, conservative_k)?;
+        Ok((
+            denormalize_from_nad_floor(base_depth_nad, self.base_side.asset_decimals)?
+                .min(self.base_side.reserves.live_reserve),
+            denormalize_from_nad_floor(quote_depth_nad, self.quote_side.asset_decimals)?
+                .min(self.quote_side.reserves.live_reserve),
+        ))
     }
 
     pub(crate) fn daily_limit_for_side(&self, market_asset: MarketAsset, limit_bps: u16) -> Result<u64> {
-        let (liquidity_ema, asset_decimals) = match market_asset {
-            MarketAsset::Base => (self.risk.base_liquidity_ema, self.base_side.asset_decimals),
-            MarketAsset::Quote => (self.risk.quote_liquidity_ema, self.quote_side.asset_decimals),
+        let (base_depth, quote_depth) = self.conservative_risk_reserve_depths(&self.risk)?;
+        let depth = match market_asset {
+            MarketAsset::Base => base_depth,
+            MarketAsset::Quote => quote_depth,
         };
-        daily_limit_from_liquidity_ema(liquidity_ema, asset_decimals, limit_bps)
+        u64::try_from(
+            (depth as u128)
+                .checked_mul(limit_bps as u128)
+                .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+        )
+        .map_err(|_| ErrorCode::MarketMathOverflow.into())
     }
 }

@@ -18,8 +18,6 @@ use super::*;
             directional_ema_half_life_ms: 60_000,
             k_ema_half_life_ms: 60_000,
             max_daily_borrow_bps: 2_000,
-            spot_ema_divergence_bps: 1_000,
-            k_ema_drawdown_bps: 1_000,
             utilized_collateral_cap_bps: 15_000,
             market_health_min_bps: 11_000,
             start_time: 0,
@@ -436,8 +434,8 @@ use super::*;
         amount_out: u64,
         base_pre_rebalance: HlpRebalanceReceipt,
         quote_pre_rebalance: HlpRebalanceReceipt,
-        base_post_rebalance: HlpRebalanceReceipt,
-        quote_post_rebalance: HlpRebalanceReceipt,
+        base_rebalance: HlpRebalanceReceipt,
+        quote_rebalance: HlpRebalanceReceipt,
     }
 
     fn active_hlp_market() -> Market {
@@ -451,21 +449,6 @@ use super::*;
             .unwrap();
         assert_market_hlp_invariants(&market);
         market
-    }
-
-    fn checkpoint_test_pre_solve_fee_eligibility(
-        market: &mut Market,
-        receipt: &HlpRebalanceReceipt,
-    ) {
-        if receipt.ylp_mint_amount == 0 {
-            return;
-        }
-        checkpoint_hlp_yield_from_ylp_shares(
-            market,
-            receipt.target_asset,
-            receipt.current_swap_fee_eligible_ylp_shares,
-        )
-        .unwrap();
     }
 
     fn apply_test_composite_swap(
@@ -505,17 +488,19 @@ use super::*;
                 Some(fee_eligible_ylp_supply),
             )
             .unwrap();
-        checkpoint_test_pre_solve_fee_eligibility(market, &base_pre_rebalance);
-        checkpoint_test_pre_solve_fee_eligibility(market, &quote_pre_rebalance);
-        let (base_post_rebalance, quote_post_rebalance) =
-            rebalance_hlp_vaults(market).unwrap();
+        let (base_rebalance, quote_rebalance) = finalize_hlp_vaults_for_swap(
+            market,
+            base_pre_rebalance,
+            quote_pre_rebalance,
+        )
+        .unwrap();
         assert_market_hlp_invariants(market);
         TestCompositeSwapReceipt {
             amount_out,
             base_pre_rebalance,
             quote_pre_rebalance,
-            base_post_rebalance,
-            quote_post_rebalance,
+            base_rebalance,
+            quote_rebalance,
         }
     }
 
@@ -1014,6 +999,54 @@ use super::*;
     }
 
     #[test]
+    fn swap_pre_solve_reaches_the_endogenous_price_fixed_point() {
+        let market = active_hlp_market();
+        let asset_in = MarketAsset::Quote;
+        let amount_in_after_fee = 350_000;
+
+        for target_asset in [MarketAsset::Base, MarketAsset::Quote] {
+            let equity_nad = hlp_nav_nad(&market, target_asset).unwrap();
+            let provisional_ratio = simulated_swap_price_ratio_nad(
+                &market,
+                target_asset,
+                asset_in,
+                amount_in_after_fee,
+                0,
+                true,
+            )
+            .unwrap();
+            let (_, lever_up) =
+                closed_form_pre_adjustment_nad(equity_nad, provisional_ratio).unwrap();
+            let solved = solve_pre_adjustment_nad(
+                &market,
+                target_asset,
+                asset_in,
+                amount_in_after_fee,
+                equity_nad,
+                lever_up,
+            )
+            .unwrap();
+            let needed = needed_pre_adjustment_nad(
+                &market,
+                target_asset,
+                asset_in,
+                amount_in_after_fee,
+                equity_nad,
+                solved,
+                lever_up,
+            )
+            .unwrap();
+
+            assert!(
+                solved.abs_diff(needed) <= NAD as u128,
+                "pre-solve residual exceeds one raw target unit: solved {}, needed {}",
+                solved,
+                needed
+            );
+        }
+    }
+
+    #[test]
     fn pre_solve_handles_opposing_hlp_flows_without_order_asymmetry() {
         let mut market = active_hlp_market();
         let amount_in_after_fee = 350_000;
@@ -1079,9 +1112,66 @@ use super::*;
             executed_market.quote_side.reserves.live_reserve
         );
         assert!(
-            quoted.base_post_rebalance.executed_delta != 0
-                || quoted.quote_post_rebalance.executed_delta != 0,
+            quoted.base_rebalance.executed_delta != quoted.base_pre_rebalance.executed_delta
+                || quoted.quote_rebalance.executed_delta != quoted.quote_pre_rebalance.executed_delta,
             "test must exercise the post-swap hLP phase too"
+        );
+    }
+
+    #[test]
+    fn price_moving_swap_keeps_both_hlp_vaults_close_to_their_deposit_assets() {
+        let mut market = active_hlp_market();
+        let base_deposit = 100_000u64;
+        let quote_deposit = 200_000u64;
+
+        // Quote-in moves the base price up. Both one-sided vaults need a
+        // pre-adjustment for the finite move and a post-adjustment back to 2x.
+        let swap = apply_test_composite_swap(&mut market, MarketAsset::Quote, 350_000);
+        assert!(swap.base_pre_rebalance.executed_delta > 0);
+        assert!(swap.quote_pre_rebalance.executed_delta < 0);
+        assert!(swap.base_rebalance.executed_delta > swap.base_pre_rebalance.executed_delta);
+        assert!(swap.quote_rebalance.executed_delta < swap.quote_pre_rebalance.executed_delta);
+
+        let mut base_close_market = market.clone();
+        let base_close = WithdrawSingleSided::new(
+            MarketAsset::Base,
+            base_close_market.base_hlp_vault.hlp_supply,
+        )
+        .apply(&mut base_close_market)
+        .unwrap();
+
+        let mut quote_close_market = market;
+        let quote_close = WithdrawSingleSided::new(
+            MarketAsset::Quote,
+            quote_close_market.quote_hlp_vault.hlp_supply,
+        )
+        .apply(&mut quote_close_market)
+        .unwrap();
+
+        let base_tracking_error_bps = base_close
+            .target_amount_out
+            .abs_diff(base_deposit)
+            .saturating_mul(BPS_DENOMINATOR as u64)
+            / base_deposit;
+        let quote_tracking_error_bps = quote_close
+            .target_amount_out
+            .abs_diff(quote_deposit)
+            .saturating_mul(BPS_DENOMINATOR as u64)
+            / quote_deposit;
+
+        assert!(
+            base_tracking_error_bps <= 5,
+            "base hLP redemption drifted {} bps: deposited {}, redeemed {}",
+            base_tracking_error_bps,
+            base_deposit,
+            base_close.target_amount_out
+        );
+        assert!(
+            quote_tracking_error_bps <= 5,
+            "quote hLP redemption drifted {} bps: deposited {}, redeemed {}",
+            quote_tracking_error_bps,
+            quote_deposit,
+            quote_close.target_amount_out
         );
     }
 

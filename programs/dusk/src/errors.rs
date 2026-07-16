@@ -236,12 +236,6 @@ pub enum ErrorCode {
     #[msg("Cannot remove collateral in reduce-only mode while debt exists")]
     ReduceOnlyHasDebt,
 
-    #[msg("Operation blocked: same-transaction liquidity delta detected")]
-    LiquidityDeltaCircuitBreaker,
-
-    #[msg("Operation blocked: liquidity delta instruction must be top-level")]
-    LiquidityDeltaCircuitBreakerCpi,
-
     #[msg("Invalid instructions sysvar")]
     InvalidInstructionsSysvar,
 
@@ -319,9 +313,6 @@ pub enum ErrorCode {
 
     #[msg("Daily liquidity limit exceeded")]
     DailyLimitExceeded,
-
-    #[msg("Market risk circuit breaker triggered")]
-    MarketRiskCircuitBreaker,
 
     #[msg("Instruction is intentionally not live yet")]
     InstructionNotLive,

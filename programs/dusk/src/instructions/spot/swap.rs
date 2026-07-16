@@ -121,8 +121,6 @@ impl<'info> Swap<'info> {
         let fee_config = SwapFeeConfig::new(ctx.accounts);
         let mut token_scratch = TokenInstructionScratch::new(ctx.accounts.token_2022_program.key());
 
-        ctx.accounts.market.assert_risk_circuit_breakers()?;
-
         let reserve_credit = input_credit(&ctx, args.exact_asset_in)?;
         let charged_input = charge_fee(&mut ctx, reserve_credit)?;
         let current_slot = Clock::get()?.slot;
@@ -138,9 +136,7 @@ impl<'info> Swap<'info> {
             fee_config,
             pre_quote_rebalance.fee_eligible_ylp_supply,
         )?;
-
-        let rebalance =
-            maybe_rebalance_hlp_after_swap(&mut ctx.accounts.market, asset_in, pre_quote_rebalance.receipts)?;
+        let rebalance = maybe_rebalance_hlp_after_swap(&mut ctx.accounts.market, pre_quote_rebalance.receipts)?;
         validate_hlp_rebalance_accounts(&ctx.accounts.market, &rebalance, ctx.remaining_accounts)?;
         let received_credit = receive_input(&mut ctx, args.exact_asset_in)?;
         require_eq!(received_credit, reserve_credit, ErrorCode::BrokenInvariant);
@@ -233,7 +229,7 @@ fn input_credit<'info>(ctx: &Context<'_, '_, '_, 'info, Swap<'info>>, exact_asse
     let transfer_fee = get_transfer_fee(&ctx.accounts.asset_in_mint.to_account_info(), exact_asset_in)?;
     exact_asset_in
         .checked_sub(transfer_fee)
-        .ok_or(ErrorCode::MarketMathOverflow.into())
+        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
 fn charge_fee<'info>(
@@ -348,20 +344,9 @@ fn record_swap(
     )
 }
 
-fn maybe_rebalance_hlp_after_swap(
-    market: &mut Market,
-    preferred_asset: MarketAsset,
-    pre_rebalance: HlpRebalancePair,
-) -> Result<HlpRebalancePair> {
-    checkpoint_hlp_pre_solve_fee_eligibility(market, &pre_rebalance.base, &pre_rebalance.quote)?;
-    if pre_rebalance.executes_token_changes() {
-        return Ok(pre_rebalance);
-    }
-    let (base_post_rebalance, quote_post_rebalance) = market.rebalance_hlp_vault_for_swap(preferred_asset)?;
-    Ok(HlpRebalancePair::new(
-        combine_hlp_rebalance_receipts(pre_rebalance.base, base_post_rebalance)?,
-        combine_hlp_rebalance_receipts(pre_rebalance.quote, quote_post_rebalance)?,
-    ))
+fn maybe_rebalance_hlp_after_swap(market: &mut Market, pre_rebalance: HlpRebalancePair) -> Result<HlpRebalancePair> {
+    let (base, quote) = market.finalize_hlp_vaults_for_swap(pre_rebalance.base, pre_rebalance.quote)?;
+    Ok(HlpRebalancePair::new(base, quote))
 }
 
 fn apply_token_changes<'info>(
@@ -486,56 +471,6 @@ fn should_emit_hlp_rebalance(ideal_delta: i128, pending_rebalance: i128, hlp_sup
 
 fn rebalance_executes_token_changes(receipt: &HlpRebalanceReceipt) -> bool {
     receipt.ylp_mint_amount > 0 || receipt.ylp_burn_amount > 0 || receipt.interest_paid > 0
-}
-
-fn checkpoint_hlp_pre_solve_fee_eligibility(
-    market: &mut Market,
-    base_receipt: &HlpRebalanceReceipt,
-    quote_receipt: &HlpRebalanceReceipt,
-) -> Result<()> {
-    checkpoint_single_hlp_pre_solve_fee_eligibility(market, base_receipt)?;
-    checkpoint_single_hlp_pre_solve_fee_eligibility(market, quote_receipt)
-}
-
-fn checkpoint_single_hlp_pre_solve_fee_eligibility(market: &mut Market, receipt: &HlpRebalanceReceipt) -> Result<()> {
-    if receipt.ylp_mint_amount == 0 && receipt.ylp_burn_amount == 0 {
-        return Ok(());
-    }
-    market.checkpoint_hlp_yield_from_ylp_shares(receipt.target_asset, receipt.current_swap_fee_eligible_ylp_shares)
-}
-
-fn combine_hlp_rebalance_receipts(pre: HlpRebalanceReceipt, post: HlpRebalanceReceipt) -> Result<HlpRebalanceReceipt> {
-    require!(pre.target_asset == post.target_asset, ErrorCode::BrokenInvariant);
-    Ok(HlpRebalanceReceipt {
-        target_asset: pre.target_asset,
-        ideal_delta: pre
-            .ideal_delta
-            .checked_add(post.ideal_delta)
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-        executed_delta: pre
-            .executed_delta
-            .checked_add(post.executed_delta)
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-        pending_rebalance: post.pending_rebalance,
-        current_swap_fee_eligible_ylp_shares: 0,
-        ylp_mint_amount: pre
-            .ylp_mint_amount
-            .checked_add(post.ylp_mint_amount)
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-        ylp_burn_amount: pre
-            .ylp_burn_amount
-            .checked_add(post.ylp_burn_amount)
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-        debt_delta: pre
-            .debt_delta
-            .checked_add(post.debt_delta)
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-        interest_paid: pre
-            .interest_paid
-            .checked_add(post.interest_paid)
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-        nav_nad: post.nav_nad.max(pre.nav_nad),
-    })
 }
 
 fn validate_hlp_rebalance_accounts(
