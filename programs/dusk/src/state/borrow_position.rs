@@ -9,6 +9,10 @@ pub struct CollateralReceipt {
     pub collateral_debit: u64,
     pub base_collateral: u64,
     pub quote_collateral: u64,
+    pub global_health_base_contribution_for_quote_debt: u64,
+    pub global_health_quote_contribution_for_base_debt: u64,
+    pub base_liquidation_cf_bps: u16,
+    pub quote_liquidation_cf_bps: u16,
 }
 
 #[account]
@@ -19,8 +23,10 @@ pub struct BorrowPosition {
     pub position_id: Pubkey,
     pub base_collateral: u64,
     pub quote_collateral: u64,
-    pub utilized_base_collateral_for_quote_debt: u64,
-    pub utilized_quote_collateral_for_base_debt: u64,
+    pub global_health_base_contribution_for_quote_debt: u64,
+    pub global_health_quote_contribution_for_base_debt: u64,
+    pub base_liquidation_cf_bps: u16,
+    pub quote_liquidation_cf_bps: u16,
     pub fixed_base_shares: u128,
     pub fixed_quote_shares: u128,
     pub auction_start_time: i64,
@@ -37,6 +43,8 @@ impl BorrowPosition {
         self.auction_start_time = 0;
         self.auction_start_price_nad = 0;
         self.auction_floor_price_nad = 0;
+        self.base_liquidation_cf_bps = 0;
+        self.quote_liquidation_cf_bps = 0;
         self.bump = bump;
     }
 
@@ -50,18 +58,6 @@ impl BorrowPosition {
         Ok(())
     }
 
-    pub fn idle_base_collateral(&self) -> Result<u64> {
-        self.base_collateral
-            .checked_sub(self.utilized_base_collateral_for_quote_debt)
-            .ok_or(ErrorCode::InsufficientUtilizedCollateral.into())
-    }
-
-    pub fn idle_quote_collateral(&self) -> Result<u64> {
-        self.quote_collateral
-            .checked_sub(self.utilized_quote_collateral_for_base_debt)
-            .ok_or(ErrorCode::InsufficientUtilizedCollateral.into())
-    }
-
     pub fn fixed_base_debt(&self, debt: &Debt) -> Result<u128> {
         Debt::shares_to_debt(self.fixed_base_shares, debt.base_borrow_index_nad)
     }
@@ -70,31 +66,31 @@ impl BorrowPosition {
         Debt::shares_to_debt(self.fixed_quote_shares, debt.quote_borrow_index_nad)
     }
 
-    pub fn deposit_collateral(
-        &mut self,
-        market_asset: MarketAsset,
-        collateral_credit: u64,
-    ) -> Result<CollateralReceipt> {
-        require!(collateral_credit > 0, ErrorCode::AmountZero);
-        match market_asset {
-            MarketAsset::Base => {
-                self.base_collateral = self
-                    .base_collateral
-                    .checked_add(collateral_credit)
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
-            }
-            MarketAsset::Quote => {
-                self.quote_collateral = self
-                    .quote_collateral
-                    .checked_add(collateral_credit)
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
-            }
+    pub fn liquidation_cf_bps(&self, debt_asset: MarketAsset) -> u16 {
+        match debt_asset {
+            MarketAsset::Base => self.base_liquidation_cf_bps,
+            MarketAsset::Quote => self.quote_liquidation_cf_bps,
         }
-        Ok(CollateralReceipt {
-            collateral_credit,
-            collateral_debit: 0,
-            base_collateral: self.base_collateral,
-            quote_collateral: self.quote_collateral,
-        })
+    }
+
+    pub fn set_liquidation_cf_bps(&mut self, debt_asset: MarketAsset, liquidation_cf_bps: u16) {
+        match debt_asset {
+            MarketAsset::Base => self.base_liquidation_cf_bps = liquidation_cf_bps,
+            MarketAsset::Quote => self.quote_liquidation_cf_bps = liquidation_cf_bps,
+        }
+    }
+
+    pub fn global_health_contribution(&self, debt_asset: MarketAsset) -> u64 {
+        match debt_asset {
+            MarketAsset::Base => self.global_health_quote_contribution_for_base_debt,
+            MarketAsset::Quote => self.global_health_base_contribution_for_quote_debt,
+        }
+    }
+
+    pub fn collateral(&self, asset: MarketAsset) -> u64 {
+        match asset {
+            MarketAsset::Base => self.base_collateral,
+            MarketAsset::Quote => self.quote_collateral,
+        }
     }
 }

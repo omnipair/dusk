@@ -7766,101 +7766,96 @@ export type Dusk = {
     },
     {
       "code": 6093,
-      "name": "insufficientUtilizedCollateral",
-      "msg": "Utilized collateral is insufficient"
-    },
-    {
-      "code": 6094,
       "name": "positionNotLiquidatable",
       "msg": "Position is not liquidatable"
     },
     {
-      "code": 6095,
+      "code": 6094,
       "name": "insufficientInsurance",
       "msg": "Insurance coverage is insufficient"
     },
     {
-      "code": 6096,
+      "code": 6095,
       "name": "liquidationSocializationExceeded",
       "msg": "Socialized liquidation loss exceeds caller cap"
     },
     {
-      "code": 6097,
+      "code": 6096,
       "name": "invalidClaimMint",
       "msg": "Claim mint must not charge transfer fees"
     },
     {
-      "code": 6098,
+      "code": 6097,
       "name": "unbackedFeeLiability",
       "msg": "Fee liability is not backed by fee vault balance"
     },
     {
-      "code": 6099,
+      "code": 6098,
       "name": "invalidMarketFeeAuthority",
       "msg": "Invalid market fee authority"
     },
     {
-      "code": 6100,
+      "code": 6099,
       "name": "marketReduceOnly",
       "msg": "Market is reduce-only"
     },
     {
-      "code": 6101,
+      "code": 6100,
       "name": "marketNotStarted",
       "msg": "Market has not started"
     },
     {
-      "code": 6102,
+      "code": 6101,
       "name": "marketMathOverflow",
       "msg": "Market math overflow"
     },
     {
-      "code": 6103,
+      "code": 6102,
       "name": "dailyLimitExceeded",
       "msg": "Daily liquidity limit exceeded"
     },
     {
-      "code": 6104,
+      "code": 6103,
       "name": "instructionNotLive",
       "msg": "Instruction is intentionally not live yet"
     },
     {
-      "code": 6105,
+      "code": 6104,
       "name": "liquidationRepayTooLarge",
       "msg": "Liquidation repay amount exceeds partial liquidation cap"
     },
     {
-      "code": 6106,
+      "code": 6105,
       "name": "leverageMultiplierTooHigh",
       "msg": "Leverage multiplier exceeds circuit breaker"
     },
     {
-      "code": 6107,
+      "code": 6106,
       "name": "leverageInitialMarginTooLow",
       "msg": "Leverage position does not have enough initial margin"
     },
     {
-      "code": 6108,
+      "code": 6107,
       "name": "leverageUnwindImpactTooHigh",
       "msg": "Leverage unwind impact exceeds limit"
     },
     {
-      "code": 6109,
+      "code": 6108,
       "name": "leveragePositionNotLiquidatable",
       "msg": "Leverage position is not liquidatable"
     },
     {
-      "code": 6110,
+      "code": 6109,
       "name": "invalidSigner",
       "msg": "Invalid signer"
     },
     {
-      "code": 6111,
+      "code": 6110,
       "name": "invalidLeveragePosition",
       "msg": "Invalid leverage position"
     },
     {
-      "code": 6112,
+      "code": 6111,
       "name": "invalidLeverageDelegation",
       "msg": "Invalid leverage delegation"
     }
@@ -7996,8 +7991,8 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "minHealthBps",
-            "type": "u64"
+            "name": "minLiquidationCfBps",
+            "type": "u16"
           }
         ]
       }
@@ -8048,11 +8043,11 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "marketHealthMinBps",
+            "name": "borrowMarketHealthFloorBps",
             "type": "u16"
           },
           {
-            "name": "utilizedCollateralCapBps",
+            "name": "globalHealthContributionCapBps",
             "type": "u16"
           },
           {
@@ -8062,6 +8057,22 @@ export type Dusk = {
           {
             "name": "projectedHealthBps",
             "type": "u64"
+          },
+          {
+            "name": "projectedGlobalMarketHealthBps",
+            "type": "u64"
+          },
+          {
+            "name": "projectedGlobalHealthContribution",
+            "type": "u64"
+          },
+          {
+            "name": "maxCfBps",
+            "type": "u16"
+          },
+          {
+            "name": "liquidationCfBps",
+            "type": "u16"
           },
           {
             "name": "liquidationDebtPerCollateralPriceNad",
@@ -8096,12 +8107,20 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "utilizedBaseCollateralForQuoteDebt",
+            "name": "globalHealthBaseContributionForQuoteDebt",
             "type": "u64"
           },
           {
-            "name": "utilizedQuoteCollateralForBaseDebt",
+            "name": "globalHealthQuoteContributionForBaseDebt",
             "type": "u64"
+          },
+          {
+            "name": "baseLiquidationCfBps",
+            "type": "u16"
+          },
+          {
+            "name": "quoteLiquidationCfBps",
+            "type": "u16"
           },
           {
             "name": "fixedBaseShares",
@@ -8156,12 +8175,20 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "utilizedBaseCollateralForQuoteDebt",
+            "name": "globalHealthBaseContributionForQuoteDebt",
             "type": "u64"
           },
           {
-            "name": "utilizedQuoteCollateralForBaseDebt",
+            "name": "globalHealthQuoteContributionForBaseDebt",
             "type": "u64"
+          },
+          {
+            "name": "baseLiquidationCfBps",
+            "type": "u16"
+          },
+          {
+            "name": "quoteLiquidationCfBps",
+            "type": "u16"
           },
           {
             "name": "fixedBaseDebt",
@@ -8300,11 +8327,11 @@ export type Dusk = {
             "type": "u128"
           },
           {
-            "name": "utilizedBaseCollateralForQuoteDebt",
+            "name": "globalHealthBaseContributionForQuoteDebt",
             "type": "u64"
           },
           {
-            "name": "utilizedQuoteCollateralForBaseDebt",
+            "name": "globalHealthQuoteContributionForBaseDebt",
             "type": "u64"
           },
           {
@@ -9728,6 +9755,22 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "globalHealthBaseContributionForQuoteDebt",
+            "type": "u64"
+          },
+          {
+            "name": "globalHealthQuoteContributionForBaseDebt",
+            "type": "u64"
+          },
+          {
+            "name": "baseLiquidationCfBps",
+            "type": "u16"
+          },
+          {
+            "name": "quoteLiquidationCfBps",
+            "type": "u16"
+          },
+          {
             "name": "metadata",
             "type": {
               "defined": {
@@ -9770,6 +9813,22 @@ export type Dusk = {
           {
             "name": "quoteCollateral",
             "type": "u64"
+          },
+          {
+            "name": "globalHealthBaseContributionForQuoteDebt",
+            "type": "u64"
+          },
+          {
+            "name": "globalHealthQuoteContributionForBaseDebt",
+            "type": "u64"
+          },
+          {
+            "name": "baseLiquidationCfBps",
+            "type": "u16"
+          },
+          {
+            "name": "quoteLiquidationCfBps",
+            "type": "u16"
           },
           {
             "name": "metadata",
@@ -9824,11 +9883,11 @@ export type Dusk = {
             "type": "u16"
           },
           {
-            "name": "utilizedCollateralCapBps",
+            "name": "globalHealthContributionCapBps",
             "type": "u16"
           },
           {
-            "name": "marketHealthMinBps",
+            "name": "borrowMarketHealthFloorBps",
             "type": "u16"
           },
           {
@@ -10001,6 +10060,22 @@ export type Dusk = {
             "type": "u128"
           },
           {
+            "name": "globalHealthBaseContributionForQuoteDebt",
+            "type": "u64"
+          },
+          {
+            "name": "globalHealthQuoteContributionForBaseDebt",
+            "type": "u64"
+          },
+          {
+            "name": "baseLiquidationCfBps",
+            "type": "u16"
+          },
+          {
+            "name": "quoteLiquidationCfBps",
+            "type": "u16"
+          },
+          {
             "name": "baseDebtHealthBps",
             "type": "u64"
           },
@@ -10085,11 +10160,11 @@ export type Dusk = {
         "kind": "struct",
         "fields": [
           {
-            "name": "utilizedBaseCollateralForQuoteDebt",
+            "name": "globalHealthBaseContributionForQuoteDebt",
             "type": "u64"
           },
           {
-            "name": "utilizedQuoteCollateralForBaseDebt",
+            "name": "globalHealthQuoteContributionForBaseDebt",
             "type": "u64"
           },
           {
@@ -10121,11 +10196,11 @@ export type Dusk = {
             "type": "pubkey"
           },
           {
-            "name": "utilizedBaseCollateralForQuoteDebt",
+            "name": "globalHealthBaseContributionForQuoteDebt",
             "type": "u64"
           },
           {
-            "name": "utilizedQuoteCollateralForBaseDebt",
+            "name": "globalHealthQuoteContributionForBaseDebt",
             "type": "u64"
           },
           {
@@ -10421,7 +10496,11 @@ export type Dusk = {
             "type": "u128"
           },
           {
-            "name": "utilizedCollateral",
+            "name": "collateralAmount",
+            "type": "u64"
+          },
+          {
+            "name": "globalHealthContribution",
             "type": "u64"
           },
           {
@@ -10431,6 +10510,14 @@ export type Dusk = {
           {
             "name": "healthBps",
             "type": "u64"
+          },
+          {
+            "name": "maxCfBps",
+            "type": "u16"
+          },
+          {
+            "name": "liquidationCfBps",
+            "type": "u16"
           },
           {
             "name": "liquidationReferencePriceNad",
@@ -10521,6 +10608,14 @@ export type Dusk = {
             "type": "u128"
           },
           {
+            "name": "remainingGlobalHealthContribution",
+            "type": "u64"
+          },
+          {
+            "name": "remainingLiquidationCfBps",
+            "type": "u16"
+          },
+          {
             "name": "metadata",
             "type": {
               "defined": {
@@ -10603,7 +10698,7 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "liquidityEmaNad",
+            "name": "conservativeDepthNad",
             "type": "u128"
           },
           {
@@ -11625,6 +11720,10 @@ export type Dusk = {
           {
             "name": "minAssetAmountOut",
             "type": "u64"
+          },
+          {
+            "name": "minLiquidationCfBps",
+            "type": "u16"
           }
         ]
       }
@@ -11875,6 +11974,11 @@ export type Dusk = {
       "value": "300"
     },
     {
+      "name": "ltvBufferBps",
+      "type": "u16",
+      "value": "500"
+    },
+    {
       "name": "marketCollateralVaultSeedPrefix",
       "type": "bytes",
       "value": "[109, 97, 114, 107, 101, 116, 95, 99, 111, 108, 108, 97, 116, 101, 114, 97, 108]"
@@ -11913,6 +12017,11 @@ export type Dusk = {
       "name": "marketVersion",
       "type": "u8",
       "value": "2"
+    },
+    {
+      "name": "maxCollateralFactorBps",
+      "type": "u16",
+      "value": "8500"
     },
     {
       "name": "maxManagerFeeBps",

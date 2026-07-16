@@ -11,8 +11,8 @@ use super::*;
             directional_ema_half_life_ms: 60_000,
             k_ema_half_life_ms: 60_000,
             max_daily_borrow_bps: 2_000,
-            utilized_collateral_cap_bps: 15_000,
-            market_health_min_bps: 11_000,
+            global_health_contribution_cap_bps: 15_000,
+            borrow_market_health_floor_bps: 11_000,
             start_time: 0,
         }
     }
@@ -33,10 +33,10 @@ use super::*;
     }
 
     #[test]
-    fn market_config_rejects_utilization_cap_below_health_floor() {
+    fn market_config_rejects_contribution_cap_below_health_floor() {
         let mut config = valid_config();
-        config.utilized_collateral_cap_bps = 10_000;
-        config.market_health_min_bps = 11_000;
+        config.global_health_contribution_cap_bps = 10_000;
+        config.borrow_market_health_floor_bps = 11_000;
 
         let err = config.validate().unwrap_err();
 

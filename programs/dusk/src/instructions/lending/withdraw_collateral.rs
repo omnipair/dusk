@@ -23,6 +23,7 @@ use super::common::validate_collateral_accounts;
 pub struct WithdrawCollateralArgs {
     pub withdraw_amount: u64,
     pub min_asset_amount_out: u64,
+    pub min_liquidation_cf_bps: u16,
 }
 
 #[event_cpi]
@@ -77,7 +78,7 @@ impl<'info> WithdrawCollateral<'info> {
     pub fn validate(&self, args: &WithdrawCollateralArgs) -> Result<()> {
         self.market.assert_started()?;
         require!(args.withdraw_amount > 0, ErrorCode::AmountZero);
-        let market_asset = validate_collateral_accounts(
+        validate_collateral_accounts(
             &self.market,
             self.owner.key(),
             &self.asset_mint,
@@ -100,14 +101,11 @@ impl<'info> WithdrawCollateral<'info> {
             args.withdraw_amount,
             ErrorCode::InsufficientBalance
         );
-        let idle_collateral = match market_asset {
-            crate::state::MarketAsset::Base => self.borrow_position.idle_base_collateral()?,
-            crate::state::MarketAsset::Quote => self.borrow_position.idle_quote_collateral()?,
-        };
         require_gte!(
-            idle_collateral,
+            self.borrow_position
+                .collateral(self.market.asset_for_mint(self.asset_mint.key())?),
             args.withdraw_amount,
-            ErrorCode::InsufficientUtilizedCollateral
+            ErrorCode::InsufficientBalance
         );
         Ok(())
     }
@@ -147,10 +145,12 @@ impl<'info> WithdrawCollateral<'info> {
             require_eq!(collateral_debit, args.withdraw_amount, ErrorCode::MarketMathOverflow);
             require_gte!(asset_credit, args.min_asset_amount_out, ErrorCode::SlippageExceeded);
 
-            let collateral_receipt =
-                accounts
-                    .market
-                    .withdraw_collateral(&mut accounts.borrow_position, market_asset, collateral_debit)?;
+            let collateral_receipt = accounts.market.withdraw_collateral(
+                &mut accounts.borrow_position,
+                market_asset,
+                collateral_debit,
+                args.min_liquidation_cf_bps,
+            )?;
             (market_key, owner_key, asset_mint_key, asset_credit, collateral_receipt)
         };
 
@@ -162,14 +162,20 @@ impl<'info> WithdrawCollateral<'info> {
             asset_credit,
             base_collateral: collateral_receipt.base_collateral,
             quote_collateral: collateral_receipt.quote_collateral,
+            global_health_base_contribution_for_quote_debt: collateral_receipt
+                .global_health_base_contribution_for_quote_debt,
+            global_health_quote_contribution_for_base_debt: collateral_receipt
+                .global_health_quote_contribution_for_base_debt,
+            base_liquidation_cf_bps: collateral_receipt.base_liquidation_cf_bps,
+            quote_liquidation_cf_bps: collateral_receipt.quote_liquidation_cf_bps,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
 
         let health = ctx.accounts.market.market_health()?;
         emit!(MarketHealthUpdated {
             market: market_key,
-            utilized_base_collateral_for_quote_debt: health.utilized_base_collateral_for_quote_debt,
-            utilized_quote_collateral_for_base_debt: health.utilized_quote_collateral_for_base_debt,
+            global_health_base_contribution_for_quote_debt: health.global_health_base_contribution_for_quote_debt,
+            global_health_quote_contribution_for_base_debt: health.global_health_quote_contribution_for_base_debt,
             effective_base_debt_nad: health.effective_base_debt_nad,
             effective_quote_debt_nad: health.effective_quote_debt_nad,
             base_debt_health_bps: health.base_debt_health_bps,

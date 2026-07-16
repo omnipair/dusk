@@ -2,12 +2,21 @@ use anchor_lang::prelude::*;
 
 use super::{Market, MarketAsset, MarketHealth, Risk};
 use crate::{
-    constants::{BPS_DENOMINATOR, LIQUIDATION_INCENTIVE_BPS, LIQUIDATION_PENALTY_BPS},
+    constants::{BPS_DENOMINATOR, LIQUIDATION_INCENTIVE_BPS, LIQUIDATION_PENALTY_BPS, LTV_BUFFER_BPS, NAD},
     errors::ErrorCode,
     math::*,
     shared::math::ceil_div,
     state::BorrowPosition,
 };
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct DynamicBorrowTerms {
+    pub max_debt: u64,
+    pub max_cf_bps: u16,
+    pub liquidation_cf_bps: u16,
+    pub effective_existing_debt_nad: u128,
+    pub projected_market_health_bps: u64,
+}
 
 impl Market {
     pub fn market_health(&self) -> Result<MarketHealth> {
@@ -15,33 +24,26 @@ impl Market {
     }
 
     pub fn market_health_from_risk(&self, risk: &Risk) -> Result<MarketHealth> {
-        let effective_base_debt_nad = self.effective_base_debt_nad()?;
-        let effective_quote_debt_nad = self.effective_quote_debt_nad()?;
-        let base_debt_health_bps = if effective_base_debt_nad == 0 {
-            u64::MAX
-        } else {
-            health_bps(
-                self.quote_collateral_value_for_base_debt_nad_with_risk(
-                    self.debt.utilized_quote_collateral_for_base_debt,
-                    risk,
-                )?,
-                effective_base_debt_nad,
-            )?
-        };
-        let quote_debt_health_bps = if effective_quote_debt_nad == 0 {
-            u64::MAX
-        } else {
-            health_bps(
-                self.base_collateral_value_for_quote_debt_nad_with_risk(
-                    self.debt.utilized_base_collateral_for_quote_debt,
-                    risk,
-                )?,
-                effective_quote_debt_nad,
-            )?
-        };
+        let total_base_debt_nad = self.total_fixed_debt_nad(MarketAsset::Base)?;
+        let total_quote_debt_nad = self.total_fixed_debt_nad(MarketAsset::Quote)?;
+        let (effective_base_debt_nad, base_debt_health_bps) = self.global_side_health(
+            MarketAsset::Base,
+            total_base_debt_nad,
+            total_base_debt_nad,
+            self.debt.global_health_quote_contribution_for_base_debt,
+            risk,
+        )?;
+        let (effective_quote_debt_nad, quote_debt_health_bps) = self.global_side_health(
+            MarketAsset::Quote,
+            total_quote_debt_nad,
+            total_quote_debt_nad,
+            self.debt.global_health_base_contribution_for_quote_debt,
+            risk,
+        )?;
+
         Ok(MarketHealth {
-            utilized_base_collateral_for_quote_debt: self.debt.utilized_base_collateral_for_quote_debt,
-            utilized_quote_collateral_for_base_debt: self.debt.utilized_quote_collateral_for_base_debt,
+            global_health_base_contribution_for_quote_debt: self.debt.global_health_base_contribution_for_quote_debt,
+            global_health_quote_contribution_for_base_debt: self.debt.global_health_quote_contribution_for_base_debt,
             effective_base_debt_nad,
             effective_quote_debt_nad,
             base_debt_health_bps,
@@ -62,27 +64,205 @@ impl Market {
     }
 
     pub fn effective_base_debt_nad(&self) -> Result<u128> {
-        self.effective_debt_nad(MarketAsset::Base)
+        Ok(self.market_health()?.effective_base_debt_nad)
     }
 
     pub fn effective_quote_debt_nad(&self) -> Result<u128> {
-        self.effective_debt_nad(MarketAsset::Quote)
+        Ok(self.market_health()?.effective_quote_debt_nad)
     }
 
-    fn quote_collateral_value_for_base_debt_nad_with_risk(
-        &self,
-        quote_collateral_amount: u64,
-        risk: &Risk,
-    ) -> Result<u128> {
-        self.collateral_value_nad(MarketAsset::Quote, quote_collateral_amount, risk)
+    pub(crate) fn total_fixed_debt_nad(&self, debt_asset: MarketAsset) -> Result<u128> {
+        let (fixed_debt, debt_decimals) = match debt_asset {
+            MarketAsset::Base => (self.debt.fixed_base_debt()?, self.base_side.asset_decimals),
+            MarketAsset::Quote => (self.debt.fixed_quote_debt()?, self.quote_side.asset_decimals),
+        };
+        normalize_to_nad(fixed_debt, debt_decimals)
     }
 
-    fn base_collateral_value_for_quote_debt_nad_with_risk(
+    pub(crate) fn dynamic_borrow_terms(
         &self,
-        base_collateral_amount: u64,
+        debt_asset: MarketAsset,
+        collateral_amount: u64,
+        existing_total_debt_nad: u128,
+        projected_total_debt_nad: u128,
+        projected_aggregate_contribution: u64,
+        risk: &Risk,
+    ) -> Result<DynamicBorrowTerms> {
+        let collateral_asset = debt_asset.opposite();
+        let (effective_existing_debt_nad, projected_market_health_bps) = self.global_side_health(
+            debt_asset,
+            existing_total_debt_nad,
+            projected_total_debt_nad,
+            projected_aggregate_contribution,
+            risk,
+        )?;
+        let collateral_amount_nad =
+            normalize_to_nad(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
+        let (collateral_virtual_reserve_nad, debt_virtual_reserve_nad) =
+            self.pessimistic_virtual_reserves_nad(collateral_asset, risk, true)?;
+        let terms = pessimistic_max_debt_nad(
+            collateral_amount_nad,
+            collateral_virtual_reserve_nad,
+            debt_virtual_reserve_nad,
+            effective_existing_debt_nad,
+        )?;
+
+        Ok(DynamicBorrowTerms {
+            max_debt: denormalize_from_nad_floor(terms.max_debt_nad, self.side(debt_asset).asset_decimals)?,
+            max_cf_bps: terms.max_cf_bps,
+            liquidation_cf_bps: terms.liquidation_cf_bps,
+            effective_existing_debt_nad,
+            projected_market_health_bps,
+        })
+    }
+
+    /// Global health is an underwriting input, not collateral ownership. Each
+    /// position contributes at most a linear collateral value equal to the
+    /// configured multiple of its own debt.
+    pub(crate) fn debt_capped_global_health_contribution(
+        &self,
+        debt_asset: MarketAsset,
+        projected_debt: u128,
+        total_collateral: u64,
+        risk: &Risk,
+    ) -> Result<u64> {
+        if projected_debt == 0 || total_collateral == 0 {
+            return Ok(0);
+        }
+        let collateral_asset = debt_asset.opposite();
+        let debt_nad = normalize_to_nad(projected_debt, self.side(debt_asset).asset_decimals)?;
+        let value_cap_nad = debt_nad
+            .checked_mul(self.config.global_health_contribution_cap_bps as u128)
+            .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let price_nad = self.pessimistic_collateral_price_nad(collateral_asset, risk, true) as u128;
+        if price_nad == 0 {
+            return Ok(0);
+        }
+        let collateral_cap_nad = value_cap_nad
+            .checked_mul(NAD as u128)
+            .and_then(|value| value.checked_div(price_nad))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let collateral_cap =
+            denormalize_from_nad_floor(collateral_cap_nad, self.side(collateral_asset).asset_decimals)?;
+        Ok(total_collateral.min(collateral_cap))
+    }
+
+    pub fn position_health_bps_with_risk(
+        &self,
+        borrow_position: &BorrowPosition,
+        debt_asset: MarketAsset,
+        risk: &Risk,
+    ) -> Result<u64> {
+        let collateral_asset = debt_asset.opposite();
+        let collateral_value_nad =
+            self.collateral_value_nad(collateral_asset, borrow_position.collateral(collateral_asset), risk)?;
+        let debt_nad = normalize_to_nad(
+            match debt_asset {
+                MarketAsset::Base => borrow_position.fixed_base_debt(&self.debt)?,
+                MarketAsset::Quote => borrow_position.fixed_quote_debt(&self.debt)?,
+            },
+            self.side(debt_asset).asset_decimals,
+        )?;
+        health_bps(collateral_value_nad, debt_nad)
+    }
+
+    pub(crate) fn is_position_liquidatable_with_risk(
+        &self,
+        borrow_position: &BorrowPosition,
+        debt_asset: MarketAsset,
+        risk: &Risk,
+    ) -> Result<bool> {
+        let debt_nad = normalize_to_nad(
+            match debt_asset {
+                MarketAsset::Base => borrow_position.fixed_base_debt(&self.debt)?,
+                MarketAsset::Quote => borrow_position.fixed_quote_debt(&self.debt)?,
+            },
+            self.side(debt_asset).asset_decimals,
+        )?;
+        if debt_nad == 0 {
+            return Ok(false);
+        }
+        let liquidation_cf_bps = borrow_position.liquidation_cf_bps(debt_asset);
+        if liquidation_cf_bps == 0 {
+            return Ok(true);
+        }
+        let collateral_asset = debt_asset.opposite();
+        let collateral_value_nad = self.liquidation_collateral_value_nad(
+            collateral_asset,
+            borrow_position.collateral(collateral_asset),
+            risk,
+        )?;
+        Ok(debt_nad.saturating_mul(BPS_DENOMINATOR as u128)
+            >= collateral_value_nad.saturating_mul(liquidation_cf_bps as u128))
+    }
+
+    pub fn is_position_liquidatable(&self, borrow_position: &BorrowPosition, debt_asset: MarketAsset) -> Result<bool> {
+        self.is_position_liquidatable_with_risk(borrow_position, debt_asset, &self.current_risk()?)
+    }
+
+    pub(crate) fn buffered_debt_limit_for_liquidation_cf(
+        &self,
+        collateral_asset: MarketAsset,
+        collateral_amount: u64,
+        liquidation_cf_bps: u16,
+        risk: &Risk,
+    ) -> Result<u64> {
+        let collateral_value_nad = self.collateral_value_nad(collateral_asset, collateral_amount, risk)?;
+        let max_cf_bps = max_cf_bps_from_liquidation_cf(liquidation_cf_bps);
+        let max_debt_nad = collateral_value_nad
+            .checked_mul(max_cf_bps as u128)
+            .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        denormalize_from_nad_floor(max_debt_nad, self.side(collateral_asset.opposite()).asset_decimals)
+    }
+
+    pub fn assert_market_health(&self) -> Result<()> {
+        self.assert_market_health_snapshot(&self.market_health()?)
+    }
+
+    pub fn assert_market_health_snapshot(&self, health: &MarketHealth) -> Result<()> {
+        if self.debt.fixed_base_shares > 0 {
+            require_gte!(
+                health.base_debt_health_bps,
+                self.config.borrow_market_health_floor_bps as u64,
+                ErrorCode::InsufficientMarketHealth
+            );
+        }
+        if self.debt.fixed_quote_shares > 0 {
+            require_gte!(
+                health.quote_debt_health_bps,
+                self.config.borrow_market_health_floor_bps as u64,
+                ErrorCode::InsufficientMarketHealth
+            );
+        }
+        Ok(())
+    }
+
+    pub(crate) fn collateral_value_nad(
+        &self,
+        collateral_asset: MarketAsset,
+        collateral_amount: u64,
         risk: &Risk,
     ) -> Result<u128> {
-        self.collateral_value_nad(MarketAsset::Base, base_collateral_amount, risk)
+        let collateral_amount_nad =
+            normalize_to_nad(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
+        let (collateral_reserve_nad, debt_reserve_nad) =
+            self.pessimistic_virtual_reserves_nad(collateral_asset, risk, true)?;
+        calculate_normalized_amount_out(collateral_reserve_nad, debt_reserve_nad, collateral_amount_nad)
+    }
+
+    pub(crate) fn liquidation_collateral_value_nad(
+        &self,
+        collateral_asset: MarketAsset,
+        collateral_amount: u64,
+        risk: &Risk,
+    ) -> Result<u128> {
+        let collateral_amount_nad =
+            normalize_to_nad(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
+        let (collateral_reserve_nad, debt_reserve_nad) =
+            self.pessimistic_virtual_reserves_nad(collateral_asset, risk, false)?;
+        calculate_normalized_amount_out(collateral_reserve_nad, debt_reserve_nad, collateral_amount_nad)
     }
 
     pub(crate) fn collateral_amount_for_debt_value_with_penalty_bps(
@@ -92,139 +272,6 @@ impl Market {
         penalty_bps: u16,
     ) -> Result<u64> {
         self.collateral_amount_for_debt_value_with_penalty(debt_asset, debt_amount, penalty_bps, &self.current_risk()?)
-    }
-
-    pub fn debt_capped_utilized_collateral(
-        &self,
-        borrow_position: &BorrowPosition,
-        debt_asset: MarketAsset,
-        risk: &Risk,
-    ) -> Result<u64> {
-        let cap_bps = self.config.utilized_collateral_cap_bps as u128;
-        let (fixed_debt, debt_decimals, total_collateral) = match debt_asset {
-            MarketAsset::Base => (
-                borrow_position.fixed_base_debt(&self.debt)?,
-                self.base_side.asset_decimals,
-                borrow_position.quote_collateral,
-            ),
-            MarketAsset::Quote => (
-                borrow_position.fixed_quote_debt(&self.debt)?,
-                self.quote_side.asset_decimals,
-                borrow_position.base_collateral,
-            ),
-        };
-        if fixed_debt == 0 || total_collateral == 0 {
-            return Ok(0);
-        }
-
-        let debt_value_nad = normalize_to_nad(fixed_debt, debt_decimals)?;
-        let utilized_value_cap_nad = debt_value_nad
-            .checked_mul(cap_bps)
-            .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let capped_collateral =
-            self.collateral_amount_for_debt_value_cap_with_risk(debt_asset, utilized_value_cap_nad, risk)?;
-        Ok(total_collateral.min(capped_collateral))
-    }
-
-    pub fn position_health_bps_with_risk(
-        &self,
-        borrow_position: &BorrowPosition,
-        debt_asset: MarketAsset,
-        risk: &Risk,
-    ) -> Result<u64> {
-        match debt_asset {
-            MarketAsset::Base => health_bps(
-                self.collateral_value_nad(
-                    MarketAsset::Quote,
-                    borrow_position.utilized_quote_collateral_for_base_debt,
-                    risk,
-                )?,
-                normalize_to_nad(
-                    borrow_position.fixed_base_debt(&self.debt)?,
-                    self.base_side.asset_decimals,
-                )?,
-            ),
-            MarketAsset::Quote => health_bps(
-                self.collateral_value_nad(
-                    MarketAsset::Base,
-                    borrow_position.utilized_base_collateral_for_quote_debt,
-                    risk,
-                )?,
-                normalize_to_nad(
-                    borrow_position.fixed_quote_debt(&self.debt)?,
-                    self.quote_side.asset_decimals,
-                )?,
-            ),
-        }
-    }
-
-    pub fn assert_market_health(&self) -> Result<()> {
-        let health = self.market_health()?;
-        self.assert_market_health_snapshot(&health)
-    }
-
-    pub fn assert_market_health_snapshot(&self, health: &MarketHealth) -> Result<()> {
-        if health.effective_base_debt_nad > 0 {
-            require_gte!(
-                health.base_debt_health_bps,
-                self.config.market_health_min_bps as u64,
-                ErrorCode::InsufficientMarketHealth
-            );
-        }
-        if health.effective_quote_debt_nad > 0 {
-            require_gte!(
-                health.quote_debt_health_bps,
-                self.config.market_health_min_bps as u64,
-                ErrorCode::InsufficientMarketHealth
-            );
-        }
-        Ok(())
-    }
-
-    fn effective_debt_nad(&self, debt_asset: MarketAsset) -> Result<u128> {
-        let (fixed_debt, debt_side) = match debt_asset {
-            MarketAsset::Base => (self.debt.fixed_base_debt()?, &self.base_side),
-            MarketAsset::Quote => (self.debt.fixed_quote_debt()?, &self.quote_side),
-        };
-        normalize_to_nad(fixed_debt, debt_side.asset_decimals)
-    }
-
-    pub(crate) fn collateral_value_nad(
-        &self,
-        collateral_asset: MarketAsset,
-        collateral_amount: u64,
-        risk: &Risk,
-    ) -> Result<u128> {
-        let (collateral_side, debt_side, price_ema_nad, directional_price_ema_nad) = match collateral_asset {
-            MarketAsset::Base => (
-                &self.base_side,
-                &self.quote_side,
-                risk.base_price_ema_nad,
-                risk.directional_base_price_ema_nad,
-            ),
-            MarketAsset::Quote => (
-                &self.quote_side,
-                &self.base_side,
-                risk.quote_price_ema_nad,
-                risk.directional_quote_price_ema_nad,
-            ),
-        };
-        let (base_depth, quote_depth) = self.conservative_risk_reserve_depths(risk)?;
-        let (collateral_reserve, debt_reserve) = match collateral_asset {
-            MarketAsset::Base => (base_depth, quote_depth),
-            MarketAsset::Quote => (quote_depth, base_depth),
-        };
-
-        collateral_value_from_pessimistic_reserves_nad(
-            collateral_reserve,
-            collateral_side.asset_decimals,
-            debt_reserve,
-            debt_side.asset_decimals,
-            collateral_amount,
-            price_ema_nad,
-            directional_price_ema_nad,
-        )
     }
 
     fn collateral_amount_for_debt_value_with_penalty(
@@ -246,72 +293,150 @@ impl Market {
             BPS_DENOMINATOR as u128,
         )
         .ok_or(ErrorCode::MarketMathOverflow)?;
-        let (collateral_side, debt_side, price_ema_nad, directional_price_ema_nad) = match debt_asset {
-            MarketAsset::Base => (
-                &self.quote_side,
-                &self.base_side,
-                risk.quote_price_ema_nad,
-                risk.directional_quote_price_ema_nad,
-            ),
-            MarketAsset::Quote => (
-                &self.base_side,
-                &self.quote_side,
-                risk.base_price_ema_nad,
-                risk.directional_base_price_ema_nad,
-            ),
-        };
-        let (base_depth, quote_depth) = self.conservative_risk_reserve_depths(risk)?;
-        let (collateral_reserve, debt_reserve) = match debt_asset {
-            MarketAsset::Base => (quote_depth, base_depth),
-            MarketAsset::Quote => (base_depth, quote_depth),
-        };
+        let collateral_asset = debt_asset.opposite();
+        let (collateral_reserve_nad, debt_reserve_nad) =
+            self.pessimistic_virtual_reserves_nad(collateral_asset, risk, true)?;
+        let debt_amount_nad = normalize_to_nad(debt_with_penalty, self.side(debt_asset).asset_decimals)?;
+        let collateral_amount_nad =
+            calculate_normalized_amount_in(collateral_reserve_nad, debt_reserve_nad, debt_amount_nad)?;
+        denormalize_from_nad_ceil(collateral_amount_nad, self.side(collateral_asset).asset_decimals)
+    }
 
-        collateral_amount_for_debt_amount_ceil(
-            collateral_reserve,
-            collateral_side.asset_decimals,
-            debt_reserve,
-            debt_side.asset_decimals,
-            debt_with_penalty,
-            price_ema_nad,
-            directional_price_ema_nad,
+    fn global_side_health(
+        &self,
+        debt_asset: MarketAsset,
+        existing_total_debt_nad: u128,
+        projected_total_debt_nad: u128,
+        aggregate_contribution: u64,
+        risk: &Risk,
+    ) -> Result<(u128, u64)> {
+        if projected_total_debt_nad == 0 {
+            return Ok((0, u64::MAX));
+        }
+        let collateral_asset = debt_asset.opposite();
+        let (collateral_reserve_nad, debt_reserve_nad) =
+            self.pessimistic_virtual_reserves_nad(collateral_asset, risk, true)?;
+        self.global_side_health_with_virtual_reserves(
+            debt_asset,
+            existing_total_debt_nad,
+            projected_total_debt_nad,
+            aggregate_contribution,
+            risk,
+            collateral_reserve_nad,
+            debt_reserve_nad,
         )
     }
 
-    fn collateral_amount_for_debt_value_cap_with_risk(
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn global_side_health_with_virtual_reserves(
         &self,
         debt_asset: MarketAsset,
-        debt_value_nad: u128,
+        existing_total_debt_nad: u128,
+        projected_total_debt_nad: u128,
+        aggregate_contribution: u64,
         risk: &Risk,
-    ) -> Result<u64> {
-        let (collateral_side, debt_side, price_ema_nad, directional_price_ema_nad) = match debt_asset {
-            MarketAsset::Base => (
-                &self.quote_side,
-                &self.base_side,
-                risk.quote_price_ema_nad,
-                risk.directional_quote_price_ema_nad,
-            ),
-            MarketAsset::Quote => (
-                &self.base_side,
-                &self.quote_side,
-                risk.base_price_ema_nad,
-                risk.directional_base_price_ema_nad,
-            ),
+        collateral_reserve_nad: u128,
+        debt_reserve_nad: u128,
+    ) -> Result<(u128, u64)> {
+        if projected_total_debt_nad == 0 {
+            return Ok((0, u64::MAX));
+        }
+        let collateral_asset = debt_asset.opposite();
+        if projected_total_debt_nad >= debt_reserve_nad {
+            return Ok((existing_total_debt_nad, 0));
+        }
+        let required_collateral_nad =
+            calculate_normalized_amount_in(collateral_reserve_nad, debt_reserve_nad, projected_total_debt_nad)?;
+        let stored_contribution_nad = normalize_to_nad(
+            aggregate_contribution as u128,
+            self.side(collateral_asset).asset_decimals,
+        )?;
+        let contribution_value_cap_nad = projected_total_debt_nad
+            .checked_mul(self.config.global_health_contribution_cap_bps as u128)
+            .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let collateral_price_nad = self.pessimistic_collateral_price_nad(collateral_asset, risk, true) as u128;
+        let current_contribution_cap_nad = if collateral_price_nad == 0 {
+            0
+        } else {
+            contribution_value_cap_nad
+                .checked_mul(NAD as u128)
+                .and_then(|value| value.checked_div(collateral_price_nad))
+                .ok_or(ErrorCode::MarketMathOverflow)?
         };
-        let (base_depth, quote_depth) = self.conservative_risk_reserve_depths(risk)?;
-        let (collateral_reserve, debt_reserve) = match debt_asset {
-            MarketAsset::Base => (quote_depth, base_depth),
-            MarketAsset::Quote => (base_depth, quote_depth),
-        };
-
-        collateral_amount_for_debt_value_floor(
-            collateral_reserve,
-            collateral_side.asset_decimals,
-            debt_reserve,
-            debt_side.asset_decimals,
-            debt_value_nad,
-            price_ema_nad,
-            directional_price_ema_nad,
+        // A contribution is capped both when it is recorded and when it is
+        // consumed, so collateral appreciation cannot stale the 150% bound.
+        let contribution_nad = stored_contribution_nad.min(current_contribution_cap_nad);
+        if contribution_nad == 0 {
+            return Ok((existing_total_debt_nad, 0));
+        }
+        let market_health_bps = u64::try_from(
+            contribution_nad
+                .checked_mul(BPS_DENOMINATOR as u128)
+                .and_then(|value| value.checked_div(required_collateral_nad))
+                .ok_or(ErrorCode::MarketMathOverflow)?,
         )
+        .unwrap_or(u64::MAX);
+        let effective_existing_debt_nad = if required_collateral_nad >= contribution_nad {
+            existing_total_debt_nad
+        } else {
+            ceil_div(
+                existing_total_debt_nad
+                    .checked_mul(required_collateral_nad)
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+                contribution_nad,
+            )
+            .ok_or(ErrorCode::MarketMathOverflow)?
+        };
+        Ok((effective_existing_debt_nad, market_health_bps))
+    }
+
+    pub(crate) fn pessimistic_virtual_reserves_nad(
+        &self,
+        collateral_asset: MarketAsset,
+        risk: &Risk,
+        include_directional_ema: bool,
+    ) -> Result<(u128, u128)> {
+        let (base_depth, quote_depth) = self.conservative_risk_reserve_depths(risk)?;
+        let (collateral_depth, debt_depth) = match collateral_asset {
+            MarketAsset::Base => (base_depth, quote_depth),
+            MarketAsset::Quote => (quote_depth, base_depth),
+        };
+        let collateral_depth_nad =
+            normalize_to_nad(collateral_depth as u128, self.side(collateral_asset).asset_decimals)?;
+        let debt_depth_nad = normalize_to_nad(
+            debt_depth as u128,
+            self.side(collateral_asset.opposite()).asset_decimals,
+        )?;
+        let symmetric_price = self.pessimistic_collateral_price_nad(collateral_asset, risk, false);
+        let directional_price = if include_directional_ema {
+            self.pessimistic_collateral_price_nad(collateral_asset, risk, true)
+        } else {
+            symmetric_price
+        };
+        construct_normalized_virtual_reserves_at_pessimistic_price(
+            collateral_depth_nad,
+            debt_depth_nad,
+            symmetric_price,
+            directional_price,
+        )
+    }
+
+    fn pessimistic_collateral_price_nad(
+        &self,
+        collateral_asset: MarketAsset,
+        risk: &Risk,
+        include_directional_ema: bool,
+    ) -> u64 {
+        let (symmetric, directional) = match collateral_asset {
+            MarketAsset::Base => (risk.base_price_ema_nad, risk.directional_base_price_ema_nad),
+            MarketAsset::Quote => (risk.quote_price_ema_nad, risk.directional_quote_price_ema_nad),
+        };
+        if include_directional_ema {
+            symmetric.min(directional)
+        } else {
+            symmetric
+        }
     }
 
     pub(crate) fn conservative_risk_reserve_depths(&self, risk: &Risk) -> Result<(u64, u64)> {
@@ -353,4 +478,18 @@ impl Market {
         )
         .map_err(|_| ErrorCode::MarketMathOverflow.into())
     }
+}
+
+pub(crate) fn max_cf_bps_from_liquidation_cf(liquidation_cf_bps: u16) -> u16 {
+    ((liquidation_cf_bps as u32).saturating_mul((BPS_DENOMINATOR - LTV_BUFFER_BPS) as u32) / BPS_DENOMINATOR as u32)
+        as u16
+}
+
+pub(crate) fn liquidation_health_floor_bps(liquidation_cf_bps: u16) -> u64 {
+    if liquidation_cf_bps == 0 {
+        return u64::MAX;
+    }
+    ceil_div((BPS_DENOMINATOR as u128).pow(2), liquidation_cf_bps as u128)
+        .unwrap_or(u128::from(u64::MAX))
+        .min(u128::from(u64::MAX)) as u64
 }

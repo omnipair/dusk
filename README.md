@@ -43,7 +43,7 @@ Traders
 Borrowers
   deposit collateral
   borrow the opposite market asset
-  remain bounded by utilized-collateral health checks
+  receive a stored liquidation CF under V1-style dynamic underwriting
 
 hLP users
   deposit one market asset
@@ -114,12 +114,13 @@ Closing burns hLP shares, removes the vault's proportional yLP liquidity, repays
 Dusk is designed around market-local risk accounting:
 
 - Lending is isolated by market.
-- Borrow health uses utilized debt-bearing collateral, not idle collateral balances.
+- Individual health and liquidation use all collateral held by the position and its stored liquidation CF.
+- Debt-capped global-health contributions improve new-borrow underwriting without locking collateral or changing existing terms.
 - Isolated leverage has its own position state and debt buckets.
 - Price and risk books use cached EMA state to reduce same-transaction spot manipulation.
 - hLP settlement uses cached settlement references and divergence guards.
 - Swaps stay live when hLP leverage-up is cash-constrained; unexecuted rebalance is stored as `pending_rebalance`.
-- Market health, insurance, and LP socialization bound how losses move through the system.
+- The borrow admission floor, daily limits, insurance, and LP socialization bound how losses move through the system.
 
 ## Instruction Surface
 

@@ -524,10 +524,12 @@ function defaultMarketConfig() {
     ),
     kEmaHalfLifeMs: toBN(duskEnv("K_EMA_HALF_LIFE_MS") ?? "60000"),
     maxDailyBorrowBps: Number(duskEnv("MAX_DAILY_BORROW_BPS") ?? "2000"),
-    utilizedCollateralCapBps: Number(
-      duskEnv("UTILIZED_COLLATERAL_CAP_BPS") ?? "15000"
+    globalHealthContributionCapBps: Number(
+      duskEnv("GLOBAL_HEALTH_CONTRIBUTION_CAP_BPS") ?? "15000"
     ),
-    marketHealthMinBps: Number(duskEnv("MARKET_HEALTH_MIN_BPS") ?? "11000"),
+    borrowMarketHealthFloorBps: Number(
+      duskEnv("BORROW_MARKET_HEALTH_FLOOR_BPS") ?? "11000"
+    ),
     startTime: toBN(duskEnv("MARKET_START_TIME") ?? "0"),
   };
 }
@@ -1206,18 +1208,18 @@ async function marketPayload(stored: StoredMarket) {
       quoteReserveYlpSupply: stringValue(field(field(quoteSide, "shares"), "ylpSupply", "ylp_supply")),
       fixedBaseDebt: stringValue(field(debt, "fixedBaseShares", "fixed_base_shares")),
       fixedQuoteDebt: stringValue(field(debt, "fixedQuoteShares", "fixed_quote_shares")),
-      utilizedBaseCollateralForQuoteDebt: stringValue(
+      globalHealthBaseContributionForQuoteDebt: stringValue(
         field(
           health,
-          "utilizedBaseCollateralForQuoteDebt",
-          "utilized_base_collateral_for_quote_debt"
+          "globalHealthBaseContributionForQuoteDebt",
+          "global_health_base_contribution_for_quote_debt"
         )
       ),
-      utilizedQuoteCollateralForBaseDebt: stringValue(
+      globalHealthQuoteContributionForBaseDebt: stringValue(
         field(
           health,
-          "utilizedQuoteCollateralForBaseDebt",
-          "utilized_quote_collateral_for_base_debt"
+          "globalHealthQuoteContributionForBaseDebt",
+          "global_health_quote_contribution_for_base_debt"
         )
       ),
       effectiveBaseDebtNad: stringValue(field(health, "effectiveBaseDebtNad", "effective_base_debt_nad")),
@@ -1489,7 +1491,7 @@ async function buildBorrowTx(params: {
   borrowAsset: MarketAsset;
   borrowAmount: bigint;
   minDebtAmountOut: bigint;
-  minHealthBps: bigint;
+  minLiquidationCfBps: number;
 }) {
   const { program } = initializeRuntime();
   const m = marketFromStored(params.market);
@@ -1506,7 +1508,7 @@ async function buildBorrowTx(params: {
       .borrow({
         borrowAmount: toBN(params.borrowAmount),
         minDebtAmountOut: toBN(params.minDebtAmountOut),
-        minHealthBps: toBN(params.minHealthBps),
+        minLiquidationCfBps: params.minLiquidationCfBps,
       })
       .accounts({
         market: m.market,
@@ -1918,7 +1920,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
       borrowAsset,
       borrowAmount: amount,
       minDebtAmountOut,
-      minHealthBps: BigInt(String(body.minHealthBps ?? "11000")),
+      minLiquidationCfBps: Number(body.minLiquidationCfBps ?? 0),
     });
     return txResponse("borrow", owner, stored, transaction, {
       borrowAsset,

@@ -9,6 +9,10 @@ pub const NAD_DECIMALS: u8 = 9;
 #[constant]
 pub const BPS_DENOMINATOR: u16 = 10_000;
 #[constant]
+pub const MAX_COLLATERAL_FACTOR_BPS: u16 = 8_500;
+#[constant]
+pub const LTV_BUFFER_BPS: u16 = 500;
+#[constant]
 pub const MAX_MANAGER_FEE_BPS: u16 = 500;
 #[constant]
 pub const LIQUIDATION_CLOSE_FACTOR_BPS: u16 = 5_000;

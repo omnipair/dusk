@@ -333,6 +333,8 @@ impl<'info> SettleLiquidationAuctionAmm<'info> {
             liquidation_receipt.insurance_drawn,
             liquidation_receipt.socialized_loss,
             liquidation_receipt.remaining_debt,
+            liquidation_receipt.remaining_global_health_contribution,
+            liquidation_receipt.remaining_liquidation_cf_bps,
         )?;
         Ok(())
     }

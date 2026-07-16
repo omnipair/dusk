@@ -7760,101 +7760,96 @@
     },
     {
       "code": 6093,
-      "name": "InsufficientUtilizedCollateral",
-      "msg": "Utilized collateral is insufficient"
-    },
-    {
-      "code": 6094,
       "name": "PositionNotLiquidatable",
       "msg": "Position is not liquidatable"
     },
     {
-      "code": 6095,
+      "code": 6094,
       "name": "InsufficientInsurance",
       "msg": "Insurance coverage is insufficient"
     },
     {
-      "code": 6096,
+      "code": 6095,
       "name": "LiquidationSocializationExceeded",
       "msg": "Socialized liquidation loss exceeds caller cap"
     },
     {
-      "code": 6097,
+      "code": 6096,
       "name": "InvalidClaimMint",
       "msg": "Claim mint must not charge transfer fees"
     },
     {
-      "code": 6098,
+      "code": 6097,
       "name": "UnbackedFeeLiability",
       "msg": "Fee liability is not backed by fee vault balance"
     },
     {
-      "code": 6099,
+      "code": 6098,
       "name": "InvalidMarketFeeAuthority",
       "msg": "Invalid market fee authority"
     },
     {
-      "code": 6100,
+      "code": 6099,
       "name": "MarketReduceOnly",
       "msg": "Market is reduce-only"
     },
     {
-      "code": 6101,
+      "code": 6100,
       "name": "MarketNotStarted",
       "msg": "Market has not started"
     },
     {
-      "code": 6102,
+      "code": 6101,
       "name": "MarketMathOverflow",
       "msg": "Market math overflow"
     },
     {
-      "code": 6103,
+      "code": 6102,
       "name": "DailyLimitExceeded",
       "msg": "Daily liquidity limit exceeded"
     },
     {
-      "code": 6104,
+      "code": 6103,
       "name": "InstructionNotLive",
       "msg": "Instruction is intentionally not live yet"
     },
     {
-      "code": 6105,
+      "code": 6104,
       "name": "LiquidationRepayTooLarge",
       "msg": "Liquidation repay amount exceeds partial liquidation cap"
     },
     {
-      "code": 6106,
+      "code": 6105,
       "name": "LeverageMultiplierTooHigh",
       "msg": "Leverage multiplier exceeds circuit breaker"
     },
     {
-      "code": 6107,
+      "code": 6106,
       "name": "LeverageInitialMarginTooLow",
       "msg": "Leverage position does not have enough initial margin"
     },
     {
-      "code": 6108,
+      "code": 6107,
       "name": "LeverageUnwindImpactTooHigh",
       "msg": "Leverage unwind impact exceeds limit"
     },
     {
-      "code": 6109,
+      "code": 6108,
       "name": "LeveragePositionNotLiquidatable",
       "msg": "Leverage position is not liquidatable"
     },
     {
-      "code": 6110,
+      "code": 6109,
       "name": "InvalidSigner",
       "msg": "Invalid signer"
     },
     {
-      "code": 6111,
+      "code": 6110,
       "name": "InvalidLeveragePosition",
       "msg": "Invalid leverage position"
     },
     {
-      "code": 6112,
+      "code": 6111,
       "name": "InvalidLeverageDelegation",
       "msg": "Invalid leverage delegation"
     }
@@ -7990,8 +7985,8 @@
             "type": "u64"
           },
           {
-            "name": "min_health_bps",
-            "type": "u64"
+            "name": "min_liquidation_cf_bps",
+            "type": "u16"
           }
         ]
       }
@@ -8042,11 +8037,11 @@
             "type": "u64"
           },
           {
-            "name": "market_health_min_bps",
+            "name": "borrow_market_health_floor_bps",
             "type": "u16"
           },
           {
-            "name": "utilized_collateral_cap_bps",
+            "name": "global_health_contribution_cap_bps",
             "type": "u16"
           },
           {
@@ -8056,6 +8051,22 @@
           {
             "name": "projected_health_bps",
             "type": "u64"
+          },
+          {
+            "name": "projected_global_market_health_bps",
+            "type": "u64"
+          },
+          {
+            "name": "projected_global_health_contribution",
+            "type": "u64"
+          },
+          {
+            "name": "max_cf_bps",
+            "type": "u16"
+          },
+          {
+            "name": "liquidation_cf_bps",
+            "type": "u16"
           },
           {
             "name": "liquidation_debt_per_collateral_price_nad",
@@ -8090,12 +8101,20 @@
             "type": "u64"
           },
           {
-            "name": "utilized_base_collateral_for_quote_debt",
+            "name": "global_health_base_contribution_for_quote_debt",
             "type": "u64"
           },
           {
-            "name": "utilized_quote_collateral_for_base_debt",
+            "name": "global_health_quote_contribution_for_base_debt",
             "type": "u64"
+          },
+          {
+            "name": "base_liquidation_cf_bps",
+            "type": "u16"
+          },
+          {
+            "name": "quote_liquidation_cf_bps",
+            "type": "u16"
           },
           {
             "name": "fixed_base_shares",
@@ -8150,12 +8169,20 @@
             "type": "u64"
           },
           {
-            "name": "utilized_base_collateral_for_quote_debt",
+            "name": "global_health_base_contribution_for_quote_debt",
             "type": "u64"
           },
           {
-            "name": "utilized_quote_collateral_for_base_debt",
+            "name": "global_health_quote_contribution_for_base_debt",
             "type": "u64"
+          },
+          {
+            "name": "base_liquidation_cf_bps",
+            "type": "u16"
+          },
+          {
+            "name": "quote_liquidation_cf_bps",
+            "type": "u16"
           },
           {
             "name": "fixed_base_debt",
@@ -8294,11 +8321,11 @@
             "type": "u128"
           },
           {
-            "name": "utilized_base_collateral_for_quote_debt",
+            "name": "global_health_base_contribution_for_quote_debt",
             "type": "u64"
           },
           {
-            "name": "utilized_quote_collateral_for_base_debt",
+            "name": "global_health_quote_contribution_for_base_debt",
             "type": "u64"
           },
           {
@@ -9722,6 +9749,22 @@
             "type": "u64"
           },
           {
+            "name": "global_health_base_contribution_for_quote_debt",
+            "type": "u64"
+          },
+          {
+            "name": "global_health_quote_contribution_for_base_debt",
+            "type": "u64"
+          },
+          {
+            "name": "base_liquidation_cf_bps",
+            "type": "u16"
+          },
+          {
+            "name": "quote_liquidation_cf_bps",
+            "type": "u16"
+          },
+          {
             "name": "metadata",
             "type": {
               "defined": {
@@ -9764,6 +9807,22 @@
           {
             "name": "quote_collateral",
             "type": "u64"
+          },
+          {
+            "name": "global_health_base_contribution_for_quote_debt",
+            "type": "u64"
+          },
+          {
+            "name": "global_health_quote_contribution_for_base_debt",
+            "type": "u64"
+          },
+          {
+            "name": "base_liquidation_cf_bps",
+            "type": "u16"
+          },
+          {
+            "name": "quote_liquidation_cf_bps",
+            "type": "u16"
           },
           {
             "name": "metadata",
@@ -9818,11 +9877,11 @@
             "type": "u16"
           },
           {
-            "name": "utilized_collateral_cap_bps",
+            "name": "global_health_contribution_cap_bps",
             "type": "u16"
           },
           {
-            "name": "market_health_min_bps",
+            "name": "borrow_market_health_floor_bps",
             "type": "u16"
           },
           {
@@ -9995,6 +10054,22 @@
             "type": "u128"
           },
           {
+            "name": "global_health_base_contribution_for_quote_debt",
+            "type": "u64"
+          },
+          {
+            "name": "global_health_quote_contribution_for_base_debt",
+            "type": "u64"
+          },
+          {
+            "name": "base_liquidation_cf_bps",
+            "type": "u16"
+          },
+          {
+            "name": "quote_liquidation_cf_bps",
+            "type": "u16"
+          },
+          {
             "name": "base_debt_health_bps",
             "type": "u64"
           },
@@ -10079,11 +10154,11 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "utilized_base_collateral_for_quote_debt",
+            "name": "global_health_base_contribution_for_quote_debt",
             "type": "u64"
           },
           {
-            "name": "utilized_quote_collateral_for_base_debt",
+            "name": "global_health_quote_contribution_for_base_debt",
             "type": "u64"
           },
           {
@@ -10115,11 +10190,11 @@
             "type": "pubkey"
           },
           {
-            "name": "utilized_base_collateral_for_quote_debt",
+            "name": "global_health_base_contribution_for_quote_debt",
             "type": "u64"
           },
           {
-            "name": "utilized_quote_collateral_for_base_debt",
+            "name": "global_health_quote_contribution_for_base_debt",
             "type": "u64"
           },
           {
@@ -10415,7 +10490,11 @@
             "type": "u128"
           },
           {
-            "name": "utilized_collateral",
+            "name": "collateral_amount",
+            "type": "u64"
+          },
+          {
+            "name": "global_health_contribution",
             "type": "u64"
           },
           {
@@ -10425,6 +10504,14 @@
           {
             "name": "health_bps",
             "type": "u64"
+          },
+          {
+            "name": "max_cf_bps",
+            "type": "u16"
+          },
+          {
+            "name": "liquidation_cf_bps",
+            "type": "u16"
           },
           {
             "name": "liquidation_reference_price_nad",
@@ -10515,6 +10602,14 @@
             "type": "u128"
           },
           {
+            "name": "remaining_global_health_contribution",
+            "type": "u64"
+          },
+          {
+            "name": "remaining_liquidation_cf_bps",
+            "type": "u16"
+          },
+          {
             "name": "metadata",
             "type": {
               "defined": {
@@ -10597,7 +10692,7 @@
             "type": "u64"
           },
           {
-            "name": "liquidity_ema_nad",
+            "name": "conservative_depth_nad",
             "type": "u128"
           },
           {
@@ -11619,6 +11714,10 @@
           {
             "name": "min_asset_amount_out",
             "type": "u64"
+          },
+          {
+            "name": "min_liquidation_cf_bps",
+            "type": "u16"
           }
         ]
       }
@@ -11869,6 +11968,11 @@
       "value": "300"
     },
     {
+      "name": "LTV_BUFFER_BPS",
+      "type": "u16",
+      "value": "500"
+    },
+    {
       "name": "MARKET_COLLATERAL_VAULT_SEED_PREFIX",
       "type": "bytes",
       "value": "[109, 97, 114, 107, 101, 116, 95, 99, 111, 108, 108, 97, 116, 101, 114, 97, 108]"
@@ -11907,6 +12011,11 @@
       "name": "MARKET_VERSION",
       "type": "u8",
       "value": "2"
+    },
+    {
+      "name": "MAX_COLLATERAL_FACTOR_BPS",
+      "type": "u16",
+      "value": "8500"
     },
     {
       "name": "MAX_MANAGER_FEE_BPS",

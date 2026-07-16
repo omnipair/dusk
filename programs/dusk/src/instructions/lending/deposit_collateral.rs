@@ -132,9 +132,10 @@ impl<'info> DepositCollateral<'info> {
                 .ok_or(ErrorCode::MarketMathOverflow)?;
             require!(collateral_credit > 0, ErrorCode::AmountZero);
 
-            let collateral_receipt = accounts
-                .borrow_position
-                .deposit_collateral(market_asset, collateral_credit)?;
+            let collateral_receipt =
+                accounts
+                    .market
+                    .deposit_collateral(&mut accounts.borrow_position, market_asset, collateral_credit)?;
             (market_key, owner_key, asset_mint_key, collateral_receipt)
         };
 
@@ -145,6 +146,12 @@ impl<'info> DepositCollateral<'info> {
             collateral_credit: collateral_receipt.collateral_credit,
             base_collateral: collateral_receipt.base_collateral,
             quote_collateral: collateral_receipt.quote_collateral,
+            global_health_base_contribution_for_quote_debt: collateral_receipt
+                .global_health_base_contribution_for_quote_debt,
+            global_health_quote_contribution_for_base_debt: collateral_receipt
+                .global_health_quote_contribution_for_base_debt,
+            base_liquidation_cf_bps: collateral_receipt.base_liquidation_cf_bps,
+            quote_liquidation_cf_bps: collateral_receipt.quote_liquidation_cf_bps,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
 

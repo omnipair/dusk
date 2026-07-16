@@ -10,8 +10,8 @@ pub struct Debt {
     pub quote_borrow_index_nad: u128,
     pub base_rate_at_target_nad: u128,
     pub quote_rate_at_target_nad: u128,
-    pub utilized_base_collateral_for_quote_debt: u64,
-    pub utilized_quote_collateral_for_base_debt: u64,
+    pub global_health_base_contribution_for_quote_debt: u64,
+    pub global_health_quote_contribution_for_base_debt: u64,
     pub last_accrual_slot: u64,
     // Debt tracking (r_debt)
     /// Aggregate outstanding *principal* (borrowed token amount, excluding

@@ -84,8 +84,8 @@ pub struct MarketAuthorityUpdateScheduled {
 #[event]
 pub struct MarketHealthUpdated {
     pub market: Pubkey,
-    pub utilized_base_collateral_for_quote_debt: u64,
-    pub utilized_quote_collateral_for_base_debt: u64,
+    pub global_health_base_contribution_for_quote_debt: u64,
+    pub global_health_quote_contribution_for_base_debt: u64,
     pub effective_base_debt_nad: u128,
     pub effective_quote_debt_nad: u128,
     pub base_debt_health_bps: u64,
@@ -324,6 +324,10 @@ pub struct MarketCollateralDeposited {
     pub collateral_credit: u64,
     pub base_collateral: u64,
     pub quote_collateral: u64,
+    pub global_health_base_contribution_for_quote_debt: u64,
+    pub global_health_quote_contribution_for_base_debt: u64,
+    pub base_liquidation_cf_bps: u16,
+    pub quote_liquidation_cf_bps: u16,
     pub metadata: MarketEventMetadata,
 }
 
@@ -336,6 +340,10 @@ pub struct MarketCollateralWithdrawn {
     pub asset_credit: u64,
     pub base_collateral: u64,
     pub quote_collateral: u64,
+    pub global_health_base_contribution_for_quote_debt: u64,
+    pub global_health_quote_contribution_for_base_debt: u64,
+    pub base_liquidation_cf_bps: u16,
+    pub quote_liquidation_cf_bps: u16,
     pub metadata: MarketEventMetadata,
 }
 
@@ -347,6 +355,10 @@ pub struct MarketDebtUpdated {
     pub debt_delta: i64,
     pub fixed_base_debt: u128,
     pub fixed_quote_debt: u128,
+    pub global_health_base_contribution_for_quote_debt: u64,
+    pub global_health_quote_contribution_for_base_debt: u64,
+    pub base_liquidation_cf_bps: u16,
+    pub quote_liquidation_cf_bps: u16,
     pub base_debt_health_bps: u64,
     pub quote_debt_health_bps: u64,
     pub metadata: MarketEventMetadata,
@@ -367,6 +379,8 @@ pub struct PositionLiquidated {
     pub insurance_drawn: u64,
     pub socialized_loss: u64,
     pub remaining_debt: u128,
+    pub remaining_global_health_contribution: u64,
+    pub remaining_liquidation_cf_bps: u16,
     pub metadata: MarketEventMetadata,
 }
 

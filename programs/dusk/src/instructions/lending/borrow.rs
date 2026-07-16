@@ -21,7 +21,7 @@ use super::common::validate_borrow_accounts;
 pub struct BorrowArgs {
     pub borrow_amount: u64,
     pub min_debt_amount_out: u64,
-    pub min_health_bps: u64,
+    pub min_liquidation_cf_bps: u16,
 }
 
 #[event_cpi]
@@ -111,7 +111,7 @@ impl<'info> Borrow<'info> {
                 &mut accounts.borrow_position,
                 borrow_asset,
                 args.borrow_amount,
-                args.min_health_bps,
+                args.min_liquidation_cf_bps,
             )?;
 
             let debt_token_program = token_program_for_mint(
@@ -145,6 +145,10 @@ impl<'info> Borrow<'info> {
             debt_delta: debt_receipt.debt_delta,
             fixed_base_debt: debt_receipt.fixed_base_debt,
             fixed_quote_debt: debt_receipt.fixed_quote_debt,
+            global_health_base_contribution_for_quote_debt: debt_receipt.global_health_base_contribution_for_quote_debt,
+            global_health_quote_contribution_for_base_debt: debt_receipt.global_health_quote_contribution_for_base_debt,
+            base_liquidation_cf_bps: debt_receipt.base_liquidation_cf_bps,
+            quote_liquidation_cf_bps: debt_receipt.quote_liquidation_cf_bps,
             base_debt_health_bps: debt_receipt.base_debt_health_bps,
             quote_debt_health_bps: debt_receipt.quote_debt_health_bps,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
@@ -153,8 +157,8 @@ impl<'info> Borrow<'info> {
         let health = ctx.accounts.market.market_health()?;
         emit!(MarketHealthUpdated {
             market: market_key,
-            utilized_base_collateral_for_quote_debt: health.utilized_base_collateral_for_quote_debt,
-            utilized_quote_collateral_for_base_debt: health.utilized_quote_collateral_for_base_debt,
+            global_health_base_contribution_for_quote_debt: health.global_health_base_contribution_for_quote_debt,
+            global_health_quote_contribution_for_base_debt: health.global_health_quote_contribution_for_base_debt,
             effective_base_debt_nad: health.effective_base_debt_nad,
             effective_quote_debt_nad: health.effective_quote_debt_nad,
             base_debt_health_bps: health.base_debt_health_bps,

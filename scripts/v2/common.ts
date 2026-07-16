@@ -516,8 +516,12 @@ export function defaultMarketConfig() {
     directionalEmaHalfLifeMs: new anchor.BN(duskEnv("DIRECTIONAL_EMA_HALF_LIFE_MS", "60000")),
     kEmaHalfLifeMs: new anchor.BN(duskEnv("K_EMA_HALF_LIFE_MS", "60000")),
     maxDailyBorrowBps: Number(duskEnv("MAX_DAILY_BORROW_BPS", "2000")),
-    utilizedCollateralCapBps: Number(duskEnv("UTILIZED_COLLATERAL_CAP_BPS", "15000")),
-    marketHealthMinBps: Number(duskEnv("MARKET_HEALTH_MIN_BPS", "11000")),
+    globalHealthContributionCapBps: Number(
+      duskEnv("GLOBAL_HEALTH_CONTRIBUTION_CAP_BPS", "15000")
+    ),
+    borrowMarketHealthFloorBps: Number(
+      duskEnv("BORROW_MARKET_HEALTH_FLOOR_BPS", "11000")
+    ),
     startTime: new anchor.BN(startTime),
   };
 }

@@ -19,8 +19,8 @@ fn valid_config() -> MarketConfig {
         directional_ema_half_life_ms: 60_000,
         k_ema_half_life_ms: 60_000,
         max_daily_borrow_bps: 2_000,
-        utilized_collateral_cap_bps: 15_000,
-        market_health_min_bps: 11_000,
+        global_health_contribution_cap_bps: 15_000,
+        borrow_market_health_floor_bps: 11_000,
         start_time: 0,
     }
 }
@@ -54,7 +54,7 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
         quote_borrow_index_nad: NAD as u128,
         base_borrow_index_nad: NAD as u128,
         fixed_quote_principal: 100,
-        utilized_base_collateral_for_quote_debt: 109,
+        global_health_base_contribution_for_quote_debt: 109,
         ..Debt::default()
     };
     let market = Market {
@@ -84,8 +84,10 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
         position_id: Pubkey::new_unique(),
         base_collateral: 109,
         quote_collateral: 0,
-        utilized_base_collateral_for_quote_debt: 109,
-        utilized_quote_collateral_for_base_debt: 0,
+        global_health_base_contribution_for_quote_debt: 109,
+        global_health_quote_contribution_for_base_debt: 0,
+        base_liquidation_cf_bps: 0,
+        quote_liquidation_cf_bps: 8_500,
         fixed_base_shares: 0,
         fixed_quote_shares: 100,
         auction_start_time: 0,
@@ -142,8 +144,10 @@ fn market_with_cash_backed_debt(
         position_id: Pubkey::new_unique(),
         base_collateral: 0,
         quote_collateral: 0,
-        utilized_base_collateral_for_quote_debt: 0,
-        utilized_quote_collateral_for_base_debt: 0,
+        global_health_base_contribution_for_quote_debt: 0,
+        global_health_quote_contribution_for_base_debt: 0,
+        base_liquidation_cf_bps: 8_500,
+        quote_liquidation_cf_bps: 8_500,
         fixed_base_shares: 0,
         fixed_quote_shares: 0,
         auction_start_time: 0,
@@ -169,10 +173,10 @@ fn market_with_cash_backed_debt(
             debt.base_borrow_index_nad = next_index;
             debt.fixed_base_shares = shares;
             debt.fixed_base_principal = borrow_amount as u128;
-            debt.utilized_quote_collateral_for_base_debt = collateral_amount;
+            debt.global_health_quote_contribution_for_base_debt = collateral_amount;
             borrow_position.fixed_base_shares = shares;
             borrow_position.quote_collateral = collateral_amount;
-            borrow_position.utilized_quote_collateral_for_base_debt = collateral_amount;
+            borrow_position.global_health_quote_contribution_for_base_debt = collateral_amount;
         }
         MarketAsset::Quote => {
             base_side.reserves = Reserves {
@@ -190,10 +194,10 @@ fn market_with_cash_backed_debt(
             debt.quote_borrow_index_nad = next_index;
             debt.fixed_quote_shares = shares;
             debt.fixed_quote_principal = borrow_amount as u128;
-            debt.utilized_base_collateral_for_quote_debt = collateral_amount;
+            debt.global_health_base_contribution_for_quote_debt = collateral_amount;
             borrow_position.fixed_quote_shares = shares;
             borrow_position.base_collateral = collateral_amount;
-            borrow_position.utilized_base_collateral_for_quote_debt = collateral_amount;
+            borrow_position.global_health_base_contribution_for_quote_debt = collateral_amount;
         }
     }
 
@@ -368,6 +372,38 @@ fn partial_liquidation_rounding_writeoff_preserves_virtual_reserve_invariant() {
 }
 
 #[test]
+fn partial_liquidation_recalculates_contribution_and_stored_cf() {
+    let debt_asset = MarketAsset::Quote;
+    let (mut market, mut borrow_position) = liquidatable_quote_debt_position();
+    market.quote_side.reserves.live_reserve += 100;
+    borrow_position.quote_liquidation_cf_bps = 4_000;
+    let old_contribution = borrow_position.global_health_base_contribution_for_quote_debt;
+    let pricing = LiquidationPricing::ReferencePrice {
+        debt_per_collateral_price_nad: NAD as u64,
+    };
+
+    let receipt = Liquidation::new_with_pricing(
+        debt_asset,
+        20,
+        0,
+        0,
+        0,
+        liquidation_terms_for_debt(100),
+        pricing,
+    )
+    .apply(&mut market, &mut borrow_position)
+    .unwrap();
+
+    assert_eq!(receipt.remaining_debt, 80);
+    assert_eq!(borrow_position.quote_liquidation_cf_bps, 8_500);
+    assert!(borrow_position.global_health_base_contribution_for_quote_debt < old_contribution);
+    assert_eq!(
+        market.debt.global_health_base_contribution_for_quote_debt,
+        borrow_position.global_health_base_contribution_for_quote_debt
+    );
+}
+
+#[test]
 fn insurance_credit_liquidation_closes_debt_without_breaking_virtual_reserve_invariant() {
     let debt_asset = MarketAsset::Quote;
     let (mut market, mut borrow_position) =
@@ -417,8 +453,8 @@ fn collateral_exhausted_liquidation_socializes_loss_without_breaking_virtual_res
     let (mut market, mut borrow_position) =
         market_with_cash_backed_debt(debt_asset, 2_000_000, 2_000_000, 100_000, 500);
     borrow_position.base_collateral = 1;
-    borrow_position.utilized_base_collateral_for_quote_debt = 1;
-    market.debt.utilized_base_collateral_for_quote_debt = 1;
+    borrow_position.global_health_base_contribution_for_quote_debt = 1;
+    market.debt.global_health_base_contribution_for_quote_debt = 1;
     let debt_before = position_debt_after(&market, &borrow_position, debt_asset);
     let debt_before_u64 = u64::try_from(debt_before).unwrap();
     let repay_credit = debt_before_u64 / 2;
@@ -457,24 +493,41 @@ fn collateral_exhausted_liquidation_socializes_loss_without_breaking_virtual_res
 
 #[test]
 fn insurance_funding_preserves_room_to_restore_health() {
-    let config = valid_config();
-
-    assert_eq!(liquidation_insurance_funding_bps(100, &config).unwrap(), 200);
-    assert_eq!(liquidation_insurance_funding_bps(500, &config).unwrap(), 200);
-
-    let mut tight_config = valid_config();
-    tight_config.market_health_min_bps = 10_250;
+    assert_eq!(liquidation_insurance_funding_bps(100, 11_000).unwrap(), 200);
+    assert_eq!(liquidation_insurance_funding_bps(500, 11_000).unwrap(), 200);
     assert_eq!(
-        liquidation_insurance_funding_bps(200, &tight_config).unwrap(),
+        liquidation_insurance_funding_bps(200, 10_250).unwrap(),
         49
     );
 }
 
 #[test]
+fn liquidation_eligibility_is_inclusive_at_stored_cf_equality() {
+    let (mut market, mut borrow_position) = liquidatable_quote_debt_position();
+    market.debt.fixed_quote_shares = 425_000_000;
+    market.debt.fixed_quote_principal = 425_000_000;
+    borrow_position.fixed_quote_shares = 425_000_000;
+    borrow_position.base_collateral = 1_000_000_000;
+    borrow_position.quote_liquidation_cf_bps = 8_500;
+    let risk = market.current_risk().unwrap();
+
+    assert!(market
+        .is_position_liquidatable_with_risk(&borrow_position, MarketAsset::Quote, &risk)
+        .unwrap());
+
+    market.debt.fixed_quote_shares -= 1;
+    borrow_position.fixed_quote_shares -= 1;
+    assert!(!market
+        .is_position_liquidatable_with_risk(&borrow_position, MarketAsset::Quote, &risk)
+        .unwrap());
+}
+
+#[test]
 fn max_repay_caps_liquidation_to_restore_target_health() {
     let (market, borrow_position) = liquidatable_quote_debt_position();
-    let incentive_bps = liquidation_incentive_bps(10_900, 11_000);
-    let insurance_bps = liquidation_insurance_funding_bps(incentive_bps, &market.config).unwrap();
+    let target_health_bps = liquidation_health_floor_bps(borrow_position.quote_liquidation_cf_bps);
+    let incentive_bps = liquidation_incentive_bps(10_900, target_health_bps);
+    let insurance_bps = liquidation_insurance_funding_bps(incentive_bps, target_health_bps).unwrap();
     let cap = max_repay_to_restore_health_with_pricing(
         &market,
         &borrow_position,
@@ -484,7 +537,7 @@ fn max_repay_caps_liquidation_to_restore_target_health() {
     )
     .unwrap();
 
-    assert!((15..=16).contains(&cap));
+    assert_eq!(cap, 82);
 }
 
 #[test]
@@ -530,15 +583,15 @@ fn direct_liquidation_restore_cap_uses_reference_price() {
     )
     .unwrap();
 
-    assert!((15..=16).contains(&cap));
+    assert_eq!(cap, 60);
 }
 
 #[test]
 fn max_repay_respects_close_factor_for_deep_partial_liquidation() {
     let (mut market, mut borrow_position) = liquidatable_quote_debt_position();
     borrow_position.base_collateral = 50;
-    borrow_position.utilized_base_collateral_for_quote_debt = 50;
-    market.debt.utilized_base_collateral_for_quote_debt = 50;
+    borrow_position.global_health_base_contribution_for_quote_debt = 50;
+    market.debt.global_health_base_contribution_for_quote_debt = 50;
     let pricing = LiquidationPricing::ReferencePrice {
         debt_per_collateral_price_nad: NAD as u64,
     };
@@ -558,10 +611,10 @@ fn max_repay_full_closes_when_partial_would_leave_dust() {
     let (mut market, mut borrow_position) = liquidatable_quote_debt_position();
     market.debt.fixed_quote_shares = 2;
     market.debt.fixed_quote_principal = 2;
-    market.debt.utilized_base_collateral_for_quote_debt = 1;
+    market.debt.global_health_base_contribution_for_quote_debt = 1;
     borrow_position.fixed_quote_shares = 2;
     borrow_position.base_collateral = 1;
-    borrow_position.utilized_base_collateral_for_quote_debt = 1;
+    borrow_position.global_health_base_contribution_for_quote_debt = 1;
     let pricing = LiquidationPricing::ReferencePrice {
         debt_per_collateral_price_nad: NAD as u64,
     };
@@ -579,8 +632,9 @@ fn max_repay_full_closes_when_partial_would_leave_dust() {
 #[test]
 fn liquidation_rejects_repay_above_restore_cap() {
     let (mut market, mut borrow_position) = liquidatable_quote_debt_position();
-    let incentive_bps = liquidation_incentive_bps(10_900, 11_000);
-    let insurance_bps = liquidation_insurance_funding_bps(incentive_bps, &market.config).unwrap();
+    let target_health_bps = liquidation_health_floor_bps(borrow_position.quote_liquidation_cf_bps);
+    let incentive_bps = liquidation_incentive_bps(10_900, target_health_bps);
+    let insurance_bps = liquidation_insurance_funding_bps(incentive_bps, target_health_bps).unwrap();
     let cap = max_repay_to_restore_health_with_pricing(
         &market,
         &borrow_position,

@@ -160,18 +160,6 @@ pub(crate) fn calculate_normalized_amount_in(x: u128, y: u128, dy: u128) -> Resu
     Ok(dx)
 }
 
-pub(crate) fn calculate_normalized_amount_in_floor(x: u128, y: u128, dy: u128) -> Result<u128> {
-    if dy == 0 {
-        return Ok(0);
-    }
-    let denominator = y.checked_sub(dy).ok_or(ErrorCode::DenominatorOverflow)?;
-    require!(denominator > 0, ErrorCode::DenominatorOverflow);
-    dy.checked_mul(x)
-        .ok_or(ErrorCode::OutputAmountOverflow)?
-        .checked_div(denominator)
-        .ok_or(ErrorCode::OutputAmountOverflow.into())
-}
-
 #[cfg(test)]
 mod tests {
     include!("../tests/math/gamm.rs");

@@ -16,8 +16,8 @@ pub struct MarketConfig {
     pub directional_ema_half_life_ms: u64,
     pub k_ema_half_life_ms: u64,
     pub max_daily_borrow_bps: u16,
-    pub utilized_collateral_cap_bps: u16,
-    pub market_health_min_bps: u16,
+    pub global_health_contribution_cap_bps: u16,
+    pub borrow_market_health_floor_bps: u16,
     pub start_time: i64,
 }
 
@@ -46,9 +46,9 @@ impl MarketConfig {
             ErrorCode::InvalidMarketConfig
         );
         require!(
-            self.utilized_collateral_cap_bps >= BPS_DENOMINATOR
-                && self.market_health_min_bps >= BPS_DENOMINATOR
-                && self.utilized_collateral_cap_bps >= self.market_health_min_bps,
+            self.global_health_contribution_cap_bps >= BPS_DENOMINATOR
+                && self.borrow_market_health_floor_bps >= BPS_DENOMINATOR
+                && self.global_health_contribution_cap_bps >= self.borrow_market_health_floor_bps,
             ErrorCode::InvalidMarketConfig
         );
         Ok(())

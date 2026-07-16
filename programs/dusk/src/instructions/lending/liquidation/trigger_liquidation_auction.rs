@@ -4,7 +4,7 @@ use anchor_spl::token_interface::Mint;
 use crate::{
     constants::*,
     errors::ErrorCode,
-    state::{market::transitions::liquidation::LiquidationPricing, BorrowPosition, Market},
+    state::{BorrowPosition, Market},
 };
 
 #[derive(Accounts)]
@@ -54,18 +54,10 @@ impl<'info> TriggerLiquidationAuction<'info> {
 
         let liquidation_reference_price_nad = ctx.accounts.market.liquidation_reference_price_nad(debt_asset)?;
 
-        let liquidation_pricing = LiquidationPricing::ReferencePrice {
-            debt_per_collateral_price_nad: liquidation_reference_price_nad,
-        };
-
-        let health_bps = ctx.accounts.market.liquidation_health_bps_with_pricing(
-            &ctx.accounts.borrow_position,
-            debt_asset,
-            liquidation_pricing,
-        )?;
-
         require!(
-            health_bps < ctx.accounts.market.config.market_health_min_bps as u64,
+            ctx.accounts
+                .market
+                .is_position_liquidatable(&ctx.accounts.borrow_position, debt_asset)?,
             ErrorCode::PositionNotLiquidatable
         );
 

@@ -212,8 +212,8 @@ function marketConfig() {
     directionalEmaHalfLifeMs: new BN(60_000),
     kEmaHalfLifeMs: new BN(60_000),
     maxDailyBorrowBps: 2_000,
-    utilizedCollateralCapBps: 15_000,
-    marketHealthMinBps: 11_000,
+    globalHealthContributionCapBps: 15_000,
+    borrowMarketHealthFloorBps: 11_000,
     hedgedLpEnabled: true,
     startTime: new BN(0),
   };
@@ -2575,7 +2575,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       .borrow({
         borrowAmount: new BN(5_000),
         minDebtAmountOut: new BN(5_000),
-        minHealthBps: new BN(11_000),
+        minLiquidationCfBps: 8_500,
       })
       .accounts({
         market: fixture.market,
@@ -2605,7 +2605,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     let position = accountCoder.decode("BorrowPosition", Buffer.from(positionAccount!.data)) as any;
     expect(position.base_collateral.toNumber()).to.equal(10_000);
     expect(position.fixed_quote_shares.toNumber()).to.equal(5_000);
-    expect(position.utilized_base_collateral_for_quote_debt.toNumber()).to.be.greaterThan(0);
+    expect(position.global_health_base_contribution_for_quote_debt.toNumber()).to.be.greaterThan(0);
 
     const positionPreview = decodePreviewBorrowPositionReturnData(
       await simulateReturnData(
@@ -2654,6 +2654,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       .withdrawCollateral({
         withdrawAmount: new BN(10_000),
         minAssetAmountOut: new BN(10_000),
+        minLiquidationCfBps: 0,
       })
       .accounts({
         market: fixture.market,
@@ -2682,7 +2683,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     position = accountCoder.decode("BorrowPosition", Buffer.from(positionAccount!.data)) as any;
     expect(position.base_collateral.toNumber()).to.equal(0);
     expect(position.fixed_quote_shares.toNumber()).to.equal(0);
-    expect(position.utilized_base_collateral_for_quote_debt.toNumber()).to.equal(0);
+    expect(position.global_health_base_contribution_for_quote_debt.toNumber()).to.equal(0);
 
     const decoded = accountCoder.decode(
       "Market",
@@ -2724,7 +2725,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       .borrow({
         borrowAmount: new BN(14_500),
         minDebtAmountOut: new BN(14_500),
-        minHealthBps: new BN(11_000),
+        minLiquidationCfBps: 8_500,
       })
       .accounts({
         market: fixture.market,

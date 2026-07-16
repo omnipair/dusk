@@ -3,7 +3,8 @@ use anchor_lang::prelude::*;
 use crate::constants::*;
 use crate::errors::ErrorCode;
 use crate::math::{
-    accrued_index_nad, adapt_rate_at_target_nad, instantaneous_rate_apr_nad, utilization_bps, utilization_error_nad,
+    accrued_index_nad, adapt_rate_at_target_nad, instantaneous_rate_apr_nad, normalize_to_nad, utilization_bps,
+    utilization_error_nad,
 };
 use crate::shared::math::{ceil_div, SqrtU128};
 use crate::state::{
@@ -42,6 +43,10 @@ pub struct DebtReceipt {
     pub interest_paid: u64,
     pub fixed_base_debt: u128,
     pub fixed_quote_debt: u128,
+    pub global_health_base_contribution_for_quote_debt: u64,
+    pub global_health_quote_contribution_for_base_debt: u64,
+    pub base_liquidation_cf_bps: u16,
+    pub quote_liquidation_cf_bps: u16,
     pub base_debt_health_bps: u64,
     pub quote_debt_health_bps: u64,
 }
@@ -65,12 +70,24 @@ pub struct Insurance {
 }
 
 impl DebtReceipt {
-    fn from_market(market: &Market, debt_delta: i64, interest_paid: u64, health: &MarketHealth) -> Result<Self> {
+    fn from_market(
+        market: &Market,
+        borrow_position: &BorrowPosition,
+        debt_delta: i64,
+        interest_paid: u64,
+        health: &MarketHealth,
+    ) -> Result<Self> {
         Ok(Self {
             debt_delta,
             interest_paid,
             fixed_base_debt: market.debt.fixed_base_debt()?,
             fixed_quote_debt: market.debt.fixed_quote_debt()?,
+            global_health_base_contribution_for_quote_debt: borrow_position
+                .global_health_base_contribution_for_quote_debt,
+            global_health_quote_contribution_for_base_debt: borrow_position
+                .global_health_quote_contribution_for_base_debt,
+            base_liquidation_cf_bps: borrow_position.base_liquidation_cf_bps,
+            quote_liquidation_cf_bps: borrow_position.quote_liquidation_cf_bps,
             base_debt_health_bps: health.base_debt_health_bps,
             quote_debt_health_bps: health.quote_debt_health_bps,
         })
@@ -410,44 +427,113 @@ impl Market {
         }
     }
 
+    pub fn deposit_collateral(
+        &mut self,
+        borrow_position: &mut BorrowPosition,
+        market_asset: MarketAsset,
+        collateral_credit: u64,
+    ) -> Result<CollateralReceipt> {
+        require!(collateral_credit > 0, ErrorCode::AmountZero);
+        let projected_collateral = borrow_position
+            .collateral(market_asset)
+            .checked_add(collateral_credit)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let debt_asset = market_asset.opposite();
+        let projected_debt = match debt_asset {
+            MarketAsset::Base => borrow_position.fixed_base_debt(&self.debt)?,
+            MarketAsset::Quote => borrow_position.fixed_quote_debt(&self.debt)?,
+        };
+        let target_contribution =
+            self.debt_capped_global_health_contribution(debt_asset, projected_debt, projected_collateral, &self.risk)?;
+
+        match market_asset {
+            MarketAsset::Base => borrow_position.base_collateral = projected_collateral,
+            MarketAsset::Quote => borrow_position.quote_collateral = projected_collateral,
+        }
+        self.reconcile_global_health_contribution(borrow_position, debt_asset, target_contribution)?;
+
+        Ok(CollateralReceipt {
+            collateral_credit,
+            collateral_debit: 0,
+            base_collateral: borrow_position.base_collateral,
+            quote_collateral: borrow_position.quote_collateral,
+            global_health_base_contribution_for_quote_debt: borrow_position
+                .global_health_base_contribution_for_quote_debt,
+            global_health_quote_contribution_for_base_debt: borrow_position
+                .global_health_quote_contribution_for_base_debt,
+            base_liquidation_cf_bps: borrow_position.base_liquidation_cf_bps,
+            quote_liquidation_cf_bps: borrow_position.quote_liquidation_cf_bps,
+        })
+    }
+
     pub fn withdraw_collateral(
         &mut self,
         borrow_position: &mut BorrowPosition,
         market_asset: MarketAsset,
         collateral_debit: u64,
+        min_liquidation_cf_bps: u16,
     ) -> Result<CollateralReceipt> {
         require!(collateral_debit > 0, ErrorCode::AmountZero);
-        match market_asset {
-            MarketAsset::Base => {
-                require_gte!(
-                    borrow_position.idle_base_collateral()?,
-                    collateral_debit,
-                    ErrorCode::InsufficientUtilizedCollateral
-                );
-                borrow_position.base_collateral = borrow_position
-                    .base_collateral
-                    .checked_sub(collateral_debit)
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
-            }
-            MarketAsset::Quote => {
-                require_gte!(
-                    borrow_position.idle_quote_collateral()?,
-                    collateral_debit,
-                    ErrorCode::InsufficientUtilizedCollateral
-                );
-                borrow_position.quote_collateral = borrow_position
-                    .quote_collateral
-                    .checked_sub(collateral_debit)
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
-            }
+        let projected_collateral = borrow_position
+            .collateral(market_asset)
+            .checked_sub(collateral_debit)
+            .ok_or(ErrorCode::InsufficientBalance)?;
+        let debt_asset = market_asset.opposite();
+        let position_debt = match debt_asset {
+            MarketAsset::Base => borrow_position.fixed_base_debt(&self.debt)?,
+            MarketAsset::Quote => borrow_position.fixed_quote_debt(&self.debt)?,
+        };
+        let target_contribution =
+            self.debt_capped_global_health_contribution(debt_asset, position_debt, projected_collateral, &self.risk)?;
+
+        if position_debt > 0 {
+            let total_debt_nad = self.total_fixed_debt_nad(debt_asset)?;
+            let projected_aggregate =
+                self.projected_aggregate_global_health_contribution(borrow_position, debt_asset, target_contribution)?;
+            let terms = self.dynamic_borrow_terms(
+                debt_asset,
+                projected_collateral,
+                total_debt_nad,
+                total_debt_nad,
+                projected_aggregate,
+                &self.risk,
+            )?;
+            // A third party cannot lower this position's already-issued terms.
+            // The owner may withdraw whenever the post-withdraw position remains
+            // inside its stored 5% buffered liquidation CF.
+            let liquidation_cf_bps = borrow_position
+                .liquidation_cf_bps(debt_asset)
+                .max(terms.liquidation_cf_bps);
+            let max_debt = self.buffered_debt_limit_for_liquidation_cf(
+                market_asset,
+                projected_collateral,
+                liquidation_cf_bps,
+                &self.risk,
+            )?;
+            require_gte!(max_debt as u128, position_debt, ErrorCode::InsufficientMarketHealth);
+            require_gte!(liquidation_cf_bps, min_liquidation_cf_bps, ErrorCode::SlippageExceeded);
+            borrow_position.set_liquidation_cf_bps(debt_asset, liquidation_cf_bps);
+        } else {
+            borrow_position.set_liquidation_cf_bps(debt_asset, 0);
         }
-        self.refresh_risk()?;
+
+        match market_asset {
+            MarketAsset::Base => borrow_position.base_collateral = projected_collateral,
+            MarketAsset::Quote => borrow_position.quote_collateral = projected_collateral,
+        }
+        self.reconcile_global_health_contribution(borrow_position, debt_asset, target_contribution)?;
 
         Ok(CollateralReceipt {
             collateral_credit: 0,
             collateral_debit,
             base_collateral: borrow_position.base_collateral,
             quote_collateral: borrow_position.quote_collateral,
+            global_health_base_contribution_for_quote_debt: borrow_position
+                .global_health_base_contribution_for_quote_debt,
+            global_health_quote_contribution_for_base_debt: borrow_position
+                .global_health_quote_contribution_for_base_debt,
+            base_liquidation_cf_bps: borrow_position.base_liquidation_cf_bps,
+            quote_liquidation_cf_bps: borrow_position.quote_liquidation_cf_bps,
         })
     }
 
@@ -456,23 +542,96 @@ impl Market {
         borrow_position: &mut BorrowPosition,
         borrow_asset: MarketAsset,
         borrow_amount: u64,
-        min_health_bps: u64,
+        min_liquidation_cf_bps: u16,
     ) -> Result<DebtReceipt> {
+        require!(borrow_amount > 0, ErrorCode::AmountZero);
         let debt_delta = i64::try_from(borrow_amount).map_err(|_| ErrorCode::Overflow)?;
+        if self.risk.k_ema == 0 {
+            self.refresh_risk()?;
+        }
+        let risk = self.risk;
+        let current_health = self.market_health_from_risk(&risk)?;
+        self.assert_market_health_snapshot(&current_health)?;
+        let existing_total_debt_nad = self.total_fixed_debt_nad(borrow_asset)?;
         let debt_shares = match borrow_asset {
             MarketAsset::Base => Debt::debt_to_shares(borrow_amount, self.debt.base_borrow_index_nad)?,
             MarketAsset::Quote => Debt::debt_to_shares(borrow_amount, self.debt.quote_borrow_index_nad)?,
         };
-        if self.risk.k_ema == 0 {
-            self.refresh_risk()?;
-        }
+        let (projected_position_debt, projected_total_debt) = match borrow_asset {
+            MarketAsset::Base => (
+                Debt::shares_to_debt(
+                    borrow_position
+                        .fixed_base_shares
+                        .checked_add(debt_shares)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                    self.debt.base_borrow_index_nad,
+                )?,
+                Debt::shares_to_debt(
+                    self.debt
+                        .fixed_base_shares
+                        .checked_add(debt_shares)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                    self.debt.base_borrow_index_nad,
+                )?,
+            ),
+            MarketAsset::Quote => (
+                Debt::shares_to_debt(
+                    borrow_position
+                        .fixed_quote_shares
+                        .checked_add(debt_shares)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                    self.debt.quote_borrow_index_nad,
+                )?,
+                Debt::shares_to_debt(
+                    self.debt
+                        .fixed_quote_shares
+                        .checked_add(debt_shares)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                    self.debt.quote_borrow_index_nad,
+                )?,
+            ),
+        };
+        let collateral_asset = borrow_asset.opposite();
+        let collateral_amount = borrow_position.collateral(collateral_asset);
+        let target_contribution = self.debt_capped_global_health_contribution(
+            borrow_asset,
+            projected_position_debt,
+            collateral_amount,
+            &risk,
+        )?;
+        let projected_aggregate =
+            self.projected_aggregate_global_health_contribution(borrow_position, borrow_asset, target_contribution)?;
+        let projected_total_debt_nad = normalize_to_nad(projected_total_debt, self.side(borrow_asset).asset_decimals)?;
+        let terms = self.dynamic_borrow_terms(
+            borrow_asset,
+            collateral_amount,
+            existing_total_debt_nad,
+            projected_total_debt_nad,
+            projected_aggregate,
+            &risk,
+        )?;
+        require_gte!(
+            terms.max_debt as u128,
+            projected_position_debt,
+            ErrorCode::InsufficientMarketHealth
+        );
+        require_gte!(
+            terms.liquidation_cf_bps,
+            min_liquidation_cf_bps,
+            ErrorCode::SlippageExceeded
+        );
+        require_gte!(
+            terms.projected_market_health_bps,
+            self.config.borrow_market_health_floor_bps as u64,
+            ErrorCode::InsufficientMarketHealth
+        );
         let daily_limit_slot = self.risk.last_snapshot_slot;
         let daily_borrow_limit = self.daily_limit_for_side(borrow_asset, self.config.max_daily_borrow_bps)?;
+        require_borrow_headroom(self.side(borrow_asset), borrow_amount)?;
         self.side_mut(borrow_asset)
             .daily_limits
             .record_borrow(borrow_amount, daily_borrow_limit, daily_limit_slot)?;
         let debt_side = self.side_mut(borrow_asset);
-        require_borrow_headroom(debt_side, borrow_amount)?;
         debt_side.reserves.cash_reserve = debt_side
             .reserves
             .cash_reserve
@@ -504,16 +663,52 @@ impl Market {
             }
         }
         self.debt.add_margin_principal(borrow_asset, borrow_amount)?;
-        let risk = self.risk;
-        sync_borrow_utilization(self, borrow_position, borrow_asset, &risk)?;
+        self.reconcile_global_health_contribution(borrow_position, borrow_asset, target_contribution)?;
+        borrow_position.set_liquidation_cf_bps(borrow_asset, terms.liquidation_cf_bps);
         let market_health = self.market_health()?;
-        self.assert_market_health_snapshot(&market_health)?;
-        // Utilization was just reconciled against the current debt cap. Reuse
-        // the refreshed risk snapshot instead of recomputing the same cap/health
-        // path again, which is heap-expensive in SBF.
-        let health = self.position_health_bps_with_risk(borrow_position, borrow_asset, &self.risk)?;
-        require_gte!(health, min_health_bps, ErrorCode::InsufficientMarketHealth);
-        DebtReceipt::from_market(self, debt_delta, 0, &market_health)
+        DebtReceipt::from_market(self, borrow_position, debt_delta, 0, &market_health)
+    }
+
+    pub(crate) fn projected_aggregate_global_health_contribution(
+        &self,
+        borrow_position: &BorrowPosition,
+        debt_asset: MarketAsset,
+        target_contribution: u64,
+    ) -> Result<u64> {
+        let (position_contribution, aggregate_contribution) = match debt_asset {
+            MarketAsset::Base => (
+                borrow_position.global_health_quote_contribution_for_base_debt,
+                self.debt.global_health_quote_contribution_for_base_debt,
+            ),
+            MarketAsset::Quote => (
+                borrow_position.global_health_base_contribution_for_quote_debt,
+                self.debt.global_health_base_contribution_for_quote_debt,
+            ),
+        };
+        aggregate_contribution
+            .checked_sub(position_contribution)
+            .and_then(|value| value.checked_add(target_contribution))
+            .ok_or(ErrorCode::MarketMathOverflow.into())
+    }
+
+    pub(crate) fn reconcile_global_health_contribution(
+        &mut self,
+        borrow_position: &mut BorrowPosition,
+        debt_asset: MarketAsset,
+        target_contribution: u64,
+    ) -> Result<()> {
+        match debt_asset {
+            MarketAsset::Base => reconcile_global_health_contribution(
+                &mut borrow_position.global_health_quote_contribution_for_base_debt,
+                &mut self.debt.global_health_quote_contribution_for_base_debt,
+                target_contribution,
+            ),
+            MarketAsset::Quote => reconcile_global_health_contribution(
+                &mut borrow_position.global_health_base_contribution_for_quote_debt,
+                &mut self.debt.global_health_base_contribution_for_quote_debt,
+                target_contribution,
+            ),
+        }
     }
 
     pub fn repay(
@@ -552,28 +747,14 @@ impl Market {
                 let live_debit = debt_reduction
                     .checked_sub(principal_credit)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-                let release_collateral = proportional_release(
-                    borrow_position.utilized_quote_collateral_for_base_debt,
-                    shares_to_burn,
-                    shares_before,
-                )?;
                 borrow_position.fixed_base_shares = borrow_position
                     .fixed_base_shares
                     .checked_sub(shares_to_burn)
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
-                borrow_position.utilized_quote_collateral_for_base_debt = borrow_position
-                    .utilized_quote_collateral_for_base_debt
-                    .checked_sub(release_collateral)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
                 self.debt.fixed_base_shares = self
                     .debt
                     .fixed_base_shares
                     .checked_sub(shares_to_burn)
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
-                self.debt.utilized_quote_collateral_for_base_debt = self
-                    .debt
-                    .utilized_quote_collateral_for_base_debt
-                    .checked_sub(release_collateral)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
                 self.base_side.reserves.live_reserve = self
                     .base_side
@@ -613,28 +794,14 @@ impl Market {
                 let live_debit = debt_reduction
                     .checked_sub(principal_credit)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-                let release_collateral = proportional_release(
-                    borrow_position.utilized_base_collateral_for_quote_debt,
-                    shares_to_burn,
-                    shares_before,
-                )?;
                 borrow_position.fixed_quote_shares = borrow_position
                     .fixed_quote_shares
                     .checked_sub(shares_to_burn)
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
-                borrow_position.utilized_base_collateral_for_quote_debt = borrow_position
-                    .utilized_base_collateral_for_quote_debt
-                    .checked_sub(release_collateral)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
                 self.debt.fixed_quote_shares = self
                     .debt
                     .fixed_quote_shares
                     .checked_sub(shares_to_burn)
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
-                self.debt.utilized_base_collateral_for_quote_debt = self
-                    .debt
-                    .utilized_base_collateral_for_quote_debt
-                    .checked_sub(release_collateral)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
                 self.quote_side.reserves.live_reserve = self
                     .quote_side
@@ -653,8 +820,22 @@ impl Market {
         };
         let debt_delta = -i64::try_from(debt_reduction).map_err(|_| ErrorCode::Overflow)?;
         self.refresh_risk()?;
+        let debt_after = match repay_asset {
+            MarketAsset::Base => borrow_position.fixed_base_debt(&self.debt)?,
+            MarketAsset::Quote => borrow_position.fixed_quote_debt(&self.debt)?,
+        };
+        let target_contribution = self.debt_capped_global_health_contribution(
+            repay_asset,
+            debt_after,
+            borrow_position.collateral(repay_asset.opposite()),
+            &self.risk,
+        )?;
+        self.reconcile_global_health_contribution(borrow_position, repay_asset, target_contribution)?;
+        if debt_after == 0 {
+            borrow_position.set_liquidation_cf_bps(repay_asset, 0);
+        }
         let market_health = self.market_health()?;
-        DebtReceipt::from_market(self, debt_delta, interest_paid, &market_health)
+        DebtReceipt::from_market(self, borrow_position, debt_delta, interest_paid, &market_health)
     }
 
     pub fn add_liquidity(
@@ -1067,65 +1248,32 @@ fn total_hlp_funding_debt(market: &Market, asset: MarketAsset, index_nad: u128) 
     Debt::shares_to_debt(hlp_shares, index_nad)
 }
 
-fn sync_borrow_utilization(
-    market: &mut Market,
-    borrow_position: &mut BorrowPosition,
-    debt_asset: MarketAsset,
-    risk: &Risk,
+fn reconcile_global_health_contribution(
+    position_contribution: &mut u64,
+    aggregate_contribution: &mut u64,
+    target_contribution: u64,
 ) -> Result<()> {
-    match debt_asset {
-        MarketAsset::Base => {
-            let old_utilized = borrow_position.utilized_quote_collateral_for_base_debt;
-            let target_utilized = market.debt_capped_utilized_collateral(borrow_position, debt_asset, risk)?;
-            reconcile_utilization(
-                &mut borrow_position.utilized_quote_collateral_for_base_debt,
-                &mut market.debt.utilized_quote_collateral_for_base_debt,
-                old_utilized,
-                target_utilized,
-            )?;
-        }
-        MarketAsset::Quote => {
-            let old_utilized = borrow_position.utilized_base_collateral_for_quote_debt;
-            let target_utilized = market.debt_capped_utilized_collateral(borrow_position, debt_asset, risk)?;
-            reconcile_utilization(
-                &mut borrow_position.utilized_base_collateral_for_quote_debt,
-                &mut market.debt.utilized_base_collateral_for_quote_debt,
-                old_utilized,
-                target_utilized,
-            )?;
-        }
-    }
-
-    Ok(())
-}
-
-fn reconcile_utilization(
-    position_utilized: &mut u64,
-    market_utilized: &mut u64,
-    old_utilized: u64,
-    target_utilized: u64,
-) -> Result<()> {
-    match target_utilized.cmp(&old_utilized) {
+    match target_contribution.cmp(position_contribution) {
         std::cmp::Ordering::Greater => {
-            let delta = target_utilized
-                .checked_sub(old_utilized)
+            let delta = target_contribution
+                .checked_sub(*position_contribution)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
-            *market_utilized = market_utilized
+            *aggregate_contribution = aggregate_contribution
                 .checked_add(delta)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
         }
         std::cmp::Ordering::Less => {
-            let delta = old_utilized
-                .checked_sub(target_utilized)
+            let delta = position_contribution
+                .checked_sub(target_contribution)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
-            *market_utilized = market_utilized
+            *aggregate_contribution = aggregate_contribution
                 .checked_sub(delta)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
         }
         std::cmp::Ordering::Equal => {}
     }
 
-    *position_utilized = target_utilized;
+    *position_contribution = target_contribution;
     Ok(())
 }
 
@@ -1136,18 +1284,6 @@ fn require_borrow_headroom(debt_side: &MarketSide, borrow_amount: u64) -> Result
         ErrorCode::InsufficientBorrowHeadroom
     );
     Ok(())
-}
-
-fn proportional_release(utilized: u64, shares_to_burn: u128, shares_before: u128) -> Result<u64> {
-    require!(shares_before > 0, ErrorCode::InsufficientDebt);
-    if shares_to_burn == shares_before {
-        return Ok(utilized);
-    }
-    let release = (utilized as u128)
-        .checked_mul(shares_to_burn)
-        .and_then(|value| value.checked_div(shares_before))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    u64::try_from(release).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
 fn reserve_for_ylp_mint_ceil(reserve_before: u64, ylp_supply_before: u64, ylp_amount: u64) -> Result<u64> {

@@ -123,8 +123,8 @@ pub(crate) fn emit_hlp_rebalanced_low_heap(
 pub(crate) fn emit_market_health_updated_low_heap(
     market: Pubkey,
     signer: Pubkey,
-    utilized_base_collateral_for_quote_debt: u64,
-    utilized_quote_collateral_for_base_debt: u64,
+    global_health_base_contribution_for_quote_debt: u64,
+    global_health_quote_contribution_for_base_debt: u64,
     effective_base_debt_nad: u128,
     effective_quote_debt_nad: u128,
     base_debt_health_bps: u64,
@@ -139,9 +139,9 @@ pub(crate) fn emit_market_health_updated_low_heap(
     offset += 8;
     data[offset..offset + 32].copy_from_slice(market.as_ref());
     offset += 32;
-    data[offset..offset + 8].copy_from_slice(&utilized_base_collateral_for_quote_debt.to_le_bytes());
+    data[offset..offset + 8].copy_from_slice(&global_health_base_contribution_for_quote_debt.to_le_bytes());
     offset += 8;
-    data[offset..offset + 8].copy_from_slice(&utilized_quote_collateral_for_base_debt.to_le_bytes());
+    data[offset..offset + 8].copy_from_slice(&global_health_quote_contribution_for_base_debt.to_le_bytes());
     offset += 8;
     data[offset..offset + 16].copy_from_slice(&effective_base_debt_nad.to_le_bytes());
     offset += 16;
@@ -249,8 +249,10 @@ pub(crate) fn emit_position_liquidated_low_heap(
     insurance_drawn: u64,
     socialized_loss: u64,
     remaining_debt: u128,
+    remaining_global_health_contribution: u64,
+    remaining_liquidation_cf_bps: u16,
 ) -> Result<()> {
-    const POSITION_LIQUIDATED_EVENT_LEN: usize = 8 + (6 * 32) + (6 * 8) + 16 + MARKET_EVENT_METADATA_LEN;
+    const POSITION_LIQUIDATED_EVENT_LEN: usize = 8 + (6 * 32) + (7 * 8) + 16 + 2 + MARKET_EVENT_METADATA_LEN;
 
     let mut data = [0u8; POSITION_LIQUIDATED_EVENT_LEN];
     let mut offset = 0usize;
@@ -282,6 +284,10 @@ pub(crate) fn emit_position_liquidated_low_heap(
     offset += 8;
     data[offset..offset + 16].copy_from_slice(&remaining_debt.to_le_bytes());
     offset += 16;
+    data[offset..offset + 8].copy_from_slice(&remaining_global_health_contribution.to_le_bytes());
+    offset += 8;
+    data[offset..offset + 2].copy_from_slice(&remaining_liquidation_cf_bps.to_le_bytes());
+    offset += 2;
     write_market_event_metadata(&mut data, offset, liquidator, market, Clock::get()?.slot);
 
     sol_log_data(&[&data]);

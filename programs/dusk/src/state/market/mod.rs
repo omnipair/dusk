@@ -5,6 +5,7 @@ pub mod health;
 pub mod hlp;
 pub mod leverage;
 pub mod limits;
+#[allow(clippy::module_inception)]
 pub mod market;
 pub mod risk;
 pub mod shares;

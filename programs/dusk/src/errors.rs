@@ -281,9 +281,6 @@ pub enum ErrorCode {
     #[msg("Invalid borrow position")]
     InvalidBorrowPosition,
 
-    #[msg("Utilized collateral is insufficient")]
-    InsufficientUtilizedCollateral,
-
     #[msg("Position is not liquidatable")]
     PositionNotLiquidatable,
 
