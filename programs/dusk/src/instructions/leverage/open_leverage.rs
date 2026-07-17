@@ -7,12 +7,18 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{LeveragePositionOpened, MarketEventMetadata},
+    events::{LeveragePositionOpened, MarketEventMetadata, ReferralOriginationFeePaid},
     shared::{
         account::get_size_with_discriminator,
-        token::{create_token_account, transfer_from_user_to_vault, transfer_from_vault_to_vault},
+        token::{
+            create_token_account, transfer_from_user_to_vault_with_remaining_accounts,
+            transfer_from_vault_to_vault_with_remaining_accounts,
+        },
     },
-    state::{leverage_debt_from_margin, FutarchyAuthority, LeveragePosition, Market, MarketAsset},
+    state::{
+        leverage_debt_from_margin, FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAction,
+        ReferralProfile,
+    },
 };
 
 use super::common::{
@@ -20,6 +26,7 @@ use super::common::{
     validate_leverage_reserve_accounts, validate_owner_debt_account,
 };
 use crate::instructions::common::{token_account_credit, token_program_for_mint};
+use crate::instructions::referral::common::{pay_referral_fee, validate_referral};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct OpenLeverageArgs {
@@ -28,6 +35,8 @@ pub struct OpenLeverageArgs {
     pub margin_amount: u64,
     pub multiplier_bps: u64,
     pub min_collateral_out: u64,
+    pub referrer: Option<Pubkey>,
+    pub max_acceptable_referral_fee_bps: Option<u16>,
 }
 
 #[event_cpi]
@@ -93,6 +102,11 @@ pub struct OpenLeverage<'info> {
     #[account(mut)]
     pub owner_debt_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
+    pub referral_profile: Option<Box<Account<'info, ReferralProfile>>>,
+
+    #[account(mut)]
+    pub referral_vault: Option<Box<InterfaceAccount<'info, TokenAccount>>>,
+
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
@@ -119,6 +133,16 @@ impl<'info> OpenLeverage<'info> {
             args.margin_amount,
             ErrorCode::InsufficientBalance
         );
+        let requested_principal = leverage_debt_from_margin(args.margin_amount, args.multiplier_bps)?;
+        validate_referral(
+            requested_principal,
+            args.referrer,
+            args.max_acceptable_referral_fee_bps,
+            &self.futarchy_authority,
+            self.referral_profile.as_deref(),
+            self.referral_vault.as_deref(),
+            &self.debt_mint,
+        )?;
         Ok(())
     }
 
@@ -137,7 +161,7 @@ impl<'info> OpenLeverage<'info> {
             &ctx.accounts.token_2022_program,
         )?;
         let reserve_balance_before = ctx.accounts.debt_reserve_vault.amount;
-        transfer_from_user_to_vault(
+        transfer_from_user_to_vault_with_remaining_accounts(
             ctx.accounts.owner.to_account_info(),
             ctx.accounts.owner_debt_account.to_account_info(),
             ctx.accounts.debt_reserve_vault.to_account_info(),
@@ -145,12 +169,22 @@ impl<'info> OpenLeverage<'info> {
             debt_token_program,
             args.margin_amount,
             ctx.accounts.debt_mint.decimals,
+            ctx.remaining_accounts,
         )?;
         ctx.accounts.debt_reserve_vault.reload()?;
         let margin_credit = token_account_credit(reserve_balance_before, &ctx.accounts.debt_reserve_vault)?;
         require!(margin_credit > 0, ErrorCode::AmountZero);
 
         let debt_amount = leverage_debt_from_margin(margin_credit, args.multiplier_bps)?;
+        let referral = validate_referral(
+            debt_amount,
+            args.referrer,
+            args.max_acceptable_referral_fee_bps,
+            &ctx.accounts.futarchy_authority,
+            ctx.accounts.referral_profile.as_deref(),
+            ctx.accounts.referral_vault.as_deref(),
+            &ctx.accounts.debt_mint,
+        )?;
         let notional = margin_credit
             .checked_add(debt_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -186,8 +220,9 @@ impl<'info> OpenLeverage<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
             swap.fee_credit,
+            ctx.remaining_accounts,
         )?;
-        transfer_from_vault_to_vault(
+        transfer_from_vault_to_vault_with_remaining_accounts(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.collateral_reserve_vault.to_account_info(),
             ctx.accounts.leverage_collateral_vault.to_account_info(),
@@ -196,6 +231,7 @@ impl<'info> OpenLeverage<'info> {
             swap.amount_out,
             ctx.accounts.collateral_mint.decimals,
             &[&crate::generate_market_seeds!(ctx.accounts.market)[..]],
+            ctx.remaining_accounts,
         )?;
 
         let clock = Clock::get()?;
@@ -208,6 +244,7 @@ impl<'info> OpenLeverage<'info> {
             debt_asset,
             margin_credit,
             args.multiplier_bps,
+            referral.quote.fee_debit,
             collateral_credit,
             clock.unix_timestamp,
             clock.slot,
@@ -217,13 +254,28 @@ impl<'info> OpenLeverage<'info> {
             ctx.accounts.futarchy_authority.protocol_auction_split,
         )?;
 
+        let referral_receipt = pay_referral_fee(
+            &ctx.accounts.market,
+            &mut ctx.accounts.debt_reserve_vault,
+            ctx.accounts.referral_vault.as_deref_mut(),
+            &ctx.accounts.debt_mint,
+            &ctx.accounts.token_program,
+            &ctx.accounts.token_2022_program,
+            referral,
+            ctx.remaining_accounts,
+        )?;
+        let position_key = ctx.accounts.leverage_position.key();
+
         emit_cpi!(LeveragePositionOpened {
             market: market_key,
-            position: ctx.accounts.leverage_position.key(),
+            position: position_key,
             owner: owner_key,
             debt_asset_mint: debt_mint_key,
             collateral_asset_mint: collateral_mint_key,
             margin_amount: margin_credit,
+            requested_principal: receipt.requested_principal,
+            referral_fee_amount: receipt.referral_fee_amount,
+            gross_debt: receipt.gross_debt,
             debt_amount: receipt.debt_amount,
             debt_shares: receipt.debt_shares,
             collateral_amount: receipt.collateral_amount,
@@ -232,6 +284,23 @@ impl<'info> OpenLeverage<'info> {
             multiplier_bps: args.multiplier_bps,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
+        if let (Some(referrer), Some(referral_profile)) = (referral.referrer, referral.referral_profile) {
+            emit_cpi!(ReferralOriginationFeePaid {
+                market: market_key,
+                position: position_key,
+                owner: owner_key,
+                referrer,
+                referral_profile,
+                asset_mint: debt_mint_key,
+                action: ReferralAction::OpenLeverage,
+                requested_principal: referral_receipt.requested_principal,
+                configured_fee_bps: referral_receipt.configured_fee_bps,
+                fee_debit: referral_receipt.fee_debit,
+                vault_credit: referral_receipt.vault_credit,
+                gross_debt: referral_receipt.gross_debt,
+                metadata: MarketEventMetadata::new(owner_key, market_key)?,
+            });
+        }
         Ok(())
     }
 }

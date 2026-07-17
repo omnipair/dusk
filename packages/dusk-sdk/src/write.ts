@@ -1,7 +1,15 @@
 import type { Program } from "@coral-xyz/anchor";
-import type { AccountMeta, Transaction, TransactionInstruction } from "@solana/web3.js";
+import { getAccount, getMint, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { SystemProgram, Transaction, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
 
-import { normalizeAccountKeys } from "./address.js";
+import { address, normalizeAccountKeys, type AddressLike } from "./address.js";
+import { deriveReferralProfileAddress } from "./constants.js";
+import {
+  buildReferralVaultSetupInstruction,
+  referralVaultAddresses,
+  resolveTransferHookAccountMetas,
+  type TransferHookTransfer,
+} from "./referral.js";
 import type { Dusk } from "./types_v2.js";
 
 export type DuskInstructionName = Dusk["instructions"][number]["name"];
@@ -11,6 +19,25 @@ export type DuskAccounts = Record<string, unknown>;
 export interface DuskBuildOptions {
   accounts?: DuskAccounts;
   remainingAccounts?: AccountMeta[];
+}
+
+export type ReferredActionName = "borrow" | "openLeverage" | "increaseLeverage";
+
+export interface ReferredActionOptions extends DuskBuildOptions {
+  accounts: DuskAccounts;
+  payer: AddressLike;
+  referrer: AddressLike;
+  debtMint: AddressLike;
+  maxAcceptableReferralFeeBps: number;
+  transferHookTransfers?: readonly TransferHookTransfer[];
+}
+
+export interface ReferredActionBuild {
+  referralProfile: ReturnType<typeof deriveReferralProfileAddress>[0];
+  referralVault: ReturnType<typeof deriveReferralProfileAddress>[0];
+  setupInstruction: TransactionInstruction;
+  actionInstruction: TransactionInstruction;
+  transaction: Transaction;
 }
 
 type AnchorMethodBuilder = {
@@ -68,6 +95,149 @@ export class DuskWrite {
   rpc(name: DuskInstructionName, args?: DuskInstructionArgs, options?: DuskBuildOptions) {
     return this.builder(name, args, options).rpc();
   }
+
+  async referredAction(
+    name: ReferredActionName,
+    args: Record<string, unknown>,
+    options: ReferredActionOptions
+  ): Promise<ReferredActionBuild> {
+    const setup = await buildReferralVaultSetupInstruction({
+      connection: this.program.provider.connection,
+      payer: options.payer,
+      referrer: options.referrer,
+      mint: options.debtMint,
+    });
+    const hookAccounts = options.transferHookTransfers?.length
+      ? await resolveTransferHookAccountMetas(
+          this.program.provider.connection,
+          options.transferHookTransfers
+        )
+      : [];
+    const actionInstruction = await this.instruction(
+      name,
+      {
+        ...args,
+        referrer: address(options.referrer),
+        maxAcceptableReferralFeeBps: options.maxAcceptableReferralFeeBps,
+      },
+      {
+        accounts: {
+          ...options.accounts,
+          referralProfile: setup.referralProfile,
+          referralVault: setup.referralVault,
+        },
+        remainingAccounts: mergeAccountMetas(options.remainingAccounts ?? [], hookAccounts),
+      }
+    );
+    return {
+      referralProfile: setup.referralProfile,
+      referralVault: setup.referralVault,
+      setupInstruction: setup.instruction,
+      actionInstruction,
+      transaction: new Transaction().add(setup.instruction, actionInstruction),
+    };
+  }
+
+  referredBorrow(args: Record<string, unknown>, options: ReferredActionOptions) {
+    return this.referredAction("borrow", args, options);
+  }
+
+  referredOpenLeverage(args: Record<string, unknown>, options: ReferredActionOptions) {
+    return this.referredAction("openLeverage", args, options);
+  }
+
+  referredIncreaseLeverage(args: Record<string, unknown>, options: ReferredActionOptions) {
+    return this.referredAction("increaseLeverage", args, options);
+  }
+
+  async setReferralRecipientInstruction(params: {
+    authority: AddressLike;
+    recipient: AddressLike;
+  }): Promise<TransactionInstruction> {
+    const authority = address(params.authority);
+    return this.instruction(
+      "setReferralRecipient",
+      { recipient: address(params.recipient) },
+      {
+        accounts: {
+          authority,
+          referralProfile: deriveReferralProfileAddress(authority)[0],
+          systemProgram: SystemProgram.programId,
+        },
+      }
+    );
+  }
+
+  async setReferralRecipientTransaction(params: {
+    authority: AddressLike;
+    recipient: AddressLike;
+  }): Promise<Transaction> {
+    return new Transaction().add(await this.setReferralRecipientInstruction(params));
+  }
+
+  async claimReferralFeesInstruction(params: {
+    authority: AddressLike;
+    mint: AddressLike;
+    recipientTokenAccount: AddressLike;
+    remainingAccounts?: AccountMeta[];
+  }): Promise<TransactionInstruction> {
+    const authority = address(params.authority);
+    const addresses = await referralVaultAddresses({
+      connection: this.program.provider.connection,
+      referrer: authority,
+      mint: params.mint,
+    });
+    const recipientTokenAccount = address(params.recipientTokenAccount);
+    const [vaultAccount, mint] = await Promise.all([
+      getAccount(
+        this.program.provider.connection,
+        addresses.referralVault,
+        undefined,
+        addresses.tokenProgram
+      ),
+      getMint(
+        this.program.provider.connection,
+        address(params.mint),
+        undefined,
+        addresses.tokenProgram
+      ),
+    ]);
+    const hookAccounts = await resolveTransferHookAccountMetas(
+      this.program.provider.connection,
+      [
+        {
+          source: addresses.referralVault,
+          mint: params.mint,
+          destination: recipientTokenAccount,
+          authority: addresses.referralProfile,
+          amount: vaultAccount.amount,
+          decimals: mint.decimals,
+          tokenProgram: addresses.tokenProgram,
+        },
+      ]
+    );
+    return this.instruction("claimReferralFees", undefined, {
+      accounts: {
+        authority,
+        referralProfile: addresses.referralProfile,
+        assetMint: address(params.mint),
+        referralVault: addresses.referralVault,
+        recipientTokenAccount,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+      },
+      remainingAccounts: mergeAccountMetas(params.remainingAccounts ?? [], hookAccounts),
+    });
+  }
+
+  async claimReferralFeesTransaction(params: {
+    authority: AddressLike;
+    mint: AddressLike;
+    recipientTokenAccount: AddressLike;
+    remainingAccounts?: AccountMeta[];
+  }): Promise<Transaction> {
+    return new Transaction().add(await this.claimReferralFeesInstruction(params));
+  }
 }
 
 function normalizeArgs(args: DuskInstructionArgs): unknown[] {
@@ -75,4 +245,20 @@ function normalizeArgs(args: DuskInstructionArgs): unknown[] {
     return [];
   }
   return Array.isArray(args) ? args : [args];
+}
+
+function mergeAccountMetas(...groups: readonly AccountMeta[][]): AccountMeta[] {
+  const merged = new Map<string, AccountMeta>();
+  for (const group of groups) {
+    for (const meta of group) {
+      const key = meta.pubkey.toBase58();
+      const current = merged.get(key);
+      merged.set(key, {
+        pubkey: meta.pubkey,
+        isSigner: Boolean(current?.isSigner || meta.isSigner),
+        isWritable: Boolean(current?.isWritable || meta.isWritable),
+      });
+    }
+  }
+  return [...merged.values()];
 }

@@ -702,6 +702,15 @@
           }
         },
         {
+          "name": "referral_profile",
+          "optional": true
+        },
+        {
+          "name": "referral_vault",
+          "writable": true,
+          "optional": true
+        },
+        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -862,6 +871,78 @@
         },
         {
           "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claim_referral_fees",
+      "discriminator": [
+        208,
+        216,
+        137,
+        78,
+        36,
+        103,
+        162,
+        49
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "referral_profile",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  102,
+                  101,
+                  114,
+                  114,
+                  97,
+                  108,
+                  95,
+                  112,
+                  114,
+                  111,
+                  102,
+                  105,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "asset_mint"
+        },
+        {
+          "name": "referral_vault",
+          "writable": true
+        },
+        {
+          "name": "recipient_token_account",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         }
       ],
       "args": []
@@ -2539,6 +2620,15 @@
           "signer": true
         },
         {
+          "name": "referral_profile",
+          "optional": true
+        },
+        {
+          "name": "referral_vault",
+          "writable": true,
+          "optional": true
+        },
+        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -3830,6 +3920,15 @@
           "writable": true
         },
         {
+          "name": "referral_profile",
+          "optional": true
+        },
+        {
+          "name": "referral_vault",
+          "writable": true,
+          "optional": true
+        },
+        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -4004,6 +4103,36 @@
                 "kind": "account",
                 "path": "market.params_hash",
                 "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "futarchy_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
               }
             ]
           }
@@ -5147,6 +5276,73 @@
           "type": {
             "defined": {
               "name": "SetMarketReduceOnlyArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "set_referral_recipient",
+      "discriminator": [
+        54,
+        117,
+        37,
+        14,
+        90,
+        62,
+        112,
+        37
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "referral_profile",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  102,
+                  101,
+                  114,
+                  114,
+                  97,
+                  108,
+                  95,
+                  112,
+                  114,
+                  111,
+                  102,
+                  105,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "SetReferralRecipientArgs"
             }
           }
         }
@@ -6887,6 +7083,19 @@
       ]
     },
     {
+      "name": "ReferralProfile",
+      "discriminator": [
+        13,
+        74,
+        189,
+        176,
+        219,
+        84,
+        162,
+        8
+      ]
+    },
+    {
       "name": "YieldAccount",
       "discriminator": [
         233,
@@ -7237,6 +7446,58 @@
         110,
         234,
         249
+      ]
+    },
+    {
+      "name": "ReferralFeesClaimed",
+      "discriminator": [
+        118,
+        130,
+        122,
+        41,
+        74,
+        34,
+        240,
+        48
+      ]
+    },
+    {
+      "name": "ReferralOriginationFeePaid",
+      "discriminator": [
+        136,
+        71,
+        174,
+        33,
+        250,
+        91,
+        9,
+        248
+      ]
+    },
+    {
+      "name": "ReferralOriginationFeeUpdated",
+      "discriminator": [
+        117,
+        168,
+        247,
+        121,
+        33,
+        224,
+        165,
+        221
+      ]
+    },
+    {
+      "name": "ReferralRecipientUpdated",
+      "discriminator": [
+        51,
+        4,
+        221,
+        175,
+        134,
+        8,
+        235,
+        222
       ]
     },
     {
@@ -7852,6 +8113,26 @@
       "code": 6111,
       "name": "InvalidLeverageDelegation",
       "msg": "Invalid leverage delegation"
+    },
+    {
+      "code": 6112,
+      "name": "InvalidReferralFeeBps",
+      "msg": "Referral origination fee exceeds the protocol hard cap"
+    },
+    {
+      "code": 6113,
+      "name": "ReferralFeeSlippageExceeded",
+      "msg": "Referral origination fee exceeds the caller maximum"
+    },
+    {
+      "code": 6114,
+      "name": "InvalidReferralProfile",
+      "msg": "Invalid referral profile"
+    },
+    {
+      "code": 6115,
+      "name": "InvalidReferralVault",
+      "msg": "Invalid referral fee vault"
     }
   ],
   "types": [
@@ -7987,6 +8268,18 @@
           {
             "name": "min_liquidation_cf_bps",
             "type": "u16"
+          },
+          {
+            "name": "referrer",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "max_acceptable_referral_fee_bps",
+            "type": {
+              "option": "u16"
+            }
           }
         ]
       }
@@ -8037,12 +8330,32 @@
             "type": "u64"
           },
           {
+            "name": "max_borrow_amount",
+            "type": "u64"
+          },
+          {
+            "name": "referral_origination_fee_bps",
+            "type": "u16"
+          },
+          {
             "name": "borrow_market_health_floor_bps",
             "type": "u16"
           },
           {
             "name": "global_health_contribution_cap_bps",
             "type": "u16"
+          },
+          {
+            "name": "projected_borrow_amount",
+            "type": "u64"
+          },
+          {
+            "name": "projected_referral_fee_debit",
+            "type": "u64"
+          },
+          {
+            "name": "projected_referral_vault_credit",
+            "type": "u64"
           },
           {
             "name": "projected_debt_amount",
@@ -8556,6 +8869,10 @@
             }
           },
           {
+            "name": "referral_origination_fee_bps",
+            "type": "u16"
+          },
+          {
             "name": "revenue_distribution",
             "type": {
               "defined": {
@@ -8859,6 +9176,18 @@
           {
             "name": "min_collateral_out",
             "type": "u64"
+          },
+          {
+            "name": "referrer",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "max_acceptable_referral_fee_bps",
+            "type": {
+              "option": "u16"
+            }
           }
         ]
       }
@@ -8878,6 +9207,10 @@
           },
           {
             "name": "interest_bps",
+            "type": "u16"
+          },
+          {
+            "name": "referral_origination_fee_bps",
             "type": "u16"
           },
           {
@@ -9286,6 +9619,18 @@
             "type": "u64"
           },
           {
+            "name": "requested_principal",
+            "type": "u64"
+          },
+          {
+            "name": "referral_fee_amount",
+            "type": "u64"
+          },
+          {
+            "name": "gross_debt",
+            "type": "u64"
+          },
+          {
             "name": "debt_amount",
             "type": "u64"
           },
@@ -9344,6 +9689,18 @@
           {
             "name": "collateral_asset_mint",
             "type": "pubkey"
+          },
+          {
+            "name": "requested_principal",
+            "type": "u64"
+          },
+          {
+            "name": "referral_fee_amount",
+            "type": "u64"
+          },
+          {
+            "name": "gross_debt_delta",
+            "type": "u64"
           },
           {
             "name": "debt_delta",
@@ -10404,6 +10761,18 @@
           {
             "name": "min_collateral_out",
             "type": "u64"
+          },
+          {
+            "name": "referrer",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "max_acceptable_referral_fee_bps",
+            "type": {
+              "option": "u16"
+            }
           }
         ]
       }
@@ -10650,10 +11019,18 @@
             "type": "u64"
           },
           {
-            "name": "projected_debt_amount",
+            "name": "projected_borrow_amount",
             "type": {
               "option": "u64"
             }
+          },
+          {
+            "name": "with_referral",
+            "type": "bool"
+          },
+          {
+            "name": "max_acceptable_referral_fee_bps",
+            "type": "u16"
           }
         ]
       }
@@ -11041,6 +11418,183 @@
       }
     },
     {
+      "name": "ReferralAction",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Borrow"
+          },
+          {
+            "name": "OpenLeverage"
+          },
+          {
+            "name": "IncreaseLeverage"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReferralFeesClaimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "referral_profile",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault_debit",
+            "type": "u64"
+          },
+          {
+            "name": "recipient_credit",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReferralOriginationFeePaid",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "referrer",
+            "type": "pubkey"
+          },
+          {
+            "name": "referral_profile",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "action",
+            "type": {
+              "defined": {
+                "name": "ReferralAction"
+              }
+            }
+          },
+          {
+            "name": "requested_principal",
+            "type": "u64"
+          },
+          {
+            "name": "configured_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "fee_debit",
+            "type": "u64"
+          },
+          {
+            "name": "vault_credit",
+            "type": "u64"
+          },
+          {
+            "name": "gross_debt",
+            "type": "u64"
+          },
+          {
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "MarketEventMetadata"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReferralOriginationFeeUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "referral_origination_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "signer",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReferralProfile",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReferralRecipientUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "referral_profile",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
       "name": "RemoveLeverageMarginArgs",
       "type": {
         "kind": "struct",
@@ -11271,6 +11825,18 @@
         "fields": [
           {
             "name": "new_operator",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SetReferralRecipientArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "recipient",
             "type": "pubkey"
           }
         ]
@@ -11658,6 +12224,12 @@
             }
           },
           {
+            "name": "referral_origination_fee_bps",
+            "type": {
+              "option": "u16"
+            }
+          },
+          {
             "name": "revenue_distribution",
             "type": {
               "option": {
@@ -12027,6 +12599,11 @@
       "value": "500"
     },
     {
+      "name": "MAX_REFERRAL_ORIGINATION_FEE_BPS",
+      "type": "u16",
+      "value": "25"
+    },
+    {
       "name": "METADATA_SEED_PREFIX",
       "type": "bytes",
       "value": "[109, 101, 116, 97, 100, 97, 116, 97]"
@@ -12043,6 +12620,11 @@
       "name": "NAD_DECIMALS",
       "type": "u8",
       "value": "9"
+    },
+    {
+      "name": "REFERRAL_PROFILE_SEED_PREFIX",
+      "type": "bytes",
+      "value": "[114, 101, 102, 101, 114, 114, 97, 108, 95, 112, 114, 111, 102, 105, 108, 101]"
     },
     {
       "name": "TARGET_MS_PER_SLOT",

@@ -17,6 +17,7 @@ import {
   deriveMarketFeeVaultAddress,
   deriveMarketInterestVaultAddress,
   deriveMarketReserveVaultAddress,
+  deriveReferralProfileAddress,
   deriveTokenMetadataAddress,
   deriveYieldAccountAddress,
   deriveYieldTransferHookValidationAddress,
@@ -59,6 +60,7 @@ export const pda = {
   yieldTransferHookValidation: deriveYieldTransferHookValidationAddress,
   hlpYlpVault: deriveHlpYlpVaultAddress,
   insurance: deriveInsuranceAddress,
+  referralProfile: deriveReferralProfileAddress,
 } as const;
 
 export interface SimulateOptions {
@@ -83,14 +85,17 @@ export interface PreviewAddLiquidityParams extends SimulateOptions {
 
 export interface PreviewBorrowCapacityParams extends SimulateOptions {
   market: AddressLike;
+  futarchyAuthority?: AddressLike;
   collateralAssetMint: AddressLike;
   debtAssetMint: AddressLike;
   collateralAmount: BN;
   /**
-   * Candidate debt used for the returned CF and projected-health fields. When
-   * omitted, the program quotes those fields at the final maximum debt.
+   * Candidate requested principal used for the returned fee, CF, and health
+   * fields. When omitted, the program quotes at the final net capacity.
    */
-  projectedDebtAmount?: BN | null;
+  projectedBorrowAmount?: BN | null;
+  withReferral?: boolean;
+  maxAcceptableReferralFeeBps?: number;
 }
 
 export interface PreviewBorrowPositionParams extends SimulateOptions {
@@ -218,11 +223,14 @@ export class DuskGet {
     const instruction = await this.program.methods
       .previewBorrowCapacity({
         collateralAmount: params.collateralAmount,
-        projectedDebtAmount: params.projectedDebtAmount ?? null,
+        projectedBorrowAmount: params.projectedBorrowAmount ?? null,
+        withReferral: params.withReferral ?? false,
+        maxAcceptableReferralFeeBps: params.maxAcceptableReferralFeeBps ?? 0,
       })
       .accounts(
         normalizeAccountKeys({
           market: params.market,
+          futarchyAuthority: params.futarchyAuthority ?? deriveFutarchyAuthorityAddress()[0],
           collateralAssetMint: params.collateralAssetMint,
           debtAssetMint: params.debtAssetMint,
         })

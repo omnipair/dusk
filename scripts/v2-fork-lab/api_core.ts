@@ -578,12 +578,16 @@ async function ensureFutarchyAuthority(futarchyAuthority: PublicKey) {
         authority: payer.publicKey,
         swapBps: Number(duskEnv("PROTOCOL_SWAP_BPS") ?? "0"),
         interestBps: Number(duskEnv("PROTOCOL_INTEREST_BPS") ?? "0"),
+        referralOriginationFeeBps: Number(duskEnv("REFERRAL_ORIGINATION_FEE_BPS") ?? "10"),
         futarchyTreasury: payer.publicKey,
         futarchyTreasuryBps: 0,
         buybacksVault: payer.publicKey,
         buybacksVaultBps: 0,
         teamTreasury: payer.publicKey,
         teamTreasuryBps: 10_000,
+        stakingVault: payer.publicKey,
+        feeAuctionAcceptedMint: NATIVE_MINT,
+        buybackAuctionAcceptedMint: NATIVE_MINT,
       })
       .accounts({
         deployer: payer.publicKey,
@@ -604,7 +608,7 @@ async function ensureFutarchyAuthority(futarchyAuthority: PublicKey) {
 
   const [, bump] = PublicKey.findProgramAddressSync([seed("futarchy_authority")], PROGRAM_ID);
   const data = await accountCoder.encode("FutarchyAuthority", {
-    version: 1,
+    version: 2,
     authority: payer.publicKey,
     recipients: {
       futarchy_treasury: payer.publicKey,
@@ -615,6 +619,7 @@ async function ensureFutarchyAuthority(futarchyAuthority: PublicKey) {
       swap_bps: Number(duskEnv("PROTOCOL_SWAP_BPS") ?? "0"),
       interest_bps: Number(duskEnv("PROTOCOL_INTEREST_BPS") ?? "0"),
     },
+    referral_origination_fee_bps: Number(duskEnv("REFERRAL_ORIGINATION_FEE_BPS") ?? "10"),
     revenue_distribution: {
       futarchy_treasury_bps: 0,
       buybacks_vault_bps: 0,
@@ -1509,6 +1514,8 @@ async function buildBorrowTx(params: {
         borrowAmount: toBN(params.borrowAmount),
         minDebtAmountOut: toBN(params.minDebtAmountOut),
         minLiquidationCfBps: params.minLiquidationCfBps,
+        referrer: null,
+        maxAcceptableReferralFeeBps: null,
       })
       .accounts({
         market: m.market,
@@ -1519,6 +1526,8 @@ async function buildBorrowTx(params: {
         reserveVault: isBase ? m.baseReserveVault : m.quoteReserveVault,
         ownerDebtAccount: ownerDebt,
         borrowPosition: deriveBorrowPosition(m.market, params.positionId),
+        referralProfile: null,
+        referralVault: null,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: m.eventAuthority,

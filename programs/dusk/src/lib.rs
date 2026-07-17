@@ -73,6 +73,16 @@ pub mod dusk {
         SetGlobalReduceOnly::handle_set_global_reduce_only(ctx, args)
     }
 
+    // Referral instructions
+    pub fn set_referral_recipient(ctx: Context<SetReferralRecipient>, args: SetReferralRecipientArgs) -> Result<()> {
+        SetReferralRecipient::handle_set(ctx, args)
+    }
+
+    #[access_control(ctx.accounts.validate())]
+    pub fn claim_referral_fees<'info>(ctx: Context<'_, '_, '_, 'info, ClaimReferralFees<'info>>) -> Result<()> {
+        ClaimReferralFees::handle_claim(ctx)
+    }
+
     #[access_control(ctx.accounts.validate(&args))]
     pub fn settle_protocol_auction<'info>(
         ctx: Context<'_, '_, '_, 'info, SettleProtocolAuction<'info>>,
@@ -153,7 +163,7 @@ pub mod dusk {
     }
 
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn borrow(ctx: Context<Borrow>, args: BorrowArgs) -> Result<()> {
+    pub fn borrow<'info>(ctx: Context<'_, '_, '_, 'info, Borrow<'info>>, args: BorrowArgs) -> Result<()> {
         Borrow::handle_borrow(ctx, args)
     }
 

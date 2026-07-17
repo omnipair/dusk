@@ -1325,6 +1325,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "referral_transfer_hook"
+version = "0.1.0"
+dependencies = [
+ "solana-program",
+ "spl-transfer-hook-interface",
+]
+
+[[package]]
 name = "regex"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

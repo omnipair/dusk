@@ -157,6 +157,7 @@ impl<'info> DecreaseLeverage<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
             swap.fee_credit,
+            ctx.remaining_accounts,
         )?;
 
         let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
@@ -188,6 +189,9 @@ impl<'info> DecreaseLeverage<'info> {
             owner: owner_key,
             debt_asset_mint: debt_mint_key,
             collateral_asset_mint: collateral_mint_key,
+            requested_principal: receipt.requested_principal,
+            referral_fee_amount: receipt.referral_fee_amount,
+            gross_debt_delta: receipt.gross_debt_delta,
             debt_delta: receipt.debt_delta,
             collateral_delta: receipt.collateral_delta,
             debt_amount: receipt.debt_amount,

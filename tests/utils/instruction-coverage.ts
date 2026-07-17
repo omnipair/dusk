@@ -18,6 +18,8 @@ const DUSK_INSTRUCTIONS = [
   "updateProtocolAuctionConfig",
   "updateProtocolAuctionRecipients",
   "setGlobalReduceOnly",
+  "setReferralRecipient",
+  "claimReferralFees",
   "settleProtocolAuction",
   "initialize",
   "initializeLpMetadata",

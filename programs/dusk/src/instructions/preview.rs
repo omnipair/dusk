@@ -19,7 +19,7 @@ use crate::{
             health::{max_cf_bps_from_liquidation_cf, DynamicBorrowTerms},
             transitions::liquidation::LiquidationPricing,
         },
-        BorrowPosition, Debt, Market, MarketAsset, MarketHealth, Risk,
+        BorrowPosition, Debt, FutarchyAuthority, Market, MarketAsset, MarketHealth, ReferralFeeQuote, Risk,
     },
 };
 
@@ -93,6 +93,9 @@ pub struct PreviewBorrowCapacity<'info> {
         bump = market.bump
     )]
     pub market: Box<Account<'info, Market>>,
+
+    #[account(seeds = [FUTARCHY_AUTHORITY_SEED_PREFIX], bump = futarchy_authority.bump)]
+    pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
 
     pub collateral_asset_mint: Box<InterfaceAccount<'info, Mint>>,
 
@@ -205,7 +208,9 @@ pub struct SwapPreview {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PreviewBorrowCapacityArgs {
     pub collateral_amount: u64,
-    pub projected_debt_amount: Option<u64>,
+    pub projected_borrow_amount: Option<u64>,
+    pub with_referral: bool,
+    pub max_acceptable_referral_fee_bps: u16,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -218,8 +223,13 @@ pub struct BorrowCapacityPreview {
     pub max_debt_by_cash: u64,
     pub max_debt_by_daily_limit: u64,
     pub max_debt: u64,
+    pub max_borrow_amount: u64,
+    pub referral_origination_fee_bps: u16,
     pub borrow_market_health_floor_bps: u16,
     pub global_health_contribution_cap_bps: u16,
+    pub projected_borrow_amount: u64,
+    pub projected_referral_fee_debit: u64,
+    pub projected_referral_vault_credit: u64,
     pub projected_debt_amount: u64,
     pub projected_health_bps: u64,
     pub projected_global_market_health_bps: u64,
@@ -426,6 +436,7 @@ impl<'info> PreviewBorrowCapacity<'info> {
         require!(args.collateral_amount > 0, ErrorCode::AmountZero);
         require_supported_asset_mint(&ctx.accounts.collateral_asset_mint)?;
         require_supported_asset_mint(&ctx.accounts.debt_asset_mint)?;
+        ctx.accounts.futarchy_authority.validate_referral_origination_fee()?;
 
         ctx.accounts.market.update()?;
         let market: &Market = &ctx.accounts.market;
@@ -444,7 +455,33 @@ impl<'info> PreviewBorrowCapacity<'info> {
         let max_debt_by_health =
             max_new_position_debt_by_dynamic_health(&preview_context, debt_side.reserves.live_reserve)?;
         let max_debt = max_debt_by_health.min(max_debt_by_cash).min(max_debt_by_daily_limit);
-        let projected_debt_amount = args.projected_debt_amount.unwrap_or(max_debt);
+        let referral_origination_fee_bps = if args.with_referral {
+            ctx.accounts.futarchy_authority.referral_origination_fee_bps
+        } else {
+            0
+        };
+        let max_borrow_amount = max_requested_principal_for_gross_debt(
+            max_debt,
+            referral_origination_fee_bps,
+            args.max_acceptable_referral_fee_bps,
+            args.with_referral,
+        )?;
+        let projected_borrow_amount = args.projected_borrow_amount.unwrap_or(max_borrow_amount);
+        let referral_quote = ReferralFeeQuote::new(
+            projected_borrow_amount,
+            referral_origination_fee_bps,
+            args.max_acceptable_referral_fee_bps,
+            args.with_referral,
+        )?;
+        let projected_debt_amount = referral_quote.gross_debt;
+        let projected_referral_transfer_fee = get_transfer_fee(
+            &ctx.accounts.debt_asset_mint.to_account_info(),
+            referral_quote.fee_debit,
+        )?;
+        let projected_referral_vault_credit = referral_quote
+            .fee_debit
+            .checked_sub(projected_referral_transfer_fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
         let (projected_terms, projected_global_health_contribution) = preview_context.terms(projected_debt_amount)?;
         let projected_debt_nad = normalize_to_nad(projected_debt_amount as u128, debt_side.asset_decimals)?;
         let projected_health_bps = if projected_debt_nad == 0 {
@@ -462,8 +499,13 @@ impl<'info> PreviewBorrowCapacity<'info> {
             max_debt_by_cash,
             max_debt_by_daily_limit,
             max_debt,
+            max_borrow_amount,
+            referral_origination_fee_bps,
             borrow_market_health_floor_bps: market.config.borrow_market_health_floor_bps,
             global_health_contribution_cap_bps: market.config.global_health_contribution_cap_bps,
+            projected_borrow_amount,
+            projected_referral_fee_debit: referral_quote.fee_debit,
+            projected_referral_vault_credit,
             projected_debt_amount,
             projected_health_bps,
             projected_global_market_health_bps: projected_terms.projected_market_health_bps,
@@ -698,6 +740,27 @@ fn max_new_position_debt_by_dynamic_health(context: &NewPositionPreviewContext<'
     Ok(low)
 }
 
+fn max_requested_principal_for_gross_debt(
+    max_gross_debt: u64,
+    configured_fee_bps: u16,
+    max_acceptable_fee_bps: u16,
+    referred: bool,
+) -> Result<u64> {
+    let mut low = 0_u64;
+    let mut high = max_gross_debt;
+    while low < high {
+        let midpoint = low + (high - low) / 2 + 1;
+        if ReferralFeeQuote::new(midpoint, configured_fee_bps, max_acceptable_fee_bps, referred)?.gross_debt
+            <= max_gross_debt
+        {
+            low = midpoint;
+        } else {
+            high = midpoint - 1;
+        }
+    }
+    Ok(low)
+}
+
 fn liquidation_threshold_price_nad(
     collateral_amount: u64,
     collateral_decimals: u8,
@@ -825,6 +888,18 @@ mod tests {
             .unwrap();
 
         assert_eq!(binary, brute);
+    }
+
+    #[test]
+    fn referral_capacity_binary_search_returns_largest_net_principal() {
+        let maximum = max_requested_principal_for_gross_debt(100_000, 10, 10, true).unwrap();
+        let quote = ReferralFeeQuote::new(maximum, 10, 10, true).unwrap();
+        assert!(quote.gross_debt <= 100_000);
+        assert!(ReferralFeeQuote::new(maximum + 1, 10, 10, true).unwrap().gross_debt > 100_000);
+        assert_eq!(
+            max_requested_principal_for_gross_debt(100_000, 10, 0, false).unwrap(),
+            100_000
+        );
     }
 
     proptest! {

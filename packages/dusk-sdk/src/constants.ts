@@ -32,6 +32,7 @@ export const SEEDS = {
   HLP_YLP_VAULT: Buffer.from("hlp_ylp_vault"),
   INSURANCE: Buffer.from("insurance"),
   FUTARCHY_AUTHORITY: Buffer.from("futarchy_authority"),
+  REFERRAL_PROFILE: Buffer.from("referral_profile"),
   METADATA: Buffer.from("metadata"),
 } as const;
 
@@ -48,6 +49,14 @@ function normalizeParamsHash(paramsHash: Uint8Array | Buffer | number[]): Buffer
  */
 export function deriveFutarchyAuthorityAddress(): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([SEEDS.FUTARCHY_AUTHORITY], DUSK_PROGRAM_ID);
+}
+
+/** Derive the protocol-wide referral profile for a referrer authority. */
+export function deriveReferralProfileAddress(authority: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [SEEDS.REFERRAL_PROFILE, authority.toBuffer()],
+    DUSK_PROGRAM_ID
+  );
 }
 
 /**

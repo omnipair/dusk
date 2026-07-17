@@ -319,6 +319,7 @@ impl<'info> CloseLeverage<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
             swap.fee_credit,
+            ctx.remaining_accounts,
         )?;
 
         let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;

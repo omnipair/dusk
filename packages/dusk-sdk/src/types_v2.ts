@@ -708,6 +708,15 @@ export type Dusk = {
           }
         },
         {
+          "name": "referralProfile",
+          "optional": true
+        },
+        {
+          "name": "referralVault",
+          "writable": true,
+          "optional": true
+        },
+        {
           "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -868,6 +877,78 @@ export type Dusk = {
         },
         {
           "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claimReferralFees",
+      "discriminator": [
+        208,
+        216,
+        137,
+        78,
+        36,
+        103,
+        162,
+        49
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "referralProfile",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  102,
+                  101,
+                  114,
+                  114,
+                  97,
+                  108,
+                  95,
+                  112,
+                  114,
+                  111,
+                  102,
+                  105,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "assetMint"
+        },
+        {
+          "name": "referralVault",
+          "writable": true
+        },
+        {
+          "name": "recipientTokenAccount",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         }
       ],
       "args": []
@@ -2545,6 +2626,15 @@ export type Dusk = {
           "signer": true
         },
         {
+          "name": "referralProfile",
+          "optional": true
+        },
+        {
+          "name": "referralVault",
+          "writable": true,
+          "optional": true
+        },
+        {
           "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -3836,6 +3926,15 @@ export type Dusk = {
           "writable": true
         },
         {
+          "name": "referralProfile",
+          "optional": true
+        },
+        {
+          "name": "referralVault",
+          "writable": true,
+          "optional": true
+        },
+        {
           "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -4010,6 +4109,36 @@ export type Dusk = {
                 "kind": "account",
                 "path": "market.params_hash",
                 "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "futarchyAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
               }
             ]
           }
@@ -5153,6 +5282,73 @@ export type Dusk = {
           "type": {
             "defined": {
               "name": "setMarketReduceOnlyArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "setReferralRecipient",
+      "discriminator": [
+        54,
+        117,
+        37,
+        14,
+        90,
+        62,
+        112,
+        37
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "referralProfile",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  102,
+                  101,
+                  114,
+                  114,
+                  97,
+                  108,
+                  95,
+                  112,
+                  114,
+                  111,
+                  102,
+                  105,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "setReferralRecipientArgs"
             }
           }
         }
@@ -6893,6 +7089,19 @@ export type Dusk = {
       ]
     },
     {
+      "name": "referralProfile",
+      "discriminator": [
+        13,
+        74,
+        189,
+        176,
+        219,
+        84,
+        162,
+        8
+      ]
+    },
+    {
       "name": "yieldAccount",
       "discriminator": [
         233,
@@ -7243,6 +7452,58 @@ export type Dusk = {
         110,
         234,
         249
+      ]
+    },
+    {
+      "name": "referralFeesClaimed",
+      "discriminator": [
+        118,
+        130,
+        122,
+        41,
+        74,
+        34,
+        240,
+        48
+      ]
+    },
+    {
+      "name": "referralOriginationFeePaid",
+      "discriminator": [
+        136,
+        71,
+        174,
+        33,
+        250,
+        91,
+        9,
+        248
+      ]
+    },
+    {
+      "name": "referralOriginationFeeUpdated",
+      "discriminator": [
+        117,
+        168,
+        247,
+        121,
+        33,
+        224,
+        165,
+        221
+      ]
+    },
+    {
+      "name": "referralRecipientUpdated",
+      "discriminator": [
+        51,
+        4,
+        221,
+        175,
+        134,
+        8,
+        235,
+        222
       ]
     },
     {
@@ -7858,6 +8119,26 @@ export type Dusk = {
       "code": 6111,
       "name": "invalidLeverageDelegation",
       "msg": "Invalid leverage delegation"
+    },
+    {
+      "code": 6112,
+      "name": "invalidReferralFeeBps",
+      "msg": "Referral origination fee exceeds the protocol hard cap"
+    },
+    {
+      "code": 6113,
+      "name": "referralFeeSlippageExceeded",
+      "msg": "Referral origination fee exceeds the caller maximum"
+    },
+    {
+      "code": 6114,
+      "name": "invalidReferralProfile",
+      "msg": "Invalid referral profile"
+    },
+    {
+      "code": 6115,
+      "name": "invalidReferralVault",
+      "msg": "Invalid referral fee vault"
     }
   ],
   "types": [
@@ -7993,6 +8274,18 @@ export type Dusk = {
           {
             "name": "minLiquidationCfBps",
             "type": "u16"
+          },
+          {
+            "name": "referrer",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "maxAcceptableReferralFeeBps",
+            "type": {
+              "option": "u16"
+            }
           }
         ]
       }
@@ -8043,12 +8336,32 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "maxBorrowAmount",
+            "type": "u64"
+          },
+          {
+            "name": "referralOriginationFeeBps",
+            "type": "u16"
+          },
+          {
             "name": "borrowMarketHealthFloorBps",
             "type": "u16"
           },
           {
             "name": "globalHealthContributionCapBps",
             "type": "u16"
+          },
+          {
+            "name": "projectedBorrowAmount",
+            "type": "u64"
+          },
+          {
+            "name": "projectedReferralFeeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "projectedReferralVaultCredit",
+            "type": "u64"
           },
           {
             "name": "projectedDebtAmount",
@@ -8562,6 +8875,10 @@ export type Dusk = {
             }
           },
           {
+            "name": "referralOriginationFeeBps",
+            "type": "u16"
+          },
+          {
             "name": "revenueDistribution",
             "type": {
               "defined": {
@@ -8865,6 +9182,18 @@ export type Dusk = {
           {
             "name": "minCollateralOut",
             "type": "u64"
+          },
+          {
+            "name": "referrer",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "maxAcceptableReferralFeeBps",
+            "type": {
+              "option": "u16"
+            }
           }
         ]
       }
@@ -8884,6 +9213,10 @@ export type Dusk = {
           },
           {
             "name": "interestBps",
+            "type": "u16"
+          },
+          {
+            "name": "referralOriginationFeeBps",
             "type": "u16"
           },
           {
@@ -9292,6 +9625,18 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "requestedPrincipal",
+            "type": "u64"
+          },
+          {
+            "name": "referralFeeAmount",
+            "type": "u64"
+          },
+          {
+            "name": "grossDebt",
+            "type": "u64"
+          },
+          {
             "name": "debtAmount",
             "type": "u64"
           },
@@ -9350,6 +9695,18 @@ export type Dusk = {
           {
             "name": "collateralAssetMint",
             "type": "pubkey"
+          },
+          {
+            "name": "requestedPrincipal",
+            "type": "u64"
+          },
+          {
+            "name": "referralFeeAmount",
+            "type": "u64"
+          },
+          {
+            "name": "grossDebtDelta",
+            "type": "u64"
           },
           {
             "name": "debtDelta",
@@ -10410,6 +10767,18 @@ export type Dusk = {
           {
             "name": "minCollateralOut",
             "type": "u64"
+          },
+          {
+            "name": "referrer",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "maxAcceptableReferralFeeBps",
+            "type": {
+              "option": "u16"
+            }
           }
         ]
       }
@@ -10656,10 +11025,18 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "projectedDebtAmount",
+            "name": "projectedBorrowAmount",
             "type": {
               "option": "u64"
             }
+          },
+          {
+            "name": "withReferral",
+            "type": "bool"
+          },
+          {
+            "name": "maxAcceptableReferralFeeBps",
+            "type": "u16"
           }
         ]
       }
@@ -11047,6 +11424,183 @@ export type Dusk = {
       }
     },
     {
+      "name": "referralAction",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "borrow"
+          },
+          {
+            "name": "openLeverage"
+          },
+          {
+            "name": "increaseLeverage"
+          }
+        ]
+      }
+    },
+    {
+      "name": "referralFeesClaimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "referralProfile",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "assetMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "vaultDebit",
+            "type": "u64"
+          },
+          {
+            "name": "recipientCredit",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "referralOriginationFeePaid",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "referrer",
+            "type": "pubkey"
+          },
+          {
+            "name": "referralProfile",
+            "type": "pubkey"
+          },
+          {
+            "name": "assetMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "action",
+            "type": {
+              "defined": {
+                "name": "referralAction"
+              }
+            }
+          },
+          {
+            "name": "requestedPrincipal",
+            "type": "u64"
+          },
+          {
+            "name": "configuredFeeBps",
+            "type": "u16"
+          },
+          {
+            "name": "feeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "vaultCredit",
+            "type": "u64"
+          },
+          {
+            "name": "grossDebt",
+            "type": "u64"
+          },
+          {
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "marketEventMetadata"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "referralOriginationFeeUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "referralOriginationFeeBps",
+            "type": "u16"
+          },
+          {
+            "name": "signer",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "referralProfile",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "referralRecipientUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "referralProfile",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
       "name": "removeLeverageMarginArgs",
       "type": {
         "kind": "struct",
@@ -11277,6 +11831,18 @@ export type Dusk = {
         "fields": [
           {
             "name": "newOperator",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "setReferralRecipientArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "recipient",
             "type": "pubkey"
           }
         ]
@@ -11664,6 +12230,12 @@ export type Dusk = {
             }
           },
           {
+            "name": "referralOriginationFeeBps",
+            "type": {
+              "option": "u16"
+            }
+          },
+          {
             "name": "revenueDistribution",
             "type": {
               "option": {
@@ -12033,6 +12605,11 @@ export type Dusk = {
       "value": "500"
     },
     {
+      "name": "maxReferralOriginationFeeBps",
+      "type": "u16",
+      "value": "25"
+    },
+    {
       "name": "metadataSeedPrefix",
       "type": "bytes",
       "value": "[109, 101, 116, 97, 100, 97, 116, 97]"
@@ -12049,6 +12626,11 @@ export type Dusk = {
       "name": "nadDecimals",
       "type": "u8",
       "value": "9"
+    },
+    {
+      "name": "referralProfileSeedPrefix",
+      "type": "bytes",
+      "value": "[114, 101, 102, 101, 114, 114, 97, 108, 95, 112, 114, 111, 102, 105, 108, 101]"
     },
     {
       "name": "targetMsPerSlot",

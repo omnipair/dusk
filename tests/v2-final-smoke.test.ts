@@ -4,6 +4,8 @@ import { fileURLToPath } from "url";
 import anchor from "@coral-xyz/anchor";
 import {
   ACCOUNT_SIZE,
+  AccountLayout,
+  AccountState,
   createAccount,
   createInitializeAccount3Instruction,
   createInitializeMintInstruction,
@@ -12,12 +14,15 @@ import {
   createTransferCheckedWithTransferHookInstruction,
   ExtensionType,
   getAccount,
+  getAssociatedTokenAddressSync,
+  getExtraAccountMetaAddress,
   getMintLen,
   mintTo,
   NATIVE_MINT,
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   createInitializeTransferHookInstruction,
+  createUpdateTransferHookInstruction,
 } from "@solana/spl-token";
 import {
   Keypair,
@@ -32,6 +37,7 @@ import { ComputeBudget, LiteSVM } from "litesvm";
 import {
   buildYlpTransferHookAccountMetas,
   buildYlpTransferHookValidationAccountData,
+  buildYieldTransferHookValidationAccountData,
   deriveFutarchyAuthorityAddress,
   deriveHlpYlpVaultAddress,
   deriveInsuranceAddress,
@@ -40,6 +46,7 @@ import {
   deriveMarketFeeVaultAddress,
   deriveMarketInterestVaultAddress,
   deriveMarketReserveVaultAddress,
+  deriveReferralProfileAddress,
   deriveBorrowPositionAddress,
   deriveLeveragePositionAddress,
   deriveYieldAccountAddress,
@@ -54,6 +61,7 @@ import {
   decodePreviewMarketReturnData,
   decodePreviewSwapReturnData,
 } from "../packages/dusk-sdk/src/preview.js";
+import { resolveTransferHookAccountMetas } from "../packages/dusk-sdk/src/referral.js";
 import { LiteSVMConnection } from "./utils/litesvm-connection.js";
 import {
   getCoverageReport,
@@ -66,6 +74,9 @@ const { AnchorProvider, BN, Program, Wallet } = anchor;
 const DUSK_PROGRAM_ID = new PublicKey("358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv");
 const LEVERAGE_DELEGATE_PROGRAM_ID = new PublicKey(
   "EPGF9iFrbGnhWgC3To9rC9vxinEYuDHaz4RXgLPvuRkp"
+);
+const REFERRAL_TRANSFER_HOOK_PROGRAM_ID = new PublicKey(
+  "noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV"
 );
 const idl = JSON.parse(
   fs.readFileSync(path.join(__dirname, "../target/idl/dusk.json"), "utf-8")
@@ -101,6 +112,33 @@ function deriveLeverageCollateralVaultAddress(
     [LEVERAGE_COLLATERAL_VAULT_SEED, market.toBuffer(), collateralMint.toBuffer()],
     DUSK_PROGRAM_ID
   );
+}
+
+function seedLegacyTokenAccount(svm: LiteSVM, address: PublicKey, mint: PublicKey, owner: PublicKey) {
+  const data = Buffer.alloc(AccountLayout.span);
+  AccountLayout.encode(
+    {
+      mint,
+      owner,
+      amount: 0n,
+      delegateOption: 0,
+      delegate: PublicKey.default,
+      state: AccountState.Initialized,
+      isNativeOption: 0,
+      isNative: 0n,
+      delegatedAmount: 0n,
+      closeAuthorityOption: 0,
+      closeAuthority: PublicKey.default,
+    },
+    data
+  );
+  svm.setAccount(address, {
+    lamports: Number(svm.minimumBalanceForRentExemption(BigInt(data.length))),
+    data: new Uint8Array(data),
+    owner: TOKEN_PROGRAM_ID,
+    executable: false,
+    rentEpoch: 0,
+  });
 }
 
 function deriveLeverageDelegationAddress(position: PublicKey): [PublicKey, number] {
@@ -241,6 +279,10 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     }
     svm.addProgramFromFile(DUSK_PROGRAM_ID, programPath);
     svm.addProgramFromFile(LEVERAGE_DELEGATE_PROGRAM_ID, leverageDelegateProgramPath());
+    svm.addProgramFromFile(
+      REFERRAL_TRANSFER_HOOK_PROGRAM_ID,
+      path.join(__dirname, "../target/deploy/referral_transfer_hook.so")
+    );
     if (RUN_REAL_TOKEN_METADATA_CPI) {
       svm.addProgramFromFile(TOKEN_METADATA_PROGRAM_ID, tokenMetadataProgramPath());
     }
@@ -316,7 +358,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       last_settlement_slot: new BN(0),
     };
     const data = await accountCoder.encode("FutarchyAuthority", {
-      version: 1,
+      version: 2,
       authority: payer.publicKey,
       recipients: {
         futarchy_treasury: payer.publicKey,
@@ -327,6 +369,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         swap_bps: 0,
         interest_bps: 0,
       },
+      referral_origination_fee_bps: 10,
       revenue_distribution: {
         futarchy_treasury_bps: 0,
         buybacks_vault_bps: 0,
@@ -422,6 +465,37 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
           mint.publicKey,
           payer.publicKey,
           DUSK_PROGRAM_ID,
+          TOKEN_2022_PROGRAM_ID
+        ),
+        createInitializeMintInstruction(
+          mint.publicKey,
+          decimals,
+          authority,
+          null,
+          TOKEN_2022_PROGRAM_ID
+        )
+      ),
+      [payer, mint]
+    );
+    return mint.publicKey;
+  }
+
+  async function createDeferredHookMint(authority: PublicKey, decimals = 6) {
+    const mint = Keypair.generate();
+    const mintLen = getMintLen([ExtensionType.TransferHook]);
+    await connection.sendTransaction(
+      new Transaction().add(
+        SystemProgram.createAccount({
+          fromPubkey: payer.publicKey,
+          newAccountPubkey: mint.publicKey,
+          lamports: await connection.getMinimumBalanceForRentExemption(mintLen),
+          space: mintLen,
+          programId: TOKEN_2022_PROGRAM_ID,
+        }),
+        createInitializeTransferHookInstruction(
+          mint.publicKey,
+          payer.publicKey,
+          PublicKey.default,
           TOKEN_2022_PROGRAM_ID
         ),
         createInitializeMintInstruction(
@@ -1091,6 +1165,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         marginAmount: new BN(marginAmount),
         multiplierBps: new BN(20_000),
         minCollateralOut: new BN(1),
+        referrer: null,
+        maxAcceptableReferralFeeBps: null,
       })
       .accounts({
         market: fixture.market,
@@ -1104,6 +1180,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         debtFeeVault: fixture.quoteFeeVault,
         leverageCollateralVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
+        referralProfile: null,
+        referralVault: null,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
@@ -1165,12 +1243,16 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         authority: isolatedPayer.publicKey,
         swapBps: 125,
         interestBps: 250,
+        referralOriginationFeeBps: 10,
         futarchyTreasury: isolatedPayer.publicKey,
         futarchyTreasuryBps: 5_000,
         buybacksVault: isolatedPayer.publicKey,
         buybacksVaultBps: 2_000,
         teamTreasury: isolatedPayer.publicKey,
         teamTreasuryBps: 3_000,
+        stakingVault: isolatedPayer.publicKey,
+        feeAuctionAcceptedMint: NATIVE_MINT,
+        buybackAuctionAcceptedMint: NATIVE_MINT,
       })
       .accounts({
         deployer: isolatedPayer.publicKey,
@@ -1485,6 +1567,524 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     expect(decoded.quote_side.shares.ylp_supply.toNumber()).to.equal(
       secondPreview.ylpSupply.toNumber()
     );
+  });
+
+  it("accounts for Token-2022 transfer fees on referral accrual and claims", async function () {
+    const baseMint = await createTransferFeeMint(payer.publicKey, 6, 100, 10_000n);
+    const quoteMint = await createTransferFeeMint(payer.publicKey, 6, 50, 10_000n);
+    const fixture = await initializeFinalMarketWithMints(71, baseMint, quoteMint);
+    const ownerBaseAccount = await createAccount(
+      connection as any,
+      payer,
+      fixture.baseMint,
+      payer.publicKey,
+      Keypair.generate(),
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const ownerQuoteAccount = await createAccount(
+      connection as any,
+      payer,
+      fixture.quoteMint,
+      payer.publicKey,
+      Keypair.generate(),
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const ownerYlpAccount = await createAccount(
+      connection as any,
+      payer,
+      fixture.ylpMint,
+      payer.publicKey,
+      Keypair.generate(),
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    await mintTo(
+      connection as any,
+      payer,
+      fixture.baseMint,
+      ownerBaseAccount,
+      payer,
+      1_000_000,
+      [],
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    await mintTo(
+      connection as any,
+      payer,
+      fixture.quoteMint,
+      ownerQuoteAccount,
+      payer,
+      1_000_000,
+      [],
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+
+    const addLiquidityTx = await program.methods
+      .addLiquidity({
+        baseDepositAmount: new BN(101_000),
+        quoteDepositAmount: new BN(202_000),
+        minYlpAmount: new BN(1),
+      })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        owner: payer.publicKey,
+        baseMint: fixture.baseMint,
+        quoteMint: fixture.quoteMint,
+        ylpMint: fixture.ylpMint,
+        baseReserveVault: fixture.baseReserveVault,
+        quoteReserveVault: fixture.quoteReserveVault,
+        ownerBaseAccount,
+        ownerQuoteAccount,
+        ownerYlpAccount,
+        baseYieldAccount: deriveYieldAccountAddress(
+          fixture.market,
+          payer.publicKey,
+          fixture.baseMint,
+          "ylp"
+        )[0],
+        quoteYieldAccount: deriveYieldAccountAddress(
+          fixture.market,
+          payer.publicKey,
+          fixture.quoteMint,
+          "ylp"
+        )[0],
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(addLiquidityTx, [payer]);
+
+    const referralProfile = deriveReferralProfileAddress(payer.publicKey)[0];
+    const referralVault = getAssociatedTokenAddressSync(
+      fixture.quoteMint,
+      referralProfile,
+      true,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const setRecipientTx = await program.methods
+      .setReferralRecipient({ recipient: payer.publicKey })
+      .accounts({
+        authority: payer.publicKey,
+        referralProfile,
+        systemProgram: SystemProgram.programId,
+      })
+      .transaction();
+    await connection.sendTransaction(setRecipientTx, [payer]);
+
+    // LiteSVM does not preload the associated-token program. Clone a freshly
+    // initialized Token-2022 account to the canonical ATA address instead.
+    const referralVaultTemplate = await createAccount(
+      connection as any,
+      payer,
+      fixture.quoteMint,
+      referralProfile,
+      Keypair.generate(),
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const templateAccount = svm.getAccount(referralVaultTemplate);
+    expect(templateAccount).to.not.equal(null);
+    svm.setAccount(referralVault, {
+      ...templateAccount!,
+      data: new Uint8Array(templateAccount!.data),
+    });
+
+    const borrowPositionId = Keypair.generate().publicKey;
+    const borrowPosition = deriveBorrowPositionAddress(fixture.market, borrowPositionId)[0];
+    const depositTx = await program.methods
+      .depositCollateral({
+        positionId: borrowPositionId,
+        depositAmount: new BN(20_000),
+      })
+      .accounts({
+        market: fixture.market,
+        owner: payer.publicKey,
+        assetMint: fixture.baseMint,
+        collateralVault: fixture.baseCollateralVault,
+        ownerAssetAccount: ownerBaseAccount,
+        borrowPosition,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(depositTx, [payer]);
+
+    const preview = decodePreviewBorrowCapacityReturnData(
+      await simulateReturnData(
+        await program.methods
+          .previewBorrowCapacity({
+            collateralAmount: new BN(19_800),
+            projectedBorrowAmount: new BN(10_000),
+            withReferral: true,
+            maxAcceptableReferralFeeBps: 10,
+          })
+          .accounts({
+            market: fixture.market,
+            futarchyAuthority,
+            collateralAssetMint: fixture.baseMint,
+            debtAssetMint: fixture.quoteMint,
+          })
+          .transaction()
+      )
+    ) as any;
+    expect(preview.projectedReferralFeeDebit.toNumber()).to.equal(10);
+    expect(preview.projectedReferralVaultCredit.toNumber()).to.equal(9);
+    expect(preview.projectedDebtAmount.toNumber()).to.equal(10_010);
+
+    const ownerQuoteBefore = await getAccount(
+      connection as any,
+      ownerQuoteAccount,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const borrowTx = await program.methods
+      .borrow({
+        borrowAmount: new BN(10_000),
+        minDebtAmountOut: new BN(9_950),
+        minLiquidationCfBps: 8_500,
+        referrer: payer.publicKey,
+        maxAcceptableReferralFeeBps: 10,
+      })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        owner: payer.publicKey,
+        debtAssetMint: fixture.quoteMint,
+        collateralAssetMint: fixture.baseMint,
+        reserveVault: fixture.quoteReserveVault,
+        ownerDebtAccount: ownerQuoteAccount,
+        borrowPosition,
+        referralProfile,
+        referralVault,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(borrowTx, [payer]);
+
+    const ownerQuoteAfter = await getAccount(
+      connection as any,
+      ownerQuoteAccount,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    expect(ownerQuoteAfter.amount - ownerQuoteBefore.amount).to.equal(9_950n);
+    expect(
+      (await getAccount(connection as any, referralVault, undefined, TOKEN_2022_PROGRAM_ID)).amount
+    ).to.equal(9n);
+    const position = accountCoder.decode(
+      "BorrowPosition",
+      Buffer.from(svm.getAccount(borrowPosition)!.data)
+    ) as any;
+    expect(position.fixed_quote_shares.toNumber()).to.equal(10_010);
+
+    const recipientTokenAccount = await createAccount(
+      connection as any,
+      payer,
+      fixture.quoteMint,
+      payer.publicKey,
+      Keypair.generate(),
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const claimTx = await program.methods
+      .claimReferralFees()
+      .accounts({
+        authority: payer.publicKey,
+        referralProfile,
+        assetMint: fixture.quoteMint,
+        referralVault,
+        recipientTokenAccount,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(claimTx, [payer]);
+
+    expect(
+      (await getAccount(connection as any, referralVault, undefined, TOKEN_2022_PROGRAM_ID)).amount
+    ).to.equal(0n);
+    expect(
+      (await getAccount(connection as any, recipientTokenAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount
+    ).to.equal(8n);
+  });
+
+  it("resolves Token-2022 asset hooks for referred borrows and claims", async function () {
+    const baseMint = await createMint(connection as any, payer, payer.publicKey, null, 6);
+    const quoteMint = await createDeferredHookMint(payer.publicKey, 6);
+    const fixture = await initializeFinalMarketWithMints(72, baseMint, quoteMint);
+    const ownerBaseAccount = await createAccount(
+      connection as any,
+      payer,
+      fixture.baseMint,
+      payer.publicKey
+    );
+    const ownerQuoteAccount = await createAccount(
+      connection as any,
+      payer,
+      fixture.quoteMint,
+      payer.publicKey,
+      Keypair.generate(),
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const ownerYlpAccount = await createAccount(
+      connection as any,
+      payer,
+      fixture.ylpMint,
+      payer.publicKey,
+      Keypair.generate(),
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    await mintTo(connection as any, payer, fixture.baseMint, ownerBaseAccount, payer, 1_000_000);
+    await mintTo(
+      connection as any,
+      payer,
+      fixture.quoteMint,
+      ownerQuoteAccount,
+      payer,
+      1_000_000,
+      [],
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+
+    const addLiquidityTx = await program.methods
+      .addLiquidity({
+        baseDepositAmount: new BN(100_000),
+        quoteDepositAmount: new BN(200_000),
+        minYlpAmount: new BN(100_000),
+      })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        owner: payer.publicKey,
+        baseMint: fixture.baseMint,
+        quoteMint: fixture.quoteMint,
+        ylpMint: fixture.ylpMint,
+        baseReserveVault: fixture.baseReserveVault,
+        quoteReserveVault: fixture.quoteReserveVault,
+        ownerBaseAccount,
+        ownerQuoteAccount,
+        ownerYlpAccount,
+        baseYieldAccount: deriveYieldAccountAddress(
+          fixture.market,
+          payer.publicKey,
+          fixture.baseMint,
+          "ylp"
+        )[0],
+        quoteYieldAccount: deriveYieldAccountAddress(
+          fixture.market,
+          payer.publicKey,
+          fixture.quoteMint,
+          "ylp"
+        )[0],
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(addLiquidityTx, [payer]);
+
+    await connection.sendTransaction(
+      new Transaction().add(
+        createUpdateTransferHookInstruction(
+          fixture.quoteMint,
+          payer.publicKey,
+          REFERRAL_TRANSFER_HOOK_PROGRAM_ID,
+          [],
+          TOKEN_2022_PROGRAM_ID
+        )
+      ),
+      [payer]
+    );
+
+    const hookValidationAccount = getExtraAccountMetaAddress(
+      fixture.quoteMint,
+      REFERRAL_TRANSFER_HOOK_PROGRAM_ID
+    );
+    const hookValidationData = buildYieldTransferHookValidationAccountData([]);
+    svm.setAccount(hookValidationAccount, {
+      lamports: Number(svm.minimumBalanceForRentExemption(BigInt(hookValidationData.length))),
+      data: new Uint8Array(hookValidationData),
+      owner: REFERRAL_TRANSFER_HOOK_PROGRAM_ID,
+      executable: false,
+      rentEpoch: 0,
+    });
+
+    const referrer = Keypair.generate();
+    await connection.requestAirdrop(referrer.publicKey, LAMPORTS_PER_SOL);
+    const referralProfile = deriveReferralProfileAddress(referrer.publicKey)[0];
+    const referralVault = getAssociatedTokenAddressSync(
+      fixture.quoteMint,
+      referralProfile,
+      true,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const setRecipientTx = await program.methods
+      .setReferralRecipient({ recipient: payer.publicKey })
+      .accounts({
+        authority: referrer.publicKey,
+        referralProfile,
+        systemProgram: SystemProgram.programId,
+      })
+      .transaction();
+    await connection.sendTransaction(setRecipientTx, [referrer]);
+
+    const referralVaultTemplate = await createAccount(
+      connection as any,
+      payer,
+      fixture.quoteMint,
+      referralProfile,
+      Keypair.generate(),
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const templateAccount = svm.getAccount(referralVaultTemplate);
+    expect(templateAccount).to.not.equal(null);
+    svm.setAccount(referralVault, {
+      ...templateAccount!,
+      data: new Uint8Array(templateAccount!.data),
+    });
+
+    const borrowPositionId = Keypair.generate().publicKey;
+    const borrowPosition = deriveBorrowPositionAddress(fixture.market, borrowPositionId)[0];
+    const depositTx = await program.methods
+      .depositCollateral({
+        positionId: borrowPositionId,
+        depositAmount: new BN(10_000),
+      })
+      .accounts({
+        market: fixture.market,
+        owner: payer.publicKey,
+        assetMint: fixture.baseMint,
+        collateralVault: fixture.baseCollateralVault,
+        ownerAssetAccount: ownerBaseAccount,
+        borrowPosition,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(depositTx, [payer]);
+
+    const borrowHookAccounts = await resolveTransferHookAccountMetas(
+      connection as any,
+      [
+        {
+          source: fixture.quoteReserveVault,
+          mint: fixture.quoteMint,
+          destination: ownerQuoteAccount,
+          authority: fixture.market,
+          amount: 5_000,
+          decimals: 6,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+        },
+        {
+          source: fixture.quoteReserveVault,
+          mint: fixture.quoteMint,
+          destination: referralVault,
+          authority: fixture.market,
+          amount: 5,
+          decimals: 6,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+        },
+      ]
+    );
+    const borrowTx = await program.methods
+      .borrow({
+        borrowAmount: new BN(5_000),
+        minDebtAmountOut: new BN(5_000),
+        minLiquidationCfBps: 8_500,
+        referrer: referrer.publicKey,
+        maxAcceptableReferralFeeBps: 10,
+      })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        owner: payer.publicKey,
+        debtAssetMint: fixture.quoteMint,
+        collateralAssetMint: fixture.baseMint,
+        reserveVault: fixture.quoteReserveVault,
+        ownerDebtAccount: ownerQuoteAccount,
+        borrowPosition,
+        referralProfile,
+        referralVault,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
+      .remainingAccounts(borrowHookAccounts)
+      .transaction();
+    await connection.sendTransaction(borrowTx, [payer]);
+    expect(
+      (await getAccount(connection as any, referralVault, undefined, TOKEN_2022_PROGRAM_ID)).amount
+    ).to.equal(5n);
+
+    const claimHookAccounts = await resolveTransferHookAccountMetas(
+      connection as any,
+      [
+        {
+          source: referralVault,
+          mint: fixture.quoteMint,
+          destination: ownerQuoteAccount,
+          authority: referralProfile,
+          amount: 5,
+          decimals: 6,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+        },
+      ]
+    );
+    const ownerQuoteBeforeClaim = await getAccount(
+      connection as any,
+      ownerQuoteAccount,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const claimTx = await program.methods
+      .claimReferralFees()
+      .accounts({
+        authority: referrer.publicKey,
+        referralProfile,
+        assetMint: fixture.quoteMint,
+        referralVault,
+        recipientTokenAccount: ownerQuoteAccount,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+      })
+      .remainingAccounts(claimHookAccounts)
+      .transaction();
+    await connection.sendTransaction(claimTx, [referrer]);
+
+    const ownerQuoteAfterClaim = await getAccount(
+      connection as any,
+      ownerQuoteAccount,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    expect(ownerQuoteAfterClaim.amount - ownerQuoteBeforeClaim.amount).to.equal(5n);
+    expect(
+      (await getAccount(connection as any, referralVault, undefined, TOKEN_2022_PROGRAM_ID)).amount
+    ).to.equal(0n);
   });
 
   it("opens base hLP by borrowing quote and locking both yLP sides", async function () {
@@ -1833,6 +2433,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       .updateProtocolRevenue({
         swapBps: 10_000,
         interestBps: 250,
+        referralOriginationFeeBps: null,
         revenueDistribution: {
           futarchyTreasuryBps: 0,
           buybacksVaultBps: 0,
@@ -2012,6 +2613,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       .updateProtocolRevenue({
         swapBps: 10_000,
         interestBps: 0,
+        referralOriginationFeeBps: null,
         revenueDistribution: null,
         protocolAuctionSplit: null,
       })
@@ -2551,10 +3153,13 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         await program.methods
           .previewBorrowCapacity({
             collateralAmount: new BN(10_000),
-            projectedDebtAmount: new BN(5_000),
+            projectedBorrowAmount: new BN(5_000),
+            withReferral: false,
+            maxAcceptableReferralFeeBps: 0,
           })
           .accounts({
             market: fixture.market,
+            futarchyAuthority,
             collateralAssetMint: fixture.baseMint,
             debtAssetMint: fixture.quoteMint,
           })
@@ -2582,6 +3187,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         borrowAmount: new BN(5_000),
         minDebtAmountOut: new BN(5_000),
         minLiquidationCfBps: 8_500,
+        referrer: null,
+        maxAcceptableReferralFeeBps: null,
       })
       .accounts({
         market: fixture.market,
@@ -2592,6 +3199,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         reserveVault: fixture.quoteReserveVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
         borrowPosition,
+        referralProfile: null,
+        referralVault: null,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
@@ -2647,6 +3256,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         interestVault: fixture.quoteInterestVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
         borrowPosition,
+        referralProfile: null,
+        referralVault: null,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
@@ -2700,6 +3311,437 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     expect(decoded.debt.fixed_quote_shares.toNumber()).to.equal(0);
   });
 
+  it("accrues referred borrow fees as gross debt and claims them after recipient rotation", async function () {
+    const fixture = await addBalancedLiquidity(69);
+    const borrowPositionId = Keypair.generate().publicKey;
+    const borrowPosition = deriveBorrowPositionAddress(fixture.market, borrowPositionId)[0];
+    const referralProfile = deriveReferralProfileAddress(payer.publicKey)[0];
+    const referralVault = getAssociatedTokenAddressSync(
+      fixture.quoteMint,
+      referralProfile,
+      true,
+      TOKEN_PROGRAM_ID
+    );
+
+    const setRecipientTx = await program.methods
+      .setReferralRecipient({ recipient: payer.publicKey })
+      .accounts({
+        authority: payer.publicKey,
+        referralProfile,
+        systemProgram: SystemProgram.programId,
+      })
+      .transaction();
+    await connection.sendTransaction(setRecipientTx, [payer]);
+    trackV2Instruction("setReferralRecipient", this.test?.title);
+
+    seedLegacyTokenAccount(svm, referralVault, fixture.quoteMint, referralProfile);
+
+    const depositTx = await program.methods
+      .depositCollateral({
+        positionId: borrowPositionId,
+        depositAmount: new BN(10_000),
+      })
+      .accounts({
+        market: fixture.market,
+        owner: payer.publicKey,
+        assetMint: fixture.baseMint,
+        collateralVault: fixture.baseCollateralVault,
+        ownerAssetAccount: fixture.ownerBaseAccount,
+        borrowPosition,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(depositTx, [payer]);
+
+    const referralPreview = decodePreviewBorrowCapacityReturnData(
+      await simulateReturnData(
+        await program.methods
+          .previewBorrowCapacity({
+            collateralAmount: new BN(10_000),
+            projectedBorrowAmount: new BN(5_000),
+            withReferral: true,
+            maxAcceptableReferralFeeBps: 10,
+          })
+          .accounts({
+            market: fixture.market,
+            futarchyAuthority,
+            collateralAssetMint: fixture.baseMint,
+            debtAssetMint: fixture.quoteMint,
+          })
+          .transaction()
+      )
+    ) as any;
+    expect(referralPreview.referralOriginationFeeBps).to.equal(10);
+    expect(referralPreview.projectedBorrowAmount.toNumber()).to.equal(5_000);
+    expect(referralPreview.projectedReferralFeeDebit.toNumber()).to.equal(5);
+    expect(referralPreview.projectedReferralVaultCredit.toNumber()).to.equal(5);
+    expect(referralPreview.projectedDebtAmount.toNumber()).to.equal(5_005);
+    expect(referralPreview.maxBorrowAmount.toNumber()).to.be.lessThanOrEqual(
+      referralPreview.maxDebt.toNumber()
+    );
+
+    const updateFeeTx = await program.methods
+      .updateProtocolRevenue({
+        swapBps: null,
+        interestBps: null,
+        referralOriginationFeeBps: 11,
+        revenueDistribution: null,
+        protocolAuctionSplit: null,
+      })
+      .accounts({ authoritySigner: payer.publicKey, futarchyAuthority })
+      .transaction();
+    await connection.sendTransaction(updateFeeTx, [payer]);
+
+    const staleBorrowTx = await program.methods
+      .borrow({
+        borrowAmount: new BN(4_999),
+        minDebtAmountOut: new BN(4_999),
+        minLiquidationCfBps: 8_500,
+        referrer: payer.publicKey,
+        maxAcceptableReferralFeeBps: 10,
+      })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        owner: payer.publicKey,
+        debtAssetMint: fixture.quoteMint,
+        collateralAssetMint: fixture.baseMint,
+        reserveVault: fixture.quoteReserveVault,
+        ownerDebtAccount: fixture.ownerQuoteAccount,
+        borrowPosition,
+        referralProfile,
+        referralVault,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
+      .transaction();
+    let staleRateRejected = false;
+    try {
+      await connection.sendTransaction(staleBorrowTx, [payer]);
+    } catch {
+      staleRateRejected = true;
+    }
+    expect(staleRateRejected).to.equal(true);
+
+    const capFeeTx = await program.methods
+      .updateProtocolRevenue({
+        swapBps: null,
+        interestBps: null,
+        referralOriginationFeeBps: 25,
+        revenueDistribution: null,
+        protocolAuctionSplit: null,
+      })
+      .accounts({ authoritySigner: payer.publicKey, futarchyAuthority })
+      .transaction();
+    await connection.sendTransaction(capFeeTx, [payer]);
+
+    const overCapFeeTx = await program.methods
+      .updateProtocolRevenue({
+        swapBps: null,
+        interestBps: null,
+        referralOriginationFeeBps: 26,
+        revenueDistribution: null,
+        protocolAuctionSplit: null,
+      })
+      .accounts({ authoritySigner: payer.publicKey, futarchyAuthority })
+      .transaction();
+    let overCapRejected = false;
+    try {
+      await connection.sendTransaction(overCapFeeTx, [payer]);
+    } catch {
+      overCapRejected = true;
+    }
+    expect(overCapRejected).to.equal(true);
+
+    const restoreFeeTx = await program.methods
+      .updateProtocolRevenue({
+        swapBps: null,
+        interestBps: null,
+        referralOriginationFeeBps: 10,
+        revenueDistribution: null,
+        protocolAuctionSplit: null,
+      })
+      .accounts({ authoritySigner: payer.publicKey, futarchyAuthority })
+      .transaction();
+    await connection.sendTransaction(restoreFeeTx, [payer]);
+
+    for (const principal of [5_000, 500]) {
+      const borrowTx = await program.methods
+        .borrow({
+          borrowAmount: new BN(principal),
+          minDebtAmountOut: new BN(principal),
+          minLiquidationCfBps: 8_500,
+          referrer: payer.publicKey,
+          maxAcceptableReferralFeeBps: 10,
+        })
+        .accounts({
+          market: fixture.market,
+          futarchyAuthority,
+          owner: payer.publicKey,
+          debtAssetMint: fixture.quoteMint,
+          collateralAssetMint: fixture.baseMint,
+          reserveVault: fixture.quoteReserveVault,
+          ownerDebtAccount: fixture.ownerQuoteAccount,
+          borrowPosition,
+          referralProfile,
+          referralVault,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          eventAuthority: eventAuthority(),
+          program: DUSK_PROGRAM_ID,
+        })
+        .transaction();
+      await connection.sendTransaction(borrowTx, [payer]);
+    }
+
+    const secondReferrer = Keypair.generate();
+    await connection.requestAirdrop(secondReferrer.publicKey, LAMPORTS_PER_SOL);
+    const secondReferralProfile = deriveReferralProfileAddress(secondReferrer.publicKey)[0];
+    const secondReferralVault = getAssociatedTokenAddressSync(
+      fixture.quoteMint,
+      secondReferralProfile,
+      true,
+      TOKEN_PROGRAM_ID
+    );
+    const setSecondRecipientTx = await program.methods
+      .setReferralRecipient({ recipient: payer.publicKey })
+      .accounts({
+        authority: secondReferrer.publicKey,
+        referralProfile: secondReferralProfile,
+        systemProgram: SystemProgram.programId,
+      })
+      .transaction();
+    await connection.sendTransaction(setSecondRecipientTx, [secondReferrer]);
+    seedLegacyTokenAccount(
+      svm,
+      secondReferralVault,
+      fixture.quoteMint,
+      secondReferralProfile
+    );
+
+    const buildSecondReferralBorrow = (principal: number, profile: PublicKey, vault: PublicKey) =>
+      program.methods
+        .borrow({
+          borrowAmount: new BN(principal),
+          minDebtAmountOut: new BN(principal),
+          minLiquidationCfBps: 8_500,
+          referrer: secondReferrer.publicKey,
+          maxAcceptableReferralFeeBps: 10,
+        })
+        .accounts({
+          market: fixture.market,
+          futarchyAuthority,
+          owner: payer.publicKey,
+          debtAssetMint: fixture.quoteMint,
+          collateralAssetMint: fixture.baseMint,
+          reserveVault: fixture.quoteReserveVault,
+          ownerDebtAccount: fixture.ownerQuoteAccount,
+          borrowPosition,
+          referralProfile: profile,
+          referralVault: vault,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          eventAuthority: eventAuthority(),
+          program: DUSK_PROGRAM_ID,
+        })
+        .transaction();
+
+    for (const invalidTx of [
+      await buildSecondReferralBorrow(98, referralProfile, referralVault),
+      await buildSecondReferralBorrow(99, secondReferralProfile, referralVault),
+    ]) {
+      let rejected = false;
+      try {
+        await connection.sendTransaction(invalidTx, [payer]);
+      } catch {
+        rejected = true;
+      }
+      expect(rejected).to.equal(true);
+    }
+
+    await connection.sendTransaction(
+      await buildSecondReferralBorrow(100, secondReferralProfile, secondReferralVault),
+      [payer]
+    );
+
+    const positionAccount = svm.getAccount(borrowPosition);
+    expect(positionAccount).to.not.equal(null);
+    const position = accountCoder.decode("BorrowPosition", Buffer.from(positionAccount!.data)) as any;
+    expect(position.fixed_quote_shares.toNumber()).to.equal(5_607);
+    expect((await getAccount(connection as any, referralVault)).amount).to.equal(6n);
+    expect((await getAccount(connection as any, secondReferralVault)).amount).to.equal(1n);
+
+    const rotatedRecipient = Keypair.generate().publicKey;
+    const recipientTokenAccount = await createAccount(
+      connection as any,
+      payer,
+      fixture.quoteMint,
+      rotatedRecipient
+    );
+    const rotateTx = await program.methods
+      .setReferralRecipient({ recipient: rotatedRecipient })
+      .accounts({
+        authority: payer.publicKey,
+        referralProfile,
+        systemProgram: SystemProgram.programId,
+      })
+      .transaction();
+    await connection.sendTransaction(rotateTx, [payer]);
+
+    const invalidClaimTx = await program.methods
+      .claimReferralFees()
+      .accounts({
+        authority: payer.publicKey,
+        referralProfile,
+        assetMint: fixture.quoteMint,
+        referralVault,
+        recipientTokenAccount: fixture.ownerQuoteAccount,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+      })
+      .transaction();
+    let invalidRecipientRejected = false;
+    try {
+      await connection.sendTransaction(invalidClaimTx, [payer]);
+    } catch {
+      invalidRecipientRejected = true;
+    }
+    expect(invalidRecipientRejected).to.equal(true);
+
+    const claimTx = await program.methods
+      .claimReferralFees()
+      .accounts({
+        authority: payer.publicKey,
+        referralProfile,
+        assetMint: fixture.quoteMint,
+        referralVault,
+        recipientTokenAccount,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(claimTx, [payer]);
+    trackV2Instruction("claimReferralFees", this.test?.title);
+
+    expect((await getAccount(connection as any, referralVault)).amount).to.equal(0n);
+    expect((await getAccount(connection as any, recipientTokenAccount)).amount).to.equal(6n);
+  });
+
+  it("adds referral fees on top of leverage trade principal", async function () {
+    const fixture = await addBalancedLiquidity(70);
+    const positionId = Keypair.generate().publicKey;
+    const leveragePosition = deriveLeveragePositionAddress(fixture.market, positionId)[0];
+    const leverageCollateralVault = deriveLeverageCollateralVaultAddress(
+      fixture.market,
+      fixture.baseMint
+    )[0];
+    const referralProfile = deriveReferralProfileAddress(payer.publicKey)[0];
+    const referralVault = getAssociatedTokenAddressSync(
+      fixture.quoteMint,
+      referralProfile,
+      true,
+      TOKEN_PROGRAM_ID
+    );
+    const leverageReferralRecipient = Keypair.generate().publicKey;
+    const setRecipientTx = await program.methods
+      .setReferralRecipient({ recipient: leverageReferralRecipient })
+      .accounts({
+        authority: payer.publicKey,
+        referralProfile,
+        systemProgram: SystemProgram.programId,
+      })
+      .transaction();
+    await connection.sendTransaction(setRecipientTx, [payer]);
+    seedLegacyTokenAccount(svm, referralVault, fixture.quoteMint, referralProfile);
+
+    const ownerQuoteBefore = await getAccount(connection as any, fixture.ownerQuoteAccount);
+    const openTx = await program.methods
+      .openLeverage({
+        positionId,
+        debtAsset: 1,
+        marginAmount: new BN(1_000),
+        multiplierBps: new BN(20_000),
+        minCollateralOut: new BN(1),
+        referrer: payer.publicKey,
+        maxAcceptableReferralFeeBps: 10,
+      })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        owner: payer.publicKey,
+        leveragePosition,
+        debtMint: fixture.quoteMint,
+        collateralMint: fixture.baseMint,
+        debtReserveVault: fixture.quoteReserveVault,
+        collateralReserveVault: fixture.baseReserveVault,
+        debtFeeVault: fixture.quoteFeeVault,
+        leverageCollateralVault,
+        ownerDebtAccount: fixture.ownerQuoteAccount,
+        referralProfile,
+        referralVault,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(openTx, [payer]);
+
+    let positionAccount = svm.getAccount(leveragePosition);
+    expect(positionAccount).to.not.equal(null);
+    let position = accountCoder.decode("LeveragePosition", Buffer.from(positionAccount!.data)) as any;
+    expect(position.debt_principal.toNumber()).to.equal(1_001);
+    expect(position.debt_shares.toNumber()).to.equal(1_001);
+    expect((await getAccount(connection as any, fixture.ownerQuoteAccount)).amount).to.equal(
+      ownerQuoteBefore.amount - 1_000n
+    );
+    expect((await getAccount(connection as any, referralVault)).amount).to.equal(1n);
+
+    const increaseTx = await program.methods
+      .increaseLeverage({
+        debtAsset: 1,
+        debtAmount: new BN(100),
+        minCollateralOut: new BN(1),
+        referrer: payer.publicKey,
+        maxAcceptableReferralFeeBps: 10,
+      })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        positionOwner: payer.publicKey,
+        leveragePosition,
+        debtMint: fixture.quoteMint,
+        collateralMint: fixture.baseMint,
+        debtReserveVault: fixture.quoteReserveVault,
+        collateralReserveVault: fixture.baseReserveVault,
+        debtFeeVault: fixture.quoteFeeVault,
+        leverageCollateralVault,
+        owner: payer.publicKey,
+        referralProfile,
+        referralVault,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(increaseTx, [payer]);
+
+    positionAccount = svm.getAccount(leveragePosition);
+    expect(positionAccount).to.not.equal(null);
+    position = accountCoder.decode("LeveragePosition", Buffer.from(positionAccount!.data)) as any;
+    expect(position.debt_principal.toNumber()).to.equal(1_102);
+    expect(position.debt_shares.toNumber()).to.equal(1_102);
+    expect((await getAccount(connection as any, referralVault)).amount).to.equal(2n);
+  });
+
   it("liquidates unhealthy fixed quote debt after collateral price moves", async function () {
     const liquidationConfig = marketConfig();
     const fixture = await addBalancedLiquidity(54, liquidationConfig);
@@ -2732,6 +3774,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         borrowAmount: new BN(14_500),
         minDebtAmountOut: new BN(14_500),
         minLiquidationCfBps: 8_500,
+        referrer: null,
+        maxAcceptableReferralFeeBps: null,
       })
       .accounts({
         market: fixture.market,
@@ -2742,6 +3786,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         reserveVault: fixture.quoteReserveVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
         borrowPosition,
+        referralProfile: null,
+        referralVault: null,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
@@ -2903,6 +3949,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         debtAsset: 1,
         debtAmount: new BN(100),
         minCollateralOut: new BN(1),
+        referrer: null,
+        maxAcceptableReferralFeeBps: null,
       })
       .accounts({
         market: fixture.market,
@@ -2916,6 +3964,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         debtFeeVault: fixture.quoteFeeVault,
         leverageCollateralVault,
         owner: payer.publicKey,
+        referralProfile: null,
+        referralVault: null,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),

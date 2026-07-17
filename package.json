@@ -6,7 +6,7 @@
   "scripts": {
     "test": "cargo test -p dusk && cargo test -p leverage_delegate && yarn test-litesvm",
     "typecheck": "tsc --noEmit",
-    "build:litesvm": "anchor build -p dusk && anchor build -p leverage_delegate",
+    "build:litesvm": "anchor build -p dusk && anchor build -p leverage_delegate && cargo build-sbf --manifest-path tests/fixtures/referral_transfer_hook/Cargo.toml --sbf-out-dir target/deploy",
     "test-litesvm": "yarn build:litesvm && yarn test-litesvm:no-build",
     "test-litesvm:no-build": "mocha --require ts-node/register --extensions ts tests/v2-final-smoke.test.ts",
     "check:hygiene": "node scripts/check_repo_hygiene.js",

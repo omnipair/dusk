@@ -35,6 +35,7 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
         quote_side,
         config: MarketConfig {
             swap_fee_bps: 0,
+            max_daily_borrow_bps: 10_000,
             ..MarketConfig::default()
         },
         debt: Debt {
@@ -130,6 +131,7 @@ fn open_leverage_tracks_isolated_debt_and_cash() {
             MarketAsset::Base,
             1_000,
             20_000,
+            0,
             quote.amount_out,
             0,
             0,
@@ -166,6 +168,61 @@ fn open_leverage_tracks_isolated_debt_and_cash() {
 }
 
 #[test]
+fn referred_leverage_trades_requested_principal_but_records_gross_debt() {
+    let mut market = test_market(1_000_000, 1_000_000);
+    let mut position = empty_position();
+    let open_quote = market
+        .quote_leverage_swap(MarketAsset::Base, 2_000)
+        .unwrap();
+
+    let open = market
+        .open_leverage(
+            &mut position,
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            MarketAsset::Base,
+            1_000,
+            20_000,
+            1,
+            open_quote.amount_out,
+            0,
+            0,
+            255,
+            0,
+            0,
+            ProtocolAuctionSplit::default(),
+        )
+        .unwrap();
+
+    assert_eq!(open.requested_principal, 1_000);
+    assert_eq!(open.referral_fee_amount, 1);
+    assert_eq!(open.gross_debt, 1_001);
+    assert_eq!(open.swap.amount_in, 2_000);
+    assert_eq!(position.debt_principal, 1_001);
+    assert_eq!(market.debt.isolated_base_principal, 1_001);
+    assert_eq!(market.base_side.daily_limits.borrowed_bucket, 1_001);
+
+    let increase_quote = market.quote_leverage_swap(MarketAsset::Base, 100).unwrap();
+    let increase = market
+        .increase_leverage(
+            &mut position,
+            100,
+            1,
+            increase_quote.amount_out,
+            0,
+            0,
+            ProtocolAuctionSplit::default(),
+        )
+        .unwrap();
+    assert_eq!(increase.requested_principal, 100);
+    assert_eq!(increase.referral_fee_amount, 1);
+    assert_eq!(increase.gross_debt_delta, 101);
+    assert_eq!(increase.debt_delta, 101);
+    assert_eq!(market.base_side.daily_limits.borrowed_bucket, 1_102);
+}
+
+#[test]
 fn close_leverage_clears_isolated_debt_and_residual_cash() {
     let mut market = test_market(1_000_000, 1_000_000);
     let mut position = empty_position();
@@ -181,6 +238,7 @@ fn close_leverage_clears_isolated_debt_and_residual_cash() {
             MarketAsset::Base,
             1_000,
             20_000,
+            0,
             open_quote.amount_out,
             0,
             0,

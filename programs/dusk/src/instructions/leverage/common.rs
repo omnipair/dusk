@@ -18,7 +18,9 @@ use crate::{
         require_supported_asset_mint, token_account_credit, token_program_for_mint, validate_fee_accounts,
         validate_interest_accounts, validate_owner_asset_account, validate_side_vault_accounts,
     },
-    shared::token::{get_transfer_fee, transfer_from_vault_to_vault},
+    shared::token::{
+        get_transfer_fee, transfer_from_vault_to_vault, transfer_from_vault_to_vault_with_remaining_accounts,
+    },
     state::{Market, MarketAsset},
 };
 
@@ -331,13 +333,14 @@ pub fn move_leverage_swap_fee<'info>(
     token_program: &Program<'info, Token>,
     token_2022_program: &Program<'info, Token2022>,
     total_fee: u64,
+    additional_accounts: &[AccountInfo<'info>],
 ) -> Result<u64> {
     if total_fee == 0 {
         return Ok(0);
     }
     let fee_balance_before = fee_vault.amount;
     let asset_token_program = token_program_for_mint(asset_mint, token_program, token_2022_program)?;
-    transfer_from_vault_to_vault(
+    transfer_from_vault_to_vault_with_remaining_accounts(
         market.to_account_info(),
         reserve_vault.to_account_info(),
         fee_vault.to_account_info(),
@@ -346,6 +349,7 @@ pub fn move_leverage_swap_fee<'info>(
         total_fee,
         asset_mint.decimals,
         &[&generate_market_seeds!(market)[..]],
+        additional_accounts,
     )?;
     reserve_vault.reload()?;
     fee_vault.reload()?;

@@ -15,6 +15,8 @@ pub const LTV_BUFFER_BPS: u16 = 500;
 #[constant]
 pub const MAX_MANAGER_FEE_BPS: u16 = 500;
 #[constant]
+pub const MAX_REFERRAL_ORIGINATION_FEE_BPS: u16 = 25;
+#[constant]
 pub const LIQUIDATION_CLOSE_FACTOR_BPS: u16 = 5_000;
 #[constant]
 pub const LIQUIDATION_INCENTIVE_BPS: u16 = 100;
@@ -83,6 +85,8 @@ pub const HLP_PRE_SOLVE_MAX_ITERS: u32 = 24;
 pub const MARKET_V2_SEED_PREFIX: &[u8] = b"market_v2";
 #[constant]
 pub const FUTARCHY_AUTHORITY_SEED_PREFIX: &[u8] = b"futarchy_authority";
+#[constant]
+pub const REFERRAL_PROFILE_SEED_PREFIX: &[u8] = b"referral_profile";
 #[constant]
 pub const MARKET_RESERVE_VAULT_SEED_PREFIX: &[u8] = b"market_reserve";
 #[constant]

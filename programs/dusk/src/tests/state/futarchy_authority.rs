@@ -38,10 +38,11 @@ use super::*;
         let fee_accepted_mint = Pubkey::new_unique();
         let buyback_accepted_mint = Pubkey::new_unique();
 
-        let futarchy = FutarchyAuthority::initialize(
+        let mut futarchy = FutarchyAuthority::initialize(
             authority,
             100,
             200,
+            10,
             treasury,
             buybacks_vault,
             team_treasury,
@@ -57,6 +58,8 @@ use super::*;
         .unwrap();
 
         assert_eq!(futarchy.fee_auction.accepted_mint, fee_accepted_mint);
+        assert_eq!(futarchy.version, FutarchyAuthority::CURRENT_VERSION);
+        assert_eq!(futarchy.referral_origination_fee_bps, 10);
         assert_eq!(
             futarchy.buyback_auction.accepted_mint,
             buyback_accepted_mint
@@ -70,4 +73,14 @@ use super::*;
         assert_eq!(futarchy.fee_auction.recipients.staking_vault_bps, 0);
         assert_eq!(futarchy.fee_auction.last_settlement_slot, 123);
         futarchy.validate().unwrap();
+
+        futarchy.referral_origination_fee_bps = 0;
+        futarchy.validate().unwrap();
+        futarchy.referral_origination_fee_bps = 25;
+        futarchy.validate().unwrap();
+        futarchy.referral_origination_fee_bps = 26;
+        assert_eq!(
+            futarchy.validate().unwrap_err(),
+            error!(ErrorCode::InvalidReferralFeeBps)
+        );
     }

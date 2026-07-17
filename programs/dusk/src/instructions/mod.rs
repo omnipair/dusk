@@ -5,6 +5,7 @@ mod leverage;
 mod liquidity;
 mod market;
 mod preview;
+mod referral;
 mod spot;
 pub mod transfer_hook;
 
@@ -14,4 +15,5 @@ pub use leverage::*;
 pub use liquidity::*;
 pub use market::*;
 pub use preview::*;
+pub use referral::*;
 pub use spot::*;

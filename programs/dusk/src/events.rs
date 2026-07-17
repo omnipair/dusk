@@ -192,6 +192,47 @@ pub struct ProtocolAuctionSplitUpdated {
 }
 
 #[event]
+pub struct ReferralOriginationFeeUpdated {
+    pub authority: Pubkey,
+    pub referral_origination_fee_bps: u16,
+    pub signer: Pubkey,
+}
+
+#[event]
+pub struct ReferralRecipientUpdated {
+    pub referral_profile: Pubkey,
+    pub authority: Pubkey,
+    pub recipient: Pubkey,
+}
+
+#[event]
+pub struct ReferralFeesClaimed {
+    pub referral_profile: Pubkey,
+    pub authority: Pubkey,
+    pub recipient: Pubkey,
+    pub asset_mint: Pubkey,
+    pub vault_debit: u64,
+    pub recipient_credit: u64,
+}
+
+#[event]
+pub struct ReferralOriginationFeePaid {
+    pub market: Pubkey,
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub referrer: Pubkey,
+    pub referral_profile: Pubkey,
+    pub asset_mint: Pubkey,
+    pub action: crate::state::ReferralAction,
+    pub requested_principal: u64,
+    pub configured_fee_bps: u16,
+    pub fee_debit: u64,
+    pub vault_credit: u64,
+    pub gross_debt: u64,
+    pub metadata: MarketEventMetadata,
+}
+
+#[event]
 pub struct ProtocolAuctionSettled {
     pub market: Pubkey,
     pub reference_market: Pubkey,
@@ -247,6 +288,9 @@ pub struct LeveragePositionOpened {
     pub debt_asset_mint: Pubkey,
     pub collateral_asset_mint: Pubkey,
     pub margin_amount: u64,
+    pub requested_principal: u64,
+    pub referral_fee_amount: u64,
+    pub gross_debt: u64,
     pub debt_amount: u64,
     pub debt_shares: u128,
     pub collateral_amount: u64,
@@ -278,6 +322,9 @@ pub struct LeveragePositionUpdated {
     pub owner: Pubkey,
     pub debt_asset_mint: Pubkey,
     pub collateral_asset_mint: Pubkey,
+    pub requested_principal: u64,
+    pub referral_fee_amount: u64,
+    pub gross_debt_delta: u64,
     pub debt_delta: i64,
     pub collateral_delta: i64,
     pub debt_amount: u64,

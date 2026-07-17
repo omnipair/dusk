@@ -74,6 +74,50 @@ const ix = await dusk.write.instruction(
 `write.builder(...)`, `write.transaction(...)`, and `write.rpc(...)` expose the
 same generic path for every Dusk instruction in the IDL.
 
+### Referral Origination Fees
+
+A referrer first designates the wallet that may receive claimed fees:
+
+```typescript
+const profileTx = await dusk.write.setReferralRecipientTransaction({
+  authority: referrer.publicKey,
+  recipient,
+});
+```
+
+The referred-action builders derive the protocol-wide profile, create its
+per-mint ATA idempotently, apply the caller's fee-rate ceiling, and compose the
+setup and action instructions into one transaction:
+
+```typescript
+const { transaction, referralProfile, referralVault } =
+  await dusk.write.referredBorrow(
+    {
+      borrowAmount,
+      minDebtAmountOut,
+      minLiquidationCfBps,
+    },
+    {
+      payer: borrower,
+      referrer,
+      debtMint,
+      maxAcceptableReferralFeeBps: 10,
+      accounts: borrowAccounts,
+    }
+  );
+```
+
+Claims always pay a token account owned by the profile's current recipient.
+The SDK resolves Token-2022 transfer-hook accounts when it builds the claim:
+
+```typescript
+const claimTx = await dusk.write.claimReferralFeesTransaction({
+  authority: referrer,
+  mint: debtMint,
+  recipientTokenAccount,
+});
+```
+
 ## Get On-Chain State
 
 ```typescript
@@ -95,7 +139,7 @@ Available typed previews:
 
 - `previewMarket(market)`.
 - `previewSwap({ market, assetInMint, assetOutMint, exactAssetIn })`.
-- `previewBorrowCapacity({ market, collateralAssetMint, debtAssetMint, collateralAmount, projectedDebtAmount })`.
+- `previewBorrowCapacity({ market, collateralAssetMint, debtAssetMint, collateralAmount, projectedBorrowAmount, withReferral })`.
 - `previewBorrowPosition({ market, borrowPosition })`.
 
 `previewBorrowCapacity` exposes both the health-limited result of the on-chain
@@ -107,15 +151,20 @@ const capacity = await dusk.get.previewBorrowCapacity({
   collateralAssetMint: baseMint,
   debtAssetMint: quoteMint,
   collateralAmount,
-  // Optional: quote CF and global-health terms for this candidate. When
-  // omitted, these fields are quoted at capacity.maxDebt.
-  projectedDebtAmount,
+  // Optional: quote the fee, CF, and health terms for this requested principal.
+  projectedBorrowAmount,
+  withReferral: true,
+  maxAcceptableReferralFeeBps: 10,
 });
 
 capacity.maxDebtByHealth;
 capacity.maxDebtByCash;
 capacity.maxDebtByDailyLimit;
 capacity.maxDebt;
+capacity.maxBorrowAmount;
+capacity.referralOriginationFeeBps;
+capacity.projectedReferralFeeDebit;
+capacity.projectedReferralVaultCredit;
 capacity.maxCfBps;
 capacity.liquidationCfBps;
 capacity.projectedGlobalHealthContribution;
