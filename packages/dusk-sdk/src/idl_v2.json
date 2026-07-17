@@ -8061,6 +8061,10 @@
             "type": "u64"
           },
           {
+            "name": "projected_effective_existing_debt_nad",
+            "type": "u128"
+          },
+          {
             "name": "max_cf_bps",
             "type": "u16"
           },

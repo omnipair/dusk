@@ -86,6 +86,10 @@ export interface PreviewBorrowCapacityParams extends SimulateOptions {
   collateralAssetMint: AddressLike;
   debtAssetMint: AddressLike;
   collateralAmount: BN;
+  /**
+   * Candidate debt used for the returned CF and projected-health fields. When
+   * omitted, the program quotes those fields at the final maximum debt.
+   */
   projectedDebtAmount?: BN | null;
 }
 

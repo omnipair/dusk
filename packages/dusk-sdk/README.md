@@ -2,6 +2,11 @@
 
 TypeScript SDK for Omnipair Dusk (v2).
 
+A `Dusk` instance is an enriched Anchor program facade. It exposes the raw
+Anchor program through `dusk.program`, alongside typed on-chain reads and
+previews through `dusk.get`, transaction builders through `dusk.write`, and
+indexed historical data through `dusk.fetch`.
+
 The package exports the generated Anchor IDL/types, PDA helpers, typed preview
 decoders, a small write/read facade over the Dusk program, and an indexer client
 for historical API data.
@@ -93,6 +98,31 @@ Available typed previews:
 - `previewBorrowCapacity({ market, collateralAssetMint, debtAssetMint, collateralAmount, projectedDebtAmount })`.
 - `previewBorrowPosition({ market, borrowPosition })`.
 
+`previewBorrowCapacity` exposes both the health-limited result of the on-chain
+binary search and the final limit after cash and daily-borrow constraints:
+
+```typescript
+const capacity = await dusk.get.previewBorrowCapacity({
+  market,
+  collateralAssetMint: baseMint,
+  debtAssetMint: quoteMint,
+  collateralAmount,
+  // Optional: quote CF and global-health terms for this candidate. When
+  // omitted, these fields are quoted at capacity.maxDebt.
+  projectedDebtAmount,
+});
+
+capacity.maxDebtByHealth;
+capacity.maxDebtByCash;
+capacity.maxDebtByDailyLimit;
+capacity.maxDebt;
+capacity.maxCfBps;
+capacity.liquidationCfBps;
+capacity.projectedGlobalHealthContribution;
+capacity.projectedGlobalMarketHealthBps;
+capacity.projectedEffectiveExistingDebtNad;
+```
+
 ## Fetch Historical Data
 
 ```typescript
@@ -116,7 +146,7 @@ import {
   deriveMarketAddress,
   IDL,
   PROGRAM_ID,
-  type Dusk,
+  type DuskIdl,
 } from "@omnipair/dusk-sdk";
 
 const program = createDuskProgram({ provider });

@@ -8067,6 +8067,10 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "projectedEffectiveExistingDebtNad",
+            "type": "u128"
+          },
+          {
             "name": "maxCfBps",
             "type": "u16"
           },

@@ -224,6 +224,7 @@ pub struct BorrowCapacityPreview {
     pub projected_health_bps: u64,
     pub projected_global_market_health_bps: u64,
     pub projected_global_health_contribution: u64,
+    pub projected_effective_existing_debt_nad: u128,
     pub max_cf_bps: u16,
     pub liquidation_cf_bps: u16,
     pub liquidation_debt_per_collateral_price_nad: u64,
@@ -467,6 +468,7 @@ impl<'info> PreviewBorrowCapacity<'info> {
             projected_health_bps,
             projected_global_market_health_bps: projected_terms.projected_market_health_bps,
             projected_global_health_contribution,
+            projected_effective_existing_debt_nad: projected_terms.effective_existing_debt_nad,
             max_cf_bps: projected_terms.max_cf_bps,
             liquidation_cf_bps: projected_terms.liquidation_cf_bps,
             liquidation_debt_per_collateral_price_nad: liquidation_threshold_price_nad(

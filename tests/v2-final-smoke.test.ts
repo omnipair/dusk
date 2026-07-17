@@ -2566,9 +2566,15 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     expect(capacityPreview.collateralAsset).to.deep.equal({ base: {} });
     expect(capacityPreview.debtAsset).to.deep.equal({ quote: {} });
     expect(capacityPreview.collateralAmount.toNumber()).to.equal(10_000);
+    expect(capacityPreview.maxDebtByHealth.toNumber()).to.be.greaterThanOrEqual(5_000);
     expect(capacityPreview.maxDebt.toNumber()).to.be.greaterThanOrEqual(5_000);
     expect(capacityPreview.projectedDebtAmount.toNumber()).to.equal(5_000);
     expect(capacityPreview.projectedHealthBps.toNumber()).to.be.greaterThanOrEqual(11_000);
+    expect(capacityPreview.projectedGlobalHealthContribution.toNumber()).to.be.greaterThan(0);
+    expect(capacityPreview.projectedGlobalMarketHealthBps.toNumber()).to.be.greaterThanOrEqual(11_000);
+    expect(capacityPreview.projectedEffectiveExistingDebtNad.toString()).to.equal("0");
+    expect(capacityPreview.maxCfBps).to.be.greaterThan(0);
+    expect(capacityPreview.liquidationCfBps).to.be.greaterThanOrEqual(capacityPreview.maxCfBps);
     expect(capacityPreview.liquidationDebtPerCollateralPriceNad.toNumber()).to.be.greaterThan(0);
 
     const borrowTx = await program.methods
