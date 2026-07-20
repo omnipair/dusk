@@ -76,6 +76,13 @@ same generic path for every Dusk instruction in the IDL.
 
 ### Referral Origination Fees
 
+Referral is optional on `borrow`, `openLeverage`, and `increaseLeverage`. The
+configured rate initializes to 10 bps and cannot exceed the program's 25 bps
+hard cap. The fee rounds up, is added on top of requested principal as gross
+debt, and is transferred immediately from reserve cash to the referral vault.
+Unreferred actions and all repay, close, liquidation, swap, and hLP paths are
+referral-free.
+
 A referrer first designates the wallet that may receive claimed fees:
 
 ```typescript
@@ -106,6 +113,11 @@ const { transaction, referralProfile, referralVault } =
     }
   );
 ```
+
+Equivalent `referredOpenLeverage(...)` and `referredIncreaseLeverage(...)`
+builders preserve requested trade principal while adding the referral fee to
+position debt. `maxAcceptableReferralFeeBps` protects a composed transaction
+from a governance rate change before execution.
 
 Claims always pay a token account owned by the profile's current recipient.
 The SDK resolves Token-2022 transfer-hook accounts when it builds the claim:
