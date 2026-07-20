@@ -7,6 +7,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 
 import {
   decodePreviewAddLiquidityReturnData,
+  decodePreviewBorrowPositionReturnData,
   decodePreviewSwapReturnData,
 } from "../../../packages/dusk-sdk/src/preview.js";
 import { formatUnits, type ProtocolTestHarness, type ScenarioDefinition } from "../harness.js";
@@ -29,6 +30,47 @@ function previewData(evidence: TransactionEvidence): [string, BufferEncoding] {
   const data = evidence.simulation.returnData?.data;
   if (!data) throw new Error(`${evidence.label} did not return preview data`);
   return data as [string, BufferEncoding];
+}
+
+async function previewBorrowPosition(
+  harness: ProtocolTestHarness,
+  wallet: string,
+  positionId: PublicKey,
+  label: string
+) {
+  const evidence = await harness.execute({
+    wallet,
+    endpoint: "/api/v2/fork/tx/preview-borrow-position",
+    label,
+    submit: false,
+    body: { positionId: positionId.toBase58() },
+  });
+  return decodePreviewBorrowPositionReturnData(previewData(evidence));
+}
+
+async function maximumRepayDebit(
+  harness: ProtocolTestHarness,
+  positionId: PublicKey,
+  debtAsset: "base" | "quote",
+  debt: bigint,
+  decimals: number
+): Promise<bigint> {
+  const body = (amount: bigint) => ({
+    positionId: positionId.toBase58(),
+    repayAsset: debtAsset,
+    repayAmount: formatUnits(amount, decimals),
+  });
+  let low = 0n;
+  let high = debt * 2n + 1n;
+  while (low + 1n < high) {
+    const middle = (low + high) / 2n;
+    if ((await harness.probe("alice", "/api/v2/fork/tx/repay", body(middle))).succeeds) {
+      low = middle;
+    } else {
+      high = middle;
+    }
+  }
+  return low;
 }
 
 export const COMPATIBILITY_SCENARIOS: ScenarioDefinition[] = [
@@ -161,6 +203,53 @@ export const COMPATIBILITY_SCENARIOS: ScenarioDefinition[] = [
         "Token-2022 referral recipient receives net claim",
         await harness.tokenBalance("referrer", harness.config.quoteMint, harness.config.quoteTokenProgram) > referrerQuoteBefore
       );
+
+      const debtBeforeRepay = BigInt(
+        (
+          await previewBorrowPosition(
+            harness,
+            "alice",
+            token2022BorrowPositionId,
+            "preview Token-2022 debt for exact gross repayment"
+          )
+        ).fixedQuoteDebt.toString()
+      );
+      const repayDebit = await maximumRepayDebit(
+        harness,
+        token2022BorrowPositionId,
+        "quote",
+        debtBeforeRepay,
+        harness.config.quoteDecimals
+      );
+      await harness.execute({
+        wallet: "alice",
+        endpoint: "/api/v2/fork/tx/repay",
+        label: "repay Token-2022 debt with transfer-fee gross-up",
+        body: {
+          positionId: token2022BorrowPositionId.toBase58(),
+          repayAsset: "quote",
+          repayAmount: formatUnits(repayDebit, harness.config.quoteDecimals),
+        },
+      });
+      const debtAfterRepay = await previewBorrowPosition(
+        harness,
+        "alice",
+        token2022BorrowPositionId,
+        "confirm Token-2022 debt is fully repaid"
+      );
+      harness.assertEqual("Token-2022 gross repayment clears net debt", integer(debtAfterRepay.fixedQuoteDebt), 0n);
+      await harness.execute({
+        wallet: "alice",
+        endpoint: "/api/v2/fork/tx/withdraw-collateral",
+        label: "withdraw Token-2022 collateral after repayment",
+        body: {
+          positionId: token2022BorrowPositionId.toBase58(),
+          marketAsset: "base",
+          withdrawAmount: formatUnits(creditedCollateral, harness.config.baseDecimals),
+          minAssetAmountOut: "0",
+          minLiquidationCfBps: 0,
+        },
+      });
 
       await harness.execute({
         wallet: "bob",
