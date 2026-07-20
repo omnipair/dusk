@@ -242,6 +242,7 @@ impl Liquidation {
             borrow_position.set_liquidation_cf_bps(self.debt_asset, 0);
         } else {
             let total_debt_nad = market.total_fixed_debt_nad(self.debt_asset)?;
+            let external_debt_nad = market.external_fixed_debt_nad(borrow_position, self.debt_asset)?;
             let projected_aggregate = market.projected_aggregate_global_health_contribution(
                 borrow_position,
                 self.debt_asset,
@@ -250,7 +251,7 @@ impl Liquidation {
             let terms = market.dynamic_borrow_terms(
                 self.debt_asset,
                 remaining_collateral,
-                total_debt_nad,
+                external_debt_nad,
                 total_debt_nad,
                 projected_aggregate,
                 &market.risk,

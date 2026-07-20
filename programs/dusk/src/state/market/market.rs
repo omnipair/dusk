@@ -489,12 +489,13 @@ impl Market {
 
         if position_debt > 0 {
             let total_debt_nad = self.total_fixed_debt_nad(debt_asset)?;
+            let external_debt_nad = self.external_fixed_debt_nad(borrow_position, debt_asset)?;
             let projected_aggregate =
                 self.projected_aggregate_global_health_contribution(borrow_position, debt_asset, target_contribution)?;
             let terms = self.dynamic_borrow_terms(
                 debt_asset,
                 projected_collateral,
-                total_debt_nad,
+                external_debt_nad,
                 total_debt_nad,
                 projected_aggregate,
                 &self.risk,
@@ -553,7 +554,10 @@ impl Market {
         let risk = self.risk;
         let current_health = self.market_health_from_risk(&risk)?;
         self.assert_market_health_snapshot(&current_health)?;
-        let existing_total_debt_nad = self.total_fixed_debt_nad(borrow_asset)?;
+        // The V1 curve prices debt already issued to other positions. Counting
+        // this position's own debt here would make repeated draws worse than
+        // opening equivalent split positions.
+        let external_debt_nad = self.external_fixed_debt_nad(borrow_position, borrow_asset)?;
         let debt_shares = match borrow_asset {
             MarketAsset::Base => Debt::debt_to_shares(borrow_amount, self.debt.base_borrow_index_nad)?,
             MarketAsset::Quote => Debt::debt_to_shares(borrow_amount, self.debt.quote_borrow_index_nad)?,
@@ -607,7 +611,7 @@ impl Market {
         let terms = self.dynamic_borrow_terms(
             borrow_asset,
             collateral_amount,
-            existing_total_debt_nad,
+            external_debt_nad,
             projected_total_debt_nad,
             projected_aggregate,
             &risk,

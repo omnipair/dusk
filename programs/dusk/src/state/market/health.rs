@@ -6,7 +6,7 @@ use crate::{
     errors::ErrorCode,
     math::*,
     shared::math::ceil_div,
-    state::BorrowPosition,
+    state::{BorrowPosition, Debt},
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -77,6 +77,31 @@ impl Market {
             MarketAsset::Quote => (self.debt.fixed_quote_debt()?, self.quote_side.asset_decimals),
         };
         normalize_to_nad(fixed_debt, debt_decimals)
+    }
+
+    pub(crate) fn external_fixed_debt_nad(
+        &self,
+        borrow_position: &BorrowPosition,
+        debt_asset: MarketAsset,
+    ) -> Result<u128> {
+        let (aggregate_shares, position_shares, borrow_index_nad, debt_decimals) = match debt_asset {
+            MarketAsset::Base => (
+                self.debt.fixed_base_shares,
+                borrow_position.fixed_base_shares,
+                self.debt.base_borrow_index_nad,
+                self.base_side.asset_decimals,
+            ),
+            MarketAsset::Quote => (
+                self.debt.fixed_quote_shares,
+                borrow_position.fixed_quote_shares,
+                self.debt.quote_borrow_index_nad,
+                self.quote_side.asset_decimals,
+            ),
+        };
+        let external_shares = aggregate_shares
+            .checked_sub(position_shares)
+            .ok_or(ErrorCode::DebtShareMathOverflow)?;
+        normalize_to_nad(Debt::shares_to_debt(external_shares, borrow_index_nad)?, debt_decimals)
     }
 
     pub(crate) fn dynamic_borrow_terms(

@@ -765,6 +765,22 @@ use super::*;
     }
 
     #[test]
+    fn external_fixed_debt_excludes_only_the_acting_position() {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        market.debt.base_borrow_index_nad = (NAD as u128) * 3 / 2;
+        market.debt.fixed_base_shares = 150_000;
+        let mut position = borrow_position_for_debt(MarketAsset::Base, 250_000);
+        position.fixed_base_shares = 100_000;
+
+        assert_eq!(
+            market
+                .external_fixed_debt_nad(&position, MarketAsset::Base)
+                .unwrap(),
+            75_000_u128 * NAD as u128
+        );
+    }
+
+    #[test]
     fn deposit_and_repay_update_contribution_without_floating_cf() {
         let mut market = invariant_market(1_000_000, 1_000_000);
         market.config.borrow_market_health_floor_bps = 11_000;
