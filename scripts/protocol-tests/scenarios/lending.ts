@@ -301,6 +301,9 @@ export const LENDING_SCENARIOS: ScenarioDefinition[] = [
   {
     id: "lending.position-splitting",
     async run(harness) {
+      // Clear the daily bucket and let any directional EMA left by earlier
+      // scenarios converge before measuring either side of the comparison.
+      await harness.timeTravel(0, 216_010);
       const oneShotEvidence = await harness.execute({
         wallet: "alice",
         endpoint: "/api/v2/fork/tx/preview-borrow-capacity",
