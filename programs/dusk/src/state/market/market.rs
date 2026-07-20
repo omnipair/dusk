@@ -451,6 +451,7 @@ impl Market {
             MarketAsset::Quote => borrow_position.quote_collateral = projected_collateral,
         }
         self.reconcile_global_health_contribution(borrow_position, debt_asset, target_contribution)?;
+        self.reconcile_liquidation_auction(borrow_position)?;
 
         Ok(CollateralReceipt {
             collateral_credit,
@@ -557,6 +558,7 @@ impl Market {
             MarketAsset::Base => Debt::debt_to_shares(borrow_amount, self.debt.base_borrow_index_nad)?,
             MarketAsset::Quote => Debt::debt_to_shares(borrow_amount, self.debt.quote_borrow_index_nad)?,
         };
+        let aggregate_debt_increase = self.debt.fixed_debt_increase_for_shares(borrow_asset, debt_shares)?;
         let (projected_position_debt, projected_total_debt) = match borrow_asset {
             MarketAsset::Base => (
                 Debt::shares_to_debt(
@@ -637,6 +639,19 @@ impl Market {
             .cash_reserve
             .checked_sub(borrow_amount)
             .ok_or(ErrorCode::CashReserveUnderflow)?;
+        if aggregate_debt_increase > borrow_amount {
+            debt_side.reserves.live_reserve = debt_side
+                .reserves
+                .live_reserve
+                .checked_add(aggregate_debt_increase - borrow_amount)
+                .ok_or(ErrorCode::ReserveOverflow)?;
+        } else if aggregate_debt_increase < borrow_amount {
+            debt_side.reserves.live_reserve = debt_side
+                .reserves
+                .live_reserve
+                .checked_sub(borrow_amount - aggregate_debt_increase)
+                .ok_or(ErrorCode::ReserveUnderflow)?;
+        }
 
         match borrow_asset {
             MarketAsset::Base => {
@@ -738,13 +753,15 @@ impl Market {
                     .checked_sub(remaining_debt)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
                 let debt_reduction = u64::try_from(debt_reduction).map_err(|_| ErrorCode::DebtMathOverflow)?;
-                let interest_paid = self
-                    .debt
-                    .realize_margin_liquidation(repay_asset, repay_credit, debt_reduction)?;
+                let aggregate_debt_reduction =
+                    self.debt.fixed_debt_reduction_for_shares(repay_asset, shares_to_burn)?;
+                let interest_paid =
+                    self.debt
+                        .realize_margin_liquidation(repay_asset, repay_credit, aggregate_debt_reduction)?;
                 let principal_credit = repay_credit
                     .checked_sub(interest_paid)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-                let live_debit = debt_reduction
+                let live_debit = aggregate_debt_reduction
                     .checked_sub(principal_credit)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
                 borrow_position.fixed_base_shares = borrow_position
@@ -785,13 +802,15 @@ impl Market {
                     .checked_sub(remaining_debt)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
                 let debt_reduction = u64::try_from(debt_reduction).map_err(|_| ErrorCode::DebtMathOverflow)?;
-                let interest_paid = self
-                    .debt
-                    .realize_margin_liquidation(repay_asset, repay_credit, debt_reduction)?;
+                let aggregate_debt_reduction =
+                    self.debt.fixed_debt_reduction_for_shares(repay_asset, shares_to_burn)?;
+                let interest_paid =
+                    self.debt
+                        .realize_margin_liquidation(repay_asset, repay_credit, aggregate_debt_reduction)?;
                 let principal_credit = repay_credit
                     .checked_sub(interest_paid)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-                let live_debit = debt_reduction
+                let live_debit = aggregate_debt_reduction
                     .checked_sub(principal_credit)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
                 borrow_position.fixed_quote_shares = borrow_position
@@ -834,6 +853,7 @@ impl Market {
         if debt_after == 0 {
             borrow_position.set_liquidation_cf_bps(repay_asset, 0);
         }
+        self.reconcile_liquidation_auction(borrow_position)?;
         let market_health = self.market_health()?;
         DebtReceipt::from_market(self, borrow_position, debt_delta, interest_paid, &market_health)
     }

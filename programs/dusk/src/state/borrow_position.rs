@@ -29,6 +29,7 @@ pub struct BorrowPosition {
     pub quote_liquidation_cf_bps: u16,
     pub fixed_base_shares: u128,
     pub fixed_quote_shares: u128,
+    pub auction_debt_asset: u8,
     pub auction_start_time: i64,
     pub auction_start_price_nad: u64,
     pub auction_floor_price_nad: u64,
@@ -40,9 +41,7 @@ impl BorrowPosition {
         self.owner = owner;
         self.market = market;
         self.position_id = position_id;
-        self.auction_start_time = 0;
-        self.auction_start_price_nad = 0;
-        self.auction_floor_price_nad = 0;
+        self.clear_liquidation_auction();
         self.base_liquidation_cf_bps = 0;
         self.quote_liquidation_cf_bps = 0;
         self.bump = bump;
@@ -92,5 +91,46 @@ impl BorrowPosition {
             MarketAsset::Base => self.base_collateral,
             MarketAsset::Quote => self.quote_collateral,
         }
+    }
+
+    pub fn has_active_liquidation_auction(&self) -> bool {
+        self.auction_debt_asset != u8::MAX
+    }
+
+    pub fn active_liquidation_auction_asset(&self) -> Result<Option<MarketAsset>> {
+        if !self.has_active_liquidation_auction() {
+            require_eq!(self.auction_start_time, 0, ErrorCode::BrokenInvariant);
+            return Ok(None);
+        }
+        require!(self.auction_start_time > 0, ErrorCode::BrokenInvariant);
+        MarketAsset::try_from_code(self.auction_debt_asset).map(Some)
+    }
+
+    pub fn assert_liquidation_auction(&self, debt_asset: MarketAsset) -> Result<()> {
+        require!(
+            self.active_liquidation_auction_asset()? == Some(debt_asset),
+            ErrorCode::PositionNotLiquidatable
+        );
+        Ok(())
+    }
+
+    pub fn start_liquidation_auction(
+        &mut self,
+        debt_asset: MarketAsset,
+        start_time: i64,
+        start_price_nad: u64,
+        floor_price_nad: u64,
+    ) {
+        self.auction_debt_asset = debt_asset.code();
+        self.auction_start_time = start_time;
+        self.auction_start_price_nad = start_price_nad;
+        self.auction_floor_price_nad = floor_price_nad;
+    }
+
+    pub fn clear_liquidation_auction(&mut self) {
+        self.auction_debt_asset = u8::MAX;
+        self.auction_start_time = 0;
+        self.auction_start_price_nad = 0;
+        self.auction_floor_price_nad = 0;
     }
 }

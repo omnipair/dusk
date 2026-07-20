@@ -8442,6 +8442,10 @@
             "type": "u128"
           },
           {
+            "name": "auction_debt_asset",
+            "type": "u8"
+          },
+          {
             "name": "auction_start_time",
             "type": "i64"
           },

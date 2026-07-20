@@ -255,6 +255,36 @@ impl Debt {
     pub fn fixed_quote_debt(&self) -> Result<u128> {
         Self::shares_to_debt(self.fixed_quote_shares, self.quote_borrow_index_nad)
     }
+
+    pub fn fixed_debt_increase_for_shares(&self, asset: MarketAsset, shares_added: u128) -> Result<u64> {
+        let (shares_before, index_nad) = match asset {
+            MarketAsset::Base => (self.fixed_base_shares, self.base_borrow_index_nad),
+            MarketAsset::Quote => (self.fixed_quote_shares, self.quote_borrow_index_nad),
+        };
+        let debt_before = Self::shares_to_debt(shares_before, index_nad)?;
+        let debt_after = Self::shares_to_debt(
+            shares_before
+                .checked_add(shares_added)
+                .ok_or(ErrorCode::DebtShareMathOverflow)?,
+            index_nad,
+        )?;
+        u64::try_from(debt_after.checked_sub(debt_before).ok_or(ErrorCode::DebtMathOverflow)?)
+            .map_err(|_| ErrorCode::DebtMathOverflow.into())
+    }
+
+    pub fn fixed_debt_reduction_for_shares(&self, asset: MarketAsset, shares_burned: u128) -> Result<u64> {
+        let (shares_before, index_nad) = match asset {
+            MarketAsset::Base => (self.fixed_base_shares, self.base_borrow_index_nad),
+            MarketAsset::Quote => (self.fixed_quote_shares, self.quote_borrow_index_nad),
+        };
+        let shares_after = shares_before
+            .checked_sub(shares_burned)
+            .ok_or(ErrorCode::DebtShareMathOverflow)?;
+        let debt_before = Self::shares_to_debt(shares_before, index_nad)?;
+        let debt_after = Self::shares_to_debt(shares_after, index_nad)?;
+        u64::try_from(debt_before.checked_sub(debt_after).ok_or(ErrorCode::DebtMathOverflow)?)
+            .map_err(|_| ErrorCode::DebtMathOverflow.into())
+    }
 }
 
 #[cfg(test)]

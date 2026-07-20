@@ -126,10 +126,7 @@ impl<'info> BidLiquidationAuction<'info> {
         let collateral_asset_mint_key = ctx.accounts.collateral_asset_mint.key();
         let debt_asset = ctx.accounts.market.asset_for_mint(debt_asset_mint_key)?;
 
-        require!(
-            ctx.accounts.borrow_position.auction_start_time > 0,
-            ErrorCode::PositionNotLiquidatable
-        );
+        ctx.accounts.borrow_position.assert_liquidation_auction(debt_asset)?;
 
         let now = Clock::get()?.unix_timestamp;
         let elapsed_s = now.saturating_sub(ctx.accounts.borrow_position.auction_start_time);
@@ -254,12 +251,28 @@ impl<'info> BidLiquidationAuction<'info> {
             0
         };
         require_gte!(collateral_credit, args.min_collateral_out, ErrorCode::SlippageExceeded);
-
-        // Clear auction fields if full liquidation, else leave them for next bid
-        if liquidation_receipt.remaining_debt == 0 {
-            ctx.accounts.borrow_position.auction_start_time = 0;
-            ctx.accounts.borrow_position.auction_start_price_nad = 0;
-            ctx.accounts.borrow_position.auction_floor_price_nad = 0;
+        if liquidation_receipt.insurance_funded > 0 {
+            let collateral_insurance_balance_before = ctx.accounts.collateral_insurance_vault.amount;
+            transfer_from_vault_to_vault(
+                ctx.accounts.market.to_account_info(),
+                ctx.accounts.collateral_vault.to_account_info(),
+                ctx.accounts.collateral_insurance_vault.to_account_info(),
+                ctx.accounts.collateral_asset_mint.to_account_info(),
+                collateral_token_program,
+                liquidation_receipt.insurance_funded,
+                ctx.accounts.collateral_asset_mint.decimals,
+                &[&generate_market_seeds!(ctx.accounts.market)[..]],
+            )?;
+            ctx.accounts.collateral_insurance_vault.reload()?;
+            let insurance_credit = crate::instructions::common::token_account_credit(
+                collateral_insurance_balance_before,
+                &ctx.accounts.collateral_insurance_vault,
+            )?;
+            require_eq!(
+                insurance_credit,
+                liquidation_receipt.insurance_funded,
+                ErrorCode::MarketMathOverflow
+            );
         }
 
         emit_position_liquidated_low_heap(

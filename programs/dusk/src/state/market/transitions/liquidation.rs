@@ -55,7 +55,7 @@ pub struct LiquidationReceipt {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct LiquidationDebtClearance {
     shares_to_burn: u128,
-    debt_reduction: u128,
+    aggregate_debt_reduction: u64,
 }
 
 impl Liquidation {
@@ -166,14 +166,14 @@ impl Liquidation {
         let debt_clearance =
             liquidation_debt_clearance(market, borrow_position, self.debt_asset, requested_debt_reduction)?;
         let cash_repaid = u64::try_from(repay_plus_insurance).map_err(|_| ErrorCode::MarketMathOverflow)?;
-        let debt_reduction_u64 =
-            u64::try_from(debt_clearance.debt_reduction).map_err(|_| ErrorCode::MarketMathOverflow)?;
         // Track the principal/interest split for cash-backed repayment without
         // treating socialized loss or share-rounding writeoff as received
         // interest.
-        let interest_paid = market
-            .debt
-            .realize_margin_liquidation(self.debt_asset, cash_repaid, debt_reduction_u64)?;
+        let interest_paid = market.debt.realize_margin_liquidation(
+            self.debt_asset,
+            cash_repaid,
+            debt_clearance.aggregate_debt_reduction,
+        )?;
         let principal_credit = cash_repaid
             .checked_sub(interest_paid)
             .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -187,7 +187,8 @@ impl Liquidation {
 
         {
             let debt_side = market.side_mut(self.debt_asset);
-            let live_debit = debt_reduction_u64
+            let live_debit = debt_clearance
+                .aggregate_debt_reduction
                 .checked_sub(principal_credit)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
             debt_side.reserves.live_reserve = debt_side
@@ -257,6 +258,7 @@ impl Liquidation {
             borrow_position.set_liquidation_cf_bps(self.debt_asset, terms.liquidation_cf_bps);
         }
         market.reconcile_global_health_contribution(borrow_position, self.debt_asset, target_contribution)?;
+        market.reconcile_liquidation_auction(borrow_position)?;
 
         market.assert_virtual_reserve_invariant(MarketAsset::Base)?;
         market.assert_virtual_reserve_invariant(MarketAsset::Quote)?;
@@ -405,16 +407,12 @@ fn liquidation_debt_clearance(
         ),
     };
     let shares_to_burn = shares_to_burn_for_reduction(debt_reduction, debt_before, shares_before, borrow_index_nad)?;
-    let remaining_shares = shares_before
-        .checked_sub(shares_to_burn)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let remaining_debt = Debt::shares_to_debt(remaining_shares, borrow_index_nad)?;
-    let actual_debt_reduction = debt_before
-        .checked_sub(remaining_debt)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let aggregate_debt_reduction = market
+        .debt
+        .fixed_debt_reduction_for_shares(debt_asset, shares_to_burn)?;
     Ok(LiquidationDebtClearance {
         shares_to_burn,
-        debt_reduction: actual_debt_reduction,
+        aggregate_debt_reduction,
     })
 }
 
@@ -760,14 +758,25 @@ fn liquidation_repay_would_leave_dust(
 }
 
 impl Market {
-    pub fn liquidation_reference_price_nad(&self, debt_asset: MarketAsset) -> Result<u64> {
+    pub fn liquidation_reference_price_nad(
+        &self,
+        borrow_position: &BorrowPosition,
+        debt_asset: MarketAsset,
+    ) -> Result<u64> {
         let risk = self.current_risk()?;
-        let price = match debt_asset {
-            MarketAsset::Base => risk.quote_price_ema_nad,
-            MarketAsset::Quote => risk.base_price_ema_nad,
-        };
-        require!(price > 0, ErrorCode::InvalidSettlementPrice);
-        Ok(price)
+        let collateral_asset = debt_asset.opposite();
+        let collateral_amount = position_collateral(borrow_position, debt_asset);
+        let collateral_amount_nad =
+            normalize_to_nad(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
+        require!(collateral_amount_nad > 0, ErrorCode::InvalidSettlementPrice);
+        let collateral_value_nad = self.liquidation_collateral_value_nad(collateral_asset, collateral_amount, &risk)?;
+        let price_nad = collateral_value_nad
+            .checked_mul(NAD as u128)
+            .and_then(|value| value.checked_div(collateral_amount_nad))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let price_nad = u64::try_from(price_nad).map_err(|_| ErrorCode::MarketMathOverflow)?;
+        require!(price_nad > 0, ErrorCode::InvalidSettlementPrice);
+        Ok(price_nad)
     }
 
     pub fn liquidation_health_bps_with_pricing(

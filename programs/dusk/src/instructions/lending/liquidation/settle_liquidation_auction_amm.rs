@@ -127,10 +127,7 @@ impl<'info> SettleLiquidationAuctionAmm<'info> {
         let collateral_asset_mint_key = ctx.accounts.collateral_asset_mint.key();
         let debt_asset = ctx.accounts.market.asset_for_mint(debt_asset_mint_key)?;
 
-        require!(
-            ctx.accounts.borrow_position.auction_start_time > 0,
-            ErrorCode::PositionNotLiquidatable
-        );
+        ctx.accounts.borrow_position.assert_liquidation_auction(debt_asset)?;
         let now = Clock::get()?.unix_timestamp;
         let elapsed_s = now.saturating_sub(ctx.accounts.borrow_position.auction_start_time);
         require!(elapsed_s >= 0, ErrorCode::MarketMathOverflow);
@@ -183,6 +180,7 @@ impl<'info> SettleLiquidationAuctionAmm<'info> {
             args.repay_amount,
             ctx.accounts.debt_asset_mint.decimals,
         )?;
+        ctx.accounts.reserve_vault.reload()?;
 
         let insurance_request = if args.max_insurance_draw > 0 {
             ctx.accounts
@@ -310,13 +308,6 @@ impl<'info> SettleLiquidationAuctionAmm<'info> {
                 liquidation_receipt.insurance_funded,
                 ErrorCode::MarketMathOverflow
             );
-        }
-
-        // Clear auction fields if full liquidation, else leave them for next bid
-        if liquidation_receipt.remaining_debt == 0 {
-            ctx.accounts.borrow_position.auction_start_time = 0;
-            ctx.accounts.borrow_position.auction_start_price_nad = 0;
-            ctx.accounts.borrow_position.auction_floor_price_nad = 0;
         }
 
         emit_position_liquidated_low_heap(

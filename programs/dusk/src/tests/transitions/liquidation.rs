@@ -90,6 +90,7 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
         quote_liquidation_cf_bps: 8_500,
         fixed_base_shares: 0,
         fixed_quote_shares: 100,
+        auction_debt_asset: u8::MAX,
         auction_start_time: 0,
         auction_start_price_nad: 0,
         auction_floor_price_nad: 0,
@@ -150,6 +151,7 @@ fn market_with_cash_backed_debt(
         quote_liquidation_cf_bps: 8_500,
         fixed_base_shares: 0,
         fixed_quote_shares: 0,
+        auction_debt_asset: u8::MAX,
         auction_start_time: 0,
         auction_start_price_nad: 0,
         auction_floor_price_nad: 0,
@@ -372,6 +374,47 @@ fn partial_liquidation_rounding_writeoff_preserves_virtual_reserve_invariant() {
 }
 
 #[test]
+fn partial_liquidation_uses_aggregate_debt_delta_with_multiple_positions() {
+    let debt_asset = MarketAsset::Quote;
+    let borrow_amount = 50_000_003;
+    let (mut market, mut borrow_position) =
+        market_with_cash_backed_debt(debt_asset, 200_000_000, 300_000_000, borrow_amount, 413);
+    let second_position_shares = borrow_position.fixed_quote_shares;
+    market.debt.fixed_quote_shares += second_position_shares;
+    market.debt.fixed_quote_principal += borrow_amount as u128;
+    market.debt.global_health_base_contribution_for_quote_debt +=
+        borrow_position.global_health_base_contribution_for_quote_debt;
+    market.quote_side.reserves.cash_reserve -= borrow_amount;
+    market.quote_side.reserves.live_reserve = u64::try_from(
+        market.quote_side.reserves.cash_reserve as u128
+            + Debt::shares_to_debt(
+                market.debt.fixed_quote_shares,
+                market.debt.quote_borrow_index_nad,
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    market.assert_virtual_reserve_invariant(debt_asset).unwrap();
+    let debt_before = position_debt_after(&market, &borrow_position, debt_asset);
+
+    Liquidation::new_with_pricing(
+        debt_asset,
+        25_000_004,
+        0,
+        0,
+        0,
+        liquidation_terms_for_debt(debt_before),
+        LiquidationPricing::ReferencePrice {
+            debt_per_collateral_price_nad: NAD as u64,
+        },
+    )
+    .apply(&mut market, &mut borrow_position)
+    .unwrap();
+
+    market.assert_virtual_reserve_invariant(debt_asset).unwrap();
+}
+
+#[test]
 fn partial_liquidation_recalculates_contribution_and_stored_cf() {
     let debt_asset = MarketAsset::Quote;
     let (mut market, mut borrow_position) = liquidatable_quote_debt_position();
@@ -520,6 +563,48 @@ fn liquidation_eligibility_is_inclusive_at_stored_cf_equality() {
     assert!(!market
         .is_position_liquidatable_with_risk(&borrow_position, MarketAsset::Quote, &risk)
         .unwrap());
+}
+
+#[test]
+fn auction_floor_uses_conservative_average_unwind_price() {
+    let (market, borrow_position) = liquidatable_quote_debt_position();
+    let risk = market.current_risk().unwrap();
+    let collateral_value_nad = market
+        .liquidation_collateral_value_nad(
+            MarketAsset::Base,
+            borrow_position.base_collateral,
+            &risk,
+        )
+        .unwrap();
+    let floor_price_nad = market
+        .liquidation_reference_price_nad(&borrow_position, MarketAsset::Quote)
+        .unwrap();
+    let reference_value_nad = (borrow_position.base_collateral as u128)
+        .checked_mul(floor_price_nad as u128)
+        .unwrap();
+
+    assert!(floor_price_nad < NAD as u64);
+    assert!(reference_value_nad <= collateral_value_nad);
+    assert!(collateral_value_nad - reference_value_nad <= borrow_position.base_collateral as u128);
+}
+
+#[test]
+fn liquidation_auction_is_bound_to_one_debt_asset() {
+    let (_, mut borrow_position) = liquidatable_quote_debt_position();
+    borrow_position.start_liquidation_auction(MarketAsset::Quote, 1, NAD as u64, NAD as u64);
+
+    borrow_position
+        .assert_liquidation_auction(MarketAsset::Quote)
+        .unwrap();
+    assert_eq!(
+        borrow_position
+            .assert_liquidation_auction(MarketAsset::Base)
+            .unwrap_err(),
+        anchor_lang::prelude::error!(ErrorCode::PositionNotLiquidatable)
+    );
+
+    borrow_position.clear_liquidation_auction();
+    assert!(!borrow_position.has_active_liquidation_auction());
 }
 
 #[test]

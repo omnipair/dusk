@@ -8448,6 +8448,10 @@ export type Dusk = {
             "type": "u128"
           },
           {
+            "name": "auctionDebtAsset",
+            "type": "u8"
+          },
+          {
             "name": "auctionStartTime",
             "type": "i64"
           },

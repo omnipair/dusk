@@ -52,7 +52,10 @@ impl<'info> TriggerLiquidationAuction<'info> {
         let debt_asset_mint_key = ctx.accounts.debt_asset_mint.key();
         let debt_asset = ctx.accounts.market.asset_for_mint(debt_asset_mint_key)?;
 
-        let liquidation_reference_price_nad = ctx.accounts.market.liquidation_reference_price_nad(debt_asset)?;
+        let liquidation_reference_price_nad = ctx
+            .accounts
+            .market
+            .liquidation_reference_price_nad(&ctx.accounts.borrow_position, debt_asset)?;
 
         require!(
             ctx.accounts
@@ -62,7 +65,7 @@ impl<'info> TriggerLiquidationAuction<'info> {
         );
 
         require!(
-            ctx.accounts.borrow_position.auction_start_time == 0,
+            !ctx.accounts.borrow_position.has_active_liquidation_auction(),
             ErrorCode::PositionNotLiquidatable
         );
 
@@ -72,9 +75,12 @@ impl<'info> TriggerLiquidationAuction<'info> {
             .and_then(|v| v.checked_div(100))
             .ok_or(ErrorCode::MarketMathOverflow)?;
 
-        ctx.accounts.borrow_position.auction_start_time = Clock::get()?.unix_timestamp;
-        ctx.accounts.borrow_position.auction_start_price_nad = start_price;
-        ctx.accounts.borrow_position.auction_floor_price_nad = floor_price;
+        ctx.accounts.borrow_position.start_liquidation_auction(
+            debt_asset,
+            Clock::get()?.unix_timestamp,
+            start_price,
+            floor_price,
+        );
 
         Ok(())
     }

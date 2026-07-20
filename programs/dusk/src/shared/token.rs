@@ -553,6 +553,14 @@ pub fn create_token_account<'a>(
     token_program: &AccountInfo<'a>,
     signer_seeds: &[&[u8]],
 ) -> Result<()> {
+    if token_account.owner == token_program.key && !token_account.data_is_empty() {
+        let account_data = token_account.try_borrow_data()?;
+        let account = StateWithExtensions::<spl_token_2022::state::Account>::unpack(&account_data)?;
+        require_keys_eq!(account.base.mint, mint_account.key(), ErrorCode::InvalidMint);
+        require_keys_eq!(account.base.owner, authority.key(), ErrorCode::InvalidVault);
+        return Ok(());
+    }
+
     let space = {
         let mint_info = mint_account.to_account_info();
         if *mint_info.owner == token_2022::Token2022::id() {

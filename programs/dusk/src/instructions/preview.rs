@@ -810,7 +810,7 @@ fn preview_position_debt_side(
     let liquidation_reference_price_nad = if debt == 0 {
         0
     } else {
-        market.liquidation_reference_price_nad(debt_asset)?
+        market.liquidation_reference_price_nad(borrow_position, debt_asset)?
     };
     let pricing = LiquidationPricing::ReferencePrice {
         debt_per_collateral_price_nad: liquidation_reference_price_nad,

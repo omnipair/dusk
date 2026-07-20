@@ -201,6 +201,16 @@ impl Market {
         self.is_position_liquidatable_with_risk(borrow_position, debt_asset, &self.current_risk()?)
     }
 
+    pub fn reconcile_liquidation_auction(&self, borrow_position: &mut BorrowPosition) -> Result<()> {
+        let Some(debt_asset) = borrow_position.active_liquidation_auction_asset()? else {
+            return Ok(());
+        };
+        if !self.is_position_liquidatable(borrow_position, debt_asset)? {
+            borrow_position.clear_liquidation_auction();
+        }
+        Ok(())
+    }
+
     pub(crate) fn buffered_debt_limit_for_liquidation_cf(
         &self,
         collateral_asset: MarketAsset,

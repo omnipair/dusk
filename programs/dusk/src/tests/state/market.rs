@@ -109,6 +109,7 @@ use super::*;
             quote_liquidation_cf_bps: 0,
             fixed_base_shares: 0,
             fixed_quote_shares: 0,
+            auction_debt_asset: u8::MAX,
             auction_start_time: 0,
             auction_start_price_nad: 0,
             auction_floor_price_nad: 0,
@@ -255,6 +256,7 @@ use super::*;
             quote_liquidation_cf_bps: 0,
             fixed_base_shares: 0,
             fixed_quote_shares: 0,
+            auction_debt_asset: u8::MAX,
             auction_start_time: 0,
             auction_start_price_nad: 0,
             auction_floor_price_nad: 0,
@@ -501,6 +503,32 @@ use super::*;
         assert_eq!(live_after, live_before - (debt_reduction - principal_paid));
         assert_eq!(cash_after, cash_before + principal_paid);
         market.assert_market_invariants().unwrap();
+    }
+
+    #[test]
+    fn partial_repay_uses_aggregate_debt_delta_with_multiple_positions() {
+        let repay_asset = MarketAsset::Quote;
+        let mut market = invariant_market(300_000_000, 300_000_000);
+        market.config.borrow_market_health_floor_bps = 9_000;
+        let mut first = borrow_position_for_debt(repay_asset, 150_000_000);
+        let mut second = borrow_position_for_debt(repay_asset, 150_000_000);
+        let borrow_amount = 50_000_003;
+        market.borrow(&mut first, repay_asset, borrow_amount, 0).unwrap();
+        market.borrow(&mut second, repay_asset, borrow_amount, 0).unwrap();
+
+        let next_index = (NAD as u128) * 10_413 / BPS_DENOMINATOR as u128;
+        set_borrow_index(&mut market, repay_asset, next_index);
+        add_accrued_cash_backed_interest_to_live_reserve(
+            &mut market,
+            repay_asset,
+            first.fixed_quote_shares + second.fixed_quote_shares,
+            borrow_amount * 2,
+        );
+        market.assert_virtual_reserve_invariant(repay_asset).unwrap();
+
+        market.repay(&mut first, repay_asset, 25_000_004).unwrap();
+
+        market.assert_virtual_reserve_invariant(repay_asset).unwrap();
     }
 
     #[test]
@@ -932,6 +960,7 @@ use super::*;
             quote_liquidation_cf_bps: 0,
             fixed_base_shares: 100,
             fixed_quote_shares: 0,
+            auction_debt_asset: u8::MAX,
             auction_start_time: 0,
             auction_start_price_nad: 0,
             auction_floor_price_nad: 0,
