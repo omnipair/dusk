@@ -147,6 +147,32 @@ async function maximumExternalBid(
   return low;
 }
 
+async function maximumAmmSettlement(
+  harness: ProtocolTestHarness,
+  positionId: PublicKey,
+  debtUpperBound: bigint
+): Promise<bigint> {
+  const body = (amount: bigint) => ({
+    positionId: positionId.toBase58(),
+    debtAsset: "quote",
+    repayAmount: formatUnits(amount, harness.config.quoteDecimals),
+    minCollateralOut: "0",
+    maxInsuranceDraw: "0",
+    maxSocializedLoss: "0",
+  });
+  let low = 0n;
+  let high = debtUpperBound + 1n;
+  while (low + 1n < high) {
+    const middle = (low + high) / 2n;
+    if ((await harness.probe("liquidator", "/api/v2/fork/tx/settle-liquidation-auction-amm", body(middle))).succeeds) {
+      low = middle;
+    } else {
+      high = middle;
+    }
+  }
+  return low;
+}
+
 async function settleAuctionToHealthy(
   harness: ProtocolTestHarness,
   liquidatorWallet: string,
@@ -173,10 +199,12 @@ async function settleAuctionToHealthy(
       positionId,
       `preview AMM auction cap ${attempt}`
     );
-    const maxRepayAmount = BigInt(preview.quoteDebt.maxRepayAmount.toString());
+    const debt = BigInt(preview.fixedQuoteDebt.toString());
+    const maxRepayAmount = await maximumAmmSettlement(harness, positionId, debt);
     harness.assertTrue("active AMM auction exposes a positive repay cap", maxRepayAmount > 0n, {
       debt: preview.fixedQuoteDebt,
-      maxRepayAmount: preview.quoteDebt.maxRepayAmount,
+      referencePriceMaxRepayAmount: preview.quoteDebt.maxRepayAmount,
+      auctionFloorMaxRepayAmount: maxRepayAmount,
     });
     await harness.execute({
       wallet: liquidatorWallet,
