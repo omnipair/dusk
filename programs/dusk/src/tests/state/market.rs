@@ -532,6 +532,18 @@ use super::*;
     }
 
     #[test]
+    fn virtual_reserve_sums_fixed_and_isolated_debt_ledgers_separately() {
+        let mut market = invariant_market(1_000, 1_000);
+        market.debt.base_borrow_index_nad = (NAD as u128) * 3 / 2;
+        market.debt.fixed_base_shares = 1;
+        market.debt.isolated_base_shares = 1;
+        market.base_side.reserves.live_reserve = 1_002;
+
+        assert_eq!(total_cash_backed_borrowed(&market, MarketAsset::Base, market.debt.base_borrow_index_nad).unwrap(), 2);
+        market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
+    }
+
+    #[test]
     fn borrower_risk_valuation_uses_k_ema_depth_cap() {
         let mut market = invariant_market(1_000_000, 1_000_000);
         market.risk = Risk {

@@ -145,6 +145,7 @@ impl HlpVault {
         Ok(DebtClearance {
             shares_burned,
             debt_reduced,
+            aggregate_debt_reduced: debt_reduced,
             principal_paid,
             interest_paid,
             remaining_debt: u64::try_from(remaining_debt).map_err(|_| ErrorCode::DebtMathOverflow)?,

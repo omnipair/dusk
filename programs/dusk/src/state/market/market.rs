@@ -1254,10 +1254,11 @@ fn total_cash_backed_borrowed(market: &Market, asset: MarketAsset, index_nad: u1
         MarketAsset::Base => (market.debt.fixed_base_shares, market.debt.isolated_base_shares),
         MarketAsset::Quote => (market.debt.fixed_quote_shares, market.debt.isolated_quote_shares),
     };
-    let total_shares = margin_fixed
-        .checked_add(isolated)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    Debt::shares_to_debt(total_shares, index_nad)
+    let margin_fixed_debt = Debt::shares_to_debt(margin_fixed, index_nad)?;
+    let isolated_debt = Debt::shares_to_debt(isolated, index_nad)?;
+    margin_fixed_debt
+        .checked_add(isolated_debt)
+        .ok_or(ErrorCode::MarketMathOverflow.into())
 }
 
 fn total_hlp_funding_debt(market: &Market, asset: MarketAsset, index_nad: u128) -> Result<u128> {

@@ -156,7 +156,7 @@ impl Market {
             protocol_fee_bps,
             protocol_auction_split,
         )?;
-        let debt_shares = self.debt.add_isolated_debt(debt_asset, gross_debt)?;
+        let debt_shares = self.add_isolated_borrow_debt(debt_asset, gross_debt)?;
         position.initialize(
             owner,
             market,
@@ -234,7 +234,7 @@ impl Market {
             protocol_fee_bps,
             protocol_auction_split,
         )?;
-        let added_shares = self.debt.add_isolated_debt(debt_asset, gross_debt)?;
+        let added_shares = self.add_isolated_borrow_debt(debt_asset, gross_debt)?;
         position.debt_shares = position
             .debt_shares
             .checked_add(added_shares)
@@ -434,12 +434,12 @@ impl Market {
             protocol_fee_bps,
             protocol_auction_split,
         )?;
-        if writeoff.debt_written_off > 0 {
+        if writeoff.aggregate_debt_written_off > 0 {
             let debt_side = self.side_mut(debt_asset);
             debt_side.reserves.live_reserve = debt_side
                 .reserves
                 .live_reserve
-                .checked_sub(writeoff.debt_written_off)
+                .checked_sub(writeoff.aggregate_debt_written_off)
                 .ok_or(ErrorCode::ReserveUnderflow)?;
             debt_side.assert_share_backing()?;
         }
@@ -527,7 +527,7 @@ impl Market {
             debt_after,
         )?;
         self.record_leverage_borrow(debt_asset, borrow_amount)?;
-        let shares = self.debt.add_isolated_debt(debt_asset, borrow_amount)?;
+        let shares = self.add_isolated_borrow_debt(debt_asset, borrow_amount)?;
         position.debt_shares = position
             .debt_shares
             .checked_add(shares)
@@ -673,6 +673,33 @@ impl Market {
             .checked_sub(gross_debt)
             .ok_or(ErrorCode::CashReserveUnderflow)?;
         Ok(())
+    }
+
+    fn add_isolated_borrow_debt(&mut self, debt_asset: MarketAsset, cash_debit: u64) -> Result<u128> {
+        let aggregate_debt_before = self.debt.isolated_debt(debt_asset)?;
+        let shares = self.debt.add_isolated_debt(debt_asset, cash_debit)?;
+        let aggregate_debt_after = self.debt.isolated_debt(debt_asset)?;
+        let aggregate_debt_increase = u64::try_from(
+            aggregate_debt_after
+                .checked_sub(aggregate_debt_before)
+                .ok_or(ErrorCode::DebtMathOverflow)?,
+        )
+        .map_err(|_| ErrorCode::DebtMathOverflow)?;
+        let side = self.side_mut(debt_asset);
+        if aggregate_debt_increase > cash_debit {
+            side.reserves.live_reserve = side
+                .reserves
+                .live_reserve
+                .checked_add(aggregate_debt_increase - cash_debit)
+                .ok_or(ErrorCode::ReserveOverflow)?;
+        } else if aggregate_debt_increase < cash_debit {
+            side.reserves.live_reserve = side
+                .reserves
+                .live_reserve
+                .checked_sub(cash_debit - aggregate_debt_increase)
+                .ok_or(ErrorCode::ReserveUnderflow)?;
+        }
+        Ok(shares)
     }
 }
 
