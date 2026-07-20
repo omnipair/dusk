@@ -1,6 +1,8 @@
 import { ComputeBudgetProgram, Keypair, Transaction } from "@solana/web3.js";
 
+import { decodePreviewBorrowPositionReturnData } from "../../../packages/dusk-sdk/src/preview.js";
 import { formatUnits, type ProtocolTestHarness, type ScenarioDefinition } from "../harness.js";
+import type { TransactionEvidence } from "../types.js";
 
 const staleBorrowPositionId = Keypair.generate().publicKey;
 const stateMachinePositionIds = {
@@ -8,6 +10,12 @@ const stateMachinePositionIds = {
   bob: Keypair.generate().publicKey,
   trader: Keypair.generate().publicKey,
 };
+
+function previewData(evidence: TransactionEvidence): [string, BufferEncoding] {
+  const data = evidence.simulation.returnData?.data;
+  if (!data) throw new Error(`${evidence.label} did not return preview data`);
+  return data as [string, BufferEncoding];
+}
 
 function stateValue(
   market: Awaited<ReturnType<ProtocolTestHarness["market"]>>,
@@ -188,6 +196,16 @@ export const STRESS_SCENARIOS: ScenarioDefinition[] = [
       const positions = await harness.positions("alice", staleBorrowPositionId);
       const position = positions.find((entry) => entry.eventType === "borrow_position")?.payload;
       harness.assertTrue("same-state borrow pair records aggregate debt shares", BigInt(position?.fixedQuoteShares ?? 0) > 0n);
+      const debtEvidence = await harness.execute({
+        wallet: "alice",
+        endpoint: "/api/v2/fork/tx/preview-borrow-position",
+        label: "preview exact same-state borrow debt",
+        submit: false,
+        body: { positionId: staleBorrowPositionId.toBase58() },
+      });
+      const exactDebt = BigInt(
+        decodePreviewBorrowPositionReturnData(previewData(debtEvidence)).fixedQuoteDebt.toString()
+      );
       await harness.execute({
         wallet: "alice",
         endpoint: "/api/v2/fork/tx/repay",
@@ -195,9 +213,23 @@ export const STRESS_SCENARIOS: ScenarioDefinition[] = [
         body: {
           positionId: staleBorrowPositionId.toBase58(),
           repayAsset: "quote",
-          repayAmount: "11",
+          repayAmount: formatUnits(exactDebt, harness.config.quoteDecimals),
         },
       });
+      const repaidEvidence = await harness.execute({
+        wallet: "alice",
+        endpoint: "/api/v2/fork/tx/preview-borrow-position",
+        label: "confirm same-state borrow debt is fully repaid",
+        submit: false,
+        body: { positionId: staleBorrowPositionId.toBase58() },
+      });
+      harness.assertEqual(
+        "same-state borrow cleanup leaves no quote debt",
+        BigInt(
+          decodePreviewBorrowPositionReturnData(previewData(repaidEvidence)).fixedQuoteDebt.toString()
+        ),
+        0n
+      );
       await harness.execute({
         wallet: "alice",
         endpoint: "/api/v2/fork/tx/withdraw-collateral",
