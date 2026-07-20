@@ -25,10 +25,13 @@
     "v2:build-devnet": "anchor build -p dusk --no-idl -- --arch v3",
     "v2:deploy-devnet": "solana program deploy target/deploy/dusk.so --program-id ${DUSK_PROGRAM_KEYPAIR:-$HOME/.config/omnipair/dusk-devnet/dusk-program-keypair.json} --url devnet",
     "v2-fork:surfpool": "bash scripts/v2-fork-lab/start_surfpool.sh",
-    "v2-fork:rpc-proxy": "node --loader ts-node/esm scripts/v2-fork-lab/rpc_proxy.ts",
-    "v2-fork:api": "node --loader ts-node/esm scripts/v2-fork-lab/api.ts",
+    "v2-fork:rpc-proxy": "TS_NODE_PROJECT=scripts/v2-fork-lab/tsconfig.json node --loader ts-node/esm scripts/v2-fork-lab/rpc_proxy.ts",
+    "v2-fork:api": "TS_NODE_PROJECT=scripts/v2-fork-lab/tsconfig.json node --loader ts-node/esm scripts/v2-fork-lab/api.ts",
     "test-surfpool-v2": "ts-node --esm scripts/v2-fork-lab/surfpool_v2_e2e.ts",
-    "surfpool-v2-e2e": "anchor build -p dusk -- --features \"development\" && ts-node --esm scripts/v2-fork-lab/surfpool_v2_e2e_runner.ts"
+    "surfpool-v2-e2e": "anchor build -p dusk -- --features \"development\" && ts-node --esm scripts/v2-fork-lab/surfpool_v2_e2e_runner.ts",
+    "test-protocol-client": "TS_NODE_PROJECT=scripts/protocol-tests/tsconfig.json node --loader ts-node/esm scripts/protocol-tests/run.ts",
+    "test-protocol-client:fresh": "TS_NODE_PROJECT=scripts/protocol-tests/tsconfig.json node --loader ts-node/esm scripts/protocol-tests/run_fresh.ts",
+    "typecheck:protocol-client": "tsc -p scripts/protocol-tests/tsconfig.json"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.31.1",

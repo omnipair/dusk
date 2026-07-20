@@ -1,0 +1,84 @@
+import type { ScenarioCatalogEntry, ScenarioKind } from "./types.js";
+
+function scenario(
+  id: string,
+  feature: string,
+  title: string,
+  purpose: string,
+  kind: ScenarioKind,
+  instructions: string[],
+  tags: string[] = []
+): ScenarioCatalogEntry {
+  return { id, feature, title, purpose, kind, instructions, tags };
+}
+
+export const SCENARIO_CATALOG: ScenarioCatalogEntry[] = [
+  scenario("system.bootstrap-clean", "Bootstrap", "Fresh market starts clean", "Verify deterministic market wiring, seeded liquidity, zero debt, zero swaps, and zero health contribution.", "invariant", [], ["baseline"]),
+  scenario("system.real-wallet-funding", "Bootstrap", "Real signer wallets are funded", "Create independent keypair signers and verify their SOL and token accounts before protocol actions.", "happy-path", [], ["baseline", "wallet"]),
+  scenario("bootstrap.authority-and-market", "Bootstrap", "Authority and market initialization transactions", "Capture successful initialization plus duplicate singleton, duplicate market, and fresh invalid-config rejection paths.", "rejection", ["init_futarchy_authority", "initialize"], ["admin"]),
+  scenario("bootstrap.lp-metadata", "Bootstrap", "All LP metadata initialization paths", "Initialize yLP and both hLP metadata accounts, then reject duplicate and mismatched mint metadata.", "rejection", ["initialize_lp_metadata"], ["admin", "token-2022"]),
+
+  scenario("liquidity.ylp-balanced-roundtrip", "yLP liquidity", "Balanced add and partial removal", "Verify reserve, wallet, supply, and yield-account conservation through real add/remove transactions.", "state-machine", ["add_liquidity", "remove_liquidity"], ["baseline", "ylp"]),
+  scenario("liquidity.ylp-slippage-rejected", "yLP liquidity", "Impossible mint slippage is rejected", "Prove a stale or impossible minimum yLP amount cannot mutate balances or market state.", "rejection", ["add_liquidity"], ["baseline", "slippage"]),
+  scenario("liquidity.ylp-limiting-side", "yLP liquidity", "Limiting-side deposits across reserve ratios", "Exercise asymmetric deposits before and after price movement and verify only the limiting-side value is minted.", "boundary", ["add_liquidity", "remove_liquidity"], ["ylp", "rounding"]),
+  scenario("liquidity.ylp-transfer-checkpoints", "yLP liquidity", "LP transfers checkpoint both holders", "Transfer partial and full Token-2022 yLP balances into empty and existing recipient accounts without losing accrued yield.", "state-machine", [], ["transfer-hook", "token-2022", "yield"]),
+  scenario("liquidity.yield-recipient-and-claim", "LP yield", "Designated recipient rotation and claim", "Accrue swap fees, rotate the yield recipient, and verify claim ownership and exact token movement.", "state-machine", ["set_yield_recipient", "claim_yield"], ["yield"]),
+  scenario("liquidity.yield-rounding-and-empty-claim", "LP yield", "Yield rounding and empty claims", "Exercise micro-fee accrual, repeated claims, and no-op/empty-vault behavior at integer boundaries.", "boundary", ["claim_yield"], ["yield", "rounding"]),
+
+  scenario("swap.bidirectional", "Spot swap", "Swaps in both directions", "Verify exact-input execution, reserve movement, output delivery, fees, K behavior, and event evidence in both directions.", "state-machine", ["swap"], ["baseline"]),
+  scenario("swap.slippage-rejected", "Spot swap", "Impossible output floor is rejected", "Prove min-out protection rejects the transaction without changing reserves or balances.", "rejection", ["swap"], ["baseline", "slippage"]),
+  scenario("swap.boundary-search", "Spot swap", "Raw-unit and funded-wallet swap boundaries", "Binary-search the minimum executable trade in each direction, then verify exact wallet funding and one raw unit beyond it.", "boundary", ["preview_swap", "swap"], ["binary-search", "rounding", "balance"]),
+  scenario("swap.fee-routing", "Spot swap", "Manager, protocol, and LP fee routing", "Vary revenue configuration and reconcile every raw fee unit across reserves and fee vaults.", "invariant", ["update_protocol_revenue", "update_config", "swap", "claim_manager_fees"], ["fees"]),
+  scenario("swap.active-hlp-checkpoints", "Spot swap", "Swaps settle active hLP vaults", "Exercise one and both active hLP sides across small and vault-finishing swaps while preserving debt and yield accounting.", "stress", ["deposit_single_sided", "swap", "withdraw_single_sided"], ["hlp", "settlement"]),
+
+  scenario("lending.quote-lifecycle", "Lending", "Base collateral and quote debt lifecycle", "Deposit, borrow, partially repay, fully repay, and withdraw through signed transactions while reconciling shares and cash.", "state-machine", ["deposit_collateral", "borrow", "repay", "withdraw_collateral"], ["baseline"]),
+  scenario("lending.base-lifecycle", "Lending", "Quote collateral and base debt lifecycle", "Mirror the full lifecycle on the opposite market side and verify directional accounting.", "state-machine", ["deposit_collateral", "borrow", "repay", "withdraw_collateral"], []),
+  scenario("lending.borrow-without-collateral-rejected", "Lending", "Uncollateralized borrow is rejected", "Verify an independently funded wallet cannot borrow from an empty position.", "rejection", ["borrow"], ["baseline", "authorization"]),
+  scenario("lending.dynamic-ltv-boundary", "Lending", "Exact dynamic-LTV capacity boundary", "Compare preview capacity to integer binary search, execute the maximum, and reject one raw unit above it.", "boundary", ["preview_borrow_capacity", "borrow"], ["binary-search", "dynamic-ltv"]),
+  scenario("lending.global-health-non-locking", "Lending", "Global health never locks another borrower", "Prove Alice can exit, Bob's stored CF is unchanged, and subsequent admissions pause when aggregate health falls below the floor.", "state-machine", ["deposit_collateral", "borrow", "repay", "withdraw_collateral"], ["global-health", "multi-wallet"]),
+  scenario("lending.position-splitting", "Lending", "Position-splitting benefit remains bounded", "Compare split positions against equivalent staged borrowing in one position and enforce the explicitly bounded, non-equality Sybil assumption.", "invariant", ["deposit_collateral", "borrow", "preview_borrow_capacity"], ["global-health", "sybil", "rounding"]),
+  scenario("lending.daily-borrow-limits", "Lending", "Daily limits under liquidity and K changes", "Exercise swaps, proportional liquidity, one-sided inventory, K drawdown/growth, and reset windows on both debt assets.", "boundary", ["swap", "add_liquidity", "remove_liquidity", "borrow"], ["daily-limit", "k-ema"]),
+  scenario("lending.interest-growth", "Lending", "Interest accrual and repay boundaries", "Advance slots, reconcile indexes, test partial/full/over-repay, and verify stored liquidation CF never floats.", "boundary", ["borrow", "repay", "preview_borrow_position"], ["interest"]),
+  scenario("lending.withdraw-health-protection", "Lending", "Collateral withdrawal health and stale guards", "Find the largest safe withdrawal, reject one unit above, and verify user-provided minimum liquidation CF protection.", "boundary", ["withdraw_collateral", "preview_borrow_position"], ["binary-search", "health"]),
+
+  scenario("referral.profile-and-claim", "Referrals", "Recipient setup, rotation, and claim", "Accrue fees, rotate recipient ownership, claim per mint, and reject invalid destinations and authorities.", "state-machine", ["set_referral_recipient", "borrow", "claim_referral_fees"], ["referral"]),
+  scenario("referral.fee-config-boundaries", "Referrals", "Zero, 10, 25, and rejected 26 bps", "Verify the compile-time cap, stale max-acceptable protection, ceiling rounding, and exact gross debt.", "boundary", ["update_protocol_revenue", "borrow"], ["referral", "governance", "rounding"]),
+  scenario("referral.borrow-and-leverage", "Referrals", "Referral fee on every debt increase", "Cover repeated borrow, open leverage, and increase leverage while excluding repay, close, liquidation, swaps, and internal hLP debt.", "invariant", ["borrow", "open_leverage", "increase_leverage"], ["referral", "leverage"]),
+  scenario("referral.multi-wallet-and-self", "Referrals", "Multiple referrers and self-referral", "Aggregate per-mint vaults across markets and exercise recipient rotation, self-referral, and independent authorities.", "state-machine", ["set_referral_recipient", "borrow", "claim_referral_fees"], ["referral", "multi-wallet"]),
+
+  scenario("hlp.base-roundtrip", "hLP", "Base hLP open and withdrawal", "Verify borrowed quote, locked yLP, hLP supply, partial exit, and final debt cleanup.", "state-machine", ["deposit_single_sided", "withdraw_single_sided"], ["baseline", "hlp"]),
+  scenario("hlp.quote-roundtrip", "hLP", "Quote hLP open and withdrawal", "Mirror the hLP lifecycle on the opposite side and verify directional vault selection.", "state-machine", ["deposit_single_sided", "withdraw_single_sided"], ["baseline", "hlp"]),
+  scenario("hlp.deposit-slippage-rejected", "hLP", "Impossible hLP mint floor is rejected", "Prove failed hLP admission leaves user balances, yLP vault shares, debt, and supply unchanged.", "rejection", ["deposit_single_sided"], ["baseline", "slippage"]),
+  scenario("hlp.cash-and-daily-limit-boundaries", "hLP", "hLP cash boundary and daily-bucket semantics", "Find the maximum deposit under opposite-side cash headroom, reject one raw unit above, and prove internal hLP debt currently leaves the normal daily borrow bucket unchanged.", "boundary", ["deposit_single_sided", "withdraw_single_sided"], ["binary-search", "cash", "daily-limit"]),
+  scenario("hlp.transfer-checkpoints", "hLP", "hLP transfer into existing holder", "Accrue yield before a partial transfer and verify sender and receiver checkpoints and unclaimed fee conservation.", "state-machine", [], ["transfer-hook", "token-2022", "yield"]),
+
+  scenario("leverage.owner-lifecycle", "Leverage", "Open, increase, decrease, margin, and close", "Exercise every owner mutation in both directions and reconcile collateral, debt, shares, slippage, and referral effects.", "state-machine", ["open_leverage", "increase_leverage", "decrease_leverage", "add_leverage_margin", "remove_leverage_margin", "close_leverage"], ["leverage"]),
+  scenario("leverage.boundary-search", "Leverage", "Leverage and margin boundaries", "Search maximum leverage, minimum margin, reserve headroom, and one-unit rejection boundaries on both sides.", "boundary", ["open_leverage", "increase_leverage", "remove_leverage_margin"], ["binary-search", "leverage"]),
+  scenario("leverage.delegation-management", "Leverage delegation", "Create, update, and revoke delegation", "Validate owner authorization, delegated-program identity, permission masks, updates, and account closure.", "state-machine", ["create_leverage_delegation", "update_leverage_delegation", "close_leverage_delegation"], ["delegation", "authorization"]),
+  scenario("leverage.delegated-close", "Leverage delegation", "Delegated callback close settlement", "Execute the external program before/after callback flow, reject stale or unauthorized orders, and reconcile owner, executor, and custody balances.", "state-machine", ["delegated_close_leverage"], ["delegation", "callback", "authorization"]),
+  scenario("leverage.liquidation", "Leverage", "Healthy rejection and unhealthy liquidation", "Reject liquidation at equality/healthy states, move price through transactions, liquidate, and reconcile liquidator and insurance flows.", "boundary", ["open_leverage", "swap", "liquidate_leverage"], ["liquidation"]),
+
+  scenario("liquidation.auction-lifecycle", "Loan liquidation", "Trigger, bid, and AMM settlement", "Exercise healthy rejection, trigger timing, competing bids, partial/final settlement, and collateral/debt conservation.", "state-machine", ["trigger_liquidation_auction", "bid_liquidation_auction", "settle_liquidation_auction_amm"], ["liquidation", "auction", "multi-wallet"]),
+  scenario("liquidation.bad-debt-and-insurance", "Loan liquidation", "Insurance exhaustion and socialized loss", "Stress bad-debt paths through partial liquidity, exhausted insurance, and exact accounting identities.", "stress", ["trigger_liquidation_auction", "bid_liquidation_auction", "settle_liquidation_auction_amm"], ["insurance", "socialized-loss"]),
+
+  scenario("governance.authority-rotation", "Governance", "Futarchy authority rotation", "Verify current-authority signatures, invalid signers, and control after rotation.", "rejection", ["update_futarchy_authority"], ["governance"]),
+  scenario("governance.revenue-and-recipients", "Governance", "Revenue and recipient configuration", "Exercise valid boundaries, sum invariants, referral cap, and unauthorized updates.", "boundary", ["update_protocol_revenue", "update_revenue_recipients"], ["governance", "fees"]),
+  scenario("governance.protocol-auction", "Governance", "Protocol auction configuration and settlement", "Update accepted mints, recipients, parameters, stale references, and settle proceeds exactly once.", "state-machine", ["update_protocol_auction_config", "update_protocol_auction_recipients", "settle_protocol_auction"], ["governance", "auction"]),
+  scenario("governance.reduce-only-matrix", "Emergency controls", "Global and market reduce-only action matrix", "Verify risk-increasing actions pause while every repay, withdrawal, closure, claim, and liquidation exit remains available.", "invariant", ["set_global_reduce_only", "set_reduce_only"], ["reduce-only", "all-features"]),
+  scenario("governance.market-authorities", "Governance", "Operator and manager rotations", "Exercise timelocks, pending replacements, cancellation/overwrite boundaries, and post-rotation permissions.", "state-machine", ["set_operator", "set_manager"], ["governance", "timelock"]),
+  scenario("governance.market-config", "Governance", "Market configuration validation", "Probe every market parameter at zero, valid maximum, and one beyond maximum without corrupting state.", "boundary", ["update_config"], ["governance", "config"]),
+
+  scenario("preview.all-vs-execution", "Previews", "All previews match real execution", "Compare return-data previews with resulting state across market, liquidity, swap, borrow capacity, and position health.", "invariant", ["preview_market", "preview_add_liquidity", "preview_swap", "preview_borrow_capacity", "preview_borrow_position"], ["preview"]),
+  scenario("preview.monotonicity", "Previews", "Preview monotonicity and rounding", "Property-test monotonic borrow capacity, swap output, and liquidity shares across integer boundaries.", "stress", ["preview_add_liquidity", "preview_swap", "preview_borrow_capacity"], ["preview", "property"]),
+
+  scenario("security.account-substitution", "Account validation", "Wrong account and mint substitution", "Replace each critical vault, mint, owner, PDA, token program, and remaining account and require deterministic rejection.", "stress", [], ["security", "accounts"]),
+  scenario("security.signer-and-ownership", "Account validation", "Signer, owner, and delegate authorization", "Attempt every owner action with another wallet, read-only signer, wrong authority, and stale delegation.", "stress", [], ["security", "authorization"]),
+  scenario("security.token-2022-assets", "Token compatibility", "Token-2022 transfer-fee pool assets", "Run borrowing, leverage, referrals, claims, swaps, liquidity, and hLP against an isolated Token-2022 transfer-fee market.", "stress", [], ["token-2022", "transfer-fee"]),
+  scenario("security.mixed-decimals", "Token compatibility", "Mixed decimal markets", "Repeat core state machines across 0, 6, 9, and mixed decimals with raw-unit conservation.", "stress", [], ["decimals", "rounding"]),
+  scenario("stress.multi-wallet-state-machine", "Stress", "Seeded randomized multi-wallet state machine", "Run reproducible action sequences with an invariant check after every confirmed transaction.", "stress", [], ["property", "multi-wallet", "replayable"]),
+  scenario("stress.concurrent-stale-transactions", "Stress", "Concurrent and stale transaction ordering", "Build transactions from one state, submit in alternate orders, and verify stale guards or safe recomputation.", "stress", [], ["concurrency", "stale"]),
+  scenario("stress.compute-and-account-limits", "Stress", "Compute and account boundary profiling", "Increase active positions and hook accounts until transaction compute, heap, size, or account limits are reached and recorded.", "stress", [], ["compute", "transaction-size"]),
+  scenario("invariant.post-baseline-solvency", "Invariants", "Post-scenario market identities", "Reconcile live reserves, supplies, debts, vault balances, and nonnegative accounting after the baseline sequence.", "invariant", [], ["baseline", "solvency"]),
+];
+
+export const CATALOG_BY_ID = new Map(SCENARIO_CATALOG.map((entry) => [entry.id, entry]));

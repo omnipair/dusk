@@ -31,6 +31,10 @@ pub const MARKET_CREATION_FEE_LAMPORTS: u64 = 200_000_000; // 0.2 SOL
 #[constant]
 pub const TARGET_MS_PER_SLOT: u64 = 400;
 #[constant]
+#[cfg(feature = "development")]
+pub const MARKET_GOVERNANCE_DELAY_SLOTS: u64 = 100;
+#[constant]
+#[cfg(not(feature = "development"))]
 pub const MARKET_GOVERNANCE_DELAY_SLOTS: u64 = 216_000; // ~24 hours at 400ms/slot
 
 pub const MIN_HALF_LIFE_MS: u64 = 60_000;
@@ -123,4 +127,7 @@ pub const LEVERAGE_MAINTENANCE_BUFFER_BPS: u16 = 700; // 7%
 pub const MARKET_VERSION: u8 = 2;
 
 /// Emergency signer authorized to toggle reduce-only mode.
+#[cfg(feature = "development")]
+pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("2iXtA8oeZqUU5pofxK971TCEvFGfems2AcDRaZHKD2pQ");
+#[cfg(not(feature = "development"))]
 pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");
