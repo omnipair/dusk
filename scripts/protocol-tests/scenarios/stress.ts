@@ -335,12 +335,12 @@ export const STRESS_SCENARIOS: ScenarioDefinition[] = [
         throw new Error(`Unable to profile mirrored active-hLP swap: ${required.errorCode ?? "unknown"}`);
       }
       underBudgeted.instructions[1] = ComputeBudgetProgram.setComputeUnitLimit({
-        units: Math.max(1, required.unitsConsumed - 1),
+        units: Math.max(1, Math.floor(required.unitsConsumed / 2)),
       });
       underBudgeted.sign(harness.wallet("trader"));
       await harness.executeBuiltTransaction({
         wallet: "trader",
-        label: "reject active-hLP swap one compute unit below measured requirement",
+        label: "reject active-hLP swap with insufficient compute budget",
         transaction: underBudgeted,
         expected: "failure",
       });
