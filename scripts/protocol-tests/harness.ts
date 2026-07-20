@@ -436,7 +436,7 @@ export class ProtocolTestHarness {
     });
     const transaction = Transaction.from(Buffer.from(response.transaction, "base64"));
     transaction.sign(signer);
-    const simulated = await (this.connection as any).simulateTransaction(transaction);
+    const simulated = await this.simulateWithTransientRetry(transaction);
     const logs = simulated.value.logs ?? [];
     return {
       succeeds: simulated.value.err == null,
@@ -462,7 +462,7 @@ export class ProtocolTestHarness {
   }
 
   async simulateBuiltTransaction(transaction: Transaction): Promise<ProbeResult> {
-    const simulated = await (this.connection as any).simulateTransaction(transaction);
+    const simulated = await this.simulateWithTransientRetry(transaction);
     const logs = simulated.value.logs ?? [];
     return {
       succeeds: simulated.value.err == null,
@@ -482,7 +482,7 @@ export class ProtocolTestHarness {
     const scenario = this.requireScenario();
     const expected = options.expected ?? "success";
     const started = Date.now();
-    const simulated = await (this.connection as any).simulateTransaction(options.transaction);
+    const simulated = await this.simulateWithTransientRetry(options.transaction);
     const simulation: SimulationEvidence = {
       err: simulated.value.err ?? null,
       unitsConsumed: simulated.value.unitsConsumed ?? null,
@@ -537,6 +537,18 @@ export class ProtocolTestHarness {
     this.persist();
     if (!passed) throw new Error(`${options.label}: ${evidence.error ?? "unexpected transaction result"}`);
     return evidence;
+  }
+
+  private async simulateWithTransientRetry(transaction: Transaction): Promise<any> {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        return await (this.connection as any).simulateTransaction(transaction);
+      } catch (error) {
+        if (attempt === 3 || !isTransientForkError(error)) throw error;
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 500 * attempt));
+      }
+    }
+    throw new Error("Transaction simulation retries exhausted");
   }
 
   async fundWallet(name: string, baseAmount = "1000", quoteAmount = "1000", sol = 20): Promise<void> {
