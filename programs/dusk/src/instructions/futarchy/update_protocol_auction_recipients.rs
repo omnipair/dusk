@@ -30,8 +30,6 @@ pub struct UpdateProtocolAuctionRecipients<'info> {
         bump = futarchy_authority.bump
     )]
     pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
-
-    pub system_program: Program<'info, System>,
 }
 
 impl<'info> UpdateProtocolAuctionRecipients<'info> {

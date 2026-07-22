@@ -40,8 +40,8 @@ pub struct Swap<'info> {
         mut,
         seeds = [
             MARKET_V2_SEED_PREFIX,
-            market.base_mint.as_ref(),
-            market.quote_mint.as_ref(),
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
             market.params_hash.as_ref(),
         ],
         bump = market.bump
@@ -121,17 +121,11 @@ impl<'info> Swap<'info> {
         let fee_config = SwapFeeConfig::new(ctx.accounts);
         let mut token_scratch = TokenInstructionScratch::new(ctx.accounts.token_2022_program.key());
 
-        ctx.accounts.market.assert_risk_circuit_breakers()?;
-
         let reserve_credit = input_credit(&ctx, args.exact_asset_in)?;
         let charged_input = charge_fee(&mut ctx, reserve_credit)?;
         let current_slot = Clock::get()?.slot;
-        let pre_quote_rebalance = maybe_rebalance_hlp_before_quote(
-            &mut ctx.accounts.market,
-            asset_in,
-            charged_input.amount_in_after_fee,
-            current_slot,
-        )?;
+        let pre_quote_rebalance =
+            maybe_rebalance_hlp_before_quote(&mut ctx.accounts.market, asset_in, charged_input.amount_in_after_fee)?;
         let amount_out = quote(&ctx.accounts.market, asset_in, charged_input.amount_in_after_fee)?;
 
         let swap_receipt = record_swap(
@@ -142,13 +136,7 @@ impl<'info> Swap<'info> {
             fee_config,
             pre_quote_rebalance.fee_eligible_ylp_supply,
         )?;
-
-        let rebalance = maybe_rebalance_hlp_after_swap(
-            &mut ctx.accounts.market,
-            asset_in,
-            pre_quote_rebalance.receipts,
-            current_slot,
-        )?;
+        let rebalance = maybe_rebalance_hlp_after_swap(&mut ctx.accounts.market, pre_quote_rebalance.receipts)?;
         validate_hlp_rebalance_accounts(&ctx.accounts.market, &rebalance, ctx.remaining_accounts)?;
         let received_credit = receive_input(&mut ctx, args.exact_asset_in)?;
         require_eq!(received_credit, reserve_credit, ErrorCode::BrokenInvariant);
@@ -241,7 +229,7 @@ fn input_credit<'info>(ctx: &Context<'_, '_, '_, 'info, Swap<'info>>, exact_asse
     let transfer_fee = get_transfer_fee(&ctx.accounts.asset_in_mint.to_account_info(), exact_asset_in)?;
     exact_asset_in
         .checked_sub(transfer_fee)
-        .ok_or(ErrorCode::MarketMathOverflow.into())
+        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
 fn charge_fee<'info>(
@@ -278,15 +266,14 @@ fn maybe_rebalance_hlp_before_quote(
     market: &mut Market,
     asset_in: MarketAsset,
     amount_in_after_fee: u64,
-    current_slot: u64,
 ) -> Result<PreQuoteHlpRebalance> {
-    let (base, quote) = market.pre_solve_hlp_vaults_for_swap(asset_in, amount_in_after_fee, current_slot)?;
+    let (base, quote) = market.pre_solve_hlp_vaults_for_swap(asset_in, amount_in_after_fee)?;
     let pre_solve_ylp_mint_amount = base
         .ylp_mint_amount
         .checked_add(quote.ylp_mint_amount)
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let fee_eligible_ylp_supply = market
-        .side(asset_in)?
+        .side(asset_in)
         .shares
         .ylp_supply
         .checked_sub(pre_solve_ylp_mint_amount)
@@ -357,19 +344,9 @@ fn record_swap(
     )
 }
 
-fn maybe_rebalance_hlp_after_swap(
-    market: &mut Market,
-    preferred_asset: MarketAsset,
-    pre_rebalance: HlpRebalancePair,
-    current_slot: u64,
-) -> Result<HlpRebalancePair> {
-    checkpoint_hlp_pre_solve_fee_eligibility(market, &pre_rebalance.base, &pre_rebalance.quote)?;
-    let (base_post_rebalance, quote_post_rebalance) =
-        market.rebalance_hlp_vault_for_swap(preferred_asset, current_slot)?;
-    Ok(HlpRebalancePair::new(
-        combine_hlp_rebalance_receipts(pre_rebalance.base, base_post_rebalance)?,
-        combine_hlp_rebalance_receipts(pre_rebalance.quote, quote_post_rebalance)?,
-    ))
+fn maybe_rebalance_hlp_after_swap(market: &mut Market, pre_rebalance: HlpRebalancePair) -> Result<HlpRebalancePair> {
+    let (base, quote) = market.finalize_hlp_vaults_for_swap(pre_rebalance.base, pre_rebalance.quote)?;
+    Ok(HlpRebalancePair::new(base, quote))
 }
 
 fn apply_token_changes<'info>(
@@ -477,8 +454,8 @@ fn emit_market_health_event<'info>(
     emit_market_health_updated_low_heap(
         keys.market,
         keys.trader,
-        health.recognized_base_collateral_for_quote_debt,
-        health.recognized_quote_collateral_for_base_debt,
+        health.global_health_base_contribution_for_quote_debt,
+        health.global_health_quote_contribution_for_base_debt,
         health.effective_base_debt_nad,
         health.effective_quote_debt_nad,
         health.base_debt_health_bps,
@@ -494,56 +471,6 @@ fn should_emit_hlp_rebalance(ideal_delta: i128, pending_rebalance: i128, hlp_sup
 
 fn rebalance_executes_token_changes(receipt: &HlpRebalanceReceipt) -> bool {
     receipt.ylp_mint_amount > 0 || receipt.ylp_burn_amount > 0 || receipt.interest_paid > 0
-}
-
-fn checkpoint_hlp_pre_solve_fee_eligibility(
-    market: &mut Market,
-    base_receipt: &HlpRebalanceReceipt,
-    quote_receipt: &HlpRebalanceReceipt,
-) -> Result<()> {
-    checkpoint_single_hlp_pre_solve_fee_eligibility(market, base_receipt)?;
-    checkpoint_single_hlp_pre_solve_fee_eligibility(market, quote_receipt)
-}
-
-fn checkpoint_single_hlp_pre_solve_fee_eligibility(market: &mut Market, receipt: &HlpRebalanceReceipt) -> Result<()> {
-    if receipt.ylp_mint_amount == 0 && receipt.ylp_burn_amount == 0 {
-        return Ok(());
-    }
-    market.checkpoint_hlp_yield_from_ylp_shares(receipt.target_asset, receipt.current_swap_fee_eligible_ylp_shares)
-}
-
-fn combine_hlp_rebalance_receipts(pre: HlpRebalanceReceipt, post: HlpRebalanceReceipt) -> Result<HlpRebalanceReceipt> {
-    require!(pre.target_asset == post.target_asset, ErrorCode::BrokenInvariant);
-    Ok(HlpRebalanceReceipt {
-        target_asset: pre.target_asset,
-        ideal_delta: pre
-            .ideal_delta
-            .checked_add(post.ideal_delta)
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-        executed_delta: pre
-            .executed_delta
-            .checked_add(post.executed_delta)
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-        pending_rebalance: post.pending_rebalance,
-        current_swap_fee_eligible_ylp_shares: 0,
-        ylp_mint_amount: pre
-            .ylp_mint_amount
-            .checked_add(post.ylp_mint_amount)
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-        ylp_burn_amount: pre
-            .ylp_burn_amount
-            .checked_add(post.ylp_burn_amount)
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-        debt_delta: pre
-            .debt_delta
-            .checked_add(post.debt_delta)
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-        interest_paid: pre
-            .interest_paid
-            .checked_add(post.interest_paid)
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-        nav_nad: post.nav_nad.max(pre.nav_nad),
-    })
 }
 
 fn validate_hlp_rebalance_accounts(
@@ -574,7 +501,7 @@ fn require_hlp_rebalance_accounts(
         MarketAsset::Base => market.base_hlp_vault.ylp_vault,
         MarketAsset::Quote => market.quote_hlp_vault.ylp_vault,
     };
-    let expected_interest_vault = market.side(target_asset.opposite())?.interest_vault;
+    let expected_interest_vault = market.side(target_asset.opposite()).interest_vault;
     require_hlp_mint_account(&remaining_accounts[cursor], market.ylp_mint)?;
     require_hlp_vault_account(&remaining_accounts[cursor + 1], expected_ylp_vault)?;
     require_hlp_interest_vault_account(&remaining_accounts[cursor + 2], expected_interest_vault)?;
@@ -745,11 +672,12 @@ fn move_hlp_rebalance_interest<'info>(
         &[&generate_market_seeds!(ctx.accounts.market)[..]],
     )?;
     let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
-    ctx.accounts.market.side_mut(borrowed_asset)?.record_interest_credit(
+    ctx.accounts.market.side_mut(borrowed_asset).record_interest_credit(
         receipt.interest_paid,
         manager_fee_bps,
         ctx.accounts.futarchy_authority.revenue_share.interest_bps,
         ctx.accounts.futarchy_authority.protocol_auction_split,
+        0,
     )?;
     Ok(())
 }

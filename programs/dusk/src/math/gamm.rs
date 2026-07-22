@@ -40,6 +40,38 @@ pub(crate) fn market_liquidity_nad(base_side: &MarketSide, quote_side: &MarketSi
         .ok_or(ErrorCode::MarketMathOverflow.into())
 }
 
+/// Reconstructs both normalized reserve depths from a conservative K while
+/// preserving the current spot reserve ratio. Flooring can only make the
+/// reconstructed product more conservative than `k_nad`.
+pub(crate) fn construct_normalized_reserves_from_k_at_spot_ratio(
+    x_spot: u128,
+    y_spot: u128,
+    k_nad: u128,
+) -> Result<(u128, u128)> {
+    if x_spot == 0 || y_spot == 0 || k_nad == 0 {
+        return Ok((0, 0));
+    }
+    let spot_k = x_spot.checked_mul(y_spot).ok_or(ErrorCode::MarketMathOverflow)?;
+    let conservative_k = k_nad.min(spot_k);
+    if conservative_k == spot_k {
+        return Ok((x_spot, y_spot));
+    }
+
+    let conservative_sqrt = conservative_k.sqrt().ok_or(ErrorCode::MarketMathOverflow)?;
+    let spot_sqrt = spot_k.sqrt().ok_or(ErrorCode::MarketMathOverflow)?;
+    require!(spot_sqrt > 0, ErrorCode::DenominatorOverflow);
+
+    let x = x_spot
+        .checked_mul(conservative_sqrt)
+        .and_then(|value| value.checked_div(spot_sqrt))
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let y = y_spot
+        .checked_mul(conservative_sqrt)
+        .and_then(|value| value.checked_div(spot_sqrt))
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    Ok((x.min(x_spot), y.min(y_spot)))
+}
+
 /// Constructs virtual reserves at pessimistic price = min(P_directional_ema, P_symmetric_ema).
 /// - x_virt = sqrt(k * NAD / P_pessimistic)
 /// - y_virt = sqrt(k * P_pessimistic / NAD)
@@ -126,18 +158,6 @@ pub(crate) fn calculate_normalized_amount_in(x: u128, y: u128, dy: u128) -> Resu
     let numerator = dy.checked_mul(x).ok_or(ErrorCode::OutputAmountOverflow)?;
     let dx = ceil_div(numerator, denominator).ok_or(ErrorCode::OutputAmountOverflow)?;
     Ok(dx)
-}
-
-pub(crate) fn calculate_normalized_amount_in_floor(x: u128, y: u128, dy: u128) -> Result<u128> {
-    if dy == 0 {
-        return Ok(0);
-    }
-    let denominator = y.checked_sub(dy).ok_or(ErrorCode::DenominatorOverflow)?;
-    require!(denominator > 0, ErrorCode::DenominatorOverflow);
-    dy.checked_mul(x)
-        .ok_or(ErrorCode::OutputAmountOverflow)?
-        .checked_div(denominator)
-        .ok_or(ErrorCode::OutputAmountOverflow.into())
 }
 
 #[cfg(test)]

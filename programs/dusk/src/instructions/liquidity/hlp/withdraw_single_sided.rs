@@ -7,7 +7,7 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{HlpClosed, MarketEventMetadata},
+    events::log::emit_hlp_closed_low_heap,
     generate_market_seeds,
     shared::{
         account::get_size_with_discriminator,
@@ -29,7 +29,6 @@ pub struct WithdrawSingleSidedArgs {
     pub min_target_amount_out: u64,
 }
 
-#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: WithdrawSingleSidedArgs)]
 pub struct WithdrawSingleSided<'info> {
@@ -37,8 +36,8 @@ pub struct WithdrawSingleSided<'info> {
         mut,
         seeds = [
             MARKET_V2_SEED_PREFIX,
-            market.base_mint.as_ref(),
-            market.quote_mint.as_ref(),
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
             market.params_hash.as_ref(),
         ],
         bump = market.bump
@@ -137,7 +136,7 @@ impl<'info> WithdrawSingleSided<'info> {
             MarketAsset::Quote => &self.quote_mint,
         };
         require_keys_eq!(
-            self.market.side(target_asset)?.hlp_mint,
+            self.market.side(target_asset).hlp_mint,
             self.target_hlp_mint.key(),
             ErrorCode::InvalidMint
         );
@@ -245,11 +244,12 @@ impl<'info> WithdrawSingleSided<'info> {
             )?;
             ctx.accounts.borrowed_interest_vault.reload()?;
             let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
-            ctx.accounts.market.side_mut(borrowed_asset)?.record_interest_credit(
+            ctx.accounts.market.side_mut(borrowed_asset).record_interest_credit(
                 receipt.interest_paid,
                 manager_fee_bps,
                 ctx.accounts.futarchy_authority.revenue_share.interest_bps,
                 ctx.accounts.futarchy_authority.protocol_auction_split,
+                0,
             )?;
         }
 
@@ -302,18 +302,17 @@ impl<'info> WithdrawSingleSided<'info> {
         let target_credit = token_account_credit(target_balance_before, &ctx.accounts.owner_target_account)?;
         require_gte!(target_credit, args.min_target_amount_out, ErrorCode::SlippageExceeded);
 
-        emit_cpi!(HlpClosed {
-            market: market_key,
-            owner: owner_key,
-            asset_mint: target_mint_key,
-            hlp_amount: receipt.hlp_amount,
-            ylp_amount: receipt.ylp_amount,
-            target_amount_out: receipt.target_amount_out,
-            debt_repaid: receipt.debt_repaid,
-            interest_paid: receipt.interest_paid,
-            hlp_supply: receipt.hlp_supply,
-            metadata: MarketEventMetadata::new(owner_key, market_key)?,
-        });
+        emit_hlp_closed_low_heap(
+            market_key,
+            owner_key,
+            target_mint_key,
+            receipt.hlp_amount,
+            receipt.ylp_amount,
+            receipt.target_amount_out,
+            receipt.debt_repaid,
+            receipt.interest_paid,
+            receipt.hlp_supply,
+        )?;
 
         Ok(())
     }

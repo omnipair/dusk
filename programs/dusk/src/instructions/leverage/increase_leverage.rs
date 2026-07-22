@@ -9,7 +9,7 @@ use crate::{
     errors::ErrorCode,
     events::{LeveragePositionUpdated, MarketEventMetadata},
     generate_market_seeds,
-    shared::token::transfer_from_vault_to_vault,
+    shared::token::transfer_from_vault_to_vault_with_remaining_accounts,
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset},
 };
 
@@ -34,8 +34,8 @@ pub struct IncreaseLeverage<'info> {
         mut,
         seeds = [
             MARKET_V2_SEED_PREFIX,
-            market.base_mint.as_ref(),
-            market.quote_mint.as_ref(),
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
             market.params_hash.as_ref(),
         ],
         bump = market.bump
@@ -87,6 +87,7 @@ pub struct IncreaseLeverage<'info> {
 
     #[account(mut)]
     pub owner: Signer<'info>,
+
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
 }
@@ -120,7 +121,6 @@ impl<'info> IncreaseLeverage<'info> {
         let debt_mint_key = ctx.accounts.debt_mint.key();
         let collateral_mint_key = ctx.accounts.collateral_mint.key();
         let position_key = ctx.accounts.leverage_position.key();
-
         let swap = ctx.accounts.market.quote_leverage_swap(debt_asset, args.debt_amount)?;
         let collateral_credit = leverage_collateral_credit(&ctx.accounts.collateral_mint, swap.amount_out)?;
         require_gte!(collateral_credit, args.min_collateral_out, ErrorCode::SlippageExceeded);
@@ -133,13 +133,14 @@ impl<'info> IncreaseLeverage<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
             swap.fee_credit,
+            ctx.remaining_accounts,
         )?;
         let collateral_token_program = token_program_for_mint(
             &ctx.accounts.collateral_mint,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        transfer_from_vault_to_vault(
+        transfer_from_vault_to_vault_with_remaining_accounts(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.collateral_reserve_vault.to_account_info(),
             ctx.accounts.leverage_collateral_vault.to_account_info(),
@@ -148,6 +149,7 @@ impl<'info> IncreaseLeverage<'info> {
             swap.amount_out,
             ctx.accounts.collateral_mint.decimals,
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
+            ctx.remaining_accounts,
         )?;
 
         let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
@@ -166,6 +168,7 @@ impl<'info> IncreaseLeverage<'info> {
             owner: owner_key,
             debt_asset_mint: debt_mint_key,
             collateral_asset_mint: collateral_mint_key,
+            borrowed_amount: receipt.borrowed_amount,
             debt_delta: receipt.debt_delta,
             collateral_delta: receipt.collateral_delta,
             debt_amount: receipt.debt_amount,

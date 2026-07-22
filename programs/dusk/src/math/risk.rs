@@ -1,103 +1,111 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{BPS_DENOMINATOR, MS_PER_DAY, NAD, NATURAL_LOG_OF_TWO_NAD, TAYLOR_TERMS},
+    constants::{
+        BPS_DENOMINATOR, LTV_BUFFER_BPS, MAX_COLLATERAL_FACTOR_BPS, MS_PER_DAY, NAD, NATURAL_LOG_OF_TWO_NAD,
+        TAYLOR_TERMS,
+    },
     errors::ErrorCode,
     shared::math::{slots_to_ms, taylor_exp},
 };
 
-use super::{
-    fixed_point::{denormalize_from_nad_ceil, denormalize_from_nad_floor, normalize_to_nad},
-    gamm::{
-        calculate_normalized_amount_in, calculate_normalized_amount_in_floor, calculate_normalized_amount_out,
-        construct_normalized_virtual_reserves_at_pessimistic_price,
-    },
-};
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct DynamicCollateralTerms {
+    pub max_debt_nad: u128,
+    pub max_cf_bps: u16,
+    pub liquidation_cf_bps: u16,
+}
 
-pub(crate) fn health_bps(recognized_collateral_value_nad: u128, effective_debt_nad: u128) -> Result<u64> {
+/// Maximum borrowable debt using V1's impact-aware dynamic collateral factor.
+/// All amounts are normalized to NAD before entering this function.
+pub(crate) fn pessimistic_max_debt_nad(
+    collateral_amount_nad: u128,
+    collateral_virtual_reserve_nad: u128,
+    debt_virtual_reserve_nad: u128,
+    existing_total_debt_nad: u128,
+) -> Result<DynamicCollateralTerms> {
+    if collateral_amount_nad == 0 || collateral_virtual_reserve_nad == 0 || debt_virtual_reserve_nad == 0 {
+        return Ok(DynamicCollateralTerms::default());
+    }
+    if existing_total_debt_nad >= debt_virtual_reserve_nad {
+        return Ok(DynamicCollateralTerms::default());
+    }
+
+    // V_impact: impact-aware collateral value using virtual reserves at
+    // pessimistic price. This matches the valuation used in liquidation,
+    // ensuring the borrow limit never exceeds the liquidation threshold.
+    let collateral_value_with_impact = calculate_normalized_amount_out(
+        collateral_virtual_reserve_nad,
+        debt_virtual_reserve_nad,
+        collateral_amount_nad,
+    )?;
+    if collateral_value_with_impact == 0 {
+        return Ok(DynamicCollateralTerms::default());
+    }
+
+    // 0. Calculate utilized collateral with price impact using virtual
+    // reserves at pessimistic price.
+    let utilized_collateral = calculate_normalized_amount_in(
+        collateral_virtual_reserve_nad,
+        debt_virtual_reserve_nad,
+        existing_total_debt_nad,
+    )?;
+
+    // 1. Calculate max allowed total debt using virtual reserves at
+    // pessimistic price.
+    let total_collateral_amount = utilized_collateral
+        .checked_add(collateral_amount_nad)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let max_allowed_total_debt = calculate_normalized_amount_out(
+        collateral_virtual_reserve_nad,
+        debt_virtual_reserve_nad,
+        total_collateral_amount,
+    )?;
+
+    // 2. Calculate user max debt.
+    let user_max_debt = max_allowed_total_debt.saturating_sub(existing_total_debt_nad);
+
+    // 3. Calculate base CF = user max debt * BPS_DENOMINATOR / V_impact.
+    // CF is relative to impact value so it captures only debt crowding.
+    let base_cf_bps = user_max_debt
+        .saturating_mul(BPS_DENOMINATOR as u128)
+        .checked_div(collateral_value_with_impact)
+        .unwrap_or(0);
+
+    // Apply the V1 85% maximum cap on dynamic CF. No divergence cap is
+    // required because the virtual reserves already use pessimistic price.
+    let liquidation_cf_bps = base_cf_bps.min(MAX_COLLATERAL_FACTOR_BPS as u128) as u16;
+
+    // Max allowed CF = liquidation CF * 95%. This creates the explicit V1
+    // buffer between the borrow limit and liquidation threshold.
+    let max_cf_bps = ((liquidation_cf_bps as u32).saturating_mul((BPS_DENOMINATOR - LTV_BUFFER_BPS) as u32)
+        / BPS_DENOMINATOR as u32) as u16;
+
+    // Final borrow limit = V_impact * max CF. Both underwriting and
+    // liquidation use the same impact-aware collateral value.
+    let max_debt_nad = collateral_value_with_impact
+        .saturating_mul(max_cf_bps as u128)
+        .checked_div(BPS_DENOMINATOR as u128)
+        .unwrap_or(0);
+
+    Ok(DynamicCollateralTerms {
+        max_debt_nad,
+        max_cf_bps,
+        liquidation_cf_bps,
+    })
+}
+
+use super::gamm::{calculate_normalized_amount_in, calculate_normalized_amount_out};
+
+pub(crate) fn health_bps(utilized_collateral_value_nad: u128, effective_debt_nad: u128) -> Result<u64> {
     if effective_debt_nad == 0 {
         return Ok(u64::MAX);
     }
-    let health = recognized_collateral_value_nad
+    let health = utilized_collateral_value_nad
         .checked_mul(BPS_DENOMINATOR as u128)
         .and_then(|value| value.checked_div(effective_debt_nad))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     u64::try_from(health).map_err(|_| ErrorCode::MarketMathOverflow.into())
-}
-
-pub(crate) fn collateral_value_from_pessimistic_reserves_nad(
-    collateral_reserve_amount: u64,
-    collateral_decimals: u8,
-    debt_reserve_amount: u64,
-    debt_decimals: u8,
-    collateral_amount: u64,
-    price_ema_nad: u64,
-    directional_price_ema_nad: u64,
-) -> Result<u128> {
-    if collateral_amount == 0 {
-        return Ok(0);
-    }
-    let collateral_reserve = normalize_to_nad(collateral_reserve_amount as u128, collateral_decimals)?;
-    let debt_reserve = normalize_to_nad(debt_reserve_amount as u128, debt_decimals)?;
-    let collateral_amount = normalize_to_nad(collateral_amount as u128, collateral_decimals)?;
-    let (collateral_virtual_reserve, debt_virtual_reserve) =
-        construct_normalized_virtual_reserves_at_pessimistic_price(
-            collateral_reserve,
-            debt_reserve,
-            price_ema_nad,
-            directional_price_ema_nad,
-        )?;
-    calculate_normalized_amount_out(collateral_virtual_reserve, debt_virtual_reserve, collateral_amount)
-}
-
-pub(crate) fn collateral_amount_for_debt_amount_ceil(
-    collateral_reserve_amount: u64,
-    collateral_decimals: u8,
-    debt_reserve_amount: u64,
-    debt_decimals: u8,
-    debt_amount: u128,
-    price_ema_nad: u64,
-    directional_price_ema_nad: u64,
-) -> Result<u64> {
-    let collateral_reserve = normalize_to_nad(collateral_reserve_amount as u128, collateral_decimals)?;
-    let debt_reserve = normalize_to_nad(debt_reserve_amount as u128, debt_decimals)?;
-    let debt_amount_nad = normalize_to_nad(debt_amount, debt_decimals)?;
-    let (collateral_virtual_reserve, debt_virtual_reserve) =
-        construct_normalized_virtual_reserves_at_pessimistic_price(
-            collateral_reserve,
-            debt_reserve,
-            price_ema_nad,
-            directional_price_ema_nad,
-        )?;
-    let collateral_amount_nad =
-        calculate_normalized_amount_in(collateral_virtual_reserve, debt_virtual_reserve, debt_amount_nad)?;
-    denormalize_from_nad_ceil(collateral_amount_nad, collateral_decimals)
-}
-
-pub(crate) fn collateral_amount_for_debt_value_floor(
-    collateral_reserve_amount: u64,
-    collateral_decimals: u8,
-    debt_reserve_amount: u64,
-    debt_decimals: u8,
-    debt_value_nad: u128,
-    price_ema_nad: u64,
-    directional_price_ema_nad: u64,
-) -> Result<u64> {
-    if debt_value_nad == 0 {
-        return Ok(0);
-    }
-    let collateral_reserve = normalize_to_nad(collateral_reserve_amount as u128, collateral_decimals)?;
-    let debt_reserve = normalize_to_nad(debt_reserve_amount as u128, debt_decimals)?;
-    let (collateral_virtual_reserve, debt_virtual_reserve) =
-        construct_normalized_virtual_reserves_at_pessimistic_price(
-            collateral_reserve,
-            debt_reserve,
-            price_ema_nad,
-            directional_price_ema_nad,
-        )?;
-    let collateral_amount_nad =
-        calculate_normalized_amount_in_floor(collateral_virtual_reserve, debt_virtual_reserve, debt_value_nad)?;
-    denormalize_from_nad_floor(collateral_amount_nad, collateral_decimals)
 }
 
 pub(crate) fn ema_u64(last_ema: u64, input: u64, last_slot: u64, current_slot: u64, half_life_ms: u64) -> u64 {
@@ -166,49 +174,6 @@ pub(crate) fn decayed_daily_bucket(bucket: u64, last_slot: u64, current_slot: u6
         .and_then(|value| value.checked_div(MS_PER_DAY as u128))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     u64::try_from(decayed).map_err(|_| ErrorCode::MarketMathOverflow.into())
-}
-
-pub(crate) fn daily_limit_from_liquidity_ema(liquidity_ema: u128, asset_decimals: u8, limit_bps: u16) -> Result<u64> {
-    require!(liquidity_ema > 0, ErrorCode::InsufficientLiquidity);
-    let limit_nad = liquidity_ema
-        .checked_mul(limit_bps as u128)
-        .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    denormalize_from_nad_floor(limit_nad, asset_decimals)
-}
-
-pub(crate) fn assert_price_divergence(spot_price_nad: u64, ema_price_nad: u64, max_divergence_bps: u16) -> Result<()> {
-    require!(
-        spot_price_nad > 0 && ema_price_nad > 0,
-        ErrorCode::InsufficientLiquidity
-    );
-    let diff = spot_price_nad.abs_diff(ema_price_nad);
-    let divergence_bps = (diff as u128)
-        .checked_mul(BPS_DENOMINATOR as u128)
-        .and_then(|value| value.checked_div(ema_price_nad as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    require!(
-        divergence_bps <= max_divergence_bps as u128,
-        ErrorCode::MarketRiskCircuitBreaker
-    );
-    Ok(())
-}
-
-pub(crate) fn assert_k_drawdown(current_k_nad: u128, k_ema_nad: u128, max_drawdown_bps: u16) -> Result<()> {
-    if current_k_nad >= k_ema_nad {
-        return Ok(());
-    }
-    require!(k_ema_nad > 0, ErrorCode::InsufficientLiquidity);
-    let drawdown_bps = k_ema_nad
-        .checked_sub(current_k_nad)
-        .and_then(|value| value.checked_mul(BPS_DENOMINATOR as u128))
-        .and_then(|value| value.checked_div(k_ema_nad))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    require!(
-        drawdown_bps <= max_drawdown_bps as u128,
-        ErrorCode::MarketRiskCircuitBreaker
-    );
-    Ok(())
 }
 
 pub(crate) fn exponential_price_decay(start_price_nad: u64, elapsed_ms: u64, half_life_ms: u64) -> Result<u64> {

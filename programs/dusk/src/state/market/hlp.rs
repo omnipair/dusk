@@ -7,7 +7,6 @@ pub(crate) use crate::state::market::transitions::hedge::HlpRebalanceReceipt;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
 pub struct HlpVault {
-    pub target_side: u8,
     pub ylp_vault: Pubkey,
     pub ylp_shares: u64,
     /// hLP-owned live reserve depth that is not backed by reserve cash or
@@ -35,18 +34,11 @@ pub struct HlpVault {
     pub unallocated_quote_interest_amount: u64,
     pub last_nav_nad: u128,
     pub cached_settlement_price_nad: u128,
-    pub last_rebalance_slot: u64,
 }
 
 impl HlpVault {
-    pub fn initialize(&mut self, target_side: MarketAsset, ylp_vault: Pubkey, current_slot: u64) {
-        self.target_side = target_side.code();
+    pub fn initialize(&mut self, ylp_vault: Pubkey) {
         self.ylp_vault = ylp_vault;
-        self.last_rebalance_slot = current_slot;
-    }
-
-    pub fn target_asset(&self) -> Result<MarketAsset> {
-        MarketAsset::try_from_code(self.target_side)
     }
 
     pub fn mint_hlp(&mut self, amount: u64) -> Result<()> {
@@ -153,6 +145,7 @@ impl HlpVault {
         Ok(DebtClearance {
             shares_burned,
             debt_reduced,
+            aggregate_debt_reduced: debt_reduced,
             principal_paid,
             interest_paid,
             remaining_debt: u64::try_from(remaining_debt).map_err(|_| ErrorCode::DebtMathOverflow)?,
@@ -295,46 +288,43 @@ impl Market {
         crate::state::market::transitions::hedge::WithdrawSingleSided::new(target_asset, hlp_amount).apply(self)
     }
 
-    pub fn checkpoint_hlp_vaults(&mut self, current_slot: u64) -> Result<(i128, i128)> {
-        crate::state::market::transitions::hedge::checkpoint_hlp_vaults(self, current_slot)
+    pub fn checkpoint_hlp_vaults(&mut self) -> Result<(i128, i128)> {
+        crate::state::market::transitions::hedge::checkpoint_hlp_vaults(self)
     }
 
     pub fn rebalance_hlp_vaults(
         &mut self,
-        current_slot: u64,
     ) -> Result<(
         crate::state::market::transitions::hedge::HlpRebalanceReceipt,
         crate::state::market::transitions::hedge::HlpRebalanceReceipt,
     )> {
-        crate::state::market::transitions::hedge::rebalance_hlp_vaults(self, current_slot)
+        crate::state::market::transitions::hedge::rebalance_hlp_vaults(self)
     }
 
-    pub fn rebalance_hlp_vault_for_swap(
+    pub fn finalize_hlp_vaults_for_swap(
         &mut self,
-        preferred_asset: MarketAsset,
-        current_slot: u64,
+        base_pre_rebalance: crate::state::market::transitions::hedge::HlpRebalanceReceipt,
+        quote_pre_rebalance: crate::state::market::transitions::hedge::HlpRebalanceReceipt,
     ) -> Result<(
         crate::state::market::transitions::hedge::HlpRebalanceReceipt,
         crate::state::market::transitions::hedge::HlpRebalanceReceipt,
     )> {
-        crate::state::market::transitions::hedge::rebalance_hlp_vault_for_swap(self, preferred_asset, current_slot)
+        crate::state::market::transitions::hedge::finalize_hlp_vaults_for_swap(
+            self,
+            base_pre_rebalance,
+            quote_pre_rebalance,
+        )
     }
 
     pub fn pre_solve_hlp_vaults_for_swap(
         &mut self,
         asset_in: MarketAsset,
         amount_in_after_fee: u64,
-        current_slot: u64,
     ) -> Result<(
         crate::state::market::transitions::hedge::HlpRebalanceReceipt,
         crate::state::market::transitions::hedge::HlpRebalanceReceipt,
     )> {
-        crate::state::market::transitions::hedge::pre_solve_hlp_vaults_for_swap(
-            self,
-            asset_in,
-            amount_in_after_fee,
-            current_slot,
-        )
+        crate::state::market::transitions::hedge::pre_solve_hlp_vaults_for_swap(self, asset_in, amount_in_after_fee)
     }
 
     pub fn checkpoint_hlp_yield_from_ylp(&mut self, target_asset: MarketAsset) -> Result<()> {

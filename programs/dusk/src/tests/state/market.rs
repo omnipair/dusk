@@ -4,8 +4,6 @@ use super::*;
     fn market_with_roles(manager: Pubkey, operator: Pubkey) -> Market {
         Market {
             version: MARKET_VERSION,
-            base_mint: Pubkey::new_unique(),
-            quote_mint: Pubkey::new_unique(),
             ylp_mint: Pubkey::new_unique(),
             operator,
             manager,
@@ -34,15 +32,12 @@ use super::*;
             protocol_fee_bps: 0,
             target_hlp_leverage_bps: BPS_DENOMINATOR * 2,
             settlement_divergence_bps: BPS_DENOMINATOR,
-            emergency_exit_haircut_bps: 0,
             ema_half_life_ms: MIN_HALF_LIFE_MS,
             directional_ema_half_life_ms: MIN_HALF_LIFE_MS,
             k_ema_half_life_ms: MIN_HALF_LIFE_MS,
             max_daily_borrow_bps: BPS_DENOMINATOR,
-            spot_ema_divergence_bps: BPS_DENOMINATOR,
-            k_ema_drawdown_bps: BPS_DENOMINATOR,
-            recognized_collateral_cap_bps: 15_000,
-            market_health_min_bps: BPS_DENOMINATOR,
+            global_health_contribution_cap_bps: 15_000,
+            borrow_market_health_floor_bps: BPS_DENOMINATOR,
             start_time: 0,
         }
     }
@@ -74,8 +69,6 @@ use super::*;
         quote_side.shares.ylp_supply = quote_cash;
         Market {
             version: MARKET_VERSION,
-            base_mint,
-            quote_mint,
             ylp_mint: Pubkey::new_unique(),
             operator: Pubkey::new_unique(),
             manager: Pubkey::new_unique(),
@@ -110,11 +103,17 @@ use super::*;
             position_id: Pubkey::new_unique(),
             base_collateral: 0,
             quote_collateral: 0,
-            recognized_base_collateral_for_quote_debt: 0,
-            recognized_quote_collateral_for_base_debt: 0,
+            global_health_base_contribution_for_quote_debt: 0,
+            global_health_quote_contribution_for_base_debt: 0,
+            base_liquidation_cf_bps: 0,
+            quote_liquidation_cf_bps: 0,
+            base_referral_partner: Pubkey::default(),
+            quote_referral_partner: Pubkey::default(),
+            base_referral_interest_share_bps: 0,
+            quote_referral_interest_share_bps: 0,
             fixed_base_shares: 0,
             fixed_quote_shares: 0,
-            risk_epoch: 0,
+            auction_debt_asset: u8::MAX,
             auction_start_time: 0,
             auction_start_price_nad: 0,
             auction_floor_price_nad: 0,
@@ -128,7 +127,7 @@ use super::*;
     }
 
     fn reserve_pair(market: &Market, asset: MarketAsset) -> (u64, u64) {
-        let side = market.side(asset).unwrap();
+        let side = market.side(asset);
         (side.reserves.live_reserve, side.reserves.cash_reserve)
     }
 
@@ -149,7 +148,7 @@ use super::*;
         let current_debt = Debt::shares_to_debt(shares, index).unwrap();
         let accrued_interest = current_debt.checked_sub(principal as u128).unwrap();
         let accrued_interest = u64::try_from(accrued_interest).unwrap();
-        let side = market.side_mut(asset).unwrap();
+        let side = market.side_mut(asset);
         side.reserves.live_reserve = side
             .reserves
             .live_reserve
@@ -227,8 +226,8 @@ use super::*;
         let mut market = market_with_roles(manager, operator);
         let mut config = MarketConfig::default();
         config.target_hlp_leverage_bps = BPS_DENOMINATOR * 2;
-        config.recognized_collateral_cap_bps = BPS_DENOMINATOR;
-        config.market_health_min_bps = BPS_DENOMINATOR;
+        config.global_health_contribution_cap_bps = BPS_DENOMINATOR;
+        config.borrow_market_health_floor_bps = BPS_DENOMINATOR;
         config.ema_half_life_ms = MIN_HALF_LIFE_MS;
         config.directional_ema_half_life_ms = MIN_HALF_LIFE_MS;
         config.k_ema_half_life_ms = MIN_HALF_LIFE_MS;
@@ -255,11 +254,17 @@ use super::*;
             position_id: Pubkey::new_unique(),
             base_collateral: 0,
             quote_collateral: 250_000,
-            recognized_base_collateral_for_quote_debt: 0,
-            recognized_quote_collateral_for_base_debt: 0,
+            global_health_base_contribution_for_quote_debt: 0,
+            global_health_quote_contribution_for_base_debt: 0,
+            base_liquidation_cf_bps: 0,
+            quote_liquidation_cf_bps: 0,
+            base_referral_partner: Pubkey::default(),
+            quote_referral_partner: Pubkey::default(),
+            base_referral_interest_share_bps: 0,
+            quote_referral_interest_share_bps: 0,
             fixed_base_shares: 0,
             fixed_quote_shares: 0,
-            risk_epoch: 0,
+            auction_debt_asset: u8::MAX,
             auction_start_time: 0,
             auction_start_price_nad: 0,
             auction_floor_price_nad: 0,
@@ -267,7 +272,7 @@ use super::*;
         };
 
         market
-            .borrow(&mut borrow_position, MarketAsset::Base, 100_000, BPS_DENOMINATOR as u64)
+            .borrow(&mut borrow_position, MarketAsset::Base, 100_000, 0)
             .unwrap();
 
         assert_eq!(market.base_side.reserves.live_reserve, 1_000_000);
@@ -279,6 +284,52 @@ use super::*;
         market
             .assert_virtual_reserve_invariant(MarketAsset::Quote)
             .unwrap();
+    }
+
+    #[test]
+    fn borrow_never_exceeds_cash_headroom() {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        market.base_side.reserves.cash_reserve = 10_000;
+        let mut position = borrow_position_for_debt(MarketAsset::Base, 500_000);
+
+        let err = market
+            .borrow(&mut position, MarketAsset::Base, 10_001, 0)
+            .unwrap_err();
+
+        assert_eq!(
+            err,
+            anchor_lang::prelude::error!(ErrorCode::InsufficientBorrowHeadroom)
+        );
+        assert_eq!(market.base_side.daily_limits.borrowed_bucket, 0);
+        assert_eq!(position.fixed_base_shares, 0);
+    }
+
+    #[test]
+    fn liquidation_cf_slippage_protects_borrow_and_withdrawal() {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        let mut position = borrow_position_for_debt(MarketAsset::Base, 250_000);
+
+        let borrow_err = market
+            .borrow(&mut position, MarketAsset::Base, 100_000, 8_501)
+            .unwrap_err();
+        assert_eq!(
+            borrow_err,
+            anchor_lang::prelude::error!(ErrorCode::SlippageExceeded)
+        );
+        assert_eq!(position.fixed_base_shares, 0);
+
+        market
+            .borrow(&mut position, MarketAsset::Base, 100_000, 8_500)
+            .unwrap();
+        let withdrawal_err = market
+            .withdraw_collateral(&mut position, MarketAsset::Quote, 1, 8_501)
+            .unwrap_err();
+        assert_eq!(
+            withdrawal_err,
+            anchor_lang::prelude::error!(ErrorCode::SlippageExceeded)
+        );
+        assert_eq!(position.quote_collateral, 250_000);
+        assert_eq!(position.base_liquidation_cf_bps, 8_500);
     }
 
     proptest! {
@@ -298,14 +349,9 @@ use super::*;
             };
             let collateral_asset = borrow_asset.opposite();
             let mut market = invariant_market(base_cash, quote_cash);
-            let debt_cash_before = market.side(borrow_asset).unwrap().reserves.cash_reserve;
-            let debt_live_before = market.side(borrow_asset).unwrap().reserves.live_reserve;
-            let collateral_amount = market
-                .side(collateral_asset)
-                .unwrap()
-                .reserves
-                .live_reserve
-                / 2;
+            let debt_cash_before = market.side(borrow_asset).reserves.cash_reserve;
+            let debt_live_before = market.side(borrow_asset).reserves.live_reserve;
+            let collateral_amount = market.side(collateral_asset).reserves.live_reserve / 2;
             let mut borrow_position =
                 borrow_position_for_debt(borrow_asset, collateral_amount.max(1));
             let borrow_amount = debt_cash_before
@@ -320,7 +366,7 @@ use super::*;
                     &mut borrow_position,
                     borrow_asset,
                     borrow_amount,
-                    BPS_DENOMINATOR as u64,
+                    0,
                 )
                 .unwrap();
 
@@ -357,13 +403,8 @@ use super::*;
             };
             let collateral_asset = repay_asset.opposite();
             let mut market = invariant_market(base_cash, quote_cash);
-            let debt_cash_before = market.side(repay_asset).unwrap().reserves.cash_reserve;
-            let collateral_amount = market
-                .side(collateral_asset)
-                .unwrap()
-                .reserves
-                .live_reserve
-                / 2;
+            let debt_cash_before = market.side(repay_asset).reserves.cash_reserve;
+            let collateral_amount = market.side(collateral_asset).reserves.live_reserve / 2;
             let mut borrow_position =
                 borrow_position_for_debt(repay_asset, collateral_amount.max(1));
             let borrow_amount = debt_cash_before
@@ -377,7 +418,7 @@ use super::*;
                     &mut borrow_position,
                     repay_asset,
                     borrow_amount,
-                    BPS_DENOMINATOR as u64,
+                    0,
                 )
                 .unwrap();
 
@@ -440,7 +481,7 @@ use super::*;
                 &mut borrow_position,
                 repay_asset,
                 borrow_amount,
-                BPS_DENOMINATOR as u64,
+                0,
             )
             .unwrap();
 
@@ -473,32 +514,466 @@ use super::*;
     }
 
     #[test]
-    fn borrower_risk_valuation_uses_liquidity_ema_depth_cap() {
+    fn partial_repay_uses_aggregate_debt_delta_with_multiple_positions() {
+        let repay_asset = MarketAsset::Quote;
+        let mut market = invariant_market(300_000_000, 300_000_000);
+        market.config.borrow_market_health_floor_bps = 9_000;
+        let mut first = borrow_position_for_debt(repay_asset, 150_000_000);
+        let mut second = borrow_position_for_debt(repay_asset, 150_000_000);
+        let borrow_amount = 50_000_003;
+        market.borrow(&mut first, repay_asset, borrow_amount, 0).unwrap();
+        market.borrow(&mut second, repay_asset, borrow_amount, 0).unwrap();
+
+        let next_index = (NAD as u128) * 10_413 / BPS_DENOMINATOR as u128;
+        set_borrow_index(&mut market, repay_asset, next_index);
+        add_accrued_cash_backed_interest_to_live_reserve(
+            &mut market,
+            repay_asset,
+            first.fixed_quote_shares + second.fixed_quote_shares,
+            borrow_amount * 2,
+        );
+        market.assert_virtual_reserve_invariant(repay_asset).unwrap();
+
+        market.repay(&mut first, repay_asset, 25_000_004).unwrap();
+
+        market.assert_virtual_reserve_invariant(repay_asset).unwrap();
+    }
+
+    #[test]
+    fn virtual_reserve_sums_fixed_and_isolated_debt_ledgers_separately() {
+        let mut market = invariant_market(1_000, 1_000);
+        market.debt.base_borrow_index_nad = (NAD as u128) * 3 / 2;
+        market.debt.fixed_base_shares = 1;
+        market.debt.isolated_base_shares = 1;
+        market.base_side.reserves.live_reserve = 1_002;
+
+        assert_eq!(total_cash_backed_borrowed(&market, MarketAsset::Base, market.debt.base_borrow_index_nad).unwrap(), 2);
+        market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
+    }
+
+    #[test]
+    fn borrower_risk_valuation_uses_k_ema_depth_cap() {
         let mut market = invariant_market(1_000_000, 1_000_000);
         market.risk = Risk {
             base_price_ema_nad: NAD,
             quote_price_ema_nad: NAD,
             directional_base_price_ema_nad: NAD,
             directional_quote_price_ema_nad: NAD,
-            base_liquidity_ema: 100_000_u128 * NAD as u128,
-            quote_liquidity_ema: 100_000_u128 * NAD as u128,
+            k_ema: (100_000_u128 * NAD as u128).pow(2),
             ..Risk::default()
         };
 
         let value = market
             .collateral_value_nad(MarketAsset::Base, 50_000, &market.risk)
             .unwrap();
-        let expected = crate::math::collateral_value_from_pessimistic_reserves_nad(
-            100_000, 0, 100_000, 0, 50_000, NAD, NAD,
+        let expected = crate::math::calculate_normalized_amount_out(
+            100_000_u128 * NAD as u128,
+            100_000_u128 * NAD as u128,
+            50_000_u128 * NAD as u128,
         )
         .unwrap();
-        let live_depth_value = crate::math::collateral_value_from_pessimistic_reserves_nad(
-            1_000_000, 0, 1_000_000, 0, 50_000, NAD, NAD,
+        let live_depth_value = crate::math::calculate_normalized_amount_out(
+            1_000_000_u128 * NAD as u128,
+            1_000_000_u128 * NAD as u128,
+            50_000_u128 * NAD as u128,
         )
         .unwrap();
 
         assert_eq!(value, expected);
         assert!(value < live_depth_value);
+    }
+
+    #[test]
+    fn daily_limits_use_conservative_k_at_current_spot_ratio() {
+        let mut market = invariant_market(4_000_000, 1_000_000);
+        market.risk.k_ema = (1_000_000_u128 * NAD as u128).pow(2);
+
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Base, 2_000)
+                .unwrap(),
+            400_000
+        );
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Quote, 2_000)
+                .unwrap(),
+            100_000
+        );
+    }
+
+    #[test]
+    fn daily_limits_track_post_swap_reserve_ratio() {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        market.risk.k_ema = (1_000_000_u128 * NAD as u128).pow(2);
+        let amount_in = 250_000;
+        let amount_out = crate::math::calculate_raw_amount_out(1_000_000, 1_000_000, amount_in).unwrap();
+        market.base_side.reserves.live_reserve += amount_in;
+        market.quote_side.reserves.live_reserve -= amount_out;
+
+        assert_eq!(market.base_side.reserves.live_reserve, 1_250_000);
+        assert_eq!(market.quote_side.reserves.live_reserve, 800_000);
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Base, 1_000)
+                .unwrap(),
+            125_000
+        );
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Quote, 1_000)
+                .unwrap(),
+            80_000
+        );
+    }
+
+    #[test]
+    fn daily_limits_use_live_depth_when_k_ema_is_empty_or_above_spot() {
+        let mut market = invariant_market(800_000, 1_200_000);
+
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Base, 2_500)
+                .unwrap(),
+            200_000
+        );
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Quote, 2_500)
+                .unwrap(),
+            300_000
+        );
+
+        market.risk.k_ema = (2_000_000_u128 * NAD as u128).pow(2);
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Base, 2_500)
+                .unwrap(),
+            200_000
+        );
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Quote, 2_500)
+                .unwrap(),
+            300_000
+        );
+    }
+
+    #[test]
+    fn daily_limits_follow_k_drawdown_growth_and_proportional_liquidity() {
+        let mut market = invariant_market(2_000_000, 2_000_000);
+        market.risk.k_ema = (1_000_000_u128 * NAD as u128).pow(2);
+
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Base, 1_000)
+                .unwrap(),
+            100_000
+        );
+
+        market.base_side.reserves.live_reserve = 500_000;
+        market.quote_side.reserves.live_reserve = 500_000;
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Base, 1_000)
+                .unwrap(),
+            50_000
+        );
+
+        market.base_side.reserves.live_reserve = 2_000_000;
+        market.quote_side.reserves.live_reserve = 500_000;
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Base, 1_000)
+                .unwrap(),
+            200_000
+        );
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Quote, 1_000)
+                .unwrap(),
+            50_000
+        );
+    }
+
+    #[test]
+    fn daily_limits_respect_mixed_token_decimals() {
+        let mut market = invariant_market(1_000_000_000, 2_000_000_000_000);
+        market.base_side.asset_decimals = 6;
+        market.quote_side.asset_decimals = 9;
+
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Base, 1_000)
+                .unwrap(),
+            100_000_000
+        );
+        assert_eq!(
+            market
+                .daily_limit_for_side(MarketAsset::Quote, 1_000)
+                .unwrap(),
+            200_000_000_000
+        );
+    }
+
+    #[test]
+    fn global_health_contribution_is_debt_capped_and_rounded_down() {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        market.refresh_risk().unwrap();
+
+        assert_eq!(
+            market
+                .debt_capped_global_health_contribution(
+                    MarketAsset::Base,
+                    100_000,
+                    1_000_000,
+                    &market.risk,
+                )
+                .unwrap(),
+            150_000
+        );
+        assert_eq!(
+            market
+                .debt_capped_global_health_contribution(
+                    MarketAsset::Base,
+                    100_000,
+                    120_000,
+                    &market.risk,
+                )
+                .unwrap(),
+            120_000
+        );
+        assert_eq!(
+            market
+                .debt_capped_global_health_contribution(MarketAsset::Base, 1, 10, &market.risk)
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn global_health_cap_remains_bounded_after_collateral_appreciates() {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        market.debt.fixed_base_shares = 100_000;
+        market.debt.fixed_base_principal = 100_000;
+        market.debt.global_health_quote_contribution_for_base_debt = 150_000;
+        market.risk = Risk {
+            base_price_ema_nad: NAD / 2,
+            quote_price_ema_nad: NAD * 2,
+            directional_base_price_ema_nad: NAD / 2,
+            directional_quote_price_ema_nad: NAD * 2,
+            k_ema: (1_000_000_u128 * NAD as u128).pow(2),
+            ..Risk::default()
+        };
+
+        let health = market.market_health().unwrap();
+
+        assert!(health.base_debt_health_bps <= 15_000);
+        assert!(health.effective_base_debt_nad > 0);
+    }
+
+    #[test]
+    fn external_fixed_debt_excludes_only_the_acting_position() {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        market.debt.base_borrow_index_nad = (NAD as u128) * 3 / 2;
+        market.debt.fixed_base_shares = 150_000;
+        let mut position = borrow_position_for_debt(MarketAsset::Base, 250_000);
+        position.fixed_base_shares = 100_000;
+
+        assert_eq!(
+            market
+                .external_fixed_debt_nad(&position, MarketAsset::Base)
+                .unwrap(),
+            75_000_u128 * NAD as u128
+        );
+    }
+
+    #[test]
+    fn deposit_and_repay_update_contribution_without_floating_cf() {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        market.config.borrow_market_health_floor_bps = 11_000;
+        let mut position = borrow_position_for_debt(MarketAsset::Base, 250_000);
+
+        market.borrow(&mut position, MarketAsset::Base, 100_000, 8_000).unwrap();
+        let stored_cf = position.base_liquidation_cf_bps;
+        assert_eq!(stored_cf, 8_500);
+        assert_eq!(position.global_health_quote_contribution_for_base_debt, 150_000);
+
+        market
+            .deposit_collateral(&mut position, MarketAsset::Quote, 100_000)
+            .unwrap();
+        assert_eq!(position.base_liquidation_cf_bps, stored_cf);
+        assert_eq!(position.global_health_quote_contribution_for_base_debt, 150_000);
+
+        market.repay(&mut position, MarketAsset::Base, 50_000).unwrap();
+        assert_eq!(position.base_liquidation_cf_bps, stored_cf);
+        assert_eq!(position.global_health_quote_contribution_for_base_debt, 75_000);
+
+        market.repay(&mut position, MarketAsset::Base, 50_000).unwrap();
+        assert_eq!(position.base_liquidation_cf_bps, 0);
+        assert_eq!(position.global_health_quote_contribution_for_base_debt, 0);
+        assert_eq!(market.debt.global_health_quote_contribution_for_base_debt, 0);
+    }
+
+    #[test]
+    fn withdrawal_uses_stored_terms_without_enforcing_global_floor() {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        market.config.borrow_market_health_floor_bps = 11_000;
+        let mut position = borrow_position_for_debt(MarketAsset::Base, 250_000);
+        market.borrow(&mut position, MarketAsset::Base, 100_000, 0).unwrap();
+        let stored_cf = position.base_liquidation_cf_bps;
+
+        market.debt.global_health_quote_contribution_for_base_debt = 100_000;
+        position.global_health_quote_contribution_for_base_debt = 100_000;
+        assert!(market.market_health().unwrap().base_debt_health_bps < 11_000);
+
+        market
+            .withdraw_collateral(&mut position, MarketAsset::Quote, 100_000, stored_cf)
+            .unwrap();
+        assert_eq!(position.quote_collateral, 150_000);
+        assert_eq!(position.base_liquidation_cf_bps, stored_cf);
+    }
+
+    #[test]
+    fn interest_growth_reduces_global_health_without_changing_stored_cf() {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        market.config.borrow_market_health_floor_bps = 11_000;
+        let mut position = borrow_position_for_debt(MarketAsset::Base, 300_000);
+        market.borrow(&mut position, MarketAsset::Base, 100_000, 0).unwrap();
+        let stored_cf = position.base_liquidation_cf_bps;
+        let contribution = position.global_health_quote_contribution_for_base_debt;
+        let health_before = market.market_health().unwrap().base_debt_health_bps;
+
+        market.debt.base_borrow_index_nad = (NAD as u128) * 6 / 5;
+        let health_after = market.market_health().unwrap().base_debt_health_bps;
+
+        assert!(health_after < health_before);
+        assert_eq!(position.base_liquidation_cf_bps, stored_cf);
+        assert_eq!(position.global_health_quote_contribution_for_base_debt, contribution);
+    }
+
+    #[test]
+    fn alice_exit_does_not_change_bob_terms_and_low_health_pauses_later_borrowing() {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        market.config.borrow_market_health_floor_bps = 11_000;
+        let mut bob = borrow_position_for_debt(MarketAsset::Base, 30_000);
+        let mut alice = borrow_position_for_debt(MarketAsset::Base, 300_000);
+
+        market.borrow(&mut bob, MarketAsset::Base, 20_000, 0).unwrap();
+        market.borrow(&mut alice, MarketAsset::Base, 100_000, 0).unwrap();
+        let bob_cf = bob.base_liquidation_cf_bps;
+
+        let aggregate_shares = market.debt.fixed_base_shares;
+        market.debt.base_borrow_index_nad = (NAD as u128) * 3 / 2;
+        add_accrued_cash_backed_interest_to_live_reserve(
+            &mut market,
+            MarketAsset::Base,
+            aggregate_shares,
+            120_000,
+        );
+
+        market.repay(&mut alice, MarketAsset::Base, 150_000).unwrap();
+        market
+            .withdraw_collateral(&mut alice, MarketAsset::Quote, 300_000, 0)
+            .unwrap();
+
+        assert_eq!(alice.quote_collateral, 0);
+        assert_eq!(alice.global_health_quote_contribution_for_base_debt, 0);
+        assert_eq!(bob.base_liquidation_cf_bps, bob_cf);
+        assert!(market.market_health().unwrap().base_debt_health_bps < 11_000);
+
+        let mut charlie = borrow_position_for_debt(MarketAsset::Base, 100_000);
+        let err = market
+            .borrow(&mut charlie, MarketAsset::Base, 10_000, 0)
+            .unwrap_err();
+        assert_eq!(err, anchor_lang::prelude::error!(ErrorCode::InsufficientMarketHealth));
+        assert_eq!(bob.base_liquidation_cf_bps, bob_cf);
+    }
+
+    #[test]
+    fn dynamic_terms_are_decimal_invariant() {
+        let mut market = invariant_market(1_000_000_000, 1_000_000_000_000);
+        market.base_side.asset_decimals = 6;
+        market.quote_side.asset_decimals = 9;
+        market.refresh_risk().unwrap();
+
+        let terms = market
+            .dynamic_borrow_terms(
+                MarketAsset::Base,
+                500_000_000_000,
+                0,
+                0,
+                0,
+                &market.risk,
+            )
+            .unwrap();
+
+        assert_eq!(terms.max_debt, 269_166_666);
+        assert_eq!(terms.max_cf_bps, 8_075);
+        assert_eq!(terms.liquidation_cf_bps, 8_500);
+    }
+
+    proptest! {
+        #[test]
+        fn splitting_positions_cannot_increase_global_health_contribution(
+            first_debt in 1_u64..500_000,
+            second_debt in 1_u64..500_000,
+            first_collateral in 0_u64..1_000_000,
+            second_collateral in 0_u64..1_000_000,
+        ) {
+            let mut market = invariant_market(2_000_000, 2_000_000);
+            market.refresh_risk().unwrap();
+            let first = market
+                .debt_capped_global_health_contribution(
+                    MarketAsset::Base,
+                    first_debt as u128,
+                    first_collateral,
+                    &market.risk,
+                )
+                .unwrap();
+            let second = market
+                .debt_capped_global_health_contribution(
+                    MarketAsset::Base,
+                    second_debt as u128,
+                    second_collateral,
+                    &market.risk,
+                )
+                .unwrap();
+            let combined = market
+                .debt_capped_global_health_contribution(
+                    MarketAsset::Base,
+                    (first_debt + second_debt) as u128,
+                    first_collateral + second_collateral,
+                    &market.risk,
+                )
+                .unwrap();
+
+            prop_assert!(first + second <= combined);
+        }
+
+        #[test]
+        fn conservative_k_depth_and_daily_limit_never_exceed_live_inventory(
+            base in 1_000_u64..1_000_000_000,
+            quote in 1_000_u64..1_000_000_000,
+            k_scale_bps in 1_u128..20_001,
+            limit_bps in 0_u16..=BPS_DENOMINATOR,
+        ) {
+            let mut market = invariant_market(base, quote);
+            let spot_k = (base as u128 * NAD as u128)
+                .checked_mul(quote as u128 * NAD as u128)
+                .unwrap();
+            market.risk.k_ema = (spot_k / BPS_DENOMINATOR as u128)
+                .checked_mul(k_scale_bps)
+                .unwrap();
+
+            let (base_depth, quote_depth) = market
+                .conservative_risk_reserve_depths(&market.risk)
+                .unwrap();
+            prop_assert!(base_depth <= base);
+            prop_assert!(quote_depth <= quote);
+            prop_assert!(market.daily_limit_for_side(MarketAsset::Base, limit_bps).unwrap() <= base);
+            prop_assert!(market.daily_limit_for_side(MarketAsset::Quote, limit_bps).unwrap() <= quote);
+        }
     }
 
     #[test]
@@ -515,11 +990,17 @@ use super::*;
             position_id: Pubkey::new_unique(),
             base_collateral: 0,
             quote_collateral: 0,
-            recognized_base_collateral_for_quote_debt: 0,
-            recognized_quote_collateral_for_base_debt: 0,
+            global_health_base_contribution_for_quote_debt: 0,
+            global_health_quote_contribution_for_base_debt: 0,
+            base_liquidation_cf_bps: 0,
+            quote_liquidation_cf_bps: 0,
+            base_referral_partner: Pubkey::new_unique(),
+            quote_referral_partner: Pubkey::default(),
+            base_referral_interest_share_bps: 2_500,
+            quote_referral_interest_share_bps: 0,
             fixed_base_shares: 100,
             fixed_quote_shares: 0,
-            risk_epoch: 0,
+            auction_debt_asset: u8::MAX,
             auction_start_time: 0,
             auction_start_price_nad: 0,
             auction_floor_price_nad: 0,
@@ -534,6 +1015,8 @@ use super::*;
         assert_eq!(market.base_side.reserves.live_reserve, 1_000);
         assert_eq!(market.base_side.reserves.cash_reserve, 1_000);
         assert_eq!(market.debt.fixed_base_debt().unwrap(), 0);
+        assert_eq!(borrow_position.base_referral_partner, Pubkey::default());
+        assert_eq!(borrow_position.base_referral_interest_share_bps, 0);
         market
             .assert_virtual_reserve_invariant(MarketAsset::Base)
             .unwrap();

@@ -33,8 +33,8 @@ pub struct CreateLeverageDelegation<'info> {
     #[account(
         seeds = [
             MARKET_V2_SEED_PREFIX,
-            market.base_mint.as_ref(),
-            market.quote_mint.as_ref(),
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
             market.params_hash.as_ref(),
         ],
         bump = market.bump
@@ -78,8 +78,8 @@ pub struct UpdateLeverageDelegation<'info> {
     #[account(
         seeds = [
             MARKET_V2_SEED_PREFIX,
-            market.base_mint.as_ref(),
-            market.quote_mint.as_ref(),
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
             market.params_hash.as_ref(),
         ],
         bump = market.bump

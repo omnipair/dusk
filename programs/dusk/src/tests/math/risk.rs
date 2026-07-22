@@ -1,58 +1,25 @@
 use super::*;
 
     #[test]
-    fn pessimistic_reserve_value_uses_normalized_curve_output() {
-        let value = collateral_value_from_pessimistic_reserves_nad(
-            1_000_000,
-            6,
-            2_000_000,
-            6,
-            100_000,
-            2 * NAD,
-            2 * NAD,
+    fn pessimistic_max_debt_matches_v1_exact_values() {
+        let reserve = 1_000_000_u128 * NAD as u128;
+
+        let terms = pessimistic_max_debt_nad(reserve, reserve, reserve, 0).unwrap();
+        assert_eq!(terms.liquidation_cf_bps, 8_500);
+        assert_eq!(terms.max_cf_bps, 8_075);
+        assert_eq!(terms.max_debt_nad, 403_750_u128 * NAD as u128);
+
+        let terms = pessimistic_max_debt_nad(reserve / 2, reserve, reserve, 0).unwrap();
+        assert_eq!(terms.max_cf_bps, 8_075);
+        assert_eq!(terms.max_debt_nad, 269_166_666_666_666);
+
+        let terms = pessimistic_max_debt_nad(
+            reserve / 2,
+            reserve,
+            reserve,
+            200_000_u128 * NAD as u128,
         )
         .unwrap();
-
-        assert_eq!(value, 181_818_181);
-    }
-
-    #[test]
-    fn debt_value_to_collateral_amount_uses_requested_rounding() {
-        let ceil_amount = collateral_amount_for_debt_amount_ceil(
-            1_000_000,
-            6,
-            2_000_000,
-            6,
-            100_000,
-            2 * NAD,
-            2 * NAD,
-        )
-        .unwrap();
-        let floor_amount = collateral_amount_for_debt_value_floor(
-            1_000_000,
-            6,
-            2_000_000,
-            6,
-            100_000_000,
-            2 * NAD,
-            2 * NAD,
-        )
-        .unwrap();
-
-        assert_eq!(ceil_amount, 52_632);
-        assert_eq!(floor_amount, 52_631);
-    }
-
-    #[test]
-    fn daily_limit_from_liquidity_ema_sizes_by_bps_and_decimals() {
-        let limit = daily_limit_from_liquidity_ema(1_000 * NAD as u128, 6, 2_000).unwrap();
-
-        assert_eq!(limit, 200_000_000);
-    }
-
-    #[test]
-    fn daily_limit_from_liquidity_ema_rejects_zero_liquidity() {
-        let err = daily_limit_from_liquidity_ema(0, 6, 2_000).unwrap_err();
-
-        assert_eq!(err, error!(ErrorCode::InsufficientLiquidity));
+        assert_eq!(terms.max_cf_bps, 6_514);
+        assert_eq!(terms.max_debt_nad, 217_133_333_333_333);
     }

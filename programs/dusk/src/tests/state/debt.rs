@@ -84,7 +84,7 @@ use super::*;
         assert_eq!(debt.isolated_base_shares, 1_000);
         assert_eq!(debt.isolated_base_principal, 1_000);
         assert_eq!(debt.fixed_base_shares, 0);
-        assert_eq!(debt.total_base_debt().unwrap(), 1_000);
+        assert_eq!(debt.isolated_debt(MarketAsset::Base).unwrap(), 1_000);
     }
 
     #[test]
@@ -137,6 +137,7 @@ use super::*;
 
         assert_eq!(clearance.shares_burned, 2);
         assert_eq!(clearance.debt_reduced, 3);
+        assert_eq!(clearance.aggregate_debt_reduced, 3);
         assert_eq!(clearance.remaining_debt, 147);
         assert_eq!(clearance.principal_paid, 1);
         assert_eq!(clearance.interest_paid, 1);
@@ -145,4 +146,54 @@ use super::*;
         assert_eq!(position_principal, 98);
         assert_eq!(debt.isolated_base_shares, 98);
         assert_eq!(debt.isolated_base_principal, 98);
+    }
+
+    #[test]
+    fn isolated_repay_uses_aggregate_debt_delta_across_positions() {
+        let mut debt = Debt {
+            base_borrow_index_nad: (NAD as u128) * 3 / 2,
+            isolated_base_shares: 2,
+            isolated_base_principal: 2,
+            ..Debt::default()
+        };
+        let mut position_shares = 1;
+        let mut position_principal = 1;
+
+        let clearance = debt
+            .clear_isolated_debt(
+                MarketAsset::Base,
+                &mut position_shares,
+                &mut position_principal,
+                1,
+            )
+            .unwrap();
+
+        assert_eq!(clearance.debt_reduced, 1);
+        assert_eq!(clearance.aggregate_debt_reduced, 2);
+        assert_eq!(clearance.live_debit_for_cash_repay().unwrap(), 1);
+        assert_eq!(debt.isolated_base_shares, 1);
+    }
+
+    #[test]
+    fn isolated_writeoff_reports_aggregate_debt_delta_across_positions() {
+        let mut debt = Debt {
+            base_borrow_index_nad: (NAD as u128) * 3 / 2,
+            isolated_base_shares: 2,
+            isolated_base_principal: 2,
+            ..Debt::default()
+        };
+        let mut position_shares = 1;
+        let mut position_principal = 1;
+
+        let writeoff = debt
+            .writeoff_isolated_position(
+                MarketAsset::Base,
+                &mut position_shares,
+                &mut position_principal,
+            )
+            .unwrap();
+
+        assert_eq!(writeoff.debt_written_off, 1);
+        assert_eq!(writeoff.aggregate_debt_written_off, 2);
+        assert_eq!(debt.isolated_base_shares, 1);
     }

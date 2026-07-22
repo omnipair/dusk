@@ -57,7 +57,7 @@ pub fn tracking_loss_nad(equity_nad: u128, r_nad: u128) -> Result<u128> {
         .and_then(|value| value.checked_div(NAD as u128))
         .and_then(|value| value.checked_mul(gap))
         .and_then(|value| value.checked_div(NAD as u128))
-        .ok_or(ErrorCode::MarketMathOverflow.into())
+        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
 /// Closed-form pre-adjustment magnitude `|E0 * (sqrt(r) - 1)|`, in NAD, plus

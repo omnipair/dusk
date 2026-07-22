@@ -36,13 +36,15 @@ use super::*;
                 fee_auction_bps: 4_000,
                 buyback_auction_bps: 6_000,
             },
+            250,
         )
         .unwrap();
 
         assert_eq!(receipt.manager_swap_fee_liability, 0);
         assert_eq!(receipt.manager_interest_fee_liability, 500);
-        assert_eq!(receipt.protocol_fee_liability, 400);
-        assert_eq!(receipt.buyback_fee_liability, 600);
+        assert_eq!(receipt.referral_interest_liability, 250);
+        assert_eq!(receipt.protocol_fee_liability, 300);
+        assert_eq!(receipt.buyback_fee_liability, 450);
         assert_eq!(receipt.unallocated_interest_liability, 8_500);
         assert_eq!(receipt.interest_vault_balance, 10_000);
         side.fees.assert_backed().unwrap();

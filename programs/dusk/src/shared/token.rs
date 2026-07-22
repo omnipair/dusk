@@ -11,7 +11,7 @@ use anchor_lang::{
     system_program,
 };
 use anchor_spl::{
-    token::{self, Token, TokenAccount},
+    token::{Token, TokenAccount},
     token_2022::{
         self,
         spl_token_2022::{
@@ -54,39 +54,40 @@ pub fn transfer_from_user_to_vault<'a>(
     amount: u64,
     mint_decimals: u8,
 ) -> Result<()> {
-    if amount == 0 {
-        return Ok(());
-    }
+    transfer_from_user_to_vault_with_remaining_accounts(
+        authority,
+        from,
+        to_vault,
+        mint,
+        token_program,
+        amount,
+        mint_decimals,
+        &[],
+    )
+}
 
-    if *token_program.key == Token2022::id() {
-        token_2022::transfer_checked(
-            CpiContext::new(
-                token_program.to_account_info(),
-                token_2022::TransferChecked {
-                    from,
-                    to: to_vault,
-                    authority,
-                    mint,
-                },
-            ),
-            amount,
-            mint_decimals,
-        )
-    } else {
-        token::transfer_checked(
-            CpiContext::new(
-                token_program.to_account_info(),
-                token::TransferChecked {
-                    from,
-                    to: to_vault,
-                    authority,
-                    mint,
-                },
-            ),
-            amount,
-            mint_decimals,
-        )
-    }
+#[allow(clippy::too_many_arguments)]
+pub fn transfer_from_user_to_vault_with_remaining_accounts<'a>(
+    authority: AccountInfo<'a>,
+    from: AccountInfo<'a>,
+    to_vault: AccountInfo<'a>,
+    mint: AccountInfo<'a>,
+    token_program: AccountInfo<'a>,
+    amount: u64,
+    mint_decimals: u8,
+    additional_accounts: &[AccountInfo<'a>],
+) -> Result<()> {
+    transfer_checked_with_remaining_accounts(
+        authority,
+        from,
+        to_vault,
+        mint,
+        token_program,
+        amount,
+        mint_decimals,
+        &[],
+        additional_accounts,
+    )
 }
 
 pub fn transfer_from_vault<'a>(
@@ -99,39 +100,100 @@ pub fn transfer_from_vault<'a>(
     mint_decimals: u8,
     signer_seeds: &[&[&[u8]]],
 ) -> Result<()> {
+    transfer_from_vault_with_remaining_accounts(
+        authority,
+        from_vault,
+        to,
+        mint,
+        token_program,
+        amount,
+        mint_decimals,
+        signer_seeds,
+        &[],
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn transfer_from_vault_with_remaining_accounts<'a>(
+    authority: AccountInfo<'a>,
+    from_vault: AccountInfo<'a>,
+    to: AccountInfo<'a>,
+    mint: AccountInfo<'a>,
+    token_program: AccountInfo<'a>,
+    amount: u64,
+    mint_decimals: u8,
+    signer_seeds: &[&[&[u8]]],
+    additional_accounts: &[AccountInfo<'a>],
+) -> Result<()> {
+    transfer_checked_with_remaining_accounts(
+        authority,
+        from_vault,
+        to,
+        mint,
+        token_program,
+        amount,
+        mint_decimals,
+        signer_seeds,
+        additional_accounts,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn transfer_checked_with_remaining_accounts<'a>(
+    authority: AccountInfo<'a>,
+    from: AccountInfo<'a>,
+    to: AccountInfo<'a>,
+    mint: AccountInfo<'a>,
+    token_program: AccountInfo<'a>,
+    amount: u64,
+    mint_decimals: u8,
+    signer_seeds: &[&[&[u8]]],
+    additional_accounts: &[AccountInfo<'a>],
+) -> Result<()> {
     if amount == 0 {
         return Ok(());
     }
     if *token_program.key == Token2022::id() {
-        token_2022::transfer_checked(
-            CpiContext::new_with_signer(
-                token_program.to_account_info(),
-                token_2022::TransferChecked {
-                    from: from_vault,
-                    to,
-                    authority,
-                    mint,
-                },
-                signer_seeds,
-            ),
+        let mut instruction = spl_token_2022::instruction::transfer_checked(
+            token_program.key,
+            from.key,
+            mint.key,
+            to.key,
+            authority.key,
+            &[],
             amount,
             mint_decimals,
-        )
+        )?;
+        let mut account_infos = vec![from.clone(), mint.clone(), to.clone(), authority.clone()];
+        if let Some(transfer_hook_program_id) = transfer_hook_program_id_from_mint_info(&mint)? {
+            spl_transfer_hook_interface::onchain::add_extra_accounts_for_execute_cpi(
+                &mut instruction,
+                &mut account_infos,
+                &transfer_hook_program_id,
+                from,
+                mint,
+                to,
+                authority,
+                amount,
+                additional_accounts,
+            )?;
+        }
+        account_infos.push(token_program);
+        invoke_signed(&instruction, &account_infos, signer_seeds).map_err(Into::into)
+    } else if *token_program.key == Token::id() {
+        let instruction = spl_token::instruction::transfer_checked(
+            token_program.key,
+            from.key,
+            mint.key,
+            to.key,
+            authority.key,
+            &[],
+            amount,
+            mint_decimals,
+        )?;
+        invoke_signed(&instruction, &[from, mint, to, authority, token_program], signer_seeds).map_err(Into::into)
     } else {
-        token::transfer_checked(
-            CpiContext::new_with_signer(
-                token_program.to_account_info(),
-                token::TransferChecked {
-                    from: from_vault,
-                    to,
-                    authority,
-                    mint,
-                },
-                signer_seeds,
-            ),
-            amount,
-            mint_decimals,
-        )
+        err!(ErrorCode::InvalidTokenProgram)
     }
 }
 
@@ -163,6 +225,31 @@ pub fn transfer_from_vault_to_vault<'a>(
         amount,
         mint_decimals,
         signer_seeds,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn transfer_from_vault_to_vault_with_remaining_accounts<'a>(
+    authority: AccountInfo<'a>,
+    from_vault: AccountInfo<'a>,
+    to_vault: AccountInfo<'a>,
+    mint: AccountInfo<'a>,
+    token_program: AccountInfo<'a>,
+    amount: u64,
+    mint_decimals: u8,
+    signer_seeds: &[&[&[u8]]],
+    additional_accounts: &[AccountInfo<'a>],
+) -> Result<()> {
+    transfer_from_vault_with_remaining_accounts(
+        authority,
+        from_vault,
+        to_vault,
+        mint,
+        token_program,
+        amount,
+        mint_decimals,
+        signer_seeds,
+        additional_accounts,
     )
 }
 
@@ -200,6 +287,31 @@ pub fn transfer_from_vault_to_user<'a>(
         amount,
         mint_decimals,
         signer_seeds,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn transfer_from_vault_to_user_with_remaining_accounts<'a>(
+    authority: AccountInfo<'a>,
+    from_vault: AccountInfo<'a>,
+    to: AccountInfo<'a>,
+    mint: AccountInfo<'a>,
+    token_program: AccountInfo<'a>,
+    amount: u64,
+    mint_decimals: u8,
+    signer_seeds: &[&[&[u8]]],
+    additional_accounts: &[AccountInfo<'a>],
+) -> Result<()> {
+    transfer_from_vault_with_remaining_accounts(
+        authority,
+        from_vault,
+        to,
+        mint,
+        token_program,
+        amount,
+        mint_decimals,
+        signer_seeds,
+        additional_accounts,
     )
 }
 
@@ -419,7 +531,10 @@ pub fn is_token_2022_mint(mint_account: &InterfaceAccount<Mint>) -> Result<bool>
 }
 
 pub fn transfer_hook_program_id(mint_account: &InterfaceAccount<Mint>) -> Result<Option<Pubkey>> {
-    let mint_info = mint_account.to_account_info();
+    transfer_hook_program_id_from_mint_info(&mint_account.to_account_info())
+}
+
+fn transfer_hook_program_id_from_mint_info(mint_info: &AccountInfo) -> Result<Option<Pubkey>> {
     if *mint_info.owner != token_2022::Token2022::id() {
         return Ok(None);
     }
@@ -438,6 +553,14 @@ pub fn create_token_account<'a>(
     token_program: &AccountInfo<'a>,
     signer_seeds: &[&[u8]],
 ) -> Result<()> {
+    if token_account.owner == token_program.key && !token_account.data_is_empty() {
+        let account_data = token_account.try_borrow_data()?;
+        let account = StateWithExtensions::<spl_token_2022::state::Account>::unpack(&account_data)?;
+        require_keys_eq!(account.base.mint, mint_account.key(), ErrorCode::InvalidMint);
+        require_keys_eq!(account.base.owner, authority.key(), ErrorCode::InvalidVault);
+        return Ok(());
+    }
+
     let space = {
         let mint_info = mint_account.to_account_info();
         if *mint_info.owner == token_2022::Token2022::id() {

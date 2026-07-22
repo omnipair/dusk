@@ -3,6 +3,7 @@ members = [
     "programs/dusk",
     "programs/leverage_delegate",
     "programs/faucet",
+    "tests/fixtures/referral_transfer_hook",
 ]
 resolver = "2"
 

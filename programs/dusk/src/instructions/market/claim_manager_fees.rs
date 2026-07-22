@@ -25,8 +25,8 @@ pub struct ClaimManagerFees<'info> {
         mut,
         seeds = [
             MARKET_V2_SEED_PREFIX,
-            market.base_mint.as_ref(),
-            market.quote_mint.as_ref(),
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
             market.params_hash.as_ref(),
         ],
         bump = market.bump
@@ -70,7 +70,7 @@ impl<'info> ClaimManagerFees<'info> {
         let asset_mint_key = ctx.accounts.asset_mint.key();
         let market_asset = ctx.accounts.market.asset_for_mint(asset_mint_key)?;
         let (swap_fee_amount, interest_fee_amount) = {
-            let market_side = ctx.accounts.market.side(market_asset)?;
+            let market_side = ctx.accounts.market.side(market_asset);
             (
                 market_side.fees.manager_swap_fee_liability,
                 market_side.fees.manager_interest_fee_liability,
@@ -111,7 +111,7 @@ impl<'info> ClaimManagerFees<'info> {
         ctx.accounts.fee_vault.reload()?;
         ctx.accounts.interest_vault.reload()?;
         {
-            let market_side = ctx.accounts.market.side_mut(market_asset)?;
+            let market_side = ctx.accounts.market.side_mut(market_asset);
             market_side.fees.manager_swap_fee_liability = 0;
             market_side.fees.manager_interest_fee_liability = 0;
             market_side.fees.swap_fee_vault_balance = ctx.accounts.fee_vault.amount;

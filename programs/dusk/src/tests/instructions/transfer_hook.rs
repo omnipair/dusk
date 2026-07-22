@@ -67,8 +67,6 @@ use super::*;
         let quote_hlp_mint = Pubkey::new_unique();
         let market = Market {
             version: 0,
-            base_mint,
-            quote_mint,
             ylp_mint,
             operator: Pubkey::new_unique(),
             manager: Pubkey::new_unique(),

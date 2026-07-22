@@ -4,8 +4,6 @@ use super::*;
     fn empty_market() -> Market {
         Market {
             version: MARKET_VERSION,
-            base_mint: Pubkey::new_unique(),
-            quote_mint: Pubkey::new_unique(),
             ylp_mint: Pubkey::new_unique(),
             operator: Pubkey::new_unique(),
             manager: Pubkey::new_unique(),
@@ -379,13 +377,6 @@ use super::*;
                 quote_cash_bps,
             );
 
-            // A deliberately hostile K EMA must not gate vanilla yLP exits.
-            market.risk.k_ema = (base_live as u128)
-                .checked_mul(quote_live as u128)
-                .unwrap()
-                .checked_mul(10)
-                .unwrap();
-            market.config.k_ema_drawdown_bps = 0;
             market.assert_market_invariants().unwrap();
 
             let base_before = market.base_side.reserves.live_reserve;

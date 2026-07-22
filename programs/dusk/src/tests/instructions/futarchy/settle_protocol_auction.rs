@@ -15,7 +15,6 @@ use super::*;
                 max_reference_age_slots: 10,
             },
             last_settlement_slot,
-            last_settlement_price_nad: 0,
         }
     }
 

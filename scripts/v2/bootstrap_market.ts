@@ -287,12 +287,16 @@ async function ensureFutarchyAuthority(params: {
       authority: params.payer,
       swapBps: Number(duskEnv("PROTOCOL_SWAP_BPS") ?? "0"),
       interestBps: Number(duskEnv("PROTOCOL_INTEREST_BPS") ?? "0"),
+      maxReferralInterestShareBps: Number(duskEnv("MAX_REFERRAL_INTEREST_SHARE_BPS") ?? "5000"),
       futarchyTreasury: params.payer,
       futarchyTreasuryBps: 0,
       buybacksVault: params.payer,
       buybacksVaultBps: 0,
       teamTreasury: params.payer,
       teamTreasuryBps: 10_000,
+      stakingVault: params.payer,
+      feeAuctionAcceptedMint: NATIVE_MINT,
+      buybackAuctionAcceptedMint: NATIVE_MINT,
     })
     .accounts({
       deployer: params.payer,

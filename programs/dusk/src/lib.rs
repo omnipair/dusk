@@ -73,6 +73,27 @@ pub mod dusk {
         SetGlobalReduceOnly::handle_set_global_reduce_only(ctx, args)
     }
 
+    // Referral instructions
+    pub fn configure_referral_partner(
+        ctx: Context<ConfigureReferralPartner>,
+        args: ConfigureReferralPartnerArgs,
+    ) -> Result<()> {
+        ConfigureReferralPartner::handle_configure(ctx, args)
+    }
+
+    pub fn initialize_referral_accrual(ctx: Context<InitializeReferralAccrual>) -> Result<()> {
+        InitializeReferralAccrual::handle_initialize(ctx)
+    }
+
+    pub fn set_referral_recipient(ctx: Context<SetReferralRecipient>, args: SetReferralRecipientArgs) -> Result<()> {
+        SetReferralRecipient::handle_set(ctx, args)
+    }
+
+    #[access_control(ctx.accounts.validate())]
+    pub fn claim_referral_interest<'info>(ctx: Context<'_, '_, '_, 'info, ClaimReferralInterest<'info>>) -> Result<()> {
+        ClaimReferralInterest::handle_claim(ctx)
+    }
+
     #[access_control(ctx.accounts.validate(&args))]
     pub fn settle_protocol_auction<'info>(
         ctx: Context<'_, '_, '_, 'info, SettleProtocolAuction<'info>>,
@@ -153,12 +174,12 @@ pub mod dusk {
     }
 
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn borrow(ctx: Context<Borrow>, args: BorrowArgs) -> Result<()> {
+    pub fn borrow<'info>(ctx: Context<'_, '_, '_, 'info, Borrow<'info>>, args: BorrowArgs) -> Result<()> {
         Borrow::handle_borrow(ctx, args)
     }
 
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn repay(ctx: Context<Repay>, args: RepayArgs) -> Result<()> {
+    pub fn repay<'info>(ctx: Context<'_, '_, '_, 'info, Repay<'info>>, args: RepayArgs) -> Result<()> {
         Repay::handle_repay(ctx, args)
     }
 
@@ -251,12 +272,9 @@ pub mod dusk {
     }
 
     // Liquidation auction instructions
-    #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn trigger_liquidation_auction(
-        ctx: Context<TriggerLiquidationAuction>,
-        args: TriggerLiquidationAuctionArgs,
-    ) -> Result<()> {
-        TriggerLiquidationAuction::handle_trigger(ctx, args)
+    #[access_control(ctx.accounts.update_and_validate())]
+    pub fn trigger_liquidation_auction(ctx: Context<TriggerLiquidationAuction>) -> Result<()> {
+        TriggerLiquidationAuction::handle_trigger(ctx)
     }
 
     // Preview instructions
@@ -288,13 +306,16 @@ pub mod dusk {
 
     // Liquidation auction instructions
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn bid_liquidation_auction(ctx: Context<BidLiquidationAuction>, args: BidLiquidationAuctionArgs) -> Result<()> {
+    pub fn bid_liquidation_auction<'info>(
+        ctx: Context<'_, '_, '_, 'info, BidLiquidationAuction<'info>>,
+        args: BidLiquidationAuctionArgs,
+    ) -> Result<()> {
         BidLiquidationAuction::handle_bid(ctx, args)
     }
 
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn settle_liquidation_auction_amm(
-        ctx: Context<SettleLiquidationAuctionAmm>,
+    pub fn settle_liquidation_auction_amm<'info>(
+        ctx: Context<'_, '_, '_, 'info, SettleLiquidationAuctionAmm<'info>>,
         args: SettleLiquidationAuctionAmmArgs,
     ) -> Result<()> {
         SettleLiquidationAuctionAmm::handle_settle(ctx, args)

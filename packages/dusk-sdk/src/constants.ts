@@ -32,6 +32,8 @@ export const SEEDS = {
   HLP_YLP_VAULT: Buffer.from("hlp_ylp_vault"),
   INSURANCE: Buffer.from("insurance"),
   FUTARCHY_AUTHORITY: Buffer.from("futarchy_authority"),
+  REFERRAL_PARTNER: Buffer.from("referral_partner"),
+  REFERRAL_ACCRUAL: Buffer.from("referral_accrual"),
   METADATA: Buffer.from("metadata"),
 } as const;
 
@@ -48,6 +50,31 @@ function normalizeParamsHash(paramsHash: Uint8Array | Buffer | number[]): Buffer
  */
 export function deriveFutarchyAuthorityAddress(): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([SEEDS.FUTARCHY_AUTHORITY], DUSK_PROGRAM_ID);
+}
+
+/** Derive the protocol-wide referral partner for a referrer authority. */
+export function deriveReferralPartnerAddress(authority: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [SEEDS.REFERRAL_PARTNER, authority.toBuffer()],
+    DUSK_PROGRAM_ID
+  );
+}
+
+/** Derive claimable referral interest for one partner, market, and debt mint. */
+export function deriveReferralAccrualAddress(
+  referralPartner: PublicKey,
+  market: PublicKey,
+  assetMint: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [
+      SEEDS.REFERRAL_ACCRUAL,
+      referralPartner.toBuffer(),
+      market.toBuffer(),
+      assetMint.toBuffer(),
+    ],
+    DUSK_PROGRAM_ID
+  );
 }
 
 /**

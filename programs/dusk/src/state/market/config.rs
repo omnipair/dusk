@@ -12,15 +12,12 @@ pub struct MarketConfig {
     pub protocol_fee_bps: u16,
     pub target_hlp_leverage_bps: u16,
     pub settlement_divergence_bps: u16,
-    pub emergency_exit_haircut_bps: u16,
     pub ema_half_life_ms: u64,
     pub directional_ema_half_life_ms: u64,
     pub k_ema_half_life_ms: u64,
     pub max_daily_borrow_bps: u16,
-    pub spot_ema_divergence_bps: u16,
-    pub k_ema_drawdown_bps: u16,
-    pub recognized_collateral_cap_bps: u16,
-    pub market_health_min_bps: u16,
+    pub global_health_contribution_cap_bps: u16,
+    pub borrow_market_health_floor_bps: u16,
     pub start_time: i64,
 }
 
@@ -39,11 +36,7 @@ impl MarketConfig {
             ErrorCode::InvalidMarketConfig
         );
         require!(
-            self.max_daily_borrow_bps <= BPS_DENOMINATOR
-                && self.spot_ema_divergence_bps <= BPS_DENOMINATOR
-                && self.k_ema_drawdown_bps <= BPS_DENOMINATOR
-                && self.settlement_divergence_bps <= BPS_DENOMINATOR
-                && self.emergency_exit_haircut_bps <= BPS_DENOMINATOR,
+            self.max_daily_borrow_bps <= BPS_DENOMINATOR && self.settlement_divergence_bps <= BPS_DENOMINATOR,
             ErrorCode::InvalidMarketConfig
         );
         require!(
@@ -53,9 +46,9 @@ impl MarketConfig {
             ErrorCode::InvalidMarketConfig
         );
         require!(
-            self.recognized_collateral_cap_bps >= BPS_DENOMINATOR
-                && self.market_health_min_bps >= BPS_DENOMINATOR
-                && self.recognized_collateral_cap_bps >= self.market_health_min_bps,
+            self.global_health_contribution_cap_bps >= BPS_DENOMINATOR
+                && self.borrow_market_health_floor_bps >= BPS_DENOMINATOR
+                && self.global_health_contribution_cap_bps >= self.borrow_market_health_floor_bps,
             ErrorCode::InvalidMarketConfig
         );
         Ok(())

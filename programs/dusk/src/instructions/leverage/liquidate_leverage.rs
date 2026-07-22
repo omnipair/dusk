@@ -9,8 +9,10 @@ use crate::{
     errors::ErrorCode,
     events::{LeveragePositionLiquidated, MarketEventMetadata},
     generate_market_seeds,
-    shared::token::{transfer_from_vault_to_user, transfer_from_vault_to_vault},
-    state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset},
+    shared::token::{
+        transfer_from_vault_to_user_with_remaining_accounts, transfer_from_vault_to_vault_with_remaining_accounts,
+    },
+    state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
 };
 
 use super::common::{
@@ -18,6 +20,7 @@ use super::common::{
     validate_leverage_interest_account, validate_leverage_mints, validate_leverage_reserve_accounts,
 };
 use crate::instructions::common::{token_account_credit, token_program_for_mint};
+use crate::instructions::referral::common::{emit_referral_interest_accrued, validate_referral_binding};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct LiquidateLeverageArgs {
@@ -32,8 +35,8 @@ pub struct LiquidateLeverage<'info> {
         mut,
         seeds = [
             MARKET_V2_SEED_PREFIX,
-            market.base_mint.as_ref(),
-            market.quote_mint.as_ref(),
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
             market.params_hash.as_ref(),
         ],
         bump = market.bump
@@ -100,6 +103,11 @@ pub struct LiquidateLeverage<'info> {
     )]
     pub owner_debt_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
+    pub referral_partner: Option<Box<Account<'info, ReferralPartner>>>,
+
+    #[account(mut)]
+    pub referral_accrual: Option<Box<Account<'info, ReferralAccrual>>>,
+
     #[account(mut)]
     pub liquidator: Signer<'info>,
     pub token_program: Program<'info, Token>,
@@ -127,6 +135,17 @@ impl<'info> LiquidateLeverage<'info> {
         )?;
         validate_leverage_interest_account(&self.market, &self.debt_mint, &self.debt_interest_vault, debt_asset)?;
         self.leverage_position.require_open()?;
+        validate_referral_binding(
+            None,
+            self.leverage_position.referral_partner,
+            self.leverage_position.referral_interest_share_bps,
+            true,
+            &self.futarchy_authority,
+            self.referral_partner.as_deref(),
+            self.referral_accrual.as_deref(),
+            self.market.key(),
+            &self.debt_mint,
+        )?;
         Ok(())
     }
 
@@ -141,6 +160,7 @@ impl<'info> LiquidateLeverage<'info> {
         let debt_mint_key = ctx.accounts.debt_mint.key();
         let collateral_mint_key = ctx.accounts.collateral_mint.key();
         let position_key = ctx.accounts.leverage_position.key();
+        let expected_referral_partner = ctx.accounts.leverage_position.referral_partner;
         let collateral_sold = ctx.accounts.leverage_position.collateral_amount;
 
         let collateral_token_program = token_program_for_mint(
@@ -148,7 +168,7 @@ impl<'info> LiquidateLeverage<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        transfer_from_vault_to_vault(
+        transfer_from_vault_to_vault_with_remaining_accounts(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.leverage_collateral_vault.to_account_info(),
             ctx.accounts.collateral_reserve_vault.to_account_info(),
@@ -157,6 +177,7 @@ impl<'info> LiquidateLeverage<'info> {
             collateral_sold,
             ctx.accounts.collateral_mint.decimals,
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
+            ctx.remaining_accounts,
         )?;
         let swap = ctx
             .accounts
@@ -170,6 +191,7 @@ impl<'info> LiquidateLeverage<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
             swap.fee_credit,
+            ctx.remaining_accounts,
         )?;
 
         let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
@@ -186,7 +208,7 @@ impl<'info> LiquidateLeverage<'info> {
             &ctx.accounts.token_2022_program,
         )?;
         let liquidator_balance_before = ctx.accounts.liquidator_debt_account.amount;
-        transfer_from_vault_to_user(
+        transfer_from_vault_to_user_with_remaining_accounts(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.debt_reserve_vault.to_account_info(),
             ctx.accounts.liquidator_debt_account.to_account_info(),
@@ -195,12 +217,13 @@ impl<'info> LiquidateLeverage<'info> {
             receipt.liquidator_amount,
             ctx.accounts.debt_mint.decimals,
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
+            ctx.remaining_accounts,
         )?;
         ctx.accounts.liquidator_debt_account.reload()?;
         let liquidator_amount = token_account_credit(liquidator_balance_before, &ctx.accounts.liquidator_debt_account)?;
 
         let owner_balance_before = ctx.accounts.owner_debt_account.amount;
-        transfer_from_vault_to_user(
+        transfer_from_vault_to_user_with_remaining_accounts(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.debt_reserve_vault.to_account_info(),
             ctx.accounts.owner_debt_account.to_account_info(),
@@ -209,11 +232,12 @@ impl<'info> LiquidateLeverage<'info> {
             receipt.owner_residual,
             ctx.accounts.debt_mint.decimals,
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
+            ctx.remaining_accounts,
         )?;
         ctx.accounts.owner_debt_account.reload()?;
         let owner_residual = token_account_credit(owner_balance_before, &ctx.accounts.owner_debt_account)?;
 
-        record_leverage_interest(
+        let referral_receipt = record_leverage_interest(
             &mut ctx.accounts.market,
             debt_asset,
             &ctx.accounts.debt_mint,
@@ -222,9 +246,22 @@ impl<'info> LiquidateLeverage<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
             manager_fee_bps,
-            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
-            ctx.accounts.futarchy_authority.protocol_auction_split,
+            &ctx.accounts.futarchy_authority,
+            expected_referral_partner,
+            ctx.accounts.leverage_position.referral_interest_share_bps,
+            ctx.accounts.referral_partner.as_deref(),
+            ctx.accounts.referral_accrual.as_deref_mut(),
             receipt.interest_paid,
+            ctx.remaining_accounts,
+        )?;
+
+        emit_referral_interest_accrued(
+            &referral_receipt,
+            market_key,
+            position_key,
+            owner_key,
+            liquidator_key,
+            debt_mint_key,
         )?;
 
         emit_cpi!(LeveragePositionLiquidated {

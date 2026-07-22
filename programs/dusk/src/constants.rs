@@ -9,7 +9,13 @@ pub const NAD_DECIMALS: u8 = 9;
 #[constant]
 pub const BPS_DENOMINATOR: u16 = 10_000;
 #[constant]
+pub const MAX_COLLATERAL_FACTOR_BPS: u16 = 8_500;
+#[constant]
+pub const LTV_BUFFER_BPS: u16 = 500;
+#[constant]
 pub const MAX_MANAGER_FEE_BPS: u16 = 500;
+#[constant]
+pub const MAX_REFERRAL_INTEREST_SHARE_BPS: u16 = BPS_DENOMINATOR;
 #[constant]
 pub const LIQUIDATION_CLOSE_FACTOR_BPS: u16 = 5_000;
 #[constant]
@@ -25,6 +31,10 @@ pub const MARKET_CREATION_FEE_LAMPORTS: u64 = 200_000_000; // 0.2 SOL
 #[constant]
 pub const TARGET_MS_PER_SLOT: u64 = 400;
 #[constant]
+#[cfg(feature = "development")]
+pub const MARKET_GOVERNANCE_DELAY_SLOTS: u64 = 100;
+#[constant]
+#[cfg(not(feature = "development"))]
 pub const MARKET_GOVERNANCE_DELAY_SLOTS: u64 = 216_000; // ~24 hours at 400ms/slot
 
 pub const MIN_HALF_LIFE_MS: u64 = 60_000;
@@ -80,6 +90,10 @@ pub const MARKET_V2_SEED_PREFIX: &[u8] = b"market_v2";
 #[constant]
 pub const FUTARCHY_AUTHORITY_SEED_PREFIX: &[u8] = b"futarchy_authority";
 #[constant]
+pub const REFERRAL_PARTNER_SEED_PREFIX: &[u8] = b"referral_partner";
+#[constant]
+pub const REFERRAL_ACCRUAL_SEED_PREFIX: &[u8] = b"referral_accrual";
+#[constant]
 pub const MARKET_RESERVE_VAULT_SEED_PREFIX: &[u8] = b"market_reserve";
 #[constant]
 pub const MARKET_COLLATERAL_VAULT_SEED_PREFIX: &[u8] = b"market_collateral";
@@ -112,7 +126,10 @@ pub const LEVERAGE_INITIAL_MARGIN_BPS: u16 = 1_000; // 10%
 #[constant]
 pub const LEVERAGE_MAINTENANCE_BUFFER_BPS: u16 = 700; // 7%
 #[constant]
-pub const MARKET_VERSION: u8 = 2;
+pub const MARKET_VERSION: u8 = 3;
 
 /// Emergency signer authorized to toggle reduce-only mode.
+#[cfg(feature = "development")]
+pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("2iXtA8oeZqUU5pofxK971TCEvFGfems2AcDRaZHKD2pQ");
+#[cfg(not(feature = "development"))]
 pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");

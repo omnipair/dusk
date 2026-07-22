@@ -29,7 +29,6 @@ pub struct DepositSingleSidedArgs {
     pub min_hlp_amount: u64,
 }
 
-#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: DepositSingleSidedArgs)]
 pub struct DepositSingleSided<'info> {
@@ -37,8 +36,8 @@ pub struct DepositSingleSided<'info> {
         mut,
         seeds = [
             MARKET_V2_SEED_PREFIX,
-            market.base_mint.as_ref(),
-            market.quote_mint.as_ref(),
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
             market.params_hash.as_ref(),
         ],
         bump = market.bump
@@ -129,7 +128,7 @@ impl<'info> DepositSingleSided<'info> {
             MarketAsset::Base => &self.base_mint,
             MarketAsset::Quote => &self.quote_mint,
         };
-        let target_hlp_mint = self.market.side(target_asset)?.hlp_mint;
+        let target_hlp_mint = self.market.side(target_asset).hlp_mint;
         require_keys_eq!(target_hlp_mint, self.target_hlp_mint.key(), ErrorCode::InvalidMint);
         validate_owner_asset_account(self.owner.key(), target_mint, &self.owner_target_account)?;
         validate_owner_lp_account(self.owner.key(), &self.target_hlp_mint, &self.owner_hlp_account)?;
@@ -161,7 +160,6 @@ impl<'info> DepositSingleSided<'info> {
         };
 
         ctx.accounts.market.refresh_risk()?;
-        ctx.accounts.market.assert_risk_circuit_breakers()?;
 
         let (target_reserve_vault, target_mint) = match target_asset {
             MarketAsset::Base => (

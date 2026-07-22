@@ -84,8 +84,8 @@ pub struct MarketAuthorityUpdateScheduled {
 #[event]
 pub struct MarketHealthUpdated {
     pub market: Pubkey,
-    pub recognized_base_collateral_for_quote_debt: u64,
-    pub recognized_quote_collateral_for_base_debt: u64,
+    pub global_health_base_contribution_for_quote_debt: u64,
+    pub global_health_quote_contribution_for_base_debt: u64,
     pub effective_base_debt_nad: u128,
     pub effective_quote_debt_nad: u128,
     pub base_debt_health_bps: u64,
@@ -192,6 +192,73 @@ pub struct ProtocolAuctionSplitUpdated {
 }
 
 #[event]
+pub struct ReferralInterestShareCapUpdated {
+    pub authority: Pubkey,
+    pub max_referral_interest_share_bps: u16,
+    pub signer: Pubkey,
+}
+
+#[event]
+pub struct ReferralPartnerConfigured {
+    pub referral_partner: Pubkey,
+    pub authority: Pubkey,
+    pub recipient: Pubkey,
+    pub interest_share_bps: u16,
+    pub active: bool,
+    pub signer: Pubkey,
+}
+
+#[event]
+pub struct ReferralRecipientUpdated {
+    pub referral_partner: Pubkey,
+    pub authority: Pubkey,
+    pub recipient: Pubkey,
+}
+
+#[event]
+pub struct ReferralInterestClaimed {
+    pub market: Pubkey,
+    pub referral_partner: Pubkey,
+    pub referral_accrual: Pubkey,
+    pub authority: Pubkey,
+    pub recipient: Pubkey,
+    pub asset_mint: Pubkey,
+    pub vault_debit: u64,
+    pub recipient_credit: u64,
+    pub remaining_accrual: u64,
+    pub metadata: MarketEventMetadata,
+}
+
+#[event]
+pub struct ReferralInterestAccrued {
+    pub market: Pubkey,
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub referrer: Pubkey,
+    pub referral_partner: Pubkey,
+    pub referral_accrual: Pubkey,
+    pub asset_mint: Pubkey,
+    pub interest_paid: u64,
+    pub interest_vault_credit: u64,
+    pub protocol_interest_revenue: u64,
+    pub interest_share_bps: u16,
+    pub accrued_amount: u64,
+    pub metadata: MarketEventMetadata,
+}
+
+#[event]
+pub struct ReferralBound {
+    pub market: Pubkey,
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub referrer: Pubkey,
+    pub referral_partner: Pubkey,
+    pub asset_mint: Pubkey,
+    pub interest_share_bps: u16,
+    pub metadata: MarketEventMetadata,
+}
+
+#[event]
 pub struct ProtocolAuctionSettled {
     pub market: Pubkey,
     pub reference_market: Pubkey,
@@ -247,6 +314,7 @@ pub struct LeveragePositionOpened {
     pub debt_asset_mint: Pubkey,
     pub collateral_asset_mint: Pubkey,
     pub margin_amount: u64,
+    pub borrowed_amount: u64,
     pub debt_amount: u64,
     pub debt_shares: u128,
     pub collateral_amount: u64,
@@ -278,6 +346,7 @@ pub struct LeveragePositionUpdated {
     pub owner: Pubkey,
     pub debt_asset_mint: Pubkey,
     pub collateral_asset_mint: Pubkey,
+    pub borrowed_amount: u64,
     pub debt_delta: i64,
     pub collateral_delta: i64,
     pub debt_amount: u64,
@@ -324,6 +393,10 @@ pub struct MarketCollateralDeposited {
     pub collateral_credit: u64,
     pub base_collateral: u64,
     pub quote_collateral: u64,
+    pub global_health_base_contribution_for_quote_debt: u64,
+    pub global_health_quote_contribution_for_base_debt: u64,
+    pub base_liquidation_cf_bps: u16,
+    pub quote_liquidation_cf_bps: u16,
     pub metadata: MarketEventMetadata,
 }
 
@@ -336,6 +409,10 @@ pub struct MarketCollateralWithdrawn {
     pub asset_credit: u64,
     pub base_collateral: u64,
     pub quote_collateral: u64,
+    pub global_health_base_contribution_for_quote_debt: u64,
+    pub global_health_quote_contribution_for_base_debt: u64,
+    pub base_liquidation_cf_bps: u16,
+    pub quote_liquidation_cf_bps: u16,
     pub metadata: MarketEventMetadata,
 }
 
@@ -347,6 +424,10 @@ pub struct MarketDebtUpdated {
     pub debt_delta: i64,
     pub fixed_base_debt: u128,
     pub fixed_quote_debt: u128,
+    pub global_health_base_contribution_for_quote_debt: u64,
+    pub global_health_quote_contribution_for_base_debt: u64,
+    pub base_liquidation_cf_bps: u16,
+    pub quote_liquidation_cf_bps: u16,
     pub base_debt_health_bps: u64,
     pub quote_debt_health_bps: u64,
     pub metadata: MarketEventMetadata,
@@ -367,6 +448,8 @@ pub struct PositionLiquidated {
     pub insurance_drawn: u64,
     pub socialized_loss: u64,
     pub remaining_debt: u128,
+    pub remaining_global_health_contribution: u64,
+    pub remaining_liquidation_cf_bps: u16,
     pub metadata: MarketEventMetadata,
 }
 

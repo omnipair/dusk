@@ -34,13 +34,12 @@ mainnet launch or upgrade.
 - Run a fresh end-to-end review against the final Dusk source tree.
 - Re-check the Dusk invariants in `programs/dusk/README.md`.
 - Re-check the cached-spot EMA flow for same-slot manipulation resistance.
-- Re-check daily borrow-limit enforcement against liquidity EMA.
-- Re-check borrower risk valuation uses conservative depth
-  `min(live_reserve, liquidity_ema)`.
-- Confirm vanilla yLP withdrawal is not gated by daily withdrawal buckets or
-  post-withdraw spot/K circuit breakers; it remains constrained by cash
-  availability, user slippage bounds, pro-rata burn math, and reserve/share
-  invariants.
+- Re-check daily borrow-limit enforcement against side depths reconstructed
+  from `min(spot_k, k_ema)` at the current reserve ratio.
+- Re-check borrower risk valuation uses conservative K and pessimistic EMA
+  pricing.
+- Confirm vanilla yLP withdrawal remains constrained by cash availability,
+  user slippage bounds, pro-rata burn math, and reserve/share invariants.
 - Re-check liquidation accounting for collateral seizure, insurance draw, and
   LP socialization.
 - Re-check fee liabilities: yLP, hLP, operator, protocol, and unallocated

@@ -512,15 +512,16 @@ export function defaultMarketConfig() {
     protocolFeeBps: Number(duskEnv("PROTOCOL_FEE_BPS", "0")),
     targetHlpLeverageBps: Number(duskEnv("TARGET_HLP_LEVERAGE_BPS", "20000")),
     settlementDivergenceBps: Number(duskEnv("SETTLEMENT_DIVERGENCE_BPS", "500")),
-    emergencyExitHaircutBps: Number(duskEnv("EMERGENCY_EXIT_HAIRCUT_BPS", "250")),
     emaHalfLifeMs: new anchor.BN(duskEnv("EMA_HALF_LIFE_MS", "60000")),
     directionalEmaHalfLifeMs: new anchor.BN(duskEnv("DIRECTIONAL_EMA_HALF_LIFE_MS", "60000")),
     kEmaHalfLifeMs: new anchor.BN(duskEnv("K_EMA_HALF_LIFE_MS", "60000")),
     maxDailyBorrowBps: Number(duskEnv("MAX_DAILY_BORROW_BPS", "2000")),
-    spotEmaDivergenceBps: Number(duskEnv("SPOT_EMA_DIVERGENCE_BPS", "1000")),
-    kEmaDrawdownBps: Number(duskEnv("K_EMA_DRAWDOWN_BPS", "1000")),
-    recognizedCollateralCapBps: Number(duskEnv("RECOGNIZED_COLLATERAL_CAP_BPS", "15000")),
-    marketHealthMinBps: Number(duskEnv("MARKET_HEALTH_MIN_BPS", "11000")),
+    globalHealthContributionCapBps: Number(
+      duskEnv("GLOBAL_HEALTH_CONTRIBUTION_CAP_BPS", "15000")
+    ),
+    borrowMarketHealthFloorBps: Number(
+      duskEnv("BORROW_MARKET_HEALTH_FLOOR_BPS", "11000")
+    ),
     startTime: new anchor.BN(startTime),
   };
 }

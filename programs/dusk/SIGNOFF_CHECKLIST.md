@@ -27,13 +27,13 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 - Review the core invariants listed in `programs/dusk/README.md`.
 - Review the cached-spot EMA flow and pre-action risk snapshots for swap and
   liquidity-add paths.
-- Review liquidity-EMA daily limits and spot/K circuit breakers.
+- Review K-conservative reconstructed depth and independent per-side daily borrow limits.
 - Review floating yLP liquidity, matched yLP redemption, and Token-2022
   transfer checkpointing.
 - Review fee liabilities and settlement paths for yLP, hLP, operator,
   protocol, and unallocated buckets.
-- Review fixed debt, recognized collateral, normalized valuation, and
-  liquidation/insurance/socialization accounting.
+- Review fixed debt, bounded global-health contributions, stored liquidation
+  CFs, normalized valuation, and liquidation/insurance/socialization accounting.
 - Review Token-2022 constraints and measured inventory-credit settlement.
 - Confirm soft borrow and soft liquidation remain disabled unless a separate
   reviewed spec has been merged.
@@ -65,9 +65,9 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 
 - Subscribe to the standalone Dusk program ID and Dusk IDL events.
 - Use `MarketEventMetadata.market` as the Dusk market key.
-- Track yLP supply, hLP vault-owned yLP, hLP supply, hLP debt, recognized
-  collateral, insurance, fee liabilities, and market health as separate Dusk
-  metrics.
+- Track yLP supply, hLP vault-owned yLP, hLP supply, hLP debt, global-health
+  contributions, stored liquidation CFs, insurance, fee liabilities, and
+  market health as separate Dusk metrics.
 - Decode `LiquidityAdded`, `LiquidityRemoved`, `SwapExecuted`,
   `MarketDebtUpdated`, `PositionLiquidated`, yield, protocol-fee, hedge, and
   insurance events from the Dusk IDL.

@@ -2,6 +2,11 @@
 
 TypeScript SDK for Omnipair Dusk (v2).
 
+A `Dusk` instance is an enriched Anchor program facade. It exposes the raw
+Anchor program through `dusk.program`, alongside typed on-chain reads and
+previews through `dusk.get`, transaction builders through `dusk.write`, and
+indexed historical data through `dusk.fetch`.
+
 The package exports the generated Anchor IDL/types, PDA helpers, typed preview
 decoders, a small write/read facade over the Dusk program, and an indexer client
 for historical API data.
@@ -69,6 +74,75 @@ const ix = await dusk.write.instruction(
 `write.builder(...)`, `write.transaction(...)`, and `write.rpc(...)` expose the
 same generic path for every Dusk instruction in the IDL.
 
+### Referral Interest Sharing
+
+Futarchy first lists a referrer and configures its share of realized protocol
+interest revenue:
+
+```typescript
+const configureTx = await dusk.write.configureReferralPartnerTransaction({
+  authoritySigner: futarchySigner.publicKey,
+  referrer,
+  interestShareBps: 2_500,
+  active: true,
+});
+```
+
+The listed referrer may then designate the wallet that receives claims:
+
+```typescript
+const partnerTx = await dusk.write.setReferralRecipientTransaction({
+  authority: referrer.publicKey,
+  recipient,
+});
+```
+
+The referred-action builders derive the partner and its per-market, per-mint
+accrual account, initialize the accrual idempotently, and compose setup with the
+debt-opening instruction:
+
+```typescript
+const { transaction, referralPartner, referralAccrual } =
+  await dusk.write.referredBorrow(
+    {
+      borrowAmount,
+      minDebtAmountOut,
+      minLiquidationCfBps,
+    },
+    {
+      payer: borrower,
+      referrer,
+      market,
+      debtMint,
+      accounts: borrowAccounts,
+    }
+  );
+```
+
+`referredOpenLeverage(...)` provides the equivalent leverage-opening flow.
+Existing borrow debt sides and leverage positions retain their bound partner on
+later debt increases. The program snapshots the partner share, capped by the
+current runtime maximum, when the binding is created. Deactivation or later
+rate/cap updates affect new bindings only. Referral does not change requested
+principal, position debt, interest, health, or liquidation terms.
+
+When interest is realized, the partner accrues a governed share of the DAO's
+interest revenue. Claims always pay a token account owned by the partner's
+current recipient, and the SDK resolves Token-2022 transfer-hook accounts:
+
+```typescript
+const claimTx = await dusk.write.claimReferralInterestTransaction({
+  authority: referrer,
+  market,
+  mint: debtMint,
+  recipientTokenAccount,
+});
+```
+
+`referralBindingInterestShareBps(...)` computes the admission-time capped share.
+Pass that stored share to `quoteReferralInterestShare(...)` to mirror the
+on-chain floor rounding for realized interest.
+
 ## Get On-Chain State
 
 ```typescript
@@ -90,8 +164,33 @@ Available typed previews:
 
 - `previewMarket(market)`.
 - `previewSwap({ market, assetInMint, assetOutMint, exactAssetIn })`.
-- `previewBorrowCapacity({ market, collateralAssetMint, debtAssetMint, collateralAmount, projectedDebtAmount })`.
+- `previewBorrowCapacity({ market, collateralAssetMint, debtAssetMint, collateralAmount, projectedBorrowAmount })`.
 - `previewBorrowPosition({ market, borrowPosition })`.
+
+`previewBorrowCapacity` exposes both the health-limited result of the on-chain
+binary search and the final limit after cash and daily-borrow constraints:
+
+```typescript
+const capacity = await dusk.get.previewBorrowCapacity({
+  market,
+  collateralAssetMint: baseMint,
+  debtAssetMint: quoteMint,
+  collateralAmount,
+  // Optional: quote CF and health terms for this requested principal.
+  projectedBorrowAmount,
+});
+
+capacity.maxDebtByHealth;
+capacity.maxDebtByCash;
+capacity.maxDebtByDailyLimit;
+capacity.maxDebt;
+capacity.maxBorrowAmount;
+capacity.maxCfBps;
+capacity.liquidationCfBps;
+capacity.projectedGlobalHealthContribution;
+capacity.projectedGlobalMarketHealthBps;
+capacity.projectedEffectiveExistingDebtNad;
+```
 
 ## Fetch Historical Data
 
@@ -116,7 +215,7 @@ import {
   deriveMarketAddress,
   IDL,
   PROGRAM_ID,
-  type Dusk,
+  type DuskIdl,
 } from "@omnipair/dusk-sdk";
 
 const program = createDuskProgram({ provider });

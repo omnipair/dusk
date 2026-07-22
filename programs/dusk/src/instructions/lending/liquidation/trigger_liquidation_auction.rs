@@ -4,21 +4,17 @@ use anchor_spl::token_interface::Mint;
 use crate::{
     constants::*,
     errors::ErrorCode,
-    state::{market::transitions::liquidation::LiquidationPricing, BorrowPosition, Market},
+    state::{BorrowPosition, Market},
 };
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct TriggerLiquidationAuctionArgs {}
-
 #[derive(Accounts)]
-#[instruction(args: TriggerLiquidationAuctionArgs)]
 pub struct TriggerLiquidationAuction<'info> {
     #[account(
         mut,
         seeds = [
             MARKET_V2_SEED_PREFIX,
-            market.base_mint.as_ref(),
-            market.quote_mint.as_ref(),
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
             market.params_hash.as_ref(),
         ],
         bump = market.bump
@@ -40,7 +36,7 @@ pub struct TriggerLiquidationAuction<'info> {
 }
 
 impl<'info> TriggerLiquidationAuction<'info> {
-    pub fn validate(&self, _args: &TriggerLiquidationAuctionArgs) -> Result<()> {
+    pub fn validate(&self) -> Result<()> {
         self.market.assert_started()?;
         require_keys_eq!(
             self.borrow_position.market,
@@ -50,31 +46,26 @@ impl<'info> TriggerLiquidationAuction<'info> {
         Ok(())
     }
 
-    crate::instructions::common::market_update_and_validate!(TriggerLiquidationAuctionArgs);
+    crate::instructions::common::market_update_and_validate!();
 
-    pub fn handle_trigger(ctx: Context<Self>, _args: TriggerLiquidationAuctionArgs) -> Result<()> {
+    pub fn handle_trigger(ctx: Context<Self>) -> Result<()> {
         let debt_asset_mint_key = ctx.accounts.debt_asset_mint.key();
         let debt_asset = ctx.accounts.market.asset_for_mint(debt_asset_mint_key)?;
 
-        let liquidation_reference_price_nad = ctx.accounts.market.liquidation_reference_price_nad(debt_asset)?;
-
-        let liquidation_pricing = LiquidationPricing::ReferencePrice {
-            debt_per_collateral_price_nad: liquidation_reference_price_nad,
-        };
-
-        let health_bps = ctx.accounts.market.liquidation_health_bps_with_pricing(
-            &ctx.accounts.borrow_position,
-            debt_asset,
-            liquidation_pricing,
-        )?;
+        let liquidation_reference_price_nad = ctx
+            .accounts
+            .market
+            .liquidation_reference_price_nad(&ctx.accounts.borrow_position, debt_asset)?;
 
         require!(
-            health_bps < ctx.accounts.market.config.market_health_min_bps as u64,
+            ctx.accounts
+                .market
+                .is_position_liquidatable(&ctx.accounts.borrow_position, debt_asset)?,
             ErrorCode::PositionNotLiquidatable
         );
 
         require!(
-            ctx.accounts.borrow_position.auction_start_time == 0,
+            !ctx.accounts.borrow_position.has_active_liquidation_auction(),
             ErrorCode::PositionNotLiquidatable
         );
 
@@ -84,9 +75,12 @@ impl<'info> TriggerLiquidationAuction<'info> {
             .and_then(|v| v.checked_div(100))
             .ok_or(ErrorCode::MarketMathOverflow)?;
 
-        ctx.accounts.borrow_position.auction_start_time = Clock::get()?.unix_timestamp;
-        ctx.accounts.borrow_position.auction_start_price_nad = start_price;
-        ctx.accounts.borrow_position.auction_floor_price_nad = floor_price;
+        ctx.accounts.borrow_position.start_liquidation_auction(
+            debt_asset,
+            Clock::get()?.unix_timestamp,
+            start_price,
+            floor_price,
+        );
 
         Ok(())
     }

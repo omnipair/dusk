@@ -16,6 +16,7 @@ pub struct Fees {
     pub buyback_fee_liability: u64,
     pub manager_swap_fee_liability: u64,
     pub manager_interest_fee_liability: u64,
+    pub referral_interest_liability: u64,
 }
 
 pub fn accrue_fee_liability(shares: u64, fee_growth_index_nad: u128, fee_growth_checkpoint_nad: u128) -> Result<u64> {
@@ -42,6 +43,7 @@ impl Fees {
             .and_then(|value| value.checked_add(self.buyback_fee_liability))
             .and_then(|value| value.checked_add(self.manager_swap_fee_liability))
             .and_then(|value| value.checked_add(self.manager_interest_fee_liability))
+            .and_then(|value| value.checked_add(self.referral_interest_liability))
             .ok_or(ErrorCode::MarketMathOverflow.into())
     }
 

@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, NAD},
+    constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, MARKET_VERSION, NAD},
     state::{
         Debt, HlpVault, Insurance, MarketConfig, MarketSide, PendingAuthorityChange,
         PendingConfigChange, ProtocolAuctionSplit, ReserveShares, Reserves, Risk,
@@ -27,9 +27,7 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
         ylp_supply: quote_cash,
     };
     Market {
-        version: 2,
-        base_mint: Pubkey::new_unique(),
-        quote_mint: Pubkey::new_unique(),
+        version: MARKET_VERSION,
         ylp_mint: Pubkey::new_unique(),
         operator: Pubkey::new_unique(),
         manager: Pubkey::new_unique(),
@@ -37,6 +35,7 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
         quote_side,
         config: MarketConfig {
             swap_fee_bps: 0,
+            max_daily_borrow_bps: 10_000,
             ..MarketConfig::default()
         },
         debt: Debt {
@@ -65,6 +64,8 @@ fn empty_position() -> LeveragePosition {
         owner: Pubkey::default(),
         market: Pubkey::default(),
         position_id: Pubkey::default(),
+        referral_partner: Pubkey::default(),
+        referral_interest_share_bps: 0,
         debt_asset: 0,
         collateral_amount: 0,
         margin_amount: 0,
@@ -101,6 +102,8 @@ fn seeded_position(
         Pubkey::new_unique(),
         Pubkey::new_unique(),
         Pubkey::new_unique(),
+        Pubkey::default(),
+        0,
         debt_asset,
         collateral_amount,
         debt_amount,
@@ -129,6 +132,8 @@ fn open_leverage_tracks_isolated_debt_and_cash() {
             Pubkey::new_unique(),
             Pubkey::new_unique(),
             Pubkey::new_unique(),
+            Pubkey::default(),
+            0,
             MarketAsset::Base,
             1_000,
             20_000,
@@ -168,6 +173,63 @@ fn open_leverage_tracks_isolated_debt_and_cash() {
 }
 
 #[test]
+fn referred_leverage_records_exact_debt_and_binds_partner() {
+    let mut market = test_market(1_000_000, 1_000_000);
+    let mut position = empty_position();
+    let referral_partner = Pubkey::new_unique();
+    let open_quote = market
+        .quote_leverage_swap(MarketAsset::Base, 2_000)
+        .unwrap();
+
+    let open = market
+        .open_leverage(
+            &mut position,
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            referral_partner,
+            2_500,
+            MarketAsset::Base,
+            1_000,
+            20_000,
+            open_quote.amount_out,
+            0,
+            0,
+            255,
+            0,
+            0,
+            ProtocolAuctionSplit::default(),
+        )
+        .unwrap();
+
+    assert_eq!(open.borrowed_amount, 1_000);
+    assert_eq!(open.debt_amount, 1_000);
+    assert_eq!(open.swap.amount_in, 2_000);
+    assert_eq!(position.referral_partner, referral_partner);
+    assert_eq!(position.referral_interest_share_bps, 2_500);
+    assert_eq!(position.debt_principal, 1_000);
+    assert_eq!(market.debt.isolated_base_principal, 1_000);
+    assert_eq!(market.base_side.daily_limits.borrowed_bucket, 1_000);
+
+    let increase_quote = market.quote_leverage_swap(MarketAsset::Base, 100).unwrap();
+    let increase = market
+        .increase_leverage(
+            &mut position,
+            100,
+            increase_quote.amount_out,
+            0,
+            0,
+            ProtocolAuctionSplit::default(),
+        )
+        .unwrap();
+    assert_eq!(increase.borrowed_amount, 100);
+    assert_eq!(increase.debt_delta, 100);
+    assert_eq!(position.referral_partner, referral_partner);
+    assert_eq!(position.referral_interest_share_bps, 2_500);
+    assert_eq!(market.base_side.daily_limits.borrowed_bucket, 1_100);
+}
+
+#[test]
 fn close_leverage_clears_isolated_debt_and_residual_cash() {
     let mut market = test_market(1_000_000, 1_000_000);
     let mut position = empty_position();
@@ -180,6 +242,8 @@ fn close_leverage_clears_isolated_debt_and_residual_cash() {
             Pubkey::new_unique(),
             Pubkey::new_unique(),
             Pubkey::new_unique(),
+            Pubkey::default(),
+            0,
             MarketAsset::Base,
             1_000,
             20_000,

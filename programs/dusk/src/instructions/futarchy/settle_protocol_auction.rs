@@ -34,8 +34,8 @@ pub struct SettleProtocolAuction<'info> {
         mut,
         seeds = [
             MARKET_V2_SEED_PREFIX,
-            market.base_mint.as_ref(),
-            market.quote_mint.as_ref(),
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
             market.params_hash.as_ref(),
         ],
         bump = market.bump
@@ -81,7 +81,7 @@ impl<'info> SettleProtocolAuction<'info> {
         require!(is_fee_free_mint(&self.accepted_mint)?, ErrorCode::InvalidMint);
 
         let sold_side = self.market.asset_for_mint(self.sold_mint.key())?;
-        let market_side = self.market.side(sold_side)?;
+        let market_side = self.market.side(sold_side);
         require_keys_eq!(self.sold_mint.key(), market_side.asset_mint, ErrorCode::InvalidMint);
         require_keys_eq!(
             self.sold_fee_vault.key(),
@@ -124,14 +124,8 @@ impl<'info> SettleProtocolAuction<'info> {
         transfer_auction_payment(ctx.accounts, quote.treasury_amount, quote.staking_vault_amount)?;
         transfer_sold_fee(ctx.accounts, args.sold_amount)?;
         let sold_side = ctx.accounts.market.asset_for_mint(ctx.accounts.sold_mint.key())?;
-        let (remaining_fee_liability, remaining_buyback_liability) = settle_auction_state(
-            ctx.accounts,
-            args.lane,
-            sold_side,
-            args.sold_amount,
-            quote.current_slot,
-            quote.auction_price_nad,
-        )?;
+        let (remaining_fee_liability, remaining_buyback_liability) =
+            settle_auction_state(ctx.accounts, args.lane, sold_side, args.sold_amount, quote.current_slot)?;
         emit_auction_settled(
             &ctx,
             &args,
@@ -287,10 +281,9 @@ fn settle_auction_state<'info>(
     side: MarketAsset,
     sold_amount: u64,
     current_slot: u64,
-    auction_price_nad: u64,
 ) -> Result<(u64, u64)> {
     accounts.sold_fee_vault.reload()?;
-    let market_side = accounts.market.side_mut(side)?;
+    let market_side = accounts.market.side_mut(side);
     market_side.fees.settle_protocol_auction_liability(lane, sold_amount)?;
     market_side.fees.swap_fee_vault_balance = accounts.sold_fee_vault.amount;
     market_side.fees.assert_backed()?;
@@ -299,7 +292,6 @@ fn settle_auction_state<'info>(
 
     let auction = accounts.futarchy_authority.auction_config_mut(lane);
     auction.last_settlement_slot = current_slot;
-    auction.last_settlement_price_nad = auction_price_nad;
     Ok((remaining_fee_liability, remaining_buyback_liability))
 }
 
@@ -339,9 +331,9 @@ fn reference_price_nad(
 }
 
 fn price_from_market(market: &Market, sold_mint: Pubkey, accepted_mint: Pubkey) -> Option<u64> {
-    if sold_mint == market.base_mint && accepted_mint == market.quote_mint {
+    if sold_mint == market.base_side.asset_mint && accepted_mint == market.quote_side.asset_mint {
         Some(market.risk.base_price_ema_nad)
-    } else if sold_mint == market.quote_mint && accepted_mint == market.base_mint {
+    } else if sold_mint == market.quote_side.asset_mint && accepted_mint == market.base_side.asset_mint {
         Some(market.risk.quote_price_ema_nad)
     } else {
         None

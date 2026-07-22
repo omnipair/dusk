@@ -8,23 +8,26 @@ Omnipair Dusk (v2) is the standalone Dusk market program. It uses market termino
 - `transitions/`: atomic accounting mutations with small receipts for events and tests.
 - `state/`: account layouts, embedded market books, and invariants.
 - `tokens/`: validation for Token-2022 yLP and hLP mints.
-- `math/`: fixed-point, GAMM, EMA, valuation, and circuit-breaker helpers.
+- `math/`: fixed-point, GAMM, EMA, valuation, and interest helpers.
 - `utils/`: shared accounting helpers used by transitions.
 
-Instruction modules are split by domain: `market`, `liquidity`, `yielding`, `spot`, `lending`, `leverage`, and `futarchy`.
+Instruction modules are split by domain: `market`, `liquidity`, `yielding`, `spot`, `lending`, `leverage`, `referral`, and `futarchy`.
 
 ## Public Instructions
 
 Omnipair Dusk (v2) exposes the current market instruction set:
 
-- `initialize`, `update_config`, `set_reduce_only`
+- `initialize`, `initialize_lp_metadata`, `update_config`, `set_reduce_only`
 - `add_liquidity`, `remove_liquidity`
 - `set_yield_recipient`, `claim_yield`
 - `swap`
-- `deposit_collateral`, `withdraw_collateral`, `borrow`, `repay`, `liquidate_borrow_position`
+- `deposit_collateral`, `withdraw_collateral`, `borrow`, `repay`
+- `configure_referral_partner`, `initialize_referral_accrual`, `set_referral_recipient`, `claim_referral_interest`
+- `trigger_liquidation_auction`, `bid_liquidation_auction`, `settle_liquidation_auction_amm`
 - `deposit_single_sided`, `withdraw_single_sided`
 - `open_leverage`, `close_leverage`, `delegated_close_leverage`, `increase_leverage`, `decrease_leverage`, `add_leverage_margin`, `remove_leverage_margin`, `liquidate_leverage`
 - `create_leverage_delegation`, `update_leverage_delegation`, `close_leverage_delegation`
+- `preview_market`, `preview_add_liquidity`, `preview_swap`, `preview_borrow_capacity`, `preview_borrow_position`
 - Futarchy, operator, and revenue administration: `init_futarchy_authority`, `update_futarchy_authority`, `update_protocol_revenue`, `update_revenue_recipients`, `update_protocol_auction_config`, `update_protocol_auction_recipients`, `set_global_reduce_only`, `settle_protocol_auction`, `set_operator`, `set_manager`, `claim_manager_fees`
 
 ## Token Model
@@ -88,6 +91,22 @@ Users can increase or decrease exposure, add or remove margin, and close the pos
 
 Owners can approve a position-scoped `LeverageDelegation` PDA for a delegate program. Delegated close uses a before-hook approval payload and an after-hook settlement payload, allowing keeper-style take-profit or stop-loss execution while binding the close to the expected market, owner, position, delegation, output mint, recipient, and residual amount.
 
+## Referral Interest Sharing
+
+Referrals are permissioned. `configure_referral_partner` lets the Futarchy authority create or update a protocol-wide `ReferralPartner` for any referrer, including its interest-share rate and active status. The referrer may use `set_referral_recipient` to rotate only the wallet that receives claims.
+
+An active partner may be bound when a borrow debt side is first opened or when `open_leverage` creates a position. Dusk snapshots `min(partner.interest_share_bps, max_referral_interest_share_bps)` into the position at binding. The partner and share are immutable while that debt exists: later borrowing and leverage increases retain them, full repayment or closure clears them, and existing unbound debt cannot be retroactively referred. Deactivation blocks new bindings only and does not change existing referral terms, debt, liquidation terms, or claimable revenue.
+
+Referral adds no fee or debt to the user. On each interest realization, Dusk takes a share only from the DAO's configured interest revenue:
+
+```text
+protocol_interest_revenue = floor(actual_interest_vault_credit * protocol_interest_bps / 10_000)
+bound_referral_share      = min(partner.interest_share_bps, max_referral_interest_share_bps) at binding
+referral_accrual          = floor(protocol_interest_revenue * bound_referral_share / 10_000)
+```
+
+The runtime cap is governed through `update_protocol_revenue` and applies when a new binding is admitted; later cap or partner changes do not reprice existing debt. `ReferralAccrual` records the claimable liability for one partner, market, and debt mint while the backing tokens remain in the market interest vault. `claim_referral_interest` pays the partner's current recipient. Realization and claims support legacy SPL Token and Token-2022 assets, including transfer fees and transfer hooks.
+
 ## Swaps And Rebalancing
 
 `swap` is the Dusk swap entry. It transfers inventory, routes swap fees to the fee vault, applies GAMM reserve movement, and checkpoints both aggregate hLP vaults in O(1).
@@ -104,6 +123,8 @@ hLP checkpointing computes NAV, attempts the spot-based leverage adjustment, rec
 | Swap fee vault | `market_fee`, `market`, `asset_mint` | `deriveMarketFeeVaultAddress` |
 | Interest vault | `market_interest`, `market`, `asset_mint` | `deriveMarketInterestVaultAddress` |
 | Borrow position | `borrow_position_v2`, `market`, `position_id` | `deriveBorrowPositionAddress` |
+| Referral partner | `referral_partner`, `referrer` | `deriveReferralPartnerAddress` |
+| Referral accrual | `referral_accrual`, `referral_partner`, `market`, `asset_mint` | `deriveReferralAccrualAddress` |
 | Yield account | `yield`, `market`, `owner`, `asset_mint`, `token_kind` | `deriveYieldAccountAddress` |
 | Insurance vault | `insurance`, `market`, `asset_mint` | `deriveInsuranceAddress` |
 | Leverage position | `leverage_position_v2`, `market`, `position_id` | `deriveLeveragePositionAddress` |
@@ -112,6 +133,8 @@ hLP checkpointing computes NAV, attempts the spot-based leverage adjustment, rec
 | LP token metadata | Metaplex `metadata`, token metadata program, `lp_mint` | `deriveTokenMetadataAddress` |
 
 yLP and hLP mints are supplied to `initialize` and validated by mint authority, decimals, Token-2022 owner, transfer hook, fee-free extension rules, no freeze authority, vanity suffix, and zero supply at market creation. LP metadata is created in follow-up `initialize_lp_metadata` calls, one mint per transaction.
+
+Referral accruals are market-specific liabilities. Their backing remains in the corresponding market interest vault until the referrer claims to the partner's current recipient.
 
 ## Event Surface
 
@@ -126,8 +149,9 @@ Indexers should consume Dusk events from the standalone Dusk IDL:
 - `HlpOpened`, `HlpClosed`
 - `LeveragePositionOpened`, `LeveragePositionClosed`, `LeveragePositionUpdated`, `LeveragePositionLiquidated`
 - `LeverageDelegationUpdated`
+- `ReferralInterestShareCapUpdated`, `ReferralPartnerConfigured`, `ReferralRecipientUpdated`, `ReferralBound`, `ReferralInterestAccrued`, `ReferralInterestClaimed`
 
-Every Dusk event carries `MarketEventMetadata` with signer, market, and slot.
+Market-scoped Dusk events carry `MarketEventMetadata` with signer, market, and slot. Protocol-wide authority, referral-recipient, and referral-claim events instead expose their authority or signer directly because they are not tied to one market.
 
 ## Core Invariants
 
@@ -141,7 +165,11 @@ Every Dusk event carries `MarketEventMetadata` with signer, market, and slot.
 - Isolated leverage debt contributes to utilization without entering normal borrower health.
 - Leverage collateral vault balances are matched by open leverage position collateral accounting.
 - Delegated close must validate both the delegate's close approval and settlement approval return data.
-- Market health uses recognized debt-bearing collateral for borrower debt; idle collateral contributes zero.
+- Individual borrower health uses all position collateral and the position's stored liquidation CF.
+- Global-health contributions are debt-capped underwriting signals and never prevent collateral withdrawal or change another position's stored terms.
+- Conservative risk depth uses one K EMA, reconstructed at the current spot ratio and capped by live depth; there are no spot/EMA-divergence or K-drawdown action halts.
+- Referral binding never changes requested principal, debt, interest, health, or liquidation terms; accruals are carved only from realized protocol interest revenue.
+- Referral-interest claims are bounded by realized protocol revenue and pay only the partner's current designated recipient.
 - Risk books update EMA values from cached pre-transition observations and store current observations for the next refresh.
 - Liquidation follows the waterfall: borrower collateral, liquidator incentive, insurance, then bounded LP socialization.
 

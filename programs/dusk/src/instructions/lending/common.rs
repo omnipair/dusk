@@ -14,7 +14,7 @@ pub(super) fn validate_collateral_accounts<'info>(
     owner_asset_account: &InterfaceAccount<'info, TokenAccount>,
 ) -> Result<MarketAsset> {
     let market_asset = market.asset_for_mint(asset_mint.key())?;
-    let market_side = market.side(market_asset)?;
+    let market_side = market.side(market_asset);
     require_keys_eq!(
         market_side.collateral_vault,
         collateral_vault.key(),
@@ -40,8 +40,8 @@ pub(super) fn validate_borrow_accounts<'info>(
     owner_debt_account: &InterfaceAccount<'info, TokenAccount>,
 ) -> Result<MarketAsset> {
     let borrow_asset = market.asset_for_mint(debt_asset_mint.key())?;
-    let debt_side = market.side(borrow_asset)?;
-    let collateral_side = market.side(borrow_asset.opposite())?;
+    let debt_side = market.side(borrow_asset);
+    let collateral_side = market.side(borrow_asset.opposite());
     validate_debt_reserve_accounts(
         market,
         debt_side,
@@ -66,7 +66,7 @@ pub(super) fn validate_repay_accounts<'info>(
     owner_debt_account: &InterfaceAccount<'info, TokenAccount>,
 ) -> Result<MarketAsset> {
     let repay_asset = market.asset_for_mint(debt_asset_mint.key())?;
-    let debt_side = market.side(repay_asset)?;
+    let debt_side = market.side(repay_asset);
     validate_debt_reserve_accounts(
         market,
         debt_side,

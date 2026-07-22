@@ -177,15 +177,12 @@ mod tests {
             protocol_fee_bps: 0,
             target_hlp_leverage_bps: BPS_DENOMINATOR * 2,
             settlement_divergence_bps: 500,
-            emergency_exit_haircut_bps: 250,
             ema_half_life_ms: MIN_HALF_LIFE_MS,
             directional_ema_half_life_ms: MIN_HALF_LIFE_MS,
             k_ema_half_life_ms: MIN_HALF_LIFE_MS,
             max_daily_borrow_bps: 2_000,
-            spot_ema_divergence_bps: 1_000,
-            k_ema_drawdown_bps: 1_000,
-            recognized_collateral_cap_bps: 15_000,
-            market_health_min_bps: 11_000,
+            global_health_contribution_cap_bps: 15_000,
+            borrow_market_health_floor_bps: 11_000,
             start_time: 0,
         }
     }
@@ -215,22 +212,24 @@ mod tests {
             hlp_mint: quote_hlp_mint,
             ..MarketSide::default()
         };
-        let market = Market::initialize(
-            base_mint,
-            quote_mint,
-            ylp_mint,
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            base_side,
-            quote_side,
-            valid_config(),
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            [7; 32],
-            1,
-            255,
-        )
-        .unwrap();
+        let mut market = Market::default();
+        market
+            .initialize(
+                ylp_mint,
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+                base_side,
+                quote_side,
+                valid_config(),
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+                [7; 32],
+                1,
+                255,
+            )
+            .unwrap();
         MetadataMarketFixture {
             market,
             ylp_mint,

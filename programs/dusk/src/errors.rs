@@ -236,12 +236,6 @@ pub enum ErrorCode {
     #[msg("Cannot remove collateral in reduce-only mode while debt exists")]
     ReduceOnlyHasDebt,
 
-    #[msg("Operation blocked: same-transaction liquidity delta detected")]
-    LiquidityDeltaCircuitBreaker,
-
-    #[msg("Operation blocked: liquidity delta instruction must be top-level")]
-    LiquidityDeltaCircuitBreakerCpi,
-
     #[msg("Invalid instructions sysvar")]
     InvalidInstructionsSysvar,
 
@@ -287,9 +281,6 @@ pub enum ErrorCode {
     #[msg("Invalid borrow position")]
     InvalidBorrowPosition,
 
-    #[msg("Recognized collateral is insufficient")]
-    InsufficientRecognizedCollateral,
-
     #[msg("Position is not liquidatable")]
     PositionNotLiquidatable,
 
@@ -320,9 +311,6 @@ pub enum ErrorCode {
     #[msg("Daily liquidity limit exceeded")]
     DailyLimitExceeded,
 
-    #[msg("Market risk circuit breaker triggered")]
-    MarketRiskCircuitBreaker,
-
     #[msg("Instruction is intentionally not live yet")]
     InstructionNotLive,
 
@@ -349,4 +337,16 @@ pub enum ErrorCode {
 
     #[msg("Invalid leverage delegation")]
     InvalidLeverageDelegation,
+
+    #[msg("Referral interest share exceeds the protocol hard cap")]
+    InvalidReferralInterestShareBps,
+
+    #[msg("Invalid referral partner")]
+    InvalidReferralPartner,
+
+    #[msg("Referral partner is not active")]
+    ReferralPartnerNotActive,
+
+    #[msg("Invalid referral accrual account")]
+    InvalidReferralAccrual,
 }

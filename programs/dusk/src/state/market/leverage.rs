@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 
-use super::{FeesReceipt, Market, MarketAsset, ProtocolAuctionSplit};
+use super::{FeesReceipt, Market, MarketAsset};
+use crate::state::ProtocolAuctionSplit;
 use crate::{
     constants::{
         BPS_DENOMINATOR, LEVERAGE_INITIAL_MARGIN_BPS, LEVERAGE_MAINTENANCE_BUFFER_BPS, LEVERAGE_MAX_MULTIPLIER_BPS,
@@ -22,6 +23,7 @@ pub struct LeverageSwapQuote {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LeverageOpenReceipt {
+    pub borrowed_amount: u64,
     pub debt_amount: u64,
     pub debt_shares: u128,
     pub notional: u64,
@@ -34,6 +36,7 @@ pub struct LeverageOpenReceipt {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LeverageUpdateReceipt {
+    pub borrowed_amount: u64,
     pub debt_delta: i64,
     pub collateral_delta: i64,
     pub debt_amount: u64,
@@ -101,6 +104,8 @@ impl Market {
         owner: Pubkey,
         market: Pubkey,
         position_id: Pubkey,
+        referral_partner: Pubkey,
+        referral_interest_share_bps: u16,
         debt_asset: MarketAsset,
         margin_credit: u64,
         multiplier_bps: u64,
@@ -118,9 +123,9 @@ impl Market {
             multiplier_bps <= LEVERAGE_MAX_MULTIPLIER_BPS,
             ErrorCode::LeverageMultiplierTooHigh
         );
-        let debt_amount = leverage_debt_from_margin(margin_credit, multiplier_bps)?;
+        let borrowed_amount = leverage_debt_from_margin(margin_credit, multiplier_bps)?;
         let notional = margin_credit
-            .checked_add(debt_amount)
+            .checked_add(borrowed_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let swap = self.quote_leverage_swap(debt_asset, notional)?;
         require_gte!(swap.amount_out, collateral_credit, ErrorCode::SlippageExceeded);
@@ -133,16 +138,9 @@ impl Market {
             self.post_swap_reserve(debt_asset.opposite(), debt_asset, swap.amount_out)?,
             self.post_swap_reserve(debt_asset, debt_asset, swap.amount_in_after_fee)?,
             closeout_value,
-            debt_amount,
+            borrowed_amount,
         )?;
-        {
-            let debt_side = self.side_mut(debt_asset)?;
-            debt_side.reserves.cash_reserve = debt_side
-                .reserves
-                .cash_reserve
-                .checked_sub(debt_amount)
-                .ok_or(ErrorCode::CashReserveUnderflow)?;
-        }
+        self.record_leverage_borrow(debt_asset, borrowed_amount)?;
         let fees = self.apply_leverage_swap(
             debt_asset,
             swap,
@@ -152,16 +150,18 @@ impl Market {
             protocol_fee_bps,
             protocol_auction_split,
         )?;
-        let debt_shares = self.debt.add_isolated_debt(debt_asset, debt_amount)?;
+        let debt_shares = self.add_isolated_borrow_debt(debt_asset, borrowed_amount)?;
         position.initialize(
             owner,
             market,
             position_id,
+            referral_partner,
+            referral_interest_share_bps,
             debt_asset,
             collateral_credit,
             margin_credit,
             notional,
-            debt_amount,
+            borrowed_amount,
             debt_shares,
             multiplier_bps,
             opened_at,
@@ -169,10 +169,11 @@ impl Market {
             bump,
         );
         let equity = closeout_value
-            .checked_sub(debt_amount)
+            .checked_sub(borrowed_amount)
             .ok_or(ErrorCode::LeverageInitialMarginTooLow)?;
         Ok(LeverageOpenReceipt {
-            debt_amount,
+            borrowed_amount,
+            debt_amount: borrowed_amount,
             debt_shares,
             notional,
             collateral_amount: collateral_credit,
@@ -186,28 +187,28 @@ impl Market {
     pub fn increase_leverage(
         &mut self,
         position: &mut LeveragePosition,
-        debt_amount: u64,
+        borrowed_amount: u64,
         collateral_credit: u64,
         manager_fee_bps: u16,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
     ) -> Result<LeverageUpdateReceipt> {
         position.require_open()?;
-        require!(debt_amount > 0, ErrorCode::AmountZero);
+        require!(borrowed_amount > 0, ErrorCode::AmountZero);
         require!(collateral_credit > 0, ErrorCode::InsufficientOutputAmount);
         let debt_asset = position.debt_asset()?;
         let debt_before = position.debt_amount(&self.debt)?;
-        let swap = self.quote_leverage_swap(debt_asset, debt_amount)?;
+        let swap = self.quote_leverage_swap(debt_asset, borrowed_amount)?;
         require_gte!(swap.amount_out, collateral_credit, ErrorCode::SlippageExceeded);
         let collateral_after = position
             .collateral_amount
             .checked_add(collateral_credit)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let debt_after = debt_before
-            .checked_add(debt_amount)
+            .checked_add(borrowed_amount)
             .ok_or(ErrorCode::DebtMathOverflow)?;
         let closeout_value =
-            self.post_swap_closeout_value(debt_asset, debt_amount, debt_asset.opposite(), collateral_after)?;
+            self.post_swap_closeout_value(debt_asset, borrowed_amount, debt_asset.opposite(), collateral_after)?;
         require_initial_leverage_health(
             collateral_after,
             self.post_swap_reserve(debt_asset.opposite(), debt_asset, swap.amount_out)?,
@@ -215,14 +216,7 @@ impl Market {
             closeout_value,
             debt_after,
         )?;
-        {
-            let debt_side = self.side_mut(debt_asset)?;
-            debt_side.reserves.cash_reserve = debt_side
-                .reserves
-                .cash_reserve
-                .checked_sub(debt_amount)
-                .ok_or(ErrorCode::CashReserveUnderflow)?;
-        }
+        self.record_leverage_borrow(debt_asset, borrowed_amount)?;
         let fees = self.apply_leverage_swap(
             debt_asset,
             swap,
@@ -232,18 +226,19 @@ impl Market {
             protocol_fee_bps,
             protocol_auction_split,
         )?;
-        let added_shares = self.debt.add_isolated_debt(debt_asset, debt_amount)?;
+        let added_shares = self.add_isolated_borrow_debt(debt_asset, borrowed_amount)?;
         position.debt_shares = position
             .debt_shares
             .checked_add(added_shares)
             .ok_or(ErrorCode::DebtShareMathOverflow)?;
         position.debt_principal = position
             .debt_principal
-            .checked_add(debt_amount as u128)
+            .checked_add(borrowed_amount as u128)
             .ok_or(ErrorCode::DebtMathOverflow)?;
         position.credit_collateral(collateral_credit)?;
         Ok(LeverageUpdateReceipt {
-            debt_delta: i64::try_from(debt_amount).map_err(|_| ErrorCode::Overflow)?,
+            borrowed_amount,
+            debt_delta: i64::try_from(borrowed_amount).map_err(|_| ErrorCode::Overflow)?,
             collateral_delta: i64::try_from(collateral_credit).map_err(|_| ErrorCode::Overflow)?,
             debt_amount: position.debt_amount(&self.debt)?,
             debt_shares: position.debt_shares,
@@ -304,6 +299,7 @@ impl Market {
         )?;
         position.debit_collateral(collateral_debit)?;
         Ok(LeverageUpdateReceipt {
+            borrowed_amount: 0,
             debt_delta: -i64::try_from(clearance.debt_reduced).map_err(|_| ErrorCode::Overflow)?,
             collateral_delta: -i64::try_from(collateral_debit).map_err(|_| ErrorCode::Overflow)?,
             debt_amount: clearance.remaining_debt,
@@ -426,12 +422,12 @@ impl Market {
             protocol_fee_bps,
             protocol_auction_split,
         )?;
-        if writeoff.debt_written_off > 0 {
-            let debt_side = self.side_mut(debt_asset)?;
+        if writeoff.aggregate_debt_written_off > 0 {
+            let debt_side = self.side_mut(debt_asset);
             debt_side.reserves.live_reserve = debt_side
                 .reserves
                 .live_reserve
-                .checked_sub(writeoff.debt_written_off)
+                .checked_sub(writeoff.aggregate_debt_written_off)
                 .ok_or(ErrorCode::ReserveUnderflow)?;
             debt_side.assert_share_backing()?;
         }
@@ -472,7 +468,7 @@ impl Market {
         )?;
         let principal_paid = clearance.principal_paid;
         let live_debit = clearance.live_debit_for_cash_repay()?;
-        let side = self.side_mut(debt_asset)?;
+        let side = self.side_mut(debt_asset);
         side.reserves.live_reserve = side
             .reserves
             .live_reserve
@@ -484,6 +480,7 @@ impl Market {
             .checked_add(principal_paid)
             .ok_or(ErrorCode::ReserveOverflow)?;
         Ok(LeverageUpdateReceipt {
+            borrowed_amount: 0,
             debt_delta: -i64::try_from(clearance.debt_reduced).map_err(|_| ErrorCode::Overflow)?,
             collateral_delta: 0,
             debt_amount: clearance.remaining_debt,
@@ -510,18 +507,13 @@ impl Market {
         let closeout_value = self.leverage_closeout_value(position)?;
         require_initial_leverage_health(
             position.collateral_amount,
-            self.side(position.collateral_asset()?)?.reserves.live_reserve,
-            self.side(debt_asset)?.reserves.live_reserve,
+            self.side(position.collateral_asset()?).reserves.live_reserve,
+            self.side(debt_asset).reserves.live_reserve,
             closeout_value,
             debt_after,
         )?;
-        let side = self.side_mut(debt_asset)?;
-        side.reserves.cash_reserve = side
-            .reserves
-            .cash_reserve
-            .checked_sub(borrow_amount)
-            .ok_or(ErrorCode::CashReserveUnderflow)?;
-        let shares = self.debt.add_isolated_debt(debt_asset, borrow_amount)?;
+        self.record_leverage_borrow(debt_asset, borrow_amount)?;
+        let shares = self.add_isolated_borrow_debt(debt_asset, borrow_amount)?;
         position.debt_shares = position
             .debt_shares
             .checked_add(shares)
@@ -531,6 +523,7 @@ impl Market {
             .checked_add(borrow_amount as u128)
             .ok_or(ErrorCode::DebtMathOverflow)?;
         Ok(LeverageUpdateReceipt {
+            borrowed_amount: borrow_amount,
             debt_delta: i64::try_from(borrow_amount).map_err(|_| ErrorCode::Overflow)?,
             collateral_delta: 0,
             debt_amount: position.debt_amount(&self.debt)?,
@@ -584,7 +577,7 @@ impl Market {
     }
 
     fn post_swap_reserve(&self, asset: MarketAsset, asset_in: MarketAsset, delta: u64) -> Result<u64> {
-        let reserve = self.side(asset)?.reserves.live_reserve;
+        let reserve = self.side(asset).reserves.live_reserve;
         if asset == asset_in {
             reserve.checked_add(delta).ok_or(ErrorCode::ReserveOverflow.into())
         } else {
@@ -644,6 +637,53 @@ impl Market {
         side_in.assert_share_backing()?;
         side_out.assert_share_backing()?;
         Ok(fees)
+    }
+
+    fn record_leverage_borrow(&mut self, debt_asset: MarketAsset, gross_debt: u64) -> Result<()> {
+        let daily_limit = self.daily_limit_for_side(debt_asset, self.config.max_daily_borrow_bps)?;
+        let current_slot = self.risk.last_snapshot_slot;
+        let debt_side = self.side_mut(debt_asset);
+        require_gte!(
+            debt_side.reserves.cash_reserve,
+            gross_debt,
+            ErrorCode::InsufficientBorrowHeadroom
+        );
+        debt_side
+            .daily_limits
+            .record_borrow(gross_debt, daily_limit, current_slot)?;
+        debt_side.reserves.cash_reserve = debt_side
+            .reserves
+            .cash_reserve
+            .checked_sub(gross_debt)
+            .ok_or(ErrorCode::CashReserveUnderflow)?;
+        Ok(())
+    }
+
+    fn add_isolated_borrow_debt(&mut self, debt_asset: MarketAsset, cash_debit: u64) -> Result<u128> {
+        let aggregate_debt_before = self.debt.isolated_debt(debt_asset)?;
+        let shares = self.debt.add_isolated_debt(debt_asset, cash_debit)?;
+        let aggregate_debt_after = self.debt.isolated_debt(debt_asset)?;
+        let aggregate_debt_increase = u64::try_from(
+            aggregate_debt_after
+                .checked_sub(aggregate_debt_before)
+                .ok_or(ErrorCode::DebtMathOverflow)?,
+        )
+        .map_err(|_| ErrorCode::DebtMathOverflow)?;
+        let side = self.side_mut(debt_asset);
+        if aggregate_debt_increase > cash_debit {
+            side.reserves.live_reserve = side
+                .reserves
+                .live_reserve
+                .checked_add(aggregate_debt_increase - cash_debit)
+                .ok_or(ErrorCode::ReserveOverflow)?;
+        } else if aggregate_debt_increase < cash_debit {
+            side.reserves.live_reserve = side
+                .reserves
+                .live_reserve
+                .checked_sub(cash_debit - aggregate_debt_increase)
+                .ok_or(ErrorCode::ReserveUnderflow)?;
+        }
+        Ok(shares)
     }
 }
 

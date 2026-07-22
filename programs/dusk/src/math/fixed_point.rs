@@ -11,7 +11,7 @@ pub(crate) fn normalize_to_nad(amount: u128, decimals: u8) -> Result<u128> {
                     .checked_pow((NAD_DECIMALS - decimals) as u32)
                     .ok_or(ErrorCode::MarketMathOverflow)?,
             )
-            .ok_or(ErrorCode::MarketMathOverflow.into()),
+            .ok_or_else(|| ErrorCode::MarketMathOverflow.into()),
         std::cmp::Ordering::Greater => Ok(amount
             .checked_div(
                 10_u128

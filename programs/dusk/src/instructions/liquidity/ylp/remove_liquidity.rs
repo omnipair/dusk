@@ -33,8 +33,8 @@ pub struct RemoveLiquidity<'info> {
         mut,
         seeds = [
             MARKET_V2_SEED_PREFIX,
-            market.base_mint.as_ref(),
-            market.quote_mint.as_ref(),
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
             market.params_hash.as_ref(),
         ],
         bump = market.bump
@@ -226,8 +226,8 @@ impl<'info> RemoveLiquidity<'info> {
         let health = ctx.accounts.market.market_health()?;
         emit_cpi!(MarketHealthUpdated {
             market: market_key,
-            recognized_base_collateral_for_quote_debt: health.recognized_base_collateral_for_quote_debt,
-            recognized_quote_collateral_for_base_debt: health.recognized_quote_collateral_for_base_debt,
+            global_health_base_contribution_for_quote_debt: health.global_health_base_contribution_for_quote_debt,
+            global_health_quote_contribution_for_base_debt: health.global_health_quote_contribution_for_base_debt,
             effective_base_debt_nad: health.effective_base_debt_nad,
             effective_quote_debt_nad: health.effective_quote_debt_nad,
             base_debt_health_bps: health.base_debt_health_bps,
