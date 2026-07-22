@@ -12,7 +12,7 @@ use crate::{
     shared::token::{
         transfer_from_user_to_vault_with_remaining_accounts, transfer_from_vault_to_vault_with_remaining_accounts,
     },
-    state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralProfile},
+    state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
 };
 
 use crate::instructions::common::{
@@ -76,7 +76,7 @@ pub struct Repay<'info> {
     )]
     pub borrow_position: Box<Account<'info, BorrowPosition>>,
 
-    pub referral_profile: Option<Box<Account<'info, ReferralProfile>>>,
+    pub referral_partner: Option<Box<Account<'info, ReferralPartner>>>,
 
     #[account(mut)]
     pub referral_accrual: Option<Box<Account<'info, ReferralAccrual>>>,
@@ -106,14 +106,14 @@ impl<'info> Repay<'info> {
         require_supported_asset_mint(&self.debt_asset_mint)?;
         self.borrow_position
             .assert_position(self.owner.key(), self.market.key())?;
-        let referral_profile = self.borrow_position.referral_profile(repay_asset);
+        let referral_partner = self.borrow_position.referral_partner(repay_asset);
         validate_referral_binding(
             None,
-            referral_profile,
+            referral_partner,
             self.borrow_position.referral_interest_share_bps(repay_asset),
             true,
             &self.futarchy_authority,
-            self.referral_profile.as_deref(),
+            self.referral_partner.as_deref(),
             self.referral_accrual.as_deref(),
             self.market.key(),
             &self.debt_asset_mint,
@@ -131,7 +131,7 @@ impl<'info> Repay<'info> {
             let owner_key = accounts.owner.key();
             let debt_asset_mint_key = accounts.debt_asset_mint.key();
             let repay_asset = accounts.market.asset_for_mint(debt_asset_mint_key)?;
-            let expected_referral_profile = accounts.borrow_position.referral_profile(repay_asset);
+            let expected_referral_partner = accounts.borrow_position.referral_partner(repay_asset);
             let referral_interest_share_bps = accounts.borrow_position.referral_interest_share_bps(repay_asset);
             let reserve_balance_before = accounts.reserve_vault.amount;
 
@@ -183,10 +183,10 @@ impl<'info> Repay<'info> {
                 let revenue_share_interest_bps = accounts.futarchy_authority.revenue_share.interest_bps;
                 let protocol_auction_split = accounts.futarchy_authority.protocol_auction_split;
                 let referral_receipt = accrue_referral_interest(
-                    expected_referral_profile,
+                    expected_referral_partner,
                     referral_interest_share_bps,
                     &accounts.futarchy_authority,
-                    accounts.referral_profile.as_deref(),
+                    accounts.referral_partner.as_deref(),
                     accounts.referral_accrual.as_deref_mut(),
                     market_key,
                     &accounts.debt_asset_mint,
@@ -204,10 +204,10 @@ impl<'info> Repay<'info> {
                 referral_receipt
             } else {
                 accrue_referral_interest(
-                    expected_referral_profile,
+                    expected_referral_partner,
                     referral_interest_share_bps,
                     &accounts.futarchy_authority,
-                    accounts.referral_profile.as_deref(),
+                    accounts.referral_partner.as_deref(),
                     accounts.referral_accrual.as_deref_mut(),
                     market_key,
                     &accounts.debt_asset_mint,

@@ -7,7 +7,7 @@ export type LeveragePosition = IdlAccounts<Dusk>["leveragePosition"];
 export type LeverageDelegation = IdlAccounts<Dusk>["leverageDelegation"];
 export type YieldAccount = IdlAccounts<Dusk>["yieldAccount"];
 export type FutarchyAuthority = IdlAccounts<Dusk>["futarchyAuthority"];
-export type ReferralProfile = IdlAccounts<Dusk>["referralProfile"];
+export type ReferralPartner = IdlAccounts<Dusk>["referralPartner"];
 export type ReferralAccrual = IdlAccounts<Dusk>["referralAccrual"];
 export type V2FutarchyAuthority = FutarchyAuthority;
 
@@ -26,7 +26,7 @@ export type MarketUpdated = IdlEvents<Dusk>["marketUpdated"];
 export type PositionLiquidated = IdlEvents<Dusk>["positionLiquidated"];
 export type ProtocolAuctionSettled = IdlEvents<Dusk>["protocolAuctionSettled"];
 export type ReferralBound = IdlEvents<Dusk>["referralBound"];
-export type ReferralConfigured = IdlEvents<Dusk>["referralConfigured"];
+export type ReferralPartnerConfigured = IdlEvents<Dusk>["referralPartnerConfigured"];
 export type ReferralInterestAccrued = IdlEvents<Dusk>["referralInterestAccrued"];
 export type ReferralInterestClaimed = IdlEvents<Dusk>["referralInterestClaimed"];
 export type ReferralInterestShareCapUpdated = IdlEvents<Dusk>["referralInterestShareCapUpdated"];

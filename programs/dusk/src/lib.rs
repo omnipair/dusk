@@ -74,8 +74,11 @@ pub mod dusk {
     }
 
     // Referral instructions
-    pub fn configure_referral(ctx: Context<ConfigureReferral>, args: ConfigureReferralArgs) -> Result<()> {
-        ConfigureReferral::handle_configure(ctx, args)
+    pub fn configure_referral_partner(
+        ctx: Context<ConfigureReferralPartner>,
+        args: ConfigureReferralPartnerArgs,
+    ) -> Result<()> {
+        ConfigureReferralPartner::handle_configure(ctx, args)
     }
 
     pub fn initialize_referral_accrual(ctx: Context<InitializeReferralAccrual>) -> Result<()> {

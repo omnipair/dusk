@@ -17,7 +17,7 @@ use crate::{
     },
     state::{
         leverage_debt_from_margin, FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual,
-        ReferralProfile,
+        ReferralPartner,
     },
 };
 
@@ -101,7 +101,7 @@ pub struct OpenLeverage<'info> {
     #[account(mut)]
     pub owner_debt_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    pub referral_profile: Option<Box<Account<'info, ReferralProfile>>>,
+    pub referral_partner: Option<Box<Account<'info, ReferralPartner>>>,
 
     pub referral_accrual: Option<Box<Account<'info, ReferralAccrual>>>,
 
@@ -137,7 +137,7 @@ impl<'info> OpenLeverage<'info> {
             0,
             false,
             &self.futarchy_authority,
-            self.referral_profile.as_deref(),
+            self.referral_partner.as_deref(),
             self.referral_accrual.as_deref(),
             self.market.key(),
             &self.debt_mint,
@@ -181,7 +181,7 @@ impl<'info> OpenLeverage<'info> {
             0,
             false,
             &ctx.accounts.futarchy_authority,
-            ctx.accounts.referral_profile.as_deref(),
+            ctx.accounts.referral_partner.as_deref(),
             ctx.accounts.referral_accrual.as_deref(),
             market_key,
             &ctx.accounts.debt_mint,
@@ -242,7 +242,7 @@ impl<'info> OpenLeverage<'info> {
             owner_key,
             market_key,
             args.position_id,
-            referral.referral_profile.unwrap_or_default(),
+            referral.referral_partner.unwrap_or_default(),
             referral.interest_share_bps,
             debt_asset,
             margin_credit,
@@ -274,13 +274,13 @@ impl<'info> OpenLeverage<'info> {
             multiplier_bps: args.multiplier_bps,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
-        if let Some(referral_profile) = referral.referral_profile {
+        if let Some(referral_partner) = referral.referral_partner {
             emit_cpi!(ReferralBound {
                 market: market_key,
                 position: position_key,
                 owner: owner_key,
-                referrer: referral.referrer.ok_or(ErrorCode::InvalidReferralProfile)?,
-                referral_profile,
+                referrer: referral.referrer.ok_or(ErrorCode::InvalidReferralPartner)?,
+                referral_partner,
                 asset_mint: debt_mint_key,
                 interest_share_bps: referral.interest_share_bps,
                 metadata: MarketEventMetadata::new(owner_key, market_key)?,

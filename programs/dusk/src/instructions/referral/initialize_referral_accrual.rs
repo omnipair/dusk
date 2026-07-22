@@ -2,10 +2,10 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_interface::Mint;
 
 use crate::{
-    constants::{MARKET_V2_SEED_PREFIX, REFERRAL_ACCRUAL_SEED_PREFIX, REFERRAL_PROFILE_SEED_PREFIX},
+    constants::{MARKET_V2_SEED_PREFIX, REFERRAL_ACCRUAL_SEED_PREFIX, REFERRAL_PARTNER_SEED_PREFIX},
     errors::ErrorCode,
     shared::account::get_size_with_discriminator,
-    state::{Market, ReferralAccrual, ReferralProfile},
+    state::{Market, ReferralAccrual, ReferralPartner},
 };
 
 #[derive(Accounts)]
@@ -14,10 +14,10 @@ pub struct InitializeReferralAccrual<'info> {
     pub payer: Signer<'info>,
 
     #[account(
-        seeds = [REFERRAL_PROFILE_SEED_PREFIX, referral_profile.authority.as_ref()],
-        bump = referral_profile.bump
+        seeds = [REFERRAL_PARTNER_SEED_PREFIX, referral_partner.authority.as_ref()],
+        bump = referral_partner.bump
     )]
-    pub referral_profile: Box<Account<'info, ReferralProfile>>,
+    pub referral_partner: Box<Account<'info, ReferralPartner>>,
 
     #[account(
         seeds = [
@@ -38,7 +38,7 @@ pub struct InitializeReferralAccrual<'info> {
         space = get_size_with_discriminator::<ReferralAccrual>(),
         seeds = [
             REFERRAL_ACCRUAL_SEED_PREFIX,
-            referral_profile.key().as_ref(),
+            referral_partner.key().as_ref(),
             market.key().as_ref(),
             asset_mint.key().as_ref(),
         ],
@@ -53,17 +53,17 @@ impl<'info> InitializeReferralAccrual<'info> {
     pub fn handle_initialize(ctx: Context<Self>) -> Result<()> {
         ctx.accounts.market.asset_for_mint(ctx.accounts.asset_mint.key())?;
         let accrual = &mut ctx.accounts.referral_accrual;
-        if accrual.referral_profile == Pubkey::default() {
+        if accrual.referral_partner == Pubkey::default() {
             accrual.initialize(
-                ctx.accounts.referral_profile.key(),
+                ctx.accounts.referral_partner.key(),
                 ctx.accounts.market.key(),
                 ctx.accounts.asset_mint.key(),
                 ctx.bumps.referral_accrual,
             )?;
         } else {
             require_keys_eq!(
-                accrual.referral_profile,
-                ctx.accounts.referral_profile.key(),
+                accrual.referral_partner,
+                ctx.accounts.referral_partner.key(),
                 ErrorCode::InvalidReferralAccrual
             );
             require_keys_eq!(

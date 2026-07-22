@@ -20,7 +20,7 @@ use crate::{
     },
     instructions::referral::common::{accrue_referral_interest, ReferralInterestAccrualReceipt},
     shared::token::{get_transfer_fee, transfer_from_vault_to_vault_with_remaining_accounts},
-    state::{FutarchyAuthority, Market, MarketAsset, ReferralAccrual, ReferralProfile},
+    state::{FutarchyAuthority, Market, MarketAsset, ReferralAccrual, ReferralPartner},
 };
 
 pub const LEVERAGE_DELEGATE_CLOSE: u32 = 1 << 0;
@@ -365,19 +365,19 @@ pub fn record_leverage_interest<'info>(
     token_2022_program: &Program<'info, Token2022>,
     manager_fee_bps: u16,
     futarchy_authority: &Account<'info, FutarchyAuthority>,
-    expected_referral_profile: Pubkey,
+    expected_referral_partner: Pubkey,
     referral_interest_share_bps: u16,
-    referral_profile: Option<&Account<'info, ReferralProfile>>,
+    referral_partner: Option<&Account<'info, ReferralPartner>>,
     referral_accrual: Option<&mut Account<'info, ReferralAccrual>>,
     interest_paid: u64,
     remaining_accounts: &[AccountInfo<'info>],
 ) -> Result<ReferralInterestAccrualReceipt> {
     if interest_paid == 0 {
         return accrue_referral_interest(
-            expected_referral_profile,
+            expected_referral_partner,
             referral_interest_share_bps,
             futarchy_authority,
-            referral_profile,
+            referral_partner,
             referral_accrual,
             market.key(),
             debt_mint,
@@ -403,10 +403,10 @@ pub fn record_leverage_interest<'info>(
     interest_vault.reload()?;
     let interest_vault_credit = token_account_credit(interest_vault_balance_before, interest_vault)?;
     let referral_receipt = accrue_referral_interest(
-        expected_referral_profile,
+        expected_referral_partner,
         referral_interest_share_bps,
         futarchy_authority,
-        referral_profile,
+        referral_partner,
         referral_accrual,
         market.key(),
         debt_mint,

@@ -9,7 +9,7 @@ fn leverage_position_tracks_debt_asset_and_current_debt() {
         owner: Pubkey::default(),
         market: Pubkey::default(),
         position_id: Pubkey::default(),
-        referral_profile: Pubkey::default(),
+        referral_partner: Pubkey::default(),
         referral_interest_share_bps: 0,
         debt_asset: 0,
         collateral_amount: 0,

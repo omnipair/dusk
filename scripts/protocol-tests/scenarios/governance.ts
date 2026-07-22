@@ -616,7 +616,7 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
       });
       await harness.execute({
         wallet: "alice",
-        endpoint: "/api/v2/fork/tx/configure-referral",
+        endpoint: "/api/v2/fork/tx/configure-referral-partner",
         label: "list reduce-only referral",
         body: { referrer, interestShareBps: 5_000, active: true },
       });

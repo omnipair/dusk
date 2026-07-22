@@ -341,11 +341,11 @@ pub enum ErrorCode {
     #[msg("Referral interest share exceeds the protocol hard cap")]
     InvalidReferralInterestShareBps,
 
-    #[msg("Invalid referral profile")]
-    InvalidReferralProfile,
+    #[msg("Invalid referral partner")]
+    InvalidReferralPartner,
 
-    #[msg("Referral is not active")]
-    ReferralNotActive,
+    #[msg("Referral partner is not active")]
+    ReferralPartnerNotActive,
 
     #[msg("Invalid referral accrual account")]
     InvalidReferralAccrual,

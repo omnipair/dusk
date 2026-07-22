@@ -64,7 +64,7 @@ fn empty_position() -> LeveragePosition {
         owner: Pubkey::default(),
         market: Pubkey::default(),
         position_id: Pubkey::default(),
-        referral_profile: Pubkey::default(),
+        referral_partner: Pubkey::default(),
         referral_interest_share_bps: 0,
         debt_asset: 0,
         collateral_amount: 0,
@@ -173,10 +173,10 @@ fn open_leverage_tracks_isolated_debt_and_cash() {
 }
 
 #[test]
-fn referred_leverage_records_exact_debt_and_binds_profile() {
+fn referred_leverage_records_exact_debt_and_binds_partner() {
     let mut market = test_market(1_000_000, 1_000_000);
     let mut position = empty_position();
-    let referral_profile = Pubkey::new_unique();
+    let referral_partner = Pubkey::new_unique();
     let open_quote = market
         .quote_leverage_swap(MarketAsset::Base, 2_000)
         .unwrap();
@@ -187,7 +187,7 @@ fn referred_leverage_records_exact_debt_and_binds_profile() {
             Pubkey::new_unique(),
             Pubkey::new_unique(),
             Pubkey::new_unique(),
-            referral_profile,
+            referral_partner,
             2_500,
             MarketAsset::Base,
             1_000,
@@ -205,7 +205,7 @@ fn referred_leverage_records_exact_debt_and_binds_profile() {
     assert_eq!(open.borrowed_amount, 1_000);
     assert_eq!(open.debt_amount, 1_000);
     assert_eq!(open.swap.amount_in, 2_000);
-    assert_eq!(position.referral_profile, referral_profile);
+    assert_eq!(position.referral_partner, referral_partner);
     assert_eq!(position.referral_interest_share_bps, 2_500);
     assert_eq!(position.debt_principal, 1_000);
     assert_eq!(market.debt.isolated_base_principal, 1_000);
@@ -224,7 +224,7 @@ fn referred_leverage_records_exact_debt_and_binds_profile() {
         .unwrap();
     assert_eq!(increase.borrowed_amount, 100);
     assert_eq!(increase.debt_delta, 100);
-    assert_eq!(position.referral_profile, referral_profile);
+    assert_eq!(position.referral_partner, referral_partner);
     assert_eq!(position.referral_interest_share_bps, 2_500);
     assert_eq!(market.base_side.daily_limits.borrowed_bucket, 1_100);
 }

@@ -47,7 +47,7 @@ import {
   deriveMarketInterestVaultAddress,
   deriveMarketReserveVaultAddress,
   deriveReferralAccrualAddress,
-  deriveReferralProfileAddress,
+  deriveReferralPartnerAddress,
   deriveBorrowPositionAddress,
   deriveLeveragePositionAddress,
   deriveYieldAccountAddress,
@@ -1181,7 +1181,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         debtFeeVault: fixture.quoteFeeVault,
         leverageCollateralVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
-        referralProfile: null,
+        referralPartner: null,
         referralAccrual: null,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -1199,23 +1199,23 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     };
   }
 
-  async function configureReferral(
+  async function configureReferralPartner(
     referrer: PublicKey,
     interestShareBps = 7_500,
     active = true
   ) {
-    const referralProfile = deriveReferralProfileAddress(referrer)[0];
+    const referralPartner = deriveReferralPartnerAddress(referrer)[0];
     const tx = await program.methods
-      .configureReferral({ referrer, interestShareBps, active })
+      .configureReferralPartner({ referrer, interestShareBps, active })
       .accounts({
         authoritySigner: payer.publicKey,
         futarchyAuthority,
-        referralProfile,
+        referralPartner,
         systemProgram: SystemProgram.programId,
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
-    return referralProfile;
+    return referralPartner;
   }
 
   async function initializeReferralAccrual(
@@ -1223,9 +1223,9 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     market: PublicKey,
     assetMint: PublicKey
   ) {
-    const referralProfile = deriveReferralProfileAddress(referrer)[0];
+    const referralPartner = deriveReferralPartnerAddress(referrer)[0];
     const referralAccrual = deriveReferralAccrualAddress(
-      referralProfile,
+      referralPartner,
       market,
       assetMint
     )[0];
@@ -1233,7 +1233,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       .initializeReferralAccrual()
       .accounts({
         payer: payer.publicKey,
-        referralProfile,
+        referralPartner,
         market,
         assetMint,
         referralAccrual,
@@ -1734,13 +1734,13 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     await connection.sendTransaction(addLiquidityTx, [payer]);
 
     await updateInterestRevenue(10_000, 5_000);
-    const referralProfile = await configureReferral(payer.publicKey, 7_500);
+    const referralPartner = await configureReferralPartner(payer.publicKey, 7_500);
     const referralAccrual = await initializeReferralAccrual(
       payer.publicKey,
       fixture.market,
       fixture.quoteMint
     );
-    trackV2Instruction("configureReferral", this.test?.title);
+    trackV2Instruction("configureReferralPartner", this.test?.title);
     trackV2Instruction("initializeReferralAccrual", this.test?.title);
 
     const borrowPositionId = Keypair.generate().publicKey;
@@ -1805,7 +1805,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         reserveVault: fixture.quoteReserveVault,
         ownerDebtAccount: ownerQuoteAccount,
         borrowPosition,
-        referralProfile,
+        referralPartner,
         referralAccrual,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -1828,7 +1828,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       Buffer.from(svm.getAccount(borrowPosition)!.data)
     ) as any;
     expect(position.fixed_quote_shares.toNumber()).to.equal(10_000);
-    expect(position.quote_referral_profile.toString()).to.equal(referralProfile.toString());
+    expect(position.quote_referral_partner.toString()).to.equal(referralPartner.toString());
     expect(position.quote_referral_interest_share_bps).to.equal(5_000);
     let accrual = accountCoder.decode(
       "ReferralAccrual",
@@ -1836,7 +1836,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     ) as any;
     expect(accrual.amount.toNumber()).to.equal(0);
 
-    await configureReferral(payer.publicKey, 1_000, false);
+    await configureReferralPartner(payer.publicKey, 1_000, false);
     advanceClockByYear();
 
     const repayTx = await program.methods
@@ -1850,7 +1850,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         interestVault: fixture.quoteInterestVault,
         ownerDebtAccount: ownerQuoteAccount,
         borrowPosition,
-        referralProfile,
+        referralPartner,
         referralAccrual,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -1896,7 +1896,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       .accounts({
         market: fixture.market,
         authority: payer.publicKey,
-        referralProfile,
+        referralPartner,
         assetMint: fixture.quoteMint,
         referralAccrual,
         interestVault: fixture.quoteInterestVault,
@@ -2029,7 +2029,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     const referrer = Keypair.generate();
     await connection.requestAirdrop(referrer.publicKey, LAMPORTS_PER_SOL);
     await updateInterestRevenue(10_000, 5_000);
-    const referralProfile = await configureReferral(referrer.publicKey, 5_000);
+    const referralPartner = await configureReferralPartner(referrer.publicKey, 5_000);
     const referralAccrual = await initializeReferralAccrual(
       referrer.publicKey,
       fixture.market,
@@ -2037,7 +2037,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     );
     const setRecipientTx = await program.methods
       .setReferralRecipient({ recipient: payer.publicKey })
-      .accounts({ authority: referrer.publicKey, referralProfile })
+      .accounts({ authority: referrer.publicKey, referralPartner })
       .transaction();
     await connection.sendTransaction(setRecipientTx, [referrer]);
     trackV2Instruction("setReferralRecipient", this.test?.title);
@@ -2093,7 +2093,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         reserveVault: fixture.quoteReserveVault,
         ownerDebtAccount: ownerQuoteAccount,
         borrowPosition,
-        referralProfile,
+        referralPartner,
         referralAccrual,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -2139,7 +2139,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         interestVault: fixture.quoteInterestVault,
         ownerDebtAccount: ownerQuoteAccount,
         borrowPosition,
-        referralProfile,
+        referralPartner,
         referralAccrual,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -2180,7 +2180,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       .accounts({
         market: fixture.market,
         authority: referrer.publicKey,
-        referralProfile,
+        referralPartner,
         assetMint: fixture.quoteMint,
         referralAccrual,
         interestVault: fixture.quoteInterestVault,
@@ -3308,7 +3308,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         reserveVault: fixture.quoteReserveVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
         borrowPosition,
-        referralProfile: null,
+        referralPartner: null,
         referralAccrual: null,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -3365,7 +3365,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         interestVault: fixture.quoteInterestVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
         borrowPosition,
-        referralProfile: null,
+        referralPartner: null,
         referralAccrual: null,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -3426,9 +3426,9 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     const borrowPosition = deriveBorrowPositionAddress(fixture.market, borrowPositionId)[0];
 
     const unlistedReferrer = Keypair.generate().publicKey;
-    const unlistedProfile = deriveReferralProfileAddress(unlistedReferrer)[0];
+    const unlistedPartner = deriveReferralPartnerAddress(unlistedReferrer)[0];
     const unlistedAccrual = deriveReferralAccrualAddress(
-      unlistedProfile,
+      unlistedPartner,
       fixture.market,
       fixture.quoteMint
     )[0];
@@ -3436,7 +3436,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       .initializeReferralAccrual()
       .accounts({
         payer: payer.publicKey,
-        referralProfile: unlistedProfile,
+        referralPartner: unlistedPartner,
         market: fixture.market,
         assetMint: fixture.quoteMint,
         referralAccrual: unlistedAccrual,
@@ -3451,7 +3451,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     }
     expect(unlistedRejected).to.equal(true);
 
-    const referralProfile = await configureReferral(payer.publicKey, 7_500);
+    const referralPartner = await configureReferralPartner(payer.publicKey, 7_500);
     const referralAccrual = await initializeReferralAccrual(
       payer.publicKey,
       fixture.market,
@@ -3477,27 +3477,27 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     }
     expect(overCapRejected).to.equal(true);
 
-    const invalidProfile = Keypair.generate().publicKey;
-    const invalidProfileTx = await program.methods
-      .configureReferral({
-        referrer: invalidProfile,
+    const invalidPartner = Keypair.generate().publicKey;
+    const invalidPartnerTx = await program.methods
+      .configureReferralPartner({
+        referrer: invalidPartner,
         interestShareBps: 10_001,
         active: true,
       })
       .accounts({
         authoritySigner: payer.publicKey,
         futarchyAuthority,
-        referralProfile: deriveReferralProfileAddress(invalidProfile)[0],
+        referralPartner: deriveReferralPartnerAddress(invalidPartner)[0],
         systemProgram: SystemProgram.programId,
       })
       .transaction();
-    let invalidProfileRejected = false;
+    let invalidPartnerRejected = false;
     try {
-      await connection.sendTransaction(invalidProfileTx, [payer]);
+      await connection.sendTransaction(invalidPartnerTx, [payer]);
     } catch {
-      invalidProfileRejected = true;
+      invalidPartnerRejected = true;
     }
-    expect(invalidProfileRejected).to.equal(true);
+    expect(invalidPartnerRejected).to.equal(true);
 
     const depositTx = await program.methods
       .depositCollateral({
@@ -3537,7 +3537,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         reserveVault: fixture.quoteReserveVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
         borrowPosition,
-        referralProfile,
+        referralPartner,
         referralAccrual,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -3554,11 +3554,11 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       Buffer.from(svm.getAccount(borrowPosition)!.data)
     ) as any;
     expect(position.fixed_quote_shares.toNumber()).to.equal(10_000);
-    expect(position.quote_referral_profile.toString()).to.equal(referralProfile.toString());
+    expect(position.quote_referral_partner.toString()).to.equal(referralPartner.toString());
     expect(position.quote_referral_interest_share_bps).to.equal(2_500);
 
     const secondReferrer = Keypair.generate().publicKey;
-    const secondProfile = await configureReferral(secondReferrer, 2_000);
+    const secondPartner = await configureReferralPartner(secondReferrer, 2_000);
     const secondAccrual = await initializeReferralAccrual(
       secondReferrer,
       fixture.market,
@@ -3580,7 +3580,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         reserveVault: fixture.quoteReserveVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
         borrowPosition,
-        referralProfile: secondProfile,
+        referralPartner: secondPartner,
         referralAccrual: secondAccrual,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -3608,7 +3608,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         interestVault: fixture.quoteInterestVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
         borrowPosition,
-        referralProfile,
+        referralPartner,
         referralAccrual,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -3627,12 +3627,12 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     expect(accruedBeforeDeactivation).to.equal((interestVault.amount * 2_500n) / 10_000n);
     expect(accruedBeforeDeactivation > 0n).to.equal(true);
 
-    await configureReferral(payer.publicKey, 7_500, false);
+    await configureReferralPartner(payer.publicKey, 7_500, false);
     const inactiveAccrualSetupTx = await program.methods
       .initializeReferralAccrual()
       .accounts({
         payer: payer.publicKey,
-        referralProfile,
+        referralPartner,
         market: fixture.market,
         assetMint: fixture.quoteMint,
         referralAccrual,
@@ -3679,7 +3679,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         reserveVault: fixture.quoteReserveVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
         borrowPosition: rejectedPosition,
-        referralProfile,
+        referralPartner,
         referralAccrual,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -3715,7 +3715,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         reserveVault: fixture.quoteReserveVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
         borrowPosition,
-        referralProfile,
+        referralPartner,
         referralAccrual,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -3753,7 +3753,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         interestVault: fixture.quoteInterestVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
         borrowPosition,
-        referralProfile,
+        referralPartner,
         referralAccrual,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -3785,7 +3785,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     );
     const rotateTx = await program.methods
       .setReferralRecipient({ recipient: rotatedRecipient })
-      .accounts({ authority: payer.publicKey, referralProfile })
+      .accounts({ authority: payer.publicKey, referralPartner })
       .transaction();
     await connection.sendTransaction(rotateTx, [payer]);
 
@@ -3794,7 +3794,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       .accounts({
         market: fixture.market,
         authority: payer.publicKey,
-        referralProfile,
+        referralPartner,
         assetMint: fixture.quoteMint,
         referralAccrual,
         interestVault: fixture.quoteInterestVault,
@@ -3818,13 +3818,13 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       "BorrowPosition",
       Buffer.from(svm.getAccount(borrowPosition)!.data)
     ) as any;
-    expect(position.quote_referral_profile.toString()).to.equal(referralProfile.toString());
+    expect(position.quote_referral_partner.toString()).to.equal(referralPartner.toString());
     expect(position.quote_referral_interest_share_bps).to.equal(2_500);
   });
   it("binds leverage referrals without changing debt and accrues on interest repayment", async function () {
     const fixture = await addBalancedLiquidity(70);
     await updateInterestRevenue(10_000, 5_000);
-    const referralProfile = await configureReferral(payer.publicKey, 5_000);
+    const referralPartner = await configureReferralPartner(payer.publicKey, 5_000);
     const referralAccrual = await initializeReferralAccrual(
       payer.publicKey,
       fixture.market,
@@ -3859,7 +3859,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         debtFeeVault: fixture.quoteFeeVault,
         leverageCollateralVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
-        referralProfile,
+        referralPartner,
         referralAccrual,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -3877,7 +3877,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     ) as any;
     expect(position.debt_principal.toNumber()).to.equal(1_000);
     expect(position.debt_shares.toNumber()).to.equal(1_000);
-    expect(position.referral_profile.toString()).to.equal(referralProfile.toString());
+    expect(position.referral_partner.toString()).to.equal(referralPartner.toString());
     expect(position.referral_interest_share_bps).to.equal(5_000);
     expect((await getAccount(connection as any, fixture.ownerQuoteAccount)).amount).to.equal(
       ownerQuoteBefore.amount - 1_000n
@@ -3915,7 +3915,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       Buffer.from(svm.getAccount(leveragePosition)!.data)
     ) as any;
     expect(position.debt_principal.toNumber()).to.equal(1_100);
-    expect(position.referral_profile.toString()).to.equal(referralProfile.toString());
+    expect(position.referral_partner.toString()).to.equal(referralPartner.toString());
     expect(position.referral_interest_share_bps).to.equal(5_000);
     let accrual = accountCoder.decode(
       "ReferralAccrual",
@@ -3923,7 +3923,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     ) as any;
     expect(accrual.amount.toNumber()).to.equal(0);
 
-    await configureReferral(payer.publicKey, 1_000, false);
+    await configureReferralPartner(payer.publicKey, 1_000, false);
     advanceClockByYear();
     const addMarginTx = await program.methods
       .addLeverageMargin({
@@ -3939,7 +3939,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         debtReserveVault: fixture.quoteReserveVault,
         debtInterestVault: fixture.quoteInterestVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
-        referralProfile,
+        referralPartner,
         referralAccrual,
         owner: payer.publicKey,
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -4007,7 +4007,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         reserveVault: fixture.quoteReserveVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
         borrowPosition,
-        referralProfile: null,
+        referralPartner: null,
         referralAccrual: null,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -4062,7 +4062,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         liquidatorDebtAccount: fixture.ownerQuoteAccount,
         liquidatorCollateralAccount: fixture.ownerBaseAccount,
         borrowPosition,
-        referralProfile: null,
+        referralPartner: null,
         referralAccrual: null,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -4116,7 +4116,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         debtReserveVault: fixture.quoteReserveVault,
         debtInterestVault: fixture.quoteInterestVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
-        referralProfile: null,
+        referralPartner: null,
         referralAccrual: null,
         owner: payer.publicKey,
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -4223,7 +4223,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         collateralFeeVault: fixture.baseFeeVault,
         debtInterestVault: fixture.quoteInterestVault,
         leverageCollateralVault,
-        referralProfile: null,
+        referralPartner: null,
         referralAccrual: null,
         owner: payer.publicKey,
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -4345,7 +4345,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         debtInterestVault: fixture.quoteInterestVault,
         leverageCollateralVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
-        referralProfile: null,
+        referralPartner: null,
         referralAccrual: null,
         leverageDelegation: null,
         delegatedProgram: null,
@@ -4481,7 +4481,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         debtInterestVault: fixture.quoteInterestVault,
         leverageCollateralVault,
         ownerDebtAccount: custodyTokenAccount,
-        referralProfile: null,
+        referralPartner: null,
         referralAccrual: null,
         leverageDelegation,
         delegatedProgram: LEVERAGE_DELEGATE_PROGRAM_ID,
@@ -4541,7 +4541,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         leverageCollateralVault,
         liquidatorDebtAccount: liquidatorQuoteAccount,
         ownerDebtAccount: fixture.ownerQuoteAccount,
-        referralProfile: null,
+        referralPartner: null,
         referralAccrual: null,
         liquidator: payer.publicKey,
         tokenProgram: TOKEN_PROGRAM_ID,

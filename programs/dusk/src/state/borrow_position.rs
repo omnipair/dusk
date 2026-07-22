@@ -27,8 +27,8 @@ pub struct BorrowPosition {
     pub global_health_quote_contribution_for_base_debt: u64,
     pub base_liquidation_cf_bps: u16,
     pub quote_liquidation_cf_bps: u16,
-    pub base_referral_profile: Pubkey,
-    pub quote_referral_profile: Pubkey,
+    pub base_referral_partner: Pubkey,
+    pub quote_referral_partner: Pubkey,
     pub base_referral_interest_share_bps: u16,
     pub quote_referral_interest_share_bps: u16,
     pub fixed_base_shares: u128,
@@ -48,8 +48,8 @@ impl BorrowPosition {
         self.clear_liquidation_auction();
         self.base_liquidation_cf_bps = 0;
         self.quote_liquidation_cf_bps = 0;
-        self.base_referral_profile = Pubkey::default();
-        self.quote_referral_profile = Pubkey::default();
+        self.base_referral_partner = Pubkey::default();
+        self.quote_referral_partner = Pubkey::default();
         self.base_referral_interest_share_bps = 0;
         self.quote_referral_interest_share_bps = 0;
         self.bump = bump;
@@ -87,10 +87,10 @@ impl BorrowPosition {
         }
     }
 
-    pub fn referral_profile(&self, debt_asset: MarketAsset) -> Pubkey {
+    pub fn referral_partner(&self, debt_asset: MarketAsset) -> Pubkey {
         match debt_asset {
-            MarketAsset::Base => self.base_referral_profile,
-            MarketAsset::Quote => self.quote_referral_profile,
+            MarketAsset::Base => self.base_referral_partner,
+            MarketAsset::Quote => self.quote_referral_partner,
         }
     }
 
@@ -101,14 +101,14 @@ impl BorrowPosition {
         }
     }
 
-    pub fn set_referral_binding(&mut self, debt_asset: MarketAsset, referral_profile: Pubkey, interest_share_bps: u16) {
+    pub fn set_referral_binding(&mut self, debt_asset: MarketAsset, referral_partner: Pubkey, interest_share_bps: u16) {
         match debt_asset {
             MarketAsset::Base => {
-                self.base_referral_profile = referral_profile;
+                self.base_referral_partner = referral_partner;
                 self.base_referral_interest_share_bps = interest_share_bps;
             }
             MarketAsset::Quote => {
-                self.quote_referral_profile = referral_profile;
+                self.quote_referral_partner = referral_partner;
                 self.quote_referral_interest_share_bps = interest_share_bps;
             }
         }

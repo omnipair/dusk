@@ -6,7 +6,7 @@ import { address, normalizeAccountKeys, type AddressLike } from "./address.js";
 import {
   deriveFutarchyAuthorityAddress,
   deriveMarketInterestVaultAddress,
-  deriveReferralProfileAddress,
+  deriveReferralPartnerAddress,
 } from "./constants.js";
 import {
   assertReferralInterestShareBps,
@@ -38,8 +38,8 @@ export interface ReferredActionOptions extends DuskBuildOptions {
 }
 
 export interface ReferredActionBuild {
-  referralProfile: ReturnType<typeof deriveReferralProfileAddress>[0];
-  referralAccrual: ReturnType<typeof deriveReferralProfileAddress>[0];
+  referralPartner: ReturnType<typeof deriveReferralPartnerAddress>[0];
+  referralAccrual: ReturnType<typeof deriveReferralPartnerAddress>[0];
   setupInstruction: TransactionInstruction;
   actionInstruction: TransactionInstruction;
   transaction: Transaction;
@@ -101,7 +101,7 @@ export class DuskWrite {
     return this.builder(name, args, options).rpc();
   }
 
-  async configureReferralInstruction(params: {
+  async configureReferralPartnerInstruction(params: {
     authoritySigner: AddressLike;
     referrer: AddressLike;
     interestShareBps: number;
@@ -111,7 +111,7 @@ export class DuskWrite {
     assertReferralInterestShareBps(params.interestShareBps);
     const referrer = address(params.referrer);
     return this.instruction(
-      "configureReferral",
+      "configureReferralPartner",
       {
         referrer,
         interestShareBps: params.interestShareBps,
@@ -122,17 +122,17 @@ export class DuskWrite {
           authoritySigner: address(params.authoritySigner),
           futarchyAuthority:
             params.futarchyAuthority ?? deriveFutarchyAuthorityAddress()[0],
-          referralProfile: deriveReferralProfileAddress(referrer)[0],
+          referralPartner: deriveReferralPartnerAddress(referrer)[0],
           systemProgram: SystemProgram.programId,
         },
       }
     );
   }
 
-  async configureReferralTransaction(
-    params: Parameters<DuskWrite["configureReferralInstruction"]>[0]
+  async configureReferralPartnerTransaction(
+    params: Parameters<DuskWrite["configureReferralPartnerInstruction"]>[0]
   ): Promise<Transaction> {
-    return new Transaction().add(await this.configureReferralInstruction(params));
+    return new Transaction().add(await this.configureReferralPartnerInstruction(params));
   }
 
   async initializeReferralAccrualInstruction(params: {
@@ -145,7 +145,7 @@ export class DuskWrite {
     return this.instruction("initializeReferralAccrual", undefined, {
       accounts: {
         payer: address(params.payer),
-        referralProfile: referral.referralProfile,
+        referralPartner: referral.referralPartner,
         market: address(params.market),
         assetMint: address(params.assetMint),
         referralAccrual: referral.referralAccrual,
@@ -193,14 +193,14 @@ export class DuskWrite {
       {
         accounts: {
           ...options.accounts,
-          referralProfile: referral.referralProfile,
+          referralPartner: referral.referralPartner,
           referralAccrual: referral.referralAccrual,
         },
         remainingAccounts: mergeAccountMetas(options.remainingAccounts ?? [], hookAccounts),
       }
     );
     return {
-      referralProfile: referral.referralProfile,
+      referralPartner: referral.referralPartner,
       referralAccrual: referral.referralAccrual,
       setupInstruction,
       actionInstruction,
@@ -227,7 +227,7 @@ export class DuskWrite {
       {
         accounts: {
           authority,
-          referralProfile: deriveReferralProfileAddress(authority)[0],
+          referralPartner: deriveReferralPartnerAddress(authority)[0],
         },
       }
     );
@@ -291,7 +291,7 @@ export class DuskWrite {
       accounts: {
         market,
         authority,
-        referralProfile: referral.referralProfile,
+        referralPartner: referral.referralPartner,
         assetMint: mintKey,
         referralAccrual: referral.referralAccrual,
         interestVault,

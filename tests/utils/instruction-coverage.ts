@@ -18,7 +18,7 @@ const DUSK_INSTRUCTIONS = [
   "updateProtocolAuctionConfig",
   "updateProtocolAuctionRecipients",
   "setGlobalReduceOnly",
-  "configureReferral",
+  "configureReferralPartner",
   "initializeReferralAccrual",
   "setReferralRecipient",
   "claimReferralInterest",

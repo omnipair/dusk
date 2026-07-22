@@ -199,8 +199,8 @@ pub struct ReferralInterestShareCapUpdated {
 }
 
 #[event]
-pub struct ReferralConfigured {
-    pub referral_profile: Pubkey,
+pub struct ReferralPartnerConfigured {
+    pub referral_partner: Pubkey,
     pub authority: Pubkey,
     pub recipient: Pubkey,
     pub interest_share_bps: u16,
@@ -210,7 +210,7 @@ pub struct ReferralConfigured {
 
 #[event]
 pub struct ReferralRecipientUpdated {
-    pub referral_profile: Pubkey,
+    pub referral_partner: Pubkey,
     pub authority: Pubkey,
     pub recipient: Pubkey,
 }
@@ -218,7 +218,7 @@ pub struct ReferralRecipientUpdated {
 #[event]
 pub struct ReferralInterestClaimed {
     pub market: Pubkey,
-    pub referral_profile: Pubkey,
+    pub referral_partner: Pubkey,
     pub referral_accrual: Pubkey,
     pub authority: Pubkey,
     pub recipient: Pubkey,
@@ -235,7 +235,7 @@ pub struct ReferralInterestAccrued {
     pub position: Pubkey,
     pub owner: Pubkey,
     pub referrer: Pubkey,
-    pub referral_profile: Pubkey,
+    pub referral_partner: Pubkey,
     pub referral_accrual: Pubkey,
     pub asset_mint: Pubkey,
     pub interest_paid: u64,
@@ -252,7 +252,7 @@ pub struct ReferralBound {
     pub position: Pubkey,
     pub owner: Pubkey,
     pub referrer: Pubkey,
-    pub referral_profile: Pubkey,
+    pub referral_partner: Pubkey,
     pub asset_mint: Pubkey,
     pub interest_share_bps: u16,
     pub metadata: MarketEventMetadata,

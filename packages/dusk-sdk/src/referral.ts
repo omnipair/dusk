@@ -15,7 +15,7 @@ import {
 import { address, type AddressLike } from "./address.js";
 import {
   deriveReferralAccrualAddress,
-  deriveReferralProfileAddress,
+  deriveReferralPartnerAddress,
 } from "./constants.js";
 
 export const REFERRAL_BPS_DENOMINATOR = 10_000;
@@ -38,7 +38,7 @@ export function referralBindingInterestShareBps(params: {
 }): number {
   assertReferralInterestShareBps(params.configuredShareBps);
   assertReferralInterestShareBps(params.maxShareBps);
-  if (params.active === false) throw new Error("Referral profile is inactive");
+  if (params.active === false) throw new Error("Referral partner is inactive");
   return Math.min(params.configuredShareBps, params.maxShareBps);
 }
 
@@ -95,7 +95,7 @@ export async function tokenProgramForMint(
 }
 
 export interface ReferralAccrualAddresses {
-  referralProfile: PublicKey;
+  referralPartner: PublicKey;
   referralAccrual: PublicKey;
 }
 
@@ -107,13 +107,13 @@ export function referralAccrualAddresses(params: {
   const referrer = address(params.referrer);
   const market = address(params.market);
   const assetMint = address(params.assetMint);
-  const [referralProfile] = deriveReferralProfileAddress(referrer);
+  const [referralPartner] = deriveReferralPartnerAddress(referrer);
   const [referralAccrual] = deriveReferralAccrualAddress(
-    referralProfile,
+    referralPartner,
     market,
     assetMint
   );
-  return { referralProfile, referralAccrual };
+  return { referralPartner, referralAccrual };
 }
 
 function assertBps(value: number, label: string): void {

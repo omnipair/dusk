@@ -148,7 +148,7 @@
           "writable": true
         },
         {
-          "name": "referral_profile",
+          "name": "referral_partner",
           "optional": true
         },
         {
@@ -552,7 +552,7 @@
           }
         },
         {
-          "name": "referral_profile",
+          "name": "referral_partner",
           "optional": true
         },
         {
@@ -720,7 +720,7 @@
           }
         },
         {
-          "name": "referral_profile",
+          "name": "referral_partner",
           "optional": true
         },
         {
@@ -948,7 +948,7 @@
           "signer": true
         },
         {
-          "name": "referral_profile",
+          "name": "referral_partner",
           "pda": {
             "seeds": [
               {
@@ -964,12 +964,12 @@
                   108,
                   95,
                   112,
+                  97,
                   114,
-                  111,
-                  102,
-                  105,
-                  108,
-                  101
+                  116,
+                  110,
+                  101,
+                  114
                 ]
               },
               {
@@ -1010,7 +1010,7 @@
               },
               {
                 "kind": "account",
-                "path": "referral_profile"
+                "path": "referral_partner"
               },
               {
                 "kind": "account",
@@ -1368,7 +1368,7 @@
           "writable": true
         },
         {
-          "name": "referral_profile",
+          "name": "referral_partner",
           "optional": true
         },
         {
@@ -1511,16 +1511,16 @@
       ]
     },
     {
-      "name": "configure_referral",
+      "name": "configure_referral_partner",
       "discriminator": [
-        242,
-        180,
-        243,
-        118,
-        105,
-        148,
-        92,
-        189
+        36,
+        179,
+        42,
+        204,
+        66,
+        161,
+        198,
+        254
       ],
       "accounts": [
         {
@@ -1559,7 +1559,7 @@
           }
         },
         {
-          "name": "referral_profile",
+          "name": "referral_partner",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1576,12 +1576,12 @@
                   108,
                   95,
                   112,
+                  97,
                   114,
-                  111,
-                  102,
-                  105,
-                  108,
-                  101
+                  116,
+                  110,
+                  101,
+                  114
                 ]
               },
               {
@@ -1601,7 +1601,7 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "ConfigureReferralArgs"
+              "name": "ConfigureReferralPartnerArgs"
             }
           }
         }
@@ -1977,7 +1977,7 @@
           }
         },
         {
-          "name": "referral_profile",
+          "name": "referral_partner",
           "optional": true
         },
         {
@@ -2235,7 +2235,7 @@
           "writable": true
         },
         {
-          "name": "referral_profile",
+          "name": "referral_partner",
           "optional": true
         },
         {
@@ -3707,7 +3707,7 @@
           "signer": true
         },
         {
-          "name": "referral_profile",
+          "name": "referral_partner",
           "pda": {
             "seeds": [
               {
@@ -3723,18 +3723,18 @@
                   108,
                   95,
                   112,
+                  97,
                   114,
-                  111,
-                  102,
-                  105,
-                  108,
-                  101
+                  116,
+                  110,
+                  101,
+                  114
                 ]
               },
               {
                 "kind": "account",
-                "path": "referral_profile.authority",
-                "account": "ReferralProfile"
+                "path": "referral_partner.authority",
+                "account": "ReferralPartner"
               }
             ]
           }
@@ -3806,7 +3806,7 @@
               },
               {
                 "kind": "account",
-                "path": "referral_profile"
+                "path": "referral_partner"
               },
               {
                 "kind": "account",
@@ -4023,7 +4023,7 @@
           "writable": true
         },
         {
-          "name": "referral_profile",
+          "name": "referral_partner",
           "optional": true
         },
         {
@@ -4277,7 +4277,7 @@
           "writable": true
         },
         {
-          "name": "referral_profile",
+          "name": "referral_partner",
           "optional": true
         },
         {
@@ -5193,7 +5193,7 @@
           }
         },
         {
-          "name": "referral_profile",
+          "name": "referral_partner",
           "optional": true
         },
         {
@@ -5635,7 +5635,7 @@
           "signer": true
         },
         {
-          "name": "referral_profile",
+          "name": "referral_partner",
           "writable": true,
           "pda": {
             "seeds": [
@@ -5652,12 +5652,12 @@
                   108,
                   95,
                   112,
+                  97,
                   114,
-                  111,
-                  102,
-                  105,
-                  108,
-                  101
+                  116,
+                  110,
+                  101,
+                  114
                 ]
               },
               {
@@ -5944,7 +5944,7 @@
           }
         },
         {
-          "name": "referral_profile",
+          "name": "referral_partner",
           "optional": true
         },
         {
@@ -7436,16 +7436,16 @@
       ]
     },
     {
-      "name": "ReferralProfile",
+      "name": "ReferralPartner",
       "discriminator": [
-        13,
-        74,
-        189,
-        176,
-        219,
-        84,
-        162,
-        8
+        234,
+        54,
+        169,
+        157,
+        142,
+        187,
+        225,
+        214
       ]
     },
     {
@@ -7815,19 +7815,6 @@
       ]
     },
     {
-      "name": "ReferralConfigured",
-      "discriminator": [
-        101,
-        62,
-        115,
-        44,
-        71,
-        39,
-        153,
-        160
-      ]
-    },
-    {
       "name": "ReferralInterestAccrued",
       "discriminator": [
         80,
@@ -7864,6 +7851,19 @@
         53,
         91,
         113
+      ]
+    },
+    {
+      "name": "ReferralPartnerConfigured",
+      "discriminator": [
+        60,
+        230,
+        246,
+        232,
+        67,
+        30,
+        217,
+        223
       ]
     },
     {
@@ -8500,13 +8500,13 @@
     },
     {
       "code": 6113,
-      "name": "InvalidReferralProfile",
-      "msg": "Invalid referral profile"
+      "name": "InvalidReferralPartner",
+      "msg": "Invalid referral partner"
     },
     {
       "code": 6114,
-      "name": "ReferralNotActive",
-      "msg": "Referral is not active"
+      "name": "ReferralPartnerNotActive",
+      "msg": "Referral partner is not active"
     },
     {
       "code": 6115,
@@ -8795,11 +8795,11 @@
             "type": "u16"
           },
           {
-            "name": "base_referral_profile",
+            "name": "base_referral_partner",
             "type": "pubkey"
           },
           {
-            "name": "quote_referral_profile",
+            "name": "quote_referral_partner",
             "type": "pubkey"
           },
           {
@@ -8954,7 +8954,7 @@
       }
     },
     {
-      "name": "ConfigureReferralArgs",
+      "name": "ConfigureReferralPartnerArgs",
       "type": {
         "kind": "struct",
         "fields": [
@@ -9816,7 +9816,7 @@
             "type": "pubkey"
           },
           {
-            "name": "referral_profile",
+            "name": "referral_partner",
             "type": "pubkey"
           },
           {
@@ -11791,13 +11791,13 @@
     {
       "name": "ReferralAccrual",
       "docs": [
-        "Claimable referral revenue for one profile, market, and debt asset."
+        "Claimable referral revenue for one partner, market, and debt asset."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "referral_profile",
+            "name": "referral_partner",
             "type": "pubkey"
           },
           {
@@ -11841,7 +11841,7 @@
             "type": "pubkey"
           },
           {
-            "name": "referral_profile",
+            "name": "referral_partner",
             "type": "pubkey"
           },
           {
@@ -11859,38 +11859,6 @@
                 "name": "MarketEventMetadata"
               }
             }
-          }
-        ]
-      }
-    },
-    {
-      "name": "ReferralConfigured",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "referral_profile",
-            "type": "pubkey"
-          },
-          {
-            "name": "authority",
-            "type": "pubkey"
-          },
-          {
-            "name": "recipient",
-            "type": "pubkey"
-          },
-          {
-            "name": "interest_share_bps",
-            "type": "u16"
-          },
-          {
-            "name": "active",
-            "type": "bool"
-          },
-          {
-            "name": "signer",
-            "type": "pubkey"
           }
         ]
       }
@@ -11917,7 +11885,7 @@
             "type": "pubkey"
           },
           {
-            "name": "referral_profile",
+            "name": "referral_partner",
             "type": "pubkey"
           },
           {
@@ -11969,7 +11937,7 @@
             "type": "pubkey"
           },
           {
-            "name": "referral_profile",
+            "name": "referral_partner",
             "type": "pubkey"
           },
           {
@@ -12032,7 +12000,7 @@
       }
     },
     {
-      "name": "ReferralProfile",
+      "name": "ReferralPartner",
       "docs": [
         "A permissioned, protocol-wide referral registry entry."
       ],
@@ -12063,12 +12031,44 @@
       }
     },
     {
+      "name": "ReferralPartnerConfigured",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "referral_partner",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "interest_share_bps",
+            "type": "u16"
+          },
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "signer",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
       "name": "ReferralRecipientUpdated",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "referral_profile",
+            "name": "referral_partner",
             "type": "pubkey"
           },
           {
@@ -13115,9 +13115,9 @@
       "value": "[114, 101, 102, 101, 114, 114, 97, 108, 95, 97, 99, 99, 114, 117, 97, 108]"
     },
     {
-      "name": "REFERRAL_PROFILE_SEED_PREFIX",
+      "name": "REFERRAL_PARTNER_SEED_PREFIX",
       "type": "bytes",
-      "value": "[114, 101, 102, 101, 114, 114, 97, 108, 95, 112, 114, 111, 102, 105, 108, 101]"
+      "value": "[114, 101, 102, 101, 114, 114, 97, 108, 95, 112, 97, 114, 116, 110, 101, 114]"
     },
     {
       "name": "TARGET_MS_PER_SLOT",

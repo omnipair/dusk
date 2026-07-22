@@ -5,7 +5,7 @@ use anchor_spl::{
 };
 
 use crate::{
-    constants::{MARKET_V2_SEED_PREFIX, REFERRAL_ACCRUAL_SEED_PREFIX, REFERRAL_PROFILE_SEED_PREFIX},
+    constants::{MARKET_V2_SEED_PREFIX, REFERRAL_ACCRUAL_SEED_PREFIX, REFERRAL_PARTNER_SEED_PREFIX},
     errors::ErrorCode,
     events::{MarketEventMetadata, ReferralInterestClaimed},
     generate_market_seeds,
@@ -14,7 +14,7 @@ use crate::{
         validate_interest_accounts,
     },
     shared::token::transfer_from_vault_to_user_with_remaining_accounts,
-    state::{Market, ReferralAccrual, ReferralProfile},
+    state::{Market, ReferralAccrual, ReferralPartner},
 };
 
 #[derive(Accounts)]
@@ -35,11 +35,11 @@ pub struct ClaimReferralInterest<'info> {
     pub authority: Signer<'info>,
 
     #[account(
-        seeds = [REFERRAL_PROFILE_SEED_PREFIX, authority.key().as_ref()],
-        bump = referral_profile.bump,
-        constraint = referral_profile.authority == authority.key() @ ErrorCode::InvalidReferralProfile
+        seeds = [REFERRAL_PARTNER_SEED_PREFIX, authority.key().as_ref()],
+        bump = referral_partner.bump,
+        constraint = referral_partner.authority == authority.key() @ ErrorCode::InvalidReferralPartner
     )]
-    pub referral_profile: Box<Account<'info, ReferralProfile>>,
+    pub referral_partner: Box<Account<'info, ReferralPartner>>,
 
     pub asset_mint: Box<InterfaceAccount<'info, Mint>>,
 
@@ -47,12 +47,12 @@ pub struct ClaimReferralInterest<'info> {
         mut,
         seeds = [
             REFERRAL_ACCRUAL_SEED_PREFIX,
-            referral_profile.key().as_ref(),
+            referral_partner.key().as_ref(),
             market.key().as_ref(),
             asset_mint.key().as_ref(),
         ],
         bump = referral_accrual.bump,
-        constraint = referral_accrual.referral_profile == referral_profile.key() @ ErrorCode::InvalidReferralAccrual,
+        constraint = referral_accrual.referral_partner == referral_partner.key() @ ErrorCode::InvalidReferralAccrual,
         constraint = referral_accrual.market == market.key() @ ErrorCode::InvalidReferralAccrual,
         constraint = referral_accrual.asset_mint == asset_mint.key() @ ErrorCode::InvalidReferralAccrual
     )]
@@ -74,7 +74,7 @@ impl<'info> ClaimReferralInterest<'info> {
         validate_interest_accounts(&self.market, &self.asset_mint, &self.interest_vault)?;
         require_keys_eq!(
             self.recipient_token_account.owner,
-            self.referral_profile.recipient,
+            self.referral_partner.recipient,
             ErrorCode::InvalidRecipient
         );
         require_keys_eq!(
@@ -126,10 +126,10 @@ impl<'info> ClaimReferralInterest<'info> {
 
         emit!(ReferralInterestClaimed {
             market: ctx.accounts.market.key(),
-            referral_profile: ctx.accounts.referral_profile.key(),
+            referral_partner: ctx.accounts.referral_partner.key(),
             referral_accrual: ctx.accounts.referral_accrual.key(),
-            authority: ctx.accounts.referral_profile.authority,
-            recipient: ctx.accounts.referral_profile.recipient,
+            authority: ctx.accounts.referral_partner.authority,
+            recipient: ctx.accounts.referral_partner.recipient,
             asset_mint: ctx.accounts.asset_mint.key(),
             vault_debit,
             recipient_credit,

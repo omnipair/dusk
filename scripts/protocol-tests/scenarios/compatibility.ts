@@ -133,7 +133,7 @@ export const COMPATIBILITY_SCENARIOS: ScenarioDefinition[] = [
       });
       await harness.execute({
         wallet: "alice",
-        endpoint: "/api/v2/fork/tx/configure-referral",
+        endpoint: "/api/v2/fork/tx/configure-referral-partner",
         label: "list referrer for Token-2022 interest sharing",
         body: {
           referrer: referrer.toBase58(),

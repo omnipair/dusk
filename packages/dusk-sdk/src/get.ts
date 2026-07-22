@@ -18,7 +18,7 @@ import {
   deriveMarketInterestVaultAddress,
   deriveMarketReserveVaultAddress,
   deriveReferralAccrualAddress,
-  deriveReferralProfileAddress,
+  deriveReferralPartnerAddress,
   deriveTokenMetadataAddress,
   deriveYieldAccountAddress,
   deriveYieldTransferHookValidationAddress,
@@ -44,7 +44,7 @@ import type {
   LeveragePosition,
   Market,
   ReferralAccrual,
-  ReferralProfile,
+  ReferralPartner,
   YieldAccount,
 } from "./type-aliases.js";
 import type { Dusk } from "./types_v2.js";
@@ -63,7 +63,7 @@ export const pda = {
   yieldTransferHookValidation: deriveYieldTransferHookValidationAddress,
   hlpYlpVault: deriveHlpYlpVaultAddress,
   insurance: deriveInsuranceAddress,
-  referralProfile: deriveReferralProfileAddress,
+  referralPartner: deriveReferralPartnerAddress,
   referralAccrual: deriveReferralAccrualAddress,
 } as const;
 
@@ -160,8 +160,8 @@ export class DuskGet {
     return this.program.account.futarchyAuthority.fetch(address(account));
   }
 
-  referralProfile(account: AddressLike): Promise<ReferralProfile> {
-    return this.program.account.referralProfile.fetch(address(account));
+  referralPartner(account: AddressLike): Promise<ReferralPartner> {
+    return this.program.account.referralPartner.fetch(address(account));
   }
 
   referralAccrual(account: AddressLike): Promise<ReferralAccrual> {
@@ -180,8 +180,8 @@ export class DuskGet {
     return this.program.account.leveragePosition.all();
   }
 
-  allReferralProfiles() {
-    return this.program.account.referralProfile.all();
+  allReferralPartners() {
+    return this.program.account.referralPartner.all();
   }
 
   allReferralAccruals() {

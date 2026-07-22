@@ -8,7 +8,7 @@ use crate::{
 /// A permissioned, protocol-wide referral registry entry.
 #[account]
 #[derive(Debug, InitSpace)]
-pub struct ReferralProfile {
+pub struct ReferralPartner {
     pub authority: Pubkey,
     pub recipient: Pubkey,
     pub interest_share_bps: u16,
@@ -16,9 +16,9 @@ pub struct ReferralProfile {
     pub bump: u8,
 }
 
-impl ReferralProfile {
+impl ReferralPartner {
     pub fn initialize(&mut self, authority: Pubkey, interest_share_bps: u16, active: bool, bump: u8) -> Result<()> {
-        require_keys_neq!(authority, Pubkey::default(), ErrorCode::InvalidReferralProfile);
+        require_keys_neq!(authority, Pubkey::default(), ErrorCode::InvalidReferralPartner);
         validate_interest_share_bps(interest_share_bps)?;
         self.authority = authority;
         self.recipient = authority;
@@ -29,7 +29,7 @@ impl ReferralProfile {
     }
 
     pub fn configure(&mut self, authority: Pubkey, interest_share_bps: u16, active: bool) -> Result<()> {
-        require_keys_eq!(self.authority, authority, ErrorCode::InvalidReferralProfile);
+        require_keys_eq!(self.authority, authority, ErrorCode::InvalidReferralPartner);
         validate_interest_share_bps(interest_share_bps)?;
         self.interest_share_bps = interest_share_bps;
         self.active = active;
@@ -37,7 +37,7 @@ impl ReferralProfile {
     }
 
     pub fn set_recipient(&mut self, authority: Pubkey, recipient: Pubkey) -> Result<()> {
-        require_keys_eq!(self.authority, authority, ErrorCode::InvalidReferralProfile);
+        require_keys_eq!(self.authority, authority, ErrorCode::InvalidReferralPartner);
         require_keys_neq!(recipient, Pubkey::default(), ErrorCode::InvalidRecipient);
         self.recipient = recipient;
         Ok(())
@@ -45,16 +45,16 @@ impl ReferralProfile {
 
     pub fn binding_interest_share_bps(&self, runtime_cap_bps: u16) -> Result<u16> {
         validate_interest_share_bps(runtime_cap_bps)?;
-        require!(self.active, ErrorCode::ReferralNotActive);
+        require!(self.active, ErrorCode::ReferralPartnerNotActive);
         Ok(self.interest_share_bps.min(runtime_cap_bps))
     }
 }
 
-/// Claimable referral revenue for one profile, market, and debt asset.
+/// Claimable referral revenue for one partner, market, and debt asset.
 #[account]
 #[derive(Debug, InitSpace)]
 pub struct ReferralAccrual {
-    pub referral_profile: Pubkey,
+    pub referral_partner: Pubkey,
     pub market: Pubkey,
     pub asset_mint: Pubkey,
     pub amount: u64,
@@ -62,11 +62,11 @@ pub struct ReferralAccrual {
 }
 
 impl ReferralAccrual {
-    pub fn initialize(&mut self, referral_profile: Pubkey, market: Pubkey, asset_mint: Pubkey, bump: u8) -> Result<()> {
-        require_keys_neq!(referral_profile, Pubkey::default(), ErrorCode::InvalidReferralAccrual);
+    pub fn initialize(&mut self, referral_partner: Pubkey, market: Pubkey, asset_mint: Pubkey, bump: u8) -> Result<()> {
+        require_keys_neq!(referral_partner, Pubkey::default(), ErrorCode::InvalidReferralAccrual);
         require_keys_neq!(market, Pubkey::default(), ErrorCode::InvalidReferralAccrual);
         require_keys_neq!(asset_mint, Pubkey::default(), ErrorCode::InvalidReferralAccrual);
-        self.referral_profile = referral_profile;
+        self.referral_partner = referral_partner;
         self.market = market;
         self.asset_mint = asset_mint;
         self.amount = 0;
@@ -146,8 +146,8 @@ fn proportional_bps(amount: u64, bps: u16) -> Result<u64> {
 mod tests {
     use super::*;
 
-    fn profile(interest_share_bps: u16, active: bool) -> ReferralProfile {
-        ReferralProfile {
+    fn partner(interest_share_bps: u16, active: bool) -> ReferralPartner {
+        ReferralPartner {
             authority: Pubkey::new_unique(),
             recipient: Pubkey::new_unique(),
             interest_share_bps,
@@ -165,27 +165,27 @@ mod tests {
 
     #[test]
     fn runtime_cap_is_snapshotted_when_referral_is_bound() {
-        let profile = profile(7_500, true);
-        let bound_share_bps = profile.binding_interest_share_bps(4_000).unwrap();
+        let partner = partner(7_500, true);
+        let bound_share_bps = partner.binding_interest_share_bps(4_000).unwrap();
         let quote = ReferralInterestQuote::new(100_000, 100_000, 2_000, Some(bound_share_bps)).unwrap();
         assert_eq!(quote.interest_share_bps, 4_000);
         assert_eq!(quote.referral_amount, 8_000);
     }
 
     #[test]
-    fn inactive_profile_cannot_be_bound() {
-        let profile = profile(5_000, false);
+    fn inactive_partner_cannot_be_bound() {
+        let partner = partner(5_000, false);
         assert_eq!(
-            profile.binding_interest_share_bps(10_000).unwrap_err(),
-            error!(ErrorCode::ReferralNotActive)
+            partner.binding_interest_share_bps(10_000).unwrap_err(),
+            error!(ErrorCode::ReferralPartnerNotActive)
         );
     }
 
     #[test]
-    fn bound_share_survives_profile_deactivation_and_rate_changes() {
-        let mut profile = profile(5_000, true);
-        let bound_share_bps = profile.binding_interest_share_bps(10_000).unwrap();
-        profile.configure(profile.authority, 1_000, false).unwrap();
+    fn bound_share_survives_partner_deactivation_and_rate_changes() {
+        let mut partner = partner(5_000, true);
+        let bound_share_bps = partner.binding_interest_share_bps(10_000).unwrap();
+        partner.configure(partner.authority, 1_000, false).unwrap();
 
         let quote = ReferralInterestQuote::new(100_000, 100_000, 2_000, Some(bound_share_bps)).unwrap();
         assert_eq!(quote.interest_share_bps, 5_000);

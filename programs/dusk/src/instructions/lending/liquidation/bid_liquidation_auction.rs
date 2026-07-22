@@ -16,7 +16,7 @@ use crate::{
     },
     state::{
         market::transitions::liquidation::LiquidationPricing, BorrowPosition, FutarchyAuthority, Market,
-        ReferralAccrual, ReferralProfile,
+        ReferralAccrual, ReferralPartner,
     },
 };
 
@@ -87,7 +87,7 @@ pub struct BidLiquidationAuction<'info> {
     )]
     pub borrow_position: Box<Account<'info, BorrowPosition>>,
 
-    pub referral_profile: Option<Box<Account<'info, ReferralProfile>>>,
+    pub referral_partner: Option<Box<Account<'info, ReferralPartner>>>,
 
     #[account(mut)]
     pub referral_accrual: Option<Box<Account<'info, ReferralAccrual>>>,
@@ -128,11 +128,11 @@ impl<'info> BidLiquidationAuction<'info> {
         );
         validate_referral_binding(
             None,
-            self.borrow_position.referral_profile(debt_asset),
+            self.borrow_position.referral_partner(debt_asset),
             self.borrow_position.referral_interest_share_bps(debt_asset),
             true,
             &self.futarchy_authority,
-            self.referral_profile.as_deref(),
+            self.referral_partner.as_deref(),
             self.referral_accrual.as_deref(),
             self.market.key(),
             &self.debt_asset_mint,
@@ -150,7 +150,7 @@ impl<'info> BidLiquidationAuction<'info> {
         let debt_asset_mint_key = ctx.accounts.debt_asset_mint.key();
         let collateral_asset_mint_key = ctx.accounts.collateral_asset_mint.key();
         let debt_asset = ctx.accounts.market.asset_for_mint(debt_asset_mint_key)?;
-        let expected_referral_profile = ctx.accounts.borrow_position.referral_profile(debt_asset);
+        let expected_referral_partner = ctx.accounts.borrow_position.referral_partner(debt_asset);
         let referral_interest_share_bps = ctx.accounts.borrow_position.referral_interest_share_bps(debt_asset);
 
         ctx.accounts.borrow_position.assert_liquidation_auction(debt_asset)?;
@@ -246,10 +246,10 @@ impl<'info> BidLiquidationAuction<'info> {
                 token_account_credit(interest_vault_balance_before, &ctx.accounts.interest_vault)?;
             let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
             let referral_receipt = accrue_referral_interest(
-                expected_referral_profile,
+                expected_referral_partner,
                 referral_interest_share_bps,
                 &ctx.accounts.futarchy_authority,
-                ctx.accounts.referral_profile.as_deref(),
+                ctx.accounts.referral_partner.as_deref(),
                 ctx.accounts.referral_accrual.as_deref_mut(),
                 market_key,
                 &ctx.accounts.debt_asset_mint,
@@ -267,10 +267,10 @@ impl<'info> BidLiquidationAuction<'info> {
             referral_receipt
         } else {
             accrue_referral_interest(
-                expected_referral_profile,
+                expected_referral_partner,
                 referral_interest_share_bps,
                 &ctx.accounts.futarchy_authority,
-                ctx.accounts.referral_profile.as_deref(),
+                ctx.accounts.referral_partner.as_deref(),
                 ctx.accounts.referral_accrual.as_deref_mut(),
                 market_key,
                 &ctx.accounts.debt_asset_mint,

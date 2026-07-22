@@ -12,7 +12,7 @@ use crate::{
     shared::token::{
         transfer_from_vault_to_user_with_remaining_accounts, transfer_from_vault_to_vault_with_remaining_accounts,
     },
-    state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralProfile},
+    state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
 };
 
 use super::common::{
@@ -103,7 +103,7 @@ pub struct LiquidateLeverage<'info> {
     )]
     pub owner_debt_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    pub referral_profile: Option<Box<Account<'info, ReferralProfile>>>,
+    pub referral_partner: Option<Box<Account<'info, ReferralPartner>>>,
 
     #[account(mut)]
     pub referral_accrual: Option<Box<Account<'info, ReferralAccrual>>>,
@@ -137,11 +137,11 @@ impl<'info> LiquidateLeverage<'info> {
         self.leverage_position.require_open()?;
         validate_referral_binding(
             None,
-            self.leverage_position.referral_profile,
+            self.leverage_position.referral_partner,
             self.leverage_position.referral_interest_share_bps,
             true,
             &self.futarchy_authority,
-            self.referral_profile.as_deref(),
+            self.referral_partner.as_deref(),
             self.referral_accrual.as_deref(),
             self.market.key(),
             &self.debt_mint,
@@ -160,7 +160,7 @@ impl<'info> LiquidateLeverage<'info> {
         let debt_mint_key = ctx.accounts.debt_mint.key();
         let collateral_mint_key = ctx.accounts.collateral_mint.key();
         let position_key = ctx.accounts.leverage_position.key();
-        let expected_referral_profile = ctx.accounts.leverage_position.referral_profile;
+        let expected_referral_partner = ctx.accounts.leverage_position.referral_partner;
         let collateral_sold = ctx.accounts.leverage_position.collateral_amount;
 
         let collateral_token_program = token_program_for_mint(
@@ -247,9 +247,9 @@ impl<'info> LiquidateLeverage<'info> {
             &ctx.accounts.token_2022_program,
             manager_fee_bps,
             &ctx.accounts.futarchy_authority,
-            expected_referral_profile,
+            expected_referral_partner,
             ctx.accounts.leverage_position.referral_interest_share_bps,
-            ctx.accounts.referral_profile.as_deref(),
+            ctx.accounts.referral_partner.as_deref(),
             ctx.accounts.referral_accrual.as_deref_mut(),
             receipt.interest_paid,
             ctx.remaining_accounts,

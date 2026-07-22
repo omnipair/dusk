@@ -364,18 +364,18 @@ function deriveLeverageCustodyAuthority(order: PublicKey): PublicKey {
   )[0];
 }
 
-function deriveReferralProfile(authority: PublicKey): PublicKey {
-  return pda(seed("referral_profile"), authority.toBuffer());
+function deriveReferralPartner(authority: PublicKey): PublicKey {
+  return pda(seed("referral_partner"), authority.toBuffer());
 }
 
 function deriveReferralAccrual(
-  referralProfile: PublicKey,
+  referralPartner: PublicKey,
   market: PublicKey,
   assetMint: PublicKey
 ): PublicKey {
   return pda(
     seed("referral_accrual"),
-    referralProfile.toBuffer(),
+    referralPartner.toBuffer(),
     market.toBuffer(),
     assetMint.toBuffer()
   );
@@ -385,17 +385,17 @@ function optionalReferralAccounts(
   value: unknown,
   market: PublicKey,
   assetMint: PublicKey
-): { referralProfile: PublicKey | null; referralAccrual: PublicKey | null } {
-  if (value == null) return { referralProfile: null, referralAccrual: null };
-  const referralProfile = value instanceof PublicKey
+): { referralPartner: PublicKey | null; referralAccrual: PublicKey | null } {
+  if (value == null) return { referralPartner: null, referralAccrual: null };
+  const referralPartner = value instanceof PublicKey
     ? value
     : new PublicKey(String(value));
-  if (referralProfile.equals(PublicKey.default)) {
-    return { referralProfile: null, referralAccrual: null };
+  if (referralPartner.equals(PublicKey.default)) {
+    return { referralPartner: null, referralAccrual: null };
   }
   return {
-    referralProfile,
-    referralAccrual: deriveReferralAccrual(referralProfile, market, assetMint),
+    referralPartner,
+    referralAccrual: deriveReferralAccrual(referralPartner, market, assetMint),
   };
 }
 
@@ -409,11 +409,11 @@ async function borrowPositionReferralAccounts(
   const position = await program.account.borrowPosition.fetchNullable(
     deriveBorrowPosition(market, positionId)
   );
-  if (!position) return { referralProfile: null, referralAccrual: null };
+  if (!position) return { referralPartner: null, referralAccrual: null };
   return optionalReferralAccounts(
     debtAsset === "base"
-      ? field(position, "baseReferralProfile", "base_referral_profile")
-      : field(position, "quoteReferralProfile", "quote_referral_profile"),
+      ? field(position, "baseReferralPartner", "base_referral_partner")
+      : field(position, "quoteReferralPartner", "quote_referral_partner"),
     market,
     assetMint
   );
@@ -429,7 +429,7 @@ async function leveragePositionReferralAccounts(
     deriveLeveragePosition(market, positionId)
   );
   return optionalReferralAccounts(
-    field(position, "referralProfile", "referral_profile"),
+    field(position, "referralPartner", "referral_partner"),
     market,
     assetMint
   );
@@ -2454,15 +2454,15 @@ async function buildBorrowTx(params: {
     params.borrowAsset,
     debtMint
   );
-  let referralProfile = boundReferral.referralProfile;
+  let referralPartner = boundReferral.referralPartner;
   let referralAccrual = boundReferral.referralAccrual;
-  if (!referralProfile && params.referrer) {
-    referralProfile = deriveReferralProfile(params.referrer);
+  if (!referralPartner && params.referrer) {
+    referralPartner = deriveReferralPartner(params.referrer);
     const initialized = await buildInitializeReferralAccrualInstruction({
       payer: params.owner,
       market: m.market,
       assetMint: debtMint,
-      referralProfile,
+      referralPartner,
     });
     referralAccrual = initialized.referralAccrual;
     instructions.push(initialized.instruction);
@@ -2484,7 +2484,7 @@ async function buildBorrowTx(params: {
         reserveVault: isBase ? m.baseReserveVault : m.quoteReserveVault,
         ownerDebtAccount: ownerDebt,
         borrowPosition: deriveBorrowPosition(m.market, params.positionId),
-        referralProfile,
+        referralPartner,
         referralAccrual,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -2501,30 +2501,30 @@ async function buildSetReferralRecipientTx(params: {
   recipient: PublicKey;
 }) {
   const { program } = initializeRuntime();
-  const referralProfile = deriveReferralProfile(params.authority);
+  const referralPartner = deriveReferralPartner(params.authority);
   const instruction = await program.methods
     .setReferralRecipient({ recipient: params.recipient })
     .accounts({
       authority: params.authority,
-      referralProfile,
+      referralPartner,
     })
     .instruction();
   return {
     transaction: await serializeOwnerTransaction(params.authority, [instruction]),
-    referralProfile,
+    referralPartner,
   };
 }
 
-async function buildConfigureReferralTx(params: {
+async function buildConfigureReferralPartnerTx(params: {
   authority: PublicKey;
   referrer: PublicKey;
   interestShareBps: number;
   active: boolean;
 }) {
   const { program } = initializeRuntime();
-  const referralProfile = deriveReferralProfile(params.referrer);
+  const referralPartner = deriveReferralPartner(params.referrer);
   const instruction = await program.methods
-    .configureReferral({
+    .configureReferralPartner({
       referrer: params.referrer,
       interestShareBps: params.interestShareBps,
       active: params.active,
@@ -2532,13 +2532,13 @@ async function buildConfigureReferralTx(params: {
     .accounts({
       authoritySigner: params.authority,
       futarchyAuthority: pda(seed("futarchy_authority")),
-      referralProfile,
+      referralPartner,
       systemProgram: SystemProgram.programId,
     })
     .instruction();
   return {
     transaction: await serializeOwnerTransaction(params.authority, [instruction]),
-    referralProfile,
+    referralPartner,
   };
 }
 
@@ -2546,11 +2546,11 @@ async function buildInitializeReferralAccrualInstruction(params: {
   payer: PublicKey;
   market: PublicKey;
   assetMint: PublicKey;
-  referralProfile: PublicKey;
+  referralPartner: PublicKey;
 }) {
   const { program } = initializeRuntime();
   const referralAccrual = deriveReferralAccrual(
-    params.referralProfile,
+    params.referralPartner,
     params.market,
     params.assetMint
   );
@@ -2560,7 +2560,7 @@ async function buildInitializeReferralAccrualInstruction(params: {
       .initializeReferralAccrual()
       .accounts({
         payer: params.payer,
-        referralProfile: params.referralProfile,
+        referralPartner: params.referralPartner,
         market: params.market,
         assetMint: params.assetMint,
         referralAccrual,
@@ -2578,13 +2578,13 @@ async function buildClaimReferralInterestTx(params: {
 }) {
   const { connection, program } = initializeRuntime();
   const m = marketFromStored(params.market);
-  const referralProfile = deriveReferralProfile(params.authority);
-  const profile = await program.account.referralProfile.fetch(referralProfile);
+  const referralPartner = deriveReferralPartner(params.authority);
+  const partner = await program.account.referralPartner.fetch(referralPartner);
   const recipient = new PublicKey(
-    stringValue(field(profile, "recipient"))
+    stringValue(field(partner, "recipient"))
   );
   const referralAccrual = deriveReferralAccrual(
-    referralProfile,
+    referralPartner,
     m.market,
     params.assetMint
   );
@@ -2605,7 +2605,7 @@ async function buildClaimReferralInterestTx(params: {
     .accounts({
       market: m.market,
       authority: params.authority,
-      referralProfile,
+      referralPartner,
       assetMint: params.assetMint,
       referralAccrual,
       interestVault,
@@ -2633,7 +2633,7 @@ async function buildClaimReferralInterestTx(params: {
   instructions.push(await builder.instruction());
   return {
     transaction: await serializeOwnerTransaction(params.authority, instructions),
-    referralProfile,
+    referralPartner,
     referralAccrual,
     recipient,
     recipientTokenAccount: recipientAccount,
@@ -3142,7 +3142,7 @@ async function buildRepayTx(params: {
         interestVault: isBase ? m.baseInterestVault : m.quoteInterestVault,
         ownerDebtAccount: ownerDebt,
         borrowPosition: deriveBorrowPosition(m.market, params.positionId),
-        referralProfile: referral.referralProfile,
+        referralPartner: referral.referralPartner,
         referralAccrual: referral.referralAccrual,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -3172,14 +3172,14 @@ async function buildOpenLeverageTx(params: {
   const debtTokenProgram = debtIsBase ? m.baseTokenProgram : m.quoteTokenProgram;
   const instructions: TransactionInstruction[] = [];
   const ownerDebtAccount = await maybeAddAta(instructions, params.owner, debtMint, debtTokenProgram);
-  const referralProfile = params.referrer ? deriveReferralProfile(params.referrer) : null;
+  const referralPartner = params.referrer ? deriveReferralPartner(params.referrer) : null;
   let referralAccrual: PublicKey | null = null;
-  if (referralProfile) {
+  if (referralPartner) {
     const initialized = await buildInitializeReferralAccrualInstruction({
       payer: params.owner,
       market: m.market,
       assetMint: debtMint,
-      referralProfile,
+      referralPartner,
     });
     referralAccrual = initialized.referralAccrual;
     instructions.push(initialized.instruction);
@@ -3208,7 +3208,7 @@ async function buildOpenLeverageTx(params: {
         debtFeeVault: debtIsBase ? m.baseFeeVault : m.quoteFeeVault,
         leverageCollateralVault,
         ownerDebtAccount,
-        referralProfile,
+        referralPartner,
         referralAccrual,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -3305,7 +3305,7 @@ async function buildDecreaseLeverageTx(params: {
       collateralFeeVault: debtIsBase ? m.quoteFeeVault : m.baseFeeVault,
       debtInterestVault: debtIsBase ? m.baseInterestVault : m.quoteInterestVault,
       leverageCollateralVault,
-      referralProfile: referral.referralProfile,
+      referralPartner: referral.referralPartner,
       referralAccrual: referral.referralAccrual,
       owner: params.owner,
       tokenProgram: TOKEN_PROGRAM_ID,
@@ -3348,7 +3348,7 @@ async function buildAddLeverageMarginTx(params: {
         debtReserveVault: debtIsBase ? m.baseReserveVault : m.quoteReserveVault,
         debtInterestVault: debtIsBase ? m.baseInterestVault : m.quoteInterestVault,
         ownerDebtAccount,
-        referralProfile: referral.referralProfile,
+        referralPartner: referral.referralPartner,
         referralAccrual: referral.referralAccrual,
         owner: params.owner,
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -3439,7 +3439,7 @@ async function buildCloseLeverageTx(params: {
         debtInterestVault: debtIsBase ? m.baseInterestVault : m.quoteInterestVault,
         leverageCollateralVault: deriveLeverageCollateralVault(m.market, collateralMint),
         ownerDebtAccount,
-        referralProfile: referral.referralProfile,
+        referralPartner: referral.referralPartner,
         referralAccrual: referral.referralAccrual,
         leverageDelegation: null,
         delegatedProgram: null,
@@ -3688,7 +3688,7 @@ async function buildDelegatedCloseLeverageTx(params: {
         debtInterestVault: debtIsBase ? m.baseInterestVault : m.quoteInterestVault,
         leverageCollateralVault: deriveLeverageCollateralVault(m.market, collateralMint),
         ownerDebtAccount: custodyAccount.address,
-        referralProfile: referral.referralProfile,
+        referralPartner: referral.referralPartner,
         referralAccrual: referral.referralAccrual,
         leverageDelegation,
         delegatedProgram: LEVERAGE_DELEGATE_PROGRAM_ID,
@@ -3764,7 +3764,7 @@ async function buildLiquidateLeverageTx(params: {
         leverageCollateralVault: deriveLeverageCollateralVault(m.market, collateralMint),
         liquidatorDebtAccount,
         ownerDebtAccount: ownerDebtAccountResult.address,
-        referralProfile: referral.referralProfile,
+        referralPartner: referral.referralPartner,
         referralAccrual: referral.referralAccrual,
         liquidator: params.liquidator,
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -3853,7 +3853,7 @@ async function buildBidLiquidationAuctionTx(params: {
         liquidatorDebtAccount,
         liquidatorCollateralAccount,
         borrowPosition: deriveBorrowPosition(m.market, params.positionId),
-        referralProfile: referral.referralProfile,
+        referralPartner: referral.referralPartner,
         referralAccrual: referral.referralAccrual,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -3919,7 +3919,7 @@ async function buildSettleLiquidationAuctionAmmTx(params: {
         liquidatorDebtAccount,
         liquidatorCollateralAccount,
         borrowPosition: deriveBorrowPosition(m.market, params.positionId),
-        referralProfile: referral.referralProfile,
+        referralPartner: referral.referralPartner,
         referralAccrual: referral.referralAccrual,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -4510,21 +4510,21 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     return txResponse("update-config", owner, stored, transaction);
   }
 
-  if (path === "/api/v2/fork/tx/configure-referral") {
+  if (path === "/api/v2/fork/tx/configure-referral-partner") {
     const referrer = new PublicKey(String(body.referrer ?? ""));
     const interestShareBps = Number(body.interestShareBps ?? 0);
     const active = Boolean(body.active ?? true);
-    const built = await buildConfigureReferralTx({
+    const built = await buildConfigureReferralPartnerTx({
       authority: owner,
       referrer,
       interestShareBps,
       active,
     });
-    return txResponse("configure-referral", owner, stored, built.transaction, {
+    return txResponse("configure-referral-partner", owner, stored, built.transaction, {
       referrer: referrer.toBase58(),
       interestShareBps,
       active,
-      referralProfile: built.referralProfile.toBase58(),
+      referralPartner: built.referralPartner.toBase58(),
     });
   }
 
@@ -4533,7 +4533,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     const built = await buildSetReferralRecipientTx({ authority: owner, recipient });
     return txResponse("set-referral-recipient", owner, stored, built.transaction, {
       recipient: recipient.toBase58(),
-      referralProfile: built.referralProfile.toBase58(),
+      referralPartner: built.referralPartner.toBase58(),
     });
   }
 
@@ -4550,7 +4550,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     return txResponse("claim-referral-interest", owner, stored, built.transaction, {
       asset,
       recipient: built.recipient.toBase58(),
-      referralProfile: built.referralProfile.toBase58(),
+      referralPartner: built.referralPartner.toBase58(),
       referralAccrual: built.referralAccrual.toBase58(),
       recipientTokenAccount: built.recipientTokenAccount.toBase58(),
     });

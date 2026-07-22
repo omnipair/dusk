@@ -14,7 +14,7 @@ use crate::{
         transfer_from_vault_to_vault_with_remaining_accounts,
     },
     state::{
-        FutarchyAuthority, LeverageDelegation, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralProfile,
+        FutarchyAuthority, LeverageDelegation, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner,
     },
 };
 
@@ -112,7 +112,7 @@ pub struct CloseLeverage<'info> {
     #[account(mut)]
     pub owner_debt_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    pub referral_profile: Option<Box<Account<'info, ReferralProfile>>>,
+    pub referral_partner: Option<Box<Account<'info, ReferralPartner>>>,
 
     #[account(mut)]
     pub referral_accrual: Option<Box<Account<'info, ReferralAccrual>>>,
@@ -158,11 +158,11 @@ impl<'info> CloseLeverage<'info> {
             .assert_position(self.position_owner.key(), self.market.key(), debt_asset)?;
         validate_referral_binding(
             None,
-            self.leverage_position.referral_profile,
+            self.leverage_position.referral_partner,
             self.leverage_position.referral_interest_share_bps,
             true,
             &self.futarchy_authority,
-            self.referral_profile.as_deref(),
+            self.referral_partner.as_deref(),
             self.referral_accrual.as_deref(),
             self.market.key(),
             &self.debt_mint,
@@ -257,7 +257,7 @@ impl<'info> CloseLeverage<'info> {
         let debt_mint_key = ctx.accounts.debt_mint.key();
         let collateral_mint_key = ctx.accounts.collateral_mint.key();
         let position_key = ctx.accounts.leverage_position.key();
-        let expected_referral_profile = ctx.accounts.leverage_position.referral_profile;
+        let expected_referral_partner = ctx.accounts.leverage_position.referral_partner;
         let collateral_sold = ctx.accounts.leverage_position.collateral_amount;
         let debt_amount = ctx.accounts.leverage_position.debt_amount(&ctx.accounts.market.debt)?;
         let close_quote = ctx
@@ -294,8 +294,8 @@ impl<'info> CloseLeverage<'info> {
                 ctx.accounts.leverage_collateral_vault.key(),
                 ctx.accounts.owner_debt_account.key(),
             ];
-            if let Some(profile) = ctx.accounts.referral_profile.as_ref() {
-                protected_accounts.push(profile.key());
+            if let Some(partner) = ctx.accounts.referral_partner.as_ref() {
+                protected_accounts.push(partner.key());
             }
             if let Some(accrual) = ctx.accounts.referral_accrual.as_ref() {
                 protected_accounts.push(accrual.key());
@@ -395,9 +395,9 @@ impl<'info> CloseLeverage<'info> {
             &ctx.accounts.token_2022_program,
             manager_fee_bps,
             &ctx.accounts.futarchy_authority,
-            expected_referral_profile,
+            expected_referral_partner,
             ctx.accounts.leverage_position.referral_interest_share_bps,
-            ctx.accounts.referral_profile.as_deref(),
+            ctx.accounts.referral_partner.as_deref(),
             ctx.accounts.referral_accrual.as_deref_mut(),
             receipt.interest_paid,
             ctx.remaining_accounts,
@@ -449,8 +449,8 @@ impl<'info> CloseLeverage<'info> {
                 ctx.accounts.leverage_collateral_vault.key(),
                 ctx.accounts.owner_debt_account.key(),
             ];
-            if let Some(profile) = ctx.accounts.referral_profile.as_ref() {
-                protected_accounts.push(profile.key());
+            if let Some(partner) = ctx.accounts.referral_partner.as_ref() {
+                protected_accounts.push(partner.key());
             }
             if let Some(accrual) = ctx.accounts.referral_accrual.as_ref() {
                 protected_accounts.push(accrual.key());

@@ -58,10 +58,10 @@ Leverage users
   repay, unwind, or get liquidated against market-local reserves
 
 Referrers
-  are listed by Futarchy with a protocol-wide interest-share profile
-  bind that profile when a borrower or leverage user opens new debt
+  are listed by Futarchy as protocol-wide ReferralPartners with an interest share
+  bind that partner when a borrower or leverage user opens new debt
   accrue a share of realized DAO interest revenue per market and mint
-  claim accrued revenue to the profile's designated recipient
+  claim accrued revenue to the partner's designated recipient
 ```
 
 ## Token Model
@@ -99,19 +99,19 @@ Owners can also approve a leverage delegate program for a position. The delegate
 
 ## Permissioned Referral Revenue Sharing
 
-Futarchy may list any wallet or application as a referrer and configure its share of protocol interest revenue. A listed profile can be supplied when a borrow debt side is first opened or when a leverage position is opened. Dusk snapshots the capped share at that point. The profile and snapshotted share remain bound until the debt side is fully repaid or the leverage position closes; increasing existing debt cannot replace or reprice them. Deactivating a profile blocks new bindings only, so existing positions retain their agreed referral economics.
+Futarchy may list any wallet or application as a referrer and configure its share of protocol interest revenue. A listed partner can be supplied when a borrow debt side is first opened or when a leverage position is opened. Dusk snapshots the capped share at that point. The partner and snapshotted share remain bound until the debt side is fully repaid or the leverage position closes; increasing existing debt cannot replace or reprice them. Deactivating a partner blocks new bindings only, so existing positions retain their agreed referral economics.
 
 Referral never increases principal, debt, interest, LTV utilization, or liquidation risk. Borrowers receive and owe the same amounts as unreferred borrowers. When an interest payment credits the market interest vault, Dusk calculates:
 
 ```text
 protocol_interest_revenue = floor(actual_interest_vault_credit * protocol_interest_bps / 10_000)
-bound_referral_share      = min(profile_share_bps, runtime_cap_bps) at initial binding
+bound_referral_share      = min(partner_share_bps, runtime_cap_bps) at initial binding
 referral_accrual          = floor(protocol_interest_revenue * bound_referral_share / 10_000)
 ```
 
-Later profile, cap, or active-status changes apply only to new bindings. The referral amount is carved only from the DAO's configured share of realized interest; LP and manager interest allocations are unchanged. Using actual vault credit keeps Token-2022 transfer fees from creating an unbacked claim.
+Later partner, cap, or active-status changes apply only to new bindings. The referral amount is carved only from the DAO's configured share of realized interest; LP and manager interest allocations are unchanged. Using actual vault credit keeps Token-2022 transfer fees from creating an unbacked claim.
 
-Each `ReferralAccrual` is scoped to one profile, market, and asset mint. Funds remain in the market interest vault while the account records the claimable liability. The profile owner may rotate its designated recipient, and `claim_referral_interest` pays that recipient using the asset mint's SPL Token or Token-2022 program and transfer hooks.
+Each `ReferralAccrual` is scoped to one partner, market, and asset mint. Funds remain in the market interest vault while the account records the claimable liability. The partner authority may rotate its designated recipient, and `claim_referral_interest` pays that recipient using the asset mint's SPL Token or Token-2022 program and transfer hooks.
 
 ## hLP Vaults
 
@@ -164,7 +164,7 @@ deposit_collateral
 withdraw_collateral
 borrow
 repay
-configure_referral
+configure_referral_partner
 initialize_referral_accrual
 set_referral_recipient
 claim_referral_interest
@@ -214,7 +214,7 @@ Dusk is a standalone program and should be integrated through its own IDL, progr
 - Use the Dusk IDL and market PDAs for markets.
 - Do not sort Dusk market mints client-side. The creator's `base_mint` and `quote_mint` order defines the market and its price direction.
 - Treat yLP and hLP mints as distinct Token-2022 token concepts. yLP is the two-sided normal LP token; hLP tokens are aggregate leveraged LP vault shares.
-- Use the referral builders for referred debt actions so the profile ATA and any Token-2022 transfer-hook accounts are included atomically.
+- Use the referral builders for referred debt actions so the partner and accrual PDAs plus any Token-2022 transfer-hook accounts are included atomically.
 - Consume Dusk events from the standalone IDL, including market, liquidity, swap, debt, liquidation, yield, hLP, leverage, leverage-delegation, and referral events.
 
 ## Core Invariants
@@ -274,7 +274,7 @@ Other invariants:
 - hLP operations never use yLP-denominated debt.
 - Isolated leverage debt contributes to utilization without contaminating normal borrower health checks.
 - Referral binding never changes principal, debt, interest, health, or liquidation terms; referral claims are bounded liabilities carved from realized protocol interest revenue.
-- Referral claims can only drain the profile's canonical per-mint ATA to a token account owned by its current designated recipient.
+- Referral claims can only debit the matching `ReferralAccrual` from its market interest vault and pay a token account owned by the partner's current designated recipient.
 - Leverage collateral vault balances are matched by open leverage position collateral accounting.
 - Delegated close requires both a close approval payload and a settlement approval payload from the approved delegate program.
 

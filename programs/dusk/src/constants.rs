@@ -90,7 +90,7 @@ pub const MARKET_V2_SEED_PREFIX: &[u8] = b"market_v2";
 #[constant]
 pub const FUTARCHY_AUTHORITY_SEED_PREFIX: &[u8] = b"futarchy_authority";
 #[constant]
-pub const REFERRAL_PROFILE_SEED_PREFIX: &[u8] = b"referral_profile";
+pub const REFERRAL_PARTNER_SEED_PREFIX: &[u8] = b"referral_partner";
 #[constant]
 pub const REFERRAL_ACCRUAL_SEED_PREFIX: &[u8] = b"referral_accrual";
 #[constant]

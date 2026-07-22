@@ -9,7 +9,7 @@ use crate::{
     errors::ErrorCode,
     events::{LeveragePositionUpdated, MarketEventMetadata},
     shared::token::transfer_from_user_to_vault_with_remaining_accounts,
-    state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralProfile},
+    state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
 };
 
 use super::common::{record_leverage_interest, validate_leverage_interest_account, validate_owner_debt_account};
@@ -69,7 +69,7 @@ pub struct AddLeverageMargin<'info> {
     #[account(mut)]
     pub owner_debt_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    pub referral_profile: Option<Box<Account<'info, ReferralProfile>>>,
+    pub referral_partner: Option<Box<Account<'info, ReferralPartner>>>,
 
     #[account(mut)]
     pub referral_accrual: Option<Box<Account<'info, ReferralAccrual>>>,
@@ -98,11 +98,11 @@ impl<'info> AddLeverageMargin<'info> {
         self.leverage_position.require_open()?;
         validate_referral_binding(
             None,
-            self.leverage_position.referral_profile,
+            self.leverage_position.referral_partner,
             self.leverage_position.referral_interest_share_bps,
             true,
             &self.futarchy_authority,
-            self.referral_profile.as_deref(),
+            self.referral_partner.as_deref(),
             self.referral_accrual.as_deref(),
             self.market.key(),
             &self.debt_mint,
@@ -154,9 +154,9 @@ impl<'info> AddLeverageMargin<'info> {
             &ctx.accounts.token_2022_program,
             manager_fee_bps,
             &ctx.accounts.futarchy_authority,
-            ctx.accounts.leverage_position.referral_profile,
+            ctx.accounts.leverage_position.referral_partner,
             ctx.accounts.leverage_position.referral_interest_share_bps,
-            ctx.accounts.referral_profile.as_deref(),
+            ctx.accounts.referral_partner.as_deref(),
             ctx.accounts.referral_accrual.as_deref_mut(),
             receipt.interest_paid,
             ctx.remaining_accounts,

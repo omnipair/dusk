@@ -5,7 +5,7 @@ import type { TransactionEvidence } from "../types.js";
 
 import { formatUnits, type ProtocolTestHarness, type ScenarioDefinition } from "../harness.js";
 
-const profileClaimPosition = Keypair.generate().publicKey;
+const partnerClaimPosition = Keypair.generate().publicKey;
 const cappedSharePosition = Keypair.generate().publicKey;
 const zeroCapPosition = Keypair.generate().publicKey;
 const repeatedBorrowPosition = Keypair.generate().publicKey;
@@ -34,7 +34,7 @@ function eventValue(event: Record<string, unknown>, camel: string, snake: string
   return BigInt(String(value));
 }
 
-async function configureReferral(
+async function configureReferralPartner(
   harness: ProtocolTestHarness,
   referrer: PublicKey,
   interestShareBps: number,
@@ -42,7 +42,7 @@ async function configureReferral(
 ) {
   return harness.execute({
     wallet: "alice",
-    endpoint: "/api/v2/fork/tx/configure-referral",
+    endpoint: "/api/v2/fork/tx/configure-referral-partner",
     label: `${active ? "list" : "deactivate"} referral at ${interestShareBps} bps`,
     body: {
       referrer: referrer.toBase58(),
@@ -106,7 +106,7 @@ async function repayAll(
 
 export const REFERRAL_SCENARIOS: ScenarioDefinition[] = [
   {
-    id: "referral.profile-and-claim",
+    id: "referral.partner-and-claim",
     async run(harness) {
       const referrer = harness.wallet("referrer").publicKey;
       const recipient = harness.wallet("bob").publicKey;
@@ -116,7 +116,7 @@ export const REFERRAL_SCENARIOS: ScenarioDefinition[] = [
         label: "route all realized interest to protocol revenue for referral accounting",
         body: { interestBps: 10_000, maxReferralInterestShareBps: 5_000 },
       });
-      await configureReferral(harness, referrer, 5_000);
+      await configureReferralPartner(harness, referrer, 5_000);
       await harness.execute({
         wallet: "referrer",
         endpoint: "/api/v2/fork/tx/set-referral-recipient",
@@ -127,14 +127,14 @@ export const REFERRAL_SCENARIOS: ScenarioDefinition[] = [
         wallet: "alice",
         endpoint: "/api/v2/fork/tx/deposit-collateral",
         label: "deposit collateral for referred interest accrual",
-        body: { positionId: profileClaimPosition.toBase58(), marketAsset: "base", depositAmount: "100" },
+        body: { positionId: partnerClaimPosition.toBase58(), marketAsset: "base", depositAmount: "100" },
       });
       await harness.execute({
         wallet: "alice",
         endpoint: "/api/v2/fork/tx/borrow",
         label: "bind listed referrer to quote debt",
         body: {
-          positionId: profileClaimPosition.toBase58(),
+          positionId: partnerClaimPosition.toBase58(),
           borrowAsset: "quote",
           borrowAmount: "20",
           minDebtAmountOut: "20",
@@ -144,7 +144,7 @@ export const REFERRAL_SCENARIOS: ScenarioDefinition[] = [
       });
       harness.assertEqual(
         "referral adds no debt surcharge",
-        await positionDebt(harness, "alice", profileClaimPosition, "quote", "preview exact referred debt"),
+        await positionDebt(harness, "alice", partnerClaimPosition, "quote", "preview exact referred debt"),
         raw(20, harness.config.quoteDecimals)
       );
 
@@ -152,7 +152,7 @@ export const REFERRAL_SCENARIOS: ScenarioDefinition[] = [
       const repayment = await repayAll(
         harness,
         "alice",
-        profileClaimPosition,
+        partnerClaimPosition,
         "quote",
         "realize referred quote interest"
       );
@@ -187,7 +187,7 @@ export const REFERRAL_SCENARIOS: ScenarioDefinition[] = [
         endpoint: "/api/v2/fork/tx/withdraw-collateral",
         label: "withdraw collateral after referred debt clears",
         body: {
-          positionId: profileClaimPosition.toBase58(),
+          positionId: partnerClaimPosition.toBase58(),
           marketAsset: "base",
           withdrawAmount: "100",
           minAssetAmountOut: "100",
@@ -207,7 +207,7 @@ export const REFERRAL_SCENARIOS: ScenarioDefinition[] = [
         label: "set 25 percent runtime referral share cap",
         body: { interestBps: 10_000, maxReferralInterestShareBps: 2_500 },
       });
-      await configureReferral(harness, referrer, 7_500);
+      await configureReferralPartner(harness, referrer, 7_500);
 
       const invalidCap = await harness.execute({
         wallet: "alice",
@@ -221,10 +221,10 @@ export const REFERRAL_SCENARIOS: ScenarioDefinition[] = [
         invalidCap.errorCode,
         "InvalidReferralInterestShareBps"
       );
-      const invalidProfile = await harness.execute({
+      const invalidPartner = await harness.execute({
         wallet: "alice",
-        endpoint: "/api/v2/fork/tx/configure-referral",
-        label: "reject profile share above 100 percent",
+        endpoint: "/api/v2/fork/tx/configure-referral-partner",
+        label: "reject partner share above 100 percent",
         expected: "failure",
         body: {
           referrer: harness.wallet("bidder").publicKey.toBase58(),
@@ -233,8 +233,8 @@ export const REFERRAL_SCENARIOS: ScenarioDefinition[] = [
         },
       });
       harness.assertEqual(
-        "invalid profile share reports referral share error",
-        invalidProfile.errorCode,
+        "invalid partner share reports referral share error",
+        invalidPartner.errorCode,
         "InvalidReferralInterestShareBps"
       );
 
@@ -247,7 +247,7 @@ export const REFERRAL_SCENARIOS: ScenarioDefinition[] = [
       await harness.execute({
         wallet: "bob",
         endpoint: "/api/v2/fork/tx/borrow",
-        label: "bind profile whose configured share exceeds runtime cap",
+        label: "bind partner whose configured share exceeds runtime cap",
         body: {
           positionId: cappedSharePosition.toBase58(),
           borrowAsset: "quote",
@@ -334,8 +334,8 @@ export const REFERRAL_SCENARIOS: ScenarioDefinition[] = [
         label: "enable protocol interest revenue for debt-binding tests",
         body: { interestBps: 10_000, maxReferralInterestShareBps: 5_000 },
       });
-      await configureReferral(harness, referrer, 5_000);
-      await configureReferral(harness, secondReferrer, 2_000);
+      await configureReferralPartner(harness, referrer, 5_000);
+      await configureReferralPartner(harness, secondReferrer, 2_000);
       await harness.execute({
         wallet: "alice",
         endpoint: "/api/v2/fork/tx/deposit-collateral",
@@ -378,7 +378,7 @@ export const REFERRAL_SCENARIOS: ScenarioDefinition[] = [
           referrer: secondReferrer.toBase58(),
         },
       });
-      harness.assertEqual("debt-side referral binding is immutable", rebind.errorCode, "InvalidReferralProfile");
+      harness.assertEqual("debt-side referral binding is immutable", rebind.errorCode, "InvalidReferralPartner");
 
       await harness.execute({
         wallet: "alice",
@@ -476,8 +476,8 @@ export const REFERRAL_SCENARIOS: ScenarioDefinition[] = [
         },
       });
 
-      await configureReferral(harness, alice, 5_000);
-      await configureReferral(harness, referrer, 3_000);
+      await configureReferralPartner(harness, alice, 5_000);
+      await configureReferralPartner(harness, referrer, 3_000);
       await harness.execute({
         wallet: "alice",
         endpoint: "/api/v2/fork/tx/set-referral-recipient",
@@ -577,12 +577,12 @@ export const REFERRAL_SCENARIOS: ScenarioDefinition[] = [
         body: { asset: "quote" },
       });
       harness.assertEqual(
-        "self-referral claim is isolated by profile and mint",
+        "self-referral claim is isolated by partner and mint",
         await harness.tokenBalance("alice", harness.config.baseMint, harness.config.baseTokenProgram) - aliceBaseBefore,
         selfAccrued
       );
       harness.assertEqual(
-        "independent referral claim is isolated by profile and mint",
+        "independent referral claim is isolated by partner and mint",
         await harness.tokenBalance(
           independentReferrerWallet,
           harness.config.quoteMint,

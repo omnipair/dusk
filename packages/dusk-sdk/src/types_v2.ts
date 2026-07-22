@@ -154,7 +154,7 @@ export type Dusk = {
           "writable": true
         },
         {
-          "name": "referralProfile",
+          "name": "referralPartner",
           "optional": true
         },
         {
@@ -558,7 +558,7 @@ export type Dusk = {
           }
         },
         {
-          "name": "referralProfile",
+          "name": "referralPartner",
           "optional": true
         },
         {
@@ -726,7 +726,7 @@ export type Dusk = {
           }
         },
         {
-          "name": "referralProfile",
+          "name": "referralPartner",
           "optional": true
         },
         {
@@ -954,7 +954,7 @@ export type Dusk = {
           "signer": true
         },
         {
-          "name": "referralProfile",
+          "name": "referralPartner",
           "pda": {
             "seeds": [
               {
@@ -970,12 +970,12 @@ export type Dusk = {
                   108,
                   95,
                   112,
+                  97,
                   114,
-                  111,
-                  102,
-                  105,
-                  108,
-                  101
+                  116,
+                  110,
+                  101,
+                  114
                 ]
               },
               {
@@ -1016,7 +1016,7 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "referralProfile"
+                "path": "referralPartner"
               },
               {
                 "kind": "account",
@@ -1374,7 +1374,7 @@ export type Dusk = {
           "writable": true
         },
         {
-          "name": "referralProfile",
+          "name": "referralPartner",
           "optional": true
         },
         {
@@ -1517,16 +1517,16 @@ export type Dusk = {
       ]
     },
     {
-      "name": "configureReferral",
+      "name": "configureReferralPartner",
       "discriminator": [
-        242,
-        180,
-        243,
-        118,
-        105,
-        148,
-        92,
-        189
+        36,
+        179,
+        42,
+        204,
+        66,
+        161,
+        198,
+        254
       ],
       "accounts": [
         {
@@ -1565,7 +1565,7 @@ export type Dusk = {
           }
         },
         {
-          "name": "referralProfile",
+          "name": "referralPartner",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1582,12 +1582,12 @@ export type Dusk = {
                   108,
                   95,
                   112,
+                  97,
                   114,
-                  111,
-                  102,
-                  105,
-                  108,
-                  101
+                  116,
+                  110,
+                  101,
+                  114
                 ]
               },
               {
@@ -1607,7 +1607,7 @@ export type Dusk = {
           "name": "args",
           "type": {
             "defined": {
-              "name": "configureReferralArgs"
+              "name": "configureReferralPartnerArgs"
             }
           }
         }
@@ -1983,7 +1983,7 @@ export type Dusk = {
           }
         },
         {
-          "name": "referralProfile",
+          "name": "referralPartner",
           "optional": true
         },
         {
@@ -2241,7 +2241,7 @@ export type Dusk = {
           "writable": true
         },
         {
-          "name": "referralProfile",
+          "name": "referralPartner",
           "optional": true
         },
         {
@@ -3713,7 +3713,7 @@ export type Dusk = {
           "signer": true
         },
         {
-          "name": "referralProfile",
+          "name": "referralPartner",
           "pda": {
             "seeds": [
               {
@@ -3729,18 +3729,18 @@ export type Dusk = {
                   108,
                   95,
                   112,
+                  97,
                   114,
-                  111,
-                  102,
-                  105,
-                  108,
-                  101
+                  116,
+                  110,
+                  101,
+                  114
                 ]
               },
               {
                 "kind": "account",
-                "path": "referral_profile.authority",
-                "account": "referralProfile"
+                "path": "referral_partner.authority",
+                "account": "referralPartner"
               }
             ]
           }
@@ -3812,7 +3812,7 @@ export type Dusk = {
               },
               {
                 "kind": "account",
-                "path": "referralProfile"
+                "path": "referralPartner"
               },
               {
                 "kind": "account",
@@ -4029,7 +4029,7 @@ export type Dusk = {
           "writable": true
         },
         {
-          "name": "referralProfile",
+          "name": "referralPartner",
           "optional": true
         },
         {
@@ -4283,7 +4283,7 @@ export type Dusk = {
           "writable": true
         },
         {
-          "name": "referralProfile",
+          "name": "referralPartner",
           "optional": true
         },
         {
@@ -5199,7 +5199,7 @@ export type Dusk = {
           }
         },
         {
-          "name": "referralProfile",
+          "name": "referralPartner",
           "optional": true
         },
         {
@@ -5641,7 +5641,7 @@ export type Dusk = {
           "signer": true
         },
         {
-          "name": "referralProfile",
+          "name": "referralPartner",
           "writable": true,
           "pda": {
             "seeds": [
@@ -5658,12 +5658,12 @@ export type Dusk = {
                   108,
                   95,
                   112,
+                  97,
                   114,
-                  111,
-                  102,
-                  105,
-                  108,
-                  101
+                  116,
+                  110,
+                  101,
+                  114
                 ]
               },
               {
@@ -5950,7 +5950,7 @@ export type Dusk = {
           }
         },
         {
-          "name": "referralProfile",
+          "name": "referralPartner",
           "optional": true
         },
         {
@@ -7442,16 +7442,16 @@ export type Dusk = {
       ]
     },
     {
-      "name": "referralProfile",
+      "name": "referralPartner",
       "discriminator": [
-        13,
-        74,
-        189,
-        176,
-        219,
-        84,
-        162,
-        8
+        234,
+        54,
+        169,
+        157,
+        142,
+        187,
+        225,
+        214
       ]
     },
     {
@@ -7821,19 +7821,6 @@ export type Dusk = {
       ]
     },
     {
-      "name": "referralConfigured",
-      "discriminator": [
-        101,
-        62,
-        115,
-        44,
-        71,
-        39,
-        153,
-        160
-      ]
-    },
-    {
       "name": "referralInterestAccrued",
       "discriminator": [
         80,
@@ -7870,6 +7857,19 @@ export type Dusk = {
         53,
         91,
         113
+      ]
+    },
+    {
+      "name": "referralPartnerConfigured",
+      "discriminator": [
+        60,
+        230,
+        246,
+        232,
+        67,
+        30,
+        217,
+        223
       ]
     },
     {
@@ -8506,13 +8506,13 @@ export type Dusk = {
     },
     {
       "code": 6113,
-      "name": "invalidReferralProfile",
-      "msg": "Invalid referral profile"
+      "name": "invalidReferralPartner",
+      "msg": "Invalid referral partner"
     },
     {
       "code": 6114,
-      "name": "referralNotActive",
-      "msg": "Referral is not active"
+      "name": "referralPartnerNotActive",
+      "msg": "Referral partner is not active"
     },
     {
       "code": 6115,
@@ -8801,11 +8801,11 @@ export type Dusk = {
             "type": "u16"
           },
           {
-            "name": "baseReferralProfile",
+            "name": "baseReferralPartner",
             "type": "pubkey"
           },
           {
-            "name": "quoteReferralProfile",
+            "name": "quoteReferralPartner",
             "type": "pubkey"
           },
           {
@@ -8960,7 +8960,7 @@ export type Dusk = {
       }
     },
     {
-      "name": "configureReferralArgs",
+      "name": "configureReferralPartnerArgs",
       "type": {
         "kind": "struct",
         "fields": [
@@ -9822,7 +9822,7 @@ export type Dusk = {
             "type": "pubkey"
           },
           {
-            "name": "referralProfile",
+            "name": "referralPartner",
             "type": "pubkey"
           },
           {
@@ -11797,13 +11797,13 @@ export type Dusk = {
     {
       "name": "referralAccrual",
       "docs": [
-        "Claimable referral revenue for one profile, market, and debt asset."
+        "Claimable referral revenue for one partner, market, and debt asset."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "referralProfile",
+            "name": "referralPartner",
             "type": "pubkey"
           },
           {
@@ -11847,7 +11847,7 @@ export type Dusk = {
             "type": "pubkey"
           },
           {
-            "name": "referralProfile",
+            "name": "referralPartner",
             "type": "pubkey"
           },
           {
@@ -11865,38 +11865,6 @@ export type Dusk = {
                 "name": "marketEventMetadata"
               }
             }
-          }
-        ]
-      }
-    },
-    {
-      "name": "referralConfigured",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "referralProfile",
-            "type": "pubkey"
-          },
-          {
-            "name": "authority",
-            "type": "pubkey"
-          },
-          {
-            "name": "recipient",
-            "type": "pubkey"
-          },
-          {
-            "name": "interestShareBps",
-            "type": "u16"
-          },
-          {
-            "name": "active",
-            "type": "bool"
-          },
-          {
-            "name": "signer",
-            "type": "pubkey"
           }
         ]
       }
@@ -11923,7 +11891,7 @@ export type Dusk = {
             "type": "pubkey"
           },
           {
-            "name": "referralProfile",
+            "name": "referralPartner",
             "type": "pubkey"
           },
           {
@@ -11975,7 +11943,7 @@ export type Dusk = {
             "type": "pubkey"
           },
           {
-            "name": "referralProfile",
+            "name": "referralPartner",
             "type": "pubkey"
           },
           {
@@ -12038,7 +12006,7 @@ export type Dusk = {
       }
     },
     {
-      "name": "referralProfile",
+      "name": "referralPartner",
       "docs": [
         "A permissioned, protocol-wide referral registry entry."
       ],
@@ -12069,12 +12037,44 @@ export type Dusk = {
       }
     },
     {
+      "name": "referralPartnerConfigured",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "referralPartner",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "interestShareBps",
+            "type": "u16"
+          },
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "signer",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
       "name": "referralRecipientUpdated",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "referralProfile",
+            "name": "referralPartner",
             "type": "pubkey"
           },
           {
@@ -13121,9 +13121,9 @@ export type Dusk = {
       "value": "[114, 101, 102, 101, 114, 114, 97, 108, 95, 97, 99, 99, 114, 117, 97, 108]"
     },
     {
-      "name": "referralProfileSeedPrefix",
+      "name": "referralPartnerSeedPrefix",
       "type": "bytes",
-      "value": "[114, 101, 102, 101, 114, 114, 97, 108, 95, 112, 114, 111, 102, 105, 108, 101]"
+      "value": "[114, 101, 102, 101, 114, 114, 97, 108, 95, 112, 97, 114, 116, 110, 101, 114]"
     },
     {
       "name": "targetMsPerSlot",

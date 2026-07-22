@@ -10,7 +10,7 @@ use crate::{
     events::{MarketDebtUpdated, MarketEventMetadata, MarketHealthUpdated, ReferralBound},
     generate_market_seeds,
     shared::token::transfer_from_vault_to_user_with_remaining_accounts,
-    state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralProfile},
+    state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
 };
 
 use crate::instructions::common::{require_supported_asset_mint, token_account_credit, token_program_for_mint};
@@ -72,7 +72,7 @@ pub struct Borrow<'info> {
     )]
     pub borrow_position: Box<Account<'info, BorrowPosition>>,
 
-    pub referral_profile: Option<Box<Account<'info, ReferralProfile>>>,
+    pub referral_partner: Option<Box<Account<'info, ReferralPartner>>>,
 
     pub referral_accrual: Option<Box<Account<'info, ReferralAccrual>>>,
 
@@ -107,11 +107,11 @@ impl<'info> Borrow<'info> {
         };
         validate_referral_binding(
             args.referrer,
-            self.borrow_position.referral_profile(borrow_asset),
+            self.borrow_position.referral_partner(borrow_asset),
             self.borrow_position.referral_interest_share_bps(borrow_asset),
             has_debt,
             &self.futarchy_authority,
-            self.referral_profile.as_deref(),
+            self.referral_partner.as_deref(),
             self.referral_accrual.as_deref(),
             self.market.key(),
             &self.debt_asset_mint,
@@ -134,21 +134,21 @@ impl<'info> Borrow<'info> {
             };
             let referral = validate_referral_binding(
                 args.referrer,
-                accounts.borrow_position.referral_profile(borrow_asset),
+                accounts.borrow_position.referral_partner(borrow_asset),
                 accounts.borrow_position.referral_interest_share_bps(borrow_asset),
                 debt_before > 0,
                 &accounts.futarchy_authority,
-                accounts.referral_profile.as_deref(),
+                accounts.referral_partner.as_deref(),
                 accounts.referral_accrual.as_deref(),
                 market_key,
                 &accounts.debt_asset_mint,
             )?;
             let bound_referral = if debt_before == 0 {
-                let profile = referral.referral_profile.unwrap_or_default();
+                let partner = referral.referral_partner.unwrap_or_default();
                 accounts
                     .borrow_position
-                    .set_referral_binding(borrow_asset, profile, referral.interest_share_bps);
-                referral.referral_profile.map(|_| referral)
+                    .set_referral_binding(borrow_asset, partner, referral.interest_share_bps);
+                referral.referral_partner.map(|_| referral)
             } else {
                 None
             };
@@ -213,8 +213,8 @@ impl<'info> Borrow<'info> {
                 market: market_key,
                 position: position_key,
                 owner: owner_key,
-                referrer: referral.referrer.ok_or(ErrorCode::InvalidReferralProfile)?,
-                referral_profile: referral.referral_profile.ok_or(ErrorCode::InvalidReferralProfile)?,
+                referrer: referral.referrer.ok_or(ErrorCode::InvalidReferralPartner)?,
+                referral_partner: referral.referral_partner.ok_or(ErrorCode::InvalidReferralPartner)?,
                 asset_mint: debt_asset_mint_key,
                 interest_share_bps: referral.interest_share_bps,
                 metadata: MarketEventMetadata::new(owner_key, market_key)?,

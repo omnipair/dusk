@@ -80,7 +80,7 @@ Futarchy first lists a referrer and configures its share of realized protocol
 interest revenue:
 
 ```typescript
-const configureTx = await dusk.write.configureReferralTransaction({
+const configureTx = await dusk.write.configureReferralPartnerTransaction({
   authoritySigner: futarchySigner.publicKey,
   referrer,
   interestShareBps: 2_500,
@@ -91,18 +91,18 @@ const configureTx = await dusk.write.configureReferralTransaction({
 The listed referrer may then designate the wallet that receives claims:
 
 ```typescript
-const profileTx = await dusk.write.setReferralRecipientTransaction({
+const partnerTx = await dusk.write.setReferralRecipientTransaction({
   authority: referrer.publicKey,
   recipient,
 });
 ```
 
-The referred-action builders derive the profile and its per-market, per-mint
+The referred-action builders derive the partner and its per-market, per-mint
 accrual account, initialize the accrual idempotently, and compose setup with the
 debt-opening instruction:
 
 ```typescript
-const { transaction, referralProfile, referralAccrual } =
+const { transaction, referralPartner, referralAccrual } =
   await dusk.write.referredBorrow(
     {
       borrowAmount,
@@ -120,14 +120,14 @@ const { transaction, referralProfile, referralAccrual } =
 ```
 
 `referredOpenLeverage(...)` provides the equivalent leverage-opening flow.
-Existing borrow debt sides and leverage positions retain their bound profile on
-later debt increases. The program snapshots the profile share, capped by the
+Existing borrow debt sides and leverage positions retain their bound partner on
+later debt increases. The program snapshots the partner share, capped by the
 current runtime maximum, when the binding is created. Deactivation or later
 rate/cap updates affect new bindings only. Referral does not change requested
 principal, position debt, interest, health, or liquidation terms.
 
-When interest is realized, the profile accrues a governed share of the DAO's
-interest revenue. Claims always pay a token account owned by the profile's
+When interest is realized, the partner accrues a governed share of the DAO's
+interest revenue. Claims always pay a token account owned by the partner's
 current recipient, and the SDK resolves Token-2022 transfer-hook accounts:
 
 ```typescript
