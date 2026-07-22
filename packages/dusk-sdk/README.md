@@ -74,16 +74,21 @@ const ix = await dusk.write.instruction(
 `write.builder(...)`, `write.transaction(...)`, and `write.rpc(...)` expose the
 same generic path for every Dusk instruction in the IDL.
 
-### Referral Origination Fees
+### Referral Interest Sharing
 
-Referral is optional on `borrow`, `openLeverage`, and `increaseLeverage`. The
-configured rate initializes to 10 bps and cannot exceed the program's 25 bps
-hard cap. The fee rounds up, is added on top of requested principal as gross
-debt, and is transferred immediately from reserve cash to the referral vault.
-Unreferred actions and all repay, close, liquidation, swap, and hLP paths are
-referral-free.
+Futarchy first lists a referrer and configures its share of realized protocol
+interest revenue:
 
-A referrer first designates the wallet that may receive claimed fees:
+```typescript
+const configureTx = await dusk.write.configureReferralTransaction({
+  authoritySigner: futarchySigner.publicKey,
+  referrer,
+  interestShareBps: 2_500,
+  active: true,
+});
+```
+
+The listed referrer may then designate the wallet that receives claims:
 
 ```typescript
 const profileTx = await dusk.write.setReferralRecipientTransaction({
@@ -92,12 +97,12 @@ const profileTx = await dusk.write.setReferralRecipientTransaction({
 });
 ```
 
-The referred-action builders derive the protocol-wide profile, create its
-per-mint ATA idempotently, apply the caller's fee-rate ceiling, and compose the
-setup and action instructions into one transaction:
+The referred-action builders derive the profile and its per-market, per-mint
+accrual account, initialize the accrual idempotently, and compose setup with the
+debt-opening instruction:
 
 ```typescript
-const { transaction, referralProfile, referralVault } =
+const { transaction, referralProfile, referralAccrual } =
   await dusk.write.referredBorrow(
     {
       borrowAmount,
@@ -107,28 +112,36 @@ const { transaction, referralProfile, referralVault } =
     {
       payer: borrower,
       referrer,
+      market,
       debtMint,
-      maxAcceptableReferralFeeBps: 10,
       accounts: borrowAccounts,
     }
   );
 ```
 
-Equivalent `referredOpenLeverage(...)` and `referredIncreaseLeverage(...)`
-builders preserve requested trade principal while adding the referral fee to
-position debt. `maxAcceptableReferralFeeBps` protects a composed transaction
-from a governance rate change before execution.
+`referredOpenLeverage(...)` provides the equivalent leverage-opening flow.
+Existing borrow debt sides and leverage positions retain their bound profile on
+later debt increases. The program snapshots the profile share, capped by the
+current runtime maximum, when the binding is created. Deactivation or later
+rate/cap updates affect new bindings only. Referral does not change requested
+principal, position debt, interest, health, or liquidation terms.
 
-Claims always pay a token account owned by the profile's current recipient.
-The SDK resolves Token-2022 transfer-hook accounts when it builds the claim:
+When interest is realized, the profile accrues a governed share of the DAO's
+interest revenue. Claims always pay a token account owned by the profile's
+current recipient, and the SDK resolves Token-2022 transfer-hook accounts:
 
 ```typescript
-const claimTx = await dusk.write.claimReferralFeesTransaction({
+const claimTx = await dusk.write.claimReferralInterestTransaction({
   authority: referrer,
+  market,
   mint: debtMint,
   recipientTokenAccount,
 });
 ```
+
+`referralBindingInterestShareBps(...)` computes the admission-time capped share.
+Pass that stored share to `quoteReferralInterestShare(...)` to mirror the
+on-chain floor rounding for realized interest.
 
 ## Get On-Chain State
 
@@ -151,7 +164,7 @@ Available typed previews:
 
 - `previewMarket(market)`.
 - `previewSwap({ market, assetInMint, assetOutMint, exactAssetIn })`.
-- `previewBorrowCapacity({ market, collateralAssetMint, debtAssetMint, collateralAmount, projectedBorrowAmount, withReferral })`.
+- `previewBorrowCapacity({ market, collateralAssetMint, debtAssetMint, collateralAmount, projectedBorrowAmount })`.
 - `previewBorrowPosition({ market, borrowPosition })`.
 
 `previewBorrowCapacity` exposes both the health-limited result of the on-chain
@@ -163,10 +176,8 @@ const capacity = await dusk.get.previewBorrowCapacity({
   collateralAssetMint: baseMint,
   debtAssetMint: quoteMint,
   collateralAmount,
-  // Optional: quote the fee, CF, and health terms for this requested principal.
+  // Optional: quote CF and health terms for this requested principal.
   projectedBorrowAmount,
-  withReferral: true,
-  maxAcceptableReferralFeeBps: 10,
 });
 
 capacity.maxDebtByHealth;
@@ -174,9 +185,6 @@ capacity.maxDebtByCash;
 capacity.maxDebtByDailyLimit;
 capacity.maxDebt;
 capacity.maxBorrowAmount;
-capacity.referralOriginationFeeBps;
-capacity.projectedReferralFeeDebit;
-capacity.projectedReferralVaultCredit;
 capacity.maxCfBps;
 capacity.liquidationCfBps;
 capacity.projectedGlobalHealthContribution;

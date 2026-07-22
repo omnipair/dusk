@@ -7,10 +7,10 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{LeveragePositionUpdated, MarketEventMetadata, ReferralOriginationFeePaid},
+    events::{LeveragePositionUpdated, MarketEventMetadata},
     generate_market_seeds,
     shared::token::transfer_from_vault_to_vault_with_remaining_accounts,
-    state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAction, ReferralProfile},
+    state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset},
 };
 
 use super::common::{
@@ -18,15 +18,12 @@ use super::common::{
     validate_leverage_reserve_accounts,
 };
 use crate::instructions::common::token_program_for_mint;
-use crate::instructions::referral::common::{pay_referral_fee, validate_referral};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct IncreaseLeverageArgs {
     pub debt_asset: u8,
     pub debt_amount: u64,
     pub min_collateral_out: u64,
-    pub referrer: Option<Pubkey>,
-    pub max_acceptable_referral_fee_bps: Option<u16>,
 }
 
 #[event_cpi]
@@ -91,11 +88,6 @@ pub struct IncreaseLeverage<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
 
-    pub referral_profile: Option<Box<Account<'info, ReferralProfile>>>,
-
-    #[account(mut)]
-    pub referral_vault: Option<Box<InterfaceAccount<'info, TokenAccount>>>,
-
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
 }
@@ -117,15 +109,6 @@ impl<'info> IncreaseLeverage<'info> {
         )?;
         validate_leverage_fee_account(&self.market, &self.debt_mint, &self.debt_fee_vault, debt_asset)?;
         self.leverage_position.require_open()?;
-        validate_referral(
-            args.debt_amount,
-            args.referrer,
-            args.max_acceptable_referral_fee_bps,
-            &self.futarchy_authority,
-            self.referral_profile.as_deref(),
-            self.referral_vault.as_deref(),
-            &self.debt_mint,
-        )?;
         Ok(())
     }
 
@@ -138,16 +121,6 @@ impl<'info> IncreaseLeverage<'info> {
         let debt_mint_key = ctx.accounts.debt_mint.key();
         let collateral_mint_key = ctx.accounts.collateral_mint.key();
         let position_key = ctx.accounts.leverage_position.key();
-        let referral = validate_referral(
-            args.debt_amount,
-            args.referrer,
-            args.max_acceptable_referral_fee_bps,
-            &ctx.accounts.futarchy_authority,
-            ctx.accounts.referral_profile.as_deref(),
-            ctx.accounts.referral_vault.as_deref(),
-            &ctx.accounts.debt_mint,
-        )?;
-
         let swap = ctx.accounts.market.quote_leverage_swap(debt_asset, args.debt_amount)?;
         let collateral_credit = leverage_collateral_credit(&ctx.accounts.collateral_mint, swap.amount_out)?;
         require_gte!(collateral_credit, args.min_collateral_out, ErrorCode::SlippageExceeded);
@@ -183,22 +156,10 @@ impl<'info> IncreaseLeverage<'info> {
         let receipt = ctx.accounts.market.increase_leverage(
             &mut ctx.accounts.leverage_position,
             args.debt_amount,
-            referral.quote.fee_debit,
             collateral_credit,
             manager_fee_bps,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
-        )?;
-
-        let referral_receipt = pay_referral_fee(
-            &ctx.accounts.market,
-            &mut ctx.accounts.debt_reserve_vault,
-            ctx.accounts.referral_vault.as_deref_mut(),
-            &ctx.accounts.debt_mint,
-            &ctx.accounts.token_program,
-            &ctx.accounts.token_2022_program,
-            referral,
-            ctx.remaining_accounts,
         )?;
 
         emit_cpi!(LeveragePositionUpdated {
@@ -207,9 +168,7 @@ impl<'info> IncreaseLeverage<'info> {
             owner: owner_key,
             debt_asset_mint: debt_mint_key,
             collateral_asset_mint: collateral_mint_key,
-            requested_principal: receipt.requested_principal,
-            referral_fee_amount: receipt.referral_fee_amount,
-            gross_debt_delta: receipt.gross_debt_delta,
+            borrowed_amount: receipt.borrowed_amount,
             debt_delta: receipt.debt_delta,
             collateral_delta: receipt.collateral_delta,
             debt_amount: receipt.debt_amount,
@@ -218,23 +177,6 @@ impl<'info> IncreaseLeverage<'info> {
             closeout_value: receipt.closeout_value,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
-        if let (Some(referrer), Some(referral_profile)) = (referral.referrer, referral.referral_profile) {
-            emit_cpi!(ReferralOriginationFeePaid {
-                market: market_key,
-                position: position_key,
-                owner: owner_key,
-                referrer,
-                referral_profile,
-                asset_mint: debt_mint_key,
-                action: ReferralAction::IncreaseLeverage,
-                requested_principal: referral_receipt.requested_principal,
-                configured_fee_bps: referral_receipt.configured_fee_bps,
-                fee_debit: referral_receipt.fee_debit,
-                vault_credit: referral_receipt.vault_credit,
-                gross_debt: referral_receipt.gross_debt,
-                metadata: MarketEventMetadata::new(owner_key, market_key)?,
-            });
-        }
         Ok(())
     }
 }

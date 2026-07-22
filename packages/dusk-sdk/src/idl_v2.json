@@ -148,6 +148,15 @@
           "writable": true
         },
         {
+          "name": "referral_profile",
+          "optional": true
+        },
+        {
+          "name": "referral_accrual",
+          "writable": true,
+          "optional": true
+        },
+        {
           "name": "owner",
           "writable": true,
           "signer": true
@@ -543,6 +552,15 @@
           }
         },
         {
+          "name": "referral_profile",
+          "optional": true
+        },
+        {
+          "name": "referral_accrual",
+          "writable": true,
+          "optional": true
+        },
+        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -706,8 +724,7 @@
           "optional": true
         },
         {
-          "name": "referral_vault",
-          "writable": true,
+          "name": "referral_accrual",
           "optional": true
         },
         {
@@ -876,18 +893,55 @@
       "args": []
     },
     {
-      "name": "claim_referral_fees",
+      "name": "claim_referral_interest",
       "discriminator": [
-        208,
-        216,
-        137,
-        78,
-        36,
-        103,
-        162,
-        49
+        16,
+        89,
+        1,
+        198,
+        140,
+        72,
+        89,
+        13
       ],
       "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "Market"
+              }
+            ]
+          }
+        },
         {
           "name": "authority",
           "writable": true,
@@ -929,7 +983,48 @@
           "name": "asset_mint"
         },
         {
-          "name": "referral_vault",
+          "name": "referral_accrual",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  102,
+                  101,
+                  114,
+                  114,
+                  97,
+                  108,
+                  95,
+                  97,
+                  99,
+                  99,
+                  114,
+                  117,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "referral_profile"
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "asset_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "interest_vault",
           "writable": true
         },
         {
@@ -1273,6 +1368,15 @@
           "writable": true
         },
         {
+          "name": "referral_profile",
+          "optional": true
+        },
+        {
+          "name": "referral_accrual",
+          "writable": true,
+          "optional": true
+        },
+        {
           "name": "leverage_delegation",
           "optional": true
         },
@@ -1401,6 +1505,103 @@
           "type": {
             "defined": {
               "name": "CloseLeverageDelegationArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "configure_referral",
+      "discriminator": [
+        242,
+        180,
+        243,
+        118,
+        105,
+        148,
+        92,
+        189
+      ],
+      "accounts": [
+        {
+          "name": "authority_signer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "futarchy_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "referral_profile",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  102,
+                  101,
+                  114,
+                  114,
+                  97,
+                  108,
+                  95,
+                  112,
+                  114,
+                  111,
+                  102,
+                  105,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.referrer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ConfigureReferralArgs"
             }
           }
         }
@@ -1776,6 +1977,15 @@
           }
         },
         {
+          "name": "referral_profile",
+          "optional": true
+        },
+        {
+          "name": "referral_accrual",
+          "writable": true,
+          "optional": true
+        },
+        {
           "name": "owner",
           "writable": true,
           "signer": true
@@ -2023,6 +2233,15 @@
         {
           "name": "owner_debt_account",
           "writable": true
+        },
+        {
+          "name": "referral_profile",
+          "optional": true
+        },
+        {
+          "name": "referral_accrual",
+          "writable": true,
+          "optional": true
         },
         {
           "name": "leverage_delegation",
@@ -2618,15 +2837,6 @@
           "name": "owner",
           "writable": true,
           "signer": true
-        },
-        {
-          "name": "referral_profile",
-          "optional": true
-        },
-        {
-          "name": "referral_vault",
-          "writable": true,
-          "optional": true
         },
         {
           "name": "token_program",
@@ -3479,6 +3689,144 @@
       ]
     },
     {
+      "name": "initialize_referral_accrual",
+      "discriminator": [
+        176,
+        126,
+        1,
+        176,
+        59,
+        177,
+        15,
+        82
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "referral_profile",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  102,
+                  101,
+                  114,
+                  114,
+                  97,
+                  108,
+                  95,
+                  112,
+                  114,
+                  111,
+                  102,
+                  105,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "referral_profile.authority",
+                "account": "ReferralProfile"
+              }
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "asset_mint"
+        },
+        {
+          "name": "referral_accrual",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  102,
+                  101,
+                  114,
+                  114,
+                  97,
+                  108,
+                  95,
+                  97,
+                  99,
+                  99,
+                  114,
+                  117,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "referral_profile"
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "asset_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "liquidate_leverage",
       "discriminator": [
         188,
@@ -3673,6 +4021,15 @@
         {
           "name": "owner_debt_account",
           "writable": true
+        },
+        {
+          "name": "referral_profile",
+          "optional": true
+        },
+        {
+          "name": "referral_accrual",
+          "writable": true,
+          "optional": true
         },
         {
           "name": "liquidator",
@@ -3924,8 +4281,7 @@
           "optional": true
         },
         {
-          "name": "referral_vault",
-          "writable": true,
+          "name": "referral_accrual",
           "optional": true
         },
         {
@@ -4103,36 +4459,6 @@
                 "kind": "account",
                 "path": "market.params_hash",
                 "account": "Market"
-              }
-            ]
-          }
-        },
-        {
-          "name": "futarchy_authority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  102,
-                  117,
-                  116,
-                  97,
-                  114,
-                  99,
-                  104,
-                  121,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
               }
             ]
           }
@@ -4867,6 +5193,15 @@
           }
         },
         {
+          "name": "referral_profile",
+          "optional": true
+        },
+        {
+          "name": "referral_accrual",
+          "writable": true,
+          "optional": true
+        },
+        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -5331,10 +5666,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -5611,6 +5942,15 @@
               }
             ]
           }
+        },
+        {
+          "name": "referral_profile",
+          "optional": true
+        },
+        {
+          "name": "referral_accrual",
+          "writable": true,
+          "optional": true
         },
         {
           "name": "token_program",
@@ -7083,6 +7423,19 @@
       ]
     },
     {
+      "name": "ReferralAccrual",
+      "discriminator": [
+        35,
+        246,
+        25,
+        66,
+        174,
+        160,
+        48,
+        39
+      ]
+    },
+    {
       "name": "ReferralProfile",
       "discriminator": [
         13,
@@ -7449,42 +7802,68 @@
       ]
     },
     {
-      "name": "ReferralFeesClaimed",
+      "name": "ReferralBound",
       "discriminator": [
-        118,
-        130,
-        122,
-        41,
-        74,
-        34,
-        240,
-        48
+        12,
+        28,
+        152,
+        148,
+        55,
+        210,
+        102,
+        190
       ]
     },
     {
-      "name": "ReferralOriginationFeePaid",
+      "name": "ReferralConfigured",
       "discriminator": [
-        136,
+        101,
+        62,
+        115,
+        44,
         71,
-        174,
-        33,
-        250,
-        91,
-        9,
-        248
+        39,
+        153,
+        160
       ]
     },
     {
-      "name": "ReferralOriginationFeeUpdated",
+      "name": "ReferralInterestAccrued",
       "discriminator": [
-        117,
-        168,
-        247,
-        121,
-        33,
-        224,
-        165,
-        221
+        80,
+        233,
+        11,
+        123,
+        118,
+        218,
+        113,
+        154
+      ]
+    },
+    {
+      "name": "ReferralInterestClaimed",
+      "discriminator": [
+        103,
+        79,
+        19,
+        199,
+        132,
+        222,
+        156,
+        190
+      ]
+    },
+    {
+      "name": "ReferralInterestShareCapUpdated",
+      "discriminator": [
+        103,
+        139,
+        112,
+        245,
+        212,
+        53,
+        91,
+        113
       ]
     },
     {
@@ -8116,23 +8495,23 @@
     },
     {
       "code": 6112,
-      "name": "InvalidReferralFeeBps",
-      "msg": "Referral origination fee exceeds the protocol hard cap"
+      "name": "InvalidReferralInterestShareBps",
+      "msg": "Referral interest share exceeds the protocol hard cap"
     },
     {
       "code": 6113,
-      "name": "ReferralFeeSlippageExceeded",
-      "msg": "Referral origination fee exceeds the caller maximum"
-    },
-    {
-      "code": 6114,
       "name": "InvalidReferralProfile",
       "msg": "Invalid referral profile"
     },
     {
+      "code": 6114,
+      "name": "ReferralNotActive",
+      "msg": "Referral is not active"
+    },
+    {
       "code": 6115,
-      "name": "InvalidReferralVault",
-      "msg": "Invalid referral fee vault"
+      "name": "InvalidReferralAccrual",
+      "msg": "Invalid referral accrual account"
     }
   ],
   "types": [
@@ -8274,12 +8653,6 @@
             "type": {
               "option": "pubkey"
             }
-          },
-          {
-            "name": "max_acceptable_referral_fee_bps",
-            "type": {
-              "option": "u16"
-            }
           }
         ]
       }
@@ -8334,10 +8707,6 @@
             "type": "u64"
           },
           {
-            "name": "referral_origination_fee_bps",
-            "type": "u16"
-          },
-          {
             "name": "borrow_market_health_floor_bps",
             "type": "u16"
           },
@@ -8347,14 +8716,6 @@
           },
           {
             "name": "projected_borrow_amount",
-            "type": "u64"
-          },
-          {
-            "name": "projected_referral_fee_debit",
-            "type": "u64"
-          },
-          {
-            "name": "projected_referral_vault_credit",
             "type": "u64"
           },
           {
@@ -8431,6 +8792,22 @@
           },
           {
             "name": "quote_liquidation_cf_bps",
+            "type": "u16"
+          },
+          {
+            "name": "base_referral_profile",
+            "type": "pubkey"
+          },
+          {
+            "name": "quote_referral_profile",
+            "type": "pubkey"
+          },
+          {
+            "name": "base_referral_interest_share_bps",
+            "type": "u16"
+          },
+          {
+            "name": "quote_referral_interest_share_bps",
             "type": "u16"
           },
           {
@@ -8572,6 +8949,26 @@
           {
             "name": "position",
             "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigureReferralArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "referrer",
+            "type": "pubkey"
+          },
+          {
+            "name": "interest_share_bps",
+            "type": "u16"
+          },
+          {
+            "name": "active",
+            "type": "bool"
           }
         ]
       }
@@ -8839,6 +9236,10 @@
           {
             "name": "manager_interest_fee_liability",
             "type": "u64"
+          },
+          {
+            "name": "referral_interest_liability",
+            "type": "u64"
           }
         ]
       }
@@ -8873,7 +9274,7 @@
             }
           },
           {
-            "name": "referral_origination_fee_bps",
+            "name": "max_referral_interest_share_bps",
             "type": "u16"
           },
           {
@@ -9180,18 +9581,6 @@
           {
             "name": "min_collateral_out",
             "type": "u64"
-          },
-          {
-            "name": "referrer",
-            "type": {
-              "option": "pubkey"
-            }
-          },
-          {
-            "name": "max_acceptable_referral_fee_bps",
-            "type": {
-              "option": "u16"
-            }
           }
         ]
       }
@@ -9214,7 +9603,7 @@
             "type": "u16"
           },
           {
-            "name": "referral_origination_fee_bps",
+            "name": "max_referral_interest_share_bps",
             "type": "u16"
           },
           {
@@ -9427,6 +9816,14 @@
             "type": "pubkey"
           },
           {
+            "name": "referral_profile",
+            "type": "pubkey"
+          },
+          {
+            "name": "referral_interest_share_bps",
+            "type": "u16"
+          },
+          {
             "name": "debt_asset",
             "type": "u8"
           },
@@ -9623,15 +10020,7 @@
             "type": "u64"
           },
           {
-            "name": "requested_principal",
-            "type": "u64"
-          },
-          {
-            "name": "referral_fee_amount",
-            "type": "u64"
-          },
-          {
-            "name": "gross_debt",
+            "name": "borrowed_amount",
             "type": "u64"
           },
           {
@@ -9695,15 +10084,7 @@
             "type": "pubkey"
           },
           {
-            "name": "requested_principal",
-            "type": "u64"
-          },
-          {
-            "name": "referral_fee_amount",
-            "type": "u64"
-          },
-          {
-            "name": "gross_debt_delta",
+            "name": "borrowed_amount",
             "type": "u64"
           },
           {
@@ -10771,12 +11152,6 @@
             "type": {
               "option": "pubkey"
             }
-          },
-          {
-            "name": "max_acceptable_referral_fee_bps",
-            "type": {
-              "option": "u16"
-            }
           }
         ]
       }
@@ -11027,14 +11402,6 @@
             "type": {
               "option": "u64"
             }
-          },
-          {
-            "name": "with_referral",
-            "type": "bool"
-          },
-          {
-            "name": "max_acceptable_referral_fee_bps",
-            "type": "u16"
           }
         ]
       }
@@ -11422,24 +11789,10 @@
       }
     },
     {
-      "name": "ReferralAction",
-      "type": {
-        "kind": "enum",
-        "variants": [
-          {
-            "name": "Borrow"
-          },
-          {
-            "name": "OpenLeverage"
-          },
-          {
-            "name": "IncreaseLeverage"
-          }
-        ]
-      }
-    },
-    {
-      "name": "ReferralFeesClaimed",
+      "name": "ReferralAccrual",
+      "docs": [
+        "Claimable referral revenue for one profile, market, and debt asset."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -11448,11 +11801,7 @@
             "type": "pubkey"
           },
           {
-            "name": "authority",
-            "type": "pubkey"
-          },
-          {
-            "name": "recipient",
+            "name": "market",
             "type": "pubkey"
           },
           {
@@ -11460,18 +11809,18 @@
             "type": "pubkey"
           },
           {
-            "name": "vault_debit",
+            "name": "amount",
             "type": "u64"
           },
           {
-            "name": "recipient_credit",
-            "type": "u64"
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }
     },
     {
-      "name": "ReferralOriginationFeePaid",
+      "name": "ReferralBound",
       "type": {
         "kind": "struct",
         "fields": [
@@ -11500,31 +11849,103 @@
             "type": "pubkey"
           },
           {
-            "name": "action",
-            "type": {
-              "defined": {
-                "name": "ReferralAction"
-              }
-            }
-          },
-          {
-            "name": "requested_principal",
-            "type": "u64"
-          },
-          {
-            "name": "configured_fee_bps",
+            "name": "interest_share_bps",
             "type": "u16"
           },
           {
-            "name": "fee_debit",
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "MarketEventMetadata"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReferralConfigured",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "referral_profile",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "interest_share_bps",
+            "type": "u16"
+          },
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "signer",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReferralInterestAccrued",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "referrer",
+            "type": "pubkey"
+          },
+          {
+            "name": "referral_profile",
+            "type": "pubkey"
+          },
+          {
+            "name": "referral_accrual",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "interest_paid",
             "type": "u64"
           },
           {
-            "name": "vault_credit",
+            "name": "interest_vault_credit",
             "type": "u64"
           },
           {
-            "name": "gross_debt",
+            "name": "protocol_interest_revenue",
+            "type": "u64"
+          },
+          {
+            "name": "interest_share_bps",
+            "type": "u16"
+          },
+          {
+            "name": "accrued_amount",
             "type": "u64"
           },
           {
@@ -11539,7 +11960,59 @@
       }
     },
     {
-      "name": "ReferralOriginationFeeUpdated",
+      "name": "ReferralInterestClaimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "referral_profile",
+            "type": "pubkey"
+          },
+          {
+            "name": "referral_accrual",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault_debit",
+            "type": "u64"
+          },
+          {
+            "name": "recipient_credit",
+            "type": "u64"
+          },
+          {
+            "name": "remaining_accrual",
+            "type": "u64"
+          },
+          {
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "MarketEventMetadata"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReferralInterestShareCapUpdated",
       "type": {
         "kind": "struct",
         "fields": [
@@ -11548,7 +12021,7 @@
             "type": "pubkey"
           },
           {
-            "name": "referral_origination_fee_bps",
+            "name": "max_referral_interest_share_bps",
             "type": "u16"
           },
           {
@@ -11560,6 +12033,9 @@
     },
     {
       "name": "ReferralProfile",
+      "docs": [
+        "A permissioned, protocol-wide referral registry entry."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -11570,6 +12046,14 @@
           {
             "name": "recipient",
             "type": "pubkey"
+          },
+          {
+            "name": "interest_share_bps",
+            "type": "u16"
+          },
+          {
+            "name": "active",
+            "type": "bool"
           },
           {
             "name": "bump",
@@ -12228,7 +12712,7 @@
             }
           },
           {
-            "name": "referral_origination_fee_bps",
+            "name": "max_referral_interest_share_bps",
             "type": {
               "option": "u16"
             }
@@ -12590,7 +13074,7 @@
     {
       "name": "MARKET_VERSION",
       "type": "u8",
-      "value": "2"
+      "value": "3"
     },
     {
       "name": "MAX_COLLATERAL_FACTOR_BPS",
@@ -12603,9 +13087,9 @@
       "value": "500"
     },
     {
-      "name": "MAX_REFERRAL_ORIGINATION_FEE_BPS",
+      "name": "MAX_REFERRAL_INTEREST_SHARE_BPS",
       "type": "u16",
-      "value": "25"
+      "value": "10000"
     },
     {
       "name": "METADATA_SEED_PREFIX",
@@ -12624,6 +13108,11 @@
       "name": "NAD_DECIMALS",
       "type": "u8",
       "value": "9"
+    },
+    {
+      "name": "REFERRAL_ACCRUAL_SEED_PREFIX",
+      "type": "bytes",
+      "value": "[114, 101, 102, 101, 114, 114, 97, 108, 95, 97, 99, 99, 114, 117, 97, 108]"
     },
     {
       "name": "REFERRAL_PROFILE_SEED_PREFIX",

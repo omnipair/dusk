@@ -17,6 +17,7 @@ import {
   deriveMarketFeeVaultAddress,
   deriveMarketInterestVaultAddress,
   deriveMarketReserveVaultAddress,
+  deriveReferralAccrualAddress,
   deriveReferralProfileAddress,
   deriveTokenMetadataAddress,
   deriveYieldAccountAddress,
@@ -42,6 +43,8 @@ import type {
   LeverageDelegation,
   LeveragePosition,
   Market,
+  ReferralAccrual,
+  ReferralProfile,
   YieldAccount,
 } from "./type-aliases.js";
 import type { Dusk } from "./types_v2.js";
@@ -61,6 +64,7 @@ export const pda = {
   hlpYlpVault: deriveHlpYlpVaultAddress,
   insurance: deriveInsuranceAddress,
   referralProfile: deriveReferralProfileAddress,
+  referralAccrual: deriveReferralAccrualAddress,
 } as const;
 
 export interface SimulateOptions {
@@ -85,17 +89,14 @@ export interface PreviewAddLiquidityParams extends SimulateOptions {
 
 export interface PreviewBorrowCapacityParams extends SimulateOptions {
   market: AddressLike;
-  futarchyAuthority?: AddressLike;
   collateralAssetMint: AddressLike;
   debtAssetMint: AddressLike;
   collateralAmount: BN;
   /**
-   * Candidate requested principal used for the returned fee, CF, and health
-   * fields. When omitted, the program quotes at the final net capacity.
+   * Candidate debt amount used for the returned CF and health fields. When
+   * omitted, the program quotes at maximum borrow capacity.
    */
   projectedBorrowAmount?: BN | null;
-  withReferral?: boolean;
-  maxAcceptableReferralFeeBps?: number;
 }
 
 export interface PreviewBorrowPositionParams extends SimulateOptions {
@@ -159,6 +160,14 @@ export class DuskGet {
     return this.program.account.futarchyAuthority.fetch(address(account));
   }
 
+  referralProfile(account: AddressLike): Promise<ReferralProfile> {
+    return this.program.account.referralProfile.fetch(address(account));
+  }
+
+  referralAccrual(account: AddressLike): Promise<ReferralAccrual> {
+    return this.program.account.referralAccrual.fetch(address(account));
+  }
+
   allMarkets() {
     return this.program.account.market.all();
   }
@@ -169,6 +178,14 @@ export class DuskGet {
 
   allLeveragePositions() {
     return this.program.account.leveragePosition.all();
+  }
+
+  allReferralProfiles() {
+    return this.program.account.referralProfile.all();
+  }
+
+  allReferralAccruals() {
+    return this.program.account.referralAccrual.all();
   }
 
   async previewMarket(market: AddressLike, options: SimulateOptions = {}): Promise<MarketPreview> {
@@ -224,13 +241,10 @@ export class DuskGet {
       .previewBorrowCapacity({
         collateralAmount: params.collateralAmount,
         projectedBorrowAmount: params.projectedBorrowAmount ?? null,
-        withReferral: params.withReferral ?? false,
-        maxAcceptableReferralFeeBps: params.maxAcceptableReferralFeeBps ?? 0,
       })
       .accounts(
         normalizeAccountKeys({
           market: params.market,
-          futarchyAuthority: params.futarchyAuthority ?? deriveFutarchyAuthorityAddress()[0],
           collateralAssetMint: params.collateralAssetMint,
           debtAssetMint: params.debtAssetMint,
         })

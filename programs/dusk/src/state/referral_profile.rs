@@ -1,26 +1,38 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{BPS_DENOMINATOR, MAX_REFERRAL_ORIGINATION_FEE_BPS},
+    constants::{BPS_DENOMINATOR, MAX_REFERRAL_INTEREST_SHARE_BPS},
     errors::ErrorCode,
-    shared::math::ceil_div,
 };
 
+/// A permissioned, protocol-wide referral registry entry.
 #[account]
 #[derive(Debug, InitSpace)]
 pub struct ReferralProfile {
     pub authority: Pubkey,
     pub recipient: Pubkey,
+    pub interest_share_bps: u16,
+    pub active: bool,
     pub bump: u8,
 }
 
 impl ReferralProfile {
-    pub fn initialize(&mut self, authority: Pubkey, recipient: Pubkey, bump: u8) -> Result<()> {
+    pub fn initialize(&mut self, authority: Pubkey, interest_share_bps: u16, active: bool, bump: u8) -> Result<()> {
         require_keys_neq!(authority, Pubkey::default(), ErrorCode::InvalidReferralProfile);
-        require_keys_neq!(recipient, Pubkey::default(), ErrorCode::InvalidRecipient);
+        validate_interest_share_bps(interest_share_bps)?;
         self.authority = authority;
-        self.recipient = recipient;
+        self.recipient = authority;
+        self.interest_share_bps = interest_share_bps;
+        self.active = active;
         self.bump = bump;
+        Ok(())
+    }
+
+    pub fn configure(&mut self, authority: Pubkey, interest_share_bps: u16, active: bool) -> Result<()> {
+        require_keys_eq!(self.authority, authority, ErrorCode::InvalidReferralProfile);
+        validate_interest_share_bps(interest_share_bps)?;
+        self.interest_share_bps = interest_share_bps;
+        self.active = active;
         Ok(())
     }
 
@@ -30,137 +42,160 @@ impl ReferralProfile {
         self.recipient = recipient;
         Ok(())
     }
-}
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct ReferralFeeQuote {
-    pub requested_principal: u64,
-    pub configured_fee_bps: u16,
-    pub fee_debit: u64,
-    pub gross_debt: u64,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct ReferralFeeReceipt {
-    pub requested_principal: u64,
-    pub configured_fee_bps: u16,
-    pub fee_debit: u64,
-    pub vault_credit: u64,
-    pub gross_debt: u64,
-}
-
-impl ReferralFeeReceipt {
-    pub fn new(quote: ReferralFeeQuote, vault_credit: u64) -> Result<Self> {
-        require_gte!(quote.fee_debit, vault_credit, ErrorCode::MarketMathOverflow);
-        Ok(Self {
-            requested_principal: quote.requested_principal,
-            configured_fee_bps: quote.configured_fee_bps,
-            fee_debit: quote.fee_debit,
-            vault_credit,
-            gross_debt: quote.gross_debt,
-        })
+    pub fn binding_interest_share_bps(&self, runtime_cap_bps: u16) -> Result<u16> {
+        validate_interest_share_bps(runtime_cap_bps)?;
+        require!(self.active, ErrorCode::ReferralNotActive);
+        Ok(self.interest_share_bps.min(runtime_cap_bps))
     }
 }
 
-impl ReferralFeeQuote {
+/// Claimable referral revenue for one profile, market, and debt asset.
+#[account]
+#[derive(Debug, InitSpace)]
+pub struct ReferralAccrual {
+    pub referral_profile: Pubkey,
+    pub market: Pubkey,
+    pub asset_mint: Pubkey,
+    pub amount: u64,
+    pub bump: u8,
+}
+
+impl ReferralAccrual {
+    pub fn initialize(&mut self, referral_profile: Pubkey, market: Pubkey, asset_mint: Pubkey, bump: u8) -> Result<()> {
+        require_keys_neq!(referral_profile, Pubkey::default(), ErrorCode::InvalidReferralAccrual);
+        require_keys_neq!(market, Pubkey::default(), ErrorCode::InvalidReferralAccrual);
+        require_keys_neq!(asset_mint, Pubkey::default(), ErrorCode::InvalidReferralAccrual);
+        self.referral_profile = referral_profile;
+        self.market = market;
+        self.asset_mint = asset_mint;
+        self.amount = 0;
+        self.bump = bump;
+        Ok(())
+    }
+
+    pub fn accrue(&mut self, amount: u64) -> Result<()> {
+        self.amount = self.amount.checked_add(amount).ok_or(ErrorCode::FeeMathOverflow)?;
+        Ok(())
+    }
+
+    pub fn claim(&mut self, amount: u64) -> Result<()> {
+        self.amount = self.amount.checked_sub(amount).ok_or(ErrorCode::FeeMathOverflow)?;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ReferralInterestQuote {
+    pub interest_paid: u64,
+    pub interest_vault_credit: u64,
+    pub protocol_interest_revenue: u64,
+    pub interest_share_bps: u16,
+    pub referral_amount: u64,
+}
+
+impl ReferralInterestQuote {
     pub fn new(
-        requested_principal: u64,
-        configured_fee_bps: u16,
-        max_acceptable_fee_bps: u16,
-        referred: bool,
+        interest_paid: u64,
+        interest_vault_credit: u64,
+        protocol_interest_bps: u16,
+        interest_share_bps: Option<u16>,
     ) -> Result<Self> {
-        require_gte!(
-            MAX_REFERRAL_ORIGINATION_FEE_BPS,
-            configured_fee_bps,
-            ErrorCode::InvalidReferralFeeBps
-        );
-        if !referred {
+        require_gte!(BPS_DENOMINATOR, protocol_interest_bps, ErrorCode::InvalidInterestFeeBps);
+
+        require_gte!(interest_paid, interest_vault_credit, ErrorCode::FeeMathOverflow);
+        let protocol_interest_revenue = proportional_bps(interest_vault_credit, protocol_interest_bps)?;
+        let Some(interest_share_bps) = interest_share_bps else {
             return Ok(Self {
-                requested_principal,
-                gross_debt: requested_principal,
+                interest_paid,
+                interest_vault_credit,
+                protocol_interest_revenue,
                 ..Self::default()
             });
-        }
-        require_gte!(
-            max_acceptable_fee_bps,
-            configured_fee_bps,
-            ErrorCode::ReferralFeeSlippageExceeded
-        );
-        let fee_debit = ceil_div(
-            (requested_principal as u128)
-                .checked_mul(configured_fee_bps as u128)
-                .ok_or(ErrorCode::FeeMathOverflow)?,
-            BPS_DENOMINATOR as u128,
-        )
-        .ok_or(ErrorCode::FeeMathOverflow)?;
-        let fee_debit = u64::try_from(fee_debit).map_err(|_| ErrorCode::FeeMathOverflow)?;
-        let gross_debt = requested_principal
-            .checked_add(fee_debit)
-            .ok_or(ErrorCode::DebtMathOverflow)?;
+        };
+        validate_interest_share_bps(interest_share_bps)?;
+        let referral_amount = proportional_bps(protocol_interest_revenue, interest_share_bps)?;
         Ok(Self {
-            requested_principal,
-            configured_fee_bps,
-            fee_debit,
-            gross_debt,
+            interest_paid,
+            interest_vault_credit,
+            protocol_interest_revenue,
+            interest_share_bps,
+            referral_amount,
         })
     }
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ReferralAction {
-    Borrow,
-    OpenLeverage,
-    IncreaseLeverage,
+fn validate_interest_share_bps(bps: u16) -> Result<()> {
+    require_gte!(
+        MAX_REFERRAL_INTEREST_SHARE_BPS,
+        bps,
+        ErrorCode::InvalidReferralInterestShareBps
+    );
+    Ok(())
+}
+
+fn proportional_bps(amount: u64, bps: u16) -> Result<u64> {
+    let value = (amount as u128)
+        .checked_mul(bps as u128)
+        .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
+        .ok_or(ErrorCode::FeeMathOverflow)?;
+    u64::try_from(value).map_err(|_| ErrorCode::FeeMathOverflow.into())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn referral_fee_quote_rounds_up_and_adds_to_debt() {
-        let quote = ReferralFeeQuote::new(10_001, 10, 10, true).unwrap();
-        assert_eq!(quote.fee_debit, 11);
-        assert_eq!(quote.gross_debt, 10_012);
+    fn profile(interest_share_bps: u16, active: bool) -> ReferralProfile {
+        ReferralProfile {
+            authority: Pubkey::new_unique(),
+            recipient: Pubkey::new_unique(),
+            interest_share_bps,
+            active,
+            bump: 1,
+        }
     }
 
     #[test]
-    fn referral_fee_quote_supports_zero_and_hard_cap() {
-        assert_eq!(ReferralFeeQuote::new(1, 0, 0, true).unwrap().fee_debit, 0);
-        assert_eq!(ReferralFeeQuote::new(1, 25, 25, true).unwrap().fee_debit, 1);
+    fn referral_share_is_taken_only_from_protocol_interest_revenue() {
+        let quote = ReferralInterestQuote::new(100_000, 99_000, 2_000, Some(2_500)).unwrap();
+        assert_eq!(quote.protocol_interest_revenue, 19_800);
+        assert_eq!(quote.referral_amount, 4_950);
+    }
+
+    #[test]
+    fn runtime_cap_is_snapshotted_when_referral_is_bound() {
+        let profile = profile(7_500, true);
+        let bound_share_bps = profile.binding_interest_share_bps(4_000).unwrap();
+        let quote = ReferralInterestQuote::new(100_000, 100_000, 2_000, Some(bound_share_bps)).unwrap();
+        assert_eq!(quote.interest_share_bps, 4_000);
+        assert_eq!(quote.referral_amount, 8_000);
+    }
+
+    #[test]
+    fn inactive_profile_cannot_be_bound() {
+        let profile = profile(5_000, false);
         assert_eq!(
-            ReferralFeeQuote::new(1, 26, 26, true).unwrap_err(),
-            error!(ErrorCode::InvalidReferralFeeBps)
+            profile.binding_interest_share_bps(10_000).unwrap_err(),
+            error!(ErrorCode::ReferralNotActive)
         );
     }
 
     #[test]
-    fn referral_fee_quote_enforces_caller_maximum() {
-        assert_eq!(
-            ReferralFeeQuote::new(1_000, 10, 9, true).unwrap_err(),
-            error!(ErrorCode::ReferralFeeSlippageExceeded)
-        );
-        let quote = ReferralFeeQuote::new(1_000, 10, 0, false).unwrap();
-        assert_eq!(quote.fee_debit, 0);
-        assert_eq!(quote.gross_debt, 1_000);
+    fn bound_share_survives_profile_deactivation_and_rate_changes() {
+        let mut profile = profile(5_000, true);
+        let bound_share_bps = profile.binding_interest_share_bps(10_000).unwrap();
+        profile.configure(profile.authority, 1_000, false).unwrap();
+
+        let quote = ReferralInterestQuote::new(100_000, 100_000, 2_000, Some(bound_share_bps)).unwrap();
+        assert_eq!(quote.interest_share_bps, 5_000);
+        assert_eq!(quote.referral_amount, 10_000);
     }
 
     #[test]
-    fn referral_fee_quote_rejects_gross_debt_overflow() {
-        assert_eq!(
-            ReferralFeeQuote::new(u64::MAX, 1, 1, true).unwrap_err(),
-            error!(ErrorCode::DebtMathOverflow)
-        );
-    }
-
-    #[test]
-    fn referral_fee_receipt_preserves_debit_and_actual_credit() {
-        let quote = ReferralFeeQuote::new(10_000, 10, 10, true).unwrap();
-        let receipt = ReferralFeeReceipt::new(quote, 9).unwrap();
-        assert_eq!(receipt.requested_principal, 10_000);
-        assert_eq!(receipt.configured_fee_bps, 10);
-        assert_eq!(receipt.fee_debit, 10);
-        assert_eq!(receipt.vault_credit, 9);
-        assert_eq!(receipt.gross_debt, 10_010);
+    fn tiny_payments_round_down() {
+        let quote = ReferralInterestQuote::new(1, 1, 2_000, Some(5_000)).unwrap();
+        assert_eq!(quote.protocol_interest_revenue, 0);
+        assert_eq!(quote.referral_amount, 0);
     }
 }

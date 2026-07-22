@@ -180,14 +180,14 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
       const invalidReferral = await harness.execute({
         wallet: "alice",
         endpoint: "/api/v2/fork/tx/update-protocol-revenue",
-        label: "reject referral origination fee above hard cap",
+        label: "reject referral interest-share cap above 100 percent",
         expected: "failure",
-        body: { referralOriginationFeeBps: 26 },
+        body: { maxReferralInterestShareBps: 10_001 },
       });
       harness.assertEqual(
-        "referral hard cap is enforced",
+        "referral interest-share cap is enforced",
         invalidReferral.errorCode,
-        "InvalidReferralFeeBps"
+        "InvalidReferralInterestShareBps"
       );
 
       const invalidDistribution = await harness.execute({
@@ -230,7 +230,7 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
         body: {
           swapBps: 10_000,
           interestBps: 2_345,
-          referralOriginationFeeBps: 25,
+          maxReferralInterestShareBps: 10_000,
           revenueDistribution: {
             futarchyTreasuryBps: 2_000,
             buybacksVaultBps: 3_000,
@@ -242,7 +242,11 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
       const updated = await harness.futarchy();
       harness.assertEqual("maximum swap revenue share is stored", updated.revenueShare.swapBps, 10_000);
       harness.assertEqual("interest revenue share is stored", updated.revenueShare.interestBps, 2_345);
-      harness.assertEqual("maximum referral fee is stored", updated.referralOriginationFeeBps, 25);
+      harness.assertEqual(
+        "maximum referral interest share is stored",
+        updated.maxReferralInterestShareBps,
+        10_000
+      );
       harness.assertEqual(
         "revenue distribution is stored exactly",
         updated.revenueDistribution,
@@ -297,7 +301,7 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
         body: {
           swapBps: before.revenueShare.swapBps,
           interestBps: before.revenueShare.interestBps,
-          referralOriginationFeeBps: before.referralOriginationFeeBps,
+          maxReferralInterestShareBps: before.maxReferralInterestShareBps,
           revenueDistribution: before.revenueDistribution,
           protocolAuctionSplit: before.protocolAuctionSplit,
         },
@@ -595,6 +599,7 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
       const emergency = walletAddress(harness, "emergency");
       const referrer = walletAddress(harness, "referrer");
       const trader = walletAddress(harness, "trader");
+      const revenueBefore = await harness.futarchy();
       harness.assertEqual(
         "development emergency signer is deterministic",
         emergency,
@@ -602,6 +607,25 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
       );
       harness.assertEqual("global reduce-only starts disabled", (await harness.futarchy()).globalReduceOnly, false);
       harness.assertEqual("market reduce-only starts disabled", (await harness.market()).reduceOnly, false);
+
+      await harness.execute({
+        wallet: "alice",
+        endpoint: "/api/v2/fork/tx/update-protocol-revenue",
+        label: "enable referral interest for reduce-only claim coverage",
+        body: { interestBps: 10_000, maxReferralInterestShareBps: 5_000 },
+      });
+      await harness.execute({
+        wallet: "alice",
+        endpoint: "/api/v2/fork/tx/configure-referral",
+        label: "list reduce-only referral",
+        body: { referrer, interestShareBps: 5_000, active: true },
+      });
+      await harness.execute({
+        wallet: "referrer",
+        endpoint: "/api/v2/fork/tx/set-referral-recipient",
+        label: "set reduce-only referral recipient",
+        body: { recipient: trader },
+      });
 
       const unauthorizedGlobal = await harness.execute({
         wallet: "alice",
@@ -652,7 +676,7 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
         wallet: "trader",
         endpoint: "/api/v2/fork/tx/swap",
         label: "accrue claimable LP fees before emergency mode",
-        body: { assetIn: "base", exactAssetIn: "1", minAssetOut: "0" },
+        body: { assetIn: "base", exactAssetIn: "10", minAssetOut: "0" },
       });
       await harness.execute({
         wallet: "bob",
@@ -675,9 +699,9 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
           minDebtAmountOut: "1",
           minLiquidationCfBps: 0,
           referrer,
-          maxAcceptableReferralFeeBps: 25,
         },
       });
+      await harness.timeTravel(0, 2_160_000);
       await harness.execute({
         wallet: "alice",
         endpoint: "/api/v2/fork/tx/open-leverage",
@@ -782,13 +806,6 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
           traderBaseBeforeClaim
       );
       await harness.execute({
-        wallet: "referrer",
-        endpoint: "/api/v2/fork/tx/claim-referral-fees",
-        label: "claim referral fees during market reduce-only",
-        body: { asset: "quote", recipient: trader },
-      });
-
-      await harness.execute({
         wallet: "bob",
         endpoint: "/api/v2/fork/tx/deposit-collateral",
         label: "add collateral during market reduce-only",
@@ -835,6 +852,22 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
           repayAmount: formatUnits(exactLoanDebt, harness.config.quoteDecimals),
         },
       });
+      const traderQuoteBeforeReferralClaim = await harness.tokenBalance(
+        "trader",
+        harness.config.quoteMint,
+        harness.config.quoteTokenProgram
+      );
+      await harness.execute({
+        wallet: "referrer",
+        endpoint: "/api/v2/fork/tx/claim-referral-interest",
+        label: "claim referral interest during market reduce-only",
+        body: { asset: "quote" },
+      });
+      harness.assertTrue(
+        "referral interest claim remains available in reduce-only",
+        await harness.tokenBalance("trader", harness.config.quoteMint, harness.config.quoteTokenProgram) >
+          traderQuoteBeforeReferralClaim
+      );
       let loanPositions = await harness.positions("bob", reduceOnlyLoanPositionId);
       harness.assertEqual("repay clears emergency-mode loan shares", BigInt(loanPositions[0].payload.fixedQuoteShares), 0n);
       await harness.execute({
@@ -1043,6 +1076,18 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
       });
       harness.assertEqual("global reduce-only flag clears", (await harness.futarchy()).globalReduceOnly, false);
       harness.assertEqual("market reduce-only remains clear", (await harness.market()).reduceOnly, false);
+      await harness.execute({
+        wallet: "alice",
+        endpoint: "/api/v2/fork/tx/update-protocol-revenue",
+        label: "restore protocol revenue after reduce-only coverage",
+        body: {
+          swapBps: revenueBefore.revenueShare.swapBps,
+          interestBps: revenueBefore.revenueShare.interestBps,
+          maxReferralInterestShareBps: revenueBefore.maxReferralInterestShareBps,
+          revenueDistribution: revenueBefore.revenueDistribution,
+          protocolAuctionSplit: revenueBefore.protocolAuctionSplit,
+        },
+      });
     },
   },
   {
@@ -1423,7 +1468,7 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
         body: {
           swapBps: before.revenueShare.swapBps,
           interestBps: before.revenueShare.interestBps,
-          referralOriginationFeeBps: before.referralOriginationFeeBps,
+          maxReferralInterestShareBps: before.maxReferralInterestShareBps,
           revenueDistribution: before.revenueDistribution,
           protocolAuctionSplit: before.protocolAuctionSplit,
         },

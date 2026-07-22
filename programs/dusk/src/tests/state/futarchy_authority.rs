@@ -42,7 +42,7 @@ use super::*;
             authority,
             100,
             200,
-            10,
+            2_500,
             treasury,
             buybacks_vault,
             team_treasury,
@@ -59,7 +59,7 @@ use super::*;
 
         assert_eq!(futarchy.fee_auction.accepted_mint, fee_accepted_mint);
         assert_eq!(futarchy.version, FutarchyAuthority::CURRENT_VERSION);
-        assert_eq!(futarchy.referral_origination_fee_bps, 10);
+        assert_eq!(futarchy.max_referral_interest_share_bps, 2_500);
         assert_eq!(
             futarchy.buyback_auction.accepted_mint,
             buyback_accepted_mint
@@ -74,13 +74,13 @@ use super::*;
         assert_eq!(futarchy.fee_auction.last_settlement_slot, 123);
         futarchy.validate().unwrap();
 
-        futarchy.referral_origination_fee_bps = 0;
+        futarchy.max_referral_interest_share_bps = 0;
         futarchy.validate().unwrap();
-        futarchy.referral_origination_fee_bps = 25;
+        futarchy.max_referral_interest_share_bps = BPS_DENOMINATOR;
         futarchy.validate().unwrap();
-        futarchy.referral_origination_fee_bps = 26;
+        futarchy.max_referral_interest_share_bps = BPS_DENOMINATOR + 1;
         assert_eq!(
             futarchy.validate().unwrap_err(),
-            error!(ErrorCode::InvalidReferralFeeBps)
+            error!(ErrorCode::InvalidReferralInterestShareBps)
         );
     }

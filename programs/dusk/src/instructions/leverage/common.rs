@@ -18,10 +18,9 @@ use crate::{
         require_supported_asset_mint, token_account_credit, token_program_for_mint, validate_fee_accounts,
         validate_interest_accounts, validate_owner_asset_account, validate_side_vault_accounts,
     },
-    shared::token::{
-        get_transfer_fee, transfer_from_vault_to_vault, transfer_from_vault_to_vault_with_remaining_accounts,
-    },
-    state::{Market, MarketAsset},
+    instructions::referral::common::{accrue_referral_interest, ReferralInterestAccrualReceipt},
+    shared::token::{get_transfer_fee, transfer_from_vault_to_vault_with_remaining_accounts},
+    state::{FutarchyAuthority, Market, MarketAsset, ReferralAccrual, ReferralProfile},
 };
 
 pub const LEVERAGE_DELEGATE_CLOSE: u32 = 1 << 0;
@@ -365,15 +364,31 @@ pub fn record_leverage_interest<'info>(
     token_program: &Program<'info, Token>,
     token_2022_program: &Program<'info, Token2022>,
     manager_fee_bps: u16,
-    protocol_fee_bps: u16,
-    protocol_auction_split: crate::state::ProtocolAuctionSplit,
+    futarchy_authority: &Account<'info, FutarchyAuthority>,
+    expected_referral_profile: Pubkey,
+    referral_interest_share_bps: u16,
+    referral_profile: Option<&Account<'info, ReferralProfile>>,
+    referral_accrual: Option<&mut Account<'info, ReferralAccrual>>,
     interest_paid: u64,
-) -> Result<()> {
+    remaining_accounts: &[AccountInfo<'info>],
+) -> Result<ReferralInterestAccrualReceipt> {
     if interest_paid == 0 {
-        return Ok(());
+        return accrue_referral_interest(
+            expected_referral_profile,
+            referral_interest_share_bps,
+            futarchy_authority,
+            referral_profile,
+            referral_accrual,
+            market.key(),
+            debt_mint,
+            0,
+            0,
+            futarchy_authority.revenue_share.interest_bps,
+        );
     }
+    let interest_vault_balance_before = interest_vault.amount;
     let debt_token_program = token_program_for_mint(debt_mint, token_program, token_2022_program)?;
-    transfer_from_vault_to_vault(
+    transfer_from_vault_to_vault_with_remaining_accounts(
         market.to_account_info(),
         debt_reserve_vault.to_account_info(),
         interest_vault.to_account_info(),
@@ -382,16 +397,31 @@ pub fn record_leverage_interest<'info>(
         interest_paid,
         debt_mint.decimals,
         &[&generate_market_seeds!(market)[..]],
+        remaining_accounts,
     )?;
     debt_reserve_vault.reload()?;
     interest_vault.reload()?;
-    market.side_mut(debt_asset).record_interest_credit(
+    let interest_vault_credit = token_account_credit(interest_vault_balance_before, interest_vault)?;
+    let referral_receipt = accrue_referral_interest(
+        expected_referral_profile,
+        referral_interest_share_bps,
+        futarchy_authority,
+        referral_profile,
+        referral_accrual,
+        market.key(),
+        debt_mint,
         interest_paid,
-        manager_fee_bps,
-        protocol_fee_bps,
-        protocol_auction_split,
+        interest_vault_credit,
+        futarchy_authority.revenue_share.interest_bps,
     )?;
-    Ok(())
+    market.side_mut(debt_asset).record_interest_credit(
+        interest_vault_credit,
+        manager_fee_bps,
+        futarchy_authority.revenue_share.interest_bps,
+        futarchy_authority.protocol_auction_split,
+        referral_receipt.quote.referral_amount,
+    )?;
+    Ok(referral_receipt)
 }
 
 pub fn validate_owner_debt_account<'info>(

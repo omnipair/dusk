@@ -11,6 +11,8 @@ pub struct LeveragePosition {
     pub owner: Pubkey,
     pub market: Pubkey,
     pub position_id: Pubkey,
+    pub referral_profile: Pubkey,
+    pub referral_interest_share_bps: u16,
     pub debt_asset: u8,
     pub collateral_amount: u64,
     pub margin_amount: u64,
@@ -85,6 +87,8 @@ impl LeveragePosition {
         owner: Pubkey,
         market: Pubkey,
         position_id: Pubkey,
+        referral_profile: Pubkey,
+        referral_interest_share_bps: u16,
         debt_asset: MarketAsset,
         collateral_amount: u64,
         margin_amount: u64,
@@ -99,6 +103,8 @@ impl LeveragePosition {
         self.owner = owner;
         self.market = market;
         self.position_id = position_id;
+        self.referral_profile = referral_profile;
+        self.referral_interest_share_bps = referral_interest_share_bps;
         self.debt_asset = debt_asset.code();
         self.collateral_amount = collateral_amount;
         self.margin_amount = margin_amount;

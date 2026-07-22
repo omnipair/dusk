@@ -1,9 +1,9 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{BPS_DENOMINATOR, FUTARCHY_AUTHORITY_SEED_PREFIX, MAX_REFERRAL_ORIGINATION_FEE_BPS},
+    constants::{BPS_DENOMINATOR, FUTARCHY_AUTHORITY_SEED_PREFIX, MAX_REFERRAL_INTEREST_SHARE_BPS},
     errors::ErrorCode,
-    events::{ProtocolAuctionSplitUpdated, ReferralOriginationFeeUpdated},
+    events::{ProtocolAuctionSplitUpdated, ReferralInterestShareCapUpdated},
     state::{FutarchyAuthority, ProtocolAuctionSplit, RevenueDistribution},
 };
 
@@ -11,7 +11,7 @@ use crate::{
 pub struct UpdateProtocolRevenueArgs {
     pub swap_bps: Option<u16>,
     pub interest_bps: Option<u16>,
-    pub referral_origination_fee_bps: Option<u16>,
+    pub max_referral_interest_share_bps: Option<u16>,
     pub revenue_distribution: Option<RevenueDistribution>,
     pub protocol_auction_split: Option<ProtocolAuctionSplit>,
 }
@@ -42,16 +42,16 @@ impl<'info> UpdateProtocolRevenue<'info> {
             require_gte!(BPS_DENOMINATOR, interest_bps, ErrorCode::InvalidInterestFeeBps);
             ctx.accounts.futarchy_authority.revenue_share.interest_bps = interest_bps;
         }
-        if let Some(referral_origination_fee_bps) = args.referral_origination_fee_bps {
+        if let Some(max_referral_interest_share_bps) = args.max_referral_interest_share_bps {
             require_gte!(
-                MAX_REFERRAL_ORIGINATION_FEE_BPS,
-                referral_origination_fee_bps,
-                ErrorCode::InvalidReferralFeeBps
+                MAX_REFERRAL_INTEREST_SHARE_BPS,
+                max_referral_interest_share_bps,
+                ErrorCode::InvalidReferralInterestShareBps
             );
-            ctx.accounts.futarchy_authority.referral_origination_fee_bps = referral_origination_fee_bps;
-            emit!(ReferralOriginationFeeUpdated {
+            ctx.accounts.futarchy_authority.max_referral_interest_share_bps = max_referral_interest_share_bps;
+            emit!(ReferralInterestShareCapUpdated {
                 authority: ctx.accounts.futarchy_authority.key(),
-                referral_origination_fee_bps,
+                max_referral_interest_share_bps,
                 signer: ctx.accounts.authority_signer.key(),
             });
         }

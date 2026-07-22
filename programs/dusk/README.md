@@ -22,7 +22,7 @@ Omnipair Dusk (v2) exposes the current market instruction set:
 - `set_yield_recipient`, `claim_yield`
 - `swap`
 - `deposit_collateral`, `withdraw_collateral`, `borrow`, `repay`
-- `set_referral_recipient`, `claim_referral_fees`
+- `configure_referral`, `initialize_referral_accrual`, `set_referral_recipient`, `claim_referral_interest`
 - `trigger_liquidation_auction`, `bid_liquidation_auction`, `settle_liquidation_auction_amm`
 - `deposit_single_sided`, `withdraw_single_sided`
 - `open_leverage`, `close_leverage`, `delegated_close_leverage`, `increase_leverage`, `decrease_leverage`, `add_leverage_margin`, `remove_leverage_margin`, `liquidate_leverage`
@@ -91,18 +91,21 @@ Users can increase or decrease exposure, add or remove margin, and close the pos
 
 Owners can approve a position-scoped `LeverageDelegation` PDA for a delegate program. Delegated close uses a before-hook approval payload and an after-hook settlement payload, allowing keeper-style take-profit or stop-loss execution while binding the close to the expected market, owner, position, delegation, output mint, recipient, and residual amount.
 
-## Referral Origination
+## Referral Interest Sharing
 
-Referral is opt-in on `borrow`, `open_leverage`, and `increase_leverage`. A referred action charges the Futarchy-configured origination rate, currently initialized to 10 bps and bounded by the compile-time 25 bps maximum:
+Referrals are permissioned. `configure_referral` lets the Futarchy authority create or update a protocol-wide `ReferralProfile` for any referrer, including its interest-share rate and active status. The referrer may use `set_referral_recipient` to rotate only the wallet that receives claims.
+
+An active profile may be bound when a borrow debt side is first opened or when `open_leverage` creates a position. Dusk snapshots `min(profile.interest_share_bps, max_referral_interest_share_bps)` into the position at binding. The profile and share are immutable while that debt exists: later borrowing and leverage increases retain them, full repayment or closure clears them, and existing unbound debt cannot be retroactively referred. Deactivation blocks new bindings only and does not change existing referral terms, debt, liquidation terms, or claimable revenue.
+
+Referral adds no fee or debt to the user. On each interest realization, Dusk takes a share only from the DAO's configured interest revenue:
 
 ```text
-fee_debit = ceil(requested_principal * configured_bps / 10_000)
-gross_debt = requested_principal + fee_debit
+protocol_interest_revenue = floor(actual_interest_vault_credit * protocol_interest_bps / 10_000)
+bound_referral_share      = min(profile.interest_share_bps, max_referral_interest_share_bps) at binding
+referral_accrual          = floor(protocol_interest_revenue * bound_referral_share / 10_000)
 ```
 
-The action uses requested principal, rather than gross debt, for the borrower payout or leverage trade and transfers `fee_debit` from the same reserve to the referrer's canonical per-mint ATA. Asset-level transfer fees can reduce token-account credit, so instruction minimum-output checks still apply. All underwriting, cash, daily-limit, debt-share, and principal mutations use `gross_debt`. The caller supplies `max_acceptable_referral_fee_bps`; referral parameters must either both be present or both be absent, and a stale transaction fails if its maximum is below the configured rate.
-
-`ReferralProfile` is protocol-wide and keyed only by the referrer authority. It stores a rotatable recipient, while accrued balances remain in standard ATAs owned by the profile PDA. `claim_referral_fees` drains one mint ATA to a token account owned by the current recipient. Referred transfers support both legacy SPL Token and Token-2022 assets, including transfer fees and transfer hooks supplied through remaining accounts.
+The runtime cap is governed through `update_protocol_revenue` and applies when a new binding is admitted; later cap or profile changes do not reprice existing debt. `ReferralAccrual` records the claimable liability for one profile, market, and debt mint while the backing tokens remain in the market interest vault. `claim_referral_interest` pays the profile's current recipient. Realization and claims support legacy SPL Token and Token-2022 assets, including transfer fees and transfer hooks.
 
 ## Swaps And Rebalancing
 
@@ -121,6 +124,7 @@ hLP checkpointing computes NAV, attempts the spot-based leverage adjustment, rec
 | Interest vault | `market_interest`, `market`, `asset_mint` | `deriveMarketInterestVaultAddress` |
 | Borrow position | `borrow_position_v2`, `market`, `position_id` | `deriveBorrowPositionAddress` |
 | Referral profile | `referral_profile`, `referrer` | `deriveReferralProfileAddress` |
+| Referral accrual | `referral_accrual`, `referral_profile`, `market`, `asset_mint` | `deriveReferralAccrualAddress` |
 | Yield account | `yield`, `market`, `owner`, `asset_mint`, `token_kind` | `deriveYieldAccountAddress` |
 | Insurance vault | `insurance`, `market`, `asset_mint` | `deriveInsuranceAddress` |
 | Leverage position | `leverage_position_v2`, `market`, `position_id` | `deriveLeveragePositionAddress` |
@@ -130,7 +134,7 @@ hLP checkpointing computes NAV, attempts the spot-based leverage adjustment, rec
 
 yLP and hLP mints are supplied to `initialize` and validated by mint authority, decimals, Token-2022 owner, transfer hook, fee-free extension rules, no freeze authority, vanity suffix, and zero supply at market creation. LP metadata is created in follow-up `initialize_lp_metadata` calls, one mint per transaction.
 
-Referral vaults are canonical associated token accounts for `(ReferralProfile, asset_mint)`, using the asset mint's token program. They are not market-specific, so fees for the same mint aggregate across Dusk markets.
+Referral accruals are market-specific liabilities. Their backing remains in the corresponding market interest vault until the referrer claims to the profile's current recipient.
 
 ## Event Surface
 
@@ -145,7 +149,7 @@ Indexers should consume Dusk events from the standalone Dusk IDL:
 - `HlpOpened`, `HlpClosed`
 - `LeveragePositionOpened`, `LeveragePositionClosed`, `LeveragePositionUpdated`, `LeveragePositionLiquidated`
 - `LeverageDelegationUpdated`
-- `ReferralOriginationFeeUpdated`, `ReferralRecipientUpdated`, `ReferralOriginationFeePaid`, `ReferralFeesClaimed`
+- `ReferralInterestShareCapUpdated`, `ReferralConfigured`, `ReferralRecipientUpdated`, `ReferralBound`, `ReferralInterestAccrued`, `ReferralInterestClaimed`
 
 Market-scoped Dusk events carry `MarketEventMetadata` with signer, market, and slot. Protocol-wide authority, referral-recipient, and referral-claim events instead expose their authority or signer directly because they are not tied to one market.
 
@@ -165,7 +169,7 @@ Market-scoped Dusk events carry `MarketEventMetadata` with signer, market, and s
 - Global-health contributions are debt-capped underwriting signals and never prevent collateral withdrawal or change another position's stored terms.
 - Conservative risk depth uses one K EMA, reconstructed at the current spot ratio and capped by live depth; there are no spot/EMA-divergence or K-drawdown action halts.
 - A referred borrow or leverage increase records requested principal plus fee debit as gross debt and removes that same total from reserve cash.
-- Referral fee claims are bound to the canonical profile vault and current designated recipient.
+- Referral-interest claims are bounded by realized protocol revenue and pay only the profile's current designated recipient.
 - Risk books update EMA values from cached pre-transition observations and store current observations for the next refresh.
 - Liquidation follows the waterfall: borrower collateral, liquidator incentive, insurance, then bounded LP socialization.
 

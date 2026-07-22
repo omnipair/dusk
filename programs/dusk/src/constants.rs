@@ -15,7 +15,7 @@ pub const LTV_BUFFER_BPS: u16 = 500;
 #[constant]
 pub const MAX_MANAGER_FEE_BPS: u16 = 500;
 #[constant]
-pub const MAX_REFERRAL_ORIGINATION_FEE_BPS: u16 = 25;
+pub const MAX_REFERRAL_INTEREST_SHARE_BPS: u16 = BPS_DENOMINATOR;
 #[constant]
 pub const LIQUIDATION_CLOSE_FACTOR_BPS: u16 = 5_000;
 #[constant]
@@ -92,6 +92,8 @@ pub const FUTARCHY_AUTHORITY_SEED_PREFIX: &[u8] = b"futarchy_authority";
 #[constant]
 pub const REFERRAL_PROFILE_SEED_PREFIX: &[u8] = b"referral_profile";
 #[constant]
+pub const REFERRAL_ACCRUAL_SEED_PREFIX: &[u8] = b"referral_accrual";
+#[constant]
 pub const MARKET_RESERVE_VAULT_SEED_PREFIX: &[u8] = b"market_reserve";
 #[constant]
 pub const MARKET_COLLATERAL_VAULT_SEED_PREFIX: &[u8] = b"market_collateral";
@@ -124,7 +126,7 @@ pub const LEVERAGE_INITIAL_MARGIN_BPS: u16 = 1_000; // 10%
 #[constant]
 pub const LEVERAGE_MAINTENANCE_BUFFER_BPS: u16 = 700; // 7%
 #[constant]
-pub const MARKET_VERSION: u8 = 2;
+pub const MARKET_VERSION: u8 = 3;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 #[cfg(feature = "development")]

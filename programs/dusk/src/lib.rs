@@ -74,13 +74,21 @@ pub mod dusk {
     }
 
     // Referral instructions
+    pub fn configure_referral(ctx: Context<ConfigureReferral>, args: ConfigureReferralArgs) -> Result<()> {
+        ConfigureReferral::handle_configure(ctx, args)
+    }
+
+    pub fn initialize_referral_accrual(ctx: Context<InitializeReferralAccrual>) -> Result<()> {
+        InitializeReferralAccrual::handle_initialize(ctx)
+    }
+
     pub fn set_referral_recipient(ctx: Context<SetReferralRecipient>, args: SetReferralRecipientArgs) -> Result<()> {
         SetReferralRecipient::handle_set(ctx, args)
     }
 
     #[access_control(ctx.accounts.validate())]
-    pub fn claim_referral_fees<'info>(ctx: Context<'_, '_, '_, 'info, ClaimReferralFees<'info>>) -> Result<()> {
-        ClaimReferralFees::handle_claim(ctx)
+    pub fn claim_referral_interest<'info>(ctx: Context<'_, '_, '_, 'info, ClaimReferralInterest<'info>>) -> Result<()> {
+        ClaimReferralInterest::handle_claim(ctx)
     }
 
     #[access_control(ctx.accounts.validate(&args))]
@@ -168,7 +176,7 @@ pub mod dusk {
     }
 
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn repay(ctx: Context<Repay>, args: RepayArgs) -> Result<()> {
+    pub fn repay<'info>(ctx: Context<'_, '_, '_, 'info, Repay<'info>>, args: RepayArgs) -> Result<()> {
         Repay::handle_repay(ctx, args)
     }
 
@@ -295,13 +303,16 @@ pub mod dusk {
 
     // Liquidation auction instructions
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn bid_liquidation_auction(ctx: Context<BidLiquidationAuction>, args: BidLiquidationAuctionArgs) -> Result<()> {
+    pub fn bid_liquidation_auction<'info>(
+        ctx: Context<'_, '_, '_, 'info, BidLiquidationAuction<'info>>,
+        args: BidLiquidationAuctionArgs,
+    ) -> Result<()> {
         BidLiquidationAuction::handle_bid(ctx, args)
     }
 
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn settle_liquidation_auction_amm(
-        ctx: Context<SettleLiquidationAuctionAmm>,
+    pub fn settle_liquidation_auction_amm<'info>(
+        ctx: Context<'_, '_, '_, 'info, SettleLiquidationAuctionAmm<'info>>,
         args: SettleLiquidationAuctionAmmArgs,
     ) -> Result<()> {
         SettleLiquidationAuctionAmm::handle_settle(ctx, args)

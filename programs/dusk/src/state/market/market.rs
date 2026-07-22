@@ -856,6 +856,7 @@ impl Market {
         self.reconcile_global_health_contribution(borrow_position, repay_asset, target_contribution)?;
         if debt_after == 0 {
             borrow_position.set_liquidation_cf_bps(repay_asset, 0);
+            borrow_position.clear_referral_binding(repay_asset);
         }
         self.reconcile_liquidation_auction(borrow_position)?;
         let market_health = self.market_health()?;

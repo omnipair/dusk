@@ -38,7 +38,7 @@ export const BOOTSTRAP_SCENARIOS: ScenarioDefinition[] = [
       const market = await harness.market();
       const futarchy = await harness.futarchy();
       harness.assertEqual("initialized market matches fork config", market.marketAddress, harness.config.market);
-      harness.assertEqual("initialized authority account has current version", futarchy.version, 2);
+      harness.assertEqual("initialized authority account has current version", futarchy.version, 3);
 
       await harness.execute({
         wallet: "alice",

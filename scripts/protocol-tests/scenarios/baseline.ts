@@ -1,4 +1,3 @@
-import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 
 import {
@@ -16,7 +15,6 @@ const lendingPositionId = Keypair.generate().publicKey;
 const emptyPositionId = Keypair.generate().publicKey;
 const previewPositionId = Keypair.generate().publicKey;
 const boundaryPositionId = Keypair.generate().publicKey;
-const referralPositionId = Keypair.generate().publicKey;
 
 function raw(uiAmount: number, decimals: number): bigint {
   return BigInt(uiAmount) * 10n ** BigInt(decimals);
@@ -266,121 +264,6 @@ export const BASELINE_SCENARIOS: ScenarioDefinition[] = [
       const after = await harness.market();
       harness.assertEqual("failed borrow leaves quote debt unchanged", stateValue(after, "fixedQuoteDebt"), stateValue(before, "fixedQuoteDebt"));
       harness.assertEqual("failed borrow gives Bob no proceeds", await harness.tokenBalance("bob", harness.config.quoteMint, harness.config.quoteTokenProgram), bobQuoteBefore);
-    },
-  },
-  {
-    id: "referral.profile-and-claim",
-    async run(harness) {
-      const referrer = harness.wallet("referrer");
-      const bob = harness.wallet("bob");
-      const trader = harness.wallet("trader");
-      const [referralProfile] = PublicKey.findProgramAddressSync(
-        [Buffer.from("referral_profile"), referrer.publicKey.toBuffer()],
-        new PublicKey(harness.config.programId)
-      );
-      const referralVault = getAssociatedTokenAddressSync(
-        new PublicKey(harness.config.quoteMint),
-        referralProfile,
-        true,
-        new PublicKey(harness.config.quoteTokenProgram)
-      );
-
-      await harness.execute({
-        wallet: "referrer",
-        endpoint: "/api/v2/fork/tx/set-referral-recipient",
-        label: "create referral profile with Bob recipient",
-        body: { recipient: bob.publicKey.toBase58() },
-      });
-      await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/deposit-collateral",
-        label: "deposit collateral for referred borrow",
-        body: { positionId: referralPositionId.toBase58(), marketAsset: "base", depositAmount: "100" },
-      });
-
-      await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/borrow",
-        label: "reject referred borrow above client fee cap",
-        expected: "failure",
-        body: {
-          positionId: referralPositionId.toBase58(),
-          borrowAsset: "quote",
-          borrowAmount: "10",
-          minDebtAmountOut: "10",
-          minLiquidationCfBps: 0,
-          referrer: referrer.publicKey.toBase58(),
-          maxAcceptableReferralFeeBps: 9,
-        },
-      });
-      harness.assertEqual("rejected referred borrow accrues no fee", await harness.tokenAccountBalance(referralVault, harness.config.quoteTokenProgram), 0n);
-
-      const aliceQuoteBefore = await harness.tokenBalance("alice", harness.config.quoteMint, harness.config.quoteTokenProgram);
-      const bobQuoteBefore = await harness.tokenBalance("bob", harness.config.quoteMint, harness.config.quoteTokenProgram);
-      const traderQuoteBefore = await harness.tokenBalance("trader", harness.config.quoteMint, harness.config.quoteTokenProgram);
-      await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/borrow",
-        label: "execute 10 bps referred borrow",
-        body: {
-          positionId: referralPositionId.toBase58(),
-          borrowAsset: "quote",
-          borrowAmount: "10",
-          minDebtAmountOut: "10",
-          minLiquidationCfBps: 0,
-          referrer: referrer.publicKey.toBase58(),
-          maxAcceptableReferralFeeBps: 10,
-        },
-      });
-      const fee = (raw(10, harness.config.quoteDecimals) * 10n + 9_999n) / 10_000n;
-      harness.assertEqual("borrower receives requested principal only", await harness.tokenBalance("alice", harness.config.quoteMint, harness.config.quoteTokenProgram) - aliceQuoteBefore, raw(10, harness.config.quoteDecimals));
-      harness.assertEqual("referral vault receives ceiling fee", await harness.tokenAccountBalance(referralVault, harness.config.quoteTokenProgram), fee);
-
-      const positionEvidence = await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/preview-borrow-position",
-        label: "preview referred gross debt",
-        submit: false,
-        body: { positionId: referralPositionId.toBase58() },
-      });
-      const position = decodePreviewBorrowPositionReturnData(previewData(positionEvidence));
-      harness.assertEqual("gross debt includes referral fee", integer(position.fixedQuoteDebt), raw(10, harness.config.quoteDecimals) + fee);
-
-      await harness.execute({
-        wallet: "referrer",
-        endpoint: "/api/v2/fork/tx/set-referral-recipient",
-        label: "rotate referral recipient to trader",
-        body: { recipient: trader.publicKey.toBase58() },
-      });
-      await harness.execute({
-        wallet: "referrer",
-        endpoint: "/api/v2/fork/tx/claim-referral-fees",
-        label: "claim accrued referral fee after recipient rotation",
-        body: { asset: "quote", recipient: trader.publicKey.toBase58() },
-      });
-      harness.assertEqual("rotated recipient receives accrued fee", await harness.tokenBalance("trader", harness.config.quoteMint, harness.config.quoteTokenProgram) - traderQuoteBefore, fee);
-      harness.assertEqual("old recipient receives nothing", await harness.tokenBalance("bob", harness.config.quoteMint, harness.config.quoteTokenProgram), bobQuoteBefore);
-      harness.assertEqual("claim drains referral vault", await harness.tokenAccountBalance(referralVault, harness.config.quoteTokenProgram), 0n);
-      await harness.execute({
-        wallet: "referrer",
-        endpoint: "/api/v2/fork/tx/claim-referral-fees",
-        label: "reject empty referral claim",
-        expected: "failure",
-        body: { asset: "quote", recipient: trader.publicKey.toBase58() },
-      });
-
-      await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/repay",
-        label: "repay referred gross debt",
-        body: { positionId: referralPositionId.toBase58(), repayAsset: "quote", repayAmount: formatUnits(integer(position.fixedQuoteDebt), harness.config.quoteDecimals) },
-      });
-      await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/withdraw-collateral",
-        label: "withdraw referred borrow collateral",
-        body: { positionId: referralPositionId.toBase58(), marketAsset: "base", withdrawAmount: "100", minAssetAmountOut: "100", minLiquidationCfBps: 0 },
-      });
     },
   },
   {

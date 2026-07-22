@@ -17,6 +17,7 @@ pub struct FeesReceipt {
     pub unallocated_interest_liability: u64,
     pub manager_swap_fee_liability: u64,
     pub manager_interest_fee_liability: u64,
+    pub referral_interest_liability: u64,
     pub protocol_fee_liability: u64,
     pub buyback_fee_liability: u64,
     pub swap_fee_vault_balance: u64,
@@ -53,6 +54,7 @@ impl FeesReceipt {
             unallocated_interest_liability: fees.unallocated_interest_liability,
             manager_swap_fee_liability: fees.manager_swap_fee_liability,
             manager_interest_fee_liability: fees.manager_interest_fee_liability,
+            referral_interest_liability: fees.referral_interest_liability,
             protocol_fee_liability: fees.protocol_fee_liability,
             buyback_fee_liability: fees.buyback_fee_liability,
             swap_fee_vault_balance: fees.swap_fee_vault_balance,
@@ -227,14 +229,19 @@ impl MarketSide {
         manager_fee_bps: u16,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
+        referral_interest_amount: u64,
     ) -> Result<FeesReceipt> {
         if interest_credit == 0 {
             return Ok(FeesReceipt::from_side(self));
         }
         let (manager_fee, protocol_fee, lp_interest) =
             split_revenue(interest_credit, manager_fee_bps, protocol_fee_bps)?;
+        require_gte!(protocol_fee, referral_interest_amount, ErrorCode::FeeMathOverflow);
+        let remaining_protocol_fee = protocol_fee
+            .checked_sub(referral_interest_amount)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
         let (fee_auction_amount, buyback_auction_amount) =
-            split_protocol_auction_fee(protocol_fee, &protocol_auction_split)?;
+            split_protocol_auction_fee(remaining_protocol_fee, &protocol_auction_split)?;
         self.fees.interest_vault_balance = self
             .fees
             .interest_vault_balance
@@ -244,6 +251,11 @@ impl MarketSide {
             .fees
             .manager_interest_fee_liability
             .checked_add(manager_fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.fees.referral_interest_liability = self
+            .fees
+            .referral_interest_liability
+            .checked_add(referral_interest_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         self.fees.protocol_fee_liability = self
             .fees
@@ -263,6 +275,17 @@ impl MarketSide {
         self.carry_forward_interest()?;
         self.fees.assert_backed()?;
         Ok(FeesReceipt::from_side(self))
+    }
+
+    pub fn settle_referral_interest_claim(&mut self, amount: u64, interest_vault_balance: u64) -> Result<()> {
+        require!(amount > 0, ErrorCode::AmountZero);
+        self.fees.referral_interest_liability = self
+            .fees
+            .referral_interest_liability
+            .checked_sub(amount)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        self.fees.interest_vault_balance = interest_vault_balance;
+        self.fees.assert_backed()
     }
 
     pub fn carry_forward_swap_fees(&mut self) -> Result<()> {

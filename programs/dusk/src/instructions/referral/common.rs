@@ -1,126 +1,209 @@
 use anchor_lang::prelude::*;
-use anchor_spl::{
-    associated_token::get_associated_token_address_with_program_id,
-    token::Token,
-    token_interface::{Mint, Token2022, TokenAccount},
-};
+use anchor_spl::token_interface::Mint;
 
 use crate::{
-    constants::{MARKET_V2_SEED_PREFIX, REFERRAL_PROFILE_SEED_PREFIX},
+    constants::{MAX_REFERRAL_INTEREST_SHARE_BPS, REFERRAL_ACCRUAL_SEED_PREFIX, REFERRAL_PROFILE_SEED_PREFIX},
     errors::ErrorCode,
-    generate_market_seeds,
-    instructions::common::{token_account_credit, token_program_for_mint},
-    shared::token::transfer_from_vault_to_vault_with_remaining_accounts,
-    state::{FutarchyAuthority, Market, ReferralFeeQuote, ReferralFeeReceipt, ReferralProfile},
+    events::{MarketEventMetadata, ReferralInterestAccrued},
+    state::{FutarchyAuthority, ReferralAccrual, ReferralInterestQuote, ReferralProfile},
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct ValidatedReferral {
+pub struct ValidatedReferralBinding {
     pub referrer: Option<Pubkey>,
     pub referral_profile: Option<Pubkey>,
-    pub quote: ReferralFeeQuote,
+    pub referral_accrual: Option<Pubkey>,
+    pub interest_share_bps: u16,
 }
 
-pub fn validate_referral<'info>(
-    requested_principal: u64,
-    referrer: Option<Pubkey>,
-    max_acceptable_fee_bps: Option<u16>,
+pub fn emit_referral_interest_accrued(
+    receipt: &ReferralInterestAccrualReceipt,
+    market: Pubkey,
+    position: Pubkey,
+    owner: Pubkey,
+    signer: Pubkey,
+    asset_mint: Pubkey,
+) -> Result<()> {
+    if receipt.quote.referral_amount == 0 {
+        return Ok(());
+    }
+    emit!(ReferralInterestAccrued {
+        market,
+        position,
+        owner,
+        referrer: receipt.referrer.ok_or(ErrorCode::InvalidReferralProfile)?,
+        referral_profile: receipt.referral_profile.ok_or(ErrorCode::InvalidReferralProfile)?,
+        referral_accrual: receipt.referral_accrual.ok_or(ErrorCode::InvalidReferralAccrual)?,
+        asset_mint,
+        interest_paid: receipt.quote.interest_paid,
+        interest_vault_credit: receipt.quote.interest_vault_credit,
+        protocol_interest_revenue: receipt.quote.protocol_interest_revenue,
+        interest_share_bps: receipt.quote.interest_share_bps,
+        accrued_amount: receipt.quote.referral_amount,
+        metadata: MarketEventMetadata::new(signer, market)?,
+    });
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ReferralInterestAccrualReceipt {
+    pub referrer: Option<Pubkey>,
+    pub referral_profile: Option<Pubkey>,
+    pub referral_accrual: Option<Pubkey>,
+    pub quote: ReferralInterestQuote,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn validate_referral_binding<'info>(
+    requested_referrer: Option<Pubkey>,
+    current_referral_profile: Pubkey,
+    current_interest_share_bps: u16,
+    has_debt: bool,
     futarchy_authority: &FutarchyAuthority,
     referral_profile: Option<&Account<'info, ReferralProfile>>,
-    referral_vault: Option<&InterfaceAccount<'info, TokenAccount>>,
+    referral_accrual: Option<&Account<'info, ReferralAccrual>>,
+    market: Pubkey,
     asset_mint: &InterfaceAccount<'info, Mint>,
-) -> Result<ValidatedReferral> {
-    futarchy_authority.validate_referral_origination_fee()?;
-    require!(
-        referrer.is_some() == max_acceptable_fee_bps.is_some(),
-        ErrorCode::InvalidArgument
-    );
-    let max_acceptable_fee_bps = max_acceptable_fee_bps.unwrap_or_default();
-    let quote = ReferralFeeQuote::new(
-        requested_principal,
-        futarchy_authority.referral_origination_fee_bps,
-        max_acceptable_fee_bps,
-        referrer.is_some(),
-    )?;
+) -> Result<ValidatedReferralBinding> {
+    futarchy_authority.validate_referral_interest_share_cap()?;
+    if !has_debt {
+        require_keys_eq!(current_referral_profile, Pubkey::default(), ErrorCode::BrokenInvariant);
+        require_eq!(current_interest_share_bps, 0, ErrorCode::BrokenInvariant);
+    }
 
-    let Some(referrer) = referrer else {
+    if has_debt && current_referral_profile == Pubkey::default() {
+        require_eq!(current_interest_share_bps, 0, ErrorCode::BrokenInvariant);
+        require!(requested_referrer.is_none(), ErrorCode::InvalidReferralProfile);
         require!(
-            referral_profile.is_none() && referral_vault.is_none(),
+            referral_profile.is_none() && referral_accrual.is_none(),
             ErrorCode::InvalidReferralProfile
         );
-        return Ok(ValidatedReferral {
-            quote,
-            ..ValidatedReferral::default()
-        });
+        return Ok(ValidatedReferralBinding::default());
+    }
+
+    if !has_debt && requested_referrer.is_none() {
+        require!(
+            referral_profile.is_none() && referral_accrual.is_none(),
+            ErrorCode::InvalidReferralProfile
+        );
+        return Ok(ValidatedReferralBinding::default());
+    }
+
+    let profile = referral_profile.ok_or(ErrorCode::InvalidReferralProfile)?;
+    let accrual = referral_accrual.ok_or(ErrorCode::InvalidReferralAccrual)?;
+    if has_debt {
+        require_keys_eq!(
+            profile.key(),
+            current_referral_profile,
+            ErrorCode::InvalidReferralProfile
+        );
+        if let Some(referrer) = requested_referrer {
+            require_keys_eq!(profile.authority, referrer, ErrorCode::InvalidReferralProfile);
+        }
+    } else {
+        let referrer = requested_referrer.ok_or(ErrorCode::InvalidReferralProfile)?;
+        require_keys_eq!(profile.authority, referrer, ErrorCode::InvalidReferralProfile);
+    }
+    validate_profile_and_accrual(profile, accrual, market, asset_mint.key())?;
+    let interest_share_bps = if has_debt {
+        require_gte!(
+            MAX_REFERRAL_INTEREST_SHARE_BPS,
+            current_interest_share_bps,
+            ErrorCode::InvalidReferralInterestShareBps
+        );
+        current_interest_share_bps
+    } else {
+        profile.binding_interest_share_bps(futarchy_authority.max_referral_interest_share_bps)?
     };
 
-    let referral_profile = referral_profile.ok_or(ErrorCode::InvalidReferralProfile)?;
-    let referral_vault = referral_vault.ok_or(ErrorCode::InvalidReferralVault)?;
-    require_keys_eq!(referral_profile.authority, referrer, ErrorCode::InvalidReferralProfile);
-    let (expected_profile, expected_bump) =
-        Pubkey::find_program_address(&[REFERRAL_PROFILE_SEED_PREFIX, referrer.as_ref()], &crate::ID);
-    require_keys_eq!(
-        referral_profile.key(),
-        expected_profile,
-        ErrorCode::InvalidReferralProfile
-    );
-    require_eq!(referral_profile.bump, expected_bump, ErrorCode::InvalidReferralProfile);
-
-    let mint_program = *asset_mint.to_account_info().owner;
-    let expected_vault =
-        get_associated_token_address_with_program_id(&referral_profile.key(), &asset_mint.key(), &mint_program);
-    require_keys_eq!(referral_vault.key(), expected_vault, ErrorCode::InvalidReferralVault);
-    require_keys_eq!(
-        referral_vault.owner,
-        referral_profile.key(),
-        ErrorCode::InvalidReferralVault
-    );
-    require_keys_eq!(referral_vault.mint, asset_mint.key(), ErrorCode::InvalidReferralVault);
-    require_keys_eq!(
-        *referral_vault.to_account_info().owner,
-        mint_program,
-        ErrorCode::InvalidReferralVault
-    );
-
-    Ok(ValidatedReferral {
-        referrer: Some(referrer),
-        referral_profile: Some(referral_profile.key()),
-        quote,
+    Ok(ValidatedReferralBinding {
+        referrer: Some(profile.authority),
+        referral_profile: Some(profile.key()),
+        referral_accrual: Some(accrual.key()),
+        interest_share_bps,
     })
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn pay_referral_fee<'info>(
-    market: &Account<'info, Market>,
-    reserve_vault: &mut InterfaceAccount<'info, TokenAccount>,
-    referral_vault: Option<&mut InterfaceAccount<'info, TokenAccount>>,
+pub fn accrue_referral_interest<'info>(
+    expected_referral_profile: Pubkey,
+    interest_share_bps: u16,
+    futarchy_authority: &FutarchyAuthority,
+    referral_profile: Option<&Account<'info, ReferralProfile>>,
+    referral_accrual: Option<&mut Account<'info, ReferralAccrual>>,
+    market: Pubkey,
     asset_mint: &InterfaceAccount<'info, Mint>,
-    token_program: &Program<'info, Token>,
-    token_2022_program: &Program<'info, Token2022>,
-    referral: ValidatedReferral,
-    additional_accounts: &[AccountInfo<'info>],
-) -> Result<ReferralFeeReceipt> {
-    if referral.referrer.is_none() || referral.quote.fee_debit == 0 {
-        return ReferralFeeReceipt::new(referral.quote, 0);
+    interest_paid: u64,
+    interest_vault_credit: u64,
+    protocol_interest_bps: u16,
+) -> Result<ReferralInterestAccrualReceipt> {
+    futarchy_authority.validate_referral_interest_share_cap()?;
+    if expected_referral_profile == Pubkey::default() {
+        require_eq!(interest_share_bps, 0, ErrorCode::BrokenInvariant);
+        require!(
+            referral_profile.is_none() && referral_accrual.is_none(),
+            ErrorCode::InvalidReferralProfile
+        );
+        return Ok(ReferralInterestAccrualReceipt {
+            quote: ReferralInterestQuote::new(interest_paid, interest_vault_credit, protocol_interest_bps, None)?,
+            ..ReferralInterestAccrualReceipt::default()
+        });
     }
-    let referral_vault = referral_vault.ok_or(ErrorCode::InvalidReferralVault)?;
-    let vault_balance_before = referral_vault.amount;
-    let asset_token_program = token_program_for_mint(asset_mint, token_program, token_2022_program)?;
-    transfer_from_vault_to_vault_with_remaining_accounts(
-        market.to_account_info(),
-        reserve_vault.to_account_info(),
-        referral_vault.to_account_info(),
-        asset_mint.to_account_info(),
-        asset_token_program,
-        referral.quote.fee_debit,
-        asset_mint.decimals,
-        &[&generate_market_seeds!(market)[..]],
-        additional_accounts,
+
+    let profile = referral_profile.ok_or(ErrorCode::InvalidReferralProfile)?;
+    let accrual = referral_accrual.ok_or(ErrorCode::InvalidReferralAccrual)?;
+    require_keys_eq!(
+        profile.key(),
+        expected_referral_profile,
+        ErrorCode::InvalidReferralProfile
+    );
+    validate_profile_and_accrual(profile, accrual, market, asset_mint.key())?;
+
+    let quote = ReferralInterestQuote::new(
+        interest_paid,
+        interest_vault_credit,
+        protocol_interest_bps,
+        Some(interest_share_bps),
     )?;
-    reserve_vault.reload()?;
-    referral_vault.reload()?;
-    ReferralFeeReceipt::new(
-        referral.quote,
-        token_account_credit(vault_balance_before, referral_vault)?,
-    )
+    if quote.referral_amount > 0 {
+        accrual.accrue(quote.referral_amount)?;
+    }
+    Ok(ReferralInterestAccrualReceipt {
+        referrer: Some(profile.authority),
+        referral_profile: Some(profile.key()),
+        referral_accrual: Some(accrual.key()),
+        quote,
+    })
+}
+
+fn validate_profile_and_accrual(
+    profile: &Account<ReferralProfile>,
+    accrual: &Account<ReferralAccrual>,
+    market: Pubkey,
+    asset_mint: Pubkey,
+) -> Result<()> {
+    let (expected_profile, profile_bump) =
+        Pubkey::find_program_address(&[REFERRAL_PROFILE_SEED_PREFIX, profile.authority.as_ref()], &crate::ID);
+    require_keys_eq!(profile.key(), expected_profile, ErrorCode::InvalidReferralProfile);
+    require_eq!(profile.bump, profile_bump, ErrorCode::InvalidReferralProfile);
+
+    let (expected_accrual, accrual_bump) = Pubkey::find_program_address(
+        &[
+            REFERRAL_ACCRUAL_SEED_PREFIX,
+            profile.key().as_ref(),
+            market.as_ref(),
+            asset_mint.as_ref(),
+        ],
+        &crate::ID,
+    );
+    require_keys_eq!(accrual.key(), expected_accrual, ErrorCode::InvalidReferralAccrual);
+    require_eq!(accrual.bump, accrual_bump, ErrorCode::InvalidReferralAccrual);
+    require_keys_eq!(
+        accrual.referral_profile,
+        profile.key(),
+        ErrorCode::InvalidReferralAccrual
+    );
+    require_keys_eq!(accrual.market, market, ErrorCode::InvalidReferralAccrual);
+    require_keys_eq!(accrual.asset_mint, asset_mint, ErrorCode::InvalidReferralAccrual);
+    Ok(())
 }

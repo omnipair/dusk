@@ -164,7 +164,7 @@ pub struct FutarchyAuthority {
     pub authority: Pubkey,
     pub recipients: RevenueRecipients,
     pub revenue_share: RevenueShare,
-    pub referral_origination_fee_bps: u16,
+    pub max_referral_interest_share_bps: u16,
     pub revenue_distribution: RevenueDistribution,
     pub protocol_auction_split: ProtocolAuctionSplit,
     pub fee_auction: ProtocolAuctionConfig,
@@ -174,11 +174,11 @@ pub struct FutarchyAuthority {
 }
 
 impl FutarchyAuthority {
-    pub const CURRENT_VERSION: u8 = 2;
+    pub const CURRENT_VERSION: u8 = 3;
 
     pub fn validate(&self) -> Result<()> {
         require_eq!(self.version, Self::CURRENT_VERSION, ErrorCode::InvalidVersion);
-        self.validate_referral_origination_fee()?;
+        self.validate_referral_interest_share_cap()?;
         require!(self.revenue_distribution.is_valid(), ErrorCode::InvalidDistribution);
         require!(self.protocol_auction_split.is_valid(), ErrorCode::InvalidDistribution);
         self.fee_auction.validate()?;
@@ -186,11 +186,11 @@ impl FutarchyAuthority {
         Ok(())
     }
 
-    pub fn validate_referral_origination_fee(&self) -> Result<()> {
+    pub fn validate_referral_interest_share_cap(&self) -> Result<()> {
         require_gte!(
-            MAX_REFERRAL_ORIGINATION_FEE_BPS,
-            self.referral_origination_fee_bps,
-            ErrorCode::InvalidReferralFeeBps
+            MAX_REFERRAL_INTEREST_SHARE_BPS,
+            self.max_referral_interest_share_bps,
+            ErrorCode::InvalidReferralInterestShareBps
         );
         Ok(())
     }
@@ -204,7 +204,7 @@ impl FutarchyAuthority {
         authority: Pubkey,
         swap_bps: u16,
         interest_bps: u16,
-        referral_origination_fee_bps: u16,
+        max_referral_interest_share_bps: u16,
         futarchy_treasury: Pubkey,
         buybacks_vault: Pubkey,
         team_treasury: Pubkey,
@@ -224,9 +224,9 @@ impl FutarchyAuthority {
         };
         require!(revenue_distribution.is_valid(), ErrorCode::InvalidDistribution);
         require_gte!(
-            MAX_REFERRAL_ORIGINATION_FEE_BPS,
-            referral_origination_fee_bps,
-            ErrorCode::InvalidReferralFeeBps
+            MAX_REFERRAL_INTEREST_SHARE_BPS,
+            max_referral_interest_share_bps,
+            ErrorCode::InvalidReferralInterestShareBps
         );
 
         Ok(Self {
@@ -238,7 +238,7 @@ impl FutarchyAuthority {
                 team_treasury,
             },
             revenue_share: RevenueShare { swap_bps, interest_bps },
-            referral_origination_fee_bps,
+            max_referral_interest_share_bps,
             revenue_distribution,
             protocol_auction_split: ProtocolAuctionSplit::default(),
             fee_auction: ProtocolAuctionConfig::initialize(

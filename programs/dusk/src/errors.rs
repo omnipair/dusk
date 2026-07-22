@@ -338,15 +338,15 @@ pub enum ErrorCode {
     #[msg("Invalid leverage delegation")]
     InvalidLeverageDelegation,
 
-    #[msg("Referral origination fee exceeds the protocol hard cap")]
-    InvalidReferralFeeBps,
-
-    #[msg("Referral origination fee exceeds the caller maximum")]
-    ReferralFeeSlippageExceeded,
+    #[msg("Referral interest share exceeds the protocol hard cap")]
+    InvalidReferralInterestShareBps,
 
     #[msg("Invalid referral profile")]
     InvalidReferralProfile,
 
-    #[msg("Invalid referral fee vault")]
-    InvalidReferralVault,
+    #[msg("Referral is not active")]
+    ReferralNotActive,
+
+    #[msg("Invalid referral accrual account")]
+    InvalidReferralAccrual,
 }

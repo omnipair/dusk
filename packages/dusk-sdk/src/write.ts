@@ -1,13 +1,18 @@
 import type { Program } from "@coral-xyz/anchor";
-import { getAccount, getMint, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { getMint, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { SystemProgram, Transaction, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
 
 import { address, normalizeAccountKeys, type AddressLike } from "./address.js";
-import { deriveReferralProfileAddress } from "./constants.js";
 import {
-  buildReferralVaultSetupInstruction,
-  referralVaultAddresses,
+  deriveFutarchyAuthorityAddress,
+  deriveMarketInterestVaultAddress,
+  deriveReferralProfileAddress,
+} from "./constants.js";
+import {
+  assertReferralInterestShareBps,
+  referralAccrualAddresses,
   resolveTransferHookAccountMetas,
+  tokenProgramForMint,
   type TransferHookTransfer,
 } from "./referral.js";
 import type { Dusk } from "./types_v2.js";
@@ -21,20 +26,20 @@ export interface DuskBuildOptions {
   remainingAccounts?: AccountMeta[];
 }
 
-export type ReferredActionName = "borrow" | "openLeverage" | "increaseLeverage";
+export type ReferredActionName = "borrow" | "openLeverage";
 
 export interface ReferredActionOptions extends DuskBuildOptions {
   accounts: DuskAccounts;
   payer: AddressLike;
   referrer: AddressLike;
+  market: AddressLike;
   debtMint: AddressLike;
-  maxAcceptableReferralFeeBps: number;
   transferHookTransfers?: readonly TransferHookTransfer[];
 }
 
 export interface ReferredActionBuild {
   referralProfile: ReturnType<typeof deriveReferralProfileAddress>[0];
-  referralVault: ReturnType<typeof deriveReferralProfileAddress>[0];
+  referralAccrual: ReturnType<typeof deriveReferralProfileAddress>[0];
   setupInstruction: TransactionInstruction;
   actionInstruction: TransactionInstruction;
   transaction: Transaction;
@@ -96,16 +101,82 @@ export class DuskWrite {
     return this.builder(name, args, options).rpc();
   }
 
+  async configureReferralInstruction(params: {
+    authoritySigner: AddressLike;
+    referrer: AddressLike;
+    interestShareBps: number;
+    active: boolean;
+    futarchyAuthority?: AddressLike;
+  }): Promise<TransactionInstruction> {
+    assertReferralInterestShareBps(params.interestShareBps);
+    const referrer = address(params.referrer);
+    return this.instruction(
+      "configureReferral",
+      {
+        referrer,
+        interestShareBps: params.interestShareBps,
+        active: params.active,
+      },
+      {
+        accounts: {
+          authoritySigner: address(params.authoritySigner),
+          futarchyAuthority:
+            params.futarchyAuthority ?? deriveFutarchyAuthorityAddress()[0],
+          referralProfile: deriveReferralProfileAddress(referrer)[0],
+          systemProgram: SystemProgram.programId,
+        },
+      }
+    );
+  }
+
+  async configureReferralTransaction(
+    params: Parameters<DuskWrite["configureReferralInstruction"]>[0]
+  ): Promise<Transaction> {
+    return new Transaction().add(await this.configureReferralInstruction(params));
+  }
+
+  async initializeReferralAccrualInstruction(params: {
+    payer: AddressLike;
+    referrer: AddressLike;
+    market: AddressLike;
+    assetMint: AddressLike;
+  }): Promise<TransactionInstruction> {
+    const referral = referralAccrualAddresses(params);
+    return this.instruction("initializeReferralAccrual", undefined, {
+      accounts: {
+        payer: address(params.payer),
+        referralProfile: referral.referralProfile,
+        market: address(params.market),
+        assetMint: address(params.assetMint),
+        referralAccrual: referral.referralAccrual,
+        systemProgram: SystemProgram.programId,
+      },
+    });
+  }
+
+  async initializeReferralAccrualTransaction(
+    params: Parameters<DuskWrite["initializeReferralAccrualInstruction"]>[0]
+  ): Promise<Transaction> {
+    return new Transaction().add(
+      await this.initializeReferralAccrualInstruction(params)
+    );
+  }
+
   async referredAction(
     name: ReferredActionName,
     args: Record<string, unknown>,
     options: ReferredActionOptions
   ): Promise<ReferredActionBuild> {
-    const setup = await buildReferralVaultSetupInstruction({
-      connection: this.program.provider.connection,
+    const referral = referralAccrualAddresses({
+      referrer: options.referrer,
+      market: options.market,
+      assetMint: options.debtMint,
+    });
+    const setupInstruction = await this.initializeReferralAccrualInstruction({
       payer: options.payer,
       referrer: options.referrer,
-      mint: options.debtMint,
+      market: options.market,
+      assetMint: options.debtMint,
     });
     const hookAccounts = options.transferHookTransfers?.length
       ? await resolveTransferHookAccountMetas(
@@ -118,23 +189,22 @@ export class DuskWrite {
       {
         ...args,
         referrer: address(options.referrer),
-        maxAcceptableReferralFeeBps: options.maxAcceptableReferralFeeBps,
       },
       {
         accounts: {
           ...options.accounts,
-          referralProfile: setup.referralProfile,
-          referralVault: setup.referralVault,
+          referralProfile: referral.referralProfile,
+          referralAccrual: referral.referralAccrual,
         },
         remainingAccounts: mergeAccountMetas(options.remainingAccounts ?? [], hookAccounts),
       }
     );
     return {
-      referralProfile: setup.referralProfile,
-      referralVault: setup.referralVault,
-      setupInstruction: setup.instruction,
+      referralProfile: referral.referralProfile,
+      referralAccrual: referral.referralAccrual,
+      setupInstruction,
       actionInstruction,
-      transaction: new Transaction().add(setup.instruction, actionInstruction),
+      transaction: new Transaction().add(setupInstruction, actionInstruction),
     };
   }
 
@@ -144,10 +214,6 @@ export class DuskWrite {
 
   referredOpenLeverage(args: Record<string, unknown>, options: ReferredActionOptions) {
     return this.referredAction("openLeverage", args, options);
-  }
-
-  referredIncreaseLeverage(args: Record<string, unknown>, options: ReferredActionOptions) {
-    return this.referredAction("increaseLeverage", args, options);
   }
 
   async setReferralRecipientInstruction(params: {
@@ -162,7 +228,6 @@ export class DuskWrite {
         accounts: {
           authority,
           referralProfile: deriveReferralProfileAddress(authority)[0],
-          systemProgram: SystemProgram.programId,
         },
       }
     );
@@ -175,53 +240,61 @@ export class DuskWrite {
     return new Transaction().add(await this.setReferralRecipientInstruction(params));
   }
 
-  async claimReferralFeesInstruction(params: {
+  async claimReferralInterestInstruction(params: {
     authority: AddressLike;
+    market: AddressLike;
     mint: AddressLike;
+    interestVault?: AddressLike;
     recipientTokenAccount: AddressLike;
     remainingAccounts?: AccountMeta[];
   }): Promise<TransactionInstruction> {
     const authority = address(params.authority);
-    const addresses = await referralVaultAddresses({
-      connection: this.program.provider.connection,
+    const market = address(params.market);
+    const mintKey = address(params.mint);
+    const referral = referralAccrualAddresses({
       referrer: authority,
-      mint: params.mint,
+      market,
+      assetMint: mintKey,
     });
+    const interestVault = address(
+      params.interestVault ?? deriveMarketInterestVaultAddress(market, mintKey)[0]
+    );
     const recipientTokenAccount = address(params.recipientTokenAccount);
-    const [vaultAccount, mint] = await Promise.all([
-      getAccount(
-        this.program.provider.connection,
-        addresses.referralVault,
-        undefined,
-        addresses.tokenProgram
-      ),
+    const tokenProgram = await tokenProgramForMint(
+      this.program.provider.connection,
+      mintKey
+    );
+    const [accrual, mint] = await Promise.all([
+      this.program.account.referralAccrual.fetch(referral.referralAccrual),
       getMint(
         this.program.provider.connection,
-        address(params.mint),
+        mintKey,
         undefined,
-        addresses.tokenProgram
+        tokenProgram
       ),
     ]);
     const hookAccounts = await resolveTransferHookAccountMetas(
       this.program.provider.connection,
       [
         {
-          source: addresses.referralVault,
-          mint: params.mint,
+          source: interestVault,
+          mint: mintKey,
           destination: recipientTokenAccount,
-          authority: addresses.referralProfile,
-          amount: vaultAccount.amount,
+          authority: market,
+          amount: accrual.amount,
           decimals: mint.decimals,
-          tokenProgram: addresses.tokenProgram,
+          tokenProgram,
         },
       ]
     );
-    return this.instruction("claimReferralFees", undefined, {
+    return this.instruction("claimReferralInterest", undefined, {
       accounts: {
+        market,
         authority,
-        referralProfile: addresses.referralProfile,
-        assetMint: address(params.mint),
-        referralVault: addresses.referralVault,
+        referralProfile: referral.referralProfile,
+        assetMint: mintKey,
+        referralAccrual: referral.referralAccrual,
+        interestVault,
         recipientTokenAccount,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -230,13 +303,12 @@ export class DuskWrite {
     });
   }
 
-  async claimReferralFeesTransaction(params: {
-    authority: AddressLike;
-    mint: AddressLike;
-    recipientTokenAccount: AddressLike;
-    remainingAccounts?: AccountMeta[];
-  }): Promise<Transaction> {
-    return new Transaction().add(await this.claimReferralFeesInstruction(params));
+  async claimReferralInterestTransaction(
+    params: Parameters<DuskWrite["claimReferralInterestInstruction"]>[0]
+  ): Promise<Transaction> {
+    return new Transaction().add(
+      await this.claimReferralInterestInstruction(params)
+    );
   }
 }
 

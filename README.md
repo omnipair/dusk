@@ -22,7 +22,7 @@ Dusk keeps that core Omnipair GAMM idea and rebuilds it around a market-native a
 - **Yield-bearing LP shares**: `yLP` represents a two-sided liquidity claim while reserve-side yield is checkpointed through base and quote growth indexes.
 - **Leveraged LP vaults**: base and quote `hLP` mints are aggregate 2x LP vault shares that target one-sided market exposure through explicit hLP live-reserve accounting.
 - **Isolated leverage**: traders can open market-local leverage positions that borrow one side, swap through the GAMM, hold the opposite side as collateral, delegate TP/SL close execution, and liquidate through the same reserve accounting.
-- **Referral origination**: referred borrows, leverage opens, and leverage increases pay a governance-configured fee from reserve cash to a referrer's per-mint vault while adding the same debit to position debt.
+- **Permissioned referral revenue sharing**: Futarchy-listed referrers can bind to new borrow or leverage debt and earn a configured share of the DAO's realized interest revenue without changing borrower debt or rates.
 - **Cached risk books**: risk checks roll EMA values from cached observations so settlement does not depend on a same-instruction manipulated spot.
 - **Bounded liquidation waterfall**: liquidations move through borrower collateral, liquidator incentive, insurance, then bounded LP socialization.
 
@@ -58,9 +58,10 @@ Leverage users
   repay, unwind, or get liquidated against market-local reserves
 
 Referrers
-  register one protocol-wide recipient
-  accrue per-mint origination fees from referred debt actions
-  claim each referral vault to the current recipient
+  are listed by Futarchy with a protocol-wide interest-share profile
+  bind that profile when a borrower or leverage user opens new debt
+  accrue a share of realized DAO interest revenue per market and mint
+  claim accrued revenue to the profile's designated recipient
 ```
 
 ## Token Model
@@ -96,20 +97,21 @@ Users can increase or decrease exposure, add or remove margin, close the positio
 
 Owners can also approve a leverage delegate program for a position. The delegate flow uses a before-hook approval and after-hook settlement approval, so keepers can execute take-profit or stop-loss closes into a custody PDA without receiving unchecked control over the position.
 
-## Referral Origination Fees
+## Permissioned Referral Revenue Sharing
 
-Referral is optional and applies only to user-supplied referrals on `borrow`, `open_leverage`, and `increase_leverage`. Unreferred actions, repayments, withdrawals, closes, liquidations, swaps, and internal hLP funding do not pay a referral fee.
+Futarchy may list any wallet or application as a referrer and configure its share of protocol interest revenue. A listed profile can be supplied when a borrow debt side is first opened or when a leverage position is opened. Dusk snapshots the capped share at that point. The profile and snapshotted share remain bound until the debt side is fully repaid or the leverage position closes; increasing existing debt cannot replace or reprice them. Deactivating a profile blocks new bindings only, so existing positions retain their agreed referral economics.
 
-For requested principal `a` and configured rate `f` in basis points:
+Referral never increases principal, debt, interest, LTV utilization, or liquidation risk. Borrowers receive and owe the same amounts as unreferred borrowers. When an interest payment credits the market interest vault, Dusk calculates:
 
 ```text
-fee_debit = ceil(a * f / 10_000)
-gross_debt = a + fee_debit
+protocol_interest_revenue = floor(actual_interest_vault_credit * protocol_interest_bps / 10_000)
+bound_referral_share      = min(profile_share_bps, runtime_cap_bps) at initial binding
+referral_accrual          = floor(protocol_interest_revenue * bound_referral_share / 10_000)
 ```
 
-The action pays or trades the requested principal, not gross debt. The fee is transferred immediately from reserve cash to the referrer's per-mint ATA, owned by the referrer's protocol-wide `ReferralProfile`; gross debt is used for health, daily limits, cash headroom, debt shares, and principal accounting. Asset-level Token-2022 transfer fees can reduce actual destination credit, so normal minimum-output checks still apply. The deployment default is 10 bps and the program enforces a compile-time 25 bps maximum. Each referred action also carries `max_acceptable_referral_fee_bps`, so a transaction fails if governance raises the configured rate beyond the caller's bound.
+Later profile, cap, or active-status changes apply only to new bindings. The referral amount is carved only from the DAO's configured share of realized interest; LP and manager interest allocations are unchanged. Using actual vault credit keeps Token-2022 transfer fees from creating an unbacked claim.
 
-The referrer may rotate the designated recipient without moving accrued balances. `claim_referral_fees` drains one mint vault to a token account owned by the current recipient. For Token-2022 assets, transfer fees can make the vault or recipient credit smaller than the reserve debit, and transfer-hook accounts must be supplied for the exact transfers; the Dusk SDK resolves them.
+Each `ReferralAccrual` is scoped to one profile, market, and asset mint. Funds remain in the market interest vault while the account records the claimable liability. The profile owner may rotate its designated recipient, and `claim_referral_interest` pays that recipient using the asset mint's SPL Token or Token-2022 program and transfer hooks.
 
 ## hLP Vaults
 
@@ -162,8 +164,10 @@ deposit_collateral
 withdraw_collateral
 borrow
 repay
+configure_referral
+initialize_referral_accrual
 set_referral_recipient
-claim_referral_fees
+claim_referral_interest
 trigger_liquidation_auction
 bid_liquidation_auction
 settle_liquidation_auction_amm
@@ -269,7 +273,7 @@ Other invariants:
 - hLP debt shares stay matched to aggregate hLP vault funding debt.
 - hLP operations never use yLP-denominated debt.
 - Isolated leverage debt contributes to utilization without contaminating normal borrower health checks.
-- Referred actions debit reserve cash by requested principal plus referral fee and record that same total as gross debt; unreferred actions create no referral liability.
+- Referral binding never changes principal, debt, interest, health, or liquidation terms; referral claims are bounded liabilities carved from realized protocol interest revenue.
 - Referral claims can only drain the profile's canonical per-mint ATA to a token account owned by its current designated recipient.
 - Leverage collateral vault balances are matched by open leverage position collateral accounting.
 - Delegated close requires both a close approval payload and a settlement approval payload from the approved delegate program.

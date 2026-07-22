@@ -240,6 +240,7 @@ impl Liquidation {
         )?;
         if remaining_debt == 0 {
             borrow_position.set_liquidation_cf_bps(self.debt_asset, 0);
+            borrow_position.clear_referral_binding(self.debt_asset);
         } else {
             let total_debt_nad = market.total_fixed_debt_nad(self.debt_asset)?;
             let external_debt_nad = market.external_fixed_debt_nad(borrow_position, self.debt_asset)?;

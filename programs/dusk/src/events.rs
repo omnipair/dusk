@@ -192,9 +192,19 @@ pub struct ProtocolAuctionSplitUpdated {
 }
 
 #[event]
-pub struct ReferralOriginationFeeUpdated {
+pub struct ReferralInterestShareCapUpdated {
     pub authority: Pubkey,
-    pub referral_origination_fee_bps: u16,
+    pub max_referral_interest_share_bps: u16,
+    pub signer: Pubkey,
+}
+
+#[event]
+pub struct ReferralConfigured {
+    pub referral_profile: Pubkey,
+    pub authority: Pubkey,
+    pub recipient: Pubkey,
+    pub interest_share_bps: u16,
+    pub active: bool,
     pub signer: Pubkey,
 }
 
@@ -206,29 +216,45 @@ pub struct ReferralRecipientUpdated {
 }
 
 #[event]
-pub struct ReferralFeesClaimed {
+pub struct ReferralInterestClaimed {
+    pub market: Pubkey,
     pub referral_profile: Pubkey,
+    pub referral_accrual: Pubkey,
     pub authority: Pubkey,
     pub recipient: Pubkey,
     pub asset_mint: Pubkey,
     pub vault_debit: u64,
     pub recipient_credit: u64,
+    pub remaining_accrual: u64,
+    pub metadata: MarketEventMetadata,
 }
 
 #[event]
-pub struct ReferralOriginationFeePaid {
+pub struct ReferralInterestAccrued {
+    pub market: Pubkey,
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub referrer: Pubkey,
+    pub referral_profile: Pubkey,
+    pub referral_accrual: Pubkey,
+    pub asset_mint: Pubkey,
+    pub interest_paid: u64,
+    pub interest_vault_credit: u64,
+    pub protocol_interest_revenue: u64,
+    pub interest_share_bps: u16,
+    pub accrued_amount: u64,
+    pub metadata: MarketEventMetadata,
+}
+
+#[event]
+pub struct ReferralBound {
     pub market: Pubkey,
     pub position: Pubkey,
     pub owner: Pubkey,
     pub referrer: Pubkey,
     pub referral_profile: Pubkey,
     pub asset_mint: Pubkey,
-    pub action: crate::state::ReferralAction,
-    pub requested_principal: u64,
-    pub configured_fee_bps: u16,
-    pub fee_debit: u64,
-    pub vault_credit: u64,
-    pub gross_debt: u64,
+    pub interest_share_bps: u16,
     pub metadata: MarketEventMetadata,
 }
 
@@ -288,9 +314,7 @@ pub struct LeveragePositionOpened {
     pub debt_asset_mint: Pubkey,
     pub collateral_asset_mint: Pubkey,
     pub margin_amount: u64,
-    pub requested_principal: u64,
-    pub referral_fee_amount: u64,
-    pub gross_debt: u64,
+    pub borrowed_amount: u64,
     pub debt_amount: u64,
     pub debt_shares: u128,
     pub collateral_amount: u64,
@@ -322,9 +346,7 @@ pub struct LeveragePositionUpdated {
     pub owner: Pubkey,
     pub debt_asset_mint: Pubkey,
     pub collateral_asset_mint: Pubkey,
-    pub requested_principal: u64,
-    pub referral_fee_amount: u64,
-    pub gross_debt_delta: u64,
+    pub borrowed_amount: u64,
     pub debt_delta: i64,
     pub collateral_delta: i64,
     pub debt_amount: u64,

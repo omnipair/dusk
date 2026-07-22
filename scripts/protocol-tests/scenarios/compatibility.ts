@@ -1,8 +1,4 @@
-import {
-  getAssociatedTokenAddressSync,
-  TOKEN_2022_PROGRAM_ID,
-  TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
+import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { Keypair, PublicKey } from "@solana/web3.js";
 
 import {
@@ -128,10 +124,27 @@ export const COMPATIBILITY_SCENARIOS: ScenarioDefinition[] = [
       });
 
       const referrer = harness.wallet("referrer").publicKey;
+      const revenueBefore = await harness.futarchy();
+      await harness.execute({
+        wallet: "alice",
+        endpoint: "/api/v2/fork/tx/update-protocol-revenue",
+        label: "enable protocol interest revenue for Token-2022 referral coverage",
+        body: { interestBps: 10_000, maxReferralInterestShareBps: 5_000 },
+      });
+      await harness.execute({
+        wallet: "alice",
+        endpoint: "/api/v2/fork/tx/configure-referral",
+        label: "list referrer for Token-2022 interest sharing",
+        body: {
+          referrer: referrer.toBase58(),
+          interestShareBps: 5_000,
+          active: true,
+        },
+      });
       await harness.execute({
         wallet: "referrer",
         endpoint: "/api/v2/fork/tx/set-referral-recipient",
-        label: "create referral profile for Token-2022 fee asset",
+        label: "set recipient for Token-2022 referral interest",
         body: { recipient: referrer.toBase58() },
       });
       await harness.execute({
@@ -165,45 +178,21 @@ export const COMPATIBILITY_SCENARIOS: ScenarioDefinition[] = [
           minDebtAmountOut: "0",
           minLiquidationCfBps: 0,
           referrer: referrer.toBase58(),
-          maxAcceptableReferralFeeBps: 25,
         },
       });
-      const duskProgram = new PublicKey(harness.config.programId);
-      const [referralProfile] = PublicKey.findProgramAddressSync(
-        [Buffer.from("referral_profile"), referrer.toBuffer()],
-        duskProgram
+      const debtAfterBorrow = await previewBorrowPosition(
+        harness,
+        "alice",
+        token2022BorrowPositionId,
+        "confirm referral adds no Token-2022 debt surcharge"
       );
-      const referralVault = getAssociatedTokenAddressSync(
-        new PublicKey(harness.config.quoteMint),
-        referralProfile,
-        true,
-        TOKEN_2022_PROGRAM_ID
-      );
-      harness.assertTrue(
-        "Token-2022 referral vault receives net fee credit",
-        await harness.tokenAccountBalance(referralVault, harness.config.quoteTokenProgram) > 0n
-      );
-      const referrerQuoteBefore = await harness.tokenBalance(
-        "referrer",
-        harness.config.quoteMint,
-        harness.config.quoteTokenProgram
-      );
-      await harness.execute({
-        wallet: "referrer",
-        endpoint: "/api/v2/fork/tx/claim-referral-fees",
-        label: "claim Token-2022 referral fees",
-        body: { asset: "quote", recipient: referrer.toBase58() },
-      });
       harness.assertEqual(
-        "Token-2022 referral claim drains the vault",
-        await harness.tokenAccountBalance(referralVault, harness.config.quoteTokenProgram),
-        0n
-      );
-      harness.assertTrue(
-        "Token-2022 referral recipient receives net claim",
-        await harness.tokenBalance("referrer", harness.config.quoteMint, harness.config.quoteTokenProgram) > referrerQuoteBefore
+        "Token-2022 referred debt equals requested principal",
+        integer(debtAfterBorrow.fixedQuoteDebt),
+        raw(10, harness.config.quoteDecimals)
       );
 
+      await harness.timeTravel(0, 2_160_000);
       const debtBeforeRepay = BigInt(
         (
           await previewBorrowPosition(
@@ -238,6 +227,21 @@ export const COMPATIBILITY_SCENARIOS: ScenarioDefinition[] = [
         "confirm Token-2022 debt is fully repaid"
       );
       harness.assertEqual("Token-2022 gross repayment clears net debt", integer(debtAfterRepay.fixedQuoteDebt), 0n);
+      const referrerQuoteBefore = await harness.tokenBalance(
+        "referrer",
+        harness.config.quoteMint,
+        harness.config.quoteTokenProgram
+      );
+      await harness.execute({
+        wallet: "referrer",
+        endpoint: "/api/v2/fork/tx/claim-referral-interest",
+        label: "claim Token-2022 referral interest",
+        body: { asset: "quote" },
+      });
+      harness.assertTrue(
+        "Token-2022 recipient receives net referral-interest claim",
+        await harness.tokenBalance("referrer", harness.config.quoteMint, harness.config.quoteTokenProgram) > referrerQuoteBefore
+      );
       await harness.execute({
         wallet: "alice",
         endpoint: "/api/v2/fork/tx/withdraw-collateral",
@@ -290,6 +294,18 @@ export const COMPATIBILITY_SCENARIOS: ScenarioDefinition[] = [
           targetAsset: "base",
           hlpAmount: formatUnits(hlpMinted, harness.config.baseDecimals),
           minTargetAmountOut: "0",
+        },
+      });
+      await harness.execute({
+        wallet: "alice",
+        endpoint: "/api/v2/fork/tx/update-protocol-revenue",
+        label: "restore protocol revenue after Token-2022 compatibility coverage",
+        body: {
+          swapBps: revenueBefore.revenueShare.swapBps,
+          interestBps: revenueBefore.revenueShare.interestBps,
+          maxReferralInterestShareBps: revenueBefore.maxReferralInterestShareBps,
+          revenueDistribution: revenueBefore.revenueDistribution,
+          protocolAuctionSplit: revenueBefore.protocolAuctionSplit,
         },
       });
     },

@@ -14,15 +14,16 @@ use crate::constants::NAD;
             interest_vault_balance: 300,
             manager_swap_fee_liability: 400,
             manager_interest_fee_liability: 100,
+            referral_interest_liability: 50,
             protocol_fee_liability: 250,
             buyback_fee_liability: 50,
             ..Fees::default()
         };
 
-        assert_eq!(fees.total_liability().unwrap(), 800);
+        assert_eq!(fees.total_liability().unwrap(), 850);
         fees.manager_swap_fee_liability = 0;
         fees.manager_interest_fee_liability = 0;
-        assert_eq!(fees.total_liability().unwrap(), 300);
+        assert_eq!(fees.total_liability().unwrap(), 350);
     }
 
     #[test]

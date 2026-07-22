@@ -107,6 +107,10 @@ use super::*;
             global_health_quote_contribution_for_base_debt: 0,
             base_liquidation_cf_bps: 0,
             quote_liquidation_cf_bps: 0,
+            base_referral_profile: Pubkey::default(),
+            quote_referral_profile: Pubkey::default(),
+            base_referral_interest_share_bps: 0,
+            quote_referral_interest_share_bps: 0,
             fixed_base_shares: 0,
             fixed_quote_shares: 0,
             auction_debt_asset: u8::MAX,
@@ -254,6 +258,10 @@ use super::*;
             global_health_quote_contribution_for_base_debt: 0,
             base_liquidation_cf_bps: 0,
             quote_liquidation_cf_bps: 0,
+            base_referral_profile: Pubkey::default(),
+            quote_referral_profile: Pubkey::default(),
+            base_referral_interest_share_bps: 0,
+            quote_referral_interest_share_bps: 0,
             fixed_base_shares: 0,
             fixed_quote_shares: 0,
             auction_debt_asset: u8::MAX,
@@ -986,6 +994,10 @@ use super::*;
             global_health_quote_contribution_for_base_debt: 0,
             base_liquidation_cf_bps: 0,
             quote_liquidation_cf_bps: 0,
+            base_referral_profile: Pubkey::new_unique(),
+            quote_referral_profile: Pubkey::default(),
+            base_referral_interest_share_bps: 2_500,
+            quote_referral_interest_share_bps: 0,
             fixed_base_shares: 100,
             fixed_quote_shares: 0,
             auction_debt_asset: u8::MAX,
@@ -1003,6 +1015,8 @@ use super::*;
         assert_eq!(market.base_side.reserves.live_reserve, 1_000);
         assert_eq!(market.base_side.reserves.cash_reserve, 1_000);
         assert_eq!(market.debt.fixed_base_debt().unwrap(), 0);
+        assert_eq!(borrow_position.base_referral_profile, Pubkey::default());
+        assert_eq!(borrow_position.base_referral_interest_share_bps, 0);
         market
             .assert_virtual_reserve_invariant(MarketAsset::Base)
             .unwrap();

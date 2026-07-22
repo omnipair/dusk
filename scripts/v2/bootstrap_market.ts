@@ -287,7 +287,7 @@ async function ensureFutarchyAuthority(params: {
       authority: params.payer,
       swapBps: Number(duskEnv("PROTOCOL_SWAP_BPS") ?? "0"),
       interestBps: Number(duskEnv("PROTOCOL_INTEREST_BPS") ?? "0"),
-      referralOriginationFeeBps: Number(duskEnv("REFERRAL_ORIGINATION_FEE_BPS") ?? "10"),
+      maxReferralInterestShareBps: Number(duskEnv("MAX_REFERRAL_INTEREST_SHARE_BPS") ?? "5000"),
       futarchyTreasury: params.payer,
       futarchyTreasuryBps: 0,
       buybacksVault: params.payer,

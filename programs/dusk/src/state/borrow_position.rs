@@ -27,6 +27,10 @@ pub struct BorrowPosition {
     pub global_health_quote_contribution_for_base_debt: u64,
     pub base_liquidation_cf_bps: u16,
     pub quote_liquidation_cf_bps: u16,
+    pub base_referral_profile: Pubkey,
+    pub quote_referral_profile: Pubkey,
+    pub base_referral_interest_share_bps: u16,
+    pub quote_referral_interest_share_bps: u16,
     pub fixed_base_shares: u128,
     pub fixed_quote_shares: u128,
     pub auction_debt_asset: u8,
@@ -44,6 +48,10 @@ impl BorrowPosition {
         self.clear_liquidation_auction();
         self.base_liquidation_cf_bps = 0;
         self.quote_liquidation_cf_bps = 0;
+        self.base_referral_profile = Pubkey::default();
+        self.quote_referral_profile = Pubkey::default();
+        self.base_referral_interest_share_bps = 0;
+        self.quote_referral_interest_share_bps = 0;
         self.bump = bump;
     }
 
@@ -77,6 +85,37 @@ impl BorrowPosition {
             MarketAsset::Base => self.base_liquidation_cf_bps = liquidation_cf_bps,
             MarketAsset::Quote => self.quote_liquidation_cf_bps = liquidation_cf_bps,
         }
+    }
+
+    pub fn referral_profile(&self, debt_asset: MarketAsset) -> Pubkey {
+        match debt_asset {
+            MarketAsset::Base => self.base_referral_profile,
+            MarketAsset::Quote => self.quote_referral_profile,
+        }
+    }
+
+    pub fn referral_interest_share_bps(&self, debt_asset: MarketAsset) -> u16 {
+        match debt_asset {
+            MarketAsset::Base => self.base_referral_interest_share_bps,
+            MarketAsset::Quote => self.quote_referral_interest_share_bps,
+        }
+    }
+
+    pub fn set_referral_binding(&mut self, debt_asset: MarketAsset, referral_profile: Pubkey, interest_share_bps: u16) {
+        match debt_asset {
+            MarketAsset::Base => {
+                self.base_referral_profile = referral_profile;
+                self.base_referral_interest_share_bps = interest_share_bps;
+            }
+            MarketAsset::Quote => {
+                self.quote_referral_profile = referral_profile;
+                self.quote_referral_interest_share_bps = interest_share_bps;
+            }
+        }
+    }
+
+    pub fn clear_referral_binding(&mut self, debt_asset: MarketAsset) {
+        self.set_referral_binding(debt_asset, Pubkey::default(), 0);
     }
 
     pub fn global_health_contribution(&self, debt_asset: MarketAsset) -> u64 {

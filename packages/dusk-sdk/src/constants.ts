@@ -33,6 +33,7 @@ export const SEEDS = {
   INSURANCE: Buffer.from("insurance"),
   FUTARCHY_AUTHORITY: Buffer.from("futarchy_authority"),
   REFERRAL_PROFILE: Buffer.from("referral_profile"),
+  REFERRAL_ACCRUAL: Buffer.from("referral_accrual"),
   METADATA: Buffer.from("metadata"),
 } as const;
 
@@ -55,6 +56,23 @@ export function deriveFutarchyAuthorityAddress(): [PublicKey, number] {
 export function deriveReferralProfileAddress(authority: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.REFERRAL_PROFILE, authority.toBuffer()],
+    DUSK_PROGRAM_ID
+  );
+}
+
+/** Derive claimable referral interest for one profile, market, and debt mint. */
+export function deriveReferralAccrualAddress(
+  referralProfile: PublicKey,
+  market: PublicKey,
+  assetMint: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [
+      SEEDS.REFERRAL_ACCRUAL,
+      referralProfile.toBuffer(),
+      market.toBuffer(),
+      assetMint.toBuffer(),
+    ],
     DUSK_PROGRAM_ID
   );
 }

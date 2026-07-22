@@ -1,7 +1,5 @@
 import {
-  createAssociatedTokenAccountIdempotentInstruction,
   createTransferCheckedWithTransferHookInstruction,
-  getAssociatedTokenAddressSync,
   getMint,
   getTransferHook,
   TOKEN_2022_PROGRAM_ID,
@@ -12,52 +10,72 @@ import {
   type AccountMeta,
   type Commitment,
   type Connection,
-  type TransactionInstruction,
 } from "@solana/web3.js";
 
 import { address, type AddressLike } from "./address.js";
-import { deriveReferralProfileAddress } from "./constants.js";
+import {
+  deriveReferralAccrualAddress,
+  deriveReferralProfileAddress,
+} from "./constants.js";
 
-export const DEFAULT_REFERRAL_ORIGINATION_FEE_BPS = 10;
-export const MAX_REFERRAL_ORIGINATION_FEE_BPS = 25;
+export const REFERRAL_BPS_DENOMINATOR = 10_000;
+export const MAX_REFERRAL_INTEREST_SHARE_BPS = REFERRAL_BPS_DENOMINATOR;
 
 export type IntegerLike = bigint | number | string | { toString(): string };
 
-export interface ReferralFeeQuote {
-  requestedPrincipal: bigint;
-  configuredFeeBps: number;
-  feeDebit: bigint;
-  grossDebt: bigint;
+export interface ReferralInterestQuote {
+  interestPaid: bigint;
+  interestVaultCredit: bigint;
+  protocolInterestRevenue: bigint;
+  interestShareBps: number;
+  referralAmount: bigint;
 }
 
-export function quoteReferralOriginationFee(
-  requestedPrincipal: IntegerLike,
-  configuredFeeBps: number
-): ReferralFeeQuote {
-  assertReferralFeeBps(configuredFeeBps);
-  const requested = BigInt(requestedPrincipal.toString());
-  if (requested < 0n) {
-    throw new Error("requestedPrincipal must be non-negative");
+export function referralBindingInterestShareBps(params: {
+  configuredShareBps: number;
+  maxShareBps: number;
+  active?: boolean;
+}): number {
+  assertReferralInterestShareBps(params.configuredShareBps);
+  assertReferralInterestShareBps(params.maxShareBps);
+  if (params.active === false) throw new Error("Referral profile is inactive");
+  return Math.min(params.configuredShareBps, params.maxShareBps);
+}
+
+export function quoteReferralInterestShare(params: {
+  interestPaid: IntegerLike;
+  interestVaultCredit?: IntegerLike;
+  protocolInterestBps: number;
+  interestShareBps: number;
+}): ReferralInterestQuote {
+  assertBps(params.protocolInterestBps, "protocol interest share");
+  assertReferralInterestShareBps(params.interestShareBps);
+  const interestPaid = BigInt(params.interestPaid.toString());
+  if (interestPaid < 0n) throw new Error("interestPaid must be non-negative");
+  const interestVaultCredit = BigInt(
+    (params.interestVaultCredit ?? params.interestPaid).toString()
+  );
+  if (interestVaultCredit < 0n || interestVaultCredit > interestPaid) {
+    throw new Error("interestVaultCredit must be between 0 and interestPaid");
   }
-  const feeDebit = (requested * BigInt(configuredFeeBps) + 9_999n) / 10_000n;
+
+  const protocolInterestRevenue =
+    (interestVaultCredit * BigInt(params.protocolInterestBps)) /
+    BigInt(REFERRAL_BPS_DENOMINATOR);
+  const referralAmount =
+    (protocolInterestRevenue * BigInt(params.interestShareBps)) /
+    BigInt(REFERRAL_BPS_DENOMINATOR);
   return {
-    requestedPrincipal: requested,
-    configuredFeeBps,
-    feeDebit,
-    grossDebt: requested + feeDebit,
+    interestPaid,
+    interestVaultCredit,
+    protocolInterestRevenue,
+    interestShareBps: params.interestShareBps,
+    referralAmount,
   };
 }
 
-export function assertReferralFeeBps(configuredFeeBps: number): void {
-  if (
-    !Number.isInteger(configuredFeeBps) ||
-    configuredFeeBps < 0 ||
-    configuredFeeBps > MAX_REFERRAL_ORIGINATION_FEE_BPS
-  ) {
-    throw new Error(
-      `referral origination fee must be between 0 and ${MAX_REFERRAL_ORIGINATION_FEE_BPS} bps`
-    );
-  }
+export function assertReferralInterestShareBps(shareBps: number): void {
+  assertBps(shareBps, "referral interest share");
 }
 
 export async function tokenProgramForMint(
@@ -76,50 +94,32 @@ export async function tokenProgramForMint(
   throw new Error(`Unsupported mint owner: ${account.owner.toBase58()}`);
 }
 
-export interface ReferralVaultAddresses {
+export interface ReferralAccrualAddresses {
   referralProfile: PublicKey;
-  referralVault: PublicKey;
-  tokenProgram: PublicKey;
+  referralAccrual: PublicKey;
 }
 
-export async function referralVaultAddresses(params: {
-  connection: Connection;
+export function referralAccrualAddresses(params: {
   referrer: AddressLike;
-  mint: AddressLike;
-  commitment?: Commitment;
-}): Promise<ReferralVaultAddresses> {
+  market: AddressLike;
+  assetMint: AddressLike;
+}): ReferralAccrualAddresses {
   const referrer = address(params.referrer);
-  const mint = address(params.mint);
+  const market = address(params.market);
+  const assetMint = address(params.assetMint);
   const [referralProfile] = deriveReferralProfileAddress(referrer);
-  const tokenProgram = await tokenProgramForMint(params.connection, mint, params.commitment);
-  const referralVault = getAssociatedTokenAddressSync(
-    mint,
+  const [referralAccrual] = deriveReferralAccrualAddress(
     referralProfile,
-    true,
-    tokenProgram
+    market,
+    assetMint
   );
-  return { referralProfile, referralVault, tokenProgram };
+  return { referralProfile, referralAccrual };
 }
 
-export async function buildReferralVaultSetupInstruction(params: {
-  connection: Connection;
-  payer: AddressLike;
-  referrer: AddressLike;
-  mint: AddressLike;
-  commitment?: Commitment;
-}): Promise<ReferralVaultAddresses & { instruction: TransactionInstruction }> {
-  const mint = address(params.mint);
-  const addresses = await referralVaultAddresses(params);
-  return {
-    ...addresses,
-    instruction: createAssociatedTokenAccountIdempotentInstruction(
-      address(params.payer),
-      addresses.referralVault,
-      addresses.referralProfile,
-      mint,
-      addresses.tokenProgram
-    ),
-  };
+function assertBps(value: number, label: string): void {
+  if (!Number.isInteger(value) || value < 0 || value > REFERRAL_BPS_DENOMINATOR) {
+    throw new Error(`${label} must be between 0 and ${REFERRAL_BPS_DENOMINATOR} bps`);
+  }
 }
 
 export interface TransferHookTransfer {

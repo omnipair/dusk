@@ -3,7 +3,7 @@ use anchor_lang::solana_program::bpf_loader_upgradeable::UpgradeableLoaderState;
 use bincode::Options;
 
 use crate::{
-    constants::{BPS_DENOMINATOR, FUTARCHY_AUTHORITY_SEED_PREFIX, MAX_REFERRAL_ORIGINATION_FEE_BPS},
+    constants::{BPS_DENOMINATOR, FUTARCHY_AUTHORITY_SEED_PREFIX, MAX_REFERRAL_INTEREST_SHARE_BPS},
     errors::ErrorCode,
     shared::account::get_size_with_discriminator,
     state::FutarchyAuthority,
@@ -14,7 +14,7 @@ pub struct InitFutarchyAuthorityArgs {
     pub authority: Pubkey,
     pub swap_bps: u16,
     pub interest_bps: u16,
-    pub referral_origination_fee_bps: u16,
+    pub max_referral_interest_share_bps: u16,
     pub futarchy_treasury: Pubkey,
     pub futarchy_treasury_bps: u16,
     pub buybacks_vault: Pubkey,
@@ -81,9 +81,9 @@ impl<'info> InitFutarchyAuthority<'info> {
         require_gte!(BPS_DENOMINATOR, args.swap_bps, ErrorCode::InvalidSwapFeeBps);
         require_gte!(BPS_DENOMINATOR, args.interest_bps, ErrorCode::InvalidInterestFeeBps);
         require_gte!(
-            MAX_REFERRAL_ORIGINATION_FEE_BPS,
-            args.referral_origination_fee_bps,
-            ErrorCode::InvalidReferralFeeBps
+            MAX_REFERRAL_INTEREST_SHARE_BPS,
+            args.max_referral_interest_share_bps,
+            ErrorCode::InvalidReferralInterestShareBps
         );
         let total_percentage = args
             .futarchy_treasury_bps
@@ -98,7 +98,7 @@ impl<'info> InitFutarchyAuthority<'info> {
             args.authority,
             args.swap_bps,
             args.interest_bps,
-            args.referral_origination_fee_bps,
+            args.max_referral_interest_share_bps,
             args.futarchy_treasury,
             args.buybacks_vault,
             args.team_treasury,

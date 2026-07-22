@@ -249,6 +249,7 @@ impl<'info> WithdrawSingleSided<'info> {
                 manager_fee_bps,
                 ctx.accounts.futarchy_authority.revenue_share.interest_bps,
                 ctx.accounts.futarchy_authority.protocol_auction_split,
+                0,
             )?;
         }
 
