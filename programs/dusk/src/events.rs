@@ -1,3 +1,4 @@
+use crate::state::{LeverageSwapFeeCredit, LeverageSwapQuote, MarketConfig};
 use anchor_lang::prelude::*;
 
 pub mod log;
@@ -37,6 +38,7 @@ pub struct MarketCreated {
     pub swap_fee_bps: u16,
     pub manager_fee_bps: u16,
     pub protocol_fee_bps: u16,
+    pub config: MarketConfig,
     pub params_hash: [u8; 32],
     pub version: u8,
     pub metadata: MarketEventMetadata,
@@ -50,6 +52,7 @@ pub struct MarketUpdated {
     pub swap_fee_bps: u16,
     pub manager_fee_bps: u16,
     pub protocol_fee_bps: u16,
+    pub config: MarketConfig,
     pub metadata: MarketEventMetadata,
 }
 
@@ -61,6 +64,7 @@ pub struct MarketConfigUpdateScheduled {
     pub swap_fee_bps: u16,
     pub manager_fee_bps: u16,
     pub protocol_fee_bps: u16,
+    pub config: MarketConfig,
     pub metadata: MarketEventMetadata,
 }
 
@@ -291,6 +295,16 @@ pub struct SwapExecuted {
     pub base_hlp_pending_rebalance: i128,
     pub quote_hlp_pending_rebalance: i128,
     pub metadata: MarketEventMetadata,
+    pub fee_breakdown: SwapFeeBreakdownEvent,
+    pub start_price_nad: u64,
+    /// Legacy name for the invariant-preserving trade endpoint.
+    pub end_price_nad: u64,
+    /// Final pool marginal price after retained surcharge enters reserves.
+    pub reserve_end_price_nad: u64,
+    pub decayed_volatility_nad: u64,
+    pub post_success_volatility_nad: u64,
+    pub base_fee_credit: u64,
+    pub distributed_surcharge_credit: u64,
 }
 
 #[event]
@@ -304,6 +318,74 @@ pub struct SwapSettled {
     pub fee_credit: u64,
     pub base_hlp_pending_rebalance: i128,
     pub quote_hlp_pending_rebalance: i128,
+    pub fee_breakdown: SwapFeeBreakdownEvent,
+    pub start_price_nad: u64,
+    /// Legacy name for the invariant-preserving trade endpoint.
+    pub end_price_nad: u64,
+    /// Final pool marginal price after retained surcharge enters reserves.
+    pub reserve_end_price_nad: u64,
+    pub decayed_volatility_nad: u64,
+    pub post_success_volatility_nad: u64,
+    pub base_fee_credit: u64,
+    pub distributed_surcharge_credit: u64,
+}
+
+/// Full quote-time fee accounting embedded in both swap events. Legacy event
+/// fields remain in place so existing consumers can migrate incrementally.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SwapFeeBreakdownEvent {
+    pub reserve_credit: u64,
+    pub base_fee_debit: u64,
+    pub divergence_surcharge_debit: u64,
+    pub volatility_surcharge_debit: u64,
+    pub dynamic_surcharge_debit: u64,
+    pub total_fee_debit: u64,
+    pub retained_surcharge: u64,
+    pub distributed_surcharge_debit: u64,
+    pub amount_in_for_quote: u64,
+    pub reserve_input_credit: u64,
+    pub claimable_fee_debit: u64,
+    pub base_fee_rate_nad: u64,
+    pub divergence_fee_rate_nad: u64,
+    pub volatility_fee_rate_nad: u64,
+    pub total_fee_rate_nad: u64,
+}
+
+/// Fee and endpoint telemetry for an AMM leg embedded in a leverage action.
+/// `None` on `LeveragePositionUpdated` means the action was margin-only.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LeverageSwapEvent {
+    pub asset_in_side: u8,
+    pub amount_in: u64,
+    pub amount_out: u64,
+    pub fee_breakdown: SwapFeeBreakdownEvent,
+    pub start_price_nad: u64,
+    /// Invariant-preserving trade endpoint; retained principal is excluded.
+    pub end_price_nad: u64,
+    /// Final executable-reserve marginal price after retained principal.
+    pub reserve_end_price_nad: u64,
+    pub decayed_volatility_nad: u64,
+    pub post_success_volatility_nad: u64,
+    pub base_fee_credit: u64,
+    pub distributed_surcharge_credit: u64,
+}
+
+impl LeverageSwapEvent {
+    pub fn new(quote: LeverageSwapQuote, credit: LeverageSwapFeeCredit) -> Self {
+        Self {
+            asset_in_side: quote.asset_in,
+            amount_in: quote.amount_in,
+            amount_out: quote.amount_out,
+            fee_breakdown: quote.fee_breakdown.into(),
+            start_price_nad: quote.start_price_nad,
+            end_price_nad: quote.end_price_nad,
+            reserve_end_price_nad: quote.reserve_end_price_nad,
+            decayed_volatility_nad: quote.decayed_volatility_nad,
+            post_success_volatility_nad: quote.post_success_volatility_nad,
+            base_fee_credit: credit.base,
+            distributed_surcharge_credit: credit.distributed_surcharge,
+        }
+    }
 }
 
 #[event]
@@ -321,6 +403,7 @@ pub struct LeveragePositionOpened {
     pub closeout_value: u64,
     pub equity: u64,
     pub multiplier_bps: u64,
+    pub swap: LeverageSwapEvent,
     pub metadata: MarketEventMetadata,
 }
 
@@ -336,6 +419,7 @@ pub struct LeveragePositionClosed {
     pub collateral_sold: u64,
     pub closeout_value: u64,
     pub residual: u64,
+    pub swap: LeverageSwapEvent,
     pub metadata: MarketEventMetadata,
 }
 
@@ -353,6 +437,7 @@ pub struct LeveragePositionUpdated {
     pub debt_shares: u128,
     pub collateral_amount: u64,
     pub closeout_value: u64,
+    pub swap: Option<LeverageSwapEvent>,
     pub metadata: MarketEventMetadata,
 }
 
@@ -371,6 +456,7 @@ pub struct LeveragePositionLiquidated {
     pub closeout_value: u64,
     pub liquidator_amount: u64,
     pub owner_residual: u64,
+    pub swap: LeverageSwapEvent,
     pub metadata: MarketEventMetadata,
 }
 

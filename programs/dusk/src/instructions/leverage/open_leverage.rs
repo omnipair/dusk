@@ -7,7 +7,7 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{LeveragePositionOpened, MarketEventMetadata, ReferralBound},
+    events::{LeveragePositionOpened, LeverageSwapEvent, MarketEventMetadata, ReferralBound},
     shared::{
         account::get_size_with_discriminator,
         token::{
@@ -22,8 +22,9 @@ use crate::{
 };
 
 use super::common::{
-    leverage_collateral_credit, move_leverage_swap_fee, validate_leverage_fee_account, validate_leverage_mints,
-    validate_leverage_reserve_accounts, validate_owner_debt_account,
+    leverage_collateral_credit, move_leverage_swap_fee, validate_leverage_collateral_risk_mint,
+    validate_leverage_fee_account, validate_leverage_mints, validate_leverage_reserve_accounts,
+    validate_owner_debt_account,
 };
 use crate::instructions::common::{token_account_credit, token_program_for_mint};
 use crate::instructions::referral::common::validate_referral_binding;
@@ -116,6 +117,7 @@ impl<'info> OpenLeverage<'info> {
         require!(args.margin_amount > 0, ErrorCode::AmountZero);
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
         validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
+        validate_leverage_collateral_risk_mint(&self.collateral_mint)?;
         validate_leverage_reserve_accounts(
             &self.market,
             debt_asset,
@@ -189,7 +191,12 @@ impl<'info> OpenLeverage<'info> {
         let notional = margin_credit
             .checked_add(debt_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let swap = ctx.accounts.market.quote_leverage_swap(debt_asset, notional)?;
+        let clock = Clock::get()?;
+        ctx.accounts.market.prepare_amm_for_swap(clock.slot)?;
+        let swap = ctx
+            .accounts
+            .market
+            .quote_leverage_swap(debt_asset, notional, clock.slot)?;
         let collateral_credit = leverage_collateral_credit(&ctx.accounts.collateral_mint, swap.amount_out)?;
         require_gte!(collateral_credit, args.min_collateral_out, ErrorCode::SlippageExceeded);
 
@@ -213,14 +220,14 @@ impl<'info> OpenLeverage<'info> {
             ],
         )?;
 
-        move_leverage_swap_fee(
+        let swap_fee_credit = move_leverage_swap_fee(
             &ctx.accounts.market,
             &ctx.accounts.debt_mint,
             &mut ctx.accounts.debt_reserve_vault,
             &mut ctx.accounts.debt_fee_vault,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
-            swap.fee_credit,
+            &swap,
             ctx.remaining_accounts,
         )?;
         transfer_from_vault_to_vault_with_remaining_accounts(
@@ -235,7 +242,6 @@ impl<'info> OpenLeverage<'info> {
             ctx.remaining_accounts,
         )?;
 
-        let clock = Clock::get()?;
         let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
         let receipt = ctx.accounts.market.open_leverage(
             &mut ctx.accounts.leverage_position,
@@ -248,6 +254,8 @@ impl<'info> OpenLeverage<'info> {
             margin_credit,
             args.multiplier_bps,
             collateral_credit,
+            swap,
+            swap_fee_credit,
             clock.unix_timestamp,
             clock.slot,
             ctx.bumps.leverage_position,
@@ -272,6 +280,7 @@ impl<'info> OpenLeverage<'info> {
             closeout_value: receipt.closeout_value,
             equity: receipt.equity,
             multiplier_bps: args.multiplier_bps,
+            swap: LeverageSwapEvent::new(receipt.swap, swap_fee_credit),
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
         if let Some(referral_partner) = referral.referral_partner {

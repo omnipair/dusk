@@ -21,7 +21,7 @@ use crate::instructions::common::{
     validate_lp_mint, validate_owner_asset_account, validate_owner_lp_account, validate_side_vault_accounts,
 };
 
-use super::initialize_or_validate_hlp_yield_account;
+use super::{initialize_or_validate_hlp_yield_account, record_hlp_interest_credit};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct WithdrawSingleSidedArgs {
@@ -211,6 +211,7 @@ impl<'info> WithdrawSingleSided<'info> {
             .market
             .withdraw_single_sided(target_asset, args.hlp_amount)?;
         if receipt.interest_paid > 0 {
+            let interest_vault_balance_before = ctx.accounts.borrowed_interest_vault.amount;
             let borrowed_asset = target_asset.opposite();
             let (borrowed_reserve_vault, borrowed_mint, borrowed_decimals) = match borrowed_asset {
                 MarketAsset::Base => (
@@ -243,15 +244,21 @@ impl<'info> WithdrawSingleSided<'info> {
                 &[&generate_market_seeds!(ctx.accounts.market)[..]],
             )?;
             ctx.accounts.borrowed_interest_vault.reload()?;
+            let interest_vault_credit =
+                token_account_credit(interest_vault_balance_before, &ctx.accounts.borrowed_interest_vault)?;
             let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
-            ctx.accounts.market.side_mut(borrowed_asset).record_interest_credit(
-                receipt.interest_paid,
+            record_hlp_interest_credit(
+                ctx.accounts.market.side_mut(borrowed_asset),
+                interest_vault_credit,
                 manager_fee_bps,
                 ctx.accounts.futarchy_authority.revenue_share.interest_bps,
                 ctx.accounts.futarchy_authority.protocol_auction_split,
-                0,
             )?;
         }
+        let current_slot = Clock::get()?.slot;
+        ctx.accounts.market.finalize_amm_transition(current_slot)?;
+        ctx.accounts.market.observe_current_risk(current_slot)?;
+        ctx.accounts.market.assert_market_health()?;
 
         let ylp_program = token_program_for_mint(
             &ctx.accounts.ylp_mint,

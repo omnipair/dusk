@@ -25,16 +25,24 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 - Confirm the reviewed source is the final standalone `programs/dusk`
   tree.
 - Review the core invariants listed in `programs/dusk/README.md`.
+- Review `programs/dusk/CONCENTRATION.md`, including Dusk Concentrated AMM bounds, funded
+  recentering, protected-surcharge accounting, and the no-oracle limitations.
 - Review the cached-spot EMA flow and pre-action risk snapshots for swap and
   liquidity-add paths.
-- Review K-conservative reconstructed depth and independent per-side daily borrow limits.
+- Review conservative `Q`, exact CPMM/Dusk Concentrated AMM reconstructed risk shapes, and
+  independent per-side daily borrow limits.
 - Review floating yLP liquidity, matched yLP redemption, and Token-2022
   transfer checkpointing.
 - Review fee liabilities and settlement paths for yLP, hLP, operator,
   protocol, and unallocated buckets.
+- Review the no-ceiling dynamic-fee proof: finite rates stay below 100%,
+  split paths cannot obtain a material discount, and raw-token exhaustion
+  fails closed.
 - Review fixed debt, bounded global-health contributions, stored liquidation
   CFs, normalized valuation, and liquidation/insurance/socialization accounting.
 - Review Token-2022 constraints and measured inventory-credit settlement.
+- Review concentrated-path SBF compute reports and minimum useful token
+  precision/depth tests.
 - Confirm soft borrow and soft liquidation remain disabled unless a separate
   reviewed spec has been merged.
 - Confirm LLAMMA-style liquidation, Jupiter/external aggregator conversion
@@ -68,7 +76,8 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 - Track yLP supply, hLP vault-owned yLP, hLP supply, hLP debt, global-health
   contributions, stored liquidation CFs, insurance, fee liabilities, and
   market health as separate Dusk metrics.
-- Decode `LiquidityAdded`, `LiquidityRemoved`, `SwapExecuted`,
+- Decode `LiquidityAdded`, `LiquidityRemoved`, both `SwapExecuted` and
+  `SwapSettled`,
   `MarketDebtUpdated`, `PositionLiquidated`, yield, protocol-fee, hedge, and
   insurance events from the Dusk IDL.
 - Confirm analytics labels use Dusk market terminology.
@@ -76,7 +85,10 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 ## Aggregators And Routers
 
 - Treat Dusk `swap` as its own venue/source.
-- Always pass `min_asset_out` and quote with the Dusk reserve floor in mind.
+- Always pass `min_asset_out`; consume the official preview because a Dusk
+  market may be exact CPMM or Dusk Concentrated AMM and may charge dynamic surcharge.
+- Surface base, divergence, volatility, retained, and distributed fee
+  components separately.
 - Do not assume Dusk yLP behaves like a fixed-principal protected LP token.
 - Respect reduce-only mode and risk/circuit-breaker failures.
 - Confirm Token-2022 transfer-fee assets are quoted against measured inventory

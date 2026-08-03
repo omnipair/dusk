@@ -760,7 +760,9 @@ async function createAtaIfMissing(params: {
 function defaultMarketConfig() {
   return {
     swapFeeBps: Number(duskEnv("SWAP_FEE_BPS") ?? "30"),
-    operatorFeeBps: Number(duskEnv("OPERATOR_FEE_BPS") ?? "0"),
+    managerFeeBps: Number(
+      duskEnv("MANAGER_FEE_BPS") ?? duskEnv("OPERATOR_FEE_BPS") ?? "0"
+    ),
     protocolFeeBps: Number(duskEnv("PROTOCOL_FEE_BPS") ?? "0"),
     targetHlpLeverageBps: Number(duskEnv("TARGET_HLP_LEVERAGE_BPS") ?? "20000"),
     settlementDivergenceBps: Number(duskEnv("SETTLEMENT_DIVERGENCE_BPS") ?? "500"),
@@ -768,7 +770,9 @@ function defaultMarketConfig() {
     directionalEmaHalfLifeMs: toBN(
       duskEnv("DIRECTIONAL_EMA_HALF_LIFE_MS") ?? "60000"
     ),
-    kEmaHalfLifeMs: toBN(duskEnv("K_EMA_HALF_LIFE_MS") ?? "60000"),
+    qEmaHalfLifeMs: toBN(
+      duskEnv("Q_EMA_HALF_LIFE_MS") ?? duskEnv("K_EMA_HALF_LIFE_MS") ?? "60000"
+    ),
     maxDailyBorrowBps: Number(duskEnv("MAX_DAILY_BORROW_BPS") ?? "2000"),
     globalHealthContributionCapBps: Number(
       duskEnv("GLOBAL_HEALTH_CONTRIBUTION_CAP_BPS") ?? "15000"
@@ -776,7 +780,30 @@ function defaultMarketConfig() {
     borrowMarketHealthFloorBps: Number(
       duskEnv("BORROW_MARKET_HEALTH_FLOOR_BPS") ?? "11000"
     ),
+    amm: defaultAmmConfig(),
     startTime: toBN(duskEnv("MARKET_START_TIME") ?? "0"),
+  };
+}
+
+function defaultAmmConfig() {
+  return {
+    peakDepthNad: toBN(duskEnv("AMM_PEAK_DEPTH_NAD") ?? "0"),
+    imbalanceScaleNad: toBN(duskEnv("AMM_IMBALANCE_SCALE_NAD") ?? "0"),
+    centerEmaHalfLifeMs: toBN(duskEnv("AMM_CENTER_EMA_HALF_LIFE_MS") ?? "60000"),
+    volatilityHalfLifeMs: toBN(duskEnv("AMM_VOLATILITY_HALF_LIFE_MS") ?? "60000"),
+    adjustmentThresholdNad: toBN(duskEnv("AMM_ADJUSTMENT_THRESHOLD_NAD") ?? "0"),
+    adjustmentStepNad: toBN(duskEnv("AMM_ADJUSTMENT_STEP_NAD") ?? "0"),
+    minAdjustmentIntervalSlots: toBN(duskEnv("AMM_MIN_ADJUSTMENT_INTERVAL_SLOTS") ?? "0"),
+    volatilityShockCapNad: toBN(duskEnv("AMM_VOLATILITY_SHOCK_CAP_NAD") ?? "0"),
+    volatilityCapNad: toBN(duskEnv("AMM_VOLATILITY_CAP_NAD") ?? "0"),
+    divergenceFeeCoefficientNad: toBN(
+      duskEnv("AMM_DIVERGENCE_FEE_COEFFICIENT_NAD") ?? "0"
+    ),
+    volatilityFeeCoefficientNad: toBN(
+      duskEnv("AMM_VOLATILITY_FEE_COEFFICIENT_NAD") ?? "0"
+    ),
+    rampDurationSlots: toBN(duskEnv("AMM_RAMP_DURATION_SLOTS") ?? "9000"),
+    reserved: Array(34).fill(0),
   };
 }
 
@@ -1670,6 +1697,7 @@ async function seedInitialLiquidity(market: StoredMarket) {
 
 function marketConfigPayload(marketAccount: any) {
   const config = field<any>(marketAccount, "config");
+  const amm = field<any>(config, "amm") ?? defaultAmmConfig();
   return {
     targetHlpLeverageBps: Number(field(config, "targetHlpLeverageBps", "target_hlp_leverage_bps") ?? 0),
     swapFeeBps: Number(field(config, "swapFeeBps", "swap_fee_bps") ?? 0),
@@ -1683,7 +1711,7 @@ function marketConfigPayload(marketAccount: any) {
     directionalEmaHalfLifeMs: stringValue(
       field(config, "directionalEmaHalfLifeMs", "directional_ema_half_life_ms")
     ),
-    kEmaHalfLifeMs: stringValue(field(config, "kEmaHalfLifeMs", "k_ema_half_life_ms")),
+    qEmaHalfLifeMs: stringValue(field(config, "qEmaHalfLifeMs", "q_ema_half_life_ms")),
     maxDailyBorrowBps: Number(field(config, "maxDailyBorrowBps", "max_daily_borrow_bps") ?? 0),
     globalHealthContributionCapBps: Number(
       field(config, "globalHealthContributionCapBps", "global_health_contribution_cap_bps") ?? 0
@@ -1691,6 +1719,33 @@ function marketConfigPayload(marketAccount: any) {
     borrowMarketHealthFloorBps: Number(
       field(config, "borrowMarketHealthFloorBps", "borrow_market_health_floor_bps") ?? 0
     ),
+    amm: {
+      peakDepthNad: stringValue(field(amm, "peakDepthNad", "peak_depth_nad")),
+      imbalanceScaleNad: stringValue(field(amm, "imbalanceScaleNad", "imbalance_scale_nad")),
+      centerEmaHalfLifeMs: stringValue(field(amm, "centerEmaHalfLifeMs", "center_ema_half_life_ms")),
+      volatilityHalfLifeMs: stringValue(
+        field(amm, "volatilityHalfLifeMs", "volatility_half_life_ms")
+      ),
+      adjustmentThresholdNad: stringValue(
+        field(amm, "adjustmentThresholdNad", "adjustment_threshold_nad")
+      ),
+      adjustmentStepNad: stringValue(field(amm, "adjustmentStepNad", "adjustment_step_nad")),
+      minAdjustmentIntervalSlots: stringValue(
+        field(amm, "minAdjustmentIntervalSlots", "min_adjustment_interval_slots")
+      ),
+      volatilityShockCapNad: stringValue(
+        field(amm, "volatilityShockCapNad", "volatility_shock_cap_nad")
+      ),
+      volatilityCapNad: stringValue(field(amm, "volatilityCapNad", "volatility_cap_nad")),
+      divergenceFeeCoefficientNad: stringValue(
+        field(amm, "divergenceFeeCoefficientNad", "divergence_fee_coefficient_nad")
+      ),
+      volatilityFeeCoefficientNad: stringValue(
+        field(amm, "volatilityFeeCoefficientNad", "volatility_fee_coefficient_nad")
+      ),
+      rampDurationSlots: stringValue(field(amm, "rampDurationSlots", "ramp_duration_slots")),
+      reserved: Array.from(field<number[]>(amm, "reserved") ?? []),
+    },
     startTime: stringValue(field(config, "startTime", "start_time")),
   };
 }
@@ -3069,6 +3124,7 @@ async function buildSetMarketAuthorityTx(params: {
 }
 
 function marketConfigFromBody(config: Record<string, unknown>) {
+  const amm = (config.amm as Record<string, unknown> | undefined) ?? defaultAmmConfig();
   return {
     swapFeeBps: Number(config.swapFeeBps),
     managerFeeBps: Number(config.managerFeeBps),
@@ -3077,10 +3133,25 @@ function marketConfigFromBody(config: Record<string, unknown>) {
     settlementDivergenceBps: Number(config.settlementDivergenceBps),
     emaHalfLifeMs: toBN(String(config.emaHalfLifeMs)),
     directionalEmaHalfLifeMs: toBN(String(config.directionalEmaHalfLifeMs)),
-    kEmaHalfLifeMs: toBN(String(config.kEmaHalfLifeMs)),
+    qEmaHalfLifeMs: toBN(String(config.qEmaHalfLifeMs)),
     maxDailyBorrowBps: Number(config.maxDailyBorrowBps),
     globalHealthContributionCapBps: Number(config.globalHealthContributionCapBps),
     borrowMarketHealthFloorBps: Number(config.borrowMarketHealthFloorBps),
+    amm: {
+      peakDepthNad: toBN(String(amm.peakDepthNad)),
+      imbalanceScaleNad: toBN(String(amm.imbalanceScaleNad)),
+      centerEmaHalfLifeMs: toBN(String(amm.centerEmaHalfLifeMs)),
+      volatilityHalfLifeMs: toBN(String(amm.volatilityHalfLifeMs)),
+      adjustmentThresholdNad: toBN(String(amm.adjustmentThresholdNad)),
+      adjustmentStepNad: toBN(String(amm.adjustmentStepNad)),
+      minAdjustmentIntervalSlots: toBN(String(amm.minAdjustmentIntervalSlots)),
+      volatilityShockCapNad: toBN(String(amm.volatilityShockCapNad)),
+      volatilityCapNad: toBN(String(amm.volatilityCapNad)),
+      divergenceFeeCoefficientNad: toBN(String(amm.divergenceFeeCoefficientNad)),
+      volatilityFeeCoefficientNad: toBN(String(amm.volatilityFeeCoefficientNad)),
+      rampDurationSlots: toBN(String(amm.rampDurationSlots)),
+      reserved: Array.isArray(amm.reserved) ? amm.reserved : Array(34).fill(0),
+    },
     startTime: toBN(String(config.startTime)),
   };
 }
@@ -3373,6 +3444,7 @@ async function buildRemoveLeverageMarginTx(params: {
   const m = marketFromStored(params.market);
   const debtIsBase = params.debtAsset === "base";
   const debtMint = debtIsBase ? m.baseMint : m.quoteMint;
+  const collateralMint = debtIsBase ? m.quoteMint : m.baseMint;
   const debtTokenProgram = debtIsBase ? m.baseTokenProgram : m.quoteTokenProgram;
   const instructions: TransactionInstruction[] = [];
   const ownerDebtAccount = await maybeAddAta(instructions, params.owner, debtMint, debtTokenProgram);
@@ -3389,6 +3461,7 @@ async function buildRemoveLeverageMarginTx(params: {
         positionOwner: params.owner,
         leveragePosition: deriveLeveragePosition(m.market, params.positionId),
         debtMint,
+        collateralMint,
         debtReserveVault: debtIsBase ? m.baseReserveVault : m.quoteReserveVault,
         ownerDebtAccount,
         owner: params.owner,

@@ -145,7 +145,15 @@ impl<'info> DepositSingleSided<'info> {
         Ok(())
     }
 
-    crate::instructions::common::market_update_and_validate!(DepositSingleSidedArgs);
+    pub fn update(&mut self) -> Result<()> {
+        let target_asset = self.market.asset_for_hlp_mint(self.target_hlp_mint.key())?;
+        self.market.update_for_hlp_deposit(target_asset, Clock::get()?.slot)
+    }
+
+    pub fn update_and_validate(&mut self, args: &DepositSingleSidedArgs) -> Result<()> {
+        self.update()?;
+        self.validate(args)
+    }
 
     pub fn handle_deposit(ctx: Context<Self>, args: DepositSingleSidedArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
@@ -158,8 +166,6 @@ impl<'info> DepositSingleSided<'info> {
             MarketAsset::Base => ctx.accounts.base_mint.key(),
             MarketAsset::Quote => ctx.accounts.quote_mint.key(),
         };
-
-        ctx.accounts.market.refresh_risk()?;
 
         let (target_reserve_vault, target_mint) = match target_asset {
             MarketAsset::Base => (
@@ -209,6 +215,14 @@ impl<'info> DepositSingleSided<'info> {
             .accounts
             .market
             .deposit_single_sided(target_asset, deposit_credit, args.min_hlp_amount)?;
+        let current_slot = Clock::get()?.slot;
+        // `update_for_hlp_deposit` admitted any eligible ramp or verified that
+        // explicit concentrated maintenance is current. One final curve
+        // evaluation now supplies D/Q accounting and the exact risk observation
+        // for the immutable post-deposit state.
+        ctx.accounts
+            .market
+            .checkpoint_amm_neutral_inventory_and_observe_risk(current_slot)?;
         initialize_or_validate_hlp_yield_account(
             &mut ctx.accounts.target_yield_account,
             owner_key,

@@ -1,8 +1,11 @@
 import { PublicKey, Keypair, Connection, Commitment, TransactionConfirmationStrategy, RpcResponseAndContext, SignatureResult, Transaction, VersionedTransaction, Signer, SendOptions } from "@solana/web3.js";
 import { LiteSVM } from "litesvm";
+import { recordTransactionComputeUnits } from "./instruction-coverage.js";
 
 // Create a Connection wrapper for LiteSVM that intercepts all calls
 export class LiteSVMConnection extends Connection {
+  private computeUnitSamples: bigint[] = [];
+
   constructor(private svm: LiteSVM) {
     // Use a dummy URL - we'll override all methods anyway
     super("http://localhost:8899", "confirmed");
@@ -102,6 +105,8 @@ export class LiteSVMConnection extends Connection {
       const errMsg = typeof result.err === 'string' ? result.err : JSON.stringify(result.err);
       throw new Error(`Transaction failed: ${errMsg}`);
     }
+
+    this.recordComputeUnits(transaction, result);
     
     // Return a dummy signature - we'll use the transaction signature if available
     if (transaction instanceof Transaction && transaction.signature) {
@@ -140,6 +145,8 @@ export class LiteSVMConnection extends Connection {
         const errMsg = typeof result.err === 'string' ? result.err : JSON.stringify(result.err);
         throw new Error(`Transaction failed: ${errMsg}`);
       }
+
+      this.recordComputeUnits(tx, result);
       
       // Check if result has signature method (success case)
       if (result && typeof (result as any).signature === 'function') {
@@ -149,6 +156,33 @@ export class LiteSVMConnection extends Connection {
     } catch (e: any) {
       throw new Error(`Failed to send raw transaction: ${e.message || e}`);
     }
+  }
+
+  private recordComputeUnits(
+    transaction: Transaction | VersionedTransaction,
+    result: unknown
+  ) {
+    const computeUnits =
+      result && typeof (result as any).computeUnitsConsumed === "function"
+        ? BigInt((result as any).computeUnitsConsumed())
+        : undefined;
+    if (computeUnits === undefined) {
+      return;
+    }
+    this.computeUnitSamples.push(computeUnits);
+    recordTransactionComputeUnits(transaction, computeUnits);
+  }
+
+  getLastComputeUnitsConsumed(): bigint | undefined {
+    return this.computeUnitSamples.at(-1);
+  }
+
+  getMaxComputeUnitsConsumed(): bigint | undefined {
+    return this.computeUnitSamples.reduce<bigint | undefined>(
+      (maximum, sample) =>
+        maximum === undefined || sample > maximum ? sample : maximum,
+      undefined
+    );
   }
 
   async getLatestBlockhash(commitment?: Commitment): Promise<{ blockhash: string; lastValidBlockHeight: number }> {
@@ -223,5 +257,3 @@ export class LiteSVMConnection extends Connection {
     return { value: { err: null } };
   }
 }
-
-

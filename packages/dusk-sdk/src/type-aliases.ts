@@ -32,5 +32,6 @@ export type ReferralInterestClaimed = IdlEvents<Dusk>["referralInterestClaimed"]
 export type ReferralInterestShareCapUpdated = IdlEvents<Dusk>["referralInterestShareCapUpdated"];
 export type ReferralRecipientUpdated = IdlEvents<Dusk>["referralRecipientUpdated"];
 export type SwapExecuted = IdlEvents<Dusk>["swapExecuted"];
+export type SwapSettled = IdlEvents<Dusk>["swapSettled"];
 export type YieldClaimed = IdlEvents<Dusk>["yieldClaimed"];
 export type YieldRecipientUpdated = IdlEvents<Dusk>["yieldRecipientUpdated"];

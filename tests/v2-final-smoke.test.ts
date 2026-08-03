@@ -66,6 +66,7 @@ import { resolveTransferHookAccountMetas } from "../packages/dusk-sdk/src/referr
 import { LiteSVMConnection } from "./utils/litesvm-connection.js";
 import {
   getCoverageReport,
+  LITESVM_COMPUTE_UNIT_LIMIT,
   skipV2Instruction,
   trackV2Instruction,
 } from "./utils/instruction-coverage.js";
@@ -249,10 +250,25 @@ function marketConfig() {
     settlementDivergenceBps: 500,
     emaHalfLifeMs: new BN(60_000),
     directionalEmaHalfLifeMs: new BN(60_000),
-    kEmaHalfLifeMs: new BN(60_000),
+    qEmaHalfLifeMs: new BN(60_000),
     maxDailyBorrowBps: 2_000,
     globalHealthContributionCapBps: 15_000,
     borrowMarketHealthFloorBps: 11_000,
+    amm: {
+      peakDepthNad: new BN(0),
+      imbalanceScaleNad: new BN(0),
+      centerEmaHalfLifeMs: new BN(60_000),
+      volatilityHalfLifeMs: new BN(60_000),
+      adjustmentThresholdNad: new BN(0),
+      adjustmentStepNad: new BN(0),
+      minAdjustmentIntervalSlots: new BN(0),
+      volatilityShockCapNad: new BN(0),
+      volatilityCapNad: new BN(0),
+      divergenceFeeCoefficientNad: new BN(0),
+      volatilityFeeCoefficientNad: new BN(0),
+      rampDurationSlots: new BN(9_000),
+      reserved: Array(34).fill(0),
+    },
     hedgedLpEnabled: true,
     startTime: new BN(0),
   };
@@ -270,7 +286,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
 
   before(async () => {
     const computeBudget = new ComputeBudget();
-    computeBudget.computeUnitLimit = 600_000n;
+    computeBudget.computeUnitLimit = LITESVM_COMPUTE_UNIT_LIMIT;
     computeBudget.heapSize = 256 * 1024;
     svm = new LiteSVM().withComputeBudget(computeBudget);
     svm.warpToSlot(1n);
@@ -290,7 +306,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     connection = new LiteSVMConnection(svm);
 
     payer = Keypair.generate();
-    await connection.requestAirdrop(payer.publicKey, 10 * LAMPORTS_PER_SOL);
+    await connection.requestAirdrop(payer.publicKey, 20 * LAMPORTS_PER_SOL);
     const provider = new AnchorProvider(connection as any, new Wallet(payer) as any, {});
     program = new Program({ ...idl, accounts: [] } as any, provider as any);
     leverageDelegateProgram = new Program(
@@ -655,13 +671,14 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     paramsSeed: number,
     baseMint: PublicKey,
     quoteMint: PublicKey,
-    config = marketConfig()
+    config = marketConfig(),
+    lpDecimals = 6
   ) {
     const paramsHash = Buffer.alloc(32, paramsSeed);
     const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash);
-    const ylpMint = await createHookedLpMint(market, 6);
-    const baseHlpMint = await createHookedLpMint(market, 6);
-    const quoteHlpMint = await createHookedLpMint(market, 6);
+    const ylpMint = await createHookedLpMint(market, lpDecimals);
+    const baseHlpMint = await createHookedLpMint(market, lpDecimals);
+    const quoteHlpMint = await createHookedLpMint(market, lpDecimals);
     const ylpTokenMetadata = deriveTokenMetadataAddress(ylpMint)[0];
     const baseHlpTokenMetadata = deriveTokenMetadataAddress(baseHlpMint)[0];
     const quoteHlpTokenMetadata = deriveTokenMetadataAddress(quoteHlpMint)[0];
@@ -814,8 +831,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
 
   async function createOwnerAssetAccounts(
     fixture: Awaited<ReturnType<typeof initializeFinalMarket>>,
-    baseMintAmount = 1_000_000,
-    quoteMintAmount = 2_000_000
+    baseMintAmount: number | bigint = 1_000_000,
+    quoteMintAmount: number | bigint = 2_000_000
   ) {
     const ownerBaseAccount = await createAccount(
       connection as any,
@@ -859,22 +876,37 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
   async function addBalancedLiquidity(
     paramsSeed: number,
     config = marketConfig(),
-    amounts = {
+    amounts: {
+      baseDeposit: number | bigint;
+      quoteDeposit: number | bigint;
+      minYlp: number | bigint;
+      baseMint: number | bigint;
+      quoteMint: number | bigint;
+    } = {
       baseDeposit: 100_000,
       quoteDeposit: 200_000,
       minYlp: 100_000,
       baseMint: 1_000_000,
       quoteMint: 2_000_000,
-    }
+    },
+    mintDecimals = 6
   ) {
-    const fixture = await initializeFinalMarket(paramsSeed, config);
+    const fixture = mintDecimals === 6
+      ? await initializeFinalMarket(paramsSeed, config)
+      : await initializeFinalMarketWithMints(
+          paramsSeed,
+          await createMint(connection as any, payer, payer.publicKey, null, mintDecimals),
+          await createMint(connection as any, payer, payer.publicKey, null, mintDecimals),
+          config,
+          mintDecimals
+        );
     const ownerAccounts = await createOwnerAssetAccounts(fixture, amounts.baseMint, amounts.quoteMint);
 
     const tx = await program.methods
       .addLiquidity({
-        baseDepositAmount: new BN(amounts.baseDeposit),
-        quoteDepositAmount: new BN(amounts.quoteDeposit),
-        minYlpAmount: new BN(amounts.minYlp),
+        baseDepositAmount: new BN(amounts.baseDeposit.toString()),
+        quoteDepositAmount: new BN(amounts.quoteDeposit.toString()),
+        minYlpAmount: new BN(amounts.minYlp.toString()),
       })
       .accounts({
         market: fixture.market,
@@ -1084,13 +1116,13 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
   async function swapBaseForQuote(
     fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>,
     remainingAccounts: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] = [],
-    exactAssetIn = 1_000,
-    minAssetOut = 1_900
+    exactAssetIn: number | bigint = 1_000,
+    minAssetOut: number | bigint = 1_900
   ) {
     let builder = program.methods
       .swap({
-        exactAssetIn: new BN(exactAssetIn),
-        minAssetOut: new BN(minAssetOut),
+        exactAssetIn: new BN(exactAssetIn.toString()),
+        minAssetOut: new BN(minAssetOut.toString()),
       })
       .accounts({
         market: fixture.market,
@@ -2534,6 +2566,790 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     expect(decoded.quote_side.reserves.live_reserve.toNumber()).to.equal(198_026);
     expect(decoded.base_side.fees.swap_fee_liability.toNumber()).to.equal(2);
     expect(decoded.base_side.fees.unallocated_swap_fee_liability.toNumber()).to.equal(1);
+  });
+
+  it("executes and previews the Dusk Concentrated AMM on SBF", async function () {
+    const config = marketConfig();
+    config.amm.peakDepthNad = new BN("200000000000");
+    config.amm.imbalanceScaleNad = new BN("100000000");
+    const fixture = await addBalancedLiquidity(75, config, {
+      baseDeposit: 100_000_000,
+      quoteDeposit: 200_000_000,
+      minYlp: 1,
+      baseMint: 500_000_000,
+      quoteMint: 500_000_000,
+    });
+
+    const preview = decodePreviewSwapReturnData(
+      await simulateReturnData(
+        await program.methods
+          .previewSwap({
+            exactAssetIn: new BN(1_000_000),
+          })
+          .accounts({
+            market: fixture.market,
+            assetInMint: fixture.baseMint,
+            assetOutMint: fixture.quoteMint,
+          })
+          .transaction()
+      )
+    ) as any;
+    trackV2Instruction("previewSwap", this.test?.title);
+
+    const marketBeforeSubmittedPreview = svm.getAccount(fixture.market);
+    expect(marketBeforeSubmittedPreview).to.not.equal(null);
+    const submittedPreviewTx = await program.methods
+      .previewSwap({
+        exactAssetIn: new BN(1_000_000),
+      })
+      .accounts({
+        market: fixture.market,
+        assetInMint: fixture.baseMint,
+        assetOutMint: fixture.quoteMint,
+      })
+      .transaction();
+    await connection.sendTransaction(submittedPreviewTx, [payer]);
+    const marketAfterSubmittedPreview = svm.getAccount(fixture.market);
+    expect(marketAfterSubmittedPreview).to.not.equal(null);
+    expect(Buffer.from(marketAfterSubmittedPreview!.data)).to.deep.equal(
+      Buffer.from(marketBeforeSubmittedPreview!.data)
+    );
+
+    const ownerQuoteBefore = await getAccount(connection as any, fixture.ownerQuoteAccount);
+    await swapBaseForQuote(fixture, [], 1_000_000, 1);
+    trackV2Instruction("swap", this.test?.title);
+    const ownerQuoteAfter = await getAccount(connection as any, fixture.ownerQuoteAccount);
+
+    expect(ownerQuoteAfter.amount - ownerQuoteBefore.amount).to.equal(
+      BigInt(preview.amountOut.toString())
+    );
+    // Near the initialized center, the concentrated curve must provide tighter execution than
+    // the same reserves' peak_depth=0 output (1,974,316 raw quote units).
+    expect(preview.amountOut.toNumber()).to.be.greaterThan(1_974_316);
+
+    const account = svm.getAccount(fixture.market);
+    expect(account).to.not.equal(null);
+    const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
+    expect(
+      decoded.amm.applied_curve_parameters.peak_depth_nad.toString()
+    ).to.equal(config.amm.peakDepthNad.toString());
+    expect(decoded.amm.applied_curve_parameters.imbalance_scale_nad.toString()).to.equal(
+      config.amm.imbalanceScaleNad.toString()
+    );
+  });
+
+  it("retains a concentrated dynamic surcharge as recentering principal on SBF", async function () {
+    const config = marketConfig();
+    config.amm.peakDepthNad = new BN("200000000000");
+    config.amm.imbalanceScaleNad = new BN("100000000");
+    config.amm.adjustmentThresholdNad = new BN("10000000");
+    config.amm.adjustmentStepNad = new BN("10000000");
+    config.amm.minAdjustmentIntervalSlots = new BN(1);
+    config.amm.divergenceFeeCoefficientNad = new BN("10000000000");
+    const fixture = await addBalancedLiquidity(76, config, {
+      baseDeposit: 100_000_000,
+      quoteDeposit: 200_000_000,
+      minYlp: 1,
+      baseMint: 500_000_000,
+      quoteMint: 500_000_000,
+    });
+
+    // A centered pool has no recenter impairment yet. The first outward swap
+    // creates an off-center state whose next permitted center step needs a
+    // protected budget, so retention turns on for the following quote.
+    await swapBaseForQuote(fixture, [], 5_000_000, 1);
+    trackV2Instruction("swap", this.test?.title);
+    const afterFirstSwap = svm.getAccount(fixture.market);
+    expect(afterFirstSwap).to.not.equal(null);
+    const firstDecoded = accountCoder.decode(
+      "Market",
+      Buffer.from(afterFirstSwap!.data)
+    ) as any;
+    expect(firstDecoded.amm.retain_dynamic_surcharge).to.equal(true);
+    const baseFeeVaultBefore = await getAccount(
+      connection as any,
+      fixture.baseFeeVault
+    );
+
+    const preview = decodePreviewSwapReturnData(
+      await simulateReturnData(
+        await program.methods
+          .previewSwap({
+            exactAssetIn: new BN(1_000_000),
+          })
+          .accounts({
+            market: fixture.market,
+            assetInMint: fixture.baseMint,
+            assetOutMint: fixture.quoteMint,
+          })
+          .transaction()
+      )
+    ) as any;
+    trackV2Instruction("previewSwap", this.test?.title);
+
+    expect(preview.retentionActive).to.equal(true);
+    expect(preview.dynamicSurchargeDebit.toNumber()).to.be.greaterThan(0);
+    expect(preview.retainedSurcharge.toString()).to.equal(
+      preview.dynamicSurchargeDebit.toString()
+    );
+    expect(preview.distributedSurchargeDebit.toNumber()).to.equal(0);
+    expect(preview.claimableFeeDebit.toString()).to.equal(
+      preview.baseFeeDebit.toString()
+    );
+    expect(preview.reserveInputCredit.toString()).to.equal(
+      preview.amountInForQuote.add(preview.retainedSurcharge).toString()
+    );
+
+    await swapBaseForQuote(fixture, [], 1_000_000, 1);
+    trackV2Instruction("swap", this.test?.title);
+
+    const baseFeeVault = await getAccount(connection as any, fixture.baseFeeVault);
+    expect(baseFeeVault.amount - baseFeeVaultBefore.amount).to.equal(
+      BigInt(preview.claimableFeeCredit.toString())
+    );
+    const account = svm.getAccount(fixture.market);
+    expect(account).to.not.equal(null);
+    const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
+    expect(
+      decoded.amm.q_per_share_nad.gt(
+        decoded.amm.protected_floor_per_share_nad
+      )
+    ).to.equal(true);
+    expect(decoded.amm.retention_target_stale).to.equal(true);
+  });
+
+  it("executes the valid wide-CPMM U512 divergence fallback below the SBF ceiling", async function () {
+    const config = marketConfig();
+    config.swapFeeBps = 0;
+    config.amm.divergenceFeeCoefficientNad = new BN("100000000000");
+    const fixture = await addBalancedLiquidity(80, config, {
+      baseDeposit: 10_000_000_000_000,
+      quoteDeposit: 20_000_000_000_000,
+      minYlp: 1,
+      baseMint: 6_000_000_000_000_000,
+      quoteMint: 50_000_000_000_000,
+    }, 0);
+    const grossInput = new BN("5000000000000000");
+    const preview = decodePreviewSwapReturnData(
+      await simulateReturnData(
+        await program.methods
+          .previewSwap({ exactAssetIn: grossInput })
+          .accounts({
+            market: fixture.market,
+            assetInMint: fixture.baseMint,
+            assetOutMint: fixture.quoteMint,
+          })
+          .transaction()
+      )
+    ) as any;
+    expect(preview.amountInForQuote.toString()).to.equal("23123353131233");
+    expect(preview.dynamicSurchargeDebit.toString()).to.equal("4976876646868767");
+
+    const submittedPreviewTx = await program.methods
+      .previewSwap({ exactAssetIn: grossInput })
+      .accounts({
+        market: fixture.market,
+        assetInMint: fixture.baseMint,
+        assetOutMint: fixture.quoteMint,
+      })
+      .transaction();
+    await connection.sendTransaction(submittedPreviewTx, [payer]);
+    trackV2Instruction("previewSwap", this.test?.title);
+
+    await swapBaseForQuote(fixture, [], 5_000_000_000_000_000, 1);
+    trackV2Instruction("swap", this.test?.title);
+  });
+
+  it("executes concentrated U512 divergence paths with distributed and retained surcharge", async function () {
+    const concentratedConfig = marketConfig();
+    concentratedConfig.swapFeeBps = 0;
+    concentratedConfig.amm.peakDepthNad = new BN("200000000000");
+    concentratedConfig.amm.imbalanceScaleNad = new BN("100000000");
+    concentratedConfig.amm.divergenceFeeCoefficientNad = new BN("100000000000");
+    const amounts = {
+      baseDeposit: 1_000_000_000_000_000n,
+      quoteDeposit: 1_000_000_000n,
+      minYlp: 1n,
+      baseMint: 1_500_000_000_000_000n,
+      quoteMint: 2_000_000_000n,
+    };
+    const grossInput = 100_000_000_000_000n;
+    const retainedGrossInput = grossInput - 1n;
+
+    const distributed = await addBalancedLiquidity(81, concentratedConfig, amounts, 0);
+    const distributedPreview = decodePreviewSwapReturnData(
+      await simulateReturnData(
+        await program.methods
+          .previewSwap({ exactAssetIn: new BN(grossInput.toString()) })
+          .accounts({
+            market: distributed.market,
+            assetInMint: distributed.baseMint,
+            assetOutMint: distributed.quoteMint,
+          })
+          .transaction()
+      )
+    ) as any;
+    expect(distributedPreview.amountInForQuote.toNumber()).to.be.greaterThan(0);
+    expect(distributedPreview.dynamicSurchargeDebit.toNumber()).to.be.greaterThan(0);
+    expect(distributedPreview.retentionActive).to.equal(false);
+    await swapBaseForQuote(distributed, [], grossInput, 1);
+    trackV2Instruction("swap", this.test?.title);
+
+    const retainedConfig = marketConfig();
+    retainedConfig.swapFeeBps = 0;
+    retainedConfig.amm.peakDepthNad = new BN("200000000000");
+    retainedConfig.amm.imbalanceScaleNad = new BN("100000000");
+    retainedConfig.amm.divergenceFeeCoefficientNad = new BN("100000000000");
+    retainedConfig.amm.adjustmentThresholdNad = new BN("1000");
+    retainedConfig.amm.adjustmentStepNad = new BN("1000");
+    retainedConfig.amm.minAdjustmentIntervalSlots = new BN(1);
+    const retained = await addBalancedLiquidity(82, retainedConfig, amounts, 0);
+    await swapBaseForQuote(retained, [], grossInput, 1);
+    trackV2Instruction("swap", this.test?.title);
+    const afterFirst = svm.getAccount(retained.market);
+    expect(afterFirst).to.not.equal(null);
+    const decodedAfterFirst = accountCoder.decode(
+      "Market",
+      Buffer.from(afterFirst!.data)
+    ) as any;
+    expect(decodedAfterFirst.amm.retain_dynamic_surcharge).to.equal(true);
+
+    const retainedPreview = decodePreviewSwapReturnData(
+      await simulateReturnData(
+        await program.methods
+          .previewSwap({ exactAssetIn: new BN(retainedGrossInput.toString()) })
+          .accounts({
+            market: retained.market,
+            assetInMint: retained.baseMint,
+            assetOutMint: retained.quoteMint,
+          })
+          .transaction()
+      )
+    ) as any;
+    expect(retainedPreview.amountInForQuote.toNumber()).to.be.greaterThan(0);
+    expect(retainedPreview.dynamicSurchargeDebit.toNumber()).to.be.greaterThan(0);
+    expect(retainedPreview.retentionActive).to.equal(true);
+    expect(retainedPreview.retainedSurcharge.toString()).to.equal(
+      retainedPreview.dynamicSurchargeDebit.toString()
+    );
+    await swapBaseForQuote(retained, [], retainedGrossInput, 1);
+    trackV2Instruction("swap", this.test?.title);
+  });
+
+  it("keeps above-99.9% divergence executable in both fee routes and rolls back an exhausted atom", async function () {
+    const configFor = (retained: boolean) => {
+      const config = marketConfig();
+      config.swapFeeBps = 0;
+      config.amm.peakDepthNad = new BN("200000000000");
+      config.amm.imbalanceScaleNad = new BN("100000000");
+      config.amm.divergenceFeeCoefficientNad = new BN("100000000000");
+      if (retained) {
+        config.amm.adjustmentThresholdNad = new BN("1000");
+        config.amm.adjustmentStepNad = new BN("1000");
+        config.amm.minAdjustmentIntervalSlots = new BN(1);
+      }
+      return config;
+    };
+    const grossInput = 2_000_000_000_000n;
+    const amounts = {
+      baseDeposit: 100_000_000n,
+      quoteDeposit: 100_000_000n,
+      minYlp: 1n,
+      baseMint: grossInput + 200_000_000n,
+      quoteMint: 200_000_000n,
+    };
+    const assertExtremePreview = (preview: any, retained: boolean) => {
+      const sharePpm = preview.divergenceSurchargeDebit
+        .mul(new BN(1_000_000))
+        .div(new BN(grossInput.toString()));
+      expect(sharePpm.gt(new BN(999_000))).to.equal(true);
+      expect(preview.amountInForQuote.gt(new BN(0))).to.equal(true);
+      expect(preview.retentionActive).to.equal(retained);
+      if (retained) {
+        expect(preview.retainedSurcharge.toString()).to.equal(
+          preview.dynamicSurchargeDebit.toString()
+        );
+      } else {
+        expect(preview.retainedSurcharge.toNumber()).to.equal(0);
+      }
+    };
+
+    const distributed = await addBalancedLiquidity(91, configFor(false), amounts, 6);
+    const distributedPreview = decodePreviewSwapReturnData(
+      await simulateReturnData(
+        await program.methods
+          .previewSwap({ exactAssetIn: new BN(grossInput.toString()) })
+          .accounts({
+            market: distributed.market,
+            assetInMint: distributed.baseMint,
+            assetOutMint: distributed.quoteMint,
+          })
+          .transaction()
+      )
+    ) as any;
+    assertExtremePreview(distributedPreview, false);
+    await swapBaseForQuote(distributed, [], grossInput, 1);
+    trackV2Instruction("swap", this.test?.title);
+
+    const retained = await addBalancedLiquidity(92, configFor(true), amounts, 6);
+    await swapBaseForQuote(retained, [], 1_000_000, 1);
+    trackV2Instruction("swap", this.test?.title);
+    const armedAccount = svm.getAccount(retained.market);
+    expect(armedAccount).to.not.equal(null);
+    const armed = accountCoder.decode("Market", Buffer.from(armedAccount!.data)) as any;
+    expect(armed.amm.retain_dynamic_surcharge).to.equal(true);
+
+    const retainedPreview = decodePreviewSwapReturnData(
+      await simulateReturnData(
+        await program.methods
+          .previewSwap({ exactAssetIn: new BN(grossInput.toString()) })
+          .accounts({
+            market: retained.market,
+            assetInMint: retained.baseMint,
+            assetOutMint: retained.quoteMint,
+          })
+          .transaction()
+      )
+    ) as any;
+    assertExtremePreview(retainedPreview, true);
+    await swapBaseForQuote(retained, [], grossInput, 1);
+    trackV2Instruction("swap", this.test?.title);
+
+    const marketBefore = svm.getAccount(retained.market);
+    expect(marketBefore).to.not.equal(null);
+    const [baseVaultBefore, quoteVaultBefore, ownerBaseBefore, ownerQuoteBefore] =
+      await Promise.all([
+        getAccount(connection as any, retained.baseReserveVault),
+        getAccount(connection as any, retained.quoteReserveVault),
+        getAccount(connection as any, retained.ownerBaseAccount),
+        getAccount(connection as any, retained.ownerQuoteAccount),
+      ]);
+    let rejection: unknown;
+    try {
+      await swapBaseForQuote(retained, [], 1, 1);
+    } catch (error) {
+      rejection = error;
+    }
+    expect(rejection).to.not.equal(undefined);
+    expect(String(rejection)).to.include("InsufficientOutputAmount");
+
+    const marketAfter = svm.getAccount(retained.market);
+    expect(marketAfter).to.not.equal(null);
+    const [baseVaultAfter, quoteVaultAfter, ownerBaseAfter, ownerQuoteAfter] =
+      await Promise.all([
+        getAccount(connection as any, retained.baseReserveVault),
+        getAccount(connection as any, retained.quoteReserveVault),
+        getAccount(connection as any, retained.ownerBaseAccount),
+        getAccount(connection as any, retained.ownerQuoteAccount),
+      ]);
+    expect(Buffer.from(marketAfter!.data).equals(Buffer.from(marketBefore!.data))).to.equal(true);
+    expect(baseVaultAfter.amount).to.equal(baseVaultBefore.amount);
+    expect(quoteVaultAfter.amount).to.equal(quoteVaultBefore.amount);
+    expect(ownerBaseAfter.amount).to.equal(ownerBaseBefore.amount);
+    expect(ownerQuoteAfter.amount).to.equal(ownerQuoteBefore.amount);
+  });
+
+  it("rejects the same zero post-retention mark in preview and execution without mutation", async function () {
+    const config = marketConfig();
+    config.swapFeeBps = 0;
+    config.amm.peakDepthNad = new BN("200000000000");
+    config.amm.imbalanceScaleNad = new BN("100000000");
+    config.amm.divergenceFeeCoefficientNad = new BN("100000000000");
+    config.amm.adjustmentThresholdNad = new BN("1000");
+    config.amm.adjustmentStepNad = new BN("1000");
+    config.amm.minAdjustmentIntervalSlots = new BN(1);
+    const grossInput = 7_000_000_000_000_000n;
+    const fixture = await addBalancedLiquidity(93, config, {
+      baseDeposit: 100_000_000n,
+      quoteDeposit: 100_000_000n,
+      minYlp: 1n,
+      baseMint: grossInput + 200_000_000n,
+      quoteMint: 200_000_000n,
+    }, 6);
+    await swapBaseForQuote(fixture, [], 1_000_000, 1);
+    trackV2Instruction("swap", this.test?.title);
+    const armedAccount = svm.getAccount(fixture.market);
+    expect(armedAccount).to.not.equal(null);
+    const armed = accountCoder.decode("Market", Buffer.from(armedAccount!.data)) as any;
+    expect(armed.amm.retain_dynamic_surcharge).to.equal(true);
+
+    const marketBefore = svm.getAccount(fixture.market);
+    expect(marketBefore).to.not.equal(null);
+    const [baseVaultBefore, quoteVaultBefore, ownerBaseBefore, ownerQuoteBefore] =
+      await Promise.all([
+        getAccount(connection as any, fixture.baseReserveVault),
+        getAccount(connection as any, fixture.quoteReserveVault),
+        getAccount(connection as any, fixture.ownerBaseAccount),
+        getAccount(connection as any, fixture.ownerQuoteAccount),
+      ]);
+    let previewRejection: unknown;
+    try {
+      await simulateReturnData(
+        await program.methods
+          .previewSwap({ exactAssetIn: new BN(grossInput.toString()) })
+          .accounts({
+            market: fixture.market,
+            assetInMint: fixture.baseMint,
+            assetOutMint: fixture.quoteMint,
+          })
+          .transaction()
+      );
+    } catch (error) {
+      previewRejection = error;
+    }
+    expect(previewRejection).to.not.equal(undefined);
+    expect(String(previewRejection)).to.include("InvalidSettlementPrice");
+
+    let executionRejection: unknown;
+    try {
+      await swapBaseForQuote(fixture, [], grossInput, 1);
+    } catch (error) {
+      executionRejection = error;
+    }
+    expect(executionRejection).to.not.equal(undefined);
+    expect(String(executionRejection)).to.include("InvalidSettlementPrice");
+
+    const marketAfter = svm.getAccount(fixture.market);
+    expect(marketAfter).to.not.equal(null);
+    const [baseVaultAfter, quoteVaultAfter, ownerBaseAfter, ownerQuoteAfter] =
+      await Promise.all([
+        getAccount(connection as any, fixture.baseReserveVault),
+        getAccount(connection as any, fixture.quoteReserveVault),
+        getAccount(connection as any, fixture.ownerBaseAccount),
+        getAccount(connection as any, fixture.ownerQuoteAccount),
+      ]);
+    expect(Buffer.from(marketAfter!.data).equals(Buffer.from(marketBefore!.data))).to.equal(true);
+    expect(baseVaultAfter.amount).to.equal(baseVaultBefore.amount);
+    expect(quoteVaultAfter.amount).to.equal(quoteVaultBefore.amount);
+    expect(ownerBaseAfter.amount).to.equal(ownerBaseBefore.amount);
+    expect(ownerQuoteAfter.amount).to.equal(ownerQuoteBefore.amount);
+  });
+
+  it("executes a fully funded concentrated recenter below the SBF compute ceiling", async function () {
+    const config = marketConfig();
+    config.amm.peakDepthNad = new BN("200000000000");
+    config.amm.imbalanceScaleNad = new BN("100000000");
+    config.amm.adjustmentThresholdNad = new BN("1000");
+    config.amm.adjustmentStepNad = new BN("1000");
+    config.amm.minAdjustmentIntervalSlots = new BN(1);
+    config.amm.divergenceFeeCoefficientNad = new BN("10000000000");
+    const fixture = await addBalancedLiquidity(77, config, {
+      baseDeposit: 100_000_000,
+      quoteDeposit: 200_000_000,
+      minYlp: 1,
+      baseMint: 500_000_000,
+      quoteMint: 500_000_000,
+    });
+
+    await swapBaseForQuote(fixture, [], 5_000_000, 1);
+    const accountBefore = svm.getAccount(fixture.market);
+    expect(accountBefore).to.not.equal(null);
+    const funded = accountCoder.decode(
+      "Market",
+      Buffer.from(accountBefore!.data)
+    ) as any;
+    expect(funded.amm.retention_target_stale).to.equal(true);
+    expect(funded.amm.retention_hard_cap_nad.gt(new BN(0))).to.equal(true);
+
+    // Fixture-only funding isolates the recenter compute path. Production can
+    // create this same protected surplus only through retained surcharge.
+    funded.amm.protected_floor_per_share_nad =
+      funded.amm.q_per_share_nad.sub(funded.amm.retention_hard_cap_nad);
+    funded.amm.price_ema_nad = funded.amm.last_trade_price_nad;
+    funded.amm.retention_target_stale = true;
+    // Anchor's generic account encoder allocates only 1,000 bytes internally;
+    // Market is intentionally larger, so encode through its generated layout.
+    const marketLayout = (accountCoder as any).accountLayouts.get("Market");
+    const marketBody = Buffer.alloc(accountBefore!.data.length - 8);
+    const marketBodyLength = marketLayout.layout.encode(funded, marketBody);
+    const fundedData = Buffer.concat([
+      (accountCoder as any).accountDiscriminator("Market"),
+      marketBody.subarray(0, marketBodyLength),
+    ]);
+    expect(fundedData.length).to.equal(accountBefore!.data.length);
+    svm.setAccount(fixture.market, {
+      ...accountBefore!,
+      data: new Uint8Array(fundedData),
+    });
+    const recenterSlot = BigInt(
+      funded.amm.last_observation_slot.add(new BN(1)).toString()
+    );
+    svm.warpToSlot(recenterSlot);
+
+    const oldCenter = funded.amm.center_price_nad;
+    const beforeRejectedProbe = svm.getAccount(fixture.market);
+    expect(beforeRejectedProbe).to.not.equal(null);
+    let rejectedForSlippage = false;
+    try {
+      await swapBaseForQuote(fixture, [], 1_000_000, 500_000_000);
+    } catch {
+      rejectedForSlippage = true;
+    }
+    expect(rejectedForSlippage).to.equal(true);
+    const afterRejectedProbe = svm.getAccount(fixture.market);
+    expect(afterRejectedProbe).to.not.equal(null);
+    expect(Buffer.from(afterRejectedProbe!.data)).to.deep.equal(
+      Buffer.from(beforeRejectedProbe!.data)
+    );
+
+    await swapBaseForQuote(fixture, [], 1_000_000, 1);
+    trackV2Instruction("swap", this.test?.title);
+
+    const maintenanceTx = await program.methods
+      .crankAmmMaintenance()
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        keeper: payer.publicKey,
+      })
+      .transaction();
+    await connection.sendTransaction(maintenanceTx, [payer]);
+    trackV2Instruction("crankAmmMaintenance", this.test?.title);
+
+    const accountAfter = svm.getAccount(fixture.market);
+    expect(accountAfter).to.not.equal(null);
+    const recentered = accountCoder.decode(
+      "Market",
+      Buffer.from(accountAfter!.data)
+    ) as any;
+    expect(recentered.amm.center_price_nad.eq(oldCenter)).to.equal(false);
+    expect(recentered.amm.last_adjustment_slot.toString()).to.equal(
+      recenterSlot.toString()
+    );
+    expect(
+      recentered.amm.exact_curve_observation.center_price_nad.eq(
+        recentered.amm.center_price_nad
+      )
+    ).to.equal(true);
+    expect(
+      recentered.amm.exact_curve_observation.peak_depth_nad.eq(
+        recentered.amm.applied_curve_parameters.peak_depth_nad
+      )
+    ).to.equal(true);
+    expect(
+      recentered.amm.exact_curve_observation.imbalance_scale_nad.eq(
+        recentered.amm.applied_curve_parameters.imbalance_scale_nad
+      )
+    ).to.equal(true);
+    expect(
+      recentered.amm.exact_curve_observation.base_reserve_nad.toString()
+    ).to.equal(
+      recentered.base_side.reserves.live_reserve.mul(new BN(1_000)).toString()
+    );
+    expect(
+      recentered.amm.exact_curve_observation.quote_reserve_nad.toString()
+    ).to.equal(
+      recentered.quote_side.reserves.live_reserve.mul(new BN(1_000)).toString()
+    );
+    expect(recentered.risk.last_snapshot_slot.toString()).to.equal(
+      recenterSlot.toString()
+    );
+  });
+
+  it("executes concentrated parameter-ramp maintenance and its next swap below the SBF compute ceiling", async function () {
+    const config = marketConfig();
+    config.amm.peakDepthNad = new BN("200000000000");
+    config.amm.imbalanceScaleNad = new BN("100000000");
+    config.amm.adjustmentThresholdNad = new BN("10000000");
+    config.amm.adjustmentStepNad = new BN("10000000");
+    config.amm.minAdjustmentIntervalSlots = new BN(1);
+    const fixture = await addBalancedLiquidity(78, config, {
+      baseDeposit: 100_000_000,
+      quoteDeposit: 200_000_000,
+      minYlp: 1,
+      baseMint: 500_000_000,
+      quoteMint: 500_000_000,
+    });
+
+    const accountBefore = svm.getAccount(fixture.market);
+    expect(accountBefore).to.not.equal(null);
+    const ramped = accountCoder.decode(
+      "Market",
+      Buffer.from(accountBefore!.data)
+    ) as any;
+    const startPeakDepth =
+      ramped.amm.applied_curve_parameters.peak_depth_nad;
+    const targetPeakDepth = startPeakDepth.mul(new BN(2));
+    ramped.amm.ramp.active = true;
+    ramped.amm.ramp.start = {
+      ...ramped.amm.applied_curve_parameters,
+    };
+    ramped.amm.ramp.target = {
+      peak_depth_nad: targetPeakDepth,
+      imbalance_scale_nad: ramped.amm.applied_curve_parameters.imbalance_scale_nad,
+    };
+    const rampStartSlot = ramped.amm.last_observation_slot;
+    const rampSwapSlot = BigInt(rampStartSlot.add(new BN(1)).toString());
+    ramped.amm.ramp.start_slot = rampStartSlot;
+    ramped.amm.ramp.end_slot = rampStartSlot.add(new BN(9_000));
+    ramped.amm.last_ramp_update_slot = rampStartSlot;
+    ramped.config.amm.peak_depth_nad = targetPeakDepth;
+
+    const marketLayout = (accountCoder as any).accountLayouts.get("Market");
+    const marketBody = Buffer.alloc(accountBefore!.data.length - 8);
+    const marketBodyLength = marketLayout.layout.encode(ramped, marketBody);
+    const rampedData = Buffer.concat([
+      (accountCoder as any).accountDiscriminator("Market"),
+      marketBody.subarray(0, marketBodyLength),
+    ]);
+    expect(rampedData.length).to.equal(accountBefore!.data.length);
+    svm.setAccount(fixture.market, {
+      ...accountBefore!,
+      data: new Uint8Array(rampedData),
+    });
+    svm.warpToSlot(rampSwapSlot);
+
+    const rampMaintenanceTx = await program.methods
+      .crankAmmMaintenance()
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        keeper: payer.publicKey,
+      })
+      .transaction();
+    await connection.sendTransaction(rampMaintenanceTx, [payer]);
+    trackV2Instruction("crankAmmMaintenance", this.test?.title);
+
+    await swapBaseForQuote(fixture, [], 1_000_000, 1);
+    trackV2Instruction("swap", this.test?.title);
+
+    const accountAfter = svm.getAccount(fixture.market);
+    expect(accountAfter).to.not.equal(null);
+    const advanced = accountCoder.decode(
+      "Market",
+      Buffer.from(accountAfter!.data)
+    ) as any;
+    expect(
+      advanced.amm.applied_curve_parameters.peak_depth_nad.gt(
+        startPeakDepth
+      )
+    ).to.equal(true);
+    expect(advanced.amm.last_ramp_update_slot.toString()).to.equal(
+      rampSwapSlot.toString()
+    );
+    expect(advanced.amm.ramp.active).to.equal(true);
+    expect(advanced.amm.retention_target_stale).to.equal(true);
+    expect(
+      advanced.amm.exact_curve_observation.peak_depth_nad.eq(
+        advanced.amm.applied_curve_parameters.peak_depth_nad
+      )
+    ).to.equal(true);
+  });
+
+  it("executes a funded concentrated recenter with an active hLP below the SBF compute ceiling", async function () {
+    const config = marketConfig();
+    config.amm.peakDepthNad = new BN("200000000000");
+    config.amm.imbalanceScaleNad = new BN("100000000");
+    config.amm.adjustmentThresholdNad = new BN("1000");
+    config.amm.adjustmentStepNad = new BN("1000");
+    config.amm.minAdjustmentIntervalSlots = new BN(1);
+    config.amm.divergenceFeeCoefficientNad = new BN("10000000000");
+    const fixture = await addBalancedLiquidity(79, config, {
+      baseDeposit: 100_000_000,
+      quoteDeposit: 200_000_000,
+      minYlp: 1,
+      baseMint: 500_000_000,
+      quoteMint: 500_000_000,
+    });
+    await openBaseHedge(fixture, 10_000_000);
+    trackV2Instruction("depositSingleSided", this.test?.title);
+
+    const hLpAccounts = baseHlpRebalanceAccounts(fixture);
+    await swapBaseForQuote(fixture, hLpAccounts, 5_000_000, 1);
+    const accountBefore = svm.getAccount(fixture.market);
+    expect(accountBefore).to.not.equal(null);
+    const funded = accountCoder.decode(
+      "Market",
+      Buffer.from(accountBefore!.data)
+    ) as any;
+    expect(funded.base_hlp_vault.hlp_supply.gt(new BN(0))).to.equal(true);
+    expect(funded.amm.retention_target_stale).to.equal(true);
+    expect(funded.amm.retention_hard_cap_nad.gt(new BN(0))).to.equal(true);
+
+    funded.amm.protected_floor_per_share_nad =
+      funded.amm.q_per_share_nad.sub(funded.amm.retention_hard_cap_nad);
+    funded.amm.price_ema_nad = funded.amm.last_trade_price_nad;
+    funded.amm.retention_target_stale = true;
+    const marketLayout = (accountCoder as any).accountLayouts.get("Market");
+    const marketBody = Buffer.alloc(accountBefore!.data.length - 8);
+    const marketBodyLength = marketLayout.layout.encode(funded, marketBody);
+    const fundedData = Buffer.concat([
+      (accountCoder as any).accountDiscriminator("Market"),
+      marketBody.subarray(0, marketBodyLength),
+    ]);
+    expect(fundedData.length).to.equal(accountBefore!.data.length);
+    svm.setAccount(fixture.market, {
+      ...accountBefore!,
+      data: new Uint8Array(fundedData),
+    });
+    const recenterSlot = BigInt(
+      funded.amm.last_adjustment_slot.add(new BN(1)).toString()
+    );
+    svm.warpToSlot(recenterSlot);
+
+    const oldCenter = funded.amm.center_price_nad;
+    await swapBaseForQuote(fixture, hLpAccounts, 1_000_000, 1);
+    trackV2Instruction("swap", this.test?.title);
+
+    // Active hLP inventory deliberately defers a center move out of the swap
+    // path. First prove both hedge vaults are current, then exercise the two
+    // bounded permissionless maintenance instructions explicitly.
+    const afterSwapAccount = svm.getAccount(fixture.market);
+    expect(afterSwapAccount).to.not.equal(null);
+    const afterSwap = accountCoder.decode(
+      "Market",
+      Buffer.from(afterSwapAccount!.data)
+    ) as any;
+    expect(afterSwap.amm.center_price_nad.eq(oldCenter)).to.equal(true);
+    expect(afterSwap.base_hlp_vault.pending_rebalance.eq(new BN(0))).to.equal(false);
+
+    const hedgeCrankTx = await program.methods
+      .crankHlpRebalance({ targetAsset: 0 })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        keeper: payer.publicKey,
+        baseMint: fixture.baseMint,
+        quoteMint: fixture.quoteMint,
+        ylpMint: fixture.ylpMint,
+        baseReserveVault: fixture.baseReserveVault,
+        quoteReserveVault: fixture.quoteReserveVault,
+        hlpYlpAccount: fixture.baseHlpYlpVault,
+        borrowedInterestVault: fixture.quoteInterestVault,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(hedgeCrankTx, [payer]);
+    trackV2Instruction("crankHlpRebalance", this.test?.title);
+
+    const maintenanceTx = await program.methods
+      .crankAmmMaintenance()
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        keeper: payer.publicKey,
+      })
+      .transaction();
+    await connection.sendTransaction(maintenanceTx, [payer]);
+    trackV2Instruction("crankAmmMaintenance", this.test?.title);
+
+    const accountAfter = svm.getAccount(fixture.market);
+    expect(accountAfter).to.not.equal(null);
+    const recentered = accountCoder.decode(
+      "Market",
+      Buffer.from(accountAfter!.data)
+    ) as any;
+    expect(recentered.amm.center_price_nad.eq(oldCenter)).to.equal(false);
+    expect(recentered.base_hlp_vault.hlp_supply.gt(new BN(0))).to.equal(true);
+    expect(
+      recentered.amm.exact_curve_observation.center_price_nad.eq(
+        recentered.amm.center_price_nad
+      )
+    ).to.equal(true);
+    expect(recentered.risk.last_snapshot_slot.toString()).to.equal(
+      recenterSlot.toString()
+    );
   });
 
   it("updates Dusk futarchy revenue, recipients, authority, and market config", async function () {
@@ -4086,6 +4902,130 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     );
   });
 
+  it("settles an expired liquidation auction through the AMM fallback", async function () {
+    const fixture = await addBalancedLiquidity(81, marketConfig());
+    const borrowPositionId = Keypair.generate().publicKey;
+    const borrowPosition = deriveBorrowPositionAddress(fixture.market, borrowPositionId)[0];
+
+    const depositTx = await program.methods
+      .depositCollateral({
+        positionId: borrowPositionId,
+        depositAmount: new BN(10_000),
+      })
+      .accounts({
+        market: fixture.market,
+        owner: payer.publicKey,
+        assetMint: fixture.baseMint,
+        collateralVault: fixture.baseCollateralVault,
+        ownerAssetAccount: fixture.ownerBaseAccount,
+        borrowPosition,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(depositTx, [payer]);
+
+    const borrowTx = await program.methods
+      .borrow({
+        borrowAmount: new BN(14_500),
+        minDebtAmountOut: new BN(14_500),
+        minLiquidationCfBps: 8_500,
+        referrer: null,
+      })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        owner: payer.publicKey,
+        debtAssetMint: fixture.quoteMint,
+        collateralAssetMint: fixture.baseMint,
+        reserveVault: fixture.quoteReserveVault,
+        ownerDebtAccount: fixture.ownerQuoteAccount,
+        borrowPosition,
+        referralPartner: null,
+        referralAccrual: null,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(borrowTx, [payer]);
+
+    await swapBaseForQuote(fixture, [], 20_000, 30_000);
+    const triggerClock = svm.getClock();
+    triggerClock.slot += 10_000n;
+    triggerClock.unixTimestamp += 1_000n;
+    svm.setClock(triggerClock);
+
+    const triggerTx = await program.methods
+      .triggerLiquidationAuction()
+      .accounts({
+        market: fixture.market,
+        borrowPosition,
+        debtAssetMint: fixture.quoteMint,
+      })
+      .transaction();
+    await connection.sendTransaction(triggerTx, [payer]);
+
+    const beforeAccount = svm.getAccount(borrowPosition);
+    expect(beforeAccount).to.not.equal(null);
+    const before = accountCoder.decode(
+      "BorrowPosition",
+      Buffer.from(beforeAccount!.data)
+    ) as any;
+    const collateralBefore = before.base_collateral.toNumber();
+    const debtSharesBefore = BigInt(before.fixed_quote_shares.toString());
+
+    // The fallback becomes executable only after the auction's exponential
+    // price reaches its stored floor.
+    const expiredClock = svm.getClock();
+    expiredClock.slot += 10_000n;
+    expiredClock.unixTimestamp += 10_000n;
+    svm.setClock(expiredClock);
+
+    const settleTx = await program.methods
+      .settleLiquidationAuctionAmm({
+        repayAmount: new BN(1_000),
+        minCollateralOut: new BN(1),
+        maxInsuranceDraw: new BN(0),
+        maxSocializedLoss: new BN(0),
+      })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        liquidator: payer.publicKey,
+        debtAssetMint: fixture.quoteMint,
+        collateralAssetMint: fixture.baseMint,
+        reserveVault: fixture.quoteReserveVault,
+        interestVault: fixture.quoteInterestVault,
+        collateralVault: fixture.baseCollateralVault,
+        insuranceVault: fixture.quoteInsuranceVault,
+        collateralInsuranceVault: fixture.baseInsuranceVault,
+        liquidatorDebtAccount: fixture.ownerQuoteAccount,
+        liquidatorCollateralAccount: fixture.ownerBaseAccount,
+        borrowPosition,
+        referralPartner: null,
+        referralAccrual: null,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(settleTx, [payer]);
+    trackV2Instruction("settleLiquidationAuctionAmm", this.test?.title);
+
+    const afterAccount = svm.getAccount(borrowPosition);
+    expect(afterAccount).to.not.equal(null);
+    const after = accountCoder.decode(
+      "BorrowPosition",
+      Buffer.from(afterAccount!.data)
+    ) as any;
+    expect(after.base_collateral.toNumber()).to.be.lessThan(collateralBefore);
+    expect(BigInt(after.fixed_quote_shares.toString()) < debtSharesBefore).to.equal(true);
+  });
+
   it("opens leverage, updates exposure, and manages delegated permissions", async function () {
     const fixture = await addBalancedLiquidity(62);
     const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(fixture);
@@ -4149,6 +5089,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         positionOwner: payer.publicKey,
         leveragePosition,
         debtMint: fixture.quoteMint,
+        collateralMint: fixture.baseMint,
         debtReserveVault: fixture.quoteReserveVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
         owner: payer.publicKey,

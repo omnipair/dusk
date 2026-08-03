@@ -139,10 +139,11 @@ impl<'info> AddLeverageMargin<'info> {
         let repay_credit = token_account_credit(reserve_balance_before, &ctx.accounts.debt_reserve_vault)?;
         require!(repay_credit > 0, ErrorCode::AmountZero);
 
-        let receipt = ctx
-            .accounts
-            .market
-            .add_leverage_margin(&mut ctx.accounts.leverage_position, repay_credit)?;
+        let receipt = ctx.accounts.market.add_leverage_margin(
+            &mut ctx.accounts.leverage_position,
+            repay_credit,
+            Clock::get()?.slot,
+        )?;
         let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
         let referral_receipt = record_leverage_interest(
             &mut ctx.accounts.market,
@@ -184,6 +185,7 @@ impl<'info> AddLeverageMargin<'info> {
             debt_shares: receipt.debt_shares,
             collateral_amount: receipt.collateral_amount,
             closeout_value: receipt.closeout_value,
+            swap: None,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
         Ok(())

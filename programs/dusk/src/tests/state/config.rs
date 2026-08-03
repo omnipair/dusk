@@ -9,10 +9,11 @@ use super::*;
             settlement_divergence_bps: 500,
             ema_half_life_ms: 60_000,
             directional_ema_half_life_ms: 60_000,
-            k_ema_half_life_ms: 60_000,
+            q_ema_half_life_ms: 60_000,
             max_daily_borrow_bps: 2_000,
             global_health_contribution_cap_bps: 15_000,
             borrow_market_health_floor_bps: 11_000,
+            amm: Default::default(),
             start_time: 0,
         }
     }
@@ -29,6 +30,19 @@ use super::*;
         assert_eq!(
             err,
             anchor_lang::prelude::error!(ErrorCode::InvalidMarketConfig)
+        );
+    }
+
+    #[test]
+    fn market_config_rejects_a_base_fee_that_leaves_no_executable_input() {
+        let mut config = valid_config();
+        config.swap_fee_bps = BPS_DENOMINATOR - 1;
+        config.validate().unwrap();
+
+        config.swap_fee_bps = BPS_DENOMINATOR;
+        assert_eq!(
+            config.validate().unwrap_err(),
+            anchor_lang::prelude::error!(ErrorCode::InvalidSwapFeeBps)
         );
     }
 
@@ -63,7 +77,7 @@ use super::*;
         );
 
         let mut config = valid_config();
-        config.k_ema_half_life_ms = MAX_HALF_LIFE_MS + 1;
+        config.q_ema_half_life_ms = MAX_HALF_LIFE_MS + 1;
         assert_eq!(
             config.validate().unwrap_err(),
             anchor_lang::prelude::error!(ErrorCode::InvalidMarketConfig)
@@ -79,6 +93,17 @@ use super::*;
 
         assert_eq!(
             err,
+            anchor_lang::prelude::error!(ErrorCode::InvalidMarketConfig)
+        );
+    }
+
+    #[test]
+    fn market_config_validates_embedded_amm_config() {
+        let mut config = valid_config();
+        config.amm.imbalance_scale_nad = 1;
+
+        assert_eq!(
+            config.validate().unwrap_err(),
             anchor_lang::prelude::error!(ErrorCode::InvalidMarketConfig)
         );
     }

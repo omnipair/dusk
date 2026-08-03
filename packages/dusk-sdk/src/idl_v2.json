@@ -1608,6 +1608,229 @@
       ]
     },
     {
+      "name": "crank_amm_maintenance",
+      "discriminator": [
+        157,
+        24,
+        243,
+        54,
+        157,
+        199,
+        223,
+        247
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "futarchy_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "keeper",
+          "docs": [
+            "Anyone may pay to advance already-authorized, fully funded state."
+          ],
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "crank_hlp_rebalance",
+      "discriminator": [
+        124,
+        64,
+        233,
+        229,
+        216,
+        179,
+        239,
+        219
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "futarchy_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "keeper",
+          "docs": [
+            "Anyone may settle already-recorded hLP exposure."
+          ],
+          "signer": true
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "ylp_mint",
+          "writable": true
+        },
+        {
+          "name": "base_reserve_vault",
+          "writable": true
+        },
+        {
+          "name": "quote_reserve_vault",
+          "writable": true
+        },
+        {
+          "name": "hlp_ylp_account",
+          "writable": true
+        },
+        {
+          "name": "borrowed_interest_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "CrankHlpRebalanceArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "create_leverage_delegation",
       "discriminator": [
         189,
@@ -4656,7 +4879,6 @@
       "accounts": [
         {
           "name": "market",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -4841,6 +5063,9 @@
         },
         {
           "name": "debt_mint"
+        },
+        {
+          "name": "collateral_mint"
         },
         {
           "name": "debt_reserve_vault",
@@ -8270,248 +8495,258 @@
     },
     {
       "code": 6067,
+      "name": "UnsupportedAssetDecimals",
+      "msg": "Asset mint decimals exceed Dusk's 9-decimal AMM precision"
+    },
+    {
+      "code": 6068,
       "name": "InvalidVaultSameAccount",
       "msg": "Invalid vault - token_in_vault and token_out_vault must be different"
     },
     {
-      "code": 6068,
+      "code": 6069,
       "name": "InvalidVault",
       "msg": "Invalid vault"
     },
     {
-      "code": 6069,
+      "code": 6070,
       "name": "InvalidParamsHash",
       "msg": "Invalid params hash - hash does not match computed parameters"
     },
     {
-      "code": 6070,
+      "code": 6071,
       "name": "InvalidVersion",
       "msg": "Invalid version"
     },
     {
-      "code": 6071,
+      "code": 6072,
       "name": "InvalidTokenOrder",
       "msg": "Invalid token order"
     },
     {
-      "code": 6072,
+      "code": 6073,
       "name": "InvalidRateModel",
       "msg": "Invalid rate model - rate_model does not match market configuration"
     },
     {
-      "code": 6073,
+      "code": 6074,
       "name": "InvalidPositionMarket",
       "msg": "Invalid position market - position does not match market"
     },
     {
-      "code": 6074,
+      "code": 6075,
       "name": "InvalidUtilBounds",
       "msg": "Invalid utilization bounds - must satisfy: MIN <= start < end <= MAX"
     },
     {
-      "code": 6075,
+      "code": 6076,
       "name": "InvalidRateParams",
       "msg": "Invalid rate parameters - check half_life_ms, min_rate_bps, max_rate_bps, initial_rate_bps bounds"
     },
     {
-      "code": 6076,
+      "code": 6077,
       "name": "ReduceOnlyMode",
       "msg": "Operation blocked: reduce-only mode is active"
     },
     {
-      "code": 6077,
+      "code": 6078,
       "name": "ReduceOnlyHasDebt",
       "msg": "Cannot remove collateral in reduce-only mode while debt exists"
     },
     {
-      "code": 6078,
+      "code": 6079,
       "name": "InvalidInstructionsSysvar",
       "msg": "Invalid instructions sysvar"
     },
     {
-      "code": 6079,
+      "code": 6080,
       "name": "InsufficientPostWithdrawDebtCoverage",
       "msg": "Insufficient post-withdraw debt coverage"
     },
     {
-      "code": 6080,
+      "code": 6081,
       "name": "InvalidRecipient",
       "msg": "Invalid recipient - address does not match configured revenue recipient"
     },
     {
-      "code": 6081,
+      "code": 6082,
       "name": "InvalidMarket",
       "msg": "Invalid market"
     },
     {
-      "code": 6082,
+      "code": 6083,
       "name": "InvalidMarketConfig",
       "msg": "Invalid market config"
     },
     {
-      "code": 6083,
+      "code": 6084,
       "name": "InvalidSettlementPrice",
       "msg": "Invalid settlement price"
     },
     {
-      "code": 6084,
+      "code": 6085,
       "name": "InsufficientMarketShareBacking",
       "msg": "Market reserve share backing is insufficient"
     },
     {
-      "code": 6085,
+      "code": 6086,
       "name": "InvalidMarketSide",
       "msg": "Invalid market side"
     },
     {
-      "code": 6086,
+      "code": 6087,
       "name": "InvalidYieldAccount",
       "msg": "Invalid yield account"
     },
     {
-      "code": 6087,
+      "code": 6088,
       "name": "InvalidHlpVault",
       "msg": "Invalid hLP vault"
     },
     {
-      "code": 6088,
+      "code": 6089,
       "name": "NotEnoughAccounts",
       "msg": "Not enough remaining accounts"
     },
     {
-      "code": 6089,
+      "code": 6090,
       "name": "HlpSettlementUnavailable",
       "msg": "hLP settlement is unavailable"
     },
     {
-      "code": 6090,
+      "code": 6091,
       "name": "InsufficientBorrowHeadroom",
       "msg": "Borrow headroom is insufficient"
     },
     {
-      "code": 6091,
+      "code": 6092,
       "name": "InsufficientMarketHealth",
       "msg": "Market health is insufficient"
     },
     {
-      "code": 6092,
+      "code": 6093,
       "name": "InvalidBorrowPosition",
       "msg": "Invalid borrow position"
     },
     {
-      "code": 6093,
+      "code": 6094,
       "name": "PositionNotLiquidatable",
       "msg": "Position is not liquidatable"
     },
     {
-      "code": 6094,
+      "code": 6095,
       "name": "InsufficientInsurance",
       "msg": "Insurance coverage is insufficient"
     },
     {
-      "code": 6095,
+      "code": 6096,
       "name": "LiquidationSocializationExceeded",
       "msg": "Socialized liquidation loss exceeds caller cap"
     },
     {
-      "code": 6096,
+      "code": 6097,
       "name": "InvalidClaimMint",
       "msg": "Claim mint must not charge transfer fees"
     },
     {
-      "code": 6097,
+      "code": 6098,
       "name": "UnbackedFeeLiability",
       "msg": "Fee liability is not backed by fee vault balance"
     },
     {
-      "code": 6098,
+      "code": 6099,
       "name": "InvalidMarketFeeAuthority",
       "msg": "Invalid market fee authority"
     },
     {
-      "code": 6099,
+      "code": 6100,
       "name": "MarketReduceOnly",
       "msg": "Market is reduce-only"
     },
     {
-      "code": 6100,
+      "code": 6101,
       "name": "MarketNotStarted",
       "msg": "Market has not started"
     },
     {
-      "code": 6101,
+      "code": 6102,
       "name": "MarketMathOverflow",
       "msg": "Market math overflow"
     },
     {
-      "code": 6102,
+      "code": 6103,
       "name": "DailyLimitExceeded",
       "msg": "Daily liquidity limit exceeded"
     },
     {
-      "code": 6103,
+      "code": 6104,
       "name": "InstructionNotLive",
       "msg": "Instruction is intentionally not live yet"
     },
     {
-      "code": 6104,
+      "code": 6105,
       "name": "LiquidationRepayTooLarge",
       "msg": "Liquidation repay amount exceeds partial liquidation cap"
     },
     {
-      "code": 6105,
+      "code": 6106,
       "name": "LeverageMultiplierTooHigh",
       "msg": "Leverage multiplier exceeds circuit breaker"
     },
     {
-      "code": 6106,
+      "code": 6107,
       "name": "LeverageInitialMarginTooLow",
       "msg": "Leverage position does not have enough initial margin"
     },
     {
-      "code": 6107,
+      "code": 6108,
       "name": "LeverageUnwindImpactTooHigh",
       "msg": "Leverage unwind impact exceeds limit"
     },
     {
-      "code": 6108,
+      "code": 6109,
       "name": "LeveragePositionNotLiquidatable",
       "msg": "Leverage position is not liquidatable"
     },
     {
-      "code": 6109,
+      "code": 6110,
       "name": "InvalidSigner",
       "msg": "Invalid signer"
     },
     {
-      "code": 6110,
+      "code": 6111,
       "name": "InvalidLeveragePosition",
       "msg": "Invalid leverage position"
     },
     {
-      "code": 6111,
+      "code": 6112,
       "name": "InvalidLeverageDelegation",
       "msg": "Invalid leverage delegation"
     },
     {
-      "code": 6112,
+      "code": 6113,
       "name": "InvalidReferralInterestShareBps",
       "msg": "Referral interest share exceeds the protocol hard cap"
     },
     {
-      "code": 6113,
+      "code": 6114,
       "name": "InvalidReferralPartner",
       "msg": "Invalid referral partner"
     },
     {
-      "code": 6114,
+      "code": 6115,
       "name": "ReferralPartnerNotActive",
       "msg": "Referral partner is not active"
     },
     {
-      "code": 6115,
+      "code": 6116,
       "name": "InvalidReferralAccrual",
       "msg": "Invalid referral accrual account"
+    },
+    {
+      "code": 6117,
+      "name": "InvalidLeverageCollateralMint",
+      "msg": "Leverage collateral mint must not have transfer fee configuration"
     }
   ],
   "types": [
@@ -8611,6 +8846,294 @@
           {
             "name": "ylp_supply",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AmmConfig",
+      "docs": [
+        "AMM controls. `peak_depth_nad == 0 && imbalance_scale_nad == 0` selects CPMM."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "peak_depth_nad",
+            "type": "u64"
+          },
+          {
+            "name": "imbalance_scale_nad",
+            "type": "u64"
+          },
+          {
+            "name": "center_ema_half_life_ms",
+            "type": "u64"
+          },
+          {
+            "name": "volatility_half_life_ms",
+            "type": "u64"
+          },
+          {
+            "name": "adjustment_threshold_nad",
+            "type": "u64"
+          },
+          {
+            "name": "adjustment_step_nad",
+            "type": "u64"
+          },
+          {
+            "name": "min_adjustment_interval_slots",
+            "type": "u64"
+          },
+          {
+            "name": "volatility_shock_cap_nad",
+            "type": "u64"
+          },
+          {
+            "name": "volatility_cap_nad",
+            "type": "u64"
+          },
+          {
+            "name": "divergence_fee_coefficient_nad",
+            "type": "u64"
+          },
+          {
+            "name": "volatility_fee_coefficient_nad",
+            "type": "u64"
+          },
+          {
+            "name": "ramp_duration_slots",
+            "type": "u64"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                34
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "AmmCurveParameters",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "peak_depth_nad",
+            "type": "u64"
+          },
+          {
+            "name": "imbalance_scale_nad",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AmmRamp",
+      "docs": [
+        "A linear ramp whose governance delay is enforced by the outer Market",
+        "config update. The ramp begins in the slot where that update is applied."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "start",
+            "type": {
+              "defined": {
+                "name": "AmmCurveParameters"
+              }
+            }
+          },
+          {
+            "name": "target",
+            "type": {
+              "defined": {
+                "name": "AmmCurveParameters"
+              }
+            }
+          },
+          {
+            "name": "start_slot",
+            "type": "u64"
+          },
+          {
+            "name": "end_slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AmmState",
+      "docs": [
+        "Embedded mutable state for concentration, internal signals, protected",
+        "liquidity, and an active parameter ramp."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "initialized",
+            "type": "bool"
+          },
+          {
+            "name": "applied_curve_parameters",
+            "docs": [
+              "Parameters already admitted by the protected-profit gate. Time alone",
+              "never changes this field."
+            ],
+            "type": {
+              "defined": {
+                "name": "AmmCurveParameters"
+              }
+            }
+          },
+          {
+            "name": "center_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "price_ema_nad",
+            "type": "u64"
+          },
+          {
+            "name": "last_trade_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "last_observation_slot",
+            "type": "u64"
+          },
+          {
+            "name": "last_adjustment_slot",
+            "type": "u64"
+          },
+          {
+            "name": "last_ramp_update_slot",
+            "docs": [
+              "Prevents repeated instructions in one slot from advancing a ramp more",
+              "than once."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "volatility_accumulator_nad",
+            "type": "u64"
+          },
+          {
+            "name": "invariant_d_nad",
+            "type": "u128"
+          },
+          {
+            "name": "q_per_share_nad",
+            "type": "u128"
+          },
+          {
+            "name": "protected_floor_per_share_nad",
+            "docs": [
+              "yLP principal floor protected from funded recenter/ramp impairment."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "retention_required_nad",
+            "docs": [
+              "Fresh protected-profit target that arms retained surcharge routing.",
+              "This is a principal-budget target, never a cap on trader fees."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "retention_stop_nad",
+            "docs": [
+              "Hysteresis threshold below which retention remains armed."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "retention_hard_cap_nad",
+            "docs": [
+              "Maximum protected principal one maintenance target may request/spend.",
+              "It does not clip divergence or volatility surcharge amounts."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "retain_dynamic_surcharge",
+            "docs": [
+              "When true, dynamic surcharge is reserve principal; when false, the",
+              "identical trader charge is routed to claimable yLP fee accounting."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "retention_target_saturated",
+            "docs": [
+              "The requested protection target exceeded its principal-budget cap."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "ramp",
+            "type": {
+              "defined": {
+                "name": "AmmRamp"
+              }
+            }
+          },
+          {
+            "name": "risk_curve_cache",
+            "type": {
+              "defined": {
+                "name": "RiskCurveCache"
+              }
+            }
+          },
+          {
+            "name": "exact_curve_observation",
+            "type": {
+              "defined": {
+                "name": "CurveObservationIdentity"
+              }
+            }
+          },
+          {
+            "name": "invariant_d_high_nad",
+            "docs": [
+              "Upper endpoint paired with `invariant_d_nad`. It is appended inside the",
+              "preallocated extension region so all preceding launch-layout offsets",
+              "and the total Market account size remain unchanged."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "retention_target_stale",
+            "docs": [
+              "Retained surcharge changed executable inventory after the last exact",
+              "forward-target solve. While stale, retention stays on until a decision",
+              "point refreshes the target or executes a funded recenter."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "_reserved",
+            "type": {
+              "array": [
+                "u8",
+                95
+              ]
+            }
           }
         ]
       }
@@ -8974,6 +9497,18 @@
       }
     },
     {
+      "name": "CrankHlpRebalanceArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "target_asset",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "CreateLeverageDelegationArgs",
       "type": {
         "kind": "struct",
@@ -8989,6 +9524,41 @@
           {
             "name": "approved_actions",
             "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CurveObservationIdentity",
+      "docs": [
+        "Identity of the exact curve evaluation which produced",
+        "`Risk::cached_spot_base_price_nad`.",
+        "",
+        "This consumes the first 56 bytes of the preallocated AMM expansion room;",
+        "no existing field offset or total account size changes."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "base_reserve_nad",
+            "type": "u128"
+          },
+          {
+            "name": "quote_reserve_nad",
+            "type": "u128"
+          },
+          {
+            "name": "center_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "peak_depth_nad",
+            "type": "u64"
+          },
+          {
+            "name": "imbalance_scale_nad",
+            "type": "u64"
           }
         ]
       }
@@ -9912,6 +10482,14 @@
             "type": "u64"
           },
           {
+            "name": "swap",
+            "type": {
+              "defined": {
+                "name": "LeverageSwapEvent"
+              }
+            }
+          },
+          {
             "name": "metadata",
             "type": {
               "defined": {
@@ -9978,6 +10556,14 @@
           {
             "name": "owner_residual",
             "type": "u64"
+          },
+          {
+            "name": "swap",
+            "type": {
+              "defined": {
+                "name": "LeverageSwapEvent"
+              }
+            }
           },
           {
             "name": "metadata",
@@ -10048,6 +10634,14 @@
             "type": "u64"
           },
           {
+            "name": "swap",
+            "type": {
+              "defined": {
+                "name": "LeverageSwapEvent"
+              }
+            }
+          },
+          {
             "name": "metadata",
             "type": {
               "defined": {
@@ -10112,12 +10706,88 @@
             "type": "u64"
           },
           {
+            "name": "swap",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "LeverageSwapEvent"
+                }
+              }
+            }
+          },
+          {
             "name": "metadata",
             "type": {
               "defined": {
                 "name": "MarketEventMetadata"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "LeverageSwapEvent",
+      "docs": [
+        "Fee and endpoint telemetry for an AMM leg embedded in a leverage action.",
+        "`None` on `LeveragePositionUpdated` means the action was margin-only."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset_in_side",
+            "type": "u8"
+          },
+          {
+            "name": "amount_in",
+            "type": "u64"
+          },
+          {
+            "name": "amount_out",
+            "type": "u64"
+          },
+          {
+            "name": "fee_breakdown",
+            "type": {
+              "defined": {
+                "name": "SwapFeeBreakdownEvent"
+              }
+            }
+          },
+          {
+            "name": "start_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "end_price_nad",
+            "docs": [
+              "Invariant-preserving trade endpoint; retained principal is excluded."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "reserve_end_price_nad",
+            "docs": [
+              "Final executable-reserve marginal price after retained principal."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "decayed_volatility_nad",
+            "type": "u64"
+          },
+          {
+            "name": "post_success_volatility_nad",
+            "type": "u64"
+          },
+          {
+            "name": "base_fee_credit",
+            "type": "u64"
+          },
+          {
+            "name": "distributed_surcharge_credit",
+            "type": "u64"
           }
         ]
       }
@@ -10300,6 +10970,14 @@
             "type": {
               "defined": {
                 "name": "MarketConfig"
+              }
+            }
+          },
+          {
+            "name": "amm",
+            "type": {
+              "defined": {
+                "name": "AmmState"
               }
             }
           },
@@ -10615,7 +11293,7 @@
             "type": "u64"
           },
           {
-            "name": "k_ema_half_life_ms",
+            "name": "q_ema_half_life_ms",
             "type": "u64"
           },
           {
@@ -10629,6 +11307,14 @@
           {
             "name": "borrow_market_health_floor_bps",
             "type": "u16"
+          },
+          {
+            "name": "amm",
+            "type": {
+              "defined": {
+                "name": "AmmConfig"
+              }
+            }
           },
           {
             "name": "start_time",
@@ -10665,6 +11351,14 @@
           {
             "name": "protocol_fee_bps",
             "type": "u16"
+          },
+          {
+            "name": "config",
+            "type": {
+              "defined": {
+                "name": "MarketConfig"
+              }
+            }
           },
           {
             "name": "metadata",
@@ -10745,6 +11439,14 @@
           {
             "name": "protocol_fee_bps",
             "type": "u16"
+          },
+          {
+            "name": "config",
+            "type": {
+              "defined": {
+                "name": "MarketConfig"
+              }
+            }
           },
           {
             "name": "params_hash",
@@ -10996,7 +11698,11 @@
             }
           },
           {
-            "name": "k_nad",
+            "name": "reserve_product_k_nad",
+            "docs": [
+              "Raw reserve-product telemetry. Lending risk uses CONCENTRATED Q, exposed under",
+              "`amm.balanced_equivalent_q_nad`, rather than this CPMM-era diagnostic."
+            ],
             "type": "u128"
           },
           {
@@ -11008,6 +11714,14 @@
             "type": {
               "defined": {
                 "name": "MarketHealth"
+              }
+            }
+          },
+          {
+            "name": "amm",
+            "type": {
+              "defined": {
+                "name": "PreviewAmm"
               }
             }
           }
@@ -11110,6 +11824,14 @@
           {
             "name": "protocol_fee_bps",
             "type": "u16"
+          },
+          {
+            "name": "config",
+            "type": {
+              "defined": {
+                "name": "MarketConfig"
+              }
+            }
           },
           {
             "name": "metadata",
@@ -11383,6 +12105,146 @@
           },
           {
             "name": "quote_deposit_amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PreviewAmm",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "initialized",
+            "type": "bool"
+          },
+          {
+            "name": "executable_base_reserve",
+            "type": "u64"
+          },
+          {
+            "name": "executable_quote_reserve",
+            "type": "u64"
+          },
+          {
+            "name": "center_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "price_ema_nad",
+            "type": "u64"
+          },
+          {
+            "name": "last_trade_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "last_observation_slot",
+            "type": "u64"
+          },
+          {
+            "name": "last_adjustment_slot",
+            "type": "u64"
+          },
+          {
+            "name": "volatility_accumulator_nad",
+            "type": "u64"
+          },
+          {
+            "name": "decayed_volatility_nad",
+            "type": "u64"
+          },
+          {
+            "name": "invariant_d_nad",
+            "type": "u128"
+          },
+          {
+            "name": "invariant_d_high_nad",
+            "type": "u128"
+          },
+          {
+            "name": "balanced_equivalent_q_nad",
+            "type": "u128"
+          },
+          {
+            "name": "q_per_share_nad",
+            "type": "u128"
+          },
+          {
+            "name": "protected_floor_per_share_nad",
+            "type": "u128"
+          },
+          {
+            "name": "protected_profit_per_share_nad",
+            "type": "u128"
+          },
+          {
+            "name": "retention_required_nad",
+            "type": "u128"
+          },
+          {
+            "name": "retention_stop_nad",
+            "type": "u128"
+          },
+          {
+            "name": "retention_hard_cap_nad",
+            "type": "u128"
+          },
+          {
+            "name": "retention_active",
+            "type": "bool"
+          },
+          {
+            "name": "retention_target_saturated",
+            "type": "bool"
+          },
+          {
+            "name": "retention_target_stale",
+            "type": "bool"
+          },
+          {
+            "name": "applied_curve_parameters",
+            "type": {
+              "defined": {
+                "name": "AmmCurveParameters"
+              }
+            }
+          },
+          {
+            "name": "desired_curve_parameters",
+            "type": {
+              "defined": {
+                "name": "AmmCurveParameters"
+              }
+            }
+          },
+          {
+            "name": "target_curve_parameters",
+            "type": {
+              "defined": {
+                "name": "AmmCurveParameters"
+              }
+            }
+          },
+          {
+            "name": "ramp_active",
+            "type": "bool"
+          },
+          {
+            "name": "ramp_start_curve_parameters",
+            "type": {
+              "defined": {
+                "name": "AmmCurveParameters"
+              }
+            }
+          },
+          {
+            "name": "ramp_start_slot",
+            "type": "u64"
+          },
+          {
+            "name": "ramp_end_slot",
             "type": "u64"
           }
         ]
@@ -12256,16 +13118,101 @@
             "type": "u64"
           },
           {
-            "name": "cached_k_nad",
+            "name": "cached_q_nad",
+            "docs": [
+              "Last observed balanced-equivalent CONCENTRATED depth."
+            ],
             "type": "u128"
           },
           {
-            "name": "k_ema",
+            "name": "q_ema_nad",
+            "docs": [
+              "EMA of balanced-equivalent CONCENTRATED depth. This replaces the CPMM `K` EMA",
+              "while retaining the same serialized width."
+            ],
             "type": "u128"
           },
           {
             "name": "last_snapshot_slot",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RiskCurveCache",
+      "docs": [
+        "Persistent shapes paired with `Market::risk`. A projected, non-persistent",
+        "`Risk` snapshot must reconstruct its own shapes instead of using this",
+        "cache, so a newly projected EMA can never be combined with stale reserves."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "base_underwriting",
+            "type": {
+              "defined": {
+                "name": "RiskCurveReserves"
+              }
+            }
+          },
+          {
+            "name": "quote_underwriting",
+            "type": {
+              "defined": {
+                "name": "RiskCurveReserves"
+              }
+            }
+          },
+          {
+            "name": "base_liquidation",
+            "type": {
+              "defined": {
+                "name": "RiskCurveReserves"
+              }
+            }
+          },
+          {
+            "name": "quote_liquidation",
+            "type": {
+              "defined": {
+                "name": "RiskCurveReserves"
+              }
+            }
+          },
+          {
+            "name": "center_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "peak_depth_nad",
+            "type": "u64"
+          },
+          {
+            "name": "imbalance_scale_nad",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RiskCurveReserves",
+      "docs": [
+        "Normalized canonical CONCENTRATED reserves used only for pessimistic lending-risk",
+        "valuation. The coordinates are always `(base, quote)`, irrespective of",
+        "which asset is collateral."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "base_reserve_nad",
+            "type": "u128"
+          },
+          {
+            "name": "quote_reserve_nad",
+            "type": "u128"
           }
         ]
       }
@@ -12466,6 +13413,120 @@
                 "name": "MarketEventMetadata"
               }
             }
+          },
+          {
+            "name": "fee_breakdown",
+            "type": {
+              "defined": {
+                "name": "SwapFeeBreakdownEvent"
+              }
+            }
+          },
+          {
+            "name": "start_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "end_price_nad",
+            "docs": [
+              "Legacy name for the invariant-preserving trade endpoint."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "reserve_end_price_nad",
+            "docs": [
+              "Final pool marginal price after retained surcharge enters reserves."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "decayed_volatility_nad",
+            "type": "u64"
+          },
+          {
+            "name": "post_success_volatility_nad",
+            "type": "u64"
+          },
+          {
+            "name": "base_fee_credit",
+            "type": "u64"
+          },
+          {
+            "name": "distributed_surcharge_credit",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SwapFeeBreakdownEvent",
+      "docs": [
+        "Full quote-time fee accounting embedded in both swap events. Legacy event",
+        "fields remain in place so existing consumers can migrate incrementally."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "reserve_credit",
+            "type": "u64"
+          },
+          {
+            "name": "base_fee_debit",
+            "type": "u64"
+          },
+          {
+            "name": "divergence_surcharge_debit",
+            "type": "u64"
+          },
+          {
+            "name": "volatility_surcharge_debit",
+            "type": "u64"
+          },
+          {
+            "name": "dynamic_surcharge_debit",
+            "type": "u64"
+          },
+          {
+            "name": "total_fee_debit",
+            "type": "u64"
+          },
+          {
+            "name": "retained_surcharge",
+            "type": "u64"
+          },
+          {
+            "name": "distributed_surcharge_debit",
+            "type": "u64"
+          },
+          {
+            "name": "amount_in_for_quote",
+            "type": "u64"
+          },
+          {
+            "name": "reserve_input_credit",
+            "type": "u64"
+          },
+          {
+            "name": "claimable_fee_debit",
+            "type": "u64"
+          },
+          {
+            "name": "base_fee_rate_nad",
+            "type": "u64"
+          },
+          {
+            "name": "divergence_fee_rate_nad",
+            "type": "u64"
+          },
+          {
+            "name": "volatility_fee_rate_nad",
+            "type": "u64"
+          },
+          {
+            "name": "total_fee_rate_nad",
+            "type": "u64"
           }
         ]
       }
@@ -12501,18 +13562,30 @@
           },
           {
             "name": "reserve_credit",
+            "docs": [
+              "Actual credit received by the reserve vault from the user transfer."
+            ],
             "type": "u64"
           },
           {
             "name": "swap_fee_debit",
+            "docs": [
+              "Legacy alias for `base_fee_debit`."
+            ],
             "type": "u64"
           },
           {
             "name": "fee_credit",
+            "docs": [
+              "Legacy alias for `claimable_fee_credit`."
+            ],
             "type": "u64"
           },
           {
             "name": "amount_in_after_fee",
+            "docs": [
+              "Legacy alias for `amount_in_for_quote`."
+            ],
             "type": "u64"
           },
           {
@@ -12526,6 +13599,136 @@
           {
             "name": "reserve_out_live_reserve",
             "type": "u64"
+          },
+          {
+            "name": "base_fee_debit",
+            "type": "u64"
+          },
+          {
+            "name": "divergence_surcharge_debit",
+            "type": "u64"
+          },
+          {
+            "name": "volatility_surcharge_debit",
+            "type": "u64"
+          },
+          {
+            "name": "dynamic_surcharge_debit",
+            "type": "u64"
+          },
+          {
+            "name": "total_fee_debit",
+            "type": "u64"
+          },
+          {
+            "name": "retained_surcharge",
+            "type": "u64"
+          },
+          {
+            "name": "distributed_surcharge_debit",
+            "type": "u64"
+          },
+          {
+            "name": "claimable_fee_debit",
+            "type": "u64"
+          },
+          {
+            "name": "amount_in_for_quote",
+            "type": "u64"
+          },
+          {
+            "name": "reserve_input_credit",
+            "type": "u64"
+          },
+          {
+            "name": "base_fee_credit",
+            "type": "u64"
+          },
+          {
+            "name": "distributed_surcharge_credit",
+            "type": "u64"
+          },
+          {
+            "name": "claimable_fee_credit",
+            "type": "u64"
+          },
+          {
+            "name": "base_fee_rate_nad",
+            "type": "u64"
+          },
+          {
+            "name": "divergence_fee_rate_nad",
+            "type": "u64"
+          },
+          {
+            "name": "volatility_fee_rate_nad",
+            "type": "u64"
+          },
+          {
+            "name": "total_fee_rate_nad",
+            "type": "u64"
+          },
+          {
+            "name": "start_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "end_price_nad",
+            "docs": [
+              "Legacy name for the invariant-preserving trade endpoint."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "reserve_end_price_nad",
+            "docs": [
+              "Final pool marginal price after retained surcharge enters reserves."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "center_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "price_ema_nad",
+            "type": "u64"
+          },
+          {
+            "name": "decayed_volatility_nad",
+            "type": "u64"
+          },
+          {
+            "name": "post_success_volatility_nad",
+            "type": "u64"
+          },
+          {
+            "name": "retention_active",
+            "type": "bool"
+          },
+          {
+            "name": "retention_target_saturated",
+            "type": "bool"
+          },
+          {
+            "name": "protected_profit_per_share_nad",
+            "type": "u128"
+          },
+          {
+            "name": "projected_protected_profit_per_share_nad",
+            "type": "u128"
+          },
+          {
+            "name": "retention_required_nad",
+            "type": "u128"
+          },
+          {
+            "name": "retention_stop_nad",
+            "type": "u128"
+          },
+          {
+            "name": "retention_hard_cap_nad",
+            "type": "u128"
           }
         ]
       }
@@ -12570,6 +13773,48 @@
           {
             "name": "quote_hlp_pending_rebalance",
             "type": "i128"
+          },
+          {
+            "name": "fee_breakdown",
+            "type": {
+              "defined": {
+                "name": "SwapFeeBreakdownEvent"
+              }
+            }
+          },
+          {
+            "name": "start_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "end_price_nad",
+            "docs": [
+              "Legacy name for the invariant-preserving trade endpoint."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "reserve_end_price_nad",
+            "docs": [
+              "Final pool marginal price after retained surcharge enters reserves."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "decayed_volatility_nad",
+            "type": "u64"
+          },
+          {
+            "name": "post_success_volatility_nad",
+            "type": "u64"
+          },
+          {
+            "name": "base_fee_credit",
+            "type": "u64"
+          },
+          {
+            "name": "distributed_surcharge_credit",
+            "type": "u64"
           }
         ]
       }
@@ -13062,6 +14307,18 @@
       "value": "[109, 97, 114, 107, 101, 116, 95, 105, 110, 116, 101, 114, 101, 115, 116]"
     },
     {
+      "name": "MARKET_LAYOUT_VERSION",
+      "docs": [
+        "Serialized `Market` account layout discriminator.",
+        "",
+        "Dusk is still pre-launch, so CONCENTRATED ships in the first deployable layout.",
+        "Increment this only for an incompatible account-layout change after",
+        "deployment, never for ordinary feature work or product naming."
+      ],
+      "type": "u8",
+      "value": "1"
+    },
+    {
       "name": "MARKET_RESERVE_VAULT_SEED_PREFIX",
       "type": "bytes",
       "value": "[109, 97, 114, 107, 101, 116, 95, 114, 101, 115, 101, 114, 118, 101]"
@@ -13070,11 +14327,6 @@
       "name": "MARKET_V2_SEED_PREFIX",
       "type": "bytes",
       "value": "[109, 97, 114, 107, 101, 116, 95, 118, 50]"
-    },
-    {
-      "name": "MARKET_VERSION",
-      "type": "u8",
-      "value": "3"
     },
     {
       "name": "MAX_COLLATERAL_FACTOR_BPS",

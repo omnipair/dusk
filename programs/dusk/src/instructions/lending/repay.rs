@@ -227,6 +227,10 @@ impl<'info> Repay<'info> {
             )
         };
 
+        let current_slot = Clock::get()?.slot;
+        ctx.accounts.market.finalize_amm_transition(current_slot)?;
+        ctx.accounts.market.refresh_risk()?;
+
         emit_cpi!(MarketDebtUpdated {
             market: market_key,
             owner: owner_key,

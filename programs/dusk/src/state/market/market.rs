@@ -12,7 +12,10 @@ use crate::state::{
     futarchy_authority::{FutarchyAuthority, ProtocolAuctionSplit},
 };
 
-use super::{Debt, FeesReceipt, HlpVault, MarketAsset, MarketConfig, MarketHealth, MarketSide, Risk};
+use super::{
+    AmmState, CurveStateCertificate, Debt, FeesReceipt, HlpVault, MarketAsset, MarketConfig, MarketHealth, MarketSide,
+    Risk, SwapFeeBreakdown,
+};
 
 #[cfg(test)]
 use super::Reserves;
@@ -54,8 +57,12 @@ pub struct DebtReceipt {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SwapReceipt {
     pub amount_in_after_fee: u64,
+    pub reserve_input_credit: u64,
     pub amount_out: u64,
     pub fee_credit: u64,
+    pub base_fee_credit: u64,
+    pub distributed_surcharge_credit: u64,
+    pub fee_breakdown: SwapFeeBreakdown,
     pub reserve_in_live_reserve: u64,
     pub reserve_out_live_reserve: u64,
     pub fees: FeesReceipt,
@@ -158,6 +165,7 @@ pub struct Market {
     pub base_side: MarketSide,
     pub quote_side: MarketSide,
     pub config: MarketConfig,
+    pub amm: AmmState,
     pub debt: Debt,
     pub base_hlp_vault: HlpVault,
     pub quote_hlp_vault: HlpVault,
@@ -195,13 +203,16 @@ impl Market {
         require_keys_neq!(operator, Pubkey::default(), ErrorCode::InvalidMarketConfig);
         require_keys_neq!(manager, Pubkey::default(), ErrorCode::InvalidMarketConfig);
 
-        self.version = MARKET_VERSION;
+        self.version = MARKET_LAYOUT_VERSION;
         self.ylp_mint = ylp_mint;
         self.operator = operator;
         self.manager = manager;
         self.base_side = base_side;
         self.quote_side = quote_side;
         self.config = config;
+        // Reserves are empty at market creation. The first balanced-liquidity
+        // checkpoint initializes center, Q/share, and the applied parameters.
+        self.amm = AmmState::default();
         self.debt = Debt {
             base_borrow_index_nad: NAD as u128,
             quote_borrow_index_nad: NAD as u128,
@@ -248,7 +259,13 @@ impl Market {
         Ok(())
     }
 
+    pub fn assert_current_version(&self) -> Result<()> {
+        require_eq!(self.version, MARKET_LAYOUT_VERSION, ErrorCode::InvalidVersion);
+        Ok(())
+    }
+
     pub fn assert_started(&self) -> Result<()> {
+        self.assert_current_version()?;
         let now = Clock::get()?.unix_timestamp;
         require!(now >= self.config.start_time, ErrorCode::MarketNotStarted);
         Ok(())
@@ -263,11 +280,37 @@ impl Market {
     }
 
     pub fn update(&mut self) -> Result<()> {
+        self.assert_current_version()?;
         let current_slot = Clock::get()?.slot;
+        self.update_to_slot(current_slot)
+    }
+
+    pub(crate) fn update_to_slot(&mut self, current_slot: u64) -> Result<()> {
         self.accrue_interest_to_slot(current_slot)?;
         if self.base_side.reserves.live_reserve > 0 && self.quote_side.reserves.live_reserve > 0 {
+            // Without active hLP supply, a funded ramp may be admitted here.
+            // Concentrated pools carrying hLP supply defer curve maintenance to
+            // the explicit hedge/maintenance workflow before a new hLP mint.
+            self.advance_amm_clock(current_slot)?;
             self.checkpoint_hlp_vaults()?;
             self.refresh_risk()?;
+        }
+        Ok(())
+    }
+
+    /// hLP deposits need an exact current observation. Reject a new entrant
+    /// while hLP exposure or concentrated curve maintenance is pending.
+    /// The four pessimistic lending shapes remain lazy unless fixed borrower
+    /// debt is actually present so the concentrated first-open path stays
+    /// executable within Solana's transaction compute limit.
+    pub(crate) fn update_for_hlp_deposit(&mut self, target_asset: MarketAsset, current_slot: u64) -> Result<()> {
+        self.assert_current_version()?;
+        self.accrue_interest_to_slot(current_slot)?;
+        if self.base_side.reserves.live_reserve > 0 && self.quote_side.reserves.live_reserve > 0 {
+            self.advance_amm_clock(current_slot)?;
+            self.checkpoint_hlp_vaults()?;
+            self.require_hlp_entry_maintenance_current(target_asset, current_slot)?;
+            self.observe_current_risk(current_slot)?;
         }
         Ok(())
     }
@@ -291,6 +334,7 @@ impl Market {
     /// Manager-only authority: sensitive actions (fee setting, risk parameter
     /// changes, and role rotation) require the market manager.
     pub fn assert_manager(&self, signer: Pubkey) -> Result<()> {
+        self.assert_current_version()?;
         require_keys_eq!(signer, self.manager, ErrorCode::InvalidMarketManager);
         Ok(())
     }
@@ -298,6 +342,7 @@ impl Market {
     /// Config authority is manager-only. The operator remains the market's
     /// operational/economic identity, not a config admin.
     pub fn assert_config_authority(&self, signer: Pubkey) -> Result<()> {
+        self.assert_current_version()?;
         require_keys_eq!(signer, self.manager, ErrorCode::InvalidMarketConfigAuthority);
         Ok(())
     }
@@ -548,7 +593,7 @@ impl Market {
     ) -> Result<DebtReceipt> {
         require!(borrow_amount > 0, ErrorCode::AmountZero);
         let debt_delta = i64::try_from(borrow_amount).map_err(|_| ErrorCode::Overflow)?;
-        if self.risk.k_ema == 0 {
+        if self.risk.q_ema_nad == 0 {
             self.refresh_risk()?;
         }
         let risk = self.risk;
@@ -1118,10 +1163,95 @@ impl Market {
 
         Ok(SwapReceipt {
             amount_in_after_fee,
+            reserve_input_credit: amount_in_after_fee,
             amount_out,
             fee_credit,
+            base_fee_credit: fee_credit,
+            distributed_surcharge_credit: 0,
+            fee_breakdown: SwapFeeBreakdown::default(),
             reserve_in_live_reserve: market_side_in.reserves.live_reserve,
             reserve_out_live_reserve: market_side_out.reserves.live_reserve,
+            fees,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn swap_reserves_with_dynamic_fee_supply(
+        &mut self,
+        asset_in: MarketAsset,
+        quote_input: u64,
+        reserve_input_credit: u64,
+        amount_out: u64,
+        base_fee_credit: u64,
+        distributed_surcharge_credit: u64,
+        fee_breakdown: SwapFeeBreakdown,
+        manager_fee_bps: u16,
+        protocol_fee_bps: u16,
+        protocol_auction_split: ProtocolAuctionSplit,
+        fee_eligible_ylp_supply: u64,
+        current_slot: u64,
+        trade_endpoint_certificate: CurveStateCertificate,
+        reserve_endpoint_certificate: CurveStateCertificate,
+    ) -> Result<SwapReceipt> {
+        require_eq!(
+            reserve_input_credit,
+            quote_input
+                .checked_add(fee_breakdown.retained_surcharge)
+                .ok_or(ErrorCode::ReserveOverflow)?,
+            ErrorCode::BrokenInvariant
+        );
+        {
+            let (market_side_in, market_side_out) = self.swap_sides_mut(asset_in);
+            require_gte!(
+                market_side_out.reserves.cash_reserve,
+                amount_out,
+                ErrorCode::InsufficientLiquidity
+            );
+            market_side_in.credit_reserve(quote_input, true)?;
+            market_side_out.debit_reserve(amount_out, true)?;
+        }
+
+        // An invariant-preserving trade and its rounding dust are neutral.
+        // Only the subsequently added retained surcharge may create protected
+        // recentering budget.
+        self.checkpoint_amm_neutral_inventory_from_certificate(trade_endpoint_certificate, current_slot)?;
+        if fee_breakdown.retained_surcharge > 0 {
+            self.side_mut(asset_in)
+                .credit_reserve(fee_breakdown.retained_surcharge, true)?;
+            self.checkpoint_amm_retained_surcharge_from_certificate(reserve_endpoint_certificate, current_slot)?;
+        }
+
+        let (reserve_in_live_reserve, reserve_out_live_reserve, fees) = {
+            let (market_side_in, market_side_out) = self.swap_sides_mut(asset_in);
+            let fees = market_side_in.record_claimable_swap_fees(
+                base_fee_credit,
+                distributed_surcharge_credit,
+                manager_fee_bps,
+                protocol_fee_bps,
+                protocol_auction_split,
+                fee_eligible_ylp_supply,
+            )?;
+            market_side_in.assert_share_backing()?;
+            market_side_out.assert_share_backing()?;
+            market_side_in.fees.assert_backed()?;
+            (
+                market_side_in.reserves.live_reserve,
+                market_side_out.reserves.live_reserve,
+                fees,
+            )
+        };
+        Ok(SwapReceipt {
+            amount_in_after_fee: quote_input,
+            reserve_input_credit,
+            amount_out,
+            fee_credit: base_fee_credit
+                .checked_add(distributed_surcharge_credit)
+                .ok_or(ErrorCode::FeeMathOverflow)?,
+            base_fee_credit,
+            distributed_surcharge_credit,
+            fee_breakdown,
+            reserve_in_live_reserve,
+            reserve_out_live_reserve,
             fees,
         })
     }

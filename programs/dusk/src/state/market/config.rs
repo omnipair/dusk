@@ -5,6 +5,8 @@ use crate::{
     errors::ErrorCode,
 };
 
+use super::AmmConfig;
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct MarketConfig {
     pub swap_fee_bps: u16,
@@ -14,16 +16,20 @@ pub struct MarketConfig {
     pub settlement_divergence_bps: u16,
     pub ema_half_life_ms: u64,
     pub directional_ema_half_life_ms: u64,
-    pub k_ema_half_life_ms: u64,
+    pub q_ema_half_life_ms: u64,
     pub max_daily_borrow_bps: u16,
     pub global_health_contribution_cap_bps: u16,
     pub borrow_market_health_floor_bps: u16,
+    pub amm: AmmConfig,
     pub start_time: i64,
 }
 
 impl MarketConfig {
     pub fn validate(&self) -> Result<()> {
-        require_gte!(BPS_DENOMINATOR, self.swap_fee_bps, ErrorCode::InvalidSwapFeeBps);
+        // A 100% base fee leaves no executable input. Dynamic surcharges have
+        // no configured ceiling, but every accepted swap must retain at least
+        // one input atom for the curve.
+        require!(self.swap_fee_bps < BPS_DENOMINATOR, ErrorCode::InvalidSwapFeeBps);
         require_gte!(
             MAX_MANAGER_FEE_BPS,
             self.manager_fee_bps,
@@ -42,7 +48,7 @@ impl MarketConfig {
         require!(
             half_life_in_bounds(self.ema_half_life_ms)
                 && half_life_in_bounds(self.directional_ema_half_life_ms)
-                && half_life_in_bounds(self.k_ema_half_life_ms),
+                && half_life_in_bounds(self.q_ema_half_life_ms),
             ErrorCode::InvalidMarketConfig
         );
         require!(
@@ -51,6 +57,7 @@ impl MarketConfig {
                 && self.global_health_contribution_cap_bps >= self.borrow_market_health_floor_bps,
             ErrorCode::InvalidMarketConfig
         );
+        self.amm.validate()?;
         Ok(())
     }
 }

@@ -35,6 +35,7 @@ use super::*;
             base_side,
             quote_side,
             config: MarketConfig::default(),
+            amm: Default::default(),
             debt: Debt {
                 base_borrow_index_nad: NAD as u128,
                 quote_borrow_index_nad: NAD as u128,

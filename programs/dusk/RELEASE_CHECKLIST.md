@@ -33,18 +33,42 @@ mainnet launch or upgrade.
 
 - Run a fresh end-to-end review against the final Dusk source tree.
 - Re-check the Dusk invariants in `programs/dusk/README.md`.
+- Re-check the Dusk Concentrated AMM, recentering, fee, and protected-liquidity specification in
+  `programs/dusk/CONCENTRATION.md`.
 - Re-check the cached-spot EMA flow for same-slot manipulation resistance.
-- Re-check daily borrow-limit enforcement against side depths reconstructed
-  from `min(spot_k, k_ema)` at the current reserve ratio.
-- Re-check borrower risk valuation uses conservative K and pessimistic EMA
-  pricing.
+- Re-check daily borrow-limit enforcement against conservative `Q` and the
+  exact applied CPMM/Dusk Concentrated AMM risk shapes.
+- Re-check borrower and liquidation valuation reconstruct the same applied
+  curve used by swaps at their respective pessimistic internal EMA prices.
+- Re-check the lower/upper Dusk Concentrated AMM invariant bounds, exact-in/out reserve bounds,
+  marginal-price proof, and low-notional fail-closed behavior.
+- Re-check funded parameter ramps and center adjustments cannot consume more
+  protected liquidity than admitted.
+- Re-check base fees and lending interest remain claimable/non-compounding and
+  only retained dynamic surcharge can create protected recentering budget.
+- Re-check divergence fees are restorative-direction aware and split-resistant,
+  and volatility is charged from the decayed pre-trade accumulator.
+- Re-check the unbounded divergence marginal toll remains monotonic and its
+  implicit gross-input solve never consumes the final executable atom.
+  Separately re-check the capped-signal volatility surcharge is monotonic and
+  asymptotic below 100% at coefficient and accumulator extremes.
+- Confirm market initialization accepts only asset decimals `0..=9`, and all
+  fee/quote matrix tests use that same launch domain.
 - Confirm vanilla yLP withdrawal remains constrained by cash availability,
   user slippage bounds, pro-rata burn math, and reserve/share invariants.
 - Re-check liquidation accounting for collateral seizure, insurance draw, and
   LP socialization.
+- Select and test the lending/liquidation fee-boundary policy documented in
+  `CONCENTRATION.md`: explicit external-auction dependence, a real fee-exempt
+  AMM backstop, or protocol-fixed fee-aware forced-exit underwriting. Do not
+  describe `settle_liquidation_auction_amm` as an AMM backstop while it still
+  requires an external debt-token payer.
 - Re-check fee liabilities: yLP, hLP, operator, protocol, and unallocated
   carry-forward buckets.
 - Re-check Token-2022 mint constraints and transfer-fee inventory accounting.
+- Record SBF compute units for CPMM, concentrated, retained-surcharge,
+  hLP-correction, preview, leverage, and liquidation paths with explicit
+  headroom below the cluster transaction ceiling.
 
 ## 3. Local Verification
 
@@ -64,6 +88,10 @@ npm run check-idl-current --prefix packages/dusk-sdk
 npm run build --prefix packages/dusk-sdk
 yarn test-litesvm
 ```
+
+The Dusk Concentrated AMM SBF swap is a mandatory gate; a native-only pass is not
+sufficient. Keep the LiteSVM instruction compute report with the release
+artifacts.
 
 Release and verify-only workflows must install JavaScript dependencies with
 `yarn install --frozen-lockfile` before running dusk-sdk drift or

@@ -81,6 +81,7 @@ use super::*;
                 ..Default::default()
             },
             config: Default::default(),
+            amm: Default::default(),
             debt: Default::default(),
             base_hlp_vault: crate::state::HlpVault {
                 base_swap_fee_growth_index_nad: 10,

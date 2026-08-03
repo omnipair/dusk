@@ -1614,6 +1614,229 @@ export type Dusk = {
       ]
     },
     {
+      "name": "crankAmmMaintenance",
+      "discriminator": [
+        157,
+        24,
+        243,
+        54,
+        157,
+        199,
+        223,
+        247
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "futarchyAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "keeper",
+          "docs": [
+            "Anyone may pay to advance already-authorized, fully funded state."
+          ],
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "crankHlpRebalance",
+      "discriminator": [
+        124,
+        64,
+        233,
+        229,
+        216,
+        179,
+        239,
+        219
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "futarchyAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "keeper",
+          "docs": [
+            "Anyone may settle already-recorded hLP exposure."
+          ],
+          "signer": true
+        },
+        {
+          "name": "baseMint"
+        },
+        {
+          "name": "quoteMint"
+        },
+        {
+          "name": "ylpMint",
+          "writable": true
+        },
+        {
+          "name": "baseReserveVault",
+          "writable": true
+        },
+        {
+          "name": "quoteReserveVault",
+          "writable": true
+        },
+        {
+          "name": "hlpYlpAccount",
+          "writable": true
+        },
+        {
+          "name": "borrowedInterestVault",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "crankHlpRebalanceArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "createLeverageDelegation",
       "discriminator": [
         189,
@@ -4662,7 +4885,6 @@ export type Dusk = {
       "accounts": [
         {
           "name": "market",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -4847,6 +5069,9 @@ export type Dusk = {
         },
         {
           "name": "debtMint"
+        },
+        {
+          "name": "collateralMint"
         },
         {
           "name": "debtReserveVault",
@@ -8276,248 +8501,258 @@ export type Dusk = {
     },
     {
       "code": 6067,
+      "name": "unsupportedAssetDecimals",
+      "msg": "Asset mint decimals exceed Dusk's 9-decimal AMM precision"
+    },
+    {
+      "code": 6068,
       "name": "invalidVaultSameAccount",
       "msg": "Invalid vault - token_in_vault and token_out_vault must be different"
     },
     {
-      "code": 6068,
+      "code": 6069,
       "name": "invalidVault",
       "msg": "Invalid vault"
     },
     {
-      "code": 6069,
+      "code": 6070,
       "name": "invalidParamsHash",
       "msg": "Invalid params hash - hash does not match computed parameters"
     },
     {
-      "code": 6070,
+      "code": 6071,
       "name": "invalidVersion",
       "msg": "Invalid version"
     },
     {
-      "code": 6071,
+      "code": 6072,
       "name": "invalidTokenOrder",
       "msg": "Invalid token order"
     },
     {
-      "code": 6072,
+      "code": 6073,
       "name": "invalidRateModel",
       "msg": "Invalid rate model - rate_model does not match market configuration"
     },
     {
-      "code": 6073,
+      "code": 6074,
       "name": "invalidPositionMarket",
       "msg": "Invalid position market - position does not match market"
     },
     {
-      "code": 6074,
+      "code": 6075,
       "name": "invalidUtilBounds",
       "msg": "Invalid utilization bounds - must satisfy: MIN <= start < end <= MAX"
     },
     {
-      "code": 6075,
+      "code": 6076,
       "name": "invalidRateParams",
       "msg": "Invalid rate parameters - check half_life_ms, min_rate_bps, max_rate_bps, initial_rate_bps bounds"
     },
     {
-      "code": 6076,
+      "code": 6077,
       "name": "reduceOnlyMode",
       "msg": "Operation blocked: reduce-only mode is active"
     },
     {
-      "code": 6077,
+      "code": 6078,
       "name": "reduceOnlyHasDebt",
       "msg": "Cannot remove collateral in reduce-only mode while debt exists"
     },
     {
-      "code": 6078,
+      "code": 6079,
       "name": "invalidInstructionsSysvar",
       "msg": "Invalid instructions sysvar"
     },
     {
-      "code": 6079,
+      "code": 6080,
       "name": "insufficientPostWithdrawDebtCoverage",
       "msg": "Insufficient post-withdraw debt coverage"
     },
     {
-      "code": 6080,
+      "code": 6081,
       "name": "invalidRecipient",
       "msg": "Invalid recipient - address does not match configured revenue recipient"
     },
     {
-      "code": 6081,
+      "code": 6082,
       "name": "invalidMarket",
       "msg": "Invalid market"
     },
     {
-      "code": 6082,
+      "code": 6083,
       "name": "invalidMarketConfig",
       "msg": "Invalid market config"
     },
     {
-      "code": 6083,
+      "code": 6084,
       "name": "invalidSettlementPrice",
       "msg": "Invalid settlement price"
     },
     {
-      "code": 6084,
+      "code": 6085,
       "name": "insufficientMarketShareBacking",
       "msg": "Market reserve share backing is insufficient"
     },
     {
-      "code": 6085,
+      "code": 6086,
       "name": "invalidMarketSide",
       "msg": "Invalid market side"
     },
     {
-      "code": 6086,
+      "code": 6087,
       "name": "invalidYieldAccount",
       "msg": "Invalid yield account"
     },
     {
-      "code": 6087,
+      "code": 6088,
       "name": "invalidHlpVault",
       "msg": "Invalid hLP vault"
     },
     {
-      "code": 6088,
+      "code": 6089,
       "name": "notEnoughAccounts",
       "msg": "Not enough remaining accounts"
     },
     {
-      "code": 6089,
+      "code": 6090,
       "name": "hlpSettlementUnavailable",
       "msg": "hLP settlement is unavailable"
     },
     {
-      "code": 6090,
+      "code": 6091,
       "name": "insufficientBorrowHeadroom",
       "msg": "Borrow headroom is insufficient"
     },
     {
-      "code": 6091,
+      "code": 6092,
       "name": "insufficientMarketHealth",
       "msg": "Market health is insufficient"
     },
     {
-      "code": 6092,
+      "code": 6093,
       "name": "invalidBorrowPosition",
       "msg": "Invalid borrow position"
     },
     {
-      "code": 6093,
+      "code": 6094,
       "name": "positionNotLiquidatable",
       "msg": "Position is not liquidatable"
     },
     {
-      "code": 6094,
+      "code": 6095,
       "name": "insufficientInsurance",
       "msg": "Insurance coverage is insufficient"
     },
     {
-      "code": 6095,
+      "code": 6096,
       "name": "liquidationSocializationExceeded",
       "msg": "Socialized liquidation loss exceeds caller cap"
     },
     {
-      "code": 6096,
+      "code": 6097,
       "name": "invalidClaimMint",
       "msg": "Claim mint must not charge transfer fees"
     },
     {
-      "code": 6097,
+      "code": 6098,
       "name": "unbackedFeeLiability",
       "msg": "Fee liability is not backed by fee vault balance"
     },
     {
-      "code": 6098,
+      "code": 6099,
       "name": "invalidMarketFeeAuthority",
       "msg": "Invalid market fee authority"
     },
     {
-      "code": 6099,
+      "code": 6100,
       "name": "marketReduceOnly",
       "msg": "Market is reduce-only"
     },
     {
-      "code": 6100,
+      "code": 6101,
       "name": "marketNotStarted",
       "msg": "Market has not started"
     },
     {
-      "code": 6101,
+      "code": 6102,
       "name": "marketMathOverflow",
       "msg": "Market math overflow"
     },
     {
-      "code": 6102,
+      "code": 6103,
       "name": "dailyLimitExceeded",
       "msg": "Daily liquidity limit exceeded"
     },
     {
-      "code": 6103,
+      "code": 6104,
       "name": "instructionNotLive",
       "msg": "Instruction is intentionally not live yet"
     },
     {
-      "code": 6104,
+      "code": 6105,
       "name": "liquidationRepayTooLarge",
       "msg": "Liquidation repay amount exceeds partial liquidation cap"
     },
     {
-      "code": 6105,
+      "code": 6106,
       "name": "leverageMultiplierTooHigh",
       "msg": "Leverage multiplier exceeds circuit breaker"
     },
     {
-      "code": 6106,
+      "code": 6107,
       "name": "leverageInitialMarginTooLow",
       "msg": "Leverage position does not have enough initial margin"
     },
     {
-      "code": 6107,
+      "code": 6108,
       "name": "leverageUnwindImpactTooHigh",
       "msg": "Leverage unwind impact exceeds limit"
     },
     {
-      "code": 6108,
+      "code": 6109,
       "name": "leveragePositionNotLiquidatable",
       "msg": "Leverage position is not liquidatable"
     },
     {
-      "code": 6109,
+      "code": 6110,
       "name": "invalidSigner",
       "msg": "Invalid signer"
     },
     {
-      "code": 6110,
+      "code": 6111,
       "name": "invalidLeveragePosition",
       "msg": "Invalid leverage position"
     },
     {
-      "code": 6111,
+      "code": 6112,
       "name": "invalidLeverageDelegation",
       "msg": "Invalid leverage delegation"
     },
     {
-      "code": 6112,
+      "code": 6113,
       "name": "invalidReferralInterestShareBps",
       "msg": "Referral interest share exceeds the protocol hard cap"
     },
     {
-      "code": 6113,
+      "code": 6114,
       "name": "invalidReferralPartner",
       "msg": "Invalid referral partner"
     },
     {
-      "code": 6114,
+      "code": 6115,
       "name": "referralPartnerNotActive",
       "msg": "Referral partner is not active"
     },
     {
-      "code": 6115,
+      "code": 6116,
       "name": "invalidReferralAccrual",
       "msg": "Invalid referral accrual account"
+    },
+    {
+      "code": 6117,
+      "name": "invalidLeverageCollateralMint",
+      "msg": "Leverage collateral mint must not have transfer fee configuration"
     }
   ],
   "types": [
@@ -8617,6 +8852,294 @@ export type Dusk = {
           {
             "name": "ylpSupply",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ammConfig",
+      "docs": [
+        "AMM controls. `peak_depth_nad == 0 && imbalance_scale_nad == 0` selects CPMM."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "peakDepthNad",
+            "type": "u64"
+          },
+          {
+            "name": "imbalanceScaleNad",
+            "type": "u64"
+          },
+          {
+            "name": "centerEmaHalfLifeMs",
+            "type": "u64"
+          },
+          {
+            "name": "volatilityHalfLifeMs",
+            "type": "u64"
+          },
+          {
+            "name": "adjustmentThresholdNad",
+            "type": "u64"
+          },
+          {
+            "name": "adjustmentStepNad",
+            "type": "u64"
+          },
+          {
+            "name": "minAdjustmentIntervalSlots",
+            "type": "u64"
+          },
+          {
+            "name": "volatilityShockCapNad",
+            "type": "u64"
+          },
+          {
+            "name": "volatilityCapNad",
+            "type": "u64"
+          },
+          {
+            "name": "divergenceFeeCoefficientNad",
+            "type": "u64"
+          },
+          {
+            "name": "volatilityFeeCoefficientNad",
+            "type": "u64"
+          },
+          {
+            "name": "rampDurationSlots",
+            "type": "u64"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                34
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ammCurveParameters",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "peakDepthNad",
+            "type": "u64"
+          },
+          {
+            "name": "imbalanceScaleNad",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ammRamp",
+      "docs": [
+        "A linear ramp whose governance delay is enforced by the outer Market",
+        "config update. The ramp begins in the slot where that update is applied."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "start",
+            "type": {
+              "defined": {
+                "name": "ammCurveParameters"
+              }
+            }
+          },
+          {
+            "name": "target",
+            "type": {
+              "defined": {
+                "name": "ammCurveParameters"
+              }
+            }
+          },
+          {
+            "name": "startSlot",
+            "type": "u64"
+          },
+          {
+            "name": "endSlot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ammState",
+      "docs": [
+        "Embedded mutable state for concentration, internal signals, protected",
+        "liquidity, and an active parameter ramp."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "initialized",
+            "type": "bool"
+          },
+          {
+            "name": "appliedCurveParameters",
+            "docs": [
+              "Parameters already admitted by the protected-profit gate. Time alone",
+              "never changes this field."
+            ],
+            "type": {
+              "defined": {
+                "name": "ammCurveParameters"
+              }
+            }
+          },
+          {
+            "name": "centerPriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "priceEmaNad",
+            "type": "u64"
+          },
+          {
+            "name": "lastTradePriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "lastObservationSlot",
+            "type": "u64"
+          },
+          {
+            "name": "lastAdjustmentSlot",
+            "type": "u64"
+          },
+          {
+            "name": "lastRampUpdateSlot",
+            "docs": [
+              "Prevents repeated instructions in one slot from advancing a ramp more",
+              "than once."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "volatilityAccumulatorNad",
+            "type": "u64"
+          },
+          {
+            "name": "invariantDNad",
+            "type": "u128"
+          },
+          {
+            "name": "qPerShareNad",
+            "type": "u128"
+          },
+          {
+            "name": "protectedFloorPerShareNad",
+            "docs": [
+              "yLP principal floor protected from funded recenter/ramp impairment."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "retentionRequiredNad",
+            "docs": [
+              "Fresh protected-profit target that arms retained surcharge routing.",
+              "This is a principal-budget target, never a cap on trader fees."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "retentionStopNad",
+            "docs": [
+              "Hysteresis threshold below which retention remains armed."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "retentionHardCapNad",
+            "docs": [
+              "Maximum protected principal one maintenance target may request/spend.",
+              "It does not clip divergence or volatility surcharge amounts."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "retainDynamicSurcharge",
+            "docs": [
+              "When true, dynamic surcharge is reserve principal; when false, the",
+              "identical trader charge is routed to claimable yLP fee accounting."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "retentionTargetSaturated",
+            "docs": [
+              "The requested protection target exceeded its principal-budget cap."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "ramp",
+            "type": {
+              "defined": {
+                "name": "ammRamp"
+              }
+            }
+          },
+          {
+            "name": "riskCurveCache",
+            "type": {
+              "defined": {
+                "name": "riskCurveCache"
+              }
+            }
+          },
+          {
+            "name": "exactCurveObservation",
+            "type": {
+              "defined": {
+                "name": "curveObservationIdentity"
+              }
+            }
+          },
+          {
+            "name": "invariantDHighNad",
+            "docs": [
+              "Upper endpoint paired with `invariant_d_nad`. It is appended inside the",
+              "preallocated extension region so all preceding launch-layout offsets",
+              "and the total Market account size remain unchanged."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "retentionTargetStale",
+            "docs": [
+              "Retained surcharge changed executable inventory after the last exact",
+              "forward-target solve. While stale, retention stays on until a decision",
+              "point refreshes the target or executes a funded recenter."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                95
+              ]
+            }
           }
         ]
       }
@@ -8980,6 +9503,18 @@ export type Dusk = {
       }
     },
     {
+      "name": "crankHlpRebalanceArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "targetAsset",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "createLeverageDelegationArgs",
       "type": {
         "kind": "struct",
@@ -8995,6 +9530,41 @@ export type Dusk = {
           {
             "name": "approvedActions",
             "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "curveObservationIdentity",
+      "docs": [
+        "Identity of the exact curve evaluation which produced",
+        "`Risk::cached_spot_base_price_nad`.",
+        "",
+        "This consumes the first 56 bytes of the preallocated AMM expansion room;",
+        "no existing field offset or total account size changes."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "baseReserveNad",
+            "type": "u128"
+          },
+          {
+            "name": "quoteReserveNad",
+            "type": "u128"
+          },
+          {
+            "name": "centerPriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "peakDepthNad",
+            "type": "u64"
+          },
+          {
+            "name": "imbalanceScaleNad",
+            "type": "u64"
           }
         ]
       }
@@ -9918,6 +10488,14 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "swap",
+            "type": {
+              "defined": {
+                "name": "leverageSwapEvent"
+              }
+            }
+          },
+          {
             "name": "metadata",
             "type": {
               "defined": {
@@ -9984,6 +10562,14 @@ export type Dusk = {
           {
             "name": "ownerResidual",
             "type": "u64"
+          },
+          {
+            "name": "swap",
+            "type": {
+              "defined": {
+                "name": "leverageSwapEvent"
+              }
+            }
           },
           {
             "name": "metadata",
@@ -10054,6 +10640,14 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "swap",
+            "type": {
+              "defined": {
+                "name": "leverageSwapEvent"
+              }
+            }
+          },
+          {
             "name": "metadata",
             "type": {
               "defined": {
@@ -10118,12 +10712,88 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "swap",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "leverageSwapEvent"
+                }
+              }
+            }
+          },
+          {
             "name": "metadata",
             "type": {
               "defined": {
                 "name": "marketEventMetadata"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "leverageSwapEvent",
+      "docs": [
+        "Fee and endpoint telemetry for an AMM leg embedded in a leverage action.",
+        "`None` on `LeveragePositionUpdated` means the action was margin-only."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "assetInSide",
+            "type": "u8"
+          },
+          {
+            "name": "amountIn",
+            "type": "u64"
+          },
+          {
+            "name": "amountOut",
+            "type": "u64"
+          },
+          {
+            "name": "feeBreakdown",
+            "type": {
+              "defined": {
+                "name": "swapFeeBreakdownEvent"
+              }
+            }
+          },
+          {
+            "name": "startPriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "endPriceNad",
+            "docs": [
+              "Invariant-preserving trade endpoint; retained principal is excluded."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "reserveEndPriceNad",
+            "docs": [
+              "Final executable-reserve marginal price after retained principal."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "decayedVolatilityNad",
+            "type": "u64"
+          },
+          {
+            "name": "postSuccessVolatilityNad",
+            "type": "u64"
+          },
+          {
+            "name": "baseFeeCredit",
+            "type": "u64"
+          },
+          {
+            "name": "distributedSurchargeCredit",
+            "type": "u64"
           }
         ]
       }
@@ -10306,6 +10976,14 @@ export type Dusk = {
             "type": {
               "defined": {
                 "name": "marketConfig"
+              }
+            }
+          },
+          {
+            "name": "amm",
+            "type": {
+              "defined": {
+                "name": "ammState"
               }
             }
           },
@@ -10621,7 +11299,7 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "kEmaHalfLifeMs",
+            "name": "qEmaHalfLifeMs",
             "type": "u64"
           },
           {
@@ -10635,6 +11313,14 @@ export type Dusk = {
           {
             "name": "borrowMarketHealthFloorBps",
             "type": "u16"
+          },
+          {
+            "name": "amm",
+            "type": {
+              "defined": {
+                "name": "ammConfig"
+              }
+            }
           },
           {
             "name": "startTime",
@@ -10671,6 +11357,14 @@ export type Dusk = {
           {
             "name": "protocolFeeBps",
             "type": "u16"
+          },
+          {
+            "name": "config",
+            "type": {
+              "defined": {
+                "name": "marketConfig"
+              }
+            }
           },
           {
             "name": "metadata",
@@ -10751,6 +11445,14 @@ export type Dusk = {
           {
             "name": "protocolFeeBps",
             "type": "u16"
+          },
+          {
+            "name": "config",
+            "type": {
+              "defined": {
+                "name": "marketConfig"
+              }
+            }
           },
           {
             "name": "paramsHash",
@@ -11002,7 +11704,11 @@ export type Dusk = {
             }
           },
           {
-            "name": "kNad",
+            "name": "reserveProductKNad",
+            "docs": [
+              "Raw reserve-product telemetry. Lending risk uses CONCENTRATED Q, exposed under",
+              "`amm.balanced_equivalent_q_nad`, rather than this CPMM-era diagnostic."
+            ],
             "type": "u128"
           },
           {
@@ -11014,6 +11720,14 @@ export type Dusk = {
             "type": {
               "defined": {
                 "name": "marketHealth"
+              }
+            }
+          },
+          {
+            "name": "amm",
+            "type": {
+              "defined": {
+                "name": "previewAmm"
               }
             }
           }
@@ -11116,6 +11830,14 @@ export type Dusk = {
           {
             "name": "protocolFeeBps",
             "type": "u16"
+          },
+          {
+            "name": "config",
+            "type": {
+              "defined": {
+                "name": "marketConfig"
+              }
+            }
           },
           {
             "name": "metadata",
@@ -11389,6 +12111,146 @@ export type Dusk = {
           },
           {
             "name": "quoteDepositAmount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "previewAmm",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "initialized",
+            "type": "bool"
+          },
+          {
+            "name": "executableBaseReserve",
+            "type": "u64"
+          },
+          {
+            "name": "executableQuoteReserve",
+            "type": "u64"
+          },
+          {
+            "name": "centerPriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "priceEmaNad",
+            "type": "u64"
+          },
+          {
+            "name": "lastTradePriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "lastObservationSlot",
+            "type": "u64"
+          },
+          {
+            "name": "lastAdjustmentSlot",
+            "type": "u64"
+          },
+          {
+            "name": "volatilityAccumulatorNad",
+            "type": "u64"
+          },
+          {
+            "name": "decayedVolatilityNad",
+            "type": "u64"
+          },
+          {
+            "name": "invariantDNad",
+            "type": "u128"
+          },
+          {
+            "name": "invariantDHighNad",
+            "type": "u128"
+          },
+          {
+            "name": "balancedEquivalentQNad",
+            "type": "u128"
+          },
+          {
+            "name": "qPerShareNad",
+            "type": "u128"
+          },
+          {
+            "name": "protectedFloorPerShareNad",
+            "type": "u128"
+          },
+          {
+            "name": "protectedProfitPerShareNad",
+            "type": "u128"
+          },
+          {
+            "name": "retentionRequiredNad",
+            "type": "u128"
+          },
+          {
+            "name": "retentionStopNad",
+            "type": "u128"
+          },
+          {
+            "name": "retentionHardCapNad",
+            "type": "u128"
+          },
+          {
+            "name": "retentionActive",
+            "type": "bool"
+          },
+          {
+            "name": "retentionTargetSaturated",
+            "type": "bool"
+          },
+          {
+            "name": "retentionTargetStale",
+            "type": "bool"
+          },
+          {
+            "name": "appliedCurveParameters",
+            "type": {
+              "defined": {
+                "name": "ammCurveParameters"
+              }
+            }
+          },
+          {
+            "name": "desiredCurveParameters",
+            "type": {
+              "defined": {
+                "name": "ammCurveParameters"
+              }
+            }
+          },
+          {
+            "name": "targetCurveParameters",
+            "type": {
+              "defined": {
+                "name": "ammCurveParameters"
+              }
+            }
+          },
+          {
+            "name": "rampActive",
+            "type": "bool"
+          },
+          {
+            "name": "rampStartCurveParameters",
+            "type": {
+              "defined": {
+                "name": "ammCurveParameters"
+              }
+            }
+          },
+          {
+            "name": "rampStartSlot",
+            "type": "u64"
+          },
+          {
+            "name": "rampEndSlot",
             "type": "u64"
           }
         ]
@@ -12262,16 +13124,101 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "cachedKNad",
+            "name": "cachedQNad",
+            "docs": [
+              "Last observed balanced-equivalent CONCENTRATED depth."
+            ],
             "type": "u128"
           },
           {
-            "name": "kEma",
+            "name": "qEmaNad",
+            "docs": [
+              "EMA of balanced-equivalent CONCENTRATED depth. This replaces the CPMM `K` EMA",
+              "while retaining the same serialized width."
+            ],
             "type": "u128"
           },
           {
             "name": "lastSnapshotSlot",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "riskCurveCache",
+      "docs": [
+        "Persistent shapes paired with `Market::risk`. A projected, non-persistent",
+        "`Risk` snapshot must reconstruct its own shapes instead of using this",
+        "cache, so a newly projected EMA can never be combined with stale reserves."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "baseUnderwriting",
+            "type": {
+              "defined": {
+                "name": "riskCurveReserves"
+              }
+            }
+          },
+          {
+            "name": "quoteUnderwriting",
+            "type": {
+              "defined": {
+                "name": "riskCurveReserves"
+              }
+            }
+          },
+          {
+            "name": "baseLiquidation",
+            "type": {
+              "defined": {
+                "name": "riskCurveReserves"
+              }
+            }
+          },
+          {
+            "name": "quoteLiquidation",
+            "type": {
+              "defined": {
+                "name": "riskCurveReserves"
+              }
+            }
+          },
+          {
+            "name": "centerPriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "peakDepthNad",
+            "type": "u64"
+          },
+          {
+            "name": "imbalanceScaleNad",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "riskCurveReserves",
+      "docs": [
+        "Normalized canonical CONCENTRATED reserves used only for pessimistic lending-risk",
+        "valuation. The coordinates are always `(base, quote)`, irrespective of",
+        "which asset is collateral."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "baseReserveNad",
+            "type": "u128"
+          },
+          {
+            "name": "quoteReserveNad",
+            "type": "u128"
           }
         ]
       }
@@ -12472,6 +13419,120 @@ export type Dusk = {
                 "name": "marketEventMetadata"
               }
             }
+          },
+          {
+            "name": "feeBreakdown",
+            "type": {
+              "defined": {
+                "name": "swapFeeBreakdownEvent"
+              }
+            }
+          },
+          {
+            "name": "startPriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "endPriceNad",
+            "docs": [
+              "Legacy name for the invariant-preserving trade endpoint."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "reserveEndPriceNad",
+            "docs": [
+              "Final pool marginal price after retained surcharge enters reserves."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "decayedVolatilityNad",
+            "type": "u64"
+          },
+          {
+            "name": "postSuccessVolatilityNad",
+            "type": "u64"
+          },
+          {
+            "name": "baseFeeCredit",
+            "type": "u64"
+          },
+          {
+            "name": "distributedSurchargeCredit",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "swapFeeBreakdownEvent",
+      "docs": [
+        "Full quote-time fee accounting embedded in both swap events. Legacy event",
+        "fields remain in place so existing consumers can migrate incrementally."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "reserveCredit",
+            "type": "u64"
+          },
+          {
+            "name": "baseFeeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "divergenceSurchargeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "volatilitySurchargeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "dynamicSurchargeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "totalFeeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "retainedSurcharge",
+            "type": "u64"
+          },
+          {
+            "name": "distributedSurchargeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "amountInForQuote",
+            "type": "u64"
+          },
+          {
+            "name": "reserveInputCredit",
+            "type": "u64"
+          },
+          {
+            "name": "claimableFeeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "baseFeeRateNad",
+            "type": "u64"
+          },
+          {
+            "name": "divergenceFeeRateNad",
+            "type": "u64"
+          },
+          {
+            "name": "volatilityFeeRateNad",
+            "type": "u64"
+          },
+          {
+            "name": "totalFeeRateNad",
+            "type": "u64"
           }
         ]
       }
@@ -12507,18 +13568,30 @@ export type Dusk = {
           },
           {
             "name": "reserveCredit",
+            "docs": [
+              "Actual credit received by the reserve vault from the user transfer."
+            ],
             "type": "u64"
           },
           {
             "name": "swapFeeDebit",
+            "docs": [
+              "Legacy alias for `base_fee_debit`."
+            ],
             "type": "u64"
           },
           {
             "name": "feeCredit",
+            "docs": [
+              "Legacy alias for `claimable_fee_credit`."
+            ],
             "type": "u64"
           },
           {
             "name": "amountInAfterFee",
+            "docs": [
+              "Legacy alias for `amount_in_for_quote`."
+            ],
             "type": "u64"
           },
           {
@@ -12532,6 +13605,136 @@ export type Dusk = {
           {
             "name": "reserveOutLiveReserve",
             "type": "u64"
+          },
+          {
+            "name": "baseFeeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "divergenceSurchargeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "volatilitySurchargeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "dynamicSurchargeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "totalFeeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "retainedSurcharge",
+            "type": "u64"
+          },
+          {
+            "name": "distributedSurchargeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "claimableFeeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "amountInForQuote",
+            "type": "u64"
+          },
+          {
+            "name": "reserveInputCredit",
+            "type": "u64"
+          },
+          {
+            "name": "baseFeeCredit",
+            "type": "u64"
+          },
+          {
+            "name": "distributedSurchargeCredit",
+            "type": "u64"
+          },
+          {
+            "name": "claimableFeeCredit",
+            "type": "u64"
+          },
+          {
+            "name": "baseFeeRateNad",
+            "type": "u64"
+          },
+          {
+            "name": "divergenceFeeRateNad",
+            "type": "u64"
+          },
+          {
+            "name": "volatilityFeeRateNad",
+            "type": "u64"
+          },
+          {
+            "name": "totalFeeRateNad",
+            "type": "u64"
+          },
+          {
+            "name": "startPriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "endPriceNad",
+            "docs": [
+              "Legacy name for the invariant-preserving trade endpoint."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "reserveEndPriceNad",
+            "docs": [
+              "Final pool marginal price after retained surcharge enters reserves."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "centerPriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "priceEmaNad",
+            "type": "u64"
+          },
+          {
+            "name": "decayedVolatilityNad",
+            "type": "u64"
+          },
+          {
+            "name": "postSuccessVolatilityNad",
+            "type": "u64"
+          },
+          {
+            "name": "retentionActive",
+            "type": "bool"
+          },
+          {
+            "name": "retentionTargetSaturated",
+            "type": "bool"
+          },
+          {
+            "name": "protectedProfitPerShareNad",
+            "type": "u128"
+          },
+          {
+            "name": "projectedProtectedProfitPerShareNad",
+            "type": "u128"
+          },
+          {
+            "name": "retentionRequiredNad",
+            "type": "u128"
+          },
+          {
+            "name": "retentionStopNad",
+            "type": "u128"
+          },
+          {
+            "name": "retentionHardCapNad",
+            "type": "u128"
           }
         ]
       }
@@ -12576,6 +13779,48 @@ export type Dusk = {
           {
             "name": "quoteHlpPendingRebalance",
             "type": "i128"
+          },
+          {
+            "name": "feeBreakdown",
+            "type": {
+              "defined": {
+                "name": "swapFeeBreakdownEvent"
+              }
+            }
+          },
+          {
+            "name": "startPriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "endPriceNad",
+            "docs": [
+              "Legacy name for the invariant-preserving trade endpoint."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "reserveEndPriceNad",
+            "docs": [
+              "Final pool marginal price after retained surcharge enters reserves."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "decayedVolatilityNad",
+            "type": "u64"
+          },
+          {
+            "name": "postSuccessVolatilityNad",
+            "type": "u64"
+          },
+          {
+            "name": "baseFeeCredit",
+            "type": "u64"
+          },
+          {
+            "name": "distributedSurchargeCredit",
+            "type": "u64"
           }
         ]
       }
@@ -13068,6 +14313,18 @@ export type Dusk = {
       "value": "[109, 97, 114, 107, 101, 116, 95, 105, 110, 116, 101, 114, 101, 115, 116]"
     },
     {
+      "name": "marketLayoutVersion",
+      "docs": [
+        "Serialized `Market` account layout discriminator.",
+        "",
+        "Dusk is still pre-launch, so CONCENTRATED ships in the first deployable layout.",
+        "Increment this only for an incompatible account-layout change after",
+        "deployment, never for ordinary feature work or product naming."
+      ],
+      "type": "u8",
+      "value": "1"
+    },
+    {
       "name": "marketReserveVaultSeedPrefix",
       "type": "bytes",
       "value": "[109, 97, 114, 107, 101, 116, 95, 114, 101, 115, 101, 114, 118, 101]"
@@ -13076,11 +14333,6 @@ export type Dusk = {
       "name": "marketV2SeedPrefix",
       "type": "bytes",
       "value": "[109, 97, 114, 107, 101, 116, 95, 118, 50]"
-    },
-    {
-      "name": "marketVersion",
-      "type": "u8",
-      "value": "3"
     },
     {
       "name": "maxCollateralFactorBps",

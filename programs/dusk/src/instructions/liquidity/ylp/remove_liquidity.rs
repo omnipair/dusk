@@ -173,6 +173,16 @@ impl<'info> RemoveLiquidity<'info> {
         )?;
 
         let receipt = ctx.accounts.market.remove_liquidity(args.ylp_amount)?;
+        let current_slot = Clock::get()?.slot;
+        if receipt.ylp_supply == MIN_LIQUIDITY {
+            ctx.accounts
+                .market
+                .park_amm_after_full_public_liquidity_exit(current_slot)?;
+        } else {
+            ctx.accounts.market.finalize_amm_transition(current_slot)?;
+            ctx.accounts.market.observe_current_risk(current_slot)?;
+        }
+        ctx.accounts.market.assert_market_health()?;
 
         let base_balance_before = ctx.accounts.owner_base_account.amount;
         let quote_balance_before = ctx.accounts.owner_quote_account.amount;
@@ -212,8 +222,6 @@ impl<'info> RemoveLiquidity<'info> {
         let quote_credit = token_account_credit(quote_balance_before, &ctx.accounts.owner_quote_account)?;
         require_gte!(base_credit, args.min_base_amount_out, ErrorCode::SlippageExceeded);
         require_gte!(quote_credit, args.min_quote_amount_out, ErrorCode::SlippageExceeded);
-        ctx.accounts.market.refresh_risk()?;
-
         emit_cpi!(LiquidityRemoved {
             market: market_key,
             owner: owner_key,

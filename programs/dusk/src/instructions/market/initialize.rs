@@ -291,8 +291,9 @@ impl<'info> InitializeMarket<'info> {
             swap_fee_bps: args.config.swap_fee_bps,
             manager_fee_bps: args.config.manager_fee_bps,
             protocol_fee_bps: args.config.protocol_fee_bps,
+            config: args.config,
             params_hash: args.params_hash,
-            version: MARKET_VERSION,
+            version: MARKET_LAYOUT_VERSION,
             metadata: MarketEventMetadata::new(payer_key, market_key)?,
         });
 

@@ -3,13 +3,14 @@ use super::*;
 
     fn empty_market() -> Market {
         Market {
-            version: MARKET_VERSION,
+            version: MARKET_LAYOUT_VERSION,
             ylp_mint: Pubkey::new_unique(),
             operator: Pubkey::new_unique(),
             manager: Pubkey::new_unique(),
             base_side: MarketSide::default(),
             quote_side: MarketSide::default(),
             config: MarketConfig::default(),
+            amm: Default::default(),
             debt: Debt::default(),
             base_hlp_vault: HlpVault::default(),
             quote_hlp_vault: HlpVault::default(),

@@ -7,7 +7,7 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{LeveragePositionUpdated, MarketEventMetadata},
+    events::{LeveragePositionUpdated, LeverageSwapEvent, MarketEventMetadata},
     generate_market_seeds,
     shared::token::transfer_from_vault_to_vault_with_remaining_accounts,
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
@@ -17,7 +17,7 @@ use super::common::{
     move_leverage_swap_fee, record_leverage_interest, validate_leverage_fee_account,
     validate_leverage_interest_account, validate_leverage_mints, validate_leverage_reserve_accounts,
 };
-use crate::instructions::common::token_program_for_mint;
+use crate::instructions::common::{token_account_credit, token_program_for_mint};
 use crate::instructions::referral::common::{emit_referral_interest_accrued, validate_referral_binding};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -152,6 +152,7 @@ impl<'info> DecreaseLeverage<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
+        let collateral_reserve_balance_before = ctx.accounts.collateral_reserve_vault.amount;
         transfer_from_vault_to_vault_with_remaining_accounts(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.leverage_collateral_vault.to_account_info(),
@@ -163,18 +164,26 @@ impl<'info> DecreaseLeverage<'info> {
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
             ctx.remaining_accounts,
         )?;
-        let swap = ctx
-            .accounts
-            .market
-            .quote_leverage_swap(collateral_asset, args.collateral_amount)?;
-        move_leverage_swap_fee(
+        ctx.accounts.collateral_reserve_vault.reload()?;
+        let collateral_reserve_credit = token_account_credit(
+            collateral_reserve_balance_before,
+            &ctx.accounts.collateral_reserve_vault,
+        )?;
+        require!(collateral_reserve_credit > 0, ErrorCode::AmountZero);
+        let current_slot = Clock::get()?.slot;
+        ctx.accounts.market.prepare_amm_for_swap(current_slot)?;
+        let swap =
+            ctx.accounts
+                .market
+                .quote_leverage_swap(collateral_asset, collateral_reserve_credit, current_slot)?;
+        let swap_fee_credit = move_leverage_swap_fee(
             &ctx.accounts.market,
             &ctx.accounts.collateral_mint,
             &mut ctx.accounts.collateral_reserve_vault,
             &mut ctx.accounts.collateral_fee_vault,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
-            swap.fee_credit,
+            &swap,
             ctx.remaining_accounts,
         )?;
 
@@ -183,9 +192,12 @@ impl<'info> DecreaseLeverage<'info> {
             &mut ctx.accounts.leverage_position,
             args.collateral_amount,
             args.min_repay_out,
+            swap,
+            swap_fee_credit,
             manager_fee_bps,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
+            current_slot,
         )?;
         let referral_receipt = record_leverage_interest(
             &mut ctx.accounts.market,
@@ -227,6 +239,7 @@ impl<'info> DecreaseLeverage<'info> {
             debt_shares: receipt.debt_shares,
             collateral_amount: receipt.collateral_amount,
             closeout_value: receipt.closeout_value,
+            swap: Some(LeverageSwapEvent::new(swap, swap_fee_credit)),
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
         Ok(())

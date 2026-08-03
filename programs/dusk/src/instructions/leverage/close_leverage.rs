@@ -7,7 +7,7 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{LeveragePositionClosed, MarketEventMetadata},
+    events::{LeveragePositionClosed, LeverageSwapEvent, MarketEventMetadata},
     generate_market_seeds,
     shared::token::{
         get_transfer_fee, transfer_from_vault_to_user_with_remaining_accounts,
@@ -19,10 +19,10 @@ use crate::{
 };
 
 use super::common::{
-    approved_for, invoke_delegated_approval_callback, move_leverage_swap_fee, record_leverage_interest,
-    split_delegated_accounts, validate_leverage_fee_account, validate_leverage_interest_account,
-    validate_leverage_mints, validate_leverage_reserve_accounts, DelegatedCpiArgs, LEVERAGE_DELEGATE_CLOSE,
-    LEVERAGE_DELEGATE_CLOSE_SETTLED,
+    approved_for, invoke_delegated_approval_callback, leverage_collateral_credit, move_leverage_swap_fee,
+    record_leverage_interest, split_delegated_accounts, validate_leverage_fee_account,
+    validate_leverage_interest_account, validate_leverage_mints, validate_leverage_reserve_accounts, DelegatedCpiArgs,
+    LEVERAGE_DELEGATE_CLOSE, LEVERAGE_DELEGATE_CLOSE_SETTLED,
 };
 use crate::instructions::common::{token_account_credit, token_program_for_mint};
 use crate::instructions::referral::common::{emit_referral_interest_accrued, validate_referral_binding};
@@ -260,10 +260,15 @@ impl<'info> CloseLeverage<'info> {
         let expected_referral_partner = ctx.accounts.leverage_position.referral_partner;
         let collateral_sold = ctx.accounts.leverage_position.collateral_amount;
         let debt_amount = ctx.accounts.leverage_position.debt_amount(&ctx.accounts.market.debt)?;
-        let close_quote = ctx
-            .accounts
-            .market
-            .quote_leverage_swap(collateral_asset, collateral_sold)?;
+        let current_slot = Clock::get()?.slot;
+        let expected_collateral_reserve_credit =
+            leverage_collateral_credit(&ctx.accounts.collateral_mint, collateral_sold)?;
+        ctx.accounts.market.prepare_amm_for_swap(current_slot)?;
+        let close_quote = ctx.accounts.market.quote_leverage_swap(
+            collateral_asset,
+            expected_collateral_reserve_credit,
+            current_slot,
+        )?;
         require_gte!(close_quote.amount_out, debt_amount, ErrorCode::InsufficientAmount);
         let expected_residual = close_quote
             .amount_out
@@ -325,6 +330,7 @@ impl<'info> CloseLeverage<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
+        let collateral_reserve_balance_before = ctx.accounts.collateral_reserve_vault.amount;
         transfer_from_vault_to_vault_with_remaining_accounts(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.leverage_collateral_vault.to_account_info(),
@@ -338,19 +344,28 @@ impl<'info> CloseLeverage<'info> {
         )?;
         ctx.accounts.collateral_reserve_vault.reload()?;
         ctx.accounts.leverage_collateral_vault.reload()?;
+        let collateral_reserve_credit = token_account_credit(
+            collateral_reserve_balance_before,
+            &ctx.accounts.collateral_reserve_vault,
+        )?;
+        require_eq!(
+            collateral_reserve_credit,
+            expected_collateral_reserve_credit,
+            ErrorCode::BrokenInvariant
+        );
 
-        let swap = ctx
-            .accounts
-            .market
-            .quote_leverage_swap(collateral_asset, collateral_sold)?;
-        move_leverage_swap_fee(
+        let swap =
+            ctx.accounts
+                .market
+                .quote_leverage_swap(collateral_asset, collateral_reserve_credit, current_slot)?;
+        let swap_fee_credit = move_leverage_swap_fee(
             &ctx.accounts.market,
             &ctx.accounts.collateral_mint,
             &mut ctx.accounts.collateral_reserve_vault,
             &mut ctx.accounts.collateral_fee_vault,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
-            swap.fee_credit,
+            &swap,
             ctx.remaining_accounts,
         )?;
 
@@ -358,9 +373,12 @@ impl<'info> CloseLeverage<'info> {
         let receipt = ctx.accounts.market.close_leverage(
             &mut ctx.accounts.leverage_position,
             args.min_amount_out,
+            swap,
+            swap_fee_credit,
             manager_fee_bps,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
+            current_slot,
         )?;
 
         let debt_token_program = token_program_for_mint(
@@ -423,6 +441,7 @@ impl<'info> CloseLeverage<'info> {
             collateral_sold: receipt.collateral_sold,
             closeout_value: receipt.closeout_value,
             residual: residual_credit,
+            swap: LeverageSwapEvent::new(receipt.swap, swap_fee_credit),
             metadata: MarketEventMetadata::new(authority_key, market_key)?,
         });
 

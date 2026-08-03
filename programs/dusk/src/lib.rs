@@ -130,6 +130,11 @@ pub mod dusk {
         SetMarketAuthority::handle_set_manager(ctx, args)
     }
 
+    #[access_control(ctx.accounts.validate())]
+    pub fn crank_amm_maintenance(ctx: Context<CrankAmmMaintenance>) -> Result<()> {
+        CrankAmmMaintenance::handle_crank(ctx)
+    }
+
     #[access_control(ctx.accounts.update_and_validate())]
     pub fn claim_manager_fees(ctx: Context<ClaimManagerFees>) -> Result<()> {
         ClaimManagerFees::handle_claim(ctx)
@@ -336,6 +341,14 @@ pub mod dusk {
         args: WithdrawSingleSidedArgs,
     ) -> Result<()> {
         WithdrawSingleSided::handle_withdraw(ctx, args)
+    }
+
+    #[access_control(ctx.accounts.update_and_validate(&args))]
+    pub fn crank_hlp_rebalance<'info>(
+        ctx: Context<'_, '_, '_, 'info, CrankHlpRebalance<'info>>,
+        args: CrankHlpRebalanceArgs,
+    ) -> Result<()> {
+        CrankHlpRebalance::handle_crank(ctx, args)
     }
 
     pub fn fallback<'info>(program_id: &Pubkey, accounts: &'info [AccountInfo<'info>], data: &[u8]) -> Result<()> {

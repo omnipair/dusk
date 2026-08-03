@@ -7,7 +7,7 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{LeveragePositionLiquidated, MarketEventMetadata},
+    events::{LeveragePositionLiquidated, LeverageSwapEvent, MarketEventMetadata},
     generate_market_seeds,
     shared::token::{
         transfer_from_vault_to_user_with_remaining_accounts, transfer_from_vault_to_vault_with_remaining_accounts,
@@ -168,6 +168,7 @@ impl<'info> LiquidateLeverage<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
+        let collateral_reserve_balance_before = ctx.accounts.collateral_reserve_vault.amount;
         transfer_from_vault_to_vault_with_remaining_accounts(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.leverage_collateral_vault.to_account_info(),
@@ -179,27 +180,38 @@ impl<'info> LiquidateLeverage<'info> {
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
             ctx.remaining_accounts,
         )?;
-        let swap = ctx
-            .accounts
-            .market
-            .quote_leverage_swap(collateral_asset, collateral_sold)?;
-        move_leverage_swap_fee(
+        ctx.accounts.collateral_reserve_vault.reload()?;
+        let collateral_reserve_credit = token_account_credit(
+            collateral_reserve_balance_before,
+            &ctx.accounts.collateral_reserve_vault,
+        )?;
+        require!(collateral_reserve_credit > 0, ErrorCode::AmountZero);
+        let current_slot = Clock::get()?.slot;
+        ctx.accounts.market.prepare_amm_for_swap(current_slot)?;
+        let swap =
+            ctx.accounts
+                .market
+                .quote_leverage_swap(collateral_asset, collateral_reserve_credit, current_slot)?;
+        let swap_fee_credit = move_leverage_swap_fee(
             &ctx.accounts.market,
             &ctx.accounts.collateral_mint,
             &mut ctx.accounts.collateral_reserve_vault,
             &mut ctx.accounts.collateral_fee_vault,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
-            swap.fee_credit,
+            &swap,
             ctx.remaining_accounts,
         )?;
 
         let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
         let receipt = ctx.accounts.market.liquidate_leverage(
             &mut ctx.accounts.leverage_position,
+            swap,
+            swap_fee_credit,
             manager_fee_bps,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
+            current_slot,
         )?;
 
         let debt_token_program = token_program_for_mint(
@@ -278,6 +290,7 @@ impl<'info> LiquidateLeverage<'info> {
             closeout_value: receipt.closeout_value,
             liquidator_amount,
             owner_residual,
+            swap: LeverageSwapEvent::new(receipt.swap, swap_fee_credit),
             metadata: MarketEventMetadata::new(liquidator_key, market_key)?,
         });
         Ok(())

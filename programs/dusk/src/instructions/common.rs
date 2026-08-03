@@ -5,10 +5,16 @@ use anchor_spl::{
 };
 
 use crate::{
+    constants::NAD_DECIMALS,
     errors::ErrorCode,
     shared::token::{is_fee_free_mint, is_supported_mint, is_token_2022_mint, transfer_hook_program_id},
     state::{Market, MarketAsset},
 };
+
+pub fn require_supported_asset_decimals(decimals: u8) -> Result<()> {
+    require!(decimals <= NAD_DECIMALS, ErrorCode::UnsupportedAssetDecimals);
+    Ok(())
+}
 
 macro_rules! market_update_and_validate {
     ($args:ty) => {
@@ -51,6 +57,7 @@ pub fn token_program_for_mint<'info>(
 
 pub fn require_supported_asset_mint(mint: &InterfaceAccount<Mint>) -> Result<()> {
     require!(is_supported_mint(mint)?, ErrorCode::InvalidTokenProgram);
+    require_supported_asset_decimals(mint.decimals)?;
     Ok(())
 }
 
@@ -81,6 +88,47 @@ pub fn token_account_debit(balance_before: u64, token_account: &InterfaceAccount
     balance_before
         .checked_sub(token_account.amount)
         .ok_or(ErrorCode::MarketMathOverflow.into())
+}
+
+/// Reads the live amount from a remaining-account token vault.
+///
+/// Remaining accounts are not wrapped in Anchor's cached `InterfaceAccount`,
+/// so callers must deserialize the account again after a CPI to observe the
+/// destination's actual Token-2022 credit.
+pub fn token_account_info_amount(token_account: &AccountInfo) -> Result<u64> {
+    require!(
+        *token_account.owner == Token::id() || *token_account.owner == Token2022::id(),
+        ErrorCode::InvalidTokenProgram
+    );
+    let data = token_account.try_borrow_data()?;
+    let mut data_slice: &[u8] = &data;
+    Ok(TokenAccount::try_deserialize_unchecked(&mut data_slice)?.amount)
+}
+
+pub fn token_account_info_credit(balance_before: u64, token_account: &AccountInfo) -> Result<u64> {
+    token_account_info_amount(token_account)?
+        .checked_sub(balance_before)
+        .ok_or(ErrorCode::MarketMathOverflow.into())
+}
+
+#[cfg(test)]
+mod decimal_tests {
+    use super::*;
+
+    #[test]
+    fn live_market_asset_decimals_are_bounded_by_nad_precision() {
+        for decimals in 0..=NAD_DECIMALS {
+            require_supported_asset_decimals(decimals).unwrap();
+        }
+
+        let error = require_supported_asset_decimals(NAD_DECIMALS + 1).unwrap_err();
+        match error {
+            anchor_lang::error::Error::AnchorError(error) => {
+                assert_eq!(error.error_name, "UnsupportedAssetDecimals");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
 }
 
 pub fn validate_side_vault_accounts<'info>(

@@ -19,7 +19,7 @@ use crate::{
     },
 };
 
-use super::common::validate_liquidation_accounts;
+use super::common::{reconcile_insurance_funding_credit, validate_liquidation_accounts};
 use crate::instructions::common::{
     require_supported_asset_mint, token_account_credit, token_program_for_mint, validate_interest_accounts,
 };
@@ -365,12 +365,21 @@ impl<'info> SettleLiquidationAuctionAmm<'info> {
                 collateral_insurance_balance_before,
                 &ctx.accounts.collateral_insurance_vault,
             )?;
-            require_eq!(
-                insurance_credit,
+            reconcile_insurance_funding_credit(
+                &mut ctx.accounts.market.insurance,
+                debt_asset,
                 liquidation_receipt.insurance_funded,
-                ErrorCode::MarketMathOverflow
-            );
+                insurance_credit,
+            )?;
         }
+
+        let current_slot = Clock::get()?.slot;
+        if liquidation_receipt.socialized_loss > 0 {
+            ctx.accounts.market.checkpoint_amm_socialized_loss(current_slot)?;
+        } else {
+            ctx.accounts.market.finalize_amm_transition(current_slot)?;
+        }
+        ctx.accounts.market.refresh_risk()?;
 
         emit_position_liquidated_low_heap(
             market_key,

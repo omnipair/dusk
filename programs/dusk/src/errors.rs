@@ -203,6 +203,9 @@ pub enum ErrorCode {
     #[msg("Wrong LP decimals")]
     WrongLpDecimals,
 
+    #[msg("Asset mint decimals exceed Dusk's 9-decimal AMM precision")]
+    UnsupportedAssetDecimals,
+
     #[msg("Invalid vault - token_in_vault and token_out_vault must be different")]
     InvalidVaultSameAccount,
 
@@ -349,4 +352,7 @@ pub enum ErrorCode {
 
     #[msg("Invalid referral accrual account")]
     InvalidReferralAccrual,
+
+    #[msg("Leverage collateral mint must not have transfer fee configuration")]
+    InvalidLeverageCollateralMint,
 }

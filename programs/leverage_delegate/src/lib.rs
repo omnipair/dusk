@@ -5,7 +5,7 @@ use anchor_spl::{
     token_interface::{Mint, TokenAccount},
 };
 use dusk::{
-    constants::{BPS_DENOMINATOR, NAD},
+    constants::{BPS_DENOMINATOR, MARKET_LAYOUT_VERSION, NAD},
     instructions::{
         LeverageDelegationApproval, LEVERAGE_DELEGATE_CLOSE, LEVERAGE_DELEGATE_CLOSE_SETTLED,
     },
@@ -109,6 +109,9 @@ pub struct LeverageOrder {
 #[derive(Accounts)]
 #[instruction(args: CreateLeverageOrderArgs)]
 pub struct CreateLeverageOrder<'info> {
+    #[account(
+        constraint = market.version == MARKET_LAYOUT_VERSION @ LeverageDelegateError::InvalidMarketVersion
+    )]
     pub market: Box<Account<'info, Market>>,
     #[account(
         constraint = leverage_position.owner == owner.key() @ LeverageDelegateError::InvalidOrder,
@@ -136,6 +139,9 @@ pub struct CreateLeverageOrder<'info> {
 #[derive(Accounts)]
 #[instruction(args: UpdateLeverageOrderArgs)]
 pub struct UpdateLeverageOrder<'info> {
+    #[account(
+        constraint = market.version == MARKET_LAYOUT_VERSION @ LeverageDelegateError::InvalidMarketVersion
+    )]
     pub market: Box<Account<'info, Market>>,
     #[account(
         constraint = leverage_position.owner == owner.key() @ LeverageDelegateError::InvalidOrder,
@@ -196,6 +202,9 @@ pub struct BeforeLeverageOrder<'info> {
         constraint = order.position == leverage_position.key() @ LeverageDelegateError::InvalidOrder,
     )]
     pub order: Box<Account<'info, LeverageOrder>>,
+    #[account(
+        constraint = market.version == MARKET_LAYOUT_VERSION @ LeverageDelegateError::InvalidMarketVersion
+    )]
     pub market: Box<Account<'info, Market>>,
     #[account(
         constraint = leverage_position.owner == order.owner @ LeverageDelegateError::InvalidOrder,
@@ -342,8 +351,12 @@ impl<'info> BeforeLeverageOrder<'info> {
             order.kind == expected_kind,
             LeverageDelegateError::InvalidOrder
         );
-        let closeout_price_nad =
-            closeout_price_per_unit_nad(&ctx.accounts.market, &ctx.accounts.leverage_position)?;
+        let current_slot = Clock::get()?.slot;
+        let closeout_price_nad = closeout_price_per_unit_nad(
+            &ctx.accounts.market,
+            &ctx.accounts.leverage_position,
+            current_slot,
+        )?;
         require_trigger_met(
             expected_kind,
             closeout_price_nad,
@@ -363,7 +376,7 @@ impl<'info> BeforeLeverageOrder<'info> {
         let closeout_value = ctx
             .accounts
             .market
-            .leverage_closeout_value(&ctx.accounts.leverage_position)?;
+            .leverage_closeout_value(&ctx.accounts.leverage_position, current_slot)?;
         let debt_amount = ctx
             .accounts
             .leverage_position
@@ -638,8 +651,12 @@ fn require_closed_leverage_position(position: &LeveragePosition) -> Result<()> {
     Ok(())
 }
 
-fn closeout_price_per_unit_nad(market: &Market, position: &LeveragePosition) -> Result<u64> {
-    let closeout_value = market.leverage_closeout_value(position)?;
+fn closeout_price_per_unit_nad(
+    market: &Market,
+    position: &LeveragePosition,
+    current_slot: u64,
+) -> Result<u64> {
+    let closeout_value = market.leverage_closeout_value(position, current_slot)?;
     Ok((closeout_value as u128)
         .checked_mul(NAD as u128)
         .ok_or(LeverageDelegateError::MathOverflow)?
@@ -661,6 +678,8 @@ pub enum LeverageDelegateError {
     MathOverflow,
     #[msg("Approval serialization failed")]
     ApprovalSerializationFailed,
+    #[msg("Unsupported Dusk market version")]
+    InvalidMarketVersion,
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 # Omnipair Dusk (v2)
 
-Omnipair Dusk (v2) is the standalone Dusk market program. It uses market terminology, floating yield LP shares, aggregate hedged LP vault accounting, and isolated spot-margin leverage.
+Omnipair Dusk (v2) is the standalone Dusk market program. It uses market terminology, floating yield LP shares, aggregate hedged LP vault accounting, isolated spot-margin leverage, and an optional oracle-less Dusk Concentrated AMM. See [`CONCENTRATION.md`](./CONCENTRATION.md) for the curve, recentering, fee, and protected-liquidity specification.
 
 ## Source Boundaries
 
@@ -8,7 +8,7 @@ Omnipair Dusk (v2) is the standalone Dusk market program. It uses market termino
 - `transitions/`: atomic accounting mutations with small receipts for events and tests.
 - `state/`: account layouts, embedded market books, and invariants.
 - `tokens/`: validation for Token-2022 yLP and hLP mints.
-- `math/`: fixed-point, GAMM, EMA, valuation, and interest helpers.
+- `math/`: fixed-point concentrated-AMM/CPMM, dynamic-fee, EMA, valuation, and interest helpers.
 - `utils/`: shared accounting helpers used by transitions.
 
 Instruction modules are split by domain: `market`, `liquidity`, `yielding`, `spot`, `lending`, `leverage`, `referral`, and `futarchy`.
@@ -24,7 +24,7 @@ Omnipair Dusk (v2) exposes the current market instruction set:
 - `deposit_collateral`, `withdraw_collateral`, `borrow`, `repay`
 - `configure_referral_partner`, `initialize_referral_accrual`, `set_referral_recipient`, `claim_referral_interest`
 - `trigger_liquidation_auction`, `bid_liquidation_auction`, `settle_liquidation_auction_amm`
-- `deposit_single_sided`, `withdraw_single_sided`
+- `deposit_single_sided`, `withdraw_single_sided`, `crank_hlp_rebalance`, `crank_amm_maintenance`
 - `open_leverage`, `close_leverage`, `delegated_close_leverage`, `increase_leverage`, `decrease_leverage`, `add_leverage_margin`, `remove_leverage_margin`, `liquidate_leverage`
 - `create_leverage_delegation`, `update_leverage_delegation`, `close_leverage_delegation`
 - `preview_market`, `preview_add_liquidity`, `preview_swap`, `preview_borrow_capacity`, `preview_borrow_position`
@@ -53,7 +53,7 @@ quote_claim = user_ylp_shares * quote_live_reserve / total_ylp_supply
 
 There is no fixed 1:1 protected-principal LP, no separate public fee-eligibility step, and no retained junior-capital account. `remove_liquidity` burns yLP and returns pro-rata base and quote principal reserves subject to cash availability and user slippage bounds.
 
-Swap fees and borrow interest are non-compounding liabilities. They are held outside principal reserves in side-specific fee and interest vaults and distributed through side-specific growth indexes. `YieldAccount` stores owner checkpoints, accrued revenue, and an optional external revenue recipient for treasury or protocol-owned liquidity flows.
+Base swap fees, distributed dynamic surcharge, and borrow interest are non-compounding liabilities. They are held outside principal reserves in side-specific fee and interest vaults and distributed through side-specific growth indexes. While the AMM's protected recentering budget is under target, only the dynamic surcharge may remain in executable reserves as auto-compounding yLP principal. `YieldAccount` stores owner checkpoints, accrued revenue, and an optional external revenue recipient for treasury or protocol-owned liquidity flows.
 
 ## hLP Vaults
 
@@ -109,7 +109,19 @@ The runtime cap is governed through `update_protocol_revenue` and applies when a
 
 ## Swaps And Rebalancing
 
-`swap` is the Dusk swap entry. It transfers inventory, routes swap fees to the fee vault, applies GAMM reserve movement, and checkpoints both aggregate hLP vaults in O(1).
+`swap` is the Dusk swap entry. It transfers inventory, applies the market's exact CPMM or Dusk Concentrated AMM reserve curve, charges the configured base plus divergence/volatility fees, routes only claimable fees to the fee vault, and checkpoints both aggregate hLP vaults in O(1).
+
+The divergence surcharge has no configured rate ceiling: its marginal toll is
+unbounded. The separately configured volatility mapping is asymptotic and
+stays below 100% for every finite state. The implicit gross-input solve lets
+the effective surcharge share approach 100% while preserving positive
+curve-executable input at token precision; a quote rejects when token
+granularity cannot preserve that input. Launch markets support asset decimals
+from zero through nine, and initialization rejects finer assets.
+Routers and user slippage bounds decide whether the resulting market quote is
+acceptable.
+
+`peak_depth = 0, imbalance_scale = 0` is exact CPMM. Positive `peak_depth` and `imbalance_scale` activate the Dusk Concentrated AMM: `peak_depth` states the extra marginal-depth multiplier at the internally observed center, while `imbalance_scale` controls how quickly that extra depth fades toward the exact CPMM tail. These are the only invariant knobs. Fees, EMA half-life, adjustment threshold, and recenter velocity remain separate controller settings. Trades move reserves and produce price observations; a time-decayed internal EMA guides only funded, bounded center adjustments. Dusk never consults an external oracle.
 
 hLP checkpointing computes NAV, attempts the spot-based leverage adjustment, records any unexecuted amount in `pending_rebalance`, and refreshes a cached settlement reference. The adjustment mints or burns balanced yLP, so the quoted post-swap spot is preserved within rounding and there is no hidden second price move after the user output. Leverage-up is capped by borrowed-side cash headroom; when cash is unavailable, ordinary swaps remain live and the gap is carried forward as pending rebalance. hLP open/close uses the cached reference to block settlement when spot has moved beyond `settlement_divergence_bps`.
 
@@ -143,7 +155,7 @@ Indexers should consume Dusk events from the standalone Dusk IDL:
 - `MarketCreated`, `MarketUpdated`, `MarketHealthUpdated`
 - `LiquidityAdded`, `LiquidityRemoved`
 - `YieldRecipientUpdated`, `YieldClaimed`, `MarketFeeLiabilityClaimed`, `ProtocolFeesClaimed`
-- `SwapExecuted`, `HlpRebalanced`
+- `SwapExecuted`, `SwapSettled`, `HlpRebalanced`
 - `MarketCollateralDeposited`, `MarketCollateralWithdrawn`, `MarketDebtUpdated`
 - `PositionLiquidated`
 - `HlpOpened`, `HlpClosed`
@@ -153,12 +165,26 @@ Indexers should consume Dusk events from the standalone Dusk IDL:
 
 Market-scoped Dusk events carry `MarketEventMetadata` with signer, market, and slot. Protocol-wide authority, referral-recipient, and referral-claim events instead expose their authority or signer directly because they are not tied to one market.
 
+Indexers must treat `SwapExecuted` and `SwapSettled` as the same swap stream.
+`SwapSettled` replaces `SwapExecuted` when a CPMM swap also executes hLP token
+changes; it uses `asset_in_side` instead of repeating both mint addresses and
+omits metadata to keep that composite path within its heap budget. Both events
+contain the same fee and price telemetry. `end_price_nad` is the
+invariant-preserving trade endpoint; `reserve_end_price_nad` is the final pool
+marginal price after any retained surcharge has entered executable reserves.
+Leverage position events expose their embedded AMM leg as `swap`; margin-only
+updates set it to `None`.
+
 ## Core Invariants
 
 - yLP supply is backed by paired base/quote principal accounting.
 - No operation mints yLP without corresponding reserve value.
-- yLP principal reserves exclude fee and interest vault balances.
+- yLP principal reserves exclude fee and interest vault balances; only retained dynamic surcharge may become new swap principal.
 - Fee liabilities must be backed by fee and interest vault balances.
+- Base fees and lending interest never fund concentration recentering.
+- A normal trade checkpoints the current curve as economically neutral; retained dynamic surcharge is the only swap path that creates protected recentering budget.
+- Recenter and parameter-ramp points are admitted only when their Dusk Concentrated AMM `Q` impairment is funded.
+- CPMM and Dusk Concentrated AMM swaps, previews, lending risk, liquidation risk, leverage, and hLP use one applied curve definition.
 - hLP NAV is `collateral_value - debt_value` and must not underflow.
 - hLP debt shares stay matched to aggregate hLP vault debt.
 - hLP operations never use yLP-denominated debt.
@@ -167,7 +193,7 @@ Market-scoped Dusk events carry `MarketEventMetadata` with signer, market, and s
 - Delegated close must validate both the delegate's close approval and settlement approval return data.
 - Individual borrower health uses all position collateral and the position's stored liquidation CF.
 - Global-health contributions are debt-capped underwriting signals and never prevent collateral withdrawal or change another position's stored terms.
-- Conservative risk depth uses one K EMA, reconstructed at the current spot ratio and capped by live depth; there are no spot/EMA-divergence or K-drawdown action halts.
+- Conservative risk depth uses the lower internally observed `Q` state and reconstructs pessimistic reserve shapes on the exact applied CPMM/Dusk Concentrated AMM curve; there is no external-oracle or hidden CPMM fallback for concentrated markets.
 - Referral binding never changes requested principal, debt, interest, health, or liquidation terms; accruals are carved only from realized protocol interest revenue.
 - Referral-interest claims are bounded by realized protocol revenue and pay only the partner's current designated recipient.
 - Risk books update EMA values from cached pre-transition observations and store current observations for the next refresh.

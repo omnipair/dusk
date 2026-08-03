@@ -508,13 +508,17 @@ export function defaultMarketConfig() {
   const startTime = duskEnv("MARKET_START_TIME", "0");
   return {
     swapFeeBps: Number(duskEnv("SWAP_FEE_BPS", "30")),
-    operatorFeeBps: Number(duskEnv("OPERATOR_FEE_BPS", "0")),
+    managerFeeBps: Number(
+      duskEnv("MANAGER_FEE_BPS", duskEnv("OPERATOR_FEE_BPS", "0"))
+    ),
     protocolFeeBps: Number(duskEnv("PROTOCOL_FEE_BPS", "0")),
     targetHlpLeverageBps: Number(duskEnv("TARGET_HLP_LEVERAGE_BPS", "20000")),
     settlementDivergenceBps: Number(duskEnv("SETTLEMENT_DIVERGENCE_BPS", "500")),
     emaHalfLifeMs: new anchor.BN(duskEnv("EMA_HALF_LIFE_MS", "60000")),
     directionalEmaHalfLifeMs: new anchor.BN(duskEnv("DIRECTIONAL_EMA_HALF_LIFE_MS", "60000")),
-    kEmaHalfLifeMs: new anchor.BN(duskEnv("K_EMA_HALF_LIFE_MS", "60000")),
+    qEmaHalfLifeMs: new anchor.BN(
+      duskEnv("Q_EMA_HALF_LIFE_MS", duskEnv("K_EMA_HALF_LIFE_MS", "60000"))
+    ),
     maxDailyBorrowBps: Number(duskEnv("MAX_DAILY_BORROW_BPS", "2000")),
     globalHealthContributionCapBps: Number(
       duskEnv("GLOBAL_HEALTH_CONTRIBUTION_CAP_BPS", "15000")
@@ -522,7 +526,26 @@ export function defaultMarketConfig() {
     borrowMarketHealthFloorBps: Number(
       duskEnv("BORROW_MARKET_HEALTH_FLOOR_BPS", "11000")
     ),
+    amm: defaultAmmConfig(),
     startTime: new anchor.BN(startTime),
+  };
+}
+
+export function defaultAmmConfig() {
+  return {
+    peakDepthNad: new anchor.BN(duskEnv("AMM_PEAK_DEPTH_NAD", "0")),
+    imbalanceScaleNad: new anchor.BN(duskEnv("AMM_IMBALANCE_SCALE_NAD", "0")),
+    centerEmaHalfLifeMs: new anchor.BN(duskEnv("AMM_CENTER_EMA_HALF_LIFE_MS", "60000")),
+    volatilityHalfLifeMs: new anchor.BN(duskEnv("AMM_VOLATILITY_HALF_LIFE_MS", "60000")),
+    adjustmentThresholdNad: new anchor.BN(duskEnv("AMM_ADJUSTMENT_THRESHOLD_NAD", "0")),
+    adjustmentStepNad: new anchor.BN(duskEnv("AMM_ADJUSTMENT_STEP_NAD", "0")),
+    minAdjustmentIntervalSlots: new anchor.BN(duskEnv("AMM_MIN_ADJUSTMENT_INTERVAL_SLOTS", "0")),
+    volatilityShockCapNad: new anchor.BN(duskEnv("AMM_VOLATILITY_SHOCK_CAP_NAD", "0")),
+    volatilityCapNad: new anchor.BN(duskEnv("AMM_VOLATILITY_CAP_NAD", "0")),
+    divergenceFeeCoefficientNad: new anchor.BN(duskEnv("AMM_DIVERGENCE_FEE_COEFFICIENT_NAD", "0")),
+    volatilityFeeCoefficientNad: new anchor.BN(duskEnv("AMM_VOLATILITY_FEE_COEFFICIENT_NAD", "0")),
+    rampDurationSlots: new anchor.BN(duskEnv("AMM_RAMP_DURATION_SLOTS", "9000")),
+    reserved: Array(34).fill(0),
   };
 }
 

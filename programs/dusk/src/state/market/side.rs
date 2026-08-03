@@ -170,8 +170,9 @@ impl MarketSide {
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
     ) -> Result<FeesReceipt> {
-        self.record_swap_fee_credit_with_supply(
+        self.record_claimable_swap_fees(
             fee_credit,
+            0,
             manager_fee_bps,
             protocol_fee_bps,
             protocol_auction_split,
@@ -187,16 +188,47 @@ impl MarketSide {
         protocol_auction_split: ProtocolAuctionSplit,
         eligible_ylp_supply: u64,
     ) -> Result<FeesReceipt> {
-        if fee_credit == 0 {
+        self.record_claimable_swap_fees(
+            fee_credit,
+            0,
+            manager_fee_bps,
+            protocol_fee_bps,
+            protocol_auction_split,
+            eligible_ylp_supply,
+        )
+    }
+
+    /// Records swap fees that were actually credited to the fee vault.
+    ///
+    /// The manager/protocol split applies only to `base_fee_credit`.
+    /// A distributed dynamic surcharge belongs entirely to yLPs; retained
+    /// surcharge must stay in the reserve and must not be passed here.
+    pub fn record_claimable_swap_fees(
+        &mut self,
+        base_fee_credit: u64,
+        distributed_dynamic_surcharge_credit: u64,
+        manager_fee_bps: u16,
+        protocol_fee_bps: u16,
+        protocol_auction_split: ProtocolAuctionSplit,
+        eligible_ylp_supply: u64,
+    ) -> Result<FeesReceipt> {
+        if base_fee_credit == 0 && distributed_dynamic_surcharge_credit == 0 {
             return Ok(FeesReceipt::from_side(self));
         }
-        let (manager_fee, protocol_fee, lp_fee) = split_revenue(fee_credit, manager_fee_bps, protocol_fee_bps)?;
+        let claimable_fee_credit = base_fee_credit
+            .checked_add(distributed_dynamic_surcharge_credit)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let (manager_fee, protocol_fee, base_lp_fee) =
+            split_revenue(base_fee_credit, manager_fee_bps, protocol_fee_bps)?;
+        let lp_fee = base_lp_fee
+            .checked_add(distributed_dynamic_surcharge_credit)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
         let (fee_auction_amount, buyback_auction_amount) =
             split_protocol_auction_fee(protocol_fee, &protocol_auction_split)?;
         self.fees.swap_fee_vault_balance = self
             .fees
             .swap_fee_vault_balance
-            .checked_add(fee_credit)
+            .checked_add(claimable_fee_credit)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         self.fees.manager_swap_fee_liability = self
             .fees

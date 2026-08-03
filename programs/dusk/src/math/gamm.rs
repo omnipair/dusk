@@ -1,14 +1,62 @@
 use anchor_lang::prelude::*;
 
-use crate::{
-    constants::{MIN_LIQUIDITY, NAD},
-    errors::ErrorCode,
-    shared::math::{ceil_div, SqrtU128},
-    state::MarketSide,
-};
+use crate::{errors::ErrorCode, shared::math::SqrtU128, state::MarketSide};
 
 use super::fixed_point::normalize_to_nad;
 
+#[allow(clippy::assign_op_pattern, clippy::manual_div_ceil)]
+mod wide {
+    use uint::construct_uint;
+
+    construct_uint! {
+        pub struct U256(4);
+    }
+}
+
+use wide::U256;
+
+#[cfg(test)]
+use crate::constants::{MIN_LIQUIDITY, NAD};
+
+fn u256_to_u128_output(value: U256) -> Result<u128> {
+    require!(value <= U256::from(u128::MAX), ErrorCode::OutputAmountOverflow);
+    Ok(value.as_u128())
+}
+
+fn mul_div_output_floor(a: u128, b: u128, denominator: u128) -> Result<u128> {
+    require!(denominator > 0, ErrorCode::OutputAmountOverflow);
+    if let Some(numerator) = a.checked_mul(b) {
+        return Ok(numerator / denominator);
+    }
+    let value = U256::from(a)
+        .checked_mul(U256::from(b))
+        .ok_or(ErrorCode::OutputAmountOverflow)?
+        / U256::from(denominator);
+    u256_to_u128_output(value)
+}
+
+fn mul_div_output_ceil(a: u128, b: u128, denominator: u128) -> Result<u128> {
+    require!(denominator > 0, ErrorCode::OutputAmountOverflow);
+    if let Some(numerator) = a.checked_mul(b) {
+        return Ok(if numerator == 0 {
+            0
+        } else {
+            (numerator - 1) / denominator + 1
+        });
+    }
+    let numerator = U256::from(a)
+        .checked_mul(U256::from(b))
+        .ok_or(ErrorCode::OutputAmountOverflow)?;
+    let denominator = U256::from(denominator);
+    let value = if numerator.is_zero() {
+        U256::zero()
+    } else {
+        (numerator - U256::one()) / denominator + U256::one()
+    };
+    u256_to_u128_output(value)
+}
+
+#[cfg(test)]
 pub(crate) fn market_spot_price_nad(collateral_side: &MarketSide, debt_side: &MarketSide) -> Result<u64> {
     let collateral_reserve = normalize_to_nad(
         collateral_side.reserves.live_reserve as u128,
@@ -43,6 +91,7 @@ pub(crate) fn market_liquidity_nad(base_side: &MarketSide, quote_side: &MarketSi
 /// Reconstructs both normalized reserve depths from a conservative K while
 /// preserving the current spot reserve ratio. Flooring can only make the
 /// reconstructed product more conservative than `k_nad`.
+#[cfg(test)]
 pub(crate) fn construct_normalized_reserves_from_k_at_spot_ratio(
     x_spot: u128,
     y_spot: u128,
@@ -75,6 +124,7 @@ pub(crate) fn construct_normalized_reserves_from_k_at_spot_ratio(
 /// Constructs virtual reserves at pessimistic price = min(P_directional_ema, P_symmetric_ema).
 /// - x_virt = sqrt(k * NAD / P_pessimistic)
 /// - y_virt = sqrt(k * P_pessimistic / NAD)
+#[cfg(test)]
 pub(crate) fn construct_normalized_virtual_reserves_at_pessimistic_price(
     x_spot: u128,
     y_spot: u128,
@@ -136,14 +186,10 @@ pub(crate) fn construct_normalized_virtual_reserves_at_pessimistic_price(
 /// ```
 pub(crate) fn calculate_normalized_amount_out(x: u128, y: u128, dx: u128) -> Result<u128> {
     let denominator = x.checked_add(dx).ok_or(ErrorCode::DenominatorOverflow)?;
-    let dy = dx
-        .checked_mul(y)
-        .ok_or(ErrorCode::OutputAmountOverflow)?
-        .checked_div(denominator)
-        .ok_or(ErrorCode::OutputAmountOverflow)?;
-    Ok(dy)
+    mul_div_output_floor(dx, y, denominator)
 }
 
+#[cfg(test)]
 pub(crate) fn calculate_raw_amount_out(x: u64, y: u64, dx: u64) -> Result<u64> {
     let dy = calculate_normalized_amount_out(x as u128, y as u128, dx as u128)?;
     u64::try_from(dy).map_err(|_| ErrorCode::OutputAmountOverflow.into())
@@ -155,9 +201,7 @@ pub(crate) fn calculate_raw_amount_out(x: u64, y: u64, dx: u64) -> Result<u64> {
 /// ```
 pub(crate) fn calculate_normalized_amount_in(x: u128, y: u128, dy: u128) -> Result<u128> {
     let denominator = y.checked_sub(dy).ok_or(ErrorCode::DenominatorOverflow)?;
-    let numerator = dy.checked_mul(x).ok_or(ErrorCode::OutputAmountOverflow)?;
-    let dx = ceil_div(numerator, denominator).ok_or(ErrorCode::OutputAmountOverflow)?;
-    Ok(dx)
+    mul_div_output_ceil(dy, x, denominator)
 }
 
 #[cfg(test)]

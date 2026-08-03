@@ -56,6 +56,10 @@ impl HlpVault {
             require_eq!(self.quote_hlp_live_reserve, 0, ErrorCode::BrokenInvariant);
             require_eq!(self.debt_shares, 0, ErrorCode::BrokenInvariant);
             require_eq!(self.debt_principal, 0, ErrorCode::BrokenInvariant);
+            // A fully closed vault has no economic exposure. Do not leave a
+            // stale fail-closed signal that would keep the next generation of
+            // deposits gated after every share and debt claim is gone.
+            self.pending_rebalance = 0;
         }
         Ok(())
     }
@@ -263,6 +267,13 @@ fn credit_hlp_growth(
 }
 
 impl Market {
+    pub fn has_active_hlp(&self) -> bool {
+        self.base_hlp_vault.hlp_supply > 0
+            || self.base_hlp_vault.pending_rebalance != 0
+            || self.quote_hlp_vault.hlp_supply > 0
+            || self.quote_hlp_vault.pending_rebalance != 0
+    }
+
     pub fn hlp_yield_growth_indexes(&self, market_asset: MarketAsset) -> (u128, u128) {
         match market_asset {
             MarketAsset::Base => self.base_hlp_vault.yield_growth_indexes(MarketAsset::Base),
@@ -301,6 +312,13 @@ impl Market {
         crate::state::market::transitions::hedge::rebalance_hlp_vaults(self)
     }
 
+    pub fn rebalance_hlp_vault(
+        &mut self,
+        target_asset: MarketAsset,
+    ) -> Result<crate::state::market::transitions::hedge::HlpRebalanceReceipt> {
+        crate::state::market::transitions::hedge::rebalance_one_hlp(self, target_asset)
+    }
+
     pub fn finalize_hlp_vaults_for_swap(
         &mut self,
         base_pre_rebalance: crate::state::market::transitions::hedge::HlpRebalanceReceipt,
@@ -316,6 +334,33 @@ impl Market {
         )
     }
 
+    pub fn defer_hlp_vaults_after_concentrated_swap(
+        &mut self,
+        trade_start_base_price_nad: u64,
+        trade_end_base_price_nad: u64,
+    ) -> Result<(
+        crate::state::market::transitions::hedge::HlpRebalanceReceipt,
+        crate::state::market::transitions::hedge::HlpRebalanceReceipt,
+    )> {
+        crate::state::market::transitions::hedge::defer_hlp_vaults_after_concentrated_swap(
+            self,
+            trade_start_base_price_nad,
+            trade_end_base_price_nad,
+        )
+    }
+
+    pub fn require_hlp_vaults_after_concentrated_swap_safe(
+        &self,
+        trade_start_base_price_nad: u64,
+        trade_end_base_price_nad: u64,
+    ) -> Result<()> {
+        crate::state::market::transitions::hedge::require_hlp_vaults_after_concentrated_swap_safe(
+            self,
+            trade_start_base_price_nad,
+            trade_end_base_price_nad,
+        )
+    }
+
     pub fn pre_solve_hlp_vaults_for_swap(
         &mut self,
         asset_in: MarketAsset,
@@ -325,6 +370,23 @@ impl Market {
         crate::state::market::transitions::hedge::HlpRebalanceReceipt,
     )> {
         crate::state::market::transitions::hedge::pre_solve_hlp_vaults_for_swap(self, asset_in, amount_in_after_fee)
+    }
+
+    pub fn pre_solve_hlp_vaults_for_swap_with_reserve_input(
+        &mut self,
+        asset_in: MarketAsset,
+        amount_in_for_quote: u64,
+        reserve_input_credit: u64,
+    ) -> Result<(
+        crate::state::market::transitions::hedge::HlpRebalanceReceipt,
+        crate::state::market::transitions::hedge::HlpRebalanceReceipt,
+    )> {
+        crate::state::market::transitions::hedge::pre_solve_hlp_vaults_for_swap_with_reserve_input(
+            self,
+            asset_in,
+            amount_in_for_quote,
+            reserve_input_credit,
+        )
     }
 
     pub fn checkpoint_hlp_yield_from_ylp(&mut self, target_asset: MarketAsset) -> Result<()> {

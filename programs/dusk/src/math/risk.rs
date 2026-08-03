@@ -9,6 +9,11 @@ use crate::{
     shared::math::{slots_to_ms, taylor_exp},
 };
 
+use super::{
+    concentrated_quote_exact_in, concentrated_quote_exact_out, concentrated_quote_exact_out_input_lower_bound,
+    ConcentratedSwapDirection,
+};
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct DynamicCollateralTerms {
     pub max_debt_nad: u128,
@@ -16,51 +21,98 @@ pub(crate) struct DynamicCollateralTerms {
     pub liquidation_cf_bps: u16,
 }
 
-/// Maximum borrowable debt using V1's impact-aware dynamic collateral factor.
+/// Canonical normalized Dusk Concentrated AMM state used for risk conversions.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ConcentratedRiskCurve {
+    pub base_reserve_nad: u128,
+    pub quote_reserve_nad: u128,
+    pub center_price_nad: u128,
+    pub peak_depth_nad: u128,
+    pub imbalance_scale_nad: u128,
+}
+
+impl ConcentratedRiskCurve {
+    pub(crate) fn exact_in(self, amount_in_nad: u128, direction: ConcentratedSwapDirection) -> Result<u128> {
+        concentrated_quote_exact_in(
+            self.base_reserve_nad,
+            self.quote_reserve_nad,
+            amount_in_nad,
+            direction,
+            self.center_price_nad,
+            self.peak_depth_nad,
+            self.imbalance_scale_nad,
+        )
+    }
+
+    pub(crate) fn exact_out(self, amount_out_nad: u128, direction: ConcentratedSwapDirection) -> Result<u128> {
+        concentrated_quote_exact_out(
+            self.base_reserve_nad,
+            self.quote_reserve_nad,
+            amount_out_nad,
+            direction,
+            self.center_price_nad,
+            self.peak_depth_nad,
+            self.imbalance_scale_nad,
+        )
+    }
+
+    pub(crate) fn exact_out_input_lower_bound(
+        self,
+        amount_out_nad: u128,
+        direction: ConcentratedSwapDirection,
+    ) -> Result<u128> {
+        concentrated_quote_exact_out_input_lower_bound(
+            self.base_reserve_nad,
+            self.quote_reserve_nad,
+            amount_out_nad,
+            direction,
+            self.center_price_nad,
+            self.peak_depth_nad,
+            self.imbalance_scale_nad,
+        )
+    }
+
+    pub(crate) const fn output_reserve(self, direction: ConcentratedSwapDirection) -> u128 {
+        match direction {
+            ConcentratedSwapDirection::BaseToQuote => self.quote_reserve_nad,
+            ConcentratedSwapDirection::QuoteToBase => self.base_reserve_nad,
+        }
+    }
+}
+
+/// Maximum borrowable debt using the same exact concentrated curve as swaps.
 /// All amounts are normalized to NAD before entering this function.
-pub(crate) fn pessimistic_max_debt_nad(
+pub(crate) fn pessimistic_max_debt_on_curve_nad(
     collateral_amount_nad: u128,
-    collateral_virtual_reserve_nad: u128,
-    debt_virtual_reserve_nad: u128,
+    curve: ConcentratedRiskCurve,
+    collateral_to_debt: ConcentratedSwapDirection,
     existing_total_debt_nad: u128,
 ) -> Result<DynamicCollateralTerms> {
-    if collateral_amount_nad == 0 || collateral_virtual_reserve_nad == 0 || debt_virtual_reserve_nad == 0 {
+    if collateral_amount_nad == 0 || curve.base_reserve_nad == 0 || curve.quote_reserve_nad == 0 {
         return Ok(DynamicCollateralTerms::default());
     }
-    if existing_total_debt_nad >= debt_virtual_reserve_nad {
+    if existing_total_debt_nad >= curve.output_reserve(collateral_to_debt) {
         return Ok(DynamicCollateralTerms::default());
     }
 
-    // V_impact: impact-aware collateral value using virtual reserves at
-    // pessimistic price. This matches the valuation used in liquidation,
-    // ensuring the borrow limit never exceeds the liquidation threshold.
-    let collateral_value_with_impact = calculate_normalized_amount_out(
-        collateral_virtual_reserve_nad,
-        debt_virtual_reserve_nad,
-        collateral_amount_nad,
-    )?;
+    // V_impact: exact-input collateral value on the pessimistic curve state.
+    let collateral_value_with_impact = curve.exact_in(collateral_amount_nad, collateral_to_debt)?;
     if collateral_value_with_impact == 0 {
         return Ok(DynamicCollateralTerms::default());
     }
 
-    // 0. Calculate utilized collateral with price impact using virtual
-    // reserves at pessimistic price.
-    let utilized_collateral = calculate_normalized_amount_in(
-        collateral_virtual_reserve_nad,
-        debt_virtual_reserve_nad,
-        existing_total_debt_nad,
-    )?;
+    // 0. Recover a proven lower bound on collateral already utilized by
+    // aggregate debt. The concentrated inverse supplies its certified
+    // negative raw-output endpoint directly; no heuristic subtraction from a
+    // conservative exact-out quote is involved.
+    let utilized_collateral = curve.exact_out_input_lower_bound(existing_total_debt_nad, collateral_to_debt)?;
 
-    // 1. Calculate max allowed total debt using virtual reserves at
-    // pessimistic price.
+    // 1. Value utilized plus new collateral through the same exact-input
+    // quote used for swap execution.
     let total_collateral_amount = utilized_collateral
         .checked_add(collateral_amount_nad)
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    let max_allowed_total_debt = calculate_normalized_amount_out(
-        collateral_virtual_reserve_nad,
-        debt_virtual_reserve_nad,
-        total_collateral_amount,
-    )?;
+    let max_allowed_total_debt = curve.exact_in(total_collateral_amount, collateral_to_debt)?;
 
     // 2. Calculate user max debt.
     let user_max_debt = max_allowed_total_debt.saturating_sub(existing_total_debt_nad);
@@ -94,8 +146,6 @@ pub(crate) fn pessimistic_max_debt_nad(
         liquidation_cf_bps,
     })
 }
-
-use super::gamm::{calculate_normalized_amount_in, calculate_normalized_amount_out};
 
 pub(crate) fn health_bps(utilized_collateral_value_nad: u128, effective_debt_nad: u128) -> Result<u64> {
     if effective_debt_nad == 0 {

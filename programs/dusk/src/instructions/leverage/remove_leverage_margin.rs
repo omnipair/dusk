@@ -13,10 +13,8 @@ use crate::{
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset},
 };
 
-use super::common::validate_owner_debt_account;
-use crate::instructions::common::{
-    require_supported_asset_mint, token_account_credit, token_program_for_mint, validate_side_vault_accounts,
-};
+use super::common::{validate_leverage_collateral_risk_mint, validate_leverage_mints, validate_owner_debt_account};
+use crate::instructions::common::{token_account_credit, token_program_for_mint, validate_side_vault_accounts};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct RemoveLeverageMarginArgs {
@@ -62,6 +60,7 @@ pub struct RemoveLeverageMargin<'info> {
     pub leverage_position: Box<Account<'info, LeveragePosition>>,
 
     pub debt_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub collateral_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(mut)]
     pub debt_reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
@@ -80,9 +79,10 @@ impl<'info> RemoveLeverageMargin<'info> {
         require_keys_eq!(self.owner.key(), self.position_owner.key(), ErrorCode::InvalidSigner);
         require!(args.amount > 0, ErrorCode::AmountZero);
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
+        validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
+        validate_leverage_collateral_risk_mint(&self.collateral_mint)?;
         validate_side_vault_accounts(&self.market, debt_asset, &self.debt_mint, &self.debt_reserve_vault)?;
         validate_owner_debt_account(self.owner.key(), &self.debt_mint, &self.owner_debt_account)?;
-        require_supported_asset_mint(&self.debt_mint)?;
         self.leverage_position.require_open()?;
         Ok(())
     }
@@ -96,10 +96,11 @@ impl<'info> RemoveLeverageMargin<'info> {
         let debt_mint_key = ctx.accounts.debt_mint.key();
         let position_key = ctx.accounts.leverage_position.key();
 
-        let receipt = ctx
-            .accounts
-            .market
-            .remove_leverage_margin(&mut ctx.accounts.leverage_position, args.amount)?;
+        let receipt = ctx.accounts.market.remove_leverage_margin(
+            &mut ctx.accounts.leverage_position,
+            args.amount,
+            Clock::get()?.slot,
+        )?;
         let debt_token_program = token_program_for_mint(
             &ctx.accounts.debt_mint,
             &ctx.accounts.token_program,
@@ -133,6 +134,7 @@ impl<'info> RemoveLeverageMargin<'info> {
             debt_shares: receipt.debt_shares,
             collateral_amount: receipt.collateral_amount,
             closeout_value: receipt.closeout_value,
+            swap: None,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
         Ok(())

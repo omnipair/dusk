@@ -288,6 +288,12 @@ impl<'info> AddLiquidity<'info> {
             .market
             .add_liquidity(base_reserve_credit, quote_reserve_credit)?;
         require_gte!(receipt.ylp_amount, args.min_ylp_amount, ErrorCode::SlippageExceeded);
+        let current_slot = Clock::get()?.slot;
+        ctx.accounts.market.finalize_amm_transition(current_slot)?;
+        // Adding depth cannot consume an underwriting shape in this
+        // instruction. Persist the exact final curve observation and rebuild
+        // pessimistic lending shapes lazily on their next use.
+        ctx.accounts.market.observe_current_risk(current_slot)?;
 
         let ylp_program = token_program_for_mint(
             &ctx.accounts.ylp_mint,

@@ -3,8 +3,33 @@ use anchor_spl::token_interface::{Mint, TokenAccount};
 
 use crate::{
     errors::ErrorCode,
-    state::{Market, MarketAsset},
+    state::{Insurance, Market, MarketAsset},
 };
+
+/// Liquidation math records the gross collateral routed to insurance so that
+/// `collateral_seized = collateral_to_liquidator + insurance_funded` remains
+/// exact. A Token-2022 transfer fee makes less than that gross amount usable by
+/// the insurance vault. Reconcile the already-recorded nominal addition to the
+/// destination vault's measured net credit.
+pub(super) fn reconcile_insurance_funding_credit(
+    insurance: &mut Insurance,
+    debt_asset: MarketAsset,
+    gross_funding: u64,
+    actual_credit: u64,
+) -> Result<()> {
+    require_gte!(gross_funding, actual_credit, ErrorCode::MarketMathOverflow);
+    let transfer_fee = gross_funding
+        .checked_sub(actual_credit)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let available = match debt_asset {
+        MarketAsset::Base => &mut insurance.quote_available,
+        MarketAsset::Quote => &mut insurance.base_available,
+    };
+    *available = available
+        .checked_sub(transfer_fee)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    Ok(())
+}
 
 pub(super) fn validate_liquidation_accounts<'info>(
     market: &Account<'info, Market>,
@@ -88,4 +113,60 @@ pub(super) fn validate_liquidation_accounts<'info>(
         ErrorCode::InvalidTokenAccount
     );
     Ok(debt_asset)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use spl_token_2022::extension::transfer_fee::TransferFee;
+
+    fn active_transfer_fee() -> TransferFee {
+        TransferFee {
+            epoch: 0_u64.into(),
+            maximum_fee: u64::MAX.into(),
+            transfer_fee_basis_points: 300_u16.into(),
+        }
+    }
+
+    #[test]
+    fn token_2022_fee_reconciles_quote_insurance_to_actual_credit() {
+        let gross_funding = 10_000;
+        let actual_credit = active_transfer_fee().calculate_post_fee_amount(gross_funding).unwrap();
+        let mut insurance = Insurance {
+            // State after liquidation math added 10_000 gross to a prior 40_000.
+            quote_available: 50_000,
+            ..Insurance::default()
+        };
+
+        reconcile_insurance_funding_credit(&mut insurance, MarketAsset::Base, gross_funding, actual_credit).unwrap();
+
+        assert_eq!(actual_credit, 9_700);
+        assert_eq!(insurance.quote_available, 49_700);
+    }
+
+    #[test]
+    fn token_2022_fee_reconciles_base_insurance_to_actual_credit() {
+        let gross_funding = 10_000;
+        let actual_credit = active_transfer_fee().calculate_post_fee_amount(gross_funding).unwrap();
+        let mut insurance = Insurance {
+            // State after liquidation math added 10_000 gross to a prior 40_000.
+            base_available: 50_000,
+            ..Insurance::default()
+        };
+
+        reconcile_insurance_funding_credit(&mut insurance, MarketAsset::Quote, gross_funding, actual_credit).unwrap();
+
+        assert_eq!(actual_credit, 9_700);
+        assert_eq!(insurance.base_available, 49_700);
+    }
+
+    #[test]
+    fn insurance_credit_cannot_exceed_gross_funding() {
+        let mut insurance = Insurance {
+            quote_available: 500,
+            ..Insurance::default()
+        };
+
+        assert!(reconcile_insurance_funding_credit(&mut insurance, MarketAsset::Base, 100, 101).is_err());
+    }
 }

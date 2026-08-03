@@ -12,11 +12,13 @@ Dusk is the next generation of Omnipair: a standalone market program that brings
 
 ## Overview
 
-Omnipair's GAMM (Generalized Automated Market Maker) combines a constant-product market maker with an integrated lending market. Liquidity providers deposit both sides of a pair, traders swap against the unified reserves, and borrowers can use one side of the market as collateral to borrow the other.
+Omnipair's GAMM (Generalized Automated Market Maker) combines an AMM with an integrated lending market. Dusk markets can use exact constant product or the optional oracle-less Dusk Concentrated AMM with amplified near-center depth and exact CPMM tails. Liquidity providers deposit both sides of a pair, traders swap against the unified reserves, and borrowers can use one side of the market as collateral to borrow the other.
 
 Dusk keeps that core Omnipair GAMM idea and rebuilds it around a market-native account model:
 
 - **Oracle-less markets**: pricing and risk use in-protocol reserve state, EMA books, and conservative settlement references instead of external oracle feeds.
+- **Optional autonomous concentration**: the Dusk Concentrated AMM concentrates depth around an internal center, recenters only through funded bounded maintenance, and can ramp to or from exact CPMM without changing invariant families elsewhere in the protocol.
+- **Path-aware dynamic fees**: an outward divergence surcharge targets trending inventory stress and keeps deteriorating without a fee-rate cap, while a separate asymptotic volatility surcharge prices repeated chop. Every accepted swap preserves positive executable input.
 - **Unified liquidity and lending**: LP inventory backs both swaps and borrow demand, letting capital serve multiple protocol flows.
 - **Standalone Dusk program**: Dusk has its own program ID, IDL, account model, event surface, and SDK helpers.
 - **Yield-bearing LP shares**: `yLP` represents a two-sided liquidity claim while reserve-side yield is checkpointed through base and quote growth indexes.
@@ -80,7 +82,7 @@ Normal LPs enter with `add_liquidity`, depositing both assets at the current mar
 asset_claim = user_ylp_shares * live_reserve / total_ylp_supply
 ```
 
-Fees and borrow interest do not auto-compound into principal reserves. They accrue in fee and interest vaults, are tracked through side-specific growth indexes, and are claimed through `claim_yield`.
+Base swap fees, distributed dynamic surcharge, and borrow interest do not auto-compound into principal reserves. They accrue in fee and interest vaults, are tracked through side-specific growth indexes, and are claimed through `claim_yield`. Only dynamic surcharge retained while the protected recentering budget is below target becomes reserve principal; once funded, new surcharge returns to claimable yLP/hLP yield.
 
 ## Isolated Leverage
 
@@ -139,7 +141,7 @@ Dusk is designed around market-local risk accounting:
 - Lending is isolated by market.
 - Individual health and liquidation use all collateral held by the position and its stored liquidation CF.
 - Debt-capped global-health contributions improve new-borrow underwriting without locking collateral or changing existing terms.
-- Conservative depth is reconstructed from `min(spot K, K EMA)` at the current reserve ratio; borrowing uses the lower of symmetric and directional price EMAs, while liquidation uses the symmetric EMA.
+- Conservative depth uses internal `Q` observations and reconstructs the exact applied CPMM/Dusk Concentrated AMM shape at pessimistic EMA prices; borrowing uses the lower of symmetric and directional price EMAs, while liquidation uses the symmetric EMA.
 - Isolated leverage has its own position state and debt buckets.
 - Price and risk books use cached EMA state to reduce same-transaction spot manipulation.
 - hLP settlement uses cached settlement references and divergence guards.
@@ -173,6 +175,8 @@ bid_liquidation_auction
 settle_liquidation_auction_amm
 deposit_single_sided
 withdraw_single_sided
+crank_hlp_rebalance
+crank_amm_maintenance
 open_leverage
 close_leverage
 delegated_close_leverage
@@ -280,13 +284,17 @@ Other invariants:
 
 ## Changed Invariants From GAMM V1
 
-The core GAMM primitive is intentionally preserved:
+The core GAMM reserve/lending relationship is preserved, while the swap invariant is now configurable:
 
 - The market is still priced from in-protocol reserves, not external oracles.
+- `peak_depth = 0, imbalance_scale = 0` is exact V1-style CPMM; positive values activate the independently implemented Dusk Concentrated AMM.
+- `peak_depth` is the extra marginal-depth multiplier at the center, while `imbalance_scale` controls how much balance-factor error is tolerated before that extra depth fades toward CPMM. They are the only invariant knobs; fee, EMA, and recenter controls are separate.
+- Swaps and conservative lending/liquidation shapes use the same applied curve.
 - Normal borrow and repay paths still preserve `R_live = R_cash + D_cash_backed`.
 - Cash constraints still matter: virtual depth can quote, but only cash can leave vaults or settle realized liabilities.
 - LP minting and burning still use the V1-style proportional reserve math with permanently locked minimum liquidity.
-- Swap fees and borrow interest remain outside principal reserves and are distributed through fee and yield accounting.
+- Base swap fees and borrow interest remain outside principal reserves and are distributed through fee and yield accounting.
+- Dynamic surcharge is claimable after the AMM's protected budget is funded; before then it is retained as the only fee-derived recentering principal.
 
 Dusk extends the invariant set only where hLP needs native 2x LP tracking:
 

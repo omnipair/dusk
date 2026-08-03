@@ -1,4 +1,7 @@
+pub mod amm;
+pub(crate) mod amm_engine;
 pub mod config;
+pub mod curve;
 pub mod debt;
 pub mod fees;
 pub mod health;
@@ -10,9 +13,12 @@ pub mod market;
 pub mod risk;
 pub mod shares;
 pub mod side;
+pub mod swap_engine;
 pub(crate) mod transitions;
 
+pub use amm::*;
 pub use config::*;
+pub(crate) use curve::*;
 pub use debt::*;
 pub use fees::*;
 pub use hlp::*;
@@ -22,3 +28,4 @@ pub use market::*;
 pub use risk::*;
 pub use shares::*;
 pub use side::*;
+pub use swap_engine::*;
