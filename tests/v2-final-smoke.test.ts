@@ -107,8 +107,10 @@ const ORDER_KIND_TAKE_PROFIT = 1;
 const FEATURE_PROGRAM_ID = new PublicKey(
   "Feature111111111111111111111111111111111111"
 );
-// LiteSVM issues #396 / PR #352: this feature prevents Linux JIT/ABI memory
-// corruption. Preserve LiteSVM's default feature snapshot instead of enabling
+// LiteSVM issues #396 / PR #352: stricter ABI/runtime validation narrows the
+// native JIT corruption surface but does not eliminate it for Dusk's x86-64
+// path. CI therefore executes this suite on ARM64, where LiteSVM uses the SBF
+// interpreter. Preserve LiteSVM's default feature snapshot instead of enabling
 // unrelated future features, then rebuild the runtime around this addition.
 const STRICT_RUNTIME_FEATURE = new PublicKey(
   "Eoh7e1sDqtyPtuiWAhBNSJinvtJWTTDgeUMRi3RF8zWS"

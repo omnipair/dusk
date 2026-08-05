@@ -77,6 +77,11 @@ measured every required scenario. Each CI ceiling below is exactly
 `ceil(measured maximum * 1.05)`. It used Node 24.9.0 and LiteSVM 0.8.0 with
 LiteSVM's 219 default feature accounts plus only Solana's stricter ABI/runtime
 constraints feature; the harness asserts that feature set before executing.
+The measurement and CI execution environments are ARM64, where LiteSVM uses
+the deterministic SBF interpreter. The SBF artifacts are still built and
+validated on Ubuntu x86-64 before CI transfers them to the isolated macOS ARM64
+execution job. This avoids the upstream LiteSVM x86-64 Node/JIT memory-corruption
+bug without changing program math or sanitizing malformed decoded values.
 
 | Scenario | Measured maximum | CI ceiling |
 |---|---:|---:|
