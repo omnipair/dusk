@@ -34,9 +34,9 @@ pub const MAX_AMM_ADJUSTMENT_INTERVAL_SLOTS: u64 = 216_000;
 /// Keep this wire-carried reserve compact: the complete `MarketConfig` is also
 /// an initialize/update instruction argument, and 64 bytes made the
 /// initialize transaction exceed Solana's 1,232-byte limit. Layout v2 keeps
-/// this 33-byte wire reserve for future configuration fields. One former
-/// reserve byte was consumed by the account-only curve-math revision below;
-/// because `AmmConfig` is embedded twice, this keeps `Market` from growing.
+/// this 33-byte wire reserve for future configuration fields. One reserve byte
+/// stores the account-only curve-math revision below; because `AmmConfig` is
+/// embedded twice, this keeps `Market` from growing.
 pub const AMM_CONFIG_RESERVED_BYTES: usize = 33;
 /// Parameter-bound finite-C1 geometry. The expensive Q80 square roots are
 /// paid only when the applied shape changes; swaps reconstruct Q64/Q48
@@ -57,8 +57,8 @@ pub const AMM_DEFERRED_CONTROLLER_TARGET_BYTES: usize = core::mem::size_of::<u8>
 /// retained-funding marker, and deferred controller target as concrete state.
 /// Pessimistic lending shapes are intentionally reconstructed only by
 /// risk-sensitive operations instead of being persisted in every market.
-/// The former account-only expansion reserve is intentionally consumed to keep
-/// Anchor's generated SBF deserializer inside Solana's 4 KiB stack frame.
+/// The account-only expansion reserve is fully allocated to keep Anchor's
+/// generated SBF deserializer inside Solana's 4 KiB stack frame.
 /// Future account-only fields require another explicit layout revision; the
 /// 33-byte `AmmConfig` wire reserve above remains available for configuration.
 pub const AMM_STATE_RESERVED_BYTES: usize = 0;
@@ -548,7 +548,7 @@ impl AmmState {
         Ok(())
     }
 
-    /// Starts a ramp when a timelocked outer config update is applied. The old
+    /// Starts a ramp when a timelocked outer config update is applied. The prior
     /// endpoint is supplied explicitly because `config` already holds target.
     pub fn start_applied_ramp(
         &mut self,

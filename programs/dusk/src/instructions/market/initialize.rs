@@ -223,6 +223,7 @@ impl<'info> InitializeMarket<'info> {
         let base_insurance_vault = ctx.accounts.base_insurance_vault.key();
         let quote_insurance_vault = ctx.accounts.quote_insurance_vault.key();
 
+        // Create reserve, collateral, insurance, and interest vaults for both assets.
         let base_token_program = token_program_for_mint(
             &ctx.accounts.base_mint,
             &ctx.accounts.token_program,
@@ -313,6 +314,8 @@ impl<'info> InitializeMarket<'info> {
             MARKET_INTEREST_VAULT_SEED_PREFIX,
             ctx.bumps.quote_interest_vault,
         )?;
+
+        // Collect the market-creation fee in the treasury's native-token account.
         invoke(
             &system_instruction::transfer(
                 ctx.accounts.payer.key,
@@ -370,6 +373,7 @@ impl<'info> InitializeMarket<'info> {
         let base_hlp_ylp_vault = derive_hlp_ylp_vault_address(market_key, base_hlp_mint, ylp_mint).0;
         let quote_hlp_ylp_vault = derive_hlp_ylp_vault_address(market_key, quote_hlp_mint, ylp_mint).0;
 
+        // Initialize all market state only after every external account is ready.
         ctx.accounts.market.initialize(
             ylp_mint,
             resolved_operator,
@@ -386,6 +390,7 @@ impl<'info> InitializeMarket<'info> {
             ctx.bumps.market,
         )?;
 
+        // Emit the complete immutable market identity and initial configuration.
         emit_cpi!(MarketCreated {
             market: market_key,
             base_mint,

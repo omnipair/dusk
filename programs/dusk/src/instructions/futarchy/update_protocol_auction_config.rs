@@ -32,10 +32,14 @@ pub struct UpdateProtocolAuctionConfig<'info> {
 
 impl<'info> UpdateProtocolAuctionConfig<'info> {
     pub fn handle_update(ctx: Context<Self>, args: UpdateProtocolAuctionConfigArgs) -> Result<()> {
+        let UpdateProtocolAuctionConfig {
+            authority_signer,
+            futarchy_authority,
+        } = ctx.accounts;
         let lane = args.lane;
-        let authority = ctx.accounts.futarchy_authority.key();
-        let signer = ctx.accounts.authority_signer.key();
-        let auction = ctx.accounts.futarchy_authority.auction_config_mut(lane);
+        let authority = futarchy_authority.key();
+        let signer = authority_signer.key();
+        let auction = futarchy_authority.auction_config_mut(lane);
 
         if let Some(accepted_mint) = args.accepted_mint {
             require_keys_neq!(accepted_mint, Pubkey::default(), ErrorCode::InvalidMint);
@@ -45,6 +49,7 @@ impl<'info> UpdateProtocolAuctionConfig<'info> {
             params.validate()?;
             auction.params = params;
         }
+
         auction.validate()?;
         let accepted_mint = auction.accepted_mint;
         let params = auction.params;
@@ -59,6 +64,7 @@ impl<'info> UpdateProtocolAuctionConfig<'info> {
             max_reference_age_slots: params.max_reference_age_slots,
             signer,
         });
+
         Ok(())
     }
 }

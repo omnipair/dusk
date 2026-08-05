@@ -43,16 +43,20 @@ pub struct SetMarketAuthority<'info> {
 
 impl<'info> SetMarketAuthority<'info> {
     pub fn handle_set_operator(ctx: Context<Self>, args: SetOperatorArgs) -> Result<()> {
-        require_keys_neq!(args.new_operator, Pubkey::default(), ErrorCode::InvalidArgument);
-        let signer = ctx.accounts.manager.key();
+        let SetOperatorArgs { new_operator } = args;
+        let SetMarketAuthority { market, manager, .. } = ctx.accounts;
+
+        require_keys_neq!(new_operator, Pubkey::default(), ErrorCode::InvalidArgument);
+        let signer = manager.key();
         let current_slot = Clock::get()?.slot;
-        let market = &mut ctx.accounts.market;
-        match market.prepare_operator_update(signer, args.new_operator, current_slot)? {
+
+        // Schedule the first request, then apply it after the timelock.
+        match market.prepare_operator_update(signer, new_operator, current_slot)? {
             MarketTimelockAction::Scheduled { execute_after_slot } => {
                 emit_cpi!(MarketAuthorityUpdateScheduled {
                     market: market.key(),
                     role: AUTHORITY_ROLE_OPERATOR,
-                    pending_authority: args.new_operator,
+                    pending_authority: new_operator,
                     execute_after_slot,
                     metadata: MarketEventMetadata::new(signer, market.key())?,
                 });
@@ -60,27 +64,34 @@ impl<'info> SetMarketAuthority<'info> {
             }
             MarketTimelockAction::Ready => {}
         }
-        market.apply_operator_update(args.new_operator);
+
+        market.apply_operator_update(new_operator);
+
         emit_cpi!(MarketAuthorityUpdated {
             market: market.key(),
             manager: market.manager,
             operator: market.operator,
             metadata: MarketEventMetadata::new(signer, market.key())?,
         });
+
         Ok(())
     }
 
     pub fn handle_set_manager(ctx: Context<Self>, args: SetManagerArgs) -> Result<()> {
-        require_keys_neq!(args.new_manager, Pubkey::default(), ErrorCode::InvalidArgument);
-        let signer = ctx.accounts.manager.key();
+        let SetManagerArgs { new_manager } = args;
+        let SetMarketAuthority { market, manager, .. } = ctx.accounts;
+
+        require_keys_neq!(new_manager, Pubkey::default(), ErrorCode::InvalidArgument);
+        let signer = manager.key();
         let current_slot = Clock::get()?.slot;
-        let market = &mut ctx.accounts.market;
-        match market.prepare_manager_update(signer, args.new_manager, current_slot)? {
+
+        // Schedule the first request, then apply it after the timelock.
+        match market.prepare_manager_update(signer, new_manager, current_slot)? {
             MarketTimelockAction::Scheduled { execute_after_slot } => {
                 emit_cpi!(MarketAuthorityUpdateScheduled {
                     market: market.key(),
                     role: AUTHORITY_ROLE_MANAGER,
-                    pending_authority: args.new_manager,
+                    pending_authority: new_manager,
                     execute_after_slot,
                     metadata: MarketEventMetadata::new(signer, market.key())?,
                 });
@@ -88,13 +99,16 @@ impl<'info> SetMarketAuthority<'info> {
             }
             MarketTimelockAction::Ready => {}
         }
-        market.apply_manager_update(args.new_manager);
+
+        market.apply_manager_update(new_manager);
+
         emit_cpi!(MarketAuthorityUpdated {
             market: market.key(),
             manager: market.manager,
             operator: market.operator,
             metadata: MarketEventMetadata::new(signer, market.key())?,
         });
+
         Ok(())
     }
 }

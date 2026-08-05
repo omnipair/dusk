@@ -99,12 +99,23 @@ impl<'info> InitializeYieldAccounts<'info> {
     }
 
     pub fn handle_initialize(ctx: Context<'_, '_, '_, 'info, Self>, args: InitializeYieldAccountsArgs) -> Result<()> {
-        let market_key = ctx.accounts.market.key();
-        let lp_mint = ctx.accounts.lp_mint.key();
-        let base_mint = ctx.accounts.base_mint.key();
-        let quote_mint = ctx.accounts.quote_mint.key();
+        let InitializeYieldAccounts {
+            market,
+            lp_mint,
+            base_mint,
+            quote_mint,
+            base_yield_account,
+            quote_yield_account,
+            ..
+        } = ctx.accounts;
+        let market_key = market.key();
+        let lp_mint = lp_mint.key();
+        let base_mint = base_mint.key();
+        let quote_mint = quote_mint.key();
+
+        // Initialize or validate both asset ledgers before snapshotting new accounts.
         let base_initialized = initialize_or_validate_yield_account(
-            &mut ctx.accounts.base_yield_account,
+            base_yield_account,
             args.owner,
             market_key,
             lp_mint,
@@ -113,7 +124,7 @@ impl<'info> InitializeYieldAccounts<'info> {
             ctx.bumps.base_yield_account,
         )?;
         let quote_initialized = initialize_or_validate_yield_account(
-            &mut ctx.accounts.quote_yield_account,
+            quote_yield_account,
             args.owner,
             market_key,
             lp_mint,
@@ -125,9 +136,10 @@ impl<'info> InitializeYieldAccounts<'info> {
         if !base_initialized && !quote_initialized {
             return Ok(());
         }
-        ctx.accounts.market.accrue_interest()?;
-        let contexts =
-            current_yield_contexts(&mut ctx.accounts.market, lp_mint)?.ok_or(error!(ErrorCode::InvalidLpMintKey))?;
+
+        // New accounts start at current indices so they cannot claim historical yield.
+        market.accrue_interest()?;
+        let contexts = current_yield_contexts(market, lp_mint)?.ok_or(error!(ErrorCode::InvalidLpMintKey))?;
         let base_context = contexts.items[0].ok_or(error!(ErrorCode::InvalidYieldAccount))?;
         let quote_context = contexts.items[1].ok_or(error!(ErrorCode::InvalidYieldAccount))?;
         require!(
@@ -135,14 +147,14 @@ impl<'info> InitializeYieldAccounts<'info> {
             ErrorCode::InvalidYieldAccount
         );
         if base_initialized {
-            ctx.accounts.base_yield_account.accrue(
+            base_yield_account.accrue(
                 0,
                 base_context.swap_fee_growth_index_q64,
                 base_context.interest_growth_index_q64,
             )?;
         }
         if quote_initialized {
-            ctx.accounts.quote_yield_account.accrue(
+            quote_yield_account.accrue(
                 0,
                 quote_context.swap_fee_growth_index_q64,
                 quote_context.interest_growth_index_q64,

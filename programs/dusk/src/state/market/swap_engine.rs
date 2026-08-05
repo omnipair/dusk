@@ -535,20 +535,17 @@ impl Market {
                 start_input_reserve_raw: start_input_reserve_nad / decimal_scale,
                 coefficient_nad: config.divergence_coefficient_nad,
             };
-            // Solve the single-use swap endpoint in place. Keeping this
-            // algorithm beside the fee composition makes its exact debit and
-            // rounding contract visible at the only production boundary that
-            // consumes it; the separate test-only harness below exercises the
-            // raw-domain edge matrix without adding a production helper.
+            // Solve the swap endpoint beside fee composition so the exact
+            // debit and rounding contract remains visible at its production
+            // boundary. The test-only harness covers the raw-domain edges.
             'implicit_divergence: {
                 let available = preliminary_input;
                 require!(available > 0, ErrorCode::InsufficientOutputAmount);
 
-                // Zero executable input is always feasible. Gross input
-                // itself is either exactly fee-free (and therefore the
-                // answer) or an infeasible endpoint. Unlike the former
-                // bounded-rate potential, the new toll may exceed gross, so
-                // no subtraction from `available` manufactures a lower bound.
+                // Zero executable input is always feasible. Gross input is
+                // either exactly fee-free or infeasible. Because the toll may
+                // exceed gross, do not manufacture a lower bound by subtracting
+                // from `available`.
                 let mut low = 0_u64;
                 let mut low_cost = 0_u128;
                 let mut high = available;
@@ -997,10 +994,9 @@ fn implicit_divergence_surcharge_amount_core(
 ) -> Result<u64> {
     require!(available > 0, ErrorCode::InsufficientOutputAmount);
 
-    // Zero executable input is always feasible. Gross input itself is either
-    // exactly fee-free (and therefore the answer) or an infeasible endpoint.
-    // Unlike the former bounded-rate potential, the new toll may exceed gross,
-    // so no subtraction from `available` is used to manufacture a lower bound.
+    // Zero executable input is always feasible. Gross input is either exactly
+    // fee-free or infeasible. Because the toll may exceed gross, do not
+    // manufacture a lower bound by subtracting from `available`.
     let mut low = 0_u64;
     let mut low_cost = 0_u128;
     let mut high = available;

@@ -203,6 +203,7 @@ impl<'info> WithdrawSingleSided<'info> {
             MarketAsset::Quote => ctx.accounts.quote_mint.key(),
         };
 
+        // Checkpoint all yield earned before reducing the owner's hLP balance.
         ctx.accounts.market.checkpoint_hlp_yield_from_ylp(target_asset)?;
         let (base_swap_growth, base_interest_growth) = ctx
             .accounts
@@ -237,6 +238,7 @@ impl<'info> WithdrawSingleSided<'info> {
             &[],
         )?;
 
+        // Settle the hLP debt and credit its closing-period interest.
         let pre_exit_ylp_supply = ctx.accounts.market.base_side.shares.ylp_supply;
         require_eq!(
             pre_exit_ylp_supply,
@@ -325,6 +327,7 @@ impl<'info> WithdrawSingleSided<'info> {
             .finalize_amm_transition_and_observe_risk(current_slot)?;
         ctx.accounts.market.assert_market_health()?;
 
+        // Burn backing yLP and transfer the released target asset to the owner.
         let ylp_program = token_program_for_mint(
             &ctx.accounts.ylp_mint,
             &ctx.accounts.token_program,
@@ -379,6 +382,7 @@ impl<'info> WithdrawSingleSided<'info> {
         let target_credit = token_account_credit(target_balance_before, &ctx.accounts.owner_target_account)?;
         require_gte!(target_credit, args.min_target_amount_out, ErrorCode::SlippageExceeded);
 
+        // Emit the final hLP position state without an event CPI.
         const MARKET_EVENT_METADATA_LEN: usize = 32 + 32 + 8;
         const HLP_CLOSED_EVENT_LEN: usize = 8 + (3 * 32) + (6 * 8) + MARKET_EVENT_METADATA_LEN;
         let mut data = [0_u8; HLP_CLOSED_EVENT_LEN];

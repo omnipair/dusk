@@ -56,10 +56,19 @@ impl<'info> InitializeLpTransferHook<'info> {
     }
 
     pub fn handle_initialize(ctx: Context<'_, '_, '_, 'info, Self>) -> Result<()> {
-        let lp_mint = ctx.accounts.lp_mint.key();
-        let validation_info = ctx.accounts.validation_account.to_account_info();
+        let InitializeLpTransferHook {
+            payer,
+            market,
+            lp_mint,
+            validation_account,
+            system_program,
+        } = ctx.accounts;
+        let lp_mint = lp_mint.key();
+        let validation_info = validation_account.to_account_info();
         let account_size = ExtraAccountMetaList::size_of(LP_TRANSFER_HOOK_META_COUNT)
             .map_err(|_| error!(ErrorCode::MarketMathOverflow))?;
+
+        // Create or adopt the canonical validation PDA.
         if validation_info.owner == &System::id() {
             require_eq!(validation_info.data_len(), 0, ErrorCode::InvalidArgument);
             let rent = Rent::get()?;
@@ -74,16 +83,16 @@ impl<'info> InitializeLpTransferHook<'info> {
             if validation_info.lamports() == 0 {
                 invoke_signed(
                     &system_instruction::create_account(
-                        &ctx.accounts.payer.key(),
+                        &payer.key(),
                         &validation_info.key(),
                         required_lamports,
                         account_size as u64,
                         &crate::ID,
                     ),
                     &[
-                        ctx.accounts.payer.to_account_info(),
+                        payer.to_account_info(),
                         validation_info.clone(),
-                        ctx.accounts.system_program.to_account_info(),
+                        system_program.to_account_info(),
                     ],
                     &[&signer_seeds],
                 )?;
@@ -91,22 +100,22 @@ impl<'info> InitializeLpTransferHook<'info> {
                 let top_up = required_lamports.saturating_sub(validation_info.lamports());
                 if top_up > 0 {
                     invoke(
-                        &system_instruction::transfer(&ctx.accounts.payer.key(), &validation_info.key(), top_up),
+                        &system_instruction::transfer(&payer.key(), &validation_info.key(), top_up),
                         &[
-                            ctx.accounts.payer.to_account_info(),
+                            payer.to_account_info(),
                             validation_info.clone(),
-                            ctx.accounts.system_program.to_account_info(),
+                            system_program.to_account_info(),
                         ],
                     )?;
                 }
                 invoke_signed(
                     &system_instruction::allocate(&validation_info.key(), account_size as u64),
-                    &[validation_info.clone(), ctx.accounts.system_program.to_account_info()],
+                    &[validation_info.clone(), system_program.to_account_info()],
                     &[&signer_seeds],
                 )?;
                 invoke_signed(
                     &system_instruction::assign(&validation_info.key(), &crate::ID),
-                    &[validation_info.clone(), ctx.accounts.system_program.to_account_info()],
+                    &[validation_info.clone(), system_program.to_account_info()],
                     &[&signer_seeds],
                 )?;
             }
@@ -114,7 +123,8 @@ impl<'info> InitializeLpTransferHook<'info> {
         require_keys_eq!(*validation_info.owner, crate::ID, ErrorCode::InvalidArgument);
         require_eq!(validation_info.data_len(), account_size, ErrorCode::InvalidArgument);
 
-        let extra_metas = canonical_lp_transfer_hook_metas(ctx.accounts.market.key(), &ctx.accounts.market, lp_mint)?;
+        // Store the exact extra-account layout, or verify the existing layout.
+        let extra_metas = canonical_lp_transfer_hook_metas(market.key(), market, lp_mint)?;
         let mut expected = vec![0_u8; account_size];
         ExtraAccountMetaList::init::<ExecuteInstruction>(&mut expected, &extra_metas)
             .map_err(|_| error!(ErrorCode::InvalidArgument))?;

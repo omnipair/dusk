@@ -52,6 +52,7 @@ impl<'info> TriggerLiquidationAuction<'info> {
         let debt_asset_mint_key = ctx.accounts.debt_asset_mint.key();
         let debt_asset = ctx.accounts.market.asset_for_mint(debt_asset_mint_key)?;
 
+        // Snapshot the liquidation reference before opening the auction.
         let liquidation_reference_price_nad = ctx
             .accounts
             .market
@@ -69,6 +70,7 @@ impl<'info> TriggerLiquidationAuction<'info> {
             ErrorCode::PositionNotLiquidatable
         );
 
+        // Start at a 5% premium and decay toward the immutable floor.
         let floor_price = liquidation_reference_price_nad;
         let start_price = floor_price
             .checked_mul(105)

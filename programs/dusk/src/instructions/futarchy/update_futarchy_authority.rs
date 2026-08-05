@@ -25,7 +25,9 @@ pub struct UpdateFutarchyAuthority<'info> {
 
 impl<'info> UpdateFutarchyAuthority<'info> {
     pub fn handle_update(ctx: Context<Self>, args: UpdateFutarchyAuthorityArgs) -> Result<()> {
-        ctx.accounts.futarchy_authority.authority = args.new_authority;
+        let futarchy_authority = &mut ctx.accounts.futarchy_authority;
+        futarchy_authority.authority = args.new_authority;
+
         Ok(())
     }
 }

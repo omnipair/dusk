@@ -77,10 +77,12 @@ impl<'info> SettleProtocolAuction<'info> {
         require!(args.sold_amount > 0, ErrorCode::AmountZero);
         require!(args.max_payment_amount > 0, ErrorCode::InsufficientAuctionPayment);
 
+        // Bind the settlement to the configured auction and payment asset.
         let auction = self.futarchy_authority.auction_config(args.lane);
         require_keys_eq!(self.accepted_mint.key(), auction.accepted_mint, ErrorCode::InvalidMint);
         require!(is_fee_free_mint(&self.accepted_mint)?, ErrorCode::InvalidMint);
 
+        // Match the sold liability to its physical custody vault.
         let sold_side = self.market.asset_for_mint(self.sold_mint.key())?;
         let market_side = self.market.side(sold_side);
         market_side.fees.assert_backed()?;
@@ -106,6 +108,7 @@ impl<'info> SettleProtocolAuction<'info> {
         );
         require_gte!(self.sold_vault.amount, tracked_custody, ErrorCode::UnbackedFeeLiability);
 
+        // Resolve the only reference market permitted for this auction lane.
         let sold_mint = self.sold_mint.key();
         let accepted_mint = self.accepted_mint.key();
         let expected_reference_market =
@@ -116,6 +119,7 @@ impl<'info> SettleProtocolAuction<'info> {
             ErrorCode::InvalidMarket
         );
 
+        // Validate the bidder and both revenue-recipient token accounts.
         validate_owner_asset_account(self.bidder.key(), &self.accepted_mint, &self.bidder_payment_account)?;
         validate_owner_asset_account(self.bidder.key(), &self.sold_mint, &self.bidder_receive_account)?;
         validate_recipient_payment_account(
@@ -134,6 +138,7 @@ impl<'info> SettleProtocolAuction<'info> {
     }
 
     pub fn handle_settle(ctx: Context<'_, '_, '_, 'info, Self>, args: SettleProtocolAuctionArgs) -> Result<()> {
+        // Freeze the epoch and configured pricing terms for this settlement.
         let current_slot = Clock::get()?.slot;
         let sold_mint = ctx.accounts.sold_mint.key();
         let accepted_mint = ctx.accounts.accepted_mint.key();
@@ -160,6 +165,8 @@ impl<'info> SettleProtocolAuction<'info> {
             .side(sold_side)
             .fees
             .protocol_auction_reference_market(args.lane);
+
+        // Resolve the lane's unit or fresh internal EMA reference price.
         let expected_reference_market = expected_reference_market(
             &ctx.accounts.market,
             ctx.accounts.market.key(),
@@ -194,6 +201,8 @@ impl<'info> SettleProtocolAuction<'info> {
             (ctx.accounts.reference_market.key(), price_nad)
         };
         require!(reference_price_nad > 0, ErrorCode::InvalidSettlementPrice);
+
+        // Decay linearly from the configured start multiplier to its floor.
         let start_price = (reference_price_nad as u128)
             .checked_mul(start_multiplier_bps as u128)
             .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
@@ -228,6 +237,8 @@ impl<'info> SettleProtocolAuction<'info> {
             payment_amount,
             ErrorCode::InsufficientBalance
         );
+
+        // Split the accepted payment between treasury and staking recipients.
         require_gte!(BPS_DENOMINATOR, staking_vault_bps, ErrorCode::InvalidDistribution);
         let staking_vault_amount = u64::try_from(
             (payment_amount as u128)
@@ -240,6 +251,7 @@ impl<'info> SettleProtocolAuction<'info> {
             .checked_sub(staking_vault_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
 
+        // Collect both payment shares from the bidder.
         let accepted_token_program = token_program_for_mint(
             &ctx.accounts.accepted_mint,
             &ctx.accounts.token_program,
@@ -267,6 +279,8 @@ impl<'info> SettleProtocolAuction<'info> {
             &[],
             ctx.remaining_accounts,
         )?;
+
+        // Deliver the sold protocol revenue from its custody vault.
         let sold_token_program = token_program_for_mint(
             &ctx.accounts.sold_mint,
             &ctx.accounts.token_program,
@@ -284,6 +298,7 @@ impl<'info> SettleProtocolAuction<'info> {
             ctx.remaining_accounts,
         )?;
 
+        // Retire the liability only after every token transfer succeeds.
         ctx.accounts.sold_vault.reload()?;
         let market_side = ctx.accounts.market.side_mut(sold_side);
         market_side.fees.settle_protocol_auction_liability(

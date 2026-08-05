@@ -53,13 +53,21 @@ pub struct InitFutarchyAuthority<'info> {
 
 impl<'info> InitFutarchyAuthority<'info> {
     pub fn handle_init(ctx: Context<Self>, args: InitFutarchyAuthorityArgs) -> Result<()> {
+        let InitFutarchyAuthority {
+            deployer,
+            futarchy_authority,
+            program_data,
+            ..
+        } = ctx.accounts;
+
+        // Validate the deployer against the program's upgrade authority.
         require_keys_eq!(
-            *ctx.accounts.program_data.owner,
+            *program_data.owner,
             anchor_lang::solana_program::bpf_loader_upgradeable::ID,
             ErrorCode::InvalidDeployer
         );
 
-        let data = ctx.accounts.program_data.try_borrow_data()?;
+        let data = program_data.try_borrow_data()?;
         let loader_state: UpgradeableLoaderState = bincode::DefaultOptions::new()
             .with_fixint_encoding()
             .allow_trailing_bytes()
@@ -73,11 +81,8 @@ impl<'info> InitFutarchyAuthority<'info> {
             } => upgrade_authority_address.ok_or(ErrorCode::InvalidDeployer)?,
             _ => return Err(ErrorCode::InvalidDeployer.into()),
         };
-        require_keys_eq!(
-            ctx.accounts.deployer.key(),
-            upgrade_authority,
-            ErrorCode::InvalidDeployer
-        );
+        require_keys_eq!(deployer.key(), upgrade_authority, ErrorCode::InvalidDeployer);
+
         require_gte!(BPS_DENOMINATOR, args.swap_bps, ErrorCode::InvalidSwapFeeBps);
         require_gte!(BPS_DENOMINATOR, args.interest_bps, ErrorCode::InvalidInterestFeeBps);
         require_gte!(
@@ -85,6 +90,7 @@ impl<'info> InitFutarchyAuthority<'info> {
             args.max_referral_interest_share_bps,
             ErrorCode::InvalidReferralInterestShareBps
         );
+
         let total_percentage = args
             .futarchy_treasury_bps
             .checked_add(args.buybacks_vault_bps)
@@ -93,7 +99,7 @@ impl<'info> InitFutarchyAuthority<'info> {
             .ok_or(ErrorCode::FeeMathOverflow)?;
         require_eq!(total_percentage, BPS_DENOMINATOR, ErrorCode::InvalidDistribution);
 
-        ctx.accounts.futarchy_authority.set_inner(FutarchyAuthority::initialize(
+        let authority = FutarchyAuthority::initialize(
             args.authority,
             args.swap_bps,
             args.interest_bps,
@@ -108,7 +114,9 @@ impl<'info> InitFutarchyAuthority<'info> {
             args.buybacks_vault_bps,
             args.team_treasury_bps,
             ctx.bumps.futarchy_authority,
-        )?);
+        )?;
+        futarchy_authority.set_inner(authority);
+
         Ok(())
     }
 }

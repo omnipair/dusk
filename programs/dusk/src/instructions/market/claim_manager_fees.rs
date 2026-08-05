@@ -54,9 +54,13 @@ pub struct ClaimManagerFees<'info> {
 impl<'info> ClaimManagerFees<'info> {
     pub fn validate(&self) -> Result<()> {
         self.market.assert_manager(self.manager.key())?;
+
+        // Bind both custody vaults to the same market side.
         let fee_asset = validate_swap_fee_custody_accounts(&self.market, &self.asset_mint, &self.reserve_vault)?;
         let interest_asset = validate_interest_accounts(&self.market, &self.asset_mint, &self.interest_vault)?;
         require!(fee_asset == interest_asset, ErrorCode::InvalidVault);
+
+        // Reserve custody covers executable cash plus excluded swap fees.
         let market_side = self.market.side(fee_asset);
         require_gte!(
             self.reserve_vault.amount,
@@ -79,6 +83,8 @@ impl<'info> ClaimManagerFees<'info> {
         let manager_key = ctx.accounts.manager.key();
         let asset_mint_key = ctx.accounts.asset_mint.key();
         let market_asset = ctx.accounts.market.asset_for_mint(asset_mint_key)?;
+
+        // Snapshot both manager liabilities before moving their backing tokens.
         let (swap_fee_amount, interest_fee_amount) = {
             let market_side = ctx.accounts.market.side(market_asset);
             (
@@ -88,6 +94,7 @@ impl<'info> ClaimManagerFees<'info> {
         };
         require!(swap_fee_amount > 0 || interest_fee_amount > 0, ErrorCode::AmountZero);
 
+        // Pay each fee component from the vault that physically holds it.
         let asset_token_program = token_program_for_mint(
             &ctx.accounts.asset_mint,
             &ctx.accounts.token_program,
@@ -121,6 +128,7 @@ impl<'info> ClaimManagerFees<'info> {
             )?;
         }
 
+        // Retire liabilities only after their transfers have succeeded.
         {
             let market_side = ctx.accounts.market.side_mut(market_asset);
             market_side.fees.manager_swap_fee_liability = 0;
@@ -137,6 +145,8 @@ impl<'info> ClaimManagerFees<'info> {
                 .ok_or(ErrorCode::MarketMathOverflow)?;
             market_side.fees.assert_backed()?;
         }
+
+        // Preserve executable reserve backing after removing swap-fee custody.
         require_reserve_custody(
             ctx.accounts.reserve_vault.amount,
             ctx.accounts.market.side(market_asset),

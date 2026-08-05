@@ -24,10 +24,27 @@ use crate::{
     },
 };
 
-// Most preview instructions retain their historical update-and-return
-// behavior. Swap preview is deliberately pure: all clock/ramp/hLP simulation
-// runs on a clone so submitting a preview cannot alter fee routing or create a
-// curve/Risk freshness mismatch.
+// Most preview instructions update and return serialized market state. Swap
+// preview is deliberately pure: all clock/ramp/hLP simulation runs on a clone
+// so submitting a preview cannot alter fee routing or create a curve/Risk
+// freshness mismatch.
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PreviewAddLiquidityArgs {
+    pub base_deposit_amount: u64,
+    pub quote_deposit_amount: u64,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PreviewSwapArgs {
+    pub exact_asset_in: u64,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PreviewBorrowCapacityArgs {
+    pub collateral_amount: u64,
+    pub projected_borrow_amount: Option<u64>,
+}
 
 #[derive(Accounts)]
 pub struct PreviewMarket<'info> {
@@ -59,7 +76,6 @@ pub struct PreviewAddLiquidity<'info> {
     pub market: Box<Account<'info, Market>>,
 
     pub base_mint: Box<InterfaceAccount<'info, Mint>>,
-
     pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
 }
 
@@ -77,7 +93,6 @@ pub struct PreviewSwap<'info> {
     pub market: Box<Account<'info, Market>>,
 
     pub asset_in_mint: Box<InterfaceAccount<'info, Mint>>,
-
     pub asset_out_mint: Box<InterfaceAccount<'info, Mint>>,
 }
 
@@ -96,7 +111,6 @@ pub struct PreviewBorrowCapacity<'info> {
     pub market: Box<Account<'info, Market>>,
 
     pub collateral_asset_mint: Box<InterfaceAccount<'info, Mint>>,
-
     pub debt_asset_mint: Box<InterfaceAccount<'info, Mint>>,
 }
 
@@ -193,12 +207,6 @@ pub struct PreviewAmm {
     pub ramp_end_slot: u64,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct PreviewAddLiquidityArgs {
-    pub base_deposit_amount: u64,
-    pub quote_deposit_amount: u64,
-}
-
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AddLiquidityPreview {
     pub requested_base_amount: u64,
@@ -215,11 +223,6 @@ pub struct AddLiquidityPreview {
     pub unused_quote_amount: u64,
     pub ylp_amount: u64,
     pub ylp_supply: u64,
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct PreviewSwapArgs {
-    pub exact_asset_in: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -266,12 +269,6 @@ pub struct SwapPreview {
     pub retention_required_nad: u128,
     pub retention_stop_nad: u128,
     pub retention_hard_cap_nad: u128,
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct PreviewBorrowCapacityArgs {
-    pub collateral_amount: u64,
-    pub projected_borrow_amount: Option<u64>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]

@@ -51,31 +51,36 @@ pub struct InitializeReferralAccrual<'info> {
 
 impl<'info> InitializeReferralAccrual<'info> {
     pub fn handle_initialize(ctx: Context<Self>) -> Result<()> {
-        ctx.accounts.market.asset_for_mint(ctx.accounts.asset_mint.key())?;
-        let accrual = &mut ctx.accounts.referral_accrual;
+        let InitializeReferralAccrual {
+            referral_partner,
+            market,
+            asset_mint,
+            referral_accrual,
+            ..
+        } = ctx.accounts;
+        let referral_partner_key = referral_partner.key();
+        let market_key = market.key();
+        let asset_mint_key = asset_mint.key();
+
+        market.asset_for_mint(asset_mint_key)?;
+
+        // Initialize once, then require exact identity on idempotent calls.
+        let accrual = referral_accrual;
         if accrual.referral_partner == Pubkey::default() {
             accrual.initialize(
-                ctx.accounts.referral_partner.key(),
-                ctx.accounts.market.key(),
-                ctx.accounts.asset_mint.key(),
+                referral_partner_key,
+                market_key,
+                asset_mint_key,
                 ctx.bumps.referral_accrual,
             )?;
         } else {
             require_keys_eq!(
                 accrual.referral_partner,
-                ctx.accounts.referral_partner.key(),
+                referral_partner_key,
                 ErrorCode::InvalidReferralAccrual
             );
-            require_keys_eq!(
-                accrual.market,
-                ctx.accounts.market.key(),
-                ErrorCode::InvalidReferralAccrual
-            );
-            require_keys_eq!(
-                accrual.asset_mint,
-                ctx.accounts.asset_mint.key(),
-                ErrorCode::InvalidReferralAccrual
-            );
+            require_keys_eq!(accrual.market, market_key, ErrorCode::InvalidReferralAccrual);
+            require_keys_eq!(accrual.asset_mint, asset_mint_key, ErrorCode::InvalidReferralAccrual);
         }
         Ok(())
     }

@@ -4,29 +4,28 @@ use anchor_spl::{
     token_interface::{Mint, Token2022, TokenAccount},
 };
 
-use crate::{
-    constants::*,
-    errors::ErrorCode,
-    events::{LeveragePositionClosed, LeverageSwapEvent, MarketEventMetadata},
-    generate_market_seeds,
-    shared::token::{get_transfer_fee_for_epoch, transfer_checked_with_remaining_accounts},
-    state::{
-        FutarchyAuthority, LeverageDelegation, LeveragePosition, LeverageSwapPlan, LeverageSwapQuote, Market,
-        MarketAsset, ReferralAccrual, ReferralPartner,
-    },
-};
-
 use super::common::{
     invoke_delegated_approval_callback, leverage_collateral_credit, leverage_swap_fee_credit, record_leverage_interest,
     settle_inline_leverage_hlp, split_delegated_accounts, validate_leverage_futarchy_pda,
     validate_leverage_interest_account, validate_leverage_market_pda, validate_leverage_mints,
     validate_leverage_reserve_accounts, DelegatedCpiArgs, LEVERAGE_DELEGATE_CLOSE, LEVERAGE_DELEGATE_CLOSE_SETTLED,
 };
-use crate::instructions::common::{
-    require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout,
+use crate::{
+    constants::*,
+    errors::ErrorCode,
+    events::{LeveragePositionClosed, LeverageSwapEvent, MarketEventMetadata},
+    generate_market_seeds,
+    instructions::{
+        common::{require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout},
+        referral::common::{emit_referral_interest_accrued_at_slot, validate_referral_binding},
+        SwapContext, SwapPlan,
+    },
+    shared::token::{get_transfer_fee_for_epoch, transfer_checked_with_remaining_accounts},
+    state::{
+        FutarchyAuthority, LeverageDelegation, LeveragePosition, LeverageSwapPlan, LeverageSwapQuote, Market,
+        MarketAsset, ReferralAccrual, ReferralPartner,
+    },
 };
-use crate::instructions::referral::common::{emit_referral_interest_accrued_at_slot, validate_referral_binding};
-use crate::instructions::{SwapContext, SwapPlan};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct CloseLeverageArgs {
@@ -254,6 +253,8 @@ impl<'info> CloseLeverage<'info> {
         let position_key = ctx.accounts.leverage_position.key();
         let expected_referral_partner = ctx.accounts.leverage_position.referral_partner;
         let collateral_sold = ctx.accounts.leverage_position.collateral_amount;
+
+        // Price the full close before an optional delegated approval callback.
         ctx.accounts.market.accrue_interest_to_slot(current_slot)?;
         let debt_amount = ctx
             .accounts
@@ -285,6 +286,7 @@ impl<'info> CloseLeverage<'info> {
             .ok_or(ErrorCode::MarketMathOverflow)?;
 
         if matches!(mode, CloseMode::Delegate) {
+            // Give the delegate the exact expected residual while protecting protocol accounts.
             let delegation = ctx
                 .accounts
                 .leverage_delegation
@@ -335,6 +337,7 @@ impl<'info> CloseLeverage<'info> {
             )?;
         }
 
+        // Return collateral to the reserve and measure the swap's actual input.
         let collateral_token_program = token_program_for_mint(
             &ctx.accounts.collateral_mint,
             &ctx.accounts.token_program,
@@ -364,6 +367,7 @@ impl<'info> CloseLeverage<'info> {
             ErrorCode::BrokenInvariant
         );
 
+        // Quote the credited collateral as the position's final debt repayment.
         let SwapPlan {
             quote,
             base_pre_rebalance,
@@ -387,6 +391,7 @@ impl<'info> CloseLeverage<'info> {
         };
         let swap_fee_credit = leverage_swap_fee_credit(&swap)?;
 
+        // Commit the close and settle the resulting hLP exposure.
         let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
         let receipt = ctx.accounts.market.close_leverage(
             &mut ctx.accounts.leverage_position,
@@ -414,6 +419,8 @@ impl<'info> CloseLeverage<'info> {
             receipt.quote_hlp_rebalance,
             interest_eligibility,
         )?;
+
+        // Pay the owner's residual and route accrued interest.
         let debt_token_program = token_program_for_mint(
             &ctx.accounts.debt_mint,
             &ctx.accounts.token_program,
@@ -464,6 +471,7 @@ impl<'info> CloseLeverage<'info> {
             ctx.accounts.market.side(collateral_asset),
         )?;
 
+        // Emit referral accrual before the final close event.
         emit_referral_interest_accrued_at_slot(
             &referral_receipt,
             market_key,
@@ -490,6 +498,7 @@ impl<'info> CloseLeverage<'info> {
         });
 
         if matches!(mode, CloseMode::Delegate) {
+            // Notify the delegate only after settlement and protect the owner's payout.
             let delegation = ctx
                 .accounts
                 .leverage_delegation

@@ -302,9 +302,8 @@ impl Market {
     }
 
     /// Finalizes a non-trade reserve/share mutation and records the exact
-    /// applied curve from one evaluation. Liquidity mutations used to call
-    /// `finalize_amm_transition` and then solve the identical curve again for
-    /// risk observation; this path shares that single canonical result.
+    /// applied curve from one evaluation, sharing one canonical result between
+    /// transition accounting and risk observation.
     pub(crate) fn finalize_amm_transition_and_observe_risk(&mut self, current_slot: u64) -> Result<()> {
         if self.base_side.shares.ylp_supply == MIN_LIQUIDITY {
             require_eq!(

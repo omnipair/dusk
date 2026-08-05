@@ -153,12 +153,21 @@ impl<'info> CreateLeverageDelegation<'info> {
     }
 
     pub fn handle_create(ctx: Context<Self>, args: CreateLeverageDelegationArgs) -> Result<()> {
+        let CreateLeverageDelegation {
+            market,
+            leverage_position,
+            leverage_delegation,
+            owner,
+            ..
+        } = ctx.accounts;
+        let market_key = market.key();
+        let owner_key = owner.key();
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
-        let delegation = &mut ctx.accounts.leverage_delegation;
+        let delegation = leverage_delegation;
         delegation.initialize(
-            ctx.accounts.owner.key(),
-            ctx.accounts.market.key(),
-            ctx.accounts.leverage_position.key(),
+            owner_key,
+            market_key,
+            leverage_position.key(),
             debt_asset,
             args.delegated_program,
             args.approved_actions,
@@ -166,13 +175,13 @@ impl<'info> CreateLeverageDelegation<'info> {
         );
 
         emit_cpi!(LeverageDelegationUpdated {
-            market: ctx.accounts.market.key(),
+            market: market_key,
             delegation: delegation.key(),
-            position: ctx.accounts.leverage_position.key(),
-            owner: ctx.accounts.owner.key(),
+            position: leverage_position.key(),
+            owner: owner_key,
             delegated_program: args.delegated_program,
             approved_actions: args.approved_actions,
-            metadata: MarketEventMetadata::new(ctx.accounts.owner.key(), ctx.accounts.market.key())?,
+            metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
         Ok(())
     }
@@ -200,17 +209,27 @@ impl<'info> UpdateLeverageDelegation<'info> {
     }
 
     pub fn handle_update(ctx: Context<Self>, args: UpdateLeverageDelegationArgs) -> Result<()> {
-        let delegation = &mut ctx.accounts.leverage_delegation;
+        let UpdateLeverageDelegation {
+            market,
+            leverage_position,
+            leverage_delegation,
+            owner,
+            ..
+        } = ctx.accounts;
+        let market_key = market.key();
+        let owner_key = owner.key();
+        let delegation = leverage_delegation;
+
         delegation.update(args.delegated_program, args.approved_actions);
 
         emit_cpi!(LeverageDelegationUpdated {
-            market: ctx.accounts.market.key(),
+            market: market_key,
             delegation: delegation.key(),
-            position: ctx.accounts.leverage_position.key(),
-            owner: ctx.accounts.owner.key(),
+            position: leverage_position.key(),
+            owner: owner_key,
             delegated_program: args.delegated_program,
             approved_actions: args.approved_actions,
-            metadata: MarketEventMetadata::new(ctx.accounts.owner.key(), ctx.accounts.market.key())?,
+            metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
         Ok(())
     }

@@ -101,6 +101,7 @@ pub mod dusk {
         ClaimReferralInterest::handle_claim(ctx)
     }
 
+    // Protocol auction instructions
     #[access_control(ctx.accounts.validate(&args))]
     pub fn settle_protocol_auction<'info>(
         ctx: Context<'_, '_, '_, 'info, SettleProtocolAuction<'info>>,
@@ -313,7 +314,7 @@ pub mod dusk {
         CloseLeverageDelegation::handle_close(ctx, args)
     }
 
-    // Liquidation auction instructions
+    // Liquidation auction trigger
     #[access_control(ctx.accounts.update_and_validate())]
     pub fn trigger_liquidation_auction(ctx: Context<TriggerLiquidationAuction>) -> Result<()> {
         TriggerLiquidationAuction::handle_trigger(ctx)
@@ -346,7 +347,7 @@ pub mod dusk {
         PreviewBorrowPosition::handle_preview(ctx)
     }
 
-    // Liquidation auction instructions
+    // Liquidation auction bidding and settlement
     #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn bid_liquidation_auction<'info>(
         ctx: Context<'_, '_, '_, 'info, BidLiquidationAuction<'info>>,

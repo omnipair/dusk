@@ -4,21 +4,19 @@ use anchor_spl::{
     token_interface::{Mint, Token2022, TokenAccount},
 };
 
+use super::common::validate_debt_reserve_accounts;
 use crate::{
     constants::*,
     errors::ErrorCode,
     events::{MarketDebtUpdated, MarketEventMetadata, MarketHealthUpdated, ReferralBound},
     generate_market_seeds,
+    instructions::{
+        common::{require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint},
+        referral::common::validate_referral_binding,
+    },
     shared::token::transfer_checked_with_remaining_accounts,
     state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
 };
-
-use crate::instructions::common::{
-    require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
-};
-use crate::instructions::referral::common::validate_referral_binding;
-
-use super::common::validate_debt_reserve_accounts;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct BorrowArgs {
@@ -91,6 +89,8 @@ impl<'info> Borrow<'info> {
             args.min_debt_amount_out,
             ErrorCode::SlippageExceeded
         );
+
+        // Bind debt and collateral assets to the requested market direction.
         let borrow_asset = self.market.asset_for_mint(self.debt_asset_mint.key())?;
         let debt_side = self.market.side(borrow_asset);
         let collateral_side = self.market.side(borrow_asset.opposite());
@@ -110,6 +110,8 @@ impl<'info> Borrow<'info> {
         require_supported_asset_mint(&self.debt_asset_mint)?;
         self.borrow_position
             .assert_position(self.owner.key(), self.market.key())?;
+
+        // Preserve any existing referral binding for this debt side.
         let borrow_asset = self.market.asset_for_mint(self.debt_asset_mint.key())?;
         let has_debt = match borrow_asset {
             crate::state::MarketAsset::Base => self.borrow_position.fixed_base_debt(&self.market.debt)? > 0,
@@ -142,6 +144,8 @@ impl<'info> Borrow<'info> {
                 crate::state::MarketAsset::Base => accounts.borrow_position.fixed_base_debt(&accounts.market.debt)?,
                 crate::state::MarketAsset::Quote => accounts.borrow_position.fixed_quote_debt(&accounts.market.debt)?,
             };
+
+            // Bind referral terms only when this side opens its first debt.
             let referral = validate_referral_binding(
                 args.referrer,
                 accounts.borrow_position.referral_partner(borrow_asset),
@@ -163,6 +167,7 @@ impl<'info> Borrow<'info> {
                 None
             };
 
+            // Commit the debt transition before releasing reserve cash.
             let debt_receipt = accounts.market.borrow(
                 &mut accounts.borrow_position,
                 borrow_asset,
@@ -177,6 +182,7 @@ impl<'info> Borrow<'info> {
             )?;
             let owner_debt_balance_before = accounts.owner_debt_account.amount;
 
+            // Transfer borrowed cash and verify the recipient's actual credit.
             transfer_checked_with_remaining_accounts(
                 accounts.market.to_account_info(),
                 accounts.reserve_vault.to_account_info(),
@@ -204,6 +210,7 @@ impl<'info> Borrow<'info> {
             )
         };
 
+        // Finalize the curve transition and refresh risk after debt and cash move.
         let current_slot = Clock::get()?.slot;
         ctx.accounts.market.finalize_amm_transition(current_slot)?;
         ctx.accounts.market.refresh_risk()?;

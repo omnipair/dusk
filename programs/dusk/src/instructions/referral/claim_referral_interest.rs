@@ -72,6 +72,8 @@ impl<'info> ClaimReferralInterest<'info> {
     pub fn validate(&self) -> Result<()> {
         require_supported_asset_mint(&self.asset_mint)?;
         validate_interest_accounts(&self.market, &self.asset_mint, &self.interest_vault)?;
+
+        // Bind the claim destination to the partner's configured recipient.
         require_keys_eq!(
             self.recipient_token_account.owner,
             self.referral_partner.recipient,
@@ -92,6 +94,7 @@ impl<'info> ClaimReferralInterest<'info> {
     }
 
     pub fn handle_claim(ctx: Context<'_, '_, '_, 'info, Self>) -> Result<()> {
+        // Snapshot both token accounts so transfer effects are measured exactly.
         let amount = ctx.accounts.referral_accrual.amount;
         let vault_balance_before = ctx.accounts.interest_vault.amount;
         let recipient_balance_before = ctx.accounts.recipient_token_account.amount;
@@ -114,6 +117,7 @@ impl<'info> ClaimReferralInterest<'info> {
         ctx.accounts.interest_vault.reload()?;
         ctx.accounts.recipient_token_account.reload()?;
 
+        // Verify the vault debit before retiring accrual and market liabilities.
         let vault_debit = token_account_debit(vault_balance_before, &ctx.accounts.interest_vault)?;
         let recipient_credit = token_account_credit(recipient_balance_before, &ctx.accounts.recipient_token_account)?;
         require_eq!(vault_debit, amount, ErrorCode::InvalidReferralAccrual);

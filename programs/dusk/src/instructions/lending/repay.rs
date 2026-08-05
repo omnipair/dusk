@@ -108,6 +108,8 @@ impl<'info> Repay<'info> {
         require_supported_asset_mint(&self.debt_asset_mint)?;
         self.borrow_position
             .assert_position(self.owner.key(), self.market.key())?;
+
+        // Repayment must honor the referral binding stored for this debt side.
         let referral_partner = self.borrow_position.referral_partner(repay_asset);
         validate_referral_binding(
             None,
@@ -137,6 +139,7 @@ impl<'info> Repay<'info> {
             let referral_interest_share_bps = accounts.borrow_position.referral_interest_share_bps(repay_asset);
             let reserve_balance_before = accounts.reserve_vault.amount;
 
+            // Convert the user's gross limit into the exact reserve credit required.
             let debt_token_program = token_program_for_mint(
                 &accounts.debt_asset_mint,
                 &accounts.token_program,
@@ -160,6 +163,8 @@ impl<'info> Repay<'info> {
                 )?)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
             require_gte!(args.repay_amount, repay_gross, ErrorCode::BrokenInvariant);
+
+            // Transfer repayment and verify the reserve received the quoted credit.
             transfer_checked_with_remaining_accounts(
                 accounts.owner.to_account_info(),
                 accounts.owner_debt_account.to_account_info(),
@@ -184,6 +189,7 @@ impl<'info> Repay<'info> {
                 .repay(&mut accounts.borrow_position, repay_asset, repay_credit)?;
             require_eq!(debt_receipt.cash_repaid, repay_credit, ErrorCode::BrokenInvariant);
 
+            // Move paid interest before splitting referral and protocol shares.
             let referral_receipt = if debt_receipt.interest_paid > 0 {
                 let interest_vault_balance_before = accounts.interest_vault.amount;
                 transfer_checked_with_remaining_accounts(
@@ -239,6 +245,8 @@ impl<'info> Repay<'info> {
                     accounts.futarchy_authority.revenue_share.interest_bps,
                 )?
             };
+
+            // Principal and interest movements must leave reserve custody solvent.
             require_reserve_custody(accounts.reserve_vault.amount, accounts.market.side(repay_asset))?;
 
             (
@@ -251,6 +259,7 @@ impl<'info> Repay<'info> {
             )
         };
 
+        // Finalize the curve transition and refresh risk after debt and cash move.
         let current_slot = Clock::get()?.slot;
         ctx.accounts.market.finalize_amm_transition(current_slot)?;
         ctx.accounts.market.refresh_risk()?;

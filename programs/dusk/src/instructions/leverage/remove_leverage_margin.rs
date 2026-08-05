@@ -101,6 +101,7 @@ impl<'info> RemoveLeverageMargin<'info> {
         let position_key = ctx.accounts.leverage_position.key();
         ctx.accounts.market.prepare_leverage_margin_operation(current_slot)?;
 
+        // Reduce debt-side margin and transfer the released amount to the owner.
         let receipt = ctx.accounts.market.remove_leverage_margin(
             &mut ctx.accounts.leverage_position,
             args.amount,
@@ -132,6 +133,7 @@ impl<'info> RemoveLeverageMargin<'info> {
         let amount_out = token_account_credit(owner_balance_before, &ctx.accounts.owner_debt_account)?;
         require_gte!(amount_out, args.min_amount_out, ErrorCode::SlippageExceeded);
 
+        // Emit the final position state.
         emit!(LeveragePositionUpdated {
             market: market_key,
             position: position_key,

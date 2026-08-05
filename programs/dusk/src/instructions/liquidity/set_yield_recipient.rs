@@ -72,15 +72,26 @@ impl<'info> SetYieldRecipient<'info> {
     }
 
     pub fn handle_set(ctx: Context<Self>, args: SetYieldRecipientArgs) -> Result<()> {
-        ctx.accounts.yield_account.recipient = args.recipient;
+        let SetYieldRecipient {
+            market,
+            owner,
+            asset_mint,
+            lp_mint,
+            yield_account,
+            ..
+        } = ctx.accounts;
+        let market_key = market.key();
+        let owner_key = owner.key();
+
+        yield_account.recipient = args.recipient;
         emit_cpi!(YieldRecipientUpdated {
-            market: ctx.accounts.market.key(),
-            owner: ctx.accounts.owner.key(),
-            lp_mint: ctx.accounts.lp_mint.key(),
-            asset_mint: ctx.accounts.asset_mint.key(),
+            market: market_key,
+            owner: owner_key,
+            lp_mint: lp_mint.key(),
+            asset_mint: asset_mint.key(),
             token_kind: args.token_kind.code(),
             recipient: args.recipient,
-            metadata: MarketEventMetadata::new(ctx.accounts.owner.key(), ctx.accounts.market.key())?,
+            metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
         Ok(())
     }

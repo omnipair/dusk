@@ -143,6 +143,7 @@ impl<'info> RemoveLiquidity<'info> {
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.owner.key();
 
+        // Checkpoint the owner's yield before reducing live yLP supply.
         {
             let market = &mut ctx.accounts.market;
             market.base_side.carry_forward_swap_fees()?;
@@ -161,6 +162,7 @@ impl<'info> RemoveLiquidity<'info> {
             )?;
         }
 
+        // Burn yLP before applying the matching reserve withdrawal.
         let ylp_program = token_program_for_mint(
             &ctx.accounts.ylp_mint,
             &ctx.accounts.token_program,
@@ -175,6 +177,7 @@ impl<'info> RemoveLiquidity<'info> {
             &[],
         )?;
 
+        // Commit the reserve withdrawal and refresh solvency before payout.
         let receipt = ctx.accounts.market.remove_liquidity(args.ylp_amount)?;
         let current_slot = Clock::get()?.slot;
         ctx.accounts
@@ -182,6 +185,7 @@ impl<'info> RemoveLiquidity<'info> {
             .finalize_amm_transition_and_observe_risk(current_slot)?;
         ctx.accounts.market.assert_market_health()?;
 
+        // Transfer both reserve outputs and measure the owner's actual credits.
         let base_balance_before = ctx.accounts.owner_base_account.amount;
         let quote_balance_before = ctx.accounts.owner_quote_account.amount;
         let base_token_program = token_program_for_mint(

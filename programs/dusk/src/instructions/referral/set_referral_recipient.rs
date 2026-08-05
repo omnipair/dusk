@@ -22,10 +22,15 @@ pub struct SetReferralRecipient<'info> {
 
 impl<'info> SetReferralRecipient<'info> {
     pub fn handle_set(ctx: Context<Self>, args: SetReferralRecipientArgs) -> Result<()> {
-        let authority = ctx.accounts.authority.key();
-        ctx.accounts.referral_partner.set_recipient(authority, args.recipient)?;
+        let SetReferralRecipient {
+            authority,
+            referral_partner,
+        } = ctx.accounts;
+        let authority = authority.key();
+
+        referral_partner.set_recipient(authority, args.recipient)?;
         emit!(ReferralRecipientUpdated {
-            referral_partner: ctx.accounts.referral_partner.key(),
+            referral_partner: referral_partner.key(),
             authority,
             recipient: args.recipient,
         });

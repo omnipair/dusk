@@ -32,25 +32,36 @@ pub struct UpdateMarketConfig<'info> {
 
 impl<'info> UpdateMarketConfig<'info> {
     pub fn handle_update(ctx: Context<Self>, args: UpdateMarketConfigArgs) -> Result<()> {
-        let signer = ctx.accounts.authority_signer.key();
+        let UpdateMarketConfigArgs { config } = args;
+        let UpdateMarketConfig {
+            market,
+            authority_signer,
+            ..
+        } = ctx.accounts;
+
+        let signer = authority_signer.key();
         let current_slot = Clock::get()?.slot;
-        let market = &mut ctx.accounts.market;
-        match market.prepare_config_update(signer, args.config, current_slot)? {
+
+        // Schedule the first request, then apply it after the timelock.
+        match market.prepare_config_update(signer, config, current_slot)? {
             MarketTimelockAction::Scheduled { execute_after_slot } => {
                 emit_cpi!(MarketConfigUpdateScheduled {
                     market: market.key(),
                     execute_after_slot,
-                    target_hlp_leverage_bps: args.config.target_hlp_leverage_bps,
-                    swap_fee_bps: args.config.swap_fee_bps,
-                    manager_fee_bps: args.config.manager_fee_bps,
-                    config: args.config,
+                    target_hlp_leverage_bps: config.target_hlp_leverage_bps,
+                    swap_fee_bps: config.swap_fee_bps,
+                    manager_fee_bps: config.manager_fee_bps,
+                    config,
                     metadata: MarketEventMetadata::new(signer, market.key())?,
                 });
                 return Ok(());
             }
             MarketTimelockAction::Ready => {}
         }
-        args.config.validate()?;
+
+        config.validate()?;
+
+        // Snapshot state for rollback if transition validation fails.
         let previous_config = market.config;
         let previous_base_side = market.base_side;
         let previous_quote_side = market.quote_side;
@@ -62,7 +73,7 @@ impl<'info> UpdateMarketConfig<'info> {
         let previous_risk_revision = market.risk_revision;
         let previous_last_update_slot = market.last_update_slot;
         let apply_result = (|| {
-            let curve_changed = previous_config.amm.curve_parameters() != args.config.amm.curve_parameters();
+            let curve_changed = previous_config.amm.curve_parameters() != config.amm.curve_parameters();
             // Close both elapsed-time intervals under the configuration that
             // governed them. Installing the new half-lives first would
             // retroactively decay the AMM signals and integrate lending risk
@@ -82,10 +93,10 @@ impl<'info> UpdateMarketConfig<'info> {
                 let applied = market
                     .amm
                     .effective_curve_parameters(&previous_config.amm, current_slot);
-                market.amm.start_applied_ramp(applied, &args.config.amm, current_slot)?;
+                market.amm.start_applied_ramp(applied, &config.amm, current_slot)?;
             }
-            market.config = args.config;
-            if market.amm.initialized && !curve_changed && previous_config.amm != args.config.amm {
+            market.config = config;
+            if market.amm.initialized && !curve_changed && previous_config.amm != config.amm {
                 market.amm.invalidate_deferred_controller_target();
             }
             // Adjustment controls and a newly scheduled ramp change the
@@ -94,6 +105,7 @@ impl<'info> UpdateMarketConfig<'info> {
             market.refresh_risk_at_slot(current_slot)?;
             market.assert_market_health()
         })();
+
         if apply_result.is_err() {
             market.config = previous_config;
             market.base_side = previous_base_side;
@@ -118,6 +130,7 @@ impl<'info> UpdateMarketConfig<'info> {
             config: market.config,
             metadata: MarketEventMetadata::new(signer, market.key())?,
         });
+
         let health = market.market_health()?;
         emit_cpi!(MarketHealthUpdated {
             market: market.key(),

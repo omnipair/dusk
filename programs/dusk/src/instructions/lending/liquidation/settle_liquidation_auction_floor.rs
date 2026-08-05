@@ -4,25 +4,24 @@ use anchor_spl::{
     token_interface::{Mint, Token2022, TokenAccount},
 };
 
+use super::common::{reconcile_insurance_funding_credit, validate_liquidation_accounts};
 use crate::{
     constants::*,
     errors::ErrorCode,
     events::log::emit_position_liquidated_low_heap,
     generate_market_seeds,
+    instructions::{
+        common::{
+            require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
+            validate_interest_accounts,
+        },
+        referral::common::{accrue_referral_interest, emit_referral_interest_accrued, validate_referral_binding},
+    },
     shared::token::{get_transfer_fee, get_transfer_inverse_fee, transfer_checked_with_remaining_accounts},
     state::{
         market::transitions::liquidation::LiquidationPricing, BorrowPosition, FutarchyAuthority, Market,
         ReferralAccrual, ReferralPartner,
     },
-};
-
-use super::common::{reconcile_insurance_funding_credit, validate_liquidation_accounts};
-use crate::instructions::common::{
-    require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
-    validate_interest_accounts,
-};
-use crate::instructions::referral::common::{
-    accrue_referral_interest, emit_referral_interest_accrued, validate_referral_binding,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -170,10 +169,8 @@ impl<'info> SettleLiquidationAuctionFloor<'info> {
         )?;
 
         let floor_price = ctx.accounts.borrow_position.auction_floor_price_nad;
-        require!(
-            decayed_price <= floor_price,
-            ErrorCode::PositionNotLiquidatable // Floor settlement starts only after the auction reaches its stored floor.
-        );
+        // Floor settlement starts only after the auction reaches its stored floor.
+        require!(decayed_price <= floor_price, ErrorCode::PositionNotLiquidatable);
 
         let liquidation_pricing = LiquidationPricing::ReferencePrice {
             debt_per_collateral_price_nad: floor_price,

@@ -39,7 +39,12 @@ impl<'info> SetMarketReduceOnly<'info> {
     }
 
     pub fn handle_set(ctx: Context<Self>, args: SetMarketReduceOnlyArgs) -> Result<()> {
-        let market = &mut ctx.accounts.market;
+        let SetMarketReduceOnly {
+            market,
+            authority_signer,
+            ..
+        } = ctx.accounts;
+
         market.reduce_only = args.reduce_only;
 
         emit_cpi!(MarketUpdated {
@@ -49,7 +54,7 @@ impl<'info> SetMarketReduceOnly<'info> {
             swap_fee_bps: market.config.swap_fee_bps,
             manager_fee_bps: market.config.manager_fee_bps,
             config: market.config,
-            metadata: MarketEventMetadata::new(ctx.accounts.authority_signer.key(), market.key())?,
+            metadata: MarketEventMetadata::new(authority_signer.key(), market.key())?,
         });
 
         Ok(())

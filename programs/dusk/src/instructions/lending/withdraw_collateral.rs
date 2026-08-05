@@ -88,6 +88,8 @@ impl<'info> WithdrawCollateral<'info> {
         require_supported_asset_mint(&self.asset_mint)?;
         self.borrow_position
             .assert_position(self.owner.key(), self.market.key())?;
+
+        // Reduce-only permits collateral exit only after all debt is cleared.
         if self.futarchy_authority.is_reduce_only(self.market.reduce_only) {
             let debt = self
                 .borrow_position
@@ -123,6 +125,7 @@ impl<'info> WithdrawCollateral<'info> {
             let owner_asset_balance_before = accounts.owner_asset_account.amount;
             let collateral_balance_before = accounts.collateral_vault.amount;
 
+            // Transfer the requested collateral before measuring both token deltas.
             let asset_token_program = token_program_for_mint(
                 &accounts.asset_mint,
                 &accounts.token_program,
@@ -147,6 +150,7 @@ impl<'info> WithdrawCollateral<'info> {
             require_eq!(collateral_debit, args.withdraw_amount, ErrorCode::MarketMathOverflow);
             require_gte!(asset_credit, args.min_asset_amount_out, ErrorCode::SlippageExceeded);
 
+            // Apply the exact vault debit and recheck position solvency.
             let collateral_receipt = accounts.market.withdraw_collateral(
                 &mut accounts.borrow_position,
                 market_asset,
@@ -156,6 +160,7 @@ impl<'info> WithdrawCollateral<'info> {
             (market_key, owner_key, asset_mint_key, asset_credit, collateral_receipt)
         };
 
+        // Publish the position delta before the resulting market-health snapshot.
         emit_cpi!(MarketCollateralWithdrawn {
             market: market_key,
             owner: owner_key,

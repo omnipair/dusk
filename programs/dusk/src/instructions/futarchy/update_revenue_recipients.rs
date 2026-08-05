@@ -27,15 +27,18 @@ pub struct UpdateRevenueRecipients<'info> {
 
 impl<'info> UpdateRevenueRecipients<'info> {
     pub fn handle_update(ctx: Context<Self>, args: UpdateRevenueRecipientsArgs) -> Result<()> {
+        let futarchy_authority = &mut ctx.accounts.futarchy_authority;
+
         if let Some(futarchy_treasury) = args.futarchy_treasury {
-            ctx.accounts.futarchy_authority.recipients.futarchy_treasury = futarchy_treasury;
+            futarchy_authority.recipients.futarchy_treasury = futarchy_treasury;
         }
         if let Some(buybacks_vault) = args.buybacks_vault {
-            ctx.accounts.futarchy_authority.recipients.buybacks_vault = buybacks_vault;
+            futarchy_authority.recipients.buybacks_vault = buybacks_vault;
         }
         if let Some(team_treasury) = args.team_treasury {
-            ctx.accounts.futarchy_authority.recipients.team_treasury = team_treasury;
+            futarchy_authority.recipients.team_treasury = team_treasury;
         }
+
         Ok(())
     }
 }

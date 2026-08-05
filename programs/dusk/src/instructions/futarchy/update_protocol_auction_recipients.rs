@@ -34,10 +34,14 @@ pub struct UpdateProtocolAuctionRecipients<'info> {
 
 impl<'info> UpdateProtocolAuctionRecipients<'info> {
     pub fn handle_update(ctx: Context<Self>, args: UpdateProtocolAuctionRecipientsArgs) -> Result<()> {
+        let UpdateProtocolAuctionRecipients {
+            authority_signer,
+            futarchy_authority,
+        } = ctx.accounts;
         let lane = args.lane;
-        let authority = ctx.accounts.futarchy_authority.key();
-        let signer = ctx.accounts.authority_signer.key();
-        let auction = ctx.accounts.futarchy_authority.auction_config_mut(lane);
+        let authority = futarchy_authority.key();
+        let signer = authority_signer.key();
+        let auction = futarchy_authority.auction_config_mut(lane);
 
         if let Some(treasury) = args.treasury {
             auction.recipients.treasury = treasury;
@@ -53,6 +57,7 @@ impl<'info> UpdateProtocolAuctionRecipients<'info> {
             require_gte!(BPS_DENOMINATOR, staking_vault_bps, ErrorCode::InvalidDistribution);
             auction.recipients.staking_vault_bps = staking_vault_bps;
         }
+
         require!(auction.recipients.is_valid(), ErrorCode::InvalidDistribution);
         let recipients = auction.recipients;
 
@@ -65,6 +70,7 @@ impl<'info> UpdateProtocolAuctionRecipients<'info> {
             staking_vault_bps: recipients.staking_vault_bps,
             signer,
         });
+
         Ok(())
     }
 }

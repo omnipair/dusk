@@ -4,6 +4,8 @@ Omnipair Dusk (v2) is the standalone Dusk market program. It uses market termino
 
 ## Source Boundaries
 
+Rust source follows the V1-inspired conventions in [`STYLE.md`](./STYLE.md).
+
 - `instructions/`: Anchor account validation, inventory movement, slippage checks, and events.
 - `transitions/`: atomic accounting mutations with small receipts for events and tests.
 - `state/`: account layouts, embedded market books, and invariants.

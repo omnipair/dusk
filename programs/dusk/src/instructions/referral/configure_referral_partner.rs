@@ -45,7 +45,15 @@ pub struct ConfigureReferralPartner<'info> {
 impl<'info> ConfigureReferralPartner<'info> {
     pub fn handle_configure(ctx: Context<Self>, args: ConfigureReferralPartnerArgs) -> Result<()> {
         require_keys_neq!(args.referrer, Pubkey::default(), ErrorCode::InvalidReferralPartner);
-        let partner = &mut ctx.accounts.referral_partner;
+
+        let ConfigureReferralPartner {
+            authority_signer,
+            referral_partner,
+            ..
+        } = ctx.accounts;
+
+        // Initialize once, then apply later configuration through the state guard.
+        let partner = referral_partner;
         if partner.authority == Pubkey::default() {
             partner.initialize(
                 args.referrer,
@@ -63,7 +71,7 @@ impl<'info> ConfigureReferralPartner<'info> {
             recipient: partner.recipient,
             interest_share_bps: partner.interest_share_bps,
             active: partner.active,
-            signer: ctx.accounts.authority_signer.key(),
+            signer: authority_signer.key(),
         });
         Ok(())
     }

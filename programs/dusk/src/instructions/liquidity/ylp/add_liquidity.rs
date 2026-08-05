@@ -156,6 +156,7 @@ impl<'info> AddLiquidity<'info> {
     crate::instructions::common::market_update_and_validate!(AddLiquidityArgs);
 
     fn transfer_plan(&self, args: &AddLiquidityArgs) -> Result<AddLiquidityTransferPlan> {
+        // Preview against the maximum credits available after transfer fees.
         let base_transfer_fee = get_transfer_fee(&self.base_mint.to_account_info(), args.base_deposit_amount)?;
         let quote_transfer_fee = get_transfer_fee(&self.quote_mint.to_account_info(), args.quote_deposit_amount)?;
         let max_base_reserve_credit = args
@@ -171,6 +172,7 @@ impl<'info> AddLiquidity<'info> {
             .preview_add_liquidity(max_base_reserve_credit, max_quote_reserve_credit)?;
         require_gte!(receipt.ylp_amount, args.min_ylp_amount, ErrorCode::SlippageExceeded);
 
+        // Gross up the exact reserve credits for transfer-fee mints.
         let base_transfer_amount = receipt
             .base_reserve_credit
             .checked_add(get_transfer_inverse_fee(
@@ -206,6 +208,7 @@ impl<'info> AddLiquidity<'info> {
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.owner.key();
 
+        // Initialize per-asset yield checkpoints before LP ownership changes.
         initialize_or_validate_yield_account(
             &mut ctx.accounts.base_yield_account,
             owner_key,
@@ -225,6 +228,7 @@ impl<'info> AddLiquidity<'info> {
             ctx.bumps.quote_yield_account,
         )?;
 
+        // Checkpoint existing yLP yield before minting new supply.
         {
             let market = &mut ctx.accounts.market;
             market.base_side.carry_forward_swap_fees()?;
@@ -243,6 +247,7 @@ impl<'info> AddLiquidity<'info> {
             )?;
         }
 
+        // Transfer both assets and measure their actual reserve credits.
         let transfer_plan = ctx.accounts.transfer_plan(&args)?;
         let base_reserve_before = ctx.accounts.base_reserve_vault.amount;
         let quote_reserve_before = ctx.accounts.quote_reserve_vault.amount;
@@ -293,6 +298,7 @@ impl<'info> AddLiquidity<'info> {
             .checked_sub(quote_reserve_before)
             .ok_or(ErrorCode::MarketMathOverflow)?;
 
+        // Commit measured liquidity before finalizing the curve observation.
         let receipt = ctx
             .accounts
             .market
@@ -308,6 +314,7 @@ impl<'info> AddLiquidity<'info> {
         require_reserve_custody(ctx.accounts.base_reserve_vault.amount, &ctx.accounts.market.base_side)?;
         require_reserve_custody(ctx.accounts.quote_reserve_vault.amount, &ctx.accounts.market.quote_side)?;
 
+        // Mint yLP only after reserve and curve accounting succeeds.
         let ylp_program = token_program_for_mint(
             &ctx.accounts.ylp_mint,
             &ctx.accounts.token_program,

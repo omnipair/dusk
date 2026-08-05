@@ -87,18 +87,30 @@ impl<'info> InitializeLpMetadata<'info> {
         }
         #[cfg(not(feature = "production"))]
         let _ = vanity_suffix;
+
         Ok(())
     }
 
     pub fn handle_initialize(ctx: Context<Self>, args: InitializeLpMetadataArgs) -> Result<()> {
-        let token_metadata_program = ctx.accounts.token_metadata_program.to_account_info();
-        let metadata = ctx.accounts.lp_token_metadata.to_account_info();
-        let mint = ctx.accounts.lp_mint.to_account_info();
-        let authority = ctx.accounts.market.to_account_info();
-        let payer = ctx.accounts.payer.to_account_info();
-        let system_program = ctx.accounts.system_program.to_account_info();
-        let instructions_sysvar = ctx.accounts.sysvar_instructions.to_account_info();
-        let token_2022_program = ctx.accounts.token_2022_program.to_account_info();
+        let InitializeLpMetadata {
+            payer,
+            market,
+            lp_mint,
+            lp_token_metadata,
+            system_program,
+            sysvar_instructions,
+            token_2022_program,
+            token_metadata_program,
+        } = ctx.accounts;
+
+        let token_metadata_program = token_metadata_program.to_account_info();
+        let metadata = lp_token_metadata.to_account_info();
+        let mint = lp_mint.to_account_info();
+        let authority = market.to_account_info();
+        let payer = payer.to_account_info();
+        let system_program = system_program.to_account_info();
+        let instructions_sysvar = sysvar_instructions.to_account_info();
+        let token_2022_program = token_2022_program.to_account_info();
         let cpi_accounts = CreateV1CpiAccounts {
             metadata: &metadata,
             master_edition: None,
@@ -128,7 +140,7 @@ impl<'info> InitializeLpMetadata<'info> {
         };
 
         CreateV1Cpi::new(&token_metadata_program, cpi_accounts, cpi_args)
-            .invoke_signed(&[&generate_market_seeds!(ctx.accounts.market)[..]])
+            .invoke_signed(&[&generate_market_seeds!(market)[..]])
             .map_err(Into::into)
     }
 }

@@ -210,6 +210,8 @@ impl<'info> DepositSingleSided<'info> {
         let owner_key = ctx.accounts.owner.key();
         let target_hlp_mint_key = ctx.accounts.target_hlp_mint.key();
         let ylp_mint_key = ctx.accounts.ylp_mint.key();
+
+        // Create the canonical yLP custody account on its first deposit.
         let (_, hlp_ylp_bump) = derive_hlp_ylp_vault_address(market_key, target_hlp_mint_key, ylp_mint_key);
         create_token_account(
             &ctx.accounts.market.to_account_info(),
@@ -235,6 +237,7 @@ impl<'info> DepositSingleSided<'info> {
             MarketAsset::Quote => ctx.accounts.quote_mint.key(),
         };
 
+        // Transfer the target asset and measure the reserve's net credit.
         let (target_reserve_vault, target_mint) = match target_asset {
             MarketAsset::Base => (
                 ctx.accounts.base_reserve_vault.to_account_info(),
@@ -281,6 +284,7 @@ impl<'info> DepositSingleSided<'info> {
         }
         .ok_or(ErrorCode::MarketMathOverflow)?;
 
+        // Apply hLP accounting and checkpoint the immutable post-deposit curve.
         let receipt = ctx
             .accounts
             .market
@@ -314,6 +318,7 @@ impl<'info> DepositSingleSided<'info> {
             quote_interest_growth,
         )?;
 
+        // Mint backing yLP into custody and hLP to the depositor.
         let ylp_program = token_program_for_mint(
             &ctx.accounts.ylp_mint,
             &ctx.accounts.token_program,
@@ -350,6 +355,7 @@ impl<'info> DepositSingleSided<'info> {
             &signer_seeds,
         )?;
 
+        // Emit the final hLP position state without an event CPI.
         const MARKET_EVENT_METADATA_LEN: usize = 32 + 32 + 8;
         const HLP_OPENED_EVENT_LEN: usize = 8 + (3 * 32) + (5 * 8) + MARKET_EVENT_METADATA_LEN;
         let mut data = [0_u8; HLP_OPENED_EVENT_LEN];

@@ -20,7 +20,7 @@
 //! every raw normalized input atom advance by at least one common atom.
 //! Production arithmetic uses raw `u128` operations only. Positive-
 //! concentration common reserves are capped at `u64::MAX`; exact CPMM mode
-//! retains the legacy wider normalized-reserve domain. Authoritative geometry
+//! supports a wider normalized-reserve domain. Authoritative geometry
 //! is derived in Q80; transition targets and ordinary residuals use its cached
 //! Q64 projection. A Q80 sign calculation runs only when the Q64 residual is
 //! within eight ulps of zero. Inner/tail
@@ -53,7 +53,7 @@ const Q64_RESIDUAL_AMBIGUITY_ULPS: u128 = 8;
 pub(crate) const CONCENTRATED_MAX_PEAK_DEPTH_NAD: u128 = 2_000 * NAD as u128;
 pub(crate) const CONCENTRATED_MAX_FADE_SCALE_NAD: u128 = 199_000_000;
 /// Persisted cache/invariant identity. Increment this only when executable
-/// curve mathematics changes; old cached roots then become cold hints rather
+/// curve mathematics changes; stale cached roots then become cold hints rather
 /// than requiring a market-state migration.
 pub(crate) const CONCENTRATED_MATH_REVISION: u8 = 2;
 pub(crate) const CONCENTRATED_INVARIANT_MAX_ITERS: usize = 65;
@@ -558,9 +558,9 @@ impl ConcentratedPreparedCurve {
                 self.base_common,
             ),
         };
-        // Normalize the complete post-trade reserve. In general
+        // Normalize the complete post-trade reserve. In general,
         // floor((R+dR)*a/b) != floor(R*a/b)+floor(dR*a/b); composing rounded
-        // deltas is what caused the former low-center quote bucket.
+        // deltas would create a low-center quote bucket.
         let input_after_nad = input_reserve_nad
             .checked_add(amount_in_nad)
             .ok_or(ErrorCode::InvariantOverflow)?;
@@ -1123,10 +1123,9 @@ impl ConcentratedC1Geometry {
             peak_q80 > 0 && scale_q80 > 0 && scale_q80 < Q80_ONE,
             ErrorCode::InvalidArgument
         );
-        // The protocol chooses the first join directly at delta=s/4. Solving
-        // the associated inner equation for its reserve-shape coordinate is
-        // deterministic and removes the former 30-step Q80 root search from
-        // every geometry construction.
+        // The protocol fixes the first join at delta=s/4. Solving the inner
+        // equation for its reserve-shape coordinate avoids a 30-step Q80 root
+        // search during every geometry construction.
         let delta_start_q80 = scale_q80 >> C1_TRANSITION_START_SHIFT;
         require!(delta_start_q80 > 0, ErrorCode::InvalidArgument);
         let q_start_q80 = Q80_ONE
@@ -1841,8 +1840,8 @@ fn prepare_curve_internal(
     let (base_common, quote_common) = if peak_depth_nad > 0 {
         normalize_reserves(base_reserve_nad, quote_reserve_nad, center_price_nad)?
     } else {
-        // Legacy CPMM quotes do not use concentrated residual arithmetic and
-        // therefore retain their wider normalized-reserve domain.
+        // CPMM quotes do not use concentrated residual arithmetic and therefore
+        // support the wider normalized-reserve domain.
         let base_common = common_numeraire
             .base_scale(center_price_nad)?
             .to_common_floor(base_reserve_nad)?;

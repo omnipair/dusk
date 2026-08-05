@@ -103,6 +103,7 @@ impl<'info> DepositCollateral<'info> {
             let asset_mint_key = accounts.asset_mint.key();
             let market_asset = accounts.market.asset_for_mint(asset_mint_key)?;
 
+            // Initialize the position before its first collateral credit.
             if !accounts.borrow_position.is_initialized() {
                 accounts
                     .borrow_position
@@ -110,6 +111,7 @@ impl<'info> DepositCollateral<'info> {
             }
             accounts.borrow_position.assert_position(owner_key, market_key)?;
 
+            // Transfer collateral and measure the amount the vault received.
             let collateral_balance_before = accounts.collateral_vault.amount;
             let asset_token_program = token_program_for_mint(
                 &accounts.asset_mint,
@@ -135,6 +137,7 @@ impl<'info> DepositCollateral<'info> {
                 .ok_or(ErrorCode::MarketMathOverflow)?;
             require!(collateral_credit > 0, ErrorCode::AmountZero);
 
+            // Apply the measured credit to market and position accounting.
             let collateral_receipt =
                 accounts
                     .market

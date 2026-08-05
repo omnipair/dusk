@@ -125,6 +125,7 @@ impl<'info> AddLeverageMargin<'info> {
         let position_key = ctx.accounts.leverage_position.key();
         ctx.accounts.market.prepare_leverage_margin_operation(current_slot)?;
 
+        // Resolve the gross transfer required for the exact net debt repayment.
         let reserve_balance_before = ctx.accounts.debt_reserve_vault.amount;
         let debt_token_program = token_program_for_mint(
             &ctx.accounts.debt_mint,
@@ -168,6 +169,7 @@ impl<'info> AddLeverageMargin<'info> {
         let measured_repay_credit = token_account_credit(reserve_balance_before, &ctx.accounts.debt_reserve_vault)?;
         require_eq!(measured_repay_credit, repay_credit, ErrorCode::BrokenInvariant);
 
+        // Apply the repayment, route interest, and verify reserve custody.
         let receipt =
             ctx.accounts
                 .market
@@ -196,6 +198,7 @@ impl<'info> AddLeverageMargin<'info> {
             ctx.accounts.market.side(debt_asset),
         )?;
 
+        // Emit referral accrual before the final position state.
         emit_referral_interest_accrued_at_slot(
             &referral_receipt,
             market_key,

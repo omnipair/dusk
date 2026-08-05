@@ -321,7 +321,7 @@ impl WithdrawSingleSided {
         };
         // Preserve the ordinary stale-price guard. An explicitly recorded
         // partial controller residual is different: an exit reduces or fully
-        // retires that hedge, so trapping it behind the old reference would
+        // retires that hedge, so trapping it behind the prior reference would
         // create a liveness failure.
         if residual_exposure == 0 {
             require_hlp_settlement_available(market, self.target_asset)?;
@@ -872,8 +872,8 @@ fn simulated_swap_price_ratio_with_reserve_input_nad(
 ///
 /// Candidate adjustments all start from the same market state, so valuation,
 /// interest exclusion, decimals, and center validation are invariant across
-/// the three safeguarded secant evaluations. The old simulator cloned `Market` and rediscovered those values
-/// for every candidate.
+/// the three safeguarded secant evaluations. Cloning `Market` here would
+/// rediscover the same values for every candidate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct CpmmPreSolveEvaluation {
     ratio_nad: u128,

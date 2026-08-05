@@ -74,6 +74,7 @@ pub struct ClaimYield<'info> {
 
 impl<'info> ClaimYield<'info> {
     pub fn validate(&self, args: &ClaimYieldArgs) -> Result<()> {
+        // Bind the requested LP kind and asset to this market.
         let market_asset = self.market.asset_for_mint(self.asset_mint.key())?;
         let market_side = self.market.side(market_asset);
         require_keys_eq!(market_side.asset_mint, self.asset_mint.key(), ErrorCode::InvalidMint);
@@ -86,6 +87,8 @@ impl<'info> ClaimYield<'info> {
             }
         }
         validate_owner_lp_account(self.owner.key(), &self.lp_mint, &self.owner_lp_account)?;
+
+        // Bind the destination and both physical yield sources.
         require_keys_eq!(
             self.recipient_asset_account.owner,
             self.yield_account.recipient,
@@ -131,6 +134,8 @@ impl<'info> ClaimYield<'info> {
             &ctx.accounts.token_2022_program,
         )?;
         let swap_fee_custody_balance = ctx.accounts.market.side(market_asset).fees.swap_fee_custody_balance;
+
+        // Materialize claimable yield from the appropriate LP growth indexes.
         let receipt = match args.token_kind {
             YieldTokenKind::Ylp => {
                 let market_side = ctx.accounts.market.side_mut(market_asset);
@@ -172,6 +177,8 @@ impl<'info> ClaimYield<'info> {
                 }
             }
         };
+
+        // Pay swap-fee and interest yield from their separate custody vaults.
         if receipt.swap_fee_amount > 0 {
             transfer_checked_with_remaining_accounts(
                 ctx.accounts.market.to_account_info(),
@@ -199,6 +206,8 @@ impl<'info> ClaimYield<'info> {
                 ctx.remaining_accounts,
             )?;
         }
+
+        // Retire liabilities only after both payment transfers succeed.
         {
             let market_side = ctx.accounts.market.side_mut(market_asset);
             market_side.settle_yield_claim(
@@ -208,6 +217,8 @@ impl<'info> ClaimYield<'info> {
                 receipt.interest_amount,
             )?;
         }
+
+        // Preserve executable reserve backing after removing fee custody.
         require_reserve_custody(
             ctx.accounts.reserve_vault.amount,
             ctx.accounts.market.side(market_asset),

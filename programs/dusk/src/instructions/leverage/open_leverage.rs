@@ -149,6 +149,7 @@ impl<'info> OpenLeverage<'info> {
         let debt_mint_key = ctx.accounts.debt_mint.key();
         let collateral_mint_key = ctx.accounts.collateral_mint.key();
 
+        // Transfer margin into the debt reserve and measure its net credit.
         let debt_token_program = token_program_for_mint(
             &ctx.accounts.debt_mint,
             &ctx.accounts.token_program,
@@ -170,6 +171,7 @@ impl<'info> OpenLeverage<'info> {
         let margin_credit = token_account_credit(reserve_balance_before, &ctx.accounts.debt_reserve_vault)?;
         require!(margin_credit > 0, ErrorCode::AmountZero);
 
+        // Quote the leveraged purchase against margin plus borrowed debt.
         let debt_amount = leverage_debt_from_margin(margin_credit, args.multiplier_bps)?;
         let referral = validate_referral_binding(
             args.referrer,
@@ -210,6 +212,7 @@ impl<'info> OpenLeverage<'info> {
             leverage_collateral_credit(&ctx.accounts.collateral_mint, swap.amount_out, current_epoch)?;
         require_gte!(collateral_credit, args.min_collateral_out, ErrorCode::SlippageExceeded);
 
+        // Create the position vault and move the purchased collateral into custody.
         let collateral_token_program = token_program_for_mint(
             &ctx.accounts.collateral_mint,
             &ctx.accounts.token_program,
@@ -243,6 +246,7 @@ impl<'info> OpenLeverage<'info> {
             h_lp_accounts.hook_accounts(ctx.remaining_accounts),
         )?;
 
+        // Commit position accounting and settle the resulting hLP exposure.
         let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
         let receipt = ctx.accounts.market.open_leverage(
             &mut ctx.accounts.leverage_position,
@@ -280,6 +284,8 @@ impl<'info> OpenLeverage<'info> {
             receipt.quote_hlp_rebalance,
             interest_eligibility,
         )?;
+
+        // Reconcile physical reserve custody after inline settlement.
         ctx.accounts.debt_reserve_vault.reload()?;
         ctx.accounts.collateral_reserve_vault.reload()?;
         require_reserve_custody(
@@ -293,6 +299,7 @@ impl<'info> OpenLeverage<'info> {
 
         let position_key = ctx.accounts.leverage_position.key();
 
+        // Emit the final position and referral state.
         emit!(LeveragePositionOpened {
             market: market_key,
             position: position_key,

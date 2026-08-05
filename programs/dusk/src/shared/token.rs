@@ -1,7 +1,8 @@
-/// forked from raydium-cp-swap
-/// https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/utils/token.rs
-/// Handles token transfers and minting with support for old token program and spl_token_2022
-use crate::errors::ErrorCode;
+//! Token CPI helpers forked from Raydium CP Swap:
+//! https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/utils/token.rs
+//!
+//! Supports the legacy SPL Token program and Token-2022.
+
 use anchor_lang::{
     prelude::*,
     solana_program::{
@@ -27,6 +28,8 @@ use anchor_spl::{
         initialize_account3, spl_token_2022::extension::BaseStateWithExtensions, InitializeAccount3, Mint,
     },
 };
+
+use crate::errors::ErrorCode;
 
 #[allow(clippy::too_many_arguments)]
 pub fn transfer_checked_with_remaining_accounts<'a>(

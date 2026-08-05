@@ -44,25 +44,31 @@ pub struct UpdateProtocolAuctionRoute<'info> {
 
 impl UpdateProtocolAuctionRoute<'_> {
     pub fn handle_update(ctx: Context<Self>, args: UpdateProtocolAuctionRouteArgs) -> Result<()> {
-        ctx.accounts.futarchy_authority.validate()?;
-        ctx.accounts.market.assert_started()?;
-        let sold_side = ctx.accounts.market.asset_for_mint(args.sold_mint)?;
-        ctx.accounts
-            .market
+        let UpdateProtocolAuctionRoute {
+            authority_signer,
+            futarchy_authority,
+            market,
+        } = ctx.accounts;
+
+        futarchy_authority.validate()?;
+        market.assert_started()?;
+        let sold_side = market.asset_for_mint(args.sold_mint)?;
+        market
             .side_mut(sold_side)
             .fees
             .set_protocol_auction_reference_market(args.lane, args.reference_market);
 
         emit!(ProtocolAuctionRouteUpdated {
-            authority: ctx.accounts.futarchy_authority.key(),
-            market: ctx.accounts.market.key(),
+            authority: futarchy_authority.key(),
+            market: market.key(),
             lane: args.lane.code(),
             side: sold_side.code(),
             sold_mint: args.sold_mint,
-            accepted_mint: ctx.accounts.futarchy_authority.auction_config(args.lane).accepted_mint,
+            accepted_mint: futarchy_authority.auction_config(args.lane).accepted_mint,
             reference_market: args.reference_market,
-            signer: ctx.accounts.authority_signer.key(),
+            signer: authority_signer.key(),
         });
+
         Ok(())
     }
 }

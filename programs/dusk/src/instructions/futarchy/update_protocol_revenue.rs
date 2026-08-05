@@ -34,41 +34,50 @@ pub struct UpdateProtocolRevenue<'info> {
 
 impl<'info> UpdateProtocolRevenue<'info> {
     pub fn handle_update(ctx: Context<Self>, args: UpdateProtocolRevenueArgs) -> Result<()> {
+        let UpdateProtocolRevenue {
+            authority_signer,
+            futarchy_authority,
+        } = ctx.accounts;
+
         if let Some(swap_bps) = args.swap_bps {
             require_gte!(BPS_DENOMINATOR, swap_bps, ErrorCode::InvalidSwapFeeBps);
-            ctx.accounts.futarchy_authority.revenue_share.swap_bps = swap_bps;
+            futarchy_authority.revenue_share.swap_bps = swap_bps;
         }
         if let Some(interest_bps) = args.interest_bps {
             require_gte!(BPS_DENOMINATOR, interest_bps, ErrorCode::InvalidInterestFeeBps);
-            ctx.accounts.futarchy_authority.revenue_share.interest_bps = interest_bps;
+            futarchy_authority.revenue_share.interest_bps = interest_bps;
         }
+
         if let Some(max_referral_interest_share_bps) = args.max_referral_interest_share_bps {
             require_gte!(
                 MAX_REFERRAL_INTEREST_SHARE_BPS,
                 max_referral_interest_share_bps,
                 ErrorCode::InvalidReferralInterestShareBps
             );
-            ctx.accounts.futarchy_authority.max_referral_interest_share_bps = max_referral_interest_share_bps;
+            futarchy_authority.max_referral_interest_share_bps = max_referral_interest_share_bps;
             emit!(ReferralInterestShareCapUpdated {
-                authority: ctx.accounts.futarchy_authority.key(),
+                authority: futarchy_authority.key(),
                 max_referral_interest_share_bps,
-                signer: ctx.accounts.authority_signer.key(),
+                signer: authority_signer.key(),
             });
         }
+
         if let Some(revenue_distribution) = args.revenue_distribution {
             require!(revenue_distribution.is_valid(), ErrorCode::InvalidDistribution);
-            ctx.accounts.futarchy_authority.revenue_distribution = revenue_distribution;
+            futarchy_authority.revenue_distribution = revenue_distribution;
         }
+
         if let Some(protocol_auction_split) = args.protocol_auction_split {
             require!(protocol_auction_split.is_valid(), ErrorCode::InvalidDistribution);
-            ctx.accounts.futarchy_authority.protocol_auction_split = protocol_auction_split;
+            futarchy_authority.protocol_auction_split = protocol_auction_split;
             emit!(ProtocolAuctionSplitUpdated {
-                authority: ctx.accounts.futarchy_authority.key(),
+                authority: futarchy_authority.key(),
                 fee_auction_bps: protocol_auction_split.fee_auction_bps,
                 buyback_auction_bps: protocol_auction_split.buyback_auction_bps,
-                signer: ctx.accounts.authority_signer.key(),
+                signer: authority_signer.key(),
             });
         }
+
         Ok(())
     }
 }

@@ -143,6 +143,7 @@ impl<'info> DecreaseLeverage<'info> {
         let collateral_mint_key = ctx.accounts.collateral_mint.key();
         let position_key = ctx.accounts.leverage_position.key();
 
+        // Return position collateral to the reserve and measure its net credit.
         let collateral_token_program = token_program_for_mint(
             &ctx.accounts.collateral_mint,
             &ctx.accounts.token_program,
@@ -166,6 +167,8 @@ impl<'info> DecreaseLeverage<'info> {
             &ctx.accounts.collateral_reserve_vault,
         )?;
         require!(collateral_reserve_credit > 0, ErrorCode::AmountZero);
+
+        // Quote the credited collateral as a debt repayment.
         let SwapPlan {
             quote,
             base_pre_rebalance,
@@ -189,6 +192,7 @@ impl<'info> DecreaseLeverage<'info> {
         };
         let swap_fee_credit = leverage_swap_fee_credit(&swap)?;
 
+        // Commit position accounting and settle hLP exposure and interest.
         let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
         let receipt = ctx.accounts.market.decrease_leverage(
             &mut ctx.accounts.leverage_position,
@@ -234,6 +238,8 @@ impl<'info> DecreaseLeverage<'info> {
             receipt.interest_paid,
             h_lp_accounts.hook_accounts(ctx.remaining_accounts),
         )?;
+
+        // Reconcile physical reserve custody after inline settlement.
         ctx.accounts.debt_reserve_vault.reload()?;
         ctx.accounts.collateral_reserve_vault.reload()?;
         require_reserve_custody(
@@ -255,6 +261,7 @@ impl<'info> DecreaseLeverage<'info> {
             current_slot,
         )?;
 
+        // Emit the final position state.
         emit!(LeveragePositionUpdated {
             market: market_key,
             position: position_key,

@@ -157,6 +157,7 @@ impl<'info> LiquidateLeverage<'info> {
         let expected_referral_partner = ctx.accounts.leverage_position.referral_partner;
         let collateral_sold = ctx.accounts.leverage_position.collateral_amount;
 
+        // Return seized collateral to the reserve and measure its net credit.
         let collateral_token_program = token_program_for_mint(
             &ctx.accounts.collateral_mint,
             &ctx.accounts.token_program,
@@ -180,6 +181,8 @@ impl<'info> LiquidateLeverage<'info> {
             &ctx.accounts.collateral_reserve_vault,
         )?;
         require!(collateral_reserve_credit > 0, ErrorCode::AmountZero);
+
+        // Quote the credited collateral as a debt-asset liquidation swap.
         let SwapPlan {
             quote,
             base_pre_rebalance,
@@ -203,6 +206,7 @@ impl<'info> LiquidateLeverage<'info> {
         };
         let swap_fee_credit = leverage_swap_fee_credit(&swap)?;
 
+        // Commit liquidation accounting and settle the resulting hLP exposure.
         let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
         let receipt = ctx.accounts.market.liquidate_leverage(
             &mut ctx.accounts.leverage_position,
@@ -230,6 +234,7 @@ impl<'info> LiquidateLeverage<'info> {
             interest_eligibility,
         )?;
 
+        // Pay the liquidator first, then return any residual to the owner.
         let debt_token_program = token_program_for_mint(
             &ctx.accounts.debt_mint,
             &ctx.accounts.token_program,
@@ -265,6 +270,7 @@ impl<'info> LiquidateLeverage<'info> {
         ctx.accounts.owner_debt_account.reload()?;
         let owner_residual = token_account_credit(owner_balance_before, &ctx.accounts.owner_debt_account)?;
 
+        // Route accrued interest and reconcile physical reserve custody.
         let referral_receipt = record_leverage_interest(
             &mut ctx.accounts.market,
             debt_asset,
@@ -303,6 +309,7 @@ impl<'info> LiquidateLeverage<'info> {
             current_slot,
         )?;
 
+        // Emit the final liquidation state.
         emit!(LeveragePositionLiquidated {
             market: market_key,
             position: position_key,

@@ -126,6 +126,8 @@ impl<'info> IncreaseLeverage<'info> {
         let debt_mint_key = ctx.accounts.debt_mint.key();
         let collateral_mint_key = ctx.accounts.collateral_mint.key();
         let position_key = ctx.accounts.leverage_position.key();
+
+        // Quote the additional debt as a collateral purchase.
         let SwapPlan {
             quote,
             base_pre_rebalance,
@@ -151,6 +153,7 @@ impl<'info> IncreaseLeverage<'info> {
             leverage_collateral_credit(&ctx.accounts.collateral_mint, swap.amount_out, current_epoch)?;
         require_gte!(collateral_credit, args.min_collateral_out, ErrorCode::SlippageExceeded);
 
+        // Move purchased collateral from the reserve into position custody.
         let swap_fee_credit = leverage_swap_fee_credit(&swap)?;
         let collateral_token_program = token_program_for_mint(
             &ctx.accounts.collateral_mint,
@@ -169,6 +172,7 @@ impl<'info> IncreaseLeverage<'info> {
             h_lp_accounts.hook_accounts(ctx.remaining_accounts),
         )?;
 
+        // Commit position accounting and settle the resulting hLP exposure.
         let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
         let receipt = ctx.accounts.market.increase_leverage(
             &mut ctx.accounts.leverage_position,
@@ -197,6 +201,8 @@ impl<'info> IncreaseLeverage<'info> {
             receipt.quote_hlp_rebalance,
             interest_eligibility,
         )?;
+
+        // Reconcile physical reserve custody after inline settlement.
         ctx.accounts.debt_reserve_vault.reload()?;
         ctx.accounts.collateral_reserve_vault.reload()?;
         require_reserve_custody(
@@ -208,6 +214,7 @@ impl<'info> IncreaseLeverage<'info> {
             ctx.accounts.market.side(debt_asset.opposite()),
         )?;
 
+        // Emit the final position state.
         emit!(LeveragePositionUpdated {
             market: market_key,
             position: position_key,

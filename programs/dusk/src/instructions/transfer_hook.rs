@@ -52,6 +52,8 @@ pub fn handle_transfer_hook<'info>(
         TransferHookInstruction::Execute { amount } => amount,
         _ => return err!(ErrorCode::InvalidArgument),
     };
+
+    // Validate the Token-2022 callback and reconstruct pre-transfer balances.
     require_gte!(accounts.len(), TRANSFER_HOOK_ACCOUNT_COUNT, ErrorCode::InvalidArgument);
     let lp_mint = *accounts[1].key;
     let (source_owner, destination_owner, balances) = {
@@ -89,6 +91,8 @@ pub fn handle_transfer_hook<'info>(
     let market_key = *accounts[5].key;
     require_keys_eq!(*accounts[5].owner, *program_id, ErrorCode::InvalidMarket);
     require!(accounts[5].is_writable, ErrorCode::InvalidMarket);
+
+    // Snapshot the current yield indexes while the market account is borrowed.
     let (base_context, quote_context) =
         mutate_program_owned_account::<Market, _, _>(&accounts[5], ErrorCode::InvalidMarket, |market| {
             require_keys_eq!(*accounts[6].key, market.base_side.asset_mint, ErrorCode::InvalidMint);
@@ -99,6 +103,8 @@ pub fn handle_transfer_hook<'info>(
                 contexts.items[1].ok_or(error!(ErrorCode::InvalidYieldAccount))?,
             ))
         })?;
+
+    // Accrue sender and recipient yield at their respective pre-transfer balances.
     checkpoint_transfer_party(
         &accounts[8],
         &accounts[10],
