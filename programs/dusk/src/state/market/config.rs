@@ -11,7 +11,6 @@ use super::AmmConfig;
 pub struct MarketConfig {
     pub swap_fee_bps: u16,
     pub manager_fee_bps: u16,
-    pub protocol_fee_bps: u16,
     pub target_hlp_leverage_bps: u16,
     pub settlement_divergence_bps: u16,
     pub ema_half_life_ms: u64,
@@ -35,7 +34,6 @@ impl MarketConfig {
             self.manager_fee_bps,
             ErrorCode::InvalidMarketConfig
         );
-        require!(self.protocol_fee_bps == 0, ErrorCode::InvalidMarketConfig);
         require_eq!(
             self.target_hlp_leverage_bps,
             BPS_DENOMINATOR.checked_mul(2).ok_or(ErrorCode::InvalidMarketConfig)?,

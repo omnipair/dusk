@@ -1,60 +1,14 @@
 use anchor_lang::prelude::*;
 
-use crate::{errors::ErrorCode, shared::math::SqrtU128, state::MarketSide};
+use crate::{errors::ErrorCode, state::MarketSide};
 
-use super::fixed_point::normalize_to_nad;
+#[cfg(test)]
+use crate::shared::math::SqrtU128;
 
-#[allow(clippy::assign_op_pattern, clippy::manual_div_ceil)]
-mod wide {
-    use uint::construct_uint;
-
-    construct_uint! {
-        pub struct U256(4);
-    }
-}
-
-use wide::U256;
+use super::{fixed_point::normalize_to_nad, mul_div_ceil_u128, mul_div_u128};
 
 #[cfg(test)]
 use crate::constants::{MIN_LIQUIDITY, NAD};
-
-fn u256_to_u128_output(value: U256) -> Result<u128> {
-    require!(value <= U256::from(u128::MAX), ErrorCode::OutputAmountOverflow);
-    Ok(value.as_u128())
-}
-
-fn mul_div_output_floor(a: u128, b: u128, denominator: u128) -> Result<u128> {
-    require!(denominator > 0, ErrorCode::OutputAmountOverflow);
-    if let Some(numerator) = a.checked_mul(b) {
-        return Ok(numerator / denominator);
-    }
-    let value = U256::from(a)
-        .checked_mul(U256::from(b))
-        .ok_or(ErrorCode::OutputAmountOverflow)?
-        / U256::from(denominator);
-    u256_to_u128_output(value)
-}
-
-fn mul_div_output_ceil(a: u128, b: u128, denominator: u128) -> Result<u128> {
-    require!(denominator > 0, ErrorCode::OutputAmountOverflow);
-    if let Some(numerator) = a.checked_mul(b) {
-        return Ok(if numerator == 0 {
-            0
-        } else {
-            (numerator - 1) / denominator + 1
-        });
-    }
-    let numerator = U256::from(a)
-        .checked_mul(U256::from(b))
-        .ok_or(ErrorCode::OutputAmountOverflow)?;
-    let denominator = U256::from(denominator);
-    let value = if numerator.is_zero() {
-        U256::zero()
-    } else {
-        (numerator - U256::one()) / denominator + U256::one()
-    };
-    u256_to_u128_output(value)
-}
 
 #[cfg(test)]
 pub(crate) fn market_spot_price_nad(collateral_side: &MarketSide, debt_side: &MarketSide) -> Result<u64> {
@@ -79,12 +33,6 @@ pub(crate) fn market_k_nad(base_side: &MarketSide, quote_side: &MarketSide) -> R
             quote_side.reserves.live_reserve as u128,
             quote_side.asset_decimals,
         )?)
-        .ok_or(ErrorCode::MarketMathOverflow.into())
-}
-
-pub(crate) fn market_liquidity_nad(base_side: &MarketSide, quote_side: &MarketSide) -> Result<u128> {
-    market_k_nad(base_side, quote_side)?
-        .sqrt()
         .ok_or(ErrorCode::MarketMathOverflow.into())
 }
 
@@ -186,7 +134,8 @@ pub(crate) fn construct_normalized_virtual_reserves_at_pessimistic_price(
 /// ```
 pub(crate) fn calculate_normalized_amount_out(x: u128, y: u128, dx: u128) -> Result<u128> {
     let denominator = x.checked_add(dx).ok_or(ErrorCode::DenominatorOverflow)?;
-    mul_div_output_floor(dx, y, denominator)
+    require!(denominator > 0, ErrorCode::OutputAmountOverflow);
+    mul_div_u128(dx, y, denominator).map_err(|_| ErrorCode::OutputAmountOverflow.into())
 }
 
 #[cfg(test)]
@@ -201,7 +150,8 @@ pub(crate) fn calculate_raw_amount_out(x: u64, y: u64, dx: u64) -> Result<u64> {
 /// ```
 pub(crate) fn calculate_normalized_amount_in(x: u128, y: u128, dy: u128) -> Result<u128> {
     let denominator = y.checked_sub(dy).ok_or(ErrorCode::DenominatorOverflow)?;
-    mul_div_output_ceil(dy, x, denominator)
+    require!(denominator > 0, ErrorCode::OutputAmountOverflow);
+    mul_div_ceil_u128(dy, x, denominator).map_err(|_| ErrorCode::OutputAmountOverflow.into())
 }
 
 #[cfg(test)]

@@ -9,11 +9,14 @@ use crate::{
     errors::ErrorCode,
     events::{MarketEventMetadata, YieldClaimed},
     generate_market_seeds,
-    shared::token::transfer_from_vault_to_user,
+    shared::token::transfer_checked_with_remaining_accounts,
     state::{Market, YieldAccount, YieldClaimReceipt, YieldTokenKind},
 };
 
-use crate::instructions::common::{token_program_for_mint, validate_fee_accounts, validate_interest_accounts};
+use crate::instructions::common::{
+    require_reserve_custody, token_program_for_mint, validate_interest_accounts, validate_owner_lp_account,
+    validate_swap_fee_custody_accounts,
+};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct ClaimYieldArgs {
@@ -45,7 +48,7 @@ pub struct ClaimYield<'info> {
     #[account(mut)]
     pub owner_lp_account: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
-    pub fee_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
     pub interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
@@ -57,6 +60,7 @@ pub struct ClaimYield<'info> {
             YIELD_ACCOUNT_SEED_PREFIX,
             market.key().as_ref(),
             owner.key().as_ref(),
+            lp_mint.key().as_ref(),
             asset_mint.key().as_ref(),
             &[args.token_kind.code()],
         ],
@@ -78,19 +82,10 @@ impl<'info> ClaimYield<'info> {
                 require_keys_eq!(self.market.ylp_mint, self.lp_mint.key(), ErrorCode::InvalidMint)
             }
             YieldTokenKind::Hlp => {
-                require_keys_eq!(market_side.hlp_mint, self.lp_mint.key(), ErrorCode::InvalidMint)
+                self.market.asset_for_hlp_mint(self.lp_mint.key())?;
             }
         }
-        require_keys_eq!(
-            self.owner_lp_account.mint,
-            self.lp_mint.key(),
-            ErrorCode::InvalidTokenAccount
-        );
-        require_keys_eq!(
-            self.owner_lp_account.owner,
-            self.owner.key(),
-            ErrorCode::InvalidTokenAccount
-        );
+        validate_owner_lp_account(self.owner.key(), &self.lp_mint, &self.owner_lp_account)?;
         require_keys_eq!(
             self.recipient_asset_account.owner,
             self.yield_account.recipient,
@@ -101,13 +96,23 @@ impl<'info> ClaimYield<'info> {
             self.asset_mint.key(),
             ErrorCode::InvalidTokenAccount
         );
-        let fee_asset = validate_fee_accounts(&self.market, &self.asset_mint, &self.fee_vault)?;
+        let fee_asset = validate_swap_fee_custody_accounts(&self.market, &self.asset_mint, &self.reserve_vault)?;
         let interest_asset = validate_interest_accounts(&self.market, &self.asset_mint, &self.interest_vault)?;
         require!(fee_asset == market_asset, ErrorCode::InvalidVault);
         require!(interest_asset == market_asset, ErrorCode::InvalidVault);
+        require_gte!(
+            self.reserve_vault.amount,
+            market_side
+                .reserves
+                .cash_reserve
+                .checked_add(market_side.fees.swap_fee_custody_balance)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            ErrorCode::UnbackedFeeLiability
+        );
         self.yield_account.assert_account(
             self.owner.key(),
             self.market.key(),
+            self.lp_mint.key(),
             self.asset_mint.key(),
             args.token_kind,
         )
@@ -115,7 +120,7 @@ impl<'info> ClaimYield<'info> {
 
     crate::instructions::common::market_update_and_validate!(ClaimYieldArgs);
 
-    pub fn handle_claim(ctx: Context<Self>, args: ClaimYieldArgs) -> Result<()> {
+    pub fn handle_claim(ctx: Context<'_, '_, '_, 'info, Self>, args: ClaimYieldArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.owner.key();
         let asset_mint_key = ctx.accounts.asset_mint.key();
@@ -125,33 +130,39 @@ impl<'info> ClaimYield<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        let vault_balance = ctx
-            .accounts
-            .fee_vault
-            .amount
-            .checked_add(ctx.accounts.interest_vault.amount)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let swap_fee_custody_balance = ctx.accounts.market.side(market_asset).fees.swap_fee_custody_balance;
         let receipt = match args.token_kind {
             YieldTokenKind::Ylp => {
                 let market_side = ctx.accounts.market.side_mut(market_asset);
                 market_side.prepare_yield_claim(
                     &mut ctx.accounts.yield_account,
-                    vault_balance,
+                    swap_fee_custody_balance,
+                    ctx.accounts.interest_vault.amount,
                     ctx.accounts.owner_lp_account.amount,
                 )?
             }
             YieldTokenKind::Hlp => {
-                ctx.accounts.market.checkpoint_hlp_yield_from_ylp(market_asset)?;
-                let (swap_fee_growth_index_nad, interest_growth_index_nad) =
-                    ctx.accounts.market.hlp_yield_growth_indexes(market_asset);
+                let hlp_asset = ctx.accounts.market.asset_for_hlp_mint(ctx.accounts.lp_mint.key())?;
+                ctx.accounts.market.checkpoint_hlp_yield_from_ylp(hlp_asset)?;
+                let (swap_fee_growth_index_q64, interest_growth_index_q64) =
+                    ctx.accounts.market.hlp_yield_growth_indexes(hlp_asset, market_asset);
                 ctx.accounts.yield_account.accrue(
                     ctx.accounts.owner_lp_account.amount,
-                    swap_fee_growth_index_nad,
-                    interest_growth_index_nad,
+                    swap_fee_growth_index_q64,
+                    interest_growth_index_q64,
                 )?;
                 let claim_amount = ctx.accounts.yield_account.claimable_amount()?;
                 require!(claim_amount > 0, ErrorCode::AmountZero);
-                require_gte!(vault_balance, claim_amount, ErrorCode::UnbackedFeeLiability);
+                require_gte!(
+                    swap_fee_custody_balance,
+                    ctx.accounts.yield_account.accrued_swap_fee_amount,
+                    ErrorCode::UnbackedFeeLiability
+                );
+                require_gte!(
+                    ctx.accounts.interest_vault.amount,
+                    ctx.accounts.yield_account.accrued_interest_amount,
+                    ErrorCode::UnbackedFeeLiability
+                );
                 YieldClaimReceipt {
                     claim_amount,
                     swap_fee_amount: ctx.accounts.yield_account.accrued_swap_fee_amount,
@@ -162,19 +173,21 @@ impl<'info> ClaimYield<'info> {
             }
         };
         if receipt.swap_fee_amount > 0 {
-            transfer_from_vault_to_user(
+            transfer_checked_with_remaining_accounts(
                 ctx.accounts.market.to_account_info(),
-                ctx.accounts.fee_vault.to_account_info(),
+                ctx.accounts.reserve_vault.to_account_info(),
                 ctx.accounts.recipient_asset_account.to_account_info(),
                 ctx.accounts.asset_mint.to_account_info(),
                 token_program.clone(),
                 receipt.swap_fee_amount,
                 ctx.accounts.asset_mint.decimals,
                 &[&generate_market_seeds!(ctx.accounts.market)[..]],
+                ctx.remaining_accounts,
             )?;
+            ctx.accounts.reserve_vault.reload()?;
         }
         if receipt.interest_amount > 0 {
-            transfer_from_vault_to_user(
+            transfer_checked_with_remaining_accounts(
                 ctx.accounts.market.to_account_info(),
                 ctx.accounts.interest_vault.to_account_info(),
                 ctx.accounts.recipient_asset_account.to_account_info(),
@@ -183,10 +196,9 @@ impl<'info> ClaimYield<'info> {
                 receipt.interest_amount,
                 ctx.accounts.asset_mint.decimals,
                 &[&generate_market_seeds!(ctx.accounts.market)[..]],
+                ctx.remaining_accounts,
             )?;
         }
-        ctx.accounts.fee_vault.reload()?;
-        ctx.accounts.interest_vault.reload()?;
         {
             let market_side = ctx.accounts.market.side_mut(market_asset);
             market_side.settle_yield_claim(
@@ -194,13 +206,16 @@ impl<'info> ClaimYield<'info> {
                 receipt.claim_amount,
                 receipt.swap_fee_amount,
                 receipt.interest_amount,
-                ctx.accounts.fee_vault.amount,
-                ctx.accounts.interest_vault.amount,
             )?;
         }
+        require_reserve_custody(
+            ctx.accounts.reserve_vault.amount,
+            ctx.accounts.market.side(market_asset),
+        )?;
         emit_cpi!(YieldClaimed {
             market: market_key,
             owner: owner_key,
+            lp_mint: ctx.accounts.lp_mint.key(),
             asset_mint: asset_mint_key,
             token_kind: args.token_kind.code(),
             recipient: ctx.accounts.yield_account.recipient,

@@ -33,8 +33,9 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
   independent per-side daily borrow limits.
 - Review floating yLP liquidity, matched yLP redemption, and Token-2022
   transfer checkpointing.
-- Review fee liabilities and settlement paths for yLP, hLP, operator,
-  protocol, and unallocated buckets.
+- Review fee liabilities and settlement paths for yLP, hLP, manager,
+  protocol, and unallocated buckets. Verify reserve-custodied swap-fee
+  liabilities separately from interest-vault-custodied liabilities.
 - Review the no-ceiling dynamic-fee proof: finite rates stay below 100%,
   split paths cannot obtain a material discount, and raw-token exhaustion
   fails closed.
@@ -76,8 +77,7 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 - Track yLP supply, hLP vault-owned yLP, hLP supply, hLP debt, global-health
   contributions, stored liquidation CFs, insurance, fee liabilities, and
   market health as separate Dusk metrics.
-- Decode `LiquidityAdded`, `LiquidityRemoved`, both `SwapExecuted` and
-  `SwapSettled`,
+- Decode `LiquidityAdded`, `LiquidityRemoved`, `SwapExecuted`,
   `MarketDebtUpdated`, `PositionLiquidated`, yield, protocol-fee, hedge, and
   insurance events from the Dusk IDL.
 - Confirm analytics labels use Dusk market terminology.

@@ -1,4 +1,5 @@
 use super::*;
+use crate::math::concentrated_quote_exact_out_input_lower_bound;
 
 fn assert_risk_composition_is_conservative(
     curve: ConcentratedRiskCurve,
@@ -7,7 +8,16 @@ fn assert_risk_composition_is_conservative(
     collateral: u128,
 ) {
     let exact_out_upper = curve.exact_out(existing_debt, direction).unwrap();
-    let utilized_lower = curve.exact_out_input_lower_bound(existing_debt, direction).unwrap();
+    let utilized_lower = concentrated_quote_exact_out_input_lower_bound(
+        curve.base_reserve_nad,
+        curve.quote_reserve_nad,
+        existing_debt,
+        direction,
+        curve.center_price_nad,
+        curve.peak_depth_nad,
+        curve.fade_scale_nad,
+    )
+    .unwrap();
     assert!(utilized_lower <= exact_out_upper);
     assert!(curve.exact_in(exact_out_upper, direction).unwrap() >= existing_debt);
 
@@ -52,7 +62,7 @@ fn pessimistic_max_debt_matches_v1_exact_values() {
         quote_reserve_nad: reserve,
         center_price_nad: NAD as u128,
         peak_depth_nad: 0,
-        imbalance_scale_nad: 0,
+        fade_scale_nad: 0,
     };
     let direction = ConcentratedSwapDirection::BaseToQuote;
 
@@ -74,7 +84,7 @@ fn pessimistic_max_debt_matches_v1_exact_values() {
 fn concentrated_utilized_collateral_composition_is_conservative() {
     let center = NAD as u128;
     let peak_depth = 200 * NAD as u128;
-    let imbalance_scale = NAD as u128 / 10;
+    let fade_scale = NAD as u128 / 10;
     let direction = ConcentratedSwapDirection::BaseToQuote;
     let reserves = crate::math::concentrated_risk_reserves_at_price_q(
         center,
@@ -82,7 +92,7 @@ fn concentrated_utilized_collateral_composition_is_conservative() {
         direction,
         center,
         peak_depth,
-        imbalance_scale,
+        fade_scale,
     )
     .unwrap();
     let curve = ConcentratedRiskCurve {
@@ -90,11 +100,20 @@ fn concentrated_utilized_collateral_composition_is_conservative() {
         quote_reserve_nad: reserves.quote_reserve_nad,
         center_price_nad: center,
         peak_depth_nad: peak_depth,
-        imbalance_scale_nad: imbalance_scale,
+        fade_scale_nad: fade_scale,
     };
     let existing_debt = 400_000 * NAD as u128;
     let exact_out_input = curve.exact_out(existing_debt, direction).unwrap();
-    let risk_utilized = curve.exact_out_input_lower_bound(existing_debt, direction).unwrap();
+    let risk_utilized = concentrated_quote_exact_out_input_lower_bound(
+        curve.base_reserve_nad,
+        curve.quote_reserve_nad,
+        existing_debt,
+        direction,
+        curve.center_price_nad,
+        curve.peak_depth_nad,
+        curve.fade_scale_nad,
+    )
+    .unwrap();
 
     // Binary-search the smallest input whose conservative exact-input quote
     // covers existing debt. This is an independent reference for the
@@ -137,12 +156,12 @@ fn concentrated_utilized_collateral_composition_is_conservative() {
 #[test]
 fn risk_composition_uses_proven_inverse_bounds_across_hybrid_regions() {
     let reserve = 1_000_000_000_000_u128;
-    for (peak_depth, imbalance_scale) in [
+    for (peak_depth, fade_scale) in [
         (2 * NAD as u128, 10),
         (200 * NAD as u128, NAD as u128 / 10),
         (
             crate::math::CONCENTRATED_MAX_PEAK_DEPTH_NAD,
-            crate::math::CONCENTRATED_MAX_IMBALANCE_SCALE_NAD,
+            crate::math::CONCENTRATED_MAX_FADE_SCALE_NAD,
         ),
     ] {
         let curve = ConcentratedRiskCurve {
@@ -150,7 +169,7 @@ fn risk_composition_uses_proven_inverse_bounds_across_hybrid_regions() {
             quote_reserve_nad: reserve,
             center_price_nad: NAD as u128,
             peak_depth_nad: peak_depth,
-            imbalance_scale_nad: imbalance_scale,
+            fade_scale_nad: fade_scale,
         };
         for direction in [
             ConcentratedSwapDirection::BaseToQuote,
@@ -171,16 +190,15 @@ fn risk_composition_uses_proven_inverse_bounds_across_hybrid_regions() {
             quote_reserve_nad: quote,
             center_price_nad: NAD as u128,
             peak_depth_nad: 200 * NAD as u128,
-            imbalance_scale_nad: NAD as u128 / 10,
+            fade_scale_nad: NAD as u128 / 10,
         };
         for direction in [
             ConcentratedSwapDirection::BaseToQuote,
             ConcentratedSwapDirection::QuoteToBase,
         ] {
-            let output_reserve = curve.output_reserve(direction);
-            let input_reserve = match direction {
-                ConcentratedSwapDirection::BaseToQuote => curve.base_reserve_nad,
-                ConcentratedSwapDirection::QuoteToBase => curve.quote_reserve_nad,
+            let (input_reserve, output_reserve) = match direction {
+                ConcentratedSwapDirection::BaseToQuote => (curve.base_reserve_nad, curve.quote_reserve_nad),
+                ConcentratedSwapDirection::QuoteToBase => (curve.quote_reserve_nad, curve.base_reserve_nad),
             };
             assert_risk_composition_is_conservative(curve, direction, output_reserve / 2, input_reserve / 20);
         }

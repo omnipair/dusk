@@ -269,6 +269,9 @@ pub enum ErrorCode {
     #[msg("Invalid hLP vault")]
     InvalidHlpVault,
 
+    #[msg("Live hLP mint supply is inconsistent with stored vault supply")]
+    InvalidHlpMintSupply,
+
     #[msg("Not enough remaining accounts")]
     NotEnoughAccounts,
 
@@ -296,7 +299,7 @@ pub enum ErrorCode {
     #[msg("Claim mint must not charge transfer fees")]
     InvalidClaimMint,
 
-    #[msg("Fee liability is not backed by fee vault balance")]
+    #[msg("Fee liability is not backed by its custody balance")]
     UnbackedFeeLiability,
 
     #[msg("Invalid market fee authority")]

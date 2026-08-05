@@ -58,10 +58,35 @@ pub struct InitializeLpMetadata<'info> {
 
 impl<'info> InitializeLpMetadata<'info> {
     pub fn validate(&self, args: &InitializeLpMetadataArgs) -> Result<()> {
-        validate_lp_metadata(args)?;
-        let decimals = lp_decimals_for_market_mint(&self.market, self.lp_mint.key())?;
+        require!(args.name.len() <= 32, ErrorCode::InvalidLpName);
+        require!(args.name.is_ascii(), ErrorCode::InvalidLpName);
+        require!(args.symbol.len() <= 10, ErrorCode::InvalidLpSymbol);
+        require!(args.symbol.is_ascii(), ErrorCode::InvalidLpSymbol);
+        require!(args.uri.len() <= 200, ErrorCode::InvalidLpUri);
+        require!(args.uri.starts_with("http"), ErrorCode::InvalidLpUri);
+
+        let lp_mint = self.lp_mint.key();
+        let (decimals, vanity_suffix) = if lp_mint == self.market.ylp_mint {
+            (self.market.base_side.asset_decimals, "yLP")
+        } else if lp_mint == self.market.base_side.hlp_mint {
+            (self.market.base_side.asset_decimals, "hLP")
+        } else if lp_mint == self.market.quote_side.hlp_mint {
+            (self.market.quote_side.asset_decimals, "hLP")
+        } else {
+            return err!(ErrorCode::InvalidLpMintKey);
+        };
         validate_lp_mint(&self.lp_mint, self.market.key(), decimals)?;
-        require_vanity_suffix(&self.lp_mint, lp_vanity_suffix(&self.market, self.lp_mint.key())?)?;
+        #[cfg(feature = "production")]
+        {
+            let mint_key = lp_mint.to_string();
+            let start_idx = mint_key
+                .len()
+                .checked_sub(vanity_suffix.len())
+                .ok_or(ErrorCode::InvalidLpMintKey)?;
+            require_eq!(vanity_suffix, &mint_key[start_idx..], ErrorCode::InvalidLpMintKey);
+        }
+        #[cfg(not(feature = "production"))]
+        let _ = vanity_suffix;
         Ok(())
     }
 
@@ -108,6 +133,7 @@ impl<'info> InitializeLpMetadata<'info> {
     }
 }
 
+#[cfg(test)]
 fn validate_lp_metadata(metadata: &InitializeLpMetadataArgs) -> Result<()> {
     require!(metadata.name.len() <= 32, ErrorCode::InvalidLpName);
     require!(metadata.name.is_ascii(), ErrorCode::InvalidLpName);
@@ -118,6 +144,7 @@ fn validate_lp_metadata(metadata: &InitializeLpMetadataArgs) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 fn lp_decimals_for_market_mint(market: &Market, lp_mint: Pubkey) -> Result<u8> {
     if lp_mint == market.ylp_mint || lp_mint == market.base_side.hlp_mint {
         return Ok(market.base_side.asset_decimals);
@@ -128,6 +155,7 @@ fn lp_decimals_for_market_mint(market: &Market, lp_mint: Pubkey) -> Result<u8> {
     err!(ErrorCode::InvalidLpMintKey)
 }
 
+#[cfg(test)]
 fn lp_vanity_suffix(market: &Market, lp_mint: Pubkey) -> Result<&'static str> {
     if lp_mint == market.ylp_mint {
         return Ok("yLP");
@@ -136,22 +164,6 @@ fn lp_vanity_suffix(market: &Market, lp_mint: Pubkey) -> Result<&'static str> {
         return Ok("hLP");
     }
     err!(ErrorCode::InvalidLpMintKey)
-}
-
-#[cfg(feature = "production")]
-fn require_vanity_suffix(mint: &InterfaceAccount<Mint>, suffix: &str) -> Result<()> {
-    let mint_key = mint.key().to_string();
-    let start_idx = mint_key
-        .len()
-        .checked_sub(suffix.len())
-        .ok_or(ErrorCode::InvalidLpMintKey)?;
-    require_eq!(suffix, &mint_key[start_idx..], ErrorCode::InvalidLpMintKey);
-    Ok(())
-}
-
-#[cfg(not(feature = "production"))]
-fn require_vanity_suffix(_mint: &InterfaceAccount<Mint>, _suffix: &str) -> Result<()> {
-    Ok(())
 }
 
 #[cfg(test)]
@@ -174,7 +186,6 @@ mod tests {
         MarketConfig {
             swap_fee_bps: 30,
             manager_fee_bps: 0,
-            protocol_fee_bps: 0,
             target_hlp_leverage_bps: BPS_DENOMINATOR * 2,
             settlement_divergence_bps: 500,
             ema_half_life_ms: MIN_HALF_LIFE_MS,

@@ -9,13 +9,13 @@ use crate::{
     errors::ErrorCode,
     events::{ManagerFeesClaimed, MarketEventMetadata},
     generate_market_seeds,
-    shared::token::transfer_from_vault_to_user,
+    shared::token::transfer_checked_with_remaining_accounts,
     state::Market,
 };
 
 use crate::instructions::common::{
-    require_supported_asset_mint, token_program_for_mint, validate_fee_accounts, validate_interest_accounts,
-    validate_owner_asset_account,
+    require_reserve_custody, require_supported_asset_mint, token_program_for_mint, validate_interest_accounts,
+    validate_owner_asset_account, validate_swap_fee_custody_accounts,
 };
 
 #[event_cpi]
@@ -39,7 +39,7 @@ pub struct ClaimManagerFees<'info> {
     pub asset_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(mut)]
-    pub fee_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(mut)]
     pub interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
@@ -54,9 +54,19 @@ pub struct ClaimManagerFees<'info> {
 impl<'info> ClaimManagerFees<'info> {
     pub fn validate(&self) -> Result<()> {
         self.market.assert_manager(self.manager.key())?;
-        let fee_asset = validate_fee_accounts(&self.market, &self.asset_mint, &self.fee_vault)?;
+        let fee_asset = validate_swap_fee_custody_accounts(&self.market, &self.asset_mint, &self.reserve_vault)?;
         let interest_asset = validate_interest_accounts(&self.market, &self.asset_mint, &self.interest_vault)?;
         require!(fee_asset == interest_asset, ErrorCode::InvalidVault);
+        let market_side = self.market.side(fee_asset);
+        require_gte!(
+            self.reserve_vault.amount,
+            market_side
+                .reserves
+                .cash_reserve
+                .checked_add(market_side.fees.swap_fee_custody_balance)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            ErrorCode::UnbackedFeeLiability
+        );
         validate_owner_asset_account(self.manager.key(), &self.asset_mint, &self.manager_asset_account)?;
         require_supported_asset_mint(&self.asset_mint)?;
         Ok(())
@@ -64,7 +74,7 @@ impl<'info> ClaimManagerFees<'info> {
 
     crate::instructions::common::market_update_and_validate!();
 
-    pub fn handle_claim(ctx: Context<Self>) -> Result<()> {
+    pub fn handle_claim(ctx: Context<'_, '_, '_, 'info, Self>) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let manager_key = ctx.accounts.manager.key();
         let asset_mint_key = ctx.accounts.asset_mint.key();
@@ -84,19 +94,21 @@ impl<'info> ClaimManagerFees<'info> {
             &ctx.accounts.token_2022_program,
         )?;
         if swap_fee_amount > 0 {
-            transfer_from_vault_to_user(
+            transfer_checked_with_remaining_accounts(
                 ctx.accounts.market.to_account_info(),
-                ctx.accounts.fee_vault.to_account_info(),
+                ctx.accounts.reserve_vault.to_account_info(),
                 ctx.accounts.manager_asset_account.to_account_info(),
                 ctx.accounts.asset_mint.to_account_info(),
                 asset_token_program.clone(),
                 swap_fee_amount,
                 ctx.accounts.asset_mint.decimals,
                 &[&generate_market_seeds!(ctx.accounts.market)[..]],
+                ctx.remaining_accounts,
             )?;
+            ctx.accounts.reserve_vault.reload()?;
         }
         if interest_fee_amount > 0 {
-            transfer_from_vault_to_user(
+            transfer_checked_with_remaining_accounts(
                 ctx.accounts.market.to_account_info(),
                 ctx.accounts.interest_vault.to_account_info(),
                 ctx.accounts.manager_asset_account.to_account_info(),
@@ -105,19 +117,30 @@ impl<'info> ClaimManagerFees<'info> {
                 interest_fee_amount,
                 ctx.accounts.asset_mint.decimals,
                 &[&generate_market_seeds!(ctx.accounts.market)[..]],
+                ctx.remaining_accounts,
             )?;
         }
 
-        ctx.accounts.fee_vault.reload()?;
-        ctx.accounts.interest_vault.reload()?;
         {
             let market_side = ctx.accounts.market.side_mut(market_asset);
             market_side.fees.manager_swap_fee_liability = 0;
             market_side.fees.manager_interest_fee_liability = 0;
-            market_side.fees.swap_fee_vault_balance = ctx.accounts.fee_vault.amount;
-            market_side.fees.interest_vault_balance = ctx.accounts.interest_vault.amount;
+            market_side.fees.swap_fee_custody_balance = market_side
+                .fees
+                .swap_fee_custody_balance
+                .checked_sub(swap_fee_amount)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            market_side.fees.interest_vault_balance = market_side
+                .fees
+                .interest_vault_balance
+                .checked_sub(interest_fee_amount)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
             market_side.fees.assert_backed()?;
         }
+        require_reserve_custody(
+            ctx.accounts.reserve_vault.amount,
+            ctx.accounts.market.side(market_asset),
+        )?;
 
         emit_cpi!(ManagerFeesClaimed {
             market: market_key,

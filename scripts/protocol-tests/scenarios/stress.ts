@@ -4,6 +4,7 @@ import { decodePreviewBorrowPositionReturnData } from "../../../packages/dusk-sd
 import { formatUnits, type ProtocolTestHarness, type ScenarioDefinition } from "../harness.js";
 import type { TransactionEvidence } from "../types.js";
 
+const NAD = 1_000_000_000n;
 const staleBorrowPositionId = Keypair.generate().publicKey;
 const stateMachinePositionIds = {
   alice: Keypair.generate().publicKey,
@@ -31,26 +32,26 @@ async function assertLiveMarketInvariants(
   label: string
 ): Promise<void> {
   const market = await harness.market();
-  harness.assertTrue(`${label}: base live reserve stays positive`, stateValue(market, "baseReserve") > 0n);
-  harness.assertTrue(`${label}: quote live reserve stays positive`, stateValue(market, "quoteReserve") > 0n);
+  harness.assertTrue(`${label}: base live reserve stays positive`, stateValue(market, "baseLiveReserve") > 0n);
+  harness.assertTrue(`${label}: quote live reserve stays positive`, stateValue(market, "quoteLiveReserve") > 0n);
   harness.assertTrue(
     `${label}: base cash never exceeds live reserve plus debt`,
     stateValue(market, "baseCashReserve") <=
-      stateValue(market, "baseReserve") +
+      stateValue(market, "baseLiveReserve") +
       stateValue(market, "fixedBaseDebt") +
-      stateValue(market, "isolatedBaseDebt")
+      stateValue(market, "isolatedBaseShares") * stateValue(market, "baseBorrowIndexNad") / NAD
   );
   harness.assertTrue(
     `${label}: quote cash never exceeds live reserve plus debt`,
     stateValue(market, "quoteCashReserve") <=
-      stateValue(market, "quoteReserve") +
+      stateValue(market, "quoteLiveReserve") +
       stateValue(market, "fixedQuoteDebt") +
-      stateValue(market, "isolatedQuoteDebt")
+      stateValue(market, "isolatedQuoteShares") * stateValue(market, "quoteBorrowIndexNad") / NAD
   );
   harness.assertEqual(
     `${label}: both sides retain one common yLP supply`,
-    stateValue(market, "baseReserveYlpSupply"),
-    stateValue(market, "quoteReserveYlpSupply")
+    stateValue(market, "baseSideYlpSupply"),
+    stateValue(market, "quoteSideYlpSupply")
   );
   await harness.execute({
     wallet: "trader",

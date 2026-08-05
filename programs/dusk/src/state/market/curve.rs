@@ -7,10 +7,9 @@ use crate::{
     constants::NAD,
     errors::ErrorCode,
     math::{
-        concentrated_marginal_price_nad, concentrated_prepare_continuous_successor_from_bracket,
-        concentrated_prepare_curve, concentrated_prepare_curve_with_hint, concentrated_quote_exact_out,
-        concentrated_restore_prepared_curve_from_bracket, denormalize_from_nad_ceil, denormalize_from_nad_floor,
-        normalize_to_nad, ConcentratedEvaluation, ConcentratedPreparedCurve, ConcentratedSwapDirection,
+        concentrated_prepare_curve, concentrated_prepare_curve_cached, concentrated_prepare_curve_seeded_cached,
+        denormalize_from_nad_floor, normalize_to_nad, ConcentratedEvaluation, ConcentratedInvariantSeed,
+        ConcentratedPreparedCurve, ConcentratedSwapDirection, CONCENTRATED_MATH_REVISION,
     },
 };
 
@@ -23,49 +22,48 @@ pub(crate) struct CurveReservesNad {
     pub quote: u128,
 }
 
-/// Opaque proof that a full Dusk Concentrated AMM evaluation belongs to one exact executable
-/// curve state.
+/// One fully evaluated executable curve state produced by the quote pipeline.
 ///
 /// Reserve coordinates are normalized from the raw amounts that will actually
 /// be credited/debited on-chain. Private identity fields prevent callers from
 /// pairing the cached evaluation with different reserves, center, or curve
-/// parameters merely to avoid a solve.
+/// parameters merely to avoid a solve. This is an ephemeral plan value, not a
+/// second persisted invariant proof hierarchy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct CurveStateCertificate {
-    reserves: CurveReservesNad,
+pub(crate) struct CurveCheckpoint {
+    pub(crate) reserves: CurveReservesNad,
     center_price_nad: u64,
     parameters: AmmCurveParameters,
     evaluation: ConcentratedEvaluation,
 }
 
-impl CurveStateCertificate {
-    pub(crate) fn matches_market(self, market: &Market, current_slot: u64) -> Result<bool> {
-        Ok(self.reserves == market.curve_reserves_nad()?
-            && self.center_price_nad == market.current_curve_center_price_nad()?
-            && self.parameters == market.current_curve_parameters(current_slot))
-    }
-
+impl CurveCheckpoint {
+    #[cfg(test)]
     pub(crate) fn evaluation_if_matches(
         self,
         market: &Market,
         current_slot: u64,
     ) -> Result<Option<ConcentratedEvaluation>> {
-        Ok(self.matches_market(market, current_slot)?.then_some(self.evaluation))
+        Ok((self.reserves == market.curve_reserves_nad()?
+            && self.center_price_nad == market.current_curve_center_price_nad()?
+            && self.parameters == market.current_curve_parameters(current_slot))
+        .then_some(self.evaluation))
     }
 
     pub(crate) fn validated_evaluation(self, market: &Market, current_slot: u64) -> Result<ConcentratedEvaluation> {
-        self.evaluation_if_matches(market, current_slot)?
-            .ok_or_else(|| ErrorCode::BrokenInvariant.into())
+        require!(
+            self.reserves == market.curve_reserves_nad()?
+                && self.center_price_nad == market.current_curve_center_price_nad()?
+                && self.parameters == market.current_curve_parameters(current_slot),
+            ErrorCode::BrokenInvariant
+        );
+        Ok(self.evaluation)
     }
 
-    pub(crate) const fn reserves(self) -> CurveReservesNad {
-        self.reserves
-    }
-
-    /// Returns the evaluation carried by this opaque, identity-bound proof.
+    /// Returns the evaluation carried by this identity-bound checkpoint.
     /// Callers that need to apply it to mutable market state must still use
     /// `validated_evaluation`; read-only projections may consume it directly.
-    pub(crate) const fn certified_evaluation(self) -> ConcentratedEvaluation {
+    pub(crate) const fn evaluation(self) -> ConcentratedEvaluation {
         self.evaluation
     }
 }
@@ -76,13 +74,7 @@ pub(crate) struct CurveQuote {
     pub amount_out: u64,
     pub start_price_nad: u64,
     pub end_price_nad: u64,
-    endpoint: CurveStateCertificate,
-}
-
-impl CurveQuote {
-    pub(crate) const fn endpoint_certificate(self) -> CurveStateCertificate {
-        self.endpoint
-    }
+    pub(crate) endpoint: CurveCheckpoint,
 }
 
 impl Market {
@@ -93,15 +85,15 @@ impl Market {
         let (fixed_debt, fixed_principal, isolated_debt, isolated_principal) = match asset {
             MarketAsset::Base => (
                 self.debt.fixed_base_debt()?,
-                self.debt.fixed_base_principal,
+                u128::from(self.debt.fixed_base_principal),
                 self.debt.isolated_debt(MarketAsset::Base)?,
-                self.debt.isolated_base_principal,
+                u128::from(self.debt.isolated_base_principal),
             ),
             MarketAsset::Quote => (
                 self.debt.fixed_quote_debt()?,
-                self.debt.fixed_quote_principal,
+                u128::from(self.debt.fixed_quote_principal),
                 self.debt.isolated_debt(MarketAsset::Quote)?,
-                self.debt.isolated_quote_principal,
+                u128::from(self.debt.isolated_quote_principal),
             ),
         };
         fixed_debt
@@ -166,98 +158,16 @@ impl Market {
             .evaluation()
     }
 
-    /// Reconstructs a full identity-bound certificate from the exact bracket
-    /// already committed for the current reserves/center/parameters. This is
-    /// used immediately after a funded ramp or recenter, whose candidate solve
-    /// produced and committed both endpoints atomically.
-    pub(crate) fn certify_current_curve_from_persisted_bracket(
-        &self,
-        current_slot: u64,
-    ) -> Result<CurveStateCertificate> {
-        let reserves = self.curve_reserves_nad()?;
-        let center_price_nad = self.current_curve_center_price_nad()?;
-        let parameters = self.current_curve_parameters(current_slot);
-        let prepared = concentrated_restore_prepared_curve_from_bracket(
-            reserves.base,
-            reserves.quote,
-            center_price_nad as u128,
-            parameters.peak_depth_nad as u128,
-            parameters.imbalance_scale_nad as u128,
-            self.amm.invariant_d_nad,
-            self.amm.invariant_d_high_nad,
-        )?;
-        self.certify_prepared_curve(prepared, current_slot)
-    }
-
-    /// Certifies another point on the same applied curve using an opaque
-    /// predecessor's D only as a performance hint. This is used for the
-    /// post-retention reserve endpoint; the concentrated solver still rebuilds and
-    /// proves its complete global bracket.
-    pub(crate) fn certify_curve_successor_nad(
-        &self,
-        predecessor: CurveStateCertificate,
-        reserves: CurveReservesNad,
-        current_slot: u64,
-    ) -> Result<CurveStateCertificate> {
-        let center_price_nad = self.current_curve_center_price_nad()?;
-        let parameters = self.current_curve_parameters(current_slot);
-        require!(
-            predecessor.center_price_nad == center_price_nad && predecessor.parameters == parameters,
-            ErrorCode::BrokenInvariant
-        );
-        let prior = predecessor.reserves;
-        let base_only = reserves.base >= prior.base && reserves.quote == prior.quote;
-        let quote_only = reserves.quote >= prior.quote && reserves.base == prior.base;
-        require!(base_only ^ quote_only, ErrorCode::BrokenInvariant);
-        let prepared = concentrated_prepare_continuous_successor_from_bracket(
-            prior.base,
-            prior.quote,
-            reserves.base,
-            reserves.quote,
-            center_price_nad as u128,
-            parameters.peak_depth_nad as u128,
-            parameters.imbalance_scale_nad as u128,
-            predecessor.evaluation.invariant_d,
-            predecessor.evaluation.invariant_d_high,
-        )?;
-        let evaluation = prepared.continuous_successor_evaluation()?;
-        Ok(CurveStateCertificate {
-            reserves: CurveReservesNad {
-                base: prepared.base_reserve_nad(),
-                quote: prepared.quote_reserve_nad(),
-            },
-            center_price_nad,
-            parameters,
-            evaluation,
-        })
-    }
-
-    /// Converts a prepared concentrated point into an opaque market-bound certificate.
-    ///
-    /// `prepare_successor` rebuilds the full global invariant sign bracket;
-    /// its prior D is only a Newton hint. These identity checks ensure the
-    /// resulting proof cannot be paired with a different live center or
-    /// applied parameter point.
-    fn certify_prepared_curve(
+    /// Binds a prepared point to the currently applied center and parameters.
+    pub(crate) fn checkpoint_for_prepared_curve(
         &self,
         prepared: ConcentratedPreparedCurve,
         current_slot: u64,
-    ) -> Result<CurveStateCertificate> {
-        let mut certificate = self.certify_prepared_curve_identity(prepared, current_slot)?;
-        certificate.evaluation = prepared.evaluation()?;
-        Ok(certificate)
-    }
-
-    fn certify_prepared_curve_identity(
-        &self,
-        prepared: ConcentratedPreparedCurve,
-        current_slot: u64,
-    ) -> Result<CurveStateCertificate> {
+    ) -> Result<CurveCheckpoint> {
         let center_price_nad = u64::try_from(prepared.center_price_nad()).map_err(|_| ErrorCode::MarketMathOverflow)?;
         let parameters = AmmCurveParameters {
             peak_depth_nad: u64::try_from(prepared.peak_depth_nad()).map_err(|_| ErrorCode::MarketMathOverflow)?,
-            imbalance_scale_nad: u64::try_from(prepared.imbalance_scale_nad())
-                .map_err(|_| ErrorCode::MarketMathOverflow)?,
+            fade_scale_nad: u64::try_from(prepared.fade_scale_nad()).map_err(|_| ErrorCode::MarketMathOverflow)?,
         };
         require_eq!(
             center_price_nad,
@@ -268,19 +178,14 @@ impl Market {
             parameters == self.current_curve_parameters(current_slot),
             ErrorCode::BrokenInvariant
         );
-        Ok(CurveStateCertificate {
+        Ok(CurveCheckpoint {
             reserves: CurveReservesNad {
                 base: prepared.base_reserve_nad(),
                 quote: prepared.quote_reserve_nad(),
             },
             center_price_nad,
             parameters,
-            evaluation: ConcentratedEvaluation {
-                invariant_d: prepared.invariant_d(),
-                invariant_d_high: prepared.invariant_bracket().1,
-                balanced_equivalent_q: 0,
-                marginal_price_nad: 0,
-            },
+            evaluation: prepared.evaluation()?,
         })
     }
 
@@ -296,7 +201,7 @@ impl Market {
             reserves.quote,
             center_price_nad as u128,
             parameters.peak_depth_nad as u128,
-            parameters.imbalance_scale_nad as u128,
+            parameters.fade_scale_nad as u128,
         )
     }
 
@@ -313,60 +218,13 @@ impl Market {
 
     pub(crate) fn curve_marginal_price_nad(&self, current_slot: u64) -> Result<u64> {
         let reserves = self.curve_reserves_nad()?;
-        if let Some(price_nad) = self.cached_exact_concentrated_start_price_nad(reserves, current_slot)? {
-            return Ok(price_nad);
-        }
-        self.curve_marginal_price_for_reserves_nad(reserves, current_slot)
-    }
-
-    pub(crate) fn curve_marginal_price_for_reserves_nad(
-        &self,
-        reserves: CurveReservesNad,
-        current_slot: u64,
-    ) -> Result<u64> {
-        let parameters = self.current_curve_parameters(current_slot);
-        let price = concentrated_marginal_price_nad(
-            reserves.base,
-            reserves.quote,
-            self.current_curve_center_price_nad()? as u128,
-            parameters.peak_depth_nad as u128,
-            parameters.imbalance_scale_nad as u128,
-        )?;
+        let price = self
+            .prepare_curve_for_reserves_nad(reserves, self.current_curve_center_price_nad()?, current_slot)?
+            .marginal_price_nad()?;
         u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow.into())
     }
 
-    /// Returns a persisted exact marginal only for the identical concentrated
-    /// start state. CPMM deliberately keeps its direct reserve-ratio path.
-    pub(crate) fn cached_exact_concentrated_start_price_nad(
-        &self,
-        reserves: CurveReservesNad,
-        current_slot: u64,
-    ) -> Result<Option<u64>> {
-        let parameters = self.current_curve_parameters(current_slot);
-        if self.risk.cached_spot_base_price_nad == 0 {
-            return Ok(None);
-        }
-        let center_price_nad = self.current_curve_center_price_nad()?;
-        Ok(self
-            .exact_concentrated_observation_matches(reserves, center_price_nad, parameters)
-            .then_some(self.risk.cached_spot_base_price_nad))
-    }
-
-    pub(crate) fn curve_price_for_asset_nad(&self, asset: MarketAsset, current_slot: u64) -> Result<u64> {
-        let base_price = self.curve_marginal_price_nad(current_slot)?;
-        match asset {
-            MarketAsset::Base => Ok(base_price),
-            MarketAsset::Quote => {
-                require!(base_price > 0, ErrorCode::InvalidSettlementPrice);
-                let inverse = (NAD as u128)
-                    .checked_mul(NAD as u128)
-                    .and_then(|value| value.checked_div(base_price as u128))
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
-                u64::try_from(inverse).map_err(|_| ErrorCode::MarketMathOverflow.into())
-            }
-        }
-    }
-
+    #[cfg(test)]
     pub(crate) fn quote_curve_exact_in(
         &self,
         asset_in: MarketAsset,
@@ -374,22 +232,12 @@ impl Market {
         current_slot: u64,
     ) -> Result<CurveQuote> {
         let reserves = self.curve_reserves_nad()?;
-        self.quote_curve_exact_in_for_reserves_nad(asset_in, amount_in, current_slot, reserves)
-    }
-
-    pub(crate) fn quote_curve_exact_in_for_reserves_nad(
-        &self,
-        asset_in: MarketAsset,
-        amount_in: u64,
-        current_slot: u64,
-        reserves: CurveReservesNad,
-    ) -> Result<CurveQuote> {
         let prepared =
             self.prepare_curve_for_reserves_nad(reserves, self.current_curve_center_price_nad()?, current_slot)?;
         self.quote_curve_exact_in_for_prepared_nad(asset_in, amount_in, prepared, current_slot)
     }
 
-    /// Builds the one start-state certificate shared by divergence, output,
+    /// Builds the one start-state preparation shared by divergence, output,
     /// and starting-price calculations.
     pub(crate) fn prepare_curve_for_reserves_nad(
         &self,
@@ -398,29 +246,39 @@ impl Market {
         current_slot: u64,
     ) -> Result<ConcentratedPreparedCurve> {
         let parameters = self.current_curve_parameters(current_slot);
-        if self.exact_concentrated_observation_matches(reserves, center_price_nad, parameters) {
-            return concentrated_restore_prepared_curve_from_bracket(
-                reserves.base,
-                reserves.quote,
-                center_price_nad as u128,
-                parameters.peak_depth_nad as u128,
-                parameters.imbalance_scale_nad as u128,
-                self.amm.invariant_d_nad,
-                self.amm.invariant_d_high_nad,
-            );
-        }
-        if !parameters.is_cpmm() && self.amm.initialized && self.amm.invariant_d_nad > 0 {
+        if !parameters.is_cpmm()
+            && self.amm.initialized
+            && self.amm.invariant_d_nad > 0
+            && self.amm.curve_math_revision == CONCENTRATED_MATH_REVISION
+        {
             // The hint is useful both for the exact live state and for
             // sequential overlay quotes. It never narrows the authoritative
             // global bracket, so stale/different overlay inventory can only
-            // reduce the optimization, not change the certified result.
-            concentrated_prepare_curve_with_hint(
+            // reduce the optimization, not change the canonical result.
+            concentrated_prepare_curve_seeded_cached(
                 reserves.base,
                 reserves.quote,
                 center_price_nad as u128,
                 parameters.peak_depth_nad as u128,
-                parameters.imbalance_scale_nad as u128,
-                self.amm.invariant_d_nad,
+                parameters.fade_scale_nad as u128,
+                self.amm.concentrated_geometry_cache,
+                ConcentratedInvariantSeed::Hint(self.amm.invariant_d_nad),
+            )
+        } else if !parameters.is_cpmm()
+            && self.amm.initialized
+            && self.amm.curve_math_revision == CONCENTRATED_MATH_REVISION
+            && self
+                .amm
+                .concentrated_geometry_cache
+                .matches(parameters.peak_depth_nad as u128, parameters.fade_scale_nad as u128)
+        {
+            concentrated_prepare_curve_cached(
+                reserves.base,
+                reserves.quote,
+                center_price_nad as u128,
+                parameters.peak_depth_nad as u128,
+                parameters.fade_scale_nad as u128,
+                self.amm.concentrated_geometry_cache,
             )
         } else {
             concentrated_prepare_curve(
@@ -428,25 +286,9 @@ impl Market {
                 reserves.quote,
                 center_price_nad as u128,
                 parameters.peak_depth_nad as u128,
-                parameters.imbalance_scale_nad as u128,
+                parameters.fade_scale_nad as u128,
             )
         }
-    }
-
-    fn exact_concentrated_observation_matches(
-        &self,
-        reserves: CurveReservesNad,
-        center_price_nad: u64,
-        parameters: AmmCurveParameters,
-    ) -> bool {
-        self.amm.initialized
-            && !parameters.is_cpmm()
-            && self.amm.invariant_d_nad > 0
-            && self.amm.invariant_d_high_nad >= self.amm.invariant_d_nad
-            && self
-                .amm
-                .exact_curve_observation
-                .matches(reserves.base, reserves.quote, center_price_nad, parameters)
     }
 
     pub(crate) fn quote_curve_exact_in_for_prepared_nad(
@@ -459,7 +301,13 @@ impl Market {
         require!(amount_in > 0, ErrorCode::AmountZero);
         let amount_in_nad = normalize_to_nad(amount_in as u128, self.side(asset_in).asset_decimals)?;
         require!(amount_in_nad > 0, ErrorCode::AmountZero);
-        let solved_amount_out_nad = prepared.quote_exact_in(amount_in_nad, direction(asset_in))?;
+        let solved_amount_out_nad = prepared.quote_exact_in(
+            amount_in_nad,
+            match asset_in {
+                MarketAsset::Base => ConcentratedSwapDirection::BaseToQuote,
+                MarketAsset::Quote => ConcentratedSwapDirection::QuoteToBase,
+            },
+        )?;
         let amount_out =
             denormalize_from_nad_floor(solved_amount_out_nad, self.side(asset_in.opposite()).asset_decimals)?;
         require!(amount_out > 0, ErrorCode::InsufficientOutputAmount);
@@ -470,17 +318,8 @@ impl Market {
             normalize_to_nad(amount_out as u128, self.side(asset_in.opposite()).asset_decimals)?;
         require!(executable_amount_out_nad > 0, ErrorCode::InsufficientOutputAmount);
 
-        let prepared_reserves = CurveReservesNad {
-            base: prepared.base_reserve_nad(),
-            quote: prepared.quote_reserve_nad(),
-        };
-        let start_price_nad = if let Some(cached_price_nad) =
-            self.cached_exact_concentrated_start_price_nad(prepared_reserves, current_slot)?
-        {
-            cached_price_nad
-        } else {
-            u64::try_from(prepared.marginal_price_nad()?).map_err(|_| ErrorCode::MarketMathOverflow)?
-        };
+        let start_price_nad =
+            u64::try_from(prepared.marginal_price_nad()?).map_err(|_| ErrorCode::MarketMathOverflow)?;
         let (base_after, quote_after) = match asset_in {
             MarketAsset::Base => (
                 prepared
@@ -503,9 +342,12 @@ impl Market {
                     .ok_or(ErrorCode::ReserveOverflow)?,
             ),
         };
-        let successor = prepared.prepare_successor(base_after, quote_after)?;
-        let mut endpoint = self.certify_prepared_curve_identity(successor, current_slot)?;
-        endpoint.evaluation = successor.continuous_successor_evaluation()?;
+        let successor = prepared.prepare_successor(
+            base_after,
+            quote_after,
+            ConcentratedInvariantSeed::Hint(prepared.invariant_d()),
+        )?;
+        let endpoint = self.checkpoint_for_prepared_curve(successor, current_slot)?;
 
         Ok(CurveQuote {
             amount_in,
@@ -516,31 +358,9 @@ impl Market {
             endpoint,
         })
     }
-
-    pub(crate) fn quote_curve_exact_out(
-        &self,
-        asset_out: MarketAsset,
-        amount_out: u64,
-        current_slot: u64,
-    ) -> Result<u64> {
-        require!(amount_out > 0, ErrorCode::AmountZero);
-        let asset_in = asset_out.opposite();
-        let reserves = self.curve_reserves_nad()?;
-        let parameters = self.current_curve_parameters(current_slot);
-        let amount_out_nad = normalize_to_nad(amount_out as u128, self.side(asset_out).asset_decimals)?;
-        let amount_in_nad = concentrated_quote_exact_out(
-            reserves.base,
-            reserves.quote,
-            amount_out_nad,
-            direction(asset_in),
-            self.current_curve_center_price_nad()? as u128,
-            parameters.peak_depth_nad as u128,
-            parameters.imbalance_scale_nad as u128,
-        )?;
-        denormalize_from_nad_ceil(amount_in_nad, self.side(asset_in).asset_decimals)
-    }
 }
 
+#[cfg(test)]
 const fn direction(asset_in: MarketAsset) -> ConcentratedSwapDirection {
     match asset_in {
         MarketAsset::Base => ConcentratedSwapDirection::BaseToQuote,

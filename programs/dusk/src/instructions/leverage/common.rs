@@ -15,14 +15,20 @@ use crate::{
     errors::ErrorCode,
     generate_market_seeds,
     instructions::common::{
-        require_supported_asset_mint, token_account_credit, token_program_for_mint, validate_fee_accounts,
-        validate_interest_accounts, validate_owner_asset_account, validate_side_vault_accounts,
+        require_supported_asset_mint, token_account_credit, token_account_info_amount, token_account_info_credit,
+        token_program_for_mint, validate_interest_accounts, validate_owner_asset_account, validate_side_vault_accounts,
+        HlpSwapAccountLayout, BASE_HLP_YLP_VAULT_INDEX, BASE_INTEREST_VAULT_INDEX, HLP_SWAP_ACCOUNT_PREFIX_LEN,
+        HLP_YLP_MINT_INDEX, QUOTE_HLP_YLP_VAULT_INDEX, QUOTE_INTEREST_VAULT_INDEX,
     },
+    instructions::liquidity::record_inline_hlp_interest_credit,
     instructions::referral::common::{accrue_referral_interest, ReferralInterestAccrualReceipt},
-    shared::token::{get_transfer_fee, is_fee_free_mint, transfer_from_vault_to_vault_with_remaining_accounts},
+    shared::token::{
+        get_transfer_fee_for_epoch, is_fee_free_mint, token_burn, token_mint_to,
+        transfer_checked_with_remaining_accounts,
+    },
     state::{
-        FutarchyAuthority, LeverageSwapFeeCredit, LeverageSwapQuote, Market, MarketAsset, ReferralAccrual,
-        ReferralPartner,
+        FutarchyAuthority, HlpRebalanceReceipt, HlpYieldEligibility, LeverageSwapFeeCredit, LeverageSwapQuote, Market,
+        MarketAsset, ReferralAccrual, ReferralPartner,
     },
 };
 
@@ -34,6 +40,138 @@ pub const LEVERAGE_DELEGATE_DECREASE: u32 = 1 << 4;
 pub const LEVERAGE_DELEGATE_CLOSE_SETTLED: u32 = 1 << 5;
 pub const LEVERAGE_DELEGATION_APPROVAL_MAGIC: [u8; 8] = *b"OMNILVDA";
 pub const LEVERAGE_DELEGATION_APPROVAL_VERSION: u8 = 1;
+
+/// Validates the canonical Market PDA outside Anchor's generated account
+/// parser. Keeping the seed-array construction out of `try_accounts` avoids
+/// overlapping it with the large Market deserialization frame.
+pub fn validate_leverage_market_pda(market: &Market, market_key: Pubkey) -> Result<()> {
+    let expected = Pubkey::create_program_address(&generate_market_seeds!(market), &crate::ID)
+        .map_err(|_| error!(ErrorCode::InvalidMarket))?;
+    require_keys_eq!(market_key, expected, ErrorCode::InvalidMarket);
+    Ok(())
+}
+
+/// Validates the global futarchy authority after account parsing so the large
+/// Market account is not live beside Anchor's generated seed-check frame.
+pub fn validate_leverage_futarchy_pda(futarchy_authority_bump: u8, futarchy_authority_key: Pubkey) -> Result<()> {
+    let expected = Pubkey::create_program_address(
+        &[FUTARCHY_AUTHORITY_SEED_PREFIX, &[futarchy_authority_bump]],
+        &crate::ID,
+    )
+    .map_err(|_| error!(ErrorCode::InvalidFutarchyAuthority))?;
+    require_keys_eq!(futarchy_authority_key, expected, ErrorCode::InvalidFutarchyAuthority);
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn settle_inline_leverage_hlp<'info>(
+    market: &mut Account<'info, Market>,
+    futarchy_authority: &Account<'info, FutarchyAuthority>,
+    debt_asset: MarketAsset,
+    debt_mint: &InterfaceAccount<'info, Mint>,
+    collateral_mint: &InterfaceAccount<'info, Mint>,
+    debt_reserve_vault: &InterfaceAccount<'info, TokenAccount>,
+    collateral_reserve_vault: &InterfaceAccount<'info, TokenAccount>,
+    token_program: &Program<'info, Token>,
+    token_2022_program: &Program<'info, Token2022>,
+    remaining_accounts: &[AccountInfo<'info>],
+    layout: HlpSwapAccountLayout,
+    base_receipt: HlpRebalanceReceipt,
+    quote_receipt: HlpRebalanceReceipt,
+    interest_eligibility: HlpYieldEligibility,
+) -> Result<()> {
+    for receipt in [base_receipt, quote_receipt] {
+        if receipt.ylp_mint_amount == 0 && receipt.ylp_burn_amount == 0 && receipt.interest_paid == 0 {
+            continue;
+        }
+        require_eq!(
+            layout.prefix_len,
+            HLP_SWAP_ACCOUNT_PREFIX_LEN,
+            ErrorCode::NotEnoughAccounts
+        );
+        require!(
+            receipt.ylp_mint_amount == 0 || receipt.ylp_burn_amount == 0,
+            ErrorCode::BrokenInvariant
+        );
+        let ylp_vault_index = if receipt.target_asset == MarketAsset::Base {
+            BASE_HLP_YLP_VAULT_INDEX
+        } else {
+            QUOTE_HLP_YLP_VAULT_INDEX
+        };
+        let market_seeds = generate_market_seeds!(market);
+        let signer_seeds = [&market_seeds[..]];
+        if receipt.ylp_mint_amount > 0 {
+            token_mint_to(
+                market.to_account_info(),
+                token_2022_program.to_account_info(),
+                remaining_accounts[HLP_YLP_MINT_INDEX].clone(),
+                remaining_accounts[ylp_vault_index].clone(),
+                receipt.ylp_mint_amount,
+                &signer_seeds,
+            )?;
+        }
+        if receipt.ylp_burn_amount > 0 {
+            token_burn(
+                market.to_account_info(),
+                token_2022_program.to_account_info(),
+                remaining_accounts[HLP_YLP_MINT_INDEX].clone(),
+                remaining_accounts[ylp_vault_index].clone(),
+                receipt.ylp_burn_amount,
+                &signer_seeds,
+            )?;
+        }
+        if receipt.interest_paid == 0 {
+            continue;
+        }
+
+        let borrowed_asset = receipt.target_asset.opposite();
+        let interest_vault_index = if borrowed_asset == MarketAsset::Base {
+            BASE_INTEREST_VAULT_INDEX
+        } else {
+            QUOTE_INTEREST_VAULT_INDEX
+        };
+        let interest_vault = &remaining_accounts[interest_vault_index];
+        let interest_vault_balance_before = token_account_info_amount(interest_vault)?;
+        let (reserve_vault, mint, token_program_account, decimals) = if borrowed_asset == debt_asset {
+            (
+                debt_reserve_vault.to_account_info(),
+                debt_mint.to_account_info(),
+                token_program_for_mint(debt_mint, token_program, token_2022_program)?,
+                debt_mint.decimals,
+            )
+        } else {
+            (
+                collateral_reserve_vault.to_account_info(),
+                collateral_mint.to_account_info(),
+                token_program_for_mint(collateral_mint, token_program, token_2022_program)?,
+                collateral_mint.decimals,
+            )
+        };
+        transfer_checked_with_remaining_accounts(
+            market.to_account_info(),
+            reserve_vault,
+            interest_vault.clone(),
+            mint,
+            token_program_account,
+            receipt.interest_paid,
+            decimals,
+            &signer_seeds,
+            layout.hook_accounts(remaining_accounts),
+        )?;
+        let interest_credit = token_account_info_credit(interest_vault_balance_before, interest_vault)?;
+        let manager_fee_bps = market.config.manager_fee_bps;
+        record_inline_hlp_interest_credit(
+            market,
+            borrowed_asset,
+            interest_credit,
+            manager_fee_bps,
+            futarchy_authority.revenue_share.interest_bps,
+            futarchy_authority.protocol_auction_split,
+            interest_eligibility,
+        )?;
+    }
+    Ok(())
+}
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
 pub struct DelegatedCpiArgs {
@@ -115,7 +253,28 @@ pub fn invoke_delegated_callback<'info>(
     require!(!data.is_empty(), ErrorCode::InvalidLeverageDelegation);
     require!(delegated_program.executable, ErrorCode::InvalidLeverageDelegation);
 
-    let account_metas = delegated_account_metas(accounts, protected_accounts, writable_protected_accounts)?;
+    for (index, account) in accounts.iter().enumerate() {
+        for prior in accounts.iter().take(index) {
+            require_keys_neq!(account.key(), prior.key(), ErrorCode::InvalidLeverageDelegation);
+        }
+    }
+    let mut account_metas = Vec::with_capacity(accounts.len());
+    for account in accounts {
+        let is_protected = protected_accounts.contains(account.key);
+        let is_writable_protected = writable_protected_accounts.contains(account.key);
+        if is_protected && !is_writable_protected {
+            account_metas.push(AccountMeta::new_readonly(account.key(), false));
+            continue;
+        }
+        if is_protected {
+            require!(!account.is_signer, ErrorCode::InvalidLeverageDelegation);
+        }
+        account_metas.push(AccountMeta {
+            pubkey: account.key(),
+            is_signer: account.is_signer,
+            is_writable: account.is_writable,
+        });
+    }
     let mut account_infos = Vec::with_capacity(accounts.len() + 1);
     account_infos.push(delegated_program.to_account_info());
     account_infos.extend(accounts.iter().cloned());
@@ -235,37 +394,6 @@ pub fn validate_delegation_approval(
     Ok(())
 }
 
-fn delegated_account_metas(
-    accounts: &[AccountInfo],
-    protected_accounts: &[Pubkey],
-    writable_protected_accounts: &[Pubkey],
-) -> Result<Vec<AccountMeta>> {
-    for (index, account) in accounts.iter().enumerate() {
-        for prior in accounts.iter().take(index) {
-            require_keys_neq!(account.key(), prior.key(), ErrorCode::InvalidLeverageDelegation);
-        }
-    }
-
-    let mut account_metas = Vec::with_capacity(accounts.len());
-    for account in accounts {
-        let is_protected = protected_accounts.contains(account.key);
-        let is_writable_protected = writable_protected_accounts.contains(account.key);
-        if is_protected && !is_writable_protected {
-            account_metas.push(AccountMeta::new_readonly(account.key(), false));
-            continue;
-        }
-        if is_protected {
-            require!(!account.is_signer, ErrorCode::InvalidLeverageDelegation);
-        }
-        account_metas.push(AccountMeta {
-            pubkey: account.key(),
-            is_signer: account.is_signer,
-            is_writable: account.is_writable,
-        });
-    }
-    Ok(account_metas)
-}
-
 pub fn validate_leverage_mints<'info>(
     market: &Account<'info, Market>,
     debt_asset: MarketAsset,
@@ -308,17 +436,6 @@ pub fn validate_leverage_reserve_accounts<'info>(
     Ok(())
 }
 
-pub fn validate_leverage_fee_account<'info>(
-    market: &Account<'info, Market>,
-    asset_mint: &InterfaceAccount<'info, Mint>,
-    fee_vault: &InterfaceAccount<'info, TokenAccount>,
-    expected_asset: MarketAsset,
-) -> Result<()> {
-    let fee_asset = validate_fee_accounts(market, asset_mint, fee_vault)?;
-    require!(fee_asset == expected_asset, ErrorCode::InvalidVault);
-    Ok(())
-}
-
 pub fn validate_leverage_interest_account<'info>(
     market: &Account<'info, Market>,
     debt_mint: &InterfaceAccount<'info, Mint>,
@@ -330,45 +447,17 @@ pub fn validate_leverage_interest_account<'info>(
     Ok(())
 }
 
-pub fn leverage_collateral_credit(mint: &InterfaceAccount<Mint>, gross_amount: u64) -> Result<u64> {
-    let fee = get_transfer_fee(&mint.to_account_info(), gross_amount)?;
+pub fn leverage_collateral_credit(mint: &InterfaceAccount<Mint>, gross_amount: u64, epoch: u64) -> Result<u64> {
+    let fee = get_transfer_fee_for_epoch(&mint.to_account_info(), gross_amount, epoch)?;
     gross_amount
         .checked_sub(fee)
         .ok_or(ErrorCode::MarketMathOverflow.into())
 }
 
-pub fn move_leverage_swap_fee<'info>(
-    market: &Account<'info, Market>,
-    asset_mint: &InterfaceAccount<'info, Mint>,
-    reserve_vault: &mut InterfaceAccount<'info, TokenAccount>,
-    fee_vault: &mut InterfaceAccount<'info, TokenAccount>,
-    token_program: &Program<'info, Token>,
-    token_2022_program: &Program<'info, Token2022>,
-    quote: &LeverageSwapQuote,
-    additional_accounts: &[AccountInfo<'info>],
-) -> Result<LeverageSwapFeeCredit> {
+pub fn leverage_swap_fee_credit(quote: &LeverageSwapQuote) -> Result<LeverageSwapFeeCredit> {
     let claimable_fee_debit = quote.fee_breakdown.claimable_fee_debit;
     require_eq!(claimable_fee_debit, quote.fee_credit, ErrorCode::BrokenInvariant);
-    if claimable_fee_debit == 0 {
-        return LeverageSwapFeeCredit::from_total_actual_credit(quote, 0);
-    }
-    let fee_balance_before = fee_vault.amount;
-    let asset_token_program = token_program_for_mint(asset_mint, token_program, token_2022_program)?;
-    transfer_from_vault_to_vault_with_remaining_accounts(
-        market.to_account_info(),
-        reserve_vault.to_account_info(),
-        fee_vault.to_account_info(),
-        asset_mint.to_account_info(),
-        asset_token_program,
-        claimable_fee_debit,
-        asset_mint.decimals,
-        &[&generate_market_seeds!(market)[..]],
-        additional_accounts,
-    )?;
-    reserve_vault.reload()?;
-    fee_vault.reload()?;
-    let total_actual_credit = token_account_credit(fee_balance_before, fee_vault)?;
-    LeverageSwapFeeCredit::from_total_actual_credit(quote, total_actual_credit)
+    LeverageSwapFeeCredit::from_total_actual_credit(quote, claimable_fee_debit)
 }
 
 pub fn record_leverage_interest<'info>(
@@ -404,7 +493,7 @@ pub fn record_leverage_interest<'info>(
     }
     let interest_vault_balance_before = interest_vault.amount;
     let debt_token_program = token_program_for_mint(debt_mint, token_program, token_2022_program)?;
-    transfer_from_vault_to_vault_with_remaining_accounts(
+    transfer_checked_with_remaining_accounts(
         market.to_account_info(),
         debt_reserve_vault.to_account_info(),
         interest_vault.to_account_info(),
@@ -415,7 +504,6 @@ pub fn record_leverage_interest<'info>(
         &[&generate_market_seeds!(market)[..]],
         remaining_accounts,
     )?;
-    debt_reserve_vault.reload()?;
     interest_vault.reload()?;
     let interest_vault_credit = token_account_credit(interest_vault_balance_before, interest_vault)?;
     let referral_receipt = accrue_referral_interest(
@@ -459,6 +547,119 @@ mod tests {
         },
         state::Mint as SplToken2022Mint,
     };
+
+    #[test]
+    fn leverage_market_pda_runtime_guard_matches_canonical_market_seeds() {
+        let mut market = Market::default();
+        market.base_side.asset_mint = Pubkey::new_unique();
+        market.quote_side.asset_mint = Pubkey::new_unique();
+        market.params_hash = [7; 32];
+        let (market_key, bump) = Pubkey::find_program_address(
+            &[
+                MARKET_V2_SEED_PREFIX,
+                market.base_side.asset_mint.as_ref(),
+                market.quote_side.asset_mint.as_ref(),
+                market.params_hash.as_ref(),
+            ],
+            &crate::ID,
+        );
+        market.bump = bump;
+
+        validate_leverage_market_pda(&market, market_key).unwrap();
+        assert!(validate_leverage_market_pda(&market, Pubkey::new_unique()).is_err());
+    }
+
+    #[test]
+    fn leverage_futarchy_pda_runtime_guard_matches_canonical_authority_seed() {
+        let (futarchy_authority_key, bump) =
+            Pubkey::find_program_address(&[FUTARCHY_AUTHORITY_SEED_PREFIX], &crate::ID);
+
+        validate_leverage_futarchy_pda(bump, futarchy_authority_key).unwrap();
+        assert!(validate_leverage_futarchy_pda(bump, Pubkey::new_unique()).is_err());
+    }
+
+    #[test]
+    fn leverage_public_paths_validate_runtime_control_pdas_before_mutation() {
+        let open = include_str!("open_leverage.rs");
+        let close = include_str!("close_leverage.rs");
+        let decrease = include_str!("decrease_leverage.rs");
+        let liquidate = include_str!("liquidate_leverage.rs");
+        let lib = include_str!("../../lib.rs");
+        let boxed_runtime_guard = "validate_leverage_market_pda(&self.market, self.market.key())?;";
+        let futarchy_guard =
+            "validate_leverage_futarchy_pda(self.futarchy_authority.bump, self.futarchy_authority.key())?;";
+        let boxed_account = "#[account(mut)]\n    pub market: Box<Account<'info, Market>>";
+
+        for (source, validator, handler) in [
+            (open, "pub fn validate_at", "pub fn handle_open"),
+            (liquidate, "pub fn validate_at", "pub fn handle_liquidate"),
+        ] {
+            assert!(source.contains(boxed_account));
+            let validator_start = source.find(validator).unwrap();
+            let guard = source.find(boxed_runtime_guard).unwrap();
+            let futarchy_guard = source.find(futarchy_guard).unwrap();
+            let handler_start = source.find(handler).unwrap();
+            assert!(validator_start < guard && guard < handler_start);
+            assert!(validator_start < futarchy_guard && futarchy_guard < handler_start);
+        }
+
+        assert!(decrease.contains(boxed_account));
+        let validator_start = decrease.find("pub fn validate_at").unwrap();
+        let guard = decrease.find(boxed_runtime_guard).unwrap();
+        let futarchy = decrease.find(futarchy_guard).unwrap();
+        let handler_start = decrease.find("pub fn handle_decrease").unwrap();
+        assert!(validator_start < guard && guard < handler_start);
+        assert!(validator_start < futarchy && futarchy < handler_start);
+
+        assert!(close.contains(boxed_account));
+        assert_eq!(close.matches("self.validate_common").count(), 2);
+        let common_start = close.find("fn validate_common").unwrap();
+        let guard = close.find(boxed_runtime_guard).unwrap();
+        let futarchy_guard = close.find(futarchy_guard).unwrap();
+        let owner_validation = close.find("pub fn validate_at").unwrap();
+        let delegated_validation = close.find("pub fn validate_delegated_at").unwrap();
+        let handler_start = close.find("pub fn handle_close").unwrap();
+        assert!(common_start < guard);
+        assert!(common_start < futarchy_guard);
+        assert!(guard < owner_validation && owner_validation < handler_start);
+        assert!(futarchy_guard < owner_validation && owner_validation < handler_start);
+        assert!(guard < delegated_validation && delegated_validation < handler_start);
+        assert!(futarchy_guard < delegated_validation && delegated_validation < handler_start);
+
+        for (entrypoint, validation, handler) in [
+            (
+                "pub fn open_leverage<'info>",
+                "ctx.accounts.validate_at",
+                "OpenLeverage::handle_open",
+            ),
+            (
+                "pub fn close_leverage<'info>",
+                "ctx.accounts.validate_at",
+                "CloseLeverage::handle_close",
+            ),
+            (
+                "pub fn delegated_close_leverage<'info>",
+                "ctx.accounts.validate_delegated_at",
+                "CloseLeverage::handle_delegated_close",
+            ),
+            (
+                "pub fn decrease_leverage<'info>",
+                "ctx.accounts.validate_at",
+                "DecreaseLeverage::handle_decrease",
+            ),
+            (
+                "pub fn liquidate_leverage<'info>",
+                "ctx.accounts.validate_at",
+                "LiquidateLeverage::handle_liquidate",
+            ),
+        ] {
+            let entrypoint_start = lib.find(entrypoint).unwrap();
+            let body = &lib[entrypoint_start..];
+            let validation = body.find(validation).unwrap();
+            let handler = body.find(handler).unwrap();
+            assert!(validation < handler);
+        }
+    }
 
     #[test]
     fn approved_for_requires_action_bit() {
@@ -541,7 +742,7 @@ mod tests {
     }
 
     #[test]
-    fn retained_surcharge_never_enters_leverage_fee_vault_credit() {
+    fn retained_surcharge_never_enters_claimable_fee_credit() {
         let quote = LeverageSwapQuote {
             fee_credit: 30,
             fee_breakdown: crate::state::SwapFeeBreakdown {

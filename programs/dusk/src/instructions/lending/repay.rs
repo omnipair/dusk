@@ -9,17 +9,16 @@ use crate::{
     errors::ErrorCode,
     events::{MarketDebtUpdated, MarketEventMetadata, MarketHealthUpdated},
     generate_market_seeds,
-    shared::token::{
-        transfer_from_user_to_vault_with_remaining_accounts, transfer_from_vault_to_vault_with_remaining_accounts,
-    },
+    shared::token::{get_transfer_fee, get_transfer_inverse_fee, transfer_checked_with_remaining_accounts},
     state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
 };
 
 use crate::instructions::common::{
-    require_supported_asset_mint, token_account_credit, token_program_for_mint, validate_interest_accounts,
+    require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
+    validate_interest_accounts,
 };
 
-use super::common::validate_repay_accounts;
+use super::common::validate_debt_reserve_accounts;
 use crate::instructions::referral::common::{
     accrue_referral_interest, emit_referral_interest_accrued, validate_referral_binding,
 };
@@ -94,8 +93,11 @@ impl<'info> Repay<'info> {
             args.repay_amount,
             ErrorCode::InsufficientBalance
         );
-        let repay_asset = validate_repay_accounts(
+        let repay_asset = self.market.asset_for_mint(self.debt_asset_mint.key())?;
+        let debt_side = self.market.side(repay_asset);
+        validate_debt_reserve_accounts(
             &self.market,
+            debt_side,
             self.owner.key(),
             &self.debt_asset_mint,
             &self.reserve_vault,
@@ -140,31 +142,51 @@ impl<'info> Repay<'info> {
                 &accounts.token_program,
                 &accounts.token_2022_program,
             )?;
-            transfer_from_user_to_vault_with_remaining_accounts(
+            let max_repay_credit = args
+                .repay_amount
+                .checked_sub(get_transfer_fee(
+                    &accounts.debt_asset_mint.to_account_info(),
+                    args.repay_amount,
+                )?)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            let repay_credit = accounts
+                .market
+                .fixed_repayment_for_max(&accounts.borrow_position, repay_asset, max_repay_credit)?
+                .cash_repaid;
+            let repay_gross = repay_credit
+                .checked_add(get_transfer_inverse_fee(
+                    &accounts.debt_asset_mint.to_account_info(),
+                    repay_credit,
+                )?)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            require_gte!(args.repay_amount, repay_gross, ErrorCode::BrokenInvariant);
+            transfer_checked_with_remaining_accounts(
                 accounts.owner.to_account_info(),
                 accounts.owner_debt_account.to_account_info(),
                 accounts.reserve_vault.to_account_info(),
                 accounts.debt_asset_mint.to_account_info(),
                 debt_token_program.clone(),
-                args.repay_amount,
+                repay_gross,
                 accounts.debt_asset_mint.decimals,
+                &[],
                 remaining_accounts,
             )?;
             accounts.reserve_vault.reload()?;
-            let repay_credit = accounts
+            let measured_repay_credit = accounts
                 .reserve_vault
                 .amount
                 .checked_sub(reserve_balance_before)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
-            require!(repay_credit > 0, ErrorCode::AmountZero);
+            require_eq!(measured_repay_credit, repay_credit, ErrorCode::BrokenInvariant);
 
             let debt_receipt = accounts
                 .market
                 .repay(&mut accounts.borrow_position, repay_asset, repay_credit)?;
+            require_eq!(debt_receipt.cash_repaid, repay_credit, ErrorCode::BrokenInvariant);
 
             let referral_receipt = if debt_receipt.interest_paid > 0 {
                 let interest_vault_balance_before = accounts.interest_vault.amount;
-                transfer_from_vault_to_vault_with_remaining_accounts(
+                transfer_checked_with_remaining_accounts(
                     accounts.market.to_account_info(),
                     accounts.reserve_vault.to_account_info(),
                     accounts.interest_vault.to_account_info(),
@@ -175,6 +197,7 @@ impl<'info> Repay<'info> {
                     &[&generate_market_seeds!(accounts.market)[..]],
                     remaining_accounts,
                 )?;
+                accounts.reserve_vault.reload()?;
                 accounts.interest_vault.reload()?;
                 let interest_vault_credit =
                     token_account_credit(interest_vault_balance_before, &accounts.interest_vault)?;
@@ -216,6 +239,7 @@ impl<'info> Repay<'info> {
                     accounts.futarchy_authority.revenue_share.interest_bps,
                 )?
             };
+            require_reserve_custody(accounts.reserve_vault.amount, accounts.market.side(repay_asset))?;
 
             (
                 market_key,

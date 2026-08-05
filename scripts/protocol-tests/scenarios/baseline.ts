@@ -46,27 +46,27 @@ export const BASELINE_SCENARIOS: ScenarioDefinition[] = [
       harness.assertEqual("program id matches market config", harness.config.programId, "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv");
       harness.assertEqual("market address matches config", market.marketAddress, harness.config.market);
       if (harness.config.fixtureMode === "token2022-fees") {
-        harness.assertTrue("transfer-fee fixture starts with positive base reserve", stateValue(market, "baseReserve") > 0n);
-        harness.assertTrue("transfer-fee fixture starts with positive quote reserve", stateValue(market, "quoteReserve") > 0n);
-        harness.assertTrue("transfer-fee fixture starts with positive yLP supply", stateValue(market, "baseReserveYlpSupply") > 0n);
+        harness.assertTrue("transfer-fee fixture starts with positive base reserve", stateValue(market, "baseLiveReserve") > 0n);
+        harness.assertTrue("transfer-fee fixture starts with positive quote reserve", stateValue(market, "quoteLiveReserve") > 0n);
+        harness.assertTrue("transfer-fee fixture starts with positive yLP supply", stateValue(market, "baseSideYlpSupply") > 0n);
         harness.assertEqual(
           "transfer-fee fixture keeps one common yLP supply",
-          stateValue(market, "baseReserveYlpSupply"),
-          stateValue(market, "quoteReserveYlpSupply")
+          stateValue(market, "baseSideYlpSupply"),
+          stateValue(market, "quoteSideYlpSupply")
         );
       } else {
-        harness.assertEqual("initial base reserve", stateValue(market, "baseReserve"), raw(100_000, market.baseDecimals));
-        harness.assertEqual("initial quote reserve", stateValue(market, "quoteReserve"), raw(100_000, market.quoteDecimals));
+        harness.assertEqual("initial base reserve", stateValue(market, "baseLiveReserve"), raw(100_000, market.baseDecimals));
+        harness.assertEqual("initial quote reserve", stateValue(market, "quoteLiveReserve"), raw(100_000, market.quoteDecimals));
         if (harness.config.fixtureMode === "mixed-decimals") {
-          harness.assertTrue("mixed-decimal fixture starts with positive yLP supply", stateValue(market, "baseReserveYlpSupply") > 0n);
+          harness.assertTrue("mixed-decimal fixture starts with positive yLP supply", stateValue(market, "baseSideYlpSupply") > 0n);
           harness.assertEqual(
             "mixed-decimal fixture keeps one common yLP supply",
-            stateValue(market, "baseReserveYlpSupply"),
-            stateValue(market, "quoteReserveYlpSupply")
+            stateValue(market, "baseSideYlpSupply"),
+            stateValue(market, "quoteSideYlpSupply")
           );
         } else {
-          harness.assertEqual("initial base yLP supply", stateValue(market, "baseReserveYlpSupply"), raw(100_000, market.baseDecimals));
-          harness.assertEqual("initial quote yLP supply", stateValue(market, "quoteReserveYlpSupply"), raw(100_000, market.quoteDecimals));
+          harness.assertEqual("initial base yLP supply", stateValue(market, "baseSideYlpSupply"), raw(100_000, market.baseDecimals));
+          harness.assertEqual("initial quote yLP supply", stateValue(market, "quoteSideYlpSupply"), raw(100_000, market.quoteDecimals));
         }
       }
       harness.assertEqual("initial base debt", stateValue(market, "fixedBaseDebt"), 0n);
@@ -110,10 +110,10 @@ export const BASELINE_SCENARIOS: ScenarioDefinition[] = [
       const ylpAfterAdd = await harness.lpBalance("trader", harness.config.ylpMint);
       const minted = ylpAfterAdd - ylpBefore;
       harness.assertTrue("balanced deposit mints yLP", minted > 0n, minted);
-      harness.assertEqual("base reserve receives deposit", stateValue(afterAdd, "baseReserve") - stateValue(before, "baseReserve"), raw(10, harness.config.baseDecimals));
-      harness.assertEqual("quote reserve receives deposit", stateValue(afterAdd, "quoteReserve") - stateValue(before, "quoteReserve"), raw(10, harness.config.quoteDecimals));
-      harness.assertEqual("base yLP supply delta matches wallet mint", stateValue(afterAdd, "baseReserveYlpSupply") - stateValue(before, "baseReserveYlpSupply"), minted);
-      harness.assertEqual("quote yLP supply delta matches wallet mint", stateValue(afterAdd, "quoteReserveYlpSupply") - stateValue(before, "quoteReserveYlpSupply"), minted);
+      harness.assertEqual("base reserve receives deposit", stateValue(afterAdd, "baseLiveReserve") - stateValue(before, "baseLiveReserve"), raw(10, harness.config.baseDecimals));
+      harness.assertEqual("quote reserve receives deposit", stateValue(afterAdd, "quoteLiveReserve") - stateValue(before, "quoteLiveReserve"), raw(10, harness.config.quoteDecimals));
+      harness.assertEqual("base yLP supply delta matches wallet mint", stateValue(afterAdd, "baseSideYlpSupply") - stateValue(before, "baseSideYlpSupply"), minted);
+      harness.assertEqual("quote yLP supply delta matches wallet mint", stateValue(afterAdd, "quoteSideYlpSupply") - stateValue(before, "quoteSideYlpSupply"), minted);
 
       const burn = minted / 2n;
       await harness.execute({
@@ -129,9 +129,9 @@ export const BASELINE_SCENARIOS: ScenarioDefinition[] = [
       const afterRemove = await harness.market();
       const ylpAfterRemove = await harness.lpBalance("trader", harness.config.ylpMint);
       harness.assertEqual("requested yLP amount is burned", ylpAfterAdd - ylpAfterRemove, burn);
-      harness.assertTrue("base reserve decreases on removal", stateValue(afterRemove, "baseReserve") < stateValue(afterAdd, "baseReserve"));
-      harness.assertTrue("quote reserve decreases on removal", stateValue(afterRemove, "quoteReserve") < stateValue(afterAdd, "quoteReserve"));
-      harness.assertTrue("partial roundtrip leaves positive added liquidity", stateValue(afterRemove, "baseReserve") > stateValue(before, "baseReserve"));
+      harness.assertTrue("base reserve decreases on removal", stateValue(afterRemove, "baseLiveReserve") < stateValue(afterAdd, "baseLiveReserve"));
+      harness.assertTrue("quote reserve decreases on removal", stateValue(afterRemove, "quoteLiveReserve") < stateValue(afterAdd, "quoteLiveReserve"));
+      harness.assertTrue("partial roundtrip leaves positive added liquidity", stateValue(afterRemove, "baseLiveReserve") > stateValue(before, "baseLiveReserve"));
     },
   },
   {
@@ -147,8 +147,8 @@ export const BASELINE_SCENARIOS: ScenarioDefinition[] = [
         body: { baseDepositAmount: "1", quoteDepositAmount: "1", minYlpAmount: "1000000" },
       });
       const after = await harness.market();
-      harness.assertEqual("failed add leaves base reserve unchanged", stateValue(after, "baseReserve"), stateValue(before, "baseReserve"));
-      harness.assertEqual("failed add leaves quote reserve unchanged", stateValue(after, "quoteReserve"), stateValue(before, "quoteReserve"));
+      harness.assertEqual("failed add leaves base reserve unchanged", stateValue(after, "baseLiveReserve"), stateValue(before, "baseLiveReserve"));
+      harness.assertEqual("failed add leaves quote reserve unchanged", stateValue(after, "quoteLiveReserve"), stateValue(before, "quoteLiveReserve"));
       harness.assertEqual("failed add leaves wallet yLP unchanged", await harness.lpBalance("trader", harness.config.ylpMint), ylpBefore);
     },
   },
@@ -169,8 +169,8 @@ export const BASELINE_SCENARIOS: ScenarioDefinition[] = [
       const traderQuoteAfterBaseIn = await harness.tokenBalance("trader", harness.config.quoteMint, harness.config.quoteTokenProgram);
       harness.assertEqual("base input debited exactly", traderBaseBefore - traderBaseAfterBaseIn, raw(1, harness.config.baseDecimals));
       harness.assertTrue("quote output credited", traderQuoteAfterBaseIn > traderQuoteBefore);
-      harness.assertTrue("base reserve rises", stateValue(afterBaseIn, "baseReserve") > stateValue(before, "baseReserve"));
-      harness.assertTrue("quote reserve falls", stateValue(afterBaseIn, "quoteReserve") < stateValue(before, "quoteReserve"));
+      harness.assertTrue("base reserve rises", stateValue(afterBaseIn, "baseLiveReserve") > stateValue(before, "baseLiveReserve"));
+      harness.assertTrue("quote reserve falls", stateValue(afterBaseIn, "quoteLiveReserve") < stateValue(before, "quoteLiveReserve"));
 
       await harness.execute({
         wallet: "trader",
@@ -183,8 +183,8 @@ export const BASELINE_SCENARIOS: ScenarioDefinition[] = [
       const traderQuoteAfterQuoteIn = await harness.tokenBalance("trader", harness.config.quoteMint, harness.config.quoteTokenProgram);
       harness.assertEqual("quote input debited exactly", traderQuoteAfterBaseIn - traderQuoteAfterQuoteIn, raw(1, harness.config.quoteDecimals) / 2n);
       harness.assertTrue("base output credited", traderBaseAfterQuoteIn > traderBaseAfterBaseIn);
-      harness.assertTrue("quote reserve rises on reverse swap", stateValue(afterQuoteIn, "quoteReserve") > stateValue(afterBaseIn, "quoteReserve"));
-      harness.assertTrue("base reserve falls on reverse swap", stateValue(afterQuoteIn, "baseReserve") < stateValue(afterBaseIn, "baseReserve"));
+      harness.assertTrue("quote reserve rises on reverse swap", stateValue(afterQuoteIn, "quoteLiveReserve") > stateValue(afterBaseIn, "quoteLiveReserve"));
+      harness.assertTrue("base reserve falls on reverse swap", stateValue(afterQuoteIn, "baseLiveReserve") < stateValue(afterBaseIn, "baseLiveReserve"));
     },
   },
   {
@@ -199,8 +199,8 @@ export const BASELINE_SCENARIOS: ScenarioDefinition[] = [
         body: { assetIn: "base", exactAssetIn: "0.1", minAssetOut: "1000000" },
       });
       const after = await harness.market();
-      harness.assertEqual("failed swap leaves base reserve unchanged", stateValue(after, "baseReserve"), stateValue(before, "baseReserve"));
-      harness.assertEqual("failed swap leaves quote reserve unchanged", stateValue(after, "quoteReserve"), stateValue(before, "quoteReserve"));
+      harness.assertEqual("failed swap leaves base reserve unchanged", stateValue(after, "baseLiveReserve"), stateValue(before, "baseLiveReserve"));
+      harness.assertEqual("failed swap leaves quote reserve unchanged", stateValue(after, "quoteLiveReserve"), stateValue(before, "quoteLiveReserve"));
     },
   },
   {
@@ -324,8 +324,8 @@ export const BASELINE_SCENARIOS: ScenarioDefinition[] = [
       });
       const marketAfter = await harness.market();
       harness.assertEqual("failed hLP deposit leaves wallet shares unchanged", await harness.lpBalance("trader", harness.config.baseHlpMint), baseHlpBefore);
-      harness.assertEqual("failed hLP deposit leaves base reserve unchanged", stateValue(marketAfter, "baseReserve"), stateValue(marketBefore, "baseReserve"));
-      harness.assertEqual("failed hLP deposit leaves quote reserve unchanged", stateValue(marketAfter, "quoteReserve"), stateValue(marketBefore, "quoteReserve"));
+      harness.assertEqual("failed hLP deposit leaves base reserve unchanged", stateValue(marketAfter, "baseLiveReserve"), stateValue(marketBefore, "baseLiveReserve"));
+      harness.assertEqual("failed hLP deposit leaves quote reserve unchanged", stateValue(marketAfter, "quoteLiveReserve"), stateValue(marketBefore, "quoteLiveReserve"));
     },
   },
   {
@@ -340,8 +340,38 @@ export const BASELINE_SCENARIOS: ScenarioDefinition[] = [
         body: {},
       });
       const marketPreview = decodePreviewMarketReturnData(previewData(marketEvidence));
-      harness.assertEqual("market preview base reserve matches account", integer(marketPreview.base.liveReserve), stateValue(marketBefore, "baseReserve"));
-      harness.assertEqual("market preview quote reserve matches account", integer(marketPreview.quote.liveReserve), stateValue(marketBefore, "quoteReserve"));
+      harness.assertEqual("market preview base reserve matches account", integer(marketPreview.base.liveReserve), stateValue(marketBefore, "baseLiveReserve"));
+      harness.assertEqual("market preview quote reserve matches account", integer(marketPreview.quote.liveReserve), stateValue(marketBefore, "quoteLiveReserve"));
+      harness.assertEqual(
+        "market payload base contribution matches canonical preview health",
+        stateValue(marketBefore, "globalHealthBaseContributionForQuoteDebt"),
+        integer(marketPreview.health.globalHealthBaseContributionForQuoteDebt)
+      );
+      harness.assertEqual(
+        "market payload quote contribution matches canonical preview health",
+        stateValue(marketBefore, "globalHealthQuoteContributionForBaseDebt"),
+        integer(marketPreview.health.globalHealthQuoteContributionForBaseDebt)
+      );
+      harness.assertEqual(
+        "market payload effective base debt matches canonical preview health",
+        stateValue(marketBefore, "effectiveBaseDebtNad"),
+        integer(marketPreview.health.effectiveBaseDebtNad)
+      );
+      harness.assertEqual(
+        "market payload effective quote debt matches canonical preview health",
+        stateValue(marketBefore, "effectiveQuoteDebtNad"),
+        integer(marketPreview.health.effectiveQuoteDebtNad)
+      );
+      harness.assertEqual(
+        "market payload base debt health matches canonical preview health",
+        stateValue(marketBefore, "baseDebtHealthBps"),
+        integer(marketPreview.health.baseDebtHealthBps)
+      );
+      harness.assertEqual(
+        "market payload quote debt health matches canonical preview health",
+        stateValue(marketBefore, "quoteDebtHealthBps"),
+        integer(marketPreview.health.quoteDebtHealthBps)
+      );
 
       const liquidityEvidence = await harness.execute({
         wallet: "trader",
@@ -362,8 +392,8 @@ export const BASELINE_SCENARIOS: ScenarioDefinition[] = [
       const stateAfterAdd = await harness.market();
       const ylpAfter = await harness.lpBalance("trader", harness.config.ylpMint);
       harness.assertEqual("previewed yLP mint matches execution", ylpAfter - ylpBefore, integer(liquidityPreview.ylpAmount));
-      harness.assertEqual("previewed base reserve credit matches execution", stateValue(stateAfterAdd, "baseReserve") - stateValue(stateBeforeAdd, "baseReserve"), integer(liquidityPreview.baseReserveCredit));
-      harness.assertEqual("previewed quote reserve credit matches execution", stateValue(stateAfterAdd, "quoteReserve") - stateValue(stateBeforeAdd, "quoteReserve"), integer(liquidityPreview.quoteReserveCredit));
+      harness.assertEqual("previewed base reserve credit matches execution", stateValue(stateAfterAdd, "baseLiveReserve") - stateValue(stateBeforeAdd, "baseLiveReserve"), integer(liquidityPreview.baseReserveCredit));
+      harness.assertEqual("previewed quote reserve credit matches execution", stateValue(stateAfterAdd, "quoteLiveReserve") - stateValue(stateBeforeAdd, "quoteLiveReserve"), integer(liquidityPreview.quoteReserveCredit));
       await harness.execute({
         wallet: "trader",
         endpoint: "/api/v2/fork/tx/remove-liquidity",
@@ -537,12 +567,12 @@ export const BASELINE_SCENARIOS: ScenarioDefinition[] = [
     async run(harness) {
       const market = await harness.market();
       harness.observe("final market state", market.state);
-      harness.assertTrue("base reserve remains positive", stateValue(market, "baseReserve") > 0n);
-      harness.assertTrue("quote reserve remains positive", stateValue(market, "quoteReserve") > 0n);
+      harness.assertTrue("base reserve remains positive", stateValue(market, "baseLiveReserve") > 0n);
+      harness.assertTrue("quote reserve remains positive", stateValue(market, "quoteLiveReserve") > 0n);
       harness.assertEqual("user base debt returns to zero", stateValue(market, "fixedBaseDebt"), 0n);
       harness.assertEqual("user quote debt returns to zero", stateValue(market, "fixedQuoteDebt"), 0n);
-      harness.assertTrue("base yLP supply does not exceed reserve by an impossible amount", stateValue(market, "baseReserveYlpSupply") > 0n);
-      harness.assertTrue("quote yLP supply does not exceed reserve by an impossible amount", stateValue(market, "quoteReserveYlpSupply") > 0n);
+      harness.assertTrue("base yLP supply does not exceed reserve by an impossible amount", stateValue(market, "baseSideYlpSupply") > 0n);
+      harness.assertTrue("quote yLP supply does not exceed reserve by an impossible amount", stateValue(market, "quoteSideYlpSupply") > 0n);
     },
   },
 ];

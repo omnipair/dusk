@@ -1,4 +1,6 @@
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::log::sol_log_data;
+use anchor_lang::Discriminator;
 use anchor_spl::{
     token::Token,
     token_interface::{Mint, Token2022, TokenAccount},
@@ -7,21 +9,21 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::log::emit_hlp_opened_low_heap,
+    events::HlpOpened,
     generate_market_seeds,
-    shared::{
-        account::get_size_with_discriminator,
-        token::{token_mint_to_with_scratch, transfer_from_user_to_vault, TokenInstructionScratch},
+    shared::token::{
+        create_token_account, token_mint_to_with_scratch, transfer_checked_with_remaining_accounts,
+        TokenInstructionScratch,
     },
     state::{FutarchyAuthority, Market, MarketAsset, YieldAccount, YieldTokenKind},
 };
 
 use crate::instructions::common::{
-    require_supported_asset_mint, token_program_for_mint, validate_lp_mint, validate_owner_asset_account,
-    validate_owner_lp_account, validate_side_vault_accounts,
+    derive_hlp_ylp_vault_address, require_reserve_custody, require_supported_asset_mint, token_program_for_mint,
+    validate_lp_mint, validate_owner_asset_account, validate_owner_lp_account, validate_side_vault_accounts,
 };
 
-use super::initialize_or_validate_hlp_yield_account;
+use super::{reconcile_live_hlp_supply, validate_hlp_authority_pdas};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct DepositSingleSidedArgs {
@@ -32,22 +34,9 @@ pub struct DepositSingleSidedArgs {
 #[derive(Accounts)]
 #[instruction(args: DepositSingleSidedArgs)]
 pub struct DepositSingleSided<'info> {
-    #[account(
-        mut,
-        seeds = [
-            MARKET_V2_SEED_PREFIX,
-            market.base_side.asset_mint.as_ref(),
-            market.quote_side.asset_mint.as_ref(),
-            market.params_hash.as_ref(),
-        ],
-        bump = market.bump
-    )]
+    #[account(mut)]
     pub market: Box<Account<'info, Market>>,
 
-    #[account(
-        seeds = [FUTARCHY_AUTHORITY_SEED_PREFIX],
-        bump = futarchy_authority.bump
-    )]
     pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
 
     #[account(mut)]
@@ -70,36 +59,39 @@ pub struct DepositSingleSided<'info> {
     #[account(mut)]
     pub owner_hlp_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    #[account(
-        init_if_needed,
-        payer = owner,
-        seeds = [
-            HLP_YLP_VAULT_SEED_PREFIX,
-            market.key().as_ref(),
-            target_hlp_mint.key().as_ref(),
-            ylp_mint.key().as_ref(),
-        ],
-        bump,
-        token::mint = ylp_mint,
-        token::authority = market,
-        token::token_program = token_2022_program,
-    )]
-    pub hlp_ylp_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    /// CHECK: Canonical PDA, initialization state, token program, mint, and
+    /// authority are all validated before any market mutation. A System-owned
+    /// empty PDA is initialized inline by the deposit handler.
+    #[account(mut)]
+    pub hlp_ylp_account: UncheckedAccount<'info>,
 
     #[account(
-        init_if_needed,
-        payer = owner,
-        space = get_size_with_discriminator::<YieldAccount>(),
+        mut,
         seeds = [
             YIELD_ACCOUNT_SEED_PREFIX,
             market.key().as_ref(),
             owner.key().as_ref(),
-            owner_target_account.mint.as_ref(),
+            target_hlp_mint.key().as_ref(),
+            base_mint.key().as_ref(),
             &[YieldTokenKind::Hlp.code()],
         ],
-        bump
+        bump = base_yield_account.bump
     )]
-    pub target_yield_account: Box<Account<'info, YieldAccount>>,
+    pub base_yield_account: Box<Account<'info, YieldAccount>>,
+
+    #[account(
+        mut,
+        seeds = [
+            YIELD_ACCOUNT_SEED_PREFIX,
+            market.key().as_ref(),
+            owner.key().as_ref(),
+            target_hlp_mint.key().as_ref(),
+            quote_mint.key().as_ref(),
+            &[YieldTokenKind::Hlp.code()],
+        ],
+        bump = quote_yield_account.bump
+    )]
+    pub quote_yield_account: Box<Account<'info, YieldAccount>>,
 
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
@@ -108,6 +100,12 @@ pub struct DepositSingleSided<'info> {
 
 impl<'info> DepositSingleSided<'info> {
     pub fn validate(&self, args: &DepositSingleSidedArgs) -> Result<()> {
+        validate_hlp_authority_pdas(
+            &self.market,
+            self.market.key(),
+            &self.futarchy_authority,
+            self.futarchy_authority.key(),
+        )?;
         self.market.assert_live_with_futarchy(&self.futarchy_authority)?;
         require!(args.deposit_amount > 0, ErrorCode::AmountZero);
         validate_side_vault_accounts(
@@ -134,30 +132,103 @@ impl<'info> DepositSingleSided<'info> {
         validate_owner_lp_account(self.owner.key(), &self.target_hlp_mint, &self.owner_hlp_account)?;
         validate_lp_mint(&self.target_hlp_mint, self.market.key(), target_mint.decimals)?;
         validate_lp_mint(&self.ylp_mint, self.market.key(), self.base_mint.decimals)?;
+        self.base_yield_account.assert_account(
+            self.owner.key(),
+            self.market.key(),
+            self.target_hlp_mint.key(),
+            self.base_mint.key(),
+            YieldTokenKind::Hlp,
+        )?;
+        self.quote_yield_account.assert_account(
+            self.owner.key(),
+            self.market.key(),
+            self.target_hlp_mint.key(),
+            self.quote_mint.key(),
+            YieldTokenKind::Hlp,
+        )?;
+        let (expected_hlp_ylp_account, _) =
+            derive_hlp_ylp_vault_address(self.market.key(), self.target_hlp_mint.key(), self.ylp_mint.key());
         require_keys_eq!(
-            self.hlp_ylp_account.mint,
-            self.ylp_mint.key(),
-            ErrorCode::InvalidTokenAccount
+            self.hlp_ylp_account.key(),
+            expected_hlp_ylp_account,
+            ErrorCode::InvalidVault
         );
-        require_keys_eq!(self.hlp_ylp_account.owner, self.market.key(), ErrorCode::InvalidVault);
+        let hlp_ylp_info = self.hlp_ylp_account.to_account_info();
+        if *hlp_ylp_info.owner == System::id() {
+            require!(hlp_ylp_info.data_is_empty(), ErrorCode::InvalidVault);
+        } else {
+            require_keys_eq!(
+                *hlp_ylp_info.owner,
+                self.token_2022_program.key(),
+                ErrorCode::InvalidTokenProgram
+            );
+            let data = hlp_ylp_info.try_borrow_data()?;
+            let mut data_slice: &[u8] = &data;
+            let account = TokenAccount::try_deserialize_unchecked(&mut data_slice)?;
+            require_keys_eq!(account.mint, self.ylp_mint.key(), ErrorCode::InvalidTokenAccount);
+            require_keys_eq!(account.owner, self.market.key(), ErrorCode::InvalidVault);
+        }
         require_supported_asset_mint(&self.base_mint)?;
         require_supported_asset_mint(&self.quote_mint)?;
         Ok(())
     }
 
-    pub fn update(&mut self) -> Result<()> {
-        let target_asset = self.market.asset_for_hlp_mint(self.target_hlp_mint.key())?;
-        self.market.update_for_hlp_deposit(target_asset, Clock::get()?.slot)
-    }
-
     pub fn update_and_validate(&mut self, args: &DepositSingleSidedArgs) -> Result<()> {
-        self.update()?;
-        self.validate(args)
+        self.validate(args)?;
+        let target_asset = self.market.asset_for_hlp_mint(self.target_hlp_mint.key())?;
+        let current_slot = Clock::get()?.slot;
+        self.market.accrue_interest_to_slot(current_slot)?;
+        reconcile_live_hlp_supply(&mut self.market, target_asset, self.target_hlp_mint.supply)?;
+        self.market.assert_current_version()?;
+        if self.market.base_side.reserves.live_reserve > 0 && self.market.quote_side.reserves.live_reserve > 0 {
+            self.market.advance_amm_clock(current_slot)?;
+            self.market.checkpoint_hlp_vaults()?;
+            let prices = crate::state::market::transitions::hedge::current_hlp_curve_prices(&self.market)?;
+            let entry = crate::state::market::transitions::hedge::current_hlp_entry_state_with_prices(
+                &self.market,
+                target_asset,
+                prices,
+            )?;
+            require!(entry.disposition.admits_entry(), ErrorCode::HlpSettlementUnavailable);
+            if self.market.has_active_hlp()
+                && self.market.amm.ramp.active
+                && (!self.market.amm.applied_curve_parameters.is_cpmm() || !self.market.amm.ramp.target.is_cpmm())
+            {
+                let desired = self
+                    .market
+                    .amm
+                    .desired_curve_parameters(&self.market.config.amm, current_slot);
+                require!(
+                    desired == self.market.amm.applied_curve_parameters,
+                    ErrorCode::HlpSettlementUnavailable
+                );
+            }
+            self.market.observe_current_risk(current_slot)?;
+        }
+        Ok(())
     }
 
-    pub fn handle_deposit(ctx: Context<Self>, args: DepositSingleSidedArgs) -> Result<()> {
+    pub fn handle_deposit(ctx: Context<'_, '_, '_, 'info, Self>, args: DepositSingleSidedArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.owner.key();
+        let target_hlp_mint_key = ctx.accounts.target_hlp_mint.key();
+        let ylp_mint_key = ctx.accounts.ylp_mint.key();
+        let (_, hlp_ylp_bump) = derive_hlp_ylp_vault_address(market_key, target_hlp_mint_key, ylp_mint_key);
+        create_token_account(
+            &ctx.accounts.market.to_account_info(),
+            &ctx.accounts.owner.to_account_info(),
+            &ctx.accounts.hlp_ylp_account.to_account_info(),
+            &ctx.accounts.ylp_mint.to_account_info(),
+            &ctx.accounts.system_program.to_account_info(),
+            &ctx.accounts.token_2022_program.to_account_info(),
+            &[
+                HLP_YLP_VAULT_SEED_PREFIX,
+                market_key.as_ref(),
+                target_hlp_mint_key.as_ref(),
+                ylp_mint_key.as_ref(),
+                &[hlp_ylp_bump],
+            ],
+        )?;
         let target_asset = ctx
             .accounts
             .market
@@ -189,7 +260,7 @@ impl<'info> DepositSingleSided<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        transfer_from_user_to_vault(
+        transfer_checked_with_remaining_accounts(
             ctx.accounts.owner.to_account_info(),
             ctx.accounts.owner_target_account.to_account_info(),
             target_reserve_vault,
@@ -200,6 +271,8 @@ impl<'info> DepositSingleSided<'info> {
                 MarketAsset::Base => ctx.accounts.base_mint.decimals,
                 MarketAsset::Quote => ctx.accounts.quote_mint.decimals,
             },
+            &[],
+            ctx.remaining_accounts,
         )?;
         match target_asset {
             MarketAsset::Base => ctx.accounts.base_reserve_vault.reload()?,
@@ -216,26 +289,32 @@ impl<'info> DepositSingleSided<'info> {
             .market
             .deposit_single_sided(target_asset, deposit_credit, args.min_hlp_amount)?;
         let current_slot = Clock::get()?.slot;
-        // `update_for_hlp_deposit` admitted any eligible ramp or verified that
-        // explicit concentrated maintenance is current. One final curve
+        // Validation verified that no due concentrated controller
+        // state would price this entry against a stale NAV. One final curve
         // evaluation now supplies D/Q accounting and the exact risk observation
         // for the immutable post-deposit state.
         ctx.accounts
             .market
-            .checkpoint_amm_neutral_inventory_and_observe_risk(current_slot)?;
-        initialize_or_validate_hlp_yield_account(
-            &mut ctx.accounts.target_yield_account,
-            owner_key,
-            market_key,
-            target_mint_key,
-            ctx.bumps.target_yield_account,
-        )?;
-        let (swap_fee_growth_index_nad, interest_growth_index_nad) =
-            ctx.accounts.market.hlp_yield_growth_indexes(target_asset);
-        ctx.accounts.target_yield_account.accrue(
+            .finalize_amm_transition_and_observe_risk(current_slot)?;
+        require_reserve_custody(ctx.accounts.base_reserve_vault.amount, &ctx.accounts.market.base_side)?;
+        require_reserve_custody(ctx.accounts.quote_reserve_vault.amount, &ctx.accounts.market.quote_side)?;
+        let (base_swap_growth, base_interest_growth) = ctx
+            .accounts
+            .market
+            .hlp_yield_growth_indexes(target_asset, MarketAsset::Base);
+        let (quote_swap_growth, quote_interest_growth) = ctx
+            .accounts
+            .market
+            .hlp_yield_growth_indexes(target_asset, MarketAsset::Quote);
+        ctx.accounts.base_yield_account.accrue(
             ctx.accounts.owner_hlp_account.amount,
-            swap_fee_growth_index_nad,
-            interest_growth_index_nad,
+            base_swap_growth,
+            base_interest_growth,
+        )?;
+        ctx.accounts.quote_yield_account.accrue(
+            ctx.accounts.owner_hlp_account.amount,
+            quote_swap_growth,
+            quote_interest_growth,
         )?;
 
         let ylp_program = token_program_for_mint(
@@ -270,16 +349,34 @@ impl<'info> DepositSingleSided<'info> {
             &signer_seeds,
         )?;
 
-        emit_hlp_opened_low_heap(
-            market_key,
-            owner_key,
-            target_mint_key,
-            receipt.deposit_amount,
-            receipt.borrowed_amount,
-            receipt.ylp_amount,
-            receipt.hlp_amount,
-            receipt.hlp_supply,
-        )?;
+        const MARKET_EVENT_METADATA_LEN: usize = 32 + 32 + 8;
+        const HLP_OPENED_EVENT_LEN: usize = 8 + (3 * 32) + (5 * 8) + MARKET_EVENT_METADATA_LEN;
+        let mut data = [0_u8; HLP_OPENED_EVENT_LEN];
+        let mut offset = 0usize;
+        data[offset..offset + 8].copy_from_slice(HlpOpened::DISCRIMINATOR);
+        offset += 8;
+        data[offset..offset + 32].copy_from_slice(market_key.as_ref());
+        offset += 32;
+        data[offset..offset + 32].copy_from_slice(owner_key.as_ref());
+        offset += 32;
+        data[offset..offset + 32].copy_from_slice(target_mint_key.as_ref());
+        offset += 32;
+        data[offset..offset + 8].copy_from_slice(&receipt.deposit_amount.to_le_bytes());
+        offset += 8;
+        data[offset..offset + 8].copy_from_slice(&receipt.borrowed_amount.to_le_bytes());
+        offset += 8;
+        data[offset..offset + 8].copy_from_slice(&receipt.ylp_amount.to_le_bytes());
+        offset += 8;
+        data[offset..offset + 8].copy_from_slice(&receipt.hlp_amount.to_le_bytes());
+        offset += 8;
+        data[offset..offset + 8].copy_from_slice(&receipt.hlp_supply.to_le_bytes());
+        offset += 8;
+        data[offset..offset + 32].copy_from_slice(owner_key.as_ref());
+        offset += 32;
+        data[offset..offset + 32].copy_from_slice(market_key.as_ref());
+        offset += 32;
+        data[offset..offset + 8].copy_from_slice(&current_slot.to_le_bytes());
+        sol_log_data(&[&data]);
 
         Ok(())
     }

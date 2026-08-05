@@ -9,12 +9,14 @@ use crate::{
     errors::ErrorCode,
     events::{LeveragePositionUpdated, MarketEventMetadata},
     generate_market_seeds,
-    shared::token::transfer_from_vault_to_user,
+    shared::token::transfer_checked_with_remaining_accounts,
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset},
 };
 
 use super::common::{validate_leverage_collateral_risk_mint, validate_leverage_mints, validate_owner_debt_account};
-use crate::instructions::common::{token_account_credit, token_program_for_mint, validate_side_vault_accounts};
+use crate::instructions::common::{
+    require_reserve_custody, token_account_credit, token_program_for_mint, validate_side_vault_accounts,
+};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct RemoveLeverageMarginArgs {
@@ -23,7 +25,6 @@ pub struct RemoveLeverageMarginArgs {
     pub min_amount_out: u64,
 }
 
-#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: RemoveLeverageMarginArgs)]
 pub struct RemoveLeverageMargin<'info> {
@@ -74,8 +75,9 @@ pub struct RemoveLeverageMargin<'info> {
 }
 
 impl<'info> RemoveLeverageMargin<'info> {
-    pub fn validate(&self, args: &RemoveLeverageMarginArgs) -> Result<()> {
-        self.market.assert_live_with_futarchy(&self.futarchy_authority)?;
+    pub fn validate_at(&self, args: &RemoveLeverageMarginArgs, unix_timestamp: i64) -> Result<()> {
+        self.market
+            .assert_live_with_futarchy_at(&self.futarchy_authority, unix_timestamp)?;
         require_keys_eq!(self.owner.key(), self.position_owner.key(), ErrorCode::InvalidSigner);
         require!(args.amount > 0, ErrorCode::AmountZero);
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
@@ -87,19 +89,22 @@ impl<'info> RemoveLeverageMargin<'info> {
         Ok(())
     }
 
-    crate::instructions::common::market_update_and_validate!(RemoveLeverageMarginArgs);
-
-    pub fn handle_remove_margin(ctx: Context<'_, '_, '_, 'info, Self>, args: RemoveLeverageMarginArgs) -> Result<()> {
+    pub fn handle_remove_margin(
+        ctx: Context<'_, '_, '_, 'info, Self>,
+        args: RemoveLeverageMarginArgs,
+        current_slot: u64,
+    ) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.owner.key();
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
         let debt_mint_key = ctx.accounts.debt_mint.key();
         let position_key = ctx.accounts.leverage_position.key();
+        ctx.accounts.market.prepare_leverage_margin_operation(current_slot)?;
 
         let receipt = ctx.accounts.market.remove_leverage_margin(
             &mut ctx.accounts.leverage_position,
             args.amount,
-            Clock::get()?.slot,
+            current_slot,
         )?;
         let debt_token_program = token_program_for_mint(
             &ctx.accounts.debt_mint,
@@ -107,7 +112,7 @@ impl<'info> RemoveLeverageMargin<'info> {
             &ctx.accounts.token_2022_program,
         )?;
         let owner_balance_before = ctx.accounts.owner_debt_account.amount;
-        transfer_from_vault_to_user(
+        transfer_checked_with_remaining_accounts(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.debt_reserve_vault.to_account_info(),
             ctx.accounts.owner_debt_account.to_account_info(),
@@ -116,12 +121,18 @@ impl<'info> RemoveLeverageMargin<'info> {
             args.amount,
             ctx.accounts.debt_mint.decimals,
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
+            ctx.remaining_accounts,
         )?;
+        ctx.accounts.debt_reserve_vault.reload()?;
         ctx.accounts.owner_debt_account.reload()?;
+        require_reserve_custody(
+            ctx.accounts.debt_reserve_vault.amount,
+            ctx.accounts.market.side(debt_asset),
+        )?;
         let amount_out = token_account_credit(owner_balance_before, &ctx.accounts.owner_debt_account)?;
         require_gte!(amount_out, args.min_amount_out, ErrorCode::SlippageExceeded);
 
-        emit_cpi!(LeveragePositionUpdated {
+        emit!(LeveragePositionUpdated {
             market: market_key,
             position: position_key,
             owner: owner_key,
@@ -135,7 +146,7 @@ impl<'info> RemoveLeverageMargin<'info> {
             collateral_amount: receipt.collateral_amount,
             closeout_value: receipt.closeout_value,
             swap: None,
-            metadata: MarketEventMetadata::new(owner_key, market_key)?,
+            metadata: MarketEventMetadata::at_slot(owner_key, market_key, current_slot),
         });
         Ok(())
     }

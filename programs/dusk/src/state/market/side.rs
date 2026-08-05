@@ -1,16 +1,16 @@
 use anchor_lang::prelude::*;
 
-use super::{DailyLimits, Fees, ReserveShares};
+use super::{distribute_growth_q64, DailyLimits, Fees, ReserveShares};
 use crate::{
-    constants::{BPS_DENOMINATOR, NAD},
+    constants::BPS_DENOMINATOR,
     errors::ErrorCode,
     state::{ProtocolAuctionSplit, YieldAccount},
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FeesReceipt {
-    pub swap_fee_growth_index_nad: u128,
-    pub interest_growth_index_nad: u128,
+    pub swap_fee_growth_index_q64: u128,
+    pub interest_growth_index_q64: u128,
     pub swap_fee_liability: u64,
     pub interest_liability: u64,
     pub unallocated_swap_fee_liability: u64,
@@ -20,7 +20,7 @@ pub struct FeesReceipt {
     pub referral_interest_liability: u64,
     pub protocol_fee_liability: u64,
     pub buyback_fee_liability: u64,
-    pub swap_fee_vault_balance: u64,
+    pub swap_fee_custody_balance: u64,
     pub interest_vault_balance: u64,
 }
 
@@ -39,15 +39,14 @@ pub struct Reserves {
     pub live_reserve: u64,
     // Cash Reserves (r_cash)
     pub cash_reserve: u64,
-    pub reserved_liability: u64,
 }
 
 impl FeesReceipt {
-    fn from_side(market_side: &MarketSide) -> Self {
+    fn from_side(market_side: &MarketSide) -> Result<Self> {
         let fees = &market_side.fees;
-        Self {
-            swap_fee_growth_index_nad: fees.swap_fee_growth_index_nad,
-            interest_growth_index_nad: fees.interest_growth_index_nad,
+        Ok(Self {
+            swap_fee_growth_index_q64: fees.swap_fee_growth_index_q64,
+            interest_growth_index_q64: fees.interest_growth_index_q64,
             swap_fee_liability: fees.swap_fee_liability,
             interest_liability: fees.interest_liability,
             unallocated_swap_fee_liability: fees.unallocated_swap_fee_liability,
@@ -55,11 +54,11 @@ impl FeesReceipt {
             manager_swap_fee_liability: fees.manager_swap_fee_liability,
             manager_interest_fee_liability: fees.manager_interest_fee_liability,
             referral_interest_liability: fees.referral_interest_liability,
-            protocol_fee_liability: fees.protocol_fee_liability,
-            buyback_fee_liability: fees.buyback_fee_liability,
-            swap_fee_vault_balance: fees.swap_fee_vault_balance,
+            protocol_fee_liability: fees.protocol_fee_liability()?,
+            buyback_fee_liability: fees.buyback_fee_liability()?,
+            swap_fee_custody_balance: fees.swap_fee_custody_balance,
             interest_vault_balance: fees.interest_vault_balance,
-        }
+        })
     }
 }
 
@@ -100,7 +99,6 @@ pub struct MarketSide {
     pub hlp_mint: Pubkey,
     pub reserve_vault: Pubkey,
     pub collateral_vault: Pubkey,
-    pub fee_vault: Pubkey,
     pub interest_vault: Pubkey,
     pub reserves: Reserves,
     pub shares: ReserveShares,
@@ -113,11 +111,6 @@ impl MarketSide {
         if self.shares.ylp_supply == 0 {
             require_eq!(self.reserves.live_reserve, 0, ErrorCode::BrokenInvariant);
         }
-        require_gte!(
-            self.reserves.live_reserve,
-            self.reserves.reserved_liability,
-            ErrorCode::InsufficientLiquidity
-        );
         Ok(())
     }
 
@@ -198,7 +191,8 @@ impl MarketSide {
         )
     }
 
-    /// Records swap fees that were actually credited to the fee vault.
+    /// Records swap fees physically held in the reserve vault but excluded
+    /// from executable reserves as explicit liabilities.
     ///
     /// The manager/protocol split applies only to `base_fee_credit`.
     /// A distributed dynamic surcharge belongs entirely to yLPs; retained
@@ -213,7 +207,7 @@ impl MarketSide {
         eligible_ylp_supply: u64,
     ) -> Result<FeesReceipt> {
         if base_fee_credit == 0 && distributed_dynamic_surcharge_credit == 0 {
-            return Ok(FeesReceipt::from_side(self));
+            return FeesReceipt::from_side(self);
         }
         let claimable_fee_credit = base_fee_credit
             .checked_add(distributed_dynamic_surcharge_credit)
@@ -225,9 +219,9 @@ impl MarketSide {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let (fee_auction_amount, buyback_auction_amount) =
             split_protocol_auction_fee(protocol_fee, &protocol_auction_split)?;
-        self.fees.swap_fee_vault_balance = self
+        self.fees.swap_fee_custody_balance = self
             .fees
-            .swap_fee_vault_balance
+            .swap_fee_custody_balance
             .checked_add(claimable_fee_credit)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         self.fees.manager_swap_fee_liability = self
@@ -235,14 +229,14 @@ impl MarketSide {
             .manager_swap_fee_liability
             .checked_add(manager_fee)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.protocol_fee_liability = self
+        self.fees.swap_protocol_fee_liability = self
             .fees
-            .protocol_fee_liability
+            .swap_protocol_fee_liability
             .checked_add(fee_auction_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.buyback_fee_liability = self
+        self.fees.swap_buyback_fee_liability = self
             .fees
-            .buyback_fee_liability
+            .swap_buyback_fee_liability
             .checked_add(buyback_auction_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         self.fees.unallocated_swap_fee_liability = self
@@ -252,7 +246,7 @@ impl MarketSide {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         self.carry_forward_swap_fees_with_supply(eligible_ylp_supply)?;
         self.fees.assert_backed()?;
-        Ok(FeesReceipt::from_side(self))
+        FeesReceipt::from_side(self)
     }
 
     pub fn record_interest_credit(
@@ -263,8 +257,27 @@ impl MarketSide {
         protocol_auction_split: ProtocolAuctionSplit,
         referral_interest_amount: u64,
     ) -> Result<FeesReceipt> {
+        self.record_interest_credit_with_supply(
+            interest_credit,
+            manager_fee_bps,
+            protocol_fee_bps,
+            protocol_auction_split,
+            referral_interest_amount,
+            self.shares.ylp_supply,
+        )
+    }
+
+    pub fn record_interest_credit_with_supply(
+        &mut self,
+        interest_credit: u64,
+        manager_fee_bps: u16,
+        protocol_fee_bps: u16,
+        protocol_auction_split: ProtocolAuctionSplit,
+        referral_interest_amount: u64,
+        eligible_ylp_supply: u64,
+    ) -> Result<FeesReceipt> {
         if interest_credit == 0 {
-            return Ok(FeesReceipt::from_side(self));
+            return FeesReceipt::from_side(self);
         }
         let (manager_fee, protocol_fee, lp_interest) =
             split_revenue(interest_credit, manager_fee_bps, protocol_fee_bps)?;
@@ -289,14 +302,14 @@ impl MarketSide {
             .referral_interest_liability
             .checked_add(referral_interest_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.protocol_fee_liability = self
+        self.fees.interest_protocol_fee_liability = self
             .fees
-            .protocol_fee_liability
+            .interest_protocol_fee_liability
             .checked_add(fee_auction_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.buyback_fee_liability = self
+        self.fees.interest_buyback_fee_liability = self
             .fees
-            .buyback_fee_liability
+            .interest_buyback_fee_liability
             .checked_add(buyback_auction_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         self.fees.unallocated_interest_liability = self
@@ -304,9 +317,9 @@ impl MarketSide {
             .unallocated_interest_liability
             .checked_add(lp_interest)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.carry_forward_interest()?;
+        self.carry_forward_interest_with_supply(eligible_ylp_supply)?;
         self.fees.assert_backed()?;
-        Ok(FeesReceipt::from_side(self))
+        FeesReceipt::from_side(self)
     }
 
     pub fn settle_referral_interest_claim(&mut self, amount: u64, interest_vault_balance: u64) -> Result<()> {
@@ -325,17 +338,17 @@ impl MarketSide {
     }
 
     pub fn carry_forward_swap_fees_with_supply(&mut self, supply: u64) -> Result<()> {
-        if supply == 0 || self.fees.unallocated_swap_fee_liability == 0 {
+        if supply == 0
+            || (self.fees.unallocated_swap_fee_liability == 0 && self.fees.swap_fee_growth_remainder_scaled == 0)
+        {
             return Ok(());
         }
-        let growth_delta = growth_delta_nad(self.fees.unallocated_swap_fee_liability, supply)?;
-        let allocated = allocated_from_growth(growth_delta, supply)?;
-        if allocated == 0 {
-            return Ok(());
-        }
-        self.fees.swap_fee_growth_index_nad = self
+        let allocated = self.fees.unallocated_swap_fee_liability;
+        let (growth_delta, remainder_scaled) =
+            distribute_growth_q64(allocated, supply, self.fees.swap_fee_growth_remainder_scaled)?;
+        self.fees.swap_fee_growth_index_q64 = self
             .fees
-            .swap_fee_growth_index_nad
+            .swap_fee_growth_index_q64
             .checked_add(growth_delta)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         self.fees.swap_fee_liability = self
@@ -348,22 +361,26 @@ impl MarketSide {
             .unallocated_swap_fee_liability
             .checked_sub(allocated)
             .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.fees.swap_fee_growth_remainder_scaled = remainder_scaled;
         Ok(())
     }
 
     pub fn carry_forward_interest(&mut self) -> Result<()> {
-        let supply = self.shares.ylp_supply;
-        if supply == 0 || self.fees.unallocated_interest_liability == 0 {
+        self.carry_forward_interest_with_supply(self.shares.ylp_supply)
+    }
+
+    pub fn carry_forward_interest_with_supply(&mut self, supply: u64) -> Result<()> {
+        if supply == 0
+            || (self.fees.unallocated_interest_liability == 0 && self.fees.interest_growth_remainder_scaled == 0)
+        {
             return Ok(());
         }
-        let growth_delta = growth_delta_nad(self.fees.unallocated_interest_liability, supply)?;
-        let allocated = allocated_from_growth(growth_delta, supply)?;
-        if allocated == 0 {
-            return Ok(());
-        }
-        self.fees.interest_growth_index_nad = self
+        let allocated = self.fees.unallocated_interest_liability;
+        let (growth_delta, remainder_scaled) =
+            distribute_growth_q64(allocated, supply, self.fees.interest_growth_remainder_scaled)?;
+        self.fees.interest_growth_index_q64 = self
             .fees
-            .interest_growth_index_nad
+            .interest_growth_index_q64
             .checked_add(growth_delta)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         self.fees.interest_liability = self
@@ -376,25 +393,36 @@ impl MarketSide {
             .unallocated_interest_liability
             .checked_sub(allocated)
             .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.fees.interest_growth_remainder_scaled = remainder_scaled;
         Ok(())
     }
 
     pub fn prepare_yield_claim(
         &mut self,
         yield_account: &mut YieldAccount,
-        vault_balance: u64,
+        swap_fee_custody_balance: u64,
+        interest_vault_balance: u64,
         holder_balance: u64,
     ) -> Result<YieldClaimReceipt> {
         self.carry_forward_swap_fees()?;
         self.carry_forward_interest()?;
         yield_account.accrue(
             holder_balance,
-            self.fees.swap_fee_growth_index_nad,
-            self.fees.interest_growth_index_nad,
+            self.fees.swap_fee_growth_index_q64,
+            self.fees.interest_growth_index_q64,
         )?;
         let claim_amount = yield_account.claimable_amount()?;
         require!(claim_amount > 0, ErrorCode::AmountZero);
-        require_gte!(vault_balance, claim_amount, ErrorCode::UnbackedFeeLiability);
+        require_gte!(
+            swap_fee_custody_balance,
+            yield_account.accrued_swap_fee_amount,
+            ErrorCode::UnbackedFeeLiability
+        );
+        require_gte!(
+            interest_vault_balance,
+            yield_account.accrued_interest_amount,
+            ErrorCode::UnbackedFeeLiability
+        );
         Ok(YieldClaimReceipt {
             claim_amount,
             swap_fee_amount: yield_account.accrued_swap_fee_amount,
@@ -410,8 +438,6 @@ impl MarketSide {
         claim_amount: u64,
         swap_fee_amount: u64,
         interest_amount: u64,
-        swap_fee_vault_balance: u64,
-        interest_vault_balance: u64,
     ) -> Result<YieldClaimReceipt> {
         self.fees.swap_fee_liability = self
             .fees
@@ -423,8 +449,16 @@ impl MarketSide {
             .interest_liability
             .checked_sub(interest_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.swap_fee_vault_balance = swap_fee_vault_balance;
-        self.fees.interest_vault_balance = interest_vault_balance;
+        self.fees.swap_fee_custody_balance = self
+            .fees
+            .swap_fee_custody_balance
+            .checked_sub(swap_fee_amount)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.fees.interest_vault_balance = self
+            .fees
+            .interest_vault_balance
+            .checked_sub(interest_amount)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
         yield_account.clear_claimed();
         self.fees.assert_backed()?;
         Ok(YieldClaimReceipt {
@@ -471,21 +505,6 @@ fn proportional_bps(amount: u64, bps: u16) -> Result<u64> {
         .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     u64::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow.into())
-}
-
-fn growth_delta_nad(amount: u64, supply: u64) -> Result<u128> {
-    (amount as u128)
-        .checked_mul(NAD as u128)
-        .and_then(|value| value.checked_div(supply as u128))
-        .ok_or(ErrorCode::MarketMathOverflow.into())
-}
-
-fn allocated_from_growth(growth_delta: u128, supply: u64) -> Result<u64> {
-    let allocated = growth_delta
-        .checked_mul(supply as u128)
-        .and_then(|value| value.checked_div(NAD as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    u64::try_from(allocated).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
 #[cfg(test)]

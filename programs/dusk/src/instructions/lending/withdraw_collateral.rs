@@ -9,7 +9,7 @@ use crate::{
     errors::ErrorCode,
     events::{MarketCollateralWithdrawn, MarketEventMetadata, MarketHealthUpdated},
     generate_market_seeds,
-    shared::token::transfer_from_vault_to_user,
+    shared::token::transfer_checked_with_remaining_accounts,
     state::{BorrowPosition, FutarchyAuthority, Market},
 };
 
@@ -112,7 +112,8 @@ impl<'info> WithdrawCollateral<'info> {
 
     crate::instructions::common::market_update_and_validate!(WithdrawCollateralArgs);
 
-    pub fn handle_withdraw(mut ctx: Context<Self>, args: WithdrawCollateralArgs) -> Result<()> {
+    pub fn handle_withdraw(mut ctx: Context<'_, '_, '_, 'info, Self>, args: WithdrawCollateralArgs) -> Result<()> {
+        let remaining_accounts = ctx.remaining_accounts;
         let (market_key, owner_key, asset_mint_key, asset_credit, collateral_receipt) = {
             let accounts = &mut ctx.accounts;
             let market_key = accounts.market.key();
@@ -127,7 +128,7 @@ impl<'info> WithdrawCollateral<'info> {
                 &accounts.token_program,
                 &accounts.token_2022_program,
             )?;
-            transfer_from_vault_to_user(
+            transfer_checked_with_remaining_accounts(
                 accounts.market.to_account_info(),
                 accounts.collateral_vault.to_account_info(),
                 accounts.owner_asset_account.to_account_info(),
@@ -136,6 +137,7 @@ impl<'info> WithdrawCollateral<'info> {
                 args.withdraw_amount,
                 accounts.asset_mint.decimals,
                 &[&generate_market_seeds!(accounts.market)[..]],
+                remaining_accounts,
             )?;
             accounts.owner_asset_account.reload()?;
             accounts.collateral_vault.reload()?;

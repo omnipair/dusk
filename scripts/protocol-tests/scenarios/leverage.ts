@@ -145,7 +145,7 @@ export const LEVERAGE_SCENARIOS: ScenarioDefinition[] = [
     id: "leverage.owner-lifecycle",
     async run(harness) {
       const marketBefore = await harness.market();
-      const quoteSharesBefore = marketState(marketBefore, "isolatedQuoteDebt");
+      const quoteSharesBefore = marketState(marketBefore, "isolatedQuoteShares");
       const quotePrincipalBefore = marketState(marketBefore, "isolatedQuotePrincipal");
       const aliceQuoteBefore = await harness.tokenBalance(
         "alice",
@@ -301,10 +301,10 @@ export const LEVERAGE_SCENARIOS: ScenarioDefinition[] = [
         await harness.tokenBalance("alice", harness.config.quoteMint, harness.config.quoteTokenProgram) > quoteBeforeClose
       );
       let marketAfter = await harness.market();
-      harness.assertEqual("quote isolated debt shares return to baseline", marketState(marketAfter, "isolatedQuoteDebt"), quoteSharesBefore);
+      harness.assertEqual("quote isolated debt shares return to baseline", marketState(marketAfter, "isolatedQuoteShares"), quoteSharesBefore);
       harness.assertEqual("quote isolated principal returns to baseline", marketState(marketAfter, "isolatedQuotePrincipal"), quotePrincipalBefore);
 
-      const baseSharesBefore = marketState(marketAfter, "isolatedBaseDebt");
+      const baseSharesBefore = marketState(marketAfter, "isolatedBaseShares");
       const basePrincipalBefore = marketState(marketAfter, "isolatedBasePrincipal");
       const aliceBaseBefore = await harness.tokenBalance("alice", harness.config.baseMint, harness.config.baseTokenProgram);
       await harness.execute({
@@ -336,7 +336,7 @@ export const LEVERAGE_SCENARIOS: ScenarioDefinition[] = [
       });
       await assertLeveragePositionClosed(harness, "alice", baseDebtPositionId, "base leverage account closes");
       marketAfter = await harness.market();
-      harness.assertEqual("base isolated debt shares return to baseline", marketState(marketAfter, "isolatedBaseDebt"), baseSharesBefore);
+      harness.assertEqual("base isolated debt shares return to baseline", marketState(marketAfter, "isolatedBaseShares"), baseSharesBefore);
       harness.assertEqual("base isolated principal returns to baseline", marketState(marketAfter, "isolatedBasePrincipal"), basePrincipalBefore);
     },
   },
@@ -819,7 +819,7 @@ export const LEVERAGE_SCENARIOS: ScenarioDefinition[] = [
     async run(harness) {
       const positionOwner = harness.wallet("bob").publicKey;
       const marketBefore = await harness.market();
-      const isolatedSharesBefore = marketState(marketBefore, "isolatedQuoteDebt");
+      const isolatedSharesBefore = marketState(marketBefore, "isolatedQuoteShares");
       const isolatedPrincipalBefore = marketState(marketBefore, "isolatedQuotePrincipal");
 
       await harness.execute({
@@ -861,11 +861,11 @@ export const LEVERAGE_SCENARIOS: ScenarioDefinition[] = [
       const stateAfterShock = await harness.market();
       harness.assertTrue(
         "price shock increases base inventory",
-        marketState(stateAfterShock, "baseReserve") > marketState(stateBeforeShock, "baseReserve")
+        marketState(stateAfterShock, "baseLiveReserve") > marketState(stateBeforeShock, "baseLiveReserve")
       );
       harness.assertTrue(
         "price shock drains quote inventory",
-        marketState(stateAfterShock, "quoteReserve") < marketState(stateBeforeShock, "quoteReserve")
+        marketState(stateAfterShock, "quoteLiveReserve") < marketState(stateBeforeShock, "quoteLiveReserve")
       );
 
       const liquidatorQuoteBefore = await harness.tokenBalance(
@@ -896,7 +896,7 @@ export const LEVERAGE_SCENARIOS: ScenarioDefinition[] = [
       const stateAfterLiquidation = await harness.market();
       harness.assertEqual(
         "liquidation clears isolated quote debt shares",
-        marketState(stateAfterLiquidation, "isolatedQuoteDebt"),
+        marketState(stateAfterLiquidation, "isolatedQuoteShares"),
         isolatedSharesBefore
       );
       harness.assertEqual(
@@ -927,11 +927,11 @@ export const LEVERAGE_SCENARIOS: ScenarioDefinition[] = [
       const stateAfterRestore = await harness.market();
       harness.assertTrue(
         "offsetting swap reduces base inventory",
-        marketState(stateAfterRestore, "baseReserve") < marketState(stateAfterLiquidation, "baseReserve")
+        marketState(stateAfterRestore, "baseLiveReserve") < marketState(stateAfterLiquidation, "baseLiveReserve")
       );
       harness.assertTrue(
         "offsetting swap restores quote inventory",
-        marketState(stateAfterRestore, "quoteReserve") > marketState(stateAfterLiquidation, "quoteReserve")
+        marketState(stateAfterRestore, "quoteLiveReserve") > marketState(stateAfterLiquidation, "quoteLiveReserve")
       );
     },
   },

@@ -11,14 +11,15 @@ use crate::{
     generate_market_seeds,
     shared::{
         account::get_size_with_discriminator,
-        token::{get_transfer_fee, get_transfer_inverse_fee, token_mint_to, transfer_from_user_to_vault},
+        token::{get_transfer_fee, get_transfer_inverse_fee, token_mint_to, transfer_checked_with_remaining_accounts},
     },
     state::{FutarchyAuthority, Market, YieldAccount, YieldTokenKind},
 };
 
+use super::super::initialize_or_validate_yield_account;
 use crate::instructions::common::{
-    require_supported_asset_mint, token_program_for_mint, validate_lp_mint, validate_owner_asset_account,
-    validate_owner_lp_account, validate_side_vault_accounts,
+    require_reserve_custody, require_supported_asset_mint, token_program_for_mint, validate_lp_mint,
+    validate_owner_asset_account, validate_owner_lp_account, validate_side_vault_accounts,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -28,7 +29,6 @@ pub struct AddLiquidityArgs {
     pub min_ylp_amount: u64,
 }
 
-#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: AddLiquidityArgs)]
 pub struct AddLiquidity<'info> {
@@ -79,6 +79,7 @@ pub struct AddLiquidity<'info> {
             YIELD_ACCOUNT_SEED_PREFIX,
             market.key().as_ref(),
             owner.key().as_ref(),
+            ylp_mint.key().as_ref(),
             base_mint.key().as_ref(),
             &[YieldTokenKind::Ylp.code()],
         ],
@@ -94,6 +95,7 @@ pub struct AddLiquidity<'info> {
             YIELD_ACCOUNT_SEED_PREFIX,
             market.key().as_ref(),
             owner.key().as_ref(),
+            ylp_mint.key().as_ref(),
             quote_mint.key().as_ref(),
             &[YieldTokenKind::Ylp.code()],
         ],
@@ -200,7 +202,7 @@ impl<'info> AddLiquidity<'info> {
         })
     }
 
-    pub fn handle_add_liquidity(ctx: Context<Self>, args: AddLiquidityArgs) -> Result<()> {
+    pub fn handle_add_liquidity(ctx: Context<'_, '_, '_, 'info, Self>, args: AddLiquidityArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.owner.key();
 
@@ -208,14 +210,18 @@ impl<'info> AddLiquidity<'info> {
             &mut ctx.accounts.base_yield_account,
             owner_key,
             market_key,
+            ctx.accounts.ylp_mint.key(),
             ctx.accounts.base_mint.key(),
+            YieldTokenKind::Ylp,
             ctx.bumps.base_yield_account,
         )?;
         initialize_or_validate_yield_account(
             &mut ctx.accounts.quote_yield_account,
             owner_key,
             market_key,
+            ctx.accounts.ylp_mint.key(),
             ctx.accounts.quote_mint.key(),
+            YieldTokenKind::Ylp,
             ctx.bumps.quote_yield_account,
         )?;
 
@@ -227,13 +233,13 @@ impl<'info> AddLiquidity<'info> {
             market.quote_side.carry_forward_interest()?;
             ctx.accounts.base_yield_account.accrue(
                 ctx.accounts.owner_ylp_account.amount,
-                market.base_side.fees.swap_fee_growth_index_nad,
-                market.base_side.fees.interest_growth_index_nad,
+                market.base_side.fees.swap_fee_growth_index_q64,
+                market.base_side.fees.interest_growth_index_q64,
             )?;
             ctx.accounts.quote_yield_account.accrue(
                 ctx.accounts.owner_ylp_account.amount,
-                market.quote_side.fees.swap_fee_growth_index_nad,
-                market.quote_side.fees.interest_growth_index_nad,
+                market.quote_side.fees.swap_fee_growth_index_q64,
+                market.quote_side.fees.interest_growth_index_q64,
             )?;
         }
 
@@ -250,7 +256,7 @@ impl<'info> AddLiquidity<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        transfer_from_user_to_vault(
+        transfer_checked_with_remaining_accounts(
             ctx.accounts.owner.to_account_info(),
             ctx.accounts.owner_base_account.to_account_info(),
             ctx.accounts.base_reserve_vault.to_account_info(),
@@ -258,8 +264,10 @@ impl<'info> AddLiquidity<'info> {
             base_token_program,
             transfer_plan.base_transfer_amount,
             ctx.accounts.base_mint.decimals,
+            &[],
+            ctx.remaining_accounts,
         )?;
-        transfer_from_user_to_vault(
+        transfer_checked_with_remaining_accounts(
             ctx.accounts.owner.to_account_info(),
             ctx.accounts.owner_quote_account.to_account_info(),
             ctx.accounts.quote_reserve_vault.to_account_info(),
@@ -267,6 +275,8 @@ impl<'info> AddLiquidity<'info> {
             quote_token_program,
             transfer_plan.quote_transfer_amount,
             ctx.accounts.quote_mint.decimals,
+            &[],
+            ctx.remaining_accounts,
         )?;
         ctx.accounts.base_reserve_vault.reload()?;
         ctx.accounts.quote_reserve_vault.reload()?;
@@ -289,11 +299,14 @@ impl<'info> AddLiquidity<'info> {
             .add_liquidity(base_reserve_credit, quote_reserve_credit)?;
         require_gte!(receipt.ylp_amount, args.min_ylp_amount, ErrorCode::SlippageExceeded);
         let current_slot = Clock::get()?.slot;
-        ctx.accounts.market.finalize_amm_transition(current_slot)?;
         // Adding depth cannot consume an underwriting shape in this
-        // instruction. Persist the exact final curve observation and rebuild
-        // pessimistic lending shapes lazily on their next use.
-        ctx.accounts.market.observe_current_risk(current_slot)?;
+        // instruction. One canonical curve evaluation finalizes D/Q and the
+        // exact observation; pessimistic lending shapes remain lazy.
+        ctx.accounts
+            .market
+            .finalize_amm_transition_and_observe_risk(current_slot)?;
+        require_reserve_custody(ctx.accounts.base_reserve_vault.amount, &ctx.accounts.market.base_side)?;
+        require_reserve_custody(ctx.accounts.quote_reserve_vault.amount, &ctx.accounts.market.quote_side)?;
 
         let ylp_program = token_program_for_mint(
             &ctx.accounts.ylp_mint,
@@ -309,7 +322,7 @@ impl<'info> AddLiquidity<'info> {
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
         )?;
 
-        emit_cpi!(LiquidityAdded {
+        emit!(LiquidityAdded {
             market: market_key,
             owner: owner_key,
             base_reserve_credit: receipt.base_reserve_credit,
@@ -321,17 +334,4 @@ impl<'info> AddLiquidity<'info> {
 
         Ok(())
     }
-}
-
-fn initialize_or_validate_yield_account(
-    yield_account: &mut Account<YieldAccount>,
-    owner: Pubkey,
-    market: Pubkey,
-    asset_mint: Pubkey,
-    bump: u8,
-) -> Result<()> {
-    if yield_account.owner == Pubkey::default() {
-        yield_account.initialize(owner, market, asset_mint, YieldTokenKind::Ylp, owner, bump);
-    }
-    yield_account.assert_account(owner, market, asset_mint, YieldTokenKind::Ylp)
 }

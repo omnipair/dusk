@@ -43,7 +43,6 @@ impl<'info> UpdateMarketConfig<'info> {
                     target_hlp_leverage_bps: args.config.target_hlp_leverage_bps,
                     swap_fee_bps: args.config.swap_fee_bps,
                     manager_fee_bps: args.config.manager_fee_bps,
-                    protocol_fee_bps: args.config.protocol_fee_bps,
                     config: args.config,
                     metadata: MarketEventMetadata::new(signer, market.key())?,
                 });
@@ -51,7 +50,63 @@ impl<'info> UpdateMarketConfig<'info> {
             }
             MarketTimelockAction::Ready => {}
         }
-        apply_config_update(market, args.config, current_slot)?;
+        args.config.validate()?;
+        let previous_config = market.config;
+        let previous_base_side = market.base_side;
+        let previous_quote_side = market.quote_side;
+        let previous_amm = market.amm;
+        let previous_debt = market.debt;
+        let previous_risk = market.risk;
+        let previous_last_marginal_observation_nad = market.last_marginal_observation_nad;
+        let previous_curve_revision = market.curve_revision;
+        let previous_risk_revision = market.risk_revision;
+        let previous_last_update_slot = market.last_update_slot;
+        let apply_result = (|| {
+            let curve_changed = previous_config.amm.curve_parameters() != args.config.amm.curve_parameters();
+            // Close both elapsed-time intervals under the configuration that
+            // governed them. Installing the new half-lives first would
+            // retroactively decay the AMM signals and integrate lending risk
+            // as though the new configuration had existed since the previous
+            // observation.
+            market.accrue_interest_to_slot(current_slot)?;
+            if market.amm.initialized {
+                market
+                    .amm
+                    .observe_clock_from_validated_config(&previous_config.amm, current_slot)?;
+            }
+            market.refresh_risk_at_slot(current_slot)?;
+            if curve_changed && market.amm.initialized {
+                // Schedule only the desired path. A later genuine user
+                // operation values and funds each effective ramp point before
+                // it can change executable liquidity.
+                let applied = market
+                    .amm
+                    .effective_curve_parameters(&previous_config.amm, current_slot);
+                market.amm.start_applied_ramp(applied, &args.config.amm, current_slot)?;
+            }
+            market.config = args.config;
+            if market.amm.initialized && !curve_changed && previous_config.amm != args.config.amm {
+                market.amm.invalidate_deferred_controller_target();
+            }
+            // Adjustment controls and a newly scheduled ramp change the
+            // retention requirement even before executable reserves move.
+            market.finalize_amm_transition(current_slot)?;
+            market.refresh_risk_at_slot(current_slot)?;
+            market.assert_market_health()
+        })();
+        if apply_result.is_err() {
+            market.config = previous_config;
+            market.base_side = previous_base_side;
+            market.quote_side = previous_quote_side;
+            market.amm = previous_amm;
+            market.debt = previous_debt;
+            market.risk = previous_risk;
+            market.last_marginal_observation_nad = previous_last_marginal_observation_nad;
+            market.curve_revision = previous_curve_revision;
+            market.risk_revision = previous_risk_revision;
+            market.last_update_slot = previous_last_update_slot;
+        }
+        apply_result?;
         market.clear_pending_config_update();
 
         emit_cpi!(MarketUpdated {
@@ -60,7 +115,6 @@ impl<'info> UpdateMarketConfig<'info> {
             target_hlp_leverage_bps: market.config.target_hlp_leverage_bps,
             swap_fee_bps: market.config.swap_fee_bps,
             manager_fee_bps: market.config.manager_fee_bps,
-            protocol_fee_bps: market.config.protocol_fee_bps,
             config: market.config,
             metadata: MarketEventMetadata::new(signer, market.key())?,
         });
@@ -80,15 +134,31 @@ impl<'info> UpdateMarketConfig<'info> {
     }
 }
 
+/// Independent state-only reference for rollback and ramp unit tests. The
+/// production handler intentionally keeps its one execution path inline.
+#[cfg(test)]
 fn apply_config_update(market: &mut Market, config: MarketConfig, current_slot: u64) -> Result<()> {
     config.validate()?;
     let previous_config = market.config;
+    let previous_base_side = market.base_side;
+    let previous_quote_side = market.quote_side;
     let previous_amm = market.amm;
+    let previous_debt = market.debt;
     let previous_risk = market.risk;
+    let previous_last_marginal_observation_nad = market.last_marginal_observation_nad;
+    let previous_curve_revision = market.curve_revision;
+    let previous_risk_revision = market.risk_revision;
     let previous_last_update_slot = market.last_update_slot;
 
     let result = (|| {
         let curve_changed = previous_config.amm.curve_parameters() != config.amm.curve_parameters();
+        market.accrue_interest_to_slot(current_slot)?;
+        if market.amm.initialized {
+            market
+                .amm
+                .observe_clock_from_validated_config(&previous_config.amm, current_slot)?;
+        }
+        market.refresh_risk_at_slot(current_slot)?;
         if curve_changed && market.amm.initialized {
             // This schedules the desired path only. Swap/risk integration must
             // value each candidate and commit it through the protected-profit
@@ -99,18 +169,27 @@ fn apply_config_update(market: &mut Market, config: MarketConfig, current_slot: 
             market.amm.start_applied_ramp(applied, &config.amm, current_slot)?;
         }
         market.config = config;
+        if market.amm.initialized && !curve_changed && previous_config.amm != config.amm {
+            market.amm.invalidate_deferred_controller_target();
+        }
         // Adjustment controls and a newly scheduled curve ramp can change the
         // protected-liquidity requirement even before executable reserves
         // move. Refresh it atomically with the timelocked config so the first
         // following swap cannot use stale fee-retention routing.
         market.finalize_amm_transition(current_slot)?;
-        market.refresh_risk()?;
+        market.refresh_risk_at_slot(current_slot)?;
         market.assert_market_health()
     })();
     if result.is_err() {
         market.config = previous_config;
+        market.base_side = previous_base_side;
+        market.quote_side = previous_quote_side;
         market.amm = previous_amm;
+        market.debt = previous_debt;
         market.risk = previous_risk;
+        market.last_marginal_observation_nad = previous_last_marginal_observation_nad;
+        market.curve_revision = previous_curve_revision;
+        market.risk_revision = previous_risk_revision;
         market.last_update_slot = previous_last_update_slot;
     }
     result
@@ -120,8 +199,12 @@ fn apply_config_update(market: &mut Market, config: MarketConfig, current_slot: 
 mod tests {
     use super::*;
     use crate::{
-        constants::{BPS_DENOMINATOR, MIN_HALF_LIFE_MS, NAD},
-        state::{AmmConfig, AmmCurveParameters, AmmState, MarketSide, ReserveShares, Reserves},
+        constants::{
+            BPS_DENOMINATOR, INTEREST_INITIAL_RATE_AT_TARGET_NAD, MAX_HALF_LIFE_MS, MIN_HALF_LIFE_MS, MS_PER_YEAR, NAD,
+            TARGET_MS_PER_SLOT,
+        },
+        math::{decay_volatility_nad, ema_u64},
+        state::{AmmConfig, AmmCurveParameters, AmmState, MarketSide, ReserveShares, Reserves, Risk},
     };
 
     fn valid_market_config() -> MarketConfig {
@@ -142,7 +225,7 @@ mod tests {
     fn concentrated_amm_config() -> AmmConfig {
         AmmConfig {
             peak_depth_nad: 200 * NAD,
-            imbalance_scale_nad: NAD / 100,
+            fade_scale_nad: NAD / 100,
             center_ema_half_life_ms: MIN_HALF_LIFE_MS,
             volatility_half_life_ms: MIN_HALF_LIFE_MS,
             adjustment_threshold_nad: NAD / 50,
@@ -162,7 +245,6 @@ mod tests {
                 reserves: Reserves {
                     live_reserve: 1_000_000,
                     cash_reserve: 1_000_000,
-                    reserved_liability: 0,
                 },
                 shares: ReserveShares {
                     ylp_supply: 1_000_000,
@@ -175,7 +257,6 @@ mod tests {
                 reserves: Reserves {
                     live_reserve: 1_000_000,
                     cash_reserve: 1_000_000,
-                    reserved_liability: 0,
                 },
                 shares: ReserveShares {
                     ylp_supply: 1_000_000,
@@ -217,18 +298,16 @@ mod tests {
         let mut first = market.config;
         first.amm = concentrated_amm_config();
         apply_config_update(&mut market, first, 100).unwrap();
-        let saved_config = market.config;
-        let saved_amm = market.amm;
+        let saved_state = market.try_to_vec().unwrap();
 
         let mut overlapping = first;
         overlapping.amm.peak_depth_nad = 400 * NAD;
         assert!(apply_config_update(&mut market, overlapping, 101).is_err());
-        assert_eq!(market.config, saved_config);
-        assert_eq!(market.amm, saved_amm);
+        assert_eq!(market.try_to_vec().unwrap(), saved_state);
     }
 
     #[test]
-    fn adjustment_config_update_defers_retention_to_bounded_maintenance() {
+    fn adjustment_config_update_defers_retention_to_the_lazy_controller() {
         let mut config = valid_market_config();
         config.amm = concentrated_amm_config();
         let mut market = initialized_market();
@@ -243,6 +322,13 @@ mod tests {
         market.checkpoint_amm_neutral_inventory(100).unwrap();
         assert!(market.amm.retention_target_stale);
         assert!(market.amm.retain_dynamic_surcharge);
+        market.amm.deferred_controller_target = crate::state::DeferredControllerTarget {
+            kind: crate::state::DeferredControllerTarget::RECENTER,
+            center_price_nad: market.amm.center_price_nad + 1,
+            parameters: market.amm.applied_curve_parameters,
+            saturated: true,
+            ..crate::state::DeferredControllerTarget::default()
+        };
 
         let mut disabled = config;
         disabled.amm.adjustment_threshold_nad = 0;
@@ -252,5 +338,83 @@ mod tests {
 
         assert_eq!(market.amm.retention_required_nad, 0);
         assert!(!market.amm.retain_dynamic_surcharge);
+        assert_eq!(
+            market.amm.deferred_controller_target,
+            crate::state::DeferredControllerTarget::default()
+        );
+    }
+
+    #[test]
+    fn half_life_update_closes_elapsed_interval_under_previous_config() {
+        for (old_half_life, new_half_life) in [
+            (MIN_HALF_LIFE_MS, MAX_HALF_LIFE_MS),
+            (MAX_HALF_LIFE_MS, MIN_HALF_LIFE_MS),
+        ] {
+            let mut market = initialized_market();
+            market.config.ema_half_life_ms = old_half_life;
+            market.config.directional_ema_half_life_ms = old_half_life;
+            market.config.q_ema_half_life_ms = old_half_life;
+            market.config.amm.center_ema_half_life_ms = old_half_life;
+            market.config.amm.volatility_half_life_ms = old_half_life;
+            market.amm = AmmState::initialize(&market.config.amm, NAD, NAD as u128, 0).unwrap();
+            let evaluation = market.evaluate_current_curve(0).unwrap();
+            let current_q = evaluation.balanced_equivalent_q;
+            market.amm.price_ema_nad = 2 * NAD;
+            market.amm.last_trade_price_nad = NAD;
+            market.amm.volatility_accumulator_nad = NAD;
+            market.risk = Risk {
+                base_price_ema_nad: 2 * NAD,
+                quote_price_ema_nad: 2 * NAD,
+                directional_base_price_ema_nad: 2 * NAD,
+                directional_quote_price_ema_nad: 2 * NAD,
+                cached_spot_base_price_nad: NAD,
+                cached_spot_quote_price_nad: NAD,
+                cached_q_nad: current_q,
+                q_ema_nad: current_q,
+                last_snapshot_slot: 0,
+            };
+
+            let elapsed_slots = old_half_life / TARGET_MS_PER_SLOT;
+            let expected_price_ema = ema_u64(2 * NAD, NAD, 0, elapsed_slots, old_half_life);
+            let expected_volatility = decay_volatility_nad(NAD, 0, elapsed_slots, old_half_life).unwrap();
+
+            let mut target = market.config;
+            target.ema_half_life_ms = new_half_life;
+            target.directional_ema_half_life_ms = new_half_life;
+            target.q_ema_half_life_ms = new_half_life;
+            target.amm.center_ema_half_life_ms = new_half_life;
+            target.amm.volatility_half_life_ms = new_half_life;
+            apply_config_update(&mut market, target, elapsed_slots).unwrap();
+
+            assert_eq!(market.amm.price_ema_nad, expected_price_ema);
+            assert_eq!(market.amm.volatility_accumulator_nad, expected_volatility);
+            assert_eq!(market.amm.last_observation_slot, elapsed_slots);
+            assert_eq!(market.risk.base_price_ema_nad, expected_price_ema);
+            assert_eq!(market.risk.quote_price_ema_nad, expected_price_ema);
+            assert_eq!(market.risk.last_snapshot_slot, elapsed_slots);
+        }
+    }
+
+    #[test]
+    fn config_execution_accrues_existing_debt_before_health_validation() {
+        let mut market = initialized_market();
+        market.debt.base_borrow_index_nad = NAD as u128;
+        market.debt.quote_borrow_index_nad = NAD as u128;
+        market.debt.base_rate_at_target_nad = INTEREST_INITIAL_RATE_AT_TARGET_NAD;
+        market.debt.quote_rate_at_target_nad = INTEREST_INITIAL_RATE_AT_TARGET_NAD;
+        market.debt.isolated_base_shares = 100_000;
+        market.debt.isolated_base_principal = 100_000;
+        market.base_side.reserves.live_reserve += 100_000;
+        let index_before = market.debt.base_borrow_index_nad;
+        let live_before = market.base_side.reserves.live_reserve;
+        let execution_slot = MS_PER_YEAR / TARGET_MS_PER_SLOT;
+        let config = market.config;
+
+        apply_config_update(&mut market, config, execution_slot).unwrap();
+
+        assert!(market.debt.base_borrow_index_nad > index_before);
+        assert!(market.base_side.reserves.live_reserve > live_before);
+        assert_eq!(market.debt.base_last_accrual_slot, execution_slot);
+        market.assert_market_invariants().unwrap();
     }
 }

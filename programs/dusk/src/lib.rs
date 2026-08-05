@@ -69,6 +69,13 @@ pub mod dusk {
         UpdateProtocolAuctionRecipients::handle_update(ctx, args)
     }
 
+    pub fn update_protocol_auction_route(
+        ctx: Context<UpdateProtocolAuctionRoute>,
+        args: UpdateProtocolAuctionRouteArgs,
+    ) -> Result<()> {
+        UpdateProtocolAuctionRoute::handle_update(ctx, args)
+    }
+
     pub fn set_global_reduce_only(ctx: Context<SetGlobalReduceOnly>, args: SetGlobalReduceOnlyArgs) -> Result<()> {
         SetGlobalReduceOnly::handle_set_global_reduce_only(ctx, args)
     }
@@ -130,24 +137,25 @@ pub mod dusk {
         SetMarketAuthority::handle_set_manager(ctx, args)
     }
 
-    #[access_control(ctx.accounts.validate())]
-    pub fn crank_amm_maintenance(ctx: Context<CrankAmmMaintenance>) -> Result<()> {
-        CrankAmmMaintenance::handle_crank(ctx)
-    }
-
     #[access_control(ctx.accounts.update_and_validate())]
-    pub fn claim_manager_fees(ctx: Context<ClaimManagerFees>) -> Result<()> {
+    pub fn claim_manager_fees<'info>(ctx: Context<'_, '_, '_, 'info, ClaimManagerFees<'info>>) -> Result<()> {
         ClaimManagerFees::handle_claim(ctx)
     }
 
     // Liquidity instructions
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn add_liquidity(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()> {
+    pub fn add_liquidity<'info>(
+        ctx: Context<'_, '_, '_, 'info, AddLiquidity<'info>>,
+        args: AddLiquidityArgs,
+    ) -> Result<()> {
         AddLiquidity::handle_add_liquidity(ctx, args)
     }
 
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn remove_liquidity(ctx: Context<RemoveLiquidity>, args: RemoveLiquidityArgs) -> Result<()> {
+    pub fn remove_liquidity<'info>(
+        ctx: Context<'_, '_, '_, 'info, RemoveLiquidity<'info>>,
+        args: RemoveLiquidityArgs,
+    ) -> Result<()> {
         RemoveLiquidity::handle_remove_liquidity(ctx, args)
     }
 
@@ -157,24 +165,45 @@ pub mod dusk {
     }
 
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn claim_yield(ctx: Context<ClaimYield>, args: ClaimYieldArgs) -> Result<()> {
+    pub fn claim_yield<'info>(ctx: Context<'_, '_, '_, 'info, ClaimYield<'info>>, args: ClaimYieldArgs) -> Result<()> {
         ClaimYield::handle_claim(ctx, args)
     }
 
+    #[access_control(ctx.accounts.validate(&args))]
+    pub fn initialize_yield_accounts<'info>(
+        ctx: Context<'_, '_, '_, 'info, InitializeYieldAccounts<'info>>,
+        args: InitializeYieldAccountsArgs,
+    ) -> Result<()> {
+        InitializeYieldAccounts::handle_initialize(ctx, args)
+    }
+
+    #[access_control(ctx.accounts.validate())]
+    pub fn initialize_lp_transfer_hook<'info>(
+        ctx: Context<'_, '_, '_, 'info, InitializeLpTransferHook<'info>>,
+    ) -> Result<()> {
+        InitializeLpTransferHook::handle_initialize(ctx)
+    }
+
     // Spot instructions
-    #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn swap<'info>(ctx: Context<'_, '_, '_, 'info, Swap<'info>>, args: SwapArgs) -> Result<()> {
-        Swap::handle_swap(ctx, args)
+        let (current_slot, current_epoch) = ctx.accounts.validate_and_read_clock(&args)?;
+        Swap::handle_swap(ctx, args, current_slot, current_epoch)
     }
 
     // Lending instructions
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn deposit_collateral(ctx: Context<DepositCollateral>, args: DepositCollateralArgs) -> Result<()> {
+    pub fn deposit_collateral<'info>(
+        ctx: Context<'_, '_, '_, 'info, DepositCollateral<'info>>,
+        args: DepositCollateralArgs,
+    ) -> Result<()> {
         DepositCollateral::handle_deposit(ctx, args)
     }
 
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn withdraw_collateral(ctx: Context<WithdrawCollateral>, args: WithdrawCollateralArgs) -> Result<()> {
+    pub fn withdraw_collateral<'info>(
+        ctx: Context<'_, '_, '_, 'info, WithdrawCollateral<'info>>,
+        args: WithdrawCollateralArgs,
+    ) -> Result<()> {
         WithdrawCollateral::handle_withdraw(ctx, args)
     }
 
@@ -189,68 +218,76 @@ pub mod dusk {
     }
 
     // Leverage instructions
-    #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn open_leverage<'info>(
         ctx: Context<'_, '_, '_, 'info, OpenLeverage<'info>>,
         args: OpenLeverageArgs,
     ) -> Result<()> {
-        OpenLeverage::handle_open(ctx, args)
+        let clock = Clock::get()?;
+        ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
+        OpenLeverage::handle_open(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
     }
 
-    #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn close_leverage<'info>(
         ctx: Context<'_, '_, '_, 'info, CloseLeverage<'info>>,
         args: CloseLeverageArgs,
     ) -> Result<()> {
-        CloseLeverage::handle_close(ctx, args)
+        let clock = Clock::get()?;
+        ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
+        CloseLeverage::handle_close(ctx, args, clock.slot, clock.epoch)
     }
 
-    #[access_control(ctx.accounts.update_and_validate_delegated(&args))]
     pub fn delegated_close_leverage<'info>(
         ctx: Context<'_, '_, '_, 'info, CloseLeverage<'info>>,
         args: DelegatedCloseLeverageArgs,
     ) -> Result<()> {
-        CloseLeverage::handle_delegated_close(ctx, args)
+        let clock = Clock::get()?;
+        ctx.accounts.validate_delegated_at(&args, clock.unix_timestamp)?;
+        CloseLeverage::handle_delegated_close(ctx, args, clock.slot, clock.epoch)
     }
 
-    #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn increase_leverage<'info>(
         ctx: Context<'_, '_, '_, 'info, IncreaseLeverage<'info>>,
         args: IncreaseLeverageArgs,
     ) -> Result<()> {
-        IncreaseLeverage::handle_increase(ctx, args)
+        let clock = Clock::get()?;
+        ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
+        IncreaseLeverage::handle_increase(ctx, args, clock.slot, clock.epoch)
     }
 
-    #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn decrease_leverage<'info>(
         ctx: Context<'_, '_, '_, 'info, DecreaseLeverage<'info>>,
         args: DecreaseLeverageArgs,
     ) -> Result<()> {
-        DecreaseLeverage::handle_decrease(ctx, args)
+        let clock = Clock::get()?;
+        ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
+        DecreaseLeverage::handle_decrease(ctx, args, clock.slot)
     }
 
-    #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn add_leverage_margin<'info>(
         ctx: Context<'_, '_, '_, 'info, AddLeverageMargin<'info>>,
         args: AddLeverageMarginArgs,
     ) -> Result<()> {
-        AddLeverageMargin::handle_add_margin(ctx, args)
+        let clock = Clock::get()?;
+        ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
+        AddLeverageMargin::handle_add_margin(ctx, args, clock.slot, clock.epoch)
     }
 
-    #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn remove_leverage_margin<'info>(
         ctx: Context<'_, '_, '_, 'info, RemoveLeverageMargin<'info>>,
         args: RemoveLeverageMarginArgs,
     ) -> Result<()> {
-        RemoveLeverageMargin::handle_remove_margin(ctx, args)
+        let clock = Clock::get()?;
+        ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
+        RemoveLeverageMargin::handle_remove_margin(ctx, args, clock.slot)
     }
 
-    #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn liquidate_leverage<'info>(
         ctx: Context<'_, '_, '_, 'info, LiquidateLeverage<'info>>,
         args: LiquidateLeverageArgs,
     ) -> Result<()> {
-        LiquidateLeverage::handle_liquidate(ctx, args)
+        let clock = Clock::get()?;
+        ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
+        LiquidateLeverage::handle_liquidate(ctx, args, clock.slot)
     }
 
     #[access_control(ctx.accounts.validate(&args))]
@@ -319,11 +356,11 @@ pub mod dusk {
     }
 
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn settle_liquidation_auction_amm<'info>(
-        ctx: Context<'_, '_, '_, 'info, SettleLiquidationAuctionAmm<'info>>,
-        args: SettleLiquidationAuctionAmmArgs,
+    pub fn settle_liquidation_auction_floor<'info>(
+        ctx: Context<'_, '_, '_, 'info, SettleLiquidationAuctionFloor<'info>>,
+        args: SettleLiquidationAuctionFloorArgs,
     ) -> Result<()> {
-        SettleLiquidationAuctionAmm::handle_settle(ctx, args)
+        SettleLiquidationAuctionFloor::handle_settle(ctx, args)
     }
 
     // HLP instructions
@@ -341,14 +378,6 @@ pub mod dusk {
         args: WithdrawSingleSidedArgs,
     ) -> Result<()> {
         WithdrawSingleSided::handle_withdraw(ctx, args)
-    }
-
-    #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn crank_hlp_rebalance<'info>(
-        ctx: Context<'_, '_, '_, 'info, CrankHlpRebalance<'info>>,
-        args: CrankHlpRebalanceArgs,
-    ) -> Result<()> {
-        CrankHlpRebalance::handle_crank(ctx, args)
     }
 
     pub fn fallback<'info>(program_id: &Pubkey, accounts: &'info [AccountInfo<'info>], data: &[u8]) -> Result<()> {

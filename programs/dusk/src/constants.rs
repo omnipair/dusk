@@ -6,6 +6,11 @@ use anchor_lang::{prelude::*, solana_program::pubkey};
 pub const NAD: u64 = 1_000_000_000;
 #[constant]
 pub const NAD_DECIMALS: u8 = 9;
+/// Fee/yield growth indexes use a full unsigned share-width fractional scale.
+/// Because LP supply is `u64`, every distributor remainder is strictly below
+/// one raw token atom: `remainder < supply < 2^64`.
+pub const YIELD_GROWTH_SCALE_Q64: u128 = 1_u128 << 64;
+pub const YIELD_GROWTH_FRACTION_MASK_Q64: u128 = YIELD_GROWTH_SCALE_Q64 - 1;
 #[constant]
 pub const BPS_DENOMINATOR: u16 = 10_000;
 #[constant]
@@ -81,9 +86,10 @@ pub const MAX_INTEREST_ACCRUAL_MS: u64 = MS_PER_YEAR;
 /// tracking loss exceeds this NAD threshold; below it the cheap post-swap
 /// rebalance is sufficient.
 pub const HLP_PRE_SOLVE_LOSS_THRESHOLD_NAD: u128 = NAD as u128;
-/// Fixed bisection iteration budget for the pre-adjustment solve (bounded so
-/// the on-chain solve has a deterministic, CU-bounded cost).
-pub const HLP_PRE_SOLVE_MAX_ITERS: u32 = 24;
+/// Fixed number of safeguarded secant evaluations after the no-adjustment
+/// probe. Cap-bound and exact-root cases may finish without consuming unused
+/// evaluations; no path may exceed this budget.
+pub const HLP_PRE_SOLVE_EVALUATIONS: u32 = 3;
 
 #[constant]
 pub const MARKET_V2_SEED_PREFIX: &[u8] = b"market_v2";
@@ -98,13 +104,12 @@ pub const MARKET_RESERVE_VAULT_SEED_PREFIX: &[u8] = b"market_reserve";
 #[constant]
 pub const MARKET_COLLATERAL_VAULT_SEED_PREFIX: &[u8] = b"market_collateral";
 #[constant]
-pub const MARKET_FEE_VAULT_SEED_PREFIX: &[u8] = b"market_fee";
-#[constant]
 pub const MARKET_INTEREST_VAULT_SEED_PREFIX: &[u8] = b"market_interest";
 #[constant]
 pub const BORROW_POSITION_SEED_PREFIX: &[u8] = b"borrow_position_v2";
 #[constant]
 pub const YIELD_ACCOUNT_SEED_PREFIX: &[u8] = b"yield";
+pub const TRANSFER_HOOK_EXTRA_ACCOUNT_METAS_SEED_PREFIX: &[u8] = b"extra-account-metas";
 #[constant]
 pub const HLP_YLP_VAULT_SEED_PREFIX: &[u8] = b"hlp_ylp_vault";
 #[constant]
@@ -131,7 +136,7 @@ pub const LEVERAGE_MAINTENANCE_BUFFER_BPS: u16 = 700; // 7%
 /// Increment this only for an incompatible account-layout change after
 /// deployment, never for ordinary feature work or product naming.
 #[constant]
-pub const MARKET_LAYOUT_VERSION: u8 = 1;
+pub const MARKET_LAYOUT_VERSION: u8 = 2;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 #[cfg(feature = "development")]

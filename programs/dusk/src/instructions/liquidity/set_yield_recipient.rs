@@ -33,6 +33,7 @@ pub struct SetYieldRecipient<'info> {
     pub owner: Signer<'info>,
 
     pub asset_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub lp_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
         mut,
@@ -40,6 +41,7 @@ pub struct SetYieldRecipient<'info> {
             YIELD_ACCOUNT_SEED_PREFIX,
             market.key().as_ref(),
             owner.key().as_ref(),
+            lp_mint.key().as_ref(),
             asset_mint.key().as_ref(),
             &[args.token_kind.code()],
         ],
@@ -51,9 +53,19 @@ pub struct SetYieldRecipient<'info> {
 impl<'info> SetYieldRecipient<'info> {
     pub fn validate(&self, args: &SetYieldRecipientArgs) -> Result<()> {
         require_keys_neq!(args.recipient, Pubkey::default(), ErrorCode::InvalidRecipient);
+        self.market.asset_for_mint(self.asset_mint.key())?;
+        match args.token_kind {
+            YieldTokenKind::Ylp => {
+                require_keys_eq!(self.lp_mint.key(), self.market.ylp_mint, ErrorCode::InvalidMint)
+            }
+            YieldTokenKind::Hlp => {
+                self.market.asset_for_hlp_mint(self.lp_mint.key())?;
+            }
+        }
         self.yield_account.assert_account(
             self.owner.key(),
             self.market.key(),
+            self.lp_mint.key(),
             self.asset_mint.key(),
             args.token_kind,
         )
@@ -64,6 +76,7 @@ impl<'info> SetYieldRecipient<'info> {
         emit_cpi!(YieldRecipientUpdated {
             market: ctx.accounts.market.key(),
             owner: ctx.accounts.owner.key(),
+            lp_mint: ctx.accounts.lp_mint.key(),
             asset_mint: ctx.accounts.asset_mint.key(),
             token_kind: args.token_kind.code(),
             recipient: args.recipient,

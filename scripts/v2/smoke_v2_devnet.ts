@@ -44,10 +44,10 @@ async function main() {
   console.log(`Base hLP mint: ${market.baseHlpMint}`);
   console.log(`Quote hLP mint: ${market.quoteHlpMint}`);
   console.log(
-    `Base reserve balance: ${await tokenBalance(provider.connection, new PublicKey(market.baseReserveVault))}`
+    `Base physical reserve-vault balance (cash + swap-fee custody): ${await tokenBalance(provider.connection, new PublicKey(market.baseReserveVault))}`
   );
   console.log(
-    `Quote reserve balance: ${await tokenBalance(provider.connection, new PublicKey(market.quoteReserveVault))}`
+    `Quote physical reserve-vault balance (cash + swap-fee custody): ${await tokenBalance(provider.connection, new PublicKey(market.quoteReserveVault))}`
   );
 
   const baseMint = new PublicKey(market.baseMint);
@@ -96,6 +96,35 @@ async function main() {
       owner: payer.publicKey,
       tokenProgram: TOKEN_2022_PROGRAM_ID,
     });
+    const baseHlpBaseYieldAccount = deriveYieldAccountAddress(
+      program.programId,
+      marketAddress,
+      payer.publicKey,
+      baseHlpMint,
+      baseMint,
+      "hlp"
+    );
+    const baseHlpQuoteYieldAccount = deriveYieldAccountAddress(
+      program.programId,
+      marketAddress,
+      payer.publicKey,
+      baseHlpMint,
+      quoteMint,
+      "hlp"
+    );
+    const initializeYieldAccountsIx = await program.methods
+      .initializeYieldAccounts({ owner: payer.publicKey, tokenKind: { hlp: {} } })
+      .accounts({
+        payer: payer.publicKey,
+        market: marketAddress,
+        lpMint: baseHlpMint,
+        baseMint,
+        quoteMint,
+        baseYieldAccount: baseHlpBaseYieldAccount,
+        quoteYieldAccount: baseHlpQuoteYieldAccount,
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction();
     const signature = await program.methods
       .depositSingleSided({
         depositAmount: bnFromUnits(hedgeAmount),
@@ -114,20 +143,16 @@ async function main() {
         ownerTargetAccount: traderBaseAccount.address,
         ownerHlpAccount: ownerBaseHlpAccount.address,
         hlpYlpAccount: new PublicKey(market.baseHlpYlpVault),
-        targetYieldAccount: deriveYieldAccountAddress(
-          program.programId,
-          marketAddress,
-          payer.publicKey,
-          baseMint,
-          "hlp"
-        ),
+        baseYieldAccount: baseHlpBaseYieldAccount,
+        quoteYieldAccount: baseHlpQuoteYieldAccount,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
-        eventAuthority: new PublicKey(market.eventAuthority),
-        program: program.programId,
       })
-      .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
+      .preInstructions([
+        anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }),
+        initializeYieldAccountsIx,
+      ])
       .rpc();
     console.log(`Smoke hLP deposit sent: ${explorerTx(signature)}`);
   }
@@ -157,18 +182,20 @@ async function main() {
       assetOutMint: quoteMint,
       reserveInVault: new PublicKey(market.baseReserveVault),
       reserveOutVault: new PublicKey(market.quoteReserveVault),
-      feeInVault: new PublicKey(market.baseFeeVault),
       traderAssetInAccount: traderBaseAccount.address,
       traderAssetOutAccount: traderQuoteAccount.address,
       tokenProgram: TOKEN_PROGRAM_ID,
       token2022Program: TOKEN_2022_PROGRAM_ID,
-      eventAuthority: new PublicKey(market.eventAuthority),
-      program: program.programId,
     });
 
   const refreshedMarket = await program.account.market.fetch(marketAddress);
   const remainingAccounts = [];
-  if (refreshedMarket.baseHlpVault.hlpSupply.gtn(0)) {
+  const hlpActive =
+    refreshedMarket.baseHlpVault.hlpSupply.gtn(0) ||
+    refreshedMarket.quoteHlpVault.hlpSupply.gtn(0) ||
+    !refreshedMarket.baseHlpVault.residualExposure.isZero() ||
+    !refreshedMarket.quoteHlpVault.residualExposure.isZero();
+  if (hlpActive) {
     remainingAccounts.push(
       { pubkey: ylpMint, isWritable: true, isSigner: false },
       {
@@ -177,16 +204,21 @@ async function main() {
           deriveHlpYlpVaultAddress(program.programId, marketAddress, baseHlpMint, ylpMint),
         isWritable: true,
         isSigner: false,
-      }
-    );
-  }
-  if (refreshedMarket.quoteHlpVault.hlpSupply.gtn(0)) {
-    remainingAccounts.push(
-      { pubkey: ylpMint, isWritable: true, isSigner: false },
+      },
       {
         pubkey:
           refreshedMarket.quoteHlpVault.ylpVault ??
           deriveHlpYlpVaultAddress(program.programId, marketAddress, quoteHlpMint, ylpMint),
+        isWritable: true,
+        isSigner: false,
+      },
+      {
+        pubkey: new PublicKey(market.baseInterestVault),
+        isWritable: true,
+        isSigner: false,
+      },
+      {
+        pubkey: new PublicKey(market.quoteInterestVault),
         isWritable: true,
         isSigner: false,
       }

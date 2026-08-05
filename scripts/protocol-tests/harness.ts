@@ -56,8 +56,6 @@ export interface MarketPayload {
   quoteCollateralVault: string;
   baseInsuranceVault: string;
   quoteInsuranceVault: string;
-  baseFeeVault: string;
-  quoteFeeVault: string;
   baseInterestVault: string;
   quoteInterestVault: string;
   operator: string;

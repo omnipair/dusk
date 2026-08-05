@@ -4,7 +4,6 @@ use super::*;
         MarketConfig {
             swap_fee_bps: 30,
             manager_fee_bps: 0,
-            protocol_fee_bps: 0,
             target_hlp_leverage_bps: 20_000,
             settlement_divergence_bps: 500,
             ema_half_life_ms: 60_000,
@@ -100,7 +99,7 @@ use super::*;
     #[test]
     fn market_config_validates_embedded_amm_config() {
         let mut config = valid_config();
-        config.amm.imbalance_scale_nad = 1;
+        config.amm.fade_scale_nad = 1;
 
         assert_eq!(
             config.validate().unwrap_err(),

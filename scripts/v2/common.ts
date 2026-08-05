@@ -71,8 +71,6 @@ export type StoredMarket = {
   quoteCollateralVault: string;
   baseInsuranceVault: string;
   quoteInsuranceVault: string;
-  baseFeeVault: string;
-  quoteFeeVault: string;
   baseInterestVault: string;
   quoteInterestVault: string;
   baseHlpYlpVault: string;
@@ -229,7 +227,7 @@ export async function createHookedLpMintIfMissing(params: {
       }),
       createInitializeTransferHookInstruction(
         keypair.publicKey,
-        params.payer.publicKey,
+        PublicKey.default,
         params.transferHookProgramId,
         TOKEN_2022_PROGRAM_ID
       ),
@@ -454,8 +452,6 @@ export function deriveMarketAddresses(params: {
     quoteCollateralVault: derivePda(params.programId, Buffer.from("market_collateral"), market.toBuffer(), params.quoteMint.toBuffer()),
     baseInsuranceVault: derivePda(params.programId, Buffer.from("insurance"), market.toBuffer(), params.baseMint.toBuffer()),
     quoteInsuranceVault: derivePda(params.programId, Buffer.from("insurance"), market.toBuffer(), params.quoteMint.toBuffer()),
-    baseFeeVault: derivePda(params.programId, Buffer.from("market_fee"), market.toBuffer(), params.baseMint.toBuffer()),
-    quoteFeeVault: derivePda(params.programId, Buffer.from("market_fee"), market.toBuffer(), params.quoteMint.toBuffer()),
     baseInterestVault: derivePda(params.programId, Buffer.from("market_interest"), market.toBuffer(), params.baseMint.toBuffer()),
     quoteInterestVault: derivePda(params.programId, Buffer.from("market_interest"), market.toBuffer(), params.quoteMint.toBuffer()),
   };
@@ -476,6 +472,7 @@ export function deriveYieldAccountAddress(
   programId: PublicKey,
   market: PublicKey,
   owner: PublicKey,
+  lpMint: PublicKey,
   assetMint: PublicKey,
   tokenKind: "ylp" | "hlp"
 ): PublicKey {
@@ -484,6 +481,7 @@ export function deriveYieldAccountAddress(
     Buffer.from("yield"),
     market.toBuffer(),
     owner.toBuffer(),
+    lpMint.toBuffer(),
     assetMint.toBuffer(),
     Buffer.from([tokenKind === "ylp" ? 0 : 1])
   );
@@ -508,10 +506,7 @@ export function defaultMarketConfig() {
   const startTime = duskEnv("MARKET_START_TIME", "0");
   return {
     swapFeeBps: Number(duskEnv("SWAP_FEE_BPS", "30")),
-    managerFeeBps: Number(
-      duskEnv("MANAGER_FEE_BPS", duskEnv("OPERATOR_FEE_BPS", "0"))
-    ),
-    protocolFeeBps: Number(duskEnv("PROTOCOL_FEE_BPS", "0")),
+    managerFeeBps: Number(duskEnv("MANAGER_FEE_BPS", "0")),
     targetHlpLeverageBps: Number(duskEnv("TARGET_HLP_LEVERAGE_BPS", "20000")),
     settlementDivergenceBps: Number(duskEnv("SETTLEMENT_DIVERGENCE_BPS", "500")),
     emaHalfLifeMs: new anchor.BN(duskEnv("EMA_HALF_LIFE_MS", "60000")),
@@ -534,7 +529,7 @@ export function defaultMarketConfig() {
 export function defaultAmmConfig() {
   return {
     peakDepthNad: new anchor.BN(duskEnv("AMM_PEAK_DEPTH_NAD", "0")),
-    imbalanceScaleNad: new anchor.BN(duskEnv("AMM_IMBALANCE_SCALE_NAD", "0")),
+    fadeScaleNad: new anchor.BN(duskEnv("AMM_FADE_SCALE_NAD", "0")),
     centerEmaHalfLifeMs: new anchor.BN(duskEnv("AMM_CENTER_EMA_HALF_LIFE_MS", "60000")),
     volatilityHalfLifeMs: new anchor.BN(duskEnv("AMM_VOLATILITY_HALF_LIFE_MS", "60000")),
     adjustmentThresholdNad: new anchor.BN(duskEnv("AMM_ADJUSTMENT_THRESHOLD_NAD", "0")),
@@ -545,7 +540,7 @@ export function defaultAmmConfig() {
     divergenceFeeCoefficientNad: new anchor.BN(duskEnv("AMM_DIVERGENCE_FEE_COEFFICIENT_NAD", "0")),
     volatilityFeeCoefficientNad: new anchor.BN(duskEnv("AMM_VOLATILITY_FEE_COEFFICIENT_NAD", "0")),
     rampDurationSlots: new anchor.BN(duskEnv("AMM_RAMP_DURATION_SLOTS", "9000")),
-    reserved: Array(34).fill(0),
+    reserved: Array(33).fill(0),
   };
 }
 

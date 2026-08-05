@@ -24,6 +24,22 @@ impl ProtocolAuctionLane {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, InitSpace)]
+pub enum ProtocolRevenueSource {
+    #[default]
+    Swap,
+    Interest,
+}
+
+impl ProtocolRevenueSource {
+    pub fn code(self) -> u8 {
+        match self {
+            Self::Swap => 0,
+            Self::Interest => 1,
+        }
+    }
+}
+
 /// Revenue recipient wallet addresses. Recipient token accounts are derived or
 /// validated against these owners when protocol fees are claimed.
 #[derive(Clone, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, InitSpace)]
@@ -130,23 +146,16 @@ pub struct ProtocolAuctionConfig {
     pub accepted_mint: Pubkey,
     pub recipients: ProtocolAuctionRecipients,
     pub params: ProtocolAuctionParams,
-    pub last_settlement_slot: u64,
 }
 
 impl ProtocolAuctionConfig {
-    pub fn initialize(
-        accepted_mint: Pubkey,
-        treasury: Pubkey,
-        staking_vault: Pubkey,
-        current_slot: u64,
-    ) -> Result<Self> {
+    pub fn initialize(accepted_mint: Pubkey, treasury: Pubkey, staking_vault: Pubkey) -> Result<Self> {
         let params = ProtocolAuctionParams::default_epoch();
         params.validate()?;
         Ok(Self {
             accepted_mint,
             recipients: ProtocolAuctionRecipients::treasury_only(treasury, staking_vault),
             params,
-            last_settlement_slot: current_slot,
         })
     }
 
@@ -214,7 +223,6 @@ impl FutarchyAuthority {
         futarchy_treasury_bps: u16,
         buybacks_vault_bps: u16,
         team_treasury_bps: u16,
-        current_slot: u64,
         bump: u8,
     ) -> Result<Self> {
         let revenue_distribution = RevenueDistribution {
@@ -245,13 +253,11 @@ impl FutarchyAuthority {
                 fee_auction_accepted_mint,
                 futarchy_treasury,
                 staking_vault,
-                current_slot,
             )?,
             buyback_auction: ProtocolAuctionConfig::initialize(
                 buyback_auction_accepted_mint,
                 futarchy_treasury,
                 staking_vault,
-                current_slot,
             )?,
             global_reduce_only: false,
             bump,

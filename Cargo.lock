@@ -649,6 +649,7 @@ dependencies = [
  "rand 0.8.5",
  "solana-security-txt",
  "spl-math",
+ "spl-tlv-account-resolution",
  "spl-token 4.0.2",
  "spl-token-2022",
  "spl-transfer-hook-interface",
@@ -2872,6 +2873,13 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+
+[[package]]
+name = "token_metadata_fixture"
+version = "0.1.0"
+dependencies = [
+ "solana-program",
+]
 
 [[package]]
 name = "toml"

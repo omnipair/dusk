@@ -9,14 +9,16 @@ use crate::{
     errors::ErrorCode,
     events::{MarketDebtUpdated, MarketEventMetadata, MarketHealthUpdated, ReferralBound},
     generate_market_seeds,
-    shared::token::transfer_from_vault_to_user_with_remaining_accounts,
+    shared::token::transfer_checked_with_remaining_accounts,
     state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
 };
 
-use crate::instructions::common::{require_supported_asset_mint, token_account_credit, token_program_for_mint};
+use crate::instructions::common::{
+    require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
+};
 use crate::instructions::referral::common::validate_referral_binding;
 
-use super::common::validate_borrow_accounts;
+use super::common::validate_debt_reserve_accounts;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct BorrowArgs {
@@ -89,14 +91,22 @@ impl<'info> Borrow<'info> {
             args.min_debt_amount_out,
             ErrorCode::SlippageExceeded
         );
-        validate_borrow_accounts(
+        let borrow_asset = self.market.asset_for_mint(self.debt_asset_mint.key())?;
+        let debt_side = self.market.side(borrow_asset);
+        let collateral_side = self.market.side(borrow_asset.opposite());
+        validate_debt_reserve_accounts(
             &self.market,
+            debt_side,
             self.owner.key(),
             &self.debt_asset_mint,
-            &self.collateral_asset_mint,
             &self.reserve_vault,
             &self.owner_debt_account,
         )?;
+        require_keys_eq!(
+            collateral_side.asset_mint,
+            self.collateral_asset_mint.key(),
+            ErrorCode::InvalidMint
+        );
         require_supported_asset_mint(&self.debt_asset_mint)?;
         self.borrow_position
             .assert_position(self.owner.key(), self.market.key())?;
@@ -167,7 +177,7 @@ impl<'info> Borrow<'info> {
             )?;
             let owner_debt_balance_before = accounts.owner_debt_account.amount;
 
-            transfer_from_vault_to_user_with_remaining_accounts(
+            transfer_checked_with_remaining_accounts(
                 accounts.market.to_account_info(),
                 accounts.reserve_vault.to_account_info(),
                 accounts.owner_debt_account.to_account_info(),
@@ -178,7 +188,9 @@ impl<'info> Borrow<'info> {
                 &[&generate_market_seeds!(accounts.market)[..]],
                 ctx.remaining_accounts,
             )?;
+            accounts.reserve_vault.reload()?;
             accounts.owner_debt_account.reload()?;
+            require_reserve_custody(accounts.reserve_vault.amount, accounts.market.side(borrow_asset))?;
             let debt_credit = token_account_credit(owner_debt_balance_before, &accounts.owner_debt_account)?;
             require_gte!(debt_credit, args.min_debt_amount_out, ErrorCode::SlippageExceeded);
 

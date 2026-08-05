@@ -13,7 +13,7 @@ use crate::{
         require_supported_asset_mint, token_account_credit, token_account_debit, token_program_for_mint,
         validate_interest_accounts,
     },
-    shared::token::transfer_from_vault_to_user_with_remaining_accounts,
+    shared::token::transfer_checked_with_remaining_accounts,
     state::{Market, ReferralAccrual, ReferralPartner},
 };
 
@@ -100,7 +100,7 @@ impl<'info> ClaimReferralInterest<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        transfer_from_vault_to_user_with_remaining_accounts(
+        transfer_checked_with_remaining_accounts(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.interest_vault.to_account_info(),
             ctx.accounts.recipient_token_account.to_account_info(),

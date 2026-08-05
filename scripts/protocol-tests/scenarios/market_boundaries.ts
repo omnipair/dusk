@@ -343,13 +343,20 @@ export const POST_GOVERNANCE_MARKET_SCENARIOS: ScenarioDefinition[] = [
         body: { assetIn: "base", exactAssetIn: "100" },
       });
       const preview = decodePreviewSwapReturnData(previewData(previewEvidence));
-      const feeCredit = integer(preview.feeCredit);
+      const feeCredit = integer(preview.claimableFeeCredit);
       const expectedManager = feeCredit * 500n / 10_000n;
       const expectedProtocol = feeCredit * 2_000n / 10_000n;
       const expectedLp = feeCredit - expectedManager - expectedProtocol;
-      const feeVaultBefore = await harness.tokenAccountBalance(
-        new PublicKey(before.baseFeeVault),
+      const feeCustodyBefore = stateValue(before, "baseSwapFeeCustodyBalance");
+      const baseReserveVault = new PublicKey(before.baseReserveVault);
+      const reserveVaultBefore = await harness.tokenAccountBalance(
+        baseReserveVault,
         harness.config.baseTokenProgram
+      );
+      harness.assertEqual(
+        "physical base reserve is executable cash plus swap-fee custody before routing",
+        reserveVaultBefore,
+        stateValue(before, "baseCashReserve") + feeCustodyBefore
       );
 
       await harness.execute({
@@ -359,30 +366,37 @@ export const POST_GOVERNANCE_MARKET_SCENARIOS: ScenarioDefinition[] = [
         body: { assetIn: "base", exactAssetIn: "100", minAssetOut: "0" },
       });
       const after = await harness.market();
-      const feeVaultAfter = await harness.tokenAccountBalance(
-        new PublicKey(after.baseFeeVault),
+      const feeCustodyAfter = stateValue(after, "baseSwapFeeCustodyBalance");
+      const reserveVaultAfterSwap = await harness.tokenAccountBalance(
+        baseReserveVault,
         harness.config.baseTokenProgram
       );
       const managerDelta = stateValue(after, "baseManagerSwapFeeLiability") - stateValue(before, "baseManagerSwapFeeLiability");
       const protocolDelta =
-        stateValue(after, "baseProtocolFeeLiability") - stateValue(before, "baseProtocolFeeLiability") +
-        stateValue(after, "baseBuybackFeeLiability") - stateValue(before, "baseBuybackFeeLiability");
+        stateValue(after, "baseSwapProtocolFeeLiability") - stateValue(before, "baseSwapProtocolFeeLiability") +
+        stateValue(after, "baseSwapBuybackFeeLiability") - stateValue(before, "baseSwapBuybackFeeLiability");
       const lpDelta =
         stateValue(after, "baseLpSwapFeeLiability") - stateValue(before, "baseLpSwapFeeLiability") +
         stateValue(after, "baseUnallocatedSwapFeeLiability") - stateValue(before, "baseUnallocatedSwapFeeLiability");
-      harness.assertEqual("fee vault receives exact previewed credit", feeVaultAfter - feeVaultBefore, feeCredit);
+      harness.assertEqual("reserve custody records exact previewed fee credit", feeCustodyAfter - feeCustodyBefore, feeCredit);
       harness.assertEqual("manager receives exact configured fee liability", managerDelta, expectedManager);
       harness.assertEqual("protocol auction lanes receive exact configured liability", protocolDelta, expectedProtocol);
       harness.assertEqual("LP liabilities receive the complete remainder", lpDelta, expectedLp);
       harness.assertEqual("every fee unit is assigned exactly once", managerDelta + protocolDelta + lpDelta, feeCredit);
+      harness.assertEqual(
+        "physical base reserve is executable cash plus swap-fee custody after routing",
+        reserveVaultAfterSwap,
+        stateValue(after, "baseCashReserve") + feeCustodyAfter
+      );
 
       const managerBaseBefore = await harness.tokenBalance(
         "alice",
         harness.config.baseMint,
         harness.config.baseTokenProgram
       );
-      const totalManagerClaim = stateValue(after, "baseManagerSwapFeeLiability") +
-        stateValue(after, "baseManagerInterestFeeLiability");
+      const managerSwapClaim = stateValue(after, "baseManagerSwapFeeLiability");
+      const managerInterestClaim = stateValue(after, "baseManagerInterestFeeLiability");
+      const totalManagerClaim = managerSwapClaim + managerInterestClaim;
       await harness.execute({
         wallet: "alice",
         endpoint: "/api/v2/fork/tx/claim-manager-fees",
@@ -390,6 +404,10 @@ export const POST_GOVERNANCE_MARKET_SCENARIOS: ScenarioDefinition[] = [
         body: { asset: "base" },
       });
       const claimed = await harness.market();
+      const reserveVaultAfterClaim = await harness.tokenAccountBalance(
+        baseReserveVault,
+        harness.config.baseTokenProgram
+      );
       harness.assertEqual(
         "manager receives exact swap plus interest claim",
         await harness.tokenBalance("alice", harness.config.baseMint, harness.config.baseTokenProgram) - managerBaseBefore,
@@ -397,6 +415,21 @@ export const POST_GOVERNANCE_MARKET_SCENARIOS: ScenarioDefinition[] = [
       );
       harness.assertEqual("manager swap liability clears", stateValue(claimed, "baseManagerSwapFeeLiability"), 0n);
       harness.assertEqual("manager interest liability clears", stateValue(claimed, "baseManagerInterestFeeLiability"), 0n);
+      harness.assertEqual(
+        "manager swap claim debits reserve custody by the exact swap liability",
+        reserveVaultAfterSwap - reserveVaultAfterClaim,
+        managerSwapClaim
+      );
+      harness.assertEqual(
+        "manager swap claim debits tracked custody by the exact swap liability",
+        feeCustodyAfter - stateValue(claimed, "baseSwapFeeCustodyBalance"),
+        managerSwapClaim
+      );
+      harness.assertEqual(
+        "physical base reserve remains executable cash plus swap-fee custody after claim",
+        reserveVaultAfterClaim,
+        stateValue(claimed, "baseCashReserve") + stateValue(claimed, "baseSwapFeeCustodyBalance")
+      );
       const emptyClaim = await harness.execute({
         wallet: "alice",
         endpoint: "/api/v2/fork/tx/claim-manager-fees",
@@ -416,7 +449,7 @@ export const POST_GOVERNANCE_MARKET_SCENARIOS: ScenarioDefinition[] = [
       await harness.execute({
         wallet: "alice",
         endpoint: "/api/v2/fork/tx/update-config",
-        label: "restore market fee routing configuration",
+        label: "restore manager and protocol swap-fee routing configuration",
         body: { config: originalMarket.config },
       });
       await harness.execute({
@@ -425,7 +458,7 @@ export const POST_GOVERNANCE_MARKET_SCENARIOS: ScenarioDefinition[] = [
         label: "restore protocol swap revenue share",
         body: { swapBps: originalFutarchy.revenueShare.swapBps },
       });
-      harness.assertEqual("market fee config restores exactly", (await harness.market()).config, originalMarket.config);
+      harness.assertEqual("manager and protocol swap-fee config restores exactly", (await harness.market()).config, originalMarket.config);
       harness.assertEqual("protocol swap share restores exactly", (await harness.futarchy()).revenueShare.swapBps, originalFutarchy.revenueShare.swapBps);
     },
   },

@@ -2,24 +2,25 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_interface::Mint;
 
 use crate::instructions::common::require_supported_asset_mint;
+use crate::instructions::{split_claimable_fee_credit, SwapContext, SwapPlan};
 use crate::{
     constants::*,
     errors::ErrorCode,
     math::{
-        denormalize_from_nad_floor, health_bps, instantaneous_rate_apr_nad, market_k_nad, market_liquidity_nad,
-        normalize_to_nad, pessimistic_max_debt_on_curve_nad, utilization_bps, utilization_error_nad,
+        denormalize_from_nad_floor, health_bps, instantaneous_rate_apr_nad, market_k_nad, normalize_to_nad,
+        pessimistic_max_debt_on_curve_nad, utilization_bps, utilization_error_nad,
     },
     shared::{
-        math::ceil_div,
+        math::{ceil_div, SqrtU128},
         token::{get_transfer_fee, get_transfer_inverse_fee},
     },
     state::{
         market::{
             health::{max_cf_bps_from_liquidation_cf, DynamicBorrowTerms},
             transitions::liquidation::LiquidationPricing,
-            AmmCurveParameters, AmmSwapQuote, SwapFeeBreakdown,
+            AmmCurveParameters,
         },
-        BorrowPosition, Debt, Market, MarketAsset, MarketHealth, Risk,
+        BorrowPosition, Market, MarketAsset, MarketHealth, Risk,
     },
 };
 
@@ -129,7 +130,6 @@ pub struct PreviewBorrowPosition<'info> {
 pub struct PreviewSide {
     pub live_reserve: u64,
     pub cash_reserve: u64,
-    pub reserved_liability: u64,
     pub ylp_supply: u64,
     pub ylp_exchange_rate_nad: u128,
     pub spot_price_nad: u64,
@@ -174,7 +174,6 @@ pub struct PreviewAmm {
     pub volatility_accumulator_nad: u64,
     pub decayed_volatility_nad: u64,
     pub invariant_d_nad: u128,
-    pub invariant_d_high_nad: u128,
     pub balanced_equivalent_q_nad: u128,
     pub q_per_share_nad: u128,
     pub protected_floor_per_share_nad: u128,
@@ -231,12 +230,6 @@ pub struct SwapPreview {
     pub transfer_fee: u64,
     /// Actual credit received by the reserve vault from the user transfer.
     pub reserve_credit: u64,
-    /// Legacy alias for `base_fee_debit`.
-    pub swap_fee_debit: u64,
-    /// Legacy alias for `claimable_fee_credit`.
-    pub fee_credit: u64,
-    /// Legacy alias for `amount_in_for_quote`.
-    pub amount_in_after_fee: u64,
     pub amount_out: u64,
     pub reserve_in_live_reserve: u64,
     pub reserve_out_live_reserve: u64,
@@ -258,8 +251,8 @@ pub struct SwapPreview {
     pub volatility_fee_rate_nad: u64,
     pub total_fee_rate_nad: u64,
     pub start_price_nad: u64,
-    /// Legacy name for the invariant-preserving trade endpoint.
-    pub end_price_nad: u64,
+    /// Invariant-preserving trade endpoint before retained surcharge enters reserves.
+    pub trade_end_price_nad: u64,
     /// Final pool marginal price after retained surcharge enters reserves.
     pub reserve_end_price_nad: u64,
     pub center_price_nad: u64,
@@ -347,14 +340,69 @@ impl<'info> PreviewMarket<'info> {
         ctx.accounts.market.update()?;
         let market: &Market = &ctx.accounts.market;
         let slot = Clock::get()?.slot;
+        let amm = {
+            let state = &market.amm;
+            let configured_target = market.config.amm.curve_parameters();
+            let target_curve_parameters = if state.ramp.active {
+                state.ramp.target
+            } else {
+                configured_target
+            };
+            let (executable_base_reserve, executable_quote_reserve, balanced_equivalent_q_nad) = if state.initialized {
+                (
+                    market.curve_reserve(MarketAsset::Base)?,
+                    market.curve_reserve(MarketAsset::Quote)?,
+                    market.evaluate_current_curve(slot)?.balanced_equivalent_q,
+                )
+            } else {
+                (0, 0, 0)
+            };
+
+            PreviewAmm {
+                initialized: state.initialized,
+                executable_base_reserve,
+                executable_quote_reserve,
+                center_price_nad: state.center_price_nad,
+                price_ema_nad: state.price_ema_nad,
+                last_trade_price_nad: state.last_trade_price_nad,
+                last_observation_slot: state.last_observation_slot,
+                last_adjustment_slot: state.last_adjustment_slot,
+                volatility_accumulator_nad: state.volatility_accumulator_nad,
+                decayed_volatility_nad: if state.initialized {
+                    state.decayed_volatility(&market.config.amm, slot)?
+                } else {
+                    0
+                },
+                invariant_d_nad: state.invariant_d_nad,
+                balanced_equivalent_q_nad,
+                q_per_share_nad: state.q_per_share_nad,
+                protected_floor_per_share_nad: state.protected_floor_per_share_nad,
+                protected_profit_per_share_nad: state.spendable_protected_profit_nad(),
+                retention_required_nad: state.retention_required_nad,
+                retention_stop_nad: state.retention_stop_nad,
+                retention_hard_cap_nad: state.retention_hard_cap_nad,
+                retention_active: state.retain_dynamic_surcharge,
+                retention_target_saturated: state.retention_target_saturated,
+                retention_target_stale: state.retention_target_stale,
+                applied_curve_parameters: state.effective_curve_parameters(&market.config.amm, slot),
+                desired_curve_parameters: state.desired_curve_parameters(&market.config.amm, slot),
+                target_curve_parameters,
+                ramp_active: state.ramp.active,
+                ramp_start_curve_parameters: state.ramp.start,
+                ramp_start_slot: state.ramp.start_slot,
+                ramp_end_slot: state.ramp.end_slot,
+            }
+        };
         Ok(MarketPreview {
             slot,
             base: preview_side(market, MarketAsset::Base, slot)?,
             quote: preview_side(market, MarketAsset::Quote, slot)?,
             reserve_product_k_nad: market_k_nad(&market.base_side, &market.quote_side)?,
-            liquidity_nad: market_liquidity_nad(&market.base_side, &market.quote_side)?,
+            liquidity_nad: market_k_nad(&market.base_side, &market.quote_side)?
+                .sqrt()
+                .ok_or(ErrorCode::MarketMathOverflow)?,
             health: market.market_health()?,
-            amm: preview_amm(market, slot)?,
+            amm,
         })
     }
 }
@@ -440,16 +488,10 @@ impl<'info> PreviewSwap<'info> {
         require_supported_asset_mint(&ctx.accounts.asset_out_mint)?;
 
         let slot = Clock::get()?.slot;
-        // Match executable spot on a heap-backed clone: accrue interest,
-        // advance clock-driven signals, and release at most one stale-target
-        // probe without persisting any preview side effect. Heavy ramp and
-        // center maintenance remains exclusive to the permissionless crank.
+        // Match executable spot on a heap-backed clone without persisting any
+        // preview side effect.
         let mut quote_market = Box::new(Market::default());
         quote_market.as_mut().clone_from(&**ctx.accounts.market);
-        quote_market.accrue_interest_to_slot(slot)?;
-        if quote_market.base_side.reserves.live_reserve > 0 && quote_market.quote_side.reserves.live_reserve > 0 {
-            quote_market.prepare_amm_for_swap(slot)?;
-        }
         let asset_in = quote_market.asset_for_mint(ctx.accounts.asset_in_mint.key())?;
         let asset_out = quote_market.asset_for_mint(ctx.accounts.asset_out_mint.key())?;
         require!(asset_out == asset_in.opposite(), ErrorCode::InvalidMint);
@@ -459,46 +501,32 @@ impl<'info> PreviewSwap<'info> {
             .exact_asset_in
             .checked_sub(transfer_fee)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        // A large CPMM swap can pre-position active hLP inventory before the
-        // trader quote. Preview must run that same state-only pre-solve or it
-        // advertises depth and min-out terms that execution never uses.
-        let preliminary_inputs = quote_market.preliminary_swap_inputs(reserve_credit, slot)?;
-        let (base_pre_solve, quote_pre_solve) = quote_market.pre_solve_hlp_vaults_for_swap_with_reserve_input(
+        let SwapPlan { quote, .. } = SwapContext {
+            current_slot: slot,
             asset_in,
-            preliminary_inputs.amount_in_for_quote,
-            preliminary_inputs.reserve_input_credit,
-        )?;
-        let pre_solve_mutates_curve_inventory = [base_pre_solve, quote_pre_solve].iter().any(|receipt| {
-            receipt.executed_delta != 0
-                || receipt.ylp_mint_amount != 0
-                || receipt.ylp_burn_amount != 0
-                || receipt.debt_delta != 0
-                || receipt.interest_paid != 0
-        });
-        if pre_solve_mutates_curve_inventory {
-            quote_market.checkpoint_amm_neutral_inventory(slot)?;
-        } else {
-            quote_market.ensure_amm_initialized(slot)?;
+            reserve_credit,
         }
+        .plan(&mut quote_market)?;
         let market: &Market = &quote_market;
-        let quote = market.quote_amm_swap(asset_in, reserve_credit, slot)?;
-        require_swap_preview_hlp_safe(market, &quote, slot)?;
-        let claimable_fee_credit = if quote.fee.claimable_fee_debit == 0 {
-            0
-        } else {
-            let claimable_transfer_fee = get_transfer_fee(
-                &ctx.accounts.asset_in_mint.to_account_info(),
-                quote.fee.claimable_fee_debit,
-            )?;
-            quote
-                .fee
-                .claimable_fee_debit
-                .checked_sub(claimable_transfer_fee)
-                .ok_or(ErrorCode::MarketMathOverflow)?
-        };
+        // The one user-to-reserve transfer fee was already removed when
+        // deriving `reserve_credit`. Claimable fees stay in that reserve vault,
+        // so they must not pay a fictitious second Token-2022 transfer fee.
+        let claimable_fee_credit = quote.fee.claimable_fee_debit;
         let (base_fee_credit, distributed_surcharge_credit) =
             split_claimable_fee_credit(&quote.fee, claimable_fee_credit)?;
-        let projected_protected_profit_per_share_nad = projected_protected_profit_after_swap(market, &quote)?;
+        let protected_before = market.amm.spendable_protected_profit_nad();
+        let projected_protected_profit_per_share_nad = if quote.fee.retained_surcharge == 0 {
+            protected_before
+        } else {
+            let post_trade_q =
+                market.curve_q_per_share_nad(quote.trade_endpoint()?.evaluation().balanced_equivalent_q)?;
+            let with_retained_q =
+                market.curve_q_per_share_nad(quote.reserve_endpoint()?.evaluation().balanced_equivalent_q)?;
+            require_gte!(with_retained_q, post_trade_q, ErrorCode::BrokenInvariant);
+            protected_before
+                .checked_add(with_retained_q - post_trade_q)
+                .ok_or(ErrorCode::MarketMathOverflow)?
+        };
         let (market_side_in, market_side_out) = market.swap_sides(asset_in);
         Ok(SwapPreview {
             asset_in,
@@ -506,9 +534,6 @@ impl<'info> PreviewSwap<'info> {
             exact_asset_in: args.exact_asset_in,
             transfer_fee,
             reserve_credit,
-            swap_fee_debit: quote.fee.base_fee_debit,
-            fee_credit: claimable_fee_credit,
-            amount_in_after_fee: quote.fee.amount_in_for_quote,
             amount_out: quote.amount_out,
             reserve_in_live_reserve: market_side_in
                 .reserves
@@ -538,7 +563,7 @@ impl<'info> PreviewSwap<'info> {
             volatility_fee_rate_nad: quote.fee.volatility_fee_rate_nad,
             total_fee_rate_nad: quote.fee.total_fee_rate_nad,
             start_price_nad: quote.start_price_nad,
-            end_price_nad: quote.end_price_nad,
+            trade_end_price_nad: quote.end_price_nad,
             reserve_end_price_nad: quote.reserve_end_price_nad,
             center_price_nad: market.amm.center_price_nad,
             price_ema_nad: market.amm.price_ema_nad,
@@ -553,23 +578,6 @@ impl<'info> PreviewSwap<'info> {
             retention_hard_cap_nad: market.amm.retention_hard_cap_nad,
         })
     }
-}
-
-/// Preview is read-only, so it runs the exact concentrated hLP admission guard
-/// without checkpointing pending exposure. Successful execution calls the same
-/// guard again through the deferred hLP checkpoint after applying reserves.
-fn require_swap_preview_hlp_safe(market: &Market, quote: &AmmSwapQuote, slot: u64) -> Result<()> {
-    if !market.has_active_hlp() || market.current_curve_parameters(slot).is_cpmm() {
-        return Ok(());
-    }
-    let final_price_nad = u64::try_from(
-        quote
-            .reserve_endpoint_certificate()?
-            .certified_evaluation()
-            .marginal_price_nad,
-    )
-    .map_err(|_| ErrorCode::MarketMathOverflow)?;
-    market.require_hlp_vaults_after_concentrated_swap_safe(quote.start_price_nad, final_price_nad)
 }
 
 impl<'info> PreviewBorrowCapacity<'info> {
@@ -590,9 +598,47 @@ impl<'info> PreviewBorrowCapacity<'info> {
         let max_debt_by_cash = debt_side.reserves.cash_reserve;
         let slot = Clock::get()?.slot;
         let max_debt_by_daily_limit = daily_borrow_remaining(market, debt_asset, slot)?;
-        let preview_context = NewPositionPreviewContext::new(market, debt_asset, args.collateral_amount, &risk)?;
-        let max_debt_by_health =
-            max_new_position_debt_by_dynamic_health(&preview_context, debt_side.reserves.live_reserve)?;
+        let collateral_asset_for_context = debt_asset.opposite();
+        let (collateral_virtual_reserve_nad, debt_virtual_reserve_nad) =
+            market.pessimistic_virtual_reserves_nad(collateral_asset_for_context, &risk, true)?;
+        let preview_context = NewPositionPreviewContext {
+            market,
+            debt_asset,
+            collateral_amount: args.collateral_amount,
+            risk: &risk,
+            existing_total_debt_nad: market.total_fixed_debt_nad(debt_asset)?,
+            current_aggregate_contribution: match debt_asset {
+                MarketAsset::Base => market.debt.global_health_quote_contribution_for_base_debt,
+                MarketAsset::Quote => market.debt.global_health_base_contribution_for_quote_debt,
+            },
+            collateral_amount_nad: normalize_to_nad(
+                args.collateral_amount as u128,
+                market.side(collateral_asset_for_context).asset_decimals,
+            )?,
+            collateral_virtual_reserve_nad,
+            debt_virtual_reserve_nad,
+        };
+        let max_debt_by_health = {
+            let current_health = market.market_health_from_risk(&risk)?;
+            if market.assert_market_health_snapshot(&current_health).is_err() {
+                0
+            } else {
+                let mut low = 0_u64;
+                let mut high = debt_side.reserves.live_reserve;
+                while low < high {
+                    let midpoint = low + (high - low) / 2 + 1;
+                    let (terms, _) = preview_context.terms(midpoint)?;
+                    let accepted = terms.max_debt >= midpoint
+                        && terms.projected_market_health_bps >= market.config.borrow_market_health_floor_bps as u64;
+                    if accepted {
+                        low = midpoint;
+                    } else {
+                        high = midpoint - 1;
+                    }
+                }
+                low
+            }
+        };
         let max_debt = max_debt_by_health.min(max_debt_by_cash).min(max_debt_by_daily_limit);
         let max_borrow_amount = max_debt;
         let projected_borrow_amount = args.projected_borrow_amount.unwrap_or(max_borrow_amount);
@@ -625,13 +671,26 @@ impl<'info> PreviewBorrowCapacity<'info> {
             projected_effective_existing_debt_nad: projected_terms.effective_existing_debt_nad,
             max_cf_bps: projected_terms.max_cf_bps,
             liquidation_cf_bps: projected_terms.liquidation_cf_bps,
-            liquidation_debt_per_collateral_price_nad: liquidation_threshold_price_nad(
-                args.collateral_amount,
-                collateral_side.asset_decimals,
-                projected_debt_amount,
-                debt_side.asset_decimals,
-                projected_terms.liquidation_cf_bps,
-            )?,
+            liquidation_debt_per_collateral_price_nad: if args.collateral_amount == 0
+                || projected_debt_amount == 0
+                || projected_terms.liquidation_cf_bps == 0
+            {
+                0
+            } else {
+                let collateral_nad = normalize_to_nad(args.collateral_amount as u128, collateral_side.asset_decimals)?;
+                let debt_nad = normalize_to_nad(projected_debt_amount as u128, debt_side.asset_decimals)?;
+                let price = ceil_div(
+                    debt_nad
+                        .checked_mul(BPS_DENOMINATOR as u128)
+                        .and_then(|value| value.checked_mul(NAD as u128))
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                    collateral_nad
+                        .checked_mul(projected_terms.liquidation_cf_bps as u128)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                )
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+                u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow)?
+            },
         })
     }
 }
@@ -684,9 +743,16 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
         MarketAsset::Base => market.debt.base_rate_at_target_nad,
         MarketAsset::Quote => market.debt.quote_rate_at_target_nad,
     };
-    let fixed_debt = fixed_debt(market, asset)?;
+    let fixed_debt = match asset {
+        MarketAsset::Base => market.debt.fixed_base_debt()?,
+        MarketAsset::Quote => market.debt.fixed_quote_debt()?,
+    };
     let isolated_debt = market.debt.isolated_debt(asset)?;
-    let hlp_funding_debt = hlp_funding_debt(market, asset)?;
+    let (hlp_debt_shares, hlp_borrow_index_nad) = match asset {
+        MarketAsset::Base => (market.quote_hlp_vault.debt_shares, market.debt.base_borrow_index_nad),
+        MarketAsset::Quote => (market.base_hlp_vault.debt_shares, market.debt.quote_borrow_index_nad),
+    };
+    let hlp_funding_debt = crate::state::Debt::shares_to_debt(hlp_debt_shares, hlp_borrow_index_nad)?;
     let total_debt = fixed_debt
         .checked_add(isolated_debt)
         .and_then(|value| value.checked_add(hlp_funding_debt))
@@ -701,10 +767,22 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
     Ok(PreviewSide {
         live_reserve: side.reserves.live_reserve,
         cash_reserve: side.reserves.cash_reserve,
-        reserved_liability: side.reserves.reserved_liability,
         ylp_supply: side.shares.ylp_supply,
         ylp_exchange_rate_nad: side.ylp_exchange_rate_nad()?,
-        spot_price_nad: market.curve_price_for_asset_nad(asset, slot)?,
+        spot_price_nad: {
+            let base_price = market.curve_marginal_price_nad(slot)?;
+            match asset {
+                MarketAsset::Base => base_price,
+                MarketAsset::Quote => {
+                    require!(base_price > 0, ErrorCode::InvalidSettlementPrice);
+                    let inverse = (NAD as u128)
+                        .checked_mul(NAD as u128)
+                        .and_then(|value| value.checked_div(base_price as u128))
+                        .ok_or(ErrorCode::MarketMathOverflow)?;
+                    u64::try_from(inverse).map_err(|_| ErrorCode::MarketMathOverflow)?
+                }
+            }
+        },
         price_ema_nad,
         directional_price_ema_nad,
         conservative_depth_nad,
@@ -719,117 +797,6 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
         daily_borrow_limit,
         daily_borrow_remaining,
     })
-}
-
-fn preview_amm(market: &Market, slot: u64) -> Result<PreviewAmm> {
-    let state = &market.amm;
-    let configured_target = market.config.amm.curve_parameters();
-    let target_curve_parameters = if state.ramp.active {
-        state.ramp.target
-    } else {
-        configured_target
-    };
-    let (executable_base_reserve, executable_quote_reserve, balanced_equivalent_q_nad) = if state.initialized {
-        (
-            market.curve_reserve(MarketAsset::Base)?,
-            market.curve_reserve(MarketAsset::Quote)?,
-            market.evaluate_current_curve(slot)?.balanced_equivalent_q,
-        )
-    } else {
-        (0, 0, 0)
-    };
-
-    Ok(PreviewAmm {
-        initialized: state.initialized,
-        executable_base_reserve,
-        executable_quote_reserve,
-        center_price_nad: state.center_price_nad,
-        price_ema_nad: state.price_ema_nad,
-        last_trade_price_nad: state.last_trade_price_nad,
-        last_observation_slot: state.last_observation_slot,
-        last_adjustment_slot: state.last_adjustment_slot,
-        volatility_accumulator_nad: state.volatility_accumulator_nad,
-        decayed_volatility_nad: if state.initialized {
-            state.decayed_volatility(&market.config.amm, slot)?
-        } else {
-            0
-        },
-        invariant_d_nad: state.invariant_d_nad,
-        invariant_d_high_nad: state.invariant_d_high_nad,
-        balanced_equivalent_q_nad,
-        q_per_share_nad: state.q_per_share_nad,
-        protected_floor_per_share_nad: state.protected_floor_per_share_nad,
-        protected_profit_per_share_nad: state.spendable_protected_profit_nad(),
-        retention_required_nad: state.retention_required_nad,
-        retention_stop_nad: state.retention_stop_nad,
-        retention_hard_cap_nad: state.retention_hard_cap_nad,
-        retention_active: state.retain_dynamic_surcharge,
-        retention_target_saturated: state.retention_target_saturated,
-        retention_target_stale: state.retention_target_stale,
-        applied_curve_parameters: state.effective_curve_parameters(&market.config.amm, slot),
-        desired_curve_parameters: state.desired_curve_parameters(&market.config.amm, slot),
-        target_curve_parameters,
-        ramp_active: state.ramp.active,
-        ramp_start_curve_parameters: state.ramp.start,
-        ramp_start_slot: state.ramp.start_slot,
-        ramp_end_slot: state.ramp.end_slot,
-    })
-}
-
-fn split_claimable_fee_credit(fee: &SwapFeeBreakdown, total_credit: u64) -> Result<(u64, u64)> {
-    require_eq!(
-        fee.base_fee_debit
-            .checked_add(fee.distributed_surcharge_debit)
-            .ok_or(ErrorCode::FeeMathOverflow)?,
-        fee.claimable_fee_debit,
-        ErrorCode::BrokenInvariant
-    );
-    require_gte!(fee.claimable_fee_debit, total_credit, ErrorCode::BrokenInvariant);
-    if fee.claimable_fee_debit == 0 {
-        return Ok((0, 0));
-    }
-    let base_credit = u64::try_from(
-        (total_credit as u128)
-            .checked_mul(fee.base_fee_debit as u128)
-            .and_then(|value| value.checked_div(fee.claimable_fee_debit as u128))
-            .ok_or(ErrorCode::FeeMathOverflow)?,
-    )
-    .map_err(|_| ErrorCode::FeeMathOverflow)?;
-    let distributed_surcharge_credit = total_credit
-        .checked_sub(base_credit)
-        .ok_or(ErrorCode::FeeMathOverflow)?;
-    Ok((base_credit, distributed_surcharge_credit))
-}
-
-fn projected_protected_profit_after_swap(market: &Market, quote: &AmmSwapQuote) -> Result<u128> {
-    let protected_before = market.amm.spendable_protected_profit_nad();
-    if quote.fee.retained_surcharge == 0 {
-        return Ok(protected_before);
-    }
-
-    let post_trade_evaluation = quote.trade_endpoint_certificate()?.certified_evaluation();
-    let post_trade_q = market.curve_q_per_share_nad(post_trade_evaluation.balanced_equivalent_q)?;
-    let with_retained_evaluation = quote.reserve_endpoint_certificate()?.certified_evaluation();
-    let with_retained_q = market.curve_q_per_share_nad(with_retained_evaluation.balanced_equivalent_q)?;
-    require_gte!(with_retained_q, post_trade_q, ErrorCode::BrokenInvariant);
-    protected_before
-        .checked_add(with_retained_q - post_trade_q)
-        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
-}
-
-fn fixed_debt(market: &Market, asset: MarketAsset) -> Result<u128> {
-    match asset {
-        MarketAsset::Base => market.debt.fixed_base_debt(),
-        MarketAsset::Quote => market.debt.fixed_quote_debt(),
-    }
-}
-
-fn hlp_funding_debt(market: &Market, asset: MarketAsset) -> Result<u128> {
-    let (shares, borrow_index_nad) = match asset {
-        MarketAsset::Base => (market.quote_hlp_vault.debt_shares, market.debt.base_borrow_index_nad),
-        MarketAsset::Quote => (market.base_hlp_vault.debt_shares, market.debt.quote_borrow_index_nad),
-    };
-    Debt::shares_to_debt(shares, borrow_index_nad)
 }
 
 fn daily_borrow_remaining(market: &Market, asset: MarketAsset, slot: u64) -> Result<u64> {
@@ -853,6 +820,7 @@ struct NewPositionPreviewContext<'a> {
 }
 
 impl<'a> NewPositionPreviewContext<'a> {
+    #[cfg(test)]
     fn new(market: &'a Market, debt_asset: MarketAsset, collateral_amount: u64, risk: &'a Risk) -> Result<Self> {
         let collateral_asset = debt_asset.opposite();
         let (collateral_virtual_reserve_nad, debt_virtual_reserve_nad) =
@@ -928,6 +896,7 @@ impl<'a> NewPositionPreviewContext<'a> {
         ))
     }
 
+    #[cfg(test)]
     fn is_accepted(&self, projected_debt_amount: u64) -> Result<bool> {
         let (terms, _) = self.terms(projected_debt_amount)?;
         Ok(terms.max_debt >= projected_debt_amount
@@ -935,6 +904,7 @@ impl<'a> NewPositionPreviewContext<'a> {
     }
 }
 
+#[cfg(test)]
 fn max_new_position_debt_by_dynamic_health(context: &NewPositionPreviewContext<'_>, upper_bound: u64) -> Result<u64> {
     let current_health = context.market.market_health_from_risk(context.risk)?;
     if context.market.assert_market_health_snapshot(&current_health).is_err() {
@@ -945,38 +915,16 @@ fn max_new_position_debt_by_dynamic_health(context: &NewPositionPreviewContext<'
     let mut high = upper_bound;
     while low < high {
         let midpoint = low + (high - low) / 2 + 1;
-        if context.is_accepted(midpoint)? {
+        let (terms, _) = context.terms(midpoint)?;
+        if terms.max_debt >= midpoint
+            && terms.projected_market_health_bps >= context.market.config.borrow_market_health_floor_bps as u64
+        {
             low = midpoint;
         } else {
             high = midpoint - 1;
         }
     }
     Ok(low)
-}
-
-fn liquidation_threshold_price_nad(
-    collateral_amount: u64,
-    collateral_decimals: u8,
-    debt_amount: u64,
-    debt_decimals: u8,
-    liquidation_cf_bps: u16,
-) -> Result<u64> {
-    if collateral_amount == 0 || debt_amount == 0 || liquidation_cf_bps == 0 {
-        return Ok(0);
-    }
-    let collateral_nad = normalize_to_nad(collateral_amount as u128, collateral_decimals)?;
-    let debt_nad = normalize_to_nad(debt_amount as u128, debt_decimals)?;
-    let price = ceil_div(
-        debt_nad
-            .checked_mul(BPS_DENOMINATOR as u128)
-            .and_then(|value| value.checked_mul(NAD as u128))
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-        collateral_nad
-            .checked_mul(liquidation_cf_bps as u128)
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-    )
-    .ok_or(ErrorCode::MarketMathOverflow)?;
-    u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
 fn preview_position_debt_side(
@@ -1042,6 +990,7 @@ fn preview_position_debt_side(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::SwapFeeBreakdown;
     use proptest::prelude::*;
 
     fn preview_test_market(existing_base_debt: u64, aggregate_quote_contribution: u64) -> Market {
@@ -1084,7 +1033,7 @@ mod tests {
     }
 
     #[test]
-    fn token_2022_claimable_fee_preview_matches_execution_split() {
+    fn reserve_custodied_fee_split_does_not_apply_a_second_transfer_fee() {
         let fee = SwapFeeBreakdown {
             base_fee_debit: 60,
             distributed_surcharge_debit: 40,
@@ -1093,11 +1042,33 @@ mod tests {
             ..SwapFeeBreakdown::default()
         };
 
-        let (base_credit, distributed_credit) = split_claimable_fee_credit(&fee, 97).unwrap();
+        let (base_credit, distributed_credit) = split_claimable_fee_credit(&fee, 100).unwrap();
 
-        assert_eq!(base_credit, 58);
-        assert_eq!(distributed_credit, 39);
-        assert_eq!(base_credit + distributed_credit, 97);
+        assert_eq!(base_credit, 60);
+        assert_eq!(distributed_credit, 40);
+        assert_eq!(base_credit + distributed_credit, fee.claimable_fee_debit);
+    }
+
+    #[test]
+    fn preview_and_execution_use_identical_state_plans() {
+        let mut preview_market = preview_test_market(0, 0);
+        preview_market.base_side.shares.ylp_supply = 1_000_000;
+        preview_market.quote_side.shares.ylp_supply = 1_000_000;
+        let mut execution_market = preview_market.clone();
+        let context = SwapContext {
+            current_slot: 7,
+            asset_in: MarketAsset::Base,
+            reserve_credit: 50_000,
+        };
+
+        let preview = context.plan(&mut preview_market).unwrap();
+        let execution = context.plan(&mut execution_market).unwrap();
+
+        assert_eq!(preview.quote, execution.quote);
+        assert_eq!(preview.base_pre_rebalance, execution.base_pre_rebalance);
+        assert_eq!(preview.quote_pre_rebalance, execution.quote_pre_rebalance);
+        assert_eq!(preview.fee_eligible_ylp_supply, execution.fee_eligible_ylp_supply);
+        assert_eq!(preview_market.amm, execution_market.amm);
     }
 
     #[test]
@@ -1106,27 +1077,40 @@ mod tests {
         market.base_side.shares.ylp_supply = 1_000_000;
         market.quote_side.shares.ylp_supply = 1_000_000;
         market.config.settlement_divergence_bps = 1;
+        market.config.target_hlp_leverage_bps = 20_000;
         market.config.amm.peak_depth_nad = 200 * NAD;
-        market.config.amm.imbalance_scale_nad = NAD / 10;
+        market.config.amm.fade_scale_nad = NAD / 10;
         market.checkpoint_amm_neutral_inventory(1).unwrap();
-        let reference = market.curve_marginal_price_nad(1).unwrap();
-        market.base_hlp_vault.hlp_supply = 1;
-        market.base_hlp_vault.cached_settlement_price_nad = reference as u128;
+        market.deposit_single_sided(MarketAsset::Base, 100_000, 1).unwrap();
 
-        let quote = market.quote_amm_swap(MarketAsset::Base, 50_000, 1).unwrap();
-        let final_price = u64::try_from(
-            quote
-                .reserve_endpoint_certificate()
-                .unwrap()
-                .certified_evaluation()
-                .marginal_price_nad,
-        )
-        .unwrap();
-        let preview_error = require_swap_preview_hlp_safe(&market, &quote, 1).unwrap_err();
+        // Create genuine stale inventory without running hLP correction, then
+        // checkpoint the resulting actionable exposure. The settlement
+        // reference remains the last actual hedge settlement price.
+        let stale_trade = market.quote_curve_exact_in(MarketAsset::Base, 150_000, 1).unwrap();
+        market
+            .swap_reserves(
+                MarketAsset::Base,
+                150_000,
+                stale_trade.amount_out,
+                0,
+                0,
+                0,
+                crate::state::ProtocolAuctionSplit::default(),
+            )
+            .unwrap();
+        market.checkpoint_amm_neutral_inventory(1).unwrap();
+        market.checkpoint_hlp_vaults().unwrap();
+        assert_ne!(market.base_hlp_vault.residual_exposure, 0);
+
+        let context = SwapContext {
+            current_slot: 1,
+            asset_in: MarketAsset::Base,
+            reserve_credit: 50_000,
+        };
+        let mut preview_market = market.clone();
+        let preview_error = context.plan(&mut preview_market).unwrap_err();
         let mut execution_market = market.clone();
-        let execution_error = execution_market
-            .defer_hlp_vaults_after_concentrated_swap(quote.start_price_nad, final_price)
-            .unwrap_err();
+        let execution_error = context.plan(&mut execution_market).unwrap_err();
 
         assert_eq!(preview_error, error!(ErrorCode::HlpSettlementUnavailable));
         assert_eq!(execution_error, preview_error);

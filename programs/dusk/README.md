@@ -23,12 +23,24 @@ Omnipair Dusk (v2) exposes the current market instruction set:
 - `swap`
 - `deposit_collateral`, `withdraw_collateral`, `borrow`, `repay`
 - `configure_referral_partner`, `initialize_referral_accrual`, `set_referral_recipient`, `claim_referral_interest`
-- `trigger_liquidation_auction`, `bid_liquidation_auction`, `settle_liquidation_auction_amm`
-- `deposit_single_sided`, `withdraw_single_sided`, `crank_hlp_rebalance`, `crank_amm_maintenance`
+- `trigger_liquidation_auction`, `bid_liquidation_auction`, `settle_liquidation_auction_floor`
+- `deposit_single_sided`, `withdraw_single_sided`
 - `open_leverage`, `close_leverage`, `delegated_close_leverage`, `increase_leverage`, `decrease_leverage`, `add_leverage_margin`, `remove_leverage_margin`, `liquidate_leverage`
 - `create_leverage_delegation`, `update_leverage_delegation`, `close_leverage_delegation`
 - `preview_market`, `preview_add_liquidity`, `preview_swap`, `preview_borrow_capacity`, `preview_borrow_position`
 - Futarchy, operator, and revenue administration: `init_futarchy_authority`, `update_futarchy_authority`, `update_protocol_revenue`, `update_revenue_recipients`, `update_protocol_auction_config`, `update_protocol_auction_recipients`, `set_global_reduce_only`, `settle_protocol_auction`, `set_operator`, `set_manager`, `claim_manager_fees`
+
+`settle_protocol_auction` requires an explicit revenue `source` in addition to
+the `fee` or `buyback` lane. `swap` sources sell from reserve-vault custody;
+`interest` sources sell from the side-specific interest vault. Settlement
+debits only the liability bucket selected by that lane/source pair.
+
+Protocol-auction governance is intentionally retroactive for unsettled
+inventory. A lane keeps each market/source inventory epoch's original start
+slot, while settlement uses the lane's current accepted mint, price curve,
+reference-age limit, and recipients. Changing the accepted mint can pause an
+affected market until governance installs a matching route; existing inventory
+is not repriced under a snapshotted historical configuration.
 
 ## Token Model
 
@@ -38,7 +50,7 @@ Each market records three Token-2022 LP mints:
 - `hLP_base`: one-sided hedged LP shares targeting base exposure.
 - `hLP_quote`: one-sided hedged LP shares targeting quote exposure.
 
-yLP and hLP mints must be fee-free Token-2022 mints with a transfer hook configured to the Dusk program, mint authority set to the market PDA, and no freeze authority. `initialize_lp_metadata` creates Metaplex metadata for each LP mint with the market PDA as update authority. Production builds additionally enforce vanity suffixes: `yLP` for yLP and `hLP` for each hLP mint. Underlying asset mints may be SPL Token or Token-2022 mints accepted by the shared mint validator.
+yLP and hLP mints must be fee-free Token-2022 mints with an immutable transfer hook configured to the Dusk program (`TransferHook.authority = None`), mint authority set to the market PDA, and no freeze authority. `initialize_lp_metadata` creates Metaplex metadata for each LP mint with the market PDA as update authority. Production builds additionally enforce vanity suffixes: `yLP` for yLP and `hLP` for each hLP mint. Underlying asset mints may be SPL Token or Token-2022 mints accepted by the shared mint validator.
 
 ## yLP Liquidity
 
@@ -53,7 +65,13 @@ quote_claim = user_ylp_shares * quote_live_reserve / total_ylp_supply
 
 There is no fixed 1:1 protected-principal LP, no separate public fee-eligibility step, and no retained junior-capital account. `remove_liquidity` burns yLP and returns pro-rata base and quote principal reserves subject to cash availability and user slippage bounds.
 
-Base swap fees, distributed dynamic surcharge, and borrow interest are non-compounding liabilities. They are held outside principal reserves in side-specific fee and interest vaults and distributed through side-specific growth indexes. While the AMM's protected recentering budget is under target, only the dynamic surcharge may remain in executable reserves as auto-compounding yLP principal. `YieldAccount` stores owner checkpoints, accrued revenue, and an optional external revenue recipient for treasury or protocol-owned liquidity flows.
+Base swap fees, distributed dynamic surcharge, and borrow interest are non-compounding liabilities. Swap-fee liabilities stay physically in the reserve vault as `swap_fee_custody_balance`, outside executable `cash_reserve`; interest liabilities stay in the side-specific interest vault. Both are distributed through side-specific Q64 growth indexes with exact aggregate carry, keeping all rounding drift below one raw token atom under any `u64` LP supply. While the AMM's protected recentering budget is under target, only the dynamic surcharge may remain in executable reserves as auto-compounding yLP principal. `YieldAccount` stores its LP mint, owner checkpoints, Q64 remainders, accrued revenue, and an optional external revenue recipient for treasury or protocol-owned liquidity flows.
+
+Token-2022 does not invoke transfer hooks for `Burn`. A direct yLP burn is therefore an intentional, irreversible donation: Dusk's internal yLP denominator does not shrink, the burned share's future yield is not redistributed, and the destroyed balance cannot authorize principal withdrawal.
+
+A partial direct hLP burn is recognized lazily on the next deposit or withdrawal for that hLP side. Dusk first checkpoints nested yLP growth against the old stored supply, then replaces the stored hLP supply with the smaller nonzero live mint supply before pricing the operation. Burned hLP principal is donated to the remaining holders; historical nested yield attributable to the burned balance remains stranded, while future nested yield uses the reconciled live supply. If every hLP atom is burned directly, no holder remains to authorize the normal final exit: the side is a deliberately fail-closed zombie and later hLP deposits/withdrawals reject. There is no governance sweep or asynchronous recovery path. Normal exits must use Dusk's remove/withdraw instructions.
+
+LP custody must also preserve an authority that can sign Dusk's claim and recipient-update instructions. A normal wallet works directly; a PDA owner works only when its controlling program invokes Dusk with `invoke_signed`. SPL multisig-owned LP token accounts are not supported because the multisig account itself cannot satisfy Dusk's owner-signer constraint. Sending LP tokens to unsupported custody can make that custody's accrued yield unreachable.
 
 ## hLP Vaults
 
@@ -109,7 +127,7 @@ The runtime cap is governed through `update_protocol_revenue` and applies when a
 
 ## Swaps And Rebalancing
 
-`swap` is the Dusk swap entry. It transfers inventory, applies the market's exact CPMM or Dusk Concentrated AMM reserve curve, charges the configured base plus divergence/volatility fees, routes only claimable fees to the fee vault, and checkpoints both aggregate hLP vaults in O(1).
+`swap` is the Dusk swap entry. It transfers inventory, applies the market's exact CPMM or Dusk Concentrated AMM reserve curve, charges the configured base plus divergence/volatility fees, records claimable fees as reserve-custodied liabilities excluded from executable liquidity, and checkpoints both aggregate hLP vaults in O(1).
 
 The divergence surcharge has no configured rate ceiling: its marginal toll is
 unbounded. The separately configured volatility mapping is asymptotic and
@@ -121,9 +139,9 @@ from zero through nine, and initialization rejects finer assets.
 Routers and user slippage bounds decide whether the resulting market quote is
 acceptable.
 
-`peak_depth = 0, imbalance_scale = 0` is exact CPMM. Positive `peak_depth` and `imbalance_scale` activate the Dusk Concentrated AMM: `peak_depth` states the extra marginal-depth multiplier at the internally observed center, while `imbalance_scale` controls how quickly that extra depth fades toward the exact CPMM tail. These are the only invariant knobs. Fees, EMA half-life, adjustment threshold, and recenter velocity remain separate controller settings. Trades move reserves and produce price observations; a time-decayed internal EMA guides only funded, bounded center adjustments. Dusk never consults an external oracle.
+`peak_depth = 0, fade_scale = 0` is exact CPMM. Positive `peak_depth` and `fade_scale` activate the Dusk Concentrated AMM: `peak_depth` states the extra marginal-depth multiplier at the internally observed center, while `fade_scale` controls how quickly that extra depth fades toward the exact CPMM tail. These are the only invariant knobs. Fees, EMA half-life, adjustment threshold, and recenter velocity remain separate controller settings. Trades move reserves and produce price observations; a time-decayed internal EMA guides only funded, bounded center adjustments. Dusk never consults an external oracle.
 
-hLP checkpointing computes NAV, attempts the spot-based leverage adjustment, records any unexecuted amount in `pending_rebalance`, and refreshes a cached settlement reference. The adjustment mints or burns balanced yLP, so the quoted post-swap spot is preserved within rounding and there is no hidden second price move after the user output. Leverage-up is capped by borrowed-side cash headroom; when cash is unavailable, ordinary swaps remain live and the gap is carried forward as pending rebalance. hLP open/close uses the cached reference to block settlement when spot has moved beyond `settlement_divergence_bps`.
+hLP checkpointing computes NAV, attempts the spot-based leverage adjustment, records any unexecuted amount in `residual_exposure`, and refreshes a cached settlement reference. The adjustment mints or burns balanced yLP, so the quoted post-swap spot is preserved within rounding and there is no hidden second price move after the user output. Leverage-up is capped by borrowed-side cash headroom; when cash is unavailable, ordinary swaps remain live and the gap is carried forward as residual exposure. hLP open/close uses the cached reference to block settlement when spot has moved beyond `settlement_divergence_bps`.
 
 ## PDA Map
 
@@ -132,19 +150,18 @@ hLP checkpointing computes NAV, attempts the spot-based leverage adjustment, rec
 | `Market` | `market_v2`, `base_mint`, `quote_mint`, `params_hash` | `deriveMarketAddress` |
 | Reserve vault | `market_reserve`, `market`, `asset_mint` | `deriveMarketReserveVaultAddress` |
 | Collateral vault | `market_collateral`, `market`, `asset_mint` | `deriveMarketCollateralVaultAddress` |
-| Swap fee vault | `market_fee`, `market`, `asset_mint` | `deriveMarketFeeVaultAddress` |
 | Interest vault | `market_interest`, `market`, `asset_mint` | `deriveMarketInterestVaultAddress` |
 | Borrow position | `borrow_position_v2`, `market`, `position_id` | `deriveBorrowPositionAddress` |
 | Referral partner | `referral_partner`, `referrer` | `deriveReferralPartnerAddress` |
 | Referral accrual | `referral_accrual`, `referral_partner`, `market`, `asset_mint` | `deriveReferralAccrualAddress` |
-| Yield account | `yield`, `market`, `owner`, `asset_mint`, `token_kind` | `deriveYieldAccountAddress` |
+| Yield account | `yield`, `market`, `owner`, `lp_mint`, `asset_mint`, `token_kind` | `deriveYieldAccountAddress` |
 | Insurance vault | `insurance`, `market`, `asset_mint` | `deriveInsuranceAddress` |
 | Leverage position | `leverage_position_v2`, `market`, `position_id` | `deriveLeveragePositionAddress` |
 | Leverage delegation | `leverage_delegation_v2`, `leverage_position` | derive from seed tuple |
 | Leverage collateral vault | `leverage_collateral`, `market`, `collateral_mint` | derive from seed tuple |
 | LP token metadata | Metaplex `metadata`, token metadata program, `lp_mint` | `deriveTokenMetadataAddress` |
 
-yLP and hLP mints are supplied to `initialize` and validated by mint authority, decimals, Token-2022 owner, transfer hook, fee-free extension rules, no freeze authority, vanity suffix, and zero supply at market creation. LP metadata is created in follow-up `initialize_lp_metadata` calls, one mint per transaction.
+yLP and hLP mints are supplied to `initialize`. The two asset mints and all three LP mints must be pairwise distinct, and each LP mint is validated by mint authority, decimals, Token-2022 owner, immutable Dusk transfer hook, fee-free extension rules, no freeze authority, vanity suffix, and zero supply at market creation. LP metadata is created in follow-up `initialize_lp_metadata` calls, one mint per transaction. The permissionless, idempotent `initialize_yield_accounts` creates both asset-stream accounts for one owner and LP mint; `initialize_lp_transfer_hook` creates and validates the canonical Token-2022 extra-account-meta PDA on-chain without a seeded client fixture.
 
 Referral accruals are market-specific liabilities. Their backing remains in the corresponding market interest vault until the referrer claims to the partner's current recipient.
 
@@ -154,8 +171,8 @@ Indexers should consume Dusk events from the standalone Dusk IDL:
 
 - `MarketCreated`, `MarketUpdated`, `MarketHealthUpdated`
 - `LiquidityAdded`, `LiquidityRemoved`
-- `YieldRecipientUpdated`, `YieldClaimed`, `MarketFeeLiabilityClaimed`, `ProtocolFeesClaimed`
-- `SwapExecuted`, `SwapSettled`, `HlpRebalanced`
+- `YieldRecipientUpdated`, `YieldClaimed`, `ManagerFeesClaimed`, `ProtocolAuctionSettled`
+- `SwapExecuted`
 - `MarketCollateralDeposited`, `MarketCollateralWithdrawn`, `MarketDebtUpdated`
 - `PositionLiquidated`
 - `HlpOpened`, `HlpClosed`
@@ -165,11 +182,10 @@ Indexers should consume Dusk events from the standalone Dusk IDL:
 
 Market-scoped Dusk events carry `MarketEventMetadata` with signer, market, and slot. Protocol-wide authority, referral-recipient, and referral-claim events instead expose their authority or signer directly because they are not tied to one market.
 
-Indexers must treat `SwapExecuted` and `SwapSettled` as the same swap stream.
-`SwapSettled` replaces `SwapExecuted` when a CPMM swap also executes hLP token
-changes; it uses `asset_in_side` instead of repeating both mint addresses and
-omits metadata to keep that composite path within its heap budget. Both events
-contain the same fee and price telemetry. `end_price_nad` is the
+`SwapExecuted` is the single canonical spot-swap event whether or not inline
+hLP settlement changes tokens. It identifies the input by `asset_in_side` and
+omits duplicated mint keys and metadata to keep the hot path compact.
+`trade_end_price_nad` is the
 invariant-preserving trade endpoint; `reserve_end_price_nad` is the final pool
 marginal price after any retained surcharge has entered executable reserves.
 Leverage position events expose their embedded AMM leg as `swap`; margin-only
@@ -179,8 +195,8 @@ updates set it to `None`.
 
 - yLP supply is backed by paired base/quote principal accounting.
 - No operation mints yLP without corresponding reserve value.
-- yLP principal reserves exclude fee and interest vault balances; only retained dynamic surcharge may become new swap principal.
-- Fee liabilities must be backed by fee and interest vault balances.
+- yLP principal reserves exclude reserve-custodied swap-fee liabilities and interest-vault balances; only retained dynamic surcharge may become new swap principal.
+- A physical reserve-vault balance must equal executable `cash_reserve + swap_fee_custody_balance`; interest liabilities must be backed by the interest vault.
 - Base fees and lending interest never fund concentration recentering.
 - A normal trade checkpoints the current curve as economically neutral; retained dynamic surcharge is the only swap path that creates protected recentering budget.
 - Recenter and parameter-ramp points are admitted only when their Dusk Concentrated AMM `Q` impairment is funded.

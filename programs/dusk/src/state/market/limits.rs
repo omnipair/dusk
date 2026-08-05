@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::{errors::ErrorCode, math::decayed_daily_bucket};
+use crate::{constants::MS_PER_DAY, errors::ErrorCode, shared::math::slots_to_ms};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
 pub struct DailyLimits {
@@ -10,7 +10,22 @@ pub struct DailyLimits {
 
 impl DailyLimits {
     pub fn decay_to_slot(&mut self, current_slot: u64) -> Result<()> {
-        self.borrowed_bucket = decayed_daily_bucket(self.borrowed_bucket, self.last_decay_slot, current_slot)?;
+        self.borrowed_bucket = if self.borrowed_bucket == 0 {
+            0
+        } else if let Some(elapsed_ms) = slots_to_ms(self.last_decay_slot, current_slot) {
+            if elapsed_ms >= MS_PER_DAY {
+                0
+            } else {
+                let remaining_ms = (MS_PER_DAY - elapsed_ms) as u128;
+                let decayed = (self.borrowed_bucket as u128)
+                    .checked_mul(remaining_ms)
+                    .and_then(|value| value.checked_div(MS_PER_DAY as u128))
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
+                u64::try_from(decayed).map_err(|_| ErrorCode::MarketMathOverflow)?
+            }
+        } else {
+            self.borrowed_bucket
+        };
         self.last_decay_slot = current_slot;
         Ok(())
     }

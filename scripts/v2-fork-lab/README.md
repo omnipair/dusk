@@ -43,6 +43,9 @@ The fork API accepts `FORK_LAB_PAYER_KEYPAIR_JSON`, `FORK_LAB_PAYER_KEYPAIR_BASE
 - `POST /api/v2/fork/tx/repay`
 - `POST /api/v2/fork/tx/deposit-single-sided`
 - `POST /api/v2/fork/tx/withdraw-single-sided`
+- `POST /api/v2/fork/tx/update-protocol-auction-config`
+- `POST /api/v2/fork/tx/update-protocol-auction-recipients`
+- `POST /api/v2/fork/tx/settle-protocol-auction`
 - `GET /api/v2/markets`
 - `GET /api/v2/markets/:marketAddress`
 - `GET /api/v2/markets/:marketAddress/swaps`
@@ -50,3 +53,9 @@ The fork API accepts `FORK_LAB_PAYER_KEYPAIR_JSON`, `FORK_LAB_PAYER_KEYPAIR_BASE
 - `GET /api/v2/users/:wallet/activity`
 
 Transaction endpoints return an unsigned base64 legacy transaction in `data.transaction`. The browser wallet signs and submits it to `data.rpcUrl`, which should be the public RPC proxy.
+
+Protocol-auction settlement requires `lane: "fee" | "buyback"` and an explicit
+`source: "swap" | "interest"`. The API never defaults the source. Swap revenue
+is sold from the matching reserve vault and interest revenue from the matching
+interest vault, so the selected physical custody always matches the liability
+that settlement debits.

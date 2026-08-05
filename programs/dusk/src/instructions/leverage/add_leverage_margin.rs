@@ -8,15 +8,18 @@ use crate::{
     constants::*,
     errors::ErrorCode,
     events::{LeveragePositionUpdated, MarketEventMetadata},
-    shared::token::transfer_from_user_to_vault_with_remaining_accounts,
+    shared::token::{
+        get_transfer_fee_for_epoch, get_transfer_inverse_fee_for_epoch, transfer_checked_with_remaining_accounts,
+    },
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
 };
 
 use super::common::{record_leverage_interest, validate_leverage_interest_account, validate_owner_debt_account};
 use crate::instructions::common::{
-    require_supported_asset_mint, token_account_credit, token_program_for_mint, validate_side_vault_accounts,
+    require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
+    validate_side_vault_accounts,
 };
-use crate::instructions::referral::common::{emit_referral_interest_accrued, validate_referral_binding};
+use crate::instructions::referral::common::{emit_referral_interest_accrued_at_slot, validate_referral_binding};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct AddLeverageMarginArgs {
@@ -24,7 +27,6 @@ pub struct AddLeverageMarginArgs {
     pub amount: u64,
 }
 
-#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: AddLeverageMarginArgs)]
 pub struct AddLeverageMargin<'info> {
@@ -81,8 +83,8 @@ pub struct AddLeverageMargin<'info> {
 }
 
 impl<'info> AddLeverageMargin<'info> {
-    pub fn validate(&self, args: &AddLeverageMarginArgs) -> Result<()> {
-        self.market.assert_started()?;
+    pub fn validate_at(&self, args: &AddLeverageMarginArgs, unix_timestamp: i64) -> Result<()> {
+        self.market.assert_started_at(unix_timestamp)?;
         require_keys_eq!(self.owner.key(), self.position_owner.key(), ErrorCode::InvalidSigner);
         require!(args.amount > 0, ErrorCode::AmountZero);
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
@@ -110,14 +112,18 @@ impl<'info> AddLeverageMargin<'info> {
         Ok(())
     }
 
-    crate::instructions::common::market_update_and_validate!(AddLeverageMarginArgs);
-
-    pub fn handle_add_margin(ctx: Context<'_, '_, '_, 'info, Self>, args: AddLeverageMarginArgs) -> Result<()> {
+    pub fn handle_add_margin(
+        ctx: Context<'_, '_, '_, 'info, Self>,
+        args: AddLeverageMarginArgs,
+        current_slot: u64,
+        current_epoch: u64,
+    ) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.owner.key();
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
         let debt_mint_key = ctx.accounts.debt_mint.key();
         let position_key = ctx.accounts.leverage_position.key();
+        ctx.accounts.market.prepare_leverage_margin_operation(current_slot)?;
 
         let reserve_balance_before = ctx.accounts.debt_reserve_vault.amount;
         let debt_token_program = token_program_for_mint(
@@ -125,25 +131,47 @@ impl<'info> AddLeverageMargin<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        transfer_from_user_to_vault_with_remaining_accounts(
+        let max_repay_credit = args
+            .amount
+            .checked_sub(get_transfer_fee_for_epoch(
+                &ctx.accounts.debt_mint.to_account_info(),
+                args.amount,
+                current_epoch,
+            )?)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let repay_credit = ctx
+            .accounts
+            .market
+            .debt
+            .isolated_repayment_for_max(debt_asset, ctx.accounts.leverage_position.debt_shares, max_repay_credit)?
+            .cash_repaid;
+        let repay_gross = repay_credit
+            .checked_add(get_transfer_inverse_fee_for_epoch(
+                &ctx.accounts.debt_mint.to_account_info(),
+                repay_credit,
+                current_epoch,
+            )?)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        require_gte!(args.amount, repay_gross, ErrorCode::BrokenInvariant);
+        transfer_checked_with_remaining_accounts(
             ctx.accounts.owner.to_account_info(),
             ctx.accounts.owner_debt_account.to_account_info(),
             ctx.accounts.debt_reserve_vault.to_account_info(),
             ctx.accounts.debt_mint.to_account_info(),
             debt_token_program,
-            args.amount,
+            repay_gross,
             ctx.accounts.debt_mint.decimals,
+            &[],
             ctx.remaining_accounts,
         )?;
         ctx.accounts.debt_reserve_vault.reload()?;
-        let repay_credit = token_account_credit(reserve_balance_before, &ctx.accounts.debt_reserve_vault)?;
-        require!(repay_credit > 0, ErrorCode::AmountZero);
+        let measured_repay_credit = token_account_credit(reserve_balance_before, &ctx.accounts.debt_reserve_vault)?;
+        require_eq!(measured_repay_credit, repay_credit, ErrorCode::BrokenInvariant);
 
-        let receipt = ctx.accounts.market.add_leverage_margin(
-            &mut ctx.accounts.leverage_position,
-            repay_credit,
-            Clock::get()?.slot,
-        )?;
+        let receipt =
+            ctx.accounts
+                .market
+                .add_leverage_margin(&mut ctx.accounts.leverage_position, repay_credit, current_slot)?;
         let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
         let referral_receipt = record_leverage_interest(
             &mut ctx.accounts.market,
@@ -162,17 +190,23 @@ impl<'info> AddLeverageMargin<'info> {
             receipt.interest_paid,
             ctx.remaining_accounts,
         )?;
+        ctx.accounts.debt_reserve_vault.reload()?;
+        require_reserve_custody(
+            ctx.accounts.debt_reserve_vault.amount,
+            ctx.accounts.market.side(debt_asset),
+        )?;
 
-        emit_referral_interest_accrued(
+        emit_referral_interest_accrued_at_slot(
             &referral_receipt,
             market_key,
             position_key,
             owner_key,
             owner_key,
             debt_mint_key,
+            current_slot,
         )?;
 
-        emit_cpi!(LeveragePositionUpdated {
+        emit!(LeveragePositionUpdated {
             market: market_key,
             position: position_key,
             owner: owner_key,
@@ -186,7 +220,7 @@ impl<'info> AddLeverageMargin<'info> {
             collateral_amount: receipt.collateral_amount,
             closeout_value: receipt.closeout_value,
             swap: None,
-            metadata: MarketEventMetadata::new(owner_key, market_key)?,
+            metadata: MarketEventMetadata::at_slot(owner_key, market_key, current_slot),
         });
         Ok(())
     }

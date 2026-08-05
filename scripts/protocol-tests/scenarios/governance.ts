@@ -493,7 +493,6 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
       const invalidConfigs: Array<[string, Record<string, string | number>, string]> = [
         ["swap fee above maximum", { ...original, swapFeeBps: 10_001 }, "InvalidSwapFeeBps"],
         ["manager fee above maximum", { ...original, managerFeeBps: 501 }, "InvalidMarketConfig"],
-        ["nonzero legacy protocol fee", { ...original, protocolFeeBps: 1 }, "InvalidMarketConfig"],
         ["unsupported hLP leverage", { ...original, targetHlpLeverageBps: 19_999 }, "InvalidMarketConfig"],
         ["settlement divergence above maximum", { ...original, settlementDivergenceBps: 10_001 }, "InvalidMarketConfig"],
         ["symmetric EMA below minimum", { ...original, emaHalfLifeMs: "59999" }, "InvalidMarketConfig"],
@@ -533,8 +532,6 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
         ...original,
         swapFeeBps: 10_000,
         managerFeeBps: 500,
-        operatorFeeBps: 500,
-        protocolFeeBps: 0,
         targetHlpLeverageBps: 20_000,
         settlementDivergenceBps: 10_000,
         emaHalfLifeMs: "43200000",
@@ -1275,7 +1272,7 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
         },
       });
       const marketBeforeAccrual = await harness.market();
-      const liabilityBeforeAccrual = stateValue(marketBeforeAccrual, "baseProtocolFeeLiability");
+      const liabilityBeforeAccrual = stateValue(marketBeforeAccrual, "baseSwapProtocolFeeLiability");
       await harness.execute({
         wallet: "trader",
         endpoint: "/api/v2/fork/tx/swap",
@@ -1283,12 +1280,12 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
         body: { assetIn: "base", exactAssetIn: "10", minAssetOut: "0" },
       });
       let market = await harness.market();
-      let soldAmount = stateValue(market, "baseProtocolFeeLiability");
+      let soldAmount = stateValue(market, "baseSwapProtocolFeeLiability");
       harness.assertTrue("swap creates additional fee-auction liability", soldAmount > liabilityBeforeAccrual, {
         before: liabilityBeforeAccrual,
         after: soldAmount,
       });
-      harness.assertTrue("fee-auction liability is token-backed", stateValue(market, "baseSwapFeeVaultBalance") >= soldAmount);
+      harness.assertTrue("fee-auction liability is reserve-custody-backed", stateValue(market, "baseSwapFeeCustodyBalance") >= soldAmount);
 
       await harness.timeTravel(0, 10);
       const staleReference = await harness.execute({
@@ -1298,6 +1295,7 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
         expected: "failure",
         body: {
           lane: "fee",
+          source: "swap",
           soldAsset: "base",
           soldAmount: formatUnits(soldAmount, harness.config.baseDecimals),
           maxPaymentAmount: "1000000",
@@ -1316,7 +1314,7 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
         body: { assetIn: "base", exactAssetIn: "0.001", minAssetOut: "0" },
       });
       market = await harness.market();
-      soldAmount = stateValue(market, "baseProtocolFeeLiability");
+      soldAmount = stateValue(market, "baseSwapProtocolFeeLiability");
       const insufficientPayment = await harness.execute({
         wallet: "bidder",
         endpoint: "/api/v2/fork/tx/settle-protocol-auction",
@@ -1324,6 +1322,7 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
         expected: "failure",
         body: {
           lane: "fee",
+          source: "swap",
           soldAsset: "base",
           soldAmount: formatUnits(soldAmount, harness.config.baseDecimals),
           maxPaymentAmount: "0.000001",
@@ -1335,9 +1334,9 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
         "InsufficientAuctionPayment"
       );
 
-      const baseFeeVault = new PublicKey(market.baseFeeVault);
-      const feeVaultBefore = await harness.tokenAccountBalance(baseFeeVault, harness.config.baseTokenProgram);
-      const trackedFeeVaultBefore = stateValue(market, "baseSwapFeeVaultBalance");
+      const baseReserveVault = new PublicKey(market.baseReserveVault);
+      const reserveVaultBefore = await harness.tokenAccountBalance(baseReserveVault, harness.config.baseTokenProgram);
+      const trackedFeeCustodyBefore = stateValue(market, "baseSwapFeeCustodyBalance");
       const bidderBaseBefore = await harness.tokenBalance(
         "bidder",
         harness.config.baseMint,
@@ -1364,6 +1363,7 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
         label: "settle full base fee-auction liability",
         body: {
           lane: "fee",
+          source: "swap",
           soldAsset: "base",
           soldAmount: formatUnits(soldAmount, harness.config.baseDecimals),
           maxPaymentAmount: "1000000",
@@ -1381,15 +1381,15 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
       harness.assertEqual("auction receipt clears fee liability", eventAmount(receipt, "remaining_fee_liability"), 0n);
 
       const marketAfter = await harness.market();
-      harness.assertEqual("fee lane liability clears on-chain", stateValue(marketAfter, "baseProtocolFeeLiability"), 0n);
+      harness.assertEqual("fee lane liability clears on-chain", stateValue(marketAfter, "baseSwapProtocolFeeLiability"), 0n);
       harness.assertEqual(
-        "tracked fee-vault balance debits sold amount",
-        trackedFeeVaultBefore - stateValue(marketAfter, "baseSwapFeeVaultBalance"),
+        "tracked reserve-custody balance debits sold amount",
+        trackedFeeCustodyBefore - stateValue(marketAfter, "baseSwapFeeCustodyBalance"),
         soldAmount
       );
       harness.assertEqual(
-        "token fee vault debits sold amount",
-        feeVaultBefore - await harness.tokenAccountBalance(baseFeeVault, harness.config.baseTokenProgram),
+        "reserve vault custody debits sold amount",
+        reserveVaultBefore - await harness.tokenAccountBalance(baseReserveVault, harness.config.baseTokenProgram),
         soldAmount
       );
       harness.assertEqual(
@@ -1422,6 +1422,7 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
         expected: "failure",
         body: {
           lane: "fee",
+          source: "swap",
           soldAsset: "base",
           soldAmount: formatUnits(soldAmount, harness.config.baseDecimals),
           maxPaymentAmount: "1000000",
@@ -1477,10 +1478,6 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
       harness.assertEqual("fee auction accepted mint restores", authority.feeAuction.acceptedMint, before.feeAuction.acceptedMint);
       harness.assertEqual("fee auction parameters restore", authority.feeAuction.params, before.feeAuction.params);
       harness.assertEqual("fee auction recipients restore", authority.feeAuction.recipients, before.feeAuction.recipients);
-      harness.assertTrue(
-        "fee auction settlement slot advances monotonically",
-        BigInt(authority.feeAuction.lastSettlementSlot) > BigInt(before.feeAuction.lastSettlementSlot)
-      );
       harness.assertEqual("buyback auction config restores", authority.buybackAuction, before.buybackAuction);
       harness.assertEqual("protocol swap share restores", authority.revenueShare, before.revenueShare);
       harness.assertEqual("protocol auction split restores", authority.protocolAuctionSplit, before.protocolAuctionSplit);

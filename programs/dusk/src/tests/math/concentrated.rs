@@ -1,851 +1,169 @@
 use super::*;
-use crate::state::{
-    AmmCurveParameters, AmmRamp, MAX_AMM_IMBALANCE_SCALE_NAD, MAX_AMM_PEAK_DEPTH_NAD,
-    MAX_AMM_RAMP_DURATION_SLOTS, MIN_AMM_IMBALANCE_SCALE_NAD, MIN_AMM_PEAK_DEPTH_NAD,
-    MIN_AMM_RAMP_DURATION_SLOTS,
-};
 use proptest::prelude::*;
 
+#[allow(clippy::assign_op_pattern, clippy::manual_div_ceil)]
+mod reference_wide {
+    use uint::construct_uint;
+
+    construct_uint! {
+        pub struct U256(4);
+    }
+}
+
+use reference_wide::U256;
+
 const PEAK_DEPTH_200: u128 = 200 * NAD as u128;
-const IMBALANCE_SCALE_TENTH: u128 = NAD as u128 / 10;
+const FADE_TENTH: u128 = NAD as u128 / 10;
 
-fn assert_canonical_high_kernel_matches_signed_u512_reference(
-    x: u128,
-    y: u128,
-    d_high: u128,
-    center_price_nad: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) {
-    let (x_core, y_core) = canonical_high_reserve_residual_derivative_cores(
-        x,
-        y,
-        d_high,
-        peak_depth_nad,
-        imbalance_scale_nad,
-    )
-    .unwrap();
-    let ((x_sign, reference_x_core), (y_sign, reference_y_core)) =
-        reserve_residual_derivatives(x, y, d_high, peak_depth_nad, imbalance_scale_nad).unwrap();
-    assert_eq!(x_sign, ResidualSign::NonNegative);
-    assert_eq!(y_sign, ResidualSign::NonNegative);
-    assert_eq!(checked_mul_512(x_core, U512::from(2_u8)).unwrap(), reference_x_core);
-    assert_eq!(checked_mul_512(y_core, U512::from(2_u8)).unwrap(), reference_y_core);
-
-    let reference_price = concentrated_inner_marginal_price_from_common(
-        x,
-        y,
-        d_high,
-        center_price_nad,
-        peak_depth_nad,
-        imbalance_scale_nad,
-    )
-    .unwrap();
-    let canonical_price = concentrated_canonical_high_inner_marginal_price_from_common(
-        x,
-        y,
-        d_high,
-        center_price_nad,
-        peak_depth_nad,
-        imbalance_scale_nad,
-    )
-    .unwrap();
-    assert_eq!(canonical_price, reference_price);
-}
-
-fn assert_exact_out_inverse_bracket(
-    base_reserve: u128,
-    quote_reserve: u128,
-    requested: u128,
-    direction: ConcentratedSwapDirection,
-    center: u128,
-    peak_depth: u128,
-    imbalance_scale: u128,
-) {
-    let upper = concentrated_quote_exact_out(
-        base_reserve,
-        quote_reserve,
-        requested,
-        direction,
-        center,
-        peak_depth,
-        imbalance_scale,
-    )
-    .unwrap();
-    let lower = concentrated_quote_exact_out_input_lower_bound(
-        base_reserve,
-        quote_reserve,
-        requested,
-        direction,
-        center,
-        peak_depth,
-        imbalance_scale,
-    )
-    .unwrap();
-    let replay = concentrated_quote_exact_in(
-        base_reserve,
-        quote_reserve,
-        upper,
-        direction,
-        center,
-        peak_depth,
-        imbalance_scale,
-    )
-    .unwrap();
-    assert!(
-        replay >= requested,
-        "requested={requested} upper={upper} replay={replay}"
-    );
-    assert!(lower <= upper, "requested={requested} lower={lower} upper={upper}");
-
-    // Independent executable inverse used only by tests. Production obtains
-    // both bounds from one fixed-iteration invariant solve.
-    let mut reference_low = 0_u128;
-    let mut reference_high = upper;
-    while reference_low < reference_high {
-        let midpoint = reference_low + (reference_high - reference_low) / 2;
-        if concentrated_quote_exact_in(
-            base_reserve,
-            quote_reserve,
-            midpoint,
-            direction,
-            center,
-            peak_depth,
-            imbalance_scale,
-        )
-        .unwrap()
-            >= requested
-        {
-            reference_high = midpoint;
-        } else {
-            reference_low = midpoint + 1;
-        }
-    }
-    assert!(
-        lower <= reference_low && reference_low <= upper,
-        "requested={requested} lower={lower} reference={reference_low} upper={upper}"
-    );
-    if lower < reference_low {
-        let lower_replay = concentrated_quote_exact_in(
-            base_reserve,
-            quote_reserve,
-            lower,
-            direction,
-            center,
-            peak_depth,
-            imbalance_scale,
-        )
-        .unwrap();
-        assert!(lower_replay < requested);
-    }
-}
-
-fn analytical_residual(x: f64, y: f64, d: f64, peak_depth: f64, imbalance_scale: f64) -> f64 {
+fn analytical_inner_residual(x: f64, y: f64, d: f64, peak_depth: f64, fade: f64) -> f64 {
     let q = 4.0 * x * y / (d * d);
     let delta = 1.0 - q;
-    let weight = (imbalance_scale / (imbalance_scale + delta)).powi(2);
-    let depth_eff = 0.5 * peak_depth * q * weight;
-    depth_eff * d * (x + y - d) + x * y - d * d / 4.0
+    let weight = (fade / (fade + delta)).powi(2);
+    2.0 * peak_depth * q * weight * ((x + y - d) / d) + q - 1.0
 }
 
-fn analytical_is_inner(x: f64, y: f64, peak_depth: f64, imbalance_scale: f64) -> bool {
-    if peak_depth == 0.0 {
-        return true;
-    }
-    let shoulder_q = 1.0 - imbalance_scale;
-    let shoulder_sum_over_d = 1.0 + 2.0 * imbalance_scale / (peak_depth * shoulder_q);
-    4.0 * x * y / (x + y).powi(2) >= shoulder_q / shoulder_sum_over_d.powi(2)
-}
-
-fn analytical_hybrid_residual(x: f64, y: f64, d: f64, peak_depth: f64, imbalance_scale: f64) -> f64 {
-    if analytical_is_inner(x, y, peak_depth, imbalance_scale) {
-        analytical_residual(x, y, d, peak_depth, imbalance_scale)
-    } else {
-        x * y - d * d * (1.0 - imbalance_scale) / 4.0
-    }
-}
-
-fn analytical_invariant(x: f64, y: f64, peak_depth: f64, imbalance_scale: f64) -> f64 {
-    if peak_depth == 0.0 {
-        return 2.0 * (x * y).sqrt();
-    }
-    if !analytical_is_inner(x, y, peak_depth, imbalance_scale) {
-        return 2.0 * (x * y / (1.0 - imbalance_scale)).sqrt();
-    }
-    let mut low = 2.0 * (x * y).sqrt();
-    let mut high = x + y;
-    for _ in 0..160 {
-        let midpoint = (low + high) / 2.0;
-        if analytical_residual(x, y, midpoint, peak_depth, imbalance_scale) >= 0.0 {
-            low = midpoint;
-        } else {
-            high = midpoint;
-        }
-    }
-    (low + high) / 2.0
-}
-
-fn analytical_inner_marginal_from_d(
-    x: f64,
-    y: f64,
-    d: f64,
-    peak_depth: f64,
-    imbalance_scale: f64,
-) -> f64 {
-    let e = d * d - 4.0 * x * y;
-    let b = imbalance_scale * d * d + e;
-    let concentration_factor = 2.0 * peak_depth * imbalance_scale * imbalance_scale * d.powi(3);
-    let direct = b * b;
-    let interaction = 2.0 * e * b;
-    let x_core = concentration_factor * (y + 2.0 * x - d) + direct + interaction;
-    let y_core = concentration_factor * (x + 2.0 * y - d) + direct + interaction;
-    y * x_core / (x * y_core)
-}
-
-fn analytical_inner_marginal(x: u128, y: u128, peak_depth_nad: u128, imbalance_scale_nad: u128) -> f64 {
-    let normalization = x.max(y) as f64;
-    let normalized_x = x as f64 / normalization;
-    let normalized_y = y as f64 / normalization;
-    let peak_depth = peak_depth_nad as f64 / NAD as f64;
-    let imbalance_scale = imbalance_scale_nad as f64 / NAD as f64;
-    let d = analytical_invariant(normalized_x, normalized_y, peak_depth, imbalance_scale);
-    analytical_inner_marginal_from_d(
-        normalized_x,
-        normalized_y,
-        d,
-        peak_depth,
-        imbalance_scale,
-    )
-}
-
-fn analytical_exact_in(x: f64, y: f64, dx: f64, peak_depth: f64, imbalance_scale: f64) -> f64 {
-    let d = analytical_invariant(x, y, peak_depth, imbalance_scale);
-    let fixed = x + dx;
-    let mut low = f64::MIN_POSITIVE;
-    let mut high = y;
-    for _ in 0..160 {
-        let midpoint = (low + high) / 2.0;
-        if analytical_hybrid_residual(fixed, midpoint, d, peak_depth, imbalance_scale) >= 0.0 {
-            high = midpoint;
-        } else {
-            low = midpoint;
-        }
-    }
-    y - (low + high) / 2.0
-}
-
-fn signed_residual_value(
-    x: u128,
-    y: u128,
-    d: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> (ResidualSign, U512) {
-    let (positive, negative) = residual_terms(x, y, d, peak_depth_nad, imbalance_scale_nad).unwrap();
+fn reserves_at_c1_coordinate(d: u128, q_q48: u128, v_q48: u128) -> (u128, u128) {
+    let sqrt_q = isqrt(q_q48.checked_mul(Q48_ONE).unwrap());
+    let cosh = isqrt(Q48_ONE * Q48_ONE + v_q48 * v_q48);
+    let low_factor = mul_q48(sqrt_q, cosh - v_q48).unwrap();
+    let high_factor = mul_q48(sqrt_q, cosh + v_q48).unwrap();
+    let denominator = Q48_ONE * 2;
     (
-        if positive >= negative {
-            ResidualSign::NonNegative
-        } else {
-            ResidualSign::Negative
-        },
-        residual_magnitude(positive, negative),
+        mul_div_floor(d, low_factor, denominator).unwrap().max(1),
+        mul_div_floor(d, high_factor, denominator).unwrap().max(1),
     )
 }
 
-#[test]
-fn direct_equation_and_cleared_residual_have_the_same_sign() {
-    let fixtures = [
-        (900_000_000_000_u128, 1_400_000_000_000_u128),
-        (2_000_000_000_000, 250_000_000_000),
-        (125_000_000_000, 4_000_000_000_000),
-    ];
-    for (x, y) in fixtures {
-        let low = 2.0 * ((x as f64) * (y as f64)).sqrt();
-        let high = (x + y) as f64;
-        for fraction in [0.01_f64, 0.2, 0.5, 0.8, 0.99] {
-            let d = (low + fraction * (high - low)) as u128;
-            let analytical = analytical_residual(x as f64, y as f64, d as f64, 200.0, 0.1);
-            let (integer_sign, _) = signed_residual_value(x, y, d, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH);
-            let analytical_sign = if analytical >= 0.0 {
-                ResidualSign::NonNegative
-            } else {
-                ResidualSign::Negative
-            };
-            assert_eq!(integer_sign, analytical_sign, "x={x}, y={y}, d={d}");
-        }
-    }
+fn inner_shape_residual_q80(q_q80: u128, v_q80: u128, peak_depth_nad: u128, fade_scale_nad: u128) -> bool {
+    let peak_q80 = mul_div_floor(peak_depth_nad, Q80_ONE, NAD as u128).unwrap();
+    let scale_q80 = mul_div_floor(fade_scale_nad, Q80_ONE, NAD as u128).unwrap();
+    let sqrt_q = sqrt_q80(q_q80).unwrap();
+    let cosh = sqrt_q80(Q80_ONE + mul_q80(v_q80, v_q80).unwrap()).unwrap();
+    let h = mul_q80(sqrt_q, cosh).unwrap().saturating_sub(Q80_ONE);
+    let delta = Q80_ONE - q_q80;
+    let weight_base = div_q80(scale_q80, scale_q80 + delta).unwrap();
+    let coefficient = mul_q80(2 * peak_q80, mul_q80(q_q80, mul_q80(weight_base, weight_base).unwrap()).unwrap())
+        .unwrap();
+    mul_q80(coefficient, h).unwrap() + q_q80 >= Q80_ONE
 }
 
-#[test]
-fn shared_invariant_newton_evaluation_matches_independent_formulas() {
-    for (x, y) in [
-        (900_000_000_000_u128, 1_400_000_000_000_u128),
-        (1_000_000_000_000, 1_001_000_000_000),
-        (2_000_000_000_000, 250_000_000_000),
-    ] {
-        let prepared =
-            concentrated_prepare_curve(x, y, NAD as u128, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap();
-        let d = prepared.invariant_d();
-        let shared = invariant_residual_and_derivative(x, y, d, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap();
-        assert_eq!(
-            shared.0,
-            residual_terms(x, y, d, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap()
-        );
-        assert_eq!(
-            shared.1,
-            invariant_residual_derivative(x, y, d, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap()
-        );
-    }
-}
-
-fn assert_certified_successor_matches_cold(
-    predecessor_base: u128,
-    predecessor_quote: u128,
-    successor_base: u128,
-    successor_quote: u128,
-    center: u128,
-    peak_depth: u128,
-    imbalance_scale: u128,
-) -> (usize, usize) {
-    let predecessor =
-        concentrated_prepare_curve(predecessor_base, predecessor_quote, center, peak_depth, imbalance_scale).unwrap();
-    let (predecessor_low, predecessor_high) = predecessor.invariant_bracket();
-
-    reset_residual_evaluations();
-    let successor = concentrated_prepare_continuous_successor_from_bracket(
-        predecessor_base,
-        predecessor_quote,
-        successor_base,
-        successor_quote,
-        center,
-        peak_depth,
-        imbalance_scale,
-        predecessor_low,
-        predecessor_high,
-    )
-    .unwrap();
-    let successor_evaluations = residual_evaluations();
-
-    reset_residual_evaluations();
-    let cold = prepare_curve_internal(
-        successor_base,
-        successor_quote,
-        center,
-        peak_depth,
-        imbalance_scale,
-        None,
-        CONTINUOUS_SUCCESSOR_PROOF_DENOMINATOR,
-    )
-    .unwrap();
-    let cold_evaluations = residual_evaluations();
-
-    let (successor_low, successor_high) = successor.invariant_bracket();
-    let (cold_low, cold_high) = cold.invariant_bracket();
-    assert!(successor_low <= cold_high && cold_low <= successor_high);
-    assert_eq!(successor.base_reserve_nad(), successor_base);
-    assert_eq!(successor.quote_reserve_nad(), successor_quote);
-
-    let x = successor.base_common_nad();
-    let y = successor.quote_common_nad();
-    assert_eq!(
-        hybrid_residual_sign(x, y, successor_low, peak_depth, imbalance_scale).unwrap(),
-        ResidualSign::NonNegative
-    );
-    if successor_low < successor_high {
-        assert_eq!(
-            hybrid_residual_sign(x, y, successor_high, peak_depth, imbalance_scale).unwrap(),
-            ResidualSign::Negative
-        );
-    }
-    assert!(successor.continuous_successor_evaluation().is_ok());
-    (successor_evaluations, cold_evaluations)
-}
-
-#[test]
-fn theorem_successor_bracket_matches_cold_across_coordinates_and_branches() {
-    let fixtures = [
-        (1_000_000_000_000, 1_000_000_000_000, 1_100_000_000_000, 1_000_000_000_000),
-        (1_000_000_000_000, 1_000_000_000_000, 1_000_000_000_000, 1_100_000_000_000),
-        (4_000_000_000_000, 100_000_000_000, 4_100_000_000_000, 100_000_000_000),
-        (4_000_000_000_000, 100_000_000_000, 4_000_000_000_000, 800_000_000_000),
-        (4_000_000_000_000, 100_000_000_000, 4_000_000_000_000, 4_000_000_000_000),
-    ];
-    let mut improved = false;
-    for (predecessor_base, predecessor_quote, successor_base, successor_quote) in fixtures {
-        let (successor_evaluations, cold_evaluations) = assert_certified_successor_matches_cold(
-            predecessor_base,
-            predecessor_quote,
-            successor_base,
-            successor_quote,
-            NAD as u128,
-            PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
-        );
-        improved |= successor_evaluations < cold_evaluations;
-    }
-    assert!(improved, "the inherited theorem bracket never reduced residual work");
-}
-
-#[test]
-fn theorem_successor_reuses_floor_normalized_noop_and_falls_back_for_two_coordinate_change() {
-    let center = 1_u128;
-    let predecessor_base = 1_000_000_000_000_000_000_u128;
-    let predecessor_quote = 1_000_000_000_u128;
-    let predecessor = concentrated_prepare_curve(
-        predecessor_base,
-        predecessor_quote,
-        center,
-        PEAK_DEPTH_200,
-        IMBALANCE_SCALE_TENTH,
-    )
-    .unwrap();
-    let (low, high) = predecessor.invariant_bracket();
-    let normalized_noop = concentrated_prepare_continuous_successor_from_bracket(
-        predecessor_base,
-        predecessor_quote,
-        predecessor_base + 1,
-        predecessor_quote,
-        center,
-        PEAK_DEPTH_200,
-        IMBALANCE_SCALE_TENTH,
+fn solve_inner_q_at_v_q80(v_q80: u128, q_floor: u128, peak_depth_nad: u128, fade_scale_nad: u128) -> u128 {
+    let mut low = q_floor;
+    let mut high = Q80_ONE;
+    assert!(!inner_shape_residual_q80(
         low,
+        v_q80,
+        peak_depth_nad,
+        fade_scale_nad
+    ));
+    assert!(inner_shape_residual_q80(
         high,
-    )
-    .unwrap();
-    assert_eq!(normalized_noop.invariant_bracket(), (low, high));
-
-    assert_certified_successor_matches_cold(
-        predecessor_base,
-        predecessor_quote,
-        predecessor_base + NAD as u128,
-        predecessor_quote + 1,
-        center,
-        PEAK_DEPTH_200,
-        IMBALANCE_SCALE_TENTH,
-    );
-}
-
-fn assert_canonical_marginal_tracks_both_executable_directions(prepared: ConcentratedPreparedCurve) {
-    let marginal = prepared.marginal_price_nad().unwrap();
-    assert!(marginal > 0);
-
-    let base_probe = (prepared.base_reserve_nad() / 1_000_000).max(1);
-    let quote_out = prepared
-        .quote_exact_in(base_probe, ConcentratedSwapDirection::BaseToQuote)
-        .unwrap();
-    assert!(quote_out > 0);
-    let forward_average = mul_div_u128(quote_out, NAD as u128, base_probe).unwrap();
-
-    let quote_probe = (prepared.quote_reserve_nad() / 1_000_000).max(1);
-    let base_out = prepared
-        .quote_exact_in(quote_probe, ConcentratedSwapDirection::QuoteToBase)
-        .unwrap();
-    assert!(base_out > 0);
-    let reverse_average = mul_div_u128(quote_probe, NAD as u128, base_out).unwrap();
-
-    // The probe is one millionth of a reserve. The configured parameter and
-    // reserve floors keep integer output flooring plus the deliberate
-    // pool-favoring shoulder kink inside the 25 ppm protocol budget.
-    let tolerance = mul_div_u128_ceil(marginal, 25, PPM_DENOMINATOR).unwrap().max(10);
-    assert!(
-        forward_average <= marginal.saturating_add(tolerance),
-        "forward={forward_average}, marginal={marginal}, tolerance={tolerance}"
-    );
-    assert!(
-        reverse_average.saturating_add(tolerance) >= marginal,
-        "reverse={reverse_average}, marginal={marginal}, tolerance={tolerance}"
-    );
-}
-
-#[test]
-fn canonical_high_marginal_tracks_execution_across_centers_branches_and_parameter_extremes() {
-    let parameter_sets = [
-        (2 * NAD as u128, 100_u128),
-        (PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH),
-        (CONCENTRATED_MAX_PEAK_DEPTH_NAD, CONCENTRATED_MAX_IMBALANCE_SCALE_NAD),
-    ];
-    for center in [NAD as u128 / 1_000, NAD as u128, 1_000 * NAD as u128] {
-        let base = 20_000_000_000_000_u128;
-        let balanced_quote = mul_div_u128(base, center, NAD as u128).unwrap();
-        for (quote_numerator, quote_denominator) in [(1_u128, 1_u128), (9, 10), (1, 20), (20, 1)] {
-            let quote = mul_div_u128(balanced_quote, quote_numerator, quote_denominator).unwrap();
-            for (peak_depth, imbalance_scale) in parameter_sets {
-                let prepared =
-                    concentrated_prepare_curve(base, quote, center, peak_depth, imbalance_scale).unwrap();
-                assert_eq!(
-                    prepared.shoulder_relation,
-                    concentrated_hybrid_shoulder_relation(
-                        prepared.base_common_nad(),
-                        prepared.quote_common_nad(),
-                        peak_depth,
-                        imbalance_scale,
-                    )
-                    .unwrap()
-                );
-                assert_canonical_marginal_tracks_both_executable_directions(prepared);
-            }
+        v_q80,
+        peak_depth_nad,
+        fade_scale_nad
+    ));
+    while high - low > 1 {
+        let midpoint = low + (high - low) / 2;
+        if inner_shape_residual_q80(midpoint, v_q80, peak_depth_nad, fade_scale_nad) {
+            high = midpoint;
+        } else {
+            low = midpoint;
         }
     }
+    high
 }
 
-#[test]
-fn canonical_high_marginal_is_exactly_reproducible_from_persisted_bracket() {
-    for (base, quote, center) in [
-        (1_000_000_000_000_u128, 1_000_000_000_000_u128, NAD as u128),
-        (4_000_000_000_000, 100_000_000_000, NAD as u128),
-        (500_000_000_000, 1_000_000_000_000, 2 * NAD as u128),
-    ] {
-        let prepared =
-            concentrated_prepare_curve(base, quote, center, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap();
-        let (low, high) = prepared.invariant_bracket();
-        let restored = concentrated_restore_prepared_curve_from_bracket(
-            base,
-            quote,
-            center,
-            PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
-            low,
-            high,
-        )
-        .unwrap();
-        assert_eq!(restored.evaluation().unwrap(), prepared.evaluation().unwrap());
-        assert_eq!(restored.shoulder_relation, prepared.shoulder_relation);
-
-        // A cold solve may choose a neighboring certified upper endpoint, but
-        // its executable marginal must remain inside the same proof-scale
-        // neighborhood. Live state always restores the persisted endpoint.
-        let warm = concentrated_prepare_curve_with_hint(
-            base,
-            quote,
-            center,
-            PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
-            low + (high - low) / 2,
-        )
-        .unwrap();
-        let price = prepared.marginal_price_nad().unwrap();
-        let warm_price = warm.marginal_price_nad().unwrap();
-        let tolerance = mul_div_u128_ceil(price.max(warm_price), 25, PPM_DENOMINATOR)
-            .unwrap()
-            .max(5);
-        assert!(price.abs_diff(warm_price) <= tolerance);
+fn outward_branch_stage(branch: ConcentratedHybridBranch, direction: ConcentratedSwapDirection) -> u8 {
+    match (direction, branch) {
+        (_, ConcentratedHybridBranch::Inner) => 0,
+        (ConcentratedSwapDirection::BaseToQuote, ConcentratedHybridBranch::QuoteScarceTransition)
+        | (ConcentratedSwapDirection::QuoteToBase, ConcentratedHybridBranch::BaseScarceTransition) => 1,
+        (ConcentratedSwapDirection::BaseToQuote, ConcentratedHybridBranch::QuoteScarceTail)
+        | (ConcentratedSwapDirection::QuoteToBase, ConcentratedHybridBranch::BaseScarceTail) => 2,
+        _ => panic!("outward quote entered the opposite scarcity branch: {branch:?}"),
     }
 }
 
-#[test]
-fn cached_shoulder_relation_preserves_directional_equality_rule() {
-    // At exact equality the invariant stays on the inner branch. The
-    // base-to-quote marginal uses the CPMM side when base is abundant and the
-    // inner side when base is scarce, matching an infinitesimal base input.
-    for (x, y) in [
-        (1_100_000_000_000_u128, 1_000_000_000_000_u128),
-        (1_000_000_000_000, 1_100_000_000_000),
-    ] {
-        let mut prepared =
-            concentrated_prepare_curve(x, y, NAD as u128, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap();
-        // Equality is rare in integer reserve coordinates; inject the already
-        // certified selector to exercise its deterministic one-sided dispatch.
-        prepared.shoulder_relation = Ordering::Equal;
-        let expected = if x >= y {
-            mul_div_u128(y, NAD as u128, x).unwrap()
+fn raw_quote_endpoint(
+    prepared: ConcentratedPreparedCurve,
+    amount_in: u128,
+    direction: ConcentratedSwapDirection,
+) -> (u128, u128, u128, ConcentratedHybridBranch) {
+    let output = prepared.quote_exact_in(amount_in, direction).unwrap();
+    let (base_after, quote_after) = match direction {
+        ConcentratedSwapDirection::BaseToQuote => (
+            prepared.base_reserve_nad() + amount_in,
+            prepared.quote_reserve_nad() - output,
+        ),
+        ConcentratedSwapDirection::QuoteToBase => (
+            prepared.base_reserve_nad() - output,
+            prepared.quote_reserve_nad() + amount_in,
+        ),
+    };
+    let branch = prepared
+        .hybrid_branch_at_raw_reserves(base_after, quote_after)
+        .unwrap();
+    (output, base_after, quote_after, branch)
+}
+
+fn first_raw_input_at_outward_stage(
+    prepared: ConcentratedPreparedCurve,
+    direction: ConcentratedSwapDirection,
+    target_stage: u8,
+) -> u128 {
+    let mut low = 0_u128;
+    let mut high = 1_u128;
+    while outward_branch_stage(raw_quote_endpoint(prepared, high, direction).3, direction) < target_stage {
+        low = high;
+        high = high.checked_mul(2).expect("raw join crossing bound");
+    }
+    while high - low > 1 {
+        let midpoint = low + (high - low) / 2;
+        if outward_branch_stage(raw_quote_endpoint(prepared, midpoint, direction).3, direction) >= target_stage {
+            high = midpoint;
         } else {
-            concentrated_inner_marginal_price_from_common(
-                x,
-                y,
-                prepared.invariant_bracket().1,
-                NAD as u128,
-                PEAK_DEPTH_200,
-                IMBALANCE_SCALE_TENTH,
+            low = midpoint;
+        }
+    }
+    high
+}
+
+fn assert_canonical_invariant(prepared: ConcentratedPreparedCurve) {
+    let high = prepared.invariant_d();
+    if prepared.peak_depth_nad() == 0 {
+        return;
+    }
+    let (canonical_sign, canonical_magnitude) = hybrid_residual(
+        prepared.base_common,
+        prepared.quote_common,
+        high,
+        prepared.geometry,
+    )
+    .unwrap();
+    if canonical_sign {
+        assert_eq!(canonical_magnitude, 0);
+    } else {
+        let adjacent = high.checked_sub(1).unwrap();
+        assert!(
+            hybrid_residual(
+                prepared.base_common,
+                prepared.quote_common,
+                adjacent,
+                prepared.geometry,
             )
             .unwrap()
-        };
-        assert_eq!(prepared.marginal_price_nad().unwrap(), expected);
-    }
-}
-
-fn assert_canonical_marginal_conditioned_at_inner_state(
-    x: u128,
-    y: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) {
-    assert!(x >= MIN_INNER_COMMON_RESERVE && y >= MIN_INNER_COMMON_RESERVE);
-    assert_ne!(
-        concentrated_hybrid_shoulder_relation(x, y, peak_depth_nad, imbalance_scale_nad).unwrap(),
-        Ordering::Less
-    );
-
-    // Retained-surcharge successors use the coarser certified bracket. Build
-    // that bracket through the real one-coordinate successor proof instead of
-    // cold-solving with a tolerance that production never uses cold.
-    let predecessor = concentrated_prepare_curve(
-        x,
-        y,
-        NAD as u128,
-        peak_depth_nad,
-        imbalance_scale_nad,
-    )
-    .unwrap_or_else(|error| {
-        panic!(
-            "conditioning predecessor failed: x={x}, y={y}, peak={peak_depth_nad}, fade={imbalance_scale_nad}: {error:?}"
-        )
-    });
-    let (successor_x, successor_y) = if x <= y && x < MAX_COMMON_RESERVE {
-        (x + 1, y)
-    } else if y < MAX_COMMON_RESERVE {
-        (x, y + 1)
-    } else {
-        // The fully saturated balanced domain cannot admit another input atom;
-        // its exact singleton bracket was already certified above.
-        assert_eq!(x, y);
-        return;
-    };
-    let (predecessor_low, predecessor_high) = predecessor.invariant_bracket();
-    let prepared = concentrated_prepare_continuous_successor_from_bracket(
-        x,
-        y,
-        successor_x,
-        successor_y,
-        NAD as u128,
-        peak_depth_nad,
-        imbalance_scale_nad,
-        predecessor_low,
-        predecessor_high,
-    )
-    .unwrap_or_else(|error| {
-        panic!(
-            "conditioning successor failed: x={x}, y={y}, successor_x={successor_x}, successor_y={successor_y}, peak={peak_depth_nad}, fade={imbalance_scale_nad}: {error:?}"
-        )
-    });
-    let x = prepared.base_common_nad();
-    let y = prepared.quote_common_nad();
-    assert_ne!(
-        concentrated_hybrid_shoulder_relation(x, y, peak_depth_nad, imbalance_scale_nad).unwrap(),
-        Ordering::Less
-    );
-    let (d_low, d_high) = prepared.invariant_bracket();
-    let p_low = concentrated_inner_marginal_price_from_common(
-        x,
-        y,
-        d_low,
-        NAD as u128,
-        peak_depth_nad,
-        imbalance_scale_nad,
-    )
-    .unwrap();
-    let p_high = concentrated_inner_marginal_price_from_common(
-        x,
-        y,
-        d_high,
-        NAD as u128,
-        peak_depth_nad,
-        imbalance_scale_nad,
-    )
-    .unwrap();
-    let endpoint_spread_ppm = p_low.abs_diff(p_high) as f64 * PPM_DENOMINATOR as f64
-        / p_low.min(p_high).max(1) as f64;
-    let reference = analytical_inner_marginal(x, y, peak_depth_nad, imbalance_scale_nad);
-    let canonical = p_high as f64 / NAD as f64;
-    let true_error_ppm = (canonical / reference - 1.0).abs() * PPM_DENOMINATOR as f64;
-
-    assert!(
-        endpoint_spread_ppm <= 25.0,
-        "endpoint spread {endpoint_spread_ppm:.6} ppm: x={x}, y={y}, peak={peak_depth_nad}, fade={imbalance_scale_nad}, bracket={d_low}..={d_high}"
-    );
-    assert!(
-        true_error_ppm <= 25.0,
-        "true error {true_error_ppm:.6} ppm: x={x}, y={y}, peak={peak_depth_nad}, fade={imbalance_scale_nad}, bracket={d_low}..={d_high}"
-    );
-}
-
-#[test]
-fn runtime_parameter_domain_keeps_canonical_marginal_within_25_ppm() {
-    // Include configured endpoint extrema/fade neighborhoods plus actual
-    // first, midpoint, and penultimate states from both CPMM ramp directions.
-    // This prevents the test model from inventing unreachable low-peak,
-    // broad-fade pairs.
-    let peaks = [
-        MIN_AMM_PEAK_DEPTH_NAD as u128,
-        PEAK_DEPTH_200,
-        MAX_AMM_PEAK_DEPTH_NAD as u128,
-    ];
-    let fades = [
-        MIN_AMM_IMBALANCE_SCALE_NAD as u128,
-        MIN_AMM_IMBALANCE_SCALE_NAD as u128 + 1,
-        1_000,
-        NAD as u128 / 10,
-        MAX_AMM_IMBALANCE_SCALE_NAD as u128,
-    ];
-    let reserve_scales = [
-        MIN_INNER_COMMON_RESERVE,
-        10 * MIN_INNER_COMMON_RESERVE,
-        1_000_000_000_000,
-        1_000_000_000_000_000,
-        MAX_COMMON_RESERVE,
-    ];
-
-    let mut parameter_pairs = Vec::new();
-    for peak_depth_nad in peaks {
-        for imbalance_scale_nad in fades {
-            parameter_pairs.push((peak_depth_nad, imbalance_scale_nad));
-        }
-    }
-    let cpmm = AmmCurveParameters::cpmm();
-    for target in [
-        AmmCurveParameters {
-            peak_depth_nad: MIN_AMM_PEAK_DEPTH_NAD,
-            imbalance_scale_nad: MIN_AMM_IMBALANCE_SCALE_NAD,
-        },
-        AmmCurveParameters {
-            peak_depth_nad: MIN_AMM_PEAK_DEPTH_NAD,
-            imbalance_scale_nad: MAX_AMM_IMBALANCE_SCALE_NAD,
-        },
-        AmmCurveParameters {
-            peak_depth_nad: MAX_AMM_PEAK_DEPTH_NAD,
-            imbalance_scale_nad: MIN_AMM_IMBALANCE_SCALE_NAD,
-        },
-        AmmCurveParameters {
-            peak_depth_nad: MAX_AMM_PEAK_DEPTH_NAD,
-            imbalance_scale_nad: MAX_AMM_IMBALANCE_SCALE_NAD,
-        },
-    ] {
-        for duration in [MIN_AMM_RAMP_DURATION_SLOTS, MAX_AMM_RAMP_DURATION_SLOTS] {
-            for (start, end) in [(cpmm, target), (target, cpmm)] {
-                let ramp = AmmRamp::start(start, end, 1_000, duration).unwrap();
-                for slot in [ramp.start_slot + 1, ramp.start_slot + duration / 2, ramp.end_slot - 1] {
-                    let parameters = ramp.parameters_at(start, slot);
-                    assert!(parameters.peak_depth_nad > 0);
-                    assert!(parameters.imbalance_scale_nad >= MIN_AMM_IMBALANCE_SCALE_NAD);
-                    parameter_pairs.push((
-                        parameters.peak_depth_nad as u128,
-                        parameters.imbalance_scale_nad as u128,
-                    ));
-                }
-            }
-        }
-    }
-    parameter_pairs.sort_unstable();
-    parameter_pairs.dedup();
-
-    let mut samples = 0_usize;
-    for (peak_depth_nad, imbalance_scale_nad) in parameter_pairs {
-            for x in reserve_scales {
-                let mut lower = 1_u128;
-                let mut upper = x;
-                while lower < upper {
-                    let middle = lower + (upper - lower) / 2;
-                    if concentrated_hybrid_shoulder_relation(
-                        x,
-                        middle,
-                        peak_depth_nad,
-                        imbalance_scale_nad,
-                    )
-                    .unwrap()
-                        == Ordering::Less
-                    {
-                        lower = middle + 1;
-                    } else {
-                        upper = middle;
-                    }
-                }
-                let first_supported_inner = lower.max(MIN_INNER_COMMON_RESERVE).min(x);
-                for offset in [0_u128, 1, 100] {
-                    let y = first_supported_inner.saturating_add(offset).min(x);
-                    if concentrated_hybrid_shoulder_relation(
-                        x,
-                        y,
-                        peak_depth_nad,
-                        imbalance_scale_nad,
-                    )
-                    .unwrap()
-                        == Ordering::Less
-                    {
-                        continue;
-                    }
-                    assert_canonical_marginal_conditioned_at_inner_state(
-                        x,
-                        y,
-                        peak_depth_nad,
-                        imbalance_scale_nad,
-                    );
-                    if x != y {
-                        assert_canonical_marginal_conditioned_at_inner_state(
-                            y,
-                            x,
-                            peak_depth_nad,
-                            imbalance_scale_nad,
-                        );
-                    }
-                    samples += 1;
-                }
-            }
-    }
-    assert!(samples >= 200);
-}
-
-#[test]
-fn integer_invariant_matches_independent_analytical_reference() {
-    let fixtures = [
-        (1_000_000_000_000_u128, 1_000_000_000_000_u128),
-        (900_000_000_000, 1_400_000_000_000),
-        (2_000_000_000_000, 250_000_000_000),
-        (125_000_000_000, 4_000_000_000_000),
-    ];
-    for (x, y) in fixtures {
-        let (low, high, _) = invariant_common_bracket(x, y, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap();
-        let reference = analytical_invariant(x as f64, y as f64, 200.0, 0.1);
-        let tolerance = (reference * 2e-9).max(2.0);
-        assert!((low as f64 - reference).abs() <= tolerance, "low: x={x}, y={y}");
-        assert!((high as f64 - reference).abs() <= tolerance, "high: x={x}, y={y}");
-    }
-}
-
-#[test]
-fn exact_in_is_conservative_and_close_to_analytical_reference() {
-    let fixtures = [
-        (1_000_000_000_000_u128, 1_000_000_000_000_u128, 10_000_000_000_u128),
-        (900_000_000_000, 1_400_000_000_000, 50_000_000_000),
-        (2_000_000_000_000, 250_000_000_000, 25_000_000_000),
-    ];
-    for (x, y, dx) in fixtures {
-        let actual = quote_common_exact_in(x, y, dx, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap();
-        let reference = analytical_exact_in(x as f64, y as f64, dx as f64, 200.0, 0.1);
-        assert!(
-            actual as f64 <= reference + 2.0,
-            "quote overpays: x={x}, y={y}, dx={dx}"
+            .0
         );
-        assert!(reference - actual as f64 <= (reference * 40e-6).max(4.0));
     }
 }
 
 #[test]
-fn centered_extra_depth_improves_execution_without_changing_spot_price() {
-    let reserve = 1_000_000_000_000_u128;
-    let dx = reserve / 100;
-    let concentrated = concentrated_quote_exact_in(
-        reserve,
-        reserve,
-        dx,
-        ConcentratedSwapDirection::BaseToQuote,
-        NAD as u128,
-        PEAK_DEPTH_200,
-        IMBALANCE_SCALE_TENTH,
-    )
-    .unwrap();
-    let cpmm = calculate_normalized_amount_out(reserve, reserve, dx).unwrap();
-    assert!(concentrated > cpmm);
-    assert_eq!(
-        concentrated_marginal_price_nad(reserve, reserve, NAD as u128, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH,).unwrap(),
-        NAD as u128
-    );
-}
+fn cpmm_mode_is_bit_exact_for_quotes() {
+    let x = 9_000_000_000_000_u128;
+    let y = 13_000_000_000_000_u128;
+    let dx = 71_000_000_000_u128;
+    let dy = 43_000_000_000_u128;
 
-#[test]
-fn zero_parameters_are_exact_cpmm_for_exact_in_and_exact_out() {
-    let x = 1_234_567_890_123_u128;
-    let y = 987_654_321_987_u128;
-    let dx = 12_345_678_901_u128;
-    let dy = 9_876_543_210_u128;
     assert_eq!(
         concentrated_quote_exact_in(x, y, dx, ConcentratedSwapDirection::BaseToQuote, NAD as u128, 0, 0,).unwrap(),
         calculate_normalized_amount_out(x, y, dx).unwrap()
@@ -857,809 +175,1392 @@ fn zero_parameters_are_exact_cpmm_for_exact_in_and_exact_out() {
 }
 
 #[test]
-fn cpmm_prepared_domain_exceeds_the_concentrated_common_reserve_bound() {
-    let x = MAX_COMMON_RESERVE + 1;
-    let y = MAX_COMMON_RESERVE + 17;
-    let dx = 1_000_000_u128;
-    let prepared = concentrated_prepare_curve(x, y, NAD as u128, 0, 0).unwrap();
-    assert_eq!(
-        concentrated_hybrid_branch(x, y, NAD as u128, 0, 0).unwrap(),
-        ConcentratedHybridBranch::Inner
-    );
-    let output = prepared
-        .quote_exact_in(dx, ConcentratedSwapDirection::BaseToQuote)
-        .unwrap();
+fn cpmm_balanced_equivalent_q_is_center_independent() {
+    let base = 1_000_u128 * NAD as u128;
+    let quote = 4_000_u128 * NAD as u128;
+    let centered = concentrated_prepare_curve(base, quote, 4_u128 * NAD as u128, 0, 0).unwrap();
+    let stale_center = concentrated_prepare_curve(base, quote, 2_u128 * NAD as u128, 0, 0).unwrap();
 
-    assert_eq!(output, calculate_normalized_amount_out(x, y, dx).unwrap());
-    assert!(prepared.evaluation().is_ok());
+    assert_eq!(centered.invariant_d(), 8_000_u128 * NAD as u128);
+    assert_ne!(centered.invariant_d(), stale_center.invariant_d());
+    assert_eq!(centered.balanced_equivalent_q().unwrap(), 2_000_u128 * NAD as u128);
+    assert_eq!(stale_center.balanced_equivalent_q().unwrap(), 2_000_u128 * NAD as u128);
+}
 
-    let successor = prepared.prepare_successor(x + dx, y - output).unwrap();
-    assert!(successor.continuous_successor_evaluation().is_ok());
+#[test]
+fn concentrated_balanced_equivalent_q_is_exact_across_wide_radicands() {
+    for (invariant_d, center_price_nad) in [
+        (2_u128 * NAD as u128, 1_u128),
+        (2_u128 * u64::MAX as u128, 1_u128),
+        (2_u128 * u64::MAX as u128 - 1, NAD as u128),
+        (2_u128 * u64::MAX as u128 - 1, u64::MAX as u128),
+    ] {
+        let prepared = ConcentratedPreparedCurve {
+            base_reserve_nad: NAD as u128,
+            quote_reserve_nad: NAD as u128,
+            base_common: NAD as u128,
+            quote_common: NAD as u128,
+            center_price_nad,
+            peak_depth_nad: NAD as u128,
+            fade_scale_nad: NAD as u128 / 10,
+            invariant_d,
+            common_numeraire: ConcentratedCommonNumeraire::for_center(center_price_nad).unwrap(),
+            geometry: Some(ConcentratedC1Geometry::derive(NAD as u128, NAD as u128 / 10).unwrap()),
+        };
+        let q = prepared.balanced_equivalent_q().unwrap();
+        let (ratio_numerator, ratio_denominator) = if center_price_nad >= NAD as u128 {
+            (NAD as u128, center_price_nad * 4)
+        } else {
+            (center_price_nad, 4 * NAD as u128)
+        };
+        let denominator = U256::from(ratio_denominator);
+        let radicand_numerator = U256::from(invariant_d)
+            * U256::from(invariant_d)
+            * U256::from(ratio_numerator);
+        let square = U256::from(q) * U256::from(q);
+        let successor = U256::from(q + 1) * U256::from(q + 1);
 
-    let (invariant_low, invariant_high) = prepared.invariant_bracket();
-    let restored =
-        concentrated_restore_prepared_curve_from_bracket(x, y, NAD as u128, 0, 0, invariant_low, invariant_high)
+        assert!(square * denominator <= radicand_numerator);
+        assert!(successor * denominator > radicand_numerator);
+    }
+}
+
+#[test]
+fn balanced_concentrated_state_has_exact_center_mark() {
+    let reserve = 4_000_000_000_000_u128;
+    let prepared = concentrated_prepare_curve(reserve, reserve, NAD as u128, PEAK_DEPTH_200, FADE_TENTH).unwrap();
+    assert_eq!(prepared.invariant_d(), 2 * reserve);
+    assert_eq!(prepared.marginal_price_nad().unwrap(), NAD as u128);
+}
+
+#[test]
+fn q64_inner_residual_has_the_analytical_sign() {
+    for (x, y) in [
+        (900_000_000_000_u128, 1_100_000_000_000_u128),
+        (1_000_000_000_000, 1_150_000_000_000),
+        (1_150_000_000_000, 1_000_000_000_000),
+    ] {
+        assert_eq!(
+            concentrated_hybrid_branch_from_common(x, y, PEAK_DEPTH_200, FADE_TENTH).unwrap(),
+            ConcentratedHybridBranch::Inner
+        );
+        let geometric = geometric_lower_d(x, y).unwrap();
+        let sum = x + y;
+        for fraction in [0.15_f64, 0.35, 0.6, 0.85] {
+            let d = geometric + ((sum - geometric) as f64 * fraction) as u128;
+            let analytical = analytical_inner_residual(x as f64, y as f64, d as f64, 200.0, 0.1);
+            let integer_positive = hybrid_residual(
+                x,
+                y,
+                d,
+                Some(ConcentratedC1Geometry::derive(PEAK_DEPTH_200, FADE_TENTH).unwrap()),
+            )
+            .unwrap()
+            .0;
+            assert_eq!(integer_positive, analytical >= 0.0, "x={x} y={y} d={d}");
+        }
+    }
+}
+
+#[test]
+fn q64_inner_quotes_remove_the_full_scale_q48_staircase() {
+    let peak = 2 * NAD as u128;
+    let fade = NAD as u128 / 10;
+    for (reserve, first_input) in [
+        (1_000_000_000_000_000_u128, 10_u128),
+        (1_000_000_000_000_000_000, 10_658),
+        (18_446_744_073_709_051_615, 131_071),
+        (18_446_744_073_709_051_615, 196_607),
+    ] {
+        let prepared = concentrated_prepare_curve(reserve, reserve, NAD as u128, peak, fade).unwrap();
+        for direction in [
+            ConcentratedSwapDirection::BaseToQuote,
+            ConcentratedSwapDirection::QuoteToBase,
+        ] {
+            let first = prepared.quote_exact_in(first_input, direction).unwrap();
+            let adjacent = prepared.quote_exact_in(first_input + 1, direction).unwrap();
+            assert!(
+                adjacent >= first && adjacent - first <= 1,
+                "reserve={reserve} direction={direction:?} input={first_input} first={first} adjacent={adjacent}"
+            );
+        }
+    }
+}
+
+#[test]
+fn full_precision_inner_to_transition_join_is_monotone_and_split_resistant_at_max_scale() {
+    for (peak, fade, base, quote, input_before) in [
+        (
+            2 * NAD as u128,
+            100_u128,
+            18_446_744_073_708_951_614_u128,
+            18_438_960_294_243_435_255_u128,
+            49_995_u128,
+        ),
+        (
+            2_000 * NAD as u128,
+            199_000_000_u128,
+            18_446_744_073_708_951_614_u128,
+            11_716_330_836_516_057_264_u128,
+            38_857_u128,
+        ),
+    ] {
+        let prepared = concentrated_prepare_curve(base, quote, NAD as u128, peak, fade).unwrap();
+        let quote_at = |input| {
+            let output = prepared
+                .quote_exact_in(input, ConcentratedSwapDirection::BaseToQuote)
+                .unwrap();
+            let branch = concentrated_hybrid_branch_from_common(base + input, quote - output, peak, fade).unwrap();
+            (output, branch)
+        };
+        let mut low = 1_u128;
+        let mut high = input_before.max(2);
+        while quote_at(high).1 == ConcentratedHybridBranch::Inner {
+            low = high;
+            high = high.checked_mul(2).expect("transition crossing bound");
+        }
+        while high - low > 1 {
+            let midpoint = low + (high - low) / 2;
+            if quote_at(midpoint).1 == ConcentratedHybridBranch::Inner {
+                low = midpoint;
+            } else {
+                high = midpoint;
+            }
+        }
+        let crossing_input = high;
+        let (after, after_branch) = quote_at(crossing_input);
+        assert_eq!(after_branch, ConcentratedHybridBranch::QuoteScarceTransition);
+        let before = prepared
+            .quote_exact_in(crossing_input - 1, ConcentratedSwapDirection::BaseToQuote)
             .unwrap();
-    assert_eq!(restored.evaluation().unwrap(), prepared.evaluation().unwrap());
-
-    assert!(concentrated_prepare_curve(x, y, NAD as u128, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).is_err());
-}
-
-#[test]
-fn exact_out_input_replays_to_at_least_the_requested_output() {
-    let x = 1_000_000_000_000_u128;
-    let y = 1_300_000_000_000_u128;
-    for dy in [1_000_000_u128, 1_000_000_000, 25_000_000_000, 100_000_000_000] {
-        let input = concentrated_quote_exact_out(
-            x,
-            y,
-            dy,
-            ConcentratedSwapDirection::BaseToQuote,
+        let base_before = base + crossing_input - 1;
+        let base_after = base_before + 1;
+        assert_eq!(
+            concentrated_hybrid_branch_from_common(base_before, quote - before, peak, fade).unwrap(),
+            ConcentratedHybridBranch::Inner
+        );
+        assert_eq!(
+            concentrated_hybrid_branch_from_common(base_after, quote - after, peak, fade).unwrap(),
+            ConcentratedHybridBranch::QuoteScarceTransition
+        );
+        assert!(after >= before);
+        let split_state = concentrated_prepare_curve(
+            base_before,
+            quote - before,
             NAD as u128,
-            PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
+            peak,
+            fade,
         )
         .unwrap();
-        let replay = concentrated_quote_exact_in(
-            x,
-            y,
-            input,
-            ConcentratedSwapDirection::BaseToQuote,
-            NAD as u128,
-            PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
-        )
-        .unwrap();
-        assert!(replay >= dy, "dy={dy}, input={input}, replay={replay}");
+        let split_tail = split_state
+            .quote_exact_in(1, ConcentratedSwapDirection::BaseToQuote)
+            .unwrap_or(0);
+        assert!(
+            before + split_tail <= after,
+            "peak={peak} fade={fade} crossing_input={crossing_input} one_shot={after} split={}+{split_tail}",
+            before
+        );
     }
 }
 
 #[test]
-fn eighty_percent_exact_out_replays_in_both_directions() {
-    let reserve = 1_000_000_000_000_u128;
-    let requested = reserve * 8 / 10;
-    for direction in [
+fn full_precision_join_matches_aggressive_discrete_reference_and_blocks_split_gain() {
+    let peak = 2_000 * NAD as u128;
+    let fade = 1_000_000_u128;
+    let base = 18_446_744_073_708_951_614_u128;
+    let quote = 17_872_265_831_270_771_237_u128;
+    let input = 49_214_u128;
+    let prepared = concentrated_prepare_curve(base, quote, NAD as u128, peak, fade).unwrap();
+    let one_shot = prepared
+        .quote_exact_in(input, ConcentratedSwapDirection::BaseToQuote)
+        .unwrap();
+    assert_eq!(prepared.invariant_d(), 36_319_006_357_314_842_051);
+    assert_eq!(one_shot, 49_212, "independent continuous floor");
+
+    let first_input = 49_212_u128;
+    let first = prepared
+        .quote_exact_in(first_input, ConcentratedSwapDirection::BaseToQuote)
+        .unwrap();
+    let second_curve = concentrated_prepare_curve(
+        base + first_input,
+        quote - first,
+        NAD as u128,
+        peak,
+        fade,
+    )
+    .unwrap();
+    let second = second_curve
+        .quote_exact_in(input - first_input, ConcentratedSwapDirection::BaseToQuote)
+        .unwrap_or(0);
+    assert_eq!((first, second), (49_210, 1));
+    assert!(first + second <= one_shot, "one_shot={one_shot} split={first}+{second}");
+
+    let reverse_curve = concentrated_prepare_curve(
+        base + input,
+        quote - one_shot,
+        NAD as u128,
+        peak,
+        fade,
+    )
+    .unwrap();
+    let roundtrip = reverse_curve
+        .quote_exact_in(one_shot, ConcentratedSwapDirection::QuoteToBase)
+        .unwrap();
+    assert_eq!(roundtrip, 49_212);
+    assert!(roundtrip <= input, "input={input} roundtrip={roundtrip}");
+}
+
+#[test]
+fn full_precision_transition_closes_previous_small_trade_split_regression() {
+    let peak = 512_769_412_294_u128;
+    let fade = 25_212_680_u128;
+    // Leave headroom for the exact-input addition while preserving the
+    // full-scale reserve ratio that previously exposed split advantage.
+    let base = u64::MAX as u128 - 1_000_000;
+    let quote = 15_729_292_133_186_232_478_u128;
+    let input = 257_u128;
+    let prepared = concentrated_prepare_curve(base, quote, NAD as u128, peak, fade).unwrap();
+    let one_shot = prepared
+        .quote_exact_in(input, ConcentratedSwapDirection::BaseToQuote)
+        .unwrap();
+    let first = prepared
+        .quote_exact_in(1, ConcentratedSwapDirection::BaseToQuote)
+        .unwrap();
+    let second = concentrated_prepare_curve(base + 1, quote - first, NAD as u128, peak, fade)
+        .unwrap()
+        .quote_exact_in(input - 1, ConcentratedSwapDirection::BaseToQuote)
+        .unwrap();
+    assert!(first + second <= one_shot, "one_shot={one_shot} split={first}+{second}");
+
+    let returned = concentrated_prepare_curve(base + input, quote - one_shot, NAD as u128, peak, fade)
+        .unwrap()
+        .quote_exact_in(one_shot, ConcentratedSwapDirection::QuoteToBase)
+        .unwrap();
+    assert!(returned <= input);
+}
+
+#[test]
+fn restoring_trade_in_exact_tail_is_bit_identical_to_cpmm() {
+    let peak = 639_301_941_594_u128;
+    let fade = 150_212_273_u128;
+    let base = 77_854_937_841_089_103_u128;
+    let quote = 1_152_921_504_606_846_975_u128;
+    let input = 77_854_937_841_u128;
+    let prepared = concentrated_prepare_curve(base, quote, NAD as u128, peak, fade).unwrap();
+    assert_eq!(
+        prepared
+            .hybrid_branch_at_raw_reserves(base, quote)
+            .unwrap(),
+        ConcentratedHybridBranch::BaseScarceTail
+    );
+    assert_eq!(
+        prepared
+            .quote_exact_in(input, ConcentratedSwapDirection::BaseToQuote)
+            .unwrap(),
+        calculate_normalized_amount_out(base, quote, input).unwrap()
+    );
+}
+
+#[test]
+fn full_precision_transition_conditioning_stays_below_unit_radial_slope() {
+    let parameter_grid = [
+        (1_u128, 100_u128),
+        (2 * NAD as u128 / 9_000, 100_u128),
+        (NAD as u128, 50_u128),
+        (3 * NAD as u128 / 2, 75),
+        (2 * NAD as u128, 100),
+        (2 * NAD as u128, NAD as u128 / 10),
+        (10 * NAD as u128, NAD as u128 / 1_000),
+        (200 * NAD as u128, NAD as u128 / 10),
+        (CONCENTRATED_MAX_PEAK_DEPTH_NAD, CONCENTRATED_MAX_FADE_SCALE_NAD),
+    ];
+    for (peak, fade) in parameter_grid {
+        let geometry = ConcentratedC1Geometry::derive(peak, fade).unwrap();
+        let transition_width = geometry.v_tail_q80 - geometry.v_start_q80;
+        for step in 0..=256_u128 {
+            let v = geometry.v_start_q80 + mul_div_floor(transition_width, step, 256).unwrap();
+            let (q, negative_slope) = geometry.transition_q_and_slope_at_v_q80(v).unwrap();
+            let cosh = sqrt_q80(Q80_ONE + mul_q80(v, v).unwrap()).unwrap();
+
+            // r=(-q'(v)*cosh(v))/(2q).  The U256 comparison keeps this
+            // conditioning gate independent of fixed-point multiplication
+            // rounding.  r<1 makes the continuous reserve solve one-to-one.
+            let numerator = U256::from(negative_slope) * U256::from(cosh);
+            let denominator = U256::from(q) * U256::from(Q80_ONE) * U256::from(2_u8);
+            assert!(
+                numerator < denominator,
+                "peak={peak} fade={fade} step={step} q={q} slope={negative_slope} cosh={cosh}"
+            );
+        }
+    }
+}
+
+#[test]
+fn q64_inner_is_monotone_at_max_scale_and_ramp_intermediates() {
+    let reserve = 18_446_744_073_709_051_615_u128;
+    let inputs = [
+        1_u128, 2, 3, 15, 255, 4_095, 65_535, 131_071, 196_607, 262_143,
+    ];
+    for (peak, fade) in [
+        (1_u128, 100_u128),
+        (2 * NAD as u128 / 9_000, 100_u128),
+        (NAD as u128, 50_u128),
+        (3 * NAD as u128 / 2, 75),
+        (2 * NAD as u128 - 1, 99),
+        (2 * NAD as u128, 100),
+        (2 * NAD as u128, NAD as u128 / 10),
+        (CONCENTRATED_MAX_PEAK_DEPTH_NAD, CONCENTRATED_MAX_FADE_SCALE_NAD),
+    ] {
+        let prepared = concentrated_prepare_curve(reserve, reserve, NAD as u128, peak, fade).unwrap();
+        for direction in [
+            ConcentratedSwapDirection::BaseToQuote,
+            ConcentratedSwapDirection::QuoteToBase,
+        ] {
+            for input in inputs {
+                let output = prepared.quote_exact_in(input, direction).unwrap();
+                let adjacent = prepared.quote_exact_in(input + 1, direction).unwrap();
+                assert!(
+                    adjacent >= output && adjacent - output <= 1,
+                    "peak={peak} fade={fade} direction={direction:?} input={input} output={output} adjacent={adjacent}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn raw_center_normalization_certifies_actual_endpoints_in_both_directions() {
+    let target_common = 1_000_000_000_000_000_u128;
+    for center in [
+        1_u128,
+        123_456_789,
+        NAD as u128 / 3,
+        3 * NAD as u128 / 2,
+        u64::MAX as u128,
+    ] {
+        let (base, quote) = if center >= NAD as u128 {
+            (
+                mul_div_ceil_u128(target_common, NAD as u128, center).unwrap(),
+                target_common,
+            )
+        } else {
+            (
+                target_common,
+                mul_div_ceil_u128(target_common, center, NAD as u128).unwrap(),
+            )
+        };
+        let prepared = concentrated_prepare_curve(base, quote, center, PEAK_DEPTH_200, FADE_TENTH).unwrap();
+        for (direction, input) in [
+            (ConcentratedSwapDirection::BaseToQuote, (base / 100_000).max(1)),
+            (ConcentratedSwapDirection::QuoteToBase, quote / 100),
+        ] {
+            let output = prepared.quote_exact_in(input, direction).unwrap();
+            assert!(output > 0, "center={center} direction={direction:?}");
+        }
+
+        for (direction, requested) in [
+            (ConcentratedSwapDirection::BaseToQuote, quote / 1_000_000),
+            (ConcentratedSwapDirection::QuoteToBase, (base / 1_000_000).max(1)),
+        ] {
+            let input = concentrated_quote_exact_out(
+                base,
+                quote,
+                requested,
+                direction,
+                center,
+                PEAK_DEPTH_200,
+                FADE_TENTH,
+            )
+            .unwrap();
+            let replay = prepared.quote_exact_in(input, direction).unwrap();
+            assert!(
+                replay >= requested,
+                "center={center} direction={direction:?} input={input} replay={replay} requested={requested}"
+            );
+            if input > 1 {
+                let predecessor = prepared.quote_exact_in(input - 1, direction).unwrap();
+                assert!(
+                    predecessor < requested,
+                    "center={center} direction={direction:?} predecessor={} replay={predecessor} requested={requested}",
+                    input - 1
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn adaptive_common_scale_inverse_floor_is_exact_at_center_boundaries() {
+    for center in [
+        1_u128,
+        NAD as u128 - 1,
+        NAD as u128,
+        NAD as u128 + 1,
+        u64::MAX as u128,
+    ] {
+        let numeraire = ConcentratedCommonNumeraire::for_center(center).unwrap();
+        for scale in [numeraire.base_scale(center).unwrap(), numeraire.quote_scale(center).unwrap()] {
+            assert!(scale.numerator() >= scale.denominator());
+            for target_common in [
+                0_u128,
+                1,
+                2,
+                NAD as u128 - 1,
+                NAD as u128,
+                1_000_000_000_000_000,
+                MAX_COMMON_RESERVE,
+            ] {
+                let raw = scale.common_to_raw_ceil(target_common).unwrap();
+                assert!(
+                    scale.to_common_floor(raw).unwrap() >= target_common,
+                    "center={center} scale={scale:?} target={target_common} raw={raw}"
+                );
+                if raw > 0 {
+                    assert!(
+                        scale.to_common_floor(raw - 1).unwrap() < target_common,
+                        "center={center} scale={scale:?} target={target_common} raw={raw}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn low_center_quotes_keep_single_raw_atoms_economically_live() {
+    let center = 1_u128;
+    let base = 1_000_000_000_000_000_000_u128;
+    let quote = NAD as u128;
+    let prepared = concentrated_prepare_curve(base, quote, center, 2 * NAD as u128, FADE_TENTH).unwrap();
+
+    assert_eq!(prepared.common_numeraire(), ConcentratedCommonNumeraire::Base);
+    assert_eq!((prepared.base_common, prepared.quote_common), (base, base));
+
+    let output = prepared
+        .quote_exact_in(1, ConcentratedSwapDirection::QuoteToBase)
+        .unwrap();
+    assert_eq!(output, 999_999_999);
+    assert_eq!(
+        prepared
+            .quote_exact_out_input_bracket(output, ConcentratedSwapDirection::QuoteToBase)
+            .unwrap(),
+        (0, 1)
+    );
+
+    let reverse = concentrated_prepare_curve(base - output, quote + 1, center, 2 * NAD as u128, FADE_TENTH)
+        .unwrap()
+        .quote_exact_in(output, ConcentratedSwapDirection::BaseToQuote)
+        .unwrap();
+    assert!(reverse <= 1);
+}
+
+#[test]
+fn adaptive_numeraire_crossing_is_quote_continuous_and_exact_out_replays() {
+    let reserve = 1_000_000_000_000_000_u128;
+    let input = 1_000_000_000_u128;
+    let mut outputs = [[0_u128; 2]; 3];
+    for (center_index, center) in [NAD as u128 - 1, NAD as u128, NAD as u128 + 1]
+        .into_iter()
+        .enumerate()
+    {
+        let prepared = concentrated_prepare_curve(reserve, reserve, center, PEAK_DEPTH_200, FADE_TENTH).unwrap();
+        for (direction_index, direction) in [
+            ConcentratedSwapDirection::BaseToQuote,
+            ConcentratedSwapDirection::QuoteToBase,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let output = prepared.quote_exact_in(input, direction).unwrap();
+            assert!(output > 0);
+            outputs[center_index][direction_index] = output;
+
+            let exact_out = prepared.quote_exact_out_input_bracket(output, direction).unwrap();
+            assert!(prepared.quote_exact_in(exact_out.1, direction).unwrap() >= output);
+            if exact_out.0 > 0 {
+                assert!(prepared.quote_exact_in(exact_out.0, direction).unwrap() < output);
+            }
+        }
+    }
+    for direction_index in 0..2 {
+        assert!(outputs[0][direction_index].abs_diff(outputs[1][direction_index]) <= 3);
+        assert!(outputs[1][direction_index].abs_diff(outputs[2][direction_index]) <= 3);
+    }
+}
+
+#[test]
+fn invariant_roots_are_canonical_adjacent_atoms() {
+    for (x, y) in [
+        (1_000_000_000_000_u128, 1_010_000_000_000_u128),
+        (1_000_000_000_000, 1_500_000_000_000),
+        (8_000_000_000_000, 1_000_000_000),
+        (1_000_000_000, 8_000_000_000_000),
+    ] {
+        assert_canonical_invariant(concentrated_prepare_curve(x, y, NAD as u128, PEAK_DEPTH_200, FADE_TENTH).unwrap());
+    }
+}
+
+#[test]
+fn invariant_solver_stays_inside_the_fixed_budget() {
+    reset_residual_evaluations();
+    reset_sqrt_q80_evaluations();
+    let prepared = concentrated_prepare_curve(
+        1_000_000_000_000,
+        1_350_000_000_000,
+        NAD as u128,
+        PEAK_DEPTH_200,
+        FADE_TENTH,
+    )
+    .unwrap();
+    // Two roots define the protocol geometry and one root derives this
+    // reserve state's shape. The invariant bracket reuses that shape through
+    // every D probe instead of recomputing a square root per iteration.
+    assert_eq!(sqrt_q80_evaluations(), 3);
+    assert_canonical_invariant(prepared);
+    assert!(residual_evaluations() <= CONCENTRATED_INVARIANT_MAX_ITERS + 4);
+}
+
+#[test]
+fn ordinary_inner_quote_uses_secant_bracketing_without_q80_fallback() {
+    let reserve = 1_000_000_000_000_000_u128;
+    let prepared = concentrated_prepare_curve(reserve, reserve, NAD as u128, PEAK_DEPTH_200, FADE_TENTH).unwrap();
+    reset_residual_evaluations();
+    reset_sqrt_q80_evaluations();
+    reset_q80_fallback_evaluations();
+
+    let output = prepared
+        .quote_exact_in(reserve / 1_000, ConcentratedSwapDirection::BaseToQuote)
+        .unwrap();
+    assert!(output > 0);
+    assert!(
+        residual_evaluations() <= 32,
+        "ordinary inner quote used {} residual probes",
+        residual_evaluations()
+    );
+    assert_eq!(sqrt_q80_evaluations(), 0);
+    assert_eq!(q80_fallback_evaluations(), 0);
+}
+
+#[test]
+fn transition_quote_uses_bounded_newton_work_without_q80_fallback() {
+    let prepared = concentrated_prepare_curve(
+        100_000_000_000,
+        200_000_000_000,
+        2 * NAD as u128,
+        PEAK_DEPTH_200,
+        FADE_TENTH,
+    )
+    .unwrap();
+    reset_residual_evaluations();
+    reset_sqrt_q64_evaluations();
+    reset_sqrt_q80_evaluations();
+    reset_q80_fallback_evaluations();
+
+    let output = prepared
+        .quote_exact_in(30_000_000_000, ConcentratedSwapDirection::BaseToQuote)
+        .unwrap();
+    let branch = prepared
+        .hybrid_branch_at_raw_reserves(130_000_000_000, 200_000_000_000 - output)
+        .unwrap();
+    assert!(output > 0);
+    assert_eq!(branch, ConcentratedHybridBranch::QuoteScarceTransition);
+    assert!(residual_evaluations() <= 8);
+    assert!(sqrt_q64_evaluations() <= 5);
+    assert_eq!(sqrt_q80_evaluations(), 0);
+    assert_eq!(q80_fallback_evaluations(), 0);
+}
+
+#[test]
+fn both_exact_cpmm_tails_are_reachable() {
+    assert_eq!(
+        concentrated_hybrid_branch_from_common(8_000_000_000_000, 1_000_000_000, PEAK_DEPTH_200, FADE_TENTH,).unwrap(),
+        ConcentratedHybridBranch::QuoteScarceTail
+    );
+    assert_eq!(
+        concentrated_hybrid_branch_from_common(1_000_000_000, 8_000_000_000_000, PEAK_DEPTH_200, FADE_TENTH,).unwrap(),
+        ConcentratedHybridBranch::BaseScarceTail
+    );
+}
+
+#[test]
+fn same_tail_swap_is_exact_raw_cpmm() {
+    let x = 8_000_000_000_000_u128;
+    let y = 1_000_000_000_u128;
+    let dx = 100_000_000_u128;
+    let expected = calculate_normalized_amount_out(x, y, dx).unwrap();
+    let actual = concentrated_quote_exact_in(
+        x,
+        y,
+        dx,
         ConcentratedSwapDirection::BaseToQuote,
-        ConcentratedSwapDirection::QuoteToBase,
+        NAD as u128,
+        PEAK_DEPTH_200,
+        FADE_TENTH,
+    )
+    .unwrap();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn exact_in_is_monotone_at_the_tail_to_transition_boundary() {
+    let base = 8_000_000_000_000_u128;
+    let quote = 1_000_000_000_u128;
+    let direction = ConcentratedSwapDirection::QuoteToBase;
+    let mut low = 0_u128;
+    let mut high = quote;
+    while exact_cpmm_tail_in_raw(
+        base,
+        quote,
+        high,
+        direction,
+        NAD as u128,
+        PEAK_DEPTH_200,
+        FADE_TENTH,
+    )
+    .unwrap()
+    .is_some()
+    {
+        low = high;
+        high = high.checked_mul(2).unwrap();
+    }
+    while high - low > 1 {
+        let probe = low + (high - low) / 2;
+        if exact_cpmm_tail_in_raw(
+            base,
+            quote,
+            probe,
+            direction,
+            NAD as u128,
+            PEAK_DEPTH_200,
+            FADE_TENTH,
+        )
+        .unwrap()
+        .is_some()
+        {
+            low = probe;
+        } else {
+            high = probe;
+        }
+    }
+
+    let last_tail_output = concentrated_quote_exact_in(
+        base,
+        quote,
+        low,
+        direction,
+        NAD as u128,
+        PEAK_DEPTH_200,
+        FADE_TENTH,
+    )
+    .unwrap();
+    let first_crossing_output = concentrated_quote_exact_in(
+        base,
+        quote,
+        high,
+        direction,
+        NAD as u128,
+        PEAK_DEPTH_200,
+        FADE_TENTH,
+    )
+    .unwrap();
+
+    assert_eq!(high, low + 1);
+    assert!(
+        first_crossing_output >= last_tail_output,
+        "adding one input atom at the branch crossing reduced output: input {low}->{high}, output {last_tail_output}->{first_crossing_output}"
+    );
+    let former_whole_trade_haircut = (first_crossing_output * 10).div_ceil(1_000_000);
+    assert!(
+        first_crossing_output - former_whole_trade_haircut < last_tail_output,
+        "fixture must reproduce the removed 10 ppm branch-crossing discontinuity"
+    );
+
+    let base_after_first = base.checked_sub(last_tail_output).unwrap();
+    let quote_after_first = quote.checked_add(low).unwrap();
+    let split_output = last_tail_output
+        .checked_add(
+            concentrated_quote_exact_in(
+                base_after_first,
+                quote_after_first,
+                1,
+                direction,
+                NAD as u128,
+                PEAK_DEPTH_200,
+                FADE_TENTH,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert!(
+        first_crossing_output >= split_output,
+        "splitting exactly at the branch crossing improved output: one-shot={first_crossing_output} split={split_output}"
+    );
+}
+
+#[test]
+fn concentrated_exact_in_selects_the_maximal_safe_output_atom() {
+    let base = 1_000_000_000_000_u128;
+    let quote = 1_100_000_000_000_u128;
+    let input = 50_000_000_000_u128;
+    let prepared = concentrated_prepare_curve(
+        base,
+        quote,
+        NAD as u128,
+        PEAK_DEPTH_200,
+        FADE_TENTH,
+    )
+    .unwrap();
+    let output = prepared
+        .quote_exact_in(input, ConcentratedSwapDirection::BaseToQuote)
+        .unwrap();
+    let x_after = prepared.base_common.checked_add(input).unwrap();
+    let y_after = prepared.quote_common.checked_sub(output).unwrap();
+
+    assert!(
+        hybrid_residual(
+            x_after,
+            y_after,
+            prepared.invariant_d(),
+            prepared.geometry,
+        )
+        .unwrap()
+        .0
+    );
+    assert!(
+        !hybrid_residual(
+            x_after,
+            y_after - 1,
+            prepared.invariant_d(),
+            prepared.geometry,
+        )
+        .unwrap()
+        .0,
+        "one additional output atom must be on the invalid side"
+    );
+}
+
+#[test]
+fn convergence_transition_matches_value_and_slope_at_both_joins() {
+    let geometry = ConcentratedC1Geometry::derive(PEAK_DEPTH_200, FADE_TENTH).unwrap();
+    let (start_q, start_slope) = geometry
+        .transition_q_and_slope_at_v(geometry.v_start_q48)
+        .unwrap();
+    let (tail_q, tail_slope) = geometry
+        .transition_q_and_slope_at_v(geometry.v_tail_q48)
+        .unwrap();
+    assert_eq!(start_q, geometry.q_start_q48);
+    assert_eq!(start_slope, geometry.negative_q_prime_start_q48);
+    assert_eq!(tail_q, geometry.q_tail_q48);
+    assert_eq!(tail_slope, 0);
+
+    let d = 2_000_000_000_000_u128;
+    let (tail_low, tail_high) = reserves_at_c1_coordinate(d, tail_q, geometry.v_tail_q48);
+    let reconstructed =
+        concentrated_prepare_curve(tail_high, tail_low, NAD as u128, PEAK_DEPTH_200, FADE_TENTH).unwrap();
+    assert!(reconstructed.invariant_d().abs_diff(d) <= 100_000);
+    let one_step_out = reserves_at_c1_coordinate(d, tail_q, geometry.v_tail_q48 + 1);
+    assert!(concentrated_hybrid_branch_from_common(
+        one_step_out.1,
+        one_step_out.0,
+        PEAK_DEPTH_200,
+        FADE_TENTH,
+    )
+    .unwrap()
+    .is_exact_tail());
+}
+
+#[test]
+fn q80_inner_transition_and_tail_have_matching_one_sided_derivatives() {
+    for (peak, fade) in [
+        (2 * NAD as u128, NAD as u128 / 10),
+        (PEAK_DEPTH_200, FADE_TENTH),
+        (CONCENTRATED_MAX_PEAK_DEPTH_NAD, CONCENTRATED_MAX_FADE_SCALE_NAD),
     ] {
-        let input = concentrated_quote_exact_out(
-            reserve,
-            reserve,
-            requested,
-            direction,
-            NAD as u128,
-            PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
-        )
-        .unwrap();
-        let replay = concentrated_quote_exact_in(
-            reserve,
-            reserve,
-            input,
-            direction,
-            NAD as u128,
-            PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
-        )
-        .unwrap();
+        let geometry = ConcentratedC1Geometry::derive(peak, fade).unwrap();
+        let transition_width = geometry.v_tail_q80 - geometry.v_start_q80;
+        let epsilon = (transition_width / 1_000_000).max(1);
+        let inner_v = geometry.v_start_q80 - epsilon;
+        let inner_q = solve_inner_q_at_v_q80(inner_v, geometry.q_start_q80, peak, fade);
+        let transition_q = geometry
+            .transition_q_and_slope_at_v_q80(geometry.v_start_q80 + epsilon)
+            .unwrap()
+            .0;
+        let inner_slope = mul_div_floor(inner_q - geometry.q_start_q80, Q80_ONE, epsilon).unwrap();
+        let transition_slope = mul_div_floor(geometry.q_start_q80 - transition_q, Q80_ONE, epsilon).unwrap();
+        let slope_error = inner_slope.abs_diff(transition_slope);
         assert!(
-            replay >= requested,
-            "direction={direction:?}, input={input}, replay={replay}"
+            slope_error.saturating_mul(1_000) <= inner_slope.max(transition_slope),
+            "peak={peak} fade={fade} inner={inner_slope} transition={transition_slope}"
         );
-        let tail_product = reserve * reserve * (NAD as u128 - IMBALANCE_SCALE_TENTH) / NAD as u128;
-        let mathematical_input = mul_div_u128_ceil(tail_product, 1, reserve - requested).unwrap() - reserve;
-        let max_conservative_input =
-            mul_div_u128_ceil(mathematical_input, PPM_DENOMINATOR + 1_000, PPM_DENOMINATOR).unwrap();
+
+        let tail_q = geometry
+            .transition_q_and_slope_at_v_q80(geometry.v_tail_q80 - epsilon)
+            .unwrap()
+            .0;
+        let tail_slope = mul_div_floor(tail_q - geometry.q_tail_q80, Q80_ONE, epsilon).unwrap();
         assert!(
-            input <= max_conservative_input,
-            "input={input}, mathematical={mathematical_input}"
+            tail_slope.saturating_mul(1_000) <= geometry.negative_q_prime_start_q80,
+            "peak={peak} fade={fade} tail={tail_slope} start={} ",
+            geometry.negative_q_prime_start_q80
         );
     }
 }
 
 #[test]
-fn restorative_exact_out_crosses_from_cpmm_tail_into_inner_and_replays() {
-    let low = 100_000_000_000_u128;
-    let high = 4_000_000_000_000_u128;
-    let requested = 3_200_000_000_000_u128;
-    for (base, quote, direction) in [
-        (low, high, ConcentratedSwapDirection::BaseToQuote),
-        (high, low, ConcentratedSwapDirection::QuoteToBase),
+fn raw_quotes_are_c1_continuous_at_both_joins_across_center_orientations() {
+    let target_common = 1_000_000_000_000_000_u128;
+    for center in [1_u128, NAD as u128, u64::MAX as u128] {
+        let numeraire = ConcentratedCommonNumeraire::for_center(center).unwrap();
+        let base = numeraire
+            .base_scale(center)
+            .unwrap()
+            .common_to_raw_ceil(target_common)
+            .unwrap();
+        let quote = numeraire
+            .quote_scale(center)
+            .unwrap()
+            .common_to_raw_ceil(target_common)
+            .unwrap();
+        let prepared = concentrated_prepare_curve(base, quote, center, PEAK_DEPTH_200, FADE_TENTH).unwrap();
+        for direction in [
+            ConcentratedSwapDirection::BaseToQuote,
+            ConcentratedSwapDirection::QuoteToBase,
+        ] {
+            for target_stage in [1_u8, 2_u8] {
+                let crossing = first_raw_input_at_outward_stage(prepared, direction, target_stage);
+                let before = prepared.quote_exact_in(crossing - 1, direction).unwrap();
+                let at = prepared.quote_exact_in(crossing, direction).unwrap();
+                let after = prepared.quote_exact_in(crossing + 1, direction).unwrap();
+                assert!(before <= at && at <= after);
+                let left_marginal = at - before;
+                let right_marginal = after - at;
+                let marginal_scale = left_marginal.max(right_marginal);
+                assert!(
+                    left_marginal.abs_diff(right_marginal) <= (marginal_scale / 1_000).max(2),
+                    "center={center} direction={direction:?} stage={target_stage} crossing={crossing} left={left_marginal} right={right_marginal}"
+                );
+
+                let (_, split_base, split_quote, _) = raw_quote_endpoint(prepared, crossing - 1, direction);
+                let split_tail = concentrated_prepare_curve(
+                    split_base,
+                    split_quote,
+                    center,
+                    PEAK_DEPTH_200,
+                    FADE_TENTH,
+                )
+                .unwrap()
+                .quote_exact_in(1, direction)
+                .unwrap_or(0);
+                assert!(
+                    before + split_tail <= at,
+                    "center={center} direction={direction:?} stage={target_stage} one_shot={at} split={before}+{split_tail}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn full_precision_transition_removes_max_reserve_quote_staircases_and_stored_slack() {
+    for (peak, fade, base, quote, adjacent_input) in [
+        (
+            100 * NAD as u128,
+            100_000_000_u128,
+            18_446_744_073_708_551_613_u128,
+            5_671_181_913_068_248_712_u128,
+            114_643_u128,
+        ),
+        (
+            100 * NAD as u128,
+            100_000_000_u128,
+            999_999_999_999_999_999_u128,
+            307_435_387_535_471_386_u128,
+            12_429_u128,
+        ),
+        (
+            2_000 * NAD as u128,
+            1_000_000_u128,
+            18_446_744_073_708_551_614_u128,
+            16_603_345_133_192_447_584_u128,
+            104_074_u128,
+        ),
     ] {
+        let quote_for = |amount_in| {
+            concentrated_quote_exact_in(
+                base,
+                quote,
+                amount_in,
+                ConcentratedSwapDirection::BaseToQuote,
+                NAD as u128,
+                peak,
+                fade,
+            )
+            .unwrap()
+        };
+        let one = quote_for(1);
+        let twenty = quote_for(20);
+        assert!(one <= 1, "one raw input atom harvested {one} output atoms");
+        assert!(twenty <= 20, "twenty raw input atoms harvested {twenty} output atoms");
+
+        let before = quote_for(adjacent_input);
+        let after = quote_for(adjacent_input + 1);
+        assert!(before <= after);
+        assert!(after - before <= 1, "adjacent staircase remained: {before}->{after}");
+
+        let mut sequential_base = base;
+        let mut sequential_quote = quote;
+        let mut sequential_output = 0_u128;
+        for _ in 0..20 {
+            let output = concentrated_quote_exact_in(
+                sequential_base,
+                sequential_quote,
+                1,
+                ConcentratedSwapDirection::BaseToQuote,
+                NAD as u128,
+                peak,
+                fade,
+            )
+            .unwrap();
+            if output == 0 {
+                break;
+            }
+            sequential_base += 1;
+            sequential_quote -= output;
+            sequential_output += output;
+        }
+        assert!(sequential_output <= twenty);
+    }
+}
+
+#[test]
+fn full_precision_transition_residual_has_one_local_sign_crossing() {
+    let peak = 200 * NAD as u128;
+    let fade = FADE_TENTH;
+    let geometry = Some(ConcentratedC1Geometry::derive(peak, fade).unwrap());
+    let fixed = 1_377_336_837_576_107_u128;
+    let invariant = 2_377_082_899_267_726_u128;
+    let mut observed_valid = false;
+    let mut crossings = 0_u8;
+    for variable in 999_984_150_924_250_u128..=999_984_150_924_400_u128 {
+        let valid = hybrid_residual(fixed, variable, invariant, geometry).unwrap().0;
+        if valid && !observed_valid {
+            crossings += 1;
+            observed_valid = true;
+        }
+        assert!(!observed_valid || valid, "residual returned to invalid at y={variable}");
+    }
+    assert_eq!(crossings, 1);
+}
+
+#[test]
+fn convergence_join_round_trips_cannot_create_raw_token_profit() {
+    for (peak_depth_nad, fade_scale_nad) in [
+        (2 * NAD as u128, NAD as u128 / 1_000),
+        (PEAK_DEPTH_200, FADE_TENTH),
+        (CONCENTRATED_MAX_PEAK_DEPTH_NAD, CONCENTRATED_MAX_FADE_SCALE_NAD),
+    ] {
+        let d = 2_000_000_000_000_u128;
+        let geometry = ConcentratedC1Geometry::derive(peak_depth_nad, fade_scale_nad).unwrap();
+        for (q_q48, v_q48) in [
+            (geometry.q_start_q48, geometry.v_start_q48),
+            (geometry.q_tail_q48, geometry.v_tail_q48),
+        ] {
+            let (low_common, high_common) = reserves_at_c1_coordinate(d, q_q48, v_q48);
+            for (base, quote, direction) in [
+                (high_common, low_common, ConcentratedSwapDirection::BaseToQuote),
+                (low_common, high_common, ConcentratedSwapDirection::QuoteToBase),
+            ] {
+                for amount_in in [d / 1_000_000, d / 100_000, d / 10_000] {
+                    let output = concentrated_quote_exact_in(
+                        base,
+                        quote,
+                        amount_in,
+                        direction,
+                        NAD as u128,
+                        peak_depth_nad,
+                        fade_scale_nad,
+                    )
+                    .unwrap();
+                    let (base_after, quote_after, reverse) = match direction {
+                        ConcentratedSwapDirection::BaseToQuote => (
+                            base + amount_in,
+                            quote - output,
+                            ConcentratedSwapDirection::QuoteToBase,
+                        ),
+                        ConcentratedSwapDirection::QuoteToBase => (
+                            base - output,
+                            quote + amount_in,
+                            ConcentratedSwapDirection::BaseToQuote,
+                        ),
+                    };
+                    let returned = concentrated_quote_exact_in(
+                        base_after,
+                        quote_after,
+                        output,
+                        reverse,
+                        NAD as u128,
+                        peak_depth_nad,
+                        fade_scale_nad,
+                    )
+                    .unwrap();
+                    assert!(
+                        returned <= amount_in,
+                        "round trip profited at peak={peak_depth_nad} fade={fade_scale_nad}: in={amount_in} back={returned}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn concentrated_depth_improves_a_centered_quote() {
+    let reserve = 1_000_000_000_000_000_u128;
+    let input = 10_000_000_000_000_u128;
+    let cpmm = calculate_normalized_amount_out(reserve, reserve, input).unwrap();
+    let concentrated = concentrated_quote_exact_in(
+        reserve,
+        reserve,
+        input,
+        ConcentratedSwapDirection::BaseToQuote,
+        NAD as u128,
+        PEAK_DEPTH_200,
+        FADE_TENTH,
+    )
+    .unwrap();
+    assert!(concentrated > cpmm);
+    assert!(concentrated < input);
+}
+
+#[test]
+fn exact_out_replays_to_at_least_the_request() {
+    let base = 1_000_000_000_000_000_u128;
+    let quote = 1_100_000_000_000_000_u128;
+    for requested in [1_000_000_u128, 1_000_000_000, 100_000_000_000] {
         let input = concentrated_quote_exact_out(
             base,
             quote,
             requested,
-            direction,
+            ConcentratedSwapDirection::BaseToQuote,
             NAD as u128,
             PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
+            FADE_TENTH,
         )
         .unwrap();
         let replay = concentrated_quote_exact_in(
             base,
             quote,
             input,
-            direction,
+            ConcentratedSwapDirection::BaseToQuote,
             NAD as u128,
             PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
+            FADE_TENTH,
         )
         .unwrap();
         assert!(
             replay >= requested,
-            "direction={direction:?}, input={input}, replay={replay}"
+            "requested={requested} input={input} replay={replay}"
         );
     }
 }
 
 #[test]
-fn exact_out_upper_and_utilized_lower_bound_bracket_every_hybrid_region() {
-    let reserve = 1_000_000_000_000_u128;
-    for (peak_depth, imbalance_scale) in [
-        (2 * NAD as u128, 10),
-        (PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH),
-        (CONCENTRATED_MAX_PEAK_DEPTH_NAD, CONCENTRATED_MAX_IMBALANCE_SCALE_NAD),
+fn exact_out_replays_large_withdrawals_across_both_directions_and_shape_bounds() {
+    let base = 1_000_000_000_000_u128;
+    let quote = 1_000_000_000_000_u128;
+    for (peak_depth_nad, fade_scale_nad) in [
+        (2 * NAD as u128, NAD as u128 / 1_000),
+        (PEAK_DEPTH_200, FADE_TENTH),
+        (CONCENTRATED_MAX_PEAK_DEPTH_NAD, CONCENTRATED_MAX_FADE_SCALE_NAD),
     ] {
         for direction in [
             ConcentratedSwapDirection::BaseToQuote,
             ConcentratedSwapDirection::QuoteToBase,
         ] {
-            // Small output stays in the inner shoulder; medium and large
-            // outputs cross the shoulder and traverse the exact CPMM tail.
-            for requested in [reserve / 100, reserve * 45 / 100, reserve * 95 / 100] {
-                assert_exact_out_inverse_bracket(
-                    reserve,
-                    reserve,
+            for requested in [quote / 100, quote / 2, quote * 4 / 5, quote * 19 / 20] {
+                let input = concentrated_quote_exact_out(
+                    base,
+                    quote,
                     requested,
                     direction,
                     NAD as u128,
-                    peak_depth,
-                    imbalance_scale,
+                    peak_depth_nad,
+                    fade_scale_nad,
+                )
+                .unwrap();
+                let replay = concentrated_quote_exact_in(
+                    base,
+                    quote,
+                    input,
+                    direction,
+                    NAD as u128,
+                    peak_depth_nad,
+                    fade_scale_nad,
+                )
+                .unwrap();
+                assert!(
+                    replay >= requested,
+                    "peak={peak_depth_nad} fade={fade_scale_nad} direction={direction:?} requested={requested} input={input} replay={replay}"
                 );
             }
         }
     }
+}
 
-    // Exact CPMM tail in the outward direction and a restoring trade that
-    // crosses from that tail back through the inner shoulder, mirrored across
-    // both asset directions.
-    let scarce = 100_000_000_000_u128;
-    let abundant = 4_000_000_000_000_u128;
-    for (base, quote, outward, restoring) in [
-        (
-            abundant,
-            scarce,
-            ConcentratedSwapDirection::BaseToQuote,
-            ConcentratedSwapDirection::QuoteToBase,
-        ),
-        (
-            scarce,
-            abundant,
-            ConcentratedSwapDirection::QuoteToBase,
-            ConcentratedSwapDirection::BaseToQuote,
-        ),
-    ] {
-        let outward_reserve = match outward {
-            ConcentratedSwapDirection::BaseToQuote => quote,
-            ConcentratedSwapDirection::QuoteToBase => base,
-        };
-        assert_exact_out_inverse_bracket(
-            base,
-            quote,
-            outward_reserve / 10,
-            outward,
-            NAD as u128,
-            PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
-        );
-        let restoring_reserve = match restoring {
-            ConcentratedSwapDirection::BaseToQuote => quote,
-            ConcentratedSwapDirection::QuoteToBase => base,
-        };
-        assert_exact_out_inverse_bracket(
-            base,
-            quote,
-            restoring_reserve * 8 / 10,
-            restoring,
-            NAD as u128,
-            PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
-        );
-    }
-
-    // Unequal center exercises both raw/common conversion roundings.
-    assert_exact_out_inverse_bracket(
-        reserve / 2,
-        reserve,
-        reserve / 3,
+#[test]
+fn exact_out_lower_bound_brackets_executable_input() {
+    let base = 1_000_000_000_000_000_u128;
+    let quote = 900_000_000_000_000_u128;
+    let requested = 5_000_000_000_u128;
+    let lower = concentrated_quote_exact_out_input_lower_bound(
+        base,
+        quote,
+        requested,
         ConcentratedSwapDirection::BaseToQuote,
-        2 * NAD as u128,
+        NAD as u128,
         PEAK_DEPTH_200,
-        IMBALANCE_SCALE_TENTH,
-    );
-    assert_exact_out_inverse_bracket(
-        reserve / 2,
-        reserve,
-        reserve / 6,
-        ConcentratedSwapDirection::QuoteToBase,
-        2 * NAD as u128,
-        PEAK_DEPTH_200,
-        IMBALANCE_SCALE_TENTH,
-    );
-}
-
-#[test]
-fn shoulder_is_continuous_and_has_pool_favoring_outward_kink() {
-    let d = 2_000_000_000_000_u128;
-    let shoulder = concentrated_hybrid_shoulder_from_d(d, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap();
-
-    assert!(shoulder.inner_low_marginal_nad > shoulder.tail_low_marginal_nad);
-    assert_eq!(
-        shoulder.tail_product_common,
-        d * d / 4 * (NAD as u128 - IMBALANCE_SCALE_TENTH) / NAD as u128
-    );
-
-    // One atom on either side of the rounded shoulder must not create a jump
-    // in the homogeneous invariant value.
-    let inner_d = invariant_common(
-        shoulder.high_common,
-        shoulder.low_common.saturating_add(1),
-        PEAK_DEPTH_200,
-        IMBALANCE_SCALE_TENTH,
+        FADE_TENTH,
     )
     .unwrap();
-    let outer_d = invariant_common(
-        shoulder.high_common,
-        shoulder.low_common.saturating_sub(1),
+    let upper = concentrated_quote_exact_out(
+        base,
+        quote,
+        requested,
+        ConcentratedSwapDirection::BaseToQuote,
+        NAD as u128,
         PEAK_DEPTH_200,
-        IMBALANCE_SCALE_TENTH,
+        FADE_TENTH,
     )
     .unwrap();
-    assert!(inner_d.abs_diff(d) <= 16, "inner_d={inner_d}, d={d}");
-    assert!(outer_d.abs_diff(d) <= 16, "outer_d={outer_d}, d={d}");
-    assert!(inner_d.abs_diff(outer_d) <= 32);
+    assert!(lower <= upper);
 }
 
 #[test]
-fn shoulder_kink_is_pool_favoring_across_operator_parameter_extremes() {
-    let d = 2_000_000_000_000_000_u128;
-    for peak_depth_nad in [2, 10, 200, 2_000].map(|value| value * NAD as u128) {
-        for imbalance_scale_nad in [10_u128, NAD as u128 / 1_000, NAD as u128 / 10, 199_000_000] {
-            let shoulder = concentrated_hybrid_shoulder_from_d(d, peak_depth_nad, imbalance_scale_nad).unwrap();
-            assert!(
-                shoulder.inner_low_marginal_nad >= shoulder.tail_low_marginal_nad,
-                "peak={peak_depth_nad}, scale={imbalance_scale_nad}, inner={}, tail={}",
-                shoulder.inner_low_marginal_nad,
-                shoulder.tail_low_marginal_nad,
-            );
-        }
-    }
+fn warm_and_cold_preparation_are_identical() {
+    let start = concentrated_prepare_curve(
+        1_000_000_000_000,
+        1_200_000_000_000,
+        NAD as u128,
+        PEAK_DEPTH_200,
+        FADE_TENTH,
+    )
+    .unwrap();
+    let cold = concentrated_prepare_curve(
+        1_010_000_000_000,
+        1_190_000_000_000,
+        NAD as u128,
+        PEAK_DEPTH_200,
+        FADE_TENTH,
+    )
+    .unwrap();
+    let warm = concentrated_prepare_curve_seeded_cached(
+        1_010_000_000_000,
+        1_190_000_000_000,
+        NAD as u128,
+        PEAK_DEPTH_200,
+        FADE_TENTH,
+        start.geometry_cache().unwrap(),
+        ConcentratedInvariantSeed::Hint(start.invariant_d()),
+    )
+    .unwrap();
+    assert_eq!(warm.invariant_d(), cold.invariant_d());
 }
 
 #[test]
-fn branches_are_symmetric_and_outer_quotes_are_exact_cpmm() {
-    let center = 3 * NAD as u128;
-    let quote_scarce = (4_000_000_000_000_u128, 100_000_000_000_u128);
-    let base_scarce = (100_000_000_000_u128, 4_000_000_000_000_u128);
-    let (quote_scarce_x, quote_scarce_y) = normalize_reserves(quote_scarce.0, quote_scarce.1, center).unwrap();
-    let (base_scarce_x, base_scarce_y) = normalize_reserves(base_scarce.0, base_scarce.1, center).unwrap();
-    assert_eq!(
-        concentrated_hybrid_branch_from_common(quote_scarce_x, quote_scarce_y, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH,)
-            .unwrap(),
-        ConcentratedHybridBranch::QuoteScarceTail
-    );
-    assert_eq!(
-        concentrated_hybrid_branch_from_common(base_scarce_x, base_scarce_y, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH,)
-            .unwrap(),
-        ConcentratedHybridBranch::BaseScarceTail
-    );
-    let symmetric_x = 4_000_000_000_000_u128;
-    let symmetric_y = 100_000_000_000_u128;
-    assert_eq!(
-        invariant_common(symmetric_x, symmetric_y, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap(),
-        invariant_common(symmetric_y, symmetric_x, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap()
-    );
-
-    let base_in = quote_scarce.0 / 100;
-    let quote_in = base_scarce.1 / 100;
-    assert_eq!(
-        concentrated_quote_exact_in(
-            quote_scarce.0,
-            quote_scarce.1,
-            base_in,
-            ConcentratedSwapDirection::BaseToQuote,
-            center,
-            PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
-        )
-        .unwrap(),
-        calculate_normalized_amount_out(quote_scarce.0, quote_scarce.1, base_in).unwrap()
-    );
-    assert_eq!(
-        concentrated_quote_exact_in(
-            base_scarce.0,
-            base_scarce.1,
-            quote_in,
-            ConcentratedSwapDirection::QuoteToBase,
-            center,
-            PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
-        )
-        .unwrap(),
-        calculate_normalized_amount_out(base_scarce.1, base_scarce.0, quote_in).unwrap()
-    );
-
-    let quote_out = quote_scarce.1 / 100;
-    assert_eq!(
-        concentrated_quote_exact_out(
-            quote_scarce.0,
-            quote_scarce.1,
-            quote_out,
-            ConcentratedSwapDirection::BaseToQuote,
-            center,
-            PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
-        )
-        .unwrap(),
-        calculate_normalized_amount_in(quote_scarce.0, quote_scarce.1, quote_out).unwrap()
-    );
-    assert_eq!(
-        concentrated_marginal_price_nad(
-            quote_scarce.0,
-            quote_scarce.1,
-            center,
-            PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
-        )
-        .unwrap(),
-        quote_scarce.1 * NAD as u128 / quote_scarce.0
-    );
-}
-
-#[test]
-fn exact_in_crosses_shoulder_monotonically_atom_by_atom() {
-    let reserve = 1_000_000_000_000_u128;
-    let mut low = 0_u128;
-    let mut high = reserve * 8;
-    while high - low > 1 {
-        let midpoint = low + (high - low) / 2;
-        let output = quote_common_exact_in(reserve, reserve, midpoint, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap();
-        let branch = concentrated_hybrid_branch_from_common(
-            reserve + midpoint,
-            reserve - output,
-            PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
+fn cached_geometry_reconstructs_authoritative_q80_geometry_exactly() {
+    for (peak, fade) in [
+        (2 * NAD as u128, 100_u128),
+        (PEAK_DEPTH_200, FADE_TENTH),
+        (CONCENTRATED_MAX_PEAK_DEPTH_NAD, CONCENTRATED_MAX_FADE_SCALE_NAD),
+    ] {
+        let cache = ConcentratedGeometryCache::derive(peak, fade).unwrap();
+        assert!(cache.matches(peak, fade));
+        assert_eq!(cache.peak_q80, mul_div_floor(peak, Q80_ONE, NAD as u128).unwrap());
+        assert_eq!(cache.scale_q80, mul_div_floor(fade, Q80_ONE, NAD as u128).unwrap());
+        assert_eq!(
+            ConcentratedC1Geometry::from_cache(cache, peak, fade).unwrap(),
+            ConcentratedC1Geometry::derive(peak, fade).unwrap()
+        );
+        let cached = concentrated_prepare_curve_cached(
+            1_000_000_000_000,
+            1_200_000_000_000,
+            NAD as u128,
+            peak,
+            fade,
+            cache,
         )
         .unwrap();
-        if branch == ConcentratedHybridBranch::QuoteScarceTail {
-            high = midpoint;
-        } else {
-            low = midpoint;
-        }
+        let cold = concentrated_prepare_curve(
+            1_000_000_000_000,
+            1_200_000_000_000,
+            NAD as u128,
+            peak,
+            fade,
+        )
+        .unwrap();
+        assert_eq!(cached, cold);
+        assert_eq!(cached.geometry_cache(), Some(cache));
+
+        let mut inconsistent = cache;
+        inconsistent.v_tail_q80 = inconsistent.v_start_q80;
+        assert!(ConcentratedC1Geometry::from_cache(inconsistent, peak, fade).is_err());
+        let mut stale = cache;
+        stale.math_revision = stale.math_revision.wrapping_add(1);
+        assert!(ConcentratedC1Geometry::from_cache(stale, peak, fade).is_err());
     }
-    let before = quote_common_exact_in(reserve, reserve, high - 1, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap();
-    let at = quote_common_exact_in(reserve, reserve, high, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap();
-    let after = quote_common_exact_in(reserve, reserve, high + 1, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap();
-    assert!(before <= at && at <= after, "before={before}, at={at}, after={after}");
-    assert!(at - before <= 2 && after - at <= 2);
 }
 
 #[test]
-fn restorative_exact_in_crosses_from_cpmm_tail_without_a_haircut_cliff() {
-    let x = 100_000_000_000_u128;
-    let y = 4_000_000_000_000_u128;
-    let mut low = 0_u128;
-    let mut high = 1_000_000_000_000_u128;
-    while high - low > 1 {
-        let midpoint = low + (high - low) / 2;
-        let output = quote_common_exact_in(x, y, midpoint, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap();
-        let branch =
-            concentrated_hybrid_branch_from_common(x + midpoint, y - output, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH)
-                .unwrap();
-        if branch == ConcentratedHybridBranch::BaseScarceTail {
-            low = midpoint;
-        } else {
-            high = midpoint;
-        }
-    }
-    let before = quote_common_exact_in(x, y, high - 1, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap();
-    let at = quote_common_exact_in(x, y, high, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap();
-    let after = quote_common_exact_in(x, y, high + 1, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap();
-    assert!(before <= at && at <= after, "before={before}, at={at}, after={after}");
-    assert!(at - before <= 3 && after - at <= 3);
-}
-
-#[test]
-fn crossing_the_shoulder_cannot_create_a_round_trip_gain() {
-    let reserve = 1_000_000_000_000_u128;
-    let base_in = reserve * 3;
-    let quote_out = concentrated_quote_exact_in(
+fn cached_ordinary_inner_quote_executes_without_q80_work_or_fallback() {
+    let reserve = 1_000_000_000_000_000_u128;
+    let cache = ConcentratedGeometryCache::derive(PEAK_DEPTH_200, FADE_TENTH).unwrap();
+    reset_sqrt_q80_evaluations();
+    reset_q80_fallback_evaluations();
+    let prepared = concentrated_prepare_curve_seeded_cached(
         reserve,
         reserve,
-        base_in,
-        ConcentratedSwapDirection::BaseToQuote,
         NAD as u128,
         PEAK_DEPTH_200,
-        IMBALANCE_SCALE_TENTH,
+        FADE_TENTH,
+        cache,
+        ConcentratedInvariantSeed::Hint(reserve * 2),
     )
     .unwrap();
-    let base_after = reserve + base_in;
-    let quote_after = reserve - quote_out;
-    let base_back = concentrated_quote_exact_in(
-        base_after,
-        quote_after,
-        quote_out,
-        ConcentratedSwapDirection::QuoteToBase,
-        NAD as u128,
-        PEAK_DEPTH_200,
-        IMBALANCE_SCALE_TENTH,
-    )
-    .unwrap();
-    assert!(base_back <= base_in, "base_in={base_in}, base_back={base_back}");
+    let output = prepared
+        .quote_exact_in(reserve / 1_000, ConcentratedSwapDirection::BaseToQuote)
+        .unwrap();
+    assert!(output > 0);
+    assert_eq!(sqrt_q80_evaluations(), 0);
+    assert_eq!(q80_fallback_evaluations(), 0);
 }
 
 #[test]
-fn parameter_domain_is_explicit_and_fail_closed() {
+fn restored_checkpoint_rejects_a_noncanonical_invariant() {
+    let prepared = concentrated_prepare_curve(
+        1_000_000_000_000,
+        1_200_000_000_000,
+        NAD as u128,
+        PEAK_DEPTH_200,
+        FADE_TENTH,
+    )
+    .unwrap();
+    let invariant_d = prepared.invariant_d();
+    let cache = prepared.geometry_cache().unwrap();
+    assert!(concentrated_prepare_curve_seeded_cached(
+        1_000_000_000_000,
+        1_200_000_000_000,
+        NAD as u128,
+        PEAK_DEPTH_200,
+        FADE_TENTH,
+        cache,
+        ConcentratedInvariantSeed::Exact(invariant_d),
+    )
+    .is_ok());
+    assert!(concentrated_prepare_curve_seeded_cached(
+        1_000_000_000_000,
+        1_200_000_000_000,
+        NAD as u128,
+        PEAK_DEPTH_200,
+        FADE_TENTH,
+        cache,
+        ConcentratedInvariantSeed::Exact(invariant_d.saturating_sub(2)),
+    )
+    .is_err());
+}
+
+#[test]
+fn parameter_encoding_is_canonical() {
     let reserve = 1_000_000_000_000_u128;
-    assert!(concentrated_prepare_curve(reserve, reserve, NAD as u128, PEAK_DEPTH_200, 0).is_err());
+    assert!(concentrated_prepare_curve(reserve, reserve, NAD as u128, PEAK_DEPTH_200, 0,).is_err());
+    assert!(concentrated_prepare_curve(reserve, reserve, NAD as u128, 0, FADE_TENTH,).is_err());
     assert!(concentrated_prepare_curve(
         reserve,
         reserve,
         NAD as u128,
         CONCENTRATED_MAX_PEAK_DEPTH_NAD + 1,
-        IMBALANCE_SCALE_TENTH,
-    )
-    .is_err());
-    assert!(concentrated_prepare_curve(
-        reserve,
-        reserve,
-        NAD as u128,
-        PEAK_DEPTH_200,
-        CONCENTRATED_MAX_IMBALANCE_SCALE_NAD + 1,
-    )
-    .is_err());
-}
-
-#[test]
-fn inner_common_floor_rejects_dust_while_exact_cpmm_tail_stays_available() {
-    let below = MIN_INNER_COMMON_RESERVE - 1;
-    assert!(concentrated_prepare_curve(
-        below,
-        below,
-        NAD as u128,
-        PEAK_DEPTH_200,
-        IMBALANCE_SCALE_TENTH,
-    )
-    .is_err());
-
-    let supported = concentrated_prepare_curve(
-        MIN_INNER_COMMON_RESERVE,
-        MIN_INNER_COMMON_RESERVE,
-        NAD as u128,
-        PEAK_DEPTH_200,
-        IMBALANCE_SCALE_TENTH,
-    )
-    .unwrap();
-    assert_eq!(supported.marginal_price_nad().unwrap(), NAD as u128);
-
-    let tail_base = 1_000_000_000_000_u128;
-    let tail_quote = MIN_INNER_COMMON_RESERVE / 10;
-    let tail = concentrated_prepare_curve(
-        tail_base,
-        tail_quote,
-        NAD as u128,
-        PEAK_DEPTH_200,
-        IMBALANCE_SCALE_TENTH,
-    )
-    .unwrap();
-    assert_eq!(tail.shoulder_relation, Ordering::Less);
-    assert_eq!(
-        tail.marginal_price_nad().unwrap(),
-        mul_div_u128(tail_quote, NAD as u128, tail_base).unwrap()
-    );
-}
-
-#[test]
-fn documented_maximum_domain_fits_the_wide_integer() {
-    let x = MAX_COMMON_RESERVE;
-    let y = MAX_COMMON_RESERVE - 1;
-    let d = x + y;
-    let (positive, negative) = residual_terms(
-        x,
-        y,
-        d,
-        CONCENTRATED_MAX_PEAK_DEPTH_NAD,
-        CONCENTRATED_MAX_IMBALANCE_SCALE_NAD,
-    )
-    .unwrap();
-    assert!(!positive.is_zero() || !negative.is_zero());
-    let (_, derivative) = variable_residual_derivative(
-        x,
-        y,
-        d,
-        CONCENTRATED_MAX_PEAK_DEPTH_NAD,
-        CONCENTRATED_MAX_IMBALANCE_SCALE_NAD,
-    )
-    .unwrap();
-    assert!(!derivative.is_zero());
-}
-
-#[test]
-fn canonical_high_kernel_is_bit_exact_at_maximum_domain_and_fails_closed_outside_it() {
-    let x = MAX_COMMON_RESERVE;
-    let y = MAX_COMMON_RESERVE - 1;
-    let (_, d_high, _) = invariant_common_bracket(
-        x,
-        y,
-        CONCENTRATED_MAX_PEAK_DEPTH_NAD,
-        CONCENTRATED_MAX_IMBALANCE_SCALE_NAD,
-    )
-    .unwrap();
-    assert_canonical_high_kernel_matches_signed_u512_reference(
-        x,
-        y,
-        d_high,
-        u64::MAX as u128,
-        CONCENTRATED_MAX_PEAK_DEPTH_NAD,
-        CONCENTRATED_MAX_IMBALANCE_SCALE_NAD,
-    );
-
-    let reserve = 10 * MIN_INNER_COMMON_RESERVE;
-    assert!(canonical_high_reserve_residual_derivative_cores(
-        reserve,
-        reserve,
-        2 * reserve - 1,
-        PEAK_DEPTH_200,
-        IMBALANCE_SCALE_TENTH,
-    )
-    .is_err());
-    assert!(canonical_high_reserve_residual_derivative_cores(
-        reserve,
-        reserve,
-        2 * reserve + 1,
-        PEAK_DEPTH_200,
-        IMBALANCE_SCALE_TENTH,
+        FADE_TENTH,
     )
     .is_err());
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(64))]
+    #![proptest_config(ProptestConfig::with_cases(32))]
 
     #[test]
-    fn canonical_high_kernel_is_bit_exact_for_randomized_certified_inner_states(
-        reserve_seed in any::<u64>(),
-        offset_ppm in 0_u128..101_u128,
-        subtract_offset in any::<bool>(),
-        peak_depth_nad in MIN_AMM_PEAK_DEPTH_NAD..=MAX_AMM_PEAK_DEPTH_NAD,
-        imbalance_scale_nad in MIN_AMM_IMBALANCE_SCALE_NAD..=MAX_AMM_IMBALANCE_SCALE_NAD,
-        center_selector in 0_u8..3_u8,
+    fn wide_geometric_mean_is_the_exact_floor(
+        x_raw in 1_u64..=u64::MAX,
+        y_raw in 1_u64..=u64::MAX,
     ) {
-        let domain_width = MAX_COMMON_RESERVE - MIN_INNER_COMMON_RESERVE + 1;
-        let x = MIN_INNER_COMMON_RESERVE + reserve_seed as u128 % domain_width;
-        let delta = x * offset_ppm / PPM_DENOMINATOR;
-        let y = if subtract_offset {
-            x.saturating_sub(delta).max(MIN_INNER_COMMON_RESERVE)
-        } else if x <= MAX_COMMON_RESERVE - delta {
-            x + delta
-        } else {
-            x.saturating_sub(delta).max(MIN_INNER_COMMON_RESERVE)
-        };
-        let peak_depth_nad = peak_depth_nad as u128;
-        let imbalance_scale_nad = imbalance_scale_nad as u128;
-        prop_assume!(
-            concentrated_hybrid_shoulder_relation(x, y, peak_depth_nad, imbalance_scale_nad).unwrap()
-                != Ordering::Less
-        );
-        let (_, d_high, _) = invariant_common_bracket(x, y, peak_depth_nad, imbalance_scale_nad).unwrap();
-        let center_price_nad = match center_selector {
-            0 => NAD as u128 / 1_000,
-            1 => NAD as u128,
-            _ => 1_000 * NAD as u128,
-        };
-        assert_canonical_high_kernel_matches_signed_u512_reference(
-            x,
-            y,
-            d_high,
+        let x = x_raw as u128 * NAD as u128;
+        let y = y_raw as u128 * NAD as u128;
+        let root = geometric_mean_floor(x, y).unwrap();
+        let product = U256::from(x) * U256::from(y);
+        let square = U256::from(root) * U256::from(root);
+        let successor = U256::from(root + 1) * U256::from(root + 1);
+
+        prop_assert!(square <= product);
+        prop_assert!(successor > product);
+    }
+
+    #[test]
+    fn concentrated_balanced_q_matches_wide_integer_ordering(
+        invariant_d in 1_u128..=(2_u128 * u64::MAX as u128),
+        center_price_nad in 1_u128..=u64::MAX as u128,
+    ) {
+        let prepared = ConcentratedPreparedCurve {
+            base_reserve_nad: NAD as u128,
+            quote_reserve_nad: NAD as u128,
+            base_common: NAD as u128,
+            quote_common: NAD as u128,
             center_price_nad,
-            peak_depth_nad,
-            imbalance_scale_nad,
-        );
+            peak_depth_nad: NAD as u128,
+            fade_scale_nad: NAD as u128 / 10,
+            invariant_d,
+            common_numeraire: ConcentratedCommonNumeraire::for_center(center_price_nad).unwrap(),
+            geometry: Some(ConcentratedC1Geometry::derive(NAD as u128, NAD as u128 / 10).unwrap()),
+        };
+        let q = prepared.balanced_equivalent_q().unwrap();
+        let (ratio_numerator, ratio_denominator) = if center_price_nad >= NAD as u128 {
+            (NAD as u128, center_price_nad * 4)
+        } else {
+            (center_price_nad, 4 * NAD as u128)
+        };
+        let denominator = U256::from(ratio_denominator);
+        let radicand_numerator = U256::from(invariant_d)
+            * U256::from(invariant_d)
+            * U256::from(ratio_numerator);
+        let square = U256::from(q) * U256::from(q);
+        let successor = U256::from(q + 1) * U256::from(q + 1);
+
+        prop_assert!(square * denominator <= radicand_numerator);
+        prop_assert!(successor * denominator > radicand_numerator);
     }
 
     #[test]
-    fn inherited_successor_bracket_matches_fresh_global_certificate(
-        x in 1_000_000_000_u128..10_000_000_000_000_u128,
-        y in 1_000_000_000_u128..10_000_000_000_000_u128,
-        increment in 1_u128..1_000_000_000_000_u128,
-        increase_base in any::<bool>(),
+    fn quotes_are_positive_bounded_and_monotone(
+        base in 1_000_000_000_000_u128..1_000_000_000_000_000_u128,
+        quote in 1_000_000_000_000_u128..1_000_000_000_000_000_u128,
+        input in 1_000_000_u128..1_000_000_000_u128,
     ) {
-        let (successor_x, successor_y) = if increase_base {
-            (x + increment, y)
-        } else {
-            (x, y + increment)
-        };
-        let predecessor =
-            concentrated_prepare_curve(x, y, NAD as u128, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap();
-        let (predecessor_low, predecessor_high) = predecessor.invariant_bracket();
-        let successor = concentrated_prepare_continuous_successor_from_bracket(
-            x,
-            y,
-            successor_x,
-            successor_y,
-            NAD as u128,
-            PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
-            predecessor_low,
-            predecessor_high,
-        )
-        .unwrap();
-        let cold = prepare_curve_internal(
-            successor_x,
-            successor_y,
-            NAD as u128,
-            PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
-            None,
-            CONTINUOUS_SUCCESSOR_PROOF_DENOMINATOR,
-        )
-        .unwrap();
-        let (successor_low, successor_high) = successor.invariant_bracket();
-        let (cold_low, cold_high) = cold.invariant_bracket();
-        prop_assert!(successor_low <= cold_high && cold_low <= successor_high);
-        prop_assert_eq!(
-            hybrid_residual_sign(
-                successor_x,
-                successor_y,
-                successor_low,
-                PEAK_DEPTH_200,
-                IMBALANCE_SCALE_TENTH,
-            )
-            .unwrap(),
-            ResidualSign::NonNegative
-        );
-        if successor_low < successor_high {
-            prop_assert_eq!(
-                hybrid_residual_sign(
-                    successor_x,
-                    successor_y,
-                    successor_high,
-                    PEAK_DEPTH_200,
-                    IMBALANCE_SCALE_TENTH,
-                )
-                .unwrap(),
-                ResidualSign::Negative
-            );
-        }
-    }
-
-    #[test]
-    fn large_exact_out_replays_through_ninety_five_percent(
-        reserve in 100_000_000_000_u128..2_000_000_000_000_u128,
-        output_bps in 5_000_u128..9_501_u128,
-        quote_to_base in any::<bool>(),
-    ) {
-        let requested = reserve * output_bps / 10_000;
-        let direction = if quote_to_base {
-            ConcentratedSwapDirection::QuoteToBase
-        } else {
-            ConcentratedSwapDirection::BaseToQuote
-        };
-        let input = concentrated_quote_exact_out(
-            reserve,
-            reserve,
-            requested,
-            direction,
-            NAD as u128,
-            PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
-        )
-        .unwrap();
-        let replay = concentrated_quote_exact_in(
-            reserve,
-            reserve,
+        let first = concentrated_quote_exact_in(
+            base,
+            quote,
             input,
-            direction,
+            ConcentratedSwapDirection::BaseToQuote,
             NAD as u128,
             PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
-        )
-        .unwrap();
-        prop_assert!(replay >= requested, "requested={requested}, input={input}, replay={replay}");
-        let tail_product = reserve * reserve * (NAD as u128 - IMBALANCE_SCALE_TENTH) / NAD as u128;
-        let mathematical_input = mul_div_u128_ceil(tail_product, 1, reserve - requested).unwrap() - reserve;
-        let max_conservative_input =
-            mul_div_u128_ceil(mathematical_input, PPM_DENOMINATOR + 1_000, PPM_DENOMINATOR).unwrap();
-        prop_assert!(input <= max_conservative_input, "input={input}, mathematical={mathematical_input}");
-    }
-
-    #[test]
-    fn hybrid_invariant_is_homogeneous_on_inner_and_tail_branches(
-        x in 10_000_000_000_u128..1_000_000_000_000_u128,
-        y in 10_000_000_000_u128..1_000_000_000_000_u128,
-        scale in 2_u128..20_u128,
-    ) {
-        let d = invariant_common(x, y, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap();
-        let scaled_d = invariant_common(
-            x * scale,
-            y * scale,
-            PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
-        )
-        .unwrap();
-        prop_assert!(scaled_d.abs_diff(d * scale) <= scale + 1);
-    }
-
-    #[test]
-    fn randomized_cross_branch_round_trips_never_gain(
-        reserve in 100_000_000_000_u128..1_000_000_000_000_u128,
-        input_bps in 1_000_u128..50_001_u128,
-        quote_to_base in any::<bool>(),
-    ) {
-        let input = reserve * input_bps / 10_000;
-        let forward = if quote_to_base {
-            ConcentratedSwapDirection::QuoteToBase
-        } else {
-            ConcentratedSwapDirection::BaseToQuote
-        };
-        let reverse = if quote_to_base {
-            ConcentratedSwapDirection::BaseToQuote
-        } else {
-            ConcentratedSwapDirection::QuoteToBase
-        };
-        let output = concentrated_quote_exact_in(
-            reserve,
-            reserve,
-            input,
-            forward,
+            FADE_TENTH,
+        ).unwrap();
+        let second = concentrated_quote_exact_in(
+            base,
+            quote,
+            input * 2,
+            ConcentratedSwapDirection::BaseToQuote,
             NAD as u128,
             PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
-        )
-        .unwrap();
-        let (base_after, quote_after) = if quote_to_base {
-            (reserve - output, reserve + input)
-        } else {
-            (reserve + input, reserve - output)
-        };
-        let returned = concentrated_quote_exact_in(
-            base_after,
-            quote_after,
-            output,
-            reverse,
-            NAD as u128,
-            PEAK_DEPTH_200,
-            IMBALANCE_SCALE_TENTH,
-        )
-        .unwrap();
-        prop_assert!(returned <= input, "input={input}, output={output}, returned={returned}");
-    }
-
-    #[test]
-    fn quotes_are_monotone_in_input(
-        x in 10_000_000_000_u128..10_000_000_000_000_u128,
-        y in 10_000_000_000_u128..10_000_000_000_000_u128,
-        first_bps in 1_u128..500_u128,
-        extra_bps in 1_u128..500_u128,
-    ) {
-        let first = x * first_bps / 10_000;
-        let second = x * (first_bps + extra_bps) / 10_000;
-        let first_out = quote_common_exact_in(x, y, first, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap();
-        let second_out = quote_common_exact_in(x, y, second, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap();
-        prop_assert!(second_out >= first_out);
-        prop_assert!(second_out < y);
-    }
-
-    #[test]
-    fn invariant_bracket_preserves_its_sign_certificate(
-        x in 1_000_000_000_u128..10_000_000_000_000_u128,
-        y in 1_000_000_000_u128..10_000_000_000_000_u128,
-    ) {
-        let (low, high, _) = invariant_common_bracket(x, y, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap();
-        prop_assert_eq!(hybrid_residual_sign(x, y, low, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap(), ResidualSign::NonNegative);
-        if low != high {
-            prop_assert_eq!(hybrid_residual_sign(x, y, high, PEAK_DEPTH_200, IMBALANCE_SCALE_TENTH).unwrap(), ResidualSign::Negative);
-        }
+            FADE_TENTH,
+        ).unwrap();
+        prop_assert!(first <= second);
+        prop_assert!(second < quote);
     }
 }

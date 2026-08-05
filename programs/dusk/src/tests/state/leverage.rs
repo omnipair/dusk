@@ -1,6 +1,7 @@
 use super::*;
 use crate::{
     constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, MARKET_LAYOUT_VERSION, MIN_HALF_LIFE_MS, NAD},
+    instructions::SwapContext,
     state::{
         AmmConfig, Debt, HlpVault, Insurance, MarketConfig, MarketSide, PendingAuthorityChange, PendingConfigChange,
         ProtocolAuctionSplit, ReserveShares, Reserves, Risk,
@@ -12,14 +13,12 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
     base_side.reserves = Reserves {
         live_reserve: base_cash,
         cash_reserve: base_cash,
-        reserved_liability: 0,
     };
     base_side.shares = ReserveShares { ylp_supply: base_cash };
     let mut quote_side = MarketSide::default();
     quote_side.reserves = Reserves {
         live_reserve: quote_cash,
         cash_reserve: quote_cash,
-        reserved_liability: 0,
     };
     quote_side.shares = ReserveShares { ylp_supply: quote_cash };
     Market {
@@ -50,6 +49,9 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
         pending_operator: PendingAuthorityChange::default(),
         pending_manager: PendingAuthorityChange::default(),
         params_hash: [0u8; 32],
+        last_marginal_observation_nad: 0,
+        curve_revision: 0,
+        risk_revision: 0,
         last_update_slot: 0,
         reduce_only: false,
         bump: 255,
@@ -116,12 +118,29 @@ fn full_fee_credit(quote: &LeverageSwapQuote) -> LeverageSwapFeeCredit {
     LeverageSwapFeeCredit::from_total_actual_credit(quote, quote.fee_credit).unwrap()
 }
 
+fn leverage_plan(market: &Market, swap: LeverageSwapQuote) -> LeverageSwapPlan {
+    LeverageSwapPlan {
+        swap,
+        base_pre_rebalance: HlpRebalanceReceipt::default(),
+        quote_pre_rebalance: HlpRebalanceReceipt {
+            target_asset: MarketAsset::Quote,
+            ..HlpRebalanceReceipt::default()
+        },
+        fee_eligible_ylp_supply: market.side(MarketAsset::try_from_code(swap.asset_in).unwrap()).shares.ylp_supply,
+        interest_eligibility: HlpYieldEligibility {
+            ylp_supply: market.base_side.shares.ylp_supply,
+            base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
+            quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares,
+        },
+    }
+}
+
 fn concentrated_market() -> Market {
     let mut market = test_market(1_000_000, 1_000_000);
     market.config.swap_fee_bps = 30;
     market.config.amm = AmmConfig {
         peak_depth_nad: 200 * NAD,
-        imbalance_scale_nad: NAD / 10,
+        fade_scale_nad: NAD / 10,
         center_ema_half_life_ms: MIN_HALF_LIFE_MS,
         volatility_half_life_ms: MIN_HALF_LIFE_MS,
         volatility_shock_cap_nad: NAD / 10,
@@ -147,15 +166,26 @@ fn active_concentrated_hlp_market() -> Market {
     market
 }
 
-fn assert_exact_concentrated_hlp_pending(market: &Market) {
-    let base_pending = market.base_hlp_vault.pending_rebalance;
-    let quote_pending = market.quote_hlp_vault.pending_rebalance;
-    assert!(base_pending != 0 || quote_pending != 0);
+fn assert_exact_concentrated_hlp_residual_exposure(market: &Market) {
+    let base_residual_exposure = market.base_hlp_vault.residual_exposure;
+    let quote_residual_exposure = market.quote_hlp_vault.residual_exposure;
 
     let mut independently_checkpointed = market.clone();
     let (expected_base, expected_quote) = independently_checkpointed.checkpoint_hlp_vaults().unwrap();
-    assert_eq!(base_pending, expected_base);
-    assert_eq!(quote_pending, expected_quote);
+    assert_eq!(base_residual_exposure, expected_base);
+    assert_eq!(quote_residual_exposure, expected_quote);
+}
+
+fn assert_final_leverage_risk_observation(market: &Market, current_slot: u64, revision_before: u64) {
+    let final_evaluation = market.evaluate_current_curve(current_slot).unwrap();
+    let final_price_nad = u64::try_from(final_evaluation.marginal_price_nad).unwrap();
+
+    assert_eq!(market.curve_revision, revision_before + 1);
+    assert_eq!(market.risk_revision, revision_before);
+    assert_eq!(market.risk.last_snapshot_slot, current_slot);
+    assert_eq!(market.risk.cached_spot_base_price_nad, final_price_nad);
+    assert_eq!(market.last_marginal_observation_nad, final_price_nad);
+    assert_eq!(market.amm.invariant_d_nad, final_evaluation.invariant_d);
 }
 
 #[test]
@@ -177,7 +207,7 @@ fn open_leverage_tracks_isolated_debt_and_cash() {
             1_000,
             20_000,
             quote.amount_out,
-            quote,
+            leverage_plan(&market, quote),
             fee_credit,
             0,
             1,
@@ -226,7 +256,7 @@ fn referred_leverage_records_exact_debt_and_binds_partner() {
             1_000,
             20_000,
             open_quote.amount_out,
-            open_quote,
+            leverage_plan(&market, open_quote),
             open_fee_credit,
             0,
             1,
@@ -253,7 +283,7 @@ fn referred_leverage_records_exact_debt_and_binds_partner() {
             &mut position,
             100,
             increase_quote.amount_out,
-            increase_quote,
+            leverage_plan(&market, increase_quote),
             increase_fee_credit,
             0,
             0,
@@ -265,7 +295,10 @@ fn referred_leverage_records_exact_debt_and_binds_partner() {
     assert_eq!(increase.debt_delta, 100);
     assert_eq!(position.referral_partner, referral_partner);
     assert_eq!(position.referral_interest_share_bps, 2_500);
-    assert_eq!(market.base_side.daily_limits.borrowed_bucket, 1_100);
+    // Final leverage observation advances the operation clock. The original
+    // 1,000-unit bucket therefore decays for one slot before the 100-unit
+    // increase is recorded.
+    assert_eq!(market.base_side.daily_limits.borrowed_bucket, 1_099);
 }
 
 #[test]
@@ -286,7 +319,7 @@ fn close_leverage_clears_isolated_debt_and_residual_cash() {
             1_000,
             20_000,
             open_quote.amount_out,
-            open_quote,
+            leverage_plan(&market, open_quote),
             open_fee_credit,
             0,
             1,
@@ -306,7 +339,7 @@ fn close_leverage_clears_isolated_debt_and_residual_cash() {
         .close_leverage(
             &mut position,
             0,
-            close_quote,
+            leverage_plan(&market, close_quote),
             close_fee_credit,
             0,
             0,
@@ -330,7 +363,7 @@ fn close_leverage_clears_isolated_debt_and_residual_cash() {
 }
 
 #[test]
-fn add_margin_uses_actual_rounded_isolated_debt_reduction_for_reserves() {
+fn add_margin_never_reduces_more_debt_than_the_cash_repaid() {
     let mut market = test_market(1_000_000, 1_000_000);
     let mut position = seeded_position(&mut market, MarketAsset::Base, 100, 10_000);
     market.debt.base_borrow_index_nad = (NAD as u128) * 3 / 2;
@@ -341,14 +374,14 @@ fn add_margin_uses_actual_rounded_isolated_debt_reduction_for_reserves() {
 
     let receipt = market.add_leverage_margin(&mut position, 2, 1).unwrap();
 
-    assert_eq!(receipt.debt_delta, -3);
-    assert_eq!(receipt.debt_amount, 147);
+    assert_eq!(receipt.debt_delta, -2);
+    assert_eq!(receipt.debt_amount, 148);
     assert_eq!(receipt.interest_paid, 1);
-    assert_eq!(position.debt_shares, 98);
-    assert_eq!(position.debt_principal, 98);
-    assert_eq!(market.debt.isolated_base_shares, 98);
-    assert_eq!(market.debt.isolated_base_principal, 98);
-    assert_eq!(market.base_side.reserves.live_reserve, live_before - 2);
+    assert_eq!(position.debt_shares, 99);
+    assert_eq!(position.debt_principal, 99);
+    assert_eq!(market.debt.isolated_base_shares, 99);
+    assert_eq!(market.debt.isolated_base_principal, 99);
+    assert_eq!(market.base_side.reserves.live_reserve, live_before - 1);
     assert_eq!(market.base_side.reserves.cash_reserve, cash_before + 1);
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
@@ -366,7 +399,7 @@ fn solvent_liquidation_closes_position_and_pays_residual_incentive() {
     let receipt = market
         .liquidate_leverage(
             &mut position,
-            quote,
+            leverage_plan(&market, quote),
             fee_credit,
             0,
             0,
@@ -397,7 +430,7 @@ fn insolvent_liquidation_socializes_unrepaid_principal() {
     let receipt = market
         .liquidate_leverage(
             &mut position,
-            quote,
+            leverage_plan(&market, quote),
             fee_credit,
             0,
             0,
@@ -436,6 +469,7 @@ fn concentrated_open_leverage_checkpoints_active_hlp_exposure() {
     let mut market = active_concentrated_hlp_market();
     let mut position = empty_position();
     let quote = market.quote_leverage_swap(MarketAsset::Base, 2_000, 1).unwrap();
+    let revision_before = market.curve_revision;
 
     market
         .open_leverage(
@@ -449,7 +483,7 @@ fn concentrated_open_leverage_checkpoints_active_hlp_exposure() {
             1_000,
             20_000,
             quote.amount_out,
-            quote,
+            leverage_plan(&market, quote),
             full_fee_credit(&quote),
             0,
             1,
@@ -460,7 +494,8 @@ fn concentrated_open_leverage_checkpoints_active_hlp_exposure() {
         )
         .unwrap();
 
-    assert_exact_concentrated_hlp_pending(&market);
+    assert_exact_concentrated_hlp_residual_exposure(&market);
+    assert_final_leverage_risk_observation(&market, 1, revision_before);
 }
 
 #[test]
@@ -468,13 +503,14 @@ fn concentrated_increase_leverage_checkpoints_active_hlp_exposure() {
     let mut market = active_concentrated_hlp_market();
     let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000, 10_000);
     let quote = market.quote_leverage_swap(MarketAsset::Base, 100, 1).unwrap();
+    let revision_before = market.curve_revision;
 
     market
         .increase_leverage(
             &mut position,
             100,
             quote.amount_out,
-            quote,
+            leverage_plan(&market, quote),
             full_fee_credit(&quote),
             0,
             0,
@@ -483,7 +519,8 @@ fn concentrated_increase_leverage_checkpoints_active_hlp_exposure() {
         )
         .unwrap();
 
-    assert_exact_concentrated_hlp_pending(&market);
+    assert_exact_concentrated_hlp_residual_exposure(&market);
+    assert_final_leverage_risk_observation(&market, 1, revision_before);
 }
 
 #[test]
@@ -491,13 +528,14 @@ fn concentrated_decrease_leverage_checkpoints_active_hlp_exposure() {
     let mut market = active_concentrated_hlp_market();
     let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000, 10_000);
     let quote = market.quote_leverage_swap(MarketAsset::Quote, 100, 1).unwrap();
+    let revision_before = market.curve_revision;
 
     market
         .decrease_leverage(
             &mut position,
             100,
             0,
-            quote,
+            leverage_plan(&market, quote),
             full_fee_credit(&quote),
             0,
             0,
@@ -506,7 +544,8 @@ fn concentrated_decrease_leverage_checkpoints_active_hlp_exposure() {
         )
         .unwrap();
 
-    assert_exact_concentrated_hlp_pending(&market);
+    assert_exact_concentrated_hlp_residual_exposure(&market);
+    assert_final_leverage_risk_observation(&market, 1, revision_before);
 }
 
 #[test]
@@ -516,12 +555,13 @@ fn concentrated_close_leverage_checkpoints_active_hlp_exposure() {
     let quote = market
         .quote_leverage_swap(MarketAsset::Quote, position.collateral_amount, 1)
         .unwrap();
+    let revision_before = market.curve_revision;
 
     market
         .close_leverage(
             &mut position,
             0,
-            quote,
+            leverage_plan(&market, quote),
             full_fee_credit(&quote),
             0,
             0,
@@ -530,7 +570,8 @@ fn concentrated_close_leverage_checkpoints_active_hlp_exposure() {
         )
         .unwrap();
 
-    assert_exact_concentrated_hlp_pending(&market);
+    assert_exact_concentrated_hlp_residual_exposure(&market);
+    assert_final_leverage_risk_observation(&market, 1, revision_before);
 }
 
 #[test]
@@ -540,11 +581,12 @@ fn concentrated_liquidation_checkpoints_active_hlp_exposure() {
     let quote = market
         .quote_leverage_swap(MarketAsset::Quote, position.collateral_amount, 1)
         .unwrap();
+    let revision_before = market.curve_revision;
 
     let receipt = market
         .liquidate_leverage(
             &mut position,
-            quote,
+            leverage_plan(&market, quote),
             full_fee_credit(&quote),
             0,
             0,
@@ -554,17 +596,22 @@ fn concentrated_liquidation_checkpoints_active_hlp_exposure() {
         .unwrap();
 
     assert!(receipt.principal_written_off > 0);
-    assert_exact_concentrated_hlp_pending(&market);
+    assert_exact_concentrated_hlp_residual_exposure(&market);
+    assert_final_leverage_risk_observation(&market, 1, revision_before);
 }
 
 #[test]
-fn concentrated_leverage_rejects_worsening_stale_hlp_exposure() {
-    let mut market = active_concentrated_hlp_market();
-    market.config.settlement_divergence_bps = 1;
+fn next_risk_refresh_integrates_the_post_leverage_mark() {
+    let mut market = concentrated_market();
+    market.config.ema_half_life_ms = MIN_HALF_LIFE_MS;
+    market.config.directional_ema_half_life_ms = MIN_HALF_LIFE_MS;
+    market.config.q_ema_half_life_ms = MIN_HALF_LIFE_MS;
+    market.observe_current_risk(1).unwrap();
+    let risk_before_leverage = market.risk;
     let mut position = empty_position();
-    let quote = market.quote_leverage_swap(MarketAsset::Base, 50_000, 1).unwrap();
+    let quote = market.quote_leverage_swap(MarketAsset::Base, 20_000, 2).unwrap();
 
-    let error = market
+    market
         .open_leverage(
             &mut position,
             Pubkey::new_unique(),
@@ -573,19 +620,67 @@ fn concentrated_leverage_rejects_worsening_stale_hlp_exposure() {
             Pubkey::default(),
             0,
             MarketAsset::Base,
-            25_000,
+            10_000,
             20_000,
             quote.amount_out,
-            quote,
+            leverage_plan(&market, quote),
             full_fee_credit(&quote),
             0,
-            1,
+            2,
             255,
             0,
             0,
             ProtocolAuctionSplit::default(),
         )
-        .unwrap_err();
+        .unwrap();
+
+    let post_leverage_mark = market.risk.cached_spot_base_price_nad;
+    assert_ne!(post_leverage_mark, risk_before_leverage.cached_spot_base_price_nad);
+    assert_eq!(market.risk.last_snapshot_slot, 2);
+    assert!(market.curve_revision > market.risk_revision);
+
+    let mut expected = market.clone();
+    expected.observe_current_risk(3).unwrap();
+
+    let mut stale_pre_leverage_observation = market.clone();
+    stale_pre_leverage_observation.risk = risk_before_leverage;
+    stale_pre_leverage_observation.observe_current_risk(3).unwrap();
+    assert_ne!(
+        expected.risk.base_price_ema_nad,
+        stale_pre_leverage_observation.risk.base_price_ema_nad
+    );
+
+    market.observe_current_risk(3).unwrap();
+    assert_eq!(market.risk, expected.risk);
+    assert_eq!(market.risk_revision, market.curve_revision);
+}
+
+#[test]
+fn concentrated_leverage_rejects_worsening_stale_hlp_exposure() {
+    let mut market = active_concentrated_hlp_market();
+    market.config.settlement_divergence_bps = 1;
+    let stale_trade = market.quote_curve_exact_in(MarketAsset::Base, 150_000, 1).unwrap();
+    market
+        .swap_reserves(
+            MarketAsset::Base,
+            150_000,
+            stale_trade.amount_out,
+            0,
+            0,
+            0,
+            ProtocolAuctionSplit::default(),
+        )
+        .unwrap();
+    market.checkpoint_amm_neutral_inventory(1).unwrap();
+    market.checkpoint_hlp_vaults().unwrap();
+    assert_ne!(market.base_hlp_vault.residual_exposure, 0);
+    let error = SwapContext {
+        current_slot: 1,
+        asset_in: MarketAsset::Base,
+        reserve_credit: 50_000,
+    }
+    .plan(&mut market)
+    .unwrap_err();
 
     assert_eq!(error, error!(ErrorCode::HlpSettlementUnavailable));
 }
@@ -645,6 +740,7 @@ fn retained_leverage_surcharge_stays_reserve_principal() {
     let fee_credit = full_fee_credit(&quote);
     let input_live_before = market.base_side.reserves.live_reserve;
     let protected_before = market.amm.spendable_protected_profit_nad();
+    let fee_eligible_ylp_supply = market.base_side.shares.ylp_supply;
 
     market
         .apply_leverage_swap(
@@ -656,6 +752,7 @@ fn retained_leverage_surcharge_stays_reserve_principal() {
             0,
             0,
             ProtocolAuctionSplit::default(),
+            fee_eligible_ylp_supply,
             1,
         )
         .unwrap();
@@ -665,7 +762,7 @@ fn retained_leverage_surcharge_stays_reserve_principal() {
         quote.reserve_input_credit
     );
     assert_eq!(
-        market.base_side.fees.swap_fee_vault_balance,
+        market.base_side.fees.swap_fee_custody_balance,
         quote.fee_breakdown.base_fee_debit
     );
     assert_eq!(quote.fee_breakdown.distributed_surcharge_debit, 0);
@@ -678,6 +775,7 @@ fn distributed_leverage_surcharge_is_all_lp_owned() {
     market.amm.retain_dynamic_surcharge = false;
     let quote = market.quote_leverage_swap(MarketAsset::Base, 50_000, 1).unwrap();
     let fee_credit = full_fee_credit(&quote);
+    let fee_eligible_ylp_supply = market.base_side.shares.ylp_supply;
 
     market
         .apply_leverage_swap(
@@ -689,13 +787,14 @@ fn distributed_leverage_surcharge_is_all_lp_owned() {
             1_000,
             0,
             ProtocolAuctionSplit::default(),
+            fee_eligible_ylp_supply,
             1,
         )
         .unwrap();
 
     assert!(quote.fee_breakdown.distributed_surcharge_debit > 0);
     assert_eq!(
-        market.base_side.fees.swap_fee_vault_balance,
+        market.base_side.fees.swap_fee_custody_balance,
         quote.fee_breakdown.claimable_fee_debit
     );
     assert_eq!(
@@ -716,6 +815,7 @@ fn isolated_principal_writeoff_consumes_protected_liquidity() {
     let mut market = concentrated_market();
     market.amm.retain_dynamic_surcharge = true;
     let funding_quote = market.quote_leverage_swap(MarketAsset::Base, 50_000, 1).unwrap();
+    let fee_eligible_ylp_supply = market.base_side.shares.ylp_supply;
     market
         .apply_leverage_swap(
             MarketAsset::Base,
@@ -726,6 +826,7 @@ fn isolated_principal_writeoff_consumes_protected_liquidity() {
             0,
             0,
             ProtocolAuctionSplit::default(),
+            fee_eligible_ylp_supply,
             1,
         )
         .unwrap();
@@ -739,7 +840,7 @@ fn isolated_principal_writeoff_consumes_protected_liquidity() {
     let receipt = market
         .liquidate_leverage(
             &mut position,
-            liquidation_quote,
+            leverage_plan(&market, liquidation_quote),
             full_fee_credit(&liquidation_quote),
             0,
             0,
@@ -753,7 +854,7 @@ fn isolated_principal_writeoff_consumes_protected_liquidity() {
 }
 
 #[test]
-fn leverage_trade_cannot_hide_a_same_instruction_center_move() {
+fn leverage_operation_advances_the_controller_before_freezing_its_quote() {
     let mut market = concentrated_market();
     market.config.amm.adjustment_threshold_nad = NAD / 100;
     market.config.amm.adjustment_step_nad = NAD / 100;
@@ -764,14 +865,16 @@ fn leverage_trade_cannot_hide_a_same_instruction_center_move() {
     market.amm.protected_floor_per_share_nad = 0;
 
     let center_before = market.amm.center_price_nad;
+    market.prepare_amm_for_swap(2).unwrap();
+    assert!(market.advance_one_amm_controller_target(2).unwrap());
+    assert!(market.amm.center_price_nad > center_before);
+
+    let admitted_center = market.amm.center_price_nad;
     let probe_price = market.curve_marginal_price_nad(2).unwrap();
     market.finalize_amm_trade(probe_price, probe_price, 2).unwrap();
 
-    // Trade/leverage finalization freezes one curve for admission and
-    // execution. A funded center move is a separate permissionless state
-    // transition, so it cannot invalidate the position inside that same call.
-    assert_eq!(market.amm.center_price_nad, center_before);
+    // The lazy controller runs before the leverage quote. Finalization cannot
+    // move the curve again inside the same operation.
+    assert_eq!(market.amm.center_price_nad, admitted_center);
     assert!(market.amm.retention_target_stale);
-    assert!(market.crank_concentrated_amm_with_hlp(2).unwrap());
-    assert!(market.amm.center_price_nad > center_before);
 }

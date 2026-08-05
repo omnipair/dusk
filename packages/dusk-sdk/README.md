@@ -44,13 +44,13 @@ The client is intentionally split by source of truth:
 ## Write Instructions
 
 ```typescript
-const ix = await dusk.write.instruction(
-  "swap",
+const ix = await dusk.write.swapInstruction(
   {
     exactAssetIn: amountIn,
     minAssetOut: minAmountOut,
   },
   {
+    market,
     accounts: {
       market,
       futarchyAuthority,
@@ -59,7 +59,6 @@ const ix = await dusk.write.instruction(
       assetOutMint,
       reserveInVault,
       reserveOutVault,
-      feeInVault,
       traderAssetInAccount,
       traderAssetOutAccount,
       tokenProgram,
@@ -67,12 +66,57 @@ const ix = await dusk.write.instruction(
       eventAuthority,
       program: dusk.program.programId,
     },
+    remainingAccounts: [
+      // Token-2022 transfer-hook extras only. The SDK preserves this tail.
+    ],
   }
 );
 ```
 
+`swapBuilder(...)`, `swapInstruction(...)`, `swapTransaction(...)`, and
+`swapRpc(...)` fetch the market before building the swap. Whenever either hLP
+side has nonzero supply or residual exposure, they prepend the canonical
+five-account prefix exactly once: `[yLP mint, base hLP yLP vault, quote hLP yLP
+vault, base interest vault, quote interest vault]`. Caller-provided Token-2022
+transfer-hook extras remain after that prefix.
+
 `write.builder(...)`, `write.transaction(...)`, and `write.rpc(...)` expose the
 same generic path for every Dusk instruction in the IDL.
+
+hLP deposits and withdrawals use async composite builders because both
+asset-denominated `YieldAccount` PDAs must exist before the liquidity
+instruction runs. The SDK validates their owner, exact layout size, and Anchor
+discriminator. If either account is missing or is only a prefunded System PDA,
+it prepends the permissionless, idempotent initializer in the same transaction:
+
+```typescript
+const { transaction, setupInstructions, baseYieldAccount, quoteYieldAccount } =
+  await dusk.write.depositSingleSided(
+    { depositAmount, minHlpAmount },
+    {
+      payer: owner,
+      owner,
+      market,
+      targetHlpMint,
+      baseMint,
+      quoteMint,
+      accounts: depositAccounts,
+    }
+  );
+
+// setupInstructions is empty when both canonical accounts are already valid.
+await provider.sendAndConfirm(transaction);
+```
+
+`withdrawSingleSided(...)` has the same return shape and setup behavior. The
+initializer is safe to compose unconditionally, including when a third party
+has transferred lamports to the PDA address before initialization.
+
+LP token accounts should be owned by a wallet that can sign Dusk instructions,
+or by a PDA whose controlling program invokes Dusk with `invoke_signed`. SPL
+multisig-owned LP accounts are unsupported: Token-2022 transfers can checkpoint
+yield to that owner, but the multisig account itself cannot sign Dusk's claim or
+recipient-update instruction.
 
 ### Referral Interest Sharing
 

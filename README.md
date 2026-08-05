@@ -17,7 +17,7 @@ Omnipair's GAMM (Generalized Automated Market Maker) combines an AMM with an int
 Dusk keeps that core Omnipair GAMM idea and rebuilds it around a market-native account model:
 
 - **Oracle-less markets**: pricing and risk use in-protocol reserve state, EMA books, and conservative settlement references instead of external oracle feeds.
-- **Optional autonomous concentration**: the Dusk Concentrated AMM concentrates depth around an internal center, recenters only through funded bounded maintenance, and can ramp to or from exact CPMM without changing invariant families elsewhere in the protocol.
+- **Optional autonomous concentration**: the Dusk Concentrated AMM concentrates depth around an internal center, recenters only through its funded bounded controller during genuine user operations, and can ramp to or from exact CPMM without changing invariant families elsewhere in the protocol.
 - **Path-aware dynamic fees**: an outward divergence surcharge targets trending inventory stress and keeps deteriorating without a fee-rate cap, while a separate asymptotic volatility surcharge prices repeated chop. Every accepted swap preserves positive executable input.
 - **Unified liquidity and lending**: LP inventory backs both swaps and borrow demand, letting capital serve multiple protocol flows.
 - **Standalone Dusk program**: Dusk has its own program ID, IDL, account model, event surface, and SDK helpers.
@@ -40,7 +40,7 @@ Liquidity providers
 
 Traders
   swap base <-> quote
-  pay fees into side-specific fee vaults
+  accrue claimable fees as non-executable reserve liabilities
   trigger O(1) hLP vault checkpoints when needed
 
 Borrowers
@@ -82,7 +82,7 @@ Normal LPs enter with `add_liquidity`, depositing both assets at the current mar
 asset_claim = user_ylp_shares * live_reserve / total_ylp_supply
 ```
 
-Base swap fees, distributed dynamic surcharge, and borrow interest do not auto-compound into principal reserves. They accrue in fee and interest vaults, are tracked through side-specific growth indexes, and are claimed through `claim_yield`. Only dynamic surcharge retained while the protected recentering budget is below target becomes reserve principal; once funded, new surcharge returns to claimable yLP/hLP yield.
+Base swap fees, distributed dynamic surcharge, and borrow interest do not auto-compound into principal reserves. Swap-fee liabilities stay physically in the reserve vault as `swap_fee_custody_balance`, outside executable `cash_reserve`; interest liabilities stay in the side-specific interest vault. Both are tracked through side-specific growth indexes and claimed through `claim_yield`. Only dynamic surcharge retained while the protected recentering budget is below target becomes reserve principal; once funded, new surcharge returns to claimable yLP/hLP yield.
 
 ## Isolated Leverage
 
@@ -134,6 +134,8 @@ user target asset
 
 Closing burns hLP shares, removes the vault's proportional yLP liquidity, repays funding debt, realizes any interest from borrowed-side cash, and returns remaining target-side inventory to the user.
 
+Direct Token-2022 burns bypass transfer hooks. Dusk lazily reconciles a partial hLP burn before the next hLP deposit or withdrawal: existing nested yield is checkpointed against the old supply, the smaller nonzero live supply becomes the pricing denominator, and the burned principal benefits remaining holders. Burning the entire live hLP supply is unrecoverable and leaves that hLP side fail-closed; there is intentionally no asynchronous recovery instruction or governance sweep. Clients should always exit through Dusk's withdrawal instruction.
+
 ## Risk Model
 
 Dusk is designed around market-local risk accounting:
@@ -145,7 +147,7 @@ Dusk is designed around market-local risk accounting:
 - Isolated leverage has its own position state and debt buckets.
 - Price and risk books use cached EMA state to reduce same-transaction spot manipulation.
 - hLP settlement uses cached settlement references and divergence guards.
-- Swaps stay live when hLP leverage-up is cash-constrained; unexecuted rebalance is stored as `pending_rebalance`.
+- Swaps stay live when hLP leverage-up is cash-constrained; unexecuted rebalance is stored as `residual_exposure`.
 - The borrow admission floor, daily limits, insurance, and LP socialization bound how losses move through the system.
 
 ## Instruction Surface
@@ -172,11 +174,9 @@ set_referral_recipient
 claim_referral_interest
 trigger_liquidation_auction
 bid_liquidation_auction
-settle_liquidation_auction_amm
+settle_liquidation_auction_floor
 deposit_single_sided
 withdraw_single_sided
-crank_hlp_rebalance
-crank_amm_maintenance
 open_leverage
 close_leverage
 delegated_close_leverage
@@ -210,6 +210,18 @@ set_operator
 set_manager
 claim_manager_fees
 ```
+
+Protocol-auction settlement always specifies both `lane` (`fee` or `buyback`)
+and `source` (`swap` or `interest`). The source is never inferred: swap revenue
+is sold from reserve-vault custody and debits the matching swap-fee liability;
+interest revenue is sold from the side-specific interest vault and debits the
+matching interest-fee liability.
+
+Auction configuration is intentionally retroactive for unsettled inventory:
+the local lane/source epoch keeps its original start slot, but settlement uses
+the current accepted mint, price parameters, reference-age limit, and
+recipients. An accepted-mint change may pause a market until governance updates
+its route; no historical config version is stored per inventory epoch.
 
 ## Integrator Notes
 
@@ -268,8 +280,8 @@ Other invariants:
 
 - yLP supply is backed by reserve-side principal accounting.
 - No operation mints yLP without corresponding reserve value.
-- yLP principal reserves exclude fee and interest vault balances.
-- Fee liabilities are backed by fee and interest vault balances.
+- yLP principal reserves exclude reserve-custodied swap-fee liabilities and interest-vault balances.
+- A physical reserve-vault balance equals executable `cash_reserve + swap_fee_custody_balance`; interest liabilities are separately backed by the interest vault.
 - Synthetic hLP live reserve is not directly withdrawable cash; swaps, withdrawals, debt repayment, and interest realization are still constrained by cash reserves.
 - hLP NAV is `collateral_value - debt_value` and must not underflow.
 - hLP solvency is enforced through NAV, cash headroom, settlement references, divergence guards, and balanced rebalance math.
@@ -287,13 +299,13 @@ Other invariants:
 The core GAMM reserve/lending relationship is preserved, while the swap invariant is now configurable:
 
 - The market is still priced from in-protocol reserves, not external oracles.
-- `peak_depth = 0, imbalance_scale = 0` is exact V1-style CPMM; positive values activate the independently implemented Dusk Concentrated AMM.
-- `peak_depth` is the extra marginal-depth multiplier at the center, while `imbalance_scale` controls how much balance-factor error is tolerated before that extra depth fades toward CPMM. They are the only invariant knobs; fee, EMA, and recenter controls are separate.
+- `peak_depth = 0, fade_scale = 0` is exact V1-style CPMM; positive values activate the independently implemented Dusk Concentrated AMM.
+- `peak_depth` is the extra marginal-depth multiplier at the center, while `fade_scale` controls how much balance-factor error is tolerated before that extra depth fades toward CPMM. They are the only invariant knobs; fee, EMA, and recenter controls are separate.
 - Swaps and conservative lending/liquidation shapes use the same applied curve.
 - Normal borrow and repay paths still preserve `R_live = R_cash + D_cash_backed`.
 - Cash constraints still matter: virtual depth can quote, but only cash can leave vaults or settle realized liabilities.
 - LP minting and burning still use the V1-style proportional reserve math with permanently locked minimum liquidity.
-- Base swap fees and borrow interest remain outside principal reserves and are distributed through fee and yield accounting.
+- Base swap fees remain reserve-custodied outside executable cash, while borrow interest remains in the interest vault; both stay outside principal reserves and are distributed through yield accounting.
 - Dynamic surcharge is claimable after the AMM's protected budget is funded; before then it is retained as the only fee-derived recentering principal.
 
 Dusk extends the invariant set only where hLP needs native 2x LP tracking:
@@ -302,7 +314,7 @@ Dusk extends the invariant set only where hLP needs native 2x LP tracking:
 - Dusk allows only hLP transitions to mutate `R_hLP_live`.
 - hLP leverage-up/deleverage updates are balanced reserve-coordinate moves, designed to preserve spot while changing depth.
 - hLP funding debt affects utilization and funding cost, while hLP NAV and settlement guards enforce vault solvency.
-- Cash-constrained hLP leverage-up does not block swaps; unexecuted rebalance is carried as `pending_rebalance`.
+- Cash-constrained hLP leverage-up does not block swaps; unexecuted rebalance is carried as `residual_exposure`.
 
 ## Program ID
 

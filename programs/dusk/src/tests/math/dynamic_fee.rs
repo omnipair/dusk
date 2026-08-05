@@ -80,59 +80,50 @@ fn restorative_and_center_crossing_coordinates_only_charge_outward_flow() {
 }
 
 #[test]
-fn narrow_divergence_potential_is_bit_exact_and_wide_domain_falls_back() {
-    let ordinary = [
-        (1_u128, 1_u128, 1_u64),
-        (50_000_000_000_000_u128, 100_000_000_000_000_u128, NAD / 10),
-        (u64::MAX as u128, u64::MAX as u128, NAD),
+fn test_reference_mul_div_matches_wide_arithmetic_and_saturates_only_the_quotient() {
+    let cases = [
+        (u128::MAX, u64::MAX as u128, u128::MAX),
+        (u128::MAX - 17, 1_u128 << 64, u128::MAX - 31),
+        (1_u128 << 127, 3, 7),
     ];
-    for (outward, center, coefficient) in ordinary {
-        let narrow = divergence_state_potential_u256(outward, center, coefficient)
-            .expect("ordinary domain must use U256");
-        let reference = divergence_state_potential_u512_reference(outward, center, coefficient).unwrap();
-        assert_eq!(narrow, reference);
-        assert_eq!(
-            divergence_state_potential_wide(outward, center, coefficient).unwrap(),
-            reference
-        );
+    for (value, numerator, denominator) in cases {
+        let (quotient, remainder, saturated) = mul_div_rem_saturating(value, numerator, denominator).unwrap();
+        let product = U512::from(value) * U512::from(numerator);
+        let reference_quotient = product / U512::from(denominator);
+        let reference_remainder = product % U512::from(denominator);
+        assert!(!saturated);
+        assert_eq!(U512::from(quotient), reference_quotient);
+        assert_eq!(U512::from(remainder), reference_remainder);
     }
 
-    let wide_outward = u128::MAX;
-    let wide_center = u128::MAX - 1;
-    assert!(divergence_state_potential_u256(wide_outward, wide_center, u64::MAX).is_none());
-    assert_eq!(
-        divergence_state_potential_wide(wide_outward, wide_center, u64::MAX).unwrap(),
-        divergence_state_potential_u512_reference(wide_outward, wide_center, u64::MAX).unwrap()
-    );
+    let (_, _, saturated) = mul_div_rem_saturating(u128::MAX, u128::MAX, 1).unwrap();
+    assert!(saturated);
+}
 
-    for (outward, center, coefficient) in ordinary {
-        let input = center + outward;
-        assert_eq!(
-            outward_divergence_marginal_rate_u256(center, input, coefficient)
-                .expect("ordinary marginal domain must use U256"),
-            outward_divergence_marginal_rate_u512(center, input, coefficient).unwrap()
-        );
-    }
-    let wide_marginal_center = u128::MAX / 3;
-    let wide_marginal_input = u128::MAX;
-    assert!(outward_divergence_marginal_rate_u256(
-        wide_marginal_center,
-        wide_marginal_input,
-        u64::MAX
-    )
-    .is_none());
-    assert_eq!(
-        outward_divergence_marginal_rate_nad(wide_marginal_center, wide_marginal_input, u64::MAX).unwrap(),
-        outward_divergence_marginal_rate_u512(wide_marginal_center, wide_marginal_input, u64::MAX).unwrap()
-    );
+#[test]
+fn test_reference_mul_div_fallback_is_bounded_by_the_q48_multiplier_width() {
+    let numerator = 3 * Q48;
+    let (quotient, _, saturated) =
+        mul_div_rem_saturating(u128::MAX - 1, numerator, u128::MAX).unwrap();
+    let iterations = LAST_MUL_DIV_FALLBACK_ITERATIONS.with(std::cell::Cell::get);
 
-    // Mirrors the valid zero-decimal wide-CPMM SBF stress gate.
-    assert!(divergence_state_potential_u256(
-        5_000_000_000_000_000_000_000_000,
-        10_000_000_000_000_000_000_000,
-        100 * NAD,
-    )
-    .is_none());
+    assert!(!saturated);
+    assert_eq!(quotient, numerator - 1);
+    assert_eq!(iterations, u128::BITS - numerator.leading_zeros());
+    assert!(iterations <= 50);
+}
+
+#[test]
+fn analytical_reference_u64_coordinates_finish_gcd_well_inside_the_hard_bound() {
+    // Consecutive Fibonacci numbers are the Euclidean algorithm's worst case.
+    let center = 7_540_113_804_746_346_429_u128;
+    let outward = 4_660_046_610_375_530_309_u128;
+    let _ = outward_divergence_marginal_rate_nad(center, center + outward, NAD).unwrap();
+    let iterations = LAST_GCD_ITERATIONS.with(std::cell::Cell::get);
+
+    assert!(iterations > 80);
+    assert!(iterations < 96);
+    assert!(iterations < MAX_EUCLID_GCD_ITERATIONS);
 }
 
 #[test]
@@ -397,12 +388,26 @@ fn one_atom_quotes_either_preserve_input_or_fail_closed() {
 
 #[test]
 fn coefficient_signal_and_coordinate_extremes_saturate_or_fail_closed() {
-    let center = u128::MAX / 2;
-    assert!(outward_divergence_fee_potential_nad(center, center, u128::MAX, u64::MAX).is_err());
+    assert!(outward_divergence_fee_potential_nad(1, 1, u128::MAX, u64::MAX).is_err());
     let (saturated_fee, saturated) =
-        outward_divergence_fee_raw_saturating(center, center, u128::MAX, 9, u64::MAX).unwrap();
+        outward_divergence_fee_raw_saturating(1, u64::MAX as u128 - 1, u64::MAX as u128, 9, u64::MAX).unwrap();
     assert_eq!(saturated_fee, u128::MAX);
     assert!(saturated);
+
+    // If the balanced reserve lies beyond every representable token-account
+    // balance, no u64 swap can cross it. This is wholly restorative flow and
+    // must not be mistaken for an overflowing outward surcharge.
+    let unreachable_center = (u64::MAX as u128 + 1) * NAD as u128;
+    let (restorative_fee, restorative_saturated) = outward_divergence_fee_raw_saturating(
+        unreachable_center,
+        u64::MAX as u128 * NAD as u128,
+        u64::MAX as u128 * NAD as u128,
+        9,
+        u64::MAX,
+    )
+    .unwrap();
+    assert_eq!(restorative_fee, 0);
+    assert!(!restorative_saturated);
 
     let rate = asymptotic_scaled_rate_nad(u128::MAX, u64::MAX).unwrap();
     assert!(rate < NAD);
@@ -432,192 +437,4 @@ fn fee_rounding_and_invalid_inputs_fail_checked() {
     let mut invalid = default_config();
     invalid.base_fee_rate_nad = NAD;
     assert!(quote_dynamic_fee(invalid, pre(price(100), 0, 0), path(100, price(100), price(100), 0, 0)).is_err());
-}
-
-fn common_potential_at_quote_center(
-    balanced_common_nad: u128,
-    start_common_nad: u128,
-    input_decimals: u8,
-    coefficient_nad: u64,
-) -> PreparedCommonDivergencePotential {
-    prepare_common_divergence_potential(
-        balanced_common_nad,
-        start_common_nad,
-        start_common_nad,
-        NAD,
-        input_decimals,
-        coefficient_nad,
-    )
-    .unwrap()
-}
-
-#[test]
-fn common_raw_state_potential_telescopes_for_every_supported_decimal_class() {
-    let balanced = 1_000_000_u128 * NAD as u128;
-    let coefficient = 100 * NAD;
-
-    for decimals in [0_u8, 6, 9] {
-        let token_scale = 10_u64.pow(decimals as u32);
-        let start_raw = 1_000_000_u64 * token_scale;
-        let total_raw = 100_000_u64 * token_scale;
-        let start_nad = normalize_to_nad(start_raw as u128, decimals).unwrap();
-        assert_eq!(start_nad, balanced);
-
-        let whole = common_potential_at_quote_center(balanced, start_nad, decimals, coefficient)
-            .fee_raw_saturating(total_raw)
-            .unwrap();
-        assert!(!whole.1);
-        assert!(whole.0 > 0);
-
-        for pieces in [2_u64, 10, 100] {
-            let piece_raw = total_raw / pieces;
-            let mut split_start_raw = start_raw;
-            let mut split_sum = 0_u128;
-            for _ in 0..pieces {
-                let split_start_nad = normalize_to_nad(split_start_raw as u128, decimals).unwrap();
-                let segment = common_potential_at_quote_center(
-                    balanced,
-                    split_start_nad,
-                    decimals,
-                    coefficient,
-                )
-                .fee_raw_saturating(piece_raw)
-                .unwrap();
-                assert!(!segment.1);
-                split_sum += segment.0;
-                split_start_raw += piece_raw;
-            }
-            assert_eq!(split_start_raw, start_raw + total_raw);
-            assert_eq!(split_sum, whole.0, "decimals={decimals}, pieces={pieces}");
-        }
-    }
-}
-
-#[test]
-fn prepared_common_potential_is_bit_exact_to_unfolded_reference() {
-    for decimals in [0_u8, 6, 9] {
-        let decimal_scale = 10_u128.pow((NAD_DECIMALS - decimals) as u32);
-        for rate in [1_u64, NAD / 2, NAD, 2 * NAD, u64::MAX] {
-            for coefficient in [0_u64, 1, NAD, 100 * NAD, u64::MAX] {
-                let balanced = 1_000_000_000_000_u128;
-                let coefficient_times_four = coefficient as u128 * 4;
-                let denominator_rate_scale = rate as u128 * 3 * decimal_scale;
-                for common in [balanced / 2, balanced, balanced + 1, 2 * balanced, MAX_COMMON_RESERVE] {
-                    let optimized = common_raw_state_potential_wide_prepared(
-                        common,
-                        balanced,
-                        coefficient_times_four,
-                        denominator_rate_scale,
-                    )
-                    .unwrap();
-                    let reference = common_raw_state_potential_u512_reference(
-                        common,
-                        balanced,
-                        rate,
-                        decimal_scale,
-                        coefficient,
-                    )
-                    .unwrap();
-                    assert_eq!(optimized, reference, "decimals={decimals}, rate={rate}, coefficient={coefficient}, common={common}");
-                }
-            }
-        }
-    }
-}
-
-#[test]
-fn base_and_quote_common_coordinates_mirror_across_center_prices() {
-    let balanced = 1_000_000_u128 * NAD as u128;
-    let coefficient = 10 * NAD;
-
-    for decimals in [0_u8, 6, 9] {
-        let common_input = 100_000_u64 * 10_u64.pow(decimals as u32);
-        for center in [NAD / 2, NAD, 2 * NAD] {
-            let base_start = balanced * NAD as u128 / center as u128;
-            let base_input = u64::try_from(common_input as u128 * NAD as u128 / center as u128).unwrap();
-            let base = prepare_common_divergence_potential(
-                balanced,
-                base_start,
-                balanced,
-                center,
-                decimals,
-                coefficient,
-            )
-            .unwrap();
-            let quote = common_potential_at_quote_center(balanced, balanced, decimals, coefficient);
-
-            assert_eq!(
-                base.endpoint_common_nad(base_input).unwrap(),
-                quote.endpoint_common_nad(common_input).unwrap()
-            );
-            let base_fee = base.fee_raw_saturating(base_input).unwrap();
-            let quote_fee = quote.fee_raw_saturating(common_input).unwrap();
-            assert!(!base_fee.1 && !quote_fee.1);
-            let base_fee_common = base_fee.0 * center as u128 / NAD as u128;
-            assert!(
-                base_fee_common.abs_diff(quote_fee.0) <= 1,
-                "decimals={decimals}, center={center}"
-            );
-        }
-    }
-}
-
-#[test]
-fn absolute_common_conversion_preserves_fractional_center_price_carry() {
-    let rate = 600_000_000_u64;
-    let start_asset = 1_000_000_001_u128;
-    let start_common = canonical_common_coordinate(start_asset, rate).unwrap();
-    let prepared = prepare_common_divergence_potential(
-        500_000_000,
-        start_asset,
-        start_common,
-        rate,
-        9,
-        NAD,
-    )
-    .unwrap();
-
-    assert_eq!(start_common, 600_000_000);
-    assert_eq!(canonical_common_coordinate(1, rate).unwrap(), 0);
-    assert_eq!(prepared.endpoint_common_nad(1).unwrap(), Some(600_000_001));
-}
-
-#[test]
-fn common_potential_charges_only_the_outward_portion() {
-    let balanced = 1_000_000_000_u128;
-    let coefficient = 10 * NAD;
-    let restoring = common_potential_at_quote_center(balanced, balanced - 100_000_000, 9, coefficient)
-        .fee_raw_saturating(50_000_000)
-        .unwrap();
-    assert_eq!(restoring, (0, false));
-
-    let crossing = common_potential_at_quote_center(balanced, balanced - 100_000_000, 9, coefficient)
-        .fee_raw_saturating(150_000_000)
-        .unwrap();
-    let center_to_end = common_potential_at_quote_center(balanced, balanced, 9, coefficient)
-        .fee_raw_saturating(50_000_000)
-        .unwrap();
-    assert_eq!(crossing, center_to_end);
-
-    let outward = common_potential_at_quote_center(balanced, balanced + 100_000_000, 9, coefficient)
-        .fee_raw_saturating(50_000_000)
-        .unwrap();
-    assert!(outward.0 > 0 && !outward.1);
-}
-
-#[test]
-fn common_potential_rejects_unsupported_decimals_and_saturates_past_curve_domain() {
-    assert!(prepare_common_divergence_potential(1, 1, 1, NAD, NAD_DECIMALS + 1, NAD).is_err());
-
-    let prepared = prepare_common_divergence_potential(
-        MAX_COMMON_RESERVE / 2,
-        MAX_COMMON_RESERVE - 1,
-        MAX_COMMON_RESERVE - 1,
-        NAD,
-        9,
-        u64::MAX,
-    )
-    .unwrap();
-    assert_eq!(prepared.endpoint_common_nad(2).unwrap(), None);
-    assert_eq!(prepared.fee_raw_saturating(2).unwrap(), (u128::MAX, true));
 }

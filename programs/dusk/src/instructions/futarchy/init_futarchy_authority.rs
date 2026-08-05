@@ -93,7 +93,6 @@ impl<'info> InitFutarchyAuthority<'info> {
             .ok_or(ErrorCode::FeeMathOverflow)?;
         require_eq!(total_percentage, BPS_DENOMINATOR, ErrorCode::InvalidDistribution);
 
-        let current_slot = Clock::get()?.slot;
         ctx.accounts.futarchy_authority.set_inner(FutarchyAuthority::initialize(
             args.authority,
             args.swap_bps,
@@ -108,7 +107,6 @@ impl<'info> InitFutarchyAuthority<'info> {
             args.futarchy_treasury_bps,
             args.buybacks_vault_bps,
             args.team_treasury_bps,
-            current_slot,
             ctx.bumps.futarchy_authority,
         )?);
         Ok(())

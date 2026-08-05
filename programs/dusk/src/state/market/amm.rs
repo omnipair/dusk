@@ -4,18 +4,19 @@ use crate::{
     constants::{BPS_DENOMINATOR, MAX_HALF_LIFE_MS, MIN_HALF_LIFE_MS, NAD},
     errors::ErrorCode,
     math::{
-        decay_volatility_nad, ema_u64, volatility_after_success_nad, CONCENTRATED_COARSE_SUCCESSOR_MIN_PEAK_DEPTH_NAD,
+        decay_volatility_nad, ema_u64, volatility_after_success_nad, ConcentratedC1Geometry, ConcentratedGeometryCache,
+        CONCENTRATED_MATH_REVISION, CONCENTRATED_MIN_PEAK_DEPTH_NAD,
     },
 };
 
 /// Extra marginal-depth multiplier at the balanced center, NAD-scaled.
 /// A value of `200 * NAD` gives `201x` CPMM marginal depth at the center.
-pub const MIN_AMM_PEAK_DEPTH_NAD: u64 = CONCENTRATED_COARSE_SUCCESSOR_MIN_PEAK_DEPTH_NAD as u64;
+pub const MIN_AMM_PEAK_DEPTH_NAD: u64 = CONCENTRATED_MIN_PEAK_DEPTH_NAD as u64;
 pub const MAX_AMM_PEAK_DEPTH_NAD: u64 = 2_000 * NAD;
-/// NAD-scaled reserve-imbalance scale controlling how quickly the extra depth
+/// NAD-scaled fade scale controlling how quickly the extra depth
 /// fades away from the center.
-pub const MIN_AMM_IMBALANCE_SCALE_NAD: u64 = 100;
-pub const MAX_AMM_IMBALANCE_SCALE_NAD: u64 = 199_000_000;
+pub const MIN_AMM_FADE_SCALE_NAD: u64 = 100;
+pub const MAX_AMM_FADE_SCALE_NAD: u64 = 199_000_000;
 pub const MIN_AMM_ADJUSTMENT_NAD: u64 = NAD / 1_000_000;
 pub const MAX_AMM_ADJUSTMENT_NAD: u64 = NAD / 10;
 pub const MAX_AMM_VOLATILITY_NAD: u64 = 10 * NAD;
@@ -32,42 +33,35 @@ pub const MAX_AMM_ADJUSTMENT_INTERVAL_SLOTS: u64 = 216_000;
 ///
 /// Keep this wire-carried reserve compact: the complete `MarketConfig` is also
 /// an initialize/update instruction argument, and 64 bytes made the
-/// initialize transaction exceed Solana's 1,232-byte limit. Account-only
-/// extension capacity belongs in `AmmState` below.
-pub const AMM_CONFIG_RESERVED_BYTES: usize = 34;
-/// Four canonical `(base, quote)` Dusk Concentrated AMM risk shapes plus their
-/// center, peak depth, and imbalance scale
-/// cache key consume 152 serialized bytes.
-pub const AMM_RISK_CURVE_CACHE_BYTES: usize = 8 * core::mem::size_of::<u128>() + 3 * core::mem::size_of::<u64>();
-/// Exact normalized reserves plus center, peak depth, and imbalance scale bind the persisted spot
-/// observation to one executable curve state.
-pub const AMM_CURVE_OBSERVATION_IDENTITY_BYTES: usize =
-    2 * core::mem::size_of::<u128>() + 3 * core::mem::size_of::<u64>();
-/// The lower invariant endpoint is a core accounting field. Persisting its
-/// certified upper endpoint consumes 16 bytes of extension room and lets an
-/// exact next instruction restore the complete concentrated-curve proof bracket.
-pub const AMM_INVARIANT_HIGH_BYTES: usize = core::mem::size_of::<u128>();
+/// initialize transaction exceed Solana's 1,232-byte limit. Layout v2 keeps
+/// this 33-byte wire reserve for future configuration fields. One former
+/// reserve byte was consumed by the account-only curve-math revision below;
+/// because `AmmConfig` is embedded twice, this keeps `Market` from growing.
+pub const AMM_CONFIG_RESERVED_BYTES: usize = 33;
+/// Parameter-bound finite-C1 geometry. The expensive Q80 square roots are
+/// paid only when the applied shape changes; swaps reconstruct Q64/Q48
+/// projections from this program-owned cache.
+pub const AMM_CONCENTRATED_GEOMETRY_CACHE_BYTES: usize =
+    core::mem::size_of::<u8>() + 2 * core::mem::size_of::<u64>() + 7 * core::mem::size_of::<u128>();
 /// One serialized byte records that retained principal changed the exact
 /// reserves after the last forward-target solve.
 pub const AMM_RETENTION_TARGET_STALE_BYTES: usize = core::mem::size_of::<bool>();
-/// Fixed expansion room reserved in the concentrated-AMM state. Together with the
-/// 152-byte risk cache, 56-byte exact observation identity, and 16-byte
-/// invariant upper endpoint, this dedicates 320 bytes to current/future
-/// extensions;
-/// `AmmState::INIT_SPACE` is 540 bytes including its core fields. Moving 64
-/// bytes here from the two embedded `AmmConfig` copies keeps the full Market
-/// account size and future capacity unchanged while shrinking instruction
-/// payloads. Keeping the
-/// full `Market` below this bound also keeps Anchor's generated SBF account
-/// deserializer safely inside Solana's 4 KiB stack frame.
-///
-/// This protects offsets for future compatible upgrades. Pre-launch
-/// development accounts which never contained `AmmState` must be recreated.
-pub const AMM_STATE_RESERVED_BYTES: usize = 320
-    - AMM_RISK_CURVE_CACHE_BYTES
-    - AMM_CURVE_OBSERVATION_IDENTITY_BYTES
-    - AMM_INVARIANT_HIGH_BYTES
-    - AMM_RETENTION_TARGET_STALE_BYTES;
+/// A controller target is frozen when its full scheduled move is not yet
+/// funded. Real swap-like operations retry this exact target; there is no
+/// auxiliary instruction or keeper dependency.
+pub const AMM_DEFERRED_CONTROLLER_TARGET_BYTES: usize = core::mem::size_of::<u8>()
+    + 2 * core::mem::size_of::<u64>()
+    + 4 * core::mem::size_of::<u128>()
+    + core::mem::size_of::<bool>();
+/// Layout v2 materializes the parameter-bound concentration geometry,
+/// retained-funding marker, and deferred controller target as concrete state.
+/// Pessimistic lending shapes are intentionally reconstructed only by
+/// risk-sensitive operations instead of being persisted in every market.
+/// The former account-only expansion reserve is intentionally consumed to keep
+/// Anchor's generated SBF deserializer inside Solana's 4 KiB stack frame.
+/// Future account-only fields require another explicit layout revision; the
+/// 33-byte `AmmConfig` wire reserve above remains available for configuration.
+pub const AMM_STATE_RESERVED_BYTES: usize = 0;
 
 /// Protocol constants for the retained-surcharge safety budget.
 pub const PROTECTED_LIQUIDITY_COVERAGE_BPS: u16 = 12_500;
@@ -75,11 +69,11 @@ pub const PROTECTED_LIQUIDITY_GUARD_BPS: u16 = 1;
 pub const PROTECTED_LIQUIDITY_CAP_BPS: u16 = 100;
 pub const PROTECTED_LIQUIDITY_HYSTERESIS_BPS: u16 = 1_000;
 
-/// AMM controls. `peak_depth_nad == 0 && imbalance_scale_nad == 0` selects CPMM.
+/// AMM controls. `peak_depth_nad == 0 && fade_scale_nad == 0` selects CPMM.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
 pub struct AmmConfig {
     pub peak_depth_nad: u64,
-    pub imbalance_scale_nad: u64,
+    pub fade_scale_nad: u64,
     pub center_ema_half_life_ms: u64,
     pub volatility_half_life_ms: u64,
     pub adjustment_threshold_nad: u64,
@@ -97,7 +91,7 @@ impl Default for AmmConfig {
     fn default() -> Self {
         Self {
             peak_depth_nad: 0,
-            imbalance_scale_nad: 0,
+            fade_scale_nad: 0,
             center_ema_half_life_ms: MIN_HALF_LIFE_MS,
             volatility_half_life_ms: MIN_HALF_LIFE_MS,
             adjustment_threshold_nad: 0,
@@ -116,14 +110,14 @@ impl Default for AmmConfig {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct AmmCurveParameters {
     pub peak_depth_nad: u64,
-    pub imbalance_scale_nad: u64,
+    pub fade_scale_nad: u64,
 }
 
 impl AmmCurveParameters {
     pub const fn cpmm() -> Self {
         Self {
             peak_depth_nad: 0,
-            imbalance_scale_nad: 0,
+            fade_scale_nad: 0,
         }
     }
 
@@ -133,14 +127,18 @@ impl AmmCurveParameters {
 
     pub fn validate_endpoint(self) -> Result<()> {
         if self.peak_depth_nad == 0 {
-            require_eq!(self.imbalance_scale_nad, 0, ErrorCode::InvalidMarketConfig);
+            require_eq!(self.fade_scale_nad, 0, ErrorCode::InvalidMarketConfig);
         } else {
             require!(
                 (MIN_AMM_PEAK_DEPTH_NAD..=MAX_AMM_PEAK_DEPTH_NAD).contains(&self.peak_depth_nad),
                 ErrorCode::InvalidMarketConfig
             );
             require!(
-                (MIN_AMM_IMBALANCE_SCALE_NAD..=MAX_AMM_IMBALANCE_SCALE_NAD).contains(&self.imbalance_scale_nad),
+                (MIN_AMM_FADE_SCALE_NAD..=MAX_AMM_FADE_SCALE_NAD).contains(&self.fade_scale_nad),
+                ErrorCode::InvalidMarketConfig
+            );
+            require!(
+                self.fade_scale_nad <= self.peak_depth_nad.saturating_mul(100),
                 ErrorCode::InvalidMarketConfig
             );
         }
@@ -151,16 +149,17 @@ impl AmmCurveParameters {
     /// ramping continuously to or from CPMM. Both values must still move
     /// together and remain within the hard maxima.
     pub fn validate_runtime(self) -> Result<()> {
-        if self.peak_depth_nad == 0 || self.imbalance_scale_nad == 0 {
+        if self.peak_depth_nad == 0 || self.fade_scale_nad == 0 {
             require!(
-                self.peak_depth_nad == 0 && self.imbalance_scale_nad == 0,
+                self.peak_depth_nad == 0 && self.fade_scale_nad == 0,
                 ErrorCode::InvalidMarketConfig
             );
         } else {
             require!(
                 self.peak_depth_nad <= MAX_AMM_PEAK_DEPTH_NAD
-                    && self.imbalance_scale_nad >= MIN_AMM_IMBALANCE_SCALE_NAD
-                    && self.imbalance_scale_nad <= MAX_AMM_IMBALANCE_SCALE_NAD,
+                    && self.fade_scale_nad >= MIN_AMM_FADE_SCALE_NAD
+                    && self.fade_scale_nad <= MAX_AMM_FADE_SCALE_NAD
+                    && self.fade_scale_nad <= self.peak_depth_nad.saturating_mul(100),
                 ErrorCode::InvalidMarketConfig
             );
         }
@@ -168,10 +167,10 @@ impl AmmCurveParameters {
     }
 
     /// Integer interpolation treats either half-zero concentration state as
-    /// the CPMM endpoint. Peak depth and imbalance scale are one mode switch,
+    /// the CPMM endpoint. Peak depth and fade scale are one mode switch,
     /// so exposing either half-state would make the concentrated curve invalid.
     pub const fn canonicalized_runtime(self) -> Self {
-        if self.peak_depth_nad == 0 || self.imbalance_scale_nad == 0 {
+        if self.peak_depth_nad == 0 || self.fade_scale_nad == 0 {
             Self::cpmm()
         } else {
             self
@@ -183,7 +182,7 @@ impl AmmConfig {
     pub const fn curve_parameters(&self) -> AmmCurveParameters {
         AmmCurveParameters {
             peak_depth_nad: self.peak_depth_nad,
-            imbalance_scale_nad: self.imbalance_scale_nad,
+            fade_scale_nad: self.fade_scale_nad,
         }
     }
 
@@ -298,25 +297,20 @@ impl AmmRamp {
         // clamp the fade while peak depth is positive. This avoids both the
         // ill-conditioned sub-100 fade region and a low-peak/broad-fade region
         // whose one-atom D rounding is too large near the inner floor.
-        let imbalance_scale_nad = match (self.start.is_cpmm(), self.target.is_cpmm()) {
-            (true, false) => interpolate_u64(0, self.target.imbalance_scale_nad, elapsed, duration),
-            (false, true) => interpolate_u64(self.start.imbalance_scale_nad, 0, elapsed, duration),
-            (false, false) => interpolate_u64(
-                self.start.imbalance_scale_nad,
-                self.target.imbalance_scale_nad,
-                elapsed,
-                duration,
-            ),
+        let fade_scale_nad = match (self.start.is_cpmm(), self.target.is_cpmm()) {
+            (true, false) => interpolate_u64(0, self.target.fade_scale_nad, elapsed, duration),
+            (false, true) => interpolate_u64(self.start.fade_scale_nad, 0, elapsed, duration),
+            (false, false) => interpolate_u64(self.start.fade_scale_nad, self.target.fade_scale_nad, elapsed, duration),
             (true, true) => 0,
         };
-        let imbalance_scale_nad = if peak_depth_nad > 0 {
-            imbalance_scale_nad.max(MIN_AMM_IMBALANCE_SCALE_NAD)
+        let fade_scale_nad = if peak_depth_nad > 0 {
+            fade_scale_nad.max(MIN_AMM_FADE_SCALE_NAD)
         } else {
             0
         };
         AmmCurveParameters {
             peak_depth_nad,
-            imbalance_scale_nad,
+            fade_scale_nad,
         }
         .canonicalized_runtime()
     }
@@ -334,106 +328,30 @@ pub struct RetentionTarget {
     pub saturated: bool,
 }
 
-/// Normalized canonical CONCENTRATED reserves used only for pessimistic lending-risk
-/// valuation. The coordinates are always `(base, quote)`, irrespective of
-/// which asset is collateral.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
-pub struct RiskCurveReserves {
-    pub base_reserve_nad: u128,
-    pub quote_reserve_nad: u128,
-}
-
-impl RiskCurveReserves {
-    pub const fn is_initialized(self) -> bool {
-        self.base_reserve_nad > 0 && self.quote_reserve_nad > 0
-    }
-}
-
-/// Identity of the exact curve evaluation which produced
-/// `Risk::cached_spot_base_price_nad`.
-///
-/// This consumes the first 56 bytes of the preallocated AMM expansion room;
-/// no existing field offset or total account size changes.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
-pub struct CurveObservationIdentity {
-    pub base_reserve_nad: u128,
-    pub quote_reserve_nad: u128,
+pub struct DeferredControllerTarget {
+    /// 0 = none, 1 = parameter ramp, 2 = center move.
+    pub kind: u8,
     pub center_price_nad: u64,
-    pub peak_depth_nad: u64,
-    pub imbalance_scale_nad: u64,
+    pub parameters: AmmCurveParameters,
+    pub required_nad: u128,
+    pub evaluated_base_reserve_nad: u128,
+    pub evaluated_quote_reserve_nad: u128,
+    pub created_slot: u64,
+    pub saturated: bool,
 }
 
-impl CurveObservationIdentity {
-    pub const fn new(
-        base_reserve_nad: u128,
-        quote_reserve_nad: u128,
-        center_price_nad: u64,
-        parameters: AmmCurveParameters,
-    ) -> Self {
-        Self {
-            base_reserve_nad,
-            quote_reserve_nad,
-            center_price_nad,
-            peak_depth_nad: parameters.peak_depth_nad,
-            imbalance_scale_nad: parameters.imbalance_scale_nad,
-        }
+impl DeferredControllerTarget {
+    pub const NONE: u8 = 0;
+    pub const RAMP: u8 = 1;
+    pub const RECENTER: u8 = 2;
+
+    pub const fn is_active(self) -> bool {
+        self.kind != Self::NONE
     }
 
-    pub const fn is_initialized(self) -> bool {
-        self.base_reserve_nad > 0 && self.quote_reserve_nad > 0 && self.center_price_nad > 0
-    }
-
-    pub const fn curve_parameters(self) -> AmmCurveParameters {
-        AmmCurveParameters {
-            peak_depth_nad: self.peak_depth_nad,
-            imbalance_scale_nad: self.imbalance_scale_nad,
-        }
-    }
-
-    pub const fn matches(
-        self,
-        base_reserve_nad: u128,
-        quote_reserve_nad: u128,
-        center_price_nad: u64,
-        parameters: AmmCurveParameters,
-    ) -> bool {
-        self.is_initialized()
-            && self.base_reserve_nad == base_reserve_nad
-            && self.quote_reserve_nad == quote_reserve_nad
-            && self.center_price_nad == center_price_nad
-            && self.peak_depth_nad == parameters.peak_depth_nad
-            && self.imbalance_scale_nad == parameters.imbalance_scale_nad
-    }
-}
-
-/// Persistent shapes paired with `Market::risk`. A projected, non-persistent
-/// `Risk` snapshot must reconstruct its own shapes instead of using this
-/// cache, so a newly projected EMA can never be combined with stale reserves.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
-pub struct RiskCurveCache {
-    pub base_underwriting: RiskCurveReserves,
-    pub quote_underwriting: RiskCurveReserves,
-    pub base_liquidation: RiskCurveReserves,
-    pub quote_liquidation: RiskCurveReserves,
-    pub center_price_nad: u64,
-    pub peak_depth_nad: u64,
-    pub imbalance_scale_nad: u64,
-}
-
-impl RiskCurveCache {
-    pub const fn is_initialized(self) -> bool {
-        self.center_price_nad > 0
-            && self.base_underwriting.is_initialized()
-            && self.quote_underwriting.is_initialized()
-            && self.base_liquidation.is_initialized()
-            && self.quote_liquidation.is_initialized()
-    }
-
-    pub const fn matches_curve(self, center_price_nad: u64, parameters: AmmCurveParameters) -> bool {
-        self.is_initialized()
-            && self.center_price_nad == center_price_nad
-            && self.peak_depth_nad == parameters.peak_depth_nad
-            && self.imbalance_scale_nad == parameters.imbalance_scale_nad
+    pub fn clear(&mut self) {
+        *self = Self::default();
     }
 }
 
@@ -445,6 +363,10 @@ pub struct AmmState {
     /// Parameters already admitted by the protected-profit gate. Time alone
     /// never changes this field.
     pub applied_curve_parameters: AmmCurveParameters,
+    /// Authoritative geometry for `applied_curve_parameters`. CPMM stores the
+    /// all-zero cache. Only initialization or an admitted parameter change may
+    /// replace it; center and reserve changes reuse it unchanged.
+    pub concentrated_geometry_cache: ConcentratedGeometryCache,
     pub center_price_nad: u64,
     pub price_ema_nad: u64,
     pub last_trade_price_nad: u64,
@@ -455,6 +377,8 @@ pub struct AmmState {
     pub last_ramp_update_slot: u64,
     pub volatility_accumulator_nad: u64,
     pub invariant_d_nad: u128,
+    /// Curve formula revision represented by `invariant_d_nad`.
+    pub curve_math_revision: u8,
     pub q_per_share_nad: u128,
     /// yLP principal floor protected from funded recenter/ramp impairment.
     pub protected_floor_per_share_nad: u128,
@@ -463,7 +387,7 @@ pub struct AmmState {
     pub retention_required_nad: u128,
     /// Hysteresis threshold below which retention remains armed.
     pub retention_stop_nad: u128,
-    /// Maximum protected principal one maintenance target may request/spend.
+    /// Maximum protected principal one controller target may request/spend.
     /// It does not clip divergence or volatility surcharge amounts.
     pub retention_hard_cap_nad: u128,
     /// When true, dynamic surcharge is reserve principal; when false, the
@@ -472,16 +396,12 @@ pub struct AmmState {
     /// The requested protection target exceeded its principal-budget cap.
     pub retention_target_saturated: bool,
     pub ramp: AmmRamp,
-    pub risk_curve_cache: RiskCurveCache,
-    pub exact_curve_observation: CurveObservationIdentity,
-    /// Upper endpoint paired with `invariant_d_nad`. It is appended inside the
-    /// preallocated extension region so all preceding launch-layout offsets
-    /// and the total Market account size remain unchanged.
-    pub invariant_d_high_nad: u128,
     /// Retained surcharge changed executable inventory after the last exact
     /// forward-target solve. While stale, retention stays on until a decision
     /// point refreshes the target or executes a funded recenter.
     pub retention_target_stale: bool,
+    /// Exact unfunded controller target retried by later real operations.
+    pub deferred_controller_target: DeferredControllerTarget,
     pub _reserved: [u8; AMM_STATE_RESERVED_BYTES],
 }
 
@@ -490,6 +410,7 @@ impl Default for AmmState {
         Self {
             initialized: false,
             applied_curve_parameters: AmmCurveParameters::cpmm(),
+            concentrated_geometry_cache: ConcentratedGeometryCache::default(),
             center_price_nad: 0,
             price_ema_nad: 0,
             last_trade_price_nad: 0,
@@ -498,6 +419,7 @@ impl Default for AmmState {
             last_ramp_update_slot: 0,
             volatility_accumulator_nad: 0,
             invariant_d_nad: 0,
+            curve_math_revision: CONCENTRATED_MATH_REVISION,
             q_per_share_nad: 0,
             protected_floor_per_share_nad: 0,
             retention_required_nad: 0,
@@ -506,10 +428,8 @@ impl Default for AmmState {
             retain_dynamic_surcharge: false,
             retention_target_saturated: false,
             ramp: AmmRamp::default(),
-            risk_curve_cache: RiskCurveCache::default(),
-            exact_curve_observation: CurveObservationIdentity::default(),
-            invariant_d_high_nad: 0,
             retention_target_stale: false,
+            deferred_controller_target: DeferredControllerTarget::default(),
             _reserved: [0; AMM_STATE_RESERVED_BYTES],
         }
     }
@@ -524,10 +444,20 @@ impl AmmState {
     ) -> Result<Self> {
         config.validate()?;
         require!(initial_price_nad > 0, ErrorCode::InvalidSettlementPrice);
+        let applied_curve_parameters = config.curve_parameters();
+        let concentrated_geometry_cache = if applied_curve_parameters.is_cpmm() {
+            ConcentratedGeometryCache::default()
+        } else {
+            ConcentratedGeometryCache::derive(
+                applied_curve_parameters.peak_depth_nad as u128,
+                applied_curve_parameters.fade_scale_nad as u128,
+            )?
+        };
 
         Ok(Self {
             initialized: true,
-            applied_curve_parameters: config.curve_parameters(),
+            applied_curve_parameters,
+            concentrated_geometry_cache,
             center_price_nad: initial_price_nad,
             price_ema_nad: initial_price_nad,
             last_trade_price_nad: initial_price_nad,
@@ -536,6 +466,7 @@ impl AmmState {
             last_ramp_update_slot: current_slot,
             volatility_accumulator_nad: 0,
             invariant_d_nad: 0,
+            curve_math_revision: CONCENTRATED_MATH_REVISION,
             q_per_share_nad: initial_q_per_share_nad,
             protected_floor_per_share_nad: initial_q_per_share_nad,
             retention_required_nad: 0,
@@ -544,34 +475,32 @@ impl AmmState {
             retain_dynamic_surcharge: false,
             retention_target_saturated: false,
             ramp: AmmRamp::default(),
-            risk_curve_cache: RiskCurveCache::default(),
-            exact_curve_observation: CurveObservationIdentity::default(),
-            invariant_d_high_nad: 0,
             retention_target_stale: false,
+            deferred_controller_target: DeferredControllerTarget::default(),
             _reserved: [0; AMM_STATE_RESERVED_BYTES],
         })
     }
 
-    fn validate_invariant_bracket(invariant_low: u128, invariant_high: u128) -> Result<()> {
-        require!(
-            invariant_low > 0 && invariant_low <= invariant_high,
-            ErrorCode::BrokenInvariant
-        );
+    pub(crate) fn commit_invariant(&mut self, invariant_d_nad: u128) -> Result<()> {
+        require!(invariant_d_nad > 0, ErrorCode::BrokenInvariant);
+        if self.curve_math_revision != CONCENTRATED_MATH_REVISION {
+            self.concentrated_geometry_cache = if self.applied_curve_parameters.is_cpmm() {
+                ConcentratedGeometryCache::default()
+            } else {
+                ConcentratedGeometryCache::derive(
+                    self.applied_curve_parameters.peak_depth_nad as u128,
+                    self.applied_curve_parameters.fade_scale_nad as u128,
+                )?
+            };
+        }
+        self.invariant_d_nad = invariant_d_nad;
+        self.curve_math_revision = CONCENTRATED_MATH_REVISION;
         Ok(())
     }
 
-    /// Atomically replaces the two endpoints of one certified CONCENTRATED invariant
-    /// bracket. Callers must never write only one endpoint.
-    pub(crate) fn commit_invariant_bracket(&mut self, invariant_low: u128, invariant_high: u128) -> Result<()> {
-        Self::validate_invariant_bracket(invariant_low, invariant_high)?;
-        self.invariant_d_nad = invariant_low;
-        self.invariant_d_high_nad = invariant_high;
-        Ok(())
-    }
-
-    pub(crate) fn clear_invariant_bracket(&mut self) {
+    pub(crate) fn clear_invariant(&mut self) {
         self.invariant_d_nad = 0;
-        self.invariant_d_high_nad = 0;
+        self.curve_math_revision = CONCENTRATED_MATH_REVISION;
     }
 
     pub fn effective_curve_parameters(&self, config: &AmmConfig, _slot: u64) -> AmmCurveParameters {
@@ -592,11 +521,29 @@ impl AmmState {
     /// Records a candidate only after the caller has enforced the
     /// protected-profit gate. This structural hook intentionally performs no
     /// valuation itself.
-    pub fn commit_applied_curve_parameters(&mut self, candidate: AmmCurveParameters, current_slot: u64) -> Result<()> {
+    pub fn commit_applied_curve_parameters(
+        &mut self,
+        candidate: AmmCurveParameters,
+        geometry_cache: Option<ConcentratedGeometryCache>,
+        current_slot: u64,
+    ) -> Result<()> {
         require!(self.initialized && self.ramp.active, ErrorCode::InvalidMarketConfig);
         require_gt!(current_slot, self.last_ramp_update_slot, ErrorCode::InvalidArgument);
         candidate.validate_runtime()?;
+        let concentrated_geometry_cache = if candidate.is_cpmm() {
+            require!(geometry_cache.is_none(), ErrorCode::BrokenInvariant);
+            ConcentratedGeometryCache::default()
+        } else {
+            let cache = geometry_cache.ok_or(ErrorCode::BrokenInvariant)?;
+            ConcentratedC1Geometry::from_cache(
+                cache,
+                candidate.peak_depth_nad as u128,
+                candidate.fade_scale_nad as u128,
+            )?;
+            cache
+        };
         self.applied_curve_parameters = candidate;
+        self.concentrated_geometry_cache = concentrated_geometry_cache;
         self.last_ramp_update_slot = current_slot;
         Ok(())
     }
@@ -625,7 +572,17 @@ impl AmmState {
             config.ramp_duration_slots,
         )?;
         self.last_ramp_update_slot = current_slot;
+        self.invalidate_deferred_controller_target();
         Ok(())
+    }
+
+    /// Governance changed the controller request, so a cost cached for the
+    /// preceding request is no longer admissible. The next genuine operation
+    /// evaluates one fresh target against current reserves.
+    pub(crate) fn invalidate_deferred_controller_target(&mut self) {
+        self.deferred_controller_target.clear();
+        self.retention_target_saturated = false;
+        self.mark_retention_target_stale();
     }
 
     /// Clears completed ramp history only after the protected-profit gate has
@@ -641,8 +598,8 @@ impl AmmState {
     /// Advances clock-driven signals without fabricating an external trade.
     ///
     /// The last successful trade remains the EMA input until another trade
-    /// replaces it. This lets permissionless maintenance move the EMA and
-    /// decay volatility after a trade followed by silence.
+    /// replaces it. This lets the next genuine operation decay the EMA and
+    /// volatility after a trade followed by silence.
     pub fn observe_clock(&mut self, config: &AmmConfig, current_slot: u64) -> Result<()> {
         config.validate()?;
         self.observe_clock_from_validated_config(config, current_slot)
@@ -786,35 +743,14 @@ impl AmmState {
             && covered_actual_impairment_nad <= self.spendable_protected_profit_nad()
     }
 
-    /// Once a stale-but-certified target's hysteresis stop is funded, allow one
-    /// quote to distribute its surcharge rather than overshooting the cached
-    /// target indefinitely. Exact candidate valuation and admission remain in
-    /// the separate permissionless maintenance instruction.
-    pub(crate) fn release_stale_retention_probe(&mut self) -> bool {
-        if !self.retention_target_stale
-            || self.retention_stop_nad == 0
-            || self.spendable_protected_profit_nad() < self.retention_stop_nad
-        {
-            return false;
-        }
-        self.retain_dynamic_surcharge = false;
-        true
-    }
-
-    /// A stale target may release fee routing only for the quote currently
-    /// being executed. Re-arm retention at finalization so persistent state
-    /// never remains distributive while maintenance has not refreshed it.
-    pub(crate) fn finish_stale_retention_probe(&mut self) {
-        if self.retention_target_stale {
-            self.retain_dynamic_surcharge = true;
-        }
-    }
-
     fn sync_stale_retention_cap(&mut self) {
         if !self.retention_target_stale {
             return;
         }
-        let hard_cap_nad = mul_bps_ceil_infallible(self.q_per_share_nad, PROTECTED_LIQUIDITY_CAP_BPS);
+        let denominator = BPS_DENOMINATOR as u128;
+        let cap_bps = PROTECTED_LIQUIDITY_CAP_BPS as u128;
+        let hard_cap_nad = (self.q_per_share_nad / denominator) * cap_bps
+            + ((self.q_per_share_nad % denominator) * cap_bps).div_ceil(denominator);
         if self.retention_required_nad > hard_cap_nad {
             self.retention_required_nad = hard_cap_nad;
             self.retention_target_saturated = true;
@@ -828,7 +764,6 @@ impl AmmState {
         config: &AmmConfig,
         new_center_price_nad: u64,
         new_invariant_d_nad: u128,
-        new_invariant_d_high_nad: u128,
         new_q_per_share_nad: u128,
         covered_actual_impairment_nad: u128,
         current_slot: u64,
@@ -836,9 +771,9 @@ impl AmmState {
         config.validate()?;
         require!(new_center_price_nad > 0, ErrorCode::InvalidSettlementPrice);
         // Validate every fallible scalar before mutating any member of the
-        // center/bracket/checkpoint tuple. This keeps direct/native callers
+        // center/invariant/checkpoint tuple. This keeps direct/native callers
         // atomic too; on-chain rollback is not the only safety boundary.
-        Self::validate_invariant_bracket(new_invariant_d_nad, new_invariant_d_high_nad)?;
+        require!(new_invariant_d_nad > 0, ErrorCode::BrokenInvariant);
         require!(
             self.recenter_is_funded(covered_actual_impairment_nad),
             ErrorCode::BrokenInvariant
@@ -855,7 +790,7 @@ impl AmmState {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require_gte!(current_slot, earliest_adjustment_slot, ErrorCode::InvalidArgument);
         self.center_price_nad = new_center_price_nad;
-        self.commit_invariant_bracket(new_invariant_d_nad, new_invariant_d_high_nad)?;
+        self.commit_invariant(new_invariant_d_nad)?;
         self.last_adjustment_slot = current_slot;
         self.checkpoint_recenter_or_loss(new_q_per_share_nad);
         Ok(())
@@ -913,14 +848,6 @@ fn mul_bps_ceil(value: u128, bps: u16) -> Result<u128> {
         .checked_add(BPS_DENOMINATOR as u128 - 1)
         .ok_or(ErrorCode::MarketMathOverflow)?
         / BPS_DENOMINATOR as u128)
-}
-
-fn mul_bps_ceil_infallible(value: u128, bps: u16) -> u128 {
-    let denominator = BPS_DENOMINATOR as u128;
-    let bps = bps as u128;
-    let whole = (value / denominator) * bps;
-    let remainder = value % denominator;
-    whole + (remainder * bps).div_ceil(denominator)
 }
 
 fn interpolate_u64(start: u64, target: u64, elapsed: u64, duration: u64) -> u64 {

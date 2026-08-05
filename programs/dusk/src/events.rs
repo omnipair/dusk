@@ -12,11 +12,11 @@ pub struct MarketEventMetadata {
 
 impl MarketEventMetadata {
     pub fn new(signer: Pubkey, market: Pubkey) -> Result<Self> {
-        Ok(Self {
-            signer,
-            market,
-            slot: Clock::get()?.slot,
-        })
+        Ok(Self::at_slot(signer, market, Clock::get()?.slot))
+    }
+
+    pub const fn at_slot(signer: Pubkey, market: Pubkey, slot: u64) -> Self {
+        Self { signer, market, slot }
     }
 }
 
@@ -37,7 +37,6 @@ pub struct MarketCreated {
     pub target_hlp_leverage_bps: u16,
     pub swap_fee_bps: u16,
     pub manager_fee_bps: u16,
-    pub protocol_fee_bps: u16,
     pub config: MarketConfig,
     pub params_hash: [u8; 32],
     pub version: u8,
@@ -51,7 +50,6 @@ pub struct MarketUpdated {
     pub target_hlp_leverage_bps: u16,
     pub swap_fee_bps: u16,
     pub manager_fee_bps: u16,
-    pub protocol_fee_bps: u16,
     pub config: MarketConfig,
     pub metadata: MarketEventMetadata,
 }
@@ -63,7 +61,6 @@ pub struct MarketConfigUpdateScheduled {
     pub target_hlp_leverage_bps: u16,
     pub swap_fee_bps: u16,
     pub manager_fee_bps: u16,
-    pub protocol_fee_bps: u16,
     pub config: MarketConfig,
     pub metadata: MarketEventMetadata,
 }
@@ -123,6 +120,7 @@ pub struct LiquidityRemoved {
 pub struct YieldRecipientUpdated {
     pub market: Pubkey,
     pub owner: Pubkey,
+    pub lp_mint: Pubkey,
     pub asset_mint: Pubkey,
     pub token_kind: u8,
     pub recipient: Pubkey,
@@ -133,6 +131,7 @@ pub struct YieldRecipientUpdated {
 pub struct YieldClaimed {
     pub market: Pubkey,
     pub owner: Pubkey,
+    pub lp_mint: Pubkey,
     pub asset_mint: Pubkey,
     pub token_kind: u8,
     pub recipient: Pubkey,
@@ -184,6 +183,19 @@ pub struct ProtocolAuctionRecipientsUpdated {
     pub staking_vault: Pubkey,
     pub treasury_bps: u16,
     pub staking_vault_bps: u16,
+    pub signer: Pubkey,
+}
+
+#[event]
+pub struct ProtocolAuctionRouteUpdated {
+    pub authority: Pubkey,
+    pub market: Pubkey,
+    pub lane: u8,
+    pub side: u8,
+    pub sold_mint: Pubkey,
+    pub accepted_mint: Pubkey,
+    /// `Pubkey::default()` restores the direct-market-only policy.
+    pub reference_market: Pubkey,
     pub signer: Pubkey,
 }
 
@@ -267,6 +279,7 @@ pub struct ProtocolAuctionSettled {
     pub market: Pubkey,
     pub reference_market: Pubkey,
     pub lane: u8,
+    pub source: u8,
     pub side: u8,
     pub bidder: Pubkey,
     pub sold_mint: Pubkey,
@@ -286,42 +299,14 @@ pub struct ProtocolAuctionSettled {
 pub struct SwapExecuted {
     pub market: Pubkey,
     pub trader: Pubkey,
-    pub asset_in_mint: Pubkey,
-    pub asset_out_mint: Pubkey,
-    pub reserve_credit: u64,
-    pub amount_in_after_fee: u64,
-    pub amount_out: u64,
-    pub fee_credit: u64,
-    pub base_hlp_pending_rebalance: i128,
-    pub quote_hlp_pending_rebalance: i128,
-    pub metadata: MarketEventMetadata,
-    pub fee_breakdown: SwapFeeBreakdownEvent,
-    pub start_price_nad: u64,
-    /// Legacy name for the invariant-preserving trade endpoint.
-    pub end_price_nad: u64,
-    /// Final pool marginal price after retained surcharge enters reserves.
-    pub reserve_end_price_nad: u64,
-    pub decayed_volatility_nad: u64,
-    pub post_success_volatility_nad: u64,
-    pub base_fee_credit: u64,
-    pub distributed_surcharge_credit: u64,
-}
-
-#[event]
-pub struct SwapSettled {
-    pub market: Pubkey,
-    pub trader: Pubkey,
     pub asset_in_side: u8,
-    pub reserve_credit: u64,
-    pub amount_in_after_fee: u64,
     pub amount_out: u64,
-    pub fee_credit: u64,
-    pub base_hlp_pending_rebalance: i128,
-    pub quote_hlp_pending_rebalance: i128,
+    pub base_hlp_residual_exposure: i128,
+    pub quote_hlp_residual_exposure: i128,
     pub fee_breakdown: SwapFeeBreakdownEvent,
     pub start_price_nad: u64,
-    /// Legacy name for the invariant-preserving trade endpoint.
-    pub end_price_nad: u64,
+    /// Invariant-preserving trade endpoint before retained surcharge enters reserves.
+    pub trade_end_price_nad: u64,
     /// Final pool marginal price after retained surcharge enters reserves.
     pub reserve_end_price_nad: u64,
     pub decayed_volatility_nad: u64,
@@ -330,8 +315,7 @@ pub struct SwapSettled {
     pub distributed_surcharge_credit: u64,
 }
 
-/// Full quote-time fee accounting embedded in both swap events. Legacy event
-/// fields remain in place so existing consumers can migrate incrementally.
+/// Full quote-time fee accounting embedded in the canonical swap event.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SwapFeeBreakdownEvent {
     pub reserve_credit: u64,
@@ -361,7 +345,7 @@ pub struct LeverageSwapEvent {
     pub fee_breakdown: SwapFeeBreakdownEvent,
     pub start_price_nad: u64,
     /// Invariant-preserving trade endpoint; retained principal is excluded.
-    pub end_price_nad: u64,
+    pub trade_end_price_nad: u64,
     /// Final executable-reserve marginal price after retained principal.
     pub reserve_end_price_nad: u64,
     pub decayed_volatility_nad: u64,
@@ -378,7 +362,7 @@ impl LeverageSwapEvent {
             amount_out: quote.amount_out,
             fee_breakdown: quote.fee_breakdown.into(),
             start_price_nad: quote.start_price_nad,
-            end_price_nad: quote.end_price_nad,
+            trade_end_price_nad: quote.end_price_nad,
             reserve_end_price_nad: quote.reserve_end_price_nad,
             decayed_volatility_nad: quote.decayed_volatility_nad,
             post_success_volatility_nad: quote.post_success_volatility_nad,
@@ -563,16 +547,5 @@ pub struct HlpClosed {
     pub debt_repaid: u64,
     pub interest_paid: u64,
     pub hlp_supply: u64,
-    pub metadata: MarketEventMetadata,
-}
-
-#[event]
-pub struct HlpRebalanced {
-    pub market: Pubkey,
-    pub target_side: u8,
-    pub ideal_delta: i128,
-    pub executed_delta: i128,
-    pub pending_rebalance: i128,
-    pub nav_nad: u128,
     pub metadata: MarketEventMetadata,
 }

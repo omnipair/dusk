@@ -1,62 +1,74 @@
-//! Dusk Concentrated AMM, a two-asset hybrid invariant whose additional center
-//! depth fades until a protocol-fixed shoulder, then continues on an exact
-//! CPMM branch.
+//! Dusk's two-asset finite-C1 concentrated invariant.
 //!
-//! In quote-value coordinates, define:
+//! The executable scalar uses dimensionless fixed-point coordinates:
 //! ```text
-//! q       = 4*x*y / D^2
-//! delta   = 1 - q
-//! weight  = (imbalance_scale / (imbalance_scale + delta))^2
-//! depth_eff = (peak_depth / 2) * q * weight
-//! depth_eff*D*(x + y - D) + x*y - D^2/4 = 0   on the inner branch
-//!
-//! q_*   = 1 - imbalance_scale
-//! t_*   = 1 + 2*imbalance_scale/(peak_depth*q_*)
-//! rho_* = q_*/t_*^2
-//! rho   = 4*x*y/(x+y)^2
-//!
-//! 4*x*y*NAD - D^2*(NAD-imbalance_scale) = 0   when rho < rho_*
+//! q = 4*x*y/D^2
+//! delta = 1-q
+//! w = (s/(s+delta))^2
+//! G = 2*P*q*w*((x+y-D)/D) + q - 1
 //! ```
-//! `x` and `y` are first expressed in the quote asset's NAD units at `center`.
-//! At the balanced center, `1 + peak_depth` is the marginal-depth multiplier
-//! relative to CPMM. `imbalance_scale` controls how far reserves can move from
-//! balance before that extra depth fades. `rho` is a D-independent,
-//! homogeneous branch selector; the equality point belongs to the
-//! concentrated branch. The invariant value is continuous at the shoulder;
-//! its marginal price has a deliberate one-sided kink into the CPMM tail.
-//! Both parameters zero selects exact legacy CPMM.
+//! `P` is the extra center-depth multiplier and `s` is the fade scale. The
+//! protocol follows that inner equation until `delta=s/4`, then joins it to
+//! the exact constant-product level `x*y = D^2*(1-s)/4` through a fixed cubic
+//! transition. The transition width is protocol-defined rather than an
+//! operator parameter. Both joins preserve the reserve level and its first
+//! derivative, so executable quotes and marginal prices are continuous. The
+//! second derivative may change at the joins.
 //!
-//! The implementation below was derived independently from the mathematical
-//! equation. It uses a division-free residual so fixed-point rounding cannot
-//! change the number or ordering of executable roots.
+//! Positive-concentration reserves use an adaptive common numeraire: quote
+//! units when the center is at least one, base units below one. This makes
+//! every raw normalized input atom advance by at least one common atom.
+//! Production arithmetic uses raw `u128` operations only. Positive-
+//! concentration common reserves are capped at `u64::MAX`; exact CPMM mode
+//! retains the legacy wider normalized-reserve domain. Authoritative geometry
+//! is derived in Q80; transition targets and ordinary residuals use its cached
+//! Q64 projection. A Q80 sign calculation runs only when the Q64 residual is
+//! within eight ulps of zero. Inner/tail
+//! classification is a reserve-ratio comparison, so ordinary transition
+//! probes take only a software Q64 square root. Fixed-point products are
+//! decomposed into bounded limbs; no live multiplication requires a wider
+//! runtime integer.
 
 use anchor_lang::prelude::*;
-use core::cmp::Ordering;
 #[cfg(test)]
 use std::cell::Cell;
 
 use crate::{constants::NAD, errors::ErrorCode};
 
-use super::gamm::{calculate_normalized_amount_in, calculate_normalized_amount_out};
+use super::{
+    gamm::{calculate_normalized_amount_in, calculate_normalized_amount_out},
+    isqrt, mul_div_ceil_u128, mul_div_rem_u128, mul_div_u128, ratio_lte_full_width,
+};
 
-#[allow(clippy::assign_op_pattern, clippy::manual_div_ceil)]
-mod wide {
-    use uint::construct_uint;
+const Q48_BITS: u32 = 48;
+pub(super) const Q48_ONE: u128 = 1_u128 << Q48_BITS;
+const Q64_BITS: u32 = 64;
+const Q64_ONE: u128 = 1_u128 << Q64_BITS;
+const Q80_BITS: u32 = 80;
+const Q80_ONE: u128 = 1_u128 << Q80_BITS;
+const PRICE_BITS: u32 = 32;
+const PRICE_ONE: u128 = 1_u128 << PRICE_BITS;
+const Q64_RESIDUAL_AMBIGUITY_ULPS: u128 = 8;
 
-    construct_uint! {
-        pub struct U256(4);
-    }
-
-    construct_uint! {
-        pub struct U512(8);
-    }
-}
-
-use wide::{U256, U512};
+pub(crate) const CONCENTRATED_MAX_PEAK_DEPTH_NAD: u128 = 2_000 * NAD as u128;
+pub(crate) const CONCENTRATED_MAX_FADE_SCALE_NAD: u128 = 199_000_000;
+/// Persisted cache/invariant identity. Increment this only when executable
+/// curve mathematics changes; old cached roots then become cold hints rather
+/// than requiring a market-state migration.
+pub(crate) const CONCENTRATED_MATH_REVISION: u8 = 2;
+pub(crate) const CONCENTRATED_INVARIANT_MAX_ITERS: usize = 65;
+pub(crate) const CONCENTRATED_RESERVE_MAX_ITERS: usize = 65;
+pub(crate) const CONCENTRATED_MIN_PEAK_DEPTH_NAD: u128 = 2 * NAD as u128;
+pub(crate) const MAX_COMMON_RESERVE: u128 = u64::MAX as u128;
+pub(crate) const MIN_INNER_COMMON_RESERVE: u128 = NAD as u128;
+const C1_TRANSITION_START_SHIFT: u32 = 2;
 
 #[cfg(test)]
 thread_local! {
     static RESIDUAL_EVALUATIONS: Cell<usize> = const { Cell::new(0) };
+    static SQRT_Q64_EVALUATIONS: Cell<usize> = const { Cell::new(0) };
+    static SQRT_Q80_EVALUATIONS: Cell<usize> = const { Cell::new(0) };
+    static Q80_FALLBACK_EVALUATIONS: Cell<usize> = const { Cell::new(0) };
 }
 
 #[cfg(test)]
@@ -69,45 +81,35 @@ pub(crate) fn residual_evaluations() -> usize {
     RESIDUAL_EVALUATIONS.with(Cell::get)
 }
 
-/// Peak depth and imbalance scale are NAD-scaled. The caps make the on-chain
-/// arithmetic domain explicit and keeps every residual evaluation comfortably
-/// inside U512.
-pub(crate) const CONCENTRATED_MAX_PEAK_DEPTH_NAD: u128 = 2_000 * NAD as u128;
-pub(crate) const CONCENTRATED_MAX_IMBALANCE_SCALE_NAD: u128 = 199_000_000;
-pub(crate) const CONCENTRATED_INVARIANT_MAX_ITERS: usize = 48;
-pub(crate) const CONCENTRATED_RESERVE_MAX_ITERS: usize = 24;
-pub(crate) const CONCENTRATED_SOLVER_SAFETY_PPM: u128 = 10;
-const PPM_DENOMINATOR: u128 = 1_000_000;
-// A 0.01 ppb D bracket is six orders tighter than the 10 ppm executable
-// quote margin while avoiding needless wide-integer rounds on SBF.
-const INVARIANT_PROOF_DENOMINATOR: u128 = 100_000_000_000;
-// A retained-fee successor is already branch-bound to its fully certified
-// trade endpoint. Its 10 ppb D bracket is persisted and may be restored
-// directly. The canonical mark therefore evaluates the branch-aware gradient
-// at D_high, the same conservative D parameter used by exact-in execution;
-// configured parameter/reserve floors keep that convention within the
-// protocol's independently tested 25 ppm true-root price budget.
-const CONTINUOUS_SUCCESSOR_PROOF_DENOMINATOR: u128 = 100_000_000;
-/// Coarse retained-successor brackets are enabled only at or above the
-/// configured concentration-depth floor. Sub-floor ramp points can be almost
-/// CPMM-flat while still selecting the inner branch, which makes their
-/// marginal derivative more sensitive to D rounding; they retain the standard
-/// proof width instead.
-pub(crate) const CONCENTRATED_COARSE_SUCCESSOR_MIN_PEAK_DEPTH_NAD: u128 = 2 * NAD as u128;
-const CONCENTRATED_INVARIANT_PROOF_PARTS: u128 = 1;
-const CONCENTRATED_RESERVE_PROOF_PPM: u128 = 10;
+#[cfg(test)]
+pub(crate) fn reset_sqrt_q64_evaluations() {
+    SQRT_Q64_EVALUATIONS.with(|count| count.set(0));
+}
 
-/// Concentrated-mode common-coordinate reserves are restricted so every
-/// degree-eight cleared-residual term fits in U512 under the parameter caps.
-/// At NAD precision this still represents more than 18 billion whole tokens.
-/// Exact CPMM mode bypasses this concentrated-mode arithmetic domain.
-pub(crate) const MAX_COMMON_RESERVE: u128 = u64::MAX as u128;
-/// Positive-concentration inner states need at least one quote-value unit on
-/// each side so the one-atom invariant certificate remains within the
-/// protocol's 25 ppm marginal-price error budget. Exact CPMM tails do not use
-/// this floor because their price is the raw reserve ratio and has no implicit
-/// invariant-root conditioning.
-pub(crate) const MIN_INNER_COMMON_RESERVE: u128 = NAD as u128;
+#[cfg(test)]
+pub(crate) fn sqrt_q64_evaluations() -> usize {
+    SQRT_Q64_EVALUATIONS.with(Cell::get)
+}
+
+#[cfg(test)]
+pub(crate) fn reset_sqrt_q80_evaluations() {
+    SQRT_Q80_EVALUATIONS.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn sqrt_q80_evaluations() -> usize {
+    SQRT_Q80_EVALUATIONS.with(Cell::get)
+}
+
+#[cfg(test)]
+pub(crate) fn reset_q80_fallback_evaluations() {
+    Q80_FALLBACK_EVALUATIONS.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn q80_fallback_evaluations() -> usize {
+    Q80_FALLBACK_EVALUATIONS.with(Cell::get)
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ConcentratedSwapDirection {
@@ -115,128 +117,379 @@ pub(crate) enum ConcentratedSwapDirection {
     QuoteToBase,
 }
 
-/// The homogeneous branch selected solely by the common-coordinate reserve
-/// ratio. The two tail variants make directional shoulder behavior explicit.
+/// Homogeneous unit used by the dimensionless invariant.
+///
+/// The selector always converts the higher-valued asset into the
+/// lower-valued asset's unit. Consequently one raw normalized input atom
+/// advances by at least one common atom on either side of a unit center.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ConcentratedCommonNumeraire {
+    Quote,
+    Base,
+}
+
+/// Exact rational conversion `common = asset * numerator / denominator`.
+/// The ratio is intentionally not collapsed to one NAD-scaled rate: doing so
+/// would add a second rounding layer when quote is converted into base units.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ConcentratedCommonScale {
+    numerator: u128,
+    denominator: u128,
+}
+
+impl ConcentratedCommonScale {
+    #[cfg(test)]
+    pub(crate) const fn numerator(self) -> u128 {
+        self.numerator
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn denominator(self) -> u128 {
+        self.denominator
+    }
+
+    pub(crate) fn to_common_floor(self, amount_nad: u128) -> Result<u128> {
+        mul_div_floor(amount_nad, self.numerator, self.denominator)
+    }
+
+    pub(crate) fn common_to_raw_floor(self, common_nad: u128) -> Result<u128> {
+        mul_div_floor(common_nad, self.denominator, self.numerator)
+    }
+
+    pub(crate) fn common_to_raw_ceil(self, common_nad: u128) -> Result<u128> {
+        mul_div_ceil_u128(common_nad, self.denominator, self.numerator).map_err(|_| ErrorCode::InvariantOverflow.into())
+    }
+}
+
+impl ConcentratedCommonNumeraire {
+    pub(crate) fn for_center(center_price_nad: u128) -> Result<Self> {
+        require!(center_price_nad > 0, ErrorCode::InvalidArgument);
+        Ok(if center_price_nad >= NAD as u128 {
+            Self::Quote
+        } else {
+            Self::Base
+        })
+    }
+
+    pub(crate) fn base_scale(self, center_price_nad: u128) -> Result<ConcentratedCommonScale> {
+        require!(center_price_nad > 0, ErrorCode::InvalidArgument);
+        Ok(match self {
+            Self::Quote => ConcentratedCommonScale {
+                numerator: center_price_nad,
+                denominator: NAD as u128,
+            },
+            Self::Base => ConcentratedCommonScale {
+                numerator: 1,
+                denominator: 1,
+            },
+        })
+    }
+
+    pub(crate) fn quote_scale(self, center_price_nad: u128) -> Result<ConcentratedCommonScale> {
+        require!(center_price_nad > 0, ErrorCode::InvalidArgument);
+        Ok(match self {
+            Self::Quote => ConcentratedCommonScale {
+                numerator: 1,
+                denominator: 1,
+            },
+            Self::Base => ConcentratedCommonScale {
+                numerator: NAD as u128,
+                denominator: center_price_nad,
+            },
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ConcentratedHybridBranch {
     Inner,
+    BaseScarceTransition,
+    QuoteScarceTransition,
     BaseScarceTail,
     QuoteScarceTail,
 }
 
-/// Canonical protocol shoulder for one invariant value in common coordinates.
-///
-/// `low_common` and `high_common` are rounded inward to executable integer
-/// coordinates. The marginal prices are normalized low-side prices: the
-/// quote-scarce shoulder itself has base->quote price equal to these values;
-/// the base-scarce shoulder has their reciprocal orientation.
+impl ConcentratedHybridBranch {
+    pub(crate) const fn is_exact_tail(self) -> bool {
+        matches!(self, Self::BaseScarceTail | Self::QuoteScarceTail)
+    }
+
+    pub(crate) const fn same_exact_tail(self, other: Self) -> bool {
+        matches!(
+            (self, other),
+            (Self::BaseScarceTail, Self::BaseScarceTail) | (Self::QuoteScarceTail, Self::QuoteScarceTail)
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct ConcentratedHybridShoulder {
-    pub low_common: u128,
-    pub high_common: u128,
-    pub tail_product_common: u128,
-    pub inner_low_marginal_nad: u128,
-    pub tail_low_marginal_nad: u128,
+pub(crate) struct ConcentratedC1Geometry {
+    peak_q64: u128,
+    scale_q64: u128,
+    peak_q80: u128,
+    scale_q80: u128,
+    pub(super) q_start_q48: u128,
+    pub(super) q_tail_q48: u128,
+    q_start_q64: u128,
+    q_tail_q64: u128,
+    q_start_q80: u128,
+    q_tail_q80: u128,
+    v_start_q64: u128,
+    v_tail_q64: u128,
+    v_start_q80: u128,
+    v_tail_q80: u128,
+    pub(super) v_start_q48: u128,
+    pub(super) v_tail_q48: u128,
+    pub(super) reserve_ratio_start_q48: u128,
+    pub(super) reserve_ratio_tail_q48: u128,
+    reserve_ratio_start_q80: u128,
+    reserve_ratio_tail_q80: u128,
+    negative_q_prime_start_q64: u128,
+    negative_q_prime_start_q80: u128,
+    pub(super) negative_q_prime_start_q48: u128,
+}
+
+/// Parameter-bound authoritative geometry persisted by market state.
+///
+/// Q80 derivation is intentionally paid only when the applied shape changes.
+/// Ordinary quotes reconstruct every Q64/Q48 projection with shifts.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, Eq, InitSpace, PartialEq)]
+pub struct ConcentratedGeometryCache {
+    math_revision: u8,
+    peak_depth_nad: u64,
+    fade_scale_nad: u64,
+    peak_q80: u128,
+    scale_q80: u128,
+    v_start_q80: u128,
+    v_tail_q80: u128,
+    reserve_ratio_start_q80: u128,
+    reserve_ratio_tail_q80: u128,
+    negative_q_prime_start_q80: u128,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ConcentratedResidualContext {
+    branch: ConcentratedHybridBranch,
+    target_q64: u128,
+    transition_cosh_q64: u128,
+    transition_negative_q_prime_q64: u128,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ConcentratedResidualEvaluation {
+    positive: bool,
+    magnitude: u128,
+    q64: u128,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ConcentratedEvaluation {
     pub invariant_d: u128,
-    pub invariant_d_high: u128,
     pub balanced_equivalent_q: u128,
     pub marginal_price_nad: u128,
 }
 
-/// One certified Dusk Concentrated AMM start state.
-///
-/// A swap needs the same normalized reserves and invariant bracket for three
-/// independent decisions: divergence fees, the conservative output solve, and
-/// the starting marginal price. Keeping the certificate together prevents
-/// those consumers from solving the identical invariant more than once.
-///
-/// Fields stay private so a certificate cannot be paired with different
-/// reserves, center, or curve parameters.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ConcentratedPreparedCurve {
     base_reserve_nad: u128,
     quote_reserve_nad: u128,
-    base_common: u128,
-    quote_common: u128,
+    pub(crate) base_common: u128,
+    pub(crate) quote_common: u128,
     center_price_nad: u128,
     peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-    /// Protocol-fixed shoulder relation certified during the invariant solve.
-    /// Reusing it makes marginal branch selection identical to execution,
-    /// including the directional rule at exact equality.
-    shoulder_relation: Ordering,
-    invariant_low: u128,
-    invariant_high: u128,
+    fade_scale_nad: u128,
+    invariant_d: u128,
+    common_numeraire: ConcentratedCommonNumeraire,
+    geometry: Option<ConcentratedC1Geometry>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ConcentratedInvariantSeed {
+    Hint(u128),
+    #[cfg(test)]
+    Exact(u128),
 }
 
 impl ConcentratedPreparedCurve {
-    /// Matches the lower certified endpoint historically returned by
-    /// `concentrated_invariant`. Accounting and divergence coordinates therefore retain
-    /// byte-for-byte rounding behavior.
+    /// Canonical integer invariant: the first atom at which the residual has
+    /// crossed from its lower-side sign. Adjacent-atom proof state remains
+    /// local to the solver and is never stored in the prepared curve.
     pub(crate) const fn invariant_d(self) -> u128 {
-        self.invariant_low
-    }
-
-    pub(crate) const fn invariant_bracket(self) -> (u128, u128) {
-        (self.invariant_low, self.invariant_high)
+        self.invariant_d
     }
 
     pub(crate) fn balanced_equivalent_q(self) -> Result<u128> {
-        concentrated_balanced_equivalent_q(self.invariant_low, self.center_price_nad)
-    }
-
-    /// Canonical branch-aware gradient evaluated at `invariant_high`, the same
-    /// conservative D parameter used by executable exact-in quotes. D_high is
-    /// a certified bracket endpoint, not asserted to be the real root; the
-    /// supported domain proves this convention stays within 25 ppm of the
-    /// independent true-root marginal reference.
-    ///
-    /// The shoulder relation was computed by the invariant certification. At
-    /// exact equality, base input uses the CPMM side when base is abundant and
-    /// the inner side when base is scarce, matching an infinitesimal
-    /// base-to-quote trade.
-    pub(crate) fn marginal_price_nad(self) -> Result<u128> {
         if self.peak_depth_nad == 0 {
-            mul_div_u128(self.quote_reserve_nad, NAD as u128, self.base_reserve_nad)
-        } else if self.shoulder_relation == Ordering::Less
-            || (self.shoulder_relation == Ordering::Equal && self.base_common >= self.quote_common)
-        {
-            // Same-tail execution is exact CPMM in the raw normalized reserve
-            // coordinates. Use that identical level set here: converting base
-            // into common coordinates floors first and can otherwise move the
-            // reported marginal by one common-coordinate atom.
-            mul_div_u128(self.quote_reserve_nad, NAD as u128, self.base_reserve_nad)
-        } else {
-            concentrated_canonical_high_inner_marginal_price_from_common(
-                self.base_common,
-                self.quote_common,
-                self.invariant_high,
+            // CPMM's balanced-equivalent depth is exactly sqrt(x*y) in the
+            // assets' own normalized coordinates. It is independent of the
+            // controller center; deriving it through center-normalized D
+            // would introduce two unrelated integer-rounding losses.
+            return geometric_mean_floor(self.base_reserve_nad, self.quote_reserve_nad);
+        }
+
+        let invariant_d = self.invariant_d();
+        require!(invariant_d > 0 && self.center_price_nad > 0, ErrorCode::InvalidArgument);
+        let (mut normalized_numerator, mut normalized_denominator) = match self.common_numeraire {
+            // D is in quote units: Q = D/2 * sqrt(NAD/center).
+            ConcentratedCommonNumeraire::Quote => (
+                NAD as u128,
+                self.center_price_nad
+                    .checked_mul(4)
+                    .ok_or(ErrorCode::InvariantOverflow)?,
+            ),
+            // D is in base units: Q = D/2 * sqrt(center/NAD).
+            ConcentratedCommonNumeraire::Base => (
                 self.center_price_nad,
-                self.peak_depth_nad,
-                self.imbalance_scale_nad,
+                (NAD as u128).checked_mul(4).ok_or(ErrorCode::InvariantOverflow)?,
+            ),
+        };
+
+        // Seed the orientation-aware physical Q ratio in [1/4, 4].
+        // Powers of four become exact powers of two after the square root, so
+        // this retains 48 fractional bits without constructing the potentially
+        // 160-bit radicand.
+        let exact_ratio_numerator = normalized_numerator;
+        let exact_ratio_denominator = normalized_denominator;
+        let mut numerator_scale = 0_u32;
+        let mut denominator_scale = 0_u32;
+        if normalized_numerator < normalized_denominator {
+            for _ in 0..64 {
+                if normalized_numerator >= normalized_denominator {
+                    break;
+                }
+                normalized_numerator = normalized_numerator
+                    .checked_mul(4)
+                    .ok_or(ErrorCode::InvariantOverflow)?;
+                numerator_scale += 1;
+            }
+        } else {
+            for _ in 0..64 {
+                let four_denominator = normalized_denominator
+                    .checked_mul(4)
+                    .ok_or(ErrorCode::InvariantOverflow)?;
+                if normalized_numerator <= four_denominator {
+                    break;
+                }
+                normalized_denominator = four_denominator;
+                denominator_scale += 1;
+            }
+        }
+        require!(
+            normalized_numerator
+                .checked_mul(4)
+                .ok_or(ErrorCode::InvariantOverflow)?
+                >= normalized_denominator,
+            ErrorCode::InvariantOverflow
+        );
+        require!(
+            normalized_numerator
+                <= normalized_denominator
+                    .checked_mul(4)
+                    .ok_or(ErrorCode::InvariantOverflow)?,
+            ErrorCode::InvariantOverflow
+        );
+        let ratio_q48 = mul_div_u128(normalized_numerator, Q48_ONE, normalized_denominator)
+            .map_err(|_| ErrorCode::InvariantOverflow)?;
+        let sqrt_ratio_q48 = isqrt(ratio_q48.checked_mul(Q48_ONE).ok_or(ErrorCode::InvariantOverflow)?);
+        let mut candidate = if numerator_scale > 0 {
+            mul_div_u128(
+                invariant_d,
+                sqrt_ratio_q48,
+                Q48_ONE
+                    .checked_shl(numerator_scale)
+                    .ok_or(ErrorCode::InvariantOverflow)?,
+            )
+        } else {
+            mul_div_u128(
+                invariant_d,
+                sqrt_ratio_q48
+                    .checked_shl(denominator_scale)
+                    .ok_or(ErrorCode::InvariantOverflow)?,
+                Q48_ONE,
             )
         }
+        .map_err(|_| ErrorCode::InvariantOverflow)?
+        .max(1);
+
+        // Exact floor(D^2*NAD/(denominator*probe)) without a wide integer.
+        // Each quotient is root-sized; every discarded remainder is carried
+        // into the next stage before the final one-bit comparison.
+        let (scaled_d, scaled_d_remainder) =
+            mul_div_rem_u128(invariant_d, exact_ratio_numerator, exact_ratio_denominator)
+                .map_err(|_| ErrorCode::InvariantOverflow)?;
+        let quotient_at = |probe: u128| -> Result<u128> {
+            require!(probe > 0, ErrorCode::DenominatorOverflow);
+            let (whole, whole_remainder) =
+                mul_div_rem_u128(invariant_d, scaled_d, probe).map_err(|_| ErrorCode::InvariantOverflow)?;
+            let (fractional, fractional_remainder) =
+                mul_div_rem_u128(invariant_d, scaled_d_remainder, probe).map_err(|_| ErrorCode::InvariantOverflow)?;
+            let fractional_whole = fractional / exact_ratio_denominator;
+            let fractional_modulus = fractional % exact_ratio_denominator;
+            let (cross_whole, cross_remainder) = mul_div_rem_u128(fractional_modulus, probe, exact_ratio_denominator)
+                .map_err(|_| ErrorCode::InvariantOverflow)?;
+            let cross_fraction = cross_remainder
+                .checked_add(fractional_remainder)
+                .ok_or(ErrorCode::InvariantOverflow)?
+                / exact_ratio_denominator;
+            let carried = cross_whole
+                .checked_add(cross_fraction)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            let carry = u128::from(carried >= probe.checked_sub(whole_remainder).ok_or(ErrorCode::InvariantOverflow)?);
+            whole
+                .checked_add(fractional_whole)
+                .and_then(|value| value.checked_add(carry))
+                .ok_or_else(|| ErrorCode::InvariantOverflow.into())
+        };
+
+        let reciprocal = quotient_at(candidate)?;
+        candidate = if reciprocal >= candidate {
+            candidate
+                .checked_add((reciprocal - candidate) / 2)
+                .ok_or(ErrorCode::InvariantOverflow)?
+        } else {
+            reciprocal + (candidate - reciprocal) / 2
+        }
+        .max(1);
+
+        // The normalized seed followed by one exact Newton step is adjacent
+        // over the configured domain. Fail closed if that bound ever changes.
+        for _ in 0..4 {
+            let quotient = quotient_at(candidate)?;
+            if quotient < candidate {
+                candidate = candidate.checked_sub(1).ok_or(ErrorCode::InvariantOverflow)?;
+                if candidate == 0 {
+                    return Ok(0);
+                }
+                continue;
+            }
+            let successor = candidate.checked_add(1).ok_or(ErrorCode::InvariantOverflow)?;
+            if quotient_at(successor)? >= successor {
+                candidate = successor;
+                continue;
+            }
+            return Ok(candidate);
+        }
+        err!(ErrorCode::InvariantOverflow)
+    }
+
+    pub(crate) fn marginal_price_nad(self) -> Result<u128> {
+        if self.peak_depth_nad == 0 {
+            return mul_div_floor(self.quote_reserve_nad, NAD as u128, self.base_reserve_nad);
+        }
+        concentrated_marginal_price_from_common_with_geometry(
+            self.base_common,
+            self.quote_common,
+            self.invariant_d,
+            self.center_price_nad,
+            self.peak_depth_nad,
+            self.fade_scale_nad,
+            self.geometry.ok_or(ErrorCode::BrokenInvariant)?,
+        )
     }
 
     pub(crate) fn evaluation(self) -> Result<ConcentratedEvaluation> {
         Ok(ConcentratedEvaluation {
-            invariant_d: self.invariant_low,
-            invariant_d_high: self.invariant_high,
-            balanced_equivalent_q: self.balanced_equivalent_q()?,
-            marginal_price_nad: self.marginal_price_nad()?,
-        })
-    }
-
-    /// Evaluates a same-curve successor from its already-certified executable
-    /// level set and shoulder branch.
-    pub(crate) fn continuous_successor_evaluation(self) -> Result<ConcentratedEvaluation> {
-        Ok(ConcentratedEvaluation {
-            invariant_d: self.invariant_low,
-            invariant_d_high: self.invariant_high,
+            invariant_d: self.invariant_d(),
             balanced_equivalent_q: self.balanced_equivalent_q()?,
             marginal_price_nad: self.marginal_price_nad()?,
         })
@@ -256,45 +509,231 @@ impl ConcentratedPreparedCurve {
                 }
             };
         }
-        if let Some(output) = exact_cpmm_tail_in_raw(
-            self.base_reserve_nad,
-            self.quote_reserve_nad,
-            amount_in_nad,
-            direction,
-            self.center_price_nad,
-            self.peak_depth_nad,
-            self.imbalance_scale_nad,
-        )? {
-            return Ok(output);
+        let geometry = self.geometry.ok_or(ErrorCode::BrokenInvariant)?;
+        let start_branch = geometry.branch(self.base_common, self.quote_common)?;
+        if start_branch.is_exact_tail() {
+            let output = match direction {
+                ConcentratedSwapDirection::BaseToQuote => {
+                    calculate_normalized_amount_out(self.base_reserve_nad, self.quote_reserve_nad, amount_in_nad)?
+                }
+                ConcentratedSwapDirection::QuoteToBase => {
+                    calculate_normalized_amount_out(self.quote_reserve_nad, self.base_reserve_nad, amount_in_nad)?
+                }
+            };
+            let (base_after, quote_after) = match direction {
+                ConcentratedSwapDirection::BaseToQuote => (
+                    self.base_reserve_nad
+                        .checked_add(amount_in_nad)
+                        .ok_or(ErrorCode::InvariantOverflow)?,
+                    self.quote_reserve_nad
+                        .checked_sub(output)
+                        .ok_or(ErrorCode::OutputAmountOverflow)?,
+                ),
+                ConcentratedSwapDirection::QuoteToBase => (
+                    self.base_reserve_nad
+                        .checked_sub(output)
+                        .ok_or(ErrorCode::OutputAmountOverflow)?,
+                    self.quote_reserve_nad
+                        .checked_add(amount_in_nad)
+                        .ok_or(ErrorCode::InvariantOverflow)?,
+                ),
+            };
+            let (base_after_common, quote_after_common) =
+                normalize_reserves(base_after, quote_after, self.center_price_nad)?;
+            if start_branch.same_exact_tail(geometry.branch(base_after_common, quote_after_common)?) {
+                return Ok(output);
+            }
+        }
+        let (input_reserve_nad, output_reserve_nad, input_common, output_common) = match direction {
+            ConcentratedSwapDirection::BaseToQuote => (
+                self.base_reserve_nad,
+                self.quote_reserve_nad,
+                self.base_common,
+                self.quote_common,
+            ),
+            ConcentratedSwapDirection::QuoteToBase => (
+                self.quote_reserve_nad,
+                self.base_reserve_nad,
+                self.quote_common,
+                self.base_common,
+            ),
+        };
+        // Normalize the complete post-trade reserve. In general
+        // floor((R+dR)*a/b) != floor(R*a/b)+floor(dR*a/b); composing rounded
+        // deltas is what caused the former low-center quote bucket.
+        let input_after_nad = input_reserve_nad
+            .checked_add(amount_in_nad)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        let input_after_common = self.input_common_scale(direction)?.to_common_floor(input_after_nad)?;
+        if input_after_common <= input_common {
+            return Ok(0);
+        }
+        validate_common_reserves(input_after_common, output_common)?;
+        let output_common_delta =
+            if !hybrid_residual(input_after_common, output_common, self.invariant_d, Some(geometry))?.0 {
+                0
+            } else {
+                let (_, output_after_common) =
+                    solve_variable_reserve(input_after_common, self.invariant_d, Some(geometry), 1, output_common)?;
+                // The solver returns the smallest valid reserve atom, so the
+                // corresponding output is maximal in common coordinates.
+                output_common
+                    .checked_sub(output_after_common)
+                    .ok_or(ErrorCode::OutputAmountOverflow)?
+            };
+        let output_after_common = output_common
+            .checked_sub(output_common_delta)
+            .ok_or(ErrorCode::OutputAmountOverflow)?;
+        let output_after_nad = self
+            .output_common_scale(direction)?
+            .common_to_raw_ceil(output_after_common)?;
+        require!(
+            output_after_nad > 0 && output_after_nad <= output_reserve_nad,
+            ErrorCode::OutputAmountOverflow
+        );
+        let output = output_reserve_nad - output_after_nad;
+        // The common-coordinate solver already certifies that its returned
+        // reserve is the smallest valid atom. Every adaptive raw-to-common
+        // scale is >= 1, so ceil(common * denominator / numerator) is the
+        // smallest raw reserve mapping to that endpoint or above; its raw
+        // predecessor maps strictly below it. The inverse-floor lemma is
+        // exhaustively checked at the supported center boundaries in tests.
+        Ok(output)
+    }
+
+    /// Returns `(largest_known_insufficient_input, smallest_sufficient_input)`
+    /// in raw normalized input units for one exact-output request.
+    pub(crate) fn quote_exact_out_input_bracket(
+        self,
+        amount_out_nad: u128,
+        direction: ConcentratedSwapDirection,
+    ) -> Result<(u128, u128)> {
+        let (input_reserve_nad, output_reserve_nad, input_common, output_common) = match direction {
+            ConcentratedSwapDirection::BaseToQuote => (
+                self.base_reserve_nad,
+                self.quote_reserve_nad,
+                self.base_common,
+                self.quote_common,
+            ),
+            ConcentratedSwapDirection::QuoteToBase => (
+                self.quote_reserve_nad,
+                self.base_reserve_nad,
+                self.quote_common,
+                self.base_common,
+            ),
+        };
+        require!(
+            amount_out_nad > 0 && amount_out_nad < output_reserve_nad,
+            ErrorCode::InsufficientLiquidity
+        );
+        if self.peak_depth_nad == 0 {
+            let input = calculate_normalized_amount_in(input_reserve_nad, output_reserve_nad, amount_out_nad)?;
+            return Ok((input.saturating_sub(1), input));
+        }
+        let geometry = self.geometry.ok_or(ErrorCode::BrokenInvariant)?;
+        let start_branch = geometry.branch(self.base_common, self.quote_common)?;
+        if start_branch.is_exact_tail() {
+            let input = match direction {
+                ConcentratedSwapDirection::BaseToQuote => {
+                    calculate_normalized_amount_in(self.base_reserve_nad, self.quote_reserve_nad, amount_out_nad)?
+                }
+                ConcentratedSwapDirection::QuoteToBase => {
+                    calculate_normalized_amount_in(self.quote_reserve_nad, self.base_reserve_nad, amount_out_nad)?
+                }
+            };
+            let (base_after, quote_after) = match direction {
+                ConcentratedSwapDirection::BaseToQuote => (
+                    self.base_reserve_nad
+                        .checked_add(input)
+                        .ok_or(ErrorCode::InvariantOverflow)?,
+                    self.quote_reserve_nad
+                        .checked_sub(amount_out_nad)
+                        .ok_or(ErrorCode::InsufficientLiquidity)?,
+                ),
+                ConcentratedSwapDirection::QuoteToBase => (
+                    self.base_reserve_nad
+                        .checked_sub(amount_out_nad)
+                        .ok_or(ErrorCode::InsufficientLiquidity)?,
+                    self.quote_reserve_nad
+                        .checked_add(input)
+                        .ok_or(ErrorCode::InvariantOverflow)?,
+                ),
+            };
+            let (base_after_common, quote_after_common) =
+                normalize_reserves(base_after, quote_after, self.center_price_nad)?;
+            if start_branch.same_exact_tail(geometry.branch(base_after_common, quote_after_common)?) {
+                return Ok((input.saturating_sub(1), input));
+            }
         }
 
+        let output_after_nad = output_reserve_nad
+            .checked_sub(amount_out_nad)
+            .ok_or(ErrorCode::InsufficientLiquidity)?;
+        let output_after_common = self.output_common_scale(direction)?.to_common_floor(output_after_nad)?;
+        let common_output = output_common
+            .checked_sub(output_after_common)
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        require!(common_output > 0, ErrorCode::InsufficientLiquidity);
+        require!(input_common < MAX_COMMON_RESERVE, ErrorCode::InsufficientLiquidity);
+        require!(
+            hybrid_residual(output_after_common, MAX_COMMON_RESERVE, self.invariant_d, self.geometry,)?.0,
+            ErrorCode::InsufficientLiquidity
+        );
+        let (_, sufficient_input_common) = solve_variable_reserve(
+            output_after_common,
+            self.invariant_d,
+            self.geometry,
+            input_common,
+            MAX_COMMON_RESERVE,
+        )?;
+        let sufficient_common_delta = sufficient_input_common
+            .checked_sub(input_common)
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        let sufficient_input_common = input_common
+            .checked_add(sufficient_common_delta)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        let sufficient_input_after_nad = self
+            .input_common_scale(direction)?
+            .common_to_raw_ceil(sufficient_input_common)?;
+        let sufficient_input = sufficient_input_after_nad
+            .checked_sub(input_reserve_nad)
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        require!(sufficient_input > 0, ErrorCode::InsufficientLiquidity);
+        Ok((sufficient_input - 1, sufficient_input))
+    }
+
+    pub(crate) const fn common_numeraire(self) -> ConcentratedCommonNumeraire {
+        self.common_numeraire
+    }
+
+    pub(crate) fn input_common_scale(self, direction: ConcentratedSwapDirection) -> Result<ConcentratedCommonScale> {
         match direction {
-            ConcentratedSwapDirection::BaseToQuote => {
-                let input_common = base_to_common(amount_in_nad, self.center_price_nad)?;
-                if input_common == 0 {
-                    return Ok(0);
-                }
-                quote_common_exact_in_with_d(
-                    self.base_common,
-                    self.quote_common,
-                    input_common,
-                    self.invariant_high,
-                    self.peak_depth_nad,
-                    self.imbalance_scale_nad,
-                )
-            }
-            ConcentratedSwapDirection::QuoteToBase => {
-                let output_common = quote_common_exact_in_with_d(
-                    self.quote_common,
-                    self.base_common,
-                    amount_in_nad,
-                    self.invariant_high,
-                    self.peak_depth_nad,
-                    self.imbalance_scale_nad,
-                )?;
-                common_to_base_floor(output_common, self.center_price_nad)
-            }
+            ConcentratedSwapDirection::BaseToQuote => self.common_numeraire.base_scale(self.center_price_nad),
+            ConcentratedSwapDirection::QuoteToBase => self.common_numeraire.quote_scale(self.center_price_nad),
         }
+    }
+
+    pub(crate) fn output_common_scale(self, direction: ConcentratedSwapDirection) -> Result<ConcentratedCommonScale> {
+        match direction {
+            ConcentratedSwapDirection::BaseToQuote => self.common_numeraire.quote_scale(self.center_price_nad),
+            ConcentratedSwapDirection::QuoteToBase => self.common_numeraire.base_scale(self.center_price_nad),
+        }
+    }
+
+    pub(crate) fn hybrid_branch_at_raw_reserves(
+        self,
+        base_reserve_nad: u128,
+        quote_reserve_nad: u128,
+    ) -> Result<ConcentratedHybridBranch> {
+        if self.peak_depth_nad == 0 {
+            validate_common_reserves(base_reserve_nad, quote_reserve_nad)?;
+            return Ok(ConcentratedHybridBranch::Inner);
+        }
+        let (base_common, quote_common) =
+            normalize_reserves(base_reserve_nad, quote_reserve_nad, self.center_price_nad)?;
+        self.geometry
+            .ok_or(ErrorCode::BrokenInvariant)?
+            .branch(base_common, quote_common)
     }
 
     pub(crate) const fn base_reserve_nad(self) -> u128 {
@@ -305,17 +744,6 @@ impl ConcentratedPreparedCurve {
         self.quote_reserve_nad
     }
 
-    /// Canonical quote-value coordinates already used by the invariant. Fee
-    /// logic consumes these accessors so it cannot reproduce center-price
-    /// normalization with different floor ordering.
-    pub(crate) const fn base_common_nad(self) -> u128 {
-        self.base_common
-    }
-
-    pub(crate) const fn quote_common_nad(self) -> u128 {
-        self.quote_common
-    }
-
     pub(crate) const fn center_price_nad(self) -> u128 {
         self.center_price_nad
     }
@@ -324,112 +752,265 @@ impl ConcentratedPreparedCurve {
         self.peak_depth_nad
     }
 
-    pub(crate) const fn imbalance_scale_nad(self) -> u128 {
-        self.imbalance_scale_nad
+    pub(crate) const fn fade_scale_nad(self) -> u128 {
+        self.fade_scale_nad
     }
 
-    /// Certifies a successor reserve state using this state's already
-    /// certified invariant as a first bisection probe.
-    ///
-    /// The hint is never trusted as a bound: the successor solve rebuilds the
-    /// full `[2*sqrt(x*y), x+y]` sign bracket, clamps the hint inside it, and
-    /// retains the same fail-closed residual proofs as a cold solve. Chaining
-    /// this method lets a post-retention endpoint reuse the post-trade
-    /// certificate in exactly the same way.
+    pub(crate) fn geometry_cache(self) -> Option<ConcentratedGeometryCache> {
+        self.geometry.map(|geometry| ConcentratedGeometryCache {
+            math_revision: CONCENTRATED_MATH_REVISION,
+            peak_depth_nad: self.peak_depth_nad as u64,
+            fade_scale_nad: self.fade_scale_nad as u64,
+            peak_q80: geometry.peak_q80,
+            scale_q80: geometry.scale_q80,
+            v_start_q80: geometry.v_start_q80,
+            v_tail_q80: geometry.v_tail_q80,
+            reserve_ratio_start_q80: geometry.reserve_ratio_start_q80,
+            reserve_ratio_tail_q80: geometry.reserve_ratio_tail_q80,
+            negative_q_prime_start_q80: geometry.negative_q_prime_start_q80,
+        })
+    }
+
+    /// Prepare a same-parameter endpoint without deriving geometry again.
+    /// Raw-rounded trade and retained-surcharge endpoints both use this path.
     pub(crate) fn prepare_successor(
         self,
         base_reserve_nad: u128,
         quote_reserve_nad: u128,
-    ) -> Result<ConcentratedPreparedCurve> {
+        invariant_seed: ConcentratedInvariantSeed,
+    ) -> Result<Self> {
         prepare_curve_internal(
             base_reserve_nad,
             quote_reserve_nad,
             self.center_price_nad,
             self.peak_depth_nad,
-            self.imbalance_scale_nad,
-            Some(self.invariant_low),
-            INVARIANT_PROOF_DENOMINATOR,
+            self.fade_scale_nad,
+            self.geometry_cache(),
+            Some(invariant_seed),
         )
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ResidualSign {
-    Negative,
-    NonNegative,
+fn mul_div_floor(a: u128, b: u128, denominator: u128) -> Result<u128> {
+    mul_div_u128(a, b, denominator).map_err(|_| ErrorCode::InvariantOverflow.into())
 }
 
-fn checked_add_512(a: U512, b: U512) -> Result<U512> {
-    let (value, overflow) = a.overflowing_add(b);
-    require!(!overflow, ErrorCode::InvariantOverflow);
-    Ok(value)
+fn to_q48_nad(value_nad: u128) -> Result<u128> {
+    mul_div_floor(value_nad, Q48_ONE, NAD as u128)
 }
 
-fn checked_mul_512(a: U512, b: U512) -> Result<U512> {
-    let (value, overflow) = a.overflowing_mul(b);
-    require!(!overflow, ErrorCode::InvariantOverflow);
-    Ok(value)
+fn mul_q48(a: u128, b: u128) -> Result<u128> {
+    a.checked_mul(b)
+        .map(|product| product >> Q48_BITS)
+        .ok_or_else(|| ErrorCode::InvariantOverflow.into())
 }
 
-/// Multiplies by a native scalar through the uint crate's linear eight-limb
-/// `U512 * u64` kernel instead of its quadratic wide-by-wide kernel.
-///
-/// Callers must first prove the complete result fits U512. Every use in the
-/// canonical-high derivative below has at least 25 spare bits at the protocol
-/// maxima; `Mul`/`Add` still panic on an impossible violated proof rather than
-/// returning a wrapped value.
-fn mul_512_u128_proven(value: U512, scalar: u128) -> U512 {
-    let low = scalar as u64;
-    let high = (scalar >> 64) as u64;
-    let low_product = value * low;
-    if high == 0 {
-        low_product
-    } else {
-        low_product + ((value * high) << 64)
+fn mul_q64(a: u128, b: u128) -> Result<u128> {
+    let (a_hi, a_lo) = (a >> Q64_BITS, a & (Q64_ONE - 1));
+    let (b_hi, b_lo) = (b >> Q64_BITS, b & (Q64_ONE - 1));
+    a_hi.checked_mul(b_hi)
+        .and_then(|value| value.checked_mul(Q64_ONE))
+        .and_then(|value| value.checked_add(a_hi.checked_mul(b_lo)?))
+        .and_then(|value| value.checked_add(b_hi.checked_mul(a_lo)?))
+        .and_then(|value| value.checked_add(a_lo.checked_mul(b_lo)? >> Q64_BITS))
+        .ok_or_else(|| ErrorCode::InvariantOverflow.into())
+}
+
+fn div_q64(a: u128, b: u128) -> Result<u128> {
+    require!(b > 0, ErrorCode::DenominatorOverflow);
+    mul_div_floor(a, Q64_ONE, b)
+}
+
+fn sqrt_q64(value_q64: u128) -> Result<u128> {
+    #[cfg(test)]
+    SQRT_Q64_EVALUATIONS.with(|count| count.set(count.get() + 1));
+    if value_q64 == 0 {
+        return Ok(0);
     }
+    let mut normalized_q64 = value_q64;
+    let mut scale_up = 0_u32;
+    let mut scale_down = 0_u32;
+    while normalized_q64 > Q64_ONE {
+        normalized_q64 >>= 2;
+        scale_up = scale_up.checked_add(1).ok_or(ErrorCode::InvariantOverflow)?;
+    }
+    while normalized_q64 < (Q64_ONE >> 2) {
+        normalized_q64 = normalized_q64.checked_shl(2).ok_or(ErrorCode::InvariantOverflow)?;
+        scale_down = scale_down.checked_add(1).ok_or(ErrorCode::InvariantOverflow)?;
+    }
+    if normalized_q64 == Q64_ONE {
+        return Q64_ONE
+            .checked_shl(scale_up)
+            .map(|value| value >> scale_down)
+            .ok_or_else(|| ErrorCode::InvariantOverflow.into());
+    }
+    let mut candidate = isqrt(
+        normalized_q64
+            .checked_mul(Q64_ONE)
+            .ok_or(ErrorCode::InvariantOverflow)?,
+    )
+    .checked_shl(scale_up)
+    .map(|value| value >> scale_down)
+    .ok_or(ErrorCode::InvariantOverflow)?;
+    // Power-of-four normalization is exact below unity. Above unity its
+    // right shift may discard low bits, so certify the canonical floor against
+    // the original radicand with a bounded adjacent correction.
+    for _ in 0..4 {
+        if !ratio_lte_full_width(candidate, value_q64, Q64_ONE, candidate)? {
+            candidate = candidate.checked_sub(1).ok_or(ErrorCode::InvariantOverflow)?;
+            continue;
+        }
+        let successor = candidate.checked_add(1).ok_or(ErrorCode::InvariantOverflow)?;
+        if ratio_lte_full_width(successor, value_q64, Q64_ONE, successor)? {
+            candidate = successor;
+            continue;
+        }
+        return Ok(candidate);
+    }
+    err!(ErrorCode::InvariantOverflow)
 }
 
-fn u256_to_u128(value: U256) -> Result<u128> {
-    require!(value <= U256::from(u128::MAX), ErrorCode::InvariantOverflow);
-    Ok(value.as_u128())
+fn mul_q80(a: u128, b: u128) -> Result<u128> {
+    const LIMB_BITS: u32 = 40;
+    const LIMB: u128 = 1_u128 << LIMB_BITS;
+    let (a_hi, a_lo) = (a >> LIMB_BITS, a & (LIMB - 1));
+    let (b_hi, b_lo) = (b >> LIMB_BITS, b & (LIMB - 1));
+    let high = a_hi.checked_mul(b_hi).ok_or(ErrorCode::InvariantOverflow)?;
+    let cross = a_hi
+        .checked_mul(b_lo)
+        .and_then(|value| value.checked_add(a_lo.checked_mul(b_hi)?))
+        .ok_or(ErrorCode::InvariantOverflow)?;
+    let low = a_lo.checked_mul(b_lo).ok_or(ErrorCode::InvariantOverflow)?;
+    high.checked_add(cross >> LIMB_BITS)
+        .and_then(|value| {
+            (cross & (LIMB - 1))
+                .checked_shl(LIMB_BITS)
+                .and_then(|fraction| fraction.checked_add(low))
+                .and_then(|fraction| value.checked_add(fraction >> Q80_BITS))
+        })
+        .ok_or_else(|| ErrorCode::InvariantOverflow.into())
 }
 
-fn mul_div_u128(a: u128, b: u128, denominator: u128) -> Result<u128> {
-    require!(denominator > 0, ErrorCode::DenominatorOverflow);
-    let value = U256::from(a)
-        .checked_mul(U256::from(b))
+fn div_q80(a: u128, b: u128) -> Result<u128> {
+    require!(b > 0, ErrorCode::DenominatorOverflow);
+    mul_div_floor(a, Q80_ONE, b)
+}
+
+fn sqrt_q80(value_q80: u128) -> Result<u128> {
+    #[cfg(test)]
+    SQRT_Q80_EVALUATIONS.with(|count| count.set(count.get() + 1));
+    if value_q80 == 0 {
+        return Ok(0);
+    }
+    let mut normalized_q80 = value_q80;
+    let mut scale_up = 0_u32;
+    let mut scale_down = 0_u32;
+    while normalized_q80 > Q80_ONE {
+        normalized_q80 >>= 2;
+        scale_up = scale_up.checked_add(1).ok_or(ErrorCode::InvariantOverflow)?;
+    }
+    while normalized_q80 < (Q80_ONE >> 2) {
+        normalized_q80 = normalized_q80.checked_shl(2).ok_or(ErrorCode::InvariantOverflow)?;
+        scale_down = scale_down.checked_add(1).ok_or(ErrorCode::InvariantOverflow)?;
+    }
+    if normalized_q80 == Q80_ONE {
+        return Q80_ONE
+            .checked_shl(scale_up)
+            .map(|value| value >> scale_down)
+            .ok_or_else(|| ErrorCode::InvariantOverflow.into());
+    }
+    let normalized_q64 = normalized_q80 >> (Q80_BITS - Q64_BITS);
+    require!(normalized_q64 > 0, ErrorCode::InvariantOverflow);
+    let seed_q64 = sqrt_q64(normalized_q64)?;
+    let seed_q80 = seed_q64
+        .checked_shl(Q80_BITS - Q64_BITS)
+        .and_then(|value| value.checked_shl(scale_up))
+        .map(|value| value >> scale_down)
+        .ok_or(ErrorCode::InvariantOverflow)?;
+    require!(seed_q80 > 0, ErrorCode::InvariantOverflow);
+    // A Q64 root shifted into Q80 is within one Q64 quantum. One exact Newton
+    // step squares that relative error; the adjacent proof below then selects
+    // the canonical floor without an open-ended fixed-point iteration.
+    let reciprocal = mul_div_floor(value_q80, Q80_ONE, seed_q80)?;
+    let mut candidate = seed_q80.checked_add(reciprocal).ok_or(ErrorCode::InvariantOverflow)? / 2;
+    for _ in 0..4 {
+        if !ratio_lte_full_width(candidate, value_q80, Q80_ONE, candidate)? {
+            candidate = candidate.checked_sub(1).ok_or(ErrorCode::InvariantOverflow)?;
+            continue;
+        }
+        let successor = candidate.checked_add(1).ok_or(ErrorCode::InvariantOverflow)?;
+        if ratio_lte_full_width(successor, value_q80, Q80_ONE, successor)? {
+            candidate = successor;
+            continue;
+        }
+        return Ok(candidate);
+    }
+    err!(ErrorCode::InvariantOverflow)
+}
+
+fn div_q48(a: u128, b: u128) -> Result<u128> {
+    require!(b > 0, ErrorCode::DenominatorOverflow);
+    a.checked_mul(Q48_ONE)
+        .and_then(|numerator| numerator.checked_div(b))
+        .ok_or_else(|| ErrorCode::InvariantOverflow.into())
+}
+
+pub(super) fn mul_scalar_q48(value: u128, factor_q48: u128) -> Result<u128> {
+    let whole = value
+        .checked_mul(factor_q48 >> Q48_BITS)
+        .ok_or(ErrorCode::InvariantOverflow)?;
+    let fractional = value
+        .checked_mul(factor_q48 & (Q48_ONE - 1))
         .ok_or(ErrorCode::InvariantOverflow)?
-        / U256::from(denominator);
-    u256_to_u128(value)
+        >> Q48_BITS;
+    whole
+        .checked_add(fractional)
+        .ok_or_else(|| ErrorCode::InvariantOverflow.into())
 }
 
-fn validate_parameters(center_price_nad: u128, peak_depth_nad: u128, imbalance_scale_nad: u128) -> Result<()> {
-    require!(center_price_nad > 0, ErrorCode::InvalidArgument);
+fn ratio_q48(numerator: u128, denominator: u128) -> Result<u128> {
+    require!(denominator > 0, ErrorCode::DenominatorOverflow);
+    numerator
+        .checked_mul(Q48_ONE)
+        .and_then(|value| value.checked_div(denominator))
+        .ok_or_else(|| ErrorCode::InvariantOverflow.into())
+}
+
+fn ratio_q32(numerator: u128, denominator: u128) -> Result<u128> {
+    require!(denominator > 0, ErrorCode::DenominatorOverflow);
+    numerator
+        .checked_mul(PRICE_ONE)
+        .and_then(|value| value.checked_div(denominator))
+        .ok_or_else(|| ErrorCode::InvariantOverflow.into())
+}
+
+pub(super) fn validate_parameters(center_price_nad: u128, peak_depth_nad: u128, fade_scale_nad: u128) -> Result<()> {
+    require!(
+        center_price_nad > 0 && center_price_nad <= u64::MAX as u128,
+        ErrorCode::InvalidArgument
+    );
     require!(
         peak_depth_nad <= CONCENTRATED_MAX_PEAK_DEPTH_NAD,
         ErrorCode::InvalidArgument
     );
-    if peak_depth_nad == 0 || imbalance_scale_nad == 0 {
-        require!(
-            peak_depth_nad == 0 && imbalance_scale_nad == 0,
-            ErrorCode::InvalidArgument
-        );
+    if peak_depth_nad == 0 || fade_scale_nad == 0 {
+        require!(peak_depth_nad == 0 && fade_scale_nad == 0, ErrorCode::InvalidArgument);
     } else {
         require!(
-            imbalance_scale_nad <= CONCENTRATED_MAX_IMBALANCE_SCALE_NAD,
+            fade_scale_nad <= CONCENTRATED_MAX_FADE_SCALE_NAD && fade_scale_nad <= peak_depth_nad.saturating_mul(100),
             ErrorCode::InvalidArgument
         );
     }
     Ok(())
 }
 
-fn validate_positive_reserves(x: u128, y: u128) -> Result<()> {
+pub(super) fn validate_common_reserves(x: u128, y: u128) -> Result<()> {
     require!(x > 0 && y > 0, ErrorCode::InvalidArgument);
     Ok(())
 }
 
-fn validate_common_reserves(x: u128, y: u128) -> Result<()> {
-    validate_positive_reserves(x, y)?;
+fn validate_bounded_common_reserves(x: u128, y: u128) -> Result<()> {
+    validate_common_reserves(x, y)?;
     require!(
         x <= MAX_COMMON_RESERVE && y <= MAX_COMMON_RESERVE,
         ErrorCode::InvalidArgument
@@ -437,215 +1018,1136 @@ fn validate_common_reserves(x: u128, y: u128) -> Result<()> {
     Ok(())
 }
 
-fn validate_inner_common_reserve_floor(x: u128, y: u128, shoulder_relation: Ordering) -> Result<()> {
-    if shoulder_relation != Ordering::Less {
+pub(super) fn normalize_reserves(
+    base_reserve_nad: u128,
+    quote_reserve_nad: u128,
+    center_price_nad: u128,
+) -> Result<(u128, u128)> {
+    let numeraire = ConcentratedCommonNumeraire::for_center(center_price_nad)?;
+    let base_common = numeraire
+        .base_scale(center_price_nad)?
+        .to_common_floor(base_reserve_nad)?;
+    let quote_common = numeraire
+        .quote_scale(center_price_nad)?
+        .to_common_floor(quote_reserve_nad)?;
+    validate_bounded_common_reserves(base_common, quote_common)?;
+    Ok((base_common, quote_common))
+}
+
+fn balance_factor_q48(x: u128, y: u128, d: u128) -> Result<u128> {
+    validate_bounded_common_reserves(x, y)?;
+    require!(d > 0, ErrorCode::DenominatorOverflow);
+    let twice_x = x.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?;
+    let twice_y = y.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?;
+    let x_ratio = ratio_q48(twice_x, d)?;
+    let y_ratio = ratio_q48(twice_y, d)?;
+    mul_q48(x_ratio, y_ratio)
+}
+
+fn low_high_ratio_q64(x: u128, y: u128) -> Result<u128> {
+    validate_bounded_common_reserves(x, y)?;
+    // Both common reserves are at most u64::MAX, so this product fits u128
+    // directly and avoids the general full-width quotient path.
+    x.min(y)
+        .checked_mul(Q64_ONE)
+        .and_then(|value| value.checked_div(x.max(y)))
+        .ok_or_else(|| ErrorCode::InvariantOverflow.into())
+}
+
+fn balance_factor_q64(x: u128, y: u128, d: u128) -> Result<u128> {
+    balance_factor_fixed(x, y, d, Q64_ONE)
+}
+
+fn balance_factor_fixed(x: u128, y: u128, d: u128, fixed_one: u128) -> Result<u128> {
+    validate_bounded_common_reserves(x, y)?;
+    require!(d > 0, ErrorCode::DenominatorOverflow);
+    let twice_x = x.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?;
+    let twice_y = y.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?;
+    // Exact floor(4*x*y*Q64/D^2), retaining both division remainders. If
+    // 2*x*Q64 = a*D+r, a*2*y = b*D+s, and r*2*y = c*D+t, then the answer is
+    // b + floor((s+c)/D); the remaining (s+c)%D*D+t is strictly below D^2.
+    let (scaled_x, scaled_x_remainder) =
+        mul_div_rem_u128(twice_x, fixed_one, d).map_err(|_| ErrorCode::InvariantOverflow)?;
+    let (whole, whole_remainder) = mul_div_rem_u128(scaled_x, twice_y, d).map_err(|_| ErrorCode::InvariantOverflow)?;
+    let (carried, _) = mul_div_rem_u128(scaled_x_remainder, twice_y, d).map_err(|_| ErrorCode::InvariantOverflow)?;
+    whole
+        .checked_add(
+            whole_remainder
+                .checked_add(carried)
+                .ok_or(ErrorCode::InvariantOverflow)?
+                / d,
+        )
+        .ok_or_else(|| ErrorCode::InvariantOverflow.into())
+}
+
+impl ConcentratedC1Geometry {
+    pub(crate) fn from_cache(
+        cache: ConcentratedGeometryCache,
+        peak_depth_nad: u128,
+        fade_scale_nad: u128,
+    ) -> Result<Self> {
         require!(
-            x >= MIN_INNER_COMMON_RESERVE && y >= MIN_INNER_COMMON_RESERVE,
-            ErrorCode::InsufficientLiquidity
+            cache.matches(peak_depth_nad, fade_scale_nad),
+            ErrorCode::BrokenInvariant
         );
+        let q_start_q80 = Q80_ONE
+            .checked_sub(cache.scale_q80 >> C1_TRANSITION_START_SHIFT)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        let q_tail_q80 = Q80_ONE
+            .checked_sub(cache.scale_q80)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        require!(
+            cache.peak_q80 > 0
+                && cache.scale_q80 > 0
+                && cache.scale_q80 < Q80_ONE
+                && q_start_q80 > q_tail_q80
+                && cache.v_start_q80 < cache.v_tail_q80
+                && cache.reserve_ratio_start_q80 > cache.reserve_ratio_tail_q80
+                && cache.reserve_ratio_start_q80 <= Q80_ONE
+                && cache.reserve_ratio_tail_q80 > 0
+                && cache.negative_q_prime_start_q80 > 0,
+            ErrorCode::BrokenInvariant
+        );
+        let q_start_q64 = q_start_q80 >> (Q80_BITS - Q64_BITS);
+        let q_tail_q64 = q_tail_q80 >> (Q80_BITS - Q64_BITS);
+        let v_start_q64 = cache.v_start_q80 >> (Q80_BITS - Q64_BITS);
+        let v_tail_q64 = cache.v_tail_q80 >> (Q80_BITS - Q64_BITS);
+        let negative_q_prime_start_q64 = cache.negative_q_prime_start_q80 >> (Q80_BITS - Q64_BITS);
+        require!(
+            q_start_q64 > q_tail_q64 && v_start_q64 < v_tail_q64 && negative_q_prime_start_q64 > 0,
+            ErrorCode::BrokenInvariant
+        );
+        Ok(Self {
+            peak_q64: cache.peak_q80 >> (Q80_BITS - Q64_BITS),
+            scale_q64: cache.scale_q80 >> (Q80_BITS - Q64_BITS),
+            peak_q80: cache.peak_q80,
+            scale_q80: cache.scale_q80,
+            q_start_q48: q_start_q64 >> (Q64_BITS - Q48_BITS),
+            q_tail_q48: q_tail_q64 >> (Q64_BITS - Q48_BITS),
+            q_start_q64,
+            q_tail_q64,
+            q_start_q80,
+            q_tail_q80,
+            v_start_q64,
+            v_tail_q64,
+            v_start_q80: cache.v_start_q80,
+            v_tail_q80: cache.v_tail_q80,
+            v_start_q48: v_start_q64 >> (Q64_BITS - Q48_BITS),
+            v_tail_q48: v_tail_q64 >> (Q64_BITS - Q48_BITS),
+            reserve_ratio_start_q48: cache.reserve_ratio_start_q80 >> (Q80_BITS - Q48_BITS),
+            reserve_ratio_tail_q48: cache.reserve_ratio_tail_q80 >> (Q80_BITS - Q48_BITS),
+            reserve_ratio_start_q80: cache.reserve_ratio_start_q80,
+            reserve_ratio_tail_q80: cache.reserve_ratio_tail_q80,
+            negative_q_prime_start_q64,
+            negative_q_prime_start_q80: cache.negative_q_prime_start_q80,
+            negative_q_prime_start_q48: negative_q_prime_start_q64 >> (Q64_BITS - Q48_BITS),
+        })
     }
-    Ok(())
+
+    pub(super) fn derive(peak_depth_nad: u128, fade_scale_nad: u128) -> Result<Self> {
+        let peak_q80 = mul_div_floor(peak_depth_nad, Q80_ONE, NAD as u128)?;
+        let scale_q80 = mul_div_floor(fade_scale_nad, Q80_ONE, NAD as u128)?;
+        require!(
+            peak_q80 > 0 && scale_q80 > 0 && scale_q80 < Q80_ONE,
+            ErrorCode::InvalidArgument
+        );
+        // The protocol chooses the first join directly at delta=s/4. Solving
+        // the associated inner equation for its reserve-shape coordinate is
+        // deterministic and removes the former 30-step Q80 root search from
+        // every geometry construction.
+        let delta_start_q80 = scale_q80 >> C1_TRANSITION_START_SHIFT;
+        require!(delta_start_q80 > 0, ErrorCode::InvalidArgument);
+        let q_start_q80 = Q80_ONE
+            .checked_sub(delta_start_q80)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        let q_tail_q80 = Q80_ONE.checked_sub(scale_q80).ok_or(ErrorCode::InvariantOverflow)?;
+        require!(q_start_q80 > q_tail_q80, ErrorCode::BrokenInvariant);
+        let weight_base_q80 = div_q80(
+            scale_q80,
+            scale_q80
+                .checked_add(delta_start_q80)
+                .ok_or(ErrorCode::InvariantOverflow)?,
+        )?;
+        let weight_q80 = mul_q80(weight_base_q80, weight_base_q80)?;
+        let coefficient_q80 = mul_q80(
+            peak_q80.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?,
+            mul_q80(q_start_q80, weight_q80)?,
+        )?;
+        require!(coefficient_q80 > 0, ErrorCode::DenominatorOverflow);
+        let h_start_q80 = div_q80(delta_start_q80, coefficient_q80)?;
+        let sqrt_q_start_q80 = sqrt_q80(q_start_q80)?;
+        let cosh_start_q80 = div_q80(
+            Q80_ONE.checked_add(h_start_q80).ok_or(ErrorCode::InvariantOverflow)?,
+            sqrt_q_start_q80,
+        )?;
+        let cosh_start_squared_q80 = mul_q80(cosh_start_q80, cosh_start_q80)?;
+        let v_start_q80 = sqrt_q80(
+            cosh_start_squared_q80
+                .checked_sub(Q80_ONE)
+                .ok_or(ErrorCode::InvariantOverflow)?,
+        )?;
+
+        // Differentiate the inner scalar equation at the first join. The
+        // transition is q(v)=q_tail+(q_start-q_tail)*(1-z)^3, so matching its
+        // initial slope fixes the whole transition length without a third
+        // operator parameter.
+        let inverse_q80 = div_q80(Q80_ONE, q_start_q80)?;
+        let two_over_denominator_q80 = div_q80(
+            Q80_ONE.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?,
+            scale_q80
+                .checked_add(delta_start_q80)
+                .ok_or(ErrorCode::InvariantOverflow)?,
+        )?;
+        let coefficient_derivative_q80 = mul_q80(
+            coefficient_q80,
+            inverse_q80
+                .checked_add(two_over_denominator_q80)
+                .ok_or(ErrorCode::InvariantOverflow)?,
+        )?;
+        let residual_q_q80 = mul_q80(coefficient_derivative_q80, h_start_q80)?
+            .checked_add(div_q80(
+                mul_q80(coefficient_q80, cosh_start_q80)?,
+                sqrt_q_start_q80.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?,
+            )?)
+            .and_then(|value| value.checked_add(Q80_ONE))
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        let residual_v_q80 = div_q80(
+            mul_q80(mul_q80(coefficient_q80, sqrt_q_start_q80)?, v_start_q80)?,
+            cosh_start_q80,
+        )?;
+        let negative_q_prime_start_q80 = div_q80(residual_v_q80, residual_q_q80)?;
+        require!(negative_q_prime_start_q80 > 0, ErrorCode::DenominatorOverflow);
+        let transition_drop_q80 = q_start_q80
+            .checked_sub(q_tail_q80)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        let transition_length_q80 = div_q80(
+            transition_drop_q80.checked_mul(3).ok_or(ErrorCode::InvariantOverflow)?,
+            negative_q_prime_start_q80,
+        )?;
+        require!(transition_length_q80 > 0, ErrorCode::DenominatorOverflow);
+        let v_tail_q80 = v_start_q80
+            .checked_add(transition_length_q80)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        let start_ratio_factor_q80 = cosh_start_q80
+            .checked_sub(v_start_q80)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        let reserve_ratio_start_q80 = mul_q80(start_ratio_factor_q80, start_ratio_factor_q80)?;
+        let cosh_tail_q80 = sqrt_q80(
+            Q80_ONE
+                .checked_add(mul_q80(v_tail_q80, v_tail_q80)?)
+                .ok_or(ErrorCode::InvariantOverflow)?,
+        )?;
+        let tail_ratio_factor_q80 = cosh_tail_q80
+            .checked_sub(v_tail_q80)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        let reserve_ratio_tail_q80 = mul_q80(tail_ratio_factor_q80, tail_ratio_factor_q80)?;
+        require!(
+            reserve_ratio_start_q80 > reserve_ratio_tail_q80,
+            ErrorCode::BrokenInvariant
+        );
+        // The variable-reserve scalar is globally one-to-one if
+        // r(v)=(-q'(v)*cosh(v))/(2q(v))<1. Across the cubic transition,
+        // -q'(v)<=m_start, q(v)>=q_tail, and
+        // cosh(v)<=1+v<=1+v_tail.  Check the resulting sufficient bound with
+        // an exact ratio comparison so fixed-point rounding at the join
+        // cannot invalidate the continuous proof.
+        let twice_q_tail_minus_one = q_tail_q80
+            .checked_mul(2)
+            .and_then(|value| value.checked_sub(1))
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        require!(
+            ratio_lte_full_width(
+                negative_q_prime_start_q80,
+                Q80_ONE,
+                twice_q_tail_minus_one,
+                Q80_ONE.checked_add(v_tail_q80).ok_or(ErrorCode::InvariantOverflow)?,
+            )?,
+            ErrorCode::BrokenInvariant
+        );
+        let q_start_q64 = q_start_q80 >> (Q80_BITS - Q64_BITS);
+        let q_tail_q64 = q_tail_q80 >> (Q80_BITS - Q64_BITS);
+        let v_start_q64 = v_start_q80 >> (Q80_BITS - Q64_BITS);
+        let v_tail_q64 = v_tail_q80 >> (Q80_BITS - Q64_BITS);
+        let negative_q_prime_start_q64 = negative_q_prime_start_q80 >> (Q80_BITS - Q64_BITS);
+        let q_start_q48 = q_start_q64 >> (Q64_BITS - Q48_BITS);
+        let q_tail_q48 = q_tail_q64 >> (Q64_BITS - Q48_BITS);
+        let v_start_q48 = v_start_q64 >> (Q64_BITS - Q48_BITS);
+        let v_tail_q48 = v_tail_q64 >> (Q64_BITS - Q48_BITS);
+        let negative_q_prime_start_q48 = negative_q_prime_start_q64 >> (Q64_BITS - Q48_BITS);
+        Ok(Self {
+            peak_q64: peak_q80 >> (Q80_BITS - Q64_BITS),
+            scale_q64: scale_q80 >> (Q80_BITS - Q64_BITS),
+            peak_q80,
+            scale_q80,
+            q_start_q48,
+            q_tail_q48,
+            q_start_q64,
+            q_tail_q64,
+            q_start_q80,
+            q_tail_q80,
+            v_start_q64,
+            v_tail_q64,
+            v_start_q80,
+            v_tail_q80,
+            v_start_q48,
+            v_tail_q48,
+            reserve_ratio_start_q48: reserve_ratio_start_q80 >> (Q80_BITS - Q48_BITS),
+            reserve_ratio_tail_q48: reserve_ratio_tail_q80 >> (Q80_BITS - Q48_BITS),
+            reserve_ratio_start_q80,
+            reserve_ratio_tail_q80,
+            negative_q_prime_start_q64,
+            negative_q_prime_start_q80,
+            negative_q_prime_start_q48,
+        })
+    }
+
+    pub(super) fn branch(self, x: u128, y: u128) -> Result<ConcentratedHybridBranch> {
+        self.branch_from_ratio_q64(x, y, low_high_ratio_q64(x, y)?)
+    }
+
+    fn branch_from_ratio_q64(self, x: u128, y: u128, ratio_q64: u128) -> Result<ConcentratedHybridBranch> {
+        let base_is_scarce = x < y;
+        let ratio_tail_q64 = self.reserve_ratio_tail_q80 >> (Q80_BITS - Q64_BITS);
+        let ratio_start_q64 = self.reserve_ratio_start_q80 >> (Q80_BITS - Q64_BITS);
+        let tail_side = ratio_q64 < ratio_tail_q64
+            || (ratio_q64 == ratio_tail_q64
+                && ratio_lte_full_width(x.min(y), x.max(y), self.reserve_ratio_tail_q80, Q80_ONE)?);
+        if tail_side {
+            return Ok(if base_is_scarce {
+                ConcentratedHybridBranch::BaseScarceTail
+            } else {
+                ConcentratedHybridBranch::QuoteScarceTail
+            });
+        }
+        let transition_side = ratio_q64 < ratio_start_q64
+            || (ratio_q64 == ratio_start_q64
+                && ratio_lte_full_width(x.min(y), x.max(y), self.reserve_ratio_start_q80, Q80_ONE)?);
+        Ok(if transition_side {
+            if base_is_scarce {
+                ConcentratedHybridBranch::BaseScarceTransition
+            } else {
+                ConcentratedHybridBranch::QuoteScarceTransition
+            }
+        } else {
+            ConcentratedHybridBranch::Inner
+        })
+    }
+
+    pub(super) fn transition_q_and_slope_at_v(self, v_q48: u128) -> Result<(u128, u128)> {
+        if v_q48 <= self.v_start_q48 {
+            return Ok((self.q_start_q48, self.negative_q_prime_start_q48));
+        }
+        if v_q48 >= self.v_tail_q48 {
+            return Ok((self.q_tail_q48, 0));
+        }
+        let (q_q64, slope_q64) = self.transition_q_and_slope_at_v_q64(
+            v_q48
+                .checked_shl(Q64_BITS - Q48_BITS)
+                .ok_or(ErrorCode::InvariantOverflow)?,
+        )?;
+        Ok((q_q64 >> (Q64_BITS - Q48_BITS), slope_q64 >> (Q64_BITS - Q48_BITS)))
+    }
+
+    fn transition_q_and_slope_at_v_q64(self, v_q64: u128) -> Result<(u128, u128)> {
+        require!(
+            v_q64 >= self.v_start_q64 && v_q64 <= self.v_tail_q64,
+            ErrorCode::BrokenInvariant
+        );
+        let z = mul_div_floor(
+            v_q64
+                .checked_sub(self.v_start_q64)
+                .ok_or(ErrorCode::InvariantOverflow)?,
+            Q64_ONE,
+            self.v_tail_q64
+                .checked_sub(self.v_start_q64)
+                .ok_or(ErrorCode::InvariantOverflow)?,
+        )?
+        .min(Q64_ONE);
+        let one_minus_z = Q64_ONE - z;
+        let one_minus_z_squared = mul_q64(one_minus_z, one_minus_z)?;
+        let one_minus_z_cubed = mul_q64(one_minus_z_squared, one_minus_z)?;
+        let transition_drop = self
+            .q_start_q64
+            .checked_sub(self.q_tail_q64)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        Ok((
+            self.q_tail_q64
+                .checked_add(mul_q64(transition_drop, one_minus_z_cubed)?)
+                .ok_or(ErrorCode::InvariantOverflow)?,
+            mul_q64(self.negative_q_prime_start_q64, one_minus_z_squared)?,
+        ))
+    }
+
+    #[cfg(test)]
+    fn transition_q_and_slope_at_v_q80(self, v_q80: u128) -> Result<(u128, u128)> {
+        require!(
+            v_q80 >= self.v_start_q80 && v_q80 <= self.v_tail_q80,
+            ErrorCode::BrokenInvariant
+        );
+        let z = mul_div_floor(
+            v_q80
+                .checked_sub(self.v_start_q80)
+                .ok_or(ErrorCode::InvariantOverflow)?,
+            Q80_ONE,
+            self.v_tail_q80
+                .checked_sub(self.v_start_q80)
+                .ok_or(ErrorCode::InvariantOverflow)?,
+        )?
+        .min(Q80_ONE);
+        let one_minus_z = Q80_ONE - z;
+        let one_minus_z_squared = mul_q80(one_minus_z, one_minus_z)?;
+        let one_minus_z_cubed = mul_q80(one_minus_z_squared, one_minus_z)?;
+        let transition_drop = self
+            .q_start_q80
+            .checked_sub(self.q_tail_q80)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        Ok((
+            self.q_tail_q80
+                .checked_add(mul_q80(transition_drop, one_minus_z_cubed)?)
+                .ok_or(ErrorCode::InvariantOverflow)?,
+            mul_q80(self.negative_q_prime_start_q80, one_minus_z_squared)?,
+        ))
+    }
 }
 
-/// Selects the protocol-fixed hybrid branch without solving for `D`.
-///
-/// At the shoulder `delta = imbalance_scale`, the inner invariant implies
-/// ```text
-/// q_s = 1 - s
-/// (x+y)/D = 1 + 2*s/(peak_depth*q_s).
-/// ```
-/// Eliminating `D` yields the homogeneous cross-product below. Equality is
-/// deliberately classified as `Inner`; directional marginal evaluation uses
-/// the appropriate one-sided derivative at that equality point.
-fn concentrated_hybrid_shoulder_relation(
-    x: u128,
-    y: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<Ordering> {
-    validate_positive_reserves(x, y)?;
-    if peak_depth_nad == 0 {
-        return Ok(Ordering::Greater);
+impl ConcentratedGeometryCache {
+    pub(crate) fn derive(peak_depth_nad: u128, fade_scale_nad: u128) -> Result<Self> {
+        validate_parameters(NAD as u128, peak_depth_nad, fade_scale_nad)?;
+        require!(peak_depth_nad > 0, ErrorCode::InvalidArgument);
+        let geometry = ConcentratedC1Geometry::derive(peak_depth_nad, fade_scale_nad)?;
+        Ok(Self {
+            math_revision: CONCENTRATED_MATH_REVISION,
+            peak_depth_nad: u64::try_from(peak_depth_nad).map_err(|_| ErrorCode::InvalidArgument)?,
+            fade_scale_nad: u64::try_from(fade_scale_nad).map_err(|_| ErrorCode::InvalidArgument)?,
+            peak_q80: geometry.peak_q80,
+            scale_q80: geometry.scale_q80,
+            v_start_q80: geometry.v_start_q80,
+            v_tail_q80: geometry.v_tail_q80,
+            reserve_ratio_start_q80: geometry.reserve_ratio_start_q80,
+            reserve_ratio_tail_q80: geometry.reserve_ratio_tail_q80,
+            negative_q_prime_start_q80: geometry.negative_q_prime_start_q80,
+        })
     }
-    validate_common_reserves(x, y)?;
-    require!(
-        imbalance_scale_nad > 0 && imbalance_scale_nad < NAD as u128,
-        ErrorCode::InvalidArgument
-    );
 
-    let one_minus_scale = (NAD as u128)
-        .checked_sub(imbalance_scale_nad)
-        .ok_or(ErrorCode::InvariantOverflow)?;
-    let a = checked_mul_512(U512::from(peak_depth_nad), U512::from(one_minus_scale))?;
-    let twice_scale = checked_mul_512(
-        U512::from(2_u8),
-        checked_mul_512(U512::from(imbalance_scale_nad), U512::from(NAD))?,
-    )?;
-    let c = checked_add_512(a, twice_scale)?;
-    let sum = x.checked_add(y).ok_or(ErrorCode::InvariantOverflow)?;
-
-    // central iff 4xy/(x+y)^2 >= q_s/t_s^2.
-    let left = checked_mul_512(
-        checked_mul_512(
-            checked_mul_512(U512::from(4_u8), checked_mul_512(U512::from(x), U512::from(y))?)?,
-            U512::from(NAD),
-        )?,
-        checked_mul_512(c, c)?,
-    )?;
-    let right = checked_mul_512(
-        checked_mul_512(U512::from(sum), U512::from(sum))?,
-        checked_mul_512(U512::from(one_minus_scale), checked_mul_512(a, a)?)?,
-    )?;
-    Ok(left.cmp(&right))
-}
-
-/// Returns the reserve-ratio branch; exact shoulder equality is `Inner`.
-pub(crate) fn concentrated_hybrid_branch_from_common(
-    x: u128,
-    y: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<ConcentratedHybridBranch> {
-    if concentrated_hybrid_shoulder_relation(x, y, peak_depth_nad, imbalance_scale_nad)? != Ordering::Less {
-        Ok(ConcentratedHybridBranch::Inner)
-    } else if x < y {
-        Ok(ConcentratedHybridBranch::BaseScarceTail)
-    } else {
-        Ok(ConcentratedHybridBranch::QuoteScarceTail)
+    pub(crate) fn matches(self, peak_depth_nad: u128, fade_scale_nad: u128) -> bool {
+        self.math_revision == CONCENTRATED_MATH_REVISION
+            && u128::from(self.peak_depth_nad) == peak_depth_nad
+            && u128::from(self.fade_scale_nad) == fade_scale_nad
     }
 }
 
-fn hybrid_residual_terms(
-    x: u128,
-    y: u128,
-    d: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<(U512, U512)> {
-    match concentrated_hybrid_branch_from_common(x, y, peak_depth_nad, imbalance_scale_nad)? {
-        ConcentratedHybridBranch::Inner => residual_terms(x, y, d, peak_depth_nad, imbalance_scale_nad),
-        ConcentratedHybridBranch::BaseScarceTail | ConcentratedHybridBranch::QuoteScarceTail => {
-            let positive = checked_mul_512(
-                checked_mul_512(U512::from(4_u8), checked_mul_512(U512::from(x), U512::from(y))?)?,
-                U512::from(NAD),
+impl ConcentratedResidualContext {
+    fn derive(geometry: ConcentratedC1Geometry, x: u128, y: u128) -> Result<Self> {
+        let ratio_q64 = low_high_ratio_q64(x, y)?;
+        let branch = geometry.branch_from_ratio_q64(x, y, ratio_q64)?;
+        if branch.is_exact_tail() {
+            return Ok(Self {
+                branch,
+                target_q64: geometry.q_tail_q64,
+                transition_cosh_q64: 0,
+                transition_negative_q_prime_q64: 0,
+            });
+        }
+        if branch != ConcentratedHybridBranch::Inner {
+            // Only transition probes need the radial coordinate. Inner and
+            // exact CPMM-tail classification is a single low/high ratio
+            // comparison. The cached Q80 geometry is projected to Q64 once;
+            // ordinary probes never execute a Q80 square root.
+            require!(ratio_q64 > 0 && ratio_q64 <= Q64_ONE, ErrorCode::InvalidArgument);
+            let sqrt_ratio_q64 = sqrt_q64(ratio_q64)?;
+            let denominator = sqrt_ratio_q64.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?;
+            let v_q64 = div_q64(Q64_ONE - ratio_q64, denominator)?;
+            let cosh_q64 = div_q64(
+                Q64_ONE.checked_add(ratio_q64).ok_or(ErrorCode::InvariantOverflow)?,
+                denominator,
             )?;
-            let negative = checked_mul_512(
-                checked_mul_512(U512::from(d), U512::from(d))?,
-                U512::from(
-                    (NAD as u128)
-                        .checked_sub(imbalance_scale_nad)
-                        .ok_or(ErrorCode::InvariantOverflow)?,
-                ),
-            )?;
-            Ok((positive, negative))
+            let v_q64 = v_q64.clamp(geometry.v_start_q64, geometry.v_tail_q64);
+            let (target_q64, transition_negative_q_prime_q64) = geometry.transition_q_and_slope_at_v_q64(v_q64)?;
+            Ok(Self {
+                branch,
+                target_q64,
+                transition_cosh_q64: cosh_q64,
+                transition_negative_q_prime_q64,
+            })
+        } else {
+            Ok(Self {
+                branch: ConcentratedHybridBranch::Inner,
+                target_q64: Q64_ONE,
+                transition_cosh_q64: 0,
+                transition_negative_q_prime_q64: 0,
+            })
         }
     }
 }
 
-fn hybrid_residual_sign(
+pub(crate) fn concentrated_hybrid_branch_from_common(
     x: u128,
     y: u128,
-    d: u128,
     peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<ResidualSign> {
-    let (positive, negative) = hybrid_residual_terms(x, y, d, peak_depth_nad, imbalance_scale_nad)?;
-    Ok(if positive >= negative {
-        ResidualSign::NonNegative
-    } else {
-        ResidualSign::Negative
-    })
-}
-
-fn base_to_common(base_amount_nad: u128, center_price_nad: u128) -> Result<u128> {
-    mul_div_u128(base_amount_nad, center_price_nad, NAD as u128)
-}
-
-fn common_to_base_floor(common_amount_nad: u128, center_price_nad: u128) -> Result<u128> {
-    mul_div_u128(common_amount_nad, NAD as u128, center_price_nad)
-}
-
-fn mul_div_u128_ceil(a: u128, b: u128, denominator: u128) -> Result<u128> {
-    require!(denominator > 0, ErrorCode::DenominatorOverflow);
-    let numerator = U256::from(a)
-        .checked_mul(U256::from(b))
-        .ok_or(ErrorCode::InvariantOverflow)?;
-    let denominator = U256::from(denominator);
-    let value = if numerator.is_zero() {
-        U256::zero()
-    } else {
-        (numerator - U256::one()) / denominator + U256::one()
-    };
-    u256_to_u128(value)
-}
-
-fn common_to_base_ceil(common_amount_nad: u128, center_price_nad: u128) -> Result<u128> {
-    mul_div_u128_ceil(common_amount_nad, NAD as u128, center_price_nad)
-}
-
-fn base_to_common_ceil(base_amount_nad: u128, center_price_nad: u128) -> Result<u128> {
-    mul_div_u128_ceil(base_amount_nad, center_price_nad, NAD as u128)
-}
-
-fn normalize_reserves_unbounded(
-    base_reserve_nad: u128,
-    quote_reserve_nad: u128,
-    center_price_nad: u128,
-) -> Result<(u128, u128)> {
-    let base_common = base_to_common(base_reserve_nad, center_price_nad)?;
-    validate_positive_reserves(base_common, quote_reserve_nad)?;
-    Ok((base_common, quote_reserve_nad))
-}
-
-fn normalize_reserves(base_reserve_nad: u128, quote_reserve_nad: u128, center_price_nad: u128) -> Result<(u128, u128)> {
-    let (base_common, quote_common) =
-        normalize_reserves_unbounded(base_reserve_nad, quote_reserve_nad, center_price_nad)?;
-    validate_common_reserves(base_common, quote_common)?;
-    Ok((base_common, quote_common))
-}
-
-fn normalize_reserves_for_curve(
-    base_reserve_nad: u128,
-    quote_reserve_nad: u128,
-    center_price_nad: u128,
-    peak_depth_nad: u128,
-) -> Result<(u128, u128)> {
+    fade_scale_nad: u128,
+) -> Result<ConcentratedHybridBranch> {
     if peak_depth_nad == 0 {
-        return normalize_reserves_unbounded(base_reserve_nad, quote_reserve_nad, center_price_nad);
+        validate_common_reserves(x, y)?;
+        return Ok(ConcentratedHybridBranch::Inner);
     }
-    normalize_reserves(base_reserve_nad, quote_reserve_nad, center_price_nad)
+    ConcentratedC1Geometry::derive(peak_depth_nad, fade_scale_nad)?.branch(x, y)
 }
 
-/// Classifies raw NAD-normalized asset reserves against the protocol-fixed
-/// hybrid shoulder at `center_price_nad`.
-///
-/// This is the canonical branch check for controller and risk code. Keeping
-/// normalization here prevents those callers from reproducing center-price
-/// rounding differently from executable quotes.
 pub(crate) fn concentrated_hybrid_branch(
     base_reserve_nad: u128,
     quote_reserve_nad: u128,
     center_price_nad: u128,
     peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
+    fade_scale_nad: u128,
 ) -> Result<ConcentratedHybridBranch> {
-    let (base_common, quote_common) =
-        normalize_reserves_for_curve(base_reserve_nad, quote_reserve_nad, center_price_nad, peak_depth_nad)?;
-    concentrated_hybrid_branch_from_common(base_common, quote_common, peak_depth_nad, imbalance_scale_nad)
+    validate_parameters(center_price_nad, peak_depth_nad, fade_scale_nad)?;
+    let (base_common, quote_common) = normalize_reserves(base_reserve_nad, quote_reserve_nad, center_price_nad)?;
+    concentrated_hybrid_branch_from_common(base_common, quote_common, peak_depth_nad, fade_scale_nad)
 }
 
-fn exact_cpmm_tail_in_raw(
+pub(crate) fn concentrated_hybrid_branch_cached(
+    base_reserve_nad: u128,
+    quote_reserve_nad: u128,
+    center_price_nad: u128,
+    peak_depth_nad: u128,
+    fade_scale_nad: u128,
+    geometry_cache: ConcentratedGeometryCache,
+) -> Result<ConcentratedHybridBranch> {
+    validate_parameters(center_price_nad, peak_depth_nad, fade_scale_nad)?;
+    require!(peak_depth_nad > 0, ErrorCode::InvalidArgument);
+    let geometry = ConcentratedC1Geometry::from_cache(geometry_cache, peak_depth_nad, fade_scale_nad)?;
+    let (base_common, quote_common) = normalize_reserves(base_reserve_nad, quote_reserve_nad, center_price_nad)?;
+    geometry.branch(base_common, quote_common)
+}
+
+fn hybrid_residual_q80(
+    x: u128,
+    y: u128,
+    d: u128,
+    geometry: ConcentratedC1Geometry,
+    context: ConcentratedResidualContext,
+) -> Result<(bool, u128)> {
+    #[cfg(test)]
+    Q80_FALLBACK_EVALUATIONS.with(|count| count.set(count.get() + 1));
+
+    let q = balance_factor_fixed(x, y, d, Q80_ONE)?;
+    let result = if context.branch == ConcentratedHybridBranch::Inner {
+        let delta = Q80_ONE.saturating_sub(q.min(Q80_ONE));
+        let weight_base = div_q80(
+            geometry.scale_q80,
+            geometry
+                .scale_q80
+                .checked_add(delta)
+                .ok_or(ErrorCode::InvariantOverflow)?,
+        )?;
+        let weight = mul_q80(weight_base, weight_base)?;
+        let coefficient = mul_q80(
+            geometry.peak_q80.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?,
+            mul_q80(q, weight)?,
+        )?;
+        let sum = x.checked_add(y).ok_or(ErrorCode::InvariantOverflow)?;
+        let concentration = mul_div_floor(coefficient, sum.abs_diff(d), d)?;
+        let q_positive = q >= Q80_ONE;
+        let q_magnitude = q.abs_diff(Q80_ONE);
+        let concentration_positive = sum >= d;
+        if concentration_positive == q_positive {
+            (
+                concentration_positive,
+                concentration
+                    .checked_add(q_magnitude)
+                    .ok_or(ErrorCode::InvariantOverflow)?,
+            )
+        } else if concentration >= q_magnitude {
+            (concentration_positive, concentration - q_magnitude)
+        } else {
+            (q_positive, q_magnitude - concentration)
+        }
+    } else {
+        let target_q80 = if context.branch.is_exact_tail() {
+            geometry.q_tail_q80
+        } else {
+            // The high-precision radial coordinate exists only in the
+            // ambiguity fallback. Dividing by the larger reserve first gives
+            // v=(1-r)/(2*sqrt(r)), r=min/max, without an ill-conditioned
+            // subtraction from unity.
+            validate_bounded_common_reserves(x, y)?;
+            let ratio_q80 = mul_div_floor(x.min(y), Q80_ONE, x.max(y))?;
+            let sqrt_ratio_q80 = sqrt_q80(ratio_q80)?;
+            let denominator = sqrt_ratio_q80.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?;
+            let v_q80 = div_q80(Q80_ONE - ratio_q80, denominator)?.clamp(geometry.v_start_q80, geometry.v_tail_q80);
+            let z_q80 = mul_div_floor(
+                v_q80
+                    .checked_sub(geometry.v_start_q80)
+                    .ok_or(ErrorCode::InvariantOverflow)?,
+                Q80_ONE,
+                geometry
+                    .v_tail_q80
+                    .checked_sub(geometry.v_start_q80)
+                    .ok_or(ErrorCode::InvariantOverflow)?,
+            )?
+            .min(Q80_ONE);
+            let one_minus_z_q80 = Q80_ONE - z_q80;
+            let one_minus_z_squared_q80 = mul_q80(one_minus_z_q80, one_minus_z_q80)?;
+            let one_minus_z_cubed_q80 = mul_q80(one_minus_z_squared_q80, one_minus_z_q80)?;
+            geometry
+                .q_tail_q80
+                .checked_add(mul_q80(
+                    geometry
+                        .q_start_q80
+                        .checked_sub(geometry.q_tail_q80)
+                        .ok_or(ErrorCode::InvariantOverflow)?,
+                    one_minus_z_cubed_q80,
+                )?)
+                .ok_or(ErrorCode::InvariantOverflow)?
+        };
+        if q >= target_q80 {
+            (true, q - target_q80)
+        } else {
+            (false, target_q80 - q)
+        }
+    };
+    let magnitude_q64 = if result.1 == 0 {
+        0
+    } else {
+        result
+            .1
+            .checked_add((1_u128 << (Q80_BITS - Q64_BITS)) - 1)
+            .ok_or(ErrorCode::InvariantOverflow)?
+            >> (Q80_BITS - Q64_BITS)
+    };
+    Ok((result.0, magnitude_q64))
+}
+
+fn hybrid_residual(x: u128, y: u128, d: u128, geometry: Option<ConcentratedC1Geometry>) -> Result<(bool, u128)> {
+    let context = geometry
+        .map(|geometry| ConcentratedResidualContext::derive(geometry, x, y))
+        .transpose()?;
+    hybrid_residual_with_context(x, y, d, geometry, context)
+}
+
+fn hybrid_residual_with_context(
+    x: u128,
+    y: u128,
+    d: u128,
+    geometry: Option<ConcentratedC1Geometry>,
+    context: Option<ConcentratedResidualContext>,
+) -> Result<(bool, u128)> {
+    let evaluation = hybrid_residual_evaluation_with_context(x, y, d, geometry, context)?;
+    Ok((evaluation.positive, evaluation.magnitude))
+}
+
+fn hybrid_residual_evaluation_with_context(
+    x: u128,
+    y: u128,
+    d: u128,
+    geometry: Option<ConcentratedC1Geometry>,
+    context: Option<ConcentratedResidualContext>,
+) -> Result<ConcentratedResidualEvaluation> {
+    #[cfg(test)]
+    RESIDUAL_EVALUATIONS.with(|count| count.set(count.get() + 1));
+
+    validate_common_reserves(x, y)?;
+    require!(d > 0, ErrorCode::InvalidArgument);
+    if geometry.is_none() {
+        let q = balance_factor_q48(x, y, d)?;
+        return Ok(if q >= Q48_ONE {
+            ConcentratedResidualEvaluation {
+                positive: true,
+                magnitude: q - Q48_ONE,
+                q64: q << (Q64_BITS - Q48_BITS),
+            }
+        } else {
+            ConcentratedResidualEvaluation {
+                positive: false,
+                magnitude: Q48_ONE - q,
+                q64: q << (Q64_BITS - Q48_BITS),
+            }
+        });
+    }
+    let context = context.ok_or(ErrorCode::BrokenInvariant)?;
+    let q = balance_factor_q64(x, y, d)?;
+    if context.branch != ConcentratedHybridBranch::Inner {
+        let coarse = if q >= context.target_q64 {
+            (true, q - context.target_q64)
+        } else {
+            (false, context.target_q64 - q)
+        };
+        let (positive, magnitude) = if coarse.1 <= Q64_RESIDUAL_AMBIGUITY_ULPS {
+            hybrid_residual_q80(x, y, d, geometry.ok_or(ErrorCode::BrokenInvariant)?, context)?
+        } else {
+            coarse
+        };
+        return Ok(ConcentratedResidualEvaluation {
+            positive,
+            magnitude,
+            q64: q,
+        });
+    }
+    let geometry = geometry.ok_or(ErrorCode::BrokenInvariant)?;
+    let (peak, scale) = (geometry.peak_q64, geometry.scale_q64);
+    let (delta, q_positive, q_magnitude) = if q >= Q64_ONE {
+        (0, true, q - Q64_ONE)
+    } else {
+        (Q64_ONE - q, false, Q64_ONE - q)
+    };
+    let weight_base = div_q64(scale, scale.checked_add(delta).ok_or(ErrorCode::InvariantOverflow)?)?;
+    let weight = mul_q64(weight_base, weight_base)?;
+    let concentration_coefficient = mul_q64(
+        peak.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?,
+        mul_q64(q, weight)?,
+    )?;
+    // Retain the raw numerator/remainder of h=(x+y-D)/D through the last
+    // multiplication. Materializing h first has a two-reserve-atom quantum
+    // when D approaches 2*u64::MAX.
+    let sum = x.checked_add(y).ok_or(ErrorCode::InvariantOverflow)?;
+    let concentration = mul_div_floor(concentration_coefficient, sum.abs_diff(d), d)?;
+    let first_positive = sum >= d;
+    let coarse = if first_positive == q_positive {
+        (
+            first_positive,
+            concentration
+                .checked_add(q_magnitude)
+                .ok_or(ErrorCode::InvariantOverflow)?,
+        )
+    } else if concentration >= q_magnitude {
+        (first_positive, concentration - q_magnitude)
+    } else {
+        (q_positive, q_magnitude - concentration)
+    };
+    let (positive, magnitude) = if coarse.1 <= Q64_RESIDUAL_AMBIGUITY_ULPS {
+        hybrid_residual_q80(x, y, d, geometry, context)?
+    } else {
+        coarse
+    };
+    Ok(ConcentratedResidualEvaluation {
+        positive,
+        magnitude,
+        q64: q,
+    })
+}
+
+/// Exact negative-side residual magnitude at the structural upper endpoint
+/// `D = x + y`. Here `h = 0`, so the concentration term vanishes and only the
+/// applicable fixed-point balance threshold remains. Keeping this closed form avoids
+/// a full hybrid residual evaluation while preserving the solver bracket.
+fn invariant_sum_endpoint_magnitude(
+    x: u128,
+    y: u128,
+    d: u128,
+    peak_depth_nad: u128,
+    context: Option<ConcentratedResidualContext>,
+) -> Result<u128> {
+    require_eq!(
+        d,
+        x.checked_add(y).ok_or(ErrorCode::InvariantOverflow)?,
+        ErrorCode::BrokenInvariant
+    );
+    let (q, threshold) = if peak_depth_nad == 0 {
+        (balance_factor_q48(x, y, d)?, Q48_ONE)
+    } else {
+        let context = context.ok_or(ErrorCode::BrokenInvariant)?;
+        (balance_factor_q64(x, y, d)?, context.target_q64)
+    };
+    require_gte!(threshold, q, ErrorCode::InvariantOverflow);
+    Ok(threshold - q)
+}
+
+fn transition_newton_probe(
+    fixed: u128,
+    variable: u128,
+    evaluation: ConcentratedResidualEvaluation,
+    context: Option<ConcentratedResidualContext>,
+) -> Result<Option<u128>> {
+    let Some(context) =
+        context.filter(|context| context.branch != ConcentratedHybridBranch::Inner && !context.branch.is_exact_tail())
+    else {
+        return Ok(None);
+    };
+    // In the transition, R(y)=4xy/D^2-q(v(y)). Its exact continuous
+    // derivative satisfies
+    //
+    //   y R'(y) = q - m*cosh(v)/2,  y < x
+    //             q + m*cosh(v)/2,  y > x,
+    //
+    // where m=-dq/dv. This is only an accelerator: the caller's sign bracket
+    // and final adjacent-atom condition remain authoritative under rounding.
+    let half_slope_cosh = mul_q64(context.transition_negative_q_prime_q64, context.transition_cosh_q64)? / 2;
+    let derivative_times_variable = if variable < fixed {
+        evaluation.q64.checked_sub(half_slope_cosh)
+    } else {
+        evaluation.q64.checked_add(half_slope_cosh)
+    };
+    let Some(derivative_times_variable) = derivative_times_variable.filter(|value| *value > 0) else {
+        return Ok(None);
+    };
+    let step = mul_div_ceil_u128(evaluation.magnitude, variable, derivative_times_variable)
+        .map_err(|_| ErrorCode::InvariantOverflow)?
+        .max(1);
+    Ok(if evaluation.positive {
+        variable.checked_sub(step)
+    } else {
+        variable.checked_add(step)
+    })
+}
+
+fn geometric_mean_floor(x: u128, y: u128) -> Result<u128> {
+    let root = if let Some(product) = x.checked_mul(y) {
+        // A leading-bit seed reaches the exact floor root in logarithmically
+        // fewer u128 divisions than starting Babylonian iteration at y/2.
+        isqrt(product)
+    } else {
+        // Retain the top 63-64 bits of both factors. Their product fits u128,
+        // and choosing an even total shift makes the square-root rescaling
+        // exact. One full-width Newton step then recovers all discarded bits.
+        let x_bits = u128::BITS - x.leading_zeros();
+        let y_bits = u128::BITS - y.leading_zeros();
+        let mut x_shift = x_bits.saturating_sub(64);
+        let mut y_shift = y_bits.saturating_sub(64);
+        if (x_shift + y_shift) & 1 == 1 {
+            if x_shift > 0 {
+                x_shift += 1;
+            } else {
+                y_shift += 1;
+            }
+        }
+        let mantissa_product = (x >> x_shift)
+            .checked_mul(y >> y_shift)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        let seed = isqrt(mantissa_product)
+            .checked_shl((x_shift + y_shift) / 2)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        require!(seed > 0, ErrorCode::InvariantOverflow);
+        let reciprocal = mul_div_u128(x, y, seed).map_err(|_| ErrorCode::InvariantOverflow)?;
+        require_gte!(reciprocal, seed, ErrorCode::InvariantOverflow);
+        let mut candidate = seed
+            .checked_add((reciprocal - seed) / 2)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+
+        // At the configured raw-reserve/decimal bounds the Newton candidate is
+        // adjacent to the exact root. The fixed correction bound fails closed
+        // if those normalization bounds are ever widened.
+        for _ in 0..32 {
+            if !ratio_lte_full_width(candidate, x, y, candidate)? {
+                candidate = candidate.checked_sub(1).ok_or(ErrorCode::InvariantOverflow)?;
+                continue;
+            }
+            let successor = candidate.checked_add(1).ok_or(ErrorCode::InvariantOverflow)?;
+            if ratio_lte_full_width(successor, x, y, successor)? {
+                candidate = successor;
+                continue;
+            }
+            return Ok(candidate);
+        }
+        return err!(ErrorCode::InvariantOverflow);
+    };
+    Ok(root)
+}
+
+#[cfg(test)]
+fn geometric_lower_d(x: u128, y: u128) -> Result<u128> {
+    geometric_mean_floor(x, y)?
+        .checked_mul(2)
+        .ok_or_else(|| ErrorCode::InvariantOverflow.into())
+}
+
+fn prepare_curve_internal(
+    base_reserve_nad: u128,
+    quote_reserve_nad: u128,
+    center_price_nad: u128,
+    peak_depth_nad: u128,
+    fade_scale_nad: u128,
+    geometry_cache: Option<ConcentratedGeometryCache>,
+    invariant_seed: Option<ConcentratedInvariantSeed>,
+) -> Result<ConcentratedPreparedCurve> {
+    validate_parameters(center_price_nad, peak_depth_nad, fade_scale_nad)?;
+    let common_numeraire = ConcentratedCommonNumeraire::for_center(center_price_nad)?;
+    let (base_common, quote_common) = if peak_depth_nad > 0 {
+        normalize_reserves(base_reserve_nad, quote_reserve_nad, center_price_nad)?
+    } else {
+        // Legacy CPMM quotes do not use concentrated residual arithmetic and
+        // therefore retain their wider normalized-reserve domain.
+        let base_common = common_numeraire
+            .base_scale(center_price_nad)?
+            .to_common_floor(base_reserve_nad)?;
+        let quote_common = common_numeraire
+            .quote_scale(center_price_nad)?
+            .to_common_floor(quote_reserve_nad)?;
+        validate_common_reserves(base_common, quote_common)?;
+        (base_common, quote_common)
+    };
+    let geometry = if peak_depth_nad == 0 {
+        require!(geometry_cache.is_none(), ErrorCode::InvalidArgument);
+        None
+    } else {
+        Some(if let Some(cache) = geometry_cache {
+            ConcentratedC1Geometry::from_cache(cache, peak_depth_nad, fade_scale_nad)?
+        } else {
+            ConcentratedC1Geometry::derive(peak_depth_nad, fade_scale_nad)?
+        })
+    };
+    let residual_context = geometry
+        .map(|geometry| ConcentratedResidualContext::derive(geometry, base_common, quote_common))
+        .transpose()?;
+    let invariant_d = match invariant_seed {
+        #[cfg(test)]
+        Some(ConcentratedInvariantSeed::Exact(invariant_d)) => {
+            require!(invariant_d > 0, ErrorCode::BrokenInvariant);
+            if peak_depth_nad == 0 {
+                require_eq!(
+                    invariant_d,
+                    geometric_lower_d(base_common, quote_common)?,
+                    ErrorCode::BrokenInvariant
+                );
+            } else {
+                let (canonical_sign, canonical_magnitude) =
+                    hybrid_residual_with_context(base_common, quote_common, invariant_d, geometry, residual_context)?;
+                let adjacent = invariant_d.checked_sub(1).ok_or(ErrorCode::BrokenInvariant)?;
+                require!(
+                    hybrid_residual_with_context(base_common, quote_common, adjacent, geometry, residual_context,)?.0,
+                    ErrorCode::BrokenInvariant
+                );
+                if canonical_sign {
+                    require_eq!(canonical_magnitude, 0, ErrorCode::BrokenInvariant);
+                    require_eq!(
+                        invariant_d,
+                        geometric_lower_d(base_common, quote_common)?,
+                        ErrorCode::BrokenInvariant
+                    );
+                } else {
+                    require!(canonical_magnitude > 0, ErrorCode::BrokenInvariant);
+                }
+            }
+            invariant_d
+        }
+        seed => {
+            let hint = match seed {
+                Some(ConcentratedInvariantSeed::Hint(value)) => Some(value),
+                _ => None,
+            };
+            let branch = residual_context
+                .map(|context| context.branch)
+                .unwrap_or(ConcentratedHybridBranch::Inner);
+            if peak_depth_nad > 0 && !branch.is_exact_tail() {
+                require!(
+                    base_common >= MIN_INNER_COMMON_RESERVE && quote_common >= MIN_INNER_COMMON_RESERVE,
+                    ErrorCode::InsufficientLiquidity
+                );
+            }
+            let mut low = geometric_mean_floor(base_common, quote_common)?
+                .checked_mul(2)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            let mut high = base_common
+                .checked_add(quote_common)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            if low == high || peak_depth_nad == 0 {
+                low
+            } else {
+                let (mut low_magnitude, mut high_magnitude);
+                if let Some(hint) = hint.filter(|hint| *hint > low && *hint < high) {
+                    let (hint_sign, hint_magnitude) =
+                        hybrid_residual_with_context(base_common, quote_common, hint, geometry, residual_context)?;
+                    if hint_sign {
+                        low = hint;
+                        low_magnitude = hint_magnitude;
+                        high_magnitude = invariant_sum_endpoint_magnitude(
+                            base_common,
+                            quote_common,
+                            high,
+                            peak_depth_nad,
+                            residual_context,
+                        )?;
+                    } else {
+                        high = hint;
+                        high_magnitude = hint_magnitude;
+                        let (low_sign, magnitude) =
+                            hybrid_residual_with_context(base_common, quote_common, low, geometry, residual_context)?;
+                        require!(low_sign, ErrorCode::InvariantOverflow);
+                        low_magnitude = magnitude;
+                    }
+                } else {
+                    let (low_sign, low_endpoint_magnitude) =
+                        hybrid_residual_with_context(base_common, quote_common, low, geometry, residual_context)?;
+                    let high_endpoint_magnitude = invariant_sum_endpoint_magnitude(
+                        base_common,
+                        quote_common,
+                        high,
+                        peak_depth_nad,
+                        residual_context,
+                    )?;
+                    require!(low_sign, ErrorCode::InvariantOverflow);
+                    low_magnitude = low_endpoint_magnitude;
+                    high_magnitude = high_endpoint_magnitude;
+                }
+                for iteration in 0..CONCENTRATED_INVARIANT_MAX_ITERS {
+                    if high - low <= 1 {
+                        break;
+                    }
+                    let width = high - low;
+                    let magnitude_sum = low_magnitude
+                        .checked_add(high_magnitude)
+                        .ok_or(ErrorCode::InvariantOverflow)?;
+                    let secant_offset = if magnitude_sum == 0 {
+                        width / 2
+                    } else {
+                        mul_div_u128(width, low_magnitude, magnitude_sum).map_err(|_| ErrorCode::InvariantOverflow)?
+                    };
+                    let secant_probe = low
+                        .checked_add(secant_offset)
+                        .filter(|probe| *probe > low && *probe < high)
+                        .unwrap_or(low + width / 2);
+                    let (anchor, anchor_sign, anchor_magnitude) = if low_magnitude <= high_magnitude {
+                        (low, true, low_magnitude)
+                    } else {
+                        (high, false, high_magnitude)
+                    };
+                    let negative_derivative_times_d = if branch == ConcentratedHybridBranch::Inner {
+                        let q = balance_factor_q64(base_common, quote_common, anchor)?;
+                        let geometry = geometry.ok_or(ErrorCode::BrokenInvariant)?;
+                        let (peak, scale) = (geometry.peak_q64, geometry.scale_q64);
+                        let delta = Q64_ONE.saturating_sub(q.min(Q64_ONE));
+                        let denominator = scale.checked_add(delta).ok_or(ErrorCode::InvariantOverflow)?;
+                        let weight_base = div_q64(scale, denominator)?;
+                        let weight = mul_q64(weight_base, weight_base)?;
+                        let sum = base_common
+                            .checked_add(quote_common)
+                            .ok_or(ErrorCode::InvariantOverflow)?;
+                        let h = div_q64(sum.abs_diff(anchor), anchor)?;
+                        let four_q_h_over_denominator = div_q64(mul_q64(q, h)?, denominator)?
+                            .checked_mul(4)
+                            .ok_or(ErrorCode::InvariantOverflow)?;
+                        let bracket = h
+                            .checked_mul(3)
+                            .and_then(|value| value.checked_add(Q64_ONE))
+                            .and_then(|value| value.checked_add(four_q_h_over_denominator))
+                            .ok_or(ErrorCode::InvariantOverflow)?;
+                        mul_q64(
+                            peak.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?,
+                            mul_q64(q, mul_q64(weight, bracket)?)?,
+                        )?
+                        .checked_add(q.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?)
+                        .ok_or(ErrorCode::InvariantOverflow)?
+                    } else {
+                        balance_factor_q64(base_common, quote_common, anchor)?
+                            .checked_mul(2)
+                            .ok_or(ErrorCode::InvariantOverflow)?
+                    };
+                    let newton_step = mul_div_ceil_u128(anchor_magnitude, anchor, negative_derivative_times_d)
+                        .map_err(|_| ErrorCode::InvariantOverflow)?
+                        .max(1);
+                    let newton_probe = if anchor_sign {
+                        anchor.checked_add(newton_step)
+                    } else {
+                        anchor.checked_sub(newton_step)
+                    };
+                    let accelerated_probe = newton_probe
+                        .filter(|probe| *probe > low && *probe < high)
+                        .unwrap_or(secant_probe);
+                    let remaining_iterations = CONCENTRATED_INVARIANT_MAX_ITERS - iteration;
+                    let bisections_required = u128::BITS as usize - (width - 1).leading_zeros() as usize;
+                    let probe = if bisections_required >= remaining_iterations {
+                        low + width / 2
+                    } else {
+                        accelerated_probe
+                    };
+                    let (probe_sign, probe_magnitude) =
+                        hybrid_residual_with_context(base_common, quote_common, probe, geometry, residual_context)?;
+                    if probe_sign {
+                        low = probe;
+                        low_magnitude = probe_magnitude;
+                    } else {
+                        high = probe;
+                        high_magnitude = probe_magnitude;
+                    }
+                }
+                require!(high - low <= 1, ErrorCode::InvariantOverflow);
+                high
+            }
+        }
+    };
+    Ok(ConcentratedPreparedCurve {
+        base_reserve_nad,
+        quote_reserve_nad,
+        base_common,
+        quote_common,
+        center_price_nad,
+        peak_depth_nad,
+        fade_scale_nad,
+        invariant_d,
+        common_numeraire,
+        geometry,
+    })
+}
+
+pub(crate) fn concentrated_prepare_curve(
+    base_reserve_nad: u128,
+    quote_reserve_nad: u128,
+    center_price_nad: u128,
+    peak_depth_nad: u128,
+    fade_scale_nad: u128,
+) -> Result<ConcentratedPreparedCurve> {
+    prepare_curve_internal(
+        base_reserve_nad,
+        quote_reserve_nad,
+        center_price_nad,
+        peak_depth_nad,
+        fade_scale_nad,
+        None,
+        None,
+    )
+}
+
+pub(crate) fn concentrated_prepare_curve_seeded_cached(
+    base_reserve_nad: u128,
+    quote_reserve_nad: u128,
+    center_price_nad: u128,
+    peak_depth_nad: u128,
+    fade_scale_nad: u128,
+    geometry_cache: ConcentratedGeometryCache,
+    invariant_seed: ConcentratedInvariantSeed,
+) -> Result<ConcentratedPreparedCurve> {
+    prepare_curve_internal(
+        base_reserve_nad,
+        quote_reserve_nad,
+        center_price_nad,
+        peak_depth_nad,
+        fade_scale_nad,
+        Some(geometry_cache),
+        Some(invariant_seed),
+    )
+}
+
+pub(crate) fn concentrated_prepare_curve_cached(
+    base_reserve_nad: u128,
+    quote_reserve_nad: u128,
+    center_price_nad: u128,
+    peak_depth_nad: u128,
+    fade_scale_nad: u128,
+    geometry_cache: ConcentratedGeometryCache,
+) -> Result<ConcentratedPreparedCurve> {
+    prepare_curve_internal(
+        base_reserve_nad,
+        quote_reserve_nad,
+        center_price_nad,
+        peak_depth_nad,
+        fade_scale_nad,
+        Some(geometry_cache),
+        None,
+    )
+}
+
+#[cfg(test)]
+fn exact_cpmm_tail_in_with_geometry(
     base_reserve_nad: u128,
     quote_reserve_nad: u128,
     amount_in_nad: u128,
     direction: ConcentratedSwapDirection,
     center_price_nad: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
+    base_common: u128,
+    quote_common: u128,
+    geometry: ConcentratedC1Geometry,
 ) -> Result<Option<u128>> {
-    let (base_common, quote_common) = normalize_reserves(base_reserve_nad, quote_reserve_nad, center_price_nad)?;
-    let start = concentrated_hybrid_branch_from_common(base_common, quote_common, peak_depth_nad, imbalance_scale_nad)?;
-    if start == ConcentratedHybridBranch::Inner {
+    let start = geometry.branch(base_common, quote_common)?;
+    if !start.is_exact_tail() {
         return Ok(None);
     }
     let output = match direction {
@@ -675,1512 +2177,120 @@ fn exact_cpmm_tail_in_raw(
         ),
     };
     let (base_after_common, quote_after_common) = normalize_reserves(base_after, quote_after, center_price_nad)?;
-    let end = concentrated_hybrid_branch_from_common(
-        base_after_common,
-        quote_after_common,
-        peak_depth_nad,
-        imbalance_scale_nad,
-    )?;
-    Ok(remains_on_same_tail(start, end).then_some(output))
+    let end = geometry.branch(base_after_common, quote_after_common)?;
+    Ok(start.same_exact_tail(end).then_some(output))
 }
 
-fn exact_cpmm_tail_out_raw(
+#[cfg(test)]
+pub(super) fn exact_cpmm_tail_in_raw(
     base_reserve_nad: u128,
     quote_reserve_nad: u128,
-    amount_out_nad: u128,
+    amount_in_nad: u128,
     direction: ConcentratedSwapDirection,
     center_price_nad: u128,
     peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
+    fade_scale_nad: u128,
 ) -> Result<Option<u128>> {
+    validate_parameters(center_price_nad, peak_depth_nad, fade_scale_nad)?;
+    let geometry = ConcentratedC1Geometry::derive(peak_depth_nad, fade_scale_nad)?;
     let (base_common, quote_common) = normalize_reserves(base_reserve_nad, quote_reserve_nad, center_price_nad)?;
-    let start = concentrated_hybrid_branch_from_common(base_common, quote_common, peak_depth_nad, imbalance_scale_nad)?;
-    if start == ConcentratedHybridBranch::Inner {
-        return Ok(None);
-    }
-    let input = match direction {
-        ConcentratedSwapDirection::BaseToQuote => {
-            calculate_normalized_amount_in(base_reserve_nad, quote_reserve_nad, amount_out_nad)?
-        }
-        ConcentratedSwapDirection::QuoteToBase => {
-            calculate_normalized_amount_in(quote_reserve_nad, base_reserve_nad, amount_out_nad)?
-        }
-    };
-    let (base_after, quote_after) = match direction {
-        ConcentratedSwapDirection::BaseToQuote => (
-            base_reserve_nad
-                .checked_add(input)
-                .ok_or(ErrorCode::InvariantOverflow)?,
-            quote_reserve_nad
-                .checked_sub(amount_out_nad)
-                .ok_or(ErrorCode::InsufficientLiquidity)?,
-        ),
-        ConcentratedSwapDirection::QuoteToBase => (
-            base_reserve_nad
-                .checked_sub(amount_out_nad)
-                .ok_or(ErrorCode::InsufficientLiquidity)?,
-            quote_reserve_nad
-                .checked_add(input)
-                .ok_or(ErrorCode::InvariantOverflow)?,
-        ),
-    };
-    let (base_after_common, quote_after_common) = normalize_reserves(base_after, quote_after, center_price_nad)?;
-    let end = concentrated_hybrid_branch_from_common(
-        base_after_common,
-        quote_after_common,
-        peak_depth_nad,
-        imbalance_scale_nad,
-    )?;
-    Ok(remains_on_same_tail(start, end).then_some(input))
-}
-
-/// Evaluates the exact rational invariant residual without division.
-///
-/// Let `N=NAD`, `P=peak_depth_nad`, `S=imbalance_scale_nad`,
-/// `Q=4*x*y`, `E=D^2-Q`, `B=S*D^2+N*E`, and `H=x+y-D`.
-/// Clearing the strictly positive fixed-point denominator gives:
-/// ```text
-/// R = 2*P*Q*S^2*D^3*H - N*E*B^2
-/// ```
-/// `residual_terms` returns the positive and negative magnitudes separately,
-/// including for integer probes just below `2*sqrt(x*y)` where `E` is signed.
-/// This avoids rounding an effective amplification before root finding.
-fn residual_terms(x: u128, y: u128, d: u128, peak_depth_nad: u128, imbalance_scale_nad: u128) -> Result<(U512, U512)> {
-    #[cfg(test)]
-    RESIDUAL_EVALUATIONS.with(|count| count.set(count.get() + 1));
-
-    validate_common_reserves(x, y)?;
-    require!(d > 0, ErrorCode::InvalidArgument);
-
-    let four_xy = checked_mul_512(U512::from(4_u8), checked_mul_512(U512::from(x), U512::from(y))?)?;
-    let d_squared = checked_mul_512(U512::from(d), U512::from(d))?;
-    if peak_depth_nad == 0 {
-        return Ok((
-            checked_mul_512(four_xy, U512::from(NAD))?,
-            checked_mul_512(U512::from(NAD), d_squared)?,
-        ));
-    }
-
-    let (e_nonnegative, e_magnitude) = if d_squared >= four_xy {
-        (true, d_squared - four_xy)
-    } else {
-        (false, four_xy - d_squared)
-    };
-    let scale_d_squared = checked_mul_512(U512::from(imbalance_scale_nad), d_squared)?;
-    let scaled_e = checked_mul_512(U512::from(NAD), e_magnitude)?;
-    let (b_nonnegative, b_magnitude) = if e_nonnegative {
-        (true, checked_add_512(scale_d_squared, scaled_e)?)
-    } else if scale_d_squared >= scaled_e {
-        (true, scale_d_squared - scaled_e)
-    } else {
-        (false, scaled_e - scale_d_squared)
-    };
-    // Only B^2 enters the residual; retain the sign above for the exact
-    // reserve partial derivative used by marginal-price proofs.
-    let _ = b_nonnegative;
-    let b_squared = checked_mul_512(b_magnitude, b_magnitude)?;
-
-    let sum = x.checked_add(y).ok_or(ErrorCode::InvariantOverflow)?;
-    let d_cubed = checked_mul_512(d_squared, U512::from(d))?;
-    let scale_squared = checked_mul_512(U512::from(imbalance_scale_nad), U512::from(imbalance_scale_nad))?;
-    let concentration = checked_mul_512(
-        U512::from(2_u8),
-        checked_mul_512(
-            checked_mul_512(
-                checked_mul_512(checked_mul_512(U512::from(peak_depth_nad), four_xy)?, scale_squared)?,
-                d_cubed,
-            )?,
-            U512::from(sum.abs_diff(d)),
-        )?,
-    )?;
-
-    let cpmm = checked_mul_512(checked_mul_512(U512::from(NAD), e_magnitude)?, b_squared)?;
-    let mut positive = U512::zero();
-    let mut negative = U512::zero();
-    if sum >= d {
-        positive = checked_add_512(positive, concentration)?;
-    } else {
-        negative = checked_add_512(negative, concentration)?;
-    }
-    if e_nonnegative {
-        negative = checked_add_512(negative, cpmm)?;
-    } else {
-        positive = checked_add_512(positive, cpmm)?;
-    }
-    Ok((positive, negative))
-}
-
-/// Exact signed derivative of the cleared residual with respect to `D`.
-/// Newton uses it only on the decreasing root branch; the global sign bracket
-/// remains authoritative when the derivative is unusable.
-fn invariant_residual_derivative(
-    x: u128,
-    y: u128,
-    d: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<(ResidualSign, U512)> {
-    if peak_depth_nad == 0 {
-        return Ok((
-            ResidualSign::Negative,
-            checked_mul_512(U512::from(2 * NAD as u128), U512::from(d))?,
-        ));
-    }
-
-    let d_squared = checked_mul_512(U512::from(d), U512::from(d))?;
-    let four_xy = checked_mul_512(U512::from(4_u8), checked_mul_512(U512::from(x), U512::from(y))?)?;
-    let (e_nonnegative, e_magnitude) = if d_squared >= four_xy {
-        (true, d_squared - four_xy)
-    } else {
-        (false, four_xy - d_squared)
-    };
-    let scale_d_squared = checked_mul_512(U512::from(imbalance_scale_nad), d_squared)?;
-    let scaled_e = checked_mul_512(U512::from(NAD), e_magnitude)?;
-    let (b_nonnegative, b_magnitude) = if e_nonnegative {
-        (true, checked_add_512(scale_d_squared, scaled_e)?)
-    } else if scale_d_squared >= scaled_e {
-        (true, scale_d_squared - scaled_e)
-    } else {
-        (false, scaled_e - scale_d_squared)
-    };
-
-    // 2*P*S^2*Q*D^2*(3*(x+y)-4*D)
-    let sum = x.checked_add(y).ok_or(ErrorCode::InvariantOverflow)?;
-    let three_sum = sum.checked_mul(3).ok_or(ErrorCode::InvariantOverflow)?;
-    let four_d = d.checked_mul(4).ok_or(ErrorCode::InvariantOverflow)?;
-    let scale_squared = checked_mul_512(U512::from(imbalance_scale_nad), U512::from(imbalance_scale_nad))?;
-    let concentration = checked_mul_512(
-        U512::from(2_u8),
-        checked_mul_512(
-            checked_mul_512(
-                checked_mul_512(checked_mul_512(U512::from(peak_depth_nad), scale_squared)?, four_xy)?,
-                d_squared,
-            )?,
-            U512::from(three_sum.abs_diff(four_d)),
-        )?,
-    )?;
-
-    // -2*N*D*[B^2 + 2*(S+N)*E*B]
-    let b_squared = checked_mul_512(b_magnitude, b_magnitude)?;
-    let direct = checked_mul_512(checked_mul_512(U512::from(2 * NAD as u128), U512::from(d))?, b_squared)?;
-    let scale_plus_one = imbalance_scale_nad
-        .checked_add(NAD as u128)
-        .ok_or(ErrorCode::InvariantOverflow)?;
-    let interaction = checked_mul_512(
-        U512::from(4_u8),
-        checked_mul_512(
-            checked_mul_512(
-                checked_mul_512(U512::from(NAD), U512::from(d))?,
-                U512::from(scale_plus_one),
-            )?,
-            checked_mul_512(e_magnitude, b_magnitude)?,
-        )?,
-    )?;
-
-    let mut positive = U512::zero();
-    let mut negative = direct;
-    if three_sum >= four_d {
-        positive = checked_add_512(positive, concentration)?;
-    } else {
-        negative = checked_add_512(negative, concentration)?;
-    }
-    if e_nonnegative == b_nonnegative {
-        negative = checked_add_512(negative, interaction)?;
-    } else {
-        positive = checked_add_512(positive, interaction)?;
-    }
-    Ok((
-        if positive >= negative {
-            ResidualSign::NonNegative
-        } else {
-            ResidualSign::Negative
-        },
-        residual_magnitude(positive, negative),
-    ))
-}
-
-/// Evaluates the invariant residual and its D derivative from one shared set
-/// of degree-eight intermediates. A warm successor Newton step needs both at
-/// the same D; computing them together avoids rebuilding `D²`, `4xy`, `E`,
-/// `B`, `B²`, and the concentration factors on SBF. The returned values are
-/// algebraically identical to `residual_terms` plus
-/// `invariant_residual_derivative`.
-fn invariant_residual_and_derivative(
-    x: u128,
-    y: u128,
-    d: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<((U512, U512), (ResidualSign, U512))> {
-    #[cfg(test)]
-    RESIDUAL_EVALUATIONS.with(|count| count.set(count.get() + 1));
-
-    validate_common_reserves(x, y)?;
-    require!(d > 0, ErrorCode::InvalidArgument);
-    let d_squared = checked_mul_512(U512::from(d), U512::from(d))?;
-    let four_xy = checked_mul_512(U512::from(4_u8), checked_mul_512(U512::from(x), U512::from(y))?)?;
-    if peak_depth_nad == 0 {
-        let terms = (
-            checked_mul_512(four_xy, U512::from(NAD))?,
-            checked_mul_512(U512::from(NAD), d_squared)?,
-        );
-        let derivative = (
-            ResidualSign::Negative,
-            checked_mul_512(U512::from(2 * NAD as u128), U512::from(d))?,
-        );
-        return Ok((terms, derivative));
-    }
-
-    let (e_nonnegative, e_magnitude) = if d_squared >= four_xy {
-        (true, d_squared - four_xy)
-    } else {
-        (false, four_xy - d_squared)
-    };
-    let scale_d_squared = checked_mul_512(U512::from(imbalance_scale_nad), d_squared)?;
-    let scaled_e = checked_mul_512(U512::from(NAD), e_magnitude)?;
-    let (b_nonnegative, b_magnitude) = if e_nonnegative {
-        (true, checked_add_512(scale_d_squared, scaled_e)?)
-    } else if scale_d_squared >= scaled_e {
-        (true, scale_d_squared - scaled_e)
-    } else {
-        (false, scaled_e - scale_d_squared)
-    };
-    let b_squared = checked_mul_512(b_magnitude, b_magnitude)?;
-    let sum = x.checked_add(y).ok_or(ErrorCode::InvariantOverflow)?;
-    let scale_squared = checked_mul_512(U512::from(imbalance_scale_nad), U512::from(imbalance_scale_nad))?;
-    let shared_concentration = checked_mul_512(
-        U512::from(2_u8),
-        checked_mul_512(
-            checked_mul_512(checked_mul_512(U512::from(peak_depth_nad), four_xy)?, scale_squared)?,
-            d_squared,
-        )?,
-    )?;
-
-    let residual_concentration = checked_mul_512(
-        checked_mul_512(shared_concentration, U512::from(d))?,
-        U512::from(sum.abs_diff(d)),
-    )?;
-    let residual_cpmm = checked_mul_512(checked_mul_512(U512::from(NAD), e_magnitude)?, b_squared)?;
-    let mut residual_positive = U512::zero();
-    let mut residual_negative = U512::zero();
-    if sum >= d {
-        residual_positive = checked_add_512(residual_positive, residual_concentration)?;
-    } else {
-        residual_negative = checked_add_512(residual_negative, residual_concentration)?;
-    }
-    if e_nonnegative {
-        residual_negative = checked_add_512(residual_negative, residual_cpmm)?;
-    } else {
-        residual_positive = checked_add_512(residual_positive, residual_cpmm)?;
-    }
-
-    let three_sum = sum.checked_mul(3).ok_or(ErrorCode::InvariantOverflow)?;
-    let four_d = d.checked_mul(4).ok_or(ErrorCode::InvariantOverflow)?;
-    let derivative_concentration = checked_mul_512(shared_concentration, U512::from(three_sum.abs_diff(four_d)))?;
-    let derivative_direct = checked_mul_512(checked_mul_512(U512::from(2 * NAD as u128), U512::from(d))?, b_squared)?;
-    let scale_plus_one = imbalance_scale_nad
-        .checked_add(NAD as u128)
-        .ok_or(ErrorCode::InvariantOverflow)?;
-    let derivative_interaction = checked_mul_512(
-        U512::from(4_u8),
-        checked_mul_512(
-            checked_mul_512(
-                checked_mul_512(U512::from(NAD), U512::from(d))?,
-                U512::from(scale_plus_one),
-            )?,
-            checked_mul_512(e_magnitude, b_magnitude)?,
-        )?,
-    )?;
-    let mut derivative_positive = U512::zero();
-    let mut derivative_negative = derivative_direct;
-    if three_sum >= four_d {
-        derivative_positive = checked_add_512(derivative_positive, derivative_concentration)?;
-    } else {
-        derivative_negative = checked_add_512(derivative_negative, derivative_concentration)?;
-    }
-    if e_nonnegative == b_nonnegative {
-        derivative_negative = checked_add_512(derivative_negative, derivative_interaction)?;
-    } else {
-        derivative_positive = checked_add_512(derivative_positive, derivative_interaction)?;
-    }
-    Ok((
-        (residual_positive, residual_negative),
-        (
-            if derivative_positive >= derivative_negative {
-                ResidualSign::NonNegative
-            } else {
-                ResidualSign::Negative
-            },
-            residual_magnitude(derivative_positive, derivative_negative),
-        ),
-    ))
-}
-
-/// Exact signed reserve-partial cores at fixed D.
-///
-/// The full derivatives are `4*y*x_core` and `4*x*y_core`. Marginal-price
-/// evaluation consumes their ratio, so returning the cores cancels the common
-/// factor `4` and applies `x/y` only once. This is algebraically exact and
-/// avoids four redundant U512 multiplications per certified D endpoint.
-fn reserve_residual_derivatives(
-    x: u128,
-    y: u128,
-    d: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<((ResidualSign, U512), (ResidualSign, U512))> {
-    if peak_depth_nad == 0 {
-        let x_derivative = checked_mul_512(U512::from(4 * NAD as u128), U512::from(y))?;
-        let y_derivative = checked_mul_512(U512::from(4 * NAD as u128), U512::from(x))?;
-        return Ok((
-            (ResidualSign::NonNegative, x_derivative),
-            (ResidualSign::NonNegative, y_derivative),
-        ));
-    }
-
-    let d_squared = checked_mul_512(U512::from(d), U512::from(d))?;
-    let four_xy = checked_mul_512(U512::from(4_u8), checked_mul_512(U512::from(x), U512::from(y))?)?;
-    let (e_nonnegative, e_magnitude) = if d_squared >= four_xy {
-        (true, d_squared - four_xy)
-    } else {
-        (false, four_xy - d_squared)
-    };
-    let scale_d_squared = checked_mul_512(U512::from(imbalance_scale_nad), d_squared)?;
-    let scaled_e = checked_mul_512(U512::from(NAD), e_magnitude)?;
-    let (b_nonnegative, b_magnitude) = if e_nonnegative {
-        (true, checked_add_512(scale_d_squared, scaled_e)?)
-    } else if scale_d_squared >= scaled_e {
-        (true, scale_d_squared - scaled_e)
-    } else {
-        (false, scaled_e - scale_d_squared)
-    };
-
-    // dR/dv = 4*fixed * [
-    //   2*P*S^2*D^3*(fixed + 2*variable - D)
-    //   + N*B^2 + 2*N^2*E*B
-    // ].
-    let d_cubed = checked_mul_512(d_squared, U512::from(d))?;
-    let scale_squared = checked_mul_512(U512::from(imbalance_scale_nad), U512::from(imbalance_scale_nad))?;
-    let concentration_factor = checked_mul_512(
-        U512::from(2_u8),
-        checked_mul_512(checked_mul_512(U512::from(peak_depth_nad), scale_squared)?, d_cubed)?,
-    )?;
-    let b_squared = checked_mul_512(b_magnitude, b_magnitude)?;
-    let direct = checked_mul_512(U512::from(NAD), b_squared)?;
-    let interaction = checked_mul_512(
-        U512::from(2_u8),
-        checked_mul_512(
-            checked_mul_512(U512::from(NAD), U512::from(NAD))?,
-            checked_mul_512(e_magnitude, b_magnitude)?,
-        )?,
-    )?;
-
-    let x_coordinate = y
-        .checked_add(x.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?)
-        .ok_or(ErrorCode::InvariantOverflow)?;
-    let y_coordinate = x
-        .checked_add(y.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?)
-        .ok_or(ErrorCode::InvariantOverflow)?;
-
-    let evaluate_partial = |coordinate: u128| -> Result<(ResidualSign, U512)> {
-        let concentration = checked_mul_512(concentration_factor, U512::from(coordinate.abs_diff(d)))?;
-        let mut positive = direct;
-        let mut negative = U512::zero();
-        if coordinate >= d {
-            positive = checked_add_512(positive, concentration)?;
-        } else {
-            negative = checked_add_512(negative, concentration)?;
-        }
-        if e_nonnegative == b_nonnegative {
-            positive = checked_add_512(positive, interaction)?;
-        } else {
-            negative = checked_add_512(negative, interaction)?;
-        }
-        Ok((
-            if positive >= negative {
-                ResidualSign::NonNegative
-            } else {
-                ResidualSign::Negative
-            },
-            residual_magnitude(positive, negative),
-        ))
-    };
-
-    Ok((evaluate_partial(x_coordinate)?, evaluate_partial(y_coordinate)?))
-}
-
-/// Exact positive reserve-partial cores for a certified inner `D_high`.
-///
-/// The signed derivative above is valid for an arbitrary D probe. Executable
-/// marginals have a stronger certificate: `4*x*y <= D_high^2` and
-/// `D_high <= x+y`. Therefore `E = D^2-4xy`, `H = x+y-D`, and
-/// `B = S*D^2+N*E` are all non-negative. Their common interaction factors as
-///
-/// ```text
-/// N*B^2 + 2*N^2*E*B = N*B*(S*D^2 + 3*N*E).
-/// ```
-///
-/// The old concentration core has coefficient `2*P*S^2*D^3`. Since
-/// `N == 1e9` is even, both complete cores share an exact factor two. These
-/// returned cores divide that factor out; their ratio and every floored
-/// marginal price are bit-identical to the signed U512 formulation.
-fn canonical_high_reserve_residual_derivative_cores(
-    x: u128,
-    y: u128,
-    d: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<(U512, U512)> {
-    validate_common_reserves(x, y)?;
-    require!(d > 0 && peak_depth_nad > 0, ErrorCode::InvalidArgument);
-
-    let sum = x.checked_add(y).ok_or(ErrorCode::InvariantOverflow)?;
-    require!(d <= sum, ErrorCode::InvariantOverflow);
-    let y_u64 = y as u64;
-    let scale_u64 = u64::try_from(imbalance_scale_nad).map_err(|_| ErrorCode::InvariantOverflow)?;
-
-    // The certified bounds above prove every following core intermediate is
-    // below 2^358. Plain U512 arithmetic avoids rebuilding overflow flags for
-    // operations whose safety follows from that certificate.
-    let d_squared = mul_512_u128_proven(U512::from(d), d);
-    // x,y <= u64::MAX makes this shift exact with more than 380 spare bits.
-    let four_xy = (U512::from(x) * y_u64) << 2;
-    require!(d_squared >= four_xy, ErrorCode::InvariantOverflow);
-
-    let h = sum - d;
-
-    let e = d_squared - four_xy;
-    let scale_d_squared = d_squared * scale_u64;
-    let scaled_e = e * NAD;
-    let b = scale_d_squared + scaled_e;
-    let three_scaled_e = scaled_e + scaled_e + scaled_e;
-    let b_plus_two_scaled_e = scale_d_squared + three_scaled_e;
-    let interaction = (b * (NAD / 2)) * b_plus_two_scaled_e;
-
-    // P*S^2 < 2^97 over the protocol parameter domain, so build that
-    // coefficient in native u128 before its one required wide product.
-    let concentration_coefficient = peak_depth_nad
-        .checked_mul(imbalance_scale_nad)
-        .and_then(|value| value.checked_mul(imbalance_scale_nad))
-        .ok_or(ErrorCode::InvariantOverflow)?;
-    let d_cubed = mul_512_u128_proven(d_squared, d);
-    let concentration = mul_512_u128_proven(d_cubed, concentration_coefficient);
-    let x_coordinate = h.checked_add(x).ok_or(ErrorCode::InvariantOverflow)?;
-    let y_coordinate = h.checked_add(y).ok_or(ErrorCode::InvariantOverflow)?;
-    let x_core = mul_512_u128_proven(concentration, x_coordinate) + interaction;
-    let y_core = mul_512_u128_proven(concentration, y_coordinate) + interaction;
-    require!(!x_core.is_zero() && !y_core.is_zero(), ErrorCode::InvariantOverflow);
-    Ok((x_core, y_core))
-}
-
-/// Exact signed partial derivative with respect to `variable`, holding
-/// `fixed` and D constant. Reserve root-finding needs only one partial, while
-/// marginal-price evaluation uses the shared two-partial routine above.
-fn variable_residual_derivative(
-    fixed: u128,
-    variable: u128,
-    d: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<(ResidualSign, U512)> {
-    if peak_depth_nad == 0 {
-        let derivative = checked_mul_512(U512::from(4 * NAD as u128), U512::from(fixed))?;
-        return Ok((ResidualSign::NonNegative, derivative));
-    }
-
-    let d_squared = checked_mul_512(U512::from(d), U512::from(d))?;
-    let four_fixed_variable = checked_mul_512(
-        U512::from(4_u8),
-        checked_mul_512(U512::from(fixed), U512::from(variable))?,
-    )?;
-    let (e_nonnegative, e_magnitude) = if d_squared >= four_fixed_variable {
-        (true, d_squared - four_fixed_variable)
-    } else {
-        (false, four_fixed_variable - d_squared)
-    };
-    let scale_d_squared = checked_mul_512(U512::from(imbalance_scale_nad), d_squared)?;
-    let scaled_e = checked_mul_512(U512::from(NAD), e_magnitude)?;
-    let (b_nonnegative, b_magnitude) = if e_nonnegative {
-        (true, checked_add_512(scale_d_squared, scaled_e)?)
-    } else if scale_d_squared >= scaled_e {
-        (true, scale_d_squared - scaled_e)
-    } else {
-        (false, scaled_e - scale_d_squared)
-    };
-
-    let coordinate = fixed
-        .checked_add(variable.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?)
-        .ok_or(ErrorCode::InvariantOverflow)?;
-    let d_cubed = checked_mul_512(d_squared, U512::from(d))?;
-    let scale_squared = checked_mul_512(U512::from(imbalance_scale_nad), U512::from(imbalance_scale_nad))?;
-    let concentration = checked_mul_512(
-        U512::from(2_u8),
-        checked_mul_512(
-            checked_mul_512(checked_mul_512(U512::from(peak_depth_nad), scale_squared)?, d_cubed)?,
-            U512::from(coordinate.abs_diff(d)),
-        )?,
-    )?;
-    let b_squared = checked_mul_512(b_magnitude, b_magnitude)?;
-    let direct = checked_mul_512(U512::from(NAD), b_squared)?;
-    let interaction = checked_mul_512(
-        U512::from(2_u8),
-        checked_mul_512(
-            checked_mul_512(U512::from(NAD), U512::from(NAD))?,
-            checked_mul_512(e_magnitude, b_magnitude)?,
-        )?,
-    )?;
-
-    let mut positive = direct;
-    let mut negative = U512::zero();
-    if coordinate >= d {
-        positive = checked_add_512(positive, concentration)?;
-    } else {
-        negative = checked_add_512(negative, concentration)?;
-    }
-    if e_nonnegative == b_nonnegative {
-        positive = checked_add_512(positive, interaction)?;
-    } else {
-        negative = checked_add_512(negative, interaction)?;
-    }
-    let multiplier = checked_mul_512(U512::from(4_u8), U512::from(fixed))?;
-    positive = checked_mul_512(positive, multiplier)?;
-    negative = checked_mul_512(negative, multiplier)?;
-
-    Ok((
-        if positive >= negative {
-            ResidualSign::NonNegative
-        } else {
-            ResidualSign::Negative
-        },
-        residual_magnitude(positive, negative),
-    ))
-}
-
-fn hybrid_variable_residual_derivative(
-    fixed: u128,
-    variable: u128,
-    d: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<(ResidualSign, U512)> {
-    match concentrated_hybrid_branch_from_common(fixed, variable, peak_depth_nad, imbalance_scale_nad)? {
-        ConcentratedHybridBranch::Inner => {
-            variable_residual_derivative(fixed, variable, d, peak_depth_nad, imbalance_scale_nad)
-        }
-        ConcentratedHybridBranch::BaseScarceTail | ConcentratedHybridBranch::QuoteScarceTail => Ok((
-            ResidualSign::NonNegative,
-            checked_mul_512(U512::from(4 * NAD as u128), U512::from(fixed))?,
-        )),
-    }
-}
-
-fn residual_magnitude(positive: U512, negative: U512) -> U512 {
-    if positive >= negative {
-        positive - negative
-    } else {
-        negative - positive
-    }
-}
-
-fn u512_to_u128_saturating(value: U512) -> u128 {
-    if value > U512::from(u128::MAX) {
-        u128::MAX
-    } else {
-        value.as_u128()
-    }
-}
-
-fn sqrt_u256_to_u128(value: U256) -> Result<u128> {
-    if value.is_zero() {
-        return Ok(0);
-    }
-
-    // Start at a power-of-two upper bound and use the monotone integer
-    // Babylonian method. It converges quadratically and normally takes fewer
-    // than ten rounds for U256 inputs, versus 128 rounds for binary search.
-    let mut root = U256::one() << value.bits().div_ceil(2);
-    for _ in 0..128 {
-        let next = root.checked_add(value / root).ok_or(ErrorCode::InvariantOverflow)? >> 1;
-        if next >= root {
-            return u256_to_u128(root);
-        }
-        root = next;
-    }
-    err!(ErrorCode::InvariantOverflow)
-}
-
-type CachedInvariantNewtonEvaluation = ((U512, U512), (ResidualSign, U512));
-
-/// Tightens an already certified invariant sign bracket. Callers establish a
-/// non-negative residual at `low` and a negative residual at `high` (or return
-/// an exact singleton before entering). Safeguarded Newton steps accelerate
-/// convergence, but only exact residual classifications are allowed to move a
-/// bound.
-fn refine_invariant_common_bracket(
-    x: u128,
-    y: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-    mut low: u128,
-    mut high: u128,
-    mut current: u128,
-    mut cached_current_evaluation: Option<CachedInvariantNewtonEvaluation>,
-    proof_denominator: u128,
-) -> Result<(u128, u128, u128)> {
-    require!(low < high, ErrorCode::InvariantOverflow);
-    require!(current >= low && current <= high, ErrorCode::InvariantOverflow);
-
-    for _ in 0..CONCENTRATED_INVARIANT_MAX_ITERS {
-        let proof_width = mul_div_u128_ceil(high, CONCENTRATED_INVARIANT_PROOF_PARTS, proof_denominator)?.max(1);
-        if high - low <= proof_width {
-            break;
-        }
-        let ((positive, negative), cached_derivative) = if let Some(evaluation) = cached_current_evaluation.take() {
-            (evaluation.0, Some(evaluation.1))
-        } else {
-            let evaluation = invariant_residual_and_derivative(x, y, current, peak_depth_nad, imbalance_scale_nad)?;
-            (evaluation.0, Some(evaluation.1))
-        };
-        let sign = if positive >= negative {
-            ResidualSign::NonNegative
-        } else {
-            ResidualSign::Negative
-        };
-        if sign == ResidualSign::NonNegative {
-            low = current;
-        } else {
-            high = current;
-        }
-        let proof_width = mul_div_u128_ceil(high, CONCENTRATED_INVARIANT_PROOF_PARTS, proof_denominator)?.max(1);
-        if high - low <= proof_width {
-            break;
-        }
-        let (derivative_sign, derivative) = if let Some(derivative) = cached_derivative {
-            derivative
-        } else {
-            invariant_residual_derivative(x, y, current, peak_depth_nad, imbalance_scale_nad)?
-        };
-        let delta = if derivative_sign == ResidualSign::Negative && !derivative.is_zero() {
-            u512_to_u128_saturating(residual_magnitude(positive, negative) / derivative).max(1)
-        } else {
-            0
-        };
-        let newton = match sign {
-            ResidualSign::NonNegative => current.saturating_add(delta),
-            ResidualSign::Negative => current.saturating_sub(delta),
-        };
-        current = if delta == 0 || newton <= low || newton >= high {
-            low + (high - low) / 2
-        } else {
-            newton
-        };
-    }
-    let proof_width = mul_div_u128_ceil(high, CONCENTRATED_INVARIANT_PROOF_PARTS, proof_denominator)?.max(1);
-    require!(high - low <= proof_width, ErrorCode::InvariantOverflow);
-    // Boundary signs are preserved inductively: a bound moves only after the
-    // exact residual evaluation above classifies the replacement point.
-    let midpoint = low + (high - low) / 2;
-    Ok((low, high, midpoint))
-}
-
-fn invariant_common_bracket_with_hint(
-    x: u128,
-    y: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-    initial_d_hint: Option<u128>,
-    proof_denominator: u128,
-) -> Result<(u128, u128, u128, Ordering)> {
-    validate_positive_reserves(x, y)?;
-    if peak_depth_nad == 0 {
-        let product = U256::from(x)
-            .checked_mul(U256::from(y))
-            .ok_or(ErrorCode::InvariantOverflow)?;
-        let d = sqrt_u256_to_u128(product)?
-            .checked_mul(2)
-            .ok_or(ErrorCode::InvariantOverflow)?;
-        return Ok((d, d, d, Ordering::Greater));
-    }
-    validate_common_reserves(x, y)?;
-
-    let shoulder_relation = concentrated_hybrid_shoulder_relation(x, y, peak_depth_nad, imbalance_scale_nad)?;
-    validate_inner_common_reserve_floor(x, y, shoulder_relation)?;
-    if shoulder_relation == Ordering::Less {
-        // Exact CPMM tail: 4*x*y*NAD = D^2*(NAD-imbalance_scale).
-        // Taking sqrt after integer division preserves the exact floor of the
-        // rational square root. The cross-product determines whether the
-        // upper endpoint is the same integer or the next one.
-        let numerator = U256::from(4_u8)
-            .checked_mul(U256::from(x))
-            .and_then(|value| value.checked_mul(U256::from(y)))
-            .and_then(|value| value.checked_mul(U256::from(NAD)))
-            .ok_or(ErrorCode::InvariantOverflow)?;
-        let denominator = U256::from(
-            (NAD as u128)
-                .checked_sub(imbalance_scale_nad)
-                .ok_or(ErrorCode::InvariantOverflow)?,
-        );
-        let low = sqrt_u256_to_u128(numerator / denominator)?;
-        let low_squared_scaled = U256::from(low)
-            .checked_mul(U256::from(low))
-            .and_then(|value| value.checked_mul(denominator))
-            .ok_or(ErrorCode::InvariantOverflow)?;
-        let high = if low_squared_scaled == numerator {
-            low
-        } else {
-            low.checked_add(1).ok_or(ErrorCode::InvariantOverflow)?
-        };
-        return Ok((low, high, low, shoulder_relation));
-    }
-
-    let product = U256::from(x)
-        .checked_mul(U256::from(y))
-        .ok_or(ErrorCode::InvariantOverflow)?;
-    let geometric = sqrt_u256_to_u128(product)?;
-    let mut low = geometric.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?;
-    let mut high = x.checked_add(y).ok_or(ErrorCode::InvariantOverflow)?;
-
-    // These boundary signs follow directly from the cleared equation and do
-    // not need an expensive U512 evaluation. At `low=2*floor(sqrt(x*y))`,
-    // `E=D²-4xy<=0` and `H=x+y-D>=0`, so every residual term is
-    // non-negative. At `high=x+y`, `H=0` and `E=(x-y)²>0`, so the residual is
-    // negative. Equality is exactly the balanced singleton.
-    if low == high {
-        return Ok((low, high, low, shoulder_relation));
-    }
-
-    // A warm certificate is only a first probe. Its sign may narrow the
-    // global bracket, but it is never trusted as a root or boundary.
-    let mut current = low + (high - low) / 2;
-    let mut cached_current_evaluation = None;
-    if let Some(hint) = initial_d_hint.filter(|hint| *hint > low && *hint < high) {
-        let evaluation = invariant_residual_and_derivative(x, y, hint, peak_depth_nad, imbalance_scale_nad)?;
-        let terms = evaluation.0;
-        let hint_sign = if terms.0 >= terms.1 {
-            ResidualSign::NonNegative
-        } else {
-            ResidualSign::Negative
-        };
-        if hint_sign == ResidualSign::NonNegative {
-            low = hint;
-        } else {
-            high = hint;
-        }
-        // The previous certified D is normally extremely close after a swap,
-        // retained-fee credit, small center step, or ramp point. Start Newton
-        // at that warm point while the rebuilt global bracket remains the
-        // authoritative safety proof.
-        current = hint;
-        // The first safeguarded-Newton round is at the same warm point. Reuse
-        // its exact residual and derivative instead of rebuilding the shared
-        // degree-eight U512 intermediates.
-        cached_current_evaluation = Some(evaluation);
-    }
-
-    let (low, high, midpoint) = refine_invariant_common_bracket(
-        x,
-        y,
-        peak_depth_nad,
-        imbalance_scale_nad,
-        low,
-        high,
-        current,
-        cached_current_evaluation,
-        proof_denominator,
-    )?;
-    Ok((low, high, midpoint, shoulder_relation))
-}
-
-fn invariant_common_bracket(
-    x: u128,
-    y: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<(u128, u128, u128)> {
-    let (low, high, midpoint, _) = invariant_common_bracket_with_hint(
-        x,
-        y,
-        peak_depth_nad,
-        imbalance_scale_nad,
-        None,
-        INVARIANT_PROOF_DENOMINATOR,
-    )?;
-    Ok((low, high, midpoint))
-}
-
-#[cfg(test)]
-fn invariant_common(x: u128, y: u128, peak_depth_nad: u128, imbalance_scale_nad: u128) -> Result<u128> {
-    Ok(invariant_common_bracket(x, y, peak_depth_nad, imbalance_scale_nad)?.0)
-}
-
-fn prepare_curve_internal(
-    base_reserve_nad: u128,
-    quote_reserve_nad: u128,
-    center_price_nad: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-    initial_d_hint: Option<u128>,
-    proof_denominator: u128,
-) -> Result<ConcentratedPreparedCurve> {
-    validate_parameters(center_price_nad, peak_depth_nad, imbalance_scale_nad)?;
-    let (base_common, quote_common) =
-        normalize_reserves_for_curve(base_reserve_nad, quote_reserve_nad, center_price_nad, peak_depth_nad)?;
-    let (invariant_low, invariant_high, _, shoulder_relation) = invariant_common_bracket_with_hint(
-        base_common,
-        quote_common,
-        peak_depth_nad,
-        imbalance_scale_nad,
-        initial_d_hint,
-        proof_denominator,
-    )?;
-    Ok(ConcentratedPreparedCurve {
+    exact_cpmm_tail_in_with_geometry(
         base_reserve_nad,
         quote_reserve_nad,
+        amount_in_nad,
+        direction,
+        center_price_nad,
         base_common,
         quote_common,
-        center_price_nad,
-        peak_depth_nad,
-        imbalance_scale_nad,
-        shoulder_relation,
-        invariant_low,
-        invariant_high,
-    })
-}
-
-/// Normalizes reserves and certifies their unique invariant root once.
-pub(crate) fn concentrated_prepare_curve(
-    base_reserve_nad: u128,
-    quote_reserve_nad: u128,
-    center_price_nad: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<ConcentratedPreparedCurve> {
-    prepare_curve_internal(
-        base_reserve_nad,
-        quote_reserve_nad,
-        center_price_nad,
-        peak_depth_nad,
-        imbalance_scale_nad,
-        None,
-        INVARIANT_PROOF_DENOMINATOR,
+        geometry,
     )
-}
-
-/// Certifies a successor point while using a prior certified D only as the
-/// first Newton candidate. The complete global sign bracket is rebuilt, so an
-/// inaccurate hint can affect performance but cannot affect safety.
-pub(crate) fn concentrated_prepare_curve_with_hint(
-    base_reserve_nad: u128,
-    quote_reserve_nad: u128,
-    center_price_nad: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-    invariant_d_hint: u128,
-) -> Result<ConcentratedPreparedCurve> {
-    prepare_curve_internal(
-        base_reserve_nad,
-        quote_reserve_nad,
-        center_price_nad,
-        peak_depth_nad,
-        imbalance_scale_nad,
-        Some(invariant_d_hint),
-        INVARIANT_PROOF_DENOMINATOR,
-    )
-}
-
-/// Certifies a one-coordinate retained-fee successor from an authentic
-/// predecessor bracket without rebuilding the global invariant interval.
-///
-/// The hybrid invariant is degree-one homogeneous and strictly increasing in
-/// either common-coordinate reserve. If `x' > x` while `y` is fixed, then for
-/// `lambda = x'/x`:
-///
-/// ```text
-/// D(x, y) <= D(x', y) < D(lambda*x, lambda*y) = lambda*D(x, y).
-/// ```
-///
-/// Thus the predecessor lower endpoint remains a successor lower bound, while
-/// `ceil(predecessor_high*x'/x)` is a strict upper bound. The same proof
-/// applies when only `y` increases. Exact residual signs still authorize every
-/// interior Newton/bisection update. Tail successors keep their cheaper closed
-/// form, and a floor-normalized no-op reuses the predecessor bracket.
-///
-/// The predecessor bracket must come from the same opaque curve certificate;
-/// structural checks below bind it to the supplied predecessor identity.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn concentrated_prepare_continuous_successor_from_bracket(
-    predecessor_base_reserve_nad: u128,
-    predecessor_quote_reserve_nad: u128,
-    successor_base_reserve_nad: u128,
-    successor_quote_reserve_nad: u128,
-    center_price_nad: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-    predecessor_invariant_low: u128,
-    predecessor_invariant_high: u128,
-) -> Result<ConcentratedPreparedCurve> {
-    validate_parameters(center_price_nad, peak_depth_nad, imbalance_scale_nad)?;
-    let successor_proof_denominator = if peak_depth_nad < CONCENTRATED_COARSE_SUCCESSOR_MIN_PEAK_DEPTH_NAD {
-        INVARIANT_PROOF_DENOMINATOR
-    } else {
-        CONTINUOUS_SUCCESSOR_PROOF_DENOMINATOR
-    };
-    if peak_depth_nad == 0 {
-        return prepare_curve_internal(
-            successor_base_reserve_nad,
-            successor_quote_reserve_nad,
-            center_price_nad,
-            peak_depth_nad,
-            imbalance_scale_nad,
-            None,
-            successor_proof_denominator,
-        );
-    }
-
-    let predecessor = concentrated_restore_prepared_curve_from_bracket(
-        predecessor_base_reserve_nad,
-        predecessor_quote_reserve_nad,
-        center_price_nad,
-        peak_depth_nad,
-        imbalance_scale_nad,
-        predecessor_invariant_low,
-        predecessor_invariant_high,
-    )?;
-    let (successor_base_common, successor_quote_common) = normalize_reserves_for_curve(
-        successor_base_reserve_nad,
-        successor_quote_reserve_nad,
-        center_price_nad,
-        peak_depth_nad,
-    )?;
-    let predecessor_base_common = predecessor.base_common_nad();
-    let predecessor_quote_common = predecessor.quote_common_nad();
-
-    if successor_base_common == predecessor_base_common && successor_quote_common == predecessor_quote_common {
-        return concentrated_restore_prepared_curve_from_bracket(
-            successor_base_reserve_nad,
-            successor_quote_reserve_nad,
-            center_price_nad,
-            peak_depth_nad,
-            imbalance_scale_nad,
-            predecessor_invariant_low,
-            predecessor_invariant_high,
-        );
-    }
-
-    let base_increased =
-        successor_base_common > predecessor_base_common && successor_quote_common == predecessor_quote_common;
-    let quote_increased =
-        successor_quote_common > predecessor_quote_common && successor_base_common == predecessor_base_common;
-    if !(base_increased ^ quote_increased) {
-        return prepare_curve_internal(
-            successor_base_reserve_nad,
-            successor_quote_reserve_nad,
-            center_price_nad,
-            peak_depth_nad,
-            imbalance_scale_nad,
-            None,
-            successor_proof_denominator,
-        );
-    }
-
-    let successor_shoulder_relation = concentrated_hybrid_shoulder_relation(
-        successor_base_common,
-        successor_quote_common,
-        peak_depth_nad,
-        imbalance_scale_nad,
-    )?;
-    validate_inner_common_reserve_floor(
-        successor_base_common,
-        successor_quote_common,
-        successor_shoulder_relation,
-    )?;
-    if successor_shoulder_relation == Ordering::Less {
-        return prepare_curve_internal(
-            successor_base_reserve_nad,
-            successor_quote_reserve_nad,
-            center_price_nad,
-            peak_depth_nad,
-            imbalance_scale_nad,
-            None,
-            successor_proof_denominator,
-        );
-    }
-
-    let successor_sum = successor_base_common
-        .checked_add(successor_quote_common)
-        .ok_or(ErrorCode::InvariantOverflow)?;
-    if successor_base_common == successor_quote_common {
-        return Ok(ConcentratedPreparedCurve {
-            base_reserve_nad: successor_base_reserve_nad,
-            quote_reserve_nad: successor_quote_reserve_nad,
-            base_common: successor_base_common,
-            quote_common: successor_quote_common,
-            center_price_nad,
-            peak_depth_nad,
-            imbalance_scale_nad,
-            shoulder_relation: successor_shoulder_relation,
-            invariant_low: successor_sum,
-            invariant_high: successor_sum,
-        });
-    }
-
-    let (old_coordinate, new_coordinate) = if base_increased {
-        (predecessor_base_common, successor_base_common)
-    } else {
-        (predecessor_quote_common, successor_quote_common)
-    };
-    let scaled_upper = {
-        let numerator = U256::from(predecessor_invariant_high)
-            .checked_mul(U256::from(new_coordinate))
-            .ok_or(ErrorCode::InvariantOverflow)?;
-        let denominator = U256::from(old_coordinate);
-        let ceil = if numerator.is_zero() {
-            U256::zero()
-        } else {
-            (numerator - U256::one()) / denominator + U256::one()
-        };
-        if ceil >= U256::from(successor_sum) {
-            successor_sum
-        } else {
-            u256_to_u128(ceil)?
-        }
-    };
-    let low = predecessor_invariant_low;
-    let high = scaled_upper;
-    if low >= high {
-        return prepare_curve_internal(
-            successor_base_reserve_nad,
-            successor_quote_reserve_nad,
-            center_price_nad,
-            peak_depth_nad,
-            imbalance_scale_nad,
-            None,
-            successor_proof_denominator,
-        );
-    }
-
-    let predecessor_sum = predecessor_base_common
-        .checked_add(predecessor_quote_common)
-        .ok_or(ErrorCode::InvariantOverflow)?;
-    let sum_hint = mul_div_u128(predecessor_invariant_low, successor_sum, predecessor_sum)?;
-    let current = if high - low > 1 {
-        sum_hint.clamp(low + 1, high - 1)
-    } else {
-        low
-    };
-    let (invariant_low, invariant_high, _) = refine_invariant_common_bracket(
-        successor_base_common,
-        successor_quote_common,
-        peak_depth_nad,
-        imbalance_scale_nad,
-        low,
-        high,
-        current,
-        None,
-        successor_proof_denominator,
-    )?;
-    Ok(ConcentratedPreparedCurve {
-        base_reserve_nad: successor_base_reserve_nad,
-        quote_reserve_nad: successor_quote_reserve_nad,
-        base_common: successor_base_common,
-        quote_common: successor_quote_common,
-        center_price_nad,
-        peak_depth_nad,
-        imbalance_scale_nad,
-        shoulder_relation: successor_shoulder_relation,
-        invariant_low,
-        invariant_high,
-    })
-}
-
-/// Restores a previously certified bracket for the exact same program-owned
-/// curve state without repeating its residual solve.
-///
-/// The caller must first bind the bracket to identical normalized reserves,
-/// center, peak depth, and imbalance scale. This function still validates the arithmetic domain
-/// and the solver's public proof-width contract, but deliberately does not
-/// re-run residual signs: doing so would defeat the cache's compute saving.
-pub(crate) fn concentrated_restore_prepared_curve_from_bracket(
-    base_reserve_nad: u128,
-    quote_reserve_nad: u128,
-    center_price_nad: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-    invariant_low: u128,
-    invariant_high: u128,
-) -> Result<ConcentratedPreparedCurve> {
-    validate_parameters(center_price_nad, peak_depth_nad, imbalance_scale_nad)?;
-    let (base_common, quote_common) =
-        normalize_reserves_for_curve(base_reserve_nad, quote_reserve_nad, center_price_nad, peak_depth_nad)?;
-    let shoulder_relation =
-        concentrated_hybrid_shoulder_relation(base_common, quote_common, peak_depth_nad, imbalance_scale_nad)?;
-    validate_inner_common_reserve_floor(base_common, quote_common, shoulder_relation)?;
-    require!(
-        invariant_low > 0 && invariant_low <= invariant_high,
-        ErrorCode::BrokenInvariant
-    );
-    require!(
-        invariant_high
-            <= base_common
-                .checked_add(quote_common)
-                .ok_or(ErrorCode::InvariantOverflow)?,
-        ErrorCode::BrokenInvariant
-    );
-    let proof_width = mul_div_u128_ceil(
-        invariant_high,
-        CONCENTRATED_INVARIANT_PROOF_PARTS,
-        CONTINUOUS_SUCCESSOR_PROOF_DENOMINATOR,
-    )?
-    .max(1);
-    require!(
-        invariant_high - invariant_low <= proof_width,
-        ErrorCode::BrokenInvariant
-    );
-    Ok(ConcentratedPreparedCurve {
-        base_reserve_nad,
-        quote_reserve_nad,
-        base_common,
-        quote_common,
-        center_price_nad,
-        peak_depth_nad,
-        imbalance_scale_nad,
-        shoulder_relation,
-        invariant_low,
-        invariant_high,
-    })
-}
-
-/// Returns invariant D for arbitrary reserves and candidate center/peak-depth/imbalance-scale.
-/// This function is read-only and is intended for recenter/ramp impairment
-/// checks as well as swap execution.
-#[cfg(test)]
-pub(crate) fn concentrated_invariant(
-    base_reserve_nad: u128,
-    quote_reserve_nad: u128,
-    center_price_nad: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<u128> {
-    validate_parameters(center_price_nad, peak_depth_nad, imbalance_scale_nad)?;
-    let (x, y) = normalize_reserves_for_curve(base_reserve_nad, quote_reserve_nad, center_price_nad, peak_depth_nad)?;
-    invariant_common(x, y, peak_depth_nad, imbalance_scale_nad)
 }
 
 /// Brackets the smallest variable reserve with a non-negative residual.
-/// `low` remains negative and `high` remains non-negative. Exact derivative
-/// steps accelerate ordinary quotes; the sign bracket remains authoritative.
 fn solve_variable_reserve(
     fixed: u128,
     d: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
+    geometry: Option<ConcentratedC1Geometry>,
     mut low: u128,
     mut high: u128,
-    max_iters: usize,
 ) -> Result<(u128, u128)> {
     require!(low < high, ErrorCode::InvalidArgument);
-    let low_sign = hybrid_residual_sign(fixed, low, d, peak_depth_nad, imbalance_scale_nad)?;
-    let high_terms = hybrid_residual_terms(fixed, high, d, peak_depth_nad, imbalance_scale_nad)?;
-    let high_sign = if high_terms.0 >= high_terms.1 {
-        ResidualSign::NonNegative
-    } else {
-        ResidualSign::Negative
-    };
-    require!(
-        low_sign == ResidualSign::Negative && high_sign == ResidualSign::NonNegative,
-        ErrorCode::InvariantOverflow
-    );
-    let mut current = high;
-    let mut cached_current_terms = Some(high_terms);
-    for _ in 0..max_iters {
-        if high - low <= 1 {
-            break;
+    let (low_valid, mut low_magnitude) = hybrid_residual(fixed, low, d, geometry)?;
+    require!(!low_valid, ErrorCode::InvariantOverflow);
+    let (high_valid, mut high_magnitude) = hybrid_residual(fixed, high, d, geometry)?;
+    require!(high_valid, ErrorCode::InvariantOverflow);
+    // Every valid invariant state satisfies x+y>=D. Intersecting the caller's
+    // generic bracket with y>=D-x removes most of the empty search interval
+    // for ordinary near-center trades before the safeguarded secant starts.
+    let mut safeguarded_newton_probe = None;
+    let structural_probe = d.saturating_sub(fixed).max(low);
+    if structural_probe > low && structural_probe < high {
+        let context = geometry
+            .map(|geometry| ConcentratedResidualContext::derive(geometry, fixed, structural_probe))
+            .transpose()?;
+        let evaluation = hybrid_residual_evaluation_with_context(fixed, structural_probe, d, geometry, context)?;
+        if evaluation.positive {
+            high = structural_probe;
+            high_magnitude = evaluation.magnitude;
+        } else {
+            low = structural_probe;
+            low_magnitude = evaluation.magnitude;
         }
-        let (positive, negative) = if let Some(terms) = cached_current_terms.take() {
-            terms
-        } else {
-            hybrid_residual_terms(fixed, current, d, peak_depth_nad, imbalance_scale_nad)?
-        };
-        let sign = if positive >= negative {
-            ResidualSign::NonNegative
-        } else {
-            ResidualSign::Negative
-        };
-        if sign == ResidualSign::NonNegative {
-            high = current;
-        } else {
-            low = current;
-        }
-        if high - low <= 1 {
-            break;
-        }
-
-        let (derivative_sign, derivative) =
-            hybrid_variable_residual_derivative(fixed, current, d, peak_depth_nad, imbalance_scale_nad)?;
-        let delta = if derivative_sign == ResidualSign::NonNegative && !derivative.is_zero() {
-            u512_to_u128_saturating(residual_magnitude(positive, negative) / derivative).max(1)
-        } else {
-            0
-        };
-        let newton = match sign {
-            ResidualSign::NonNegative => current.saturating_sub(delta),
-            ResidualSign::Negative => current.saturating_add(delta),
-        };
-        current = if delta == 0 || newton <= low || newton >= high {
-            low + (high - low) / 2
-        } else {
-            newton
-        };
+        safeguarded_newton_probe = transition_newton_probe(fixed, structural_probe, evaluation, context)?
+            .filter(|candidate| *candidate > low && *candidate < high);
     }
+    let mut previous_probe_was_valid = None;
+    for iteration in 0..CONCENTRATED_RESERVE_MAX_ITERS {
+        let width = high - low;
+        if width <= 1 {
+            break;
+        }
+        let midpoint = low + width / 2;
+        let remaining_iterations = CONCENTRATED_RESERVE_MAX_ITERS - iteration;
+        let bisection_iterations_needed = (u128::BITS - (width - 1).leading_zeros()) as usize;
+        let probe = if remaining_iterations <= bisection_iterations_needed {
+            midpoint
+        } else {
+            let secant = low_magnitude
+                .checked_add(high_magnitude)
+                .filter(|sum| *sum > 0)
+                .and_then(|sum| mul_div_floor(width, low_magnitude, sum).ok())
+                .and_then(|offset| low.checked_add(offset))
+                .filter(|candidate| *candidate > low && *candidate < high);
+            safeguarded_newton_probe
+                .take()
+                .filter(|candidate| *candidate > low && *candidate < high)
+                .or(secant)
+                .unwrap_or(midpoint)
+        };
+        let context = geometry
+            .map(|geometry| ConcentratedResidualContext::derive(geometry, fixed, probe))
+            .transpose()?;
+        let evaluation = hybrid_residual_evaluation_with_context(fixed, probe, d, geometry, context)?;
+        let valid = evaluation.positive;
+        let magnitude = evaluation.magnitude;
+        if valid {
+            high = probe;
+            high_magnitude = magnitude;
+            if previous_probe_was_valid == Some(true) {
+                low_magnitude = low_magnitude.div_ceil(2);
+            }
+        } else {
+            low = probe;
+            low_magnitude = magnitude;
+            if previous_probe_was_valid == Some(false) {
+                high_magnitude = high_magnitude.div_ceil(2);
+            }
+        }
+        safeguarded_newton_probe = transition_newton_probe(fixed, probe, evaluation, context)?
+            .filter(|candidate| *candidate > low && *candidate < high);
+        previous_probe_was_valid = Some(valid);
+    }
+    require!(high - low <= 1, ErrorCode::InvariantOverflow);
     Ok((low, high))
 }
 
-/// Proves that the returned upper reserve endpoint is within ten ppm of the
-/// quoted trade amount. The upper endpoint is conservative for both exact-in
-/// and exact-out; failure to prove its accuracy rejects the quote.
-fn prove_variable_upper_bound(
-    fixed: u128,
-    d: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-    low: u128,
-    mut high: u128,
-    trade_amount: u128,
-) -> Result<u128> {
-    if trade_amount == 0 {
-        return Ok(high);
-    }
-    let proof_width = mul_div_u128_ceil(trade_amount, CONCENTRATED_RESERVE_PROOF_PPM, PPM_DENOMINATOR)?.max(1);
-    if high - low <= proof_width {
-        return Ok(high);
-    }
-
-    // A safeguarded Newton solve can finish with a certified non-negative
-    // endpoint that is slightly more than one proof width above the root,
-    // especially when the opposite reserve is deep in a faded-depth tail. Tighten
-    // that endpoint only after proving the lower candidate is also
-    // non-negative; otherwise the negative candidate proves the requested
-    // error bound. Four bounded probes cover the certified extreme-domain
-    // fixtures while preserving fail-closed behavior beyond that budget.
-    for _ in 0..4 {
-        let near_high = high.saturating_sub(proof_width).max(low);
-        if hybrid_residual_sign(fixed, near_high, d, peak_depth_nad, imbalance_scale_nad)? == ResidualSign::Negative {
-            return Ok(high);
-        }
-        high = near_high;
-    }
-    err!(ErrorCode::InvariantOverflow)
-}
-
-fn remains_on_same_tail(start: ConcentratedHybridBranch, end: ConcentratedHybridBranch) -> bool {
-    matches!(
-        (start, end),
-        (
-            ConcentratedHybridBranch::BaseScarceTail,
-            ConcentratedHybridBranch::BaseScarceTail
-        ) | (
-            ConcentratedHybridBranch::QuoteScarceTail,
-            ConcentratedHybridBranch::QuoteScarceTail
-        )
-    )
-}
-
-fn inner_output_along_increasing_x_path(
-    start_branch: ConcentratedHybridBranch,
-    end_branch: ConcentratedHybridBranch,
-    y_before: u128,
-    y_after: u128,
-    d: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<u128> {
-    let raw_output = y_before.checked_sub(y_after).ok_or(ErrorCode::OutputAmountOverflow)?;
-    let inner_output = match (start_branch, end_branch) {
-        (ConcentratedHybridBranch::Inner, ConcentratedHybridBranch::Inner) => raw_output,
-        (ConcentratedHybridBranch::Inner, ConcentratedHybridBranch::QuoteScarceTail) => {
-            let (low_common, _, _) = concentrated_hybrid_shoulder_coordinates(d, peak_depth_nad, imbalance_scale_nad)?;
-            y_before.saturating_sub(low_common)
-        }
-        (ConcentratedHybridBranch::BaseScarceTail, ConcentratedHybridBranch::Inner) => {
-            let (_, high_common, _) = concentrated_hybrid_shoulder_coordinates(d, peak_depth_nad, imbalance_scale_nad)?;
-            high_common.saturating_sub(y_after)
-        }
-        (ConcentratedHybridBranch::BaseScarceTail, ConcentratedHybridBranch::QuoteScarceTail) => {
-            let (low_common, high_common, _) =
-                concentrated_hybrid_shoulder_coordinates(d, peak_depth_nad, imbalance_scale_nad)?;
-            high_common.saturating_sub(low_common)
-        }
-        // Increasing x cannot move from the inner/right branches into the
-        // base-scarce tail. Same-tail paths are handled by exact CPMM before
-        // this helper; return zero defensively for that already-proved case.
-        _ => 0,
-    };
-    Ok(inner_output.min(raw_output))
-}
-
-fn quote_common_exact_in_with_d(
-    x: u128,
-    y: u128,
-    dx: u128,
-    d: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<u128> {
-    if dx == 0 {
-        return Ok(0);
-    }
-    validate_common_reserves(x, y)?;
-    let x_after = x.checked_add(dx).ok_or(ErrorCode::InvariantOverflow)?;
-    validate_common_reserves(x_after, y)?;
-    let start_branch = concentrated_hybrid_branch_from_common(x, y, peak_depth_nad, imbalance_scale_nad)?;
-    if start_branch != ConcentratedHybridBranch::Inner {
-        let cpmm_output = calculate_normalized_amount_out(x, y, dx)?;
-        let cpmm_y_after = y.checked_sub(cpmm_output).ok_or(ErrorCode::OutputAmountOverflow)?;
-        let end_branch =
-            concentrated_hybrid_branch_from_common(x_after, cpmm_y_after, peak_depth_nad, imbalance_scale_nad)?;
-        if remains_on_same_tail(start_branch, end_branch) {
-            return Ok(cpmm_output);
-        }
-    }
-    let (low, high) = solve_variable_reserve(
-        x_after,
-        d,
-        peak_depth_nad,
-        imbalance_scale_nad,
-        1,
-        y,
-        CONCENTRATED_RESERVE_MAX_ITERS,
-    )?;
-    let provisional_output = y.checked_sub(high).ok_or(ErrorCode::OutputAmountOverflow)?;
-    let y_after = prove_variable_upper_bound(
-        x_after,
-        d,
-        peak_depth_nad,
-        imbalance_scale_nad,
-        low,
-        high,
-        provisional_output,
-    )?;
-    let raw_output = y.checked_sub(y_after).ok_or(ErrorCode::OutputAmountOverflow)?;
-    let end_branch = concentrated_hybrid_branch_from_common(x_after, y_after, peak_depth_nad, imbalance_scale_nad)?;
-    // The CPMM branch is solved exactly, so applying the concentrated solver
-    // margin to an earlier/later CPMM segment would create a quote cliff at
-    // the shoulder. Haircut only the output traversed on the inner branch.
-    let inner_output = inner_output_along_increasing_x_path(
-        start_branch,
-        end_branch,
-        y,
-        y_after,
-        d,
-        peak_depth_nad,
-        imbalance_scale_nad,
-    )?;
-    let safety_haircut = mul_div_u128_ceil(inner_output, CONCENTRATED_SOLVER_SAFETY_PPM, PPM_DENOMINATOR)?;
-    raw_output
-        .checked_sub(safety_haircut)
-        .ok_or_else(|| ErrorCode::OutputAmountOverflow.into())
-}
-
-fn quote_common_exact_in(x: u128, y: u128, dx: u128, peak_depth_nad: u128, imbalance_scale_nad: u128) -> Result<u128> {
-    // The upper invariant endpoint is conservative for swaps: holding the
-    // post-trade input reserve fixed, a larger D requires a larger output
-    // reserve. Never price from the lower endpoint because a loose lower
-    // bracket can overpay badly in the fade transition.
-    let d = invariant_common_bracket(x, y, peak_depth_nad, imbalance_scale_nad)?.1;
-    quote_common_exact_in_with_d(x, y, dx, d, peak_depth_nad, imbalance_scale_nad)
-}
-
-/// Returns raw input endpoints bracketing the inverse of an unhaircut output.
-/// The lower endpoint has a negative residual at `y-dy`; therefore feeding it
-/// through exact-in produces strictly less raw output than `dy`. The upper
-/// endpoint has a non-negative residual and therefore produces at least `dy`.
-fn quote_common_raw_exact_out_bracket(
-    x: u128,
-    y: u128,
-    dy: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<(u128, u128)> {
-    require!(dy > 0 && dy < y, ErrorCode::InsufficientLiquidity);
-    let d = invariant_common_bracket(x, y, peak_depth_nad, imbalance_scale_nad)?.1;
-    let y_after = y.checked_sub(dy).ok_or(ErrorCode::InsufficientLiquidity)?;
-
-    // Grow a CPMM-derived sign bracket, then solve that bracket independently.
-    let cpmm_input = mul_div_u128_ceil(dy, x, y_after)?.max(1);
-    let mut multiplier = 1_u128;
-    let mut high = x;
-    let mut bracket_evaluations = 0_usize;
-    let mut bracketed = false;
-    for _ in 0..CONCENTRATED_RESERVE_MAX_ITERS {
-        high = x
-            .checked_add(cpmm_input.checked_mul(multiplier).ok_or(ErrorCode::InvariantOverflow)?)
-            .ok_or(ErrorCode::InvariantOverflow)?
-            .min(MAX_COMMON_RESERVE);
-        bracket_evaluations += 1;
-        if hybrid_residual_sign(y_after, high, d, peak_depth_nad, imbalance_scale_nad)? == ResidualSign::NonNegative {
-            bracketed = true;
-            break;
-        }
-        require!(high < MAX_COMMON_RESERVE, ErrorCode::InsufficientLiquidity);
-        multiplier = multiplier.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?;
-    }
-    require!(bracketed, ErrorCode::InvariantOverflow);
-    let _ = bracket_evaluations;
-    let (low, high) = solve_variable_reserve(
-        y_after,
-        d,
-        peak_depth_nad,
-        imbalance_scale_nad,
-        x,
-        high,
-        CONCENTRATED_RESERVE_MAX_ITERS,
-    )?;
-    let provisional_input = high.checked_sub(x).ok_or(ErrorCode::OutputAmountOverflow)?;
-    let proven_high = prove_variable_upper_bound(
-        y_after,
-        d,
-        peak_depth_nad,
-        imbalance_scale_nad,
-        low,
-        high,
-        provisional_input,
-    )?;
-    Ok((
-        low.checked_sub(x).ok_or(ErrorCode::OutputAmountOverflow)?,
-        proven_high.checked_sub(x).ok_or(ErrorCode::OutputAmountOverflow)?,
-    ))
-}
-
-fn quote_common_exact_out(x: u128, y: u128, dy: u128, peak_depth_nad: u128, imbalance_scale_nad: u128) -> Result<u128> {
-    require!(dy < y, ErrorCode::InsufficientLiquidity);
-    let start_branch = concentrated_hybrid_branch_from_common(x, y, peak_depth_nad, imbalance_scale_nad)?;
-    if start_branch != ConcentratedHybridBranch::Inner {
-        let cpmm_input = calculate_normalized_amount_in(x, y, dy)?;
-        let cpmm_x_after = x.checked_add(cpmm_input).ok_or(ErrorCode::InvariantOverflow)?;
-        let cpmm_y_after = y.checked_sub(dy).ok_or(ErrorCode::InsufficientLiquidity)?;
-        let end_branch =
-            concentrated_hybrid_branch_from_common(cpmm_x_after, cpmm_y_after, peak_depth_nad, imbalance_scale_nad)?;
-        if remains_on_same_tail(start_branch, end_branch) {
-            return Ok(cpmm_input);
-        }
-    }
-
-    // Exact-in subtracts at most ceil(raw_output*h) because its inner segment
-    // can never exceed total raw output. For
-    //   gross = ceil(requested*N/(N-h)),
-    // floor(gross*(N-h)/N) >= requested. The upper raw inverse endpoint has a
-    // non-negative residual at `y-gross`; replaying it through the same
-    // certified D therefore returns at least gross before the haircut and at
-    // least `dy` after it. No guessed input premium or replay loop is needed.
-    let gross_output_denominator = PPM_DENOMINATOR
-        .checked_sub(CONCENTRATED_SOLVER_SAFETY_PPM)
-        .ok_or(ErrorCode::InvariantOverflow)?;
-    let gross_dy = mul_div_u128_ceil(dy, PPM_DENOMINATOR, gross_output_denominator)?;
-    require!(gross_dy < y, ErrorCode::InsufficientLiquidity);
-    Ok(quote_common_raw_exact_out_bracket(x, y, gross_dy, peak_depth_nad, imbalance_scale_nad)?.1)
-}
-
-/// Conservative exact-input quote over raw NAD-normalized asset reserves.
+#[cfg(test)]
 pub(crate) fn concentrated_quote_exact_in(
     base_reserve_nad: u128,
     quote_reserve_nad: u128,
@@ -2188,9 +2298,9 @@ pub(crate) fn concentrated_quote_exact_in(
     direction: ConcentratedSwapDirection,
     center_price_nad: u128,
     peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
+    fade_scale_nad: u128,
 ) -> Result<u128> {
-    validate_parameters(center_price_nad, peak_depth_nad, imbalance_scale_nad)?;
+    validate_parameters(center_price_nad, peak_depth_nad, fade_scale_nad)?;
     if amount_in_nad == 0 {
         return Ok(0);
     }
@@ -2204,48 +2314,16 @@ pub(crate) fn concentrated_quote_exact_in(
             }
         };
     }
-    if let Some(output) = exact_cpmm_tail_in_raw(
+    let prepared = concentrated_prepare_curve(
         base_reserve_nad,
         quote_reserve_nad,
-        amount_in_nad,
-        direction,
         center_price_nad,
         peak_depth_nad,
-        imbalance_scale_nad,
-    )? {
-        return Ok(output);
-    }
-
-    let (base_common, quote_common) = normalize_reserves(base_reserve_nad, quote_reserve_nad, center_price_nad)?;
-    match direction {
-        ConcentratedSwapDirection::BaseToQuote => {
-            let input_common = base_to_common(amount_in_nad, center_price_nad)?;
-            if input_common == 0 {
-                return Ok(0);
-            }
-            quote_common_exact_in(
-                base_common,
-                quote_common,
-                input_common,
-                peak_depth_nad,
-                imbalance_scale_nad,
-            )
-        }
-        ConcentratedSwapDirection::QuoteToBase => {
-            let output_common = quote_common_exact_in(
-                quote_common,
-                base_common,
-                amount_in_nad,
-                peak_depth_nad,
-                imbalance_scale_nad,
-            )?;
-            common_to_base_floor(output_common, center_price_nad)
-        }
-    }
+        fade_scale_nad,
+    )?;
+    prepared.quote_exact_in(amount_in_nad, direction)
 }
 
-/// Returns a conservative input guaranteed to produce at least
-/// `amount_out_nad` when replayed through exact-in.
 pub(crate) fn concentrated_quote_exact_out(
     base_reserve_nad: u128,
     quote_reserve_nad: u128,
@@ -2253,73 +2331,23 @@ pub(crate) fn concentrated_quote_exact_out(
     direction: ConcentratedSwapDirection,
     center_price_nad: u128,
     peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
+    fade_scale_nad: u128,
 ) -> Result<u128> {
-    validate_parameters(center_price_nad, peak_depth_nad, imbalance_scale_nad)?;
     if amount_out_nad == 0 {
         return Ok(0);
     }
-    let output_reserve = match direction {
-        ConcentratedSwapDirection::BaseToQuote => quote_reserve_nad,
-        ConcentratedSwapDirection::QuoteToBase => base_reserve_nad,
-    };
-    require!(amount_out_nad < output_reserve, ErrorCode::InsufficientLiquidity);
-
-    if peak_depth_nad == 0 {
-        return match direction {
-            ConcentratedSwapDirection::BaseToQuote => {
-                calculate_normalized_amount_in(base_reserve_nad, quote_reserve_nad, amount_out_nad)
-            }
-            ConcentratedSwapDirection::QuoteToBase => {
-                calculate_normalized_amount_in(quote_reserve_nad, base_reserve_nad, amount_out_nad)
-            }
-        };
-    }
-    if let Some(input) = exact_cpmm_tail_out_raw(
+    Ok(concentrated_prepare_curve(
         base_reserve_nad,
         quote_reserve_nad,
-        amount_out_nad,
-        direction,
         center_price_nad,
         peak_depth_nad,
-        imbalance_scale_nad,
-    )? {
-        return Ok(input);
-    }
-
-    let (base_common, quote_common) = normalize_reserves(base_reserve_nad, quote_reserve_nad, center_price_nad)?;
-    match direction {
-        ConcentratedSwapDirection::BaseToQuote => {
-            let input_common = quote_common_exact_out(
-                base_common,
-                quote_common,
-                amount_out_nad,
-                peak_depth_nad,
-                imbalance_scale_nad,
-            )?;
-            common_to_base_ceil(input_common, center_price_nad)
-        }
-        ConcentratedSwapDirection::QuoteToBase => {
-            let output_common = base_to_common_ceil(amount_out_nad, center_price_nad)?;
-            quote_common_exact_out(
-                quote_common,
-                base_common,
-                output_common,
-                peak_depth_nad,
-                imbalance_scale_nad,
-            )
-        }
-    }
+        fade_scale_nad,
+    )?
+    .quote_exact_out_input_bracket(amount_out_nad, direction)?
+    .1)
 }
 
-/// Returns a proven lower bound on the input consumed by the smallest
-/// executable exact-in quote that can cover `amount_out_nad`.
-///
-/// In a pure CPMM segment the closed-form inverse is exact. Otherwise this
-/// returns the negative endpoint of the raw invariant inverse bracket,
-/// rounded down when converting common value back to the base asset. Because
-/// executable exact-in can only subtract an output haircut, this endpoint can
-/// never overstate already-utilized collateral.
+#[cfg(test)]
 pub(crate) fn concentrated_quote_exact_out_input_lower_bound(
     base_reserve_nad: u128,
     quote_reserve_nad: u128,
@@ -2327,288 +2355,171 @@ pub(crate) fn concentrated_quote_exact_out_input_lower_bound(
     direction: ConcentratedSwapDirection,
     center_price_nad: u128,
     peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
+    fade_scale_nad: u128,
 ) -> Result<u128> {
-    validate_parameters(center_price_nad, peak_depth_nad, imbalance_scale_nad)?;
     if amount_out_nad == 0 {
         return Ok(0);
-    }
-    let output_reserve = match direction {
-        ConcentratedSwapDirection::BaseToQuote => quote_reserve_nad,
-        ConcentratedSwapDirection::QuoteToBase => base_reserve_nad,
-    };
-    require!(amount_out_nad < output_reserve, ErrorCode::InsufficientLiquidity);
-
-    if peak_depth_nad == 0 {
-        return match direction {
-            ConcentratedSwapDirection::BaseToQuote => {
-                calculate_normalized_amount_in(base_reserve_nad, quote_reserve_nad, amount_out_nad)
-            }
-            ConcentratedSwapDirection::QuoteToBase => {
-                calculate_normalized_amount_in(quote_reserve_nad, base_reserve_nad, amount_out_nad)
-            }
-        };
-    }
-    if let Some(input) = exact_cpmm_tail_out_raw(
-        base_reserve_nad,
-        quote_reserve_nad,
-        amount_out_nad,
-        direction,
-        center_price_nad,
-        peak_depth_nad,
-        imbalance_scale_nad,
-    )? {
-        return Ok(input);
-    }
-
-    let (base_common, quote_common) = normalize_reserves(base_reserve_nad, quote_reserve_nad, center_price_nad)?;
-    match direction {
-        ConcentratedSwapDirection::BaseToQuote => {
-            let lower_common = quote_common_raw_exact_out_bracket(
-                base_common,
-                quote_common,
-                amount_out_nad,
-                peak_depth_nad,
-                imbalance_scale_nad,
-            )?
-            .0;
-            common_to_base_floor(lower_common, center_price_nad)
-        }
-        ConcentratedSwapDirection::QuoteToBase => {
-            // This is the smallest common-coordinate output whose floor
-            // conversion can reach the requested raw base amount. A negative
-            // inverse endpoint below it therefore remains a valid raw bound.
-            let output_common = base_to_common_ceil(amount_out_nad, center_price_nad)?;
-            Ok(quote_common_raw_exact_out_bracket(
-                quote_common,
-                base_common,
-                output_common,
-                peak_depth_nad,
-                imbalance_scale_nad,
-            )?
-            .0)
-        }
-    }
-}
-
-/// Q = D / (2*sqrt(center)) in fixed-point form:
-/// `Q^2 = D^2*NAD/(4*center_nad)`.
-pub(crate) fn concentrated_balanced_equivalent_q(invariant_d: u128, center_price_nad: u128) -> Result<u128> {
-    require!(center_price_nad > 0, ErrorCode::InvalidArgument);
-    let numerator = U256::from(invariant_d)
-        .checked_mul(U256::from(invariant_d))
-        .and_then(|value| value.checked_mul(U256::from(NAD)))
-        .ok_or(ErrorCode::InvariantOverflow)?;
-    let denominator = U256::from(center_price_nad)
-        .checked_mul(U256::from(4_u8))
-        .ok_or(ErrorCode::InvariantOverflow)?;
-    sqrt_u256_to_u128(numerator / denominator)
-}
-
-fn concentrated_inner_marginal_price_from_common(
-    x: u128,
-    y: u128,
-    d: u128,
-    center_price_nad: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<u128> {
-    // The cross-multiplied residual is smooth, so its exact partial
-    // derivatives define the implicit local slope without finite-difference
-    // probes or a rounded effective-depth coordinate.
-    let ((x_sign, x_derivative), (y_sign, y_derivative)) =
-        reserve_residual_derivatives(x, y, d, peak_depth_nad, imbalance_scale_nad)?;
-    require!(
-        x_sign == ResidualSign::NonNegative
-            && y_sign == ResidualSign::NonNegative
-            && !x_derivative.is_zero()
-            && !y_derivative.is_zero(),
-        ErrorCode::InvariantOverflow
-    );
-
-    let numerator = checked_mul_512(
-        checked_mul_512(x_derivative, U512::from(center_price_nad))?,
-        U512::from(y),
-    )?;
-    let denominator = checked_mul_512(y_derivative, U512::from(x))?;
-    let scaled = numerator / denominator;
-    require!(scaled <= U512::from(u128::MAX), ErrorCode::InvariantOverflow);
-    Ok(scaled.as_u128())
-}
-
-/// Canonical branch-aware gradient at the conservative executable D_high
-/// parameter. The dedicated positive kernel cancels only exact common factors;
-/// the result is identical to evaluating the general signed gradient at the
-/// same D_high endpoint.
-fn concentrated_canonical_high_inner_marginal_price_from_common(
-    x: u128,
-    y: u128,
-    d_high: u128,
-    center_price_nad: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<u128> {
-    let (x_core, y_core) =
-        canonical_high_reserve_residual_derivative_cores(x, y, d_high, peak_depth_nad, imbalance_scale_nad)?;
-
-    // The live center and both common reserves are u64. Scalar limb kernels
-    // are exact here and materially cheaper on SBF than one generic U512
-    // multiplication by their combined u128 product. Retain the checked wide
-    // fallback for direct math callers with a center outside the state domain.
-    let numerator = if let Ok(center_u64) = u64::try_from(center_price_nad) {
-        (x_core * y as u64) * center_u64
-    } else {
-        checked_mul_512(x_core * y as u64, U512::from(center_price_nad))?
-    };
-    let denominator = y_core * x as u64;
-    let scaled = numerator / denominator;
-    require!(scaled <= U512::from(u128::MAX), ErrorCode::InvariantOverflow);
-    Ok(scaled.as_u128())
-}
-
-/// Returns the base->quote marginal of the selected hybrid branch. The CPMM
-/// tails use `center*y/x` exactly; the central branch keeps the original
-/// implicit derivative. At exact shoulder equality this directional API uses
-/// the derivative followed by an infinitesimal base input: CPMM on the
-/// quote-scarce/outward shoulder, inner on the base-scarce/restoring shoulder.
-pub(crate) fn concentrated_marginal_price_from_common(
-    x: u128,
-    y: u128,
-    d: u128,
-    center_price_nad: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<u128> {
-    let relation = concentrated_hybrid_shoulder_relation(x, y, peak_depth_nad, imbalance_scale_nad)?;
-    let use_cpmm = relation == Ordering::Less || (relation == Ordering::Equal && x >= y);
-    if use_cpmm {
-        mul_div_u128(y, center_price_nad, x)
-    } else {
-        concentrated_inner_marginal_price_from_common(x, y, d, center_price_nad, peak_depth_nad, imbalance_scale_nad)
-    }
-}
-
-/// Builds the canonical `delta = imbalance_scale` shoulder for a supplied D.
-/// Coordinates are integer approximations of the exact homogeneous boundary;
-/// both one-sided marginal prices are evaluated from those same coordinates.
-fn concentrated_hybrid_shoulder_coordinates(
-    d: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<(u128, u128, u128)> {
-    require!(d > 0 && peak_depth_nad > 0, ErrorCode::InvalidArgument);
-    require!(
-        imbalance_scale_nad > 0 && imbalance_scale_nad < NAD as u128,
-        ErrorCode::InvalidArgument
-    );
-    let one_minus_scale = (NAD as u128)
-        .checked_sub(imbalance_scale_nad)
-        .ok_or(ErrorCode::InvariantOverflow)?;
-    let a = U256::from(peak_depth_nad)
-        .checked_mul(U256::from(one_minus_scale))
-        .ok_or(ErrorCode::InvariantOverflow)?;
-    let c = a
-        .checked_add(
-            U256::from(2_u8)
-                .checked_mul(U256::from(imbalance_scale_nad))
-                .and_then(|value| value.checked_mul(U256::from(NAD)))
-                .ok_or(ErrorCode::InvariantOverflow)?,
-        )
-        .ok_or(ErrorCode::InvariantOverflow)?;
-    let sum = u256_to_u128(U256::from(d).checked_mul(c).ok_or(ErrorCode::InvariantOverflow)? / a)?;
-    let product = u256_to_u128(
-        U256::from(d)
-            .checked_mul(U256::from(d))
-            .and_then(|value| value.checked_mul(U256::from(one_minus_scale)))
-            .ok_or(ErrorCode::InvariantOverflow)?
-            / U256::from(4 * NAD as u128),
-    )?;
-    let discriminant = U256::from(sum)
-        .checked_mul(U256::from(sum))
-        .and_then(|value| value.checked_sub(U256::from(product).checked_mul(U256::from(4_u8))?))
-        .ok_or(ErrorCode::InvariantOverflow)?;
-    let difference = sqrt_u256_to_u128(discriminant)?;
-    let low_common = sum.checked_sub(difference).ok_or(ErrorCode::InvariantOverflow)? / 2;
-    let high_common = sum.checked_sub(low_common).ok_or(ErrorCode::InvariantOverflow)?;
-    validate_common_reserves(low_common, high_common)?;
-
-    Ok((low_common, high_common, product))
-}
-
-pub(crate) fn concentrated_hybrid_shoulder_from_d(
-    d: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<ConcentratedHybridShoulder> {
-    let (low_common, high_common, product) =
-        concentrated_hybrid_shoulder_coordinates(d, peak_depth_nad, imbalance_scale_nad)?;
-
-    let inner_low_marginal_nad = concentrated_inner_marginal_price_from_common(
-        high_common,
-        low_common,
-        d,
-        NAD as u128,
-        peak_depth_nad,
-        imbalance_scale_nad,
-    )?;
-    let tail_low_marginal_nad = mul_div_u128(low_common, NAD as u128, high_common)?;
-    Ok(ConcentratedHybridShoulder {
-        low_common,
-        high_common,
-        tail_product_common: product,
-        inner_low_marginal_nad,
-        tail_low_marginal_nad,
-    })
-}
-
-/// Returns the deterministic canonical base-to-quote mark. Zero peak depth
-/// uses raw CPMM reserves. Positive peak depth certifies the protocol-fixed
-/// shoulder branch once and evaluates its gradient at the same conservative
-/// `D_high` parameter used by exact-in execution. D_high is a certified upper
-/// endpoint; supported-domain tests bound this convention against the
-/// independent true-root marginal reference to 25 ppm.
-pub(crate) fn concentrated_marginal_price_nad(
-    base_reserve_nad: u128,
-    quote_reserve_nad: u128,
-    center_price_nad: u128,
-    peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
-) -> Result<u128> {
-    validate_parameters(center_price_nad, peak_depth_nad, imbalance_scale_nad)?;
-    require!(
-        base_reserve_nad > 0 && quote_reserve_nad > 0,
-        ErrorCode::InvalidArgument
-    );
-    if peak_depth_nad == 0 {
-        return mul_div_u128(quote_reserve_nad, NAD as u128, base_reserve_nad);
     }
     Ok(concentrated_prepare_curve(
         base_reserve_nad,
         quote_reserve_nad,
         center_price_nad,
         peak_depth_nad,
-        imbalance_scale_nad,
+        fade_scale_nad,
     )?
-    .evaluation()?
-    .marginal_price_nad)
+    .quote_exact_out_input_bracket(amount_out_nad, direction)?
+    .0)
 }
 
-/// Evaluates all recenter/ramp gate values for arbitrary candidate parameters
-/// without changing market state.
+fn scale_price_ratio_q32(center_price_nad: u128, price_ratio_q32: u128) -> Result<u128> {
+    let whole = center_price_nad
+        .checked_mul(price_ratio_q32 >> PRICE_BITS)
+        .ok_or(ErrorCode::InvariantOverflow)?;
+    let fractional = center_price_nad
+        .checked_mul(price_ratio_q32 & (PRICE_ONE - 1))
+        .ok_or(ErrorCode::InvariantOverflow)?
+        >> PRICE_BITS;
+    whole
+        .checked_add(fractional)
+        .ok_or_else(|| ErrorCode::InvariantOverflow.into())
+}
+
+fn concentrated_marginal_price_from_common_with_geometry(
+    x: u128,
+    y: u128,
+    d: u128,
+    center_price_nad: u128,
+    peak_depth_nad: u128,
+    fade_scale_nad: u128,
+    geometry: ConcentratedC1Geometry,
+) -> Result<u128> {
+    let context = ConcentratedResidualContext::derive(geometry, x, y)?;
+    match context.branch {
+        ConcentratedHybridBranch::Inner => {
+            validate_common_reserves(x, y)?;
+            let q = balance_factor_q48(x, y, d)?;
+            let peak = to_q48_nad(peak_depth_nad)?;
+            let scale = to_q48_nad(fade_scale_nad)?;
+            let delta = Q48_ONE.saturating_sub(q.min(Q48_ONE));
+            let weight_base = div_q48(scale, scale.checked_add(delta).ok_or(ErrorCode::InvariantOverflow)?)?;
+            let weight = mul_q48(weight_base, weight_base)?;
+            let coefficient = mul_q48(
+                peak.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?,
+                mul_q48(q, weight)?,
+            )?;
+            let interaction = div_q48(
+                q.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?,
+                scale.checked_add(delta).ok_or(ErrorCode::InvariantOverflow)?,
+            )?;
+            let shape = Q48_ONE.checked_add(interaction).ok_or(ErrorCode::InvariantOverflow)?;
+            let sum = x.checked_add(y).ok_or(ErrorCode::InvariantOverflow)?;
+            let h_d = sum.saturating_sub(d);
+            let shared = mul_scalar_q48(h_d, shape)?;
+            let x_shape = shared.checked_add(x).ok_or(ErrorCode::InvariantOverflow)?;
+            let y_shape = shared.checked_add(y).ok_or(ErrorCode::InvariantOverflow)?;
+            let q_d = mul_scalar_q48(d, q)?;
+            let x_core = mul_scalar_q48(x_shape, coefficient)?
+                .checked_add(q_d)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            let y_core = mul_scalar_q48(y_shape, coefficient)?
+                .checked_add(q_d)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            require!(x_core > 0 && y_core > 0, ErrorCode::InvariantOverflow);
+
+            // In the inner branch y/x and x_core/y_core move in opposite
+            // directions. Q32 is sufficient for the protocol's 25 ppm price
+            // budget and keeps their product below u128.
+            let reserve_ratio = ratio_q32(y, x)?;
+            let core_ratio = ratio_q32(x_core, y_core)?;
+            let price_ratio = reserve_ratio
+                .checked_mul(core_ratio)
+                .map(|value| value >> PRICE_BITS)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            scale_price_ratio_q32(center_price_nad, price_ratio)
+        }
+        ConcentratedHybridBranch::BaseScarceTail | ConcentratedHybridBranch::QuoteScarceTail => {
+            mul_div_floor(y, center_price_nad, x)
+        }
+        ConcentratedHybridBranch::BaseScarceTransition | ConcentratedHybridBranch::QuoteScarceTransition => {
+            let q = context.target_q64 >> (Q64_BITS - Q48_BITS);
+            let negative_q_prime = context.transition_negative_q_prime_q64 >> (Q64_BITS - Q48_BITS);
+            let cosh = context.transition_cosh_q64 >> (Q64_BITS - Q48_BITS);
+            let slope_ratio = div_q48(
+                mul_q48(negative_q_prime, cosh)?,
+                q.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?,
+            )?;
+            require!(slope_ratio < Q48_ONE, ErrorCode::InvariantOverflow);
+            let lower = Q48_ONE.checked_sub(slope_ratio).ok_or(ErrorCode::InvariantOverflow)?;
+            let upper = Q48_ONE.checked_add(slope_ratio).ok_or(ErrorCode::InvariantOverflow)?;
+            let reserve_ratio_q32 = ratio_q32(y, x)?;
+            let price_ratio_q32 = if y >= x {
+                mul_div_floor(reserve_ratio_q32, lower, upper)?
+            } else {
+                mul_div_floor(reserve_ratio_q32, upper, lower)?
+            };
+            scale_price_ratio_q32(center_price_nad, price_ratio_q32)
+        }
+    }
+}
+
+pub(crate) fn concentrated_marginal_price_from_common(
+    x: u128,
+    y: u128,
+    d: u128,
+    center_price_nad: u128,
+    peak_depth_nad: u128,
+    fade_scale_nad: u128,
+) -> Result<u128> {
+    concentrated_marginal_price_from_common_with_geometry(
+        x,
+        y,
+        d,
+        center_price_nad,
+        peak_depth_nad,
+        fade_scale_nad,
+        ConcentratedC1Geometry::derive(peak_depth_nad, fade_scale_nad)?,
+    )
+}
+
+pub(crate) fn concentrated_marginal_price_nad(
+    base_reserve_nad: u128,
+    quote_reserve_nad: u128,
+    center_price_nad: u128,
+    peak_depth_nad: u128,
+    fade_scale_nad: u128,
+) -> Result<u128> {
+    validate_parameters(center_price_nad, peak_depth_nad, fade_scale_nad)?;
+    require!(
+        base_reserve_nad > 0 && quote_reserve_nad > 0,
+        ErrorCode::InvalidArgument
+    );
+    if peak_depth_nad == 0 {
+        return mul_div_floor(quote_reserve_nad, NAD as u128, base_reserve_nad);
+    }
+    concentrated_prepare_curve(
+        base_reserve_nad,
+        quote_reserve_nad,
+        center_price_nad,
+        peak_depth_nad,
+        fade_scale_nad,
+    )?
+    .marginal_price_nad()
+}
+
 #[cfg(test)]
 pub(crate) fn concentrated_evaluate(
     base_reserve_nad: u128,
     quote_reserve_nad: u128,
     center_price_nad: u128,
     peak_depth_nad: u128,
-    imbalance_scale_nad: u128,
+    fade_scale_nad: u128,
 ) -> Result<ConcentratedEvaluation> {
     concentrated_prepare_curve(
         base_reserve_nad,
         quote_reserve_nad,
         center_price_nad,
         peak_depth_nad,
-        imbalance_scale_nad,
+        fade_scale_nad,
     )?
     .evaluation()
 }

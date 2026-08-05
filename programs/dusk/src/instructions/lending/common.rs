@@ -31,54 +31,7 @@ pub(super) fn validate_collateral_accounts<'info>(
     Ok(market_asset)
 }
 
-pub(super) fn validate_borrow_accounts<'info>(
-    market: &Account<'info, Market>,
-    owner: Pubkey,
-    debt_asset_mint: &InterfaceAccount<'info, Mint>,
-    collateral_asset_mint: &InterfaceAccount<'info, Mint>,
-    reserve_vault: &InterfaceAccount<'info, TokenAccount>,
-    owner_debt_account: &InterfaceAccount<'info, TokenAccount>,
-) -> Result<MarketAsset> {
-    let borrow_asset = market.asset_for_mint(debt_asset_mint.key())?;
-    let debt_side = market.side(borrow_asset);
-    let collateral_side = market.side(borrow_asset.opposite());
-    validate_debt_reserve_accounts(
-        market,
-        debt_side,
-        owner,
-        debt_asset_mint,
-        reserve_vault,
-        owner_debt_account,
-    )?;
-    require_keys_eq!(
-        collateral_side.asset_mint,
-        collateral_asset_mint.key(),
-        ErrorCode::InvalidMint
-    );
-    Ok(borrow_asset)
-}
-
-pub(super) fn validate_repay_accounts<'info>(
-    market: &Account<'info, Market>,
-    owner: Pubkey,
-    debt_asset_mint: &InterfaceAccount<'info, Mint>,
-    reserve_vault: &InterfaceAccount<'info, TokenAccount>,
-    owner_debt_account: &InterfaceAccount<'info, TokenAccount>,
-) -> Result<MarketAsset> {
-    let repay_asset = market.asset_for_mint(debt_asset_mint.key())?;
-    let debt_side = market.side(repay_asset);
-    validate_debt_reserve_accounts(
-        market,
-        debt_side,
-        owner,
-        debt_asset_mint,
-        reserve_vault,
-        owner_debt_account,
-    )?;
-    Ok(repay_asset)
-}
-
-fn validate_debt_reserve_accounts<'info>(
+pub(super) fn validate_debt_reserve_accounts<'info>(
     market: &Account<'info, Market>,
     debt_side: &MarketSide,
     owner: Pubkey,

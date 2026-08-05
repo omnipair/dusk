@@ -1,0 +1,11 @@
+[package]
+name = "token_metadata_fixture"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+solana-program = "2.2.1"

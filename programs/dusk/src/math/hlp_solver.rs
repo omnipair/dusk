@@ -8,11 +8,11 @@
 //!
 //! In Omnipair the pre-adjustment is a *price-neutral synthetic deepening*, so
 //! it changes the realized `r` (endogenous): the production `Δpre` is the fixed
-//! point `a = E0 * (sqrt(r(a)) - 1)`, solved with bounded bisection over the
-//! real swap simulator. These functions are the numeraire-only building blocks
-//! (loss estimate, closed-form guess, root finder); the market-state
-//! orchestration runs only when the estimated tracking loss exceeds the
-//! configured threshold.
+//! point `a = E0 * (sqrt(r(a)) - 1)`, approximated by the protocol-fixed
+//! three-evaluation safeguarded secant predictor over the real swap simulator.
+//! These functions are the numeraire-only building blocks (loss estimate and
+//! closed-form seed); market-state orchestration runs only when estimated
+//! tracking loss exceeds the configured threshold.
 //!
 //! All ratios/amounts are NAD fixed point (`NAD == 1.0`).
 
@@ -20,17 +20,6 @@ use anchor_lang::prelude::*;
 
 use crate::constants::NAD;
 use crate::errors::ErrorCode;
-
-#[allow(clippy::assign_op_pattern, clippy::manual_div_ceil)]
-mod exposure_wide {
-    use uint::construct_uint;
-
-    construct_uint! {
-        pub struct U256(4);
-    }
-}
-
-use exposure_wide::U256;
 
 /// The hLP's yLP inventory and opposite-asset debt, all valued in the target
 /// asset's NAD numeraire at the AMM curve's actual marginal price.
@@ -59,13 +48,12 @@ pub struct HlpProportionalAdjustmentNad {
     pub debt_value_delta_nad: i128,
 }
 
-fn signed_from_magnitude(magnitude: U256, negative: bool) -> Result<i128> {
-    let negative_limit = U256::from(1_u128 << 127);
-    let positive_limit = U256::from(i128::MAX as u128);
+fn signed_from_magnitude(magnitude: u128, negative: bool) -> Result<i128> {
+    let negative_limit = 1_u128 << 127;
+    let positive_limit = i128::MAX as u128;
     let limit = if negative { negative_limit } else { positive_limit };
     require!(magnitude <= limit, ErrorCode::MarketMathOverflow);
 
-    let magnitude = magnitude.as_u128();
     if !negative {
         return i128::try_from(magnitude).map_err(|_| ErrorCode::MarketMathOverflow.into());
     }
@@ -78,26 +66,70 @@ fn signed_from_magnitude(magnitude: U256, negative: bool) -> Result<i128> {
         .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
-fn signed_difference(left: u128, right: u128) -> Result<i128> {
-    if left >= right {
-        signed_from_magnitude(U256::from(left - right), false)
-    } else {
-        signed_from_magnitude(U256::from(right - left), true)
-    }
-}
-
 fn signed_with_direction(magnitude: u128, negative: bool) -> Result<i128> {
-    signed_from_magnitude(U256::from(magnitude), negative)
+    signed_from_magnitude(magnitude, negative)
 }
 
-fn mul_div_u128_full_width(value: u128, numerator: u128, denominator: U256) -> Result<u128> {
-    require!(!denominator.is_zero(), ErrorCode::DenominatorOverflow);
-    let result = U256::from(value)
-        .checked_mul(U256::from(numerator))
-        .ok_or(ErrorCode::MarketMathOverflow)?
-        / denominator;
-    require!(result <= U256::from(u128::MAX), ErrorCode::MarketMathOverflow);
-    Ok(result.as_u128())
+/// Exact `floor(value * numerator / denominator)` with a checked u128 result.
+///
+/// The ordinary path is one native multiply and divide. If the product is
+/// wider than u128, binary quotient/remainder accumulation keeps only a
+/// denominator-bounded remainder and fails as soon as the quotient itself no
+/// longer fits. No software big-integer limbs are used.
+pub(crate) fn mul_div_rem_u128(value: u128, numerator: u128, denominator: u128) -> Result<(u128, u128)> {
+    require!(denominator > 0, ErrorCode::DenominatorOverflow);
+    if value == 0 || numerator == 0 {
+        return Ok((0, 0));
+    }
+    if let Some(product) = value.checked_mul(numerator) {
+        return Ok((product / denominator, product % denominator));
+    }
+
+    let whole = value / denominator;
+    let base_quotient = whole.checked_mul(numerator).ok_or(ErrorCode::MarketMathOverflow)?;
+    let addend = value % denominator;
+    let mut quotient = 0_u128;
+    let mut remainder = 0_u128;
+
+    for bit in (0..128).rev() {
+        let carry = if remainder >= denominator - remainder {
+            remainder -= denominator - remainder;
+            1_u128
+        } else {
+            remainder += remainder;
+            0_u128
+        };
+        quotient = quotient
+            .checked_mul(2)
+            .and_then(|result| result.checked_add(carry))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+
+        if (numerator >> bit) & 1 == 1 {
+            let carry = if remainder >= denominator - addend {
+                remainder -= denominator - addend;
+                1_u128
+            } else {
+                remainder += addend;
+                0_u128
+            };
+            quotient = quotient.checked_add(carry).ok_or(ErrorCode::MarketMathOverflow)?;
+        }
+    }
+    let quotient = base_quotient
+        .checked_add(quotient)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    Ok((quotient, remainder))
+}
+
+pub(crate) fn mul_div_u128(value: u128, numerator: u128, denominator: u128) -> Result<u128> {
+    Ok(mul_div_rem_u128(value, numerator, denominator)?.0)
+}
+
+pub(crate) fn mul_div_ceil_u128(value: u128, numerator: u128, denominator: u128) -> Result<u128> {
+    let (quotient, remainder) = mul_div_rem_u128(value, numerator, denominator)?;
+    quotient
+        .checked_add(u128::from(remainder != 0))
+        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
 /// Compare two unsigned ratios without overflowing their u128 cross-products.
@@ -113,13 +145,43 @@ pub(crate) fn ratio_lte_full_width(
         left_denominator > 0 && right_denominator > 0,
         ErrorCode::DenominatorOverflow
     );
-    let left = U256::from(left_numerator)
-        .checked_mul(U256::from(right_denominator))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let right = U256::from(right_numerator)
-        .checked_mul(U256::from(left_denominator))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    Ok(left <= right)
+    if let (Some(left), Some(right)) = (
+        left_numerator.checked_mul(right_denominator),
+        right_numerator.checked_mul(left_denominator),
+    ) {
+        return Ok(left <= right);
+    }
+
+    // Continued fractions compare the exact ratios without cross-products.
+    // Each reciprocal step strictly reduces a denominator, so this is bounded
+    // by the Euclidean algorithm rather than an open-ended numeric search.
+    let (mut left_n, mut left_d) = (left_numerator, left_denominator);
+    let (mut right_n, mut right_d) = (right_numerator, right_denominator);
+    let mut reversed = false;
+    loop {
+        let left_whole = left_n / left_d;
+        let right_whole = right_n / right_d;
+        if left_whole != right_whole {
+            return Ok(if reversed {
+                left_whole > right_whole
+            } else {
+                left_whole < right_whole
+            });
+        }
+
+        let left_remainder = left_n % left_d;
+        let right_remainder = right_n % right_d;
+        match (left_remainder == 0, right_remainder == 0) {
+            (true, true) => return Ok(true),
+            (true, false) => return Ok(!reversed),
+            (false, true) => return Ok(reversed),
+            (false, false) => {
+                (left_n, left_d) = (left_d, left_remainder);
+                (right_n, right_d) = (right_d, right_remainder);
+                reversed = !reversed;
+            }
+        }
+    }
 }
 
 /// Local hLP exposure to the opposite asset, in target-value NAD:
@@ -133,46 +195,11 @@ pub(crate) fn ratio_lte_full_width(
 /// debt move with price. The hLP is therefore delta-neutral exactly when their
 /// values are equal.
 pub fn hlp_opposite_exposure_nad(values: HlpInventoryValuesNad) -> Result<i128> {
-    signed_difference(values.opposite_inventory_value_nad, values.debt_value_nad)
-}
-
-/// Ideal total value of a self-financing *proportional* liquidity adjustment.
-///
-/// Let `T` and `O` be the actual target/opposite yLP inventory values, `D` the
-/// opposite debt value, and `C = T + O`. Adding total liquidity value `L`
-/// changes the inventory by `(L*T/C, L*O/C)` and changes debt by `L`. The
-/// post-adjustment opposite exposure is:
-///
-/// ```text
-/// O + L*O/C - (D + L) = (O - D) - L*T/C
-/// ```
-///
-/// Setting it to zero gives `L = (O - D) * C / T`. Positive `L` leverages up;
-/// negative `L` deleverages. When `T == O`, this reduces exactly to the legacy
-/// CPMM expression `C - 2*D`.
-///
-/// Integer division rounds the magnitude toward zero. Combined with
-/// [`allocate_hlp_proportional_adjustment_nad`], the remaining exposure is at
-/// most one NAD unit before feasibility caps.
-pub fn ideal_hlp_proportional_adjustment_nad(values: HlpInventoryValuesNad) -> Result<i128> {
-    let (residual_magnitude, negative) = if values.opposite_inventory_value_nad >= values.debt_value_nad {
-        (values.opposite_inventory_value_nad - values.debt_value_nad, false)
+    if values.opposite_inventory_value_nad >= values.debt_value_nad {
+        signed_from_magnitude(values.opposite_inventory_value_nad - values.debt_value_nad, false)
     } else {
-        (values.debt_value_nad - values.opposite_inventory_value_nad, true)
-    };
-    if residual_magnitude == 0 {
-        return Ok(0);
+        signed_from_magnitude(values.debt_value_nad - values.opposite_inventory_value_nad, true)
     }
-    require!(values.target_inventory_value_nad > 0, ErrorCode::DenominatorOverflow);
-
-    let collateral_value = U256::from(values.target_inventory_value_nad)
-        .checked_add(U256::from(values.opposite_inventory_value_nad))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let adjustment_magnitude = U256::from(residual_magnitude)
-        .checked_mul(collateral_value)
-        .ok_or(ErrorCode::MarketMathOverflow)?
-        / U256::from(values.target_inventory_value_nad);
-    signed_from_magnitude(adjustment_magnitude, negative)
 }
 
 /// Splits a signed total liquidity change according to the hLP's *actual*
@@ -190,15 +217,15 @@ pub fn allocate_hlp_proportional_adjustment_nad(
         return Ok(HlpProportionalAdjustmentNad::default());
     }
 
-    let collateral_value = U256::from(values.target_inventory_value_nad)
-        .checked_add(U256::from(values.opposite_inventory_value_nad))
+    let collateral_value = values
+        .target_inventory_value_nad
+        .checked_add(values.opposite_inventory_value_nad)
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    require!(!collateral_value.is_zero(), ErrorCode::DenominatorOverflow);
+    require!(collateral_value > 0, ErrorCode::DenominatorOverflow);
 
     let negative = total_liquidity_value_nad < 0;
     let total_magnitude = total_liquidity_value_nad.unsigned_abs();
-    let target_magnitude =
-        mul_div_u128_full_width(total_magnitude, values.target_inventory_value_nad, collateral_value)?;
+    let target_magnitude = mul_div_u128(total_magnitude, values.target_inventory_value_nad, collateral_value)?;
     let opposite_magnitude = total_magnitude
         .checked_sub(target_magnitude)
         .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -216,8 +243,32 @@ pub fn allocate_hlp_proportional_adjustment_nad(
 /// Convenience helper that derives and allocates the ideal curve-aware hLP
 /// adjustment in one call.
 pub fn ideal_hlp_rebalance_nad(values: HlpInventoryValuesNad) -> Result<HlpProportionalAdjustmentNad> {
-    let total = ideal_hlp_proportional_adjustment_nad(values)?;
-    allocate_hlp_proportional_adjustment_nad(values, total)
+    let exposure = hlp_opposite_exposure_nad(values)?;
+    if exposure == 0 {
+        return Ok(HlpProportionalAdjustmentNad::default());
+    }
+    require!(values.target_inventory_value_nad > 0, ErrorCode::DenominatorOverflow);
+
+    // With e = O - D, the ideal proportional correction simplifies to:
+    // ΔT=e, ΔO=eO/T, ΔD=e+ΔO. Rounding ΔO toward zero leaves at most one
+    // target-value NAD atom of opposite exposure.
+    let negative = exposure < 0;
+    let opposite_magnitude = mul_div_u128(
+        exposure.unsigned_abs(),
+        values.opposite_inventory_value_nad,
+        values.target_inventory_value_nad,
+    )?;
+    let target_delta = signed_with_direction(exposure.unsigned_abs(), negative)?;
+    let opposite_delta = signed_with_direction(opposite_magnitude, negative)?;
+    let total = target_delta
+        .checked_add(opposite_delta)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    Ok(HlpProportionalAdjustmentNad {
+        total_liquidity_value_nad: total,
+        target_inventory_value_delta_nad: target_delta,
+        opposite_inventory_value_delta_nad: opposite_delta,
+        debt_value_delta_nad: total,
+    })
 }
 
 /// Integer square root (floor), Newton's method on u128.
@@ -261,8 +312,8 @@ pub fn tracking_loss_nad(equity_nad: u128, r_nad: u128) -> Result<u128> {
 
 /// Closed-form pre-adjustment magnitude `|E0 * (sqrt(r) - 1)|`, in NAD, plus
 /// whether it is a lever-up (`r > 1`) or a deleverage (`r < 1`). Used as the
-/// initial bisection guess; the true value is solved against the simulator
-/// because the synthetic deepening makes `r` endogenous.
+/// initial safeguarded-secant seed; the accepted value is checked against the
+/// simulator because the synthetic deepening makes `r` endogenous.
 pub fn closed_form_pre_adjustment_nad(equity_nad: u128, r_nad: u128) -> Result<(u128, bool)> {
     let s = sqrt_ratio_nad(r_nad)?;
     let nad = NAD as u128;
@@ -281,30 +332,6 @@ pub fn closed_form_pre_adjustment_nad(equity_nad: u128, r_nad: u128) -> Result<(
             .ok_or(ErrorCode::MarketMathOverflow)?;
         Ok((amount, false))
     }
-}
-
-/// Bounded bisection for a monotonically non-decreasing residual `f` over
-/// `[lo, hi]`, returning the smallest `x` with `f(x) >= 0` to tolerance, within
-/// `max_iters`. `f` returns the signed residual (negative below the root).
-/// Used to solve the endogenous-`r` pre-adjustment fixed point against the real
-/// swap simulator without unbounded compute.
-pub fn bisect<F>(mut lo: u128, mut hi: u128, max_iters: u32, mut f: F) -> Result<u128>
-where
-    F: FnMut(u128) -> Result<i128>,
-{
-    require!(hi >= lo, ErrorCode::MarketMathOverflow);
-    for _ in 0..max_iters {
-        if hi <= lo + 1 {
-            break;
-        }
-        let mid = lo + (hi - lo) / 2;
-        if f(mid)? >= 0 {
-            hi = mid;
-        } else {
-            lo = mid;
-        }
-    }
-    Ok(hi)
 }
 
 #[cfg(test)]

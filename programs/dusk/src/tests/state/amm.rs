@@ -5,7 +5,7 @@ use crate::state::{Market, MarketConfig};
 fn cpmm_config() -> AmmConfig {
     AmmConfig {
         peak_depth_nad: 0,
-        imbalance_scale_nad: 0,
+        fade_scale_nad: 0,
         center_ema_half_life_ms: MIN_HALF_LIFE_MS,
         volatility_half_life_ms: MIN_HALF_LIFE_MS,
         adjustment_threshold_nad: 0,
@@ -23,12 +23,24 @@ fn cpmm_config() -> AmmConfig {
 fn concentrated_config() -> AmmConfig {
     AmmConfig {
         peak_depth_nad: 200 * NAD,
-        imbalance_scale_nad: NAD / 100,
+        fade_scale_nad: NAD / 100,
         adjustment_threshold_nad: NAD / 50,
         adjustment_step_nad: NAD / 100,
         min_adjustment_interval_slots: 10,
         ..cpmm_config()
     }
+}
+
+fn geometry_cache_for(parameters: AmmCurveParameters) -> Option<ConcentratedGeometryCache> {
+    (!parameters.is_cpmm())
+        .then(|| {
+            ConcentratedGeometryCache::derive(
+                parameters.peak_depth_nad as u128,
+                parameters.fade_scale_nad as u128,
+            )
+        })
+        .transpose()
+        .unwrap()
 }
 
 #[test]
@@ -43,7 +55,7 @@ fn validates_cpmm_and_concentrated_endpoints() {
     assert!(cpmm_with_moving_fee_anchor.validate().is_ok());
 
     let mut invalid = cpmm_config();
-    invalid.imbalance_scale_nad = MIN_AMM_IMBALANCE_SCALE_NAD;
+    invalid.fade_scale_nad = MIN_AMM_FADE_SCALE_NAD;
     assert!(invalid.validate().is_err());
 
     let mut invalid = concentrated_config();
@@ -51,7 +63,7 @@ fn validates_cpmm_and_concentrated_endpoints() {
     assert!(invalid.validate().is_err());
 
     let mut invalid = concentrated_config();
-    invalid.imbalance_scale_nad = MIN_AMM_IMBALANCE_SCALE_NAD - 1;
+    invalid.fade_scale_nad = MIN_AMM_FADE_SCALE_NAD - 1;
     assert!(invalid.validate().is_err());
 
     let mut invalid = concentrated_config();
@@ -108,61 +120,53 @@ fn initialization_anchors_center_and_protected_floor() {
     assert_eq!(state.protected_floor_per_share_nad, initial_q);
     assert_eq!(state.spendable_protected_profit_nad(), 0);
     assert!(!state.retain_dynamic_surcharge);
-    assert_eq!(state.invariant_d_high_nad, 0);
+    assert_eq!(state.invariant_d_nad, 0);
+    assert_eq!(state.curve_math_revision, CONCENTRATED_MATH_REVISION);
+    assert!(state.concentrated_geometry_cache.matches(
+        state.applied_curve_parameters.peak_depth_nad as u128,
+        state.applied_curve_parameters.fade_scale_nad as u128,
+    ));
     assert!(!state.retention_target_stale);
     assert_eq!(
-        AMM_RISK_CURVE_CACHE_BYTES
-            + AMM_CURVE_OBSERVATION_IDENTITY_BYTES
-            + AMM_INVARIANT_HIGH_BYTES
+        AMM_CONCENTRATED_GEOMETRY_CACHE_BYTES
             + AMM_RETENTION_TARGET_STALE_BYTES
+            + AMM_DEFERRED_CONTROLLER_TARGET_BYTES
             + AMM_STATE_RESERVED_BYTES,
-        320
+        212
     );
-    assert_eq!(state.risk_curve_cache, RiskCurveCache::default());
-    assert_eq!(state.exact_curve_observation, CurveObservationIdentity::default());
     assert_eq!(state._reserved, [0; AMM_STATE_RESERVED_BYTES]);
 }
 
 #[test]
 fn concentrated_ready_amm_serialized_layout_is_locked() {
-    assert_eq!(<AmmConfig as anchor_lang::Space>::INIT_SPACE, 130);
-    assert_eq!(<RiskCurveCache as anchor_lang::Space>::INIT_SPACE, 152);
-    assert_eq!(<CurveObservationIdentity as anchor_lang::Space>::INIT_SPACE, 56);
-    assert_eq!(AMM_INVARIANT_HIGH_BYTES, 16);
+    assert_eq!(<AmmConfig as anchor_lang::Space>::INIT_SPACE, 129);
     assert_eq!(AMM_RETENTION_TARGET_STALE_BYTES, 1);
-    assert_eq!(AMM_STATE_RESERVED_BYTES, 95);
-    assert_eq!(<AmmState as anchor_lang::Space>::INIT_SPACE, 540);
-    assert_eq!(<MarketConfig as anchor_lang::Space>::INIT_SPACE, 178);
-    assert_eq!(<Market as anchor_lang::Space>::INIT_SPACE, 2_960);
-    assert_eq!(8 + <Market as anchor_lang::Space>::INIT_SPACE, 2_968);
+    assert_eq!(AMM_DEFERRED_CONTROLLER_TARGET_BYTES, 82);
+    assert_eq!(AMM_STATE_RESERVED_BYTES, 0);
+    assert_eq!(<AmmState as anchor_lang::Space>::INIT_SPACE, 433);
+    assert_eq!(<MarketConfig as anchor_lang::Space>::INIT_SPACE, 175);
+    // Layout v2 now persists source-separated auction liabilities/epochs and
+    // reference markets on both sides, per-side debt clocks, and curve/risk
+    // revisions, plus four aggregate yLP-entitlement remainder lanes per hLP
+    // side. Dev markets are recreated, so this is the canonical layout.
+    assert_eq!(<Market as anchor_lang::Space>::INIT_SPACE, 3_199);
+    assert_eq!(8 + <Market as anchor_lang::Space>::INIT_SPACE, 3_207);
 }
 
 #[test]
-fn exact_curve_observation_identity_matches_only_one_curve_state() {
-    let parameters = concentrated_config().curve_parameters();
-    let identity = CurveObservationIdentity::new(1_000, 2_000, 2 * NAD, parameters);
+fn formula_revision_refreshes_the_authoritative_geometry() {
+    let config = concentrated_config();
+    let parameters = config.curve_parameters();
+    let mut state = AmmState::initialize(&config, NAD, NAD as u128, 10).unwrap();
+    state.curve_math_revision = CONCENTRATED_MATH_REVISION.wrapping_sub(1);
 
-    assert!(identity.matches(1_000, 2_000, 2 * NAD, parameters));
-    assert!(!identity.matches(1_001, 2_000, 2 * NAD, parameters));
-    assert!(!identity.matches(1_000, 2_001, 2 * NAD, parameters));
-    assert!(!identity.matches(1_000, 2_000, 2 * NAD + 1, parameters));
-    assert!(!identity.matches(
-        1_000,
-        2_000,
-        2 * NAD,
-        AmmCurveParameters {
-            peak_depth_nad: parameters.peak_depth_nad + 1,
-            ..parameters
-        }
-    ));
-    assert!(!identity.matches(
-        1_000,
-        2_000,
-        2 * NAD,
-        AmmCurveParameters {
-            imbalance_scale_nad: parameters.imbalance_scale_nad + 1,
-            ..parameters
-        }
+    state.commit_invariant(123).unwrap();
+
+    assert_eq!(state.curve_math_revision, CONCENTRATED_MATH_REVISION);
+    assert_eq!(state.invariant_d_nad, 123);
+    assert!(state.concentrated_geometry_cache.matches(
+        parameters.peak_depth_nad as u128,
+        parameters.fade_scale_nad as u128,
     ));
 }
 
@@ -261,9 +265,7 @@ fn recenter_ramp_and_hlp_checkpoints_do_not_create_flow_volatility() {
     let trade_signal = state.last_trade_price_nad;
 
     // Recenter changes internal curve geometry but is not a trader execution.
-    state
-        .commit_recenter(&config, 101 * NAD, 123, 123, 1_000, 0, 20)
-        .unwrap();
+    state.commit_recenter(&config, 101 * NAD, 123, 1_000, 0, 20).unwrap();
     assert_eq!(state.volatility_accumulator_nad, flow_volatility);
     assert_eq!(state.last_trade_price_nad, trade_signal);
 
@@ -279,14 +281,12 @@ fn recenter_ramp_and_hlp_checkpoints_do_not_create_flow_volatility() {
     state
         .start_applied_ramp(config.curve_parameters(), &target, 20)
         .unwrap();
+    let candidate = AmmCurveParameters {
+        peak_depth_nad: config.peak_depth_nad + 1,
+        fade_scale_nad: config.fade_scale_nad + 1,
+    };
     state
-        .commit_applied_curve_parameters(
-            AmmCurveParameters {
-                peak_depth_nad: config.peak_depth_nad + 1,
-                imbalance_scale_nad: config.imbalance_scale_nad + 1,
-            },
-            21,
-        )
+        .commit_applied_curve_parameters(candidate, geometry_cache_for(candidate), 21)
         .unwrap();
     assert_eq!(state.volatility_accumulator_nad, flow_volatility);
     assert_eq!(state.last_trade_price_nad, trade_signal);
@@ -321,7 +321,7 @@ fn applied_ramp_starts_immediately_and_interpolates_deterministically() {
         ramp.parameters_at(start, 500 + duration / 2),
         AmmCurveParameters {
             peak_depth_nad: target.peak_depth_nad / 2,
-            imbalance_scale_nad: target.imbalance_scale_nad / 2,
+            fade_scale_nad: target.fade_scale_nad / 2,
         }
     );
     assert_eq!(ramp.parameters_at(start, ramp.end_slot), target);
@@ -332,14 +332,14 @@ fn protocol_sequenced_cpmm_ramps_keep_every_positive_peak_conditioned() {
     let cpmm = AmmCurveParameters::cpmm();
     let concentrated = AmmCurveParameters {
         peak_depth_nad: MIN_AMM_PEAK_DEPTH_NAD,
-        imbalance_scale_nad: MIN_AMM_IMBALANCE_SCALE_NAD,
+        fade_scale_nad: MIN_AMM_FADE_SCALE_NAD,
     };
     let duration = MIN_AMM_RAMP_DURATION_SLOTS;
 
     let entering = AmmRamp::start(cpmm, concentrated, 100, duration).unwrap();
     let first = entering.parameters_at(cpmm, 101);
     assert_eq!(first.peak_depth_nad, concentrated.peak_depth_nad / duration);
-    assert_eq!(first.imbalance_scale_nad, MIN_AMM_IMBALANCE_SCALE_NAD);
+    assert_eq!(first.fade_scale_nad, MIN_AMM_FADE_SCALE_NAD);
     assert!(first.peak_depth_nad < MIN_AMM_PEAK_DEPTH_NAD);
     first.validate_runtime().unwrap();
     assert_eq!(entering.parameters_at(cpmm, entering.end_slot), concentrated);
@@ -347,7 +347,7 @@ fn protocol_sequenced_cpmm_ramps_keep_every_positive_peak_conditioned() {
     let exiting = AmmRamp::start(concentrated, cpmm, 1_000_000, duration).unwrap();
     let penultimate = exiting.parameters_at(concentrated, exiting.end_slot - 1);
     assert_eq!(penultimate.peak_depth_nad, concentrated.peak_depth_nad / duration);
-    assert_eq!(penultimate.imbalance_scale_nad, MIN_AMM_IMBALANCE_SCALE_NAD);
+    assert_eq!(penultimate.fade_scale_nad, MIN_AMM_FADE_SCALE_NAD);
     penultimate.validate_runtime().unwrap();
     assert_eq!(exiting.parameters_at(concentrated, exiting.end_slot), cpmm);
 }
@@ -356,18 +356,18 @@ fn protocol_sequenced_cpmm_ramps_keep_every_positive_peak_conditioned() {
 fn concentrated_to_concentrated_ramp_interpolates_both_safe_coordinates() {
     let start = AmmCurveParameters {
         peak_depth_nad: 10 * NAD,
-        imbalance_scale_nad: MIN_AMM_IMBALANCE_SCALE_NAD,
+        fade_scale_nad: MIN_AMM_FADE_SCALE_NAD,
     };
     let target = AmmCurveParameters {
         peak_depth_nad: 100 * NAD,
-        imbalance_scale_nad: 10_000,
+        fade_scale_nad: 10_000,
     };
     let duration = MIN_AMM_RAMP_DURATION_SLOTS;
     let ramp = AmmRamp::start(start, target, 500, duration).unwrap();
     for slot in [501, 500 + duration / 2, ramp.end_slot - 1] {
         let candidate = ramp.parameters_at(start, slot);
         assert!(candidate.peak_depth_nad > 0);
-        assert!(candidate.imbalance_scale_nad >= MIN_AMM_IMBALANCE_SCALE_NAD);
+        assert!(candidate.fade_scale_nad >= MIN_AMM_FADE_SCALE_NAD);
         candidate.validate_runtime().unwrap();
     }
 }
@@ -389,8 +389,9 @@ fn state_rejects_overlapping_ramp_and_clears_finished_history() {
         state.desired_curve_parameters(&target, state.ramp.end_slot),
         target.curve_parameters()
     );
+    let candidate = target.curve_parameters();
     state
-        .commit_applied_curve_parameters(target.curve_parameters(), state.ramp.end_slot)
+        .commit_applied_curve_parameters(candidate, geometry_cache_for(candidate), state.ramp.end_slot)
         .unwrap();
     assert!(state.settle_ramp(state.ramp.end_slot));
     assert!(!state.ramp.active);
@@ -406,14 +407,16 @@ fn cpmm_transition_accepts_sub_minimum_runtime_points_without_applying_time_alon
     let first_candidate = state.desired_curve_parameters(&target, 101);
     assert!(first_candidate.peak_depth_nad < MIN_AMM_PEAK_DEPTH_NAD);
     assert_eq!(
-        first_candidate.imbalance_scale_nad,
-        (target.imbalance_scale_nad / target.ramp_duration_slots).max(MIN_AMM_IMBALANCE_SCALE_NAD)
+        first_candidate.fade_scale_nad,
+        (target.fade_scale_nad / target.ramp_duration_slots).max(MIN_AMM_FADE_SCALE_NAD)
     );
     assert_eq!(
         state.effective_curve_parameters(&target, 101),
         AmmCurveParameters::cpmm()
     );
-    state.commit_applied_curve_parameters(first_candidate, 101).unwrap();
+    state
+        .commit_applied_curve_parameters(first_candidate, geometry_cache_for(first_candidate), 101)
+        .unwrap();
     assert_eq!(state.effective_curve_parameters(&target, 101), first_candidate);
 }
 
@@ -422,7 +425,7 @@ fn cpmm_ramp_never_exposes_half_enabled_concentration_after_integer_rounding() {
     let start = AmmCurveParameters::cpmm();
     let target = AmmCurveParameters {
         peak_depth_nad: MIN_AMM_PEAK_DEPTH_NAD,
-        imbalance_scale_nad: MIN_AMM_IMBALANCE_SCALE_NAD,
+        fade_scale_nad: MIN_AMM_FADE_SCALE_NAD,
     };
     let ramp = AmmRamp::start(start, target, 100, MIN_AMM_RAMP_DURATION_SLOTS).unwrap();
 
@@ -430,8 +433,7 @@ fn cpmm_ramp_never_exposes_half_enabled_concentration_after_integer_rounding() {
         let candidate = ramp.parameters_at(start, slot);
         assert!(
             candidate == AmmCurveParameters::cpmm()
-                || (candidate.peak_depth_nad > 0
-                    && candidate.imbalance_scale_nad >= MIN_AMM_IMBALANCE_SCALE_NAD)
+                || (candidate.peak_depth_nad > 0 && candidate.fade_scale_nad >= MIN_AMM_FADE_SCALE_NAD)
         );
         candidate.validate_runtime().unwrap();
     }
@@ -446,10 +448,12 @@ fn active_protocol_sequenced_ramp_preserves_retention_routing_state() {
     state.start_applied_ramp(old.curve_parameters(), &target, 100).unwrap();
 
     let candidate = state.desired_curve_parameters(&target, 101);
-    state.commit_applied_curve_parameters(candidate, 101).unwrap();
+    state
+        .commit_applied_curve_parameters(candidate, geometry_cache_for(candidate), 101)
+        .unwrap();
     assert!(state.ramp.active);
     assert!(state.retain_dynamic_surcharge);
-    assert!(state.applied_curve_parameters.imbalance_scale_nad >= MIN_AMM_IMBALANCE_SCALE_NAD);
+    assert!(state.applied_curve_parameters.fade_scale_nad >= MIN_AMM_FADE_SCALE_NAD);
 }
 
 #[test]
@@ -463,9 +467,18 @@ fn expired_underfunded_intermediate_can_be_redirected_by_new_ramp() {
 
     let intermediate = state.desired_curve_parameters(&first_target, 101);
     assert!(intermediate.peak_depth_nad < MIN_AMM_PEAK_DEPTH_NAD);
-    state.commit_applied_curve_parameters(intermediate, 101).unwrap();
+    state
+        .commit_applied_curve_parameters(intermediate, geometry_cache_for(intermediate), 101)
+        .unwrap();
 
     let expired_slot = state.ramp.end_slot;
+    state.deferred_controller_target = DeferredControllerTarget {
+        kind: DeferredControllerTarget::RAMP,
+        parameters: state.ramp.target,
+        saturated: true,
+        ..DeferredControllerTarget::default()
+    };
+    state.retention_target_saturated = true;
     let mut replacement = concentrated_config();
     replacement.peak_depth_nad *= 2;
     state
@@ -474,6 +487,9 @@ fn expired_underfunded_intermediate_can_be_redirected_by_new_ramp() {
 
     assert_eq!(state.ramp.start, intermediate);
     assert_eq!(state.ramp.target, replacement.curve_parameters());
+    assert_eq!(state.deferred_controller_target, DeferredControllerTarget::default());
+    assert!(!state.retention_target_saturated);
+    assert!(state.retention_target_stale);
 }
 
 #[test]
@@ -513,7 +529,7 @@ fn retention_target_uses_fixed_coverage_guard_cap_and_hysteresis() {
 }
 
 #[test]
-fn retention_gate_resumes_below_required_and_stops_at_hysteresis() {
+fn retention_stays_armed_while_target_is_stale_and_stops_after_refresh() {
     let config = concentrated_config();
     let mut state = AmmState::initialize(&config, NAD, 10_000_000, 0).unwrap();
     let target = state.refresh_retention_target(10_000_000, 30_000).unwrap();
@@ -528,8 +544,6 @@ fn retention_gate_resumes_below_required_and_stops_at_hysteresis() {
         .unwrap();
     assert!(state.retention_target_stale);
     assert!(state.retain_dynamic_surcharge);
-    assert!(state.release_stale_retention_probe());
-    assert!(!state.retain_dynamic_surcharge);
     state.checkpoint_neutral_liquidity(state.q_per_share_nad);
     assert!(state.retain_dynamic_surcharge);
 
@@ -549,31 +563,24 @@ fn recenter_requires_covered_buffer_and_consumes_it() {
     state.checkpoint_retained_surcharge(10_100).unwrap();
 
     let before_underfunded = state;
-    assert!(state
-        .commit_recenter(&config, 110 * NAD, 900, 900, 10_050, 101, 10)
-        .is_err());
+    assert!(state.commit_recenter(&config, 110 * NAD, 900, 10_050, 101, 10).is_err());
     assert_eq!(state, before_underfunded);
 
-    state
-        .commit_recenter(&config, 110 * NAD, 900, 900, 10_050, 50, 10)
-        .unwrap();
+    state.commit_recenter(&config, 110 * NAD, 900, 10_050, 50, 10).unwrap();
     assert_eq!(state.center_price_nad, 110 * NAD);
     assert_eq!(state.invariant_d_nad, 900);
-    assert_eq!(state.invariant_d_high_nad, 900);
     assert_eq!(state.spendable_protected_profit_nad(), 50);
 }
 
 #[test]
-fn recenter_rejects_a_malformed_bracket_without_partial_state_mutation() {
+fn recenter_rejects_a_malformed_invariant_without_partial_state_mutation() {
     let config = concentrated_config();
     let mut state = AmmState::initialize(&config, 100 * NAD, 10_000, 0).unwrap();
     state.refresh_retention_target(10_000, 10).unwrap();
     state.checkpoint_retained_surcharge(10_100).unwrap();
-    state.commit_invariant_bracket(1_000, 1_001).unwrap();
+    state.commit_invariant(1_001).unwrap();
     let before = state;
 
-    assert!(state
-        .commit_recenter(&config, 110 * NAD, 901, 900, 10_050, 50, 10)
-        .is_err());
+    assert!(state.commit_recenter(&config, 110 * NAD, 0, 10_050, 50, 10).is_err());
     assert_eq!(state, before);
 }

@@ -3,15 +3,57 @@ use crate::{
     constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, MARKET_LAYOUT_VERSION, MIN_HALF_LIFE_MS, MIN_LIQUIDITY},
     math::MIN_INNER_COMMON_RESERVE,
     state::{
-        AmmConfig, Debt, MarketAsset, MarketConfig, MarketSide, Reserves, MIN_AMM_IMBALANCE_SCALE_NAD,
+        AmmConfig, CurveCheckpoint, Debt, MarketAsset, MarketConfig, MarketSide, Reserves, MIN_AMM_FADE_SCALE_NAD,
         MIN_AMM_PEAK_DEPTH_NAD,
     },
 };
 
+/// Mirrors the identity-checked neutral endpoint application in the spot
+/// instruction without restoring a one-use production wrapper.
+fn checkpoint_trade_endpoint_like_spot(
+    market: &mut Market,
+    checkpoint: CurveCheckpoint,
+    current_slot: u64,
+) -> Result<()> {
+    market.ensure_amm_initialized(current_slot)?;
+    require!(market.amm.initialized, ErrorCode::BrokenInvariant);
+    let evaluation = checkpoint.validated_evaluation(market, current_slot)?;
+    let q_per_share_nad = market.curve_q_per_share_nad(evaluation.balanced_equivalent_q)?;
+    market.amm.commit_invariant(evaluation.invariant_d)?;
+    market.amm.checkpoint_neutral_liquidity(q_per_share_nad);
+    Ok(())
+}
+
+fn center_step_toward(center: u64, target: u64, step_nad: u64) -> Result<u64> {
+    if target > center {
+        let stepped = ceil_div(
+            (center as u128)
+                .checked_mul(NAD.checked_add(step_nad).ok_or(ErrorCode::MarketMathOverflow)? as u128)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            NAD as u128,
+        )
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+        Ok(u64::try_from(stepped)
+            .map_err(|_| ErrorCode::MarketMathOverflow)?
+            .min(target))
+    } else if target < center {
+        let down = (center as u128)
+            .checked_mul(NAD as u128)
+            .and_then(|value| value.checked_div((NAD + step_nad) as u128))
+            .ok_or(ErrorCode::MarketMathOverflow)?
+            .max(1);
+        Ok(u64::try_from(down)
+            .map_err(|_| ErrorCode::MarketMathOverflow)?
+            .max(target))
+    } else {
+        Ok(center)
+    }
+}
+
 fn concentrated_config() -> AmmConfig {
     AmmConfig {
         peak_depth_nad: 200 * NAD,
-        imbalance_scale_nad: NAD / 10,
+        fade_scale_nad: NAD / 10,
         center_ema_half_life_ms: MIN_HALF_LIFE_MS,
         volatility_half_life_ms: MIN_HALF_LIFE_MS,
         adjustment_threshold_nad: NAD / 100,
@@ -81,6 +123,32 @@ fn first_liquidity_initializes_center_without_an_oracle() {
 }
 
 #[test]
+fn combined_transition_observation_matches_the_split_reference() {
+    let mut combined = market_with_liquidity(concentrated_config());
+    let mut reference = combined.clone();
+
+    combined.finalize_amm_transition_and_observe_risk(10).unwrap();
+    reference.finalize_amm_transition(10).unwrap();
+    reference.observe_current_risk(10).unwrap();
+    assert_eq!(combined.amm, reference.amm);
+    assert_eq!(combined.risk, reference.risk);
+    assert_eq!(combined.curve_revision, reference.curve_revision);
+    assert_eq!(combined.risk_revision, reference.risk_revision);
+
+    combined.base_side.reserves.live_reserve += NAD;
+    combined.base_side.reserves.cash_reserve += NAD;
+    reference.base_side.reserves.live_reserve += NAD;
+    reference.base_side.reserves.cash_reserve += NAD;
+    combined.finalize_amm_transition_and_observe_risk(11).unwrap();
+    reference.finalize_amm_transition(11).unwrap();
+    reference.observe_current_risk(11).unwrap();
+    assert_eq!(combined.amm, reference.amm);
+    assert_eq!(combined.risk, reference.risk);
+    assert_eq!(combined.curve_revision, reference.curve_revision);
+    assert_eq!(combined.risk_revision, reference.risk_revision);
+}
+
+#[test]
 fn concentrated_initialization_rejects_an_inner_state_below_the_common_reserve_floor() {
     let mut market = market_with_liquidity(concentrated_config());
     let unsupported = u64::try_from(MIN_INNER_COMMON_RESERVE - 1).unwrap();
@@ -121,9 +189,8 @@ fn full_public_exit_parks_dust_and_a_later_supported_deposit_rebuilds_the_curve(
 
     let receipt = market.remove_liquidity(public_supply).unwrap();
     assert_eq!(receipt.ylp_supply, MIN_LIQUIDITY);
-    market.park_amm_after_full_public_liquidity_exit(11).unwrap();
+    market.finalize_amm_transition_and_observe_risk(11).unwrap();
     assert_eq!(market.amm.invariant_d_nad, 0);
-    assert_eq!(market.amm.invariant_d_high_nad, 0);
     assert_eq!(market.amm.q_per_share_nad, 0);
     assert_eq!(market.risk, Default::default());
 
@@ -131,7 +198,6 @@ fn full_public_exit_parks_dust_and_a_later_supported_deposit_rebuilds_the_curve(
     market.add_liquidity(deposit, deposit).unwrap();
     market.finalize_amm_transition(12).unwrap();
     assert!(market.amm.invariant_d_nad > 0);
-    assert!(market.amm.invariant_d_high_nad >= market.amm.invariant_d_nad);
     assert!(market.amm.q_per_share_nad > 0);
 }
 
@@ -145,11 +211,11 @@ fn full_public_exit_parking_is_blocked_by_debt_or_active_hlp_state() {
 
     let mut with_debt = market.clone();
     with_debt.debt.fixed_base_shares = 1;
-    assert!(with_debt.park_amm_after_full_public_liquidity_exit(11).is_err());
+    assert!(with_debt.finalize_amm_transition_and_observe_risk(11).is_err());
 
     let mut with_hlp = market;
     with_hlp.base_hlp_vault.hlp_supply = 1;
-    assert!(with_hlp.park_amm_after_full_public_liquidity_exit(11).is_err());
+    assert!(with_hlp.finalize_amm_transition_and_observe_risk(11).is_err());
 }
 
 #[test]
@@ -159,7 +225,7 @@ fn neutral_interest_accrual_does_not_create_protected_profit() {
     let q_before = market.amm.q_per_share_nad;
 
     market.debt.fixed_base_shares = 100 * NAD as u128;
-    market.debt.fixed_base_principal = 100 * NAD as u128;
+    market.debt.fixed_base_principal = 100 * NAD;
     market.debt.base_borrow_index_nad = NAD as u128 + NAD as u128 / 10;
     market.base_side.reserves.live_reserve += 10 * NAD;
     market.checkpoint_amm_neutral_inventory(11).unwrap();
@@ -180,7 +246,7 @@ fn retained_surcharge_is_the_only_path_that_creates_budget() {
 }
 
 #[test]
-fn stale_retention_probe_is_released_only_for_an_actual_swap_path() {
+fn stale_retention_is_released_only_by_a_controller_decision_inside_a_user_path() {
     let mut market = market_with_liquidity(concentrated_config());
     market.ensure_amm_initialized(10).unwrap();
     let q = market.amm.q_per_share_nad;
@@ -196,6 +262,21 @@ fn stale_retention_probe_is_released_only_for_an_actual_swap_path() {
     assert!(market.amm.retain_dynamic_surcharge);
 
     market.prepare_amm_for_swap(11).unwrap();
+    assert!(market.amm.retention_target_stale);
+    assert!(market.amm.retain_dynamic_surcharge);
+
+    // A real user operation may clear an obsolete frozen target. Clock/prep
+    // alone cannot do so: the controller decision validates that the EMA has
+    // returned inside the adjustment threshold before releasing retention.
+    market.amm.deferred_controller_target = DeferredControllerTarget {
+        kind: DeferredControllerTarget::RECENTER,
+        center_price_nad: market.amm.center_price_nad + 1,
+        parameters: market.amm.applied_curve_parameters,
+        created_slot: 10,
+        ..DeferredControllerTarget::default()
+    };
+    assert!(!market.advance_one_amm_controller_target(11).unwrap());
+    assert!(!market.amm.retention_target_stale);
     assert!(!market.amm.retain_dynamic_surcharge);
     market
         .finalize_amm_trade_after_inventory_checkpoint(NAD, NAD, 11)
@@ -205,7 +286,7 @@ fn stale_retention_probe_is_released_only_for_an_actual_swap_path() {
 }
 
 #[test]
-fn pending_parameter_ramp_arms_retention_before_maintenance_admission() {
+fn pending_parameter_ramp_arms_retention_before_lazy_admission() {
     let mut market = market_with_liquidity(concentrated_config());
     market.ensure_amm_initialized(10).unwrap();
 
@@ -221,7 +302,7 @@ fn pending_parameter_ramp_arms_retention_before_maintenance_admission() {
     let old = market.amm.applied_curve_parameters;
     let mut target = market.config.amm;
     target.peak_depth_nad = MIN_AMM_PEAK_DEPTH_NAD;
-    target.imbalance_scale_nad = MIN_AMM_IMBALANCE_SCALE_NAD;
+    target.fade_scale_nad = MIN_AMM_FADE_SCALE_NAD;
     market.amm.start_applied_ramp(old, &target, 10).unwrap();
     market.config.amm = target;
     let target_slot = market.amm.ramp.end_slot;
@@ -256,7 +337,7 @@ fn cpmm_can_move_the_internal_fee_anchor_without_spending_protection() {
     let q_before = market.amm.q_per_share_nad;
     market.amm.price_ema_nad = NAD + NAD / 10;
 
-    market.maybe_recenter_amm(11).unwrap();
+    assert!(market.advance_one_amm_controller_target(11).unwrap());
 
     assert!(market.amm.center_price_nad > NAD);
     assert_eq!(market.amm.q_per_share_nad, q_before);
@@ -264,7 +345,7 @@ fn cpmm_can_move_the_internal_fee_anchor_without_spending_protection() {
 }
 
 #[test]
-fn cpmm_public_maintenance_path_observes_silence_and_moves_fee_anchor() {
+fn cpmm_next_user_operation_observes_silence_and_moves_fee_anchor() {
     let mut config = AmmConfig {
         center_ema_half_life_ms: MIN_HALF_LIFE_MS,
         volatility_half_life_ms: MIN_HALF_LIFE_MS,
@@ -282,7 +363,8 @@ fn cpmm_public_maintenance_path_observes_silence_and_moves_fee_anchor() {
     let one_half_life_later = 10 + MIN_HALF_LIFE_MS / 400;
     let q_before = market.amm.q_per_share_nad;
 
-    let moved = market.crank_concentrated_amm_with_hlp(one_half_life_later).unwrap();
+    market.prepare_amm_for_swap(one_half_life_later).unwrap();
+    let moved = market.advance_one_amm_controller_target(one_half_life_later).unwrap();
 
     assert!(moved);
     assert!(market.amm.price_ema_nad.abs_diff(110 * NAD / 100) <= 2);
@@ -291,9 +373,9 @@ fn cpmm_public_maintenance_path_observes_silence_and_moves_fee_anchor() {
     assert_eq!(market.amm.spendable_protected_profit_nad(), 0);
     assert_eq!(market.amm.last_observation_slot, one_half_life_later);
 
-    let after_first_crank = market.amm;
-    assert!(!market.crank_concentrated_amm_with_hlp(one_half_life_later).unwrap());
-    assert_eq!(market.amm, after_first_crank);
+    let after_first_operation = market.amm;
+    assert!(!market.advance_one_amm_controller_target(one_half_life_later).unwrap());
+    assert_eq!(market.amm, after_first_operation);
 }
 
 #[test]
@@ -303,7 +385,7 @@ fn same_hybrid_tail_center_move_is_zero_impairment() {
     let mut market = market_with_liquidity(config);
     market.ensure_amm_initialized(10).unwrap();
     let trade = market
-        .quote_curve_exact_in(MarketAsset::Base, 1_000_000 * NAD, 10)
+        .quote_curve_exact_in(MarketAsset::Base, 10_000_000 * NAD, 10)
         .unwrap();
     market.base_side.credit_reserve(trade.amount_in, true).unwrap();
     market.quote_side.debit_reserve(trade.amount_out, true).unwrap();
@@ -321,7 +403,7 @@ fn same_hybrid_tail_center_move_is_zero_impairment() {
         .recenter_stays_on_same_cpmm_tail(candidate_center, market.amm.applied_curve_parameters)
         .unwrap());
 
-    market.maybe_recenter_amm(11).unwrap();
+    assert!(market.advance_one_amm_controller_target(11).unwrap());
 
     assert_eq!(market.amm.center_price_nad, candidate_center);
     assert_eq!(market.amm.q_per_share_nad, q_before);
@@ -329,7 +411,7 @@ fn same_hybrid_tail_center_move_is_zero_impairment() {
 }
 
 #[test]
-fn funded_concentrated_recenter_commits_the_exact_candidate_bracket() {
+fn funded_concentrated_recenter_commits_the_exact_canonical_invariant() {
     let mut config = concentrated_config();
     config.adjustment_threshold_nad = super::super::MIN_AMM_ADJUSTMENT_NAD;
     config.adjustment_step_nad = super::super::MIN_AMM_ADJUSTMENT_NAD;
@@ -364,26 +446,24 @@ fn funded_concentrated_recenter_commits_the_exact_candidate_bracket() {
     assert_eq!(target.required_nad, covered);
     market.amm.protected_floor_per_share_nad = market.amm.q_per_share_nad.saturating_sub(target.required_nad);
 
-    market.maybe_recenter_amm(11).unwrap();
+    assert!(market.advance_one_amm_controller_target(11).unwrap());
 
     assert_eq!(market.amm.center_price_nad, candidate_center);
     assert_eq!(market.amm.invariant_d_nad, expected.invariant_d);
-    assert_eq!(market.amm.invariant_d_high_nad, expected.invariant_d_high);
     let mut independently_solved = market.clone();
-    independently_solved.amm.clear_invariant_bracket();
+    independently_solved.amm.clear_invariant();
     let fresh = independently_solved.evaluate_current_curve(11).unwrap();
     assert_eq!(market.amm.invariant_d_nad, fresh.invariant_d);
-    assert_eq!(market.amm.invariant_d_high_nad, fresh.invariant_d_high);
 }
 
 #[test]
-fn underfunded_concentrated_recenter_preserves_both_bracket_endpoints() {
+fn underfunded_concentrated_recenter_preserves_the_canonical_invariant() {
     let mut config = concentrated_config();
     config.adjustment_threshold_nad = super::super::MAX_AMM_ADJUSTMENT_NAD;
     config.adjustment_step_nad = super::super::MAX_AMM_ADJUSTMENT_NAD;
     let mut market = market_with_liquidity(config);
-    // Increase q/share precision so every one of the nine deterministic
-    // halving candidates has a measurable positive impairment.
+    // Increase q/share precision so the single full-step candidate has a
+    // measurable positive impairment.
     market.base_side.shares.ylp_supply = NAD;
     market.quote_side.shares.ylp_supply = NAD;
     market.ensure_amm_initialized(10).unwrap();
@@ -394,51 +474,70 @@ fn underfunded_concentrated_recenter_preserves_both_bracket_endpoints() {
     market.quote_side.debit_reserve(trade.amount_out, true).unwrap();
     market.checkpoint_amm_neutral_inventory(10).unwrap();
     market.amm.price_ema_nad = NAD / 2;
-    for halving in 0..=MAX_FUNDED_STEP_HALVINGS {
-        let step = market.config.amm.adjustment_step_nad >> halving;
-        let candidate_center = center_step_toward(market.amm.center_price_nad, market.amm.price_ema_nad, step).unwrap();
-        let candidate = market
-            .evaluate_amm_liquidity_candidate(candidate_center, market.amm.applied_curve_parameters)
-            .unwrap();
-        let candidate_q = market.curve_q_per_share_nad(candidate.balanced_equivalent_q).unwrap();
-        assert!(
-            candidate_q < market.amm.q_per_share_nad,
-            "halving {halving}: current_q={}, candidate_q={candidate_q}, center={}, candidate_center={candidate_center}",
-            market.amm.q_per_share_nad,
-            market.amm.center_price_nad,
-        );
-        assert!(covered_impairment_nad(market.amm.q_per_share_nad, candidate_q).unwrap() > 0);
-    }
+    let candidate_center = center_step_toward(
+        market.amm.center_price_nad,
+        market.amm.price_ema_nad,
+        market.config.amm.adjustment_step_nad,
+    )
+    .unwrap();
+    let candidate = market
+        .evaluate_amm_liquidity_candidate(candidate_center, market.amm.applied_curve_parameters)
+        .unwrap();
+    let candidate_q = market.curve_q_per_share_nad(candidate.balanced_equivalent_q).unwrap();
+    assert!(candidate_q < market.amm.q_per_share_nad);
+    assert!(covered_impairment_nad(market.amm.q_per_share_nad, candidate_q).unwrap() > 0);
     let center_before = market.amm.center_price_nad;
     let q_before = market.amm.q_per_share_nad;
     let last_adjustment_before = market.amm.last_adjustment_slot;
-    let bracket_before = (market.amm.invariant_d_nad, market.amm.invariant_d_high_nad);
+    let invariant_before = market.amm.invariant_d_nad;
     assert!(
         symmetric_distance_nad(market.amm.center_price_nad, market.amm.price_ema_nad).unwrap()
             >= market.config.amm.adjustment_threshold_nad as u128
     );
 
-    // Fund exactly the fixed guard. Every candidate additionally needs its
-    // positive impairment covered, forcing the complete nine-candidate search
-    // without admitting any point.
+    // Fund exactly the fixed guard. The full candidate additionally needs its
+    // positive impairment covered, so it is frozen without a partial move.
     let guard = mul_bps_ceil(market.amm.q_per_share_nad, PROTECTED_LIQUIDITY_GUARD_BPS).unwrap();
     market.amm.protected_floor_per_share_nad = market.amm.q_per_share_nad - guard;
     reset_amm_liquidity_candidate_solves();
 
-    market.maybe_recenter_amm(11).unwrap();
+    assert!(!market.advance_one_amm_controller_target(11).unwrap());
 
-    assert_eq!(amm_liquidity_candidate_solves(), MAX_FUNDED_CANDIDATE_SOLVES);
+    assert_eq!(amm_liquidity_candidate_solves(), 1);
+    assert_eq!(
+        market.amm.deferred_controller_target.kind,
+        DeferredControllerTarget::RECENTER
+    );
     assert_eq!(market.amm.center_price_nad, center_before);
     assert_eq!(market.amm.q_per_share_nad, q_before);
     assert_eq!(market.amm.last_adjustment_slot, last_adjustment_before);
-    assert_eq!(
-        (market.amm.invariant_d_nad, market.amm.invariant_d_high_nad),
-        bracket_before
-    );
+    assert_eq!(market.amm.invariant_d_nad, invariant_before);
+
+    // Once a reserve-specific target is proven above the hard impairment cap,
+    // accumulating the capped budget cannot make it executable. Do not pay
+    // for the same invariant solve on every later operation.
+    market.amm.deferred_controller_target.saturated = true;
+    let required = market.amm.deferred_controller_target.required_nad;
+    market.amm.protected_floor_per_share_nad = market.amm.q_per_share_nad.saturating_sub(required);
+    reset_amm_liquidity_candidate_solves();
+    assert!(!market.advance_one_amm_controller_target(12).unwrap());
+    assert_eq!(amm_liquidity_candidate_solves(), 0);
+    assert_eq!(market.amm.center_price_nad, center_before);
+    assert_eq!(market.amm.invariant_d_nad, invariant_before);
+
+    // Saturation is a property of the governance-requested move, not a cache
+    // freshness hint. Even a material inventory change cannot reactivate it;
+    // a config update (or EMA reversal) must clear the frozen request.
+    market.base_side.reserves.live_reserve += 10_000;
+    market.base_side.reserves.cash_reserve += 10_000;
+    reset_amm_liquidity_candidate_solves();
+    assert!(!market.advance_one_amm_controller_target(13).unwrap());
+    assert_eq!(amm_liquidity_candidate_solves(), 0);
+    assert_eq!(market.amm.center_price_nad, center_before);
 }
 
 #[test]
-fn admitted_parameter_ramp_commits_a_bracket_matching_a_fresh_solve() {
+fn admitted_parameter_ramp_commits_a_canonical_invariant_matching_a_fresh_solve() {
     let mut market = market_with_liquidity(concentrated_config());
     market.ensure_amm_initialized(10).unwrap();
     let applied = market.amm.applied_curve_parameters;
@@ -462,20 +561,18 @@ fn admitted_parameter_ramp_commits_a_bracket_matching_a_fresh_solve() {
     assert_eq!(target.required_nad, covered);
     market.amm.protected_floor_per_share_nad = market.amm.q_per_share_nad.saturating_sub(target.required_nad);
 
-    market.advance_funded_amm_ramp(11).unwrap();
+    assert!(market.advance_one_amm_controller_target(11).unwrap());
 
     assert_eq!(market.amm.applied_curve_parameters, desired);
     assert_eq!(market.amm.invariant_d_nad, expected.invariant_d);
-    assert_eq!(market.amm.invariant_d_high_nad, expected.invariant_d_high);
     let mut independently_solved = market.clone();
-    independently_solved.amm.clear_invariant_bracket();
+    independently_solved.amm.clear_invariant();
     let fresh = independently_solved.evaluate_current_curve(11).unwrap();
     assert_eq!(market.amm.invariant_d_nad, fresh.invariant_d);
-    assert_eq!(market.amm.invariant_d_high_nad, fresh.invariant_d_high);
 }
 
 #[test]
-fn final_ramp_admission_and_center_recenter_never_share_one_crank() {
+fn final_ramp_admission_and_center_recenter_never_share_one_operation() {
     let mut market = market_with_liquidity(concentrated_config());
     market.ensure_amm_initialized(10).unwrap();
     let center_before = market.amm.center_price_nad;
@@ -491,19 +588,26 @@ fn final_ramp_admission_and_center_recenter_never_share_one_crank() {
     let final_slot = market.amm.ramp.end_slot;
 
     reset_amm_liquidity_candidate_solves();
-    let ramp_moved = market.crank_concentrated_amm_with_hlp(final_slot).unwrap();
+    market.prepare_amm_for_swap(final_slot).unwrap();
+    let ramp_moved = market.advance_one_amm_controller_target(final_slot).unwrap();
 
     assert!(ramp_moved);
     assert_eq!(market.amm.applied_curve_parameters, target.curve_parameters());
     assert!(!market.amm.ramp.active);
     assert_eq!(market.amm.center_price_nad, center_before);
-    assert!(amm_liquidity_candidate_solves() <= MAX_FUNDED_CANDIDATE_SOLVES);
+    assert!(amm_liquidity_candidate_solves() <= 1);
 
     reset_amm_liquidity_candidate_solves();
-    let center_moved = market.crank_concentrated_amm_with_hlp(final_slot + 1).unwrap();
+    assert!(!market.advance_one_amm_controller_target(final_slot).unwrap());
+    assert_eq!(market.amm.center_price_nad, center_before);
+    assert_eq!(amm_liquidity_candidate_solves(), 0);
+
+    reset_amm_liquidity_candidate_solves();
+    market.prepare_amm_for_swap(final_slot + 1).unwrap();
+    let center_moved = market.advance_one_amm_controller_target(final_slot + 1).unwrap();
     assert!(center_moved);
     assert!(market.amm.center_price_nad > center_before);
-    assert!(amm_liquidity_candidate_solves() <= MAX_FUNDED_CANDIDATE_SOLVES);
+    assert!(amm_liquidity_candidate_solves() <= 1);
 }
 
 #[test]
@@ -565,35 +669,96 @@ fn checkpointed_trade_finalization_matches_full_finalization() {
 }
 
 #[test]
-fn certified_trade_endpoint_checkpoint_matches_a_fresh_curve_solve() {
+fn trade_finalization_advances_curve_revision_once_and_leaves_unmaterialized_risk_stale() {
+    let mut market = market_with_liquidity(concentrated_config());
+    market.config.ema_half_life_ms = MIN_HALF_LIFE_MS;
+    market.config.directional_ema_half_life_ms = MIN_HALF_LIFE_MS;
+    market.config.q_ema_half_life_ms = MIN_HALF_LIFE_MS;
+    market.ensure_amm_initialized(10).unwrap();
+    market.refresh_risk().unwrap();
+    assert_eq!(market.risk_revision, market.curve_revision);
+    let revision_before = market.curve_revision;
+
+    let quote = market.quote_amm_swap(MarketAsset::Base, 50_000 * NAD, 10).unwrap();
+    market
+        .base_side
+        .credit_reserve(quote.fee.amount_in_for_quote, true)
+        .unwrap();
+    market.quote_side.debit_reserve(quote.amount_out, true).unwrap();
+    checkpoint_trade_endpoint_like_spot(&mut market, quote.trade_endpoint().unwrap(), 10).unwrap();
+    market
+        .finalize_amm_trade_after_inventory_checkpoint(quote.start_price_nad, quote.end_price_nad, 10)
+        .unwrap();
+    let final_evaluation = quote
+        .reserve_endpoint()
+        .unwrap()
+        .validated_evaluation(&market, 10)
+        .unwrap();
+    market.observe_risk_from_curve_evaluation(final_evaluation, 10).unwrap();
+
+    assert_eq!(market.curve_revision, revision_before + 1);
+    assert_eq!(market.risk_revision, revision_before);
+    assert_eq!(market.risk.cached_spot_base_price_nad, quote.reserve_end_price_nad);
+    assert_eq!(market.last_marginal_observation_nad, quote.reserve_end_price_nad);
+
+    let pre_refresh_ema = market.risk.base_price_ema_nad;
+    market.observe_current_risk(20).unwrap();
+    assert_ne!(market.risk.base_price_ema_nad, pre_refresh_ema);
+    assert_eq!(market.risk_revision, market.curve_revision);
+}
+
+#[test]
+fn transition_and_exact_observation_keep_curve_and_risk_revisions_separate() {
+    let mut market = market_with_liquidity(concentrated_config());
+    market.ensure_amm_initialized(10).unwrap();
+    market.refresh_risk().unwrap();
+    let revision_before = market.curve_revision;
+
+    market.base_side.reserves.live_reserve += NAD;
+    market.base_side.reserves.cash_reserve += NAD;
+    market.finalize_amm_transition(11).unwrap();
+    assert_eq!(market.curve_revision, revision_before + 1);
+    assert_eq!(market.risk_revision, revision_before);
+
+    market.observe_current_risk(11).unwrap();
+    assert_eq!(market.risk_revision, market.curve_revision);
+    let observed_revision = market.curve_revision;
+
+    market.quote_side.reserves.live_reserve += NAD;
+    market.quote_side.reserves.cash_reserve += NAD;
+    market.finalize_amm_transition_and_observe_risk(12).unwrap();
+    assert_eq!(market.curve_revision, observed_revision + 1);
+    assert_eq!(market.risk_revision, market.curve_revision);
+}
+
+#[test]
+fn trade_endpoint_checkpoint_matches_a_fresh_curve_solve() {
     let mut market = market_with_liquidity(concentrated_config());
     market.ensure_amm_initialized(10).unwrap();
     let quote = market.quote_amm_swap(MarketAsset::Base, 50_000 * NAD, 10).unwrap();
     assert_eq!(quote.fee.retained_surcharge, 0);
 
-    let mut certified = market.clone();
-    certified
+    let mut checkpointed = market.clone();
+    checkpointed
         .base_side
         .credit_reserve(quote.fee.amount_in_for_quote, true)
         .unwrap();
-    certified.quote_side.debit_reserve(quote.amount_out, true).unwrap();
-    let mut fresh = certified.clone();
+    checkpointed.quote_side.debit_reserve(quote.amount_out, true).unwrap();
+    let mut fresh = checkpointed.clone();
 
-    certified
-        .checkpoint_amm_neutral_inventory_from_certificate(quote.trade_endpoint_certificate().unwrap(), 10)
-        .unwrap();
+    checkpoint_trade_endpoint_like_spot(&mut checkpointed, quote.trade_endpoint().unwrap(), 10).unwrap();
     fresh.checkpoint_amm_neutral_inventory_raw(10).unwrap();
-    assert_eq!(certified.amm, fresh.amm);
+    assert_eq!(checkpointed.amm, fresh.amm);
 
-    assert!(certified
-        .try_observe_risk_from_curve_certificate(quote.reserve_endpoint_certificate().unwrap(), 10,)
+    assert!(checkpointed
+        .try_observe_risk_from_curve_checkpoint(quote.reserve_endpoint().unwrap(), 10,)
         .unwrap());
     fresh.observe_current_risk(10).unwrap();
-    assert_eq!(certified.risk, fresh.risk);
+    assert_eq!(checkpointed.risk, fresh.risk);
 }
 
 #[test]
-fn certified_retained_endpoint_checkpoint_matches_two_fresh_curve_solves() {
+fn retained_endpoint_checkpoint_matches_two_fresh_curve_solves() {
     let mut config = concentrated_config();
     config.divergence_fee_coefficient_nad = 10 * NAD;
     let mut market = market_with_liquidity(config);
@@ -607,22 +772,23 @@ fn certified_retained_endpoint_checkpoint_matches_two_fresh_curve_solves() {
     crate::math::reset_residual_evaluations();
     let quote = market.quote_amm_swap(MarketAsset::Base, 50_000 * NAD, 10).unwrap();
     let retained_evaluations = crate::math::residual_evaluations();
-    assert!(retained_evaluations <= distributed_evaluations + 6);
+    assert!(
+        retained_evaluations <= distributed_evaluations + 6,
+        "distributed={distributed_evaluations}, retained={retained_evaluations}"
+    );
     assert!(quote.fee.retained_surcharge > 0);
 
-    let mut certified = market.clone();
-    certified
+    let mut checkpointed = market.clone();
+    checkpointed
         .base_side
         .credit_reserve(quote.fee.amount_in_for_quote, true)
         .unwrap();
-    certified.quote_side.debit_reserve(quote.amount_out, true).unwrap();
-    let mut fresh = certified.clone();
+    checkpointed.quote_side.debit_reserve(quote.amount_out, true).unwrap();
+    let mut fresh = checkpointed.clone();
 
-    certified
-        .checkpoint_amm_neutral_inventory_from_certificate(quote.trade_endpoint_certificate().unwrap(), 10)
-        .unwrap();
+    checkpoint_trade_endpoint_like_spot(&mut checkpointed, quote.trade_endpoint().unwrap(), 10).unwrap();
     fresh.checkpoint_amm_neutral_inventory_raw(10).unwrap();
-    certified
+    checkpointed
         .base_side
         .credit_reserve(quote.fee.retained_surcharge, true)
         .unwrap();
@@ -630,36 +796,47 @@ fn certified_retained_endpoint_checkpoint_matches_two_fresh_curve_solves() {
         .base_side
         .credit_reserve(quote.fee.retained_surcharge, true)
         .unwrap();
-    certified
-        .checkpoint_amm_retained_surcharge_from_certificate(quote.reserve_endpoint_certificate().unwrap(), 10)
+    let evaluation = quote
+        .reserve_endpoint()
+        .unwrap()
+        .validated_evaluation(&checkpointed, 10)
+        .unwrap();
+    let q_per_share_nad = checkpointed
+        .curve_q_per_share_nad(evaluation.balanced_equivalent_q)
+        .unwrap();
+    checkpointed.amm.commit_invariant(evaluation.invariant_d).unwrap();
+    checkpointed
+        .amm
+        .checkpoint_retained_surcharge(q_per_share_nad)
         .unwrap();
     fresh.checkpoint_amm_retained_surcharge_raw(10).unwrap();
 
-    assert_eq!(certified.amm, fresh.amm);
-    assert!(certified
-        .try_observe_risk_from_curve_certificate(quote.reserve_endpoint_certificate().unwrap(), 10,)
+    assert_eq!(checkpointed.amm, fresh.amm);
+    assert!(checkpointed
+        .try_observe_risk_from_curve_checkpoint(quote.reserve_endpoint().unwrap(), 10,)
         .unwrap());
     fresh.observe_current_risk(10).unwrap();
-    assert_eq!(certified.risk, fresh.risk);
+    assert_eq!(checkpointed.risk, fresh.risk);
 }
 
 #[test]
-fn halved_runtime_candidate_never_exposes_half_enabled_curve() {
-    let candidate = interpolate_parameters(
-        AmmCurveParameters::cpmm(),
-        AmmCurveParameters {
-            peak_depth_nad: 1,
-            imbalance_scale_nad: 1,
-        },
-        1,
-        2,
-    );
-    assert_eq!(candidate, AmmCurveParameters::cpmm());
-    candidate.validate_runtime().unwrap();
+fn partially_enabled_runtime_curve_is_rejected() {
+    assert!(AmmCurveParameters {
+        peak_depth_nad: 1,
+        fade_scale_nad: 0,
+    }
+    .validate_runtime()
+    .is_err());
+    assert!(AmmCurveParameters {
+        peak_depth_nad: 0,
+        fade_scale_nad: MIN_AMM_FADE_SCALE_NAD,
+    }
+    .validate_runtime()
+    .is_err());
 }
 
 #[test]
-fn exact_risk_observation_preserves_an_identical_shape_cache() {
+fn risk_shape_reconstruction_tracks_the_latest_exact_scalar_snapshot() {
     let mut market = market_with_liquidity(concentrated_config());
     market.config.ema_half_life_ms = MIN_HALF_LIFE_MS;
     market.config.directional_ema_half_life_ms = MIN_HALF_LIFE_MS;
@@ -667,32 +844,14 @@ fn exact_risk_observation_preserves_an_identical_shape_cache() {
     market.ensure_amm_initialized(10).unwrap();
     market.last_update_slot = 10;
     market.refresh_risk().unwrap();
-    let cached_shapes = market.amm.risk_curve_cache;
-    assert!(cached_shapes.is_initialized());
-
-    let evaluation = market.evaluate_current_curve(10).unwrap();
-    market.observe_risk_from_curve_evaluation(evaluation, 10).unwrap();
-
-    assert_eq!(market.amm.risk_curve_cache, cached_shapes);
-}
-
-#[test]
-fn exact_risk_observation_invalidates_stale_shapes_and_lazy_reconstruction_matches_rebuild() {
-    let mut market = market_with_liquidity(concentrated_config());
-    market.config.ema_half_life_ms = MIN_HALF_LIFE_MS;
-    market.config.directional_ema_half_life_ms = MIN_HALF_LIFE_MS;
-    market.config.q_ema_half_life_ms = MIN_HALF_LIFE_MS;
-    market.ensure_amm_initialized(10).unwrap();
-    market.last_update_slot = 10;
-    market.refresh_risk().unwrap();
-    assert!(market.amm.risk_curve_cache.is_initialized());
+    assert_eq!(market.risk_revision, market.curve_revision);
 
     let trade = market
         .quote_curve_exact_in(MarketAsset::Base, 100_000 * NAD, 11)
         .unwrap();
     market.base_side.credit_reserve(trade.amount_in, true).unwrap();
     market.quote_side.debit_reserve(trade.amount_out, true).unwrap();
-    market.checkpoint_amm_neutral_inventory_and_observe_risk(11).unwrap();
+    market.finalize_amm_transition_and_observe_risk(11).unwrap();
 
     // The first observation stores the new spot. One later slot lets that
     // observation enter the symmetric/directional EMAs and change the cached
@@ -717,18 +876,17 @@ fn exact_risk_observation_invalidates_stale_shapes_and_lazy_reconstruction_match
             12,
         )
         .unwrap();
-    market.checkpoint_amm_neutral_inventory_and_observe_risk(12).unwrap();
+    market.finalize_amm_transition_and_observe_risk(12).unwrap();
 
     assert_eq!(market.risk, expected_risk);
-    assert!(!market.amm.risk_curve_cache.is_initialized());
-    let lazy_reserves = market
+    let reconstructed_before_refresh = market
         .pessimistic_virtual_reserves_nad(MarketAsset::Base, &market.risk, true)
         .unwrap();
 
     market.refresh_risk().unwrap();
-    assert!(market.amm.risk_curve_cache.is_initialized());
-    let cached_reserves = market
+    assert_eq!(market.risk_revision, market.curve_revision);
+    let reconstructed_after_refresh = market
         .pessimistic_virtual_reserves_nad(MarketAsset::Base, &market.risk, true)
         .unwrap();
-    assert_eq!(lazy_reserves, cached_reserves);
+    assert_eq!(reconstructed_before_refresh, reconstructed_after_refresh);
 }

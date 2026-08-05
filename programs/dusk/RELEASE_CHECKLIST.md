@@ -58,13 +58,14 @@ mainnet launch or upgrade.
   user slippage bounds, pro-rata burn math, and reserve/share invariants.
 - Re-check liquidation accounting for collateral seizure, insurance draw, and
   LP socialization.
-- Select and test the lending/liquidation fee-boundary policy documented in
-  `CONCENTRATION.md`: explicit external-auction dependence, a real fee-exempt
-  AMM backstop, or protocol-fixed fee-aware forced-exit underwriting. Do not
-  describe `settle_liquidation_auction_amm` as an AMM backstop while it still
-  requires an external debt-token payer.
-- Re-check fee liabilities: yLP, hLP, operator, protocol, and unallocated
-  carry-forward buckets.
+- Confirm the selected external-auction policy documented in
+  `CONCENTRATION.md`: `settle_liquidation_auction_floor` requires an external
+  debt-token payer and does not provide an AMM-backed liquidation guarantee.
+  Test floor eligibility, external funding, insurance limits, socialization
+  limits, and the absence of any AMM conversion.
+- Re-check fee liabilities: yLP, hLP, manager, protocol, and unallocated
+  carry-forward buckets. Swap-fee liabilities must remain reserve-custodied
+  outside executable cash; interest liabilities must remain interest-vault-custodied.
 - Re-check Token-2022 mint constraints and transfer-fee inventory accounting.
 - Record SBF compute units for CPMM, concentrated, retained-surcharge,
   hLP-correction, preview, leverage, and liquidation paths with explicit
@@ -105,13 +106,13 @@ typecheck gates.
   `target/idl/leverage_delegate.json` exist before running the delegated close
   LiteSVM smoke path.
 - Confirm `target/types/dusk.ts` exists and matches the same build.
-- Confirm `initialize_lp_metadata` has been exercised against a real Metaplex
-  Token Metadata program on the target cluster or a compatible local validator;
-  the default LiteSVM smoke suite seeds LP metadata accounts directly. For the
-  focused local validator path:
+- Confirm `initialize_lp_metadata` passes the deterministic LiteSVM
+  CreateV1-compatible CPI fixture and has also been exercised against the real
+  Metaplex Token Metadata program on the target cluster. For the focused local
+  fixture path:
 
   ```bash
-  DUSK_TEST_REAL_METADATA_CPI=1 yarn test-litesvm:no-build --grep "initializes a final yLP/hLP market"
+  yarn test-litesvm:no-build --grep "initializes a final yLP/hLP market"
   ```
 - Confirm `packages/dusk-sdk/src/idl_v2.json` and
   `packages/dusk-sdk/src/types_v2.ts` match the latest
@@ -121,6 +122,12 @@ typecheck gates.
   program ID and PDA helpers.
 - Confirm yLP and hLP Token-2022 mint constraints remain represented in both
   code and IDL-visible account flows.
+- Confirm the generated interface contains `initialize_yield_accounts` and
+  `initialize_lp_transfer_hook`; `YieldAccount` contains `lp_mint`,
+  `swap_fee_remainder_q64`, and `interest_remainder_q64`; and both
+  `YieldClaimed` and `YieldRecipientUpdated` expose `lp_mint`. Regenerate with
+  `anchor build -p dusk` and `npm run prepare-idl --prefix packages/dusk-sdk`;
+  do not hand-maintain the generated JSON or TypeScript definitions.
 
 ## 5. Integration Readiness
 

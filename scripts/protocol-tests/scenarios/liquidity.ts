@@ -99,12 +99,12 @@ export const LIQUIDITY_SCENARIOS: ScenarioDefinition[] = [
         );
         harness.assertEqual(
           `limiting-side case ${index + 1} base credit matches preview`,
-          stateValue(after, "baseReserve") - stateValue(before, "baseReserve"),
+          stateValue(after, "baseLiveReserve") - stateValue(before, "baseLiveReserve"),
           integer(preview.baseReserveCredit)
         );
         harness.assertEqual(
           `limiting-side case ${index + 1} quote credit matches preview`,
-          stateValue(after, "quoteReserve") - stateValue(before, "quoteReserve"),
+          stateValue(after, "quoteLiveReserve") - stateValue(before, "quoteLiveReserve"),
           integer(preview.quoteReserveCredit)
         );
         await harness.execute({
@@ -365,8 +365,8 @@ export const LIQUIDITY_SCENARIOS: ScenarioDefinition[] = [
         body: { assetIn: "base", exactAssetIn: oneRaw, minAssetOut: "0" },
       });
       const marketAfter = await harness.market();
-      harness.assertEqual("rounded-to-zero swap leaves base reserve unchanged", stateValue(marketAfter, "baseReserve"), stateValue(marketBefore, "baseReserve"));
-      harness.assertEqual("rounded-to-zero swap leaves quote reserve unchanged", stateValue(marketAfter, "quoteReserve"), stateValue(marketBefore, "quoteReserve"));
+      harness.assertEqual("rounded-to-zero swap leaves base reserve unchanged", stateValue(marketAfter, "baseLiveReserve"), stateValue(marketBefore, "baseLiveReserve"));
+      harness.assertEqual("rounded-to-zero swap leaves quote reserve unchanged", stateValue(marketAfter, "quoteLiveReserve"), stateValue(marketBefore, "quoteLiveReserve"));
     },
   },
   {

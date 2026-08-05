@@ -24,6 +24,18 @@ pub fn emit_referral_interest_accrued(
     signer: Pubkey,
     asset_mint: Pubkey,
 ) -> Result<()> {
+    emit_referral_interest_accrued_at_slot(receipt, market, position, owner, signer, asset_mint, Clock::get()?.slot)
+}
+
+pub fn emit_referral_interest_accrued_at_slot(
+    receipt: &ReferralInterestAccrualReceipt,
+    market: Pubkey,
+    position: Pubkey,
+    owner: Pubkey,
+    signer: Pubkey,
+    asset_mint: Pubkey,
+    current_slot: u64,
+) -> Result<()> {
     if receipt.quote.referral_amount == 0 {
         return Ok(());
     }
@@ -40,7 +52,7 @@ pub fn emit_referral_interest_accrued(
         protocol_interest_revenue: receipt.quote.protocol_interest_revenue,
         interest_share_bps: receipt.quote.interest_share_bps,
         accrued_amount: receipt.quote.referral_amount,
-        metadata: MarketEventMetadata::new(signer, market)?,
+        metadata: MarketEventMetadata::at_slot(signer, market, current_slot),
     });
     Ok(())
 }

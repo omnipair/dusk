@@ -148,8 +148,6 @@ async function main() {
         quoteCollateralVault: addresses.quoteCollateralVault,
         baseInsuranceVault: addresses.baseInsuranceVault,
         quoteInsuranceVault: addresses.quoteInsuranceVault,
-        baseFeeVault: addresses.baseFeeVault,
-        quoteFeeVault: addresses.quoteFeeVault,
         baseInterestVault: addresses.baseInterestVault,
         quoteInterestVault: addresses.quoteInterestVault,
         teamTreasury,
@@ -214,8 +212,6 @@ async function main() {
     quoteCollateralVault: addresses.quoteCollateralVault.toBase58(),
     baseInsuranceVault: addresses.baseInsuranceVault.toBase58(),
     quoteInsuranceVault: addresses.quoteInsuranceVault.toBase58(),
-    baseFeeVault: addresses.baseFeeVault.toBase58(),
-    quoteFeeVault: addresses.quoteFeeVault.toBase58(),
     baseInterestVault: addresses.baseInterestVault.toBase58(),
     quoteInterestVault: addresses.quoteInterestVault.toBase58(),
     baseHlpYlpVault: baseHlpYlpVault.toBase58(),
@@ -418,6 +414,7 @@ async function seedBalancedLiquidity(params: {
         params.program.programId,
         params.market,
         params.payer.publicKey,
+        params.ylpMint,
         params.baseMint,
         "ylp"
       ),
@@ -425,6 +422,7 @@ async function seedBalancedLiquidity(params: {
         params.program.programId,
         params.market,
         params.payer.publicKey,
+        params.ylpMint,
         params.quoteMint,
         "ylp"
       ),

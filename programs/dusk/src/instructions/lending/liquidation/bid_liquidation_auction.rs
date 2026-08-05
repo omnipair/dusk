@@ -10,10 +10,7 @@ use crate::{
     events::log::emit_position_liquidated_low_heap,
     generate_market_seeds,
     math::risk::exponential_price_decay,
-    shared::token::{
-        get_transfer_fee, transfer_from_user_to_vault_with_remaining_accounts,
-        transfer_from_vault_to_user_with_remaining_accounts, transfer_from_vault_to_vault_with_remaining_accounts,
-    },
+    shared::token::{get_transfer_fee, get_transfer_inverse_fee, transfer_checked_with_remaining_accounts},
     state::{
         market::transitions::liquidation::LiquidationPricing, BorrowPosition, FutarchyAuthority, Market,
         ReferralAccrual, ReferralPartner,
@@ -22,7 +19,8 @@ use crate::{
 
 use super::common::{reconcile_insurance_funding_credit, validate_liquidation_accounts};
 use crate::instructions::common::{
-    require_supported_asset_mint, token_account_credit, token_program_for_mint, validate_interest_accounts,
+    require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
+    validate_interest_accounts,
 };
 use crate::instructions::referral::common::{
     accrue_referral_interest, emit_referral_interest_accrued, validate_referral_binding,
@@ -153,6 +151,12 @@ impl<'info> BidLiquidationAuction<'info> {
         let expected_referral_partner = ctx.accounts.borrow_position.referral_partner(debt_asset);
         let referral_interest_share_bps = ctx.accounts.borrow_position.referral_interest_share_bps(debt_asset);
 
+        // `market_update_and_validate` materializes current risk immediately
+        // before this handler. Cancel a recovered auction before reading its
+        // stored price or moving bidder tokens.
+        ctx.accounts
+            .market
+            .reconcile_liquidation_auction(&mut ctx.accounts.borrow_position)?;
         ctx.accounts.borrow_position.assert_liquidation_auction(debt_asset)?;
 
         let now = Clock::get()?.unix_timestamp;
@@ -188,33 +192,53 @@ impl<'info> BidLiquidationAuction<'info> {
             debt_asset,
             liquidation_pricing,
         )?;
-        require_gte!(
-            liquidation_terms.max_repay_amount,
-            args.repay_amount,
-            ErrorCode::LiquidationRepayTooLarge
-        );
-
         let debt_token_program = token_program_for_mint(
             &ctx.accounts.debt_asset_mint,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        let debt_transfer_fee = get_transfer_fee(&ctx.accounts.debt_asset_mint.to_account_info(), args.repay_amount)?;
-        let repay_credit = args
+        let max_repay_credit = args
             .repay_amount
-            .checked_sub(debt_transfer_fee)
+            .checked_sub(get_transfer_fee(
+                &ctx.accounts.debt_asset_mint.to_account_info(),
+                args.repay_amount,
+            )?)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        require!(repay_credit > 0, ErrorCode::AmountZero);
-        transfer_from_user_to_vault_with_remaining_accounts(
+        let repay_credit = ctx
+            .accounts
+            .market
+            .fixed_repayment_for_max(&ctx.accounts.borrow_position, debt_asset, max_repay_credit)?
+            .cash_repaid;
+        require_gte!(
+            liquidation_terms.max_repay_amount,
+            repay_credit,
+            ErrorCode::LiquidationRepayTooLarge
+        );
+        let repay_gross = repay_credit
+            .checked_add(get_transfer_inverse_fee(
+                &ctx.accounts.debt_asset_mint.to_account_info(),
+                repay_credit,
+            )?)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        require_gte!(args.repay_amount, repay_gross, ErrorCode::BrokenInvariant);
+        let reserve_balance_before = ctx.accounts.reserve_vault.amount;
+        transfer_checked_with_remaining_accounts(
             ctx.accounts.liquidator.to_account_info(),
             ctx.accounts.liquidator_debt_account.to_account_info(),
             ctx.accounts.reserve_vault.to_account_info(),
             ctx.accounts.debt_asset_mint.to_account_info(),
             debt_token_program.clone(),
-            args.repay_amount,
+            repay_gross,
             ctx.accounts.debt_asset_mint.decimals,
+            &[],
             ctx.remaining_accounts,
         )?;
+        ctx.accounts.reserve_vault.reload()?;
+        require_eq!(
+            token_account_credit(reserve_balance_before, &ctx.accounts.reserve_vault)?,
+            repay_credit,
+            ErrorCode::BrokenInvariant
+        );
 
         // For bids, there is no insurance draw or socialized loss since it's fully external.
         let liquidation_receipt = ctx.accounts.market.settle_liquidation(
@@ -230,7 +254,7 @@ impl<'info> BidLiquidationAuction<'info> {
 
         let referral_receipt = if liquidation_receipt.interest_paid > 0 {
             let interest_vault_balance_before = ctx.accounts.interest_vault.amount;
-            transfer_from_vault_to_vault_with_remaining_accounts(
+            transfer_checked_with_remaining_accounts(
                 ctx.accounts.market.to_account_info(),
                 ctx.accounts.reserve_vault.to_account_info(),
                 ctx.accounts.interest_vault.to_account_info(),
@@ -241,6 +265,7 @@ impl<'info> BidLiquidationAuction<'info> {
                 &[&generate_market_seeds!(ctx.accounts.market)[..]],
                 ctx.remaining_accounts,
             )?;
+            ctx.accounts.reserve_vault.reload()?;
             ctx.accounts.interest_vault.reload()?;
             let interest_vault_credit =
                 token_account_credit(interest_vault_balance_before, &ctx.accounts.interest_vault)?;
@@ -295,7 +320,7 @@ impl<'info> BidLiquidationAuction<'info> {
                 .checked_sub(transfer_fee)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
             require_gte!(collateral_credit, args.min_collateral_out, ErrorCode::SlippageExceeded);
-            transfer_from_vault_to_user_with_remaining_accounts(
+            transfer_checked_with_remaining_accounts(
                 ctx.accounts.market.to_account_info(),
                 ctx.accounts.collateral_vault.to_account_info(),
                 ctx.accounts.liquidator_collateral_account.to_account_info(),
@@ -313,7 +338,7 @@ impl<'info> BidLiquidationAuction<'info> {
         require_gte!(collateral_credit, args.min_collateral_out, ErrorCode::SlippageExceeded);
         if liquidation_receipt.insurance_funded > 0 {
             let collateral_insurance_balance_before = ctx.accounts.collateral_insurance_vault.amount;
-            transfer_from_vault_to_vault_with_remaining_accounts(
+            transfer_checked_with_remaining_accounts(
                 ctx.accounts.market.to_account_info(),
                 ctx.accounts.collateral_vault.to_account_info(),
                 ctx.accounts.collateral_insurance_vault.to_account_info(),
@@ -340,6 +365,7 @@ impl<'info> BidLiquidationAuction<'info> {
         let current_slot = Clock::get()?.slot;
         ctx.accounts.market.finalize_amm_transition(current_slot)?;
         ctx.accounts.market.refresh_risk()?;
+        require_reserve_custody(ctx.accounts.reserve_vault.amount, ctx.accounts.market.side(debt_asset))?;
 
         emit_position_liquidated_low_heap(
             market_key,

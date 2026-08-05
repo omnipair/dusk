@@ -9,41 +9,35 @@ use crate::{
     errors::ErrorCode,
     events::{LeveragePositionLiquidated, LeverageSwapEvent, MarketEventMetadata},
     generate_market_seeds,
-    shared::token::{
-        transfer_from_vault_to_user_with_remaining_accounts, transfer_from_vault_to_vault_with_remaining_accounts,
+    shared::token::transfer_checked_with_remaining_accounts,
+    state::{
+        FutarchyAuthority, LeveragePosition, LeverageSwapPlan, LeverageSwapQuote, Market, MarketAsset, ReferralAccrual,
+        ReferralPartner,
     },
-    state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
 };
 
 use super::common::{
-    move_leverage_swap_fee, record_leverage_interest, validate_leverage_fee_account,
-    validate_leverage_interest_account, validate_leverage_mints, validate_leverage_reserve_accounts,
+    leverage_swap_fee_credit, record_leverage_interest, settle_inline_leverage_hlp, validate_leverage_futarchy_pda,
+    validate_leverage_interest_account, validate_leverage_market_pda, validate_leverage_mints,
+    validate_leverage_reserve_accounts,
 };
-use crate::instructions::common::{token_account_credit, token_program_for_mint};
-use crate::instructions::referral::common::{emit_referral_interest_accrued, validate_referral_binding};
+use crate::instructions::common::{
+    require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout,
+};
+use crate::instructions::referral::common::{emit_referral_interest_accrued_at_slot, validate_referral_binding};
+use crate::instructions::{SwapContext, SwapPlan};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct LiquidateLeverageArgs {
     pub debt_asset: u8,
 }
 
-#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: LiquidateLeverageArgs)]
 pub struct LiquidateLeverage<'info> {
-    #[account(
-        mut,
-        seeds = [
-            MARKET_V2_SEED_PREFIX,
-            market.base_side.asset_mint.as_ref(),
-            market.quote_side.asset_mint.as_ref(),
-            market.params_hash.as_ref(),
-        ],
-        bump = market.bump
-    )]
+    #[account(mut)]
     pub market: Box<Account<'info, Market>>,
 
-    #[account(seeds = [FUTARCHY_AUTHORITY_SEED_PREFIX], bump = futarchy_authority.bump)]
     pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
 
     /// CHECK: Receives closed account rent and any non-incentive residual.
@@ -71,8 +65,6 @@ pub struct LiquidateLeverage<'info> {
     pub debt_reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
     pub collateral_reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
-    #[account(mut)]
-    pub collateral_fee_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
     pub debt_interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
@@ -115,8 +107,10 @@ pub struct LiquidateLeverage<'info> {
 }
 
 impl<'info> LiquidateLeverage<'info> {
-    pub fn validate(&self, args: &LiquidateLeverageArgs) -> Result<()> {
-        self.market.assert_started()?;
+    pub fn validate_at(&self, args: &LiquidateLeverageArgs, unix_timestamp: i64) -> Result<()> {
+        validate_leverage_market_pda(&self.market, self.market.key())?;
+        validate_leverage_futarchy_pda(self.futarchy_authority.bump, self.futarchy_authority.key())?;
+        self.market.assert_started_at(unix_timestamp)?;
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
         validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
         validate_leverage_reserve_accounts(
@@ -126,12 +120,6 @@ impl<'info> LiquidateLeverage<'info> {
             &self.collateral_mint,
             &self.debt_reserve_vault,
             &self.collateral_reserve_vault,
-        )?;
-        validate_leverage_fee_account(
-            &self.market,
-            &self.collateral_mint,
-            &self.collateral_fee_vault,
-            debt_asset.opposite(),
         )?;
         validate_leverage_interest_account(&self.market, &self.debt_mint, &self.debt_interest_vault, debt_asset)?;
         self.leverage_position.require_open()?;
@@ -149,10 +137,16 @@ impl<'info> LiquidateLeverage<'info> {
         Ok(())
     }
 
-    crate::instructions::common::market_update_and_validate!(LiquidateLeverageArgs);
-
-    pub fn handle_liquidate(ctx: Context<'_, '_, '_, 'info, Self>, args: LiquidateLeverageArgs) -> Result<()> {
+    pub fn handle_liquidate(
+        ctx: Context<'_, '_, '_, 'info, Self>,
+        args: LiquidateLeverageArgs,
+        current_slot: u64,
+    ) -> Result<()> {
         let market_key = ctx.accounts.market.key();
+        let h_lp_accounts = {
+            let market: &Market = &ctx.accounts.market;
+            HlpSwapAccountLayout::try_from((market, ctx.remaining_accounts))?
+        };
         let liquidator_key = ctx.accounts.liquidator.key();
         let owner_key = ctx.accounts.position_owner.key();
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
@@ -169,7 +163,7 @@ impl<'info> LiquidateLeverage<'info> {
             &ctx.accounts.token_2022_program,
         )?;
         let collateral_reserve_balance_before = ctx.accounts.collateral_reserve_vault.amount;
-        transfer_from_vault_to_vault_with_remaining_accounts(
+        transfer_checked_with_remaining_accounts(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.leverage_collateral_vault.to_account_info(),
             ctx.accounts.collateral_reserve_vault.to_account_info(),
@@ -178,7 +172,7 @@ impl<'info> LiquidateLeverage<'info> {
             collateral_sold,
             ctx.accounts.collateral_mint.decimals,
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
-            ctx.remaining_accounts,
+            h_lp_accounts.hook_accounts(ctx.remaining_accounts),
         )?;
         ctx.accounts.collateral_reserve_vault.reload()?;
         let collateral_reserve_credit = token_account_credit(
@@ -186,32 +180,54 @@ impl<'info> LiquidateLeverage<'info> {
             &ctx.accounts.collateral_reserve_vault,
         )?;
         require!(collateral_reserve_credit > 0, ErrorCode::AmountZero);
-        let current_slot = Clock::get()?.slot;
-        ctx.accounts.market.prepare_amm_for_swap(current_slot)?;
-        let swap =
-            ctx.accounts
-                .market
-                .quote_leverage_swap(collateral_asset, collateral_reserve_credit, current_slot)?;
-        let swap_fee_credit = move_leverage_swap_fee(
-            &ctx.accounts.market,
-            &ctx.accounts.collateral_mint,
-            &mut ctx.accounts.collateral_reserve_vault,
-            &mut ctx.accounts.collateral_fee_vault,
-            &ctx.accounts.token_program,
-            &ctx.accounts.token_2022_program,
-            &swap,
-            ctx.remaining_accounts,
-        )?;
+        let SwapPlan {
+            quote,
+            base_pre_rebalance,
+            quote_pre_rebalance,
+            fee_eligible_ylp_supply,
+            interest_eligibility,
+        } = SwapContext {
+            current_slot,
+            asset_in: collateral_asset,
+            reserve_credit: collateral_reserve_credit,
+        }
+        .plan(&mut ctx.accounts.market)?;
+        ctx.accounts.market.observe_current_risk(current_slot)?;
+        let swap = LeverageSwapQuote::from_amm(quote, current_slot);
+        let swap_plan = LeverageSwapPlan {
+            swap,
+            base_pre_rebalance,
+            quote_pre_rebalance,
+            fee_eligible_ylp_supply,
+            interest_eligibility,
+        };
+        let swap_fee_credit = leverage_swap_fee_credit(&swap)?;
 
         let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
         let receipt = ctx.accounts.market.liquidate_leverage(
             &mut ctx.accounts.leverage_position,
-            swap,
+            swap_plan,
             swap_fee_credit,
             manager_fee_bps,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
             current_slot,
+        )?;
+        settle_inline_leverage_hlp(
+            &mut ctx.accounts.market,
+            &ctx.accounts.futarchy_authority,
+            debt_asset,
+            &ctx.accounts.debt_mint,
+            &ctx.accounts.collateral_mint,
+            &ctx.accounts.debt_reserve_vault,
+            &ctx.accounts.collateral_reserve_vault,
+            &ctx.accounts.token_program,
+            &ctx.accounts.token_2022_program,
+            ctx.remaining_accounts,
+            h_lp_accounts,
+            receipt.base_hlp_rebalance,
+            receipt.quote_hlp_rebalance,
+            interest_eligibility,
         )?;
 
         let debt_token_program = token_program_for_mint(
@@ -220,7 +236,7 @@ impl<'info> LiquidateLeverage<'info> {
             &ctx.accounts.token_2022_program,
         )?;
         let liquidator_balance_before = ctx.accounts.liquidator_debt_account.amount;
-        transfer_from_vault_to_user_with_remaining_accounts(
+        transfer_checked_with_remaining_accounts(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.debt_reserve_vault.to_account_info(),
             ctx.accounts.liquidator_debt_account.to_account_info(),
@@ -229,13 +245,13 @@ impl<'info> LiquidateLeverage<'info> {
             receipt.liquidator_amount,
             ctx.accounts.debt_mint.decimals,
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
-            ctx.remaining_accounts,
+            h_lp_accounts.hook_accounts(ctx.remaining_accounts),
         )?;
         ctx.accounts.liquidator_debt_account.reload()?;
         let liquidator_amount = token_account_credit(liquidator_balance_before, &ctx.accounts.liquidator_debt_account)?;
 
         let owner_balance_before = ctx.accounts.owner_debt_account.amount;
-        transfer_from_vault_to_user_with_remaining_accounts(
+        transfer_checked_with_remaining_accounts(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.debt_reserve_vault.to_account_info(),
             ctx.accounts.owner_debt_account.to_account_info(),
@@ -244,7 +260,7 @@ impl<'info> LiquidateLeverage<'info> {
             receipt.owner_residual,
             ctx.accounts.debt_mint.decimals,
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
-            ctx.remaining_accounts,
+            h_lp_accounts.hook_accounts(ctx.remaining_accounts),
         )?;
         ctx.accounts.owner_debt_account.reload()?;
         let owner_residual = token_account_credit(owner_balance_before, &ctx.accounts.owner_debt_account)?;
@@ -264,19 +280,30 @@ impl<'info> LiquidateLeverage<'info> {
             ctx.accounts.referral_partner.as_deref(),
             ctx.accounts.referral_accrual.as_deref_mut(),
             receipt.interest_paid,
-            ctx.remaining_accounts,
+            h_lp_accounts.hook_accounts(ctx.remaining_accounts),
+        )?;
+        ctx.accounts.debt_reserve_vault.reload()?;
+        ctx.accounts.collateral_reserve_vault.reload()?;
+        require_reserve_custody(
+            ctx.accounts.debt_reserve_vault.amount,
+            ctx.accounts.market.side(debt_asset),
+        )?;
+        require_reserve_custody(
+            ctx.accounts.collateral_reserve_vault.amount,
+            ctx.accounts.market.side(collateral_asset),
         )?;
 
-        emit_referral_interest_accrued(
+        emit_referral_interest_accrued_at_slot(
             &referral_receipt,
             market_key,
             position_key,
             owner_key,
             liquidator_key,
             debt_mint_key,
+            current_slot,
         )?;
 
-        emit_cpi!(LeveragePositionLiquidated {
+        emit!(LeveragePositionLiquidated {
             market: market_key,
             position: position_key,
             owner: owner_key,
@@ -291,7 +318,7 @@ impl<'info> LiquidateLeverage<'info> {
             liquidator_amount,
             owner_residual,
             swap: LeverageSwapEvent::new(receipt.swap, swap_fee_credit),
-            metadata: MarketEventMetadata::new(liquidator_key, market_key)?,
+            metadata: MarketEventMetadata::at_slot(liquidator_key, market_key, current_slot),
         });
         Ok(())
     }

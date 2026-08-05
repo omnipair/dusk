@@ -7,11 +7,94 @@ use crate::{
 };
 use proptest::prelude::*;
 
+fn checkpoint_hlp_vaults(market: &mut Market) -> Result<(i128, i128)> {
+    market.checkpoint_hlp_vaults()
+}
+
+fn rebalance_hlp_vaults(market: &mut Market) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
+    let base = if market.base_hlp_vault.hlp_supply > 0 || market.base_hlp_vault.residual_exposure != 0 {
+        rebalance_one_hlp(market, MarketAsset::Base)?
+    } else {
+        empty_hlp_rebalance_receipt(MarketAsset::Base)
+    };
+    let quote = if market.quote_hlp_vault.hlp_supply > 0 || market.quote_hlp_vault.residual_exposure != 0 {
+        rebalance_one_hlp(market, MarketAsset::Quote)?
+    } else {
+        empty_hlp_rebalance_receipt(MarketAsset::Quote)
+    };
+    Ok((base, quote))
+}
+
+fn pre_solve_hlp_vaults_for_swap(
+    market: &mut Market,
+    asset_in: MarketAsset,
+    amount_in: u64,
+) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
+    let base = pre_solve_one_hlp_for_swap(market, MarketAsset::Base, asset_in, amount_in, amount_in)?;
+    let quote = pre_solve_one_hlp_for_swap(market, MarketAsset::Quote, asset_in, amount_in, amount_in)?;
+    Ok((base, quote))
+}
+
+fn require_hlp_swap_path_safe(
+    market: &Market,
+    start_price_nad: u64,
+    end_price_nad: u64,
+    base_residual_on_entry: bool,
+    quote_residual_on_entry: bool,
+) -> Result<()> {
+    let start_prices = hlp_curve_prices_from_base_price_nad(start_price_nad as u128)?;
+    let end_prices = hlp_curve_prices_from_base_price_nad(end_price_nad as u128)?;
+    require_residual_hlp_swap_safe(
+        market,
+        MarketAsset::Base,
+        start_prices,
+        end_prices,
+        base_residual_on_entry,
+    )?;
+    require_residual_hlp_swap_safe(
+        market,
+        MarketAsset::Quote,
+        start_prices,
+        end_prices,
+        quote_residual_on_entry,
+    )
+}
+
+/// Mirrors the hLP-deposit admission sequence in the instruction after live
+/// mint-supply reconciliation. Keeping this test-only avoids restoring a
+/// one-call production wrapper.
+fn prepare_hlp_deposit_like_instruction(
+    market: &mut Market,
+    target_asset: MarketAsset,
+    current_slot: u64,
+) -> Result<()> {
+    market.assert_current_version()?;
+    market.accrue_interest_to_slot(current_slot)?;
+    if market.base_side.reserves.live_reserve > 0 && market.quote_side.reserves.live_reserve > 0 {
+        market.advance_amm_clock(current_slot)?;
+        market.checkpoint_hlp_vaults()?;
+        let prices = current_hlp_curve_prices(market)?;
+        let entry = current_hlp_entry_state_with_prices(market, target_asset, prices)?;
+        require!(entry.disposition.admits_entry(), ErrorCode::HlpSettlementUnavailable);
+        if market.has_active_hlp()
+            && market.amm.ramp.active
+            && (!market.amm.applied_curve_parameters.is_cpmm() || !market.amm.ramp.target.is_cpmm())
+        {
+            let desired = market.amm.desired_curve_parameters(&market.config.amm, current_slot);
+            require!(
+                desired == market.amm.applied_curve_parameters,
+                ErrorCode::HlpSettlementUnavailable
+            );
+        }
+        market.observe_current_risk(current_slot)?;
+    }
+    Ok(())
+}
+
 fn valid_config() -> MarketConfig {
     MarketConfig {
         swap_fee_bps: 30,
         manager_fee_bps: 0,
-        protocol_fee_bps: 0,
         target_hlp_leverage_bps: BPS_DENOMINATOR * 2,
         settlement_divergence_bps: 500,
         ema_half_life_ms: 60_000,
@@ -73,6 +156,9 @@ fn seeded_market() -> Market {
         pending_operator: PendingAuthorityChange::default(),
         pending_manager: PendingAuthorityChange::default(),
         params_hash: [7; 32],
+        last_marginal_observation_nad: 0,
+        curve_revision: 0,
+        risk_revision: 0,
         last_update_slot: 0,
         reduce_only: false,
         bump: 255,
@@ -168,7 +254,7 @@ fn repeated_cpmm_hlp_open_admits_only_non_worsening_controller_granularity() {
     DepositSingleSided::new(MarketAsset::Base, 5_000, 1)
         .apply(&mut market)
         .unwrap();
-    assert_eq!(market.base_hlp_vault.pending_rebalance, -1_000);
+    assert_eq!(market.base_hlp_vault.residual_exposure, -1_000);
     assert_eq!(market.base_hlp_vault.last_nav_nad, 4_998_500);
     let reference = market.base_hlp_vault.cached_settlement_price_nad;
     let before =
@@ -178,7 +264,7 @@ fn repeated_cpmm_hlp_open_admits_only_non_worsening_controller_granularity() {
 
     // This is the on-chain ordering: update/checkpoint admission runs
     // before the transferred amount is applied to the aggregate vault.
-    market.update_for_hlp_deposit(MarketAsset::Base, 1).unwrap();
+    prepare_hlp_deposit_like_instruction(&mut market, MarketAsset::Base, 1).unwrap();
     let receipt = DepositSingleSided::new(MarketAsset::Base, 6_000, 1)
         .apply(&mut market)
         .unwrap();
@@ -186,7 +272,7 @@ fn repeated_cpmm_hlp_open_admits_only_non_worsening_controller_granularity() {
     assert_eq!(receipt.hlp_amount, 6_001);
     assert_eq!(market.base_hlp_vault.hlp_supply, 11_001);
     assert_eq!(market.base_hlp_vault.ylp_shares, 15_556);
-    assert_eq!(market.base_hlp_vault.pending_rebalance, -1_000);
+    assert_eq!(market.base_hlp_vault.residual_exposure, -1_000);
     assert_eq!(market.base_hlp_vault.last_nav_nad, 10_998_500);
     assert_eq!(market.base_hlp_vault.cached_settlement_price_nad, reference);
     let after =
@@ -194,8 +280,8 @@ fn repeated_cpmm_hlp_open_admits_only_non_worsening_controller_granularity() {
             .unwrap();
     assert_eq!(after.disposition, HlpEntryDisposition::ControllerGranularityLimited);
     assert_eq!(
-        after.pending_rebalance.unsigned_abs(),
-        before.pending_rebalance.unsigned_abs()
+        after.residual_exposure.unsigned_abs(),
+        before.residual_exposure.unsigned_abs()
     );
     assert!(after.nav_nad > before.nav_nad);
 }
@@ -217,6 +303,30 @@ fn h_lp_nav_values_collateral_and_debt_in_target_numeraire() {
         100 * NAD as u128
     );
     assert_eq!(hlp_nav_nad(&market, MarketAsset::Base).unwrap(), 100 * NAD as u128);
+}
+
+#[test]
+fn cpmm_hlp_price_fast_path_matches_prepared_curve_rounding() {
+    let mut market = seeded_market();
+    for (base_decimals, quote_decimals, base_reserve, quote_reserve) in [
+        (6, 6, 100_000_003, 299_999_999),
+        (6, 9, 9_876_543_211, 1_234_567_891),
+        (9, 0, 4_321_000_007, 7_654_321),
+    ] {
+        market.base_side.asset_decimals = base_decimals;
+        market.quote_side.asset_decimals = quote_decimals;
+        market.base_side.reserves.live_reserve = base_reserve;
+        market.base_side.reserves.cash_reserve = base_reserve;
+        market.quote_side.reserves.live_reserve = quote_reserve;
+        market.quote_side.reserves.cash_reserve = quote_reserve;
+
+        let fast = current_hlp_curve_prices(&market).unwrap();
+        let prepared = hlp_curve_prices_from_base_price_nad(
+            market.curve_marginal_price_nad(curve_slot(&market)).unwrap() as u128,
+        )
+        .unwrap();
+        assert_eq!(fast, prepared);
+    }
 }
 
 #[test]
@@ -330,7 +440,7 @@ fn close_hlp_burns_vault_ylp_and_repays_vault_debt() {
     assert_eq!(market.base_hlp_vault.hlp_supply, 0);
     assert_eq!(market.base_hlp_vault.debt_shares, 0);
     assert_eq!(market.base_hlp_vault.debt_principal, 0);
-    assert_eq!(market.base_hlp_vault.pending_rebalance, 0);
+    assert_eq!(market.base_hlp_vault.residual_exposure, 0);
     assert_eq!(market.base_hlp_vault.ylp_shares, 0);
     assert_eq!(market.base_hlp_vault.base_hlp_live_reserve, 0);
     assert_eq!(market.base_hlp_vault.quote_hlp_live_reserve, 0);
@@ -568,11 +678,11 @@ fn constrain_side_cash_preserving_hlp_invariant(market: &mut Market, asset: Mark
     match asset {
         MarketAsset::Base => {
             market.debt.fixed_base_shares = cash_backed_debt as u128;
-            market.debt.fixed_base_principal = cash_backed_debt as u128;
+            market.debt.fixed_base_principal = cash_backed_debt;
         }
         MarketAsset::Quote => {
             market.debt.fixed_quote_shares = cash_backed_debt as u128;
-            market.debt.fixed_quote_principal = cash_backed_debt as u128;
+            market.debt.fixed_quote_principal = cash_backed_debt;
         }
     }
 }
@@ -602,7 +712,7 @@ fn active_hlp_market() -> Market {
 fn enable_concentrated_curve(market: &mut Market) {
     market.config.amm = AmmConfig {
         peak_depth_nad: 200 * NAD,
-        imbalance_scale_nad: NAD / 10,
+        fade_scale_nad: NAD / 10,
         adjustment_threshold_nad: NAD / 100,
         adjustment_step_nad: NAD / 1_000,
         min_adjustment_interval_slots: 1,
@@ -627,39 +737,84 @@ fn active_concentrated_hlp_market() -> Market {
 }
 
 #[test]
-fn concentrated_hlp_read_only_guard_matches_stateful_rejection() {
-    let market = active_concentrated_hlp_market();
+fn concentrated_hlp_guard_rejects_without_mutating_state() {
+    let mut market = active_concentrated_hlp_market();
     let reference = u64::try_from(market.base_hlp_vault.cached_settlement_price_nad).unwrap();
-    let end = reference.checked_mul(2).unwrap();
+    let stale_trade = market.quote_curve_exact_in(MarketAsset::Base, 150_000, 0).unwrap();
+    market
+        .swap_reserves(
+            MarketAsset::Base,
+            150_000,
+            stale_trade.amount_out,
+            0,
+            0,
+            0,
+            crate::state::ProtocolAuctionSplit::default(),
+        )
+        .unwrap();
+    market.checkpoint_amm_neutral_inventory(0).unwrap();
+    checkpoint_hlp_vaults(&mut market).unwrap();
+    assert_ne!(market.base_hlp_vault.residual_exposure, 0);
+    let start = market.curve_marginal_price_nad(0).unwrap();
+    let end = if start < reference {
+        start / 2
+    } else {
+        start.checked_mul(2).unwrap()
+    };
     let base_before = market.base_hlp_vault;
     let quote_before = market.quote_hlp_vault;
 
-    let read_only_error = require_hlp_vaults_after_concentrated_swap_safe(&market, reference, end).unwrap_err();
+    let read_only_error = require_hlp_swap_path_safe(&market, start, end, true, false).unwrap_err();
     assert_eq!(read_only_error, error!(ErrorCode::HlpSettlementUnavailable));
     assert_eq!(market.base_hlp_vault.hlp_supply, base_before.hlp_supply);
-    assert_eq!(market.base_hlp_vault.pending_rebalance, base_before.pending_rebalance);
+    assert_eq!(market.base_hlp_vault.residual_exposure, base_before.residual_exposure);
     assert_eq!(market.base_hlp_vault.last_nav_nad, base_before.last_nav_nad);
     assert_eq!(market.quote_hlp_vault.hlp_supply, quote_before.hlp_supply);
-    assert_eq!(market.quote_hlp_vault.pending_rebalance, quote_before.pending_rebalance);
+    assert_eq!(market.quote_hlp_vault.residual_exposure, quote_before.residual_exposure);
     assert_eq!(market.quote_hlp_vault.last_nav_nad, quote_before.last_nav_nad);
-
-    let mut execution_market = market.clone();
-    let execution_error = defer_hlp_vaults_after_concentrated_swap(&mut execution_market, reference, end).unwrap_err();
-    assert_eq!(execution_error, read_only_error);
-    assert_eq!(
-        execution_market.base_hlp_vault.pending_rebalance,
-        base_before.pending_rebalance
-    );
-    assert_eq!(execution_market.base_hlp_vault.last_nav_nad, base_before.last_nav_nad);
-    assert_eq!(
-        execution_market.quote_hlp_vault.pending_rebalance,
-        quote_before.pending_rebalance
-    );
-    assert_eq!(execution_market.quote_hlp_vault.last_nav_nad, quote_before.last_nav_nad);
 }
 
 #[test]
-fn concentrated_hlp_restorative_trade_records_exposure_without_moving_inventory() {
+fn cpmm_hlp_path_keeps_inside_and_restoring_trades_live_but_rejects_worsening_flow() {
+    let mut market = seeded_market();
+    configure_market_depth(&mut market, 1_000_000, 20_000);
+    DepositSingleSided::new(MarketAsset::Base, 100_000, 1)
+        .apply(&mut market)
+        .unwrap();
+    market.config.settlement_divergence_bps = 500;
+    let reference = u64::try_from(market.base_hlp_vault.cached_settlement_price_nad).unwrap();
+
+    // A fully settled vault may accept a first large move because the inline
+    // controller will recompute and apply the maximum-safe correction from the
+    // actual post-trade state.
+    require_hlp_swap_path_safe(&market, reference, reference * 2, false, false).unwrap();
+
+    // Create an actual post-trade remainder. Once it exists, the old settlement reference
+    // admits inside-band and restoring flow but blocks further deterioration.
+    let stale_trade = market.quote_curve_exact_in(MarketAsset::Base, 250_000, 0).unwrap();
+    market
+        .swap_reserves(
+            MarketAsset::Base,
+            250_000,
+            stale_trade.amount_out,
+            0,
+            0,
+            0,
+            crate::state::ProtocolAuctionSplit::default(),
+        )
+        .unwrap();
+    checkpoint_hlp_vaults(&mut market).unwrap();
+    assert_ne!(market.base_hlp_vault.residual_exposure, 0);
+    require_hlp_swap_path_safe(&market, reference, reference * 104 / 100, true, false).unwrap();
+    require_hlp_swap_path_safe(&market, reference * 110 / 100, reference * 106 / 100, true, false).unwrap();
+    assert_eq!(
+        require_hlp_swap_path_safe(&market, reference * 106 / 100, reference * 110 / 100, true, false,).unwrap_err(),
+        error!(ErrorCode::HlpSettlementUnavailable)
+    );
+}
+
+#[test]
+fn concentrated_hlp_checkpoint_records_exposure_without_moving_inventory() {
     let mut market = active_concentrated_hlp_market();
     // First create actual off-center inventory without settling the hLP.
     // The supplied start is farther from the last settlement reference
@@ -676,8 +831,6 @@ fn concentrated_hlp_restorative_trade_records_exposure_without_moving_inventory(
             crate::state::ProtocolAuctionSplit::default(),
         )
         .unwrap();
-    let end = market.curve_marginal_price_nad(0).unwrap();
-    let start = end / 2;
     let base_live_before = market.base_side.reserves.live_reserve;
     let base_cash_before = market.base_side.reserves.cash_reserve;
     let quote_live_before = market.quote_side.reserves.live_reserve;
@@ -685,8 +838,7 @@ fn concentrated_hlp_restorative_trade_records_exposure_without_moving_inventory(
     let base_ylp_before = market.base_hlp_vault.ylp_shares;
     let quote_ylp_before = market.quote_hlp_vault.ylp_shares;
 
-    require_hlp_vaults_after_concentrated_swap_safe(&market, start, end).unwrap();
-    let (base_receipt, quote_receipt) = defer_hlp_vaults_after_concentrated_swap(&mut market, start, end).unwrap();
+    let (base_delta, quote_delta) = checkpoint_hlp_vaults(&mut market).unwrap();
 
     assert_eq!(market.base_side.reserves.live_reserve, base_live_before);
     assert_eq!(market.base_side.reserves.cash_reserve, base_cash_before);
@@ -694,14 +846,9 @@ fn concentrated_hlp_restorative_trade_records_exposure_without_moving_inventory(
     assert_eq!(market.quote_side.reserves.cash_reserve, quote_cash_before);
     assert_eq!(market.base_hlp_vault.ylp_shares, base_ylp_before);
     assert_eq!(market.quote_hlp_vault.ylp_shares, quote_ylp_before);
-    assert_eq!(base_receipt.executed_delta, 0);
-    assert_eq!(quote_receipt.executed_delta, 0);
-    assert_eq!(base_receipt.pending_rebalance, market.base_hlp_vault.pending_rebalance);
-    assert_eq!(
-        quote_receipt.pending_rebalance,
-        market.quote_hlp_vault.pending_rebalance
-    );
-    assert!(base_receipt.pending_rebalance != 0 || quote_receipt.pending_rebalance != 0);
+    assert_eq!(base_delta, market.base_hlp_vault.residual_exposure);
+    assert_eq!(quote_delta, market.quote_hlp_vault.residual_exposure);
+    assert!(base_delta != 0 || quote_delta != 0);
 }
 
 fn funded_due_ramp_with_residual_base_hlp() -> (Market, u64) {
@@ -733,11 +880,12 @@ fn funded_due_ramp_with_residual_base_hlp() -> (Market, u64) {
     let applied = market.amm.applied_curve_parameters;
     let mut target = market.config.amm;
     target.peak_depth_nad = 220 * NAD;
-    target.imbalance_scale_nad = 11 * NAD / 100;
+    target.fade_scale_nad = 11 * NAD / 100;
     market.amm.start_applied_ramp(applied, &target, 0).unwrap();
     market.config.amm = target;
     let due_slot = market.amm.ramp.end_slot;
-    market.debt.last_accrual_slot = due_slot;
+    market.debt.base_last_accrual_slot = due_slot;
+    market.debt.quote_last_accrual_slot = due_slot;
     (market, due_slot)
 }
 
@@ -777,8 +925,9 @@ fn apply_test_composite_swap(
             Some(fee_eligible_ylp_supply),
         )
         .unwrap();
-    let (base_rebalance, quote_rebalance) =
-        finalize_hlp_vaults_for_swap(market, base_pre_rebalance, quote_pre_rebalance).unwrap();
+    let (base_rebalance, quote_rebalance) = market
+        .finalize_hlp_vaults_for_swap(base_pre_rebalance, quote_pre_rebalance)
+        .unwrap();
     assert_market_hlp_invariants(market);
     TestCompositeSwapReceipt {
         amount_out,
@@ -794,14 +943,14 @@ fn assert_no_hlp_residuals(market: &Market) {
     assert_eq!(market.base_hlp_vault.ylp_shares, 0);
     assert_eq!(market.base_hlp_vault.debt_shares, 0);
     assert_eq!(market.base_hlp_vault.debt_principal, 0);
-    assert_eq!(market.base_hlp_vault.pending_rebalance, 0);
+    assert_eq!(market.base_hlp_vault.residual_exposure, 0);
     assert_eq!(market.base_hlp_vault.base_hlp_live_reserve, 0);
     assert_eq!(market.base_hlp_vault.quote_hlp_live_reserve, 0);
     assert_eq!(market.quote_hlp_vault.hlp_supply, 0);
     assert_eq!(market.quote_hlp_vault.ylp_shares, 0);
     assert_eq!(market.quote_hlp_vault.debt_shares, 0);
     assert_eq!(market.quote_hlp_vault.debt_principal, 0);
-    assert_eq!(market.quote_hlp_vault.pending_rebalance, 0);
+    assert_eq!(market.quote_hlp_vault.residual_exposure, 0);
     assert_eq!(market.quote_hlp_vault.base_hlp_live_reserve, 0);
     assert_eq!(market.quote_hlp_vault.quote_hlp_live_reserve, 0);
     assert_market_hlp_invariants(market);
@@ -879,11 +1028,11 @@ proptest! {
 
         assert_market_hlp_invariants(&market);
         prop_assert_eq!(
-            base_receipt.pending_rebalance,
+            base_receipt.residual_exposure,
             base_receipt.ideal_delta - base_receipt.executed_delta
         );
         prop_assert_eq!(
-            quote_receipt.pending_rebalance,
+            quote_receipt.residual_exposure,
             quote_receipt.ideal_delta - quote_receipt.executed_delta
         );
         let target_receipt = if target_asset == MarketAsset::Base {
@@ -894,8 +1043,8 @@ proptest! {
         let post_ideal = current_hlp_ideal_delta(&market, target_asset).unwrap();
         let post_nav = hlp_nav_nad(&market, target_asset).unwrap();
         prop_assert_eq!(
-            target_receipt.pending_rebalance,
-            recognized_hlp_pending(post_ideal, post_nav)
+            target_receipt.residual_exposure,
+            recognized_hlp_residual_exposure(post_ideal, post_nav)
         );
         prop_assert!(
             price_diff_bps(price_before, price_after) <= 2,
@@ -932,7 +1081,7 @@ fn rebalance_hlp_leverages_up_with_balanced_ylp() {
     assert!(market.base_hlp_vault.debt_principal > principal_before);
     assert!(market.base_hlp_vault.base_hlp_live_reserve > 0);
     assert!(market.base_hlp_vault.quote_hlp_live_reserve > 200);
-    assert_eq!(market.base_hlp_vault.pending_rebalance, base_receipt.pending_rebalance);
+    assert_eq!(market.base_hlp_vault.residual_exposure, base_receipt.residual_exposure);
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
     assert_hlp_near_target(&market, MarketAsset::Base, 2 * NAD as u128);
@@ -970,7 +1119,7 @@ fn close_hlp_after_rebalance_retires_synthetic_live_reserves() {
 }
 
 #[test]
-fn rebalance_hlp_leverage_up_stores_pending_when_borrow_cash_is_constrained() {
+fn rebalance_hlp_leverage_up_stores_residual_exposure_when_borrow_cash_is_constrained() {
     let mut market = seeded_market();
     DepositSingleSided::new(MarketAsset::Base, 100, 1)
         .apply(&mut market)
@@ -987,20 +1136,20 @@ fn rebalance_hlp_leverage_up_stores_pending_when_borrow_cash_is_constrained() {
     let (base_receipt, _) = rebalance_hlp_vaults(&mut market).unwrap();
 
     assert!(base_receipt.executed_delta > 0);
-    assert_ne!(base_receipt.pending_rebalance, 0);
+    assert_ne!(base_receipt.residual_exposure, 0);
     assert_eq!(
-        base_receipt.pending_rebalance,
+        base_receipt.residual_exposure,
         base_receipt.ideal_delta - base_receipt.executed_delta
     );
     let post_ideal = current_hlp_ideal_delta(&market, MarketAsset::Base).unwrap();
     let post_nav = hlp_nav_nad(&market, MarketAsset::Base).unwrap();
     assert_eq!(
-        base_receipt.pending_rebalance,
-        recognized_hlp_pending(post_ideal, post_nav)
+        base_receipt.residual_exposure,
+        recognized_hlp_residual_exposure(post_ideal, post_nav)
     );
     assert!(base_receipt.debt_delta > 0);
     assert!(base_receipt.debt_delta <= 50);
-    assert_eq!(market.base_hlp_vault.pending_rebalance, base_receipt.pending_rebalance);
+    assert_eq!(market.base_hlp_vault.residual_exposure, base_receipt.residual_exposure);
     assert_eq!(
         market.base_hlp_vault.cached_settlement_price_nad, settlement_reference_before,
         "partial hedge execution must not ratchet the settlement reference"
@@ -1008,22 +1157,22 @@ fn rebalance_hlp_leverage_up_stores_pending_when_borrow_cash_is_constrained() {
 
     let (retry, _) = rebalance_hlp_vaults(&mut market).unwrap();
     assert_eq!(retry.executed_delta, 0);
-    assert_eq!(retry.pending_rebalance, base_receipt.pending_rebalance);
+    assert_eq!(retry.residual_exposure, base_receipt.residual_exposure);
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
 }
 
 #[test]
-fn recognized_hlp_pending_enforces_absolute_and_relative_boundaries() {
+fn recognized_hlp_residual_exposure_enforces_absolute_and_relative_boundaries() {
     let large_nav = 20_000 * NAD as u128;
-    assert_eq!(recognized_hlp_pending(10_000, large_nav), 0);
-    assert_eq!(recognized_hlp_pending(-10_000, large_nav), 0);
-    assert_eq!(recognized_hlp_pending(10_001, large_nav), 10_001);
-    assert_eq!(recognized_hlp_pending(-10_001, large_nav), -10_001);
+    assert_eq!(recognized_hlp_residual_exposure(10_000, large_nav), 0);
+    assert_eq!(recognized_hlp_residual_exposure(-10_000, large_nav), 0);
+    assert_eq!(recognized_hlp_residual_exposure(10_001, large_nav), 10_001);
+    assert_eq!(recognized_hlp_residual_exposure(-10_001, large_nav), -10_001);
 
     let small_nav = 9_999 * HLP_REBALANCE_DUST_NAV_DENOMINATOR;
-    assert_eq!(recognized_hlp_pending(9_999, small_nav), 0);
-    assert_eq!(recognized_hlp_pending(10_000, small_nav), 10_000);
+    assert_eq!(recognized_hlp_residual_exposure(9_999, small_nav), 0);
+    assert_eq!(recognized_hlp_residual_exposure(10_000, small_nav), 10_000);
 }
 
 #[test]
@@ -1041,11 +1190,11 @@ fn zero_target_claim_is_fail_closed_without_bricking_checkpoint() {
     let (base, quote) = checkpoint_hlp_vaults(&mut market).unwrap();
     assert!(base > 0);
     assert_eq!(quote, 0);
-    assert_eq!(market.base_hlp_vault.pending_rebalance, base);
+    assert_eq!(market.base_hlp_vault.residual_exposure, base);
 
     let receipt = rebalance_one_hlp(&mut market, MarketAsset::Base).unwrap();
     assert_eq!(receipt.executed_delta, 0);
-    assert_eq!(receipt.pending_rebalance, base);
+    assert_eq!(receipt.residual_exposure, base);
 
     let prices = current_hlp_curve_prices(&market).unwrap();
     let normalized = refresh_hlp_after_rebalance(
@@ -1065,9 +1214,9 @@ fn zero_target_claim_is_fail_closed_without_bricking_checkpoint() {
     assert_eq!(normalized.executed_delta, 0);
     assert_eq!(normalized.ylp_burn_amount, 1);
 
-    let error = market.update_for_hlp_deposit(MarketAsset::Base, 1).unwrap_err();
+    let error = prepare_hlp_deposit_like_instruction(&mut market, MarketAsset::Base, 1).unwrap_err();
     assert_eq!(error, error!(ErrorCode::HlpSettlementUnavailable));
-    market.update_for_hlp_deposit(MarketAsset::Quote, 1).unwrap();
+    prepare_hlp_deposit_like_instruction(&mut market, MarketAsset::Quote, 1).unwrap();
 }
 
 #[test]
@@ -1077,13 +1226,16 @@ fn underwater_zero_claim_vault_cannot_block_global_market_update() {
     market.base_hlp_vault.debt_shares = 1;
     market.base_hlp_vault.debt_principal = 1;
 
-    market.update_to_slot(1).unwrap();
+    market.accrue_interest_to_slot(1).unwrap();
+    market.advance_amm_clock(1).unwrap();
+    market.checkpoint_hlp_vaults().unwrap();
+    market.refresh_risk().unwrap();
 
     assert_eq!(market.base_hlp_vault.last_nav_nad, 0);
-    assert!(market.base_hlp_vault.pending_rebalance < 0);
+    assert!(market.base_hlp_vault.residual_exposure < 0);
     let receipt = rebalance_one_hlp(&mut market, MarketAsset::Base).unwrap();
     assert_eq!(receipt.executed_delta, 0);
-    assert_eq!(receipt.pending_rebalance, market.base_hlp_vault.pending_rebalance);
+    assert_eq!(receipt.residual_exposure, market.base_hlp_vault.residual_exposure);
 }
 
 #[test]
@@ -1098,7 +1250,7 @@ fn solvent_zero_target_claim_can_still_exit_fully() {
     let values = current_hlp_inventory_values_nad(&market, MarketAsset::Base).unwrap();
     assert_eq!(values.target_inventory_value_nad, 0);
     assert_eq!(values.opposite_inventory_value_nad, values.debt_value_nad);
-    assert_eq!(market.base_hlp_vault.pending_rebalance, 0);
+    assert_eq!(market.base_hlp_vault.residual_exposure, 0);
 
     let supply = market.base_hlp_vault.hlp_supply;
     let receipt = WithdrawSingleSided::new(MarketAsset::Base, supply)
@@ -1109,7 +1261,7 @@ fn solvent_zero_target_claim_can_still_exit_fully() {
 }
 
 #[test]
-fn full_exit_clears_stale_pending_for_both_hlp_vaults() {
+fn full_exit_clears_stale_residual_exposure_for_both_hlp_vaults() {
     for (target_asset, deposit_amount) in [(MarketAsset::Base, 100), (MarketAsset::Quote, 200)] {
         let mut market = seeded_market();
         DepositSingleSided::new(target_asset, deposit_amount, 1)
@@ -1119,7 +1271,7 @@ fn full_exit_clears_stale_pending_for_both_hlp_vaults() {
             MarketAsset::Base => &mut market.base_hlp_vault,
             MarketAsset::Quote => &mut market.quote_hlp_vault,
         };
-        vault.pending_rebalance = 123;
+        vault.residual_exposure = 123;
         let supply = vault.hlp_supply;
 
         WithdrawSingleSided::new(target_asset, supply)
@@ -1131,7 +1283,7 @@ fn full_exit_clears_stale_pending_for_both_hlp_vaults() {
             MarketAsset::Quote => &market.quote_hlp_vault,
         };
         assert_eq!(vault.hlp_supply, 0);
-        assert_eq!(vault.pending_rebalance, 0);
+        assert_eq!(vault.residual_exposure, 0);
     }
 }
 
@@ -1144,18 +1296,18 @@ fn cpmm_swap_skips_unhedgeable_zero_target_vault_without_freezing() {
     apply_test_composite_swap(&mut market, MarketAsset::Quote, 3);
     market.debt.quote_borrow_index_nad = (NAD as u128) * 2;
     checkpoint_hlp_vaults(&mut market).unwrap();
-    let pending = market.base_hlp_vault.pending_rebalance;
-    assert!(pending < 0);
+    let residual_exposure = market.base_hlp_vault.residual_exposure;
+    assert!(residual_exposure < 0);
 
     let receipt = apply_test_composite_swap(&mut market, MarketAsset::Base, 1);
 
     assert_eq!(receipt.base_pre_rebalance.executed_delta, 0);
     assert_eq!(receipt.base_rebalance.executed_delta, 0);
-    assert_ne!(market.base_hlp_vault.pending_rebalance, 0);
+    assert_ne!(market.base_hlp_vault.residual_exposure, 0);
 }
 
 #[test]
-fn post_state_pending_tracks_high_index_and_coarse_share_rounding_for_both_assets() {
+fn post_state_residual_exposure_tracks_high_index_and_coarse_share_rounding_for_both_assets() {
     for target_asset in [MarketAsset::Base, MarketAsset::Quote] {
         let mut market = seeded_market();
         market.base_side.shares.ylp_supply = 101;
@@ -1172,14 +1324,17 @@ fn post_state_pending_tracks_high_index_and_coarse_share_rounding_for_both_asset
         let receipt = if target_asset == MarketAsset::Base { base } else { quote };
         let post_ideal = current_hlp_ideal_delta(&market, target_asset).unwrap();
         let post_nav = hlp_nav_nad(&market, target_asset).unwrap();
-        assert_eq!(receipt.pending_rebalance, recognized_hlp_pending(post_ideal, post_nav));
-        assert_eq!(receipt.executed_delta, receipt.ideal_delta - receipt.pending_rebalance);
+        assert_eq!(
+            receipt.residual_exposure,
+            recognized_hlp_residual_exposure(post_ideal, post_nav)
+        );
+        assert_eq!(receipt.executed_delta, receipt.ideal_delta - receipt.residual_exposure);
         assert_eq!(
             match target_asset {
-                MarketAsset::Base => market.base_hlp_vault.pending_rebalance,
-                MarketAsset::Quote => market.quote_hlp_vault.pending_rebalance,
+                MarketAsset::Base => market.base_hlp_vault.residual_exposure,
+                MarketAsset::Quote => market.quote_hlp_vault.residual_exposure,
             },
-            receipt.pending_rebalance
+            receipt.residual_exposure
         );
     }
 }
@@ -1201,9 +1356,9 @@ fn rebalance_hlp_leverage_up_keeps_swap_live_without_borrow_cash() {
     let (base_receipt, _) = rebalance_hlp_vaults(&mut market).unwrap();
 
     assert_eq!(base_receipt.executed_delta, 0);
-    assert_eq!(base_receipt.pending_rebalance, ideal_before);
+    assert_eq!(base_receipt.residual_exposure, ideal_before);
     assert_eq!(base_receipt.debt_delta, 0);
-    assert_eq!(market.base_hlp_vault.pending_rebalance, ideal_before);
+    assert_eq!(market.base_hlp_vault.residual_exposure, ideal_before);
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
 }
@@ -1230,7 +1385,7 @@ fn rebalance_hlp_deleverages_with_balanced_ylp() {
     assert!(market.base_hlp_vault.ylp_shares < ylp_before);
     assert!(market.base_hlp_vault.debt_shares < debt_before);
     assert!(market.base_hlp_vault.debt_principal < principal_before);
-    assert_eq!(market.base_hlp_vault.pending_rebalance, base_receipt.pending_rebalance);
+    assert_eq!(market.base_hlp_vault.residual_exposure, base_receipt.residual_exposure);
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
     assert_hlp_near_target(&market, MarketAsset::Base, 2 * NAD as u128);
@@ -1258,7 +1413,7 @@ fn rebalance_hlp_deleverage_pays_accrued_interest_from_borrowed_cash() {
     let interest_paid = base_receipt
         .debt_delta
         .unsigned_abs()
-        .checked_sub(principal_repaid)
+        .checked_sub(u128::from(principal_repaid))
         .unwrap();
     assert!(interest_paid > 0);
     assert_eq!(base_receipt.interest_paid as u128, interest_paid);
@@ -1375,15 +1530,25 @@ fn small_swap_skips_hlp_pre_solve() {
 }
 
 #[test]
-fn concentrated_swap_explicitly_skips_cpmm_sqrt_pre_solve() {
+fn concentrated_swap_uses_current_state_without_cpmm_predictive_changes() {
     let mut market = active_concentrated_hlp_market();
     let base_before = market.base_side.reserves.live_reserve;
     let quote_before = market.quote_side.reserves.live_reserve;
 
     let (base_receipt, quote_receipt) = pre_solve_hlp_vaults_for_swap(&mut market, MarketAsset::Base, 350_000).unwrap();
 
-    assert_eq!(base_receipt, empty_hlp_rebalance_receipt(MarketAsset::Base));
-    assert_eq!(quote_receipt, empty_hlp_rebalance_receipt(MarketAsset::Quote));
+    for (receipt, target_asset) in [(base_receipt, MarketAsset::Base), (quote_receipt, MarketAsset::Quote)] {
+        assert_eq!(receipt.target_asset, target_asset);
+        assert_eq!(receipt.ideal_delta, 0);
+        assert_eq!(receipt.executed_delta, 0);
+        assert_eq!(receipt.residual_exposure, 0);
+        assert_eq!(receipt.current_swap_fee_eligible_ylp_shares, 0);
+        assert_eq!(receipt.ylp_mint_amount, 0);
+        assert_eq!(receipt.ylp_burn_amount, 0);
+        assert_eq!(receipt.debt_delta, 0);
+        assert_eq!(receipt.interest_paid, 0);
+        assert!(receipt.nav_nad > 0, "an active hLP receipt reports current-state NAV");
+    }
     assert_eq!(market.base_side.reserves.live_reserve, base_before);
     assert_eq!(market.quote_side.reserves.live_reserve, quote_before);
 }
@@ -1448,11 +1613,19 @@ fn concentrated_rebalance_uses_actual_inventory_exposure_and_preserves_curve_pri
 }
 
 #[test]
-fn due_funded_ramp_blocks_new_hlp_deposit_until_explicit_maintenance() {
+fn due_funded_ramp_blocks_new_hlp_deposit_until_a_swap_like_operation_advances_it() {
     let (mut market, due_slot) = funded_due_ramp_with_residual_base_hlp();
     let applied = market.amm.applied_curve_parameters;
+    let settlement_reference = market.base_hlp_vault.cached_settlement_price_nad;
+    let settlement_reference_u64 = u64::try_from(settlement_reference).unwrap();
+    let worsening_start = settlement_reference_u64.checked_mul(106).unwrap() / 100;
+    let worsening_end = settlement_reference_u64.checked_mul(110).unwrap() / 100;
+    assert_eq!(
+        require_hlp_swap_path_safe(&market, worsening_start, worsening_end, true, false,).unwrap_err(),
+        error!(ErrorCode::HlpSettlementUnavailable)
+    );
 
-    let error = market.update_for_hlp_deposit(MarketAsset::Base, due_slot).unwrap_err();
+    let error = prepare_hlp_deposit_like_instruction(&mut market, MarketAsset::Base, due_slot).unwrap_err();
     assert_eq!(error, error!(ErrorCode::HlpSettlementUnavailable));
     assert_eq!(market.amm.applied_curve_parameters, applied);
 
@@ -1462,51 +1635,65 @@ fn due_funded_ramp_blocks_new_hlp_deposit_until_explicit_maintenance() {
         .unwrap();
     assert!(exit.target_amount_out > 0);
     assert_eq!(market.amm.applied_curve_parameters, applied);
+    assert_ne!(market.base_hlp_vault.residual_exposure, 0);
+    assert_eq!(
+        market.base_hlp_vault.cached_settlement_price_nad, settlement_reference,
+        "a partial exit must not ratchet the settlement band around residual inventory"
+    );
+    assert_eq!(
+        require_hlp_swap_path_safe(&market, worsening_start, worsening_end, true, false,).unwrap_err(),
+        error!(ErrorCode::HlpSettlementUnavailable)
+    );
 }
 
 #[test]
-fn pending_hlp_exposure_cannot_freeze_funded_curve_maintenance() {
+fn residual_hlp_exposure_cannot_freeze_the_lazy_controller() {
     let (mut market, due_slot) = funded_due_ramp_with_residual_base_hlp();
     let applied = market.amm.applied_curve_parameters;
-    assert_ne!(market.base_hlp_vault.pending_rebalance, 0);
+    assert_ne!(market.base_hlp_vault.residual_exposure, 0);
 
-    let moved = market.crank_concentrated_amm_with_hlp(due_slot).unwrap();
+    market.prepare_amm_for_swap(due_slot).unwrap();
+    let moved = market.advance_one_amm_controller_target(due_slot).unwrap();
 
     assert!(moved);
     assert_ne!(market.amm.applied_curve_parameters, applied);
-    assert_ne!(market.base_hlp_vault.pending_rebalance, 0);
+    assert_ne!(market.base_hlp_vault.residual_exposure, 0);
 }
 
 #[test]
 fn hlp_deposit_refreshes_actual_exposure_before_entry_gate() {
     let mut market = active_concentrated_hlp_market();
-    assert_eq!(market.base_hlp_vault.pending_rebalance, 0);
+    assert_eq!(market.base_hlp_vault.residual_exposure, 0);
     market.debt.quote_borrow_index_nad = (NAD as u128) * 101 / 100;
 
-    let error = market.update_for_hlp_deposit(MarketAsset::Base, 1).unwrap_err();
+    let error = prepare_hlp_deposit_like_instruction(&mut market, MarketAsset::Base, 1).unwrap_err();
 
     assert_eq!(error, error!(ErrorCode::HlpSettlementUnavailable));
-    assert_ne!(market.base_hlp_vault.pending_rebalance, 0);
+    assert_ne!(market.base_hlp_vault.residual_exposure, 0);
 }
 
 #[test]
-fn amm_maintenance_refreshes_exposure_without_being_blocked_by_it() {
+fn the_next_user_operation_refreshes_exposure_without_being_blocked_by_it() {
     let mut market = active_concentrated_hlp_market();
-    assert_eq!(market.base_hlp_vault.pending_rebalance, 0);
+    assert_eq!(market.base_hlp_vault.residual_exposure, 0);
     let center = market.amm.center_price_nad;
     market.debt.quote_borrow_index_nad = (NAD as u128) * 101 / 100;
 
-    let moved = market.crank_concentrated_amm_with_hlp(1).unwrap();
+    let (base_residual_exposure, quote_residual_exposure) = market.checkpoint_hlp_vaults().unwrap();
+    market.prepare_amm_for_swap(1).unwrap();
+    let moved = market.advance_one_amm_controller_target(1).unwrap();
 
     assert!(!moved);
-    assert_ne!(market.base_hlp_vault.pending_rebalance, 0);
+    assert_ne!(base_residual_exposure, 0);
+    assert_eq!(quote_residual_exposure, 0);
+    assert_ne!(market.base_hlp_vault.residual_exposure, 0);
     assert_eq!(market.amm.center_price_nad, center);
 }
 
 #[test]
-fn recognized_checkpoint_dust_does_not_reappear_before_amm_maintenance() {
+fn recognized_checkpoint_dust_does_not_reappear_on_the_next_user_operation() {
     let mut market = seeded_market();
-    let scale = NAD as u64;
+    let scale = NAD;
     market.base_side.asset_decimals = 9;
     market.quote_side.asset_decimals = 9;
     market.base_side.reserves.live_reserve *= scale;
@@ -1524,13 +1711,16 @@ fn recognized_checkpoint_dust_does_not_reappear_before_amm_maintenance() {
     let actual = current_hlp_ideal_delta(&market, MarketAsset::Base).unwrap();
     let nav = hlp_nav_nad(&market, MarketAsset::Base).unwrap();
     assert_ne!(actual, 0);
-    assert_eq!(recognized_hlp_pending(actual, nav), 0);
+    assert_eq!(recognized_hlp_residual_exposure(actual, nav), 0);
 
     let (base, quote) = checkpoint_hlp_vaults(&mut market).unwrap();
     assert_eq!((base, quote), (0, 0));
-    assert_eq!(market.base_hlp_vault.pending_rebalance, 0);
-    market.crank_concentrated_amm_with_hlp(1).unwrap();
-    assert_eq!(market.base_hlp_vault.pending_rebalance, 0);
+    assert_eq!(market.base_hlp_vault.residual_exposure, 0);
+    market.prepare_amm_for_swap(1).unwrap();
+    assert!(!market.advance_one_amm_controller_target(1).unwrap());
+    let (base, quote) = checkpoint_hlp_vaults(&mut market).unwrap();
+    assert_eq!((base, quote), (0, 0));
+    assert_eq!(market.base_hlp_vault.residual_exposure, 0);
 }
 
 #[test]
@@ -1581,6 +1771,44 @@ fn large_swap_pre_solve_changes_quote_visible_depth() {
 }
 
 #[test]
+fn pre_and_post_hlp_settlement_nets_to_one_token_cpi_per_side() {
+    let mint_then_burn = combine_hlp_rebalance_receipts(
+        HlpRebalanceReceipt {
+            target_asset: MarketAsset::Base,
+            ylp_mint_amount: 10,
+            interest_paid: 2,
+            ..HlpRebalanceReceipt::default()
+        },
+        HlpRebalanceReceipt {
+            target_asset: MarketAsset::Base,
+            ylp_burn_amount: 4,
+            interest_paid: 3,
+            ..HlpRebalanceReceipt::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(mint_then_burn.ylp_mint_amount, 6);
+    assert_eq!(mint_then_burn.ylp_burn_amount, 0);
+    assert_eq!(mint_then_burn.interest_paid, 5);
+
+    let burn_then_mint = combine_hlp_rebalance_receipts(
+        HlpRebalanceReceipt {
+            target_asset: MarketAsset::Quote,
+            ylp_burn_amount: 10,
+            ..HlpRebalanceReceipt::default()
+        },
+        HlpRebalanceReceipt {
+            target_asset: MarketAsset::Quote,
+            ylp_mint_amount: 4,
+            ..HlpRebalanceReceipt::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(burn_then_mint.ylp_mint_amount, 0);
+    assert_eq!(burn_then_mint.ylp_burn_amount, 6);
+}
+
+#[test]
 fn swap_pre_solve_reaches_the_endogenous_price_fixed_point() {
     let market = active_hlp_market();
     let asset_in = MarketAsset::Quote;
@@ -1591,15 +1819,20 @@ fn swap_pre_solve_reaches_the_endogenous_price_fixed_point() {
         let provisional_ratio =
             simulated_swap_price_ratio_nad(&market, target_asset, asset_in, amount_in_after_fee, 0, true).unwrap();
         let (_, lever_up) = closed_form_pre_adjustment_nad(equity_nad, provisional_ratio).unwrap();
-        let solved = solve_pre_adjustment_nad(
-            &market,
+        CPMM_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(|count| count.set(0));
+        let mut solved_market = market.clone();
+        let solved_receipt = pre_solve_one_hlp_for_swap(
+            &mut solved_market,
             target_asset,
             asset_in,
             amount_in_after_fee,
-            equity_nad,
-            lever_up,
+            amount_in_after_fee,
         )
         .unwrap();
+        assert_eq!(solved_receipt.ideal_delta.is_positive(), lever_up);
+        let solved = solved_receipt.ideal_delta.unsigned_abs();
+        let evaluations = CPMM_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(Cell::get);
+        assert_eq!(evaluations, HLP_PRE_SOLVE_EVALUATIONS);
         let needed = needed_pre_adjustment_nad(
             &market,
             target_asset,
@@ -1610,13 +1843,22 @@ fn swap_pre_solve_reaches_the_endogenous_price_fixed_point() {
             lever_up,
         )
         .unwrap();
-
+        let baseline_tracking_gap = closed_form_pre_adjustment_nad(equity_nad, provisional_ratio).unwrap().0;
+        let solved_tracking_gap = solved.abs_diff(needed);
         assert!(
-            solved.abs_diff(needed) <= NAD as u128,
-            "pre-solve residual exceeds one raw target unit: solved {}, needed {}",
-            solved,
-            needed
+            solved_tracking_gap <= baseline_tracking_gap,
+            "predictive correction worsened the hedge gap: baseline {baseline_tracking_gap}, solved {solved_tracking_gap}"
         );
+
+        if solved > 0 {
+            let target_atom_nad = normalize_to_nad(1, market.side(target_asset).asset_decimals).unwrap();
+            let residual = solved.abs_diff(needed);
+            assert!(
+                residual <= target_atom_nad
+                    || recognized_hlp_residual_exposure(i128::try_from(residual).unwrap(), equity_nad) == 0,
+                "accepted pre-solve residual exceeds one target atom and recognized dust: solved {solved}, needed {needed}"
+            );
+        }
     }
 }
 
@@ -1708,11 +1950,11 @@ fn pre_solve_handles_opposing_hlp_flows_without_order_asymmetry() {
         "quote hLP should lever up when a base-in swap moves quote up"
     );
     assert_eq!(
-        base_receipt.pending_rebalance,
+        base_receipt.residual_exposure,
         base_receipt.ideal_delta - base_receipt.executed_delta
     );
     assert_eq!(
-        quote_receipt.pending_rebalance,
+        quote_receipt.residual_exposure,
         quote_receipt.ideal_delta - quote_receipt.executed_delta
     );
     assert_market_hlp_invariants(&market);
@@ -1925,12 +2167,12 @@ fn pre_solved_hlp_mints_start_earning_after_current_swap_fee() {
         quote_receipt.current_swap_fee_eligible_ylp_shares,
     )
     .unwrap();
-    let growth_after_eligible_checkpoint = market.quote_hlp_vault.base_swap_fee_growth_index_nad;
+    let growth_after_eligible_checkpoint = market.quote_hlp_vault.base_swap_fee_growth_index_q64;
 
     checkpoint_hlp_yield_from_ylp(&mut market, MarketAsset::Quote).unwrap();
 
     assert_eq!(
-        market.quote_hlp_vault.base_swap_fee_growth_index_nad,
+        market.quote_hlp_vault.base_swap_fee_growth_index_q64,
         growth_after_eligible_checkpoint
     );
 }

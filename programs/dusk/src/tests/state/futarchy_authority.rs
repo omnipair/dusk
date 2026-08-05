@@ -52,7 +52,6 @@ use super::*;
             BPS_DENOMINATOR,
             0,
             0,
-            123,
             42,
         )
         .unwrap();
@@ -71,7 +70,6 @@ use super::*;
             BPS_DENOMINATOR
         );
         assert_eq!(futarchy.fee_auction.recipients.staking_vault_bps, 0);
-        assert_eq!(futarchy.fee_auction.last_settlement_slot, 123);
         futarchy.validate().unwrap();
 
         futarchy.max_referral_interest_share_bps = 0;

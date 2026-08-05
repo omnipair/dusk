@@ -8,7 +8,7 @@ use crate::{
     constants::*,
     errors::ErrorCode,
     events::{MarketCollateralDeposited, MarketEventMetadata},
-    shared::{account::get_size_with_discriminator, token::transfer_from_user_to_vault},
+    shared::{account::get_size_with_discriminator, token::transfer_checked_with_remaining_accounts},
     state::{BorrowPosition, Market},
 };
 
@@ -93,8 +93,9 @@ impl<'info> DepositCollateral<'info> {
 
     crate::instructions::common::market_update_and_validate!(DepositCollateralArgs);
 
-    pub fn handle_deposit(mut ctx: Context<Self>, args: DepositCollateralArgs) -> Result<()> {
+    pub fn handle_deposit(mut ctx: Context<'_, '_, '_, 'info, Self>, args: DepositCollateralArgs) -> Result<()> {
         let borrow_position_bump = ctx.bumps.borrow_position;
+        let remaining_accounts = ctx.remaining_accounts;
         let (market_key, owner_key, asset_mint_key, collateral_receipt) = {
             let accounts = &mut ctx.accounts;
             let market_key = accounts.market.key();
@@ -115,7 +116,7 @@ impl<'info> DepositCollateral<'info> {
                 &accounts.token_program,
                 &accounts.token_2022_program,
             )?;
-            transfer_from_user_to_vault(
+            transfer_checked_with_remaining_accounts(
                 accounts.owner.to_account_info(),
                 accounts.owner_asset_account.to_account_info(),
                 accounts.collateral_vault.to_account_info(),
@@ -123,6 +124,8 @@ impl<'info> DepositCollateral<'info> {
                 asset_token_program,
                 args.deposit_amount,
                 accounts.asset_mint.decimals,
+                &[],
+                remaining_accounts,
             )?;
             accounts.collateral_vault.reload()?;
             let collateral_credit = accounts

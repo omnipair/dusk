@@ -45,101 +45,8 @@ pub fn sync_native_if_wsol<'a>(
     Ok(())
 }
 
-pub fn transfer_from_user_to_vault<'a>(
-    authority: AccountInfo<'a>,
-    from: AccountInfo<'a>,
-    to_vault: AccountInfo<'a>,
-    mint: AccountInfo<'a>,
-    token_program: AccountInfo<'a>,
-    amount: u64,
-    mint_decimals: u8,
-) -> Result<()> {
-    transfer_from_user_to_vault_with_remaining_accounts(
-        authority,
-        from,
-        to_vault,
-        mint,
-        token_program,
-        amount,
-        mint_decimals,
-        &[],
-    )
-}
-
 #[allow(clippy::too_many_arguments)]
-pub fn transfer_from_user_to_vault_with_remaining_accounts<'a>(
-    authority: AccountInfo<'a>,
-    from: AccountInfo<'a>,
-    to_vault: AccountInfo<'a>,
-    mint: AccountInfo<'a>,
-    token_program: AccountInfo<'a>,
-    amount: u64,
-    mint_decimals: u8,
-    additional_accounts: &[AccountInfo<'a>],
-) -> Result<()> {
-    transfer_checked_with_remaining_accounts(
-        authority,
-        from,
-        to_vault,
-        mint,
-        token_program,
-        amount,
-        mint_decimals,
-        &[],
-        additional_accounts,
-    )
-}
-
-pub fn transfer_from_vault<'a>(
-    authority: AccountInfo<'a>,
-    from_vault: AccountInfo<'a>,
-    to: AccountInfo<'a>,
-    mint: AccountInfo<'a>,
-    token_program: AccountInfo<'a>,
-    amount: u64,
-    mint_decimals: u8,
-    signer_seeds: &[&[&[u8]]],
-) -> Result<()> {
-    transfer_from_vault_with_remaining_accounts(
-        authority,
-        from_vault,
-        to,
-        mint,
-        token_program,
-        amount,
-        mint_decimals,
-        signer_seeds,
-        &[],
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn transfer_from_vault_with_remaining_accounts<'a>(
-    authority: AccountInfo<'a>,
-    from_vault: AccountInfo<'a>,
-    to: AccountInfo<'a>,
-    mint: AccountInfo<'a>,
-    token_program: AccountInfo<'a>,
-    amount: u64,
-    mint_decimals: u8,
-    signer_seeds: &[&[&[u8]]],
-    additional_accounts: &[AccountInfo<'a>],
-) -> Result<()> {
-    transfer_checked_with_remaining_accounts(
-        authority,
-        from_vault,
-        to,
-        mint,
-        token_program,
-        amount,
-        mint_decimals,
-        signer_seeds,
-        additional_accounts,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn transfer_checked_with_remaining_accounts<'a>(
+pub fn transfer_checked_with_remaining_accounts<'a>(
     authority: AccountInfo<'a>,
     from: AccountInfo<'a>,
     to: AccountInfo<'a>,
@@ -165,7 +72,14 @@ fn transfer_checked_with_remaining_accounts<'a>(
             mint_decimals,
         )?;
         let mut account_infos = vec![from.clone(), mint.clone(), to.clone(), authority.clone()];
-        if let Some(transfer_hook_program_id) = transfer_hook_program_id_from_mint_info(&mint)? {
+        let transfer_hook_program_id = if *mint.owner != token_2022::Token2022::id() {
+            None
+        } else {
+            let mint_data = mint.try_borrow_data()?;
+            let mint_state = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
+            transfer_hook::get_program_id(&mint_state)
+        };
+        if let Some(transfer_hook_program_id) = transfer_hook_program_id {
             spl_transfer_hook_interface::onchain::add_extra_accounts_for_execute_cpi(
                 &mut instruction,
                 &mut account_infos,
@@ -195,124 +109,6 @@ fn transfer_checked_with_remaining_accounts<'a>(
     } else {
         err!(ErrorCode::InvalidTokenProgram)
     }
-}
-
-/// Transfers tokens from one vault account to another vault account.
-///
-/// This function is an explicit alias for `transfer_from_vault`, providing clearer intent for vault-to-vault token movement.
-/// Arguments:
-///   - `authority`: The account authorized to sign for the transfer (typically a PDA).
-///   - `from_vault`: The source token account (vault).
-///   - `to_vault`: The destination token account (vault).
-///   - `mint`: The mint for the token being transferred.
-///   - `token_program`: The token program account (can be SPL Token or Token2022).
-pub fn transfer_from_vault_to_vault<'a>(
-    authority: AccountInfo<'a>,
-    from_vault: AccountInfo<'a>,
-    to_vault: AccountInfo<'a>,
-    mint: AccountInfo<'a>,
-    token_program: AccountInfo<'a>,
-    amount: u64,
-    mint_decimals: u8,
-    signer_seeds: &[&[&[u8]]],
-) -> Result<()> {
-    transfer_from_vault(
-        authority,
-        from_vault,
-        to_vault,
-        mint,
-        token_program.to_account_info(),
-        amount,
-        mint_decimals,
-        signer_seeds,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn transfer_from_vault_to_vault_with_remaining_accounts<'a>(
-    authority: AccountInfo<'a>,
-    from_vault: AccountInfo<'a>,
-    to_vault: AccountInfo<'a>,
-    mint: AccountInfo<'a>,
-    token_program: AccountInfo<'a>,
-    amount: u64,
-    mint_decimals: u8,
-    signer_seeds: &[&[&[u8]]],
-    additional_accounts: &[AccountInfo<'a>],
-) -> Result<()> {
-    transfer_from_vault_with_remaining_accounts(
-        authority,
-        from_vault,
-        to_vault,
-        mint,
-        token_program,
-        amount,
-        mint_decimals,
-        signer_seeds,
-        additional_accounts,
-    )
-}
-
-/// Transfers tokens from one vault account to a user's token account.
-///
-/// This function is an explicit alias for `transfer_from_vault`, providing clearer intent for vault-to-user token movement.
-/// Arguments:
-///   - `authority`: The account authorized to sign for the transfer (typically a PDA).
-///   - `from_vault`: The source token account (vault).
-///   - `to_vault`: The destination token account (vault).
-///   - `mint`: The mint for the token being transferred.
-///   - `token_program`: The token program account (can be SPL Token or Token2022).
-///   - `amount`: Number of tokens to transfer.
-///   - `mint_decimals`: Decimals for the mint (to support checked instruction).
-///   - `signer_seeds`: Seeds used for PDA authority (for cross-program invocation).
-///
-/// Returns:
-///   - Result containing unit on success or an error on failure.
-pub fn transfer_from_vault_to_user<'a>(
-    authority: AccountInfo<'a>,
-    from_vault: AccountInfo<'a>,
-    to: AccountInfo<'a>,
-    mint: AccountInfo<'a>,
-    token_program: AccountInfo<'a>,
-    amount: u64,
-    mint_decimals: u8,
-    signer_seeds: &[&[&[u8]]],
-) -> Result<()> {
-    transfer_from_vault(
-        authority,
-        from_vault,
-        to,
-        mint,
-        token_program.to_account_info(),
-        amount,
-        mint_decimals,
-        signer_seeds,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn transfer_from_vault_to_user_with_remaining_accounts<'a>(
-    authority: AccountInfo<'a>,
-    from_vault: AccountInfo<'a>,
-    to: AccountInfo<'a>,
-    mint: AccountInfo<'a>,
-    token_program: AccountInfo<'a>,
-    amount: u64,
-    mint_decimals: u8,
-    signer_seeds: &[&[&[u8]]],
-    additional_accounts: &[AccountInfo<'a>],
-) -> Result<()> {
-    transfer_from_vault_with_remaining_accounts(
-        authority,
-        from_vault,
-        to,
-        mint,
-        token_program,
-        amount,
-        mint_decimals,
-        signer_seeds,
-        additional_accounts,
-    )
 }
 
 /// Issue a token `MintTo` instruction.
@@ -367,19 +163,6 @@ impl TokenInstructionScratch {
             },
         }
     }
-
-    fn mint_to(&mut self, mint: Pubkey, destination: Pubkey, authority: Pubkey, amount: u64) {
-        self.instruction.accounts.clear();
-        self.instruction.accounts.push(AccountMeta::new(mint, false));
-        self.instruction.accounts.push(AccountMeta::new(destination, false));
-        self.instruction
-            .accounts
-            .push(AccountMeta::new_readonly(authority, true));
-
-        self.instruction.data.clear();
-        self.instruction.data.push(7);
-        self.instruction.data.extend_from_slice(&amount.to_le_bytes());
-    }
 }
 
 pub fn token_mint_to_with_scratch<'a>(
@@ -399,7 +182,19 @@ pub fn token_mint_to_with_scratch<'a>(
         ErrorCode::InvalidTokenProgram
     );
     scratch.instruction.program_id = *token_program.key;
-    scratch.mint_to(*mint.key, *destination.key, *authority.key, amount);
+    scratch.instruction.accounts.clear();
+    scratch.instruction.accounts.push(AccountMeta::new(*mint.key, false));
+    scratch
+        .instruction
+        .accounts
+        .push(AccountMeta::new(*destination.key, false));
+    scratch
+        .instruction
+        .accounts
+        .push(AccountMeta::new_readonly(*authority.key, true));
+    scratch.instruction.data.clear();
+    scratch.instruction.data.push(7);
+    scratch.instruction.data.extend_from_slice(&amount.to_le_bytes());
     invoke_signed(
         &scratch.instruction,
         &[mint, destination, authority, token_program],
@@ -440,6 +235,14 @@ pub fn token_burn<'a>(
 
 /// Calculate the fee for output amount
 pub fn get_transfer_inverse_fee(mint_info: &AccountInfo, post_fee_amount: u64) -> Result<u64> {
+    get_transfer_inverse_fee_for_epoch(mint_info, post_fee_amount, Clock::get()?.epoch)
+}
+
+/// Calculate the fee for an output amount at a caller-supplied epoch.
+///
+/// Instructions that already read `Clock` should use this form so every fee
+/// decision in the operation shares one sysvar snapshot.
+pub fn get_transfer_inverse_fee_for_epoch(mint_info: &AccountInfo, post_fee_amount: u64, epoch: u64) -> Result<u64> {
     if *mint_info.owner == Token::id() {
         return Ok(0);
     }
@@ -450,8 +253,6 @@ pub fn get_transfer_inverse_fee(mint_info: &AccountInfo, post_fee_amount: u64) -
     let mint = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
 
     let fee = if let Ok(transfer_fee_config) = mint.get_extension::<TransferFeeConfig>() {
-        let epoch = Clock::get()?.epoch;
-
         let transfer_fee = transfer_fee_config.get_epoch_fee(epoch);
         if u16::from(transfer_fee.transfer_fee_basis_points) == MAX_FEE_BASIS_POINTS {
             u64::from(transfer_fee.maximum_fee)
@@ -468,6 +269,11 @@ pub fn get_transfer_inverse_fee(mint_info: &AccountInfo, post_fee_amount: u64) -
 
 /// Calculate the fee for input amount
 pub fn get_transfer_fee(mint_info: &AccountInfo, pre_fee_amount: u64) -> Result<u64> {
+    get_transfer_fee_for_epoch(mint_info, pre_fee_amount, Clock::get()?.epoch)
+}
+
+/// Calculate the fee for an input amount at a caller-supplied epoch.
+pub fn get_transfer_fee_for_epoch(mint_info: &AccountInfo, pre_fee_amount: u64, epoch: u64) -> Result<u64> {
     if *mint_info.owner == Token::id() {
         return Ok(0);
     }
@@ -476,7 +282,7 @@ pub fn get_transfer_fee(mint_info: &AccountInfo, pre_fee_amount: u64) -> Result<
 
     let fee = if let Ok(transfer_fee_config) = mint.get_extension::<TransferFeeConfig>() {
         transfer_fee_config
-            .calculate_epoch_fee(Clock::get()?.epoch, pre_fee_amount)
+            .calculate_epoch_fee(epoch, pre_fee_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?
     } else {
         0
@@ -530,18 +336,20 @@ pub fn is_token_2022_mint(mint_account: &InterfaceAccount<Mint>) -> Result<bool>
     Ok(*mint_account.to_account_info().owner == token_2022::Token2022::id())
 }
 
-pub fn transfer_hook_program_id(mint_account: &InterfaceAccount<Mint>) -> Result<Option<Pubkey>> {
-    transfer_hook_program_id_from_mint_info(&mint_account.to_account_info())
-}
-
-fn transfer_hook_program_id_from_mint_info(mint_info: &AccountInfo) -> Result<Option<Pubkey>> {
+pub fn transfer_hook_config(mint_account: &InterfaceAccount<Mint>) -> Result<Option<(Option<Pubkey>, Option<Pubkey>)>> {
+    let mint_info = mint_account.to_account_info();
     if *mint_info.owner != token_2022::Token2022::id() {
         return Ok(None);
     }
 
     let mint_data = mint_info.try_borrow_data()?;
     let mint = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
-    Ok(transfer_hook::get_program_id(&mint))
+    Ok(mint.get_extension::<transfer_hook::TransferHook>().ok().map(|hook| {
+        (
+            Option::<Pubkey>::from(hook.authority),
+            Option::<Pubkey>::from(hook.program_id),
+        )
+    }))
 }
 
 pub fn create_token_account<'a>(

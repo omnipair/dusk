@@ -2,16 +2,15 @@ use anchor_lang::prelude::*;
 
 use crate::{
     constants::{
-        BPS_DENOMINATOR, LTV_BUFFER_BPS, MAX_COLLATERAL_FACTOR_BPS, MS_PER_DAY, NAD, NATURAL_LOG_OF_TWO_NAD,
-        TAYLOR_TERMS,
+        BPS_DENOMINATOR, LTV_BUFFER_BPS, MAX_COLLATERAL_FACTOR_BPS, NAD, NATURAL_LOG_OF_TWO_NAD, TAYLOR_TERMS,
     },
     errors::ErrorCode,
     shared::math::{slots_to_ms, taylor_exp},
 };
 
 use super::{
-    concentrated_quote_exact_in, concentrated_quote_exact_out, concentrated_quote_exact_out_input_lower_bound,
-    ConcentratedSwapDirection,
+    calculate_normalized_amount_out, concentrated::validate_parameters, concentrated_prepare_curve,
+    concentrated_quote_exact_out, ConcentratedSwapDirection,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -28,20 +27,33 @@ pub(crate) struct ConcentratedRiskCurve {
     pub quote_reserve_nad: u128,
     pub center_price_nad: u128,
     pub peak_depth_nad: u128,
-    pub imbalance_scale_nad: u128,
+    pub fade_scale_nad: u128,
 }
 
 impl ConcentratedRiskCurve {
     pub(crate) fn exact_in(self, amount_in_nad: u128, direction: ConcentratedSwapDirection) -> Result<u128> {
-        concentrated_quote_exact_in(
+        validate_parameters(self.center_price_nad, self.peak_depth_nad, self.fade_scale_nad)?;
+        if amount_in_nad == 0 {
+            return Ok(0);
+        }
+        if self.peak_depth_nad == 0 {
+            return match direction {
+                ConcentratedSwapDirection::BaseToQuote => {
+                    calculate_normalized_amount_out(self.base_reserve_nad, self.quote_reserve_nad, amount_in_nad)
+                }
+                ConcentratedSwapDirection::QuoteToBase => {
+                    calculate_normalized_amount_out(self.quote_reserve_nad, self.base_reserve_nad, amount_in_nad)
+                }
+            };
+        }
+        concentrated_prepare_curve(
             self.base_reserve_nad,
             self.quote_reserve_nad,
-            amount_in_nad,
-            direction,
             self.center_price_nad,
             self.peak_depth_nad,
-            self.imbalance_scale_nad,
-        )
+            self.fade_scale_nad,
+        )?
+        .quote_exact_in(amount_in_nad, direction)
     }
 
     pub(crate) fn exact_out(self, amount_out_nad: u128, direction: ConcentratedSwapDirection) -> Result<u128> {
@@ -52,31 +64,8 @@ impl ConcentratedRiskCurve {
             direction,
             self.center_price_nad,
             self.peak_depth_nad,
-            self.imbalance_scale_nad,
+            self.fade_scale_nad,
         )
-    }
-
-    pub(crate) fn exact_out_input_lower_bound(
-        self,
-        amount_out_nad: u128,
-        direction: ConcentratedSwapDirection,
-    ) -> Result<u128> {
-        concentrated_quote_exact_out_input_lower_bound(
-            self.base_reserve_nad,
-            self.quote_reserve_nad,
-            amount_out_nad,
-            direction,
-            self.center_price_nad,
-            self.peak_depth_nad,
-            self.imbalance_scale_nad,
-        )
-    }
-
-    pub(crate) const fn output_reserve(self, direction: ConcentratedSwapDirection) -> u128 {
-        match direction {
-            ConcentratedSwapDirection::BaseToQuote => self.quote_reserve_nad,
-            ConcentratedSwapDirection::QuoteToBase => self.base_reserve_nad,
-        }
     }
 }
 
@@ -91,7 +80,11 @@ pub(crate) fn pessimistic_max_debt_on_curve_nad(
     if collateral_amount_nad == 0 || curve.base_reserve_nad == 0 || curve.quote_reserve_nad == 0 {
         return Ok(DynamicCollateralTerms::default());
     }
-    if existing_total_debt_nad >= curve.output_reserve(collateral_to_debt) {
+    let output_reserve_nad = match collateral_to_debt {
+        ConcentratedSwapDirection::BaseToQuote => curve.quote_reserve_nad,
+        ConcentratedSwapDirection::QuoteToBase => curve.base_reserve_nad,
+    };
+    if existing_total_debt_nad >= output_reserve_nad {
         return Ok(DynamicCollateralTerms::default());
     }
 
@@ -102,10 +95,24 @@ pub(crate) fn pessimistic_max_debt_on_curve_nad(
     }
 
     // 0. Recover a proven lower bound on collateral already utilized by
-    // aggregate debt. The concentrated inverse supplies its certified
-    // negative raw-output endpoint directly; no heuristic subtraction from a
-    // conservative exact-out quote is involved.
-    let utilized_collateral = curve.exact_out_input_lower_bound(existing_total_debt_nad, collateral_to_debt)?;
+    // aggregate debt. The prepared curve owns the direction-aware raw/common
+    // conversion, including the adaptive numeraire used below a unit center.
+    // Its lower bracket is the last insufficient raw input, so it is the
+    // conservative utilized-collateral bound required here.
+    validate_parameters(curve.center_price_nad, curve.peak_depth_nad, curve.fade_scale_nad)?;
+    let utilized_collateral = if existing_total_debt_nad == 0 {
+        0
+    } else {
+        concentrated_prepare_curve(
+            curve.base_reserve_nad,
+            curve.quote_reserve_nad,
+            curve.center_price_nad,
+            curve.peak_depth_nad,
+            curve.fade_scale_nad,
+        )?
+        .quote_exact_out_input_bracket(existing_total_debt_nad, collateral_to_debt)?
+        .0
+    };
 
     // 1. Value utilized plus new collateral through the same exact-input
     // quote used for swap execution.
@@ -206,24 +213,6 @@ pub(crate) fn ema_u128(last_ema: u128, input: u128, last_slot: u64, current_slot
         .saturating_add(last_ema.saturating_mul(alpha))
         .checked_div(NAD as u128)
         .unwrap_or(last_ema)
-}
-
-pub(crate) fn decayed_daily_bucket(bucket: u64, last_slot: u64, current_slot: u64) -> Result<u64> {
-    if bucket == 0 {
-        return Ok(0);
-    }
-    let Some(elapsed_ms) = slots_to_ms(last_slot, current_slot) else {
-        return Ok(bucket);
-    };
-    if elapsed_ms >= MS_PER_DAY {
-        return Ok(0);
-    }
-    let remaining_ms = (MS_PER_DAY - elapsed_ms) as u128;
-    let decayed = (bucket as u128)
-        .checked_mul(remaining_ms)
-        .and_then(|value| value.checked_div(MS_PER_DAY as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    u64::try_from(decayed).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
 pub(crate) fn exponential_price_decay(start_price_nad: u64, elapsed_ms: u64, half_life_ms: u64) -> Result<u64> {

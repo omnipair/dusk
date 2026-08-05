@@ -24,7 +24,6 @@ export const SEEDS = {
   MARKET_V2: Buffer.from("market_v2"),
   MARKET_RESERVE_VAULT: Buffer.from("market_reserve"),
   MARKET_COLLATERAL_VAULT: Buffer.from("market_collateral"),
-  MARKET_FEE_VAULT: Buffer.from("market_fee"),
   MARKET_INTEREST_VAULT: Buffer.from("market_interest"),
   BORROW_POSITION: Buffer.from("borrow_position_v2"),
   LEVERAGE_POSITION: Buffer.from("leverage_position_v2"),
@@ -133,19 +132,6 @@ export function deriveMarketCollateralVaultAddress(
 }
 
 /**
- * Derive market fee vault PDA address
- */
-export function deriveMarketFeeVaultAddress(
-  market: PublicKey,
-  feeMint: PublicKey
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [SEEDS.MARKET_FEE_VAULT, market.toBuffer(), feeMint.toBuffer()],
-    DUSK_PROGRAM_ID
-  );
-}
-
-/**
  * Derive market interest vault PDA address
  */
 export function deriveMarketInterestVaultAddress(
@@ -198,6 +184,7 @@ function yieldTokenKindCode(tokenKind: YieldTokenKind): number {
 export function deriveYieldAccountAddress(
   market: PublicKey,
   owner: PublicKey,
+  lpMint: PublicKey,
   assetMint: PublicKey,
   tokenKind: YieldTokenKind
 ): [PublicKey, number] {
@@ -206,6 +193,7 @@ export function deriveYieldAccountAddress(
       SEEDS.YIELD_ACCOUNT,
       market.toBuffer(),
       owner.toBuffer(),
+      lpMint.toBuffer(),
       assetMint.toBuffer(),
       Buffer.from([yieldTokenKindCode(tokenKind)]),
     ],
@@ -218,7 +206,8 @@ export interface YieldTransferHookAccountsArgs {
   market: PublicKey;
   sourceOwner: PublicKey;
   destinationOwner: PublicKey;
-  assetMint: PublicKey;
+  baseMint: PublicKey;
+  quoteMint: PublicKey;
   tokenKind: YieldTokenKind;
 }
 
@@ -247,16 +236,11 @@ interface TransferHookValidationMeta {
   isWritable: boolean;
 }
 
-export interface YieldTransferHookValidationArgs {
-  market: PublicKey;
-  assetMint: PublicKey;
-  tokenKind: YieldTokenKind;
-}
-
-export interface YlpTransferHookValidationArgs {
+export interface LpTransferHookValidationArgs {
   market: PublicKey;
   baseMint: PublicKey;
   quoteMint: PublicKey;
+  tokenKind: YieldTokenKind;
 }
 
 /**
@@ -357,6 +341,7 @@ function yieldAccountTransferHookSeeds(
       dataIndex: TRANSFER_HOOK_TOKEN_ACCOUNT_OWNER_OFFSET,
       length: 32,
     },
+    { kind: "accountKey", index: 1 },
     { kind: "accountKey", index: assetMintAccountIndex },
     { kind: "literal", bytes: [yieldTokenKindCode(tokenKind)] },
   ];
@@ -401,14 +386,16 @@ export function buildYieldTransferHookValidationAccountData(extraMetas: AccountM
  * source/destination YieldAccount PDAs from the source and destination token
  * account owners observed by Token-2022 during Execute.
  */
-export function buildYieldTransferHookYieldValidationAccountData({
+export function buildLpTransferHookValidationAccountData({
   market,
-  assetMint,
+  baseMint,
+  quoteMint,
   tokenKind,
-}: YieldTransferHookValidationArgs): Buffer {
+}: LpTransferHookValidationArgs): Buffer {
   return encodeTransferHookValidationAccountData([
-    staticTransferHookMeta({ pubkey: market, isSigner: false, isWritable: false }),
-    staticTransferHookMeta({ pubkey: assetMint, isSigner: false, isWritable: false }),
+    staticTransferHookMeta({ pubkey: market, isSigner: false, isWritable: true }),
+    staticTransferHookMeta({ pubkey: baseMint, isSigner: false, isWritable: false }),
+    staticTransferHookMeta({ pubkey: quoteMint, isSigner: false, isWritable: false }),
     pdaTransferHookMeta(
       yieldAccountTransferHookSeeds(TRANSFER_HOOK_SOURCE_ACCOUNT_INDEX, tokenKind),
       true
@@ -417,30 +404,10 @@ export function buildYieldTransferHookYieldValidationAccountData({
       yieldAccountTransferHookSeeds(TRANSFER_HOOK_DESTINATION_ACCOUNT_INDEX, tokenKind),
       true
     ),
-  ]);
-}
-
-export function buildYlpTransferHookValidationAccountData({
-  market,
-  baseMint,
-  quoteMint,
-}: YlpTransferHookValidationArgs): Buffer {
-  return encodeTransferHookValidationAccountData([
-    staticTransferHookMeta({ pubkey: market, isSigner: false, isWritable: false }),
-    staticTransferHookMeta({ pubkey: baseMint, isSigner: false, isWritable: false }),
-    staticTransferHookMeta({ pubkey: quoteMint, isSigner: false, isWritable: false }),
-    pdaTransferHookMeta(
-      yieldAccountTransferHookSeeds(TRANSFER_HOOK_SOURCE_ACCOUNT_INDEX, "ylp"),
-      true
-    ),
-    pdaTransferHookMeta(
-      yieldAccountTransferHookSeeds(TRANSFER_HOOK_DESTINATION_ACCOUNT_INDEX, "ylp"),
-      true
-    ),
     pdaTransferHookMeta(
       yieldAccountTransferHookSeeds(
         TRANSFER_HOOK_SOURCE_ACCOUNT_INDEX,
-        "ylp",
+        tokenKind,
         TRANSFER_HOOK_QUOTE_ASSET_MINT_ACCOUNT_INDEX
       ),
       true
@@ -448,7 +415,7 @@ export function buildYlpTransferHookValidationAccountData({
     pdaTransferHookMeta(
       yieldAccountTransferHookSeeds(
         TRANSFER_HOOK_DESTINATION_ACCOUNT_INDEX,
-        "ylp",
+        tokenKind,
         TRANSFER_HOOK_QUOTE_ASSET_MINT_ACCOUNT_INDEX
       ),
       true
@@ -465,77 +432,47 @@ export function buildYlpTransferHookValidationAccountData({
  * accounts, hook program, and standard validation PDA as extra metas so the
  * hook can checkpoint revenue before the balance move is finalized.
  */
-export function buildYieldTransferHookAccountMetas({
-  lpMint,
-  market,
-  sourceOwner,
-  destinationOwner,
-  assetMint,
-  tokenKind,
-}: YieldTransferHookAccountsArgs): AccountMeta[] {
-  const sourceYieldAccount = deriveYieldAccountAddress(
-    market,
-    sourceOwner,
-    assetMint,
-    tokenKind
-  )[0];
-  const destinationYieldAccount = deriveYieldAccountAddress(
-    market,
-    destinationOwner,
-    assetMint,
-    tokenKind
-  )[0];
-  const validationAccount = deriveYieldTransferHookValidationAddress(lpMint)[0];
-
-  return [
-    { pubkey: market, isSigner: false, isWritable: false },
-    { pubkey: assetMint, isSigner: false, isWritable: false },
-    { pubkey: sourceYieldAccount, isSigner: false, isWritable: true },
-    { pubkey: destinationYieldAccount, isSigner: false, isWritable: true },
-    { pubkey: DUSK_PROGRAM_ID, isSigner: false, isWritable: false },
-    { pubkey: validationAccount, isSigner: false, isWritable: false },
-  ];
-}
-
-export function buildYlpTransferHookAccountMetas({
+export function buildLpTransferHookAccountMetas({
   lpMint,
   market,
   sourceOwner,
   destinationOwner,
   baseMint,
   quoteMint,
-}: Omit<YieldTransferHookAccountsArgs, "assetMint" | "tokenKind"> & {
-  baseMint: PublicKey;
-  quoteMint: PublicKey;
-}): AccountMeta[] {
+  tokenKind,
+}: YieldTransferHookAccountsArgs): AccountMeta[] {
   const sourceBaseYieldAccount = deriveYieldAccountAddress(
     market,
     sourceOwner,
+    lpMint,
     baseMint,
-    "ylp"
+    tokenKind
   )[0];
   const destinationBaseYieldAccount = deriveYieldAccountAddress(
     market,
     destinationOwner,
+    lpMint,
     baseMint,
-    "ylp"
+    tokenKind
   )[0];
   const sourceQuoteYieldAccount = deriveYieldAccountAddress(
     market,
     sourceOwner,
+    lpMint,
     quoteMint,
-    "ylp"
+    tokenKind
   )[0];
   const destinationQuoteYieldAccount = deriveYieldAccountAddress(
     market,
     destinationOwner,
+    lpMint,
     quoteMint,
-    "ylp"
+    tokenKind
   )[0];
   const validationAccount = deriveYieldTransferHookValidationAddress(lpMint)[0];
 
   return [
-    { pubkey: market, isSigner: false, isWritable: false },
+    { pubkey: market, isSigner: false, isWritable: true },
     { pubkey: baseMint, isSigner: false, isWritable: false },
     { pubkey: quoteMint, isSigner: false, isWritable: false },
     { pubkey: sourceBaseYieldAccount, isSigner: false, isWritable: true },

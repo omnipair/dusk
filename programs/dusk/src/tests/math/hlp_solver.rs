@@ -21,7 +21,7 @@ fn target_hlp_is_neutral_when_opposite_inventory_equals_debt() {
         debt_value_nad: nad(60),
     };
     assert_eq!(hlp_opposite_exposure_nad(values).unwrap(), 0);
-    assert_eq!(ideal_hlp_proportional_adjustment_nad(values).unwrap(), 0);
+    assert_eq!(ideal_hlp_rebalance_nad(values).unwrap().total_liquidity_value_nad, 0);
 }
 
 #[test]
@@ -90,7 +90,7 @@ fn zero_and_missing_target_inventory_edges_are_explicit() {
         opposite_inventory_value_nad: nad(10),
         debt_value_nad: nad(5),
     };
-    assert!(ideal_hlp_proportional_adjustment_nad(no_target).is_err());
+    assert!(ideal_hlp_rebalance_nad(no_target).is_err());
     assert!(allocate_hlp_proportional_adjustment_nad(no_target, nad(1) as i128).is_ok());
 }
 
@@ -102,7 +102,21 @@ fn unrepresentable_signed_exposure_is_rejected() {
         debt_value_nad: 0,
     };
     assert!(hlp_opposite_exposure_nad(values).is_err());
-    assert!(ideal_hlp_proportional_adjustment_nad(values).is_err());
+    assert!(ideal_hlp_rebalance_nad(values).is_err());
+}
+
+#[test]
+fn native_mul_div_handles_wide_product_when_quotient_fits() {
+    assert_eq!(mul_div_u128(u128::MAX, 2, u128::MAX).unwrap(), 2);
+    assert_eq!(mul_div_u128(1_u128 << 127, 3, 2).unwrap(), 3_u128 << 126);
+    assert!(mul_div_u128(u128::MAX, u128::MAX, 1).is_err());
+}
+
+#[test]
+fn ratio_comparison_handles_overflowing_cross_products_exactly() {
+    assert!(ratio_lte_full_width(u128::MAX - 1, u128::MAX, u128::MAX, u128::MAX).unwrap());
+    assert!(!ratio_lte_full_width(u128::MAX, u128::MAX - 1, u128::MAX, u128::MAX).unwrap());
+    assert!(ratio_lte_full_width(u128::MAX, u128::MAX, u128::MAX, u128::MAX).unwrap());
 }
 
 proptest! {
@@ -116,7 +130,7 @@ proptest! {
             opposite_inventory_value_nad: inventory as u128,
             debt_value_nad: debt as u128,
         };
-        let actual = ideal_hlp_proportional_adjustment_nad(values).unwrap();
+        let actual = ideal_hlp_rebalance_nad(values).unwrap().total_liquidity_value_nad;
         let legacy = (inventory as i128)
             .checked_mul(2)
             .unwrap()
@@ -241,19 +255,4 @@ fn closed_form_pre_adjustment_downside_is_deleverage() {
     let (amount, lever_up) = closed_form_pre_adjustment_nad(nad(100), nad(64) / 100).unwrap();
     assert_eq!(amount, nad(20));
     assert!(!lever_up);
-}
-
-#[test]
-fn bisect_finds_threshold_root() {
-    // Residual f(x) = x - 1000 (root at 1000); smallest x with f(x) >= 0.
-    let root = bisect(0, 1_000_000, 64, |x| Ok(x as i128 - 1_000)).unwrap();
-    assert!(root >= 1_000 && root <= 1_001);
-}
-
-#[test]
-fn bisect_respects_iteration_budget() {
-    // With only a few iterations it cannot fully converge on a wide range,
-    // but it must stay within [lo, hi] and not panic.
-    let root = bisect(0, u64::MAX as u128, 4, |x| Ok(x as i128 - 5)).unwrap();
-    assert!(root <= u64::MAX as u128);
 }

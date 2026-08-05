@@ -9,7 +9,7 @@ import {
 import type { TransactionEvidence } from "../types.js";
 
 const bidPositionId = Keypair.generate().publicKey;
-const ammPositionId = Keypair.generate().publicKey;
+const floorPositionId = Keypair.generate().publicKey;
 const badDebtPositionId = Keypair.generate().publicKey;
 const NAD = 1_000_000_000n;
 const BPS_DENOMINATOR = 10_000n;
@@ -147,7 +147,7 @@ async function maximumExternalBid(
   return low;
 }
 
-async function maximumAmmSettlement(
+async function maximumFloorSettlement(
   harness: ProtocolTestHarness,
   positionId: PublicKey,
   debtUpperBound: bigint
@@ -164,7 +164,7 @@ async function maximumAmmSettlement(
   let high = debtUpperBound + 1n;
   while (low + 1n < high) {
     const middle = (low + high) / 2n;
-    if ((await harness.probe("liquidator", "/api/v2/fork/tx/settle-liquidation-auction-amm", body(middle))).succeeds) {
+    if ((await harness.probe("liquidator", "/api/v2/fork/tx/settle-liquidation-auction-floor", body(middle))).succeeds) {
       low = middle;
     } else {
       high = middle;
@@ -188,7 +188,7 @@ async function settleAuctionToHealthy(
         harness,
         liquidatorWallet,
         positionId,
-        "preview AMM-settled residual healthy debt"
+        "preview floor-settled residual healthy debt"
       );
       return BigInt(preview.fixedQuoteDebt.toString());
     }
@@ -197,19 +197,19 @@ async function settleAuctionToHealthy(
       harness,
       liquidatorWallet,
       positionId,
-      `preview AMM auction cap ${attempt}`
+      `preview floor-settlement cap ${attempt}`
     );
     const debt = BigInt(preview.fixedQuoteDebt.toString());
-    const maxRepayAmount = await maximumAmmSettlement(harness, positionId, debt);
-    harness.assertTrue("active AMM auction exposes a positive repay cap", maxRepayAmount > 0n, {
+    const maxRepayAmount = await maximumFloorSettlement(harness, positionId, debt);
+    harness.assertTrue("active floor settlement exposes a positive repay cap", maxRepayAmount > 0n, {
       debt: preview.fixedQuoteDebt,
       referencePriceMaxRepayAmount: preview.quoteDebt.maxRepayAmount,
       auctionFloorMaxRepayAmount: maxRepayAmount,
     });
     await harness.execute({
       wallet: liquidatorWallet,
-      endpoint: "/api/v2/fork/tx/settle-liquidation-auction-amm",
-      label: `AMM auction settlement attempt ${attempt}`,
+      endpoint: "/api/v2/fork/tx/settle-liquidation-auction-floor",
+      label: `externally funded floor settlement attempt ${attempt}`,
       body: {
         positionId: positionId.toBase58(),
         debtAsset: "quote",
@@ -222,8 +222,8 @@ async function settleAuctionToHealthy(
   }
   const positions = await harness.positions(ownerWallet, positionId);
   const position = positions.find((entry) => entry.eventType === "borrow_position");
-  harness.assertEqual("AMM auction closes after restoring position health", BigInt(position.payload.auctionStartTime), 0n);
-  throw new Error("AMM auction did not close within the settlement bound");
+  harness.assertEqual("floor settlement closes after restoring position health", BigInt(position.payload.auctionStartTime), 0n);
+  throw new Error("Floor settlement did not close within the settlement bound");
 }
 
 async function repayResidualDebt(
@@ -277,7 +277,7 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
     async run(harness) {
       for (const [wallet, positionId] of [
         ["alice", bidPositionId],
-        ["bob", ammPositionId],
+        ["bob", floorPositionId],
       ] as const) {
         await harness.execute({
           wallet,
@@ -331,7 +331,7 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
       const marketAfterShock = await harness.market();
       harness.assertTrue(
         "loan price shock increases base reserves",
-        stateValue(marketAfterShock, "baseReserve") > stateValue(marketBeforeShock, "baseReserve")
+        stateValue(marketAfterShock, "baseLiveReserve") > stateValue(marketBeforeShock, "baseLiveReserve")
       );
 
       let liquidationPreviews = [] as Awaited<ReturnType<typeof previewPosition>>[];
@@ -339,7 +339,7 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
         liquidationPreviews = [];
         for (const [wallet, positionId] of [
           ["alice", bidPositionId],
-          ["bob", ammPositionId],
+          ["bob", floorPositionId],
         ] as const) {
           liquidationPreviews.push(
             await previewPosition(
@@ -381,7 +381,7 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
         );
       }
 
-      for (const positionId of [bidPositionId, ammPositionId]) {
+      for (const positionId of [bidPositionId, floorPositionId]) {
         await harness.execute({
           wallet: "liquidator",
           endpoint: "/api/v2/fork/tx/trigger-liquidation-auction",
@@ -417,11 +417,11 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
 
       await harness.execute({
         wallet: "liquidator",
-        endpoint: "/api/v2/fork/tx/settle-liquidation-auction-amm",
-        label: "reject AMM fallback before Dutch auction floor",
+        endpoint: "/api/v2/fork/tx/settle-liquidation-auction-floor",
+        label: "reject external settlement before Dutch auction floor",
         expected: "failure",
         body: {
-          positionId: ammPositionId.toBase58(),
+          positionId: floorPositionId.toBase58(),
           debtAsset: "quote",
           repayAmount: "10",
           minCollateralOut: "0",
@@ -502,10 +502,10 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
       );
       await harness.execute({
         wallet: "liquidator",
-        endpoint: "/api/v2/fork/tx/settle-liquidation-auction-amm",
-        label: "settle partial loan through AMM fallback at floor",
+        endpoint: "/api/v2/fork/tx/settle-liquidation-auction-floor",
+        label: "settle partial loan with external capital at the floor",
         body: {
-          positionId: ammPositionId.toBase58(),
+          positionId: floorPositionId.toBase58(),
           debtAsset: "quote",
           repayAmount: "10",
           minCollateralOut: "0",
@@ -514,17 +514,17 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
         },
       });
       harness.assertTrue(
-        "AMM fallback transfers collateral to liquidator",
+        "floor settlement transfers collateral to the external liquidator",
         await harness.tokenBalance("liquidator", harness.config.baseMint, harness.config.baseTokenProgram) > liquidatorBaseBefore
       );
-      const ammResidualDebt = await settleAuctionToHealthy(
+      const floorResidualDebt = await settleAuctionToHealthy(
         harness,
         "liquidator",
         "bob",
-        ammPositionId
+        floorPositionId
       );
-      await repayResidualDebt(harness, "bob", ammPositionId, ammResidualDebt);
-      await withdrawRemainingCollateral(harness, "bob", ammPositionId);
+      await repayResidualDebt(harness, "bob", floorPositionId, floorResidualDebt);
+      await withdrawRemainingCollateral(harness, "bob", floorPositionId);
 
       await harness.execute({
         wallet: "trader",
@@ -719,7 +719,7 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
       await harness.timeTravel(30, 100);
       const cappedFailure = await harness.execute({
         wallet: "liquidator",
-        endpoint: "/api/v2/fork/tx/settle-liquidation-auction-amm",
+        endpoint: "/api/v2/fork/tx/settle-liquidation-auction-floor",
         label: "reject bad-debt settlement without socialized-loss consent",
         expected: "failure",
         body: {
@@ -765,7 +765,7 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
       );
       const settlement = await harness.execute({
         wallet: "liquidator",
-        endpoint: "/api/v2/fork/tx/settle-liquidation-auction-amm",
+        endpoint: "/api/v2/fork/tx/settle-liquidation-auction-floor",
         label: "settle bad debt with exhausted insurance and bounded socialization",
         body: {
           positionId: badDebtPositionId.toBase58(),
@@ -870,8 +870,8 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
       );
       harness.assertEqual(
         "virtual-reserve write-down equals socialized loss plus realized interest",
-        stateValue(marketBeforeSettlement, "baseReserve") -
-          stateValue(marketAfterSettlement, "baseReserve"),
+        stateValue(marketBeforeSettlement, "baseLiveReserve") -
+          stateValue(marketAfterSettlement, "baseLiveReserve"),
         socializedLoss + interestPaid
       );
       harness.assertEqual("bad-debt position clears aggregate base debt", stateValue(marketAfterSettlement, "fixedBaseDebt"), 0n);
@@ -916,8 +916,8 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
       const restoredMarket = await harness.market();
       harness.assertTrue(
         "reversed stress leaves meaningful depth on both sides",
-        stateValue(restoredMarket, "baseReserve") > 50n * 10n ** BigInt(harness.config.baseDecimals) &&
-          stateValue(restoredMarket, "quoteReserve") > 50n * 10n ** BigInt(harness.config.quoteDecimals),
+        stateValue(restoredMarket, "baseLiveReserve") > 50n * 10n ** BigInt(harness.config.baseDecimals) &&
+          stateValue(restoredMarket, "quoteLiveReserve") > 50n * 10n ** BigInt(harness.config.quoteDecimals),
         restoredMarket.state
       );
     },

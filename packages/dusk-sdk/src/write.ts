@@ -6,7 +6,10 @@ import { address, normalizeAccountKeys, type AddressLike } from "./address.js";
 import {
   deriveFutarchyAuthorityAddress,
   deriveMarketInterestVaultAddress,
+  deriveYieldAccountAddress,
+  deriveYieldTransferHookValidationAddress,
   deriveReferralPartnerAddress,
+  type YieldTokenKind,
 } from "./constants.js";
 import {
   assertReferralInterestShareBps,
@@ -26,6 +29,11 @@ export interface DuskBuildOptions {
   remainingAccounts?: AccountMeta[];
 }
 
+export interface SwapBuildOptions extends DuskBuildOptions {
+  accounts: DuskAccounts;
+  market: AddressLike;
+}
+
 export type ReferredActionName = "borrow" | "openLeverage";
 
 export interface ReferredActionOptions extends DuskBuildOptions {
@@ -41,6 +49,24 @@ export interface ReferredActionBuild {
   referralPartner: ReturnType<typeof deriveReferralPartnerAddress>[0];
   referralAccrual: ReturnType<typeof deriveReferralPartnerAddress>[0];
   setupInstruction: TransactionInstruction;
+  actionInstruction: TransactionInstruction;
+  transaction: Transaction;
+}
+
+export interface HlpLiquidityBuildOptions extends DuskBuildOptions {
+  accounts: DuskAccounts;
+  payer: AddressLike;
+  owner: AddressLike;
+  market: AddressLike;
+  targetHlpMint: AddressLike;
+  baseMint: AddressLike;
+  quoteMint: AddressLike;
+}
+
+export interface HlpLiquidityBuild {
+  baseYieldAccount: AccountMeta["pubkey"];
+  quoteYieldAccount: AccountMeta["pubkey"];
+  setupInstructions: TransactionInstruction[];
   actionInstruction: TransactionInstruction;
   transaction: Transaction;
 }
@@ -99,6 +125,196 @@ export class DuskWrite {
 
   rpc(name: DuskInstructionName, args?: DuskInstructionArgs, options?: DuskBuildOptions) {
     return this.builder(name, args, options).rpc();
+  }
+
+  async swapBuilder(
+    args: Record<string, unknown>,
+    options: SwapBuildOptions
+  ): Promise<AnchorMethodBuilder> {
+    const market = address(options.market);
+    const state = (await this.program.account.market.fetch(market)) as unknown as {
+      ylpMint: AccountMeta["pubkey"];
+      baseSide: { interestVault: AccountMeta["pubkey"] };
+      quoteSide: { interestVault: AccountMeta["pubkey"] };
+      baseHlpVault: {
+        hlpSupply: { toString(): string };
+        residualExposure: { toString(): string };
+        ylpVault: AccountMeta["pubkey"];
+      };
+      quoteHlpVault: {
+        hlpSupply: { toString(): string };
+        residualExposure: { toString(): string };
+        ylpVault: AccountMeta["pubkey"];
+      };
+    };
+    const hlpActive =
+      BigInt(state.baseHlpVault.hlpSupply.toString()) !== 0n ||
+      BigInt(state.quoteHlpVault.hlpSupply.toString()) !== 0n ||
+      BigInt(state.baseHlpVault.residualExposure.toString()) !== 0n ||
+      BigInt(state.quoteHlpVault.residualExposure.toString()) !== 0n;
+    const prefix: AccountMeta[] = hlpActive
+      ? [
+          { pubkey: state.ylpMint, isSigner: false, isWritable: true },
+          { pubkey: state.baseHlpVault.ylpVault, isSigner: false, isWritable: true },
+          { pubkey: state.quoteHlpVault.ylpVault, isSigner: false, isWritable: true },
+          { pubkey: state.baseSide.interestVault, isSigner: false, isWritable: true },
+          { pubkey: state.quoteSide.interestVault, isSigner: false, isWritable: true },
+        ]
+      : [];
+
+    return this.builder("swap", args, {
+      accounts: options.accounts,
+      // Prefix order is consensus-visible. Hook accounts must remain a tail,
+      // including any deliberate duplicate pubkeys required by a hook meta list.
+      remainingAccounts: [...prefix, ...(options.remainingAccounts ?? [])],
+    });
+  }
+
+  async swapInstruction(args: Record<string, unknown>, options: SwapBuildOptions) {
+    return (await this.swapBuilder(args, options)).instruction();
+  }
+
+  async swapTransaction(args: Record<string, unknown>, options: SwapBuildOptions) {
+    return (await this.swapBuilder(args, options)).transaction();
+  }
+
+  async swapRpc(args: Record<string, unknown>, options: SwapBuildOptions) {
+    return (await this.swapBuilder(args, options)).rpc();
+  }
+
+  async initializeYieldAccountsInstruction(params: {
+    payer: AddressLike;
+    owner: AddressLike;
+    market: AddressLike;
+    lpMint: AddressLike;
+    baseMint: AddressLike;
+    quoteMint: AddressLike;
+    tokenKind: YieldTokenKind;
+  }): Promise<TransactionInstruction> {
+    const payer = address(params.payer);
+    const owner = address(params.owner);
+    const market = address(params.market);
+    const lpMint = address(params.lpMint);
+    const baseMint = address(params.baseMint);
+    const quoteMint = address(params.quoteMint);
+    const tokenKind = params.tokenKind === "ylp" || params.tokenKind === 0 ? { ylp: {} } : { hlp: {} };
+    return this.instruction("initializeYieldAccounts" as DuskInstructionName, { owner, tokenKind }, {
+      accounts: {
+        payer,
+        market,
+        lpMint,
+        baseMint,
+        quoteMint,
+        baseYieldAccount: deriveYieldAccountAddress(market, owner, lpMint, baseMint, params.tokenKind)[0],
+        quoteYieldAccount: deriveYieldAccountAddress(market, owner, lpMint, quoteMint, params.tokenKind)[0],
+        systemProgram: SystemProgram.programId,
+      },
+    });
+  }
+
+  async initializeYieldAccountsTransaction(
+    params: Parameters<DuskWrite["initializeYieldAccountsInstruction"]>[0]
+  ): Promise<Transaction> {
+    return new Transaction().add(await this.initializeYieldAccountsInstruction(params));
+  }
+
+  async initializeLpTransferHookInstruction(params: {
+    payer: AddressLike;
+    market: AddressLike;
+    lpMint: AddressLike;
+  }): Promise<TransactionInstruction> {
+    const lpMint = address(params.lpMint);
+    return this.instruction("initializeLpTransferHook" as DuskInstructionName, undefined, {
+      accounts: {
+        payer: address(params.payer),
+        market: address(params.market),
+        lpMint,
+        validationAccount: deriveYieldTransferHookValidationAddress(lpMint)[0],
+        systemProgram: SystemProgram.programId,
+      },
+    });
+  }
+
+  async initializeLpTransferHookTransaction(
+    params: Parameters<DuskWrite["initializeLpTransferHookInstruction"]>[0]
+  ): Promise<Transaction> {
+    return new Transaction().add(await this.initializeLpTransferHookInstruction(params));
+  }
+
+  async hlpLiquidityAction(
+    name: "depositSingleSided" | "withdrawSingleSided",
+    args: Record<string, unknown>,
+    options: HlpLiquidityBuildOptions
+  ): Promise<HlpLiquidityBuild> {
+    const payer = address(options.payer);
+    const owner = address(options.owner);
+    const market = address(options.market);
+    const lpMint = address(options.targetHlpMint);
+    const baseMint = address(options.baseMint);
+    const quoteMint = address(options.quoteMint);
+    const baseYieldAccount = deriveYieldAccountAddress(market, owner, lpMint, baseMint, "hlp")[0];
+    const quoteYieldAccount = deriveYieldAccountAddress(market, owner, lpMint, quoteMint, "hlp")[0];
+    const [baseYieldInfo, quoteYieldInfo] = await Promise.all([
+      this.program.provider.connection.getAccountInfo(baseYieldAccount),
+      this.program.provider.connection.getAccountInfo(quoteYieldAccount),
+    ]);
+    const yieldAccountDefinition = this.program.idl.accounts?.find(
+      (account) => account.name === "yieldAccount"
+    );
+    if (!yieldAccountDefinition) {
+      throw new Error("Dusk IDL is missing YieldAccount");
+    }
+    const yieldAccountSize = this.program.coder.accounts.size("yieldAccount");
+    const yieldAccountDiscriminator = Buffer.from(yieldAccountDefinition.discriminator);
+    const yieldAccountsReady = [baseYieldInfo, quoteYieldInfo].every(
+      (info) =>
+        info !== null &&
+        info.owner.equals(this.program.programId) &&
+        info.data.length === yieldAccountSize &&
+        info.data.subarray(0, yieldAccountDiscriminator.length).equals(yieldAccountDiscriminator)
+    );
+    const setupInstructions =
+      yieldAccountsReady
+        ? []
+        : [
+            await this.initializeYieldAccountsInstruction({
+              payer,
+              owner,
+              market,
+              lpMint,
+              baseMint,
+              quoteMint,
+              tokenKind: "hlp",
+            }),
+          ];
+    const actionInstruction = await this.instruction(name, args, {
+      accounts: {
+        ...options.accounts,
+        market,
+        owner,
+        targetHlpMint: lpMint,
+        baseMint,
+        quoteMint,
+        baseYieldAccount,
+        quoteYieldAccount,
+      },
+      remainingAccounts: options.remainingAccounts,
+    });
+    return {
+      baseYieldAccount,
+      quoteYieldAccount,
+      setupInstructions,
+      actionInstruction,
+      transaction: new Transaction().add(...setupInstructions, actionInstruction),
+    };
+  }
+
+  depositSingleSided(args: Record<string, unknown>, options: HlpLiquidityBuildOptions) {
+    return this.hlpLiquidityAction("depositSingleSided", args, options);
+  }
+
+  withdrawSingleSided(args: Record<string, unknown>, options: HlpLiquidityBuildOptions) {
+    return this.hlpLiquidityAction("withdrawSingleSided", args, options);
   }
 
   async configureReferralPartnerInstruction(params: {

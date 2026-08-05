@@ -48,7 +48,6 @@ impl<'info> SetMarketReduceOnly<'info> {
             target_hlp_leverage_bps: market.config.target_hlp_leverage_bps,
             swap_fee_bps: market.config.swap_fee_bps,
             manager_fee_bps: market.config.manager_fee_bps,
-            protocol_fee_bps: market.config.protocol_fee_bps,
             config: market.config,
             metadata: MarketEventMetadata::new(ctx.accounts.authority_signer.key(), market.key())?,
         });

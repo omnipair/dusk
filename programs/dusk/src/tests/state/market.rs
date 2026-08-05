@@ -20,6 +20,9 @@ fn market_with_roles(manager: Pubkey, operator: Pubkey) -> Market {
         pending_operator: PendingAuthorityChange::default(),
         pending_manager: PendingAuthorityChange::default(),
         params_hash: [0u8; 32],
+        last_marginal_observation_nad: 0,
+        curve_revision: 0,
+        risk_revision: 0,
         last_update_slot: 0,
         reduce_only: false,
         bump: 255,
@@ -30,7 +33,6 @@ fn valid_config() -> MarketConfig {
     MarketConfig {
         swap_fee_bps: 0,
         manager_fee_bps: 0,
-        protocol_fee_bps: 0,
         target_hlp_leverage_bps: BPS_DENOMINATOR * 2,
         settlement_divergence_bps: BPS_DENOMINATOR,
         ema_half_life_ms: MIN_HALF_LIFE_MS,
@@ -41,6 +43,57 @@ fn valid_config() -> MarketConfig {
         borrow_market_health_floor_bps: BPS_DENOMINATOR,
         amm: Default::default(),
         start_time: 0,
+    }
+}
+
+#[test]
+fn market_mint_domain_requires_all_five_mints_to_be_pairwise_distinct() {
+    let distinct = [
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+    ];
+    Market::validate_mint_domain(distinct[0], distinct[1], distinct[2], distinct[3], distinct[4]).unwrap();
+
+    for duplicate_index in 1..distinct.len() {
+        for original_index in 0..duplicate_index {
+            let mut colliding = distinct;
+            colliding[duplicate_index] = colliding[original_index];
+            let error =
+                Market::validate_mint_domain(colliding[0], colliding[1], colliding[2], colliding[3], colliding[4])
+                    .unwrap_err();
+            match error {
+                anchor_lang::error::Error::AnchorError(error) => {
+                    let expected = if original_index == 0 && duplicate_index == 1 {
+                        "InvalidMint"
+                    } else {
+                        "InvalidLpMintKey"
+                    };
+                    assert_eq!(error.error_name, expected);
+                }
+                other => panic!("unexpected error for pair ({original_index}, {duplicate_index}): {other:?}"),
+            }
+        }
+    }
+}
+
+#[test]
+fn market_mint_domain_rejects_one_mint_for_both_hlp_sides() {
+    let shared_hlp_mint = Pubkey::new_unique();
+    let error = Market::validate_mint_domain(
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+        shared_hlp_mint,
+        shared_hlp_mint,
+    )
+    .unwrap_err();
+
+    match error {
+        anchor_lang::error::Error::AnchorError(error) => assert_eq!(error.error_name, "InvalidLpMintKey"),
+        other => panic!("unexpected error: {other:?}"),
     }
 }
 
@@ -55,7 +108,6 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
     base_side.reserves = Reserves {
         live_reserve: base_cash,
         cash_reserve: base_cash,
-        reserved_liability: 0,
     };
     base_side.shares.ylp_supply = base_cash;
     let mut quote_side = MarketSide {
@@ -66,7 +118,6 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
     quote_side.reserves = Reserves {
         live_reserve: quote_cash,
         cash_reserve: quote_cash,
-        reserved_liability: 0,
     };
     quote_side.shares.ylp_supply = quote_cash;
     Market {
@@ -93,6 +144,9 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
         pending_operator: PendingAuthorityChange::default(),
         pending_manager: PendingAuthorityChange::default(),
         params_hash: [0u8; 32],
+        last_marginal_observation_nad: 0,
+        curve_revision: 0,
+        risk_revision: 0,
         last_update_slot: 0,
         reduce_only: false,
         bump: 255,
@@ -351,11 +405,11 @@ proptest! {
         match borrow_asset {
             MarketAsset::Base => {
                 prop_assert_eq!(borrow_position.fixed_base_debt(&market.debt).unwrap(), borrow_amount as u128);
-                prop_assert_eq!(market.debt.fixed_base_principal, borrow_amount as u128);
+                prop_assert_eq!(market.debt.fixed_base_principal, borrow_amount);
             }
             MarketAsset::Quote => {
                 prop_assert_eq!(borrow_position.fixed_quote_debt(&market.debt).unwrap(), borrow_amount as u128);
-                prop_assert_eq!(market.debt.fixed_quote_principal, borrow_amount as u128);
+                prop_assert_eq!(market.debt.fixed_quote_principal, borrow_amount);
             }
         }
         market.assert_market_invariants().unwrap();
@@ -425,7 +479,15 @@ proptest! {
             .unwrap()
             .max(1)
             .min(debt_before);
-        let repay_credit = u64::try_from(repay_credit).unwrap();
+        let max_repay_credit = u64::try_from(repay_credit).unwrap();
+        let repayment = market
+            .fixed_repayment_for_max(&borrow_position, repay_asset, max_repay_credit)
+            .unwrap();
+        let repay_credit = repayment.cash_repaid;
+        let aggregate_debt_before = match repay_asset {
+            MarketAsset::Base => market.debt.fixed_base_debt().unwrap(),
+            MarketAsset::Quote => market.debt.fixed_quote_debt().unwrap(),
+        };
         let (live_before, cash_before) = reserve_pair(&market, repay_asset);
 
         let receipt = market
@@ -433,19 +495,26 @@ proptest! {
             .unwrap();
 
         let (live_after, cash_after) = reserve_pair(&market, repay_asset);
+        let aggregate_debt_after = match repay_asset {
+            MarketAsset::Base => market.debt.fixed_base_debt().unwrap(),
+            MarketAsset::Quote => market.debt.fixed_quote_debt().unwrap(),
+        };
         let principal_paid = repay_credit.checked_sub(receipt.interest_paid).unwrap();
         let debt_reduction = receipt.debt_delta.unsigned_abs();
-        let live_debit = debt_reduction.checked_sub(principal_paid).unwrap();
+        let aggregate_debt_reduction = u64::try_from(aggregate_debt_before - aggregate_debt_after).unwrap();
+        let live_debit = aggregate_debt_reduction.checked_sub(principal_paid).unwrap();
         prop_assert_eq!(live_after, live_before - live_debit);
         prop_assert_eq!(cash_after, cash_before + principal_paid);
         prop_assert!(receipt.interest_paid <= repay_credit);
-        prop_assert!(debt_reduction >= repay_credit);
+        prop_assert!(repay_credit <= max_repay_credit);
+        prop_assert!(debt_reduction.abs_diff(repay_credit) <= 1);
+        prop_assert_eq!(aggregate_debt_reduction, repay_credit);
         market.assert_market_invariants().unwrap();
     }
 }
 
 #[test]
-fn partial_repay_rounding_writeoff_preserves_virtual_reserve_invariant() {
+fn partial_repay_charges_the_aggregate_delta_without_rounding_writeoff() {
     let repay_asset = MarketAsset::Quote;
     let mut market = invariant_market(1_000_000, 28_642_837);
     let mut borrow_position = borrow_position_for_debt(repay_asset, 500_000);
@@ -461,16 +530,23 @@ fn partial_repay_rounding_writeoff_preserves_virtual_reserve_invariant() {
     market.assert_virtual_reserve_invariant(repay_asset).unwrap();
 
     let debt_before = borrow_position.fixed_quote_debt(&market.debt).unwrap();
-    let repay_credit = u64::try_from(debt_before * 205 / BPS_DENOMINATOR as u128).unwrap();
+    let max_repay_credit = u64::try_from(debt_before * 205 / BPS_DENOMINATOR as u128).unwrap();
+    let repay_credit = market
+        .fixed_repayment_for_max(&borrow_position, repay_asset, max_repay_credit)
+        .unwrap()
+        .cash_repaid;
+    let aggregate_debt_before = market.debt.fixed_quote_debt().unwrap();
     let (live_before, cash_before) = reserve_pair(&market, repay_asset);
 
     let receipt = market.repay(&mut borrow_position, repay_asset, repay_credit).unwrap();
 
     let (live_after, cash_after) = reserve_pair(&market, repay_asset);
+    let aggregate_debt_after = market.debt.fixed_quote_debt().unwrap();
     let principal_paid = repay_credit.checked_sub(receipt.interest_paid).unwrap();
-    let debt_reduction = receipt.debt_delta.unsigned_abs();
-    assert_eq!(debt_reduction, repay_credit + 1);
-    assert_eq!(live_after, live_before - (debt_reduction - principal_paid));
+    let aggregate_debt_reduction = u64::try_from(aggregate_debt_before - aggregate_debt_after).unwrap();
+    assert_eq!(receipt.cash_repaid, repay_credit);
+    assert_eq!(aggregate_debt_reduction, repay_credit);
+    assert_eq!(live_after, live_before - (aggregate_debt_reduction - principal_paid));
     assert_eq!(cash_after, cash_before + principal_paid);
     market.assert_market_invariants().unwrap();
 }
@@ -496,7 +572,11 @@ fn partial_repay_uses_aggregate_debt_delta_with_multiple_positions() {
     );
     market.assert_virtual_reserve_invariant(repay_asset).unwrap();
 
-    market.repay(&mut first, repay_asset, 25_000_004).unwrap();
+    let repay_credit = market
+        .fixed_repayment_for_max(&first, repay_asset, 25_000_004)
+        .unwrap()
+        .cash_repaid;
+    market.repay(&mut first, repay_asset, repay_credit).unwrap();
 
     market.assert_virtual_reserve_invariant(repay_asset).unwrap();
 }
@@ -550,7 +630,7 @@ fn borrower_risk_valuation_uses_q_ema_depth_cap() {
 }
 
 #[test]
-fn risk_curve_cache_caps_q_by_sudden_current_drawdown() {
+fn reconstructed_risk_curve_caps_q_by_sudden_current_drawdown() {
     let q_ema_nad = 1_000_000_u128 * NAD as u128;
     let high_risk = Risk {
         base_price_ema_nad: NAD,
@@ -565,12 +645,16 @@ fn risk_curve_cache_caps_q_by_sudden_current_drawdown() {
         cached_q_nad: q_ema_nad / 10,
         ..high_risk
     };
-    let parameters = crate::state::market::AmmCurveParameters::cpmm();
-    let high_cache = crate::state::market::RiskCurveCache::from_risk(&high_risk, NAD, parameters).unwrap();
-    let low_cache = crate::state::market::RiskCurveCache::from_risk(&low_risk, NAD, parameters).unwrap();
+    let market = invariant_market(1_000_000, 1_000_000);
+    let (high_base, high_quote) = market
+        .pessimistic_virtual_reserves_nad(MarketAsset::Base, &high_risk, true)
+        .unwrap();
+    let (low_base, low_quote) = market
+        .pessimistic_virtual_reserves_nad(MarketAsset::Base, &low_risk, true)
+        .unwrap();
     let high_q = crate::math::concentrated_evaluate(
-        high_cache.base_underwriting.base_reserve_nad,
-        high_cache.base_underwriting.quote_reserve_nad,
+        high_base,
+        high_quote,
         NAD as u128,
         0,
         0,
@@ -578,8 +662,8 @@ fn risk_curve_cache_caps_q_by_sudden_current_drawdown() {
     .unwrap()
     .balanced_equivalent_q;
     let low_q = crate::math::concentrated_evaluate(
-        low_cache.base_underwriting.base_reserve_nad,
-        low_cache.base_underwriting.quote_reserve_nad,
+        low_base,
+        low_quote,
         NAD as u128,
         0,
         0,

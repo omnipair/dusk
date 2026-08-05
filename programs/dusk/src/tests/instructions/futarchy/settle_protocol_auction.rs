@@ -1,7 +1,7 @@
 use super::*;
     use crate::state::{ProtocolAuctionConfig, ProtocolAuctionParams, ProtocolAuctionRecipients};
 
-    fn auction(last_settlement_slot: u64) -> ProtocolAuctionConfig {
+    fn auction() -> ProtocolAuctionConfig {
         ProtocolAuctionConfig {
             accepted_mint: Pubkey::new_unique(),
             recipients: ProtocolAuctionRecipients::treasury_only(
@@ -14,18 +14,17 @@ use super::*;
                 duration_slots: 100,
                 max_reference_age_slots: 10,
             },
-            last_settlement_slot,
         }
     }
 
     #[test]
     fn dutch_price_decays_linearly_to_floor() {
-        let auction = auction(10);
+        let auction = auction();
 
-        let start = decayed_auction_price_nad(&auction, NAD, 10).unwrap();
-        let halfway = decayed_auction_price_nad(&auction, NAD, 60).unwrap();
-        let floor = decayed_auction_price_nad(&auction, NAD, 110).unwrap();
-        let after_floor = decayed_auction_price_nad(&auction, NAD, 210).unwrap();
+        let start = decayed_auction_price_nad(&auction, 10, NAD, 10).unwrap();
+        let halfway = decayed_auction_price_nad(&auction, 10, NAD, 60).unwrap();
+        let floor = decayed_auction_price_nad(&auction, 10, NAD, 110).unwrap();
+        let after_floor = decayed_auction_price_nad(&auction, 10, NAD, 210).unwrap();
 
         assert_eq!(start, 1_200_000_000);
         assert_eq!(halfway, 1_000_000_000);
@@ -62,4 +61,96 @@ use super::*;
 
         assert_eq!(missing, error!(ErrorCode::StaleAuctionReference));
         assert_eq!(stale, error!(ErrorCode::StaleAuctionReference));
+    }
+
+    #[test]
+    fn default_route_allows_only_the_sold_markets_direct_pair() {
+        let market_key = Pubkey::new_unique();
+        let sold_mint = Pubkey::new_unique();
+        let direct_accepted_mint = Pubkey::new_unique();
+        let unrelated_accepted_mint = Pubkey::new_unique();
+        let market = Market {
+            base_side: crate::state::MarketSide {
+                asset_mint: sold_mint,
+                ..crate::state::MarketSide::default()
+            },
+            quote_side: crate::state::MarketSide {
+                asset_mint: direct_accepted_mint,
+                ..crate::state::MarketSide::default()
+            },
+            ..Market::default()
+        };
+
+        assert_eq!(
+            expected_reference_market(
+                &market,
+                market_key,
+                ProtocolAuctionLane::Fee,
+                sold_mint,
+                direct_accepted_mint,
+            )
+            .unwrap(),
+            market_key
+        );
+        assert_eq!(
+            expected_reference_market(
+                &market,
+                market_key,
+                ProtocolAuctionLane::Fee,
+                sold_mint,
+                unrelated_accepted_mint,
+            )
+            .unwrap_err(),
+            error!(ErrorCode::InvalidMarket)
+        );
+    }
+
+    #[test]
+    fn approved_route_is_lane_specific_and_overrides_direct_pair() {
+        let market_key = Pubkey::new_unique();
+        let sold_mint = Pubkey::new_unique();
+        let accepted_mint = Pubkey::new_unique();
+        let fee_reference = Pubkey::new_unique();
+        let buyback_reference = Pubkey::new_unique();
+        let mut base_side = crate::state::MarketSide {
+            asset_mint: sold_mint,
+            ..crate::state::MarketSide::default()
+        };
+        base_side
+            .fees
+            .set_protocol_auction_reference_market(ProtocolAuctionLane::Fee, fee_reference);
+        base_side
+            .fees
+            .set_protocol_auction_reference_market(ProtocolAuctionLane::Buyback, buyback_reference);
+        let market = Market {
+            base_side,
+            quote_side: crate::state::MarketSide {
+                asset_mint: accepted_mint,
+                ..crate::state::MarketSide::default()
+            },
+            ..Market::default()
+        };
+
+        assert_eq!(
+            expected_reference_market(
+                &market,
+                market_key,
+                ProtocolAuctionLane::Fee,
+                sold_mint,
+                accepted_mint,
+            )
+            .unwrap(),
+            fee_reference
+        );
+        assert_eq!(
+            expected_reference_market(
+                &market,
+                market_key,
+                ProtocolAuctionLane::Buyback,
+                sold_mint,
+                accepted_mint,
+            )
+            .unwrap(),
+            buyback_reference
+        );
     }

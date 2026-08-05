@@ -9,13 +9,13 @@ use crate::{
     errors::ErrorCode,
     events::{LiquidityRemoved, MarketEventMetadata, MarketHealthUpdated},
     generate_market_seeds,
-    shared::token::{token_burn, transfer_from_vault_to_user},
+    shared::token::{token_burn, transfer_checked_with_remaining_accounts},
     state::{Market, YieldAccount, YieldTokenKind},
 };
 
 use crate::instructions::common::{
-    require_supported_asset_mint, token_account_credit, token_program_for_mint, validate_lp_mint,
-    validate_owner_asset_account, validate_owner_lp_account, validate_side_vault_accounts,
+    require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
+    validate_lp_mint, validate_owner_asset_account, validate_owner_lp_account, validate_side_vault_accounts,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -25,7 +25,6 @@ pub struct RemoveLiquidityArgs {
     pub min_quote_amount_out: u64,
 }
 
-#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: RemoveLiquidityArgs)]
 pub struct RemoveLiquidity<'info> {
@@ -67,6 +66,7 @@ pub struct RemoveLiquidity<'info> {
             YIELD_ACCOUNT_SEED_PREFIX,
             market.key().as_ref(),
             owner.key().as_ref(),
+            ylp_mint.key().as_ref(),
             base_mint.key().as_ref(),
             &[YieldTokenKind::Ylp.code()],
         ],
@@ -80,6 +80,7 @@ pub struct RemoveLiquidity<'info> {
             YIELD_ACCOUNT_SEED_PREFIX,
             market.key().as_ref(),
             owner.key().as_ref(),
+            ylp_mint.key().as_ref(),
             quote_mint.key().as_ref(),
             &[YieldTokenKind::Ylp.code()],
         ],
@@ -122,12 +123,14 @@ impl<'info> RemoveLiquidity<'info> {
         self.base_yield_account.assert_account(
             self.owner.key(),
             self.market.key(),
+            self.ylp_mint.key(),
             self.base_mint.key(),
             YieldTokenKind::Ylp,
         )?;
         self.quote_yield_account.assert_account(
             self.owner.key(),
             self.market.key(),
+            self.ylp_mint.key(),
             self.quote_mint.key(),
             YieldTokenKind::Ylp,
         )?;
@@ -136,7 +139,7 @@ impl<'info> RemoveLiquidity<'info> {
 
     crate::instructions::common::market_update_and_validate!(RemoveLiquidityArgs);
 
-    pub fn handle_remove_liquidity(ctx: Context<Self>, args: RemoveLiquidityArgs) -> Result<()> {
+    pub fn handle_remove_liquidity(ctx: Context<'_, '_, '_, 'info, Self>, args: RemoveLiquidityArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.owner.key();
 
@@ -148,13 +151,13 @@ impl<'info> RemoveLiquidity<'info> {
             market.quote_side.carry_forward_interest()?;
             ctx.accounts.base_yield_account.accrue(
                 ctx.accounts.owner_ylp_account.amount,
-                market.base_side.fees.swap_fee_growth_index_nad,
-                market.base_side.fees.interest_growth_index_nad,
+                market.base_side.fees.swap_fee_growth_index_q64,
+                market.base_side.fees.interest_growth_index_q64,
             )?;
             ctx.accounts.quote_yield_account.accrue(
                 ctx.accounts.owner_ylp_account.amount,
-                market.quote_side.fees.swap_fee_growth_index_nad,
-                market.quote_side.fees.interest_growth_index_nad,
+                market.quote_side.fees.swap_fee_growth_index_q64,
+                market.quote_side.fees.interest_growth_index_q64,
             )?;
         }
 
@@ -174,14 +177,9 @@ impl<'info> RemoveLiquidity<'info> {
 
         let receipt = ctx.accounts.market.remove_liquidity(args.ylp_amount)?;
         let current_slot = Clock::get()?.slot;
-        if receipt.ylp_supply == MIN_LIQUIDITY {
-            ctx.accounts
-                .market
-                .park_amm_after_full_public_liquidity_exit(current_slot)?;
-        } else {
-            ctx.accounts.market.finalize_amm_transition(current_slot)?;
-            ctx.accounts.market.observe_current_risk(current_slot)?;
-        }
+        ctx.accounts
+            .market
+            .finalize_amm_transition_and_observe_risk(current_slot)?;
         ctx.accounts.market.assert_market_health()?;
 
         let base_balance_before = ctx.accounts.owner_base_account.amount;
@@ -196,7 +194,7 @@ impl<'info> RemoveLiquidity<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        transfer_from_vault_to_user(
+        transfer_checked_with_remaining_accounts(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.base_reserve_vault.to_account_info(),
             ctx.accounts.owner_base_account.to_account_info(),
@@ -205,8 +203,9 @@ impl<'info> RemoveLiquidity<'info> {
             receipt.base_amount_out,
             ctx.accounts.base_mint.decimals,
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
+            ctx.remaining_accounts,
         )?;
-        transfer_from_vault_to_user(
+        transfer_checked_with_remaining_accounts(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.quote_reserve_vault.to_account_info(),
             ctx.accounts.owner_quote_account.to_account_info(),
@@ -215,14 +214,19 @@ impl<'info> RemoveLiquidity<'info> {
             receipt.quote_amount_out,
             ctx.accounts.quote_mint.decimals,
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
+            ctx.remaining_accounts,
         )?;
+        ctx.accounts.base_reserve_vault.reload()?;
+        ctx.accounts.quote_reserve_vault.reload()?;
         ctx.accounts.owner_base_account.reload()?;
         ctx.accounts.owner_quote_account.reload()?;
+        require_reserve_custody(ctx.accounts.base_reserve_vault.amount, &ctx.accounts.market.base_side)?;
+        require_reserve_custody(ctx.accounts.quote_reserve_vault.amount, &ctx.accounts.market.quote_side)?;
         let base_credit = token_account_credit(base_balance_before, &ctx.accounts.owner_base_account)?;
         let quote_credit = token_account_credit(quote_balance_before, &ctx.accounts.owner_quote_account)?;
         require_gte!(base_credit, args.min_base_amount_out, ErrorCode::SlippageExceeded);
         require_gte!(quote_credit, args.min_quote_amount_out, ErrorCode::SlippageExceeded);
-        emit_cpi!(LiquidityRemoved {
+        emit!(LiquidityRemoved {
             market: market_key,
             owner: owner_key,
             ylp_amount: receipt.ylp_amount,
@@ -232,7 +236,7 @@ impl<'info> RemoveLiquidity<'info> {
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
         let health = ctx.accounts.market.market_health()?;
-        emit_cpi!(MarketHealthUpdated {
+        emit!(MarketHealthUpdated {
             market: market_key,
             global_health_base_contribution_for_quote_debt: health.global_health_base_contribution_for_quote_debt,
             global_health_quote_contribution_for_base_debt: health.global_health_quote_contribution_for_base_debt,

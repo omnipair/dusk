@@ -12,7 +12,6 @@ fn valid_config() -> MarketConfig {
     MarketConfig {
         swap_fee_bps: 30,
         manager_fee_bps: 0,
-        protocol_fee_bps: 0,
         target_hlp_leverage_bps: BPS_DENOMINATOR * 2,
         settlement_divergence_bps: 500,
         ema_half_life_ms: 60_000,
@@ -37,7 +36,6 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
     base_side.reserves = Reserves {
         live_reserve: 1_000_000_000,
         cash_reserve: 1_000_000_000,
-        reserved_liability: 0,
     };
     let mut quote_side = MarketSide {
         asset_mint: quote_mint,
@@ -47,7 +45,6 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
     quote_side.reserves = Reserves {
         live_reserve: 1_000_000_000,
         cash_reserve: 1_000_000_000,
-        reserved_liability: 0,
     };
 
     let debt = Debt {
@@ -76,6 +73,9 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
         pending_operator: PendingAuthorityChange::default(),
         pending_manager: PendingAuthorityChange::default(),
         params_hash: [9; 32],
+        last_marginal_observation_nad: 0,
+        curve_revision: 0,
+        risk_revision: 0,
         last_update_slot: 0,
         reduce_only: false,
         bump: 255,
@@ -170,18 +170,16 @@ fn market_with_cash_backed_debt(
             base_side.reserves = Reserves {
                 live_reserve: debt_live,
                 cash_reserve: debt_cash_after_borrow,
-                reserved_liability: 0,
             };
             base_side.shares.ylp_supply = debt_live;
             quote_side.reserves = Reserves {
                 live_reserve: collateral_cash,
                 cash_reserve: collateral_cash,
-                reserved_liability: 0,
             };
             quote_side.shares.ylp_supply = collateral_cash;
             debt.base_borrow_index_nad = next_index;
             debt.fixed_base_shares = shares;
-            debt.fixed_base_principal = borrow_amount as u128;
+            debt.fixed_base_principal = borrow_amount;
             debt.global_health_quote_contribution_for_base_debt = collateral_amount;
             borrow_position.fixed_base_shares = shares;
             borrow_position.quote_collateral = collateral_amount;
@@ -191,18 +189,16 @@ fn market_with_cash_backed_debt(
             base_side.reserves = Reserves {
                 live_reserve: collateral_cash,
                 cash_reserve: collateral_cash,
-                reserved_liability: 0,
             };
             base_side.shares.ylp_supply = collateral_cash;
             quote_side.reserves = Reserves {
                 live_reserve: debt_live,
                 cash_reserve: debt_cash_after_borrow,
-                reserved_liability: 0,
             };
             quote_side.shares.ylp_supply = debt_live;
             debt.quote_borrow_index_nad = next_index;
             debt.fixed_quote_shares = shares;
-            debt.fixed_quote_principal = borrow_amount as u128;
+            debt.fixed_quote_principal = borrow_amount;
             debt.global_health_base_contribution_for_quote_debt = collateral_amount;
             borrow_position.fixed_quote_shares = shares;
             borrow_position.base_collateral = collateral_amount;
@@ -228,6 +224,9 @@ fn market_with_cash_backed_debt(
         pending_operator: PendingAuthorityChange::default(),
         pending_manager: PendingAuthorityChange::default(),
         params_hash: [7; 32],
+        last_marginal_observation_nad: 0,
+        curve_revision: 0,
+        risk_revision: 0,
         last_update_slot: 0,
         reduce_only: false,
         bump: 255,
@@ -257,11 +256,17 @@ fn reserve_pair(market: &Market, asset: MarketAsset) -> (u64, u64) {
     (side.reserves.live_reserve, side.reserves.cash_reserve)
 }
 
+fn expected_insurance_funding_bps(liquidation_incentive_bps: u16, liquidation_health_floor_bps: u64) -> u16 {
+    let max_total_penalty = liquidation_health_floor_bps.saturating_sub(BPS_DENOMINATOR as u64 + 1);
+    let remaining_penalty_room = max_total_penalty.saturating_sub(liquidation_incentive_bps as u64);
+    LIQUIDATION_INSURANCE_FUNDING_BPS.min(u16::try_from(remaining_penalty_room).unwrap_or(u16::MAX))
+}
+
 #[test]
 fn euler_style_incentive_grows_with_health_shortfall() {
-    assert_eq!(liquidation_incentive_bps(10_999, 11_000), 100);
-    assert_eq!(liquidation_incentive_bps(10_750, 11_000), 250);
-    assert_eq!(liquidation_incentive_bps(9_000, 11_000), 500);
+    assert_eq!(liquidation_max_incentive_bps(10_999, 11_000), 100);
+    assert_eq!(liquidation_max_incentive_bps(10_750, 11_000), 250);
+    assert_eq!(liquidation_max_incentive_bps(9_000, 11_000), 500);
 }
 
 proptest! {
@@ -302,7 +307,15 @@ proptest! {
             .unwrap()
             .max(1)
             .min(debt_before);
-        let repay_credit = u64::try_from(repay_credit).unwrap();
+        let max_repay_credit = u64::try_from(repay_credit).unwrap();
+        let repay_credit = market
+            .fixed_repayment_for_max(&borrow_position, debt_asset, max_repay_credit)
+            .unwrap()
+            .cash_repaid;
+        let aggregate_debt_before = match debt_asset {
+            MarketAsset::Base => market.debt.fixed_base_debt().unwrap(),
+            MarketAsset::Quote => market.debt.fixed_quote_debt().unwrap(),
+        };
         let (live_before, cash_before) = reserve_pair(&market, debt_asset);
         let pricing = LiquidationPricing::ReferencePrice {
             debt_per_collateral_price_nad: NAD as u64,
@@ -323,28 +336,40 @@ proptest! {
         let debt_after = position_debt_after(&market, &borrow_position, debt_asset);
         let debt_reduction = debt_before.checked_sub(debt_after).unwrap();
         let debt_reduction = u64::try_from(debt_reduction).unwrap();
+        let aggregate_debt_after = match debt_asset {
+            MarketAsset::Base => market.debt.fixed_base_debt().unwrap(),
+            MarketAsset::Quote => market.debt.fixed_quote_debt().unwrap(),
+        };
+        let aggregate_debt_reduction = u64::try_from(aggregate_debt_before - aggregate_debt_after).unwrap();
         let principal_credit = repay_credit.checked_sub(receipt.interest_paid).unwrap();
-        let live_debit = debt_reduction.checked_sub(principal_credit).unwrap();
+        let live_debit = aggregate_debt_reduction.checked_sub(principal_credit).unwrap();
         let (live_after, cash_after) = reserve_pair(&market, debt_asset);
 
         prop_assert_eq!(receipt.socialized_loss, 0);
         prop_assert_eq!(receipt.insurance_drawn, 0);
         prop_assert_eq!(live_after, live_before - live_debit);
         prop_assert_eq!(cash_after, cash_before + principal_credit);
-        prop_assert!(debt_reduction >= repay_credit);
+        prop_assert!(repay_credit <= max_repay_credit);
+        prop_assert!(debt_reduction.abs_diff(repay_credit) <= 1);
+        prop_assert_eq!(aggregate_debt_reduction, repay_credit);
         market.assert_market_invariants().unwrap();
     }
 }
 
 #[test]
-fn partial_liquidation_rounding_writeoff_preserves_virtual_reserve_invariant() {
+fn partial_liquidation_charges_the_aggregate_delta_without_rounding_writeoff() {
     let debt_asset = MarketAsset::Quote;
     let debt_cash = 28_642_837;
     let borrow_amount = debt_cash * 346 / BPS_DENOMINATOR as u64;
     let (mut market, mut borrow_position) =
         market_with_cash_backed_debt(debt_asset, debt_cash, 1_000_000, borrow_amount, 413);
     let debt_before = position_debt_after(&market, &borrow_position, debt_asset);
-    let repay_credit = u64::try_from(debt_before * 205 / BPS_DENOMINATOR as u128).unwrap();
+    let max_repay_credit = u64::try_from(debt_before * 205 / BPS_DENOMINATOR as u128).unwrap();
+    let repay_credit = market
+        .fixed_repayment_for_max(&borrow_position, debt_asset, max_repay_credit)
+        .unwrap()
+        .cash_repaid;
+    let aggregate_debt_before = market.debt.fixed_quote_debt().unwrap();
     let (live_before, cash_before) = reserve_pair(&market, debt_asset);
     let pricing = LiquidationPricing::ReferencePrice {
         debt_per_collateral_price_nad: NAD as u64,
@@ -364,11 +389,14 @@ fn partial_liquidation_rounding_writeoff_preserves_virtual_reserve_invariant() {
 
     let debt_after = position_debt_after(&market, &borrow_position, debt_asset);
     let debt_reduction = u64::try_from(debt_before - debt_after).unwrap();
+    let aggregate_debt_after = market.debt.fixed_quote_debt().unwrap();
+    let aggregate_debt_reduction = u64::try_from(aggregate_debt_before - aggregate_debt_after).unwrap();
     let principal_credit = repay_credit.checked_sub(receipt.interest_paid).unwrap();
-    assert_eq!(debt_reduction, repay_credit + 1);
+    assert!(debt_reduction.abs_diff(repay_credit) <= 1);
+    assert_eq!(aggregate_debt_reduction, repay_credit);
     assert_eq!(
         market.quote_side.reserves.live_reserve,
-        live_before - (debt_reduction - principal_credit)
+        live_before - (aggregate_debt_reduction - principal_credit)
     );
     assert_eq!(market.quote_side.reserves.cash_reserve, cash_before + principal_credit);
     market.assert_market_invariants().unwrap();
@@ -382,7 +410,7 @@ fn partial_liquidation_uses_aggregate_debt_delta_with_multiple_positions() {
         market_with_cash_backed_debt(debt_asset, 200_000_000, 300_000_000, borrow_amount, 413);
     let second_position_shares = borrow_position.fixed_quote_shares;
     market.debt.fixed_quote_shares += second_position_shares;
-    market.debt.fixed_quote_principal += borrow_amount as u128;
+    market.debt.fixed_quote_principal += borrow_amount;
     market.debt.global_health_base_contribution_for_quote_debt +=
         borrow_position.global_health_base_contribution_for_quote_debt;
     market.quote_side.reserves.cash_reserve -= borrow_amount;
@@ -394,9 +422,13 @@ fn partial_liquidation_uses_aggregate_debt_delta_with_multiple_positions() {
     market.assert_virtual_reserve_invariant(debt_asset).unwrap();
     let debt_before = position_debt_after(&market, &borrow_position, debt_asset);
 
+    let repay_credit = market
+        .fixed_repayment_for_max(&borrow_position, debt_asset, 25_000_004)
+        .unwrap()
+        .cash_repaid;
     Liquidation::new_with_pricing(
         debt_asset,
-        25_000_004,
+        repay_credit,
         0,
         0,
         0,
@@ -519,9 +551,9 @@ fn collateral_exhausted_liquidation_socializes_loss_without_breaking_virtual_res
 
 #[test]
 fn insurance_funding_preserves_room_to_restore_health() {
-    assert_eq!(liquidation_insurance_funding_bps(100, 11_000).unwrap(), 200);
-    assert_eq!(liquidation_insurance_funding_bps(500, 11_000).unwrap(), 200);
-    assert_eq!(liquidation_insurance_funding_bps(200, 10_250).unwrap(), 49);
+    assert_eq!(expected_insurance_funding_bps(100, 11_000), 200);
+    assert_eq!(expected_insurance_funding_bps(500, 11_000), 200);
+    assert_eq!(expected_insurance_funding_bps(200, 10_250), 49);
 }
 
 #[test]
@@ -540,7 +572,7 @@ fn liquidation_eligibility_is_inclusive_at_stored_cf_equality() {
     .unwrap();
     let threshold_debt = crate::shared::math::ceil_div(threshold_debt_nad, NAD as u128).unwrap();
     market.debt.fixed_quote_shares = threshold_debt;
-    market.debt.fixed_quote_principal = threshold_debt;
+    market.debt.fixed_quote_principal = u64::try_from(threshold_debt).unwrap();
     borrow_position.fixed_quote_shares = threshold_debt;
 
     assert!(market
@@ -591,11 +623,34 @@ fn liquidation_auction_is_bound_to_one_debt_asset() {
 }
 
 #[test]
+fn recovered_position_cancels_active_auction_before_settlement() {
+    let (market, mut borrow_position) = liquidatable_quote_debt_position();
+    borrow_position.start_liquidation_auction(MarketAsset::Quote, 1, NAD as u64, NAD as u64);
+    assert!(market
+        .is_position_liquidatable(&borrow_position, MarketAsset::Quote)
+        .unwrap());
+
+    borrow_position.base_collateral = 1_000;
+    assert!(!market
+        .is_position_liquidatable(&borrow_position, MarketAsset::Quote)
+        .unwrap());
+    market.reconcile_liquidation_auction(&mut borrow_position).unwrap();
+
+    assert!(!borrow_position.has_active_liquidation_auction());
+    assert_eq!(
+        borrow_position
+            .assert_liquidation_auction(MarketAsset::Quote)
+            .unwrap_err(),
+        error!(ErrorCode::PositionNotLiquidatable)
+    );
+}
+
+#[test]
 fn max_repay_caps_liquidation_to_restore_target_health() {
     let (market, borrow_position) = liquidatable_quote_debt_position();
     let target_health_bps = liquidation_health_floor_bps(borrow_position.quote_liquidation_cf_bps);
-    let incentive_bps = liquidation_incentive_bps(10_900, target_health_bps);
-    let insurance_bps = liquidation_insurance_funding_bps(incentive_bps, target_health_bps).unwrap();
+    let incentive_bps = liquidation_max_incentive_bps(10_900, target_health_bps);
+    let insurance_bps = expected_insurance_funding_bps(incentive_bps, target_health_bps);
     let cap = max_repay_to_restore_health_with_pricing(
         &market,
         &borrow_position,
@@ -670,8 +725,8 @@ fn max_repay_full_closes_when_partial_would_leave_dust() {
 fn liquidation_rejects_repay_above_restore_cap() {
     let (mut market, mut borrow_position) = liquidatable_quote_debt_position();
     let target_health_bps = liquidation_health_floor_bps(borrow_position.quote_liquidation_cf_bps);
-    let incentive_bps = liquidation_incentive_bps(10_900, target_health_bps);
-    let insurance_bps = liquidation_insurance_funding_bps(incentive_bps, target_health_bps).unwrap();
+    let incentive_bps = liquidation_max_incentive_bps(10_900, target_health_bps);
+    let insurance_bps = expected_insurance_funding_bps(incentive_bps, target_health_bps);
     let cap = max_repay_to_restore_health_with_pricing(
         &market,
         &borrow_position,
@@ -681,7 +736,7 @@ fn liquidation_rejects_repay_above_restore_cap() {
     )
     .unwrap();
 
-    let terms = liquidation_terms(&market, &borrow_position, MarketAsset::Quote).unwrap();
+    let terms = market.liquidation_terms(&borrow_position, MarketAsset::Quote).unwrap();
     let err = Liquidation::new(MarketAsset::Quote, cap + 1, 0, 0, 0, terms)
         .apply(&mut market, &mut borrow_position)
         .unwrap_err();

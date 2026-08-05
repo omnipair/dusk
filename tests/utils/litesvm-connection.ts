@@ -2,6 +2,12 @@ import { PublicKey, Keypair, Connection, Commitment, TransactionConfirmationStra
 import { LiteSVM } from "litesvm";
 import { recordTransactionComputeUnits } from "./instruction-coverage.js";
 
+export type MeasuredTransaction = {
+  signature: string;
+  transaction: Transaction | VersionedTransaction;
+  computeUnits: bigint;
+};
+
 // Create a Connection wrapper for LiteSVM that intercepts all calls
 export class LiteSVMConnection extends Connection {
   private computeUnitSamples: bigint[] = [];
@@ -83,7 +89,7 @@ export class LiteSVMConnection extends Connection {
     }
     
     const result = this.svm.sendTransaction(transaction as any);
-    
+
     // Check if result has err method (FailedTransactionMetadata)
     if (result && typeof (result as any).err === 'function') {
       const err = (result as any).err();
@@ -113,6 +119,23 @@ export class LiteSVMConnection extends Connection {
       return Buffer.from(transaction.signature).toString('base64');
     }
     return "signature";
+  }
+
+  async sendTransactionMeasured(
+    transaction: Transaction,
+    signers: Signer[],
+    options?: SendOptions
+  ): Promise<MeasuredTransaction> {
+    const sampleCountBefore = this.computeUnitSamples.length;
+    const signature = await this.sendTransaction(transaction, signers, options);
+    if (this.computeUnitSamples.length !== sampleCountBefore + 1) {
+      throw new Error("LiteSVM did not record exactly one compute sample for the submitted transaction");
+    }
+    return {
+      signature,
+      transaction,
+      computeUnits: this.computeUnitSamples[sampleCountBefore],
+    };
   }
 
   async sendRawTransaction(raw: Buffer, options?: any): Promise<string> {
@@ -171,18 +194,6 @@ export class LiteSVMConnection extends Connection {
     }
     this.computeUnitSamples.push(computeUnits);
     recordTransactionComputeUnits(transaction, computeUnits);
-  }
-
-  getLastComputeUnitsConsumed(): bigint | undefined {
-    return this.computeUnitSamples.at(-1);
-  }
-
-  getMaxComputeUnitsConsumed(): bigint | undefined {
-    return this.computeUnitSamples.reduce<bigint | undefined>(
-      (maximum, sample) =>
-        maximum === undefined || sample > maximum ? sample : maximum,
-      undefined
-    );
   }
 
   async getLatestBlockhash(commitment?: Commitment): Promise<{ blockhash: string; lastValidBlockHeight: number }> {
