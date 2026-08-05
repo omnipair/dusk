@@ -643,6 +643,7 @@ dependencies = [
  "arrayref",
  "bincode",
  "bytemuck",
+ "num-bigint",
  "num-traits",
  "proptest",
  "quickcheck",

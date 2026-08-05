@@ -40,6 +40,7 @@ arrayref = { version = "0.3.6" }
 bincode = "1.3"
 
 [dev-dependencies]
+num-bigint = "0.4"
 quickcheck = "0.9"
 proptest = "1.0"
 rand = "0.8.5"

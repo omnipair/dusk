@@ -2504,4 +2504,8 @@ pub(crate) fn concentrated_evaluate(
 #[cfg(test)]
 mod tests {
     include!("../tests/math/concentrated.rs");
+
+    mod high_precision_reference {
+        include!("../tests/math/concentrated_reference.rs");
+    }
 }

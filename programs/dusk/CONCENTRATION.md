@@ -250,11 +250,15 @@ the request (or an EMA reversal cancelling a center target) clears it.
 
 Swaps and swap-like leverage operations advance the controller lazily before
 freezing their quote. They accrue the relevant debt side, decay the EMA and
-volatility state, retry hLP residual correction, admit at most one funded
-controller target, and then execute against that single curve state. There is
-no keeper-only or auxiliary controller instruction and no external price input.
-Without user activity there is no new internal price observation, so no state
-advances.
+volatility state, admit at most one funded controller target, and only then
+compute predictive hLP positioning and the trader quote against that applied
+curve state. This ordering prevents hLP from positioning against a curve that
+the same operation immediately replaces. Residual-exposure safety still spans
+the complete controller-plus-trade path: it compares the pre-controller
+marginal price with the final reserve endpoint, so controller movement cannot
+hide a net worsening of an actionable residual. There is no keeper-only or
+auxiliary controller instruction and no external price input. Without user
+activity there is no new internal price observation, so no state advances.
 
 With active hLP supply, each genuine operation recomputes correction from
 actual inventory and applies the maximum safe amount inline. A tiny,
