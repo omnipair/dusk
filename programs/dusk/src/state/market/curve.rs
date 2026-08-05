@@ -164,10 +164,10 @@ impl Market {
         prepared: ConcentratedPreparedCurve,
         current_slot: u64,
     ) -> Result<CurveCheckpoint> {
-        let center_price_nad = u64::try_from(prepared.center_price_nad()).map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let center_price_nad = u64::try_from(prepared.center_price_nad).map_err(|_| ErrorCode::MarketMathOverflow)?;
         let parameters = AmmCurveParameters {
-            peak_depth_nad: u64::try_from(prepared.peak_depth_nad()).map_err(|_| ErrorCode::MarketMathOverflow)?,
-            fade_scale_nad: u64::try_from(prepared.fade_scale_nad()).map_err(|_| ErrorCode::MarketMathOverflow)?,
+            peak_depth_nad: u64::try_from(prepared.peak_depth_nad).map_err(|_| ErrorCode::MarketMathOverflow)?,
+            fade_scale_nad: u64::try_from(prepared.fade_scale_nad).map_err(|_| ErrorCode::MarketMathOverflow)?,
         };
         require_eq!(
             center_price_nad,

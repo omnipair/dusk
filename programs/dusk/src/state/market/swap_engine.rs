@@ -8,7 +8,7 @@ use crate::{
     errors::ErrorCode,
     math::{
         decay_volatility_nad, divergence_state_potential_raw_saturating, effective_rate_floor_nad, normalize_to_nad,
-        volatility_after_success_nad, ConcentratedCommonNumeraire, ConcentratedInvariantSeed,
+        volatility_after_success_nad, ConcentratedCommonNumeraire, ConcentratedHybridBranch, ConcentratedInvariantSeed,
         ConcentratedSwapDirection, DynamicFeeConfig, DynamicFeePreState, DynamicFeeQuote, MAX_COMMON_RESERVE,
     },
     shared::math::ceil_div,
@@ -433,13 +433,12 @@ impl Market {
         // marginal prices. Avoiding that redundant CONCENTRATED quote removes an entire
         // reserve solve plus two marginal-price proofs from every swap.
         let preliminary_input = preliminary.amount_in_for_quote;
-        let parameters = self.current_curve_parameters(current_slot);
         let prepared = self.prepare_curve_for_reserves_nad(reserves, pre_state.center_price_nad, current_slot)?;
         let direction = match asset_in {
             MarketAsset::Base => ConcentratedSwapDirection::BaseToQuote,
             MarketAsset::Quote => ConcentratedSwapDirection::QuoteToBase,
         };
-        if self.amm.retain_dynamic_surcharge && !parameters.is_cpmm() {
+        if self.amm.retain_dynamic_surcharge && prepared.peak_depth_nad != 0 {
             // Retained dynamic fees are deposited after the invariant-preserving
             // exchange. Their maximum reserve credit is already known before
             // the implicit divergence solve. Reject an endpoint that must leave
@@ -853,25 +852,34 @@ impl Market {
                         .ok_or(ErrorCode::ReserveOverflow)?;
                 }
             }
-            let center_price_nad = self.current_curve_center_price_nad()?;
-            if prepared
-                .hybrid_branch_at_raw_reserves(endpoint_reserves.base, endpoint_reserves.quote)?
-                .is_exact_tail()
-            {
-                let numeraire = prepared.common_numeraire();
-                let endpoint_base_common = numeraire
-                    .base_scale(center_price_nad as u128)?
-                    .to_common_floor(endpoint_reserves.base)?;
-                let endpoint_quote_common = numeraire
-                    .quote_scale(center_price_nad as u128)?
-                    .to_common_floor(endpoint_reserves.quote)?;
+            let center_price_nad = prepared.center_price_nad;
+            let numeraire = prepared.common_numeraire();
+            let endpoint_base_common = numeraire
+                .base_scale(center_price_nad)?
+                .to_common_floor(endpoint_reserves.base)?;
+            let endpoint_quote_common = numeraire
+                .quote_scale(center_price_nad)?
+                .to_common_floor(endpoint_reserves.quote)?;
+            let endpoint_branch = if prepared.peak_depth_nad == 0 {
+                require!(
+                    endpoint_reserves.base > 0 && endpoint_reserves.quote > 0,
+                    ErrorCode::InvalidArgument
+                );
+                ConcentratedHybridBranch::Inner
+            } else {
+                prepared
+                    .geometry
+                    .ok_or(ErrorCode::BrokenInvariant)?
+                    .branch(endpoint_base_common, endpoint_quote_common)?
+            };
+            if endpoint_branch.is_exact_tail() {
                 // An exact outer tail is CPMM. Prove its marginal mark
                 // directly before paying for a second invariant solve. This
                 // makes an extreme retained endpoint fail deterministically
                 // instead of exhausting the SBF meter on a mark that must
                 // round to zero.
                 let tail_price_numerator = endpoint_quote_common
-                    .checked_mul(center_price_nad as u128)
+                    .checked_mul(center_price_nad)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
                 require!(
                     tail_price_numerator >= endpoint_base_common,

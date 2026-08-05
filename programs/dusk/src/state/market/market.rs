@@ -3,8 +3,8 @@ use anchor_lang::prelude::*;
 use crate::constants::*;
 use crate::errors::ErrorCode;
 use crate::math::{
-    accrued_index_nad, adapt_rate_at_target_nad, denormalize_from_nad_floor, instantaneous_rate_apr_nad,
-    normalize_to_nad, utilization_bps, utilization_error_nad,
+    adapt_rate_at_target_nad, denormalize_from_nad_floor, instantaneous_rate_apr_nad, normalize_to_nad,
+    utilization_bps, utilization_error_nad,
 };
 use crate::shared::math::{ceil_div, SqrtU128};
 use crate::state::{
@@ -1356,7 +1356,24 @@ fn accrue_side(market: &mut Market, asset: MarketAsset, current_slot: u64) -> Re
     let util = utilization_bps(debt_before, cash)?;
     let error = utilization_error_nad(util, INTEREST_TARGET_UTILIZATION_BPS)?;
     let rate = instantaneous_rate_apr_nad(rate_at_target, error, INTEREST_CURVE_STEEPNESS_NAD)?;
-    let next_index = accrued_index_nad(index, rate, dt_ms)?;
+    let next_index = if index == 0 || dt_ms == 0 || rate == 0 {
+        index
+    } else {
+        let elapsed_ms = dt_ms.min(MAX_INTEREST_ACCRUAL_MS) as u128;
+        let growth_nad = rate
+            .checked_mul(elapsed_ms)
+            .and_then(|value| value.checked_div(MS_PER_YEAR as u128))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        if growth_nad == 0 {
+            index
+        } else {
+            let delta = index
+                .checked_mul(growth_nad)
+                .and_then(|value| value.checked_div(NAD as u128))
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            index.checked_add(delta).ok_or(ErrorCode::MarketMathOverflow)?
+        }
+    };
     let next_rate_at_target = adapt_rate_at_target_nad(
         rate_at_target,
         error,

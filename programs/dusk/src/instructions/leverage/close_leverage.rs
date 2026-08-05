@@ -17,8 +17,8 @@ use crate::{
 };
 
 use super::common::{
-    approved_for, invoke_delegated_approval_callback, leverage_collateral_credit, leverage_swap_fee_credit,
-    record_leverage_interest, settle_inline_leverage_hlp, split_delegated_accounts, validate_leverage_futarchy_pda,
+    invoke_delegated_approval_callback, leverage_collateral_credit, leverage_swap_fee_credit, record_leverage_interest,
+    settle_inline_leverage_hlp, split_delegated_accounts, validate_leverage_futarchy_pda,
     validate_leverage_interest_account, validate_leverage_market_pda, validate_leverage_mints,
     validate_leverage_reserve_accounts, DelegatedCpiArgs, LEVERAGE_DELEGATE_CLOSE, LEVERAGE_DELEGATE_CLOSE_SETTLED,
 };
@@ -193,7 +193,10 @@ impl<'info> CloseLeverage<'info> {
             delegated_program.key(),
             ErrorCode::InvalidLeverageDelegation
         );
-        approved_for(delegation.approved_actions, LEVERAGE_DELEGATE_CLOSE)?;
+        require!(
+            delegation.approved_actions & LEVERAGE_DELEGATE_CLOSE == LEVERAGE_DELEGATE_CLOSE,
+            ErrorCode::InvalidLeverageDelegation
+        );
         Ok(())
     }
 

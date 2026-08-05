@@ -6,7 +6,7 @@ use anchor_lang::{
     prelude::*,
     solana_program::{
         instruction::{AccountMeta, Instruction},
-        program::{invoke, invoke_signed},
+        program::invoke_signed,
     },
     system_program,
 };
@@ -27,23 +27,6 @@ use anchor_spl::{
         initialize_account3, spl_token_2022::extension::BaseStateWithExtensions, InitializeAccount3, Mint,
     },
 };
-
-/// Syncs native SOL balance for a WSOL token account if the mint is the native mint.
-/// This ensures the token account's `amount` field reflects any native SOL that was
-/// sent directly to the account.
-pub fn sync_native_if_wsol<'a>(
-    mint: &Pubkey,
-    token_account: &AccountInfo<'a>,
-    token_program: &AccountInfo<'a>,
-) -> Result<()> {
-    if *mint == spl_token::native_mint::id() {
-        invoke(
-            &spl_token::instruction::sync_native(token_program.key, token_account.key)?,
-            &[token_program.clone(), token_account.clone()],
-        )?;
-    }
-    Ok(())
-}
 
 #[allow(clippy::too_many_arguments)]
 pub fn transfer_checked_with_remaining_accounts<'a>(
@@ -149,24 +132,8 @@ pub fn token_mint_to<'a>(
     }
 }
 
-pub struct TokenInstructionScratch {
-    instruction: Instruction,
-}
-
-impl TokenInstructionScratch {
-    pub fn new(program_id: Pubkey) -> Self {
-        Self {
-            instruction: Instruction {
-                program_id,
-                accounts: Vec::with_capacity(3),
-                data: Vec::with_capacity(9),
-            },
-        }
-    }
-}
-
-pub fn token_mint_to_with_scratch<'a>(
-    scratch: &mut TokenInstructionScratch,
+pub fn token_mint_to_with_instruction<'a>(
+    scratch: &mut Instruction,
     authority: AccountInfo<'a>,
     token_program: AccountInfo<'a>,
     mint: AccountInfo<'a>,
@@ -181,26 +148,15 @@ pub fn token_mint_to_with_scratch<'a>(
         *token_program.key == Token2022::id() || *token_program.key == Token::id(),
         ErrorCode::InvalidTokenProgram
     );
-    scratch.instruction.program_id = *token_program.key;
-    scratch.instruction.accounts.clear();
-    scratch.instruction.accounts.push(AccountMeta::new(*mint.key, false));
-    scratch
-        .instruction
-        .accounts
-        .push(AccountMeta::new(*destination.key, false));
-    scratch
-        .instruction
-        .accounts
-        .push(AccountMeta::new_readonly(*authority.key, true));
-    scratch.instruction.data.clear();
-    scratch.instruction.data.push(7);
-    scratch.instruction.data.extend_from_slice(&amount.to_le_bytes());
-    invoke_signed(
-        &scratch.instruction,
-        &[mint, destination, authority, token_program],
-        signer_seeds,
-    )
-    .map_err(Into::into)
+    scratch.program_id = *token_program.key;
+    scratch.accounts.clear();
+    scratch.accounts.push(AccountMeta::new(*mint.key, false));
+    scratch.accounts.push(AccountMeta::new(*destination.key, false));
+    scratch.accounts.push(AccountMeta::new_readonly(*authority.key, true));
+    scratch.data.clear();
+    scratch.data.push(7);
+    scratch.data.extend_from_slice(&amount.to_le_bytes());
+    invoke_signed(scratch, &[mint, destination, authority, token_program], signer_seeds).map_err(Into::into)
 }
 
 pub fn token_burn<'a>(
@@ -290,27 +246,6 @@ pub fn get_transfer_fee_for_epoch(mint_info: &AccountInfo, pre_fee_amount: u64, 
     Ok(fee)
 }
 
-pub fn is_supported_mint(mint_account: &InterfaceAccount<Mint>) -> Result<bool> {
-    let mint_info = mint_account.to_account_info();
-    if *mint_info.owner == Token::id() {
-        return Ok(true);
-    }
-
-    let mint_data = mint_info.try_borrow_data()?;
-    let mint = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
-    let extensions = mint.get_extension_types()?;
-    for e in extensions {
-        if e != ExtensionType::TransferFeeConfig
-            && e != ExtensionType::MetadataPointer
-            && e != ExtensionType::TokenMetadata
-            && e != ExtensionType::TransferHook
-        {
-            return Ok(false);
-        }
-    }
-    Ok(true)
-}
-
 pub fn is_fee_free_mint(mint_account: &InterfaceAccount<Mint>) -> Result<bool> {
     let mint_info = mint_account.to_account_info();
     if *mint_info.owner == Token::id() {
@@ -330,26 +265,6 @@ pub fn is_fee_free_mint(mint_account: &InterfaceAccount<Mint>) -> Result<bool> {
         }
     }
     Ok(true)
-}
-
-pub fn is_token_2022_mint(mint_account: &InterfaceAccount<Mint>) -> Result<bool> {
-    Ok(*mint_account.to_account_info().owner == token_2022::Token2022::id())
-}
-
-pub fn transfer_hook_config(mint_account: &InterfaceAccount<Mint>) -> Result<Option<(Option<Pubkey>, Option<Pubkey>)>> {
-    let mint_info = mint_account.to_account_info();
-    if *mint_info.owner != token_2022::Token2022::id() {
-        return Ok(None);
-    }
-
-    let mint_data = mint_info.try_borrow_data()?;
-    let mint = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
-    Ok(mint.get_extension::<transfer_hook::TransferHook>().ok().map(|hook| {
-        (
-            Option::<Pubkey>::from(hook.authority),
-            Option::<Pubkey>::from(hook.program_id),
-        )
-    }))
 }
 
 pub fn create_token_account<'a>(
@@ -381,14 +296,46 @@ pub fn create_token_account<'a>(
             TokenAccount::LEN
         }
     };
-    create_or_allocate_account(
-        token_program.key,
-        payer.to_account_info(),
-        system_program.to_account_info(),
-        token_account.to_account_info(),
-        signer_seeds,
-        space,
-    )?;
+    let rent = Rent::get()?;
+    let current_lamports = token_account.lamports();
+    if current_lamports == 0 {
+        let lamports = rent.minimum_balance(space);
+        let cpi_accounts = system_program::CreateAccount {
+            from: payer.to_account_info(),
+            to: token_account.to_account_info(),
+        };
+        let cpi_context = CpiContext::new(system_program.to_account_info(), cpi_accounts);
+        system_program::create_account(
+            cpi_context.with_signer(&[signer_seeds]),
+            lamports,
+            u64::try_from(space).map_err(|_| ErrorCode::MarketMathOverflow)?,
+            token_program.key,
+        )?;
+    } else {
+        let required_lamports = rent.minimum_balance(space).max(1).saturating_sub(current_lamports);
+        if required_lamports > 0 {
+            let cpi_accounts = system_program::Transfer {
+                from: payer.to_account_info(),
+                to: token_account.to_account_info(),
+            };
+            let cpi_context = CpiContext::new(system_program.to_account_info(), cpi_accounts);
+            system_program::transfer(cpi_context, required_lamports)?;
+        }
+        let cpi_accounts = system_program::Allocate {
+            account_to_allocate: token_account.to_account_info(),
+        };
+        let cpi_context = CpiContext::new(system_program.to_account_info(), cpi_accounts);
+        system_program::allocate(
+            cpi_context.with_signer(&[signer_seeds]),
+            u64::try_from(space).map_err(|_| ErrorCode::MarketMathOverflow)?,
+        )?;
+
+        let cpi_accounts = system_program::Assign {
+            account_to_assign: token_account.to_account_info(),
+        };
+        let cpi_context = CpiContext::new(system_program.to_account_info(), cpi_accounts);
+        system_program::assign(cpi_context.with_signer(&[signer_seeds]), token_program.key)?;
+    }
     initialize_account3(CpiContext::new(
         token_program.to_account_info(),
         InitializeAccount3 {
@@ -397,56 +344,4 @@ pub fn create_token_account<'a>(
             authority: authority.to_account_info(),
         },
     ))
-}
-
-pub fn create_or_allocate_account<'a>(
-    program_id: &Pubkey,
-    payer: AccountInfo<'a>,
-    system_program: AccountInfo<'a>,
-    target_account: AccountInfo<'a>,
-    siger_seed: &[&[u8]],
-    space: usize,
-) -> Result<()> {
-    let rent = Rent::get()?;
-    let current_lamports = target_account.lamports();
-
-    if current_lamports == 0 {
-        let lamports = rent.minimum_balance(space);
-        let cpi_accounts = system_program::CreateAccount {
-            from: payer,
-            to: target_account.clone(),
-        };
-        let cpi_context = CpiContext::new(system_program.clone(), cpi_accounts);
-        system_program::create_account(
-            cpi_context.with_signer(&[siger_seed]),
-            lamports,
-            u64::try_from(space).map_err(|_| ErrorCode::MarketMathOverflow)?,
-            program_id,
-        )?;
-    } else {
-        let required_lamports = rent.minimum_balance(space).max(1).saturating_sub(current_lamports);
-        if required_lamports > 0 {
-            let cpi_accounts = system_program::Transfer {
-                from: payer.to_account_info(),
-                to: target_account.clone(),
-            };
-            let cpi_context = CpiContext::new(system_program.clone(), cpi_accounts);
-            system_program::transfer(cpi_context, required_lamports)?;
-        }
-        let cpi_accounts = system_program::Allocate {
-            account_to_allocate: target_account.clone(),
-        };
-        let cpi_context = CpiContext::new(system_program.clone(), cpi_accounts);
-        system_program::allocate(
-            cpi_context.with_signer(&[siger_seed]),
-            u64::try_from(space).map_err(|_| ErrorCode::MarketMathOverflow)?,
-        )?;
-
-        let cpi_accounts = system_program::Assign {
-            account_to_assign: target_account.clone(),
-        };
-        let cpi_context = CpiContext::new(system_program.clone(), cpi_accounts);
-        system_program::assign(cpi_context.with_signer(&[siger_seed]), program_id)?;
-    }
-    Ok(())
 }

@@ -11,6 +11,7 @@
     "test-litesvm:no-build": "mocha --require ts-node/register --extensions ts tests/v2-final-smoke.test.ts",
     "test-litesvm:release": "yarn build:litesvm && DUSK_REQUIRE_COMPLETE_CU_BASELINE=1 yarn test-litesvm:no-build",
     "check:hygiene": "node scripts/check_repo_hygiene.js",
+    "check:code-shape": "node scripts/check_one_use_helpers.js",
     "check:clippy": "cargo clippy -p dusk --lib -- -A unexpected-cfgs -A clippy::too_many_arguments -D warnings && cargo clippy -p leverage_delegate --lib -- -A unexpected-cfgs -A clippy::too_many_arguments -D warnings",
     "check:dusk-sdk": "npm run check-idl-current --prefix packages/dusk-sdk && npm run typecheck --prefix packages/dusk-sdk",
     "check:program-interface": "npm run check:dusk-sdk",

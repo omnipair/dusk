@@ -59,9 +59,8 @@ pub fn utilization_error_nad(utilization_bps: u64, target_bps: u64) -> Result<i1
     Ok(err)
 }
 
-/// Curve multiplier in NAD for a normalized error, ranging `[NAD/steepness, steepness]`
-/// and equal to `NAD` at the target (error 0).
-pub fn curve_multiplier_nad(error_nad: i128, steepness_nad: u128) -> Result<u128> {
+/// Instantaneous borrow APR (NAD) = `rate_at_target * curve(error)`.
+pub fn instantaneous_rate_apr_nad(rate_at_target_nad: u128, error_nad: i128, steepness_nad: u128) -> Result<u128> {
     let nad = NAD as i128;
     let steep = i128::try_from(steepness_nad).map_err(|_| ErrorCode::MarketMathOverflow)?;
     require!(steep >= nad, ErrorCode::InvalidMarketConfig);
@@ -87,14 +86,8 @@ pub fn curve_multiplier_nad(error_nad: i128, steepness_nad: u128) -> Result<u128
         nad.checked_sub(drop).ok_or(ErrorCode::MarketMathOverflow)?
     };
     require!(mult > 0, ErrorCode::MarketMathOverflow);
-    Ok(mult as u128)
-}
-
-/// Instantaneous borrow APR (NAD) = `rate_at_target * curve(error)`.
-pub fn instantaneous_rate_apr_nad(rate_at_target_nad: u128, error_nad: i128, steepness_nad: u128) -> Result<u128> {
-    let mult = curve_multiplier_nad(error_nad, steepness_nad)?;
     rate_at_target_nad
-        .checked_mul(mult)
+        .checked_mul(mult as u128)
         .and_then(|value| value.checked_div(NAD as u128))
         .ok_or(ErrorCode::MarketMathOverflow.into())
 }
@@ -134,6 +127,7 @@ pub fn adapt_rate_at_target_nad(
 
 /// Advance a borrow index by `dt_ms` at the given instantaneous APR (NAD):
 /// `index *= 1 + apr * dt / year`. Elapsed time is capped per call.
+#[cfg(test)]
 pub fn accrued_index_nad(index_nad: u128, rate_apr_nad: u128, dt_ms: u64) -> Result<u128> {
     if index_nad == 0 || dt_ms == 0 || rate_apr_nad == 0 {
         return Ok(index_nad);

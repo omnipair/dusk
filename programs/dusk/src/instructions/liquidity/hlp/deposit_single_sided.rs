@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::log::sol_log_data;
+use anchor_lang::solana_program::{instruction::Instruction, log::sol_log_data};
 use anchor_lang::Discriminator;
 use anchor_spl::{
     token::Token,
@@ -11,10 +11,7 @@ use crate::{
     errors::ErrorCode,
     events::HlpOpened,
     generate_market_seeds,
-    shared::token::{
-        create_token_account, token_mint_to_with_scratch, transfer_checked_with_remaining_accounts,
-        TokenInstructionScratch,
-    },
+    shared::token::{create_token_account, token_mint_to_with_instruction, transfer_checked_with_remaining_accounts},
     state::{FutarchyAuthority, Market, MarketAsset, YieldAccount, YieldTokenKind},
 };
 
@@ -329,9 +326,13 @@ impl<'info> DepositSingleSided<'info> {
         )?;
         let market_seeds = generate_market_seeds!(ctx.accounts.market);
         let signer_seeds = [&market_seeds[..]];
-        let mut mint_scratch = TokenInstructionScratch::new(*ylp_program.key);
-        token_mint_to_with_scratch(
-            &mut mint_scratch,
+        let mut mint_instruction = Instruction {
+            program_id: *ylp_program.key,
+            accounts: Vec::with_capacity(3),
+            data: Vec::with_capacity(9),
+        };
+        token_mint_to_with_instruction(
+            &mut mint_instruction,
             ctx.accounts.market.to_account_info(),
             ylp_program.clone(),
             ctx.accounts.ylp_mint.to_account_info(),
@@ -339,8 +340,8 @@ impl<'info> DepositSingleSided<'info> {
             receipt.ylp_amount,
             &signer_seeds,
         )?;
-        token_mint_to_with_scratch(
-            &mut mint_scratch,
+        token_mint_to_with_instruction(
+            &mut mint_instruction,
             ctx.accounts.market.to_account_info(),
             hlp_program,
             ctx.accounts.target_hlp_mint.to_account_info(),

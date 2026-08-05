@@ -9,10 +9,10 @@ use crate::{
     constants::{HLP_PRE_SOLVE_EVALUATIONS, HLP_PRE_SOLVE_LOSS_THRESHOLD_NAD, NAD},
     errors::ErrorCode,
     math::{
-        allocate_hlp_proportional_adjustment_nad, calculate_normalized_amount_out, closed_form_pre_adjustment_nad,
-        concentrated_marginal_price_nad, concentrated_quote_exact_out, denormalize_from_nad_ceil,
-        denormalize_from_nad_floor, hlp_opposite_exposure_nad, ideal_hlp_rebalance_nad, normalize_to_nad,
-        ratio_lte_full_width, tracking_loss_nad, ConcentratedSwapDirection, HlpInventoryValuesNad,
+        calculate_normalized_amount_out, closed_form_pre_adjustment_nad, concentrated_marginal_price_nad,
+        concentrated_quote_exact_out, denormalize_from_nad_ceil, denormalize_from_nad_floor, hlp_opposite_exposure_nad,
+        mul_div_u128, normalize_to_nad, ratio_lte_full_width, sqrt_ratio_nad, ConcentratedSwapDirection,
+        HlpInventoryValuesNad,
     },
     state::{Debt, Market, MarketAsset},
 };
@@ -608,7 +608,18 @@ pub(crate) fn pre_solve_one_hlp_for_swap(
 
     let provisional =
         solver.evaluate_pre_adjustment(asset_in, amount_in_for_quote, reserve_input_credit, equity_nad, 0, true)?;
-    let estimated_loss = tracking_loss_nad(equity_nad, provisional.ratio_nad)?;
+    let estimated_loss = if equity_nad == 0 || provisional.ratio_nad == NAD as u128 {
+        0
+    } else {
+        let sqrt_ratio = sqrt_ratio_nad(provisional.ratio_nad)?;
+        let gap = sqrt_ratio.abs_diff(NAD as u128);
+        equity_nad
+            .checked_mul(gap)
+            .and_then(|value| value.checked_div(NAD as u128))
+            .and_then(|value| value.checked_mul(gap))
+            .and_then(|value| value.checked_div(NAD as u128))
+            .ok_or(ErrorCode::MarketMathOverflow)?
+    };
     if estimated_loss <= HLP_PRE_SOLVE_LOSS_THRESHOLD_NAD {
         return Ok(empty_hlp_rebalance_receipt(target_asset));
     }
@@ -1546,7 +1557,32 @@ fn current_hlp_valuation_with_prices(
         // error from a generic checkpoint.
         hlp_opposite_exposure_nad(values)?
     } else {
-        ideal_hlp_rebalance_nad(values)?.total_liquidity_value_nad
+        let exposure = hlp_opposite_exposure_nad(values)?;
+        if exposure == 0 {
+            0
+        } else {
+            let opposite_magnitude = mul_div_u128(
+                exposure.unsigned_abs(),
+                values.opposite_inventory_value_nad,
+                values.target_inventory_value_nad,
+            )?;
+            let total_magnitude = exposure
+                .unsigned_abs()
+                .checked_add(opposite_magnitude)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            if exposure < 0 {
+                if total_magnitude == 1_u128 << 127 {
+                    i128::MIN
+                } else {
+                    i128::try_from(total_magnitude)
+                        .map_err(|_| ErrorCode::MarketMathOverflow)?
+                        .checked_neg()
+                        .ok_or(ErrorCode::MarketMathOverflow)?
+                }
+            } else {
+                i128::try_from(total_magnitude).map_err(|_| ErrorCode::MarketMathOverflow)?
+            }
+        }
     };
     Ok(HlpValuation {
         ideal_delta,
@@ -1981,10 +2017,21 @@ fn proportional_rebalance_amounts(
     if total_value_delta_nad == 0 {
         return Ok(ProportionalRebalanceAmounts::default());
     }
-    let allocation = allocate_hlp_proportional_adjustment_nad(valuation.values, total_value_delta_nad)?;
-    let target_value_delta = allocation.target_inventory_value_delta_nad.unsigned_abs();
-    let borrowed_value_delta = allocation.opposite_inventory_value_delta_nad.unsigned_abs();
-    let total_value_delta = allocation.debt_value_delta_nad.unsigned_abs();
+    let collateral_value = valuation
+        .values
+        .target_inventory_value_nad
+        .checked_add(valuation.values.opposite_inventory_value_nad)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    require!(collateral_value > 0, ErrorCode::DenominatorOverflow);
+    let total_value_delta = total_value_delta_nad.unsigned_abs();
+    let target_value_delta = mul_div_u128(
+        total_value_delta,
+        valuation.values.target_inventory_value_nad,
+        collateral_value,
+    )?;
+    let borrowed_value_delta = total_value_delta
+        .checked_sub(target_value_delta)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
     let target_leg_amount = raw_amount_from_target_value_nad_with_prices(
         market,
         valuation.prices,

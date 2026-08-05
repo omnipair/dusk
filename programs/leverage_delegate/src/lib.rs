@@ -352,16 +352,28 @@ impl<'info> BeforeLeverageOrder<'info> {
             LeverageDelegateError::InvalidOrder
         );
         let current_slot = Clock::get()?.slot;
-        let closeout_price_nad = closeout_price_per_unit_nad(
-            &ctx.accounts.market,
-            &ctx.accounts.leverage_position,
-            current_slot,
-        )?;
-        require_trigger_met(
-            expected_kind,
-            closeout_price_nad,
-            order.trigger_closeout_price_nad,
-        )?;
+        let closeout_value = ctx
+            .accounts
+            .market
+            .leverage_closeout_value(&ctx.accounts.leverage_position, current_slot)?;
+        let closeout_price_nad: u64 = (closeout_value as u128)
+            .checked_mul(NAD as u128)
+            .ok_or(LeverageDelegateError::MathOverflow)?
+            .checked_div(ctx.accounts.leverage_position.collateral_amount as u128)
+            .ok_or(LeverageDelegateError::MathOverflow)?
+            .try_into()
+            .map_err(|_| LeverageDelegateError::MathOverflow)?;
+        match expected_kind {
+            ORDER_KIND_TAKE_PROFIT => require!(
+                closeout_price_nad >= order.trigger_closeout_price_nad,
+                LeverageDelegateError::TriggerNotMet
+            ),
+            ORDER_KIND_STOP_LOSS => require!(
+                closeout_price_nad <= order.trigger_closeout_price_nad,
+                LeverageDelegateError::TriggerNotMet
+            ),
+            _ => return err!(LeverageDelegateError::InvalidOrder),
+        }
         let debt_asset = ctx.accounts.leverage_position.debt_asset()?;
         let debt_mint = ctx.accounts.market.side(debt_asset).asset_mint;
         require_keys_eq!(
@@ -373,10 +385,6 @@ impl<'info> BeforeLeverageOrder<'info> {
             ctx.accounts.custody_token_account.amount == 0,
             LeverageDelegateError::InvalidTokenAccount
         );
-        let closeout_value = ctx
-            .accounts
-            .market
-            .leverage_closeout_value(&ctx.accounts.leverage_position, current_slot)?;
         let debt_amount = ctx
             .accounts
             .leverage_position
@@ -384,15 +392,16 @@ impl<'info> BeforeLeverageOrder<'info> {
         let residual = closeout_value
             .checked_sub(debt_amount)
             .ok_or(LeverageDelegateError::InvalidOrder)?;
-        let output_amount =
-            transfer_net_amount(&ctx.accounts.token_mint.to_account_info(), residual)?;
-        stage_close_settlement(
-            order,
-            ctx.accounts.leverage_position.margin_amount,
-            ctx.accounts.custody_token_account.key(),
-            ctx.accounts.token_mint.key(),
-            output_amount,
-        );
+        let output_amount = residual
+            .checked_sub(get_transfer_fee(
+                &ctx.accounts.token_mint.to_account_info(),
+                residual,
+            )?)
+            .ok_or(LeverageDelegateError::MathOverflow)?;
+        order.staged_margin = ctx.accounts.leverage_position.margin_amount;
+        order.staged_custody_token_account = ctx.accounts.custody_token_account.key();
+        order.staged_output_mint = ctx.accounts.token_mint.key();
+        order.staged_output_amount = output_amount;
         let approval = LeverageDelegationApproval::new(
             LEVERAGE_DELEGATE_CLOSE,
             ctx.accounts.market.key(),
@@ -415,13 +424,25 @@ impl<'info> BeforeLeverageOrder<'info> {
 
 impl<'info> AfterCloseOrder<'info> {
     pub fn handle_after(ctx: Context<Self>, _args: ExecuteOrderArgs) -> Result<()> {
-        require_closed_leverage_position(&ctx.accounts.leverage_position)?;
-        require_staged_settlement(
-            &ctx.accounts.order,
+        require!(
+            ctx.accounts.leverage_position.debt_shares == 0
+                && ctx.accounts.leverage_position.collateral_amount == 0,
+            LeverageDelegateError::InvalidOrder
+        );
+        require_keys_eq!(
+            ctx.accounts.order.staged_custody_token_account,
             ctx.accounts.custody_token_account.key(),
+            LeverageDelegateError::InvalidTokenAccount
+        );
+        require_keys_eq!(
+            ctx.accounts.order.staged_output_mint,
             ctx.accounts.token_mint.key(),
-            ctx.accounts.custody_token_account.amount,
-        )?;
+            LeverageDelegateError::InvalidTokenAccount
+        );
+        require!(
+            ctx.accounts.order.staged_output_amount == ctx.accounts.custody_token_account.amount,
+            LeverageDelegateError::InvalidTokenAccount
+        );
 
         let order_key = ctx.accounts.order.key();
         let order_market = ctx.accounts.order.market;
@@ -436,7 +457,16 @@ impl<'info> AfterCloseOrder<'info> {
         let amount = ctx.accounts.custody_token_account.amount;
 
         if amount > 0 {
-            let incentive = executor_incentive(amount, staged_margin)?;
+            let incentive = min(
+                amount,
+                ceil_div(
+                    (staged_margin as u128)
+                        .checked_mul(EXECUTOR_INCENTIVE_BPS as u128)
+                        .ok_or(LeverageDelegateError::MathOverflow)?,
+                    BPS_DENOMINATOR as u128,
+                )
+                .ok_or(LeverageDelegateError::MathOverflow)? as u64,
+            );
             let owner_amount = amount
                 .checked_sub(incentive)
                 .ok_or(LeverageDelegateError::MathOverflow)?;
@@ -505,42 +535,6 @@ fn reset_staged_settlement(order: &mut LeverageOrder) {
     order.staged_output_amount = 0;
 }
 
-fn stage_close_settlement(
-    order: &mut LeverageOrder,
-    margin: u64,
-    custody_token_account: Pubkey,
-    output_mint: Pubkey,
-    output_amount: u64,
-) {
-    order.staged_margin = margin;
-    order.staged_custody_token_account = custody_token_account;
-    order.staged_output_mint = output_mint;
-    order.staged_output_amount = output_amount;
-}
-
-fn require_staged_settlement(
-    order: &LeverageOrder,
-    custody_token_account: Pubkey,
-    output_mint: Pubkey,
-    output_amount: u64,
-) -> Result<()> {
-    require_keys_eq!(
-        order.staged_custody_token_account,
-        custody_token_account,
-        LeverageDelegateError::InvalidTokenAccount
-    );
-    require_keys_eq!(
-        order.staged_output_mint,
-        output_mint,
-        LeverageDelegateError::InvalidTokenAccount
-    );
-    require!(
-        order.staged_output_amount == output_amount,
-        LeverageDelegateError::InvalidTokenAccount
-    );
-    Ok(())
-}
-
 fn token_program_for_mint<'info>(
     mint: &AccountInfo<'info>,
     token_program: &AccountInfo<'info>,
@@ -596,74 +590,12 @@ fn transfer_checked_with_signer<'info>(
     }
 }
 
-fn transfer_net_amount(mint: &AccountInfo, gross_amount: u64) -> Result<u64> {
-    let fee = get_transfer_fee(mint, gross_amount)?;
-    gross_amount
-        .checked_sub(fee)
-        .ok_or(LeverageDelegateError::MathOverflow.into())
-}
-
 fn validate_order_kind(kind: u8) -> Result<()> {
     require!(
         kind == ORDER_KIND_TAKE_PROFIT || kind == ORDER_KIND_STOP_LOSS,
         LeverageDelegateError::InvalidOrder
     );
     Ok(())
-}
-
-fn require_trigger_met(
-    kind: u8,
-    closeout_price_nad: u64,
-    trigger_closeout_price_nad: u64,
-) -> Result<()> {
-    match kind {
-        ORDER_KIND_TAKE_PROFIT => require!(
-            closeout_price_nad >= trigger_closeout_price_nad,
-            LeverageDelegateError::TriggerNotMet
-        ),
-        ORDER_KIND_STOP_LOSS => require!(
-            closeout_price_nad <= trigger_closeout_price_nad,
-            LeverageDelegateError::TriggerNotMet
-        ),
-        _ => return err!(LeverageDelegateError::InvalidOrder),
-    }
-    Ok(())
-}
-
-fn executor_incentive(amount: u64, staged_margin: u64) -> Result<u64> {
-    Ok(min(
-        amount,
-        ceil_div(
-            (staged_margin as u128)
-                .checked_mul(EXECUTOR_INCENTIVE_BPS as u128)
-                .ok_or(LeverageDelegateError::MathOverflow)?,
-            BPS_DENOMINATOR as u128,
-        )
-        .ok_or(LeverageDelegateError::MathOverflow)? as u64,
-    ))
-}
-
-fn require_closed_leverage_position(position: &LeveragePosition) -> Result<()> {
-    require!(
-        position.debt_shares == 0 && position.collateral_amount == 0,
-        LeverageDelegateError::InvalidOrder
-    );
-    Ok(())
-}
-
-fn closeout_price_per_unit_nad(
-    market: &Market,
-    position: &LeveragePosition,
-    current_slot: u64,
-) -> Result<u64> {
-    let closeout_value = market.leverage_closeout_value(position, current_slot)?;
-    Ok((closeout_value as u128)
-        .checked_mul(NAD as u128)
-        .ok_or(LeverageDelegateError::MathOverflow)?
-        .checked_div(position.collateral_amount as u128)
-        .ok_or(LeverageDelegateError::MathOverflow)?
-        .try_into()
-        .map_err(|_| LeverageDelegateError::MathOverflow)?)
 }
 
 #[error_code]
@@ -684,117 +616,5 @@ pub enum LeverageDelegateError {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    fn leverage_order() -> LeverageOrder {
-        LeverageOrder {
-            owner: Pubkey::new_unique(),
-            market: Pubkey::new_unique(),
-            position: Pubkey::new_unique(),
-            order_id: 1,
-            kind: ORDER_KIND_TAKE_PROFIT,
-            trigger_closeout_price_nad: NAD,
-            staged_margin: 0,
-            staged_custody_token_account: Pubkey::default(),
-            staged_output_mint: Pubkey::default(),
-            staged_output_amount: 0,
-            bump: 255,
-        }
-    }
-
-    #[test]
-    fn order_kind_validation_accepts_only_tp_or_sl() {
-        assert!(validate_order_kind(ORDER_KIND_TAKE_PROFIT).is_ok());
-        assert!(validate_order_kind(ORDER_KIND_STOP_LOSS).is_ok());
-        assert!(validate_order_kind(0).is_err());
-    }
-
-    #[test]
-    fn executor_incentive_is_five_percent_of_margin_capped_by_residual() {
-        assert_eq!(executor_incentive(1_000, 10_000).unwrap(), 500);
-        assert_eq!(executor_incentive(300, 10_000).unwrap(), 300);
-    }
-
-    #[test]
-    fn executor_incentive_rounds_up() {
-        assert_eq!(executor_incentive(10, 1).unwrap(), 1);
-    }
-
-    #[test]
-    fn staged_settlement_defaults_reject_direct_after_close_cleanup() {
-        let order = leverage_order();
-        let custody = Pubkey::new_unique();
-        let mint = Pubkey::new_unique();
-
-        assert!(require_staged_settlement(&order, custody, mint, 0).is_err());
-    }
-
-    #[test]
-    fn stage_close_settlement_binds_custody_mint_and_amount() {
-        let mut order = leverage_order();
-        let custody = Pubkey::new_unique();
-        let mint = Pubkey::new_unique();
-        stage_close_settlement(&mut order, 10_000, custody, mint, 123);
-
-        assert_eq!(order.staged_margin, 10_000);
-        assert_eq!(order.staged_custody_token_account, custody);
-        assert_eq!(order.staged_output_mint, mint);
-        assert_eq!(order.staged_output_amount, 123);
-        assert!(require_staged_settlement(&order, custody, mint, 123).is_ok());
-    }
-
-    #[test]
-    fn staged_settlement_rejects_wrong_custody_mint_or_amount() {
-        let mut order = leverage_order();
-        let custody = Pubkey::new_unique();
-        let mint = Pubkey::new_unique();
-        stage_close_settlement(&mut order, 10_000, custody, mint, 123);
-
-        assert!(require_staged_settlement(&order, Pubkey::new_unique(), mint, 123).is_err());
-        assert!(require_staged_settlement(&order, custody, Pubkey::new_unique(), 123).is_err());
-        assert!(require_staged_settlement(&order, custody, mint, 122).is_err());
-    }
-
-    #[test]
-    fn trigger_rules_match_take_profit_and_stop_loss_direction() {
-        assert!(require_trigger_met(ORDER_KIND_TAKE_PROFIT, 101, 100).is_ok());
-        assert!(require_trigger_met(ORDER_KIND_TAKE_PROFIT, 99, 100).is_err());
-        assert!(require_trigger_met(ORDER_KIND_STOP_LOSS, 99, 100).is_ok());
-        assert!(require_trigger_met(ORDER_KIND_STOP_LOSS, 101, 100).is_err());
-        assert!(require_trigger_met(0, 100, 100).is_err());
-    }
-
-    #[test]
-    fn approval_payload_binds_close_action_and_delegation() {
-        let market = Pubkey::new_unique();
-        let owner = Pubkey::new_unique();
-        let position = Pubkey::new_unique();
-        let delegation = Pubkey::new_unique();
-        let recipient = Pubkey::new_unique();
-        let mint = Pubkey::new_unique();
-        let approval = LeverageDelegationApproval::new(
-            LEVERAGE_DELEGATE_CLOSE,
-            market,
-            owner,
-            position,
-            delegation,
-            dusk::state::MarketAsset::Base,
-            recipient,
-            mint,
-            123,
-        );
-        let mut data = Vec::new();
-        approval.serialize(&mut data).unwrap();
-        let decoded = LeverageDelegationApproval::deserialize(&mut data.as_slice()).unwrap();
-
-        assert_eq!(decoded.action, LEVERAGE_DELEGATE_CLOSE);
-        assert_eq!(decoded.market, market);
-        assert_eq!(decoded.owner, owner);
-        assert_eq!(decoded.position, position);
-        assert_eq!(decoded.delegation, delegation);
-        assert_eq!(decoded.debt_asset, dusk::state::MarketAsset::Base.code());
-        assert_eq!(decoded.recipient_token_account, recipient);
-        assert_eq!(decoded.output_mint, mint);
-        assert_eq!(decoded.output_amount, 123);
-    }
+    include!("tests/mod.rs");
 }

@@ -2,7 +2,7 @@ use super::*;
 use crate::state::{AmmConfig, PendingAuthorityChange, PendingConfigChange};
 use crate::{
     constants::{BPS_DENOMINATOR, MARKET_LAYOUT_VERSION},
-    math::{calculate_raw_amount_out, hlp_opposite_exposure_nad, market_spot_price_nad},
+    math::{calculate_raw_amount_out, hlp_opposite_exposure_nad, ideal_hlp_rebalance_nad, market_spot_price_nad},
     state::{Insurance, MarketConfig, MarketSide, Risk},
 };
 use proptest::prelude::*;

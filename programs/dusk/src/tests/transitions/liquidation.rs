@@ -699,7 +699,9 @@ fn max_repay_respects_close_factor_for_deep_partial_liquidation() {
     let pricing = LiquidationPricing::ReferencePrice {
         debt_per_collateral_price_nad: NAD as u64,
     };
-    let terms = liquidation_terms_with_pricing(&market, &borrow_position, MarketAsset::Quote, pricing).unwrap();
+    let terms = market
+        .liquidation_terms_with_pricing(&borrow_position, MarketAsset::Quote, pricing)
+        .unwrap();
 
     assert_eq!(terms.max_repay_amount, 50);
 }
@@ -716,7 +718,9 @@ fn max_repay_full_closes_when_partial_would_leave_dust() {
     let pricing = LiquidationPricing::ReferencePrice {
         debt_per_collateral_price_nad: NAD as u64,
     };
-    let terms = liquidation_terms_with_pricing(&market, &borrow_position, MarketAsset::Quote, pricing).unwrap();
+    let terms = market
+        .liquidation_terms_with_pricing(&borrow_position, MarketAsset::Quote, pricing)
+        .unwrap();
 
     assert_eq!(terms.max_repay_amount, 2);
 }

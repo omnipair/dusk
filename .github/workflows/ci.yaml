@@ -16,6 +16,7 @@ on:
 
 env:
   ANCHOR_VERSION: "0.31.1"
+  NODE_VERSION: "24.16.0"
   SOLANA_VERSION: "4.1.0"
 
 jobs:
@@ -28,7 +29,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "24"
+          node-version: ${{ env.NODE_VERSION }}
           cache: yarn
 
       - name: Setup Rust
@@ -44,6 +45,9 @@ jobs:
 
       - name: Check repository hygiene
         run: yarn check:hygiene
+
+      - name: Check production helper shape
+        run: yarn check:code-shape
 
       - name: Check actionable Clippy warnings
         run: yarn check:clippy

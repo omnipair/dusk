@@ -295,12 +295,12 @@ pub(crate) struct ConcentratedPreparedCurve {
     quote_reserve_nad: u128,
     pub(crate) base_common: u128,
     pub(crate) quote_common: u128,
-    center_price_nad: u128,
-    peak_depth_nad: u128,
-    fade_scale_nad: u128,
+    pub(crate) center_price_nad: u128,
+    pub(crate) peak_depth_nad: u128,
+    pub(crate) fade_scale_nad: u128,
     invariant_d: u128,
     common_numeraire: ConcentratedCommonNumeraire,
-    geometry: Option<ConcentratedC1Geometry>,
+    pub(crate) geometry: Option<ConcentratedC1Geometry>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -720,40 +720,12 @@ impl ConcentratedPreparedCurve {
         }
     }
 
-    pub(crate) fn hybrid_branch_at_raw_reserves(
-        self,
-        base_reserve_nad: u128,
-        quote_reserve_nad: u128,
-    ) -> Result<ConcentratedHybridBranch> {
-        if self.peak_depth_nad == 0 {
-            validate_common_reserves(base_reserve_nad, quote_reserve_nad)?;
-            return Ok(ConcentratedHybridBranch::Inner);
-        }
-        let (base_common, quote_common) =
-            normalize_reserves(base_reserve_nad, quote_reserve_nad, self.center_price_nad)?;
-        self.geometry
-            .ok_or(ErrorCode::BrokenInvariant)?
-            .branch(base_common, quote_common)
-    }
-
     pub(crate) const fn base_reserve_nad(self) -> u128 {
         self.base_reserve_nad
     }
 
     pub(crate) const fn quote_reserve_nad(self) -> u128 {
         self.quote_reserve_nad
-    }
-
-    pub(crate) const fn center_price_nad(self) -> u128 {
-        self.center_price_nad
-    }
-
-    pub(crate) const fn peak_depth_nad(self) -> u128 {
-        self.peak_depth_nad
-    }
-
-    pub(crate) const fn fade_scale_nad(self) -> u128 {
-        self.fade_scale_nad
     }
 
     pub(crate) fn geometry_cache(self) -> Option<ConcentratedGeometryCache> {
@@ -1301,7 +1273,7 @@ impl ConcentratedC1Geometry {
         })
     }
 
-    pub(super) fn branch(self, x: u128, y: u128) -> Result<ConcentratedHybridBranch> {
+    pub(crate) fn branch(self, x: u128, y: u128) -> Result<ConcentratedHybridBranch> {
         self.branch_from_ratio_q64(x, y, low_high_ratio_q64(x, y)?)
     }
 
@@ -1480,6 +1452,7 @@ impl ConcentratedResidualContext {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn concentrated_hybrid_branch_from_common(
     x: u128,
     y: u128,
@@ -1502,7 +1475,11 @@ pub(crate) fn concentrated_hybrid_branch(
 ) -> Result<ConcentratedHybridBranch> {
     validate_parameters(center_price_nad, peak_depth_nad, fade_scale_nad)?;
     let (base_common, quote_common) = normalize_reserves(base_reserve_nad, quote_reserve_nad, center_price_nad)?;
-    concentrated_hybrid_branch_from_common(base_common, quote_common, peak_depth_nad, fade_scale_nad)
+    if peak_depth_nad == 0 {
+        validate_common_reserves(base_common, quote_common)?;
+        return Ok(ConcentratedHybridBranch::Inner);
+    }
+    ConcentratedC1Geometry::derive(peak_depth_nad, fade_scale_nad)?.branch(base_common, quote_common)
 }
 
 pub(crate) fn concentrated_hybrid_branch_cached(

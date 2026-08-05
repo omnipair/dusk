@@ -41,6 +41,7 @@ pub struct HlpInventoryValuesNad {
 /// value. Negative values remove proportional inventory and repay debt. The
 /// two inventory deltas always sum exactly to `total_liquidity_value_nad`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg(test)]
 pub struct HlpProportionalAdjustmentNad {
     pub total_liquidity_value_nad: i128,
     pub target_inventory_value_delta_nad: i128,
@@ -66,6 +67,7 @@ fn signed_from_magnitude(magnitude: u128, negative: bool) -> Result<i128> {
         .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
+#[cfg(test)]
 fn signed_with_direction(magnitude: u128, negative: bool) -> Result<i128> {
     signed_from_magnitude(magnitude, negative)
 }
@@ -209,6 +211,7 @@ pub fn hlp_opposite_exposure_nad(values: HlpInventoryValuesNad) -> Result<i128> 
 /// remainder, so the two legs sum exactly to the requested total. This avoids
 /// the 50/50-value assumption, which is only valid at a curve state whose two
 /// reserve values happen to be equal.
+#[cfg(test)]
 pub fn allocate_hlp_proportional_adjustment_nad(
     values: HlpInventoryValuesNad,
     total_liquidity_value_nad: i128,
@@ -242,6 +245,7 @@ pub fn allocate_hlp_proportional_adjustment_nad(
 
 /// Convenience helper that derives and allocates the ideal curve-aware hLP
 /// adjustment in one call.
+#[cfg(test)]
 pub fn ideal_hlp_rebalance_nad(values: HlpInventoryValuesNad) -> Result<HlpProportionalAdjustmentNad> {
     let exposure = hlp_opposite_exposure_nad(values)?;
     if exposure == 0 {
@@ -295,6 +299,7 @@ pub fn sqrt_ratio_nad(r_nad: u128) -> Result<u128> {
 }
 
 /// Discrete within-swap tracking loss `E0 * abs(sqrt(r) - 1)^2`, in NAD.
+#[cfg(test)]
 pub fn tracking_loss_nad(equity_nad: u128, r_nad: u128) -> Result<u128> {
     if equity_nad == 0 || r_nad == NAD as u128 {
         return Ok(0);

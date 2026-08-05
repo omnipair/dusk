@@ -387,64 +387,6 @@ fn assert_fresh_reference(last_snapshot_slot: u64, current_slot: u64, max_refere
 }
 
 #[cfg(test)]
-fn decayed_auction_price_nad(
-    auction: &crate::state::ProtocolAuctionConfig,
-    epoch_start_slot: u64,
-    reference_price_nad: u64,
-    current_slot: u64,
-) -> Result<u64> {
-    require!(reference_price_nad > 0, ErrorCode::InvalidSettlementPrice);
-    let start_price = (reference_price_nad as u128)
-        .checked_mul(auction.params.start_multiplier_bps as u128)
-        .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let floor_price = (reference_price_nad as u128)
-        .checked_mul(auction.params.floor_multiplier_bps as u128)
-        .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let elapsed_slots = current_slot
-        .saturating_sub(epoch_start_slot)
-        .min(auction.params.duration_slots);
-    let decay = start_price
-        .checked_sub(floor_price)
-        .ok_or(ErrorCode::MarketMathOverflow)?
-        .checked_mul(elapsed_slots as u128)
-        .and_then(|value| value.checked_div(auction.params.duration_slots as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let price = start_price.checked_sub(decay).ok_or(ErrorCode::MarketMathOverflow)?;
-    u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow.into())
-}
-
-#[cfg(test)]
-fn auction_payment_amount(
-    sold_amount: u64,
-    sold_decimals: u8,
-    auction_price_nad: u64,
-    accepted_decimals: u8,
-) -> Result<u64> {
-    let sold_nad = normalize_to_nad(sold_amount as u128, sold_decimals)?;
-    let payment_nad = sold_nad
-        .checked_mul(auction_price_nad as u128)
-        .and_then(|value| value.checked_div(NAD as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    denormalize_from_nad_ceil(payment_nad, accepted_decimals)
-}
-
-#[cfg(test)]
-fn split_payment(payment_amount: u64, staking_vault_bps: u16) -> Result<(u64, u64)> {
-    require_gte!(BPS_DENOMINATOR, staking_vault_bps, ErrorCode::InvalidDistribution);
-    let staking_vault_amount = (payment_amount as u128)
-        .checked_mul(staking_vault_bps as u128)
-        .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let staking_vault_amount = u64::try_from(staking_vault_amount).map_err(|_| ErrorCode::MarketMathOverflow)?;
-    let treasury_amount = payment_amount
-        .checked_sub(staking_vault_amount)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    Ok((treasury_amount, staking_vault_amount))
-}
-
-#[cfg(test)]
 mod tests {
     include!("../../tests/instructions/futarchy/settle_protocol_auction.rs");
 }

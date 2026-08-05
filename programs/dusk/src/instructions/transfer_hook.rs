@@ -162,24 +162,6 @@ fn parse_transferring_token_account(info: &AccountInfo) -> Result<TokenAccountSn
     })
 }
 
-#[cfg(test)]
-fn pre_transfer_balances(
-    source_post_balance: u64,
-    destination_post_balance: u64,
-    amount: u64,
-) -> Result<TransferBalances> {
-    let source_pre_balance = source_post_balance
-        .checked_add(amount)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let destination_pre_balance = destination_post_balance
-        .checked_sub(amount)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    Ok(TransferBalances {
-        source_pre_balance,
-        destination_pre_balance,
-    })
-}
-
 pub(crate) fn current_yield_contexts(market: &mut Market, lp_mint: Pubkey) -> Result<Option<YieldContexts>> {
     if market.ylp_mint == lp_mint {
         market.base_side.carry_forward_swap_fees()?;
@@ -296,19 +278,6 @@ fn checkpoint_transfer_party<'info>(
         )?;
     }
     Ok(())
-}
-
-#[cfg(test)]
-fn checkpoint_yield_account_state(
-    yield_account: &mut YieldAccount,
-    yield_context: YieldContext,
-    pre_transfer_balance: u64,
-) -> Result<()> {
-    yield_account.accrue(
-        pre_transfer_balance,
-        yield_context.swap_fee_growth_index_q64,
-        yield_context.interest_growth_index_q64,
-    )
 }
 
 #[cfg(test)]

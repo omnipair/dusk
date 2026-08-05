@@ -42,26 +42,19 @@ fn inner_shape_residual_q80(q_q80: u128, v_q80: u128, peak_depth_nad: u128, fade
     let h = mul_q80(sqrt_q, cosh).unwrap().saturating_sub(Q80_ONE);
     let delta = Q80_ONE - q_q80;
     let weight_base = div_q80(scale_q80, scale_q80 + delta).unwrap();
-    let coefficient = mul_q80(2 * peak_q80, mul_q80(q_q80, mul_q80(weight_base, weight_base).unwrap()).unwrap())
-        .unwrap();
+    let coefficient = mul_q80(
+        2 * peak_q80,
+        mul_q80(q_q80, mul_q80(weight_base, weight_base).unwrap()).unwrap(),
+    )
+    .unwrap();
     mul_q80(coefficient, h).unwrap() + q_q80 >= Q80_ONE
 }
 
 fn solve_inner_q_at_v_q80(v_q80: u128, q_floor: u128, peak_depth_nad: u128, fade_scale_nad: u128) -> u128 {
     let mut low = q_floor;
     let mut high = Q80_ONE;
-    assert!(!inner_shape_residual_q80(
-        low,
-        v_q80,
-        peak_depth_nad,
-        fade_scale_nad
-    ));
-    assert!(inner_shape_residual_q80(
-        high,
-        v_q80,
-        peak_depth_nad,
-        fade_scale_nad
-    ));
+    assert!(!inner_shape_residual_q80(low, v_q80, peak_depth_nad, fade_scale_nad));
+    assert!(inner_shape_residual_q80(high, v_q80, peak_depth_nad, fade_scale_nad));
     while high - low > 1 {
         let midpoint = low + (high - low) / 2;
         if inner_shape_residual_q80(midpoint, v_q80, peak_depth_nad, fade_scale_nad) {
@@ -100,10 +93,25 @@ fn raw_quote_endpoint(
             prepared.quote_reserve_nad() + amount_in,
         ),
     };
-    let branch = prepared
-        .hybrid_branch_at_raw_reserves(base_after, quote_after)
-        .unwrap();
+    let branch = prepared_branch_at_raw_reserves(prepared, base_after, quote_after).unwrap();
     (output, base_after, quote_after, branch)
+}
+
+fn prepared_branch_at_raw_reserves(
+    prepared: ConcentratedPreparedCurve,
+    base_reserve_nad: u128,
+    quote_reserve_nad: u128,
+) -> Result<ConcentratedHybridBranch> {
+    if prepared.peak_depth_nad == 0 {
+        validate_common_reserves(base_reserve_nad, quote_reserve_nad)?;
+        return Ok(ConcentratedHybridBranch::Inner);
+    }
+    let (base_common, quote_common) =
+        normalize_reserves(base_reserve_nad, quote_reserve_nad, prepared.center_price_nad)?;
+    prepared
+        .geometry
+        .ok_or(ErrorCode::BrokenInvariant)?
+        .branch(base_common, quote_common)
 }
 
 fn first_raw_input_at_outward_stage(
@@ -130,29 +138,19 @@ fn first_raw_input_at_outward_stage(
 
 fn assert_canonical_invariant(prepared: ConcentratedPreparedCurve) {
     let high = prepared.invariant_d();
-    if prepared.peak_depth_nad() == 0 {
+    if prepared.peak_depth_nad == 0 {
         return;
     }
-    let (canonical_sign, canonical_magnitude) = hybrid_residual(
-        prepared.base_common,
-        prepared.quote_common,
-        high,
-        prepared.geometry,
-    )
-    .unwrap();
+    let (canonical_sign, canonical_magnitude) =
+        hybrid_residual(prepared.base_common, prepared.quote_common, high, prepared.geometry).unwrap();
     if canonical_sign {
         assert_eq!(canonical_magnitude, 0);
     } else {
         let adjacent = high.checked_sub(1).unwrap();
         assert!(
-            hybrid_residual(
-                prepared.base_common,
-                prepared.quote_common,
-                adjacent,
-                prepared.geometry,
-            )
-            .unwrap()
-            .0
+            hybrid_residual(prepared.base_common, prepared.quote_common, adjacent, prepared.geometry,)
+                .unwrap()
+                .0
         );
     }
 }
@@ -214,9 +212,7 @@ fn concentrated_balanced_equivalent_q_is_exact_across_wide_radicands() {
             (center_price_nad, 4 * NAD as u128)
         };
         let denominator = U256::from(ratio_denominator);
-        let radicand_numerator = U256::from(invariant_d)
-            * U256::from(invariant_d)
-            * U256::from(ratio_numerator);
+        let radicand_numerator = U256::from(invariant_d) * U256::from(invariant_d) * U256::from(ratio_numerator);
         let square = U256::from(q) * U256::from(q);
         let successor = U256::from(q + 1) * U256::from(q + 1);
 
@@ -344,14 +340,7 @@ fn full_precision_inner_to_transition_join_is_monotone_and_split_resistant_at_ma
             ConcentratedHybridBranch::QuoteScarceTransition
         );
         assert!(after >= before);
-        let split_state = concentrated_prepare_curve(
-            base_before,
-            quote - before,
-            NAD as u128,
-            peak,
-            fade,
-        )
-        .unwrap();
+        let split_state = concentrated_prepare_curve(base_before, quote - before, NAD as u128, peak, fade).unwrap();
         let split_tail = split_state
             .quote_exact_in(1, ConcentratedSwapDirection::BaseToQuote)
             .unwrap_or(0);
@@ -381,28 +370,14 @@ fn full_precision_join_matches_aggressive_discrete_reference_and_blocks_split_ga
     let first = prepared
         .quote_exact_in(first_input, ConcentratedSwapDirection::BaseToQuote)
         .unwrap();
-    let second_curve = concentrated_prepare_curve(
-        base + first_input,
-        quote - first,
-        NAD as u128,
-        peak,
-        fade,
-    )
-    .unwrap();
+    let second_curve = concentrated_prepare_curve(base + first_input, quote - first, NAD as u128, peak, fade).unwrap();
     let second = second_curve
         .quote_exact_in(input - first_input, ConcentratedSwapDirection::BaseToQuote)
         .unwrap_or(0);
     assert_eq!((first, second), (49_210, 1));
     assert!(first + second <= one_shot, "one_shot={one_shot} split={first}+{second}");
 
-    let reverse_curve = concentrated_prepare_curve(
-        base + input,
-        quote - one_shot,
-        NAD as u128,
-        peak,
-        fade,
-    )
-    .unwrap();
+    let reverse_curve = concentrated_prepare_curve(base + input, quote - one_shot, NAD as u128, peak, fade).unwrap();
     let roundtrip = reverse_curve
         .quote_exact_in(one_shot, ConcentratedSwapDirection::QuoteToBase)
         .unwrap();
@@ -448,9 +423,7 @@ fn restoring_trade_in_exact_tail_is_bit_identical_to_cpmm() {
     let input = 77_854_937_841_u128;
     let prepared = concentrated_prepare_curve(base, quote, NAD as u128, peak, fade).unwrap();
     assert_eq!(
-        prepared
-            .hybrid_branch_at_raw_reserves(base, quote)
-            .unwrap(),
+        prepared_branch_at_raw_reserves(prepared, base, quote).unwrap(),
         ConcentratedHybridBranch::BaseScarceTail
     );
     assert_eq!(
@@ -498,9 +471,7 @@ fn full_precision_transition_conditioning_stays_below_unit_radial_slope() {
 #[test]
 fn q64_inner_is_monotone_at_max_scale_and_ramp_intermediates() {
     let reserve = 18_446_744_073_709_051_615_u128;
-    let inputs = [
-        1_u128, 2, 3, 15, 255, 4_095, 65_535, 131_071, 196_607, 262_143,
-    ];
+    let inputs = [1_u128, 2, 3, 15, 255, 4_095, 65_535, 131_071, 196_607, 262_143];
     for (peak, fade) in [
         (1_u128, 100_u128),
         (2 * NAD as u128 / 9_000, 100_u128),
@@ -562,16 +533,9 @@ fn raw_center_normalization_certifies_actual_endpoints_in_both_directions() {
             (ConcentratedSwapDirection::BaseToQuote, quote / 1_000_000),
             (ConcentratedSwapDirection::QuoteToBase, (base / 1_000_000).max(1)),
         ] {
-            let input = concentrated_quote_exact_out(
-                base,
-                quote,
-                requested,
-                direction,
-                center,
-                PEAK_DEPTH_200,
-                FADE_TENTH,
-            )
-            .unwrap();
+            let input =
+                concentrated_quote_exact_out(base, quote, requested, direction, center, PEAK_DEPTH_200, FADE_TENTH)
+                    .unwrap();
             let replay = prepared.quote_exact_in(input, direction).unwrap();
             assert!(
                 replay >= requested,
@@ -591,15 +555,12 @@ fn raw_center_normalization_certifies_actual_endpoints_in_both_directions() {
 
 #[test]
 fn adaptive_common_scale_inverse_floor_is_exact_at_center_boundaries() {
-    for center in [
-        1_u128,
-        NAD as u128 - 1,
-        NAD as u128,
-        NAD as u128 + 1,
-        u64::MAX as u128,
-    ] {
+    for center in [1_u128, NAD as u128 - 1, NAD as u128, NAD as u128 + 1, u64::MAX as u128] {
         let numeraire = ConcentratedCommonNumeraire::for_center(center).unwrap();
-        for scale in [numeraire.base_scale(center).unwrap(), numeraire.quote_scale(center).unwrap()] {
+        for scale in [
+            numeraire.base_scale(center).unwrap(),
+            numeraire.quote_scale(center).unwrap(),
+        ] {
             assert!(scale.numerator() >= scale.denominator());
             for target_common in [
                 0_u128,
@@ -659,10 +620,7 @@ fn adaptive_numeraire_crossing_is_quote_continuous_and_exact_out_replays() {
     let reserve = 1_000_000_000_000_000_u128;
     let input = 1_000_000_000_u128;
     let mut outputs = [[0_u128; 2]; 3];
-    for (center_index, center) in [NAD as u128 - 1, NAD as u128, NAD as u128 + 1]
-        .into_iter()
-        .enumerate()
-    {
+    for (center_index, center) in [NAD as u128 - 1, NAD as u128, NAD as u128 + 1].into_iter().enumerate() {
         let prepared = concentrated_prepare_curve(reserve, reserve, center, PEAK_DEPTH_200, FADE_TENTH).unwrap();
         for (direction_index, direction) in [
             ConcentratedSwapDirection::BaseToQuote,
@@ -759,9 +717,7 @@ fn transition_quote_uses_bounded_newton_work_without_q80_fallback() {
     let output = prepared
         .quote_exact_in(30_000_000_000, ConcentratedSwapDirection::BaseToQuote)
         .unwrap();
-    let branch = prepared
-        .hybrid_branch_at_raw_reserves(130_000_000_000, 200_000_000_000 - output)
-        .unwrap();
+    let branch = prepared_branch_at_raw_reserves(prepared, 130_000_000_000, 200_000_000_000 - output).unwrap();
     assert!(output > 0);
     assert_eq!(branch, ConcentratedHybridBranch::QuoteScarceTransition);
     assert!(residual_evaluations() <= 8);
@@ -808,34 +764,18 @@ fn exact_in_is_monotone_at_the_tail_to_transition_boundary() {
     let direction = ConcentratedSwapDirection::QuoteToBase;
     let mut low = 0_u128;
     let mut high = quote;
-    while exact_cpmm_tail_in_raw(
-        base,
-        quote,
-        high,
-        direction,
-        NAD as u128,
-        PEAK_DEPTH_200,
-        FADE_TENTH,
-    )
-    .unwrap()
-    .is_some()
+    while exact_cpmm_tail_in_raw(base, quote, high, direction, NAD as u128, PEAK_DEPTH_200, FADE_TENTH)
+        .unwrap()
+        .is_some()
     {
         low = high;
         high = high.checked_mul(2).unwrap();
     }
     while high - low > 1 {
         let probe = low + (high - low) / 2;
-        if exact_cpmm_tail_in_raw(
-            base,
-            quote,
-            probe,
-            direction,
-            NAD as u128,
-            PEAK_DEPTH_200,
-            FADE_TENTH,
-        )
-        .unwrap()
-        .is_some()
+        if exact_cpmm_tail_in_raw(base, quote, probe, direction, NAD as u128, PEAK_DEPTH_200, FADE_TENTH)
+            .unwrap()
+            .is_some()
         {
             low = probe;
         } else {
@@ -843,26 +783,10 @@ fn exact_in_is_monotone_at_the_tail_to_transition_boundary() {
         }
     }
 
-    let last_tail_output = concentrated_quote_exact_in(
-        base,
-        quote,
-        low,
-        direction,
-        NAD as u128,
-        PEAK_DEPTH_200,
-        FADE_TENTH,
-    )
-    .unwrap();
-    let first_crossing_output = concentrated_quote_exact_in(
-        base,
-        quote,
-        high,
-        direction,
-        NAD as u128,
-        PEAK_DEPTH_200,
-        FADE_TENTH,
-    )
-    .unwrap();
+    let last_tail_output =
+        concentrated_quote_exact_in(base, quote, low, direction, NAD as u128, PEAK_DEPTH_200, FADE_TENTH).unwrap();
+    let first_crossing_output =
+        concentrated_quote_exact_in(base, quote, high, direction, NAD as u128, PEAK_DEPTH_200, FADE_TENTH).unwrap();
 
     assert_eq!(high, low + 1);
     assert!(
@@ -902,14 +826,7 @@ fn concentrated_exact_in_selects_the_maximal_safe_output_atom() {
     let base = 1_000_000_000_000_u128;
     let quote = 1_100_000_000_000_u128;
     let input = 50_000_000_000_u128;
-    let prepared = concentrated_prepare_curve(
-        base,
-        quote,
-        NAD as u128,
-        PEAK_DEPTH_200,
-        FADE_TENTH,
-    )
-    .unwrap();
+    let prepared = concentrated_prepare_curve(base, quote, NAD as u128, PEAK_DEPTH_200, FADE_TENTH).unwrap();
     let output = prepared
         .quote_exact_in(input, ConcentratedSwapDirection::BaseToQuote)
         .unwrap();
@@ -917,24 +834,14 @@ fn concentrated_exact_in_selects_the_maximal_safe_output_atom() {
     let y_after = prepared.quote_common.checked_sub(output).unwrap();
 
     assert!(
-        hybrid_residual(
-            x_after,
-            y_after,
-            prepared.invariant_d(),
-            prepared.geometry,
-        )
-        .unwrap()
-        .0
+        hybrid_residual(x_after, y_after, prepared.invariant_d(), prepared.geometry,)
+            .unwrap()
+            .0
     );
     assert!(
-        !hybrid_residual(
-            x_after,
-            y_after - 1,
-            prepared.invariant_d(),
-            prepared.geometry,
-        )
-        .unwrap()
-        .0,
+        !hybrid_residual(x_after, y_after - 1, prepared.invariant_d(), prepared.geometry,)
+            .unwrap()
+            .0,
         "one additional output atom must be on the invalid side"
     );
 }
@@ -942,12 +849,8 @@ fn concentrated_exact_in_selects_the_maximal_safe_output_atom() {
 #[test]
 fn convergence_transition_matches_value_and_slope_at_both_joins() {
     let geometry = ConcentratedC1Geometry::derive(PEAK_DEPTH_200, FADE_TENTH).unwrap();
-    let (start_q, start_slope) = geometry
-        .transition_q_and_slope_at_v(geometry.v_start_q48)
-        .unwrap();
-    let (tail_q, tail_slope) = geometry
-        .transition_q_and_slope_at_v(geometry.v_tail_q48)
-        .unwrap();
+    let (start_q, start_slope) = geometry.transition_q_and_slope_at_v(geometry.v_start_q48).unwrap();
+    let (tail_q, tail_slope) = geometry.transition_q_and_slope_at_v(geometry.v_tail_q48).unwrap();
     assert_eq!(start_q, geometry.q_start_q48);
     assert_eq!(start_slope, geometry.negative_q_prime_start_q48);
     assert_eq!(tail_q, geometry.q_tail_q48);
@@ -959,14 +862,11 @@ fn convergence_transition_matches_value_and_slope_at_both_joins() {
         concentrated_prepare_curve(tail_high, tail_low, NAD as u128, PEAK_DEPTH_200, FADE_TENTH).unwrap();
     assert!(reconstructed.invariant_d().abs_diff(d) <= 100_000);
     let one_step_out = reserves_at_c1_coordinate(d, tail_q, geometry.v_tail_q48 + 1);
-    assert!(concentrated_hybrid_branch_from_common(
-        one_step_out.1,
-        one_step_out.0,
-        PEAK_DEPTH_200,
-        FADE_TENTH,
-    )
-    .unwrap()
-    .is_exact_tail());
+    assert!(
+        concentrated_hybrid_branch_from_common(one_step_out.1, one_step_out.0, PEAK_DEPTH_200, FADE_TENTH,)
+            .unwrap()
+            .is_exact_tail()
+    );
 }
 
 #[test]
@@ -1041,16 +941,11 @@ fn raw_quotes_are_c1_continuous_at_both_joins_across_center_orientations() {
                 );
 
                 let (_, split_base, split_quote, _) = raw_quote_endpoint(prepared, crossing - 1, direction);
-                let split_tail = concentrated_prepare_curve(
-                    split_base,
-                    split_quote,
-                    center,
-                    PEAK_DEPTH_200,
-                    FADE_TENTH,
-                )
-                .unwrap()
-                .quote_exact_in(1, direction)
-                .unwrap_or(0);
+                let split_tail =
+                    concentrated_prepare_curve(split_base, split_quote, center, PEAK_DEPTH_200, FADE_TENTH)
+                        .unwrap()
+                        .quote_exact_in(1, direction)
+                        .unwrap_or(0);
                 assert!(
                     before + split_tail <= at,
                     "center={center} direction={direction:?} stage={target_stage} one_shot={at} split={before}+{split_tail}"
@@ -1182,16 +1077,12 @@ fn convergence_join_round_trips_cannot_create_raw_token_profit() {
                     )
                     .unwrap();
                     let (base_after, quote_after, reverse) = match direction {
-                        ConcentratedSwapDirection::BaseToQuote => (
-                            base + amount_in,
-                            quote - output,
-                            ConcentratedSwapDirection::QuoteToBase,
-                        ),
-                        ConcentratedSwapDirection::QuoteToBase => (
-                            base - output,
-                            quote + amount_in,
-                            ConcentratedSwapDirection::BaseToQuote,
-                        ),
+                        ConcentratedSwapDirection::BaseToQuote => {
+                            (base + amount_in, quote - output, ConcentratedSwapDirection::QuoteToBase)
+                        }
+                        ConcentratedSwapDirection::QuoteToBase => {
+                            (base - output, quote + amount_in, ConcentratedSwapDirection::BaseToQuote)
+                        }
                     };
                     let returned = concentrated_quote_exact_in(
                         base_after,
@@ -1381,23 +1272,10 @@ fn cached_geometry_reconstructs_authoritative_q80_geometry_exactly() {
             ConcentratedC1Geometry::from_cache(cache, peak, fade).unwrap(),
             ConcentratedC1Geometry::derive(peak, fade).unwrap()
         );
-        let cached = concentrated_prepare_curve_cached(
-            1_000_000_000_000,
-            1_200_000_000_000,
-            NAD as u128,
-            peak,
-            fade,
-            cache,
-        )
-        .unwrap();
-        let cold = concentrated_prepare_curve(
-            1_000_000_000_000,
-            1_200_000_000_000,
-            NAD as u128,
-            peak,
-            fade,
-        )
-        .unwrap();
+        let cached =
+            concentrated_prepare_curve_cached(1_000_000_000_000, 1_200_000_000_000, NAD as u128, peak, fade, cache)
+                .unwrap();
+        let cold = concentrated_prepare_curve(1_000_000_000_000, 1_200_000_000_000, NAD as u128, peak, fade).unwrap();
         assert_eq!(cached, cold);
         assert_eq!(cached.geometry_cache(), Some(cache));
 
