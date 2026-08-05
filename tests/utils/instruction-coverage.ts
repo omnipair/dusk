@@ -61,29 +61,29 @@ export const ORDINARY_SWAP_COMPUTE_UNIT_LIMIT = 100_000n;
 const COMPUTE_SCENARIO_BASELINES: Partial<
   Record<SwapComputeScenario, ComputeScenarioBaseline>
 > = {
-  cpmm_same_slot: { measuredMaximum: 63_892n, ceiling: 67_087n },
-  cpmm_advanced_slot: { measuredMaximum: 96_984n, ceiling: 101_834n },
-  cpmm_active_debt: { measuredMaximum: 105_638n, ceiling: 110_920n },
-  concentrated_centered: { measuredMaximum: 196_560n, ceiling: 206_388n },
-  concentrated_transition: { measuredMaximum: 282_203n, ceiling: 296_314n },
-  concentrated_tail: { measuredMaximum: 115_427n, ceiling: 121_199n },
+  cpmm_same_slot: { measuredMaximum: 51_758n, ceiling: 54_346n },
+  cpmm_advanced_slot: { measuredMaximum: 84_850n, ceiling: 89_093n },
+  cpmm_active_debt: { measuredMaximum: 93_504n, ceiling: 98_180n },
+  concentrated_centered: { measuredMaximum: 184_426n, ceiling: 193_648n },
+  concentrated_transition: { measuredMaximum: 270_069n, ceiling: 283_573n },
+  concentrated_tail: { measuredMaximum: 103_293n, ceiling: 108_458n },
   dynamic_fee_divergence_stress: {
-    measuredMaximum: 368_189n,
-    ceiling: 386_599n,
+    measuredMaximum: 356_055n,
+    ceiling: 373_858n,
   },
   dynamic_fee_volatility_stress: {
-    measuredMaximum: 112_607n,
-    ceiling: 118_238n,
+    measuredMaximum: 100_473n,
+    ceiling: 105_497n,
   },
-  retained_surcharge: { measuredMaximum: 383_109n, ceiling: 402_265n },
-  controller_due_ramp: { measuredMaximum: 497_281n, ceiling: 522_146n },
+  retained_surcharge: { measuredMaximum: 370_975n, ceiling: 389_524n },
+  controller_due_ramp: { measuredMaximum: 485_147n, ceiling: 509_405n },
   controller_due_recenter: {
-    measuredMaximum: 492_547n,
-    ceiling: 517_175n,
+    measuredMaximum: 480_413n,
+    ceiling: 504_434n,
   },
-  hlp_active: { measuredMaximum: 113_273n, ceiling: 118_937n },
-  hlp_residual_correction: { measuredMaximum: 171_772n, ceiling: 180_361n },
-  token_2022_swap: { measuredMaximum: 60_578n, ceiling: 63_607n },
+  hlp_active: { measuredMaximum: 101_231n, ceiling: 106_293n },
+  hlp_residual_correction: { measuredMaximum: 159_786n, ceiling: 167_776n },
+  token_2022_swap: { measuredMaximum: 60_838n, ceiling: 63_880n },
 };
 
 Object.entries(COMPUTE_SCENARIO_BASELINES).forEach(([scenario, baseline]) => {

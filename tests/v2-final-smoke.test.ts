@@ -37,7 +37,7 @@ import {
   Transaction,
 } from "@solana/web3.js";
 import { expect } from "chai";
-import { ComputeBudget, LiteSVM } from "litesvm";
+import { ComputeBudget, FeatureSet, LiteSVM } from "litesvm";
 import {
   buildLpTransferHookAccountMetas,
   buildYieldTransferHookValidationAccountData,
@@ -104,6 +104,52 @@ const LEVERAGE_ORDER_SEED = Buffer.from("leverage_order");
 const LEVERAGE_DELEGATE_CUSTODY_AUTHORITY_SEED = Buffer.from("leverage_delegate_authority");
 const LEVERAGE_DELEGATE_CLOSE = 1;
 const ORDER_KIND_TAKE_PROFIT = 1;
+const FEATURE_PROGRAM_ID = new PublicKey(
+  "Feature111111111111111111111111111111111111"
+);
+// LiteSVM issues #396 / PR #352: this feature prevents Linux JIT/ABI memory
+// corruption. Preserve LiteSVM's default feature snapshot instead of enabling
+// unrelated future features, then rebuild the runtime around this addition.
+const STRICT_RUNTIME_FEATURE = new PublicKey(
+  "Eoh7e1sDqtyPtuiWAhBNSJinvtJWTTDgeUMRi3RF8zWS"
+).toBytes();
+
+function createLiteSvm(computeBudget: ComputeBudget): LiteSVM {
+  const svm = new LiteSVM();
+  const featureSet = new FeatureSet();
+  let defaultFeatureCount = 0;
+  for (const featureId of featureSet.getInactiveFeatures()) {
+    const featureAccount = svm.getAccount(new PublicKey(featureId));
+    if (
+      featureAccount?.owner.equals(FEATURE_PROGRAM_ID) &&
+      featureAccount.data.length === 9 &&
+      featureAccount.data[0] === 1
+    ) {
+      featureSet.activate(
+        featureId,
+        Buffer.from(featureAccount.data).readBigUInt64LE(1)
+      );
+      defaultFeatureCount += 1;
+    }
+  }
+  featureSet.activate(STRICT_RUNTIME_FEATURE, 0n);
+  if (
+    defaultFeatureCount !== 219 ||
+    featureSet.getActiveFeaturesCount() !== 220 ||
+    !featureSet.isActive(STRICT_RUNTIME_FEATURE) ||
+    featureSet.activatedSlot(STRICT_RUNTIME_FEATURE) !== 0n
+  ) {
+    throw new Error(
+      "LiteSVM stricter ABI/runtime constraints must be active for deterministic tests"
+    );
+  }
+  return svm
+    .withFeatureSet(featureSet)
+    .withComputeBudget(computeBudget)
+    .withBuiltins()
+    .withDefaultPrograms()
+    .withPrecompiles();
+}
 
 function deriveLeverageCollateralVaultAddress(
   market: PublicKey,
@@ -230,7 +276,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     // Keep LiteSVM's cluster-default 32 KiB heap. A path that needs a larger
     // frame must request it in its transaction so the request and its CU are
     // visible in the named measurement instead of being granted globally.
-    svm = new LiteSVM().withComputeBudget(computeBudget);
+    svm = createLiteSvm(computeBudget);
     svm.warpToSlot(1n);
     const programPath = path.join(__dirname, "../target/deploy/dusk.so");
     if (!fs.existsSync(programPath)) {
@@ -612,7 +658,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
   }
 
   async function createIsolatedProgram() {
-    const isolatedSvm = new LiteSVM().withComputeBudget(new ComputeBudget());
+    const isolatedSvm = createLiteSvm(new ComputeBudget());
     const programPath = path.join(__dirname, "../target/deploy/dusk.so");
     isolatedSvm.addProgramFromFile(DUSK_PROGRAM_ID, programPath);
     isolatedSvm.addProgramFromFile(
@@ -2370,22 +2416,23 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       fixture.quoteMint,
       "hlp"
     )[0];
+    const prefundLamports = Number(svm.minimumBalanceForRentExemption(0n));
     await connection.sendTransaction(
       new Transaction().add(
         SystemProgram.transfer({
           fromPubkey: payer.publicKey,
           toPubkey: baseYieldAccount,
-          lamports: 1,
+          lamports: prefundLamports,
         }),
         SystemProgram.transfer({
           fromPubkey: payer.publicKey,
           toPubkey: quoteYieldAccount,
-          lamports: 1,
+          lamports: prefundLamports,
         }),
         SystemProgram.transfer({
           fromPubkey: payer.publicKey,
           toPubkey: hlpYlpAccount,
-          lamports: 1,
+          lamports: prefundLamports,
         })
       ),
       [payer]
@@ -4488,7 +4535,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         SystemProgram.transfer({
           fromPubkey: payer.publicKey,
           toPubkey: validationAccount,
-          lamports: 1,
+          lamports: Number(svm.minimumBalanceForRentExemption(0n)),
         })
       ),
       [payer]

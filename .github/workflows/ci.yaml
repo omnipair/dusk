@@ -16,7 +16,6 @@ on:
 
 env:
   ANCHOR_VERSION: "0.31.1"
-  NODE_VERSION: "24.16.0"
   SOLANA_VERSION: "4.1.0"
 
 jobs:
@@ -29,7 +28,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: yarn
 
       - name: Setup Rust
@@ -76,7 +75,7 @@ jobs:
         run: cargo install --git https://github.com/coral-xyz/anchor --tag v${{ env.ANCHOR_VERSION }} anchor-cli --locked
 
       - name: Test LiteSVM smoke suite
-        run: yarn test-litesvm
+        run: yarn test-litesvm:release
 
       - name: Check Dusk SDK package
         run: npm run check:dusk-sdk

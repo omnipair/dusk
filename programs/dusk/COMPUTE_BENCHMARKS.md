@@ -69,33 +69,35 @@ The following deterministic maxima were captured on 2026-08-05 from one
 fully successful run of the finished SBF binary:
 
 ```sh
-yarn test-litesvm:no-build --reporter dot
+yarn test-litesvm:release --reporter dot
 ```
 
 That run passed 50/50 LiteSVM tests, exercised 52/52 Dusk instructions, and
 measured every required scenario. Each CI ceiling below is exactly
-`ceil(measured maximum * 1.05)`.
+`ceil(measured maximum * 1.05)`. It used Node 24.9.0 and LiteSVM 0.8.0 with
+LiteSVM's 219 default feature accounts plus only Solana's stricter ABI/runtime
+constraints feature; the harness asserts that feature set before executing.
 
 | Scenario | Measured maximum | CI ceiling |
 |---|---:|---:|
-| CPMM, same slot | 63,924 CU | 67,121 CU |
-| CPMM, advanced slot | 97,012 CU | 101,863 CU |
-| CPMM, active debt | 106,098 CU | 111,403 CU |
-| Concentrated, centered | 196,592 CU | 206,422 CU |
-| Concentrated, finite transition | 282,235 CU | 296,347 CU |
-| Concentrated, exact-CPMM tail | 115,459 CU | 121,232 CU |
-| Divergence-fee stress | 368,109 CU | 386,515 CU |
-| Volatility-fee stress | 112,635 CU | 118,267 CU |
-| Retained surcharge | 383,233 CU | 402,395 CU |
-| Due parameter ramp | 497,311 CU | 522,177 CU |
-| Due funded recenter | 492,667 CU | 517,301 CU |
-| Active hLP | 113,817 CU | 119,508 CU |
-| hLP residual correction | 172,825 CU | 181,467 CU |
-| Token-2022 asset swap | 60,606 CU | 63,637 CU |
+| CPMM, same slot | 51,758 CU | 54,346 CU |
+| CPMM, advanced slot | 84,850 CU | 89,093 CU |
+| CPMM, active debt | 93,504 CU | 98,180 CU |
+| Concentrated, centered | 184,426 CU | 193,648 CU |
+| Concentrated, finite transition | 270,069 CU | 283,573 CU |
+| Concentrated, exact-CPMM tail | 103,293 CU | 108,458 CU |
+| Divergence-fee stress | 356,055 CU | 373,858 CU |
+| Volatility-fee stress | 100,473 CU | 105,497 CU |
+| Retained surcharge | 370,975 CU | 389,524 CU |
+| Due parameter ramp | 485,147 CU | 509,405 CU |
+| Due funded recenter | 480,413 CU | 504,434 CU |
+| Active hLP | 101,231 CU | 106,293 CU |
+| hLP residual correction | 159,786 CU | 167,776 CU |
+| Token-2022 asset swap | 60,838 CU | 63,880 CU |
 
 The separately measured direct Token-2022 transfer-hook transaction consumed
-79,358–97,358 CU across the final full-suite runs; the strict fresh-build
-release run measured 88,358 CU. This is the full Token-2022 transaction cost,
+77,049–125,049 CU across the final runtime-validation runs; the strict
+fresh-build release run measured 95,049 CU. This is the full Token-2022 transaction cost,
 not a hook-program-exclusive measurement, and is reported separately because
 hook implementation, extra accounts, and address-dependent canonical PDA bump
 searches are external inputs rather than deterministic Dusk swap guards.
@@ -109,12 +111,12 @@ before/after claim.
 
 | Path | Before | Finished rewrite | Delta |
 |---|---:|---:|---:|
-| CPMM, same slot | 111,593 CU | 63,924 CU | -47,669 CU (-42.72%) |
-| CPMM, advanced slot | 164,529 CU | 97,012 CU | -67,517 CU (-41.04%) |
-| Concentrated, centered versus prior mixed range | 677,000–1,323,000 CU | 196,592 CU | -70.96% to -85.14% |
-| Highest named lazy-controller path versus prior mixed high-water mark | 1,323,000 CU | 497,311 CU | -825,689 CU (-62.41%) |
+| CPMM, same slot | 111,593 CU | 51,758 CU | -59,835 CU (-53.62%) |
+| CPMM, advanced slot | 164,529 CU | 84,850 CU | -79,679 CU (-48.43%) |
+| Concentrated, centered versus prior mixed range | 677,000–1,323,000 CU | 184,426 CU | -72.76% to -86.06% |
+| Highest named lazy-controller path versus prior mixed high-water mark | 1,323,000 CU | 485,147 CU | -837,853 CU (-63.33%) |
 
-The ordinary same-slot path is also 20,348–23,534 CU below the observed
+The ordinary same-slot path is also 32,514–35,700 CU below the observed
 Omnipair V1 range of 84,272–87,458 CU. Controller and hLP rows
 already include the lazy work performed by the user operation; there is no
 separate maintenance transaction to add.

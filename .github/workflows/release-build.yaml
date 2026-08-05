@@ -25,7 +25,6 @@ on:
 
 env:
   ANCHOR_VERSION: "0.31.1"
-  NODE_VERSION: "24.16.0"
   SOLANA_VERSION: "4.1.0"
   PROGRAM_CRATE: dusk
   PROGRAM_LIBRARY: dusk
@@ -213,7 +212,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: yarn
 
       - name: Install JavaScript dependencies
@@ -309,7 +308,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: yarn
 
       - name: Install JavaScript dependencies
