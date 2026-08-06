@@ -506,7 +506,12 @@ export function defaultMarketConfig() {
   const startTime = duskEnv("MARKET_START_TIME", "0");
   return {
     swapFeeBps: Number(duskEnv("SWAP_FEE_BPS", "30")),
-    managerFeeBps: Number(duskEnv("MANAGER_FEE_BPS", "0")),
+    divergenceFeeShareCapBps: Number(
+      duskEnv("DIVERGENCE_FEE_SHARE_CAP_BPS", "0")
+    ),
+    volatilityFeeShareCapBps: Number(
+      duskEnv("VOLATILITY_FEE_SHARE_CAP_BPS", "0")
+    ),
     targetHlpLeverageBps: Number(duskEnv("TARGET_HLP_LEVERAGE_BPS", "20000")),
     settlementDivergenceBps: Number(duskEnv("SETTLEMENT_DIVERGENCE_BPS", "500")),
     emaHalfLifeMs: new anchor.BN(duskEnv("EMA_HALF_LIFE_MS", "60000")),
@@ -522,6 +527,17 @@ export function defaultMarketConfig() {
       duskEnv("BORROW_MARKET_HEALTH_FLOOR_BPS", "11000")
     ),
     amm: defaultAmmConfig(),
+    irm: {
+      targetUtilizationBps: Number(
+        duskEnv("IRM_TARGET_UTILIZATION_BPS", "7000")
+      ),
+      curveSteepnessNad: new anchor.BN(
+        duskEnv("IRM_CURVE_STEEPNESS_NAD", "4000000000")
+      ),
+      adjustmentSpeedPerYear: new anchor.BN(
+        duskEnv("IRM_ADJUSTMENT_SPEED_PER_YEAR", "20")
+      ),
+    },
     startTime: new anchor.BN(startTime),
   };
 }
@@ -539,7 +555,9 @@ export function defaultAmmConfig() {
     volatilityCapNad: new anchor.BN(duskEnv("AMM_VOLATILITY_CAP_NAD", "0")),
     divergenceFeeCoefficientNad: new anchor.BN(duskEnv("AMM_DIVERGENCE_FEE_COEFFICIENT_NAD", "0")),
     volatilityFeeCoefficientNad: new anchor.BN(duskEnv("AMM_VOLATILITY_FEE_COEFFICIENT_NAD", "0")),
-    rampDurationSlots: new anchor.BN(duskEnv("AMM_RAMP_DURATION_SLOTS", "9000")),
+    rampDurationSlots: new anchor.BN(
+      duskEnv("AMM_RAMP_DURATION_SLOTS", "216000")
+    ),
     reserved: Array(33).fill(0),
   };
 }

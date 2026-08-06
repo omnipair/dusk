@@ -1,17 +1,15 @@
 use super::*;
 use crate::{
     constants::{BPS_DENOMINATOR, MARKET_LAYOUT_VERSION, NAD},
-    state::{
-        Debt, HlpVault, Insurance, MarketConfig, MarketSide, PendingAuthorityChange, PendingConfigChange, Reserves,
-        Risk,
-    },
+    state::{Debt, HlpVault, Insurance, MarketConfig, MarketSide, Reserves, Risk},
 };
 use proptest::prelude::*;
 
 fn valid_config() -> MarketConfig {
     MarketConfig {
         swap_fee_bps: 30,
-        manager_fee_bps: 0,
+        divergence_fee_share_cap_bps: 0,
+        volatility_fee_share_cap_bps: 0,
         target_hlp_leverage_bps: BPS_DENOMINATOR * 2,
         settlement_divergence_bps: 500,
         ema_half_life_ms: 60_000,
@@ -21,6 +19,7 @@ fn valid_config() -> MarketConfig {
         global_health_contribution_cap_bps: 15_000,
         borrow_market_health_floor_bps: 11_000,
         amm: Default::default(),
+        irm: Default::default(),
         start_time: 0,
     }
 }
@@ -58,8 +57,6 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
     let market = Market {
         version: MARKET_LAYOUT_VERSION,
         ylp_mint: Pubkey::new_unique(),
-        operator: Pubkey::new_unique(),
-        manager: Pubkey::new_unique(),
         base_side,
         quote_side,
         config: valid_config(),
@@ -69,10 +66,9 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
         quote_hlp_vault: HlpVault::default(),
         risk: Risk::default(),
         insurance: Insurance::default(),
-        pending_config: PendingConfigChange::default(),
-        pending_operator: PendingAuthorityChange::default(),
-        pending_manager: PendingAuthorityChange::default(),
         params_hash: [9; 32],
+        governance_locked_ylp: 0,
+        parameter_revisions: [0; 5],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,
@@ -209,8 +205,6 @@ fn market_with_cash_backed_debt(
     let market = Market {
         version: MARKET_LAYOUT_VERSION,
         ylp_mint: Pubkey::new_unique(),
-        operator: Pubkey::new_unique(),
-        manager: Pubkey::new_unique(),
         base_side,
         quote_side,
         config: valid_config(),
@@ -220,10 +214,9 @@ fn market_with_cash_backed_debt(
         quote_hlp_vault: HlpVault::default(),
         risk: Risk::default(),
         insurance: Insurance::default(),
-        pending_config: PendingConfigChange::default(),
-        pending_operator: PendingAuthorityChange::default(),
-        pending_manager: PendingAuthorityChange::default(),
         params_hash: [7; 32],
+        governance_locked_ylp: 0,
+        parameter_revisions: [0; 5],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,

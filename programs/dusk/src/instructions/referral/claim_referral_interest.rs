@@ -17,6 +17,7 @@ use crate::{
     state::{Market, ReferralAccrual, ReferralPartner},
 };
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct ClaimReferralInterest<'info> {
     #[account(
@@ -128,7 +129,7 @@ impl<'info> ClaimReferralInterest<'info> {
             .side_mut(asset)
             .settle_referral_interest_claim(vault_debit, ctx.accounts.interest_vault.amount)?;
 
-        emit!(ReferralInterestClaimed {
+        emit_cpi!(ReferralInterestClaimed {
             market: ctx.accounts.market.key(),
             referral_partner: ctx.accounts.referral_partner.key(),
             referral_accrual: ctx.accounts.referral_accrual.key(),

@@ -34,10 +34,7 @@ fn concentrated_config() -> AmmConfig {
 fn geometry_cache_for(parameters: AmmCurveParameters) -> Option<ConcentratedGeometryCache> {
     (!parameters.is_cpmm())
         .then(|| {
-            ConcentratedGeometryCache::derive(
-                parameters.peak_depth_nad as u128,
-                parameters.fade_scale_nad as u128,
-            )
+            ConcentratedGeometryCache::derive(parameters.peak_depth_nad as u128, parameters.fade_scale_nad as u128)
         })
         .transpose()
         .unwrap()
@@ -103,6 +100,16 @@ fn validates_signal_fee_and_ramp_bounds() {
     assert!(config.validate().is_err());
 
     config = concentrated_config();
+    config.ramp_duration_slots = MIN_AMM_RAMP_DURATION_SLOTS;
+    assert!(config.validate().is_ok());
+
+    config.ramp_duration_slots = MAX_AMM_RAMP_DURATION_SLOTS;
+    assert!(config.validate().is_ok());
+
+    config.ramp_duration_slots = MAX_AMM_RAMP_DURATION_SLOTS + 1;
+    assert!(config.validate().is_err());
+
+    config = concentrated_config();
     config.reserved[0] = 1;
     assert!(config.validate().is_err());
 }
@@ -144,13 +151,13 @@ fn concentrated_ready_amm_serialized_layout_is_locked() {
     assert_eq!(AMM_DEFERRED_CONTROLLER_TARGET_BYTES, 82);
     assert_eq!(AMM_STATE_RESERVED_BYTES, 0);
     assert_eq!(<AmmState as anchor_lang::Space>::INIT_SPACE, 433);
-    assert_eq!(<MarketConfig as anchor_lang::Space>::INIT_SPACE, 175);
-    // Layout v2 now persists source-separated auction liabilities/epochs and
-    // reference markets on both sides, per-side debt clocks, and curve/risk
-    // revisions, plus four aggregate yLP-entitlement remainder lanes per hLP
-    // side. Dev markets are recreated, so this is the canonical layout.
-    assert_eq!(<Market as anchor_lang::Space>::INIT_SPACE, 3_199);
-    assert_eq!(8 + <Market as anchor_lang::Space>::INIT_SPACE, 3_207);
+    assert_eq!(<MarketConfig as anchor_lang::Space>::INIT_SPACE, 195);
+    // Layout v3 removes manager/operator and pending whole-config state, then
+    // adds direct-yLP governance locks plus five independent family revisions.
+    // The leaky daily buckets carry one additional u64 remainder per side
+    // (+16 bytes total). Dev markets are recreated, so this is canonical.
+    assert_eq!(<Market as anchor_lang::Space>::INIT_SPACE, 2_801);
+    assert_eq!(8 + <Market as anchor_lang::Space>::INIT_SPACE, 2_809);
 }
 
 #[test]
@@ -164,10 +171,9 @@ fn formula_revision_refreshes_the_authoritative_geometry() {
 
     assert_eq!(state.curve_math_revision, CONCENTRATED_MATH_REVISION);
     assert_eq!(state.invariant_d_nad, 123);
-    assert!(state.concentrated_geometry_cache.matches(
-        parameters.peak_depth_nad as u128,
-        parameters.fade_scale_nad as u128,
-    ));
+    assert!(state
+        .concentrated_geometry_cache
+        .matches(parameters.peak_depth_nad as u128, parameters.fade_scale_nad as u128,));
 }
 
 #[test]

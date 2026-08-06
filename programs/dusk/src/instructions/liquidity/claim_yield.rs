@@ -14,8 +14,8 @@ use crate::{
 };
 
 use crate::instructions::common::{
-    require_reserve_custody, token_program_for_mint, validate_interest_accounts, validate_owner_lp_account,
-    validate_swap_fee_custody_accounts,
+    require_reserve_custody, token_account_credit, token_program_for_mint, validate_interest_accounts,
+    validate_owner_lp_account, validate_swap_fee_custody_accounts,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -179,6 +179,7 @@ impl<'info> ClaimYield<'info> {
         };
 
         // Pay swap-fee and interest yield from their separate custody vaults.
+        let recipient_balance_before = ctx.accounts.recipient_asset_account.amount;
         if receipt.swap_fee_amount > 0 {
             transfer_checked_with_remaining_accounts(
                 ctx.accounts.market.to_account_info(),
@@ -206,6 +207,8 @@ impl<'info> ClaimYield<'info> {
                 ctx.remaining_accounts,
             )?;
         }
+        ctx.accounts.recipient_asset_account.reload()?;
+        let recipient_credit = token_account_credit(recipient_balance_before, &ctx.accounts.recipient_asset_account)?;
 
         // Retire liabilities only after both payment transfers succeed.
         {
@@ -232,6 +235,7 @@ impl<'info> ClaimYield<'info> {
             recipient: ctx.accounts.yield_account.recipient,
             swap_fee_amount: receipt.swap_fee_amount,
             interest_amount: receipt.interest_amount,
+            recipient_credit,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
         Ok(())

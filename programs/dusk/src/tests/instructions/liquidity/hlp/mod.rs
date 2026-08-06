@@ -18,7 +18,6 @@ fn token_2022_hlp_interest_books_only_actual_vault_credit() {
         &mut borrowed_side,
         actual_interest_credit,
         0,
-        0,
         ProtocolAuctionSplit::default(),
         eligible_ylp_supply,
     )
@@ -59,7 +58,6 @@ fn inline_interest_uses_operation_start_ownership_for_spot_and_leverage() {
         &mut market,
         MarketAsset::Quote,
         10,
-        0,
         0,
         ProtocolAuctionSplit::default(),
         eligibility,

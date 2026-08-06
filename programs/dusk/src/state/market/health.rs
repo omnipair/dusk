@@ -653,6 +653,34 @@ impl Market {
         )
         .map_err(|_| ErrorCode::MarketMathOverflow.into())
     }
+
+    pub(crate) fn daily_borrow_budget(&self, market_asset: MarketAsset, current_slot: u64) -> Result<(u64, u64)> {
+        let limit = self.daily_limit_for_side(market_asset, self.config.max_daily_borrow_bps)?;
+        let remaining = self.side(market_asset).daily_limits.remaining(limit, current_slot)?;
+        Ok((limit, remaining))
+    }
+
+    pub(crate) fn record_new_borrow(
+        &mut self,
+        market_asset: MarketAsset,
+        amount: u64,
+        current_slot: u64,
+    ) -> Result<()> {
+        let limit = self.daily_limit_for_side(market_asset, self.config.max_daily_borrow_bps)?;
+        self.record_new_borrow_with_limit(market_asset, amount, limit, current_slot)
+    }
+
+    pub(crate) fn record_new_borrow_with_limit(
+        &mut self,
+        market_asset: MarketAsset,
+        amount: u64,
+        limit: u64,
+        current_slot: u64,
+    ) -> Result<()> {
+        self.side_mut(market_asset)
+            .daily_limits
+            .record_borrow(amount, limit, current_slot)
+    }
 }
 
 pub(crate) fn max_cf_bps_from_liquidation_cf(liquidation_cf_bps: u16) -> u16 {

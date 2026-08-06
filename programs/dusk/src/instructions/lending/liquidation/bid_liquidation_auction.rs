@@ -7,7 +7,7 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::log::emit_position_liquidated_low_heap,
+    events::PositionLiquidated,
     generate_market_seeds,
     math::risk::exponential_price_decay,
     shared::token::{get_transfer_fee, get_transfer_inverse_fee, transfer_checked_with_remaining_accounts},
@@ -23,7 +23,7 @@ use crate::instructions::common::{
     validate_interest_accounts,
 };
 use crate::instructions::referral::common::{
-    accrue_referral_interest, emit_referral_interest_accrued, validate_referral_binding,
+    accrue_referral_interest, referral_interest_accrued_event_at_slot, validate_referral_binding,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -32,6 +32,7 @@ pub struct BidLiquidationAuctionArgs {
     pub min_collateral_out: u64,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: BidLiquidationAuctionArgs)]
 pub struct BidLiquidationAuction<'info> {
@@ -146,7 +147,6 @@ impl<'info> BidLiquidationAuction<'info> {
         let borrower_key = ctx.accounts.borrow_position.owner;
         let liquidator_key = ctx.accounts.liquidator.key();
         let debt_asset_mint_key = ctx.accounts.debt_asset_mint.key();
-        let collateral_asset_mint_key = ctx.accounts.collateral_asset_mint.key();
         let debt_asset = ctx.accounts.market.asset_for_mint(debt_asset_mint_key)?;
         let expected_referral_partner = ctx.accounts.borrow_position.referral_partner(debt_asset);
         let referral_interest_share_bps = ctx.accounts.borrow_position.referral_interest_share_bps(debt_asset);
@@ -269,7 +269,6 @@ impl<'info> BidLiquidationAuction<'info> {
             ctx.accounts.interest_vault.reload()?;
             let interest_vault_credit =
                 token_account_credit(interest_vault_balance_before, &ctx.accounts.interest_vault)?;
-            let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
             let referral_receipt = accrue_referral_interest(
                 expected_referral_partner,
                 referral_interest_share_bps,
@@ -284,7 +283,6 @@ impl<'info> BidLiquidationAuction<'info> {
             )?;
             ctx.accounts.market.side_mut(debt_asset).record_interest_credit(
                 interest_vault_credit,
-                manager_fee_bps,
                 ctx.accounts.futarchy_authority.revenue_share.interest_bps,
                 ctx.accounts.futarchy_authority.protocol_auction_split,
                 referral_receipt.quote.referral_amount,
@@ -367,31 +365,31 @@ impl<'info> BidLiquidationAuction<'info> {
         ctx.accounts.market.refresh_risk()?;
         require_reserve_custody(ctx.accounts.reserve_vault.amount, ctx.accounts.market.side(debt_asset))?;
 
-        emit_position_liquidated_low_heap(
-            market_key,
-            borrow_position_key,
-            borrower_key,
-            liquidator_key,
-            debt_asset_mint_key,
-            collateral_asset_mint_key,
-            liquidation_receipt.repaid_amount,
-            liquidation_receipt.collateral_seized,
-            liquidation_receipt.collateral_to_liquidator,
-            liquidation_receipt.insurance_funded,
-            liquidation_receipt.insurance_drawn,
-            liquidation_receipt.socialized_loss,
-            liquidation_receipt.remaining_debt,
-            liquidation_receipt.remaining_global_health_contribution,
-            liquidation_receipt.remaining_liquidation_cf_bps,
-        )?;
-        emit_referral_interest_accrued(
+        emit_cpi!(PositionLiquidated {
+            market: market_key,
+            borrow_position: borrow_position_key,
+            borrower: borrower_key,
+            liquidator: liquidator_key,
+            debt_asset_side: debt_asset.code(),
+            repaid_amount: liquidation_receipt.repaid_amount,
+            collateral_seized: liquidation_receipt.collateral_seized,
+            collateral_to_liquidator: liquidation_receipt.collateral_to_liquidator,
+            collateral_credit,
+            insurance_drawn: liquidation_receipt.insurance_drawn,
+            socialized_loss: liquidation_receipt.socialized_loss,
+            remaining_debt: liquidation_receipt.remaining_debt,
+        });
+        if let Some(event) = referral_interest_accrued_event_at_slot(
             &referral_receipt,
             market_key,
             borrow_position_key,
             borrower_key,
             liquidator_key,
             debt_asset_mint_key,
-        )?;
+            current_slot,
+        )? {
+            emit_cpi!(event);
+        }
         Ok(())
     }
 }

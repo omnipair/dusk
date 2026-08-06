@@ -1,4 +1,5 @@
 import { Keypair, PublicKey } from "@solana/web3.js";
+import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 
 import { decodePreviewBorrowPositionReturnData } from "../../../packages/dusk-sdk/src/preview.js";
 import { formatUnits, type ProtocolTestHarness, type ScenarioDefinition } from "../harness.js";
@@ -310,283 +311,147 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
     },
   },
   {
-    id: "governance.market-authorities",
-    async run(harness) {
-      const initial = await harness.market();
-      const alice = walletAddress(harness, "alice");
-      const bob = walletAddress(harness, "bob");
-      const referrer = walletAddress(harness, "referrer");
-
-      const unauthorized = await harness.execute({
-        wallet: "bob",
-        endpoint: "/api/v2/fork/tx/set-manager",
-        label: "reject manager rotation by non-manager",
-        expected: "failure",
-        body: { newManager: bob },
-      });
-      harness.assertEqual("manager signer binding is enforced", unauthorized.errorCode, "InvalidMarketManager");
-
-      await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/set-manager",
-        label: "bootstrap manager schedules handoff to Alice",
-        apiSigned: true,
-        body: { bootstrapSigned: true, newManager: alice },
-      });
-      let market = await harness.market();
-      harness.assertEqual("manager does not change when handoff is scheduled", market.manager, initial.manager);
-      harness.assertEqual("manager handoff records pending Alice", market.pendingManager.newAuthority, alice);
-      harness.assertEqual("manager handoff is active", market.pendingManager.active, true);
-
-      const earlyHandoff = await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/set-manager",
-        label: "reject manager handoff before timelock",
-        apiSigned: true,
-        expected: "failure",
-        body: { bootstrapSigned: true, newManager: alice },
-      });
-      harness.assertEqual(
-        "manager timelock cannot execute early",
-        earlyHandoff.errorCode,
-        "GovernanceTimelockNotReady"
-      );
-      await harness.timeTravel(0, harness.config.governanceDelaySlots + 10);
-      await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/set-manager",
-        label: "bootstrap manager completes handoff to Alice",
-        apiSigned: true,
-        body: { bootstrapSigned: true, newManager: alice },
-      });
-      market = await harness.market();
-      harness.assertEqual("Alice becomes market manager after timelock", market.manager, alice);
-      harness.assertEqual("applied manager handoff clears pending state", market.pendingManager.active, false);
-
-      const formerManager = await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/set-operator",
-        label: "reject former bootstrap manager after handoff",
-        apiSigned: true,
-        expected: "failure",
-        body: { bootstrapSigned: true, newOperator: bob },
-      });
-      harness.assertEqual("former manager loses role control", formerManager.errorCode, "InvalidMarketManager");
-
-      await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/set-operator",
-        label: "Alice schedules Bob as market operator",
-        body: { newOperator: bob },
-      });
-      market = await harness.market();
-      harness.assertEqual("operator remains unchanged during timelock", market.operator, initial.operator);
-      harness.assertEqual("Bob is recorded as pending operator", market.pendingOperator.newAuthority, bob);
-
-      const earlyOperator = await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/set-operator",
-        label: "reject operator update before timelock",
-        expected: "failure",
-        body: { newOperator: bob },
-      });
-      harness.assertEqual(
-        "operator timelock cannot execute early",
-        earlyOperator.errorCode,
-        "GovernanceTimelockNotReady"
-      );
-
-      await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/set-operator",
-        label: "overwrite pending operator with referrer",
-        body: { newOperator: referrer },
-      });
-      market = await harness.market();
-      harness.assertEqual("latest pending operator replaces prior candidate", market.pendingOperator.newAuthority, referrer);
-      await harness.timeTravel(0, harness.config.governanceDelaySlots + 10);
-      await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/set-operator",
-        label: "apply referrer as market operator",
-        body: { newOperator: referrer },
-      });
-      harness.assertEqual("referrer becomes operator after timelock", (await harness.market()).operator, referrer);
-
-      await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/set-manager",
-        label: "Alice schedules Bob as market manager",
-        body: { newManager: bob },
-      });
-      await harness.timeTravel(0, harness.config.governanceDelaySlots + 10);
-      await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/set-manager",
-        label: "Alice applies Bob as market manager",
-        body: { newManager: bob },
-      });
-      harness.assertEqual("Bob becomes market manager", (await harness.market()).manager, bob);
-
-      const formerAlice = await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/set-operator",
-        label: "reject former Alice manager after Bob rotation",
-        expected: "failure",
-        body: { newOperator: bob },
-      });
-      harness.assertEqual("former Alice manager loses control", formerAlice.errorCode, "InvalidMarketManager");
-
-      await harness.execute({
-        wallet: "bob",
-        endpoint: "/api/v2/fork/tx/set-manager",
-        label: "Bob schedules manager return to Alice",
-        body: { newManager: alice },
-      });
-      await harness.timeTravel(0, harness.config.governanceDelaySlots + 10);
-      await harness.execute({
-        wallet: "bob",
-        endpoint: "/api/v2/fork/tx/set-manager",
-        label: "Bob returns market manager to Alice",
-        body: { newManager: alice },
-      });
-      harness.assertEqual("Alice is final market manager", (await harness.market()).manager, alice);
-
-      await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/set-operator",
-        label: "schedule restoration of original operator",
-        body: { newOperator: initial.operator },
-      });
-      await harness.timeTravel(0, harness.config.governanceDelaySlots + 10);
-      await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/set-operator",
-        label: "restore original market operator",
-        body: { newOperator: initial.operator },
-      });
-      market = await harness.market();
-      harness.assertEqual("market operator is restored", market.operator, initial.operator);
-      harness.assertEqual("no operator update remains pending", market.pendingOperator.active, false);
-      harness.assertEqual("no manager update remains pending", market.pendingManager.active, false);
-    },
-  },
-  {
-    id: "governance.market-config",
+    id: "governance.parameter-proposal-lifecycle",
     async run(harness) {
       const before = await harness.market();
-      const original = before.config;
+      const ylpSupply = stateValue(before, "baseSideYlpSupply");
+      const baseHlpLocked = await harness.tokenAccountBalance(
+        new PublicKey(before.baseHlpYlpVault),
+        TOKEN_2022_PROGRAM_ID.toBase58()
+      );
+      const quoteHlpLocked = await harness.tokenAccountBalance(
+        new PublicKey(before.quoteHlpYlpVault),
+        TOKEN_2022_PROGRAM_ID.toBase58()
+      );
+      const eligibleDirectYlp = ylpSupply - baseHlpLocked - quoteHlpLocked;
+      const sponsorship = (eligibleDirectYlp + 99n) / 100n;
+      const strictMajority = eligibleDirectYlp / 2n + 1n;
+      const additionalSupport = strictMajority - sponsorship;
+      const nonce = BigInt(Date.now());
+      const proposer = new PublicKey(harness.config.payer);
+      const nonceBytes = Buffer.alloc(8);
+      nonceBytes.writeBigUInt64LE(nonce);
+      const proposal = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("parameter_proposal"),
+          new PublicKey(harness.config.market).toBuffer(),
+          proposer.toBuffer(),
+          nonceBytes,
+        ],
+        new PublicKey(harness.config.programId)
+      )[0];
 
-      const unauthorized = await harness.execute({
-        wallet: "bob",
-        endpoint: "/api/v2/fork/tx/update-config",
-        label: "reject market config update by non-manager",
-        expected: "failure",
-        body: { config: { ...original, swapFeeBps: 31 } },
-      });
-      harness.assertEqual(
-        "market config signer binding is enforced",
-        unauthorized.errorCode,
-        "InvalidMarketConfigAuthority"
+      harness.assertTrue(
+        "eligible direct yLP can satisfy strict-majority support",
+        eligibleDirectYlp > 0n && additionalSupport > 0n,
+        eligibleDirectYlp
       );
 
-      const invalidConfigs: Array<[string, Record<string, string | number>, string]> = [
-        ["swap fee above maximum", { ...original, swapFeeBps: 10_001 }, "InvalidSwapFeeBps"],
-        ["manager fee above maximum", { ...original, managerFeeBps: 501 }, "InvalidMarketConfig"],
-        ["unsupported hLP leverage", { ...original, targetHlpLeverageBps: 19_999 }, "InvalidMarketConfig"],
-        ["settlement divergence above maximum", { ...original, settlementDivergenceBps: 10_001 }, "InvalidMarketConfig"],
-        ["symmetric EMA below minimum", { ...original, emaHalfLifeMs: "59999" }, "InvalidMarketConfig"],
-        ["directional EMA above maximum", { ...original, directionalEmaHalfLifeMs: "43200001" }, "InvalidMarketConfig"],
-        ["zero Q EMA half life", { ...original, qEmaHalfLifeMs: "0" }, "InvalidMarketConfig"],
-        ["daily borrow limit above maximum", { ...original, maxDailyBorrowBps: 10_001 }, "InvalidMarketConfig"],
-        ["global contribution cap below one", { ...original, globalHealthContributionCapBps: 9_999 }, "InvalidMarketConfig"],
-        ["borrow health floor below one", { ...original, borrowMarketHealthFloorBps: 9_999 }, "InvalidMarketConfig"],
-        [
-          "global contribution cap below health floor",
-          { ...original, globalHealthContributionCapBps: 11_000, borrowMarketHealthFloorBps: 12_000 },
-          "InvalidMarketConfig",
-        ],
-      ];
-      for (const [label, config, errorCode] of invalidConfigs) {
-        const rejected = await harness.execute({
-          wallet: "alice",
-          endpoint: "/api/v2/fork/tx/update-config",
-          label: `reject ${label}`,
-          expected: "failure",
-          body: { config },
-        });
-        harness.assertEqual(`${label} returns deterministic error`, rejected.errorCode, errorCode);
-      }
-      harness.assertEqual("invalid configs leave no pending update", (await harness.market()).pendingConfig.active, false);
-
-      const identical = await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/update-config",
-        label: "reject scheduling an identical market config",
-        expected: "failure",
-        body: { config: original },
-      });
-      harness.assertEqual("identical config is rejected", identical.errorCode, "InvalidArgument");
-
-      const boundaryConfig = {
-        ...original,
-        swapFeeBps: 10_000,
-        managerFeeBps: 500,
-        targetHlpLeverageBps: 20_000,
-        settlementDivergenceBps: 10_000,
-        emaHalfLifeMs: "43200000",
-        directionalEmaHalfLifeMs: "60000",
-        qEmaHalfLifeMs: "43200000",
-        maxDailyBorrowBps: 10_000,
-        globalHealthContributionCapBps: 15_000,
-        borrowMarketHealthFloorBps: 11_000,
-      };
       await harness.execute({
         wallet: "alice",
-        endpoint: "/api/v2/fork/tx/update-config",
-        label: "schedule valid market config boundary values",
-        body: { config: boundaryConfig },
+        endpoint: "/api/v2/fork/tx/create-parameter-proposal",
+        label: "burn-lock one percent of direct yLP to sponsor a typed update",
+        apiSigned: true,
+        body: {
+          bootstrapSigned: true,
+          nonce: nonce.toString(),
+          initialSupport: formatUnits(sponsorship, harness.config.baseDecimals),
+          update: {
+            dailyBorrowLimit: {
+              maxDailyBorrowBps:
+                Number(before.config.maxDailyBorrowBps) === 2_001 ? 2_000 : 2_001,
+            },
+          },
+          metadata: {
+            title: "Protocol-test daily borrow limit",
+            descriptionUri: "ipfs://dusk-protocol-test-daily-borrow",
+            description: "Exercise the complete direct-yLP parameter proposal lifecycle.",
+          },
+        },
       });
-      let market = await harness.market();
-      harness.assertEqual("scheduled config does not apply immediately", market.config, original);
-      harness.assertEqual("valid config is recorded as pending", market.pendingConfig.active, true);
-      harness.assertEqual("pending config stores exact boundary values", market.pendingConfig.config, boundaryConfig);
+      harness.assertEqual(
+        "sponsorship is tracked as governance-locked yLP",
+        BigInt((await harness.market()).governanceLockedYlp),
+        sponsorship
+      );
+
+      const insufficientQueue = await harness.execute({
+        wallet: "bob",
+        endpoint: "/api/v2/fork/tx/queue-parameter-proposal",
+        label: "reject queue before strict-majority support",
+        expected: "failure",
+        body: { proposal: proposal.toBase58() },
+      });
+      harness.assertEqual(
+        "one-percent sponsorship alone cannot queue",
+        insufficientQueue.errorCode,
+        "ProposalSupportInsufficient"
+      );
+
+      await harness.execute({
+        wallet: "alice",
+        endpoint: "/api/v2/fork/tx/support-parameter-proposal",
+        label: "burn-lock enough direct yLP to cross the strict majority",
+        apiSigned: true,
+        body: {
+          bootstrapSigned: true,
+          proposal: proposal.toBase58(),
+          amount: formatUnits(additionalSupport, harness.config.baseDecimals),
+        },
+      });
+      harness.assertEqual(
+        "strict-majority support is frozen in the queued proposal",
+        BigInt((await harness.market()).governanceLockedYlp),
+        strictMajority
+      );
 
       const early = await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/update-config",
-        label: "reject config application before timelock",
+        wallet: "bob",
+        endpoint: "/api/v2/fork/tx/execute-parameter-proposal",
+        label: "reject parameter execution before the seven-day timelock",
         expected: "failure",
-        body: { config: boundaryConfig },
+        body: { proposal: proposal.toBase58() },
       });
-      harness.assertEqual("config timelock cannot execute early", early.errorCode, "GovernanceTimelockNotReady");
-      await harness.timeTravel(0, harness.config.governanceDelaySlots + 10);
+      harness.assertEqual(
+        "queued proposal cannot execute early",
+        early.errorCode,
+        "ProposalTimelockNotReady"
+      );
+
+      await harness.timeTravel(harness.config.parameterTimelockSeconds + 1);
       await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/update-config",
-        label: "apply valid market config boundary values",
-        body: { config: boundaryConfig },
+        wallet: "bob",
+        endpoint: "/api/v2/fork/tx/execute-parameter-proposal",
+        label: "permissionlessly execute the matured typed parameter update",
+        body: { proposal: proposal.toBase58() },
       });
-      market = await harness.market();
-      harness.assertEqual("boundary config applies exactly", market.config, boundaryConfig);
-      harness.assertEqual("applied config clears pending state", market.pendingConfig.active, false);
+      const executed = await harness.market();
+      harness.assertEqual(
+        "only the proposed daily-borrow family changes",
+        Number(executed.config.maxDailyBorrowBps),
+        Number(before.config.maxDailyBorrowBps) === 2_001 ? 2_000 : 2_001
+      );
+      harness.assertEqual(
+        "daily-borrow family revision advances once",
+        BigInt(executed.parameterRevisions[4]),
+        BigInt(before.parameterRevisions[4]) + 1n
+      );
 
       await harness.execute({
         wallet: "alice",
-        endpoint: "/api/v2/fork/tx/update-config",
-        label: "schedule restoration of original market config",
-        body: { config: original },
+        endpoint: "/api/v2/fork/tx/withdraw-parameter-support",
+        label: "remint the sponsor's yLP after execution",
+        apiSigned: true,
+        body: {
+          bootstrapSigned: true,
+          proposal: proposal.toBase58(),
+        },
       });
-      await harness.timeTravel(0, harness.config.governanceDelaySlots + 10);
-      await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/update-config",
-        label: "restore original market config",
-        body: { config: original },
-      });
-      market = await harness.market();
-      harness.assertEqual("market config restores exactly", market.config, original);
-      harness.assertEqual("restored config leaves no pending update", market.pendingConfig.active, false);
+      harness.assertEqual(
+        "all proposal support unlocks after execution",
+        BigInt((await harness.market()).governanceLockedYlp),
+        0n
+      );
     },
   },
   {

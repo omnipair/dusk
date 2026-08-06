@@ -372,9 +372,10 @@ impl Market {
         target_asset: MarketAsset,
         deposit_amount: u64,
         min_hlp_amount: u64,
+        current_slot: u64,
     ) -> Result<crate::state::market::transitions::hedge::HedgeReceipt> {
         crate::state::market::transitions::hedge::DepositSingleSided::new(target_asset, deposit_amount, min_hlp_amount)
-            .apply(self)
+            .apply_at(self, current_slot)
     }
 
     pub fn withdraw_single_sided(
@@ -408,19 +409,20 @@ impl Market {
         &mut self,
         base_pre_rebalance: HlpRebalanceReceipt,
         quote_pre_rebalance: HlpRebalanceReceipt,
+        current_slot: u64,
     ) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
         checkpoint_pre_solve_fee_eligibility(self, &base_pre_rebalance)?;
         checkpoint_pre_solve_fee_eligibility(self, &quote_pre_rebalance)?;
         // A swap moves both numeraires. Correct each active side explicitly so
         // neither vault carries avoidable delta into the next user operation.
         let base_post_rebalance = if self.base_hlp_vault.hlp_supply > 0 || self.base_hlp_vault.residual_exposure != 0 {
-            rebalance_one_hlp(self, MarketAsset::Base)?
+            rebalance_one_hlp(self, MarketAsset::Base, current_slot)?
         } else {
             empty_hlp_rebalance_receipt(MarketAsset::Base)
         };
         let quote_post_rebalance = if self.quote_hlp_vault.hlp_supply > 0 || self.quote_hlp_vault.residual_exposure != 0
         {
-            rebalance_one_hlp(self, MarketAsset::Quote)?
+            rebalance_one_hlp(self, MarketAsset::Quote, current_slot)?
         } else {
             empty_hlp_rebalance_receipt(MarketAsset::Quote)
         };

@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, MARKET_LAYOUT_VERSION, MIN_HALF_LIFE_MS},
+    constants::{BPS_DENOMINATOR, INTEREST_INITIAL_RATE_AT_TARGET_NAD, MARKET_LAYOUT_VERSION, MIN_HALF_LIFE_MS},
     state::{AmmConfig, AmmCurveParameters, AmmState, Debt, MarketConfig, MarketSide, ReserveShares, Reserves},
 };
 use proptest::prelude::*;
@@ -14,6 +14,7 @@ fn implicit_divergence_surcharge_amount(
 ) -> Result<u64> {
     require!(available > 0, ErrorCode::AmountZero);
     require!(input_decimals <= NAD_DECIMALS, ErrorCode::UnsupportedAssetDecimals);
+    const TEST_DIVERGENCE_CAP_BPS: u16 = 5_000;
     if coefficient_nad == 0 {
         return Ok(0);
     }
@@ -21,12 +22,13 @@ fn implicit_divergence_surcharge_amount(
         .checked_pow((NAD_DECIMALS - input_decimals) as u32)
         .ok_or(ErrorCode::MarketMathOverflow)?;
     implicit_divergence_surcharge_amount_core(
-        PreparedSwapDivergencePotential {
-            center_input_reserve_raw: ceil_div(center_input_reserve_nad, decimal_scale)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-            start_input_reserve_raw: start_input_reserve_nad / decimal_scale,
+        PreparedSwapDivergencePotential::new(
+            ceil_div(center_input_reserve_nad, decimal_scale).ok_or(ErrorCode::MarketMathOverflow)?,
+            start_input_reserve_nad / decimal_scale,
             coefficient_nad,
-        },
+            fee_share_cap_to_marginal_rate_nad(TEST_DIVERGENCE_CAP_BPS)?,
+            gross_fee_budget_floor(available, TEST_DIVERGENCE_CAP_BPS)?,
+        )?,
         available,
     )
 }
@@ -63,6 +65,8 @@ fn market_with_config(amm: AmmConfig) -> Market {
         },
         config: MarketConfig {
             swap_fee_bps: 30,
+            divergence_fee_share_cap_bps: 2_000,
+            volatility_fee_share_cap_bps: 2_000,
             amm,
             ..MarketConfig::default()
         },
@@ -229,6 +233,8 @@ fn concentrated_market_at_center(center_price_nad: u64, base_reserve: u64, quote
         },
         config: MarketConfig {
             swap_fee_bps: 0,
+            divergence_fee_share_cap_bps: 2_000,
+            volatility_fee_share_cap_bps: 2_000,
             amm: concentrated_fee_config(),
             ..MarketConfig::default()
         },
@@ -421,16 +427,40 @@ fn assert_implicit_endpoint_is_maximal(
     let surcharge =
         implicit_divergence_surcharge_amount(center_nad, start_nad, available, decimals, coefficient_nad).unwrap();
     let executable = available - surcharge;
-    let charged_potential =
-        divergence_fee_for_executable_input(center_nad, start_nad, executable, decimals, coefficient_nad).unwrap();
+    let maximum_surcharge = hard_total_fee_budget_floor(available);
+    let charged_potential = divergence_fee_for_executable_input(
+        center_nad,
+        start_nad,
+        executable,
+        decimals,
+        coefficient_nad,
+        maximum_surcharge,
+    )
+    .unwrap();
     assert!(surcharge >= charged_potential);
     assert!(
-        divergence_total_cost(center_nad, start_nad, executable, decimals, coefficient_nad).unwrap()
+        divergence_total_cost(
+            center_nad,
+            start_nad,
+            executable,
+            decimals,
+            coefficient_nad,
+            maximum_surcharge,
+        )
+        .unwrap()
             <= available as u128
     );
     if executable < available {
         assert!(
-            divergence_total_cost(center_nad, start_nad, executable + 1, decimals, coefficient_nad).unwrap()
+            divergence_total_cost(
+                center_nad,
+                start_nad,
+                executable + 1,
+                decimals,
+                coefficient_nad,
+                maximum_surcharge,
+            )
+            .unwrap()
                 > available as u128,
             "center={center_nad}, start={start_nad}, available={available}, decimals={decimals}, surcharge={surcharge}"
         );
@@ -466,7 +496,7 @@ fn disabled_dynamic_fee_has_exact_legacy_fee_identity() {
     let market = market_with_config(AmmConfig::default());
     let reserve_credit = 10_000 * NAD;
     let quote = market.quote_amm_swap(MarketAsset::Base, reserve_credit, 10).unwrap();
-    let base_fee = crate::shared::math::ceil_div(reserve_credit as u128 * 30, BPS_DENOMINATOR as u128).unwrap() as u64;
+    let base_fee = (reserve_credit as u128 * 30 / BPS_DENOMINATOR as u128) as u64;
     assert_eq!(quote.fee.base_fee_debit, base_fee);
     assert_eq!(quote.fee.dynamic_surcharge_debit, 0);
     assert_eq!(quote.fee.amount_in_for_quote, reserve_credit - base_fee);
@@ -483,11 +513,7 @@ fn zero_depth_swap_engine_matches_raw_cpmm_normalization_rounding_and_fees() {
         (MarketAsset::Quote, 51_234_567_u64),
     ] {
         let quote = market.quote_amm_swap(asset_in, reserve_credit, 10).unwrap();
-        let base_fee = crate::shared::math::ceil_div(
-            reserve_credit as u128 * market.config.swap_fee_bps as u128,
-            BPS_DENOMINATOR as u128,
-        )
-        .unwrap() as u64;
+        let base_fee = (reserve_credit as u128 * market.config.swap_fee_bps as u128 / BPS_DENOMINATOR as u128) as u64;
         let net_input = reserve_credit - base_fee;
         let reserves = market.curve_reserves_nad().unwrap();
         let input_nad = crate::math::normalize_to_nad(net_input as u128, market.side(asset_in).asset_decimals).unwrap();
@@ -624,13 +650,28 @@ proptest! {
             coefficient_nad,
         ).unwrap();
         let executable = available - surcharge;
+        let maximum_surcharge = hard_total_fee_budget_floor(available);
         prop_assert!(
-            divergence_total_cost(center_nad, start_nad, executable, decimals, coefficient_nad).unwrap()
+            divergence_total_cost(
+                center_nad,
+                start_nad,
+                executable,
+                decimals,
+                coefficient_nad,
+                maximum_surcharge,
+            ).unwrap()
                 <= available as u128
         );
         if executable < available {
             prop_assert!(
-                divergence_total_cost(center_nad, start_nad, executable + 1, decimals, coefficient_nad).unwrap()
+                divergence_total_cost(
+                    center_nad,
+                    start_nad,
+                    executable + 1,
+                    decimals,
+                    coefficient_nad,
+                    maximum_surcharge,
+                ).unwrap()
                     > available as u128
             );
         }
@@ -639,9 +680,8 @@ proptest! {
 }
 
 #[test]
-fn unbounded_divergence_toll_drives_gross_fee_share_toward_one() {
+fn huberized_divergence_toll_never_exceeds_half_of_gross() {
     let center = NAD as u128;
-    let mut prior_share_ppm = 0_u128;
 
     for available in [1_000_000_000_u64, 1_000_000_000_000, 1_000_000_000_000_000] {
         reset_divergence_endpoint_iterations();
@@ -649,18 +689,22 @@ fn unbounded_divergence_toll_drives_gross_fee_share_toward_one() {
         let executable = available - surcharge;
         assert!(executable > 0);
         let share_ppm = surcharge as u128 * 1_000_000 / available as u128;
-        assert!(share_ppm > prior_share_ppm);
-        prior_share_ppm = share_ppm;
-        assert!(divergence_total_cost(center, center, executable, 9, NAD).unwrap() <= available as u128);
-        assert!(divergence_total_cost(center, center, executable + 1, 9, NAD).unwrap() > available as u128);
+        assert!(share_ppm <= 500_000);
+        assert!(executable >= minimum_executable_input(available));
+        let maximum_surcharge = hard_total_fee_budget_floor(available);
+        assert!(
+            divergence_total_cost(center, center, executable, 9, NAD, maximum_surcharge).unwrap() <= available as u128
+        );
+        assert!(
+            divergence_total_cost(center, center, executable + 1, 9, NAD, maximum_surcharge).unwrap()
+                > available as u128
+        );
         assert!(divergence_endpoint_iterations() <= 16);
     }
-
-    assert!(prior_share_ppm > 999_000); // More than 99.9% at the farthest tested gross input.
 }
 
 #[test]
-fn sbf_stress_shape_remains_executable_above_99_9_percent_divergence() {
+fn sbf_stress_shape_remains_executable_at_the_hard_divergence_cap() {
     // Mirrors the six-decimal, 100-token input-side reserve used by the SBF
     // compute harness, with the maximum configured coefficient and a very
     // large but u64-safe exact input.
@@ -670,7 +714,8 @@ fn sbf_stress_shape_remains_executable_above_99_9_percent_divergence() {
     let surcharge = implicit_divergence_surcharge_amount(center_nad, center_nad, available, 6, 100 * NAD).unwrap();
     let share_ppm = surcharge as u128 * 1_000_000 / available as u128;
     assert!(surcharge < available);
-    assert!(share_ppm > 999_000);
+    assert!(share_ppm <= 500_000);
+    assert!(available - surcharge >= minimum_executable_input(available));
     assert!(divergence_endpoint_iterations() <= 24);
 }
 
@@ -680,20 +725,24 @@ fn quote_rejects_a_zero_post_retention_mark_before_preview_or_execution_can_dive
     config.divergence_fee_coefficient_nad = 100 * NAD;
     let mut market = market_with_raw_reserves_and_decimals(config, 100_000_000, 100_000_000, 6, 6);
     let gross_input = 7_000_000_000_000_000;
+    let feasible_gross_input = 2_000_000_000_000;
 
     market.amm.retain_dynamic_surcharge = false;
-    let distributed = market.quote_amm_swap(MarketAsset::Base, gross_input, 10).unwrap();
+    let distributed = market
+        .quote_amm_swap(MarketAsset::Base, feasible_gross_input, 10)
+        .unwrap();
     assert!(distributed.end_price_nad > 0);
     assert!(distributed.reserve_end_price_nad > 0);
+    let distributed_error = market.quote_amm_swap(MarketAsset::Base, gross_input, 10).unwrap_err();
+    assert_eq!(distributed_error, error!(ErrorCode::InvalidSettlementPrice));
 
     market.amm.retain_dynamic_surcharge = true;
-    let feasible_gross_input = 2_000_000_000_000;
     let retained = market
         .quote_amm_swap(MarketAsset::Base, feasible_gross_input, 10)
         .unwrap();
     assert!(retained.end_price_nad > 0);
     assert!(retained.reserve_end_price_nad > 0);
-    assert!(retained.fee.divergence_surcharge_debit as u128 * 1_000_000 / feasible_gross_input as u128 > 999_000);
+    assert!(retained.fee.divergence_surcharge_debit as u128 * 10_000 / feasible_gross_input as u128 <= 2_000);
 
     let error = market.quote_amm_swap(MarketAsset::Base, gross_input, 10).unwrap_err();
     assert_eq!(error, error!(ErrorCode::InvalidSettlementPrice));
@@ -711,19 +760,31 @@ fn wide_cpmm_sbf_stress_shape_remains_live_on_bounded_u128_path() {
     let executable = available - surcharge;
     assert!(executable > 0);
     assert!(divergence_endpoint_iterations() <= 15);
-    assert!(divergence_total_cost(center_nad, center_nad, executable, 0, 100 * NAD).unwrap() <= available as u128);
-    assert!(divergence_total_cost(center_nad, center_nad, executable + 1, 0, 100 * NAD).unwrap() > available as u128);
+    let maximum_surcharge = hard_total_fee_budget_floor(available);
+    assert!(
+        divergence_total_cost(center_nad, center_nad, executable, 0, 100 * NAD, maximum_surcharge,).unwrap()
+            <= available as u128
+    );
+    assert!(
+        divergence_total_cost(center_nad, center_nad, executable + 1, 0, 100 * NAD, maximum_surcharge,).unwrap()
+            > available as u128
+    );
 }
 
 #[test]
-fn extreme_unbounded_toll_rejects_when_no_raw_atom_is_affordable() {
+fn extreme_tail_still_leaves_the_minimum_executable_input() {
     let available = u64::MAX / 4;
+    let center = NAD as u128;
+    let start = (u64::MAX - available) as u128;
     reset_divergence_endpoint_iterations();
-    let surcharge = implicit_divergence_surcharge_amount(1, u128::MAX / 2, available, 9, 100 * NAD).unwrap();
+    let surcharge = implicit_divergence_surcharge_amount(center, start, available, 9, 100 * NAD).unwrap();
 
-    assert_eq!(surcharge, available);
-    assert_eq!(divergence_total_cost(1, u128::MAX / 2, 0, 9, 100 * NAD).unwrap(), 0);
-    assert!(divergence_total_cost(1, u128::MAX / 2, 1, 9, 100 * NAD).unwrap() > available as u128);
+    assert!(
+        surcharge <= hard_total_fee_budget_floor(available),
+        "surcharge={surcharge}, budget={}, available={available}",
+        hard_total_fee_budget_floor(available)
+    );
+    assert!(available - surcharge >= minimum_executable_input(available));
     assert!(divergence_endpoint_iterations() <= DIVERGENCE_ENDPOINT_MAX_ITERS);
 }
 
@@ -757,7 +818,8 @@ fn adaptive_numeraire_keeps_low_and_high_center_restoring_flow_fee_free() {
                 .quote_amm_swap(restoring_asset, outward.amount_out / 2, 10)
                 .unwrap();
             assert_eq!(
-                restoring.fee.divergence_surcharge_debit, 0,
+                restoring.fee.divergence_surcharge_debit,
+                0,
                 "center={center}, outward={outward_asset:?}",
                 center = market.amm.center_price_nad,
             );

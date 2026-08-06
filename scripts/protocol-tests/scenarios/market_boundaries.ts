@@ -69,7 +69,7 @@ async function firstPassingRawSwap(
   return high;
 }
 
-async function largestPassingHlpDeposit(
+async function largestPassingHlpDepositAtDebtBoundary(
   harness: ProtocolTestHarness,
   wallet: string,
   targetAsset: MarketAsset,
@@ -88,7 +88,11 @@ async function largestPassingHlpDeposit(
     depositAmount: formatUnits(high, decimals),
     minHlpAmount: "0",
   });
-  harness.assertEqual(`${targetAsset} hLP upper bound reaches cash headroom`, highProbe.errorCode, "InsufficientBorrowHeadroom");
+  harness.assertTrue(
+    `${targetAsset} hLP upper bound reaches shared daily-flow or cash headroom`,
+    highProbe.errorCode === "DailyLimitExceeded" || highProbe.errorCode === "InsufficientBorrowHeadroom",
+    highProbe.errorCode
+  );
 
   let passing = low;
   let failing = high;
@@ -241,14 +245,14 @@ export const MARKET_BOUNDARY_SCENARIOS: ScenarioDefinition[] = [
         const before = await harness.market();
         const sharesBefore = await harness.lpBalance("bidder", hlpMint);
         const debtBeforePreview = await previewMarket(harness, `preview before ${targetAsset} hLP cash-boundary search`);
-        const maximum = await largestPassingHlpDeposit(
+        const maximum = await largestPassingHlpDepositAtDebtBoundary(
           harness,
           "bidder",
           targetAsset,
           raw(1, decimals),
           raw(900_000, decimals)
         );
-        harness.observe(`${targetAsset} maximum hLP deposit at current cash headroom`, {
+        harness.observe(`${targetAsset} maximum hLP deposit at current debt-admission boundary`, {
           raw: maximum,
           ui: formatUnits(maximum, decimals),
         });
@@ -256,24 +260,29 @@ export const MARKET_BOUNDARY_SCENARIOS: ScenarioDefinition[] = [
         const rejected = await harness.execute({
           wallet: "bidder",
           endpoint: "/api/v2/fork/tx/deposit-single-sided",
-          label: `reject ${targetAsset} hLP deposit one raw unit beyond cash headroom`,
+          label: `reject ${targetAsset} hLP deposit one raw unit beyond shared debt capacity`,
           expected: "failure",
           body: { targetAsset, depositAmount: formatUnits(maximum + 1n, decimals), minHlpAmount: "0" },
         });
-        harness.assertEqual(`${targetAsset} hLP cash boundary has deterministic error`, rejected.errorCode, "InsufficientBorrowHeadroom");
+        harness.assertTrue(
+          `${targetAsset} hLP boundary is the shared daily-flow or cash cap`,
+          rejected.errorCode === "DailyLimitExceeded" || rejected.errorCode === "InsufficientBorrowHeadroom",
+          rejected.errorCode
+        );
 
         await harness.execute({
           wallet: "bidder",
           endpoint: "/api/v2/fork/tx/deposit-single-sided",
-          label: `execute maximum ${targetAsset} hLP cash-boundary deposit`,
+          label: `execute maximum ${targetAsset} hLP debt-boundary deposit`,
           body: { targetAsset, depositAmount: formatUnits(maximum, decimals), minHlpAmount: "0" },
         });
         const afterDeposit = await harness.market();
         const afterDepositPreview = await previewMarket(harness, `preview maximum ${targetAsset} hLP deposit`);
-        harness.assertEqual(
-          `${targetAsset} hLP internal debt does not consume normal daily borrow bucket`,
-          stateValue(afterDeposit, bucketKey),
-          stateValue(before, bucketKey)
+        const bucketAfterDeposit = stateValue(afterDeposit, bucketKey);
+        harness.assertTrue(
+          `${targetAsset} hLP funding consumes the opposite-side shared daily bucket`,
+          bucketAfterDeposit > stateValue(before, bucketKey),
+          { before: stateValue(before, bucketKey), after: bucketAfterDeposit }
         );
         harness.assertTrue(
           `${targetAsset} hLP deposit creates opposite-side funding debt`,
@@ -297,9 +306,9 @@ export const MARKET_BOUNDARY_SCENARIOS: ScenarioDefinition[] = [
           integer(debtBeforePreview[debtPreviewKey].hlpFundingDebt)
         );
         harness.assertEqual(
-          `${targetAsset} hLP exit also leaves daily borrow bucket unchanged`,
+          `${targetAsset} hLP exit does not refund shared daily-flow capacity`,
           stateValue(afterExit, bucketKey),
-          stateValue(before, bucketKey)
+          bucketAfterDeposit
         );
       }
     },
@@ -311,8 +320,6 @@ export const POST_GOVERNANCE_MARKET_SCENARIOS: ScenarioDefinition[] = [
     id: "swap.fee-routing",
     async run(harness) {
       const originalFutarchy = await harness.futarchy();
-      const originalMarket = await harness.market();
-      const routedConfig = { ...originalMarket.config, managerFeeBps: 500 };
 
       await harness.execute({
         wallet: "alice",
@@ -320,33 +327,19 @@ export const POST_GOVERNANCE_MARKET_SCENARIOS: ScenarioDefinition[] = [
         label: "set protocol swap revenue share for routing test",
         body: { swapBps: 2_000 },
       });
-      await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/update-config",
-        label: "schedule manager swap revenue share for routing test",
-        body: { config: routedConfig },
-      });
-      await harness.timeTravel(0, harness.config.governanceDelaySlots + 10);
-      await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/update-config",
-        label: "apply manager swap revenue share for routing test",
-        body: { config: routedConfig },
-      });
 
       const before = await harness.market();
       const previewEvidence = await harness.execute({
         wallet: "trader",
         endpoint: "/api/v2/fork/tx/preview-swap",
-        label: "preview fee-routed base swap",
+        label: "preview protocol-routed base swap",
         submit: false,
         body: { assetIn: "base", exactAssetIn: "100" },
       });
       const preview = decodePreviewSwapReturnData(previewData(previewEvidence));
       const feeCredit = integer(preview.claimableFeeCredit);
-      const expectedManager = feeCredit * 500n / 10_000n;
-      const expectedProtocol = feeCredit * 2_000n / 10_000n;
-      const expectedLp = feeCredit - expectedManager - expectedProtocol;
+      const expectedProtocol = (feeCredit * 2_000n) / 10_000n;
+      const expectedLp = feeCredit - expectedProtocol;
       const feeCustodyBefore = stateValue(before, "baseSwapFeeCustodyBalance");
       const baseReserveVault = new PublicKey(before.baseReserveVault);
       const reserveVaultBefore = await harness.tokenAccountBalance(
@@ -362,104 +355,59 @@ export const POST_GOVERNANCE_MARKET_SCENARIOS: ScenarioDefinition[] = [
       await harness.execute({
         wallet: "trader",
         endpoint: "/api/v2/fork/tx/swap",
-        label: "execute manager protocol and LP fee-routed swap",
+        label: "execute protocol and LP fee-routed swap",
         body: { assetIn: "base", exactAssetIn: "100", minAssetOut: "0" },
       });
       const after = await harness.market();
       const feeCustodyAfter = stateValue(after, "baseSwapFeeCustodyBalance");
-      const reserveVaultAfterSwap = await harness.tokenAccountBalance(
+      const reserveVaultAfter = await harness.tokenAccountBalance(
         baseReserveVault,
         harness.config.baseTokenProgram
       );
-      const managerDelta = stateValue(after, "baseManagerSwapFeeLiability") - stateValue(before, "baseManagerSwapFeeLiability");
       const protocolDelta =
-        stateValue(after, "baseSwapProtocolFeeLiability") - stateValue(before, "baseSwapProtocolFeeLiability") +
-        stateValue(after, "baseSwapBuybackFeeLiability") - stateValue(before, "baseSwapBuybackFeeLiability");
+        stateValue(after, "baseSwapProtocolFeeLiability") -
+        stateValue(before, "baseSwapProtocolFeeLiability") +
+        stateValue(after, "baseSwapBuybackFeeLiability") -
+        stateValue(before, "baseSwapBuybackFeeLiability");
       const lpDelta =
-        stateValue(after, "baseLpSwapFeeLiability") - stateValue(before, "baseLpSwapFeeLiability") +
-        stateValue(after, "baseUnallocatedSwapFeeLiability") - stateValue(before, "baseUnallocatedSwapFeeLiability");
-      harness.assertEqual("reserve custody records exact previewed fee credit", feeCustodyAfter - feeCustodyBefore, feeCredit);
-      harness.assertEqual("manager receives exact configured fee liability", managerDelta, expectedManager);
-      harness.assertEqual("protocol auction lanes receive exact configured liability", protocolDelta, expectedProtocol);
-      harness.assertEqual("LP liabilities receive the complete remainder", lpDelta, expectedLp);
-      harness.assertEqual("every fee unit is assigned exactly once", managerDelta + protocolDelta + lpDelta, feeCredit);
+        stateValue(after, "baseLpSwapFeeLiability") -
+        stateValue(before, "baseLpSwapFeeLiability") +
+        stateValue(after, "baseUnallocatedSwapFeeLiability") -
+        stateValue(before, "baseUnallocatedSwapFeeLiability");
+
       harness.assertEqual(
-        "physical base reserve is executable cash plus swap-fee custody after routing",
-        reserveVaultAfterSwap,
+        "reserve custody records exact previewed fee credit",
+        feeCustodyAfter - feeCustodyBefore,
+        feeCredit
+      );
+      harness.assertEqual(
+        "protocol auction lanes receive the configured liability",
+        protocolDelta,
+        expectedProtocol
+      );
+      harness.assertEqual("LP liabilities receive the complete remainder", lpDelta, expectedLp);
+      harness.assertEqual(
+        "every claimable fee unit is assigned exactly once",
+        protocolDelta + lpDelta,
+        feeCredit
+      );
+      harness.assertEqual(
+        "physical base reserve remains executable cash plus swap-fee custody",
+        reserveVaultAfter,
         stateValue(after, "baseCashReserve") + feeCustodyAfter
       );
 
-      const managerBaseBefore = await harness.tokenBalance(
-        "alice",
-        harness.config.baseMint,
-        harness.config.baseTokenProgram
-      );
-      const managerSwapClaim = stateValue(after, "baseManagerSwapFeeLiability");
-      const managerInterestClaim = stateValue(after, "baseManagerInterestFeeLiability");
-      const totalManagerClaim = managerSwapClaim + managerInterestClaim;
-      await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/claim-manager-fees",
-        label: "claim all base manager fee liabilities",
-        body: { asset: "base" },
-      });
-      const claimed = await harness.market();
-      const reserveVaultAfterClaim = await harness.tokenAccountBalance(
-        baseReserveVault,
-        harness.config.baseTokenProgram
-      );
-      harness.assertEqual(
-        "manager receives exact swap plus interest claim",
-        await harness.tokenBalance("alice", harness.config.baseMint, harness.config.baseTokenProgram) - managerBaseBefore,
-        totalManagerClaim
-      );
-      harness.assertEqual("manager swap liability clears", stateValue(claimed, "baseManagerSwapFeeLiability"), 0n);
-      harness.assertEqual("manager interest liability clears", stateValue(claimed, "baseManagerInterestFeeLiability"), 0n);
-      harness.assertEqual(
-        "manager swap claim debits reserve custody by the exact swap liability",
-        reserveVaultAfterSwap - reserveVaultAfterClaim,
-        managerSwapClaim
-      );
-      harness.assertEqual(
-        "manager swap claim debits tracked custody by the exact swap liability",
-        feeCustodyAfter - stateValue(claimed, "baseSwapFeeCustodyBalance"),
-        managerSwapClaim
-      );
-      harness.assertEqual(
-        "physical base reserve remains executable cash plus swap-fee custody after claim",
-        reserveVaultAfterClaim,
-        stateValue(claimed, "baseCashReserve") + stateValue(claimed, "baseSwapFeeCustodyBalance")
-      );
-      const emptyClaim = await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/claim-manager-fees",
-        label: "reject empty manager fee claim",
-        expected: "failure",
-        body: { asset: "base" },
-      });
-      harness.assertEqual("empty manager claim has deterministic error", emptyClaim.errorCode, "AmountZero");
-
-      await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/update-config",
-        label: "schedule restoration after fee routing test",
-        body: { config: originalMarket.config },
-      });
-      await harness.timeTravel(0, harness.config.governanceDelaySlots + 10);
-      await harness.execute({
-        wallet: "alice",
-        endpoint: "/api/v2/fork/tx/update-config",
-        label: "restore manager and protocol swap-fee routing configuration",
-        body: { config: originalMarket.config },
-      });
       await harness.execute({
         wallet: "alice",
         endpoint: "/api/v2/fork/tx/update-protocol-revenue",
         label: "restore protocol swap revenue share",
         body: { swapBps: originalFutarchy.revenueShare.swapBps },
       });
-      harness.assertEqual("manager and protocol swap-fee config restores exactly", (await harness.market()).config, originalMarket.config);
-      harness.assertEqual("protocol swap share restores exactly", (await harness.futarchy()).revenueShare.swapBps, originalFutarchy.revenueShare.swapBps);
+      harness.assertEqual(
+        "protocol swap share restores exactly",
+        (await harness.futarchy()).revenueShare.swapBps,
+        originalFutarchy.revenueShare.swapBps
+      );
     },
   },
 ];

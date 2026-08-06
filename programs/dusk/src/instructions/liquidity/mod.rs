@@ -16,7 +16,7 @@ use crate::state::{YieldAccount, YieldTokenKind};
 use anchor_lang::prelude::*;
 
 pub(super) fn initialize_or_validate_yield_account(
-    yield_account: &mut Account<YieldAccount>,
+    yield_account: &mut YieldAccount,
     owner: Pubkey,
     market: Pubkey,
     lp_mint: Pubkey,

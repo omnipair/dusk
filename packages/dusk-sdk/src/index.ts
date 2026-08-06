@@ -11,6 +11,7 @@ export * from "./constants.js";
 export { Dusk } from "./dusk.js";
 export type { DuskOptions } from "./dusk.js";
 export * from "./get.js";
+export * from "./governance.js";
 export * from "./indexer.js";
 export * from "./preview.js";
 export * from "./program.js";

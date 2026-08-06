@@ -19,7 +19,7 @@ use crate::instructions::common::{
     require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
     validate_side_vault_accounts,
 };
-use crate::instructions::referral::common::{emit_referral_interest_accrued_at_slot, validate_referral_binding};
+use crate::instructions::referral::common::{referral_interest_accrued_event_at_slot, validate_referral_binding};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct AddLeverageMarginArgs {
@@ -27,6 +27,7 @@ pub struct AddLeverageMarginArgs {
     pub amount: u64,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: AddLeverageMarginArgs)]
 pub struct AddLeverageMargin<'info> {
@@ -174,7 +175,6 @@ impl<'info> AddLeverageMargin<'info> {
             ctx.accounts
                 .market
                 .add_leverage_margin(&mut ctx.accounts.leverage_position, repay_credit, current_slot)?;
-        let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
         let referral_receipt = record_leverage_interest(
             &mut ctx.accounts.market,
             debt_asset,
@@ -183,7 +183,6 @@ impl<'info> AddLeverageMargin<'info> {
             &mut ctx.accounts.debt_interest_vault,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
-            manager_fee_bps,
             &ctx.accounts.futarchy_authority,
             ctx.accounts.leverage_position.referral_partner,
             ctx.accounts.leverage_position.referral_interest_share_bps,
@@ -199,7 +198,7 @@ impl<'info> AddLeverageMargin<'info> {
         )?;
 
         // Emit referral accrual before the final position state.
-        emit_referral_interest_accrued_at_slot(
+        if let Some(event) = referral_interest_accrued_event_at_slot(
             &referral_receipt,
             market_key,
             position_key,
@@ -207,9 +206,11 @@ impl<'info> AddLeverageMargin<'info> {
             owner_key,
             debt_mint_key,
             current_slot,
-        )?;
+        )? {
+            emit_cpi!(event);
+        }
 
-        emit!(LeveragePositionUpdated {
+        emit_cpi!(LeveragePositionUpdated {
             market: market_key,
             position: position_key,
             owner: owner_key,
@@ -222,6 +223,7 @@ impl<'info> AddLeverageMargin<'info> {
             debt_shares: receipt.debt_shares,
             collateral_amount: receipt.collateral_amount,
             closeout_value: receipt.closeout_value,
+            owner_credit: 0,
             swap: None,
             metadata: MarketEventMetadata::at_slot(owner_key, market_key, current_slot),
         });

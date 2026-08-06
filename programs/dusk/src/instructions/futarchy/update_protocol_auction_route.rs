@@ -16,6 +16,7 @@ pub struct UpdateProtocolAuctionRouteArgs {
     pub reference_market: Pubkey,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct UpdateProtocolAuctionRoute<'info> {
     #[account(
@@ -48,6 +49,7 @@ impl UpdateProtocolAuctionRoute<'_> {
             authority_signer,
             futarchy_authority,
             market,
+            ..
         } = ctx.accounts;
 
         futarchy_authority.validate()?;
@@ -58,7 +60,7 @@ impl UpdateProtocolAuctionRoute<'_> {
             .fees
             .set_protocol_auction_reference_market(args.lane, args.reference_market);
 
-        emit!(ProtocolAuctionRouteUpdated {
+        emit_cpi!(ProtocolAuctionRouteUpdated {
             authority: futarchy_authority.key(),
             market: market.key(),
             lane: args.lane.code(),

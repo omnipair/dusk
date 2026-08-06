@@ -1,16 +1,38 @@
 import type { Program } from "@coral-xyz/anchor";
-import { getMint, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { SystemProgram, Transaction, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
+import {
+  getAssociatedTokenAddressSync,
+  getMint,
+  TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
+import {
+  SystemProgram,
+  Transaction,
+  type AccountMeta,
+  type PublicKey,
+  type TransactionInstruction,
+} from "@solana/web3.js";
 
 import { address, normalizeAccountKeys, type AddressLike } from "./address.js";
 import {
+  deriveEventAuthorityAddress,
   deriveFutarchyAuthorityAddress,
   deriveMarketInterestVaultAddress,
+  deriveParameterProposalAddress,
+  deriveProposalSupportAddress,
   deriveYieldAccountAddress,
   deriveYieldTransferHookValidationAddress,
   deriveReferralPartnerAddress,
   type YieldTokenKind,
 } from "./constants.js";
+import {
+  anchorParameterUpdate,
+  assertProposalMetadata,
+  governanceIntegerBN,
+  type GovernanceIntegerLike,
+  type ParameterUpdate,
+  type ProposalMetadataV1,
+} from "./governance.js";
 import {
   assertReferralInterestShareBps,
   referralAccrualAddresses,
@@ -71,6 +93,69 @@ export interface HlpLiquidityBuild {
   transaction: Transaction;
 }
 
+export interface GovernanceMarketAccountOverrides {
+  ylpMint?: AddressLike;
+  baseHlpYlpVault?: AddressLike;
+  quoteHlpYlpVault?: AddressLike;
+}
+
+export interface GovernanceHolderAccountOverrides extends GovernanceMarketAccountOverrides {
+  holderYlpAccount?: AddressLike;
+  baseYieldAccount?: AddressLike;
+  quoteYieldAccount?: AddressLike;
+}
+
+export interface CreateParameterProposalParams extends GovernanceHolderAccountOverrides {
+  proposer: AddressLike;
+  market: AddressLike;
+  nonce: GovernanceIntegerLike;
+  update: ParameterUpdate;
+  metadata: ProposalMetadataV1;
+  initialSupport: GovernanceIntegerLike;
+}
+
+export interface SupportParameterProposalParams extends GovernanceHolderAccountOverrides {
+  supporter: AddressLike;
+  market: AddressLike;
+  proposal: AddressLike;
+  amount: GovernanceIntegerLike;
+}
+
+export interface QueueParameterProposalParams extends GovernanceMarketAccountOverrides {
+  market: AddressLike;
+  proposal: AddressLike;
+}
+
+export interface ExecuteParameterProposalParams {
+  market: AddressLike;
+  proposal: AddressLike;
+}
+
+export interface WithdrawParameterSupportParams {
+  supporter: AddressLike;
+  market: AddressLike;
+  proposal: AddressLike;
+  ylpMint?: AddressLike;
+  supporterYlpAccount?: AddressLike;
+  baseYieldAccount?: AddressLike;
+  quoteYieldAccount?: AddressLike;
+}
+
+export interface ParameterGovernanceBuild {
+  proposal: PublicKey;
+  proposalSupport?: PublicKey;
+  instruction: TransactionInstruction;
+  transaction: Transaction;
+}
+
+interface GovernanceMarketState {
+  ylpMint: PublicKey;
+  baseSide: { assetMint: PublicKey };
+  quoteSide: { assetMint: PublicKey };
+  baseHlpVault: { ylpVault: PublicKey };
+  quoteHlpVault: { ylpVault: PublicKey };
+}
+
 type AnchorMethodBuilder = {
   accounts(accounts: DuskAccounts): AnchorMethodBuilder;
   remainingAccounts(accounts: AccountMeta[]): AnchorMethodBuilder;
@@ -98,8 +183,21 @@ export class DuskWrite {
     options: DuskBuildOptions = {}
   ): AnchorMethodBuilder {
     let builder = this.method(name, args);
-    if (options.accounts) {
-      builder = builder.accounts(normalizeAccountKeys(options.accounts));
+    const instructionAccounts = this.program.idl.instructions?.find(
+      (instruction) => instruction.name === name
+    )?.accounts;
+    const usesEventCpi =
+      instructionAccounts?.some((account) => account.name === "eventAuthority") === true &&
+      instructionAccounts.some((account) => account.name === "program") === true;
+    if (options.accounts || usesEventCpi) {
+      const accounts = usesEventCpi
+        ? {
+            ...options.accounts,
+            eventAuthority: deriveEventAuthorityAddress(this.program.programId)[0],
+            program: this.program.programId,
+          }
+        : options.accounts!;
+      builder = builder.accounts(normalizeAccountKeys(accounts));
     }
     if (options.remainingAccounts?.length) {
       builder = builder.remainingAccounts(options.remainingAccounts);
@@ -205,8 +303,22 @@ export class DuskWrite {
         lpMint,
         baseMint,
         quoteMint,
-        baseYieldAccount: deriveYieldAccountAddress(market, owner, lpMint, baseMint, params.tokenKind)[0],
-        quoteYieldAccount: deriveYieldAccountAddress(market, owner, lpMint, quoteMint, params.tokenKind)[0],
+        baseYieldAccount: deriveYieldAccountAddress(
+          market,
+          owner,
+          lpMint,
+          baseMint,
+          params.tokenKind,
+          this.program.programId
+        )[0],
+        quoteYieldAccount: deriveYieldAccountAddress(
+          market,
+          owner,
+          lpMint,
+          quoteMint,
+          params.tokenKind,
+          this.program.programId
+        )[0],
         systemProgram: SystemProgram.programId,
       },
     });
@@ -229,7 +341,7 @@ export class DuskWrite {
         payer: address(params.payer),
         market: address(params.market),
         lpMint,
-        validationAccount: deriveYieldTransferHookValidationAddress(lpMint)[0],
+        validationAccount: deriveYieldTransferHookValidationAddress(lpMint, this.program.programId)[0],
         systemProgram: SystemProgram.programId,
       },
     });
@@ -239,6 +351,252 @@ export class DuskWrite {
     params: Parameters<DuskWrite["initializeLpTransferHookInstruction"]>[0]
   ): Promise<Transaction> {
     return new Transaction().add(await this.initializeLpTransferHookInstruction(params));
+  }
+
+  /** Burn-lock initial direct-yLP support and create one immutable typed proposal. */
+  async createParameterProposal(
+    params: CreateParameterProposalParams
+  ): Promise<ParameterGovernanceBuild> {
+    assertProposalMetadata(params.metadata);
+    const proposer = address(params.proposer);
+    const market = address(params.market);
+    const state = await this.governanceMarketState(market);
+    const ylpMint = address(params.ylpMint ?? state.ylpMint);
+    const [proposal] = deriveParameterProposalAddress(
+      market,
+      proposer,
+      params.nonce,
+      this.program.programId
+    );
+    const [proposalSupport] = deriveProposalSupportAddress(
+      proposal,
+      proposer,
+      this.program.programId
+    );
+    const proposerYlpAccount = address(
+      params.holderYlpAccount ??
+        getAssociatedTokenAddressSync(ylpMint, proposer, true, TOKEN_2022_PROGRAM_ID)
+    );
+    const instruction = await this.instruction(
+      "createParameterProposal" as DuskInstructionName,
+      {
+        nonce: governanceIntegerBN(params.nonce, "nonce"),
+        update: anchorParameterUpdate(params.update),
+        metadata: cloneProposalMetadata(params.metadata),
+        initialSupport: governanceIntegerBN(params.initialSupport, "initialSupport"),
+      },
+      {
+        accounts: {
+          proposer,
+          market,
+          proposal,
+          proposalSupport,
+          ylpMint,
+          proposerYlpAccount,
+          baseYieldAccount: address(
+            params.baseYieldAccount ??
+              deriveYieldAccountAddress(
+                market,
+                proposer,
+                ylpMint,
+                state.baseSide.assetMint,
+                "ylp",
+                this.program.programId
+              )[0]
+          ),
+          quoteYieldAccount: address(
+            params.quoteYieldAccount ??
+              deriveYieldAccountAddress(
+                market,
+                proposer,
+                ylpMint,
+                state.quoteSide.assetMint,
+                "ylp",
+                this.program.programId
+              )[0]
+          ),
+          baseHlpYlpVault: address(params.baseHlpYlpVault ?? state.baseHlpVault.ylpVault),
+          quoteHlpYlpVault: address(params.quoteHlpYlpVault ?? state.quoteHlpVault.ylpVault),
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        },
+      }
+    );
+    return {
+      proposal,
+      proposalSupport,
+      instruction,
+      transaction: new Transaction().add(instruction),
+    };
+  }
+
+  /** Add burn-locked direct-yLP support; crossing strict majority queues atomically. */
+  async supportParameterProposal(
+    params: SupportParameterProposalParams
+  ): Promise<ParameterGovernanceBuild> {
+    const supporter = address(params.supporter);
+    const market = address(params.market);
+    const proposal = address(params.proposal);
+    const state = await this.governanceMarketState(market);
+    const ylpMint = address(params.ylpMint ?? state.ylpMint);
+    const [proposalSupport] = deriveProposalSupportAddress(
+      proposal,
+      supporter,
+      this.program.programId
+    );
+    const supporterYlpAccount = address(
+      params.holderYlpAccount ??
+        getAssociatedTokenAddressSync(ylpMint, supporter, true, TOKEN_2022_PROGRAM_ID)
+    );
+    const instruction = await this.instruction(
+      "supportParameterProposal" as DuskInstructionName,
+      { amount: governanceIntegerBN(params.amount, "amount") },
+      {
+        accounts: {
+          supporter,
+          market,
+          proposal,
+          proposalSupport,
+          ylpMint,
+          supporterYlpAccount,
+          baseYieldAccount: address(
+            params.baseYieldAccount ??
+              deriveYieldAccountAddress(
+                market,
+                supporter,
+                ylpMint,
+                state.baseSide.assetMint,
+                "ylp",
+                this.program.programId
+              )[0]
+          ),
+          quoteYieldAccount: address(
+            params.quoteYieldAccount ??
+              deriveYieldAccountAddress(
+                market,
+                supporter,
+                ylpMint,
+                state.quoteSide.assetMint,
+                "ylp",
+                this.program.programId
+              )[0]
+          ),
+          baseHlpYlpVault: address(params.baseHlpYlpVault ?? state.baseHlpVault.ylpVault),
+          quoteHlpYlpVault: address(params.quoteHlpYlpVault ?? state.quoteHlpVault.ylpVault),
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        },
+      }
+    );
+    return {
+      proposal,
+      proposalSupport,
+      instruction,
+      transaction: new Transaction().add(instruction),
+    };
+  }
+
+  /** Permissionlessly queue after the denominator falls below already-locked support. */
+  async queueParameterProposal(
+    params: QueueParameterProposalParams
+  ): Promise<ParameterGovernanceBuild> {
+    const market = address(params.market);
+    const proposal = address(params.proposal);
+    const state = await this.governanceMarketState(market);
+    const instruction = await this.instruction(
+      "queueParameterProposal" as DuskInstructionName,
+      undefined,
+      {
+        accounts: {
+          market,
+          proposal,
+          ylpMint: address(params.ylpMint ?? state.ylpMint),
+          baseHlpYlpVault: address(params.baseHlpYlpVault ?? state.baseHlpVault.ylpVault),
+          quoteHlpYlpVault: address(params.quoteHlpYlpVault ?? state.quoteHlpVault.ylpVault),
+        },
+      }
+    );
+    return { proposal, instruction, transaction: new Transaction().add(instruction) };
+  }
+
+  /** Permissionlessly execute inside the 7-day window; on-chain utilization checks remain authoritative. */
+  async executeParameterProposal(
+    params: ExecuteParameterProposalParams
+  ): Promise<ParameterGovernanceBuild> {
+    const proposal = address(params.proposal);
+    const instruction = await this.instruction(
+      "executeParameterProposal" as DuskInstructionName,
+      undefined,
+      { accounts: { market: params.market, proposal } }
+    );
+    return { proposal, instruction, transaction: new Transaction().add(instruction) };
+  }
+
+  /** Mint back exactly one support position's burned yLP and merge its virtual yield. */
+  async withdrawParameterSupport(
+    params: WithdrawParameterSupportParams
+  ): Promise<ParameterGovernanceBuild> {
+    const supporter = address(params.supporter);
+    const market = address(params.market);
+    const proposal = address(params.proposal);
+    const state = await this.governanceMarketState(market);
+    const ylpMint = address(params.ylpMint ?? state.ylpMint);
+    const [proposalSupport] = deriveProposalSupportAddress(
+      proposal,
+      supporter,
+      this.program.programId
+    );
+    const supporterYlpAccount = address(
+      params.supporterYlpAccount ??
+        getAssociatedTokenAddressSync(ylpMint, supporter, true, TOKEN_2022_PROGRAM_ID)
+    );
+    const instruction = await this.instruction(
+      "withdrawParameterSupport" as DuskInstructionName,
+      undefined,
+      {
+        accounts: {
+          supporter,
+          market,
+          proposal,
+          proposalSupport,
+          ylpMint,
+          supporterYlpAccount,
+          baseYieldAccount: address(
+            params.baseYieldAccount ??
+              deriveYieldAccountAddress(
+                market,
+                supporter,
+                ylpMint,
+                state.baseSide.assetMint,
+                "ylp",
+                this.program.programId
+              )[0]
+          ),
+          quoteYieldAccount: address(
+            params.quoteYieldAccount ??
+              deriveYieldAccountAddress(
+                market,
+                supporter,
+                ylpMint,
+                state.quoteSide.assetMint,
+                "ylp",
+                this.program.programId
+              )[0]
+          ),
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+        },
+      }
+    );
+    return {
+      proposal,
+      proposalSupport,
+      instruction,
+      transaction: new Transaction().add(instruction),
+    };
+  }
+
+  private async governanceMarketState(market: PublicKey): Promise<GovernanceMarketState> {
+    return (await this.program.account.market.fetch(market)) as unknown as GovernanceMarketState;
   }
 
   async hlpLiquidityAction(
@@ -252,8 +610,22 @@ export class DuskWrite {
     const lpMint = address(options.targetHlpMint);
     const baseMint = address(options.baseMint);
     const quoteMint = address(options.quoteMint);
-    const baseYieldAccount = deriveYieldAccountAddress(market, owner, lpMint, baseMint, "hlp")[0];
-    const quoteYieldAccount = deriveYieldAccountAddress(market, owner, lpMint, quoteMint, "hlp")[0];
+    const baseYieldAccount = deriveYieldAccountAddress(
+      market,
+      owner,
+      lpMint,
+      baseMint,
+      "hlp",
+      this.program.programId
+    )[0];
+    const quoteYieldAccount = deriveYieldAccountAddress(
+      market,
+      owner,
+      lpMint,
+      quoteMint,
+      "hlp",
+      this.program.programId
+    )[0];
     const [baseYieldInfo, quoteYieldInfo] = await Promise.all([
       this.program.provider.connection.getAccountInfo(baseYieldAccount),
       this.program.provider.connection.getAccountInfo(quoteYieldAccount),
@@ -533,6 +905,16 @@ function normalizeArgs(args: DuskInstructionArgs): unknown[] {
     return [];
   }
   return Array.isArray(args) ? args : [args];
+}
+
+function cloneProposalMetadata(metadata: ProposalMetadataV1): ProposalMetadataV1 {
+  return {
+    version: metadata.version,
+    title: metadata.title,
+    descriptionUri: metadata.descriptionUri,
+    descriptionSha256: [...metadata.descriptionSha256],
+    descriptionLen: metadata.descriptionLen,
+  };
 }
 
 function mergeAccountMetas(...groups: readonly AccountMeta[][]): AccountMeta[] {

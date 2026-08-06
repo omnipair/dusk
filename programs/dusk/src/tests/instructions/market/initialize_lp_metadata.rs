@@ -45,7 +45,8 @@ fn valid_metadata() -> InitializeLpMetadataArgs {
 fn valid_config() -> MarketConfig {
     MarketConfig {
         swap_fee_bps: 30,
-        manager_fee_bps: 0,
+        divergence_fee_share_cap_bps: 0,
+        volatility_fee_share_cap_bps: 0,
         target_hlp_leverage_bps: BPS_DENOMINATOR * 2,
         settlement_divergence_bps: 500,
         ema_half_life_ms: MIN_HALF_LIFE_MS,
@@ -55,6 +56,7 @@ fn valid_config() -> MarketConfig {
         global_health_contribution_cap_bps: 15_000,
         borrow_market_health_floor_bps: 11_000,
         amm: Default::default(),
+        irm: Default::default(),
         start_time: 0,
     }
 }
@@ -88,8 +90,6 @@ fn metadata_market() -> MetadataMarketFixture {
     market
         .initialize(
             ylp_mint,
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
             base_side,
             quote_side,
             valid_config(),

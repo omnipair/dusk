@@ -9,6 +9,8 @@ export type YieldAccount = IdlAccounts<Dusk>["yieldAccount"];
 export type FutarchyAuthority = IdlAccounts<Dusk>["futarchyAuthority"];
 export type ReferralPartner = IdlAccounts<Dusk>["referralPartner"];
 export type ReferralAccrual = IdlAccounts<Dusk>["referralAccrual"];
+export type ParameterProposal = IdlAccounts<Dusk>["parameterProposal"];
+export type ProposalSupport = IdlAccounts<Dusk>["proposalSupport"];
 
 export type HlpClosed = IdlEvents<Dusk>["hlpClosed"];
 export type HlpOpened = IdlEvents<Dusk>["hlpOpened"];
@@ -18,9 +20,14 @@ export type MarketCollateralDeposited = IdlEvents<Dusk>["marketCollateralDeposit
 export type MarketCollateralWithdrawn = IdlEvents<Dusk>["marketCollateralWithdrawn"];
 export type MarketCreated = IdlEvents<Dusk>["marketCreated"];
 export type MarketDebtUpdated = IdlEvents<Dusk>["marketDebtUpdated"];
-export type ManagerFeesClaimed = IdlEvents<Dusk>["managerFeesClaimed"];
 export type MarketHealthUpdated = IdlEvents<Dusk>["marketHealthUpdated"];
 export type MarketUpdated = IdlEvents<Dusk>["marketUpdated"];
+export type ParameterProposalCreated = IdlEvents<Dusk>["parameterProposalCreated"];
+export type ParameterProposalExecuted = IdlEvents<Dusk>["parameterProposalExecuted"];
+export type ParameterProposalQueued = IdlEvents<Dusk>["parameterProposalQueued"];
+export type ParameterProposalSupported = IdlEvents<Dusk>["parameterProposalSupported"];
+export type ParameterProposalSupportWithdrawn =
+  IdlEvents<Dusk>["parameterProposalSupportWithdrawn"];
 export type PositionLiquidated = IdlEvents<Dusk>["positionLiquidated"];
 export type ProtocolAuctionSettled = IdlEvents<Dusk>["protocolAuctionSettled"];
 export type ReferralBound = IdlEvents<Dusk>["referralBound"];

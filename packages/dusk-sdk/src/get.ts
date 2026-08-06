@@ -16,11 +16,14 @@ import {
   deriveMarketCollateralVaultAddress,
   deriveMarketInterestVaultAddress,
   deriveMarketReserveVaultAddress,
+  deriveParameterProposalAddress,
+  deriveProposalSupportAddress,
   deriveReferralAccrualAddress,
   deriveReferralPartnerAddress,
   deriveTokenMetadataAddress,
   deriveYieldAccountAddress,
   deriveYieldTransferHookValidationAddress,
+  type U64SeedLike,
 } from "./constants.js";
 import { address, DEFAULT_READONLY_PUBLIC_KEY, normalizeAccountKeys, type AddressLike } from "./address.js";
 import {
@@ -42,6 +45,8 @@ import type {
   LeverageDelegation,
   LeveragePosition,
   Market,
+  ParameterProposal,
+  ProposalSupport,
   ReferralAccrual,
   ReferralPartner,
   YieldAccount,
@@ -63,6 +68,8 @@ export const pda = {
   insurance: deriveInsuranceAddress,
   referralPartner: deriveReferralPartnerAddress,
   referralAccrual: deriveReferralAccrualAddress,
+  parameterProposal: deriveParameterProposalAddress,
+  proposalSupport: deriveProposalSupportAddress,
 } as const;
 
 export interface SimulateOptions {
@@ -166,6 +173,40 @@ export class DuskGet {
     return this.program.account.referralAccrual.fetch(address(account));
   }
 
+  parameterProposal(account: AddressLike): Promise<ParameterProposal> {
+    return this.program.account.parameterProposal.fetch(address(account));
+  }
+
+  proposalSupport(account: AddressLike): Promise<ProposalSupport> {
+    return this.program.account.proposalSupport.fetch(address(account));
+  }
+
+  parameterProposalFor(
+    market: AddressLike,
+    proposer: AddressLike,
+    nonce: U64SeedLike
+  ): Promise<ParameterProposal> {
+    const [proposal] = deriveParameterProposalAddress(
+      address(market),
+      address(proposer),
+      nonce,
+      this.program.programId
+    );
+    return this.parameterProposal(proposal);
+  }
+
+  proposalSupportFor(
+    proposal: AddressLike,
+    supporter: AddressLike
+  ): Promise<ProposalSupport> {
+    const [support] = deriveProposalSupportAddress(
+      address(proposal),
+      address(supporter),
+      this.program.programId
+    );
+    return this.proposalSupport(support);
+  }
+
   allMarkets() {
     return this.program.account.market.all();
   }
@@ -184,6 +225,14 @@ export class DuskGet {
 
   allReferralAccruals() {
     return this.program.account.referralAccrual.all();
+  }
+
+  allParameterProposals() {
+    return this.program.account.parameterProposal.all();
+  }
+
+  allProposalSupports() {
+    return this.program.account.proposalSupport.all();
   }
 
   async previewMarket(market: AddressLike, options: SimulateOptions = {}): Promise<MarketPreview> {

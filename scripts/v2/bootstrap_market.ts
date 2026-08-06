@@ -128,8 +128,6 @@ async function main() {
     console.log(`Initializing Dusk yLP/hLP market ${market.toBase58()}`);
     const signature = await program.methods
       .initialize({
-        operator: payer.publicKey,
-        manager: futarchy.authority,
         config: defaultMarketConfig(),
         paramsHash: [...paramsHash],
       })

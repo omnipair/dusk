@@ -15,6 +15,7 @@ pub struct ConfigureReferralPartnerArgs {
     pub active: bool,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: ConfigureReferralPartnerArgs)]
 pub struct ConfigureReferralPartner<'info> {
@@ -65,7 +66,7 @@ impl<'info> ConfigureReferralPartner<'info> {
             partner.configure(args.referrer, args.interest_share_bps, args.active)?;
         }
 
-        emit!(ReferralPartnerConfigured {
+        emit_cpi!(ReferralPartnerConfigured {
             referral_partner: partner.key(),
             authority: partner.authority,
             recipient: partner.recipient,

@@ -4,9 +4,11 @@ mod withdraw_single_sided;
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{FUTARCHY_AUTHORITY_SEED_PREFIX, MARKET_V2_SEED_PREFIX},
+    constants::{FUTARCHY_AUTHORITY_SEED_PREFIX, MARKET_V2_SEED_PREFIX, YIELD_ACCOUNT_SEED_PREFIX},
     errors::ErrorCode,
-    state::{FutarchyAuthority, HlpYieldEligibility, Market, MarketAsset, MarketSide, ProtocolAuctionSplit},
+    state::{
+        FutarchyAuthority, HlpYieldEligibility, Market, MarketAsset, MarketSide, ProtocolAuctionSplit, YieldTokenKind,
+    },
 };
 
 pub use deposit_single_sided::*;
@@ -47,6 +49,32 @@ pub(crate) fn validate_hlp_authority_pdas(
     Ok(())
 }
 
+pub(crate) fn validate_hlp_yield_account_pda(
+    account_key: Pubkey,
+    bump: u8,
+    market_key: Pubkey,
+    owner_key: Pubkey,
+    hlp_mint: Pubkey,
+    asset_mint: Pubkey,
+) -> Result<()> {
+    let bump_seed = [bump];
+    let expected_account = Pubkey::create_program_address(
+        &[
+            YIELD_ACCOUNT_SEED_PREFIX,
+            market_key.as_ref(),
+            owner_key.as_ref(),
+            hlp_mint.as_ref(),
+            asset_mint.as_ref(),
+            &[YieldTokenKind::Hlp.code()],
+            &bump_seed,
+        ],
+        &crate::ID,
+    )
+    .map_err(|_| error!(ErrorCode::InvalidYieldAccount))?;
+    require_keys_eq!(account_key, expected_account, ErrorCode::InvalidYieldAccount);
+    Ok(())
+}
+
 /// Reconcile a partial direct Token-2022 hLP burn before the next hLP entry or
 /// exit. Historical nested yLP growth is published against the old stored
 /// denominator first; only future growth and principal pricing use the smaller
@@ -75,14 +103,12 @@ pub(crate) fn reconcile_live_hlp_supply(
 pub(crate) fn record_hlp_interest_credit(
     borrowed_side: &mut MarketSide,
     actual_interest_credit: u64,
-    manager_fee_bps: u16,
     protocol_fee_bps: u16,
     protocol_auction_split: ProtocolAuctionSplit,
     eligible_ylp_supply: u64,
 ) -> Result<()> {
     borrowed_side.record_interest_credit_with_supply(
         actual_interest_credit,
-        manager_fee_bps,
         protocol_fee_bps,
         protocol_auction_split,
         0,
@@ -99,7 +125,6 @@ pub(crate) fn record_inline_hlp_interest_credit(
     market: &mut Market,
     borrowed_asset: MarketAsset,
     actual_interest_credit: u64,
-    manager_fee_bps: u16,
     protocol_fee_bps: u16,
     protocol_auction_split: ProtocolAuctionSplit,
     eligibility: HlpYieldEligibility,
@@ -107,7 +132,6 @@ pub(crate) fn record_inline_hlp_interest_credit(
     record_hlp_interest_credit(
         market.side_mut(borrowed_asset),
         actual_interest_credit,
-        manager_fee_bps,
         protocol_fee_bps,
         protocol_auction_split,
         eligibility.ylp_supply,

@@ -1,6 +1,6 @@
 # @omnipair/dusk-sdk
 
-TypeScript SDK for Omnipair Dusk (v2).
+TypeScript SDK for Omnipair Dusk market layout v3.
 
 A `Dusk` instance is an enriched Anchor program facade. It exposes the raw
 Anchor program through `dusk.program`, alongside typed on-chain reads and
@@ -63,8 +63,6 @@ const ix = await dusk.write.swapInstruction(
       traderAssetOutAccount,
       tokenProgram,
       token2022Program,
-      eventAuthority,
-      program: dusk.program.programId,
     },
     remainingAccounts: [
       // Token-2022 transfer-hook extras only. The SDK preserves this tail.
@@ -80,8 +78,110 @@ five-account prefix exactly once: `[yLP mint, base hLP yLP vault, quote hLP yLP
 vault, base interest vault, quote interest vault]`. Caller-provided Token-2022
 transfer-hook extras remain after that prefix.
 
+The write client supplies the canonical event-CPI authority and Dusk program
+accounts for instructions that emit CPI events.
+
 `write.builder(...)`, `write.transaction(...)`, and `write.rpc(...)` expose the
 same generic path for every Dusk instruction in the IDL.
+
+### Direct-yLP Parameter Governance
+
+Market layout v3 has no market manager. A direct yLP holder burn-locks at least
+1% of eligible direct yLP to create a typed proposal. Strictly more than 50%
+support queues it for a 7-day timelock and a 7-day execution window. Execution
+is permissionless and succeeds only while both lending sides are below 80%
+utilization. These thresholds, the timelock, and the utilization guard are
+immutable.
+
+Use the typed update constructors so values are checked against the same hard
+bounds before an instruction is built:
+
+```typescript
+import {
+  concentrationParameterUpdate,
+  uploadProposalMetadata,
+} from "@omnipair/dusk-sdk";
+
+const update = concentrationParameterUpdate({
+  peakDepthNad: 20n * 1_000_000_000n,
+  fadeScaleNad: 10_000_000n,
+  // Optional. Omission uses 216,000 slots (approximately 24 hours).
+  rampDurationSlots: 432_000,
+});
+
+const metadata = await uploadProposalMetadata({
+  title: "Increase depth around the current center",
+  markdown: markdownSource, // string or exact UTF-8 Uint8Array
+  upload: async (exactBytes, { contentType }) => {
+    // Pin to IPFS, upload to Arweave, or use durable HTTPS storage.
+    // Do not transform `exactBytes` while uploading.
+    return { uri: await uploadGovernanceDocument(exactBytes, contentType) };
+  },
+});
+
+const { proposal, transaction } = await dusk.write.createParameterProposal({
+  proposer: wallet.publicKey,
+  market,
+  nonce: 7,
+  update,
+  metadata,
+  initialSupport,
+  // holderYlpAccount is optional; the Token-2022 ATA is the default.
+});
+```
+
+`uploadProposalMetadata(...)` uploads the exact Markdown bytes through the
+provided storage adapter, retrieves the resulting URI, and verifies the exact
+length and SHA-256 before returning `ProposalMetadataV1`. For content that is
+already uploaded, use `createProposalMetadata(...)`; it performs the same
+retrieval check. Accepted on-chain URI schemes are `ipfs://`, `ar://`, and
+`https://`. IPFS content must still be pinned; a CID alone is not a persistence
+guarantee.
+
+Governance websites should call `tryFetchProposalDescription(...)`. Render the
+Markdown only when `verified` is true, using sanitized GitHub-flavored Markdown
+with raw HTML and external embeds disabled. On failure, display the immutable
+on-chain title and typed parameter diff plus the returned warning—never an
+unverified replacement document. Rationale availability never controls
+execution. `verifyDecodedParameterProposalDigest(...)` additionally reproduces
+the program's canonical Borsh/SHA-256 digest for a fetched proposal account.
+
+The other update constructors are `feeParameterUpdate(...)`,
+`irmParameterUpdate(...)`, `emaHalfLivesParameterUpdate(...)`, and
+`dailyBorrowLimitParameterUpdate(...)`. Only concentration ramps; its duration
+must be 216,000–1,512,000 slots (approximately 24 hours–7 days).
+
+Support and lifecycle builders derive the proposal/support PDAs and all market
+governance accounts:
+
+```typescript
+await dusk.write.supportParameterProposal({
+  supporter: wallet.publicKey,
+  market,
+  proposal,
+  amount: additionalSupport,
+});
+
+await dusk.write.queueParameterProposal({ market, proposal });
+await dusk.write.executeParameterProposal({ market, proposal });
+await dusk.write.withdrawParameterSupport({
+  supporter: wallet.publicKey,
+  market,
+  proposal,
+});
+```
+
+Each lifecycle method returns `{ proposal, proposalSupport?, instruction,
+transaction }`. Fetch state with `dusk.get.parameterProposal(proposal)`,
+`dusk.get.proposalSupportFor(proposal, supporter)`, or the matching helpers in
+`dusk.get.pda`.
+
+Support is burned from the holder's external yLP account and represented by a
+proposal-specific virtual claim, so it cannot back multiple proposals. The
+claim continues earning yLP yield. Withdrawal destroys that claim, merges its
+virtual-yield ledgers, and mints back exactly the locked yLP. Collecting support
+can be withdrawn; queued support stays frozen until the proposal executes,
+expires, or becomes stale.
 
 hLP deposits and withdrawals use async composite builders because both
 asset-denominated `YieldAccount` PDAs must exist before the liquidity

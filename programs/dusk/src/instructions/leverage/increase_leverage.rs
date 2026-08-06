@@ -27,6 +27,7 @@ pub struct IncreaseLeverageArgs {
     pub min_collateral_out: u64,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: IncreaseLeverageArgs)]
 pub struct IncreaseLeverage<'info> {
@@ -138,6 +139,7 @@ impl<'info> IncreaseLeverage<'info> {
             current_slot,
             asset_in: debt_asset,
             reserve_credit: args.debt_amount,
+            reserved_daily_borrow: args.debt_amount,
         }
         .plan(&mut ctx.accounts.market)?;
         ctx.accounts.market.observe_current_risk(current_slot)?;
@@ -173,14 +175,12 @@ impl<'info> IncreaseLeverage<'info> {
         )?;
 
         // Commit position accounting and settle the resulting hLP exposure.
-        let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
         let receipt = ctx.accounts.market.increase_leverage(
             &mut ctx.accounts.leverage_position,
             args.debt_amount,
             collateral_credit,
             swap_plan,
             swap_fee_credit,
-            manager_fee_bps,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
             current_slot,
@@ -215,7 +215,7 @@ impl<'info> IncreaseLeverage<'info> {
         )?;
 
         // Emit the final position state.
-        emit!(LeveragePositionUpdated {
+        emit_cpi!(LeveragePositionUpdated {
             market: market_key,
             position: position_key,
             owner: owner_key,
@@ -228,7 +228,13 @@ impl<'info> IncreaseLeverage<'info> {
             debt_shares: receipt.debt_shares,
             collateral_amount: receipt.collateral_amount,
             closeout_value: receipt.closeout_value,
-            swap: Some(LeverageSwapEvent::new(swap, swap_fee_credit)),
+            owner_credit: 0,
+            swap: Some(LeverageSwapEvent::new(
+                swap,
+                swap_fee_credit,
+                ctx.accounts.market.base_side.reserves.live_reserve,
+                ctx.accounts.market.quote_side.reserves.live_reserve,
+            )?),
             metadata: MarketEventMetadata::at_slot(owner_key, market_key, current_slot),
         });
         Ok(())

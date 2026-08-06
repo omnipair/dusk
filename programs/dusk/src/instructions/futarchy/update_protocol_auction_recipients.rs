@@ -16,6 +16,7 @@ pub struct UpdateProtocolAuctionRecipientsArgs {
     pub staking_vault_bps: Option<u16>,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct UpdateProtocolAuctionRecipients<'info> {
     #[account(
@@ -37,6 +38,7 @@ impl<'info> UpdateProtocolAuctionRecipients<'info> {
         let UpdateProtocolAuctionRecipients {
             authority_signer,
             futarchy_authority,
+            ..
         } = ctx.accounts;
         let lane = args.lane;
         let authority = futarchy_authority.key();
@@ -61,7 +63,7 @@ impl<'info> UpdateProtocolAuctionRecipients<'info> {
         require!(auction.recipients.is_valid(), ErrorCode::InvalidDistribution);
         let recipients = auction.recipients;
 
-        emit!(ProtocolAuctionRecipientsUpdated {
+        emit_cpi!(ProtocolAuctionRecipientsUpdated {
             authority,
             lane: lane.code(),
             treasury: recipients.treasury,

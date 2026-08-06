@@ -1,6 +1,4 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::log::sol_log_data;
-use anchor_lang::Discriminator;
 use anchor_spl::{
     token::Token,
     token_interface::{Mint, Token2022, TokenAccount},
@@ -21,7 +19,9 @@ use crate::instructions::common::{
     validate_side_vault_accounts,
 };
 
-use super::{reconcile_live_hlp_supply, record_hlp_interest_credit, validate_hlp_authority_pdas};
+use super::{
+    reconcile_live_hlp_supply, record_hlp_interest_credit, validate_hlp_authority_pdas, validate_hlp_yield_account_pda,
+};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct WithdrawSingleSidedArgs {
@@ -29,6 +29,7 @@ pub struct WithdrawSingleSidedArgs {
     pub min_target_amount_out: u64,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: WithdrawSingleSidedArgs)]
 pub struct WithdrawSingleSided<'info> {
@@ -75,32 +76,10 @@ pub struct WithdrawSingleSided<'info> {
     )]
     pub hlp_ylp_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    #[account(
-        mut,
-        seeds = [
-            YIELD_ACCOUNT_SEED_PREFIX,
-            market.key().as_ref(),
-            owner.key().as_ref(),
-            target_hlp_mint.key().as_ref(),
-            base_mint.key().as_ref(),
-            &[YieldTokenKind::Hlp.code()],
-        ],
-        bump = base_yield_account.bump
-    )]
+    #[account(mut)]
     pub base_yield_account: Box<Account<'info, YieldAccount>>,
 
-    #[account(
-        mut,
-        seeds = [
-            YIELD_ACCOUNT_SEED_PREFIX,
-            market.key().as_ref(),
-            owner.key().as_ref(),
-            target_hlp_mint.key().as_ref(),
-            quote_mint.key().as_ref(),
-            &[YieldTokenKind::Hlp.code()],
-        ],
-        bump = quote_yield_account.bump
-    )]
+    #[account(mut)]
     pub quote_yield_account: Box<Account<'info, YieldAccount>>,
 
     pub token_program: Program<'info, Token>,
@@ -156,12 +135,28 @@ impl<'info> WithdrawSingleSided<'info> {
         );
         validate_lp_mint(&self.target_hlp_mint, self.market.key(), target_mint.decimals)?;
         validate_lp_mint(&self.ylp_mint, self.market.key(), self.base_mint.decimals)?;
+        validate_hlp_yield_account_pda(
+            self.base_yield_account.key(),
+            self.base_yield_account.bump,
+            self.market.key(),
+            self.owner.key(),
+            self.target_hlp_mint.key(),
+            self.base_mint.key(),
+        )?;
         self.base_yield_account.assert_account(
             self.owner.key(),
             self.market.key(),
             self.target_hlp_mint.key(),
             self.base_mint.key(),
             YieldTokenKind::Hlp,
+        )?;
+        validate_hlp_yield_account_pda(
+            self.quote_yield_account.key(),
+            self.quote_yield_account.bump,
+            self.market.key(),
+            self.owner.key(),
+            self.target_hlp_mint.key(),
+            self.quote_mint.key(),
         )?;
         self.quote_yield_account.assert_account(
             self.owner.key(),
@@ -198,10 +193,6 @@ impl<'info> WithdrawSingleSided<'info> {
             .accounts
             .market
             .asset_for_hlp_mint(ctx.accounts.target_hlp_mint.key())?;
-        let target_mint_key = match target_asset {
-            MarketAsset::Base => ctx.accounts.base_mint.key(),
-            MarketAsset::Quote => ctx.accounts.quote_mint.key(),
-        };
 
         // Checkpoint all yield earned before reducing the owner's hLP balance.
         ctx.accounts.market.checkpoint_hlp_yield_from_ylp(target_asset)?;
@@ -286,12 +277,10 @@ impl<'info> WithdrawSingleSided<'info> {
             ctx.accounts.borrowed_interest_vault.reload()?;
             let interest_vault_credit =
                 token_account_credit(interest_vault_balance_before, &ctx.accounts.borrowed_interest_vault)?;
-            let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
             let interest_growth_before = ctx.accounts.market.side(borrowed_asset).fees.interest_growth_index_q64;
             record_hlp_interest_credit(
                 ctx.accounts.market.side_mut(borrowed_asset),
                 interest_vault_credit,
-                manager_fee_bps,
                 ctx.accounts.futarchy_authority.revenue_share.interest_bps,
                 ctx.accounts.futarchy_authority.protocol_auction_split,
                 pre_exit_ylp_supply,
@@ -382,37 +371,20 @@ impl<'info> WithdrawSingleSided<'info> {
         let target_credit = token_account_credit(target_balance_before, &ctx.accounts.owner_target_account)?;
         require_gte!(target_credit, args.min_target_amount_out, ErrorCode::SlippageExceeded);
 
-        // Emit the final hLP position state without an event CPI.
-        const MARKET_EVENT_METADATA_LEN: usize = 32 + 32 + 8;
-        const HLP_CLOSED_EVENT_LEN: usize = 8 + (3 * 32) + (6 * 8) + MARKET_EVENT_METADATA_LEN;
-        let mut data = [0_u8; HLP_CLOSED_EVENT_LEN];
-        let mut offset = 0usize;
-        data[offset..offset + 8].copy_from_slice(HlpClosed::DISCRIMINATOR);
-        offset += 8;
-        data[offset..offset + 32].copy_from_slice(market_key.as_ref());
-        offset += 32;
-        data[offset..offset + 32].copy_from_slice(owner_key.as_ref());
-        offset += 32;
-        data[offset..offset + 32].copy_from_slice(target_mint_key.as_ref());
-        offset += 32;
-        data[offset..offset + 8].copy_from_slice(&receipt.hlp_amount.to_le_bytes());
-        offset += 8;
-        data[offset..offset + 8].copy_from_slice(&receipt.ylp_amount.to_le_bytes());
-        offset += 8;
-        data[offset..offset + 8].copy_from_slice(&receipt.target_amount_out.to_le_bytes());
-        offset += 8;
-        data[offset..offset + 8].copy_from_slice(&receipt.debt_repaid.to_le_bytes());
-        offset += 8;
-        data[offset..offset + 8].copy_from_slice(&receipt.interest_paid.to_le_bytes());
-        offset += 8;
-        data[offset..offset + 8].copy_from_slice(&receipt.hlp_supply.to_le_bytes());
-        offset += 8;
-        data[offset..offset + 32].copy_from_slice(owner_key.as_ref());
-        offset += 32;
-        data[offset..offset + 32].copy_from_slice(market_key.as_ref());
-        offset += 32;
-        data[offset..offset + 8].copy_from_slice(&current_slot.to_le_bytes());
-        sol_log_data(&[&data]);
+        emit_cpi!(HlpClosed {
+            market: market_key,
+            owner: owner_key,
+            asset_side: target_asset.code(),
+            hlp_amount: receipt.hlp_amount,
+            ylp_amount: receipt.ylp_amount,
+            amount_out: target_credit,
+            debt_repaid: receipt.debt_repaid,
+            interest_paid: receipt.interest_paid,
+            ylp_supply: ctx.accounts.market.base_side.shares.ylp_supply,
+            hlp_supply: receipt.hlp_supply,
+            base_live_reserve: ctx.accounts.market.base_side.reserves.live_reserve,
+            quote_live_reserve: ctx.accounts.market.quote_side.reserves.live_reserve,
+        });
 
         Ok(())
     }

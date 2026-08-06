@@ -20,7 +20,7 @@ use crate::instructions::common::{
 
 use super::common::validate_debt_reserve_accounts;
 use crate::instructions::referral::common::{
-    accrue_referral_interest, emit_referral_interest_accrued, validate_referral_binding,
+    accrue_referral_interest, referral_interest_accrued_event_at_slot, validate_referral_binding,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -129,7 +129,7 @@ impl<'info> Repay<'info> {
 
     pub fn handle_repay(mut ctx: Context<'_, '_, '_, 'info, Self>, args: RepayArgs) -> Result<()> {
         let remaining_accounts = ctx.remaining_accounts;
-        let (market_key, owner_key, debt_asset_mint_key, position_key, debt_receipt, referral_receipt) = {
+        let (market_key, owner_key, debt_asset_mint_key, position_key, repay_gross, debt_receipt, referral_receipt) = {
             let accounts = &mut ctx.accounts;
             let market_key = accounts.market.key();
             let owner_key = accounts.owner.key();
@@ -208,7 +208,6 @@ impl<'info> Repay<'info> {
                 let interest_vault_credit =
                     token_account_credit(interest_vault_balance_before, &accounts.interest_vault)?;
 
-                let manager_fee_bps = accounts.market.config.manager_fee_bps;
                 let revenue_share_interest_bps = accounts.futarchy_authority.revenue_share.interest_bps;
                 let protocol_auction_split = accounts.futarchy_authority.protocol_auction_split;
                 let referral_receipt = accrue_referral_interest(
@@ -225,7 +224,6 @@ impl<'info> Repay<'info> {
                 )?;
                 accounts.market.side_mut(repay_asset).record_interest_credit(
                     interest_vault_credit,
-                    manager_fee_bps,
                     revenue_share_interest_bps,
                     protocol_auction_split,
                     referral_receipt.quote.referral_amount,
@@ -254,6 +252,7 @@ impl<'info> Repay<'info> {
                 owner_key,
                 debt_asset_mint_key,
                 accounts.borrow_position.key(),
+                repay_gross,
                 debt_receipt,
                 referral_receipt,
             )
@@ -266,9 +265,13 @@ impl<'info> Repay<'info> {
 
         emit_cpi!(MarketDebtUpdated {
             market: market_key,
+            position: position_key,
             owner: owner_key,
             debt_asset_mint: debt_asset_mint_key,
             debt_delta: debt_receipt.debt_delta,
+            cash_debit: repay_gross,
+            cash_credit: debt_receipt.cash_repaid,
+            interest_paid: debt_receipt.interest_paid,
             fixed_base_debt: debt_receipt.fixed_base_debt,
             fixed_quote_debt: debt_receipt.fixed_quote_debt,
             global_health_base_contribution_for_quote_debt: debt_receipt.global_health_base_contribution_for_quote_debt,
@@ -280,17 +283,20 @@ impl<'info> Repay<'info> {
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
 
-        emit_referral_interest_accrued(
+        if let Some(event) = referral_interest_accrued_event_at_slot(
             &referral_receipt,
             market_key,
             position_key,
             owner_key,
             owner_key,
             debt_asset_mint_key,
-        )?;
+            current_slot,
+        )? {
+            emit_cpi!(event);
+        }
 
         let health = ctx.accounts.market.market_health()?;
-        emit!(MarketHealthUpdated {
+        emit_cpi!(MarketHealthUpdated {
             market: market_key,
             global_health_base_contribution_for_quote_debt: health.global_health_base_contribution_for_quote_debt,
             global_health_quote_contribution_for_base_debt: health.global_health_quote_contribution_for_base_debt,

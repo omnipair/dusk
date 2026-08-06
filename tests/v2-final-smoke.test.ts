@@ -233,7 +233,8 @@ function leverageDelegateProgramPath() {
 function marketConfig() {
   return {
     swapFeeBps: 30,
-    managerFeeBps: 0,
+    divergenceFeeShareCapBps: 0,
+    volatilityFeeShareCapBps: 0,
     targetHlpLeverageBps: 20_000,
     settlementDivergenceBps: 500,
     emaHalfLifeMs: new BN(60_000),
@@ -254,10 +255,14 @@ function marketConfig() {
       volatilityCapNad: new BN(0),
       divergenceFeeCoefficientNad: new BN(0),
       volatilityFeeCoefficientNad: new BN(0),
-      rampDurationSlots: new BN(9_000),
+      rampDurationSlots: new BN(216_000),
       reserved: Array(33).fill(0),
     },
-    hedgedLpEnabled: true,
+    irm: {
+      targetUtilizationBps: 7_000,
+      curveSteepnessNad: new BN(4_000_000_000),
+      adjustmentSpeedPerYear: new BN(20),
+    },
     startTime: new BN(0),
   };
 }
@@ -596,6 +601,45 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     )[0];
   }
 
+  function cpiEvents(transaction: Transaction): Array<{ name: string; data: any }> {
+    if (!transaction.signature) throw new Error("Transaction has no signature");
+    const result = svm.getTransaction(transaction.signature);
+    if (!result) throw new Error("LiteSVM transaction metadata was not retained");
+    if (typeof (result as any).err === "function") {
+      throw new Error(`Cannot decode events from failed transaction: ${(result as any).err()}`);
+    }
+
+    const eventTag = Buffer.alloc(8);
+    eventTag.writeBigUInt64LE(0x1d9acb512ea545e4n);
+    const accountKeys = transaction.compileMessage().accountKeys;
+    const events: Array<{ name: string; data: any }> = [];
+    for (const group of (result as any).innerInstructions()) {
+      for (const inner of group) {
+        const instruction = inner.instruction();
+        const invokedProgram = accountKeys[instruction.programIdIndex()];
+        const data = Buffer.from(instruction.data());
+        if (
+          invokedProgram?.equals(DUSK_PROGRAM_ID) &&
+          data.length > eventTag.length &&
+          data.subarray(0, eventTag.length).equals(eventTag)
+        ) {
+          const event = program.coder.events.decode(
+            data.subarray(eventTag.length).toString("base64")
+          );
+          if (!event) throw new Error("Dusk emitted an undecodable CPI event");
+          events.push(event);
+        }
+      }
+    }
+    return events;
+  }
+
+  function cpiEvent(transaction: Transaction, name: string): any {
+    const matches = cpiEvents(transaction).filter((event) => event.name === name);
+    expect(matches, `${name} CPI event count`).to.have.length(1);
+    return matches[0].data;
+  }
+
   async function sendTransactionWithUncheckedSigners(
     transaction: Transaction,
     signers: Keypair[],
@@ -723,8 +767,6 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
 
     const tx = await program.methods
       .initialize({
-        operator: payer.publicKey,
-        manager: payer.publicKey,
         config,
         paramsHash: [...paramsHash],
       })
@@ -950,6 +992,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
@@ -1012,6 +1056,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
@@ -1076,6 +1122,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
@@ -1154,6 +1202,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         traderAssetOutAccount: fixture.ownerQuoteAccount,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       });
     if (remainingAccounts.length > 0) {
       builder = builder.remainingAccounts(remainingAccounts);
@@ -1185,6 +1235,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         traderAssetOutAccount: fixture.ownerBaseAccount,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       });
     if (remainingAccounts.length > 0) {
       builder = builder.remainingAccounts(remainingAccounts);
@@ -1264,6 +1316,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         referralAccrual: null,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
@@ -1288,6 +1342,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         futarchyAuthority,
         referralPartner,
         systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
@@ -1332,7 +1388,12 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         revenueDistribution: null,
         protocolAuctionSplit: null,
       })
-      .accounts({ authoritySigner: payer.publicKey, futarchyAuthority })
+      .accounts({
+        authoritySigner: payer.publicKey,
+        futarchyAuthority,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
   }
@@ -1887,6 +1948,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         )[0],
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(addLiquidityTx, [payer]);
@@ -1917,6 +1980,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         borrowPosition,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(depositTx, [payer]);
@@ -2058,6 +2123,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         recipientTokenAccount,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(claimTx, [payer]);
@@ -2199,7 +2266,12 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     );
     const setRecipientTx = await program.methods
       .setReferralRecipient({ recipient: payer.publicKey })
-      .accounts({ authority: referrer.publicKey, referralPartner })
+      .accounts({
+        authority: referrer.publicKey,
+        referralPartner,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
       .transaction();
     await connection.sendTransaction(setRecipientTx, [referrer]);
     trackV2Instruction("setReferralRecipient", this.test?.title);
@@ -2349,6 +2421,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         recipientTokenAccount: ownerQuoteAccount,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .remainingAccounts(claimHookAccounts)
       .transaction();
@@ -2458,6 +2532,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       programId: program.programId,
       methods: program.methods,
       idl: {
+        instructions: program.idl.instructions,
         accounts: [{ ...yieldAccountDefinition, name: "yieldAccount" }],
       },
       coder: {
@@ -2490,11 +2565,34 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
+        eventAuthority: payer.publicKey,
+        program: SystemProgram.programId,
       },
     };
     const build = await sdkWrite.depositSingleSided(depositArgs, depositOptions);
     expect(build.setupInstructions).to.have.length(1);
+    const depositInstruction = program.idl.instructions.find(
+      (instruction: { name: string }) => instruction.name === "depositSingleSided"
+    );
+    const eventAuthorityIndex = depositInstruction?.accounts.findIndex(
+      (account: { name: string }) => account.name === "eventAuthority"
+    );
+    const eventProgramIndex = depositInstruction?.accounts.findIndex(
+      (account: { name: string }) => account.name === "program"
+    );
+    expect(eventAuthorityIndex).to.be.a("number").and.greaterThanOrEqual(0);
+    expect(eventProgramIndex).to.be.a("number").and.greaterThanOrEqual(0);
+    expect(build.actionInstruction.keys[eventAuthorityIndex!].pubkey.equals(eventAuthority())).to.equal(true);
+    expect(build.actionInstruction.keys[eventProgramIndex!].pubkey.equals(DUSK_PROGRAM_ID)).to.equal(true);
     await connection.sendTransaction(build.transaction, [payer]);
+    const openedEvent = cpiEvent(build.transaction, "hlpOpened");
+    expect(openedEvent.market.toString()).to.equal(fixture.market.toString());
+    expect(openedEvent.owner.toString()).to.equal(payer.publicKey.toString());
+    expect(openedEvent.assetSide).to.equal(0);
+    expect(openedEvent.depositAmount.toString()).to.equal("1000");
+    expect(BigInt(openedEvent.borrowedAmount.toString()) > 0n).to.equal(true);
+    expect(BigInt(openedEvent.ylpAmount.toString()) > 0n).to.equal(true);
+    expect(BigInt(openedEvent.hlpAmount.toString()) > 0n).to.equal(true);
 
     const repeatedBuild = await sdkWrite.depositSingleSided(depositArgs, depositOptions);
     expect(repeatedBuild.setupInstructions).to.have.length(0);
@@ -2593,6 +2691,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         quoteYieldAccount: hedge.quoteYieldAccount,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
@@ -2622,6 +2722,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     const fixture = await addBalancedLiquidity(45);
     const ownerBaseBeforeOpen = await getAccount(connection as any, fixture.ownerBaseAccount);
     const hedge = await openBaseHedge(fixture);
+    const ownerBaseBeforeClose = await getAccount(connection as any, fixture.ownerBaseAccount);
 
     const tx = await program.methods
       .withdrawSingleSided({
@@ -2646,12 +2747,24 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         quoteYieldAccount: hedge.quoteYieldAccount,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
     trackV2Instruction("withdrawSingleSided", this.test?.title);
 
     const ownerBaseAfterClose = await getAccount(connection as any, fixture.ownerBaseAccount);
+    const closedEvent = cpiEvent(tx, "hlpClosed");
+    expect(closedEvent.market.toString()).to.equal(fixture.market.toString());
+    expect(closedEvent.owner.toString()).to.equal(payer.publicKey.toString());
+    expect(closedEvent.assetSide).to.equal(0);
+    expect(closedEvent.hlpAmount.toString()).to.equal("10000");
+    expect(closedEvent.amountOut.toString()).to.equal(
+      (ownerBaseAfterClose.amount - ownerBaseBeforeClose.amount).toString()
+    );
+    expect(BigInt(closedEvent.ylpAmount.toString()) > 0n).to.equal(true);
+    expect(BigInt(closedEvent.debtRepaid.toString()) > 0n).to.equal(true);
     expect(ownerBaseAfterClose.amount).to.equal(ownerBaseBeforeOpen.amount - 2n);
 
     const ownerHlp = await getAccount(
@@ -2735,6 +2848,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         quoteYieldAccount: hedge.quoteYieldAccount,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
@@ -2915,6 +3030,20 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     recordSwapComputeScenario("cpmm_same_slot", sameSlotMeasurement);
     trackV2Instruction("swap", this.test?.title);
 
+    const swapEvent = cpiEvent(sameSlotMeasurement.transaction, "swapExecuted");
+    expect(swapEvent.market.toString()).to.equal(fixture.market.toString());
+    expect(swapEvent.trader.toString()).to.equal(payer.publicKey.toString());
+    expect(swapEvent.assetInSide).to.equal(0);
+    expect(swapEvent.amountIn.toString()).to.equal("1000");
+    expect(swapEvent.amountOut.toString()).to.equal("1974");
+    expect(swapEvent.amountInAfterFee.toString()).to.equal("997");
+    expect(swapEvent.baseFee.toString()).to.equal("3");
+    expect(swapEvent.divergenceFee.toString()).to.equal("0");
+    expect(swapEvent.volatilityFee.toString()).to.equal("0");
+    expect(swapEvent.retainedFee.toString()).to.equal("0");
+    expect(swapEvent.baseLiveReserve.toString()).to.equal("100997");
+    expect(swapEvent.quoteLiveReserve.toString()).to.equal("198026");
+
     const ownerQuoteAfter = await getAccount(connection as any, fixture.ownerQuoteAccount);
     expect(ownerQuoteAfter.amount).to.equal(ownerQuoteBefore.amount + 1_974n);
 
@@ -3052,6 +3181,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
 
   it("retains a concentrated dynamic surcharge as recentering principal on SBF", async function () {
     const config = marketConfig();
+    config.swapFeeBps = 0;
+    config.divergenceFeeShareCapBps = 5_000;
     config.amm.peakDepthNad = new BN("200000000000");
     config.amm.fadeScaleNad = new BN("100000000");
     config.amm.adjustmentThresholdNad = new BN("10000000");
@@ -3136,6 +3267,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
   it("executes the valid wide-domain CPMM u128 divergence path below the SBF ceiling", async function () {
     const config = marketConfig();
     config.swapFeeBps = 0;
+    config.divergenceFeeShareCapBps = 5_000;
     config.amm.divergenceFeeCoefficientNad = new BN("100000000000");
     const fixture = await addBalancedLiquidity(80, config, {
       baseDeposit: 10_000_000_000_000,
@@ -3157,8 +3289,16 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
           .transaction()
       )
     ) as any;
-    expect(preview.amountInForQuote.toString()).to.equal("23123353131233");
-    expect(preview.dynamicSurchargeDebit.toString()).to.equal("4976876646868767");
+    const hardFeeLimit = grossInput.divn(2);
+    expect(preview.divergenceSurchargeDebit.gt(new BN(0))).to.equal(true);
+    expect(preview.dynamicSurchargeDebit.toString()).to.equal(
+      preview.divergenceSurchargeDebit.toString()
+    );
+    expect(preview.totalFeeDebit.lte(hardFeeLimit)).to.equal(true);
+    expect(preview.amountInForQuote.gte(grossInput.sub(hardFeeLimit))).to.equal(true);
+    expect(preview.amountInForQuote.add(preview.totalFeeDebit).toString()).to.equal(
+      grossInput.toString()
+    );
 
     const submittedPreviewTx = await program.methods
       .previewSwap({ exactAssetIn: grossInput })
@@ -3178,6 +3318,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
   it("measures a decaying-volatility surcharge swap path", async function () {
     const config = marketConfig();
     config.swapFeeBps = 0;
+    config.volatilityFeeShareCapBps = 5_000;
     config.amm.volatilityShockCapNad = new BN("1000000000");
     config.amm.volatilityCapNad = new BN("1000000000");
     config.amm.volatilityFeeCoefficientNad = new BN("100000000000");
@@ -3225,6 +3366,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
   it("executes concentrated u128 divergence paths with distributed and retained surcharge", async function () {
     const concentratedConfig = marketConfig();
     concentratedConfig.swapFeeBps = 0;
+    concentratedConfig.divergenceFeeShareCapBps = 5_000;
     concentratedConfig.amm.peakDepthNad = new BN("200000000000");
     concentratedConfig.amm.fadeScaleNad = new BN("100000000");
     concentratedConfig.amm.divergenceFeeCoefficientNad = new BN("100000000000");
@@ -3262,6 +3404,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
 
     const retainedConfig = marketConfig();
     retainedConfig.swapFeeBps = 0;
+    retainedConfig.divergenceFeeShareCapBps = 5_000;
     retainedConfig.amm.peakDepthNad = new BN("200000000000");
     retainedConfig.amm.fadeScaleNad = new BN("100000000");
     retainedConfig.amm.divergenceFeeCoefficientNad = new BN("100000000000");
@@ -3301,10 +3444,11 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     trackV2Instruction("swap", this.test?.title);
   });
 
-  it("keeps above-99.9% divergence executable in both fee routes and rolls back an exhausted atom", async function () {
+  it("keeps hard-capped divergence executable in both fee routes and rolls back an exhausted atom", async function () {
     const configFor = (retained: boolean) => {
       const config = marketConfig();
       config.swapFeeBps = 0;
+      config.divergenceFeeShareCapBps = 5_000;
       config.amm.peakDepthNad = new BN("200000000000");
       config.amm.fadeScaleNad = new BN("100000000");
       config.amm.divergenceFeeCoefficientNad = new BN("100000000000");
@@ -3327,7 +3471,10 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       const sharePpm = preview.divergenceSurchargeDebit
         .mul(new BN(1_000_000))
         .div(new BN(grossInput.toString()));
-      expect(sharePpm.gt(new BN(999_000))).to.equal(true);
+      expect(sharePpm.gte(new BN(499_000))).to.equal(true);
+      expect(sharePpm.lte(new BN(500_000))).to.equal(true);
+      expect(preview.totalFeeDebit.lte(new BN((grossInput / 2n).toString()))).to.equal(true);
+      expect(preview.amountInForQuote.gte(new BN(((grossInput + 1n) / 2n).toString()))).to.equal(true);
       expect(preview.amountInForQuote.gt(new BN(0))).to.equal(true);
       expect(preview.retentionActive).to.equal(retained);
       if (retained) {
@@ -3726,8 +3873,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     expect(recentered.curve_revision.gt(recentered.risk_revision)).to.equal(true);
   });
 
-  it("updates Dusk futarchy revenue, recipients, authority, and market config", async function () {
-    const fixture = await initializeFinalMarket(52);
+  it("updates Dusk futarchy revenue, recipients, and authority", async function () {
+    await initializeFinalMarket(52);
     const futarchyTreasury = Keypair.generate().publicKey;
     const buybacksVault = Keypair.generate().publicKey;
     const replacementTeamTreasury = Keypair.generate().publicKey;
@@ -3748,6 +3895,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         authoritySigner: payer.publicKey,
         futarchyAuthority,
         systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(updateRevenueTx, [payer]);
@@ -3781,23 +3930,6 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     await connection.sendTransaction(updateAuthorityTx, [payer]);
     trackV2Instruction("updateFutarchyAuthority", this.test?.title);
 
-    const updatedConfig = marketConfig();
-    updatedConfig.swapFeeBps = 40;
-    const updateConfigTx = await program.methods
-      .updateConfig({
-        config: updatedConfig,
-      })
-      .accounts({
-        market: fixture.market,
-        futarchyAuthority,
-        authoritySigner: payer.publicKey,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    await connection.sendTransaction(updateConfigTx, [payer]);
-    trackV2Instruction("updateConfig", this.test?.title);
-
     const authorityAccount = svm.getAccount(futarchyAuthority);
     expect(authorityAccount).to.not.equal(null);
     const authority = accountCoder.decode(
@@ -3813,13 +3945,6 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     expect(authority.recipients.team_treasury.toString()).to.equal(
       replacementTeamTreasury.toString()
     );
-
-    const marketAccount = svm.getAccount(fixture.market);
-    expect(marketAccount).to.not.equal(null);
-    const decodedMarket = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
-    expect(decodedMarket.config.swap_fee_bps).to.equal(30);
-    expect(decodedMarket.pending_config.active).to.equal(true);
-    expect(decodedMarket.pending_config.config.swap_fee_bps).to.equal(40);
 
     await resetFutarchyDefaults();
   });
@@ -3890,6 +4015,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         authoritySigner: payer.publicKey,
         futarchyAuthority,
         systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(updateAuctionConfigTx, [payer]);
@@ -3905,6 +4032,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         authoritySigner: payer.publicKey,
         futarchyAuthority,
         market: fixture.market,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(updateAuctionRouteTx, [payer]);
@@ -3922,6 +4051,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         authoritySigner: payer.publicKey,
         futarchyAuthority,
         systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(updateAuctionRecipientsTx, [payer]);
@@ -3939,6 +4070,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         authoritySigner: payer.publicKey,
         futarchyAuthority,
         systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(updateRevenueTx, [payer]);
@@ -3997,6 +4130,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         authoritySigner: payer.publicKey,
         futarchyAuthority,
         systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(updateInterestAuctionConfigTx, [payer]);
@@ -4013,6 +4148,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         authoritySigner: payer.publicKey,
         futarchyAuthority,
         systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(updateInterestRevenueTx, [payer]);
@@ -4170,59 +4307,6 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     );
 
     await resetFutarchyDefaults();
-  });
-
-  it("claims manager swap fees from reserve custody", async function () {
-    const config = marketConfig();
-    config.managerFeeBps = 500;
-    const fixture = await addBalancedLiquidity(60, config);
-
-    await swapBaseForQuote(fixture, [], 10_000, 1);
-
-    const marketBeforeAccount = svm.getAccount(fixture.market);
-    expect(marketBeforeAccount).to.not.equal(null);
-    const marketBefore = accountCoder.decode(
-      "Market",
-      Buffer.from(marketBeforeAccount!.data)
-    ) as any;
-    const managerSwapFeeLiability =
-      marketBefore.base_side.fees.manager_swap_fee_liability.toNumber();
-    expect(managerSwapFeeLiability).to.equal(1);
-
-    const managerBaseBefore = await getAccount(connection as any, fixture.ownerBaseAccount);
-    const claimTx = await program.methods
-      .claimManagerFees()
-      .accounts({
-        market: fixture.market,
-        manager: payer.publicKey,
-        assetMint: fixture.baseMint,
-        reserveVault: fixture.baseReserveVault,
-        interestVault: fixture.baseInterestVault,
-        managerAssetAccount: fixture.ownerBaseAccount,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    await connection.sendTransaction(claimTx, [payer]);
-    trackV2Instruction("claimManagerFees", this.test?.title);
-
-    const managerBaseAfter = await getAccount(connection as any, fixture.ownerBaseAccount);
-    expect(managerBaseAfter.amount - managerBaseBefore.amount).to.equal(
-      BigInt(managerSwapFeeLiability)
-    );
-
-    const reserveVault = await getAccount(connection as any, fixture.baseReserveVault);
-    const marketAfterAccount = svm.getAccount(fixture.market);
-    expect(marketAfterAccount).to.not.equal(null);
-    const marketAfter = accountCoder.decode("Market", Buffer.from(marketAfterAccount!.data)) as any;
-    expect(marketAfter.base_side.fees.manager_swap_fee_liability.toNumber()).to.equal(0);
-    expect(marketAfter.base_side.fees.manager_interest_fee_liability.toNumber()).to.equal(0);
-    expect(reserveVault.amount).to.equal(
-      BigInt(marketAfter.base_side.reserves.cash_reserve.toString()) +
-        BigInt(marketAfter.base_side.fees.swap_fee_custody_balance.toString())
-    );
   });
 
   it("checkpoints active hLP vaults during swaps with canonical vault accounts", async function () {
@@ -4484,7 +4568,9 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     trackV2Instruction("claimYield", this.test?.title);
 
     const recipientBalance = await getAccount(connection as any, recipientBaseAccount);
+    const yieldClaimedEvent = cpiEvent(claimTx, "yieldClaimed");
     expect(recipientBalance.amount).to.equal(2n);
+    expect(yieldClaimedEvent.recipientCredit.toString()).to.equal(recipientBalance.amount.toString());
     const reserveVault = await getAccount(connection as any, fixture.baseReserveVault);
 
     const account = svm.getAccount(fixture.market);
@@ -4965,7 +5051,12 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         revenueDistribution: null,
         protocolAuctionSplit: null,
       })
-      .accounts({ authoritySigner: payer.publicKey, futarchyAuthority })
+      .accounts({
+        authoritySigner: payer.publicKey,
+        futarchyAuthority,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
       .transaction();
     let overCapRejected = false;
     try {
@@ -4987,6 +5078,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         futarchyAuthority,
         referralPartner: deriveReferralPartnerAddress(invalidPartner)[0],
         systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     let invalidPartnerRejected = false;
@@ -5283,7 +5376,12 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     );
     const rotateTx = await program.methods
       .setReferralRecipient({ recipient: rotatedRecipient })
-      .accounts({ authority: payer.publicKey, referralPartner })
+      .accounts({
+        authority: payer.publicKey,
+        referralPartner,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
       .transaction();
     await connection.sendTransaction(rotateTx, [payer]);
 
@@ -5299,6 +5397,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         recipientTokenAccount,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(claimTx, [payer]);
@@ -5573,13 +5673,30 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         referralAccrual: null,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(bidTx, [payer]);
     trackV2Instruction("bidLiquidationAuction", this.test?.title);
 
+    const liquidationEvent = cpiEvent(bidTx, "positionLiquidated");
+    expect(liquidationEvent.market.toString()).to.equal(fixture.market.toString());
+    expect(liquidationEvent.borrowPosition.toString()).to.equal(borrowPosition.toString());
+    expect(liquidationEvent.borrower.toString()).to.equal(payer.publicKey.toString());
+    expect(liquidationEvent.liquidator.toString()).to.equal(payer.publicKey.toString());
+    expect(liquidationEvent.debtAssetSide).to.equal(1);
+    expect(liquidationEvent.repaidAmount.toString()).to.equal("1000");
+    expect(
+      BigInt(liquidationEvent.collateralSeized.toString()) >=
+        BigInt(liquidationEvent.collateralToLiquidator.toString())
+    ).to.equal(true);
+
     const ownerBaseAfter = await getAccount(connection as any, fixture.ownerBaseAccount);
     expect(ownerBaseAfter.amount > ownerBaseBefore.amount).to.equal(true);
+    expect(liquidationEvent.collateralCredit.toString()).to.equal(
+      (ownerBaseAfter.amount - ownerBaseBefore.amount).toString()
+    );
 
     const positionAfterAccount = svm.getAccount(borrowPosition);
     expect(positionAfterAccount).to.not.equal(null);
@@ -5702,6 +5819,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         referralAccrual: null,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(settleTx, [payer]);
@@ -6185,51 +6304,215 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     expect(svm.getAccount(leveragePosition)).to.equal(null);
   });
 
-  it("schedules timelocked market authority rotations", async function () {
-    const fixture = await initializeFinalMarket(61);
-    const newOperator = Keypair.generate().publicKey;
-    const newManager = Keypair.generate().publicKey;
+  it("runs the direct-yLP parameter proposal lifecycle", async function () {
+    const fixture = await addBalancedLiquidity(61);
+    const proposer = payer.publicKey;
+    const nonce = new BN(1);
+    const proposal = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("parameter_proposal"),
+        fixture.market.toBuffer(),
+        proposer.toBuffer(),
+        nonce.toArrayLike(Buffer, "le", 8),
+      ],
+      DUSK_PROGRAM_ID
+    )[0];
+    const proposalSupport = PublicKey.findProgramAddressSync(
+      [Buffer.from("proposal_support"), proposal.toBuffer(), proposer.toBuffer()],
+      DUSK_PROGRAM_ID
+    )[0];
+    const baseYieldAccount = deriveYieldAccountAddress(
+      fixture.market,
+      proposer,
+      fixture.ylpMint,
+      fixture.baseMint,
+      "ylp"
+    )[0];
+    const quoteYieldAccount = deriveYieldAccountAddress(
+      fixture.market,
+      proposer,
+      fixture.ylpMint,
+      fixture.quoteMint,
+      "ylp"
+    )[0];
+    const ylpMintBefore = await getMint(
+      connection as any,
+      fixture.ylpMint,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    expect(svm.getAccount(fixture.baseHlpYlpVault)).to.equal(null);
+    expect(svm.getAccount(fixture.quoteHlpYlpVault)).to.equal(null);
+    const eligibleSupply = ylpMintBefore.supply;
+    const sponsorship = (eligibleSupply + 99n) / 100n;
+    const strictMajority = eligibleSupply / 2n + 1n;
+    const additionalSupport = strictMajority - sponsorship;
+    const ownerYlpBefore = await getAccount(
+      connection as any,
+      fixture.ownerYlpAccount,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
 
-    const scheduleOperatorTx = await program.methods
-      .setOperator({
-        newOperator,
+    const createTx = await program.methods
+      .createParameterProposal({
+        nonce,
+        update: {
+          dailyBorrowLimit: {
+            maxDailyBorrowBps: 1_900,
+          },
+        },
+        metadata: {
+          version: 1,
+          title: "Lower daily borrow limit",
+          descriptionUri: "ipfs://dusk-litesvm-parameter-proposal",
+          descriptionSha256: Array(32).fill(1),
+          descriptionLen: 1,
+        },
+        initialSupport: new BN(sponsorship.toString()),
       })
       .accounts({
+        proposer,
         market: fixture.market,
-        manager: payer.publicKey,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
+        proposal,
+        proposalSupport,
+        ylpMint: fixture.ylpMint,
+        proposerYlpAccount: fixture.ownerYlpAccount,
+        baseYieldAccount,
+        quoteYieldAccount,
+        baseHlpYlpVault: fixture.baseHlpYlpVault,
+        quoteHlpYlpVault: fixture.quoteHlpYlpVault,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
       })
       .transaction();
-    await connection.sendTransaction(scheduleOperatorTx, [payer]);
-    trackV2Instruction("setOperator", this.test?.title);
+    await connection.sendTransaction(createTx, [payer]);
+    trackV2Instruction("createParameterProposal", this.test?.title);
+
+    const baseHlpYlp = await getAccount(
+      connection as any,
+      fixture.baseHlpYlpVault,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const quoteHlpYlp = await getAccount(
+      connection as any,
+      fixture.quoteHlpYlpVault,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    expect(baseHlpYlp.amount).to.equal(0n);
+    expect(quoteHlpYlp.amount).to.equal(0n);
 
     let marketAccount = svm.getAccount(fixture.market);
     expect(marketAccount).to.not.equal(null);
-    let decoded = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
-    expect(decoded.operator.toString()).to.equal(payer.publicKey.toString());
-    expect(decoded.pending_operator.active).to.equal(true);
-    expect(decoded.pending_operator.new_authority.toString()).to.equal(newOperator.toString());
+    let market = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
+    expect(BigInt(market.governance_locked_ylp.toString())).to.equal(sponsorship);
 
-    const scheduleManagerTx = await program.methods
-      .setManager({
-        newManager,
-      })
+    const queueTx = await program.methods
+      .queueParameterProposal()
       .accounts({
         market: fixture.market,
-        manager: payer.publicKey,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
+        proposal,
+        ylpMint: fixture.ylpMint,
+        baseHlpYlpVault: fixture.baseHlpYlpVault,
+        quoteHlpYlpVault: fixture.quoteHlpYlpVault,
       })
       .transaction();
-    await connection.sendTransaction(scheduleManagerTx, [payer]);
-    trackV2Instruction("setManager", this.test?.title);
+    let insufficientQueueRejected = false;
+    try {
+      await connection.sendTransaction(queueTx, [payer]);
+    } catch {
+      insufficientQueueRejected = true;
+    }
+    expect(insufficientQueueRejected).to.equal(true);
+    trackV2Instruction("queueParameterProposal", this.test?.title);
+
+    const supportTx = await program.methods
+      .supportParameterProposal({
+        amount: new BN(additionalSupport.toString()),
+      })
+      .accounts({
+        supporter: proposer,
+        market: fixture.market,
+        proposal,
+        proposalSupport,
+        ylpMint: fixture.ylpMint,
+        supporterYlpAccount: fixture.ownerYlpAccount,
+        baseYieldAccount,
+        quoteYieldAccount,
+        baseHlpYlpVault: fixture.baseHlpYlpVault,
+        quoteHlpYlpVault: fixture.quoteHlpYlpVault,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .transaction();
+    await connection.sendTransaction(supportTx, [payer]);
+    trackV2Instruction("supportParameterProposal", this.test?.title);
 
     marketAccount = svm.getAccount(fixture.market);
     expect(marketAccount).to.not.equal(null);
-    decoded = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
-    expect(decoded.manager.toString()).to.equal(payer.publicKey.toString());
-    expect(decoded.pending_manager.active).to.equal(true);
-    expect(decoded.pending_manager.new_authority.toString()).to.equal(newManager.toString());
+    market = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
+    expect(BigInt(market.governance_locked_ylp.toString())).to.equal(strictMajority);
+
+    const executeTx = await program.methods
+      .executeParameterProposal()
+      .accounts({ market: fixture.market, proposal })
+      .transaction();
+    let earlyExecutionRejected = false;
+    try {
+      await connection.sendTransaction(executeTx, [payer]);
+    } catch {
+      earlyExecutionRejected = true;
+    }
+    expect(earlyExecutionRejected).to.equal(true);
+
+    const clock = svm.getClock();
+    clock.unixTimestamp += 7n * 24n * 60n * 60n + 1n;
+    svm.setClock(clock);
+    svm.expireBlockhash();
+
+    const maturedExecuteTx = await program.methods
+      .executeParameterProposal()
+      .accounts({ market: fixture.market, proposal })
+      .transaction();
+    await connection.sendTransaction(maturedExecuteTx, [payer]);
+    trackV2Instruction("executeParameterProposal", this.test?.title);
+
+    marketAccount = svm.getAccount(fixture.market);
+    expect(marketAccount).to.not.equal(null);
+    market = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
+    expect(market.config.max_daily_borrow_bps).to.equal(1_900);
+    expect(market.parameter_revisions[4].toNumber()).to.equal(1);
+
+    const withdrawTx = await program.methods
+      .withdrawParameterSupport()
+      .accounts({
+        supporter: proposer,
+        market: fixture.market,
+        proposal,
+        proposalSupport,
+        ylpMint: fixture.ylpMint,
+        supporterYlpAccount: fixture.ownerYlpAccount,
+        baseYieldAccount,
+        quoteYieldAccount,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(withdrawTx, [payer]);
+    trackV2Instruction("withdrawParameterSupport", this.test?.title);
+
+    const ownerYlpAfter = await getAccount(
+      connection as any,
+      fixture.ownerYlpAccount,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    expect(ownerYlpAfter.amount).to.equal(ownerYlpBefore.amount);
+    expect(svm.getAccount(proposalSupport)).to.equal(null);
+    marketAccount = svm.getAccount(fixture.market);
+    expect(marketAccount).to.not.equal(null);
+    market = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
+    expect(market.governance_locked_ylp.toNumber()).to.equal(0);
   });
 });

@@ -134,7 +134,8 @@ impl<'info> Borrow<'info> {
     crate::instructions::common::market_update_and_validate!(BorrowArgs);
 
     pub fn handle_borrow(mut ctx: Context<'_, '_, '_, 'info, Self>, args: BorrowArgs) -> Result<()> {
-        let (market_key, owner_key, debt_asset_mint_key, position_key, debt_receipt, bound_referral) = {
+        let current_slot = Clock::get()?.slot;
+        let (market_key, owner_key, debt_asset_mint_key, position_key, debt_credit, debt_receipt, bound_referral) = {
             let accounts = &mut ctx.accounts;
             let market_key = accounts.market.key();
             let owner_key = accounts.owner.key();
@@ -173,6 +174,7 @@ impl<'info> Borrow<'info> {
                 borrow_asset,
                 args.borrow_amount,
                 args.min_liquidation_cf_bps,
+                current_slot,
             )?;
 
             let debt_token_program = token_program_for_mint(
@@ -205,21 +207,25 @@ impl<'info> Borrow<'info> {
                 owner_key,
                 debt_asset_mint_key,
                 accounts.borrow_position.key(),
+                debt_credit,
                 debt_receipt,
                 bound_referral,
             )
         };
 
         // Finalize the curve transition and refresh risk after debt and cash move.
-        let current_slot = Clock::get()?.slot;
         ctx.accounts.market.finalize_amm_transition(current_slot)?;
         ctx.accounts.market.refresh_risk()?;
 
         emit_cpi!(MarketDebtUpdated {
             market: market_key,
+            position: position_key,
             owner: owner_key,
             debt_asset_mint: debt_asset_mint_key,
             debt_delta: debt_receipt.debt_delta,
+            cash_debit: args.borrow_amount,
+            cash_credit: debt_credit,
+            interest_paid: 0,
             fixed_base_debt: debt_receipt.fixed_base_debt,
             fixed_quote_debt: debt_receipt.fixed_quote_debt,
             global_health_base_contribution_for_quote_debt: debt_receipt.global_health_base_contribution_for_quote_debt,
@@ -245,7 +251,7 @@ impl<'info> Borrow<'info> {
         }
 
         let health = ctx.accounts.market.market_health()?;
-        emit!(MarketHealthUpdated {
+        emit_cpi!(MarketHealthUpdated {
             market: market_key,
             global_health_base_contribution_for_quote_debt: health.global_health_base_contribution_for_quote_debt,
             global_health_quote_contribution_for_base_debt: health.global_health_quote_contribution_for_base_debt,

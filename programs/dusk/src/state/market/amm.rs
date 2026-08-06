@@ -20,16 +20,13 @@ pub const MAX_AMM_FADE_SCALE_NAD: u64 = 199_000_000;
 pub const MIN_AMM_ADJUSTMENT_NAD: u64 = NAD / 1_000_000;
 pub const MAX_AMM_ADJUSTMENT_NAD: u64 = NAD / 10;
 pub const MAX_AMM_VOLATILITY_NAD: u64 = 10 * NAD;
-/// Governance/arithmetic bound on signal sensitivity, not a fee-rate cap.
-/// The divergence potential remains unbounded in marginal rate; volatility
-/// uses a separate asymptotic mapping over the bounded pressure.
+/// Governance/arithmetic bound on signal sensitivity. Separate fee-share caps
+/// bound the Huberized divergence marginal and the volatility debit.
 pub const MAX_AMM_FEE_COEFFICIENT_NAD: u64 = 100 * NAD;
-pub const MIN_AMM_RAMP_DURATION_SLOTS: u64 = 9_000;
-pub const MAX_AMM_RAMP_DURATION_SLOTS: u64 = 6_480_000;
+pub const MIN_AMM_RAMP_DURATION_SLOTS: u64 = 216_000;
+pub const MAX_AMM_RAMP_DURATION_SLOTS: u64 = 1_512_000;
 pub const MAX_AMM_ADJUSTMENT_INTERVAL_SLOTS: u64 = 216_000;
-/// Fixed configuration extension room. `AmmConfig` is embedded in both the
-/// active config and the pending timelocked config, so reserving it before
-/// launch is what lets later AMM controls ship without resizing `Market`.
+/// Fixed configuration extension room retained for future typed AMM controls.
 ///
 /// Keep this wire-carried reserve compact: the complete `MarketConfig` is also
 /// an initialize/update instruction argument, and 64 bytes made the
@@ -239,8 +236,8 @@ impl AmmConfig {
     }
 }
 
-/// A linear ramp whose governance delay is enforced by the outer Market
-/// config update. The ramp begins in the slot where that update is applied.
+/// A linear ramp whose governance delay is enforced by a queued parameter
+/// proposal. The ramp begins in the slot where that proposal executes.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct AmmRamp {
     pub active: bool,
@@ -548,8 +545,8 @@ impl AmmState {
         Ok(())
     }
 
-    /// Starts a ramp when a timelocked outer config update is applied. The prior
-    /// endpoint is supplied explicitly because `config` already holds target.
+    /// Starts a ramp when a timelocked concentration proposal executes. The
+    /// prior endpoint is supplied explicitly because `config` already holds target.
     pub fn start_applied_ramp(
         &mut self,
         old_parameters: AmmCurveParameters,

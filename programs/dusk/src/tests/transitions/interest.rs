@@ -1,9 +1,10 @@
 use super::*;
-    use crate::state::{PendingAuthorityChange, PendingConfigChange};
+use crate::state::DEFAULT_IRM_ADJUSTMENT_SPEED_PER_YEAR;
     use crate::{
         constants::{
             INTEREST_INITIAL_RATE_AT_TARGET_NAD, INTEREST_MAX_RATE_AT_TARGET_NAD,
-            INTEREST_MIN_RATE_AT_TARGET_NAD, MS_PER_YEAR, NAD, TARGET_MS_PER_SLOT,
+            INTEREST_MIN_RATE_AT_TARGET_NAD, MARKET_LAYOUT_VERSION, MS_PER_YEAR, NAD,
+            TARGET_MS_PER_SLOT,
         },
         state::{
             Debt, HlpVault, Insurance, MarketConfig, MarketSide, Reserves, Risk,
@@ -26,10 +27,8 @@ use super::*;
             cash_reserve: quote_cash,
         };
         Market {
-            version: 2,
+            version: MARKET_LAYOUT_VERSION,
             ylp_mint: Pubkey::new_unique(),
-            operator: Pubkey::new_unique(),
-            manager: Pubkey::new_unique(),
             base_side,
             quote_side,
             config: MarketConfig::default(),
@@ -47,10 +46,9 @@ use super::*;
             quote_hlp_vault: HlpVault::default(),
             risk: Risk::default(),
             insurance: Insurance::default(),
-            pending_config: PendingConfigChange::default(),
-            pending_operator: PendingAuthorityChange::default(),
-            pending_manager: PendingAuthorityChange::default(),
             params_hash: [0u8; 32],
+            governance_locked_ylp: 0,
+            parameter_revisions: [0; 5],
             last_marginal_observation_nad: 0,
             curve_revision: 0,
             risk_revision: 0,
@@ -61,16 +59,16 @@ use super::*;
     }
 
     fn configure_active_base_side(market: &mut Market) {
-        // At index 1.0: 300 fixed + 200 isolated + 400 hLP funding debt,
-        // backed by 100 idle cash. The side is therefore exactly at the 90%
+        // At index 1.0: 300 fixed + 200 isolated + 200 hLP funding debt,
+        // backed by 300 idle cash. The side is therefore exactly at the 70%
         // utilization target, while the quote side remains debt-free.
         market.debt.fixed_base_shares = 300;
         market.debt.fixed_base_principal = 300;
         market.debt.isolated_base_shares = 200;
         market.debt.isolated_base_principal = 200;
-        market.quote_hlp_vault.debt_shares = 400;
-        market.quote_hlp_vault.debt_principal = 400;
-        market.quote_hlp_vault.base_hlp_live_reserve = 400;
+        market.quote_hlp_vault.debt_shares = 200;
+        market.quote_hlp_vault.debt_principal = 200;
+        market.quote_hlp_vault.base_hlp_live_reserve = 200;
         market.base_side.reserves.live_reserve = 1_000;
     }
 
@@ -102,12 +100,12 @@ use super::*;
 
     #[test]
     fn high_utilization_raises_anchor_and_accrues_index() {
-        // Quote borrowed 950 via base-hLP, 50 cash -> util 95% (above 90% target).
+        // Quote borrowed 850 via base-hLP, 150 cash -> util 85% (above 70% target).
         // error = +0.5 -> curve mult 2.5x -> rate = 4% * 2.5 = 10% APR.
-        let mut market = test_market(1_000_000, 50);
+        let mut market = test_market(1_000_000, 150);
         market.quote_side.reserves.live_reserve = 1_000;
-        market.base_hlp_vault.debt_shares = 950;
-        market.base_hlp_vault.quote_hlp_live_reserve = 950;
+        market.base_hlp_vault.debt_shares = 850;
+        market.base_hlp_vault.quote_hlp_live_reserve = 850;
         market
             .assert_virtual_reserve_invariant(MarketAsset::Quote)
             .unwrap();
@@ -126,18 +124,18 @@ use super::*;
         // hLP funding debt counts toward utilization and accrues interest, but
         // it is not same-side cash-backed reserve debt. Its interest reduces
         // hLP NAV without growing virtual reserves.
-        let mut market = test_market(1_000_000, 50);
+        let mut market = test_market(1_000_000, 150);
         market.quote_side.reserves.live_reserve = 1_000;
-        market.base_hlp_vault.debt_shares = 950;
-        market.base_hlp_vault.debt_principal = 950;
-        market.base_hlp_vault.quote_hlp_live_reserve = 950;
+        market.base_hlp_vault.debt_shares = 850;
+        market.base_hlp_vault.debt_principal = 850;
+        market.base_hlp_vault.quote_hlp_live_reserve = 850;
 
         market
             .accrue_interest_to_slot(slots_for_ms(MS_PER_YEAR))
             .unwrap();
 
         assert_eq!(market.debt.quote_borrow_index_nad, (NAD as u128) * 110 / 100);
-        assert_eq!(market.quote_side.reserves.cash_reserve, 50);
+        assert_eq!(market.quote_side.reserves.cash_reserve, 150);
         assert_eq!(market.quote_side.reserves.live_reserve, 1_000);
         market
             .assert_virtual_reserve_invariant(MarketAsset::Quote)
@@ -148,18 +146,18 @@ use super::*;
     fn cash_backed_interest_increases_virtual_reserve_with_debt() {
         // Normal cash-backed debt still grows virtual reserves as interest
         // accrues while the debt is unpaid.
-        let mut market = test_market(1_000_000, 50);
+        let mut market = test_market(1_000_000, 150);
         market.quote_side.reserves.live_reserve = 1_000;
-        market.debt.fixed_quote_shares = 950;
-        market.debt.fixed_quote_principal = 950;
+        market.debt.fixed_quote_shares = 850;
+        market.debt.fixed_quote_principal = 850;
 
         market
             .accrue_interest_to_slot(slots_for_ms(MS_PER_YEAR))
             .unwrap();
 
         assert_eq!(market.debt.quote_borrow_index_nad, (NAD as u128) * 110 / 100);
-        assert_eq!(market.quote_side.reserves.cash_reserve, 50);
-        assert_eq!(market.quote_side.reserves.live_reserve, 1_095);
+        assert_eq!(market.quote_side.reserves.cash_reserve, 150);
+        assert_eq!(market.quote_side.reserves.live_reserve, 1_085);
         market
             .assert_virtual_reserve_invariant(MarketAsset::Quote)
             .unwrap();
@@ -209,7 +207,7 @@ use super::*;
     #[test]
     fn mixed_active_and_idle_sides_accrue_independently_with_three_conversions() {
         let current_slot = slots_for_ms(MS_PER_YEAR);
-        let mut market = test_market(100, 1_000);
+        let mut market = test_market(300, 1_000);
         configure_active_base_side(&mut market);
         market.debt.quote_last_accrual_slot = current_slot / 2;
         let quote_elapsed_ms = (current_slot - market.debt.quote_last_accrual_slot)
@@ -218,7 +216,7 @@ use super::*;
             INTEREST_INITIAL_RATE_AT_TARGET_NAD,
             -(NAD as i128),
             quote_elapsed_ms,
-            INTEREST_ADJUSTMENT_SPEED_PER_YEAR,
+            DEFAULT_IRM_ADJUSTMENT_SPEED_PER_YEAR as u128,
             INTEREST_MIN_RATE_AT_TARGET_NAD,
             INTEREST_MAX_RATE_AT_TARGET_NAD,
             INTEREST_MAX_ADAPTATION_STEP_NAD,
@@ -268,7 +266,7 @@ use super::*;
             INTEREST_INITIAL_RATE_AT_TARGET_NAD,
             -(NAD as i128),
             current_slot.saturating_mul(TARGET_MS_PER_SLOT),
-            INTEREST_ADJUSTMENT_SPEED_PER_YEAR,
+            DEFAULT_IRM_ADJUSTMENT_SPEED_PER_YEAR as u128,
             INTEREST_MIN_RATE_AT_TARGET_NAD,
             INTEREST_MAX_RATE_AT_TARGET_NAD,
             INTEREST_MAX_ADAPTATION_STEP_NAD,
@@ -291,7 +289,7 @@ use super::*;
 
     #[test]
     fn long_slot_gap_saturates_elapsed_time_without_extra_conversions() {
-        let mut market = test_market(100, 1_000);
+        let mut market = test_market(300, 1_000);
         configure_active_base_side(&mut market);
         market.debt.base_last_accrual_slot = 7;
         market.debt.quote_last_accrual_slot = 11;

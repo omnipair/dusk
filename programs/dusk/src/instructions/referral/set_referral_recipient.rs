@@ -7,6 +7,7 @@ pub struct SetReferralRecipientArgs {
     pub recipient: Pubkey,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct SetReferralRecipient<'info> {
     #[account(mut)]
@@ -25,11 +26,12 @@ impl<'info> SetReferralRecipient<'info> {
         let SetReferralRecipient {
             authority,
             referral_partner,
+            ..
         } = ctx.accounts;
         let authority = authority.key();
 
         referral_partner.set_recipient(authority, args.recipient)?;
-        emit!(ReferralRecipientUpdated {
+        emit_cpi!(ReferralRecipientUpdated {
             referral_partner: referral_partner.key(),
             authority,
             recipient: args.recipient,

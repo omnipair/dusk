@@ -279,7 +279,8 @@ impl Market {
             plan.swap.end_price_nad,
             current_slot,
         )?;
-        let receipts = self.finalize_hlp_vaults_for_swap(plan.base_pre_rebalance, plan.quote_pre_rebalance)?;
+        let receipts =
+            self.finalize_hlp_vaults_for_swap(plan.base_pre_rebalance, plan.quote_pre_rebalance, current_slot)?;
         let final_curve_evaluation = self.checkpoint_amm_neutral_inventory(current_slot)?;
         // The leverage quote was frozen before reserve, debt, retained-fee,
         // and hLP mutations. Record the actual final executable endpoint so a
@@ -307,7 +308,6 @@ impl Market {
         opened_at: i64,
         opened_slot: u64,
         bump: u8,
-        manager_fee_bps: u16,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
     ) -> Result<LeverageOpenReceipt> {
@@ -346,14 +346,13 @@ impl Market {
             pre_finalize_closeout_value,
             borrowed_amount,
         )?;
-        self.record_leverage_borrow(debt_asset, borrowed_amount)?;
+        self.record_leverage_borrow(debt_asset, borrowed_amount, opened_slot)?;
         let fees = self.apply_leverage_swap(
             debt_asset,
             swap,
             swap.amount_out,
             0,
             swap_fee_credit,
-            manager_fee_bps,
             protocol_fee_bps,
             protocol_auction_split,
             plan.fee_eligible_ylp_supply,
@@ -404,7 +403,6 @@ impl Market {
         collateral_credit: u64,
         plan: LeverageSwapPlan,
         swap_fee_credit: LeverageSwapFeeCredit,
-        manager_fee_bps: u16,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
         current_slot: u64,
@@ -444,14 +442,13 @@ impl Market {
             pre_finalize_closeout_value,
             debt_after,
         )?;
-        self.record_leverage_borrow(debt_asset, borrowed_amount)?;
+        self.record_leverage_borrow(debt_asset, borrowed_amount, current_slot)?;
         let fees = self.apply_leverage_swap(
             debt_asset,
             swap,
             swap.amount_out,
             0,
             swap_fee_credit,
-            manager_fee_bps,
             protocol_fee_bps,
             protocol_auction_split,
             plan.fee_eligible_ylp_supply,
@@ -491,7 +488,6 @@ impl Market {
         min_repay_out: u64,
         plan: LeverageSwapPlan,
         swap_fee_credit: LeverageSwapFeeCredit,
-        manager_fee_bps: u16,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
         current_slot: u64,
@@ -556,7 +552,6 @@ impl Market {
             clearance.interest_paid,
             live_debit,
             swap_fee_credit,
-            manager_fee_bps,
             protocol_fee_bps,
             protocol_auction_split,
             plan.fee_eligible_ylp_supply,
@@ -587,7 +582,6 @@ impl Market {
         min_residual_out: u64,
         plan: LeverageSwapPlan,
         swap_fee_credit: LeverageSwapFeeCredit,
-        manager_fee_bps: u16,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
         current_slot: u64,
@@ -634,7 +628,6 @@ impl Market {
             cash_debit,
             live_debit,
             swap_fee_credit,
-            manager_fee_bps,
             protocol_fee_bps,
             protocol_auction_split,
             plan.fee_eligible_ylp_supply,
@@ -660,7 +653,6 @@ impl Market {
         position: &mut LeveragePosition,
         plan: LeverageSwapPlan,
         swap_fee_credit: LeverageSwapFeeCredit,
-        manager_fee_bps: u16,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
         current_slot: u64,
@@ -757,7 +749,6 @@ impl Market {
             cash_debit,
             live_debit,
             swap_fee_credit,
-            manager_fee_bps,
             protocol_fee_bps,
             protocol_auction_split,
             plan.fee_eligible_ylp_supply,
@@ -877,7 +868,7 @@ impl Market {
             pre_finalize_closeout_quote.amount_out,
             debt_after,
         )?;
-        self.record_leverage_borrow(debt_asset, borrow_amount)?;
+        self.record_leverage_borrow(debt_asset, borrow_amount, current_slot)?;
         let shares = self.add_isolated_borrow_debt(debt_asset, borrow_amount)?;
         position.debt_shares = position
             .debt_shares
@@ -993,7 +984,6 @@ impl Market {
         cash_debit_out: u64,
         extra_live_debit_out: u64,
         swap_fee_credit: LeverageSwapFeeCredit,
-        manager_fee_bps: u16,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
         fee_eligible_ylp_supply: u64,
@@ -1062,7 +1052,6 @@ impl Market {
         let fees = side_in.record_claimable_swap_fees(
             swap_fee_credit.base,
             swap_fee_credit.distributed_surcharge,
-            manager_fee_bps,
             protocol_fee_bps,
             protocol_auction_split,
             fee_eligible_ylp_supply,
@@ -1073,18 +1062,14 @@ impl Market {
         Ok(fees)
     }
 
-    fn record_leverage_borrow(&mut self, debt_asset: MarketAsset, gross_debt: u64) -> Result<()> {
-        let daily_limit = self.daily_limit_for_side(debt_asset, self.config.max_daily_borrow_bps)?;
-        let current_slot = self.risk.last_snapshot_slot;
-        let debt_side = self.side_mut(debt_asset);
+    fn record_leverage_borrow(&mut self, debt_asset: MarketAsset, gross_debt: u64, current_slot: u64) -> Result<()> {
         require_gte!(
-            debt_side.reserves.cash_reserve,
+            self.side(debt_asset).reserves.cash_reserve,
             gross_debt,
             ErrorCode::InsufficientBorrowHeadroom
         );
-        debt_side
-            .daily_limits
-            .record_borrow(gross_debt, daily_limit, current_slot)?;
+        self.record_new_borrow(debt_asset, gross_debt, current_slot)?;
+        let debt_side = self.side_mut(debt_asset);
         debt_side.reserves.cash_reserve = debt_side
             .reserves
             .cash_reserve

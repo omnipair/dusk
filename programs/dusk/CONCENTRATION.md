@@ -157,7 +157,7 @@ reaches an exact CPMM hyperbola at $\rho=1-s$. There is no one-sided boundary
 price jump: outward and restoring marginal prices meet at the same value at
 each boundary.
 
-The operator has exactly two invariant controls:
+The governable concentration family has exactly two invariant coordinates:
 
 - `peak_depth`: extra marginal depth at the balanced center;
 - `fade_scale`: the balance-factor span over which center depth fades and the
@@ -165,7 +165,7 @@ The operator has exactly two invariant controls:
 
 The squared inner decay, the $\rho$ participation factor, the $s/4$ join,
 the derivative-matched cubic, and the exact CPMM continuation are
-protocol-fixed. There is no third operator-controlled transition or
+protocol-fixed. There is no third configurable transition or
 steepness parameter. The physical transition width depends on both
 `peak_depth` and `fade_scale`. Fee, EMA, and
 recenter controls do not alter the invariant.
@@ -184,7 +184,7 @@ NAD-scaled integer ramps may pass through smaller positive `peak_depth` values
 when entering or leaving CPMM. Peak depth and fade scale interpolate
 together; whenever peak depth is positive, the runtime clamps fade scale
 to at least $10^{-7}$, and both become zero only at the CPMM endpoint.
-Operators cannot configure a decay exponent or select another curve profile.
+Proposals cannot configure a decay exponent or select another curve profile.
 Markets that want less stale off-center depth use a smaller `fade_scale`
 and recalibrate `peak_depth`.
 
@@ -428,7 +428,7 @@ reserve coordinate:
 - a center-crossing trade pays only for the outward segment;
 - already-outward flow pays the increase in one additive potential;
 - splitting one monotonic trade cannot materially avoid the charge;
-- the marginal toll rises monotonically without a protocol-defined ceiling.
+- the marginal toll rises monotonically until its configured Huber cap.
 
 Let $r$ be the input-side reserve in common-value coordinates and $q_0$ its
 balanced value. The outward coordinate is
@@ -472,8 +472,8 @@ F'(u)\approx
 \left(\frac{u}{q_0}\right)^2.
 $$
 
-Far from the center, the marginal toll grows approximately linearly and has no
-finite ceiling:
+Before capping, the raw marginal toll grows approximately linearly far from the
+center:
 
 $$
 F'(u)\sim
@@ -481,17 +481,38 @@ F'(u)\sim
 \xrightarrow[u\to\infty]{}\infty.
 $$
 
-The fee-adjusted endpoint is solved against gross input,
-so increasing deterioration can make the surcharge share approach 100% but
-can never consume the final executable atom. The rational form needs no
-iterative square root in the swap hot path.
+For divergence share cap $c$ in basis points, Dusk converts the gross-input
+share into a toll-per-executable-input marginal cap:
+
+$$
+m_{\max}=\left\lfloor
+\frac{c\,\mathrm{NAD}}{10{,}000-c}
+\right\rfloor.
+$$
+
+Let $u_*$ be the first raw coordinate where the uncapped derivative reaches
+$m_{\max}$. The production potential is Huberized:
+
+$$
+\widehat F(u)=
+\begin{cases}
+F(u), & u\le u_*,\\
+F(u_*)+\left\lfloor (u-u_*)m_{\max}/\mathrm{NAD}\right\rfloor,
+& u>u_*.
+\end{cases}
+$$
+
+Endpoint differencing remains additive and telescoping. The implicit endpoint
+solver also embeds the per-swap gross budget
+`floor(gross_input * c / 10_000)` rather than clipping after solving.
 
 This targets trending/adverse flow that pushes inventory farther from the
 concentrated region.
 
 The configured divergence coefficient is bounded to keep governance and
-fixed-point arithmetic inside the audited domain. It scales the potential; it
-does not cap its marginal rate or its gross-input share.
+fixed-point arithmetic inside the audited domain. The coefficient scales the
+near-center potential; the separate share cap bounds both its far-tail
+marginal rate and its gross-input debit.
 
 ### Volatility accumulator
 
@@ -508,8 +529,12 @@ $$
 \nu(p)=\frac{p}{1+p}<1.
 $$
 
-The configured coefficient and accumulator caps bound $p$; the mapping itself
-is asymptotic and keeps every finite volatility rate below 100%.
+The configured coefficient and accumulator caps bound $p$. The resulting
+volatility debit is then limited by its explicit gross-input share budget.
+
+Base, divergence, and volatility component caps must sum to at most 5,000 bps.
+For gross input $g$, total fees are at most $\lfloor g/2\rfloor$, so every
+accepted quote sends at least $\lceil g/2\rceil$ into curve execution.
 
 This targets chop/mean-reverting toxicity. It is deliberately separate from
 the divergence signal because the two signals identify different paths.
@@ -577,6 +602,13 @@ is concentrated.
   cannot bypass the surcharge.
 - hLP pre-positioning distinguishes trader quote input from physical reserve
   credit, and its exact post-correction is valued on the final applied curve.
+- Each debt asset has one shared 24-hour leaky/token bucket for gross new
+  principal from fixed lending, isolated leverage, direct hLP funding, and
+  automatic hLP funding. Continuous refill carries fractional remainder so
+  checkpoint frequency cannot change capacity while the absolute limit is
+  fixed; conservative-depth changes may resize that bps-derived limit. This is
+  not an exact trailing-window sum, and repayments or exits do not refund
+  consumed flow capacity.
 
 This satisfies “lending matches swaps” at the **invariant-mechanics** level,
 not at the net voluntary-swap-proceeds level. Lending underwriting, health, and
@@ -627,8 +659,9 @@ The two serialized curve fields are `peak_depth_nad` and
 compatibility promise for accounts created by earlier experimental builds;
 those development accounts must be recreated.
 
-Governance changes target parameters only. The applied parameters move through
-the timelocked, one-funded-step-per-slot ramp:
+Direct-yLP governance changes target parameters only after strict-majority
+support and a seven-day timelock. The applied concentration parameters then
+move through the funded, one-step-per-slot ramp:
 
 $$
 \mathrm{CPMM}\ \longleftrightarrow\ \mathrm{Concentrated}(P,s),

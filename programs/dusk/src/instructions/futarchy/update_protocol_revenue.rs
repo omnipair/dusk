@@ -16,6 +16,7 @@ pub struct UpdateProtocolRevenueArgs {
     pub protocol_auction_split: Option<ProtocolAuctionSplit>,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct UpdateProtocolRevenue<'info> {
     #[account(
@@ -37,6 +38,7 @@ impl<'info> UpdateProtocolRevenue<'info> {
         let UpdateProtocolRevenue {
             authority_signer,
             futarchy_authority,
+            ..
         } = ctx.accounts;
 
         if let Some(swap_bps) = args.swap_bps {
@@ -55,7 +57,7 @@ impl<'info> UpdateProtocolRevenue<'info> {
                 ErrorCode::InvalidReferralInterestShareBps
             );
             futarchy_authority.max_referral_interest_share_bps = max_referral_interest_share_bps;
-            emit!(ReferralInterestShareCapUpdated {
+            emit_cpi!(ReferralInterestShareCapUpdated {
                 authority: futarchy_authority.key(),
                 max_referral_interest_share_bps,
                 signer: authority_signer.key(),
@@ -70,7 +72,7 @@ impl<'info> UpdateProtocolRevenue<'info> {
         if let Some(protocol_auction_split) = args.protocol_auction_split {
             require!(protocol_auction_split.is_valid(), ErrorCode::InvalidDistribution);
             futarchy_authority.protocol_auction_split = protocol_auction_split;
-            emit!(ProtocolAuctionSplitUpdated {
+            emit_cpi!(ProtocolAuctionSplitUpdated {
                 authority: futarchy_authority.key(),
                 fee_auction_bps: protocol_auction_split.fee_auction_bps,
                 buyback_auction_bps: protocol_auction_split.buyback_auction_bps,

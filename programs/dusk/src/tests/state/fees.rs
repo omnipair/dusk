@@ -56,21 +56,16 @@ fn fragmented_balances_preserve_double_floor_dust_for_later_growth() {
 }
 
 #[test]
-fn total_liability_includes_manager_fee_buckets() {
-    let mut fees = Fees {
+fn total_liability_includes_lp_protocol_and_referral_buckets() {
+    let fees = Fees {
         swap_fee_custody_balance: 700,
         interest_vault_balance: 300,
-        manager_swap_fee_liability: 400,
-        manager_interest_fee_liability: 100,
         referral_interest_liability: 50,
         swap_protocol_fee_liability: 250,
         swap_buyback_fee_liability: 50,
         ..Fees::default()
     };
 
-    assert_eq!(fees.total_liability().unwrap(), 850);
-    fees.manager_swap_fee_liability = 0;
-    fees.manager_interest_fee_liability = 0;
     assert_eq!(fees.total_liability().unwrap(), 350);
 }
 

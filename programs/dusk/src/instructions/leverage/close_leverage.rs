@@ -17,7 +17,7 @@ use crate::{
     generate_market_seeds,
     instructions::{
         common::{require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout},
-        referral::common::{emit_referral_interest_accrued_at_slot, validate_referral_binding},
+        referral::common::{referral_interest_accrued_event_at_slot, validate_referral_binding},
         SwapContext, SwapPlan,
     },
     shared::token::{get_transfer_fee_for_epoch, transfer_checked_with_remaining_accounts},
@@ -46,6 +46,7 @@ enum CloseMode {
     Delegate,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct CloseLeverage<'info> {
     #[account(mut)]
@@ -378,6 +379,7 @@ impl<'info> CloseLeverage<'info> {
             current_slot,
             asset_in: collateral_asset,
             reserve_credit: collateral_reserve_credit,
+            reserved_daily_borrow: 0,
         }
         .plan(&mut ctx.accounts.market)?;
         ctx.accounts.market.observe_current_risk(current_slot)?;
@@ -392,13 +394,11 @@ impl<'info> CloseLeverage<'info> {
         let swap_fee_credit = leverage_swap_fee_credit(&swap)?;
 
         // Commit the close and settle the resulting hLP exposure.
-        let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
         let receipt = ctx.accounts.market.close_leverage(
             &mut ctx.accounts.leverage_position,
             args.min_amount_out,
             swap_plan,
             swap_fee_credit,
-            manager_fee_bps,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
             current_slot,
@@ -442,7 +442,6 @@ impl<'info> CloseLeverage<'info> {
         let residual_credit = token_account_credit(owner_balance_before, &ctx.accounts.owner_debt_account)?;
         require_gte!(residual_credit, args.min_amount_out, ErrorCode::SlippageExceeded);
 
-        let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
         let referral_receipt = record_leverage_interest(
             &mut ctx.accounts.market,
             debt_asset,
@@ -451,7 +450,6 @@ impl<'info> CloseLeverage<'info> {
             &mut ctx.accounts.debt_interest_vault,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
-            manager_fee_bps,
             &ctx.accounts.futarchy_authority,
             expected_referral_partner,
             ctx.accounts.leverage_position.referral_interest_share_bps,
@@ -472,7 +470,7 @@ impl<'info> CloseLeverage<'info> {
         )?;
 
         // Emit referral accrual before the final close event.
-        emit_referral_interest_accrued_at_slot(
+        if let Some(event) = referral_interest_accrued_event_at_slot(
             &referral_receipt,
             market_key,
             position_key,
@@ -480,9 +478,11 @@ impl<'info> CloseLeverage<'info> {
             authority_key,
             debt_mint_key,
             current_slot,
-        )?;
+        )? {
+            emit_cpi!(event);
+        }
 
-        emit!(LeveragePositionClosed {
+        emit_cpi!(LeveragePositionClosed {
             market: market_key,
             position: position_key,
             owner: owner_key,
@@ -493,7 +493,12 @@ impl<'info> CloseLeverage<'info> {
             collateral_sold: receipt.collateral_sold,
             closeout_value: receipt.closeout_value,
             residual: residual_credit,
-            swap: LeverageSwapEvent::new(receipt.swap, swap_fee_credit),
+            swap: LeverageSwapEvent::new(
+                receipt.swap,
+                swap_fee_credit,
+                ctx.accounts.market.base_side.reserves.live_reserve,
+                ctx.accounts.market.quote_side.reserves.live_reserve,
+            )?,
             metadata: MarketEventMetadata::at_slot(authority_key, market_key, current_slot),
         });
 

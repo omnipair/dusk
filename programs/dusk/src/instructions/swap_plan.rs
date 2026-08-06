@@ -18,6 +18,10 @@ pub(crate) struct SwapContext {
     pub current_slot: u64,
     pub asset_in: MarketAsset,
     pub reserve_credit: u64,
+    /// Capacity that must remain available for an explicit borrow committed
+    /// after this swap plan. Automatic hLP positioning may use only the
+    /// remainder. The reservation is denominated in `asset_in` atoms.
+    pub reserved_daily_borrow: u64,
 }
 
 /// State-only plan shared by preview and execution. Token transfers and the
@@ -79,6 +83,9 @@ impl SwapContext {
                 self.asset_in,
                 preliminary.amount_in_for_quote,
                 preliminary.reserve_input_credit,
+                self.current_slot,
+                self.asset_in,
+                self.reserved_daily_borrow,
             )?;
             let quote = pre_solve_one_hlp_for_swap(
                 market,
@@ -86,6 +93,9 @@ impl SwapContext {
                 self.asset_in,
                 preliminary.amount_in_for_quote,
                 preliminary.reserve_input_credit,
+                self.current_slot,
+                self.asset_in,
+                self.reserved_daily_borrow,
             )?;
             let pre_solve_ylp_mint_amount = base
                 .ylp_mint_amount

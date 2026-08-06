@@ -17,14 +17,15 @@ use crate::{
 };
 
 use super::common::{
-    leverage_swap_fee_credit, record_leverage_interest, settle_inline_leverage_hlp, validate_leverage_futarchy_pda,
-    validate_leverage_interest_account, validate_leverage_market_pda, validate_leverage_mints,
-    validate_leverage_reserve_accounts,
+    leverage_collateral_vault_pda, leverage_position_pda, leverage_swap_fee_credit, record_leverage_interest,
+    settle_inline_leverage_hlp, validate_leverage_futarchy_pda, validate_leverage_interest_account,
+    validate_leverage_market_pda, validate_leverage_mints, validate_leverage_reserve_accounts,
+    validate_owner_debt_account,
 };
 use crate::instructions::common::{
     require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout,
 };
-use crate::instructions::referral::common::{emit_referral_interest_accrued_at_slot, validate_referral_binding};
+use crate::instructions::referral::common::{referral_interest_accrued_event_at_slot, validate_referral_binding};
 use crate::instructions::{SwapContext, SwapPlan};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -32,8 +33,8 @@ pub struct LiquidateLeverageArgs {
     pub debt_asset: u8,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
-#[instruction(args: LiquidateLeverageArgs)]
 pub struct LiquidateLeverage<'info> {
     #[account(mut)]
     pub market: Box<Account<'info, Market>>,
@@ -44,18 +45,7 @@ pub struct LiquidateLeverage<'info> {
     #[account(mut, address = leverage_position.owner)]
     pub position_owner: AccountInfo<'info>,
 
-    #[account(
-        mut,
-        close = position_owner,
-        seeds = [
-            LEVERAGE_POSITION_SEED_PREFIX,
-            market.key().as_ref(),
-            leverage_position.position_id.as_ref(),
-        ],
-        bump = leverage_position.bump,
-        constraint = leverage_position.market == market.key() @ ErrorCode::InvalidLeveragePosition,
-        constraint = leverage_position.debt_asset == args.debt_asset @ ErrorCode::InvalidLeveragePosition,
-    )]
+    #[account(mut, close = position_owner)]
     pub leverage_position: Box<Account<'info, LeveragePosition>>,
 
     pub debt_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -68,31 +58,13 @@ pub struct LiquidateLeverage<'info> {
     #[account(mut)]
     pub debt_interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    #[account(
-        mut,
-        seeds = [
-            LEVERAGE_COLLATERAL_VAULT_SEED_PREFIX,
-            market.key().as_ref(),
-            collateral_mint.key().as_ref(),
-        ],
-        bump,
-        constraint = leverage_collateral_vault.mint == collateral_mint.key() @ ErrorCode::InvalidVault,
-        constraint = leverage_collateral_vault.owner == market.key() @ ErrorCode::InvalidVault
-    )]
+    #[account(mut)]
     pub leverage_collateral_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    #[account(
-        mut,
-        constraint = liquidator_debt_account.mint == debt_mint.key() @ ErrorCode::InvalidTokenAccount,
-        constraint = liquidator_debt_account.owner == liquidator.key() @ ErrorCode::InvalidTokenAccount,
-    )]
+    #[account(mut)]
     pub liquidator_debt_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    #[account(
-        mut,
-        constraint = owner_debt_account.mint == debt_mint.key() @ ErrorCode::InvalidTokenAccount,
-        constraint = owner_debt_account.owner == position_owner.key() @ ErrorCode::InvalidTokenAccount,
-    )]
+    #[account(mut)]
     pub owner_debt_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     pub referral_partner: Option<Box<Account<'info, ReferralPartner>>>,
@@ -111,6 +83,29 @@ impl<'info> LiquidateLeverage<'info> {
         validate_leverage_market_pda(&self.market, self.market.key())?;
         validate_leverage_futarchy_pda(self.futarchy_authority.bump, self.futarchy_authority.key())?;
         self.market.assert_started_at(unix_timestamp)?;
+        let market_key = self.market.key();
+        let (expected_position, expected_position_bump) =
+            leverage_position_pda(market_key, self.leverage_position.position_id)?;
+        require_keys_eq!(
+            self.leverage_position.key(),
+            expected_position,
+            ErrorCode::InvalidLeveragePosition
+        );
+        require_eq!(
+            self.leverage_position.bump,
+            expected_position_bump,
+            ErrorCode::InvalidLeveragePosition
+        );
+        require_keys_eq!(
+            self.leverage_position.market,
+            market_key,
+            ErrorCode::InvalidLeveragePosition
+        );
+        require_eq!(
+            self.leverage_position.debt_asset,
+            args.debt_asset,
+            ErrorCode::InvalidLeveragePosition
+        );
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
         validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
         validate_leverage_reserve_accounts(
@@ -122,6 +117,24 @@ impl<'info> LiquidateLeverage<'info> {
             &self.collateral_reserve_vault,
         )?;
         validate_leverage_interest_account(&self.market, &self.debt_mint, &self.debt_interest_vault, debt_asset)?;
+        let (expected_collateral_vault, _) = leverage_collateral_vault_pda(market_key, self.collateral_mint.key())?;
+        require_keys_eq!(
+            self.leverage_collateral_vault.key(),
+            expected_collateral_vault,
+            ErrorCode::InvalidVault
+        );
+        require_keys_eq!(
+            self.leverage_collateral_vault.mint,
+            self.collateral_mint.key(),
+            ErrorCode::InvalidVault
+        );
+        require_keys_eq!(
+            self.leverage_collateral_vault.owner,
+            market_key,
+            ErrorCode::InvalidVault
+        );
+        validate_owner_debt_account(self.liquidator.key(), &self.debt_mint, &self.liquidator_debt_account)?;
+        validate_owner_debt_account(self.position_owner.key(), &self.debt_mint, &self.owner_debt_account)?;
         self.leverage_position.require_open()?;
         validate_referral_binding(
             None,
@@ -131,7 +144,7 @@ impl<'info> LiquidateLeverage<'info> {
             &self.futarchy_authority,
             self.referral_partner.as_deref(),
             self.referral_accrual.as_deref(),
-            self.market.key(),
+            market_key,
             &self.debt_mint,
         )?;
         Ok(())
@@ -193,6 +206,7 @@ impl<'info> LiquidateLeverage<'info> {
             current_slot,
             asset_in: collateral_asset,
             reserve_credit: collateral_reserve_credit,
+            reserved_daily_borrow: 0,
         }
         .plan(&mut ctx.accounts.market)?;
         ctx.accounts.market.observe_current_risk(current_slot)?;
@@ -207,12 +221,10 @@ impl<'info> LiquidateLeverage<'info> {
         let swap_fee_credit = leverage_swap_fee_credit(&swap)?;
 
         // Commit liquidation accounting and settle the resulting hLP exposure.
-        let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
         let receipt = ctx.accounts.market.liquidate_leverage(
             &mut ctx.accounts.leverage_position,
             swap_plan,
             swap_fee_credit,
-            manager_fee_bps,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
             current_slot,
@@ -279,7 +291,6 @@ impl<'info> LiquidateLeverage<'info> {
             &mut ctx.accounts.debt_interest_vault,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
-            manager_fee_bps,
             &ctx.accounts.futarchy_authority,
             expected_referral_partner,
             ctx.accounts.leverage_position.referral_interest_share_bps,
@@ -299,7 +310,7 @@ impl<'info> LiquidateLeverage<'info> {
             ctx.accounts.market.side(collateral_asset),
         )?;
 
-        emit_referral_interest_accrued_at_slot(
+        if let Some(event) = referral_interest_accrued_event_at_slot(
             &referral_receipt,
             market_key,
             position_key,
@@ -307,10 +318,12 @@ impl<'info> LiquidateLeverage<'info> {
             liquidator_key,
             debt_mint_key,
             current_slot,
-        )?;
+        )? {
+            emit_cpi!(event);
+        }
 
         // Emit the final liquidation state.
-        emit!(LeveragePositionLiquidated {
+        emit_cpi!(LeveragePositionLiquidated {
             market: market_key,
             position: position_key,
             owner: owner_key,
@@ -324,7 +337,12 @@ impl<'info> LiquidateLeverage<'info> {
             closeout_value: receipt.closeout_value,
             liquidator_amount,
             owner_residual,
-            swap: LeverageSwapEvent::new(receipt.swap, swap_fee_credit),
+            swap: LeverageSwapEvent::new(
+                receipt.swap,
+                swap_fee_credit,
+                ctx.accounts.market.base_side.reserves.live_reserve,
+                ctx.accounts.market.quote_side.reserves.live_reserve,
+            )?,
             metadata: MarketEventMetadata::at_slot(liquidator_key, market_key, current_slot),
         });
         Ok(())

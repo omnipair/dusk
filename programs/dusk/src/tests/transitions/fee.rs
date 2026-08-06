@@ -9,7 +9,6 @@ use crate::{
         let receipt = side
             .record_swap_fee_credit(
             10_000,
-            1_000,
             2_000,
             ProtocolAuctionSplit {
                 fee_auction_bps: 7_500,
@@ -18,11 +17,9 @@ use crate::{
         )
         .unwrap();
 
-        assert_eq!(receipt.manager_swap_fee_liability, 1_000);
-        assert_eq!(receipt.manager_interest_fee_liability, 0);
         assert_eq!(receipt.protocol_fee_liability, 1_500);
         assert_eq!(receipt.buyback_fee_liability, 500);
-        assert_eq!(receipt.unallocated_swap_fee_liability, 7_000);
+        assert_eq!(receipt.unallocated_swap_fee_liability, 8_000);
         assert_eq!(receipt.swap_fee_custody_balance, 10_000);
         side.fees.assert_backed().unwrap();
     }
@@ -34,7 +31,6 @@ use crate::{
             .record_claimable_swap_fees(
                 10_000,
                 3_000,
-                1_000,
                 2_000,
                 ProtocolAuctionSplit {
                     fee_auction_bps: 7_500,
@@ -44,22 +40,20 @@ use crate::{
             )
             .unwrap();
 
-        assert_eq!(receipt.manager_swap_fee_liability, 1_000);
         assert_eq!(receipt.protocol_fee_liability, 1_500);
         assert_eq!(receipt.buyback_fee_liability, 500);
-        assert_eq!(receipt.unallocated_swap_fee_liability, 10_000);
+        assert_eq!(receipt.unallocated_swap_fee_liability, 11_000);
         assert_eq!(receipt.swap_fee_custody_balance, 13_000);
         side.fees.assert_backed().unwrap();
     }
 
     #[test]
-    fn surcharge_only_credit_has_no_manager_or_protocol_leakage() {
+    fn surcharge_only_credit_has_no_protocol_leakage() {
         let mut side = MarketSide::default();
         let receipt = side
             .record_claimable_swap_fees(
                 0,
                 3_000,
-                1_000,
                 2_000,
                 ProtocolAuctionSplit {
                     fee_auction_bps: 7_500,
@@ -69,7 +63,6 @@ use crate::{
             )
             .unwrap();
 
-        assert_eq!(receipt.manager_swap_fee_liability, 0);
         assert_eq!(receipt.protocol_fee_liability, 0);
         assert_eq!(receipt.buyback_fee_liability, 0);
         assert_eq!(receipt.unallocated_swap_fee_liability, 3_000);
@@ -84,7 +77,6 @@ use crate::{
             .record_claimable_swap_fees(
                 1_000,
                 500,
-                1_000,
                 2_000,
                 ProtocolAuctionSplit {
                     fee_auction_bps: 10_000,
@@ -94,14 +86,13 @@ use crate::{
             )
             .unwrap();
 
-        // Base LP fee is 700; all 500 surcharge units also go to yLPs.
+        // Base LP fee is 800; all 500 surcharge units also go to yLPs.
         assert_eq!(
             receipt.swap_fee_growth_index_q64,
-            1_200u128 * YIELD_GROWTH_SCALE_Q64 / 1_000
+            1_300u128 * YIELD_GROWTH_SCALE_Q64 / 1_000
         );
-        assert_eq!(receipt.swap_fee_liability, 1_200);
+        assert_eq!(receipt.swap_fee_liability, 1_300);
         assert_eq!(receipt.unallocated_swap_fee_liability, 0);
-        assert_eq!(receipt.manager_swap_fee_liability, 100);
         assert_eq!(receipt.protocol_fee_liability, 200);
         assert_eq!(receipt.swap_fee_custody_balance, 1_500);
         side.fees.assert_backed().unwrap();
@@ -113,7 +104,6 @@ use crate::{
         let receipt = side
             .record_interest_credit(
             10_000,
-            500,
             1_000,
             ProtocolAuctionSplit {
                 fee_auction_bps: 4_000,
@@ -123,12 +113,10 @@ use crate::{
         )
         .unwrap();
 
-        assert_eq!(receipt.manager_swap_fee_liability, 0);
-        assert_eq!(receipt.manager_interest_fee_liability, 500);
         assert_eq!(receipt.referral_interest_liability, 250);
         assert_eq!(receipt.protocol_fee_liability, 300);
         assert_eq!(receipt.buyback_fee_liability, 450);
-        assert_eq!(receipt.unallocated_interest_liability, 8_500);
+        assert_eq!(receipt.unallocated_interest_liability, 9_000);
         assert_eq!(receipt.interest_vault_balance, 10_000);
         side.fees.assert_backed().unwrap();
     }
@@ -139,7 +127,7 @@ use crate::{
         side.shares.ylp_supply = 100;
         let split = ProtocolAuctionSplit::default();
 
-        let first = side.record_swap_fee_credit(100, 0, 0, split).unwrap();
+        let first = side.record_swap_fee_credit(100, 0, split).unwrap();
         // Simulate an owner-authorized Token-2022 Burn of 40 LP tokens. The
         // token program does not invoke transfer hooks, so Dusk state cannot
         // and must not reduce its internal claim denominator.
@@ -155,7 +143,7 @@ use crate::{
             60
         );
 
-        let second = side.record_swap_fee_credit(100, 0, 0, split).unwrap();
+        let second = side.record_swap_fee_credit(100, 0, split).unwrap();
         let second_period_claim = accrue_fee_liability(
             externally_remaining_balance,
             second.swap_fee_growth_index_q64,
@@ -321,7 +309,6 @@ use crate::{
         let err = side
             .record_swap_fee_credit(
             10_000,
-            0,
             1_000,
             ProtocolAuctionSplit {
                 fee_auction_bps: 7_000,

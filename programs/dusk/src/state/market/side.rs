@@ -15,8 +15,6 @@ pub struct FeesReceipt {
     pub interest_liability: u64,
     pub unallocated_swap_fee_liability: u64,
     pub unallocated_interest_liability: u64,
-    pub manager_swap_fee_liability: u64,
-    pub manager_interest_fee_liability: u64,
     pub referral_interest_liability: u64,
     pub protocol_fee_liability: u64,
     pub buyback_fee_liability: u64,
@@ -51,8 +49,6 @@ impl FeesReceipt {
             interest_liability: fees.interest_liability,
             unallocated_swap_fee_liability: fees.unallocated_swap_fee_liability,
             unallocated_interest_liability: fees.unallocated_interest_liability,
-            manager_swap_fee_liability: fees.manager_swap_fee_liability,
-            manager_interest_fee_liability: fees.manager_interest_fee_liability,
             referral_interest_liability: fees.referral_interest_liability,
             protocol_fee_liability: fees.protocol_fee_liability()?,
             buyback_fee_liability: fees.buyback_fee_liability()?,
@@ -159,14 +155,12 @@ impl MarketSide {
     pub fn record_swap_fee_credit(
         &mut self,
         fee_credit: u64,
-        manager_fee_bps: u16,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
     ) -> Result<FeesReceipt> {
         self.record_claimable_swap_fees(
             fee_credit,
             0,
-            manager_fee_bps,
             protocol_fee_bps,
             protocol_auction_split,
             self.shares.ylp_supply,
@@ -176,7 +170,6 @@ impl MarketSide {
     pub fn record_swap_fee_credit_with_supply(
         &mut self,
         fee_credit: u64,
-        manager_fee_bps: u16,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
         eligible_ylp_supply: u64,
@@ -184,7 +177,6 @@ impl MarketSide {
         self.record_claimable_swap_fees(
             fee_credit,
             0,
-            manager_fee_bps,
             protocol_fee_bps,
             protocol_auction_split,
             eligible_ylp_supply,
@@ -194,14 +186,13 @@ impl MarketSide {
     /// Records swap fees physically held in the reserve vault but excluded
     /// from executable reserves as explicit liabilities.
     ///
-    /// The manager/protocol split applies only to `base_fee_credit`.
+    /// The protocol split applies only to `base_fee_credit`.
     /// A distributed dynamic surcharge belongs entirely to yLPs; retained
     /// surcharge must stay in the reserve and must not be passed here.
     pub fn record_claimable_swap_fees(
         &mut self,
         base_fee_credit: u64,
         distributed_dynamic_surcharge_credit: u64,
-        manager_fee_bps: u16,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
         eligible_ylp_supply: u64,
@@ -212,8 +203,7 @@ impl MarketSide {
         let claimable_fee_credit = base_fee_credit
             .checked_add(distributed_dynamic_surcharge_credit)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let (manager_fee, protocol_fee, base_lp_fee) =
-            split_revenue(base_fee_credit, manager_fee_bps, protocol_fee_bps)?;
+        let (protocol_fee, base_lp_fee) = split_revenue(base_fee_credit, protocol_fee_bps)?;
         let lp_fee = base_lp_fee
             .checked_add(distributed_dynamic_surcharge_credit)
             .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -223,11 +213,6 @@ impl MarketSide {
             .fees
             .swap_fee_custody_balance
             .checked_add(claimable_fee_credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.manager_swap_fee_liability = self
-            .fees
-            .manager_swap_fee_liability
-            .checked_add(manager_fee)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         self.fees.swap_protocol_fee_liability = self
             .fees
@@ -252,14 +237,12 @@ impl MarketSide {
     pub fn record_interest_credit(
         &mut self,
         interest_credit: u64,
-        manager_fee_bps: u16,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
         referral_interest_amount: u64,
     ) -> Result<FeesReceipt> {
         self.record_interest_credit_with_supply(
             interest_credit,
-            manager_fee_bps,
             protocol_fee_bps,
             protocol_auction_split,
             referral_interest_amount,
@@ -270,7 +253,6 @@ impl MarketSide {
     pub fn record_interest_credit_with_supply(
         &mut self,
         interest_credit: u64,
-        manager_fee_bps: u16,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
         referral_interest_amount: u64,
@@ -279,8 +261,7 @@ impl MarketSide {
         if interest_credit == 0 {
             return FeesReceipt::from_side(self);
         }
-        let (manager_fee, protocol_fee, lp_interest) =
-            split_revenue(interest_credit, manager_fee_bps, protocol_fee_bps)?;
+        let (protocol_fee, lp_interest) = split_revenue(interest_credit, protocol_fee_bps)?;
         require_gte!(protocol_fee, referral_interest_amount, ErrorCode::FeeMathOverflow);
         let remaining_protocol_fee = protocol_fee
             .checked_sub(referral_interest_amount)
@@ -291,11 +272,6 @@ impl MarketSide {
             .fees
             .interest_vault_balance
             .checked_add(interest_credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.manager_interest_fee_liability = self
-            .fees
-            .manager_interest_fee_liability
-            .checked_add(manager_fee)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         self.fees.referral_interest_liability = self
             .fees
@@ -471,23 +447,11 @@ impl MarketSide {
     }
 }
 
-fn split_revenue(amount: u64, manager_bps: u16, protocol_bps: u16) -> Result<(u64, u64, u64)> {
-    require_gte!(BPS_DENOMINATOR, manager_bps, ErrorCode::InvalidMarketConfig);
+fn split_revenue(amount: u64, protocol_bps: u16) -> Result<(u64, u64)> {
     require_gte!(BPS_DENOMINATOR, protocol_bps, ErrorCode::InvalidMarketConfig);
-    require_gte!(
-        BPS_DENOMINATOR,
-        manager_bps
-            .checked_add(protocol_bps)
-            .ok_or(ErrorCode::InvalidMarketConfig)?,
-        ErrorCode::InvalidMarketConfig
-    );
-    let manager_fee = proportional_bps(amount, manager_bps)?;
     let protocol_fee = proportional_bps(amount, protocol_bps)?;
-    let lp_amount = amount
-        .checked_sub(manager_fee)
-        .and_then(|value| value.checked_sub(protocol_fee))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    Ok((manager_fee, protocol_fee, lp_amount))
+    let lp_amount = amount.checked_sub(protocol_fee).ok_or(ErrorCode::MarketMathOverflow)?;
+    Ok((protocol_fee, lp_amount))
 }
 
 fn split_protocol_auction_fee(protocol_fee: u64, split: &ProtocolAuctionSplit) -> Result<(u64, u64)> {

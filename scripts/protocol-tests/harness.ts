@@ -37,7 +37,8 @@ export interface ForkConfig {
   ylpMint: string;
   baseHlpMint: string;
   quoteHlpMint: string;
-  governanceDelaySlots: number;
+  parameterTimelockSeconds: number;
+  parameterExecutionWindowSeconds: number;
   seededLiquidity: boolean;
 }
 
@@ -58,30 +59,11 @@ export interface MarketPayload {
   quoteInsuranceVault: string;
   baseInterestVault: string;
   quoteInterestVault: string;
-  operator: string;
-  manager: string;
-  config: Record<string, string | number>;
-  pendingConfig: {
-    active: boolean;
-    config: Record<string, string | number>;
-    scheduledBy: string;
-    scheduledSlot: string;
-    executeAfterSlot: string;
-  };
-  pendingOperator: {
-    active: boolean;
-    newAuthority: string;
-    scheduledBy: string;
-    scheduledSlot: string;
-    executeAfterSlot: string;
-  };
-  pendingManager: {
-    active: boolean;
-    newAuthority: string;
-    scheduledBy: string;
-    scheduledSlot: string;
-    executeAfterSlot: string;
-  };
+  baseHlpYlpVault: string;
+  quoteHlpYlpVault: string;
+  config: Record<string, unknown>;
+  governanceLockedYlp: string;
+  parameterRevisions: string[];
   reduceOnly: boolean;
   state: Record<string, string>;
 }
@@ -693,11 +675,21 @@ export class ProtocolTestHarness {
       });
       if (transaction) {
         const eventData: string[] = [];
+        const message = transaction.transaction.message;
+        const accountKeys = [
+          ...message.staticAccountKeys,
+          ...(transaction.meta?.loadedAddresses?.writable ?? []),
+          ...(transaction.meta?.loadedAddresses?.readonly ?? []),
+        ];
+        const duskProgramId = new PublicKey(this.config.programId);
         for (const group of transaction.meta?.innerInstructions ?? []) {
           for (const instruction of group.instructions) {
-            const encoded = (instruction as { data?: string }).data;
-            if (!encoded) continue;
-            const data = Buffer.from(utils.bytes.bs58.decode(encoded));
+            const compiled = instruction as { data?: string; programIdIndex?: number };
+            const invokedProgram = compiled.programIdIndex === undefined
+              ? undefined
+              : accountKeys[compiled.programIdIndex];
+            if (!compiled.data || !invokedProgram?.equals(duskProgramId)) continue;
+            const data = Buffer.from(utils.bytes.bs58.decode(compiled.data));
             if (data.length > eventTag.length && data.subarray(0, eventTag.length).equals(eventTag)) {
               eventData.push(data.subarray(eventTag.length).toString("base64"));
             }

@@ -23,14 +23,53 @@ pub enum ErrorCode {
     #[msg("Invalid reduce-only authority")]
     InvalidReduceOnlyAuthority,
 
-    #[msg("Invalid market manager")]
-    InvalidMarketManager,
+    #[msg("Invalid parameter proposal metadata")]
+    InvalidProposalMetadata,
 
-    #[msg("Invalid market config authority")]
-    InvalidMarketConfigAuthority,
+    #[msg("Invalid parameter proposal description URI")]
+    InvalidProposalUri,
 
-    #[msg("Market governance timelock is not ready")]
-    GovernanceTimelockNotReady,
+    #[msg("Parameter proposal digest does not match its immutable contents")]
+    InvalidProposalDigest,
+
+    #[msg("Invalid parameter proposal account")]
+    InvalidParameterProposal,
+
+    #[msg("Invalid parameter proposal support account")]
+    InvalidProposalSupport,
+
+    #[msg("Parameter proposal is not collecting support")]
+    ProposalNotCollecting,
+
+    #[msg("Parameter proposal is not queued")]
+    ProposalNotQueued,
+
+    #[msg("Queued proposal support is frozen")]
+    ProposalSupportFrozen,
+
+    #[msg("Proposal support is below the sponsorship floor")]
+    ProposalSponsorshipTooLow,
+
+    #[msg("Proposal does not have a strict majority of eligible yLP")]
+    ProposalSupportInsufficient,
+
+    #[msg("Parameter proposal timelock is not ready")]
+    ProposalTimelockNotReady,
+
+    #[msg("Parameter proposal execution window has expired")]
+    ProposalExecutionWindowExpired,
+
+    #[msg("Parameter proposal was invalidated by a same-family update")]
+    ProposalStale,
+
+    #[msg("Parameter update would not change the active market parameters")]
+    ParameterUpdateNotMeaningful,
+
+    #[msg("Invalid parameter update")]
+    InvalidParameterUpdate,
+
+    #[msg("Parameter execution is blocked while either lending side is at or above 80% utilization")]
+    UtilizationGuardExceeded,
 
     #[msg("Invalid argument")]
     InvalidArgument,

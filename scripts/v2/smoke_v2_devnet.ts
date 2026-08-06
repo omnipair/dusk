@@ -7,6 +7,7 @@ import {
   bnFromUnits,
   deriveFutarchyAuthorityAddress,
   deriveHlpYlpVaultAddress,
+  derivePda,
   deriveYieldAccountAddress,
   duskEnv,
   explorerTx,
@@ -59,6 +60,7 @@ async function main() {
   const quoteProgram = await tokenProgramForMint(provider.connection, quoteMint);
   const baseDecimals = await mintDecimals(provider.connection, baseMint);
   const futarchyAuthority = deriveFutarchyAuthorityAddress(program.programId);
+  const eventAuthority = derivePda(program.programId, Buffer.from("__event_authority"));
 
   const traderBaseAccount = await getOrCreateAta({
     connection: provider.connection,
@@ -148,6 +150,8 @@ async function main() {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
+        eventAuthority,
+        program: program.programId,
       })
       .preInstructions([
         anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }),
@@ -186,6 +190,8 @@ async function main() {
       traderAssetOutAccount: traderQuoteAccount.address,
       tokenProgram: TOKEN_PROGRAM_ID,
       token2022Program: TOKEN_2022_PROGRAM_ID,
+      eventAuthority,
+      program: program.programId,
     });
 
   const refreshedMarket = await program.account.market.fetch(marketAddress);

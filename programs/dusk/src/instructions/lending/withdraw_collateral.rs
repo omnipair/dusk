@@ -179,7 +179,7 @@ impl<'info> WithdrawCollateral<'info> {
         });
 
         let health = ctx.accounts.market.market_health()?;
-        emit!(MarketHealthUpdated {
+        emit_cpi!(MarketHealthUpdated {
             market: market_key,
             global_health_base_contribution_for_quote_debt: health.global_health_base_contribution_for_quote_debt,
             global_health_quote_contribution_for_base_debt: health.global_health_quote_contribution_for_base_debt,

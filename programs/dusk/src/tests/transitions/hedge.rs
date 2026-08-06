@@ -1,5 +1,5 @@
 use super::*;
-use crate::state::{AmmConfig, PendingAuthorityChange, PendingConfigChange};
+use crate::state::AmmConfig;
 use crate::{
     constants::{BPS_DENOMINATOR, MARKET_LAYOUT_VERSION},
     math::{calculate_raw_amount_out, hlp_opposite_exposure_nad, ideal_hlp_rebalance_nad, market_spot_price_nad},
@@ -12,13 +12,14 @@ fn checkpoint_hlp_vaults(market: &mut Market) -> Result<(i128, i128)> {
 }
 
 fn rebalance_hlp_vaults(market: &mut Market) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
+    let current_slot = curve_slot(market);
     let base = if market.base_hlp_vault.hlp_supply > 0 || market.base_hlp_vault.residual_exposure != 0 {
-        rebalance_one_hlp(market, MarketAsset::Base)?
+        rebalance_one_hlp(market, MarketAsset::Base, current_slot)?
     } else {
         empty_hlp_rebalance_receipt(MarketAsset::Base)
     };
     let quote = if market.quote_hlp_vault.hlp_supply > 0 || market.quote_hlp_vault.residual_exposure != 0 {
-        rebalance_one_hlp(market, MarketAsset::Quote)?
+        rebalance_one_hlp(market, MarketAsset::Quote, current_slot)?
     } else {
         empty_hlp_rebalance_receipt(MarketAsset::Quote)
     };
@@ -30,8 +31,27 @@ fn pre_solve_hlp_vaults_for_swap(
     asset_in: MarketAsset,
     amount_in: u64,
 ) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
-    let base = pre_solve_one_hlp_for_swap(market, MarketAsset::Base, asset_in, amount_in, amount_in)?;
-    let quote = pre_solve_one_hlp_for_swap(market, MarketAsset::Quote, asset_in, amount_in, amount_in)?;
+    let current_slot = curve_slot(market);
+    let base = pre_solve_one_hlp_for_swap(
+        market,
+        MarketAsset::Base,
+        asset_in,
+        amount_in,
+        amount_in,
+        current_slot,
+        asset_in,
+        0,
+    )?;
+    let quote = pre_solve_one_hlp_for_swap(
+        market,
+        MarketAsset::Quote,
+        asset_in,
+        amount_in,
+        amount_in,
+        current_slot,
+        asset_in,
+        0,
+    )?;
     Ok((base, quote))
 }
 
@@ -94,7 +114,8 @@ fn prepare_hlp_deposit_like_instruction(
 fn valid_config() -> MarketConfig {
     MarketConfig {
         swap_fee_bps: 30,
-        manager_fee_bps: 0,
+        divergence_fee_share_cap_bps: 0,
+        volatility_fee_share_cap_bps: 0,
         target_hlp_leverage_bps: BPS_DENOMINATOR * 2,
         settlement_divergence_bps: 500,
         ema_half_life_ms: 60_000,
@@ -104,6 +125,7 @@ fn valid_config() -> MarketConfig {
         global_health_contribution_cap_bps: 15_000,
         borrow_market_health_floor_bps: 11_000,
         amm: Default::default(),
+        irm: Default::default(),
         start_time: 0,
     }
 }
@@ -137,8 +159,6 @@ fn seeded_market() -> Market {
     Market {
         version: MARKET_LAYOUT_VERSION,
         ylp_mint: Pubkey::new_unique(),
-        operator: Pubkey::new_unique(),
-        manager: Pubkey::new_unique(),
         base_side,
         quote_side,
         config: valid_config(),
@@ -152,10 +172,9 @@ fn seeded_market() -> Market {
         quote_hlp_vault,
         risk: Risk::default(),
         insurance: Insurance::default(),
-        pending_config: PendingConfigChange::default(),
-        pending_operator: PendingAuthorityChange::default(),
-        pending_manager: PendingAuthorityChange::default(),
         params_hash: [7; 32],
+        governance_locked_ylp: 0,
+        parameter_revisions: [0; 5],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,
@@ -199,6 +218,8 @@ fn open_hlp_keeps_leverage_debt_on_aggregate_vault() {
     assert_eq!(market.debt.fixed_quote_shares, 0);
     assert!(market.base_hlp_vault.debt_shares > 0);
     assert_eq!(market.base_hlp_vault.debt_principal, 200);
+    assert_eq!(market.quote_side.daily_limits.borrowed_bucket, 200);
+    assert_eq!(market.base_side.daily_limits.borrowed_bucket, 0);
     assert_eq!(market.base_hlp_vault.ylp_shares, 100);
     assert_eq!(market.base_hlp_vault.base_hlp_live_reserve, 0);
     assert_eq!(market.base_hlp_vault.quote_hlp_live_reserve, 200);
@@ -207,6 +228,39 @@ fn open_hlp_keeps_leverage_debt_on_aggregate_vault() {
     assert_eq!(market.base_hlp_vault.last_nav_nad, 100 * NAD as u128);
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
+}
+
+#[test]
+fn direct_hlp_deposit_records_borrow_on_the_opposite_side_in_both_directions() {
+    let mut market = seeded_market();
+
+    let receipt = DepositSingleSided::new(MarketAsset::Quote, 200, 1)
+        .apply_at(&mut market, 7)
+        .unwrap();
+
+    assert_eq!(receipt.borrowed_amount, 100);
+    assert_eq!(market.base_side.daily_limits.borrowed_bucket, 100);
+    assert_eq!(market.base_side.daily_limits.last_decay_slot, 7);
+    assert_eq!(market.quote_side.daily_limits.borrowed_bucket, 0);
+}
+
+#[test]
+fn direct_hlp_deposit_rejects_when_the_shared_borrow_bucket_is_full() {
+    let mut market = seeded_market();
+    let borrowed_asset = MarketAsset::Quote;
+    let limit = market
+        .daily_limit_for_side(borrowed_asset, market.config.max_daily_borrow_bps)
+        .unwrap();
+    market.side_mut(borrowed_asset).daily_limits.borrowed_bucket = limit;
+    let debt_before = market.base_hlp_vault.debt_principal;
+
+    let error = DepositSingleSided::new(MarketAsset::Base, 100, 1)
+        .apply_at(&mut market, 0)
+        .unwrap_err();
+
+    assert_eq!(error, error!(ErrorCode::DailyLimitExceeded));
+    assert_eq!(market.side(borrowed_asset).daily_limits.borrowed_bucket, limit);
+    assert_eq!(market.base_hlp_vault.debt_principal, debt_before);
 }
 
 #[test]
@@ -748,7 +802,6 @@ fn concentrated_hlp_guard_rejects_without_mutating_state() {
             stale_trade.amount_out,
             0,
             0,
-            0,
             crate::state::ProtocolAuctionSplit::default(),
         )
         .unwrap();
@@ -799,7 +852,6 @@ fn cpmm_hlp_path_keeps_inside_and_restoring_trades_live_but_rejects_worsening_fl
             stale_trade.amount_out,
             0,
             0,
-            0,
             crate::state::ProtocolAuctionSplit::default(),
         )
         .unwrap();
@@ -825,7 +877,6 @@ fn concentrated_hlp_checkpoint_records_exposure_without_moving_inventory() {
             MarketAsset::Base,
             150_000,
             swap.amount_out,
-            0,
             0,
             0,
             crate::state::ProtocolAuctionSplit::default(),
@@ -920,13 +971,12 @@ fn apply_test_composite_swap(
             amount_out,
             0,
             0,
-            0,
             crate::state::ProtocolAuctionSplit::default(),
             Some(fee_eligible_ylp_supply),
         )
         .unwrap();
     let (base_rebalance, quote_rebalance) = market
-        .finalize_hlp_vaults_for_swap(base_pre_rebalance, quote_pre_rebalance)
+        .finalize_hlp_vaults_for_swap(base_pre_rebalance, quote_pre_rebalance, curve_slot(market))
         .unwrap();
     assert_market_hlp_invariants(market);
     TestCompositeSwapReceipt {
@@ -1192,7 +1242,7 @@ fn zero_target_claim_is_fail_closed_without_bricking_checkpoint() {
     assert_eq!(quote, 0);
     assert_eq!(market.base_hlp_vault.residual_exposure, base);
 
-    let receipt = rebalance_one_hlp(&mut market, MarketAsset::Base).unwrap();
+    let receipt = rebalance_one_hlp(&mut market, MarketAsset::Base, 0).unwrap();
     assert_eq!(receipt.executed_delta, 0);
     assert_eq!(receipt.residual_exposure, base);
 
@@ -1233,7 +1283,7 @@ fn underwater_zero_claim_vault_cannot_block_global_market_update() {
 
     assert_eq!(market.base_hlp_vault.last_nav_nad, 0);
     assert!(market.base_hlp_vault.residual_exposure < 0);
-    let receipt = rebalance_one_hlp(&mut market, MarketAsset::Base).unwrap();
+    let receipt = rebalance_one_hlp(&mut market, MarketAsset::Base, 1).unwrap();
     assert_eq!(receipt.executed_delta, 0);
     assert_eq!(receipt.residual_exposure, market.base_hlp_vault.residual_exposure);
 }
@@ -1364,6 +1414,90 @@ fn rebalance_hlp_leverage_up_keeps_swap_live_without_borrow_cash() {
 }
 
 #[test]
+fn rebalance_hlp_leverage_up_keeps_parent_operation_live_when_daily_capacity_is_exhausted() {
+    let mut market = seeded_market();
+    DepositSingleSided::new(MarketAsset::Base, 100, 1)
+        .apply_at(&mut market, 0)
+        .unwrap();
+    market.quote_side.reserves.live_reserve = 2_400;
+    market.quote_side.reserves.cash_reserve = 2_200;
+    market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
+    let limit = market
+        .daily_limit_for_side(MarketAsset::Quote, market.config.max_daily_borrow_bps)
+        .unwrap();
+    market.quote_side.daily_limits.borrowed_bucket = limit;
+    let ideal_before = current_hlp_ideal_delta(&market, MarketAsset::Base).unwrap();
+    assert!(ideal_before > 0);
+
+    let receipt = rebalance_one_hlp(&mut market, MarketAsset::Base, 0).unwrap();
+
+    assert_eq!(receipt.executed_delta, 0);
+    assert_eq!(receipt.debt_delta, 0);
+    assert_eq!(receipt.residual_exposure, ideal_before);
+    assert_eq!(market.quote_side.daily_limits.borrowed_bucket, limit);
+}
+
+#[test]
+fn pre_solve_hlp_cannot_spend_capacity_reserved_for_explicit_leverage_debt() {
+    let mut market = seeded_market();
+    DepositSingleSided::new(MarketAsset::Base, 100, 1)
+        .apply_at(&mut market, 0)
+        .unwrap();
+    market.quote_side.reserves.live_reserve = 2_400;
+    market.quote_side.reserves.cash_reserve = 2_200;
+    market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
+    let explicit_borrow = 10;
+    let limit = market
+        .daily_limit_for_side(MarketAsset::Quote, market.config.max_daily_borrow_bps)
+        .unwrap();
+    market.quote_side.daily_limits.borrowed_bucket = limit - explicit_borrow;
+
+    let receipt = rebalance_one_hlp_with_reservation(
+        &mut market,
+        MarketAsset::Base,
+        0,
+        MarketAsset::Quote,
+        explicit_borrow,
+    )
+    .unwrap();
+
+    assert_eq!(receipt.executed_delta, 0);
+    assert_eq!(receipt.debt_delta, 0);
+    assert_ne!(receipt.residual_exposure, 0);
+    assert_eq!(
+        market.quote_side.daily_limits.borrowed_bucket,
+        limit - explicit_borrow
+    );
+    market
+        .record_new_borrow(MarketAsset::Quote, explicit_borrow, 0)
+        .unwrap();
+    assert_eq!(market.quote_side.daily_limits.borrowed_bucket, limit);
+}
+
+#[test]
+fn clipped_hlp_dust_does_not_consume_daily_capacity() {
+    let mut market = seeded_market();
+    DepositSingleSided::new(MarketAsset::Base, 100, 1)
+        .apply_at(&mut market, 0)
+        .unwrap();
+    market.quote_side.reserves.live_reserve = 2_400;
+    market.quote_side.reserves.cash_reserve = 2_200;
+    market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
+    let limit = market
+        .daily_limit_for_side(MarketAsset::Quote, market.config.max_daily_borrow_bps)
+        .unwrap();
+    market.quote_side.daily_limits.borrowed_bucket = limit - 1;
+
+    let receipt = rebalance_one_hlp(&mut market, MarketAsset::Base, 0).unwrap();
+
+    assert!(receipt.ideal_delta > 0);
+    assert_eq!(receipt.executed_delta, 0);
+    assert_eq!(receipt.ylp_mint_amount, 0);
+    assert_eq!(receipt.debt_delta, 0);
+    assert_eq!(market.quote_side.daily_limits.borrowed_bucket, limit - 1);
+}
+
+#[test]
 fn rebalance_hlp_deleverages_with_balanced_ylp() {
     let mut market = seeded_market();
     DepositSingleSided::new(MarketAsset::Base, 100, 1)
@@ -1484,7 +1618,6 @@ fn swap_rebalance_is_price_neutral_after_user_quote() {
             amount_out,
             0,
             0,
-            0,
             crate::state::ProtocolAuctionSplit::default(),
         )
         .unwrap();
@@ -1562,7 +1695,6 @@ fn concentrated_rebalance_uses_actual_inventory_exposure_and_preserves_curve_pri
             MarketAsset::Base,
             150_000,
             swap.amount_out,
-            0,
             0,
             0,
             crate::state::ProtocolAuctionSplit::default(),
@@ -1827,6 +1959,9 @@ fn swap_pre_solve_reaches_the_endogenous_price_fixed_point() {
             asset_in,
             amount_in_after_fee,
             amount_in_after_fee,
+            0,
+            asset_in,
+            0,
         )
         .unwrap();
         assert_eq!(solved_receipt.ideal_delta.is_positive(), lever_up);
@@ -2155,7 +2290,6 @@ fn pre_solved_hlp_mints_start_earning_after_current_swap_fee() {
             amount_in_after_fee,
             amount_out,
             10_000,
-            0,
             0,
             crate::state::ProtocolAuctionSplit::default(),
             Some(fee_eligible_supply),

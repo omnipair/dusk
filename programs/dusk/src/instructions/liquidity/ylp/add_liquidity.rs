@@ -10,11 +10,13 @@ use crate::{
     events::{LiquidityAdded, MarketEventMetadata},
     generate_market_seeds,
     shared::{
-        account::get_size_with_discriminator,
+        account::{get_size_with_discriminator, initialize_pda_account_if_needed},
         token::{get_transfer_fee, get_transfer_inverse_fee, token_mint_to, transfer_checked_with_remaining_accounts},
     },
     state::{FutarchyAuthority, Market, YieldAccount, YieldTokenKind},
 };
+
+use super::{validate_ylp_market_pda, ylp_yield_account_pda};
 
 use super::super::initialize_or_validate_yield_account;
 use crate::instructions::common::{
@@ -29,19 +31,10 @@ pub struct AddLiquidityArgs {
     pub min_ylp_amount: u64,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
-#[instruction(args: AddLiquidityArgs)]
 pub struct AddLiquidity<'info> {
-    #[account(
-        mut,
-        seeds = [
-            MARKET_V2_SEED_PREFIX,
-            market.base_side.asset_mint.as_ref(),
-            market.quote_side.asset_mint.as_ref(),
-            market.params_hash.as_ref(),
-        ],
-        bump = market.bump
-    )]
+    #[account(mut)]
     pub market: Box<Account<'info, Market>>,
 
     #[account(
@@ -71,37 +64,15 @@ pub struct AddLiquidity<'info> {
     #[account(mut)]
     pub owner_ylp_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    #[account(
-        init_if_needed,
-        payer = owner,
-        space = get_size_with_discriminator::<YieldAccount>(),
-        seeds = [
-            YIELD_ACCOUNT_SEED_PREFIX,
-            market.key().as_ref(),
-            owner.key().as_ref(),
-            ylp_mint.key().as_ref(),
-            base_mint.key().as_ref(),
-            &[YieldTokenKind::Ylp.code()],
-        ],
-        bump
-    )]
-    pub base_yield_account: Box<Account<'info, YieldAccount>>,
+    /// CHECK: Canonical PDA and typed state are initialized or validated before
+    /// any liquidity mutation.
+    #[account(mut)]
+    pub base_yield_account: UncheckedAccount<'info>,
 
-    #[account(
-        init_if_needed,
-        payer = owner,
-        space = get_size_with_discriminator::<YieldAccount>(),
-        seeds = [
-            YIELD_ACCOUNT_SEED_PREFIX,
-            market.key().as_ref(),
-            owner.key().as_ref(),
-            ylp_mint.key().as_ref(),
-            quote_mint.key().as_ref(),
-            &[YieldTokenKind::Ylp.code()],
-        ],
-        bump
-    )]
-    pub quote_yield_account: Box<Account<'info, YieldAccount>>,
+    /// CHECK: Canonical PDA and typed state are initialized or validated before
+    /// any liquidity mutation.
+    #[account(mut)]
+    pub quote_yield_account: UncheckedAccount<'info>,
 
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
@@ -115,6 +86,7 @@ struct AddLiquidityTransferPlan {
 
 impl<'info> AddLiquidity<'info> {
     pub fn validate(&self, args: &AddLiquidityArgs) -> Result<()> {
+        validate_ylp_market_pda(&self.market, self.market.key())?;
         self.market.assert_live_with_futarchy(&self.futarchy_authority)?;
         require!(
             args.base_deposit_amount > 0 && args.quote_deposit_amount > 0,
@@ -139,6 +111,28 @@ impl<'info> AddLiquidity<'info> {
         require_supported_asset_mint(&self.base_mint)?;
         require_supported_asset_mint(&self.quote_mint)?;
         validate_lp_mint(&self.ylp_mint, self.market.key(), self.base_mint.decimals)?;
+        let (expected_base_yield_account, _) = ylp_yield_account_pda(
+            self.market.key(),
+            self.owner.key(),
+            self.ylp_mint.key(),
+            self.base_mint.key(),
+        )?;
+        require_keys_eq!(
+            self.base_yield_account.key(),
+            expected_base_yield_account,
+            ErrorCode::InvalidYieldAccount
+        );
+        let (expected_quote_yield_account, _) = ylp_yield_account_pda(
+            self.market.key(),
+            self.owner.key(),
+            self.ylp_mint.key(),
+            self.quote_mint.key(),
+        )?;
+        require_keys_eq!(
+            self.quote_yield_account.key(),
+            expected_quote_yield_account,
+            ErrorCode::InvalidYieldAccount
+        );
         let transfer_plan = self.transfer_plan(args)?;
         require_gte!(
             self.owner_base_account.amount,
@@ -207,25 +201,97 @@ impl<'info> AddLiquidity<'info> {
     pub fn handle_add_liquidity(ctx: Context<'_, '_, '_, 'info, Self>, args: AddLiquidityArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.owner.key();
+        let ylp_mint_key = ctx.accounts.ylp_mint.key();
+        let base_mint_key = ctx.accounts.base_mint.key();
+        let quote_mint_key = ctx.accounts.quote_mint.key();
 
         // Initialize per-asset yield checkpoints before LP ownership changes.
-        initialize_or_validate_yield_account(
-            &mut ctx.accounts.base_yield_account,
-            owner_key,
-            market_key,
-            ctx.accounts.ylp_mint.key(),
-            ctx.accounts.base_mint.key(),
-            YieldTokenKind::Ylp,
-            ctx.bumps.base_yield_account,
+        let (expected_base_yield_account, base_yield_bump) =
+            ylp_yield_account_pda(market_key, owner_key, ylp_mint_key, base_mint_key)?;
+        require_keys_eq!(
+            ctx.accounts.base_yield_account.key(),
+            expected_base_yield_account,
+            ErrorCode::InvalidYieldAccount
+        );
+        let base_yield_bump_seed = [base_yield_bump];
+        let base_yield_kind_seed = [YieldTokenKind::Ylp.code()];
+        let base_yield_seeds = [
+            YIELD_ACCOUNT_SEED_PREFIX,
+            market_key.as_ref(),
+            owner_key.as_ref(),
+            ylp_mint_key.as_ref(),
+            base_mint_key.as_ref(),
+            &base_yield_kind_seed,
+            &base_yield_bump_seed,
+        ];
+        let base_created = initialize_pda_account_if_needed(
+            ctx.accounts.owner.to_account_info(),
+            ctx.accounts.base_yield_account.to_account_info(),
+            ctx.accounts.system_program.to_account_info(),
+            get_size_with_discriminator::<YieldAccount>(),
+            &base_yield_seeds,
         )?;
+        let mut base_yield_account = if base_created {
+            let data = ctx.accounts.base_yield_account.try_borrow_data()?;
+            let mut data_slice: &[u8] = &data;
+            YieldAccount::try_deserialize_unchecked(&mut data_slice)?
+        } else {
+            let data = ctx.accounts.base_yield_account.try_borrow_data()?;
+            let mut data_slice: &[u8] = &data;
+            YieldAccount::try_deserialize(&mut data_slice)?
+        };
         initialize_or_validate_yield_account(
-            &mut ctx.accounts.quote_yield_account,
+            &mut base_yield_account,
             owner_key,
             market_key,
-            ctx.accounts.ylp_mint.key(),
-            ctx.accounts.quote_mint.key(),
+            ylp_mint_key,
+            base_mint_key,
             YieldTokenKind::Ylp,
-            ctx.bumps.quote_yield_account,
+            base_yield_bump,
+        )?;
+
+        let (expected_quote_yield_account, quote_yield_bump) =
+            ylp_yield_account_pda(market_key, owner_key, ylp_mint_key, quote_mint_key)?;
+        require_keys_eq!(
+            ctx.accounts.quote_yield_account.key(),
+            expected_quote_yield_account,
+            ErrorCode::InvalidYieldAccount
+        );
+        let quote_yield_bump_seed = [quote_yield_bump];
+        let quote_yield_kind_seed = [YieldTokenKind::Ylp.code()];
+        let quote_yield_seeds = [
+            YIELD_ACCOUNT_SEED_PREFIX,
+            market_key.as_ref(),
+            owner_key.as_ref(),
+            ylp_mint_key.as_ref(),
+            quote_mint_key.as_ref(),
+            &quote_yield_kind_seed,
+            &quote_yield_bump_seed,
+        ];
+        let quote_created = initialize_pda_account_if_needed(
+            ctx.accounts.owner.to_account_info(),
+            ctx.accounts.quote_yield_account.to_account_info(),
+            ctx.accounts.system_program.to_account_info(),
+            get_size_with_discriminator::<YieldAccount>(),
+            &quote_yield_seeds,
+        )?;
+        let mut quote_yield_account = if quote_created {
+            let data = ctx.accounts.quote_yield_account.try_borrow_data()?;
+            let mut data_slice: &[u8] = &data;
+            YieldAccount::try_deserialize_unchecked(&mut data_slice)?
+        } else {
+            let data = ctx.accounts.quote_yield_account.try_borrow_data()?;
+            let mut data_slice: &[u8] = &data;
+            YieldAccount::try_deserialize(&mut data_slice)?
+        };
+        initialize_or_validate_yield_account(
+            &mut quote_yield_account,
+            owner_key,
+            market_key,
+            ylp_mint_key,
+            quote_mint_key,
+            YieldTokenKind::Ylp,
+            quote_yield_bump,
         )?;
 
         // Checkpoint existing yLP yield before minting new supply.
@@ -235,16 +301,26 @@ impl<'info> AddLiquidity<'info> {
             market.base_side.carry_forward_interest()?;
             market.quote_side.carry_forward_swap_fees()?;
             market.quote_side.carry_forward_interest()?;
-            ctx.accounts.base_yield_account.accrue(
+            base_yield_account.accrue(
                 ctx.accounts.owner_ylp_account.amount,
                 market.base_side.fees.swap_fee_growth_index_q64,
                 market.base_side.fees.interest_growth_index_q64,
             )?;
-            ctx.accounts.quote_yield_account.accrue(
+            quote_yield_account.accrue(
                 ctx.accounts.owner_ylp_account.amount,
                 market.quote_side.fees.swap_fee_growth_index_q64,
                 market.quote_side.fees.interest_growth_index_q64,
             )?;
+        }
+        {
+            let mut data = ctx.accounts.base_yield_account.try_borrow_mut_data()?;
+            let mut data_slice: &mut [u8] = &mut data;
+            base_yield_account.try_serialize(&mut data_slice)?;
+        }
+        {
+            let mut data = ctx.accounts.quote_yield_account.try_borrow_mut_data()?;
+            let mut data_slice: &mut [u8] = &mut data;
+            quote_yield_account.try_serialize(&mut data_slice)?;
         }
 
         // Transfer both assets and measure their actual reserve credits.
@@ -329,13 +405,15 @@ impl<'info> AddLiquidity<'info> {
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
         )?;
 
-        emit!(LiquidityAdded {
+        emit_cpi!(LiquidityAdded {
             market: market_key,
             owner: owner_key,
             base_reserve_credit: receipt.base_reserve_credit,
             quote_reserve_credit: receipt.quote_reserve_credit,
             ylp_amount: receipt.ylp_amount,
             ylp_supply: receipt.ylp_supply,
+            base_live_reserve: ctx.accounts.market.base_side.reserves.live_reserve,
+            quote_live_reserve: ctx.accounts.market.quote_side.reserves.live_reserve,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
 

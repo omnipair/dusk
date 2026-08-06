@@ -26,8 +26,8 @@ mainnet launch or upgrade.
   routing, explicit hedge premium pricing, user-selectable settlement side, and
   stale locked collateral-factor machinery remain out of scope unless separate
   reviewed specs have been merged.
-- Confirm config updates cannot move existing effective debt below the configured
-  market-health floor.
+- Confirm direct-yLP parameter execution cannot run at or above 80% utilization
+  and cannot retroactively apply new parameters to elapsed interest or EMA state.
 
 ## 2. Security Review
 
@@ -36,8 +36,12 @@ mainnet launch or upgrade.
 - Re-check the Dusk Concentrated AMM, recentering, fee, and protected-liquidity specification in
   `programs/dusk/CONCENTRATION.md`.
 - Re-check the cached-spot EMA flow for same-slot manipulation resistance.
-- Re-check daily borrow-limit enforcement against conservative `Q` and the
-  exact applied CPMM/Dusk Concentrated AMM risk shapes.
+- Re-check the per-debt-side shared 24-hour leaky/token bucket against
+  conservative `Q` and the exact applied CPMM/Dusk Concentrated AMM risk
+  shapes. Confirm checkpoint-frequency-independent refill at a fixed absolute
+  limit, conservative-depth resizing, no repayment/exit refund, and enforcement
+  for fixed lending, isolated leverage, direct hLP funding, and automatic hLP
+  funding; it is not an exact trailing-window sum.
 - Re-check borrower and liquidation valuation reconstruct the same applied
   curve used by swaps at their respective pessimistic internal EMA prices.
 - Re-check the lower/upper Dusk Concentrated AMM invariant bounds, exact-in/out reserve bounds,
@@ -48,10 +52,10 @@ mainnet launch or upgrade.
   only retained dynamic surcharge can create protected recentering budget.
 - Re-check divergence fees are restorative-direction aware and split-resistant,
   and volatility is charged from the decayed pre-trade accumulator.
-- Re-check the unbounded divergence marginal toll remains monotonic and its
-  implicit gross-input solve never consumes the final executable atom.
-  Separately re-check the capped-signal volatility surcharge is monotonic and
-  asymptotic below 100% at coefficient and accumulator extremes.
+- Re-check the Huber-capped divergence marginal toll remains monotonic, its
+  state potential telescopes, and its implicit gross-input solve embeds the
+  component budget. Separately re-check the volatility component budget and
+  the aggregate 50% fee cap at odd/even raw-token boundaries.
 - Confirm market initialization accepts only asset decimals `0..=9`, and all
   fee/quote matrix tests use that same launch domain.
 - Confirm vanilla yLP withdrawal remains constrained by cash availability,
@@ -63,9 +67,13 @@ mainnet launch or upgrade.
   debt-token payer and does not provide an AMM-backed liquidation guarantee.
   Test floor eligibility, external funding, insurance limits, socialization
   limits, and the absence of any AMM conversion.
-- Re-check fee liabilities: yLP, hLP, manager, protocol, and unallocated
-  carry-forward buckets. Swap-fee liabilities must remain reserve-custodied
+- Re-check fee liabilities: yLP, hLP, protocol, and unallocated carry-forward
+  buckets. Swap-fee liabilities must remain reserve-custodied
   outside executable cash; interest liabilities must remain interest-vault-custodied.
+- Re-check direct-yLP governance across 1% sponsorship, strict-majority support,
+  hLP-vault exclusion, seven-day timelock/window, independent family revisions,
+  utilization rejection, stale/expired/cancelled paths, virtual yield, and
+  exact terminal remint.
 - Re-check Token-2022 mint constraints and transfer-fee inventory accounting.
 - Record SBF compute units for CPMM, concentrated, retained-surcharge,
   hLP-correction, preview, leverage, and liquidation paths with explicit
@@ -122,8 +130,9 @@ typecheck gates.
   program ID and PDA helpers.
 - Confirm yLP and hLP Token-2022 mint constraints remain represented in both
   code and IDL-visible account flows.
-- Confirm the generated interface contains `initialize_yield_accounts` and
-  `initialize_lp_transfer_hook`; `YieldAccount` contains `lp_mint`,
+- Confirm the generated interface contains `initialize_yield_accounts`,
+  `initialize_lp_transfer_hook`, and all five parameter-proposal instructions;
+  `YieldAccount` contains `lp_mint`,
   `swap_fee_remainder_q64`, and `interest_remainder_q64`; and both
   `YieldClaimed` and `YieldRecipientUpdated` expose `lp_mint`. Regenerate with
   `anchor build -p dusk` and `npm run prepare-idl --prefix packages/dusk-sdk`;
@@ -186,5 +195,6 @@ target/types/dusk.ts
   match the deployed binary.
 - Confirm the app, SDK, and indexers are using the deployed Dusk program ID.
 - Smoke-test market initialization, add/remove liquidity, swap, borrow/repay,
-  liquidation rejection while healthy, yield claims, protocol fee claims, and
-  hLP open/close on the target cluster.
+  liquidation rejection while healthy, yield claims, protocol fee claims,
+  hLP open/close, and the full direct-yLP proposal lifecycle on the target
+  cluster.

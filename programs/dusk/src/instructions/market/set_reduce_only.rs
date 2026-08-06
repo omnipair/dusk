@@ -50,10 +50,6 @@ impl<'info> SetMarketReduceOnly<'info> {
         emit_cpi!(MarketUpdated {
             market: market.key(),
             reduce_only: market.reduce_only,
-            target_hlp_leverage_bps: market.config.target_hlp_leverage_bps,
-            swap_fee_bps: market.config.swap_fee_bps,
-            manager_fee_bps: market.config.manager_fee_bps,
-            config: market.config,
             metadata: MarketEventMetadata::new(authority_signer.key(), market.key())?,
         });
 

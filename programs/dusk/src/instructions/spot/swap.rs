@@ -1,6 +1,4 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::log::sol_log_data;
-use anchor_lang::Discriminator;
 use anchor_spl::{
     token::Token,
     token_interface::{Mint, Token2022, TokenAccount},
@@ -12,7 +10,7 @@ use crate::{
     events::SwapExecuted,
     generate_market_seeds,
     shared::token::{get_transfer_fee_for_epoch, token_burn, token_mint_to, transfer_checked_with_remaining_accounts},
-    state::{FutarchyAuthority, HlpRebalanceReceipt, Market, MarketAsset, SwapReceipt},
+    state::{FutarchyAuthority, HlpRebalanceReceipt, Market, MarketAsset},
 };
 
 use crate::instructions::common::{
@@ -30,6 +28,7 @@ pub struct SwapArgs {
     pub min_asset_out: u64,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: SwapArgs)]
 pub struct Swap<'info> {
@@ -144,7 +143,6 @@ impl<'info> Swap<'info> {
         let market_key = ctx.accounts.market.key();
         let trader_key = ctx.accounts.trader.key();
         let asset_in = ctx.accounts.market.asset_for_mint(ctx.accounts.asset_in_mint.key())?;
-        let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
         let protocol_fee_bps = ctx.accounts.futarchy_authority.revenue_share.swap_bps;
         let protocol_auction_split = ctx.accounts.futarchy_authority.protocol_auction_split;
 
@@ -166,6 +164,7 @@ impl<'info> Swap<'info> {
             current_slot,
             asset_in,
             reserve_credit,
+            reserved_daily_borrow: 0,
         }
         .plan(&mut ctx.accounts.market)?;
         let (base_fee_credit, distributed_surcharge_credit) =
@@ -173,7 +172,7 @@ impl<'info> Swap<'info> {
 
         let trade_endpoint = quote.trade_endpoint()?;
         let reserve_endpoint = quote.reserve_endpoint()?;
-        let swap_receipt = {
+        {
             let market = &mut ctx.accounts.market;
             require_eq!(
                 quote.fee.reserve_input_credit,
@@ -215,12 +214,11 @@ impl<'info> Swap<'info> {
                 market.amm.checkpoint_retained_surcharge(q_per_share_nad)?;
             }
 
-            let (reserve_in_live_reserve, reserve_out_live_reserve, fees) = {
+            {
                 let (side_in, side_out) = market.swap_sides_mut(quote.asset_in);
-                let fees = side_in.record_claimable_swap_fees(
+                side_in.record_claimable_swap_fees(
                     base_fee_credit,
                     distributed_surcharge_credit,
-                    manager_fee_bps,
                     protocol_fee_bps,
                     protocol_auction_split,
                     fee_eligible_ylp_supply,
@@ -228,32 +226,17 @@ impl<'info> Swap<'info> {
                 side_in.assert_share_backing()?;
                 side_out.assert_share_backing()?;
                 side_in.fees.assert_backed()?;
-                (side_in.reserves.live_reserve, side_out.reserves.live_reserve, fees)
-            };
-            SwapReceipt {
-                amount_in_after_fee: quote.fee.amount_in_for_quote,
-                reserve_input_credit: quote.fee.reserve_input_credit,
-                amount_out: quote.amount_out,
-                fee_credit: base_fee_credit
-                    .checked_add(distributed_surcharge_credit)
-                    .ok_or(ErrorCode::FeeMathOverflow)?,
-                base_fee_credit,
-                distributed_surcharge_credit,
-                fee_breakdown: quote.fee,
-                reserve_in_live_reserve,
-                reserve_out_live_reserve,
-                fees,
             }
-        };
+        }
         ctx.accounts.market.finalize_amm_trade_after_inventory_checkpoint(
             quote.start_price_nad,
             quote.end_price_nad,
             current_slot,
         )?;
-        let (base_rebalance, quote_rebalance) = ctx
-            .accounts
-            .market
-            .finalize_hlp_vaults_for_swap(base_pre_rebalance, quote_pre_rebalance)?;
+        let (base_rebalance, quote_rebalance) =
+            ctx.accounts
+                .market
+                .finalize_hlp_vaults_for_swap(base_pre_rebalance, quote_pre_rebalance, current_slot)?;
         let h_lp_tokens_will_change =
             rebalance_executes_token_changes(&base_rebalance) || rebalance_executes_token_changes(&quote_rebalance);
         let h_lp_mutates_curve_inventory = hlp_receipt_mutates_curve_inventory(&base_rebalance)
@@ -391,57 +374,20 @@ impl<'info> Swap<'info> {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require_gte!(asset_out_credit, args.min_asset_out, ErrorCode::SlippageExceeded);
 
-        // Serialize directly into one fixed stack buffer. Anchor's generic
-        // event serializer allocates substantially more heap on this hot path.
-        const SWAP_FEE_BREAKDOWN_EVENT_LEN: usize = 15 * 8;
-        const SWAP_QUOTE_TELEMETRY_LEN: usize = SWAP_FEE_BREAKDOWN_EVENT_LEN + (7 * 8);
-        const SWAP_EXECUTED_EVENT_LEN: usize = 8 + 32 + 32 + 1 + 8 + (2 * 16) + SWAP_QUOTE_TELEMETRY_LEN;
-        let mut data = [0_u8; SWAP_EXECUTED_EVENT_LEN];
-        let mut offset = 0usize;
-        data[offset..offset + 8].copy_from_slice(SwapExecuted::DISCRIMINATOR);
-        offset += 8;
-        data[offset..offset + 32].copy_from_slice(market_key.as_ref());
-        offset += 32;
-        data[offset..offset + 32].copy_from_slice(trader_key.as_ref());
-        offset += 32;
-        data[offset] = asset_in.code();
-        offset += 1;
-        data[offset..offset + 8].copy_from_slice(&swap_receipt.amount_out.to_le_bytes());
-        offset += 8;
-        data[offset..offset + 16].copy_from_slice(&ctx.accounts.market.base_hlp_vault.residual_exposure.to_le_bytes());
-        offset += 16;
-        data[offset..offset + 16].copy_from_slice(&ctx.accounts.market.quote_hlp_vault.residual_exposure.to_le_bytes());
-        offset += 16;
-        macro_rules! write_quote_u64 {
-            ($value:expr) => {{
-                data[offset..offset + 8].copy_from_slice(&$value.to_le_bytes());
-                offset += 8;
-            }};
-        }
-        write_quote_u64!(quote.fee.reserve_credit);
-        write_quote_u64!(quote.fee.base_fee_debit);
-        write_quote_u64!(quote.fee.divergence_surcharge_debit);
-        write_quote_u64!(quote.fee.volatility_surcharge_debit);
-        write_quote_u64!(quote.fee.dynamic_surcharge_debit);
-        write_quote_u64!(quote.fee.total_fee_debit);
-        write_quote_u64!(quote.fee.retained_surcharge);
-        write_quote_u64!(quote.fee.distributed_surcharge_debit);
-        write_quote_u64!(quote.fee.amount_in_for_quote);
-        write_quote_u64!(quote.fee.reserve_input_credit);
-        write_quote_u64!(quote.fee.claimable_fee_debit);
-        write_quote_u64!(quote.fee.base_fee_rate_nad);
-        write_quote_u64!(quote.fee.divergence_fee_rate_nad);
-        write_quote_u64!(quote.fee.volatility_fee_rate_nad);
-        write_quote_u64!(quote.fee.total_fee_rate_nad);
-        write_quote_u64!(quote.start_price_nad);
-        write_quote_u64!(quote.end_price_nad);
-        write_quote_u64!(quote.reserve_end_price_nad);
-        write_quote_u64!(quote.decayed_volatility_nad);
-        write_quote_u64!(quote.post_success_volatility_nad);
-        write_quote_u64!(swap_receipt.base_fee_credit);
-        write_quote_u64!(swap_receipt.distributed_surcharge_credit);
-        let _ = offset;
-        sol_log_data(&[&data]);
+        emit_cpi!(SwapExecuted {
+            market: market_key,
+            trader: trader_key,
+            asset_in_side: asset_in.code(),
+            amount_in: args.exact_asset_in,
+            amount_out: asset_out_credit,
+            amount_in_after_fee: quote.fee.amount_in_for_quote,
+            base_fee: quote.fee.base_fee_debit,
+            divergence_fee: quote.fee.divergence_surcharge_debit,
+            volatility_fee: quote.fee.volatility_surcharge_debit,
+            retained_fee: quote.fee.retained_surcharge,
+            base_live_reserve: ctx.accounts.market.base_side.reserves.live_reserve,
+            quote_live_reserve: ctx.accounts.market.quote_side.reserves.live_reserve,
+        });
 
         Ok(())
     }
@@ -536,12 +482,10 @@ fn apply_single_hlp_rebalance_token_changes<'info>(
             accounts.hook_accounts(ctx.remaining_accounts),
         )?;
         let interest_vault_credit = token_account_info_credit(interest_vault_balance_before, interest_vault)?;
-        let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
         record_inline_hlp_interest_credit(
             &mut ctx.accounts.market,
             borrowed_asset,
             interest_vault_credit,
-            manager_fee_bps,
             ctx.accounts.futarchy_authority.revenue_share.interest_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
             interest_eligibility,

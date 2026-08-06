@@ -63,6 +63,26 @@ pub fn validate_leverage_futarchy_pda(futarchy_authority_bump: u8, futarchy_auth
     Ok(())
 }
 
+pub fn leverage_collateral_vault_pda(market: Pubkey, collateral_mint: Pubkey) -> Result<(Pubkey, u8)> {
+    Pubkey::try_find_program_address(
+        &[
+            LEVERAGE_COLLATERAL_VAULT_SEED_PREFIX,
+            market.as_ref(),
+            collateral_mint.as_ref(),
+        ],
+        &crate::ID,
+    )
+    .ok_or_else(|| error!(ErrorCode::InvalidVault))
+}
+
+pub fn leverage_position_pda(market: Pubkey, position_id: Pubkey) -> Result<(Pubkey, u8)> {
+    Pubkey::try_find_program_address(
+        &[LEVERAGE_POSITION_SEED_PREFIX, market.as_ref(), position_id.as_ref()],
+        &crate::ID,
+    )
+    .ok_or_else(|| error!(ErrorCode::InvalidLeveragePosition))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn settle_inline_leverage_hlp<'info>(
     market: &mut Account<'info, Market>,
@@ -159,12 +179,10 @@ pub fn settle_inline_leverage_hlp<'info>(
             layout.hook_accounts(remaining_accounts),
         )?;
         let interest_credit = token_account_info_credit(interest_vault_balance_before, interest_vault)?;
-        let manager_fee_bps = market.config.manager_fee_bps;
         record_inline_hlp_interest_credit(
             market,
             borrowed_asset,
             interest_credit,
-            manager_fee_bps,
             futarchy_authority.revenue_share.interest_bps,
             futarchy_authority.protocol_auction_split,
             interest_eligibility,
@@ -460,7 +478,6 @@ pub fn record_leverage_interest<'info>(
     interest_vault: &mut InterfaceAccount<'info, TokenAccount>,
     token_program: &Program<'info, Token>,
     token_2022_program: &Program<'info, Token2022>,
-    manager_fee_bps: u16,
     futarchy_authority: &Account<'info, FutarchyAuthority>,
     expected_referral_partner: Pubkey,
     referral_interest_share_bps: u16,
@@ -512,7 +529,6 @@ pub fn record_leverage_interest<'info>(
     )?;
     market.side_mut(debt_asset).record_interest_credit(
         interest_vault_credit,
-        manager_fee_bps,
         futarchy_authority.revenue_share.interest_bps,
         futarchy_authority.protocol_auction_split,
         referral_receipt.quote.referral_amount,

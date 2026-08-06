@@ -1,7 +1,8 @@
-use crate::state::{LeverageSwapFeeCredit, LeverageSwapQuote, MarketConfig};
+use crate::{
+    errors::ErrorCode,
+    state::{LeverageSwapFeeCredit, LeverageSwapQuote, MarketConfig},
+};
 use anchor_lang::prelude::*;
-
-pub mod log;
 
 #[derive(AnchorSerialize, AnchorDeserialize)]
 pub struct MarketEventMetadata {
@@ -32,11 +33,8 @@ pub struct MarketCreated {
     pub quote_insurance_vault: Pubkey,
     pub base_hlp_mint: Pubkey,
     pub quote_hlp_mint: Pubkey,
-    pub operator: Pubkey,
-    pub manager: Pubkey,
     pub target_hlp_leverage_bps: u16,
     pub swap_fee_bps: u16,
-    pub manager_fee_bps: u16,
     pub config: MarketConfig,
     pub params_hash: [u8; 32],
     pub version: u8,
@@ -47,38 +45,6 @@ pub struct MarketCreated {
 pub struct MarketUpdated {
     pub market: Pubkey,
     pub reduce_only: bool,
-    pub target_hlp_leverage_bps: u16,
-    pub swap_fee_bps: u16,
-    pub manager_fee_bps: u16,
-    pub config: MarketConfig,
-    pub metadata: MarketEventMetadata,
-}
-
-#[event]
-pub struct MarketConfigUpdateScheduled {
-    pub market: Pubkey,
-    pub execute_after_slot: u64,
-    pub target_hlp_leverage_bps: u16,
-    pub swap_fee_bps: u16,
-    pub manager_fee_bps: u16,
-    pub config: MarketConfig,
-    pub metadata: MarketEventMetadata,
-}
-
-#[event]
-pub struct MarketAuthorityUpdated {
-    pub market: Pubkey,
-    pub manager: Pubkey,
-    pub operator: Pubkey,
-    pub metadata: MarketEventMetadata,
-}
-
-#[event]
-pub struct MarketAuthorityUpdateScheduled {
-    pub market: Pubkey,
-    pub role: u8,
-    pub pending_authority: Pubkey,
-    pub execute_after_slot: u64,
     pub metadata: MarketEventMetadata,
 }
 
@@ -102,6 +68,8 @@ pub struct LiquidityAdded {
     pub quote_reserve_credit: u64,
     pub ylp_amount: u64,
     pub ylp_supply: u64,
+    pub base_live_reserve: u64,
+    pub quote_live_reserve: u64,
     pub metadata: MarketEventMetadata,
 }
 
@@ -110,9 +78,15 @@ pub struct LiquidityRemoved {
     pub market: Pubkey,
     pub owner: Pubkey,
     pub ylp_amount: u64,
-    pub base_amount_out: u64,
-    pub quote_amount_out: u64,
+    /// Gross amounts debited from the reserve vaults.
+    pub base_reserve_debit: u64,
+    pub quote_reserve_debit: u64,
+    /// Net amounts credited to the owner after any Token-2022 transfer fee.
+    pub base_owner_credit: u64,
+    pub quote_owner_credit: u64,
     pub ylp_supply: u64,
+    pub base_live_reserve: u64,
+    pub quote_live_reserve: u64,
     pub metadata: MarketEventMetadata,
 }
 
@@ -137,29 +111,8 @@ pub struct YieldClaimed {
     pub recipient: Pubkey,
     pub swap_fee_amount: u64,
     pub interest_amount: u64,
-    pub metadata: MarketEventMetadata,
-}
-
-#[event]
-pub struct MarketFeeLiabilityClaimed {
-    pub market: Pubkey,
-    pub authority: Pubkey,
-    pub asset_mint: Pubkey,
-    pub claim_kind: u8,
-    pub fee_amount: u64,
-    pub remaining_fee_liability: u64,
-    pub metadata: MarketEventMetadata,
-}
-
-#[event]
-pub struct ManagerFeesClaimed {
-    pub market: Pubkey,
-    pub manager: Pubkey,
-    pub asset_mint: Pubkey,
-    pub swap_fee_amount: u64,
-    pub interest_fee_amount: u64,
-    pub remaining_manager_swap_fee_liability: u64,
-    pub remaining_manager_interest_fee_liability: u64,
+    /// Total amount credited to the recipient after transfer fees.
+    pub recipient_credit: u64,
     pub metadata: MarketEventMetadata,
 }
 
@@ -299,76 +252,66 @@ pub struct ProtocolAuctionSettled {
 pub struct SwapExecuted {
     pub market: Pubkey,
     pub trader: Pubkey,
+    /// `0` for base input and `1` for quote input.
     pub asset_in_side: u8,
+    /// Exact amount debited from the trader's input account.
+    pub amount_in: u64,
+    /// Amount credited to the trader after any output transfer fee.
     pub amount_out: u64,
-    pub base_hlp_residual_exposure: i128,
-    pub quote_hlp_residual_exposure: i128,
-    pub fee_breakdown: SwapFeeBreakdownEvent,
-    pub start_price_nad: u64,
-    /// Invariant-preserving trade endpoint before retained surcharge enters reserves.
-    pub trade_end_price_nad: u64,
-    /// Final pool marginal price after retained surcharge enters reserves.
-    pub reserve_end_price_nad: u64,
-    pub decayed_volatility_nad: u64,
-    pub post_success_volatility_nad: u64,
-    pub base_fee_credit: u64,
-    pub distributed_surcharge_credit: u64,
+    /// Input applied to the invariant after all swap fees.
+    pub amount_in_after_fee: u64,
+    pub base_fee: u64,
+    pub divergence_fee: u64,
+    pub volatility_fee: u64,
+    /// Dynamic surcharge retained as executable principal.
+    pub retained_fee: u64,
+    /// Final executable reserves after retention and inline hLP correction.
+    pub base_live_reserve: u64,
+    pub quote_live_reserve: u64,
 }
 
-/// Full quote-time fee accounting embedded in the canonical swap event.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SwapFeeBreakdownEvent {
-    pub reserve_credit: u64,
-    pub base_fee_debit: u64,
-    pub divergence_surcharge_debit: u64,
-    pub volatility_surcharge_debit: u64,
-    pub dynamic_surcharge_debit: u64,
-    pub total_fee_debit: u64,
-    pub retained_surcharge: u64,
-    pub distributed_surcharge_debit: u64,
-    pub amount_in_for_quote: u64,
-    pub reserve_input_credit: u64,
-    pub claimable_fee_debit: u64,
-    pub base_fee_rate_nad: u64,
-    pub divergence_fee_rate_nad: u64,
-    pub volatility_fee_rate_nad: u64,
-    pub total_fee_rate_nad: u64,
-}
-
-/// Fee and endpoint telemetry for an AMM leg embedded in a leverage action.
+/// Actual AMM receipt embedded in a leverage action.
 /// `None` on `LeveragePositionUpdated` means the action was margin-only.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LeverageSwapEvent {
     pub asset_in_side: u8,
     pub amount_in: u64,
     pub amount_out: u64,
-    pub fee_breakdown: SwapFeeBreakdownEvent,
-    pub start_price_nad: u64,
-    /// Invariant-preserving trade endpoint; retained principal is excluded.
-    pub trade_end_price_nad: u64,
-    /// Final executable-reserve marginal price after retained principal.
-    pub reserve_end_price_nad: u64,
-    pub decayed_volatility_nad: u64,
-    pub post_success_volatility_nad: u64,
-    pub base_fee_credit: u64,
-    pub distributed_surcharge_credit: u64,
+    pub amount_in_after_fee: u64,
+    pub base_fee: u64,
+    pub divergence_fee: u64,
+    pub volatility_fee: u64,
+    pub retained_fee: u64,
+    /// Actual reserve-vault credit after any Token-2022 transfer fee.
+    pub claimable_fee_credit: u64,
+    /// Final executable reserves after retention and inline hLP correction.
+    pub base_live_reserve: u64,
+    pub quote_live_reserve: u64,
 }
 
 impl LeverageSwapEvent {
-    pub fn new(quote: LeverageSwapQuote, credit: LeverageSwapFeeCredit) -> Self {
-        Self {
+    pub fn new(
+        quote: LeverageSwapQuote,
+        credit: LeverageSwapFeeCredit,
+        base_live_reserve: u64,
+        quote_live_reserve: u64,
+    ) -> Result<Self> {
+        Ok(Self {
             asset_in_side: quote.asset_in,
             amount_in: quote.amount_in,
             amount_out: quote.amount_out,
-            fee_breakdown: quote.fee_breakdown.into(),
-            start_price_nad: quote.start_price_nad,
-            trade_end_price_nad: quote.end_price_nad,
-            reserve_end_price_nad: quote.reserve_end_price_nad,
-            decayed_volatility_nad: quote.decayed_volatility_nad,
-            post_success_volatility_nad: quote.post_success_volatility_nad,
-            base_fee_credit: credit.base,
-            distributed_surcharge_credit: credit.distributed_surcharge,
-        }
+            amount_in_after_fee: quote.amount_in_after_fee,
+            base_fee: quote.fee_breakdown.base_fee_debit,
+            divergence_fee: quote.fee_breakdown.divergence_surcharge_debit,
+            volatility_fee: quote.fee_breakdown.volatility_surcharge_debit,
+            retained_fee: quote.fee_breakdown.retained_surcharge,
+            claimable_fee_credit: credit
+                .base
+                .checked_add(credit.distributed_surcharge)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            base_live_reserve,
+            quote_live_reserve,
+        })
     }
 }
 
@@ -421,6 +364,8 @@ pub struct LeveragePositionUpdated {
     pub debt_shares: u128,
     pub collateral_amount: u64,
     pub closeout_value: u64,
+    /// Net tokens paid to the owner by this update, if any.
+    pub owner_credit: u64,
     pub swap: Option<LeverageSwapEvent>,
     pub metadata: MarketEventMetadata,
 }
@@ -489,9 +434,14 @@ pub struct MarketCollateralWithdrawn {
 #[event]
 pub struct MarketDebtUpdated {
     pub market: Pubkey,
+    pub position: Pubkey,
     pub owner: Pubkey,
     pub debt_asset_mint: Pubkey,
     pub debt_delta: i64,
+    /// Gross source-account debit and net destination-account credit.
+    pub cash_debit: u64,
+    pub cash_credit: u64,
+    pub interest_paid: u64,
     pub fixed_base_debt: u128,
     pub fixed_quote_debt: u128,
     pub global_health_base_contribution_for_quote_debt: u64,
@@ -509,43 +459,108 @@ pub struct PositionLiquidated {
     pub borrow_position: Pubkey,
     pub borrower: Pubkey,
     pub liquidator: Pubkey,
-    pub debt_asset_mint: Pubkey,
-    pub collateral_asset_mint: Pubkey,
+    /// `0` for base debt and `1` for quote debt. The collateral is the other side.
+    pub debt_asset_side: u8,
     pub repaid_amount: u64,
     pub collateral_seized: u64,
+    /// Gross collateral debited for the liquidator's transfer. Token-2022 may
+    /// reduce the liquidator's net account credit.
     pub collateral_to_liquidator: u64,
-    pub insurance_funded: u64,
+    /// Net collateral credited to the liquidator after any transfer fee.
+    pub collateral_credit: u64,
     pub insurance_drawn: u64,
     pub socialized_loss: u64,
     pub remaining_debt: u128,
-    pub remaining_global_health_contribution: u64,
-    pub remaining_liquidation_cf_bps: u16,
-    pub metadata: MarketEventMetadata,
 }
 
 #[event]
 pub struct HlpOpened {
     pub market: Pubkey,
     pub owner: Pubkey,
-    pub asset_mint: Pubkey,
+    /// `0` for base hLP and `1` for quote hLP.
+    pub asset_side: u8,
+    /// Net reserve-vault credit after any input transfer fee.
     pub deposit_amount: u64,
     pub borrowed_amount: u64,
     pub ylp_amount: u64,
     pub hlp_amount: u64,
+    pub ylp_supply: u64,
     pub hlp_supply: u64,
-    pub metadata: MarketEventMetadata,
+    pub base_live_reserve: u64,
+    pub quote_live_reserve: u64,
 }
 
 #[event]
 pub struct HlpClosed {
     pub market: Pubkey,
     pub owner: Pubkey,
-    pub asset_mint: Pubkey,
+    /// `0` for base hLP and `1` for quote hLP.
+    pub asset_side: u8,
     pub hlp_amount: u64,
     pub ylp_amount: u64,
-    pub target_amount_out: u64,
+    /// Amount credited to the owner after any output transfer fee.
+    pub amount_out: u64,
     pub debt_repaid: u64,
     pub interest_paid: u64,
+    pub ylp_supply: u64,
     pub hlp_supply: u64,
-    pub metadata: MarketEventMetadata,
+    pub base_live_reserve: u64,
+    pub quote_live_reserve: u64,
+}
+
+#[event]
+pub struct ParameterProposalCreated {
+    pub proposal: Pubkey,
+    pub market: Pubkey,
+    pub proposer: Pubkey,
+    pub nonce: u64,
+    pub family: u8,
+    pub family_revision: u64,
+    pub digest: [u8; 32],
+    pub sponsorship_floor: u64,
+    pub initial_support: u64,
+    pub status: u8,
+}
+
+#[event]
+pub struct ParameterProposalSupported {
+    pub proposal: Pubkey,
+    pub supporter: Pubkey,
+    pub amount: u64,
+    pub supporter_locked: u64,
+    pub total_locked: u64,
+    pub status: u8,
+}
+
+#[event]
+pub struct ParameterProposalQueued {
+    pub proposal: Pubkey,
+    pub total_locked: u64,
+    pub eligible_supply: u64,
+    pub queued_at: i64,
+    pub execute_after: i64,
+    pub execution_deadline: i64,
+}
+
+#[event]
+pub struct ParameterProposalExecuted {
+    pub proposal: Pubkey,
+    pub market: Pubkey,
+    pub family: u8,
+    pub new_family_revision: u64,
+    pub executed_at: i64,
+}
+
+#[event]
+pub struct ParameterProposalSupportWithdrawn {
+    pub proposal: Pubkey,
+    pub supporter: Pubkey,
+    pub amount: u64,
+    pub total_locked: u64,
+    pub status: u8,
+}
+
+#[cfg(test)]
+mod tests {
+    include!("tests/events.rs");
 }

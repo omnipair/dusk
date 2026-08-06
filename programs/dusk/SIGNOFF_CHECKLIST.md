@@ -29,16 +29,24 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
   recentering, protected-surcharge accounting, and the no-oracle limitations.
 - Review the cached-spot EMA flow and pre-action risk snapshots for swap and
   liquidity-add paths.
-- Review conservative `Q`, exact CPMM/Dusk Concentrated AMM reconstructed risk shapes, and
-  independent per-side daily borrow limits.
+- Review conservative `Q`, exact CPMM/Dusk Concentrated AMM reconstructed risk
+  shapes, and each debt side's shared 24-hour leaky/token bucket. Confirm
+  checkpoint-frequency-independent refill at a fixed absolute limit, the
+  conservative-depth resizing rule, no repayment/exit refund, and coverage of
+  fixed lending, isolated leverage, direct hLP funding, and automatic hLP
+  funding; do not review it as an exact trailing-window sum.
 - Review floating yLP liquidity, matched yLP redemption, and Token-2022
   transfer checkpointing.
-- Review fee liabilities and settlement paths for yLP, hLP, manager,
-  protocol, and unallocated buckets. Verify reserve-custodied swap-fee
+- Review fee liabilities and settlement paths for yLP, hLP, protocol, and
+  unallocated buckets. Verify reserve-custodied swap-fee
   liabilities separately from interest-vault-custodied liabilities.
-- Review the no-ceiling dynamic-fee proof: finite rates stay below 100%,
-  split paths cannot obtain a material discount, and raw-token exhaustion
-  fails closed.
+- Review every dynamic-fee component budget, the 50% aggregate hard cap,
+  Huber-capped divergence potential, split-path resistance, and exact
+  odd/even raw-token rounding.
+- Review direct-yLP parameter governance: 1% sponsorship, strict `>50%`
+  support, hLP-vault exclusion, virtual-yield accounting, seven-day timelock
+  and execution window, family revisions, terminal remint, and the 80%
+  utilization execution guard.
 - Review fixed debt, bounded global-health contributions, stored liquidation
   CFs, normalized valuation, and liquidation/insurance/socialization accounting.
 - Review Token-2022 constraints and measured inventory-credit settlement.
@@ -61,6 +69,8 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 - Display hLP as aggregate hedged LP vault shares with underlying borrowed
   debt, not as wrapped yLP.
 - Surface reduce-only behavior and emergency reduce-only expectations.
+- Surface proposal metadata/digests, direct-yLP support at risk, the frozen
+  queued period, execution deadline, and terminal unlock state.
 
 ## SDK / Package Interface
 
@@ -69,6 +79,8 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 - Confirm Dusk IDL and generated TypeScript copies match `target/idl` and
   `target/types` artifacts from the release build.
 - Confirm consumer examples use Dusk `Market` accounts.
+- Confirm proposal/support PDA helpers and all five parameter-governance
+  builders round-trip the generated IDL types.
 
 ## Indexing And Analytics
 
@@ -120,3 +132,4 @@ Record target-cluster transaction signatures for:
 - insurance-backed liquidation path;
 - deposit single-sided liquidity and withdraw single-sided liquidity;
 - reduce-only mode rejection for risk-increasing paths.
+- create, support, queue, execute, and withdraw a direct-yLP parameter proposal.

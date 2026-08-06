@@ -21,8 +21,6 @@ use crate::instructions::common::{
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct InitializeMarketArgs {
-    pub operator: Pubkey,
-    pub manager: Pubkey,
     pub config: MarketConfig,
     pub params_hash: [u8; 32],
 }
@@ -339,19 +337,6 @@ impl<'info> InitializeMarket<'info> {
             ],
         )?;
 
-        // Default both roles to the deployer; an explicit non-default value in
-        // args lets a deployer hand control to a multisig/operator at creation.
-        let resolved_operator = if args.operator == Pubkey::default() {
-            payer_key
-        } else {
-            args.operator
-        };
-        let resolved_manager = if args.manager == Pubkey::default() {
-            payer_key
-        } else {
-            args.manager
-        };
-
         let base_side = MarketSide {
             asset_mint: base_mint,
             asset_decimals: ctx.accounts.base_mint.decimals,
@@ -376,8 +361,6 @@ impl<'info> InitializeMarket<'info> {
         // Initialize all market state only after every external account is ready.
         ctx.accounts.market.initialize(
             ylp_mint,
-            resolved_operator,
-            resolved_manager,
             base_side,
             quote_side,
             args.config,
@@ -402,11 +385,8 @@ impl<'info> InitializeMarket<'info> {
             quote_insurance_vault,
             base_hlp_mint,
             quote_hlp_mint,
-            operator: resolved_operator,
-            manager: resolved_manager,
             target_hlp_leverage_bps: args.config.target_hlp_leverage_bps,
             swap_fee_bps: args.config.swap_fee_bps,
-            manager_fee_bps: args.config.manager_fee_bps,
             config: args.config,
             params_hash: args.params_hash,
             version: MARKET_LAYOUT_VERSION,

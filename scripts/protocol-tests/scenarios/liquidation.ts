@@ -783,18 +783,13 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
       const repaid = eventAmount(receipt, "repaid_amount");
       const collateralSeized = eventAmount(receipt, "collateral_seized");
       const collateralToLiquidator = eventAmount(receipt, "collateral_to_liquidator");
-      const insuranceFunded = eventAmount(receipt, "insurance_funded");
+      const insuranceFunded = collateralSeized - collateralToLiquidator;
       const insuranceDrawn = eventAmount(receipt, "insurance_drawn");
       const socializedLoss = eventAmount(receipt, "socialized_loss");
       harness.assertEqual("receipt records exact liquidator repayment", repaid, repayAmount);
       harness.assertEqual("receipt exhausts available base insurance", insuranceDrawn, expectedInsuranceDraw);
       harness.assertEqual("receipt records exact bounded socialized loss", socializedLoss, expectedSocializedLoss);
       harness.assertEqual("receipt closes all position debt", eventAmount(receipt, "remaining_debt"), 0n);
-      harness.assertEqual(
-        "receipt clears global-health contribution",
-        eventAmount(receipt, "remaining_global_health_contribution"),
-        0n
-      );
       harness.assertEqual(
         "liquidator and collateral-insurance credits conserve seized collateral",
         collateralToLiquidator + insuranceFunded,

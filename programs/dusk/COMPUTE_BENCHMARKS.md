@@ -65,11 +65,12 @@ every third-party hook has the same cost.
 
 ## Finished-binary measurements
 
-The following deterministic maxima were captured on 2026-08-05 from one
+The following deterministic maxima were captured on 2026-08-06 from one
 fully successful run of the finished SBF binary:
 
 ```sh
-yarn test-litesvm:release --reporter dot
+yarn build:litesvm
+yarn test-litesvm:no-build
 ```
 
 That run passed 50/50 LiteSVM tests, exercised 52/52 Dusk instructions, and
@@ -85,27 +86,33 @@ bug without changing program math or sanitizing malformed decoded values.
 
 | Scenario | Measured maximum | CI ceiling |
 |---|---:|---:|
-| CPMM, same slot | 51,758 CU | 54,346 CU |
-| CPMM, advanced slot | 84,850 CU | 89,093 CU |
-| CPMM, active debt | 93,504 CU | 98,180 CU |
-| Concentrated, centered | 184,426 CU | 193,648 CU |
-| Concentrated, finite transition | 270,069 CU | 283,573 CU |
-| Concentrated, exact-CPMM tail | 103,293 CU | 108,458 CU |
-| Divergence-fee stress | 356,055 CU | 373,858 CU |
-| Volatility-fee stress | 100,473 CU | 105,497 CU |
-| Retained surcharge | 370,975 CU | 389,524 CU |
-| Due parameter ramp | 485,147 CU | 509,405 CU |
-| Due funded recenter | 480,413 CU | 504,434 CU |
-| Active hLP | 101,231 CU | 106,293 CU |
-| hLP residual correction | 159,786 CU | 167,776 CU |
-| Token-2022 asset swap | 60,838 CU | 63,880 CU |
+| CPMM, same slot | 58,286 CU | 61,201 CU |
+| CPMM, advanced slot | 91,378 CU | 95,947 CU |
+| CPMM, active debt | 100,032 CU | 105,034 CU |
+| Concentrated, centered | 190,954 CU | 200,502 CU |
+| Concentrated, finite transition | 276,597 CU | 290,427 CU |
+| Concentrated, exact-CPMM tail | 109,821 CU | 115,313 CU |
+| Divergence-fee stress | 362,583 CU | 380,713 CU |
+| Volatility-fee stress | 107,001 CU | 112,352 CU |
+| Retained surcharge | 474,615 CU | 498,346 CU |
+| Due parameter ramp | 491,675 CU | 516,259 CU |
+| Due funded recenter | 486,935 CU | 511,282 CU |
+| Active hLP | 107,758 CU | 113,146 CU |
+| hLP residual correction | 166,313 CU | 174,629 CU |
+| Token-2022 asset swap | 67,366 CU | 70,735 CU |
 
 The separately measured direct Token-2022 transfer-hook transaction consumed
-77,049–125,049 CU across the final runtime-validation runs; the strict
-fresh-build release run measured 95,049 CU. This is the full Token-2022 transaction cost,
+71,329–86,329 CU across the final production- and development-feature
+verification runs. This is the full Token-2022 transaction cost,
 not a hook-program-exclusive measurement, and is reported separately because
 hook implementation, extra accounts, and address-dependent canonical PDA bump
 searches are external inputs rather than deterministic Dusk swap guards.
+
+Every swap row increased by 6,522–6,528 CU when the compact swap receipt moved
+from a raw log to Anchor's reliable event self-CPI. This is the measured
+end-to-end cost of making the receipt recoverable from inner instructions; it
+is not curve or fee math. The ordinary path remains 41,714 CU below its 100k
+acceptance limit.
 
 ## Rewrite deltas
 
@@ -116,12 +123,12 @@ before/after claim.
 
 | Path | Before | Finished rewrite | Delta |
 |---|---:|---:|---:|
-| CPMM, same slot | 111,593 CU | 51,758 CU | -59,835 CU (-53.62%) |
-| CPMM, advanced slot | 164,529 CU | 84,850 CU | -79,679 CU (-48.43%) |
-| Concentrated, centered versus prior mixed range | 677,000–1,323,000 CU | 184,426 CU | -72.76% to -86.06% |
-| Highest named lazy-controller path versus prior mixed high-water mark | 1,323,000 CU | 485,147 CU | -837,853 CU (-63.33%) |
+| CPMM, same slot | 111,593 CU | 58,286 CU | -53,307 CU (-47.77%) |
+| CPMM, advanced slot | 164,529 CU | 91,378 CU | -73,151 CU (-44.46%) |
+| Concentrated, centered versus prior mixed range | 677,000–1,323,000 CU | 190,954 CU | -71.79% to -85.57% |
+| Highest named lazy-controller path versus prior mixed high-water mark | 1,323,000 CU | 491,675 CU | -831,325 CU (-62.84%) |
 
-The ordinary same-slot path is also 32,514–35,700 CU below the observed
+The ordinary same-slot path is also 25,986–29,172 CU below the observed
 Omnipair V1 range of 84,272–87,458 CU. Controller and hLP rows
 already include the lazy work performed by the user operation; there is no
 separate maintenance transaction to add.

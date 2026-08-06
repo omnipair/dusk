@@ -1,5 +1,5 @@
 use super::*;
-use crate::constants::YIELD_GROWTH_SCALE_Q64;
+use crate::constants::{MARKET_LAYOUT_VERSION, YIELD_GROWTH_SCALE_Q64};
 use crate::instructions::liquidity::canonical_lp_transfer_hook_metas;
 
 fn pre_transfer_balances(
@@ -114,11 +114,10 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
     let ylp_mint = Pubkey::new_unique();
     let base_hlp_mint = Pubkey::new_unique();
     let quote_hlp_mint = Pubkey::new_unique();
+    let market_key = Pubkey::new_unique();
     let mut market = Market {
-        version: 0,
+        version: MARKET_LAYOUT_VERSION,
         ylp_mint,
-        operator: Pubkey::new_unique(),
-        manager: Pubkey::new_unique(),
         base_side: crate::state::MarketSide {
             asset_mint: base_mint,
             hlp_mint: base_hlp_mint,
@@ -148,10 +147,9 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
         },
         risk: Default::default(),
         insurance: Default::default(),
-        pending_config: Default::default(),
-        pending_operator: Default::default(),
-        pending_manager: Default::default(),
         params_hash: [0; 32],
+        governance_locked_ylp: 0,
+        parameter_revisions: [0; 5],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,
@@ -240,7 +238,7 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
     };
     source_yield.initialize(
         owner,
-        market.operator,
+        market_key,
         base_hlp_mint,
         base_mint,
         YieldTokenKind::Hlp,
@@ -249,7 +247,7 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
     );
     destination_yield.initialize(
         recipient,
-        market.operator,
+        market_key,
         base_hlp_mint,
         base_mint,
         YieldTokenKind::Hlp,

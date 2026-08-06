@@ -4,12 +4,14 @@ use std::cell::Cell;
 
 use super::{CurveCheckpoint, CurveReservesNad, Market, MarketAsset};
 use crate::{
-    constants::{BPS_DENOMINATOR, NAD, NAD_DECIMALS},
+    constants::{NAD, NAD_DECIMALS},
     errors::ErrorCode,
     math::{
-        decay_volatility_nad, divergence_state_potential_raw_saturating, effective_rate_floor_nad, normalize_to_nad,
-        volatility_after_success_nad, ConcentratedCommonNumeraire, ConcentratedHybridBranch, ConcentratedInvariantSeed,
-        ConcentratedSwapDirection, DynamicFeeConfig, DynamicFeePreState, DynamicFeeQuote, MAX_COMMON_RESERVE,
+        asymptotic_scaled_rate_nad, decay_volatility_nad, effective_rate_floor_nad, fee_share_cap_to_marginal_rate_nad,
+        gross_fee_budget_floor, hard_total_fee_budget_floor, minimum_executable_input, normalize_to_nad,
+        validate_fee_share_caps, volatility_after_success_nad, ConcentratedCommonNumeraire, ConcentratedHybridBranch,
+        ConcentratedInvariantSeed, ConcentratedSwapDirection, DynamicFeeConfig, DynamicFeePreState, DynamicFeeQuote,
+        PreparedDivergenceStatePotential, MAX_COMMON_RESERVE,
     },
     shared::math::ceil_div,
 };
@@ -22,8 +24,8 @@ use crate::math::{
 
 /// The implicit divergence endpoint is a one-dimensional convex solve.
 /// Secant and Newton probes accelerate the ordinary path, while the exact
-/// feasible/infeasible cost bracket remains authoritative even when the
-/// unbounded toll or its derivative saturates an accelerator. If token
+/// feasible/infeasible cost bracket remains authoritative even when wide
+/// potential arithmetic saturates an accelerator. If token
 /// granularity leaves no exact root, the lower endpoint deliberately charges
 /// the rounding gap as fee.
 const DIVERGENCE_ENDPOINT_MAX_ITERS: usize = u64::BITS as usize;
@@ -48,21 +50,42 @@ struct PreparedSwapDivergencePotential {
     center_input_reserve_raw: u128,
     start_input_reserve_raw: u128,
     coefficient_nad: u64,
+    marginal_cap_nad: u64,
+    maximum_surcharge: u64,
+    state_potential: Option<PreparedDivergenceStatePotential>,
 }
 
 impl PreparedSwapDivergencePotential {
-    fn total_cost_probe(self, executable_input: u64) -> Result<(u128, bool)> {
-        if executable_input == 0 {
+    fn new(
+        center_input_reserve_raw: u128,
+        start_input_reserve_raw: u128,
+        coefficient_nad: u64,
+        marginal_cap_nad: u64,
+        maximum_surcharge: u64,
+    ) -> Result<Self> {
+        let state_potential = u64::try_from(center_input_reserve_raw)
+            .ok()
+            .map(|center| PreparedDivergenceStatePotential::new(center, coefficient_nad, marginal_cap_nad))
+            .transpose()?;
+        Ok(Self {
+            center_input_reserve_raw,
+            start_input_reserve_raw,
+            coefficient_nad,
+            marginal_cap_nad,
+            maximum_surcharge,
+            state_potential,
+        })
+    }
+
+    fn uncapped_fee_probe(self, executable_input: u64) -> Result<(u128, bool)> {
+        if self.coefficient_nad == 0 || self.marginal_cap_nad == 0 || self.maximum_surcharge == 0 {
             return Ok((0, false));
         }
-        if self.coefficient_nad == 0 {
-            return Ok((executable_input as u128, false));
-        }
-        let Ok(center_raw) = u64::try_from(self.center_input_reserve_raw) else {
+        let Some(state_potential) = self.state_potential else {
             // A center above the complete u64 token-account domain means every
             // possible endpoint is still restorative; it is not a saturated
             // outward fee.
-            return Ok((executable_input as u128, false));
+            return Ok((0, false));
         };
         let Ok(start_raw) = u64::try_from(self.start_input_reserve_raw) else {
             return Ok((u128::MAX, true));
@@ -70,28 +93,53 @@ impl PreparedSwapDivergencePotential {
         let Some(end_raw) = start_raw.checked_add(executable_input) else {
             return Ok((u128::MAX, true));
         };
+        let center_raw = u64::try_from(self.center_input_reserve_raw).map_err(|_| ErrorCode::MarketMathOverflow)?;
         let start_outward = start_raw.saturating_sub(center_raw);
         let end_outward = end_raw.saturating_sub(center_raw);
         let (fee, fee_saturated) = if end_outward <= start_outward {
             (0, false)
         } else {
-            let (start, start_saturated) =
-                divergence_state_potential_raw_saturating(start_outward, center_raw, self.coefficient_nad)?;
-            let (end, end_saturated) =
-                divergence_state_potential_raw_saturating(end_outward, center_raw, self.coefficient_nad)?;
+            let (start, start_saturated) = state_potential.state_potential(start_outward)?;
+            let (end, end_saturated) = state_potential.state_potential(end_outward)?;
             if start_saturated || end_saturated {
                 (u128::MAX, true)
             } else {
                 (end.checked_sub(start).ok_or(ErrorCode::MarketMathOverflow)?, false)
             }
         };
+        Ok((fee, fee_saturated))
+    }
+
+    fn total_cost_probe(self, executable_input: u64) -> Result<(u128, bool)> {
+        if executable_input == 0 {
+            return Ok((0, false));
+        }
+        let (fee, fee_saturated) = self.uncapped_fee_probe(executable_input)?;
         if fee_saturated {
             return Ok((u128::MAX, true));
         }
-        match (executable_input as u128).checked_add(fee) {
+        match (executable_input as u128).checked_add(fee.min(self.maximum_surcharge as u128)) {
             Some(cost) => Ok((cost, false)),
             None => Ok((u128::MAX, true)),
         }
+    }
+
+    fn marginal_rate_nad(self, executable_input: u64) -> Result<u64> {
+        let (fee, saturated) = self.uncapped_fee_probe(executable_input)?;
+        if saturated || fee >= self.maximum_surcharge as u128 {
+            // Once the per-swap gross budget binds, the budgeted potential is
+            // flat even though the underlying Huber state keeps increasing.
+            return Ok(0);
+        }
+        let Some(state_potential) = self.state_potential else {
+            return Ok(0);
+        };
+        let start_raw = u64::try_from(self.start_input_reserve_raw).map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let endpoint_raw = start_raw
+            .checked_add(executable_input)
+            .ok_or(ErrorCode::ReserveOverflow)?;
+        let center_raw = u64::try_from(self.center_input_reserve_raw).map_err(|_| ErrorCode::MarketMathOverflow)?;
+        state_potential.marginal_rate_nad(endpoint_raw.saturating_sub(center_raw))
     }
 }
 
@@ -216,7 +264,11 @@ impl Market {
     ) -> Result<PreliminarySwapInputs> {
         require!(reserve_credit > 0, ErrorCode::AmountZero);
         let config = self.dynamic_fee_config()?;
-        require!(config.base_fee_rate_nad < NAD, ErrorCode::InvalidSwapFeeBps);
+        validate_fee_share_caps(
+            config.base_fee_bps,
+            config.divergence_fee_share_cap_bps,
+            config.volatility_fee_share_cap_bps,
+        )?;
         require!(
             config.volatility_shock_cap_nad <= config.volatility_accumulator_cap_nad,
             ErrorCode::InvalidArgument
@@ -233,16 +285,8 @@ impl Market {
             current_slot,
             config.volatility_half_life_ms,
         )?;
-        let base_fee_amount = u64::try_from(
-            ceil_div(
-                (reserve_credit as u128)
-                    .checked_mul(config.base_fee_rate_nad as u128)
-                    .ok_or(ErrorCode::MarketMathOverflow)?,
-                NAD as u128,
-            )
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-        )
-        .map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let hard_total_budget = hard_total_fee_budget_floor(reserve_credit);
+        let base_fee_amount = gross_fee_budget_floor(reserve_credit, config.base_fee_bps)?;
         let after_base = reserve_credit
             .checked_sub(base_fee_amount)
             .ok_or(ErrorCode::FeeMathOverflow)?;
@@ -250,40 +294,22 @@ impl Market {
 
         let signal_nad = decayed_volatility_nad as u128;
         let coefficient_nad = config.volatility_coefficient_nad;
-        let volatility_rate_nad = if signal_nad == 0 || coefficient_nad == 0 {
-            0
-        } else if let Some(pressure_numerator) = signal_nad.checked_mul(coefficient_nad as u128) {
-            let nad_squared = (NAD as u128)
-                .checked_mul(NAD as u128)
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-            if let Some(denominator) = nad_squared.checked_add(pressure_numerator) {
-                let nad_cubed = nad_squared
-                    .checked_mul(NAD as u128)
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
-                let complement = (nad_cubed - 1)
-                    .checked_div(denominator)
-                    .and_then(|value| value.checked_add(1))
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
-                u64::try_from(
-                    (NAD as u128)
-                        .checked_sub(complement)
-                        .ok_or(ErrorCode::BrokenInvariant)?,
-                )
-                .map_err(|_| ErrorCode::MarketMathOverflow)?
-            } else {
-                NAD - 1
-            }
-        } else {
-            NAD - 1
-        };
+        let volatility_rate_nad = asymptotic_scaled_rate_nad(signal_nad, coefficient_nad)?;
         require!(volatility_rate_nad < NAD, ErrorCode::InvalidSwapFeeBps);
-        let volatility_surcharge_amount = u64::try_from(
+        let uncapped_volatility_surcharge = u64::try_from(
             (after_base as u128)
                 .checked_mul(volatility_rate_nad as u128)
                 .ok_or(ErrorCode::MarketMathOverflow)?
                 / NAD as u128,
         )
         .map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let volatility_component_budget = gross_fee_budget_floor(reserve_credit, config.volatility_fee_share_cap_bps)?;
+        let remaining_total_budget = hard_total_budget
+            .checked_sub(base_fee_amount)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        let volatility_surcharge_amount = uncapped_volatility_surcharge
+            .min(volatility_component_budget)
+            .min(remaining_total_budget);
         require!(volatility_surcharge_amount < after_base, ErrorCode::BrokenInvariant);
         let amount_in_for_quote = after_base
             .checked_sub(volatility_surcharge_amount)
@@ -292,7 +318,7 @@ impl Market {
         let total_fee_amount = base_fee_amount
             .checked_add(volatility_surcharge_amount)
             .ok_or(ErrorCode::FeeMathOverflow)?;
-        require!(total_fee_amount < reserve_credit, ErrorCode::InsufficientOutputAmount);
+        require!(total_fee_amount <= hard_total_budget, ErrorCode::BrokenInvariant);
         let base_rate_nad = effective_rate_floor_nad(base_fee_amount, reserve_credit)?;
         let volatility_rate_nad = effective_rate_floor_nad(volatility_surcharge_amount, reserve_credit)?;
         let total_rate_nad = base_rate_nad
@@ -316,6 +342,11 @@ impl Market {
             .checked_sub(preliminary.total_fee_amount)
             .ok_or(ErrorCode::FeeMathOverflow)?;
         require!(amount > 0, ErrorCode::InsufficientOutputAmount);
+        require_gte!(
+            amount,
+            minimum_executable_input(reserve_credit),
+            ErrorCode::BrokenInvariant
+        );
         let reserve_input_credit = if self.amm.retain_dynamic_surcharge {
             // Every dynamic surcharge, including the divergence omitted from
             // this first pass, remains in the reserve. Therefore only the base
@@ -489,7 +520,16 @@ impl Market {
         // exercised separately by the retained split matrix.
         let input_decimals = self.side(asset_in).asset_decimals;
         require!(input_decimals <= NAD_DECIMALS, ErrorCode::UnsupportedAssetDecimals);
-        let divergence_surcharge_amount = if config.divergence_coefficient_nad == 0 {
+        let divergence_component_budget = gross_fee_budget_floor(reserve_credit, config.divergence_fee_share_cap_bps)?;
+        let remaining_total_budget = hard_total_fee_budget_floor(reserve_credit)
+            .checked_sub(preliminary.fee.total_fee_amount)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        let maximum_divergence_surcharge = divergence_component_budget.min(remaining_total_budget);
+        let divergence_marginal_cap_nad = fee_share_cap_to_marginal_rate_nad(config.divergence_fee_share_cap_bps)?;
+        let divergence_surcharge_amount = if config.divergence_coefficient_nad == 0
+            || divergence_marginal_cap_nad == 0
+            || maximum_divergence_surcharge == 0
+        {
             0
         } else {
             require!(invariant_d_nad > 0, ErrorCode::BrokenInvariant);
@@ -530,11 +570,13 @@ impl Market {
                 ceil_div(center_raw_numerator, center_raw_denominator).ok_or(ErrorCode::MarketMathOverflow)?;
             require!(center_input_reserve_raw > 0, ErrorCode::BrokenInvariant);
             require_eq!(start_input_reserve_nad % decimal_scale, 0, ErrorCode::BrokenInvariant);
-            let potential = PreparedSwapDivergencePotential {
+            let potential = PreparedSwapDivergencePotential::new(
                 center_input_reserve_raw,
-                start_input_reserve_raw: start_input_reserve_nad / decimal_scale,
-                coefficient_nad: config.divergence_coefficient_nad,
-            };
+                start_input_reserve_nad / decimal_scale,
+                config.divergence_coefficient_nad,
+                divergence_marginal_cap_nad,
+                maximum_divergence_surcharge,
+            )?;
             // Solve the swap endpoint beside fee composition so the exact
             // debit and rounding contract remains visible at its production
             // boundary. The test-only harness covers the raw-domain edges.
@@ -543,9 +585,9 @@ impl Market {
                 require!(available > 0, ErrorCode::InsufficientOutputAmount);
 
                 // Zero executable input is always feasible. Gross input is
-                // either exactly fee-free or infeasible. Because the toll may
-                // exceed gross, do not manufacture a lower bound by subtracting
-                // from `available`.
+                // either exactly fee-free or infeasible. The component budget
+                // is already embedded in `potential`, so keep the conservative
+                // full-domain bracket instead of subtracting an estimate here.
                 let mut low = 0_u64;
                 let mut low_cost = 0_u128;
                 let mut high = available;
@@ -624,58 +666,7 @@ impl Market {
                         if origin == 0 && high_cost_saturated {
                             low + (high - low) / 2
                         } else {
-                            let center_raw = u64::try_from(potential.center_input_reserve_raw)
-                                .map_err(|_| ErrorCode::MarketMathOverflow)?;
-                            let start_raw = u64::try_from(potential.start_input_reserve_raw)
-                                .map_err(|_| ErrorCode::MarketMathOverflow)?;
-                            let origin_reserve_raw = start_raw.checked_add(origin).ok_or(ErrorCode::ReserveOverflow)?;
-                            let outward = origin_reserve_raw.saturating_sub(center_raw) as u128;
-                            let marginal_rate_nad = if outward == 0 {
-                                0
-                            } else {
-                                // dF/du = (4*k/3) * t^2 * (3-t)/(1-t),
-                                // where t=u/(q0+u). Coordinates are already
-                                // raw token atoms, so this accelerator needs
-                                // no Euclidean normalization or wide product.
-                                let endpoint = (center_raw as u128)
-                                    .checked_add(outward)
-                                    .ok_or(ErrorCode::MarketMathOverflow)?;
-                                let q48 = 1_u128 << 48;
-                                let outward_fraction_q48 = outward
-                                    .checked_mul(q48)
-                                    .and_then(|value| value.checked_div(endpoint))
-                                    .ok_or(ErrorCode::MarketMathOverflow)?;
-                                let outward_squared_q48 = outward_fraction_q48
-                                    .checked_mul(outward_fraction_q48)
-                                    .ok_or(ErrorCode::MarketMathOverflow)?
-                                    >> 48;
-                                let center_fraction_q48 = q48
-                                    .checked_sub(outward_fraction_q48)
-                                    .ok_or(ErrorCode::BrokenInvariant)?;
-                                let slope_factor_q48 = q48
-                                    .checked_mul(3)
-                                    .and_then(|value| value.checked_sub(outward_fraction_q48))
-                                    .ok_or(ErrorCode::MarketMathOverflow)?;
-                                let shape_q48 = outward_squared_q48
-                                    .checked_mul(slope_factor_q48)
-                                    .and_then(|value| value.checked_div(center_fraction_q48))
-                                    .ok_or(ErrorCode::MarketMathOverflow)?;
-                                let coefficient_times_four = (potential.coefficient_nad as u128)
-                                    .checked_mul(4)
-                                    .ok_or(ErrorCode::MarketMathOverflow)?;
-                                match shape_q48.checked_mul(coefficient_times_four) {
-                                    Some(numerator) => {
-                                        let rate = numerator
-                                            .checked_div(q48.checked_mul(3).ok_or(ErrorCode::MarketMathOverflow)?)
-                                            .ok_or(ErrorCode::MarketMathOverflow)?;
-                                        rate.min(u64::MAX as u128) as u64
-                                    }
-                                    // Overflow implies a post-Q48 quotient
-                                    // wider than u64; saturation preserves the
-                                    // safeguarded Newton direction.
-                                    None => u64::MAX,
-                                }
-                            };
+                            let marginal_rate_nad = potential.marginal_rate_nad(origin)?;
                             let derivative_nad = (NAD as u128)
                                 .checked_add(marginal_rate_nad as u128)
                                 .ok_or(ErrorCode::FeeMathOverflow)?;
@@ -774,8 +765,8 @@ impl Market {
         let mut dynamic = preliminary.fee;
         require_eq!(dynamic.divergence_surcharge_amount, 0, ErrorCode::BrokenInvariant);
         require!(
-            divergence_surcharge_amount < preliminary.amount_in_for_quote,
-            ErrorCode::InsufficientOutputAmount
+            divergence_surcharge_amount <= maximum_divergence_surcharge,
+            ErrorCode::BrokenInvariant
         );
         dynamic.divergence_surcharge_amount = divergence_surcharge_amount;
         dynamic.dynamic_surcharge_amount = dynamic
@@ -786,6 +777,10 @@ impl Market {
             .base_fee_amount
             .checked_add(dynamic.dynamic_surcharge_amount)
             .ok_or(ErrorCode::FeeMathOverflow)?;
+        require!(
+            dynamic.total_fee_amount <= hard_total_fee_budget_floor(reserve_credit),
+            ErrorCode::BrokenInvariant
+        );
         dynamic.divergence_rate_nad = u64::try_from(
             (divergence_surcharge_amount as u128)
                 .checked_mul(NAD as u128)
@@ -804,6 +799,11 @@ impl Market {
             .checked_sub(divergence_surcharge_amount)
             .ok_or(ErrorCode::FeeMathOverflow)?;
         require!(amount_in_for_quote > 0, ErrorCode::InsufficientOutputAmount);
+        require_gte!(
+            amount_in_for_quote,
+            minimum_executable_input(reserve_credit),
+            ErrorCode::BrokenInvariant
+        );
         let final_curve =
             self.quote_curve_exact_in_for_prepared_nad(asset_in, amount_in_for_quote, prepared, current_slot)?;
 
@@ -890,13 +890,6 @@ impl Market {
             )?;
             self.checkpoint_for_prepared_curve(prepared_endpoint, current_slot)?
         };
-        let post_success_volatility_nad = volatility_after_success_nad(
-            dynamic.decayed_volatility_nad,
-            final_curve.start_price_nad,
-            final_curve.end_price_nad,
-            self.config.amm.volatility_shock_cap_nad,
-            self.config.amm.volatility_cap_nad,
-        )?;
         let reserve_end_price_nad = u64::try_from(reserve_endpoint.evaluation().marginal_price_nad)
             .map_err(|_| ErrorCode::MarketMathOverflow)?;
         // A canonical marginal mark below one NAD atom rounds to zero. Such a
@@ -909,6 +902,13 @@ impl Market {
             final_curve.end_price_nad > 0 && reserve_end_price_nad > 0,
             ErrorCode::InvalidSettlementPrice
         );
+        let post_success_volatility_nad = volatility_after_success_nad(
+            dynamic.decayed_volatility_nad,
+            final_curve.start_price_nad,
+            final_curve.end_price_nad,
+            self.config.amm.volatility_shock_cap_nad,
+            self.config.amm.volatility_cap_nad,
+        )?;
 
         Ok(AmmSwapQuote {
             asset_in,
@@ -943,20 +943,16 @@ impl Market {
     }
 
     fn dynamic_fee_config(&self) -> Result<DynamicFeeConfig> {
-        let base_fee_rate_nad = u64::try_from(
-            (self.config.swap_fee_bps as u128)
-                .checked_mul(NAD as u128)
-                .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
-                .ok_or(ErrorCode::FeeMathOverflow)?,
-        )
-        .map_err(|_| ErrorCode::FeeMathOverflow)?;
+        let profile = self.config.fee_profile();
         Ok(DynamicFeeConfig {
-            base_fee_rate_nad,
-            divergence_coefficient_nad: self.config.amm.divergence_fee_coefficient_nad,
-            volatility_coefficient_nad: self.config.amm.volatility_fee_coefficient_nad,
-            volatility_half_life_ms: self.config.amm.volatility_half_life_ms,
-            volatility_shock_cap_nad: self.config.amm.volatility_shock_cap_nad,
-            volatility_accumulator_cap_nad: self.config.amm.volatility_cap_nad,
+            base_fee_bps: profile.base_fee_bps,
+            divergence_fee_share_cap_bps: profile.divergence_fee_share_cap_bps,
+            volatility_fee_share_cap_bps: profile.volatility_fee_share_cap_bps,
+            divergence_coefficient_nad: profile.divergence_fee_coefficient_nad,
+            volatility_coefficient_nad: profile.volatility_fee_coefficient_nad,
+            volatility_half_life_ms: profile.volatility_half_life_ms,
+            volatility_shock_cap_nad: profile.volatility_shock_cap_nad,
+            volatility_accumulator_cap_nad: profile.volatility_accumulator_cap_nad,
         })
     }
 
@@ -982,7 +978,7 @@ impl Market {
 /// `executable + divergence_potential(executable) = available`.
 ///
 /// `low` always has total cost at most `available`; `high` always has total
-/// cost above it. The continuous potential is convex and has an unbounded
+/// cost above it. The continuous potential is convex with a Huber-capped
 /// marginal rate; raw-token rounding can make its discrete approximation
 /// locally uneven. Every secant or Newton probe is therefore checked against
 /// the exact-cost bracket, and an ordinary midpoint is used whenever rounding
@@ -995,8 +991,9 @@ fn implicit_divergence_surcharge_amount_core(
     require!(available > 0, ErrorCode::InsufficientOutputAmount);
 
     // Zero executable input is always feasible. Gross input is either exactly
-    // fee-free or infeasible. Because the toll may exceed gross, do not
-    // manufacture a lower bound by subtracting from `available`.
+    // fee-free or infeasible. The component budget is already embedded in the
+    // prepared potential, so keep the conservative full-domain bracket instead
+    // of subtracting an estimate here.
     let mut low = 0_u64;
     let mut low_cost = 0_u128;
     let mut high = available;
@@ -1078,57 +1075,7 @@ fn implicit_divergence_surcharge_amount_core(
             if origin == 0 && high_cost_saturated {
                 low + (high - low) / 2
             } else {
-                let center_raw = u64::try_from(divergence_potential.center_input_reserve_raw)
-                    .map_err(|_| ErrorCode::MarketMathOverflow)?;
-                let start_raw = u64::try_from(divergence_potential.start_input_reserve_raw)
-                    .map_err(|_| ErrorCode::MarketMathOverflow)?;
-                let origin_reserve_raw = start_raw.checked_add(origin).ok_or(ErrorCode::ReserveOverflow)?;
-                let outward = origin_reserve_raw.saturating_sub(center_raw) as u128;
-                let marginal_rate_nad = if outward == 0 {
-                    0
-                } else {
-                    // dF/du = (4*k/3) * t^2 * (3-t)/(1-t), where
-                    // t=u/(q0+u). All coordinates are already raw u64 token
-                    // atoms, so no Euclidean normalization or wide-product
-                    // fallback belongs in this Newton-only accelerator.
-                    let endpoint = (center_raw as u128)
-                        .checked_add(outward)
-                        .ok_or(ErrorCode::MarketMathOverflow)?;
-                    let q48 = 1_u128 << 48;
-                    let outward_fraction_q48 = outward
-                        .checked_mul(q48)
-                        .and_then(|value| value.checked_div(endpoint))
-                        .ok_or(ErrorCode::MarketMathOverflow)?;
-                    let outward_squared_q48 = outward_fraction_q48
-                        .checked_mul(outward_fraction_q48)
-                        .ok_or(ErrorCode::MarketMathOverflow)?
-                        >> 48;
-                    let center_fraction_q48 = q48
-                        .checked_sub(outward_fraction_q48)
-                        .ok_or(ErrorCode::BrokenInvariant)?;
-                    let slope_factor_q48 = q48
-                        .checked_mul(3)
-                        .and_then(|value| value.checked_sub(outward_fraction_q48))
-                        .ok_or(ErrorCode::MarketMathOverflow)?;
-                    let shape_q48 = outward_squared_q48
-                        .checked_mul(slope_factor_q48)
-                        .and_then(|value| value.checked_div(center_fraction_q48))
-                        .ok_or(ErrorCode::MarketMathOverflow)?;
-                    let coefficient_times_four = (divergence_potential.coefficient_nad as u128)
-                        .checked_mul(4)
-                        .ok_or(ErrorCode::MarketMathOverflow)?;
-                    match shape_q48.checked_mul(coefficient_times_four) {
-                        Some(numerator) => {
-                            let rate = numerator
-                                .checked_div(q48.checked_mul(3).ok_or(ErrorCode::MarketMathOverflow)?)
-                                .ok_or(ErrorCode::MarketMathOverflow)?;
-                            rate.min(u64::MAX as u128) as u64
-                        }
-                        // Overflow here implies a post-Q48 quotient wider
-                        // than u64, so saturation preserves the Newton step.
-                        None => u64::MAX,
-                    }
-                };
+                let marginal_rate_nad = divergence_potential.marginal_rate_nad(origin)?;
                 let derivative_nad = (NAD as u128)
                     .checked_add(marginal_rate_nad as u128)
                     .ok_or(ErrorCode::FeeMathOverflow)?;
@@ -1237,10 +1184,15 @@ fn divergence_total_cost(
     executable_input: u64,
     input_decimals: u8,
     coefficient_nad: u64,
+    maximum_surcharge: u64,
 ) -> Result<u128> {
-    let prepared =
-        prepare_outward_divergence_potential(center_input_reserve_nad, start_input_reserve_nad, coefficient_nad)?;
-    Ok(divergence_total_cost_probe(&prepared, executable_input, input_decimals)?.0)
+    let prepared = prepare_outward_divergence_potential(
+        center_input_reserve_nad,
+        start_input_reserve_nad,
+        coefficient_nad,
+        5_000,
+    )?;
+    Ok(divergence_total_cost_probe(&prepared, executable_input, input_decimals, maximum_surcharge)?.0)
 }
 
 #[cfg(test)]
@@ -1248,6 +1200,7 @@ fn divergence_total_cost_probe(
     prepared: &PreparedOutwardDivergencePotential,
     executable_input: u64,
     input_decimals: u8,
+    maximum_surcharge: u64,
 ) -> Result<(u128, bool)> {
     if executable_input == 0 {
         return Ok((executable_input as u128, false));
@@ -1262,7 +1215,7 @@ fn divergence_total_cost_probe(
     if fee_saturated {
         return Ok((u128::MAX, true));
     }
-    match (executable_input as u128).checked_add(fee) {
+    match (executable_input as u128).checked_add(fee.min(maximum_surcharge as u128)) {
         Some(cost) => Ok((cost, false)),
         None => Ok((u128::MAX, true)),
     }
@@ -1275,13 +1228,19 @@ fn divergence_fee_for_executable_input(
     executable_input: u64,
     input_decimals: u8,
     coefficient_nad: u64,
+    maximum_surcharge: u64,
 ) -> Result<u64> {
     if executable_input == 0 || coefficient_nad == 0 {
         return Ok(0);
     }
-    let prepared =
-        prepare_outward_divergence_potential(center_input_reserve_nad, start_input_reserve_nad, coefficient_nad)?;
-    let (cost, saturated) = divergence_total_cost_probe(&prepared, executable_input, input_decimals)?;
+    let prepared = prepare_outward_divergence_potential(
+        center_input_reserve_nad,
+        start_input_reserve_nad,
+        coefficient_nad,
+        5_000,
+    )?;
+    let (cost, saturated) =
+        divergence_total_cost_probe(&prepared, executable_input, input_decimals, maximum_surcharge)?;
     require!(!saturated, ErrorCode::FeeMathOverflow);
     let fee = cost
         .checked_sub(executable_input as u128)

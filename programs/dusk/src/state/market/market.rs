@@ -10,21 +10,16 @@ use crate::shared::math::{ceil_div, SqrtU128};
 use crate::state::{
     borrow_position::{BorrowPosition, CollateralReceipt},
     futarchy_authority::{FutarchyAuthority, ProtocolAuctionSplit},
+    MarketParameterUpdate,
 };
 
 use super::{
-    health::max_cf_bps_from_liquidation_cf, AmmState, Debt, DebtRepaymentQuote, FeesReceipt, HlpVault, MarketAsset,
-    MarketConfig, MarketHealth, MarketSide, Risk, SwapFeeBreakdown,
+    health::max_cf_bps_from_liquidation_cf, AmmCurveParameters, AmmState, Debt, DebtRepaymentQuote, FeesReceipt,
+    HlpVault, MarketAsset, MarketConfig, MarketHealth, MarketSide, Risk, SwapFeeBreakdown, MAX_DAILY_BORROW_BPS,
 };
 
 #[cfg(test)]
 use super::Reserves;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MarketTimelockAction {
-    Scheduled { execute_after_slot: u64 },
-    Ready,
-}
 
 pub struct AddLiquidityReceipt {
     pub base_reserve_credit: u64,
@@ -104,49 +99,11 @@ impl DebtReceipt {
     }
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq, InitSpace)]
-pub struct PendingAuthorityChange {
-    pub active: bool,
-    pub new_authority: Pubkey,
-    pub scheduled_by: Pubkey,
-    pub scheduled_slot: u64,
-    pub execute_after_slot: u64,
-}
-
-impl PendingAuthorityChange {
-    fn schedule(&mut self, new_authority: Pubkey, signer: Pubkey, current_slot: u64) -> Result<u64> {
-        let execute_after_slot = current_slot
-            .checked_add(MARKET_GOVERNANCE_DELAY_SLOTS)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.active = true;
-        self.new_authority = new_authority;
-        self.scheduled_by = signer;
-        self.scheduled_slot = current_slot;
-        self.execute_after_slot = execute_after_slot;
-        Ok(execute_after_slot)
-    }
-
-    fn clear(&mut self) {
-        *self = Self::default();
-    }
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq, InitSpace)]
-pub struct PendingConfigChange {
-    pub active: bool,
-    pub config: MarketConfig,
-    pub scheduled_by: Pubkey,
-    pub scheduled_slot: u64,
-    pub execute_after_slot: u64,
-}
-
 #[account]
 #[derive(InitSpace, Default)]
 pub struct Market {
     pub version: u8,
     pub ylp_mint: Pubkey,
-    pub operator: Pubkey,
-    pub manager: Pubkey,
     pub base_side: MarketSide,
     pub quote_side: MarketSide,
     pub config: MarketConfig,
@@ -156,10 +113,14 @@ pub struct Market {
     pub quote_hlp_vault: HlpVault,
     pub risk: Risk,
     pub insurance: Insurance,
-    pub pending_config: PendingConfigChange,
-    pub pending_operator: PendingAuthorityChange,
-    pub pending_manager: PendingAuthorityChange,
     pub params_hash: [u8; 32],
+    /// External yLP burned into active governance support. This is added back
+    /// when computing direct-yLP eligibility; internal reserve-share supply is
+    /// intentionally unchanged by governance locking.
+    pub governance_locked_ylp: u64,
+    /// Independent monotone revisions for fee, concentration, IRM, EMA, and
+    /// daily-borrow-limit parameter families, in that order.
+    pub parameter_revisions: [u64; 5],
     /// Latest trader-visible marginal price committed by a curve mutation.
     pub last_marginal_observation_nad: u64,
     /// Monotone revision for executable-curve mutations.
@@ -196,8 +157,6 @@ impl Market {
     pub fn initialize(
         &mut self,
         ylp_mint: Pubkey,
-        operator: Pubkey,
-        manager: Pubkey,
         base_side: MarketSide,
         quote_side: MarketSide,
         config: MarketConfig,
@@ -217,13 +176,8 @@ impl Market {
             base_side.hlp_mint,
             quote_side.hlp_mint,
         )?;
-        require_keys_neq!(operator, Pubkey::default(), ErrorCode::InvalidMarketConfig);
-        require_keys_neq!(manager, Pubkey::default(), ErrorCode::InvalidMarketConfig);
-
         self.version = MARKET_LAYOUT_VERSION;
         self.ylp_mint = ylp_mint;
-        self.operator = operator;
-        self.manager = manager;
         self.base_side = base_side;
         self.quote_side = quote_side;
         self.config = config;
@@ -258,10 +212,9 @@ impl Market {
             quote_vault: quote_insurance_vault,
             ..Insurance::default()
         };
-        self.pending_config = PendingConfigChange::default();
-        self.pending_operator = PendingAuthorityChange::default();
-        self.pending_manager = PendingAuthorityChange::default();
         self.params_hash = params_hash;
+        self.governance_locked_ylp = 0;
+        self.parameter_revisions = [0; 5];
         self.last_marginal_observation_nad = 0;
         self.curve_revision = 0;
         self.risk_revision = 0;
@@ -346,104 +299,188 @@ impl Market {
         Ok(())
     }
 
-    /// Manager-only authority: sensitive actions (fee setting, risk parameter
-    /// changes, and role rotation) require the market manager.
-    pub fn assert_manager(&self, signer: Pubkey) -> Result<()> {
-        self.assert_current_version()?;
-        require_keys_eq!(signer, self.manager, ErrorCode::InvalidMarketManager);
+    /// Validate one typed governance action without permitting unrelated
+    /// configuration fields to move with it.
+    pub fn validate_parameter_update(&self, update: &MarketParameterUpdate) -> Result<()> {
+        match update {
+            MarketParameterUpdate::Fee(profile) => {
+                profile.validate()?;
+                require!(
+                    self.config.fee_profile() != *profile,
+                    ErrorCode::ParameterUpdateNotMeaningful
+                );
+            }
+            MarketParameterUpdate::Concentration {
+                peak_depth_nad,
+                fade_scale_nad,
+                ramp_duration_slots,
+            } => {
+                let target = AmmCurveParameters {
+                    peak_depth_nad: *peak_depth_nad,
+                    fade_scale_nad: *fade_scale_nad,
+                };
+                target.validate_endpoint()?;
+                require!(
+                    (super::MIN_AMM_RAMP_DURATION_SLOTS..=super::MAX_AMM_RAMP_DURATION_SLOTS)
+                        .contains(ramp_duration_slots),
+                    ErrorCode::InvalidParameterUpdate
+                );
+                require!(
+                    self.config.amm.curve_parameters() != target,
+                    ErrorCode::ParameterUpdateNotMeaningful
+                );
+            }
+            MarketParameterUpdate::Irm(irm) => {
+                irm.validate()?;
+                require!(self.config.irm != *irm, ErrorCode::ParameterUpdateNotMeaningful);
+            }
+            MarketParameterUpdate::EmaHalfLives {
+                price_ms,
+                directional_price_ms,
+                q_ms,
+                center_price_ms,
+            } => {
+                require!(
+                    (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(price_ms)
+                        && (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(directional_price_ms)
+                        && (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(q_ms)
+                        && (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(center_price_ms),
+                    ErrorCode::InvalidHalfLife
+                );
+                require!(
+                    self.config.ema_half_life_ms != *price_ms
+                        || self.config.directional_ema_half_life_ms != *directional_price_ms
+                        || self.config.q_ema_half_life_ms != *q_ms
+                        || self.config.amm.center_ema_half_life_ms != *center_price_ms,
+                    ErrorCode::ParameterUpdateNotMeaningful
+                );
+            }
+            MarketParameterUpdate::DailyBorrowLimit { max_daily_borrow_bps } => {
+                require!(
+                    *max_daily_borrow_bps <= MAX_DAILY_BORROW_BPS,
+                    ErrorCode::InvalidParameterUpdate
+                );
+                require!(
+                    self.config.max_daily_borrow_bps != *max_daily_borrow_bps,
+                    ErrorCode::ParameterUpdateNotMeaningful
+                );
+            }
+        }
         Ok(())
     }
 
-    /// Config authority is manager-only. The operator remains the market's
-    /// operational/economic identity, not a config admin.
-    pub fn assert_config_authority(&self, signer: Pubkey) -> Result<()> {
+    /// Checkpoint all elapsed state under the old parameters, apply exactly
+    /// one typed family, enforce the point-in-time utilization guard, and then
+    /// advance only that family's revision.
+    pub fn execute_parameter_update(&mut self, update: &MarketParameterUpdate, current_slot: u64) -> Result<()> {
         self.assert_current_version()?;
-        require_keys_eq!(signer, self.manager, ErrorCode::InvalidMarketConfigAuthority);
-        Ok(())
-    }
+        self.validate_parameter_update(update)?;
 
-    pub fn prepare_config_update(
-        &mut self,
-        signer: Pubkey,
-        config: MarketConfig,
-        current_slot: u64,
-    ) -> Result<MarketTimelockAction> {
-        self.assert_config_authority(signer)?;
-        config.validate()?;
-        if self.pending_config.active && self.pending_config.config == config {
-            require_gte!(
-                current_slot,
-                self.pending_config.execute_after_slot,
-                ErrorCode::GovernanceTimelockNotReady
-            );
-            return Ok(MarketTimelockAction::Ready);
+        let previous_config = self.config;
+        let previous_base_side = self.base_side;
+        let previous_quote_side = self.quote_side;
+        let previous_amm = self.amm;
+        let previous_debt = self.debt;
+        let previous_risk = self.risk;
+        let previous_revisions = self.parameter_revisions;
+        let previous_last_marginal_observation_nad = self.last_marginal_observation_nad;
+        let previous_curve_revision = self.curve_revision;
+        let previous_risk_revision = self.risk_revision;
+        let previous_last_update_slot = self.last_update_slot;
+
+        let apply_result = (|| {
+            // No elapsed interest, EMA decay, or risk integration may be
+            // retroactively evaluated under the newly selected parameters.
+            self.accrue_interest_to_slot(current_slot)?;
+            if self.amm.initialized {
+                self.amm
+                    .observe_clock_from_validated_config(&previous_config.amm, current_slot)?;
+            }
+            self.refresh_risk_at_slot(current_slot)?;
+            self.assert_parameter_execution_utilization()?;
+
+            let family_index = update.family().code() as usize;
+            match update {
+                MarketParameterUpdate::Fee(profile) => {
+                    self.config.apply_fee_profile(*profile)?;
+                    if self.amm.initialized {
+                        self.amm.invalidate_deferred_controller_target();
+                    }
+                }
+                MarketParameterUpdate::Concentration {
+                    peak_depth_nad,
+                    fade_scale_nad,
+                    ramp_duration_slots,
+                } => {
+                    let applied = self.amm.effective_curve_parameters(&previous_config.amm, current_slot);
+                    let mut next = self.config;
+                    next.amm.peak_depth_nad = *peak_depth_nad;
+                    next.amm.fade_scale_nad = *fade_scale_nad;
+                    next.amm.ramp_duration_slots = *ramp_duration_slots;
+                    next.validate()?;
+                    self.config = next;
+                    if self.amm.initialized {
+                        self.amm.start_applied_ramp(applied, &self.config.amm, current_slot)?;
+                    }
+                }
+                MarketParameterUpdate::Irm(irm) => {
+                    let mut next = self.config;
+                    next.irm = *irm;
+                    next.validate()?;
+                    self.config = next;
+                }
+                MarketParameterUpdate::EmaHalfLives {
+                    price_ms,
+                    directional_price_ms,
+                    q_ms,
+                    center_price_ms,
+                } => {
+                    let mut next = self.config;
+                    next.ema_half_life_ms = *price_ms;
+                    next.directional_ema_half_life_ms = *directional_price_ms;
+                    next.q_ema_half_life_ms = *q_ms;
+                    next.amm.center_ema_half_life_ms = *center_price_ms;
+                    next.validate()?;
+                    self.config = next;
+                }
+                MarketParameterUpdate::DailyBorrowLimit { max_daily_borrow_bps } => {
+                    // Close elapsed refill under the old governed rate. The
+                    // newly selected rate applies only from this slot onward.
+                    let old_limit_bps = self.config.max_daily_borrow_bps;
+                    let base_limit = self.daily_limit_for_side(MarketAsset::Base, old_limit_bps)?;
+                    let quote_limit = self.daily_limit_for_side(MarketAsset::Quote, old_limit_bps)?;
+                    self.base_side.daily_limits.decay_to_slot(base_limit, current_slot)?;
+                    self.quote_side.daily_limits.decay_to_slot(quote_limit, current_slot)?;
+                    let mut next = self.config;
+                    next.max_daily_borrow_bps = *max_daily_borrow_bps;
+                    next.validate()?;
+                    self.config = next;
+                }
+            }
+
+            self.finalize_amm_transition(current_slot)?;
+            self.refresh_risk_at_slot(current_slot)?;
+            self.assert_market_health()?;
+            self.parameter_revisions[family_index] = self.parameter_revisions[family_index]
+                .checked_add(1)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            Ok(())
+        })();
+
+        if apply_result.is_err() {
+            self.config = previous_config;
+            self.base_side = previous_base_side;
+            self.quote_side = previous_quote_side;
+            self.amm = previous_amm;
+            self.debt = previous_debt;
+            self.risk = previous_risk;
+            self.parameter_revisions = previous_revisions;
+            self.last_marginal_observation_nad = previous_last_marginal_observation_nad;
+            self.curve_revision = previous_curve_revision;
+            self.risk_revision = previous_risk_revision;
+            self.last_update_slot = previous_last_update_slot;
         }
-        require!(config != self.config, ErrorCode::InvalidArgument);
-        let execute_after_slot = current_slot
-            .checked_add(MARKET_GOVERNANCE_DELAY_SLOTS)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.pending_config.active = true;
-        self.pending_config.config = config;
-        self.pending_config.scheduled_by = signer;
-        self.pending_config.scheduled_slot = current_slot;
-        self.pending_config.execute_after_slot = execute_after_slot;
-        Ok(MarketTimelockAction::Scheduled { execute_after_slot })
-    }
-
-    pub fn clear_pending_config_update(&mut self) {
-        self.pending_config = PendingConfigChange::default();
-    }
-
-    pub fn prepare_operator_update(
-        &mut self,
-        signer: Pubkey,
-        new_operator: Pubkey,
-        current_slot: u64,
-    ) -> Result<MarketTimelockAction> {
-        self.assert_manager(signer)?;
-        require_keys_neq!(new_operator, Pubkey::default(), ErrorCode::InvalidArgument);
-        require_keys_neq!(new_operator, self.operator, ErrorCode::InvalidArgument);
-        if self.pending_operator.active && self.pending_operator.new_authority == new_operator {
-            require_gte!(
-                current_slot,
-                self.pending_operator.execute_after_slot,
-                ErrorCode::GovernanceTimelockNotReady
-            );
-            return Ok(MarketTimelockAction::Ready);
-        }
-        let execute_after_slot = self.pending_operator.schedule(new_operator, signer, current_slot)?;
-        Ok(MarketTimelockAction::Scheduled { execute_after_slot })
-    }
-
-    pub fn apply_operator_update(&mut self, new_operator: Pubkey) {
-        self.operator = new_operator;
-        self.pending_operator.clear();
-    }
-
-    pub fn prepare_manager_update(
-        &mut self,
-        signer: Pubkey,
-        new_manager: Pubkey,
-        current_slot: u64,
-    ) -> Result<MarketTimelockAction> {
-        self.assert_manager(signer)?;
-        require_keys_neq!(new_manager, Pubkey::default(), ErrorCode::InvalidArgument);
-        require_keys_neq!(new_manager, self.manager, ErrorCode::InvalidArgument);
-        if self.pending_manager.active && self.pending_manager.new_authority == new_manager {
-            require_gte!(
-                current_slot,
-                self.pending_manager.execute_after_slot,
-                ErrorCode::GovernanceTimelockNotReady
-            );
-            return Ok(MarketTimelockAction::Ready);
-        }
-        let execute_after_slot = self.pending_manager.schedule(new_manager, signer, current_slot)?;
-        Ok(MarketTimelockAction::Scheduled { execute_after_slot })
-    }
-
-    pub fn apply_manager_update(&mut self, new_manager: Pubkey) {
-        self.manager = new_manager;
-        self.pending_manager.clear();
+        apply_result
     }
 
     pub fn side(&self, market_asset: MarketAsset) -> &MarketSide {
@@ -612,11 +649,12 @@ impl Market {
         borrow_asset: MarketAsset,
         borrow_amount: u64,
         min_liquidation_cf_bps: u16,
+        current_slot: u64,
     ) -> Result<DebtReceipt> {
         require!(borrow_amount > 0, ErrorCode::AmountZero);
         let debt_delta = i64::try_from(borrow_amount).map_err(|_| ErrorCode::Overflow)?;
         if self.risk.q_ema_nad == 0 {
-            self.refresh_risk()?;
+            self.refresh_risk_at_slot(current_slot)?;
         }
         let risk = self.risk;
         let current_health = self.market_health_from_risk(&risk)?;
@@ -698,16 +736,12 @@ impl Market {
             self.config.borrow_market_health_floor_bps as u64,
             ErrorCode::InsufficientMarketHealth
         );
-        let daily_limit_slot = self.risk.last_snapshot_slot;
-        let daily_borrow_limit = self.daily_limit_for_side(borrow_asset, self.config.max_daily_borrow_bps)?;
         require_gte!(
             self.side(borrow_asset).reserves.cash_reserve,
             borrow_amount,
             ErrorCode::InsufficientBorrowHeadroom
         );
-        self.side_mut(borrow_asset)
-            .daily_limits
-            .record_borrow(borrow_amount, daily_borrow_limit, daily_limit_slot)?;
+        self.record_new_borrow(borrow_asset, borrow_amount, current_slot)?;
         let debt_side = self.side_mut(borrow_asset);
         debt_side.reserves.cash_reserve = debt_side
             .reserves
@@ -1117,7 +1151,6 @@ impl Market {
         amount_in_after_fee: u64,
         amount_out: u64,
         fee_credit: u64,
-        manager_fee_bps: u16,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
     ) -> Result<SwapReceipt> {
@@ -1126,7 +1159,6 @@ impl Market {
             amount_in_after_fee,
             amount_out,
             fee_credit,
-            manager_fee_bps,
             protocol_fee_bps,
             protocol_auction_split,
             None,
@@ -1139,7 +1171,6 @@ impl Market {
         amount_in_after_fee: u64,
         amount_out: u64,
         fee_credit: u64,
-        manager_fee_bps: u16,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
         fee_eligible_ylp_supply: Option<u64>,
@@ -1175,17 +1206,11 @@ impl Market {
         let fees = match fee_eligible_ylp_supply {
             Some(supply) => market_side_in.record_swap_fee_credit_with_supply(
                 fee_credit,
-                manager_fee_bps,
                 protocol_fee_bps,
                 protocol_auction_split,
                 supply,
             )?,
-            None => market_side_in.record_swap_fee_credit(
-                fee_credit,
-                manager_fee_bps,
-                protocol_fee_bps,
-                protocol_auction_split,
-            )?,
+            None => market_side_in.record_swap_fee_credit(fee_credit, protocol_fee_bps, protocol_auction_split)?,
         };
         market_side_in.assert_share_backing()?;
         market_side_out.assert_share_backing()?;
@@ -1252,6 +1277,39 @@ impl Market {
             .ok_or(ErrorCode::MarketMathOverflow.into())
     }
 
+    /// Point-in-time lending utilization used by both the IRM and parameter
+    /// execution guard. Funding debt belongs to the side whose token was
+    /// borrowed, so it is stored on the opposite hLP aggregate vault.
+    pub fn lending_utilization_bps(&self, asset: MarketAsset) -> Result<u64> {
+        let fixed_debt = match asset {
+            MarketAsset::Base => self.debt.fixed_base_debt()?,
+            MarketAsset::Quote => self.debt.fixed_quote_debt()?,
+        };
+        let isolated_debt = self.debt.isolated_debt(asset)?;
+        let hlp_funding_debt = match asset {
+            MarketAsset::Base => {
+                Debt::shares_to_debt(self.quote_hlp_vault.debt_shares, self.debt.base_borrow_index_nad)?
+            }
+            MarketAsset::Quote => {
+                Debt::shares_to_debt(self.base_hlp_vault.debt_shares, self.debt.quote_borrow_index_nad)?
+            }
+        };
+        let total_debt = fixed_debt
+            .checked_add(isolated_debt)
+            .and_then(|value| value.checked_add(hlp_funding_debt))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        utilization_bps(total_debt, self.side(asset).reserves.cash_reserve as u128)
+    }
+
+    pub fn assert_parameter_execution_utilization(&self) -> Result<()> {
+        require!(
+            self.lending_utilization_bps(MarketAsset::Base)? < PARAMETER_EXECUTION_MAX_UTILIZATION_BPS
+                && self.lending_utilization_bps(MarketAsset::Quote)? < PARAMETER_EXECUTION_MAX_UTILIZATION_BPS,
+            ErrorCode::UtilizationGuardExceeded
+        );
+        Ok(())
+    }
+
     pub fn spot_value_in_opposite(&self, asset: MarketAsset, amount: u64) -> Result<u64> {
         require!(amount > 0, ErrorCode::AmountZero);
         let (from_reserve, to_reserve) = match asset {
@@ -1307,7 +1365,7 @@ fn accrue_side(market: &mut Market, asset: MarketAsset, current_slot: u64) -> Re
             rate_at_target,
             -(NAD as i128),
             dt_ms,
-            INTEREST_ADJUSTMENT_SPEED_PER_YEAR,
+            market.config.irm.adjustment_speed_per_year as u128,
             INTEREST_MIN_RATE_AT_TARGET_NAD,
             INTEREST_MAX_RATE_AT_TARGET_NAD,
             INTEREST_MAX_ADAPTATION_STEP_NAD,
@@ -1354,8 +1412,8 @@ fn accrue_side(market: &mut Market, asset: MarketAsset, current_slot: u64) -> Re
         .checked_add(hlp_debt_before)
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let util = utilization_bps(debt_before, cash)?;
-    let error = utilization_error_nad(util, INTEREST_TARGET_UTILIZATION_BPS)?;
-    let rate = instantaneous_rate_apr_nad(rate_at_target, error, INTEREST_CURVE_STEEPNESS_NAD)?;
+    let error = utilization_error_nad(util, market.config.irm.target_utilization_bps as u64)?;
+    let rate = instantaneous_rate_apr_nad(rate_at_target, error, market.config.irm.curve_steepness_nad as u128)?;
     let next_index = if index == 0 || dt_ms == 0 || rate == 0 {
         index
     } else {
@@ -1378,7 +1436,7 @@ fn accrue_side(market: &mut Market, asset: MarketAsset, current_slot: u64) -> Re
         rate_at_target,
         error,
         dt_ms,
-        INTEREST_ADJUSTMENT_SPEED_PER_YEAR,
+        market.config.irm.adjustment_speed_per_year as u128,
         INTEREST_MIN_RATE_AT_TARGET_NAD,
         INTEREST_MAX_RATE_AT_TARGET_NAD,
         INTEREST_MAX_ADAPTATION_STEP_NAD,

@@ -121,6 +121,7 @@ fn preview_and_execution_use_identical_state_plans() {
         current_slot: 7,
         asset_in: MarketAsset::Base,
         reserve_credit: 50_000,
+        reserved_daily_borrow: 0,
     };
 
     let preview = context.plan(&mut preview_market).unwrap();
@@ -134,16 +135,35 @@ fn preview_and_execution_use_identical_state_plans() {
 }
 
 #[test]
+fn preview_daily_remaining_uses_the_authoritative_bucket_decay() {
+    let mut market = preview_test_market(0, 0);
+    market.config.max_daily_borrow_bps = 2_000;
+    let limit = market
+        .daily_limit_for_side(MarketAsset::Base, market.config.max_daily_borrow_bps)
+        .unwrap();
+    market.record_new_borrow(MarketAsset::Base, limit / 2, 0).unwrap();
+    let slot = crate::constants::MS_PER_DAY / crate::constants::TARGET_MS_PER_SLOT / 4;
+
+    assert_eq!(
+        daily_borrow_remaining(&market, MarketAsset::Base, slot).unwrap(),
+        market.daily_borrow_budget(MarketAsset::Base, slot).unwrap().1
+    );
+}
+
+#[test]
 fn concentrated_swap_preview_and_execution_reject_the_same_stale_hlp_path() {
     let mut market = preview_test_market(0, 0);
     market.base_side.shares.ylp_supply = 1_000_000;
     market.quote_side.shares.ylp_supply = 1_000_000;
     market.config.settlement_divergence_bps = 1;
     market.config.target_hlp_leverage_bps = 20_000;
+    market.config.max_daily_borrow_bps = crate::state::MAX_DAILY_BORROW_BPS;
     market.config.amm.peak_depth_nad = 200 * NAD;
     market.config.amm.fade_scale_nad = NAD / 10;
     market.checkpoint_amm_neutral_inventory(1).unwrap();
-    market.deposit_single_sided(MarketAsset::Base, 100_000, 1).unwrap();
+    market
+        .deposit_single_sided(MarketAsset::Base, 100_000, 1, 0)
+        .unwrap();
 
     // Create genuine stale inventory without running hLP correction, then
     // checkpoint the resulting actionable exposure. The settlement
@@ -154,7 +174,6 @@ fn concentrated_swap_preview_and_execution_reject_the_same_stale_hlp_path() {
             MarketAsset::Base,
             150_000,
             stale_trade.amount_out,
-            0,
             0,
             0,
             crate::state::ProtocolAuctionSplit::default(),
@@ -168,6 +187,7 @@ fn concentrated_swap_preview_and_execution_reject_the_same_stale_hlp_path() {
         current_slot: 1,
         asset_in: MarketAsset::Base,
         reserve_credit: 50_000,
+        reserved_daily_borrow: 0,
     };
     let mut preview_market = market.clone();
     let preview_error = context.plan(&mut preview_market).unwrap_err();

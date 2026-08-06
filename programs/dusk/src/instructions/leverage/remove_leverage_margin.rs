@@ -25,6 +25,7 @@ pub struct RemoveLeverageMarginArgs {
     pub min_amount_out: u64,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: RemoveLeverageMarginArgs)]
 pub struct RemoveLeverageMargin<'info> {
@@ -134,7 +135,7 @@ impl<'info> RemoveLeverageMargin<'info> {
         require_gte!(amount_out, args.min_amount_out, ErrorCode::SlippageExceeded);
 
         // Emit the final position state.
-        emit!(LeveragePositionUpdated {
+        emit_cpi!(LeveragePositionUpdated {
             market: market_key,
             position: position_key,
             owner: owner_key,
@@ -147,6 +148,7 @@ impl<'info> RemoveLeverageMargin<'info> {
             debt_shares: receipt.debt_shares,
             collateral_amount: receipt.collateral_amount,
             closeout_value: receipt.closeout_value,
+            owner_credit: amount_out,
             swap: None,
             metadata: MarketEventMetadata::at_slot(owner_key, market_key, current_slot),
         });

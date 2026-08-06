@@ -14,6 +14,7 @@ pub struct UpdateProtocolAuctionConfigArgs {
     pub params: Option<ProtocolAuctionParams>,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct UpdateProtocolAuctionConfig<'info> {
     #[account(
@@ -35,6 +36,7 @@ impl<'info> UpdateProtocolAuctionConfig<'info> {
         let UpdateProtocolAuctionConfig {
             authority_signer,
             futarchy_authority,
+            ..
         } = ctx.accounts;
         let lane = args.lane;
         let authority = futarchy_authority.key();
@@ -54,7 +56,7 @@ impl<'info> UpdateProtocolAuctionConfig<'info> {
         let accepted_mint = auction.accepted_mint;
         let params = auction.params;
 
-        emit!(ProtocolAuctionConfigUpdated {
+        emit_cpi!(ProtocolAuctionConfigUpdated {
             authority,
             lane: lane.code(),
             accepted_mint,

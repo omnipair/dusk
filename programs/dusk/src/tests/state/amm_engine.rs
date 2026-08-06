@@ -95,6 +95,8 @@ fn market_with_liquidity(config: AmmConfig) -> Market {
             ..MarketSide::default()
         },
         config: MarketConfig {
+            divergence_fee_share_cap_bps: 2_000,
+            volatility_fee_share_cap_bps: 2_000,
             amm: config,
             ..MarketConfig::default()
         },
@@ -805,10 +807,7 @@ fn retained_endpoint_checkpoint_matches_two_fresh_curve_solves() {
         .curve_q_per_share_nad(evaluation.balanced_equivalent_q)
         .unwrap();
     checkpointed.amm.commit_invariant(evaluation.invariant_d).unwrap();
-    checkpointed
-        .amm
-        .checkpoint_retained_surcharge(q_per_share_nad)
-        .unwrap();
+    checkpointed.amm.checkpoint_retained_surcharge(q_per_share_nad).unwrap();
     fresh.checkpoint_amm_retained_surcharge_raw(10).unwrap();
 
     assert_eq!(checkpointed.amm, fresh.amm);

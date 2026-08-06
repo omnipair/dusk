@@ -502,6 +502,7 @@ impl<'info> PreviewSwap<'info> {
             current_slot: slot,
             asset_in,
             reserve_credit,
+            reserved_daily_borrow: 0,
         }
         .plan(&mut quote_market)?;
         let market: &Market = &quote_market;
@@ -755,9 +756,13 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
         .and_then(|value| value.checked_add(hlp_funding_debt))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let utilization_bps = utilization_bps(total_debt, side.reserves.cash_reserve as u128)?;
-    let utilization_error_nad = utilization_error_nad(utilization_bps, INTEREST_TARGET_UTILIZATION_BPS)?;
-    let borrow_apr_nad =
-        instantaneous_rate_apr_nad(rate_at_target_nad, utilization_error_nad, INTEREST_CURVE_STEEPNESS_NAD)?;
+    let utilization_error_nad =
+        utilization_error_nad(utilization_bps, market.config.irm.target_utilization_bps as u64)?;
+    let borrow_apr_nad = instantaneous_rate_apr_nad(
+        rate_at_target_nad,
+        utilization_error_nad,
+        market.config.irm.curve_steepness_nad as u128,
+    )?;
     let daily_borrow_limit = market.daily_limit_for_side(asset, market.config.max_daily_borrow_bps)?;
     let daily_borrow_remaining = daily_borrow_remaining(market, asset, slot)?;
 
@@ -797,11 +802,7 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
 }
 
 fn daily_borrow_remaining(market: &Market, asset: MarketAsset, slot: u64) -> Result<u64> {
-    let side = market.side(asset);
-    let limit = market.daily_limit_for_side(asset, market.config.max_daily_borrow_bps)?;
-    let mut limits = side.daily_limits;
-    limits.decay_to_slot(slot)?;
-    Ok(limit.saturating_sub(limits.borrowed_bucket))
+    Ok(market.daily_borrow_budget(asset, slot)?.1)
 }
 
 struct NewPositionPreviewContext<'a> {

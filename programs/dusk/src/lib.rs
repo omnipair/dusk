@@ -16,7 +16,7 @@ use solana_security_txt::security_txt;
 
 #[cfg(not(feature = "no-entrypoint"))]
 security_txt! {
-    name: "Omnipair Dusk (v2)",
+    name: "Omnipair Dusk (v3)",
     project_url: "https://omnipair.fi",
     contacts: "email:security@omnipair.fi,telegram:rustfully",
     source_code: "https://github.com/omnipair/dusk",
@@ -121,26 +121,38 @@ pub mod dusk {
         InitializeLpMetadata::handle_initialize(ctx, args)
     }
 
-    pub fn update_config(ctx: Context<UpdateMarketConfig>, args: UpdateMarketConfigArgs) -> Result<()> {
-        UpdateMarketConfig::handle_update(ctx, args)
-    }
-
     #[access_control(ctx.accounts.validate())]
     pub fn set_reduce_only(ctx: Context<SetMarketReduceOnly>, args: SetMarketReduceOnlyArgs) -> Result<()> {
         SetMarketReduceOnly::handle_set(ctx, args)
     }
 
-    pub fn set_operator(ctx: Context<SetMarketAuthority>, args: SetOperatorArgs) -> Result<()> {
-        SetMarketAuthority::handle_set_operator(ctx, args)
+    // Direct-yLP parameter governance instructions
+    pub fn create_parameter_proposal<'info>(
+        ctx: Context<'_, '_, '_, 'info, CreateParameterProposal<'info>>,
+        args: CreateParameterProposalArgs,
+    ) -> Result<()> {
+        CreateParameterProposal::handle_create(ctx, args)
     }
 
-    pub fn set_manager(ctx: Context<SetMarketAuthority>, args: SetManagerArgs) -> Result<()> {
-        SetMarketAuthority::handle_set_manager(ctx, args)
+    pub fn support_parameter_proposal<'info>(
+        ctx: Context<'_, '_, '_, 'info, SupportParameterProposal<'info>>,
+        args: SupportParameterProposalArgs,
+    ) -> Result<()> {
+        SupportParameterProposal::handle_support(ctx, args)
     }
 
-    #[access_control(ctx.accounts.update_and_validate())]
-    pub fn claim_manager_fees<'info>(ctx: Context<'_, '_, '_, 'info, ClaimManagerFees<'info>>) -> Result<()> {
-        ClaimManagerFees::handle_claim(ctx)
+    pub fn queue_parameter_proposal(ctx: Context<QueueParameterProposal>) -> Result<()> {
+        QueueParameterProposal::handle_queue(ctx)
+    }
+
+    pub fn execute_parameter_proposal(ctx: Context<ExecuteParameterProposal>) -> Result<()> {
+        ExecuteParameterProposal::handle_execute(ctx)
+    }
+
+    pub fn withdraw_parameter_support<'info>(
+        ctx: Context<'_, '_, '_, 'info, WithdrawParameterSupport<'info>>,
+    ) -> Result<()> {
+        WithdrawParameterSupport::handle_withdraw(ctx)
     }
 
     // Liquidity instructions

@@ -16,18 +16,7 @@ pub struct ValidatedReferralBinding {
     pub interest_share_bps: u16,
 }
 
-pub fn emit_referral_interest_accrued(
-    receipt: &ReferralInterestAccrualReceipt,
-    market: Pubkey,
-    position: Pubkey,
-    owner: Pubkey,
-    signer: Pubkey,
-    asset_mint: Pubkey,
-) -> Result<()> {
-    emit_referral_interest_accrued_at_slot(receipt, market, position, owner, signer, asset_mint, Clock::get()?.slot)
-}
-
-pub fn emit_referral_interest_accrued_at_slot(
+pub fn referral_interest_accrued_event_at_slot(
     receipt: &ReferralInterestAccrualReceipt,
     market: Pubkey,
     position: Pubkey,
@@ -35,11 +24,11 @@ pub fn emit_referral_interest_accrued_at_slot(
     signer: Pubkey,
     asset_mint: Pubkey,
     current_slot: u64,
-) -> Result<()> {
+) -> Result<Option<ReferralInterestAccrued>> {
     if receipt.quote.referral_amount == 0 {
-        return Ok(());
+        return Ok(None);
     }
-    emit!(ReferralInterestAccrued {
+    Ok(Some(ReferralInterestAccrued {
         market,
         position,
         owner,
@@ -53,8 +42,7 @@ pub fn emit_referral_interest_accrued_at_slot(
         interest_share_bps: receipt.quote.interest_share_bps,
         accrued_amount: receipt.quote.referral_amount,
         metadata: MarketEventMetadata::at_slot(signer, market, current_slot),
-    });
-    Ok(())
+    }))
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

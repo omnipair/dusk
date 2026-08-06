@@ -17,8 +17,10 @@ pub const BPS_DENOMINATOR: u16 = 10_000;
 pub const MAX_COLLATERAL_FACTOR_BPS: u16 = 8_500;
 #[constant]
 pub const LTV_BUFFER_BPS: u16 = 500;
+/// Absolute cap shared by the three configurable swap-fee components.
+/// Their configured component caps must also sum to no more than this value.
 #[constant]
-pub const MAX_MANAGER_FEE_BPS: u16 = 500;
+pub const MAX_PARAMETER_FEE_BPS: u16 = 5_000;
 #[constant]
 pub const MAX_REFERRAL_INTEREST_SHARE_BPS: u16 = BPS_DENOMINATOR;
 #[constant]
@@ -35,12 +37,22 @@ pub const LIQUIDATION_PENALTY_BPS: u16 = 300;
 pub const MARKET_CREATION_FEE_LAMPORTS: u64 = 200_000_000; // 0.2 SOL
 #[constant]
 pub const TARGET_MS_PER_SLOT: u64 = 400;
+/// Direct-yLP parameter governance thresholds and wall-clock lifecycle.
 #[constant]
-#[cfg(feature = "development")]
-pub const MARKET_GOVERNANCE_DELAY_SLOTS: u64 = 100;
+pub const PARAMETER_PROPOSAL_SPONSOR_BPS: u16 = 100; // 1%
 #[constant]
-#[cfg(not(feature = "development"))]
-pub const MARKET_GOVERNANCE_DELAY_SLOTS: u64 = 216_000; // ~24 hours at 400ms/slot
+pub const PARAMETER_PROPOSAL_SUPPORT_BPS: u16 = 5_000; // strict >50%
+#[constant]
+pub const PARAMETER_PROPOSAL_TIMELOCK_SECONDS: i64 = 7 * 24 * 60 * 60;
+#[constant]
+pub const PARAMETER_PROPOSAL_EXECUTION_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60;
+#[constant]
+pub const PARAMETER_EXECUTION_MAX_UTILIZATION_BPS: u64 = 8_000;
+
+pub const PROPOSAL_METADATA_VERSION: u8 = 1;
+pub const MAX_PROPOSAL_TITLE_BYTES: usize = 96;
+pub const MAX_PROPOSAL_DESCRIPTION_URI_BYTES: usize = 200;
+pub const MAX_PROPOSAL_DESCRIPTION_BYTES: u32 = 32_768;
 
 pub const MIN_HALF_LIFE_MS: u64 = 60_000;
 pub const MAX_HALF_LIFE_MS: u64 = 12 * 60 * 60 * 1_000;
@@ -61,15 +73,6 @@ pub const MIN_LIQUIDITY: u64 = 1_000;
 // The curve gives an immediate, graded response to utilization; the anchor
 // makes the *level* market-driven (no hardcoded ceiling), so the protocol
 // never has to know the "right" rate in advance.
-/// Target utilization the controller steers toward (bps of supplied liquidity).
-pub const INTEREST_TARGET_UTILIZATION_BPS: u64 = 9_000; // 90%
-/// Curve multiplier at full utilization (and its reciprocal at 0%), NAD-scaled.
-/// 4x means the instantaneous rate ranges [rate_at_target/4, rate_at_target*4].
-pub const INTEREST_CURVE_STEEPNESS_NAD: u128 = (NAD as u128) * 4;
-/// Controller speed: e-folding rate per year of `rate_at_target` at full error.
-/// Tuned gentle (level ~doubles in ~2 weeks at full error) since the curve
-/// already provides the fast response.
-pub const INTEREST_ADJUSTMENT_SPEED_PER_YEAR: u128 = 20;
 /// Lower/upper bounds and initial value for the adaptive anchor (APR in NAD).
 pub const INTEREST_MIN_RATE_AT_TARGET_NAD: u128 = (NAD as u128) / 1_000; // 0.1% APR
 pub const INTEREST_MAX_RATE_AT_TARGET_NAD: u128 = (NAD as u128) * 2; // 200% APR
@@ -109,6 +112,10 @@ pub const MARKET_INTEREST_VAULT_SEED_PREFIX: &[u8] = b"market_interest";
 pub const BORROW_POSITION_SEED_PREFIX: &[u8] = b"borrow_position_v2";
 #[constant]
 pub const YIELD_ACCOUNT_SEED_PREFIX: &[u8] = b"yield";
+#[constant]
+pub const PARAMETER_PROPOSAL_SEED_PREFIX: &[u8] = b"parameter_proposal";
+#[constant]
+pub const PROPOSAL_SUPPORT_SEED_PREFIX: &[u8] = b"proposal_support";
 pub const TRANSFER_HOOK_EXTRA_ACCOUNT_METAS_SEED_PREFIX: &[u8] = b"extra-account-metas";
 #[constant]
 pub const HLP_YLP_VAULT_SEED_PREFIX: &[u8] = b"hlp_ylp_vault";
@@ -136,7 +143,7 @@ pub const LEVERAGE_MAINTENANCE_BUFFER_BPS: u16 = 700; // 7%
 /// Increment this only for an incompatible account-layout change after
 /// deployment, never for ordinary feature work or product naming.
 #[constant]
-pub const MARKET_LAYOUT_VERSION: u8 = 2;
+pub const MARKET_LAYOUT_VERSION: u8 = 3;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 #[cfg(feature = "development")]

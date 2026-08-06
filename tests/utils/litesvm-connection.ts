@@ -4,7 +4,7 @@ import { recordTransactionComputeUnits } from "./instruction-coverage.js";
 
 export type MeasuredTransaction = {
   signature: string;
-  transaction: Transaction | VersionedTransaction;
+  transaction: Transaction;
   computeUnits: bigint;
 };
 

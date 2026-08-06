@@ -29,8 +29,6 @@ pub struct Fees {
     pub swap_buyback_fee_liability: u64,
     pub interest_protocol_fee_liability: u64,
     pub interest_buyback_fee_liability: u64,
-    pub manager_swap_fee_liability: u64,
-    pub manager_interest_fee_liability: u64,
     pub referral_interest_liability: u64,
     /// Governance-approved reference market for fee-lane auctions. A default
     /// key permits only the sold market itself when it directly pairs the sold
@@ -181,8 +179,6 @@ impl Fees {
             .and_then(|value| value.checked_add(self.swap_buyback_fee_liability))
             .and_then(|value| value.checked_add(self.interest_protocol_fee_liability))
             .and_then(|value| value.checked_add(self.interest_buyback_fee_liability))
-            .and_then(|value| value.checked_add(self.manager_swap_fee_liability))
-            .and_then(|value| value.checked_add(self.manager_interest_fee_liability))
             .and_then(|value| value.checked_add(self.referral_interest_liability))
             .ok_or(ErrorCode::MarketMathOverflow.into())
     }
@@ -191,7 +187,6 @@ impl Fees {
         let swap_liability = self
             .swap_fee_liability
             .checked_add(self.unallocated_swap_fee_liability)
-            .and_then(|value| value.checked_add(self.manager_swap_fee_liability))
             .and_then(|value| value.checked_add(self.swap_protocol_fee_liability))
             .and_then(|value| value.checked_add(self.swap_buyback_fee_liability))
             .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -203,7 +198,6 @@ impl Fees {
         let interest_liability = self
             .interest_liability
             .checked_add(self.unallocated_interest_liability)
-            .and_then(|value| value.checked_add(self.manager_interest_fee_liability))
             .and_then(|value| value.checked_add(self.referral_interest_liability))
             .and_then(|value| value.checked_add(self.interest_protocol_fee_liability))
             .and_then(|value| value.checked_add(self.interest_buyback_fee_liability))
