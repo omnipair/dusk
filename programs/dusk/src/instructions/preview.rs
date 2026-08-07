@@ -1,21 +1,18 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::Mint;
 
-use crate::instructions::common::require_supported_asset_mint;
-use crate::instructions::{split_claimable_fee_credit, SwapContext, SwapPlan};
+use crate::instructions::accounts::require_supported_asset_mint;
+use crate::instructions::{split_claimable_fee_credit, PreparedSwap, SwapRequest};
 use crate::{
     constants::*,
     errors::ErrorCode,
     market::{max_cf_bps_from_liquidation_cf, DynamicBorrowTerms, LiquidationPricing},
     math::{
-        denormalize_from_nad_floor, health_bps, instantaneous_rate_apr_nad, market_k_nad, normalize_to_nad,
-        pessimistic_max_debt_on_curve_nad, utilization_bps, utilization_error_nad,
+        ceil_div, cpmm_invariant_nad, denormalize_from_nad_floor, health_bps, instantaneous_rate_apr_nad,
+        normalize_to_nad, pessimistic_max_debt_on_curve_nad, utilization_bps, utilization_error_nad, SqrtU128,
     },
-    shared::{
-        math::{ceil_div, SqrtU128},
-        token::{get_transfer_fee, get_transfer_inverse_fee},
-    },
-    state::{AmmCurveParameters, BorrowPosition, Market, MarketAsset, MarketHealth, Risk},
+    state::{BorrowPosition, ConcentrationParameters, Market, MarketAsset, MarketHealth, Risk},
+    token::{get_transfer_fee, get_transfer_inverse_fee},
 };
 
 // Most preview instructions update and return serialized market state. Swap
@@ -192,13 +189,13 @@ pub struct PreviewAmm {
     pub retention_active: bool,
     pub retention_target_saturated: bool,
     pub retention_target_stale: bool,
-    pub applied_curve_parameters: AmmCurveParameters,
-    pub desired_curve_parameters: AmmCurveParameters,
-    pub target_curve_parameters: AmmCurveParameters,
-    pub ramp_active: bool,
-    pub ramp_start_curve_parameters: AmmCurveParameters,
-    pub ramp_start_slot: u64,
-    pub ramp_end_slot: u64,
+    pub applied_curve_parameters: ConcentrationParameters,
+    pub desired_curve_parameters: ConcentrationParameters,
+    pub target_curve_parameters: ConcentrationParameters,
+    pub concentration_ramp_active: bool,
+    pub concentration_ramp_start_parameters: ConcentrationParameters,
+    pub concentration_ramp_start_slot: u64,
+    pub concentration_ramp_end_slot: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -334,8 +331,8 @@ impl<'info> PreviewMarket<'info> {
         let amm = {
             let state = &market.amm;
             let configured_target = market.config.amm.curve_parameters();
-            let target_curve_parameters = if state.ramp.active {
-                state.ramp.target
+            let target_curve_parameters = if state.concentration_ramp.active {
+                state.concentration_ramp.target
             } else {
                 configured_target
             };
@@ -378,18 +375,18 @@ impl<'info> PreviewMarket<'info> {
                 applied_curve_parameters: state.effective_curve_parameters(&market.config.amm, slot),
                 desired_curve_parameters: state.desired_curve_parameters(&market.config.amm, slot),
                 target_curve_parameters,
-                ramp_active: state.ramp.active,
-                ramp_start_curve_parameters: state.ramp.start,
-                ramp_start_slot: state.ramp.start_slot,
-                ramp_end_slot: state.ramp.end_slot,
+                concentration_ramp_active: state.concentration_ramp.active,
+                concentration_ramp_start_parameters: state.concentration_ramp.start,
+                concentration_ramp_start_slot: state.concentration_ramp.start_slot,
+                concentration_ramp_end_slot: state.concentration_ramp.end_slot,
             }
         };
         Ok(MarketPreview {
             slot,
             base: preview_side(market, MarketAsset::Base, slot)?,
             quote: preview_side(market, MarketAsset::Quote, slot)?,
-            reserve_product_k_nad: market_k_nad(&market.base_side, &market.quote_side)?,
-            liquidity_nad: market_k_nad(&market.base_side, &market.quote_side)?
+            reserve_product_k_nad: cpmm_invariant_nad(&market.base_side, &market.quote_side)?,
+            liquidity_nad: cpmm_invariant_nad(&market.base_side, &market.quote_side)?
                 .sqrt()
                 .ok_or(ErrorCode::MarketMathOverflow)?,
             health: market.market_health()?,
@@ -492,13 +489,12 @@ impl<'info> PreviewSwap<'info> {
             .exact_asset_in
             .checked_sub(transfer_fee)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let SwapPlan { quote, .. } = SwapContext {
+        let PreparedSwap { quote, .. } = SwapRequest {
             current_slot: slot,
             asset_in,
             reserve_credit,
-            reserved_daily_borrow: 0,
         }
-        .plan(&mut quote_market)?;
+        .prepare(&mut quote_market)?;
         let market: &Market = &quote_market;
         // The one user-to-reserve transfer fee was already removed when
         // deriving `reserve_credit`. Claimable fees stay in that reserve vault,
@@ -796,7 +792,8 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
 }
 
 fn daily_borrow_remaining(market: &Market, asset: MarketAsset, slot: u64) -> Result<u64> {
-    Ok(market.daily_borrow_budget(asset, slot)?.1)
+    let limit = market.daily_limit_for_side(asset, market.config.max_daily_borrow_bps)?;
+    market.side(asset).daily_borrow_bucket.remaining(limit, slot)
 }
 
 struct NewPositionPreviewContext<'a> {

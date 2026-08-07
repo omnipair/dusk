@@ -21,14 +21,14 @@ export type MarketCollateralWithdrawn = IdlEvents<Dusk>["marketCollateralWithdra
 export type MarketCreated = IdlEvents<Dusk>["marketCreated"];
 export type MarketDebtUpdated = IdlEvents<Dusk>["marketDebtUpdated"];
 export type MarketHealthUpdated = IdlEvents<Dusk>["marketHealthUpdated"];
-export type MarketUpdated = IdlEvents<Dusk>["marketUpdated"];
+export type MarketReduceOnlyUpdated = IdlEvents<Dusk>["marketReduceOnlyUpdated"];
 export type ParameterProposalCreated = IdlEvents<Dusk>["parameterProposalCreated"];
 export type ParameterProposalExecuted = IdlEvents<Dusk>["parameterProposalExecuted"];
 export type ParameterProposalQueued = IdlEvents<Dusk>["parameterProposalQueued"];
 export type ParameterProposalSupported = IdlEvents<Dusk>["parameterProposalSupported"];
 export type ParameterProposalSupportWithdrawn =
   IdlEvents<Dusk>["parameterProposalSupportWithdrawn"];
-export type PositionLiquidated = IdlEvents<Dusk>["positionLiquidated"];
+export type BorrowPositionLiquidated = IdlEvents<Dusk>["borrowPositionLiquidated"];
 export type ProtocolAuctionSettled = IdlEvents<Dusk>["protocolAuctionSettled"];
 export type ReferralBound = IdlEvents<Dusk>["referralBound"];
 export type ReferralPartnerConfigured = IdlEvents<Dusk>["referralPartnerConfigured"];

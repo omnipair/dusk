@@ -4,18 +4,20 @@ use anchor_spl::{
     token_interface::{Mint, Token2022, TokenAccount},
 };
 
-use super::common::validate_debt_reserve_accounts;
+use super::accounts::validate_debt_reserve_accounts;
 use crate::{
     constants::*,
     errors::ErrorCode,
     events::{MarketDebtUpdated, MarketEventMetadata, MarketHealthUpdated, ReferralBound},
     generate_market_seeds,
     instructions::{
-        common::{require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint},
-        referral::common::validate_referral_binding,
+        accounts::{
+            require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
+        },
+        referral::accounting::validate_referral_binding,
     },
-    shared::token::transfer_checked_with_remaining_accounts,
     state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
+    token::transfer_checked_with_remaining_accounts,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -131,7 +133,7 @@ impl<'info> Borrow<'info> {
         Ok(())
     }
 
-    crate::instructions::common::market_update_and_validate!(BorrowArgs);
+    crate::instructions::accounts::market_update_and_validate!(BorrowArgs);
 
     pub fn handle_borrow(mut ctx: Context<'_, '_, '_, 'info, Self>, args: BorrowArgs) -> Result<()> {
         let current_slot = Clock::get()?.slot;

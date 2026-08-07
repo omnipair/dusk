@@ -558,12 +558,12 @@ fn liquidation_eligibility_is_inclusive_at_stored_cf_equality() {
     let collateral_value_nad = market
         .liquidation_collateral_value_nad(MarketAsset::Base, borrow_position.base_collateral, &risk)
         .unwrap();
-    let threshold_debt_nad = crate::shared::math::ceil_div(
+    let threshold_debt_nad = crate::math::ceil_div(
         collateral_value_nad * borrow_position.quote_liquidation_cf_bps as u128,
         BPS_DENOMINATOR as u128,
     )
     .unwrap();
-    let threshold_debt = crate::shared::math::ceil_div(threshold_debt_nad, NAD as u128).unwrap();
+    let threshold_debt = crate::math::ceil_div(threshold_debt_nad, NAD as u128).unwrap();
     market.debt.fixed_quote_shares = threshold_debt;
     market.debt.fixed_quote_principal = u64::try_from(threshold_debt).unwrap();
     borrow_position.fixed_quote_shares = threshold_debt;

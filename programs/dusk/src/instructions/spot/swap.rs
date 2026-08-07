@@ -10,18 +10,18 @@ use crate::{
     events::SwapExecuted,
     generate_market_seeds,
     market::HlpRebalanceReceipt,
-    shared::token::{get_transfer_fee_for_epoch, token_burn, token_mint_to, transfer_checked_with_remaining_accounts},
     state::{FutarchyAuthority, Market, MarketAsset},
+    token::{get_transfer_fee_for_epoch, token_burn, token_mint_to, transfer_checked_with_remaining_accounts},
 };
 
-use crate::instructions::common::{
+use crate::instructions::accounts::{
     require_reserve_custody, require_supported_asset_mint, token_account_info_amount, token_account_info_credit,
     token_program_for_mint, validate_owner_asset_account, HlpSwapAccountLayout, BASE_HLP_YLP_VAULT_INDEX,
     BASE_INTEREST_VAULT_INDEX, HLP_SWAP_ACCOUNT_PREFIX_LEN, HLP_YLP_MINT_INDEX, QUOTE_HLP_YLP_VAULT_INDEX,
     QUOTE_INTEREST_VAULT_INDEX,
 };
 use crate::instructions::liquidity::record_inline_hlp_interest_credit;
-use crate::instructions::{hlp_receipt_mutates_curve_inventory, split_claimable_fee_credit, SwapContext, SwapPlan};
+use crate::instructions::{hlp_receipt_mutates_curve_inventory, split_claimable_fee_credit, PreparedSwap, SwapRequest};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct SwapArgs {
@@ -155,19 +155,18 @@ impl<'info> Swap<'info> {
                 current_epoch,
             )?)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let SwapPlan {
+        let PreparedSwap {
             quote,
             base_pre_rebalance,
             quote_pre_rebalance,
             fee_eligible_ylp_supply,
             interest_eligibility,
-        } = SwapContext {
+        } = SwapRequest {
             current_slot,
             asset_in,
             reserve_credit,
-            reserved_daily_borrow: 0,
         }
-        .plan(&mut ctx.accounts.market)?;
+        .prepare(&mut ctx.accounts.market)?;
         let (base_fee_credit, distributed_surcharge_credit) =
             split_claimable_fee_credit(&quote.fee, quote.fee.claimable_fee_debit)?;
 

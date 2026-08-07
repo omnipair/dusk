@@ -3,7 +3,7 @@ use crate::constants::{MS_PER_DAY, TARGET_MS_PER_SLOT};
 
 #[test]
 fn daily_limit_bucket_decays_over_one_day() {
-    let mut limits = DailyLimits {
+    let mut limits = DailyBorrowBucket {
         borrowed_bucket: 100_000,
         last_decay_slot: 0,
         decay_remainder_ms: 0,
@@ -21,9 +21,9 @@ fn refill_is_independent_of_checkpoint_frequency_for_a_fixed_limit() {
     let elapsed_slots = 10_001;
     let first_segment = 3_333;
     let second_segment = 3_333;
-    let mut single = DailyLimits {
+    let mut single = DailyBorrowBucket {
         borrowed_bucket: limit,
-        ..DailyLimits::default()
+        ..DailyBorrowBucket::default()
     };
     let mut split = single;
 
@@ -42,9 +42,9 @@ fn refill_is_independent_of_checkpoint_frequency_for_a_fixed_limit() {
 fn a_full_bucket_refills_completely_after_one_day() {
     let limit = 100_000;
     let day_slots = MS_PER_DAY / TARGET_MS_PER_SLOT;
-    let mut limits = DailyLimits {
+    let mut limits = DailyBorrowBucket {
         borrowed_bucket: limit,
-        ..DailyLimits::default()
+        ..DailyBorrowBucket::default()
     };
 
     limits.decay_to_slot(limit, day_slots).unwrap();

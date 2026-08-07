@@ -2,10 +2,10 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_interface::Mint;
 
 use crate::{
+    account::get_size_with_discriminator,
     constants::*,
     errors::ErrorCode,
     instructions::transfer_hook::current_yield_contexts,
-    shared::account::get_size_with_discriminator,
     state::{Market, YieldAccount, YieldTokenKind},
 };
 

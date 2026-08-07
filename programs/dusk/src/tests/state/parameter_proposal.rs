@@ -339,9 +339,11 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
         quote_hlp_ylp_vault: Pubkey::new_unique(),
         token_2022_program: anchor_spl::token_2022::ID,
         system_program: anchor_lang::system_program::ID,
+        event_authority: Pubkey::find_program_address(&[b"__event_authority"], &crate::ID).0,
+        program: crate::ID,
     }
     .to_account_metas(None);
-    assert_eq!(account_metas.len(), 12);
+    assert_eq!(account_metas.len(), 14);
 
     let message = anchor_lang::solana_program::message::Message::new(
         &[anchor_lang::solana_program::instruction::Instruction {
@@ -352,11 +354,11 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
         Some(&proposer),
     );
     assert_eq!(message.header.num_required_signatures, 1);
-    assert_eq!(message.account_keys.len(), 13);
+    assert_eq!(message.account_keys.len(), 14);
     let message_size = bincode::serialize(&message).unwrap().len();
-    assert_eq!(message_size, 881);
+    assert_eq!(message_size, 915);
     // One compact-u16 signature count byte, one signature, and the message.
-    assert_eq!(1 + 64 + message_size, 946);
+    assert_eq!(1 + 64 + message_size, 980);
 }
 
 #[test]

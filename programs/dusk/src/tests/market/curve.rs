@@ -87,7 +87,7 @@ fn uninitialized_cpmm_quote_matches_raw_constant_product() {
     let market = market_with_reserves(1_000 * NAD, 2_000 * NAD);
     let input = 10 * NAD;
     let quote = market.quote_curve_exact_in(MarketAsset::Base, input, 0).unwrap();
-    let expected = crate::math::calculate_raw_amount_out(1_000 * NAD, 2_000 * NAD, input).unwrap();
+    let expected = crate::math::cpmm_amount_out(1_000 * NAD, 2_000 * NAD, input).unwrap();
     assert_eq!(quote.amount_out, expected);
     assert_eq!(quote.start_price_nad, 2 * NAD);
 }

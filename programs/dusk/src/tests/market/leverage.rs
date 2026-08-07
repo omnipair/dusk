@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, MARKET_LAYOUT_VERSION, MIN_HALF_LIFE_MS, NAD},
-    instructions::SwapContext,
+    instructions::SwapRequest,
     state::{
         AmmConfig, Debt, HlpVault, Insurance, MarketConfig, MarketSide, ProtocolAuctionSplit, ReserveShares, Reserves,
         Risk,
@@ -117,8 +117,8 @@ fn full_fee_credit(quote: &LeverageSwapQuote) -> LeverageSwapFeeCredit {
     LeverageSwapFeeCredit::from_total_actual_credit(quote, quote.fee_credit).unwrap()
 }
 
-fn leverage_plan(market: &Market, swap: LeverageSwapQuote) -> LeverageSwapPlan {
-    LeverageSwapPlan {
+fn prepared_leverage_swap(market: &Market, swap: LeverageSwapQuote) -> PreparedLeverageSwap {
+    PreparedLeverageSwap {
         swap,
         base_pre_rebalance: HlpRebalanceReceipt::default(),
         quote_pre_rebalance: HlpRebalanceReceipt {
@@ -164,7 +164,7 @@ fn active_concentrated_hlp_market() -> Market {
     // separate test below proves that worsening flow outside a narrow band is
     // rejected.
     market.config.settlement_divergence_bps = 10_000;
-    market.deposit_single_sided(MarketAsset::Base, 100_000, 1, 0).unwrap();
+    market.deposit_single_sided(MarketAsset::Base, 100_000, 1).unwrap();
     assert!(market.base_hlp_vault.hlp_supply > 0);
     assert!(!market.current_curve_parameters(1).is_cpmm());
     market
@@ -211,7 +211,7 @@ fn open_leverage_tracks_isolated_debt_and_cash() {
             1_000,
             20_000,
             quote.amount_out,
-            leverage_plan(&market, quote),
+            prepared_leverage_swap(&market, quote),
             fee_credit,
             0,
             1,
@@ -259,7 +259,7 @@ fn referred_leverage_records_exact_debt_and_binds_partner() {
             1_000,
             20_000,
             open_quote.amount_out,
-            leverage_plan(&market, open_quote),
+            prepared_leverage_swap(&market, open_quote),
             open_fee_credit,
             0,
             1,
@@ -276,7 +276,7 @@ fn referred_leverage_records_exact_debt_and_binds_partner() {
     assert_eq!(position.referral_interest_share_bps, 2_500);
     assert_eq!(position.debt_principal, 1_000);
     assert_eq!(market.debt.isolated_base_principal, 1_000);
-    assert_eq!(market.base_side.daily_limits.borrowed_bucket, 1_000);
+    assert_eq!(market.base_side.daily_borrow_bucket.borrowed_bucket, 0);
 
     let increase_quote = market.quote_leverage_swap(MarketAsset::Base, 100, 2).unwrap();
     let increase_fee_credit = full_fee_credit(&increase_quote);
@@ -285,7 +285,7 @@ fn referred_leverage_records_exact_debt_and_binds_partner() {
             &mut position,
             100,
             increase_quote.amount_out,
-            leverage_plan(&market, increase_quote),
+            prepared_leverage_swap(&market, increase_quote),
             increase_fee_credit,
             0,
             ProtocolAuctionSplit::default(),
@@ -296,14 +296,11 @@ fn referred_leverage_records_exact_debt_and_binds_partner() {
     assert_eq!(increase.debt_delta, 100);
     assert_eq!(position.referral_partner, referral_partner);
     assert_eq!(position.referral_interest_share_bps, 2_500);
-    // Final leverage observation advances the operation clock. The original
-    // 1,000-unit bucket therefore decays for one slot before the 100-unit
-    // increase is recorded.
-    assert_eq!(market.base_side.daily_limits.borrowed_bucket, 1_099);
+    assert_eq!(market.base_side.daily_borrow_bucket.borrowed_bucket, 0);
 }
 
 #[test]
-fn remove_leverage_margin_records_new_principal_in_the_shared_daily_bucket() {
+fn remove_leverage_margin_does_not_consume_the_public_borrow_bucket() {
     let mut market = test_market(1_000_000, 1_000_000);
     let mut position = seeded_position(&mut market, MarketAsset::Base, 100, 1_000);
 
@@ -311,11 +308,11 @@ fn remove_leverage_margin_records_new_principal_in_the_shared_daily_bucket() {
 
     assert_eq!(receipt.borrowed_amount, 10);
     assert_eq!(receipt.debt_delta, 10);
-    assert_eq!(market.base_side.daily_limits.borrowed_bucket, 10);
+    assert_eq!(market.base_side.daily_borrow_bucket.borrowed_bucket, 0);
 }
 
 #[test]
-fn isolated_borrow_cannot_exceed_capacity_already_used_by_another_borrow_source() {
+fn isolated_leverage_ignores_capacity_used_by_public_borrowers() {
     let mut market = test_market(1_000_000, 1_000_000);
     let mut position = seeded_position(&mut market, MarketAsset::Base, 100, 1_000);
     let remaining_for_isolated = 9;
@@ -323,13 +320,15 @@ fn isolated_borrow_cannot_exceed_capacity_already_used_by_another_borrow_source(
         .daily_limit_for_side(MarketAsset::Base, market.config.max_daily_borrow_bps)
         .unwrap();
     market
-        .record_new_borrow(MarketAsset::Base, limit - remaining_for_isolated, 0)
+        .side_mut(MarketAsset::Base)
+        .daily_borrow_bucket
+        .record_borrow(limit - remaining_for_isolated, limit, 0)
         .unwrap();
 
-    let error = market.remove_leverage_margin(&mut position, 10, 0).unwrap_err();
+    let receipt = market.remove_leverage_margin(&mut position, 10, 0).unwrap();
 
-    assert_eq!(error, error!(ErrorCode::DailyLimitExceeded));
-    assert_eq!(market.base_side.daily_limits.borrowed_bucket, limit - 9);
+    assert_eq!(receipt.borrowed_amount, 10);
+    assert_eq!(market.base_side.daily_borrow_bucket.borrowed_bucket, limit - 9);
 }
 
 #[test]
@@ -350,7 +349,7 @@ fn close_leverage_clears_isolated_debt_and_residual_cash() {
             1_000,
             20_000,
             open_quote.amount_out,
-            leverage_plan(&market, open_quote),
+            prepared_leverage_swap(&market, open_quote),
             open_fee_credit,
             0,
             1,
@@ -369,7 +368,7 @@ fn close_leverage_clears_isolated_debt_and_residual_cash() {
         .close_leverage(
             &mut position,
             0,
-            leverage_plan(&market, close_quote),
+            prepared_leverage_swap(&market, close_quote),
             close_fee_credit,
             0,
             ProtocolAuctionSplit::default(),
@@ -428,7 +427,7 @@ fn solvent_liquidation_closes_position_and_pays_residual_incentive() {
     let receipt = market
         .liquidate_leverage(
             &mut position,
-            leverage_plan(&market, quote),
+            prepared_leverage_swap(&market, quote),
             fee_credit,
             0,
             ProtocolAuctionSplit::default(),
@@ -458,7 +457,7 @@ fn insolvent_liquidation_socializes_unrepaid_principal() {
     let receipt = market
         .liquidate_leverage(
             &mut position,
-            leverage_plan(&market, quote),
+            prepared_leverage_swap(&market, quote),
             fee_credit,
             0,
             ProtocolAuctionSplit::default(),
@@ -510,7 +509,7 @@ fn concentrated_open_leverage_checkpoints_active_hlp_exposure() {
             1_000,
             20_000,
             quote.amount_out,
-            leverage_plan(&market, quote),
+            prepared_leverage_swap(&market, quote),
             full_fee_credit(&quote),
             0,
             1,
@@ -536,7 +535,7 @@ fn concentrated_increase_leverage_checkpoints_active_hlp_exposure() {
             &mut position,
             100,
             quote.amount_out,
-            leverage_plan(&market, quote),
+            prepared_leverage_swap(&market, quote),
             full_fee_credit(&quote),
             0,
             ProtocolAuctionSplit::default(),
@@ -560,7 +559,7 @@ fn concentrated_decrease_leverage_checkpoints_active_hlp_exposure() {
             &mut position,
             100,
             0,
-            leverage_plan(&market, quote),
+            prepared_leverage_swap(&market, quote),
             full_fee_credit(&quote),
             0,
             ProtocolAuctionSplit::default(),
@@ -585,7 +584,7 @@ fn concentrated_close_leverage_checkpoints_active_hlp_exposure() {
         .close_leverage(
             &mut position,
             0,
-            leverage_plan(&market, quote),
+            prepared_leverage_swap(&market, quote),
             full_fee_credit(&quote),
             0,
             ProtocolAuctionSplit::default(),
@@ -609,7 +608,7 @@ fn concentrated_liquidation_checkpoints_active_hlp_exposure() {
     let receipt = market
         .liquidate_leverage(
             &mut position,
-            leverage_plan(&market, quote),
+            prepared_leverage_swap(&market, quote),
             full_fee_credit(&quote),
             0,
             ProtocolAuctionSplit::default(),
@@ -645,7 +644,7 @@ fn next_risk_refresh_integrates_the_post_leverage_mark() {
             10_000,
             20_000,
             quote.amount_out,
-            leverage_plan(&market, quote),
+            prepared_leverage_swap(&market, quote),
             full_fee_credit(&quote),
             0,
             2,
@@ -694,13 +693,12 @@ fn concentrated_leverage_rejects_worsening_stale_hlp_exposure() {
     market.checkpoint_amm_neutral_inventory(1).unwrap();
     market.checkpoint_hlp_vaults().unwrap();
     assert_ne!(market.base_hlp_vault.residual_exposure, 0);
-    let error = SwapContext {
+    let error = SwapRequest {
         current_slot: 1,
         asset_in: MarketAsset::Base,
         reserve_credit: 50_000,
-        reserved_daily_borrow: 0,
     }
-    .plan(&mut market)
+    .prepare(&mut market)
     .unwrap_err();
 
     assert_eq!(error, error!(ErrorCode::HlpSettlementUnavailable));
@@ -851,7 +849,7 @@ fn isolated_principal_writeoff_consumes_protected_liquidity() {
     let receipt = market
         .liquidate_leverage(
             &mut position,
-            leverage_plan(&market, liquidation_quote),
+            prepared_leverage_swap(&market, liquidation_quote),
             full_fee_credit(&liquidation_quote),
             0,
             ProtocolAuctionSplit::default(),

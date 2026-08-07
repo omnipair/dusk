@@ -7,7 +7,7 @@ use crate::{
     constants::{BPS_DENOMINATOR, MIN_LIQUIDITY, NAD, NAD_DECIMALS},
     errors::ErrorCode,
     math::{
-        asymptotic_scaled_rate_nad, concentrated_hybrid_branch, concentrated_hybrid_branch_cached,
+        asymptotic_scaled_rate_nad, ceil_div, concentrated_hybrid_branch, concentrated_hybrid_branch_cached,
         concentrated_prepare_curve, concentrated_prepare_curve_cached, concentrated_prepare_curve_seeded_cached,
         decay_volatility_nad, denormalize_from_nad_floor, effective_rate_floor_nad, fee_share_cap_to_marginal_rate_nad,
         gross_fee_budget_floor, hard_total_fee_budget_floor, minimum_executable_input, normalize_to_nad,
@@ -16,10 +16,9 @@ use crate::{
         ConcentratedSwapDirection, DynamicFeeConfig, DynamicFeePreState, DynamicFeeQuote,
         PreparedDivergenceStatePotential, CONCENTRATED_MATH_REVISION, MAX_COMMON_RESERVE,
     },
-    shared::math::ceil_div,
     state::market::{
-        AmmCurveParameters, AmmState, DeferredControllerTarget, Market, MarketAsset, PROTECTED_LIQUIDITY_COVERAGE_BPS,
-        PROTECTED_LIQUIDITY_GUARD_BPS,
+        AmmState, ConcentrationParameters, DeferredControllerTarget, Market, MarketAsset,
+        PROTECTED_LIQUIDITY_COVERAGE_BPS, PROTECTED_LIQUIDITY_GUARD_BPS,
     },
 };
 
@@ -70,7 +69,7 @@ impl Market {
             return Ok(());
         }
         let parameters = self.amm.applied_curve_parameters;
-        if self.amm.ramp.active || (!parameters.is_cpmm() && self.config.amm.adjustment_step_nad > 0) {
+        if self.amm.concentration_ramp.active || (!parameters.is_cpmm() && self.config.amm.adjustment_step_nad > 0) {
             self.amm.mark_retention_target_stale();
         } else {
             self.amm.refresh_retention_target(self.amm.q_per_share_nad, 0)?;
@@ -84,7 +83,7 @@ impl Market {
     fn evaluate_amm_liquidity_candidate(
         &self,
         center_price_nad: u64,
-        parameters: AmmCurveParameters,
+        parameters: ConcentrationParameters,
     ) -> Result<AmmLiquidityEvaluation> {
         #[cfg(test)]
         AMM_LIQUIDITY_CANDIDATE_SOLVES.with(|count| count.set(count.get().saturating_add(1)));
@@ -152,7 +151,7 @@ impl Market {
     fn recenter_stays_on_same_cpmm_tail(
         &self,
         candidate_center_price_nad: u64,
-        parameters: AmmCurveParameters,
+        parameters: ConcentrationParameters,
     ) -> Result<bool> {
         if parameters.is_cpmm() {
             return Ok(true);
@@ -416,7 +415,7 @@ impl Market {
                 return Ok(false);
             }
 
-            if pending.kind == DeferredControllerTarget::RAMP && !self.amm.ramp.active {
+            if pending.kind == DeferredControllerTarget::RAMP && !self.amm.concentration_ramp.active {
                 self.amm.deferred_controller_target.clear();
                 pending.clear();
             } else if pending.kind == DeferredControllerTarget::RECENTER {
@@ -486,7 +485,7 @@ impl Market {
                     )?;
                     self.amm.commit_invariant(evaluation.invariant_d)?;
                     self.amm.checkpoint_recenter_or_loss(candidate_q);
-                    self.amm.settle_ramp(current_slot);
+                    self.amm.settle_concentration_ramp(current_slot);
                 } else {
                     self.amm.commit_recenter(
                         &self.config.amm,
@@ -502,12 +501,12 @@ impl Market {
             }
         }
 
-        if self.amm.ramp.active && current_slot > self.amm.last_ramp_update_slot {
+        if self.amm.concentration_ramp.active && current_slot > self.amm.last_concentration_ramp_update_slot {
             let applied = self.amm.applied_curve_parameters;
             let desired = self.amm.desired_curve_parameters(&self.config.amm, current_slot);
             if desired == applied {
-                self.amm.last_ramp_update_slot = current_slot;
-                self.amm.settle_ramp(current_slot);
+                self.amm.last_concentration_ramp_update_slot = current_slot;
+                self.amm.settle_concentration_ramp(current_slot);
                 return Ok(false);
             }
 
@@ -520,7 +519,7 @@ impl Market {
                     .commit_applied_curve_parameters(desired, evaluation.geometry_cache, current_slot)?;
                 self.amm.commit_invariant(evaluation.invariant_d)?;
                 self.amm.checkpoint_recenter_or_loss(candidate_q);
-                self.amm.settle_ramp(current_slot);
+                self.amm.settle_concentration_ramp(current_slot);
                 self.defer_amm_retention_target()?;
                 return Ok(true);
             }
@@ -529,7 +528,7 @@ impl Market {
             let target = self
                 .amm
                 .refresh_retention_target(self.amm.q_per_share_nad, impairment)?;
-            self.amm.last_ramp_update_slot = current_slot;
+            self.amm.last_concentration_ramp_update_slot = current_slot;
             self.amm.deferred_controller_target = DeferredControllerTarget {
                 kind: DeferredControllerTarget::RAMP,
                 center_price_nad: self.amm.center_price_nad,
@@ -544,13 +543,13 @@ impl Market {
         }
 
         let parameters = self.amm.applied_curve_parameters;
-        if self.config.amm.adjustment_step_nad == 0 || self.amm.ramp.active {
+        if self.config.amm.adjustment_step_nad == 0 || self.amm.concentration_ramp.active {
             return Ok(false);
         }
         // Ramp and center movement share one controller-move allowance. A
         // completed ramp may clear `ramp.active` immediately, so its committed
         // slot must still suppress a second center mutation in that slot.
-        if current_slot <= self.amm.last_ramp_update_slot {
+        if current_slot <= self.amm.last_concentration_ramp_update_slot {
             return Ok(false);
         }
         let earliest = self
@@ -731,7 +730,7 @@ pub(crate) struct CurveReservesNad {
 pub(crate) struct CurveCheckpoint {
     pub(crate) reserves: CurveReservesNad,
     center_price_nad: u64,
-    parameters: AmmCurveParameters,
+    parameters: ConcentrationParameters,
     evaluation: ConcentratedEvaluation,
 }
 
@@ -825,7 +824,7 @@ impl Market {
         })
     }
 
-    pub(crate) fn current_curve_parameters(&self, current_slot: u64) -> AmmCurveParameters {
+    pub(crate) fn current_curve_parameters(&self, current_slot: u64) -> ConcentrationParameters {
         self.amm.effective_curve_parameters(&self.config.amm, current_slot)
     }
 
@@ -863,7 +862,7 @@ impl Market {
         current_slot: u64,
     ) -> Result<CurveCheckpoint> {
         let center_price_nad = u64::try_from(prepared.center_price_nad).map_err(|_| ErrorCode::MarketMathOverflow)?;
-        let parameters = AmmCurveParameters {
+        let parameters = ConcentrationParameters {
             peak_depth_nad: u64::try_from(prepared.peak_depth_nad).map_err(|_| ErrorCode::MarketMathOverflow)?,
             fade_scale_nad: u64::try_from(prepared.fade_scale_nad).map_err(|_| ErrorCode::MarketMathOverflow)?,
         };
@@ -891,7 +890,7 @@ impl Market {
     pub(crate) fn evaluate_curve_candidate(
         &self,
         center_price_nad: u64,
-        parameters: AmmCurveParameters,
+        parameters: ConcentrationParameters,
     ) -> Result<ConcentratedEvaluation> {
         let reserves = self.curve_reserves_nad()?;
         concentrated_evaluate(

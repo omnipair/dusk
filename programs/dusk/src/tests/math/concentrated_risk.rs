@@ -256,7 +256,7 @@ fn deep_tail_reconstruction_uses_exact_cpmm_execution() {
         )
         .unwrap();
         let cpmm_output =
-            crate::math::calculate_normalized_amount_out(input_reserve, output_reserve, amount_in).unwrap();
+            crate::math::cpmm_amount_out_nad(input_reserve, output_reserve, amount_in).unwrap();
         assert_eq!(hybrid_output, cpmm_output, "target={target} direction={direction:?}");
     }
 }

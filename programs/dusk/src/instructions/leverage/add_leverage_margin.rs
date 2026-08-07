@@ -8,18 +8,16 @@ use crate::{
     constants::*,
     errors::ErrorCode,
     events::{LeveragePositionUpdated, MarketEventMetadata},
-    shared::token::{
-        get_transfer_fee_for_epoch, get_transfer_inverse_fee_for_epoch, transfer_checked_with_remaining_accounts,
-    },
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
+    token::{get_transfer_fee_for_epoch, get_transfer_inverse_fee_for_epoch, transfer_checked_with_remaining_accounts},
 };
 
-use super::common::{record_leverage_interest, validate_leverage_interest_account, validate_owner_debt_account};
-use crate::instructions::common::{
+use super::settlement::{record_leverage_interest, validate_leverage_interest_account, validate_owner_debt_account};
+use crate::instructions::accounts::{
     require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
     validate_side_vault_accounts,
 };
-use crate::instructions::referral::common::{referral_interest_accrued_event_at_slot, validate_referral_binding};
+use crate::instructions::referral::accounting::{referral_interest_accrued_event_at_slot, validate_referral_binding};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct AddLeverageMarginArgs {

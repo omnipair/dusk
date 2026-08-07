@@ -5,16 +5,17 @@ use anchor_spl::{
 };
 
 use crate::{
+    account::get_size_with_discriminator,
     constants::{MARKET_V2_SEED_PREFIX, REFERRAL_ACCRUAL_SEED_PREFIX, REFERRAL_PARTNER_SEED_PREFIX},
     errors::ErrorCode,
     events::{MarketEventMetadata, ReferralInterestClaimed},
     generate_market_seeds,
-    instructions::common::{
+    instructions::accounts::{
         require_supported_asset_mint, token_account_credit, token_account_debit, token_program_for_mint,
         validate_interest_accounts,
     },
-    shared::{account::get_size_with_discriminator, token::transfer_checked_with_remaining_accounts},
     state::{Market, ReferralAccrual, ReferralPartner},
+    token::transfer_checked_with_remaining_accounts,
 };
 
 #[derive(Accounts)]

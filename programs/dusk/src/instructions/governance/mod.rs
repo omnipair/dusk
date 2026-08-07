@@ -10,7 +10,7 @@ use anchor_spl::token_interface::{Mint, TokenAccount};
 use crate::{
     constants::MARKET_V2_SEED_PREFIX,
     errors::ErrorCode,
-    instructions::common::{validate_lp_mint, validate_owner_lp_account},
+    instructions::accounts::{validate_lp_mint, validate_owner_lp_account},
     state::{Market, ParameterFamily, YieldAccount, YieldTokenKind},
 };
 

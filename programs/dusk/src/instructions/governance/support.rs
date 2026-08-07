@@ -2,16 +2,14 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, Token2022, TokenAccount};
 
 use crate::{
+    account::get_size_with_discriminator,
     constants::*,
     errors::ErrorCode,
     events::{ParameterProposalQueued, ParameterProposalSupportWithdrawn, ParameterProposalSupported},
     generate_market_seeds,
-    instructions::common::validate_lp_mint,
-    shared::{
-        account::get_size_with_discriminator,
-        token::{token_burn, token_mint_to},
-    },
+    instructions::accounts::validate_lp_mint,
     state::{Market, ParameterProposal, ParameterProposalStatus, ProposalSupport, YieldAccount, YieldTokenKind},
+    token::{token_burn, token_mint_to},
 };
 
 use super::{
@@ -24,6 +22,7 @@ pub struct SupportParameterProposalArgs {
     pub amount: u64,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct SupportParameterProposal<'info> {
     #[account(mut)]
@@ -202,7 +201,7 @@ impl<'info> SupportParameterProposal<'info> {
             .accounts
             .proposal
             .queue_if_supported(eligible_supply, clock.unix_timestamp)?;
-        emit!(ParameterProposalSupported {
+        emit_cpi!(ParameterProposalSupported {
             proposal: proposal_key,
             supporter: supporter_key,
             amount: args.amount,
@@ -211,7 +210,7 @@ impl<'info> SupportParameterProposal<'info> {
             status: ctx.accounts.proposal.status.code(),
         });
         if queued {
-            emit!(ParameterProposalQueued {
+            emit_cpi!(ParameterProposalQueued {
                 proposal: proposal_key,
                 total_locked: ctx.accounts.proposal.queued_support,
                 eligible_supply: ctx.accounts.proposal.queued_eligible_ylp,
@@ -224,6 +223,7 @@ impl<'info> SupportParameterProposal<'info> {
     }
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct WithdrawParameterSupport<'info> {
     #[account(mut)]
@@ -374,7 +374,7 @@ impl<'info> WithdrawParameterSupport<'info> {
             amount,
             &[&market_seeds[..]],
         )?;
-        emit!(ParameterProposalSupportWithdrawn {
+        emit_cpi!(ParameterProposalSupportWithdrawn {
             proposal: ctx.accounts.proposal.key(),
             supporter: ctx.accounts.supporter.key(),
             amount,

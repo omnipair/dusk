@@ -164,11 +164,11 @@ fn cpmm_mode_is_bit_exact_for_quotes() {
 
     assert_eq!(
         concentrated_quote_exact_in(x, y, dx, ConcentratedSwapDirection::BaseToQuote, NAD as u128, 0, 0,).unwrap(),
-        calculate_normalized_amount_out(x, y, dx).unwrap()
+        cpmm_amount_out_nad(x, y, dx).unwrap()
     );
     assert_eq!(
         concentrated_quote_exact_out(x, y, dy, ConcentratedSwapDirection::BaseToQuote, NAD as u128, 0, 0,).unwrap(),
-        calculate_normalized_amount_in(x, y, dy).unwrap()
+        cpmm_amount_in_nad(x, y, dy).unwrap()
     );
 }
 
@@ -430,7 +430,7 @@ fn restoring_trade_in_exact_tail_is_bit_identical_to_cpmm() {
         prepared
             .quote_exact_in(input, ConcentratedSwapDirection::BaseToQuote)
             .unwrap(),
-        calculate_normalized_amount_out(base, quote, input).unwrap()
+        cpmm_amount_out_nad(base, quote, input).unwrap()
     );
 }
 
@@ -743,7 +743,7 @@ fn same_tail_swap_is_exact_raw_cpmm() {
     let x = 8_000_000_000_000_u128;
     let y = 1_000_000_000_u128;
     let dx = 100_000_000_u128;
-    let expected = calculate_normalized_amount_out(x, y, dx).unwrap();
+    let expected = cpmm_amount_out_nad(x, y, dx).unwrap();
     let actual = concentrated_quote_exact_in(
         x,
         y,
@@ -1108,7 +1108,7 @@ fn convergence_join_round_trips_cannot_create_raw_token_profit() {
 fn concentrated_depth_improves_a_centered_quote() {
     let reserve = 1_000_000_000_000_000_u128;
     let input = 10_000_000_000_000_u128;
-    let cpmm = calculate_normalized_amount_out(reserve, reserve, input).unwrap();
+    let cpmm = cpmm_amount_out_nad(reserve, reserve, input).unwrap();
     let concentrated = concentrated_quote_exact_in(
         reserve,
         reserve,

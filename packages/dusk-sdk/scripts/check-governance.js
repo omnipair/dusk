@@ -19,7 +19,7 @@ import IDL from "../dist/idl_v2.js";
 import { DuskWrite } from "../dist/write.js";
 
 const SOLANA_TRANSACTION_LIMIT = 1_232;
-const EXPECTED_WORST_CASE_CREATE_SIZE = 946;
+const EXPECTED_WORST_CASE_CREATE_SIZE = 980;
 const { Program } = anchor;
 
 const keys = Array.from(

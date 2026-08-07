@@ -17,7 +17,7 @@ mainnet launch or upgrade.
   only while deploying a signed-off release buffer, then set it back to `false`
   after the buffer address and Squads authority transfer are recorded.
 - Confirm the emergency reduce-only authority is the intended signer and can
-  reach `set_reduce_only` for incident response.
+  reach `set_market_reduce_only` for incident response.
 - Confirm owners, dashboards, paging, and reduce-only procedures are current
   for the release.
 - Confirm soft borrow and soft liquidation remain disabled unless a separate

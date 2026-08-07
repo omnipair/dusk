@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{MarketEventMetadata, MarketUpdated},
+    events::{MarketEventMetadata, MarketReduceOnlyUpdated},
     state::Market,
 };
 
@@ -47,7 +47,7 @@ impl<'info> SetMarketReduceOnly<'info> {
 
         market.reduce_only = args.reduce_only;
 
-        emit_cpi!(MarketUpdated {
+        emit_cpi!(MarketReduceOnlyUpdated {
             market: market.key(),
             reduce_only: market.reduce_only,
             metadata: MarketEventMetadata::new(authority_signer.key(), market.key())?,

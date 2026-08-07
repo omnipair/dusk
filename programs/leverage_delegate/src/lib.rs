@@ -9,8 +9,9 @@ use dusk::{
     instructions::{
         LeverageDelegationApproval, LEVERAGE_DELEGATE_CLOSE, LEVERAGE_DELEGATE_CLOSE_SETTLED,
     },
-    shared::{math::ceil_div, token::get_transfer_fee},
+    math::numerics::ceil_div,
     state::{LeverageDelegation, LeveragePosition, Market},
+    token::get_transfer_fee,
 };
 use std::cmp::min;
 

@@ -36,7 +36,7 @@ use std::cell::Cell;
 use crate::{constants::NAD, errors::ErrorCode};
 
 use super::{
-    gamm::{calculate_normalized_amount_in, calculate_normalized_amount_out},
+    cpmm::{cpmm_amount_in_nad, cpmm_amount_out_nad},
     isqrt, mul_div_ceil_u128, mul_div_rem_u128, mul_div_u128, ratio_lte_full_width,
 };
 
@@ -502,10 +502,10 @@ impl ConcentratedPreparedCurve {
         if self.peak_depth_nad == 0 {
             return match direction {
                 ConcentratedSwapDirection::BaseToQuote => {
-                    calculate_normalized_amount_out(self.base_reserve_nad, self.quote_reserve_nad, amount_in_nad)
+                    cpmm_amount_out_nad(self.base_reserve_nad, self.quote_reserve_nad, amount_in_nad)
                 }
                 ConcentratedSwapDirection::QuoteToBase => {
-                    calculate_normalized_amount_out(self.quote_reserve_nad, self.base_reserve_nad, amount_in_nad)
+                    cpmm_amount_out_nad(self.quote_reserve_nad, self.base_reserve_nad, amount_in_nad)
                 }
             };
         }
@@ -514,10 +514,10 @@ impl ConcentratedPreparedCurve {
         if start_branch.is_exact_tail() {
             let output = match direction {
                 ConcentratedSwapDirection::BaseToQuote => {
-                    calculate_normalized_amount_out(self.base_reserve_nad, self.quote_reserve_nad, amount_in_nad)?
+                    cpmm_amount_out_nad(self.base_reserve_nad, self.quote_reserve_nad, amount_in_nad)?
                 }
                 ConcentratedSwapDirection::QuoteToBase => {
-                    calculate_normalized_amount_out(self.quote_reserve_nad, self.base_reserve_nad, amount_in_nad)?
+                    cpmm_amount_out_nad(self.quote_reserve_nad, self.base_reserve_nad, amount_in_nad)?
                 }
             };
             let (base_after, quote_after) = match direction {
@@ -627,7 +627,7 @@ impl ConcentratedPreparedCurve {
             ErrorCode::InsufficientLiquidity
         );
         if self.peak_depth_nad == 0 {
-            let input = calculate_normalized_amount_in(input_reserve_nad, output_reserve_nad, amount_out_nad)?;
+            let input = cpmm_amount_in_nad(input_reserve_nad, output_reserve_nad, amount_out_nad)?;
             return Ok((input.saturating_sub(1), input));
         }
         let geometry = self.geometry.ok_or(ErrorCode::BrokenInvariant)?;
@@ -635,10 +635,10 @@ impl ConcentratedPreparedCurve {
         if start_branch.is_exact_tail() {
             let input = match direction {
                 ConcentratedSwapDirection::BaseToQuote => {
-                    calculate_normalized_amount_in(self.base_reserve_nad, self.quote_reserve_nad, amount_out_nad)?
+                    cpmm_amount_in_nad(self.base_reserve_nad, self.quote_reserve_nad, amount_out_nad)?
                 }
                 ConcentratedSwapDirection::QuoteToBase => {
-                    calculate_normalized_amount_in(self.quote_reserve_nad, self.base_reserve_nad, amount_out_nad)?
+                    cpmm_amount_in_nad(self.quote_reserve_nad, self.base_reserve_nad, amount_out_nad)?
                 }
             };
             let (base_after, quote_after) = match direction {
@@ -2128,10 +2128,10 @@ fn exact_cpmm_tail_in_with_geometry(
     }
     let output = match direction {
         ConcentratedSwapDirection::BaseToQuote => {
-            calculate_normalized_amount_out(base_reserve_nad, quote_reserve_nad, amount_in_nad)?
+            cpmm_amount_out_nad(base_reserve_nad, quote_reserve_nad, amount_in_nad)?
         }
         ConcentratedSwapDirection::QuoteToBase => {
-            calculate_normalized_amount_out(quote_reserve_nad, base_reserve_nad, amount_in_nad)?
+            cpmm_amount_out_nad(quote_reserve_nad, base_reserve_nad, amount_in_nad)?
         }
     };
     let (base_after, quote_after) = match direction {
@@ -2283,10 +2283,10 @@ pub(crate) fn concentrated_quote_exact_in(
     if peak_depth_nad == 0 {
         return match direction {
             ConcentratedSwapDirection::BaseToQuote => {
-                calculate_normalized_amount_out(base_reserve_nad, quote_reserve_nad, amount_in_nad)
+                cpmm_amount_out_nad(base_reserve_nad, quote_reserve_nad, amount_in_nad)
             }
             ConcentratedSwapDirection::QuoteToBase => {
-                calculate_normalized_amount_out(quote_reserve_nad, base_reserve_nad, amount_in_nad)
+                cpmm_amount_out_nad(quote_reserve_nad, base_reserve_nad, amount_in_nad)
             }
         };
     }

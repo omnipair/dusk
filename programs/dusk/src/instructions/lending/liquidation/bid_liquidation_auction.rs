@@ -7,20 +7,20 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::PositionLiquidated,
+    events::BorrowPositionLiquidated,
     generate_market_seeds,
     market::LiquidationPricing,
     math::risk::exponential_price_decay,
-    shared::token::{get_transfer_fee, get_transfer_inverse_fee, transfer_checked_with_remaining_accounts},
     state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
+    token::{get_transfer_fee, get_transfer_inverse_fee, transfer_checked_with_remaining_accounts},
 };
 
-use super::common::{reconcile_insurance_funding_credit, validate_liquidation_accounts};
-use crate::instructions::common::{
+use super::settlement::{reconcile_insurance_funding_credit, validate_liquidation_accounts};
+use crate::instructions::accounts::{
     require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
     validate_interest_accounts,
 };
-use crate::instructions::referral::common::{
+use crate::instructions::referral::accounting::{
     accrue_referral_interest, referral_interest_accrued_event_at_slot, validate_referral_binding,
 };
 
@@ -137,7 +137,7 @@ impl<'info> BidLiquidationAuction<'info> {
         Ok(())
     }
 
-    crate::instructions::common::market_update_and_validate!(BidLiquidationAuctionArgs);
+    crate::instructions::accounts::market_update_and_validate!(BidLiquidationAuctionArgs);
 
     pub fn handle_bid(ctx: Context<'_, '_, '_, 'info, Self>, args: BidLiquidationAuctionArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
@@ -346,7 +346,7 @@ impl<'info> BidLiquidationAuction<'info> {
                 ctx.remaining_accounts,
             )?;
             ctx.accounts.collateral_insurance_vault.reload()?;
-            let insurance_credit = crate::instructions::common::token_account_credit(
+            let insurance_credit = crate::instructions::accounts::token_account_credit(
                 collateral_insurance_balance_before,
                 &ctx.accounts.collateral_insurance_vault,
             )?;
@@ -363,7 +363,7 @@ impl<'info> BidLiquidationAuction<'info> {
         ctx.accounts.market.refresh_risk()?;
         require_reserve_custody(ctx.accounts.reserve_vault.amount, ctx.accounts.market.side(debt_asset))?;
 
-        emit_cpi!(PositionLiquidated {
+        emit_cpi!(BorrowPositionLiquidated {
             market: market_key,
             borrow_position: borrow_position_key,
             borrower: borrower_key,

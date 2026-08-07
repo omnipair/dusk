@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::{constants::NAD_DECIMALS, errors::ErrorCode, shared::math::ceil_div};
+use crate::{constants::NAD_DECIMALS, errors::ErrorCode, math::ceil_div};
 
 pub(crate) fn normalize_to_nad(amount: u128, decimals: u8) -> Result<u128> {
     match decimals.cmp(&NAD_DECIMALS) {

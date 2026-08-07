@@ -2,7 +2,7 @@ use super::*;
 use crate::state::AmmConfig;
 use crate::{
     constants::{BPS_DENOMINATOR, MARKET_LAYOUT_VERSION},
-    math::{calculate_raw_amount_out, hlp_opposite_exposure_nad, ideal_hlp_rebalance_nad, market_spot_price_nad},
+    math::{cpmm_amount_out, hlp_opposite_exposure_nad, ideal_hlp_rebalance_nad, market_spot_price_nad},
     state::{Insurance, MarketConfig, MarketSide, Risk},
 };
 use proptest::prelude::*;
@@ -39,8 +39,6 @@ fn pre_solve_hlp_vaults_for_swap(
         amount_in,
         amount_in,
         current_slot,
-        asset_in,
-        0,
     )?;
     let quote = pre_solve_one_hlp_for_swap(
         market,
@@ -49,8 +47,6 @@ fn pre_solve_hlp_vaults_for_swap(
         amount_in,
         amount_in,
         current_slot,
-        asset_in,
-        0,
     )?;
     Ok((base, quote))
 }
@@ -97,8 +93,8 @@ fn prepare_hlp_deposit_like_instruction(
         let entry = current_hlp_entry_state_with_prices(market, target_asset, prices)?;
         require!(entry.disposition.admits_entry(), ErrorCode::HlpSettlementUnavailable);
         if market.has_active_hlp()
-            && market.amm.ramp.active
-            && (!market.amm.applied_curve_parameters.is_cpmm() || !market.amm.ramp.target.is_cpmm())
+            && market.amm.concentration_ramp.active
+            && (!market.amm.applied_curve_parameters.is_cpmm() || !market.amm.concentration_ramp.target.is_cpmm())
         {
             let desired = market.amm.desired_curve_parameters(&market.config.amm, current_slot);
             require!(
@@ -209,7 +205,7 @@ fn open_hlp_keeps_leverage_debt_on_aggregate_vault() {
     let mut market = seeded_market();
 
     let receipt = market
-        .deposit_single_sided(MarketAsset::Base, 100, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100, 1)
         .unwrap();
 
     assert_eq!(receipt.borrowed_amount, 200);
@@ -218,8 +214,8 @@ fn open_hlp_keeps_leverage_debt_on_aggregate_vault() {
     assert_eq!(market.debt.fixed_quote_shares, 0);
     assert!(market.base_hlp_vault.debt_shares > 0);
     assert_eq!(market.base_hlp_vault.debt_principal, 200);
-    assert_eq!(market.quote_side.daily_limits.borrowed_bucket, 200);
-    assert_eq!(market.base_side.daily_limits.borrowed_bucket, 0);
+    assert_eq!(market.quote_side.daily_borrow_bucket.borrowed_bucket, 0);
+    assert_eq!(market.base_side.daily_borrow_bucket.borrowed_bucket, 0);
     assert_eq!(market.base_hlp_vault.ylp_shares, 100);
     assert_eq!(market.base_hlp_vault.base_hlp_live_reserve, 0);
     assert_eq!(market.base_hlp_vault.quote_hlp_live_reserve, 200);
@@ -231,32 +227,30 @@ fn open_hlp_keeps_leverage_debt_on_aggregate_vault() {
 }
 
 #[test]
-fn direct_hlp_deposit_records_borrow_on_the_opposite_side_in_both_directions() {
+fn direct_hlp_deposit_does_not_consume_the_public_borrow_bucket() {
     let mut market = seeded_market();
 
-    let receipt = market.deposit_single_sided(MarketAsset::Quote, 200, 1, 7).unwrap();
+    let receipt = market.deposit_single_sided(MarketAsset::Quote, 200, 1).unwrap();
 
     assert_eq!(receipt.borrowed_amount, 100);
-    assert_eq!(market.base_side.daily_limits.borrowed_bucket, 100);
-    assert_eq!(market.base_side.daily_limits.last_decay_slot, 7);
-    assert_eq!(market.quote_side.daily_limits.borrowed_bucket, 0);
+    assert_eq!(market.base_side.daily_borrow_bucket.borrowed_bucket, 0);
+    assert_eq!(market.base_side.daily_borrow_bucket.last_decay_slot, 0);
+    assert_eq!(market.quote_side.daily_borrow_bucket.borrowed_bucket, 0);
 }
 
 #[test]
-fn direct_hlp_deposit_rejects_when_the_shared_borrow_bucket_is_full() {
+fn direct_hlp_deposit_ignores_a_full_public_borrow_bucket() {
     let mut market = seeded_market();
     let borrowed_asset = MarketAsset::Quote;
     let limit = market
         .daily_limit_for_side(borrowed_asset, market.config.max_daily_borrow_bps)
         .unwrap();
-    market.side_mut(borrowed_asset).daily_limits.borrowed_bucket = limit;
-    let debt_before = market.base_hlp_vault.debt_principal;
+    market.side_mut(borrowed_asset).daily_borrow_bucket.borrowed_bucket = limit;
+    let receipt = market.deposit_single_sided(MarketAsset::Base, 100, 1).unwrap();
 
-    let error = market.deposit_single_sided(MarketAsset::Base, 100, 1, 0).unwrap_err();
-
-    assert_eq!(error, error!(ErrorCode::DailyLimitExceeded));
-    assert_eq!(market.side(borrowed_asset).daily_limits.borrowed_bucket, limit);
-    assert_eq!(market.base_hlp_vault.debt_principal, debt_before);
+    assert_eq!(receipt.borrowed_amount, 200);
+    assert_eq!(market.side(borrowed_asset).daily_borrow_bucket.borrowed_bucket, limit);
+    assert_eq!(market.base_hlp_vault.debt_principal, 200);
 }
 
 #[test]
@@ -265,7 +259,7 @@ fn open_hlp_requires_borrowed_side_cash_headroom() {
     market.quote_side.reserves.cash_reserve = 199;
 
     let err = market
-        .deposit_single_sided(MarketAsset::Base, 100, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100, 1)
         .unwrap_err();
 
     assert_eq!(err, error!(ErrorCode::InsufficientBorrowHeadroom));
@@ -276,10 +270,10 @@ fn repeated_open_hlp_mints_against_delta_nav() {
     let mut market = seeded_market();
 
     let first = market
-        .deposit_single_sided(MarketAsset::Base, 100, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100, 1)
         .unwrap();
     let second = market
-        .deposit_single_sided(MarketAsset::Base, 120, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 120, 1)
         .unwrap();
 
     assert_eq!(first.hlp_amount, 100);
@@ -302,7 +296,7 @@ fn repeated_cpmm_hlp_open_admits_only_non_worsening_controller_granularity() {
     market.quote_side.shares.ylp_supply = 141_421;
 
     market
-        .deposit_single_sided(MarketAsset::Base, 5_000, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 5_000, 1)
         .unwrap();
     assert_eq!(market.base_hlp_vault.residual_exposure, -1_000);
     assert_eq!(market.base_hlp_vault.last_nav_nad, 4_998_500);
@@ -316,7 +310,7 @@ fn repeated_cpmm_hlp_open_admits_only_non_worsening_controller_granularity() {
     // before the transferred amount is applied to the aggregate vault.
     prepare_hlp_deposit_like_instruction(&mut market, MarketAsset::Base, 1).unwrap();
     let receipt = market
-        .deposit_single_sided(MarketAsset::Base, 6_000, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 6_000, 1)
         .unwrap();
 
     assert_eq!(receipt.hlp_amount, 6_001);
@@ -341,7 +335,7 @@ fn h_lp_nav_values_collateral_and_debt_in_target_numeraire() {
     let mut market = seeded_market();
 
     market
-        .deposit_single_sided(MarketAsset::Base, 100, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100, 1)
         .unwrap();
 
     assert_eq!(
@@ -382,7 +376,7 @@ fn cpmm_hlp_price_fast_path_matches_prepared_curve_rounding() {
 fn accrued_interest_grows_hlp_debt_and_reduces_nav() {
     let mut market = seeded_market();
     market
-        .deposit_single_sided(MarketAsset::Base, 100, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100, 1)
         .unwrap();
     let debt_before = hlp_debt_value_nad(&market, MarketAsset::Base).unwrap();
     let nav_before = hlp_nav_nad(&market, MarketAsset::Base).unwrap();
@@ -405,7 +399,7 @@ fn accrued_interest_grows_hlp_debt_and_reduces_nav() {
 fn unrealized_lending_interest_does_not_inflate_hlp_executable_inventory() {
     let mut market = seeded_market();
     market
-        .deposit_single_sided(MarketAsset::Base, 100, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100, 1)
         .unwrap();
 
     // First add 100 of cash-backed fixed principal to the executable
@@ -477,7 +471,7 @@ fn hlp_uses_ordinary_ylp_live_basis_and_cannot_capture_existing_interest() {
 fn close_hlp_burns_vault_ylp_and_repays_vault_debt() {
     let mut market = seeded_market();
     let deposit_receipt = market
-        .deposit_single_sided(MarketAsset::Base, 100, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100, 1)
         .unwrap();
 
     let withdraw_receipt = market
@@ -508,7 +502,7 @@ fn close_hlp_burns_vault_ylp_and_repays_vault_debt() {
 fn close_hlp_realizes_interest_from_borrowed_side_cash() {
     let mut market = seeded_market();
     let deposit_receipt = market
-        .deposit_single_sided(MarketAsset::Base, 100, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100, 1)
         .unwrap();
     market.debt.quote_borrow_index_nad = (NAD as u128) * 110 / 100;
 
@@ -529,7 +523,7 @@ fn close_hlp_realizes_interest_from_borrowed_side_cash() {
 fn close_hlp_converts_borrowed_side_surplus_into_target_out() {
     let mut market = seeded_market();
     let deposit_receipt = market
-        .deposit_single_sided(MarketAsset::Base, 100, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100, 1)
         .unwrap();
     market.quote_side.reserves.live_reserve = 2_300;
     market.quote_side.reserves.cash_reserve = 2_100;
@@ -551,7 +545,7 @@ fn close_hlp_converts_borrowed_side_surplus_into_target_out() {
 fn close_hlp_uses_target_side_value_for_borrowed_side_shortfall() {
     let mut market = seeded_market();
     let deposit_receipt = market
-        .deposit_single_sided(MarketAsset::Base, 100, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100, 1)
         .unwrap();
     market.quote_side.reserves.live_reserve = 2_110;
     market.quote_side.reserves.cash_reserve = 1_910;
@@ -575,7 +569,7 @@ fn concentrated_close_surplus_uses_concentrated_exact_curve_quote() {
     configure_market_depth(&mut market, 1_000_000, 20_000);
     enable_concentrated_curve(&mut market);
     let deposit = market
-        .deposit_single_sided(MarketAsset::Base, 100_000, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100_000, 1)
         .unwrap();
     market.quote_side.reserves.live_reserve = 2_420_000;
     market.quote_side.reserves.cash_reserve = 2_220_000;
@@ -599,7 +593,7 @@ fn concentrated_close_surplus_uses_concentrated_exact_curve_quote() {
         .quote_curve_exact_in(MarketAsset::Quote, surplus, 0)
         .unwrap()
         .amount_out;
-    let cpmm_out = calculate_raw_amount_out(
+    let cpmm_out = cpmm_amount_out(
         post_burn.quote_side.reserves.live_reserve,
         post_burn.base_side.reserves.live_reserve,
         surplus,
@@ -620,14 +614,14 @@ fn concentrated_close_surplus_uses_concentrated_exact_curve_quote() {
 fn open_hlp_rejects_settlement_price_divergence() {
     let mut market = seeded_market();
     market
-        .deposit_single_sided(MarketAsset::Base, 100, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100, 1)
         .unwrap();
 
     market.quote_side.reserves.live_reserve = 4_000;
     market.quote_side.reserves.cash_reserve = 3_800;
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
     let err = market
-        .deposit_single_sided(MarketAsset::Base, 100, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100, 1)
         .unwrap_err();
 
     assert_eq!(err, error!(ErrorCode::HlpSettlementUnavailable));
@@ -637,7 +631,7 @@ fn open_hlp_rejects_settlement_price_divergence() {
 fn close_hlp_rejects_settlement_price_divergence() {
     let mut market = seeded_market();
     let receipt = market
-        .deposit_single_sided(MarketAsset::Base, 100, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100, 1)
         .unwrap();
 
     market.quote_side.reserves.live_reserve = 4_000;
@@ -654,7 +648,7 @@ fn close_hlp_rejects_settlement_price_divergence() {
 fn h_lp_checkpoint_preserves_last_settlement_reference() {
     let mut market = seeded_market();
     market
-        .deposit_single_sided(MarketAsset::Base, 100, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100, 1)
         .unwrap();
     let settlement_reference = market.base_hlp_vault.cached_settlement_price_nad;
     market.quote_side.reserves.live_reserve = 2_080;
@@ -749,10 +743,10 @@ fn active_hlp_market() -> Market {
     let mut market = seeded_market();
     configure_market_depth(&mut market, 1_000_000, 20_000);
     market
-        .deposit_single_sided(MarketAsset::Base, 100_000, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100_000, 1)
         .unwrap();
     market
-        .deposit_single_sided(MarketAsset::Quote, 200_000, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Quote, 200_000, 1)
         .unwrap();
     assert_market_hlp_invariants(&market);
     market
@@ -776,10 +770,10 @@ fn active_concentrated_hlp_market() -> Market {
     configure_market_depth(&mut market, 1_000_000, 20_000);
     enable_concentrated_curve(&mut market);
     market
-        .deposit_single_sided(MarketAsset::Base, 100_000, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100_000, 1)
         .unwrap();
     market
-        .deposit_single_sided(MarketAsset::Quote, 200_000, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Quote, 200_000, 1)
         .unwrap();
     assert_market_hlp_invariants(&market);
     market
@@ -827,7 +821,7 @@ fn cpmm_hlp_path_keeps_inside_and_restoring_trades_live_but_rejects_worsening_fl
     let mut market = seeded_market();
     configure_market_depth(&mut market, 1_000_000, 20_000);
     market
-        .deposit_single_sided(MarketAsset::Base, 100_000, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100_000, 1)
         .unwrap();
     market.config.settlement_divergence_bps = 500;
     let reference = u64::try_from(market.base_hlp_vault.cached_settlement_price_nad).unwrap();
@@ -902,7 +896,7 @@ fn funded_due_ramp_with_residual_base_hlp() -> (Market, u64) {
     configure_market_depth(&mut market, 1_000_000, 20_000);
     enable_concentrated_curve(&mut market);
     market
-        .deposit_single_sided(MarketAsset::Base, 100_000, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100_000, 1)
         .unwrap();
 
     let trade = market.quote_curve_exact_in(MarketAsset::Base, 250_000, 0).unwrap();
@@ -927,9 +921,9 @@ fn funded_due_ramp_with_residual_base_hlp() -> (Market, u64) {
     let mut target = market.config.amm;
     target.peak_depth_nad = 220 * NAD;
     target.fade_scale_nad = 11 * NAD / 100;
-    market.amm.start_applied_ramp(applied, &target, 0).unwrap();
+    market.amm.start_concentration_ramp(applied, &target, 0).unwrap();
     market.config.amm = target;
-    let due_slot = market.amm.ramp.end_slot;
+    let due_slot = market.amm.concentration_ramp.end_slot;
     market.debt.base_last_accrual_slot = due_slot;
     market.debt.quote_last_accrual_slot = due_slot;
     (market, due_slot)
@@ -953,7 +947,7 @@ fn apply_test_composite_swap(
         .checked_sub(pre_solve_ylp_mint_amount)
         .unwrap();
     let (market_side_in, market_side_out) = market.swap_sides(asset_in);
-    let amount_out = calculate_raw_amount_out(
+    let amount_out = cpmm_amount_out(
         market_side_in.reserves.live_reserve,
         market_side_out.reserves.live_reserve,
         amount_in_after_fee,
@@ -1044,7 +1038,7 @@ proptest! {
             .checked_div(BPS_DENOMINATOR as u64)
             .unwrap()
             .max(1);
-        market.deposit_single_sided(target_asset, deposit_amount, 1, market.risk.last_snapshot_slot)
+        market.deposit_single_sided(target_asset, deposit_amount, 1)
             .unwrap();
         assert_market_hlp_invariants(&market);
 
@@ -1105,7 +1099,7 @@ proptest! {
 fn rebalance_hlp_leverages_up_with_balanced_ylp() {
     let mut market = seeded_market();
     market
-        .deposit_single_sided(MarketAsset::Base, 100, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100, 1)
         .unwrap();
     market.quote_side.reserves.live_reserve = 2_400;
     market.quote_side.reserves.cash_reserve = 2_200;
@@ -1135,7 +1129,7 @@ fn rebalance_hlp_leverages_up_with_balanced_ylp() {
 fn close_hlp_after_rebalance_retires_synthetic_live_reserves() {
     let mut market = seeded_market();
     market
-        .deposit_single_sided(MarketAsset::Base, 100, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100, 1)
         .unwrap();
     market.quote_side.reserves.live_reserve = 2_400;
     market.quote_side.reserves.cash_reserve = 2_200;
@@ -1164,7 +1158,7 @@ fn close_hlp_after_rebalance_retires_synthetic_live_reserves() {
 fn rebalance_hlp_leverage_up_stores_residual_exposure_when_borrow_cash_is_constrained() {
     let mut market = seeded_market();
     market
-        .deposit_single_sided(MarketAsset::Base, 100, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100, 1)
         .unwrap();
     let settlement_reference_before = market.base_hlp_vault.cached_settlement_price_nad;
     market.quote_side.reserves.live_reserve = 2_400;
@@ -1284,7 +1278,7 @@ fn underwater_zero_claim_vault_cannot_block_global_market_update() {
 fn solvent_zero_target_claim_can_still_exit_fully() {
     let mut market = seeded_market();
     market
-        .deposit_single_sided(MarketAsset::Base, 1, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 1, 1)
         .unwrap();
 
     let moved = apply_test_composite_swap(&mut market, MarketAsset::Quote, 3);
@@ -1305,7 +1299,7 @@ fn full_exit_clears_stale_residual_exposure_for_both_hlp_vaults() {
     for (target_asset, deposit_amount) in [(MarketAsset::Base, 100), (MarketAsset::Quote, 200)] {
         let mut market = seeded_market();
         market
-            .deposit_single_sided(target_asset, deposit_amount, 1, market.risk.last_snapshot_slot)
+            .deposit_single_sided(target_asset, deposit_amount, 1)
             .unwrap();
         let vault = match target_asset {
             MarketAsset::Base => &mut market.base_hlp_vault,
@@ -1329,7 +1323,7 @@ fn full_exit_clears_stale_residual_exposure_for_both_hlp_vaults() {
 fn cpmm_swap_skips_unhedgeable_zero_target_vault_without_freezing() {
     let mut market = seeded_market();
     market
-        .deposit_single_sided(MarketAsset::Base, 1, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 1, 1)
         .unwrap();
     apply_test_composite_swap(&mut market, MarketAsset::Quote, 3);
     market.debt.quote_borrow_index_nad = (NAD as u128) * 2;
@@ -1351,7 +1345,7 @@ fn post_state_residual_exposure_tracks_high_index_and_coarse_share_rounding_for_
         market.base_side.shares.ylp_supply = 101;
         market.quote_side.shares.ylp_supply = 101;
         market
-            .deposit_single_sided(target_asset, 100, 1, market.risk.last_snapshot_slot)
+            .deposit_single_sided(target_asset, 100, 1)
             .unwrap();
         match target_asset {
             MarketAsset::Base => market.debt.quote_borrow_index_nad = (NAD as u128) * 110 / 100,
@@ -1381,7 +1375,7 @@ fn post_state_residual_exposure_tracks_high_index_and_coarse_share_rounding_for_
 fn rebalance_hlp_leverage_up_keeps_swap_live_without_borrow_cash() {
     let mut market = seeded_market();
     market
-        .deposit_single_sided(MarketAsset::Base, 100, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100, 1)
         .unwrap();
     market.quote_side.reserves.live_reserve = 2_400;
     market.quote_side.reserves.cash_reserve = 0;
@@ -1402,31 +1396,27 @@ fn rebalance_hlp_leverage_up_keeps_swap_live_without_borrow_cash() {
 }
 
 #[test]
-fn rebalance_hlp_leverage_up_keeps_parent_operation_live_when_daily_capacity_is_exhausted() {
+fn rebalance_hlp_leverage_up_ignores_exhausted_public_borrow_capacity() {
     let mut market = seeded_market();
-    market.deposit_single_sided(MarketAsset::Base, 100, 1, 0).unwrap();
+    market.deposit_single_sided(MarketAsset::Base, 100, 1).unwrap();
     market.quote_side.reserves.live_reserve = 2_400;
     market.quote_side.reserves.cash_reserve = 2_200;
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
     let limit = market
         .daily_limit_for_side(MarketAsset::Quote, market.config.max_daily_borrow_bps)
         .unwrap();
-    market.quote_side.daily_limits.borrowed_bucket = limit;
-    let ideal_before = current_hlp_ideal_delta(&market, MarketAsset::Base).unwrap();
-    assert!(ideal_before > 0);
-
+    market.quote_side.daily_borrow_bucket.borrowed_bucket = limit;
     let receipt = rebalance_one_hlp(&mut market, MarketAsset::Base, 0).unwrap();
 
-    assert_eq!(receipt.executed_delta, 0);
-    assert_eq!(receipt.debt_delta, 0);
-    assert_eq!(receipt.residual_exposure, ideal_before);
-    assert_eq!(market.quote_side.daily_limits.borrowed_bucket, limit);
+    assert!(receipt.executed_delta > 0);
+    assert!(receipt.debt_delta > 0);
+    assert_eq!(market.quote_side.daily_borrow_bucket.borrowed_bucket, limit);
 }
 
 #[test]
-fn pre_solve_hlp_cannot_spend_capacity_reserved_for_explicit_leverage_debt() {
+fn rebalance_hlp_does_not_consume_available_public_borrow_capacity() {
     let mut market = seeded_market();
-    market.deposit_single_sided(MarketAsset::Base, 100, 1, 0).unwrap();
+    market.deposit_single_sided(MarketAsset::Base, 100, 1).unwrap();
     market.quote_side.reserves.live_reserve = 2_400;
     market.quote_side.reserves.cash_reserve = 2_200;
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
@@ -1434,48 +1424,26 @@ fn pre_solve_hlp_cannot_spend_capacity_reserved_for_explicit_leverage_debt() {
     let limit = market
         .daily_limit_for_side(MarketAsset::Quote, market.config.max_daily_borrow_bps)
         .unwrap();
-    market.quote_side.daily_limits.borrowed_bucket = limit - explicit_borrow;
-
-    let receipt =
-        rebalance_one_hlp_with_reservation(&mut market, MarketAsset::Base, 0, MarketAsset::Quote, explicit_borrow)
-            .unwrap();
-
-    assert_eq!(receipt.executed_delta, 0);
-    assert_eq!(receipt.debt_delta, 0);
-    assert_ne!(receipt.residual_exposure, 0);
-    assert_eq!(market.quote_side.daily_limits.borrowed_bucket, limit - explicit_borrow);
-    market
-        .record_new_borrow(MarketAsset::Quote, explicit_borrow, 0)
-        .unwrap();
-    assert_eq!(market.quote_side.daily_limits.borrowed_bucket, limit);
-}
-
-#[test]
-fn clipped_hlp_dust_does_not_consume_daily_capacity() {
-    let mut market = seeded_market();
-    market.deposit_single_sided(MarketAsset::Base, 100, 1, 0).unwrap();
-    market.quote_side.reserves.live_reserve = 2_400;
-    market.quote_side.reserves.cash_reserve = 2_200;
-    market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
-    let limit = market
-        .daily_limit_for_side(MarketAsset::Quote, market.config.max_daily_borrow_bps)
-        .unwrap();
-    market.quote_side.daily_limits.borrowed_bucket = limit - 1;
+    market.quote_side.daily_borrow_bucket.borrowed_bucket = limit - explicit_borrow;
 
     let receipt = rebalance_one_hlp(&mut market, MarketAsset::Base, 0).unwrap();
 
-    assert!(receipt.ideal_delta > 0);
-    assert_eq!(receipt.executed_delta, 0);
-    assert_eq!(receipt.ylp_mint_amount, 0);
-    assert_eq!(receipt.debt_delta, 0);
-    assert_eq!(market.quote_side.daily_limits.borrowed_bucket, limit - 1);
+    assert!(receipt.executed_delta > 0);
+    assert!(receipt.debt_delta > 0);
+    assert_eq!(market.quote_side.daily_borrow_bucket.borrowed_bucket, limit - explicit_borrow);
+    market
+        .side_mut(MarketAsset::Quote)
+        .daily_borrow_bucket
+        .record_borrow(explicit_borrow, limit, 0)
+        .unwrap();
+    assert_eq!(market.quote_side.daily_borrow_bucket.borrowed_bucket, limit);
 }
 
 #[test]
 fn rebalance_hlp_deleverages_with_balanced_ylp() {
     let mut market = seeded_market();
     market
-        .deposit_single_sided(MarketAsset::Base, 100, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100, 1)
         .unwrap();
     market.quote_side.reserves.live_reserve = 1_800;
     market.quote_side.reserves.cash_reserve = 1_600;
@@ -1503,7 +1471,7 @@ fn rebalance_hlp_deleverages_with_balanced_ylp() {
 fn rebalance_hlp_deleverage_pays_accrued_interest_from_borrowed_cash() {
     let mut market = seeded_market();
     market
-        .deposit_single_sided(MarketAsset::Base, 100, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100, 1)
         .unwrap();
     market.quote_side.reserves.live_reserve = 1_800;
     market.quote_side.reserves.cash_reserve = 1_600;
@@ -1539,7 +1507,7 @@ fn rebalance_hlp_deleverage_pays_accrued_interest_from_borrowed_cash() {
 fn quote_hlp_rebalance_moves_both_ylp_sides() {
     let mut market = seeded_market();
     market
-        .deposit_single_sided(MarketAsset::Quote, 200, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Quote, 200, 1)
         .unwrap();
     market.base_side.reserves.live_reserve = 1_200;
     market.base_side.reserves.cash_reserve = 1_100;
@@ -1572,14 +1540,14 @@ fn swap_rebalance_is_price_neutral_after_user_quote() {
     market.quote_side.shares.ylp_supply = 1_000_000;
 
     market
-        .deposit_single_sided(MarketAsset::Base, 100_000, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100_000, 1)
         .unwrap();
     market
-        .deposit_single_sided(MarketAsset::Quote, 200_000, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Quote, 200_000, 1)
         .unwrap();
 
     let amount_in_after_fee = 50_000;
-    let amount_out = calculate_raw_amount_out(
+    let amount_out = cpmm_amount_out(
         market.base_side.reserves.live_reserve,
         market.quote_side.reserves.live_reserve,
         amount_in_after_fee,
@@ -1624,7 +1592,7 @@ fn small_swap_skips_hlp_pre_solve() {
     let mut market = seeded_market();
     configure_market_depth(&mut market, 1_000_000, 20_000);
     market
-        .deposit_single_sided(MarketAsset::Base, 100_000, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100_000, 1)
         .unwrap();
 
     let (base_receipt, quote_receipt) = pre_solve_hlp_vaults_for_swap(&mut market, MarketAsset::Base, 1).unwrap();
@@ -1808,7 +1776,7 @@ fn recognized_checkpoint_dust_does_not_reappear_on_the_next_user_operation() {
     market.quote_side.shares.ylp_supply *= scale;
     enable_concentrated_curve(&mut market);
     market
-        .deposit_single_sided(MarketAsset::Base, 100 * scale, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100 * scale, 1)
         .unwrap();
 
     market.debt.quote_borrow_index_nad = (NAD + 1) as u128;
@@ -1832,14 +1800,14 @@ fn large_swap_pre_solve_changes_quote_visible_depth() {
     let mut market = seeded_market();
     configure_market_depth(&mut market, 1_000_000, 20_000);
     market
-        .deposit_single_sided(MarketAsset::Base, 100_000, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Base, 100_000, 1)
         .unwrap();
     market
-        .deposit_single_sided(MarketAsset::Quote, 200_000, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Quote, 200_000, 1)
         .unwrap();
 
     let amount_in_after_fee = 350_000;
-    let user_only_out = calculate_raw_amount_out(
+    let user_only_out = cpmm_amount_out(
         market.base_side.reserves.live_reserve,
         market.quote_side.reserves.live_reserve,
         amount_in_after_fee,
@@ -1858,7 +1826,7 @@ fn large_swap_pre_solve_changes_quote_visible_depth() {
         base_receipt.executed_delta != 0 && quote_receipt.executed_delta != 0,
         "both active hLP vaults should be eligible for pre-adjustment"
     );
-    let pre_solved_out = calculate_raw_amount_out(
+    let pre_solved_out = cpmm_amount_out(
         market.base_side.reserves.live_reserve,
         market.quote_side.reserves.live_reserve,
         amount_in_after_fee,
@@ -1931,8 +1899,6 @@ fn swap_pre_solve_reaches_the_endogenous_price_fixed_point() {
             asset_in,
             amount_in_after_fee,
             amount_in_after_fee,
-            0,
-            asset_in,
             0,
         )
         .unwrap();
@@ -2228,7 +2194,7 @@ fn pre_solved_hlp_mints_start_earning_after_current_swap_fee() {
     let mut market = seeded_market();
     configure_market_depth(&mut market, 1_000_000, 20_000);
     market
-        .deposit_single_sided(MarketAsset::Quote, 200_000, 1, market.risk.last_snapshot_slot)
+        .deposit_single_sided(MarketAsset::Quote, 200_000, 1)
         .unwrap();
     let quote_hlp_ylp_before = market.quote_hlp_vault.ylp_shares;
 
@@ -2250,7 +2216,7 @@ fn pre_solved_hlp_mints_start_earning_after_current_swap_fee() {
         .ylp_supply
         .checked_sub(pre_solve_minted)
         .unwrap();
-    let amount_out = calculate_raw_amount_out(
+    let amount_out = cpmm_amount_out(
         market.base_side.reserves.live_reserve,
         market.quote_side.reserves.live_reserve,
         amount_in_after_fee,

@@ -61,29 +61,29 @@ export const ORDINARY_SWAP_COMPUTE_UNIT_LIMIT = 100_000n;
 const COMPUTE_SCENARIO_BASELINES: Partial<
   Record<SwapComputeScenario, ComputeScenarioBaseline>
 > = {
-  cpmm_same_slot: { measuredMaximum: 58_286n, ceiling: 61_201n },
-  cpmm_advanced_slot: { measuredMaximum: 91_378n, ceiling: 95_947n },
-  cpmm_active_debt: { measuredMaximum: 100_032n, ceiling: 105_034n },
-  concentrated_centered: { measuredMaximum: 190_954n, ceiling: 200_502n },
-  concentrated_transition: { measuredMaximum: 276_597n, ceiling: 290_427n },
-  concentrated_tail: { measuredMaximum: 109_821n, ceiling: 115_313n },
+  cpmm_same_slot: { measuredMaximum: 56_215n, ceiling: 59_026n },
+  cpmm_advanced_slot: { measuredMaximum: 89_304n, ceiling: 93_770n },
+  cpmm_active_debt: { measuredMaximum: 97_982n, ceiling: 102_882n },
+  concentrated_centered: { measuredMaximum: 188_883n, ceiling: 198_328n },
+  concentrated_transition: { measuredMaximum: 274_752n, ceiling: 288_490n },
+  concentrated_tail: { measuredMaximum: 107_976n, ceiling: 113_375n },
   dynamic_fee_divergence_stress: {
-    measuredMaximum: 362_583n,
-    ceiling: 380_713n,
+    measuredMaximum: 356_950n,
+    ceiling: 374_798n,
   },
   dynamic_fee_volatility_stress: {
-    measuredMaximum: 107_001n,
-    ceiling: 112_352n,
+    measuredMaximum: 105_407n,
+    ceiling: 110_678n,
   },
-  retained_surcharge: { measuredMaximum: 474_615n, ceiling: 498_346n },
-  controller_due_ramp: { measuredMaximum: 491_675n, ceiling: 516_259n },
+  retained_surcharge: { measuredMaximum: 474_610n, ceiling: 498_341n },
+  controller_due_ramp: { measuredMaximum: 489_599n, ceiling: 514_079n },
   controller_due_recenter: {
-    measuredMaximum: 486_935n,
-    ceiling: 511_282n,
+    measuredMaximum: 403_274n,
+    ceiling: 423_438n,
   },
-  hlp_active: { measuredMaximum: 107_758n, ceiling: 113_146n },
-  hlp_residual_correction: { measuredMaximum: 166_313n, ceiling: 174_629n },
-  token_2022_swap: { measuredMaximum: 67_366n, ceiling: 70_735n },
+  hlp_active: { measuredMaximum: 105_701n, ceiling: 110_987n },
+  hlp_residual_correction: { measuredMaximum: 164_258n, ceiling: 172_471n },
+  token_2022_swap: { measuredMaximum: 65_448n, ceiling: 68_721n },
 };
 
 Object.entries(COMPUTE_SCENARIO_BASELINES).forEach(([scenario, baseline]) => {
@@ -130,11 +130,11 @@ const DUSK_INSTRUCTIONS = [
   "setReferralRecipient",
   "claimReferralInterest",
   "settleProtocolAuction",
-  "initialize",
+  "initializeMarket",
   "initializeLpMetadata",
   "initializeYieldAccounts",
   "initializeLpTransferHook",
-  "setReduceOnly",
+  "setMarketReduceOnly",
   "createParameterProposal",
   "supportParameterProposal",
   "queueParameterProposal",
@@ -382,6 +382,15 @@ export function recordExternalTransferHookComputeUnits(computeUnits: bigint | un
 }
 
 export function assertRequiredSwapComputeScenarios() {
+  const unmeasuredInstructions = ALL_INSTRUCTIONS.filter(
+    (instruction) => !computeUnitDetails.has(instruction)
+  );
+  if (unmeasuredInstructions.length > 0) {
+    throw new Error(
+      `Missing successful CU measurements for Dusk instructions: ${unmeasuredInstructions.join(", ")}`
+    );
+  }
+
   const missing = REQUIRED_SWAP_COMPUTE_SCENARIOS.filter(
     (scenario) => !computeScenarioDetails.has(scenario)
   );

@@ -15,7 +15,7 @@ fn cpmm_config() -> AmmConfig {
         volatility_cap_nad: NAD,
         divergence_fee_coefficient_nad: NAD,
         volatility_fee_coefficient_nad: NAD,
-        ramp_duration_slots: MIN_AMM_RAMP_DURATION_SLOTS,
+        concentration_ramp_duration_slots: MIN_CONCENTRATION_RAMP_DURATION_SLOTS,
         reserved: [0; AMM_CONFIG_RESERVED_BYTES],
     }
 }
@@ -31,7 +31,7 @@ fn concentrated_config() -> AmmConfig {
     }
 }
 
-fn geometry_cache_for(parameters: AmmCurveParameters) -> Option<ConcentratedGeometryCache> {
+fn geometry_cache_for(parameters: ConcentrationParameters) -> Option<ConcentratedGeometryCache> {
     (!parameters.is_cpmm())
         .then(|| {
             ConcentratedGeometryCache::derive(parameters.peak_depth_nad as u128, parameters.fade_scale_nad as u128)
@@ -96,17 +96,17 @@ fn validates_signal_fee_and_ramp_bounds() {
     assert!(config.validate().is_err());
 
     config = concentrated_config();
-    config.ramp_duration_slots = MIN_AMM_RAMP_DURATION_SLOTS - 1;
+    config.concentration_ramp_duration_slots = MIN_CONCENTRATION_RAMP_DURATION_SLOTS - 1;
     assert!(config.validate().is_err());
 
     config = concentrated_config();
-    config.ramp_duration_slots = MIN_AMM_RAMP_DURATION_SLOTS;
+    config.concentration_ramp_duration_slots = MIN_CONCENTRATION_RAMP_DURATION_SLOTS;
     assert!(config.validate().is_ok());
 
-    config.ramp_duration_slots = MAX_AMM_RAMP_DURATION_SLOTS;
+    config.concentration_ramp_duration_slots = MAX_CONCENTRATION_RAMP_DURATION_SLOTS;
     assert!(config.validate().is_ok());
 
-    config.ramp_duration_slots = MAX_AMM_RAMP_DURATION_SLOTS + 1;
+    config.concentration_ramp_duration_slots = MAX_CONCENTRATION_RAMP_DURATION_SLOTS + 1;
     assert!(config.validate().is_err());
 
     config = concentrated_config();
@@ -285,9 +285,9 @@ fn recenter_ramp_and_hlp_checkpoints_do_not_create_flow_volatility() {
     let mut target = config;
     target.peak_depth_nad *= 2;
     state
-        .start_applied_ramp(config.curve_parameters(), &target, 20)
+        .start_concentration_ramp(config.curve_parameters(), &target, 20)
         .unwrap();
-    let candidate = AmmCurveParameters {
+    let candidate = ConcentrationParameters {
         peak_depth_nad: config.peak_depth_nad + 1,
         fade_scale_nad: config.fade_scale_nad + 1,
     };
@@ -316,16 +316,16 @@ fn recenter_ramp_and_hlp_checkpoints_do_not_create_flow_volatility() {
 
 #[test]
 fn applied_ramp_starts_immediately_and_interpolates_deterministically() {
-    let start = AmmCurveParameters::cpmm();
+    let start = ConcentrationParameters::cpmm();
     let target = concentrated_config().curve_parameters();
-    let duration = MIN_AMM_RAMP_DURATION_SLOTS * 2;
-    let ramp = AmmRamp::start(start, target, 500, duration).unwrap();
+    let duration = MIN_CONCENTRATION_RAMP_DURATION_SLOTS * 2;
+    let ramp = ConcentrationRamp::start(start, target, 500, duration).unwrap();
 
     assert_eq!(ramp.parameters_at(start, 499), start);
     assert_eq!(ramp.parameters_at(start, 500), start);
     assert_eq!(
         ramp.parameters_at(start, 500 + duration / 2),
-        AmmCurveParameters {
+        ConcentrationParameters {
             peak_depth_nad: target.peak_depth_nad / 2,
             fade_scale_nad: target.fade_scale_nad / 2,
         }
@@ -335,14 +335,14 @@ fn applied_ramp_starts_immediately_and_interpolates_deterministically() {
 
 #[test]
 fn protocol_sequenced_cpmm_ramps_keep_every_positive_peak_conditioned() {
-    let cpmm = AmmCurveParameters::cpmm();
-    let concentrated = AmmCurveParameters {
+    let cpmm = ConcentrationParameters::cpmm();
+    let concentrated = ConcentrationParameters {
         peak_depth_nad: MIN_AMM_PEAK_DEPTH_NAD,
         fade_scale_nad: MIN_AMM_FADE_SCALE_NAD,
     };
-    let duration = MIN_AMM_RAMP_DURATION_SLOTS;
+    let duration = MIN_CONCENTRATION_RAMP_DURATION_SLOTS;
 
-    let entering = AmmRamp::start(cpmm, concentrated, 100, duration).unwrap();
+    let entering = ConcentrationRamp::start(cpmm, concentrated, 100, duration).unwrap();
     let first = entering.parameters_at(cpmm, 101);
     assert_eq!(first.peak_depth_nad, concentrated.peak_depth_nad / duration);
     assert_eq!(first.fade_scale_nad, MIN_AMM_FADE_SCALE_NAD);
@@ -350,7 +350,7 @@ fn protocol_sequenced_cpmm_ramps_keep_every_positive_peak_conditioned() {
     first.validate_runtime().unwrap();
     assert_eq!(entering.parameters_at(cpmm, entering.end_slot), concentrated);
 
-    let exiting = AmmRamp::start(concentrated, cpmm, 1_000_000, duration).unwrap();
+    let exiting = ConcentrationRamp::start(concentrated, cpmm, 1_000_000, duration).unwrap();
     let penultimate = exiting.parameters_at(concentrated, exiting.end_slot - 1);
     assert_eq!(penultimate.peak_depth_nad, concentrated.peak_depth_nad / duration);
     assert_eq!(penultimate.fade_scale_nad, MIN_AMM_FADE_SCALE_NAD);
@@ -360,16 +360,16 @@ fn protocol_sequenced_cpmm_ramps_keep_every_positive_peak_conditioned() {
 
 #[test]
 fn concentrated_to_concentrated_ramp_interpolates_both_safe_coordinates() {
-    let start = AmmCurveParameters {
+    let start = ConcentrationParameters {
         peak_depth_nad: 10 * NAD,
         fade_scale_nad: MIN_AMM_FADE_SCALE_NAD,
     };
-    let target = AmmCurveParameters {
+    let target = ConcentrationParameters {
         peak_depth_nad: 100 * NAD,
         fade_scale_nad: 10_000,
     };
-    let duration = MIN_AMM_RAMP_DURATION_SLOTS;
-    let ramp = AmmRamp::start(start, target, 500, duration).unwrap();
+    let duration = MIN_CONCENTRATION_RAMP_DURATION_SLOTS;
+    let ramp = ConcentrationRamp::start(start, target, 500, duration).unwrap();
     for slot in [501, 500 + duration / 2, ramp.end_slot - 1] {
         let candidate = ramp.parameters_at(start, slot);
         assert!(candidate.peak_depth_nad > 0);
@@ -383,24 +383,24 @@ fn state_rejects_overlapping_ramp_and_clears_finished_history() {
     let old = cpmm_config();
     let target = concentrated_config();
     let mut state = AmmState::initialize(&old, NAD, NAD as u128, 100).unwrap();
-    state.start_applied_ramp(old.curve_parameters(), &target, 100).unwrap();
-    assert!(state.start_applied_ramp(old.curve_parameters(), &target, 101).is_err());
-    assert!(!state.settle_ramp(state.ramp.end_slot - 1));
-    assert!(!state.settle_ramp(state.ramp.end_slot));
+    state.start_concentration_ramp(old.curve_parameters(), &target, 100).unwrap();
+    assert!(state.start_concentration_ramp(old.curve_parameters(), &target, 101).is_err());
+    assert!(!state.settle_concentration_ramp(state.concentration_ramp.end_slot - 1));
+    assert!(!state.settle_concentration_ramp(state.concentration_ramp.end_slot));
     assert_eq!(
-        state.effective_curve_parameters(&target, state.ramp.end_slot),
+        state.effective_curve_parameters(&target, state.concentration_ramp.end_slot),
         old.curve_parameters()
     );
     assert_eq!(
-        state.desired_curve_parameters(&target, state.ramp.end_slot),
+        state.desired_curve_parameters(&target, state.concentration_ramp.end_slot),
         target.curve_parameters()
     );
     let candidate = target.curve_parameters();
     state
-        .commit_applied_curve_parameters(candidate, geometry_cache_for(candidate), state.ramp.end_slot)
+        .commit_applied_curve_parameters(candidate, geometry_cache_for(candidate), state.concentration_ramp.end_slot)
         .unwrap();
-    assert!(state.settle_ramp(state.ramp.end_slot));
-    assert!(!state.ramp.active);
+    assert!(state.settle_concentration_ramp(state.concentration_ramp.end_slot));
+    assert!(!state.concentration_ramp.active);
 }
 
 #[test]
@@ -408,17 +408,17 @@ fn cpmm_transition_accepts_sub_minimum_runtime_points_without_applying_time_alon
     let old = cpmm_config();
     let target = concentrated_config();
     let mut state = AmmState::initialize(&old, NAD, NAD as u128, 100).unwrap();
-    state.start_applied_ramp(old.curve_parameters(), &target, 100).unwrap();
+    state.start_concentration_ramp(old.curve_parameters(), &target, 100).unwrap();
 
     let first_candidate = state.desired_curve_parameters(&target, 101);
     assert!(first_candidate.peak_depth_nad < MIN_AMM_PEAK_DEPTH_NAD);
     assert_eq!(
         first_candidate.fade_scale_nad,
-        (target.fade_scale_nad / target.ramp_duration_slots).max(MIN_AMM_FADE_SCALE_NAD)
+        (target.fade_scale_nad / target.concentration_ramp_duration_slots).max(MIN_AMM_FADE_SCALE_NAD)
     );
     assert_eq!(
         state.effective_curve_parameters(&target, 101),
-        AmmCurveParameters::cpmm()
+        ConcentrationParameters::cpmm()
     );
     state
         .commit_applied_curve_parameters(first_candidate, geometry_cache_for(first_candidate), 101)
@@ -428,17 +428,17 @@ fn cpmm_transition_accepts_sub_minimum_runtime_points_without_applying_time_alon
 
 #[test]
 fn cpmm_ramp_never_exposes_half_enabled_concentration_after_integer_rounding() {
-    let start = AmmCurveParameters::cpmm();
-    let target = AmmCurveParameters {
+    let start = ConcentrationParameters::cpmm();
+    let target = ConcentrationParameters {
         peak_depth_nad: MIN_AMM_PEAK_DEPTH_NAD,
         fade_scale_nad: MIN_AMM_FADE_SCALE_NAD,
     };
-    let ramp = AmmRamp::start(start, target, 100, MIN_AMM_RAMP_DURATION_SLOTS).unwrap();
+    let ramp = ConcentrationRamp::start(start, target, 100, MIN_CONCENTRATION_RAMP_DURATION_SLOTS).unwrap();
 
     for slot in 101..110 {
         let candidate = ramp.parameters_at(start, slot);
         assert!(
-            candidate == AmmCurveParameters::cpmm()
+            candidate == ConcentrationParameters::cpmm()
                 || (candidate.peak_depth_nad > 0 && candidate.fade_scale_nad >= MIN_AMM_FADE_SCALE_NAD)
         );
         candidate.validate_runtime().unwrap();
@@ -451,13 +451,13 @@ fn active_protocol_sequenced_ramp_preserves_retention_routing_state() {
     let target = concentrated_config();
     let mut state = AmmState::initialize(&old, NAD, NAD as u128, 100).unwrap();
     state.retain_dynamic_surcharge = true;
-    state.start_applied_ramp(old.curve_parameters(), &target, 100).unwrap();
+    state.start_concentration_ramp(old.curve_parameters(), &target, 100).unwrap();
 
     let candidate = state.desired_curve_parameters(&target, 101);
     state
         .commit_applied_curve_parameters(candidate, geometry_cache_for(candidate), 101)
         .unwrap();
-    assert!(state.ramp.active);
+    assert!(state.concentration_ramp.active);
     assert!(state.retain_dynamic_surcharge);
     assert!(state.applied_curve_parameters.fade_scale_nad >= MIN_AMM_FADE_SCALE_NAD);
 }
@@ -468,7 +468,7 @@ fn expired_underfunded_intermediate_can_be_redirected_by_new_ramp() {
     let first_target = concentrated_config();
     let mut state = AmmState::initialize(&old, NAD, NAD as u128, 100).unwrap();
     state
-        .start_applied_ramp(old.curve_parameters(), &first_target, 100)
+        .start_concentration_ramp(old.curve_parameters(), &first_target, 100)
         .unwrap();
 
     let intermediate = state.desired_curve_parameters(&first_target, 101);
@@ -477,10 +477,10 @@ fn expired_underfunded_intermediate_can_be_redirected_by_new_ramp() {
         .commit_applied_curve_parameters(intermediate, geometry_cache_for(intermediate), 101)
         .unwrap();
 
-    let expired_slot = state.ramp.end_slot;
+    let expired_slot = state.concentration_ramp.end_slot;
     state.deferred_controller_target = DeferredControllerTarget {
         kind: DeferredControllerTarget::RAMP,
-        parameters: state.ramp.target,
+        parameters: state.concentration_ramp.target,
         saturated: true,
         ..DeferredControllerTarget::default()
     };
@@ -488,11 +488,11 @@ fn expired_underfunded_intermediate_can_be_redirected_by_new_ramp() {
     let mut replacement = concentrated_config();
     replacement.peak_depth_nad *= 2;
     state
-        .start_applied_ramp(intermediate, &replacement, expired_slot)
+        .start_concentration_ramp(intermediate, &replacement, expired_slot)
         .unwrap();
 
-    assert_eq!(state.ramp.start, intermediate);
-    assert_eq!(state.ramp.target, replacement.curve_parameters());
+    assert_eq!(state.concentration_ramp.start, intermediate);
+    assert_eq!(state.concentration_ramp.target, replacement.curve_parameters());
     assert_eq!(state.deferred_controller_target, DeferredControllerTarget::default());
     assert!(!state.retention_target_saturated);
     assert!(state.retention_target_stale);

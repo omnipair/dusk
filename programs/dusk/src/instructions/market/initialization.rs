@@ -16,15 +16,16 @@ use anchor_spl::{
 };
 
 use crate::{
+    account::get_size_with_discriminator,
     constants::*,
     errors::ErrorCode,
     events::{MarketCreated, MarketEventMetadata},
     generate_market_seeds,
-    shared::{account::get_size_with_discriminator, token::create_token_account},
     state::{FutarchyAuthority, Market, MarketConfig, MarketSide},
+    token::create_token_account,
 };
 
-use crate::instructions::common::{
+use crate::instructions::accounts::{
     derive_hlp_ylp_vault_address, require_supported_asset_mint, token_program_for_mint, validate_lp_mint,
 };
 

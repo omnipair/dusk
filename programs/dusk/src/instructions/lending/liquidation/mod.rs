@@ -1,6 +1,6 @@
 pub mod bid_liquidation_auction;
-mod common;
 pub mod settle_liquidation_auction_floor;
+mod settlement;
 pub mod trigger_liquidation_auction;
 
 pub use bid_liquidation_auction::*;

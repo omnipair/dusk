@@ -90,7 +90,7 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
   contributions, stored liquidation CFs, insurance, fee liabilities, and
   market health as separate Dusk metrics.
 - Decode `LiquidityAdded`, `LiquidityRemoved`, `SwapExecuted`,
-  `MarketDebtUpdated`, `PositionLiquidated`, yield, protocol-fee, hedge, and
+  `MarketDebtUpdated`, `BorrowPositionLiquidated`, yield, protocol-fee, hedge, and
   insurance events from the Dusk IDL.
 - Confirm analytics labels use Dusk market terminology.
 

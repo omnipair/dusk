@@ -9,11 +9,11 @@ use crate::{
     errors::ErrorCode,
     events::{MarketEventMetadata, YieldClaimed},
     generate_market_seeds,
-    shared::token::transfer_checked_with_remaining_accounts,
     state::{Market, YieldAccount, YieldClaimReceipt, YieldTokenKind},
+    token::transfer_checked_with_remaining_accounts,
 };
 
-use crate::instructions::common::{
+use crate::instructions::accounts::{
     require_reserve_custody, token_account_credit, token_program_for_mint, validate_interest_accounts,
     validate_owner_lp_account, validate_swap_fee_custody_accounts,
 };
@@ -121,7 +121,7 @@ impl<'info> ClaimYield<'info> {
         )
     }
 
-    crate::instructions::common::market_update_and_validate!(ClaimYieldArgs);
+    crate::instructions::accounts::market_update_and_validate!(ClaimYieldArgs);
 
     pub fn handle_claim(ctx: Context<'_, '_, '_, 'info, Self>, args: ClaimYieldArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();

@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 use crate::{errors::ErrorCode, state::MarketSide};
 
 #[cfg(test)]
-use crate::shared::math::SqrtU128;
+use crate::math::SqrtU128;
 
 use super::{fixed_point::normalize_to_nad, mul_div_ceil_u128, mul_div_u128};
 
@@ -27,7 +27,7 @@ pub(crate) fn market_spot_price_nad(collateral_side: &MarketSide, debt_side: &Ma
     u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
-pub(crate) fn market_k_nad(base_side: &MarketSide, quote_side: &MarketSide) -> Result<u128> {
+pub(crate) fn cpmm_invariant_nad(base_side: &MarketSide, quote_side: &MarketSide) -> Result<u128> {
     normalize_to_nad(base_side.reserves.live_reserve as u128, base_side.asset_decimals)?
         .checked_mul(normalize_to_nad(
             quote_side.reserves.live_reserve as u128,
@@ -40,7 +40,7 @@ pub(crate) fn market_k_nad(base_side: &MarketSide, quote_side: &MarketSide) -> R
 /// preserving the current spot reserve ratio. Flooring can only make the
 /// reconstructed product more conservative than `k_nad`.
 #[cfg(test)]
-pub(crate) fn construct_normalized_reserves_from_k_at_spot_ratio(
+pub(crate) fn cpmm_reserves_from_invariant_at_spot_ratio(
     x_spot: u128,
     y_spot: u128,
     k_nad: u128,
@@ -73,7 +73,7 @@ pub(crate) fn construct_normalized_reserves_from_k_at_spot_ratio(
 /// - x_virt = sqrt(k * NAD / P_pessimistic)
 /// - y_virt = sqrt(k * P_pessimistic / NAD)
 #[cfg(test)]
-pub(crate) fn construct_normalized_virtual_reserves_at_pessimistic_price(
+pub(crate) fn cpmm_virtual_reserves_at_pessimistic_price(
     x_spot: u128,
     y_spot: u128,
     x_price_nad: u64,
@@ -132,15 +132,15 @@ pub(crate) fn construct_normalized_virtual_reserves_at_pessimistic_price(
 /// ```text
 /// Δy = (Δx * y) / (x + Δx)
 /// ```
-pub(crate) fn calculate_normalized_amount_out(x: u128, y: u128, dx: u128) -> Result<u128> {
+pub(crate) fn cpmm_amount_out_nad(x: u128, y: u128, dx: u128) -> Result<u128> {
     let denominator = x.checked_add(dx).ok_or(ErrorCode::DenominatorOverflow)?;
     require!(denominator > 0, ErrorCode::OutputAmountOverflow);
     mul_div_u128(dx, y, denominator).map_err(|_| ErrorCode::OutputAmountOverflow.into())
 }
 
 #[cfg(test)]
-pub(crate) fn calculate_raw_amount_out(x: u64, y: u64, dx: u64) -> Result<u64> {
-    let dy = calculate_normalized_amount_out(x as u128, y as u128, dx as u128)?;
+pub(crate) fn cpmm_amount_out(x: u64, y: u64, dx: u64) -> Result<u64> {
+    let dy = cpmm_amount_out_nad(x as u128, y as u128, dx as u128)?;
     u64::try_from(dy).map_err(|_| ErrorCode::OutputAmountOverflow.into())
 }
 
@@ -148,7 +148,7 @@ pub(crate) fn calculate_raw_amount_out(x: u64, y: u64, dx: u64) -> Result<u64> {
 /// ```text
 /// Δx = (Δy * x) / (y - Δy)
 /// ```
-pub(crate) fn calculate_normalized_amount_in(x: u128, y: u128, dy: u128) -> Result<u128> {
+pub(crate) fn cpmm_amount_in_nad(x: u128, y: u128, dy: u128) -> Result<u128> {
     let denominator = y.checked_sub(dy).ok_or(ErrorCode::DenominatorOverflow)?;
     require!(denominator > 0, ErrorCode::OutputAmountOverflow);
     mul_div_ceil_u128(dy, x, denominator).map_err(|_| ErrorCode::OutputAmountOverflow.into())
@@ -156,5 +156,5 @@ pub(crate) fn calculate_normalized_amount_in(x: u128, y: u128, dy: u128) -> Resu
 
 #[cfg(test)]
 mod tests {
-    include!("../tests/math/gamm.rs");
+    include!("../tests/math/cpmm.rs");
 }

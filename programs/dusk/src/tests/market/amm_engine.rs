@@ -4,7 +4,7 @@ use crate::{
     math::MIN_INNER_COMMON_RESERVE,
     state::{
         AmmConfig, Debt, MarketAsset, MarketConfig, MarketSide, ReserveShares, Reserves, MAX_AMM_ADJUSTMENT_NAD,
-        MIN_AMM_ADJUSTMENT_NAD, MIN_AMM_FADE_SCALE_NAD, MIN_AMM_PEAK_DEPTH_NAD, MIN_AMM_RAMP_DURATION_SLOTS,
+        MIN_AMM_ADJUSTMENT_NAD, MIN_AMM_FADE_SCALE_NAD, MIN_AMM_PEAK_DEPTH_NAD, MIN_CONCENTRATION_RAMP_DURATION_SLOTS,
     },
 };
 
@@ -59,7 +59,7 @@ fn concentrated_config() -> AmmConfig {
         adjustment_threshold_nad: NAD / 100,
         adjustment_step_nad: NAD / 1_000,
         min_adjustment_interval_slots: 1,
-        ramp_duration_slots: MIN_AMM_RAMP_DURATION_SLOTS,
+        concentration_ramp_duration_slots: MIN_CONCENTRATION_RAMP_DURATION_SLOTS,
         ..AmmConfig::default()
     }
 }
@@ -305,9 +305,9 @@ fn pending_parameter_ramp_arms_retention_before_lazy_admission() {
     let mut target = market.config.amm;
     target.peak_depth_nad = MIN_AMM_PEAK_DEPTH_NAD;
     target.fade_scale_nad = MIN_AMM_FADE_SCALE_NAD;
-    market.amm.start_applied_ramp(old, &target, 10).unwrap();
+    market.amm.start_concentration_ramp(old, &target, 10).unwrap();
     market.config.amm = target;
-    let target_slot = market.amm.ramp.end_slot;
+    let target_slot = market.amm.concentration_ramp.end_slot;
     let candidate_q = market
         .curve_q_per_share_nad(
             market
@@ -545,7 +545,7 @@ fn admitted_parameter_ramp_commits_a_canonical_invariant_matching_a_fresh_solve(
     let applied = market.amm.applied_curve_parameters;
     let mut target = market.config.amm;
     target.peak_depth_nad *= 2;
-    market.amm.start_applied_ramp(applied, &target, 10).unwrap();
+    market.amm.start_concentration_ramp(applied, &target, 10).unwrap();
     market.config.amm = target;
 
     let desired = market.amm.desired_curve_parameters(&market.config.amm, 11);
@@ -585,9 +585,9 @@ fn final_ramp_admission_and_center_recenter_never_share_one_operation() {
     let applied = market.amm.applied_curve_parameters;
     let mut target = market.config.amm;
     target.peak_depth_nad *= 2;
-    market.amm.start_applied_ramp(applied, &target, 10).unwrap();
+    market.amm.start_concentration_ramp(applied, &target, 10).unwrap();
     market.config.amm = target;
-    let final_slot = market.amm.ramp.end_slot;
+    let final_slot = market.amm.concentration_ramp.end_slot;
 
     reset_amm_liquidity_candidate_solves();
     market.prepare_amm_for_swap(final_slot).unwrap();
@@ -595,7 +595,7 @@ fn final_ramp_admission_and_center_recenter_never_share_one_operation() {
 
     assert!(ramp_moved);
     assert_eq!(market.amm.applied_curve_parameters, target.curve_parameters());
-    assert!(!market.amm.ramp.active);
+    assert!(!market.amm.concentration_ramp.active);
     assert_eq!(market.amm.center_price_nad, center_before);
     assert!(amm_liquidity_candidate_solves() <= 1);
 
@@ -820,13 +820,13 @@ fn retained_endpoint_checkpoint_matches_two_fresh_curve_solves() {
 
 #[test]
 fn partially_enabled_runtime_curve_is_rejected() {
-    assert!(AmmCurveParameters {
+    assert!(ConcentrationParameters {
         peak_depth_nad: 1,
         fade_scale_nad: 0,
     }
     .validate_runtime()
     .is_err());
-    assert!(AmmCurveParameters {
+    assert!(ConcentrationParameters {
         peak_depth_nad: 0,
         fade_scale_nad: MIN_AMM_FADE_SCALE_NAD,
     }

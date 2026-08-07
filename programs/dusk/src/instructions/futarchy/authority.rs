@@ -3,12 +3,12 @@ use anchor_lang::solana_program::bpf_loader_upgradeable::UpgradeableLoaderState;
 use bincode::Options;
 
 use crate::{
+    account::get_size_with_discriminator,
     constants::{
         BPS_DENOMINATOR, FUTARCHY_AUTHORITY_SEED_PREFIX, MAX_REFERRAL_INTEREST_SHARE_BPS,
         REDUCE_ONLY_EMERGENCY_AUTHORITY,
     },
     errors::ErrorCode,
-    shared::account::get_size_with_discriminator,
     state::FutarchyAuthority,
 };
 

@@ -1924,6 +1924,38 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": [
@@ -2669,6 +2701,38 @@
         {
           "name": "proposal",
           "writable": true
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": []
@@ -3056,16 +3120,206 @@
       ]
     },
     {
-      "name": "initialize",
+      "name": "initialize_lp_metadata",
       "discriminator": [
-        175,
-        175,
-        109,
-        31,
-        13,
-        152,
+        214,
+        99,
+        201,
+        159,
+        220,
+        88,
+        74,
+        27
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market"
+        },
+        {
+          "name": "lp_mint",
+          "writable": true
+        },
+        {
+          "name": "lp_token_metadata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  11,
+                  112,
+                  101,
+                  177,
+                  227,
+                  209,
+                  124,
+                  69,
+                  56,
+                  157,
+                  82,
+                  127,
+                  107,
+                  4,
+                  195,
+                  205,
+                  88,
+                  184,
+                  108,
+                  115,
+                  26,
+                  160,
+                  253,
+                  181,
+                  73,
+                  182,
+                  209,
+                  188,
+                  3,
+                  248,
+                  41,
+                  70
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "lp_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                11,
+                112,
+                101,
+                177,
+                227,
+                209,
+                124,
+                69,
+                56,
+                157,
+                82,
+                127,
+                107,
+                4,
+                195,
+                205,
+                88,
+                184,
+                108,
+                115,
+                26,
+                160,
+                253,
+                181,
+                73,
+                182,
+                209,
+                188,
+                3,
+                248,
+                41,
+                70
+              ]
+            }
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "sysvar_instructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "token_metadata_program",
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "InitializeLpMetadataArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "initialize_lp_transfer_hook",
+      "discriminator": [
+        207,
+        57,
+        218,
+        104,
+        179,
+        156,
+        22,
+        196
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market"
+        },
+        {
+          "name": "lp_mint"
+        },
+        {
+          "name": "validation_account",
+          "docs": [
+            "against `lp_mint` and owned by Dusk after initialization."
+          ],
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize_market",
+      "discriminator": [
+        35,
+        35,
+        189,
+        193,
         155,
-        237
+        48,
+        170,
+        203
       ],
       "accounts": [
         {
@@ -3492,196 +3746,6 @@
           }
         }
       ]
-    },
-    {
-      "name": "initialize_lp_metadata",
-      "discriminator": [
-        214,
-        99,
-        201,
-        159,
-        220,
-        88,
-        74,
-        27
-      ],
-      "accounts": [
-        {
-          "name": "payer",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "market"
-        },
-        {
-          "name": "lp_mint",
-          "writable": true
-        },
-        {
-          "name": "lp_token_metadata",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  101,
-                  116,
-                  97,
-                  100,
-                  97,
-                  116,
-                  97
-                ]
-              },
-              {
-                "kind": "const",
-                "value": [
-                  11,
-                  112,
-                  101,
-                  177,
-                  227,
-                  209,
-                  124,
-                  69,
-                  56,
-                  157,
-                  82,
-                  127,
-                  107,
-                  4,
-                  195,
-                  205,
-                  88,
-                  184,
-                  108,
-                  115,
-                  26,
-                  160,
-                  253,
-                  181,
-                  73,
-                  182,
-                  209,
-                  188,
-                  3,
-                  248,
-                  41,
-                  70
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "lp_mint"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                11,
-                112,
-                101,
-                177,
-                227,
-                209,
-                124,
-                69,
-                56,
-                157,
-                82,
-                127,
-                107,
-                4,
-                195,
-                205,
-                88,
-                184,
-                108,
-                115,
-                26,
-                160,
-                253,
-                181,
-                73,
-                182,
-                209,
-                188,
-                3,
-                248,
-                41,
-                70
-              ]
-            }
-          }
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        },
-        {
-          "name": "sysvar_instructions",
-          "address": "Sysvar1nstructions1111111111111111111111111"
-        },
-        {
-          "name": "token_2022_program",
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        },
-        {
-          "name": "token_metadata_program",
-          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "InitializeLpMetadataArgs"
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "initialize_lp_transfer_hook",
-      "discriminator": [
-        207,
-        57,
-        218,
-        104,
-        179,
-        156,
-        22,
-        196
-      ],
-      "accounts": [
-        {
-          "name": "payer",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "market"
-        },
-        {
-          "name": "lp_mint"
-        },
-        {
-          "name": "validation_account",
-          "docs": [
-            "against `lp_mint` and owned by Dusk after initialization."
-          ],
-          "writable": true
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
     },
     {
       "name": "initialize_referral_accrual",
@@ -4585,6 +4649,38 @@
         },
         {
           "name": "quote_hlp_ylp_vault"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": []
@@ -5161,16 +5257,16 @@
       ]
     },
     {
-      "name": "set_reduce_only",
+      "name": "set_market_reduce_only",
       "discriminator": [
-        187,
-        233,
-        208,
-        249,
-        160,
-        104,
-        209,
-        117
+        178,
+        78,
+        219,
+        198,
+        188,
+        185,
+        181,
+        88
       ],
       "accounts": [
         {
@@ -5974,6 +6070,38 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": [
@@ -7252,6 +7380,38 @@
         {
           "name": "token_2022_program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": []
@@ -7548,6 +7708,19 @@
   ],
   "events": [
     {
+      "name": "BorrowPositionLiquidated",
+      "discriminator": [
+        107,
+        167,
+        26,
+        25,
+        33,
+        197,
+        106,
+        188
+      ]
+    },
+    {
       "name": "HlpClosed",
       "discriminator": [
         87,
@@ -7730,16 +7903,16 @@
       ]
     },
     {
-      "name": "MarketUpdated",
+      "name": "MarketReduceOnlyUpdated",
       "discriminator": [
-        170,
-        51,
-        74,
-        147,
-        116,
-        168,
-        217,
-        251
+        87,
+        12,
+        104,
+        143,
+        113,
+        121,
+        31,
+        94
       ]
     },
     {
@@ -7805,19 +7978,6 @@
         10,
         140,
         181
-      ]
-    },
-    {
-      "name": "PositionLiquidated",
-      "discriminator": [
-        40,
-        107,
-        90,
-        214,
-        96,
-        30,
-        61,
-        128
       ]
     },
     {
@@ -8819,7 +8979,7 @@
             "type": "u64"
           },
           {
-            "name": "ramp_duration_slots",
+            "name": "concentration_ramp_duration_slots",
             "type": "u64"
           },
           {
@@ -8830,62 +8990,6 @@
                 33
               ]
             }
-          }
-        ]
-      }
-    },
-    {
-      "name": "AmmCurveParameters",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "peak_depth_nad",
-            "type": "u64"
-          },
-          {
-            "name": "fade_scale_nad",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "AmmRamp",
-      "docs": [
-        "A linear ramp whose governance delay is enforced by a queued parameter",
-        "proposal. The ramp begins in the slot where that proposal executes."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "active",
-            "type": "bool"
-          },
-          {
-            "name": "start",
-            "type": {
-              "defined": {
-                "name": "AmmCurveParameters"
-              }
-            }
-          },
-          {
-            "name": "target",
-            "type": {
-              "defined": {
-                "name": "AmmCurveParameters"
-              }
-            }
-          },
-          {
-            "name": "start_slot",
-            "type": "u64"
-          },
-          {
-            "name": "end_slot",
-            "type": "u64"
           }
         ]
       }
@@ -8911,7 +9015,7 @@
             ],
             "type": {
               "defined": {
-                "name": "AmmCurveParameters"
+                "name": "ConcentrationParameters"
               }
             }
           },
@@ -8949,7 +9053,7 @@
             "type": "u64"
           },
           {
-            "name": "last_ramp_update_slot",
+            "name": "last_concentration_ramp_update_slot",
             "docs": [
               "Prevents repeated instructions in one slot from advancing a ramp more",
               "than once."
@@ -9021,10 +9125,10 @@
             "type": "bool"
           },
           {
-            "name": "ramp",
+            "name": "concentration_ramp",
             "type": {
               "defined": {
-                "name": "AmmRamp"
+                "name": "ConcentrationRamp"
               }
             }
           },
@@ -9287,6 +9391,72 @@
       }
     },
     {
+      "name": "BorrowPositionLiquidated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "borrow_position",
+            "type": "pubkey"
+          },
+          {
+            "name": "borrower",
+            "type": "pubkey"
+          },
+          {
+            "name": "liquidator",
+            "type": "pubkey"
+          },
+          {
+            "name": "debt_asset_side",
+            "docs": [
+              "`0` for base debt and `1` for quote debt. The collateral is the other side."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "repaid_amount",
+            "type": "u64"
+          },
+          {
+            "name": "collateral_seized",
+            "type": "u64"
+          },
+          {
+            "name": "collateral_to_liquidator",
+            "docs": [
+              "Gross collateral debited for the liquidator's transfer. Token-2022 may",
+              "reduce the liquidator's net account credit."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "collateral_credit",
+            "docs": [
+              "Net collateral credited to the liquidator after any transfer fee."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "insurance_drawn",
+            "type": "u64"
+          },
+          {
+            "name": "socialized_loss",
+            "type": "u64"
+          },
+          {
+            "name": "remaining_debt",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
       "name": "BorrowPositionPreview",
       "type": {
         "kind": "struct",
@@ -9453,6 +9623,62 @@
       }
     },
     {
+      "name": "ConcentrationParameters",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "peak_depth_nad",
+            "type": "u64"
+          },
+          {
+            "name": "fade_scale_nad",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConcentrationRamp",
+      "docs": [
+        "A linear ramp whose governance delay is enforced by a queued parameter",
+        "proposal. The ramp begins in the slot where that proposal executes."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "start",
+            "type": {
+              "defined": {
+                "name": "ConcentrationParameters"
+              }
+            }
+          },
+          {
+            "name": "target",
+            "type": {
+              "defined": {
+                "name": "ConcentrationParameters"
+              }
+            }
+          },
+          {
+            "name": "start_slot",
+            "type": "u64"
+          },
+          {
+            "name": "end_slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "ConfigureReferralPartnerArgs",
       "type": {
         "kind": "struct",
@@ -9525,17 +9751,17 @@
       }
     },
     {
-      "name": "DailyLimits",
+      "name": "DailyBorrowBucket",
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "borrowed_bucket",
             "docs": [
-              "Gross new principal currently consuming the per-side borrow-flow",
-              "capacity. This is a 24-hour leaky/token bucket, not an exact trailing",
-              "window sum: it permits a full burst after idle and then refills at the",
-              "configured daily rate."
+              "Gross principal lent out through the public borrow path. Internal hLP",
+              "funding and isolated leverage do not consume this capacity. This is a",
+              "24-hour leaky/token bucket, not an exact trailing-window sum: it permits",
+              "a full burst after idle and then refills at the configured daily rate."
             ],
             "type": "u64"
           },
@@ -9682,7 +9908,7 @@
             "name": "parameters",
             "type": {
               "defined": {
-                "name": "AmmCurveParameters"
+                "name": "ConcentrationParameters"
               }
             }
           },
@@ -10688,7 +10914,7 @@
             "name": "swap",
             "type": {
               "defined": {
-                "name": "LeverageSwapEvent"
+                "name": "LeverageSwapReceipt"
               }
             }
           },
@@ -10764,7 +10990,7 @@
             "name": "swap",
             "type": {
               "defined": {
-                "name": "LeverageSwapEvent"
+                "name": "LeverageSwapReceipt"
               }
             }
           },
@@ -10840,7 +11066,7 @@
             "name": "swap",
             "type": {
               "defined": {
-                "name": "LeverageSwapEvent"
+                "name": "LeverageSwapReceipt"
               }
             }
           },
@@ -10920,7 +11146,7 @@
             "type": {
               "option": {
                 "defined": {
-                  "name": "LeverageSwapEvent"
+                  "name": "LeverageSwapReceipt"
                 }
               }
             }
@@ -10937,7 +11163,7 @@
       }
     },
     {
-      "name": "LeverageSwapEvent",
+      "name": "LeverageSwapReceipt",
       "docs": [
         "Actual AMM receipt embedded in a leverage action.",
         "`None` on `LeveragePositionUpdated` means the action was margin-only."
@@ -11765,7 +11991,7 @@
                 "type": "u64"
               },
               {
-                "name": "ramp_duration_slots",
+                "name": "concentration_ramp_duration_slots",
                 "type": "u64"
               }
             ]
@@ -11870,6 +12096,30 @@
       }
     },
     {
+      "name": "MarketReduceOnlyUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "reduce_only",
+            "type": "bool"
+          },
+          {
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "MarketEventMetadata"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "MarketSide",
       "type": {
         "kind": "struct",
@@ -11923,34 +12173,10 @@
             }
           },
           {
-            "name": "daily_limits",
+            "name": "daily_borrow_bucket",
             "type": {
               "defined": {
-                "name": "DailyLimits"
-              }
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "MarketUpdated",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "reduce_only",
-            "type": "bool"
-          },
-          {
-            "name": "metadata",
-            "type": {
-              "defined": {
-                "name": "MarketEventMetadata"
+                "name": "DailyBorrowBucket"
               }
             }
           }
@@ -12402,72 +12628,6 @@
       }
     },
     {
-      "name": "PositionLiquidated",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "borrow_position",
-            "type": "pubkey"
-          },
-          {
-            "name": "borrower",
-            "type": "pubkey"
-          },
-          {
-            "name": "liquidator",
-            "type": "pubkey"
-          },
-          {
-            "name": "debt_asset_side",
-            "docs": [
-              "`0` for base debt and `1` for quote debt. The collateral is the other side."
-            ],
-            "type": "u8"
-          },
-          {
-            "name": "repaid_amount",
-            "type": "u64"
-          },
-          {
-            "name": "collateral_seized",
-            "type": "u64"
-          },
-          {
-            "name": "collateral_to_liquidator",
-            "docs": [
-              "Gross collateral debited for the liquidator's transfer. Token-2022 may",
-              "reduce the liquidator's net account credit."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "collateral_credit",
-            "docs": [
-              "Net collateral credited to the liquidator after any transfer fee."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "insurance_drawn",
-            "type": "u64"
-          },
-          {
-            "name": "socialized_loss",
-            "type": "u64"
-          },
-          {
-            "name": "remaining_debt",
-            "type": "u128"
-          }
-        ]
-      }
-    },
-    {
       "name": "PreviewAddLiquidityArgs",
       "type": {
         "kind": "struct",
@@ -12576,7 +12736,7 @@
             "name": "applied_curve_parameters",
             "type": {
               "defined": {
-                "name": "AmmCurveParameters"
+                "name": "ConcentrationParameters"
               }
             }
           },
@@ -12584,7 +12744,7 @@
             "name": "desired_curve_parameters",
             "type": {
               "defined": {
-                "name": "AmmCurveParameters"
+                "name": "ConcentrationParameters"
               }
             }
           },
@@ -12592,28 +12752,28 @@
             "name": "target_curve_parameters",
             "type": {
               "defined": {
-                "name": "AmmCurveParameters"
+                "name": "ConcentrationParameters"
               }
             }
           },
           {
-            "name": "ramp_active",
+            "name": "concentration_ramp_active",
             "type": "bool"
           },
           {
-            "name": "ramp_start_curve_parameters",
+            "name": "concentration_ramp_start_parameters",
             "type": {
               "defined": {
-                "name": "AmmCurveParameters"
+                "name": "ConcentrationParameters"
               }
             }
           },
           {
-            "name": "ramp_start_slot",
+            "name": "concentration_ramp_start_slot",
             "type": "u64"
           },
           {
-            "name": "ramp_end_slot",
+            "name": "concentration_ramp_end_slot",
             "type": "u64"
           }
         ]

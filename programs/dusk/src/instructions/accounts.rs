@@ -14,8 +14,8 @@ use anchor_spl::{
 use crate::{
     constants::{HLP_YLP_VAULT_SEED_PREFIX, NAD_DECIMALS},
     errors::ErrorCode,
-    shared::token::is_fee_free_mint,
     state::{Market, MarketAsset, MarketSide},
+    token::is_fee_free_mint,
 };
 
 pub fn derive_hlp_ylp_vault_address(market: Pubkey, target_hlp_mint: Pubkey, ylp_mint: Pubkey) -> (Pubkey, u8) {
@@ -241,7 +241,7 @@ pub fn token_account_info_credit(balance_before: u64, token_account: &AccountInf
 
 #[cfg(test)]
 mod tests {
-    include!("../tests/instructions/common.rs");
+    include!("../tests/instructions/accounts.rs");
 }
 
 pub fn validate_side_vault_accounts<'info>(

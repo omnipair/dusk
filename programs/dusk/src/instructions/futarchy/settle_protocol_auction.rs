@@ -10,11 +10,13 @@ use crate::{
     events::{MarketEventMetadata, ProtocolAuctionSettled},
     generate_market_seeds,
     math::{denormalize_from_nad_ceil, normalize_to_nad},
-    shared::token::{is_fee_free_mint, transfer_checked_with_remaining_accounts},
     state::{FutarchyAuthority, Market, ProtocolAuctionLane, ProtocolRevenueSource},
+    token::{is_fee_free_mint, transfer_checked_with_remaining_accounts},
 };
 
-use crate::instructions::common::{require_supported_asset_mint, token_program_for_mint, validate_owner_asset_account};
+use crate::instructions::accounts::{
+    require_supported_asset_mint, token_program_for_mint, validate_owner_asset_account,
+};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct SettleProtocolAuctionArgs {

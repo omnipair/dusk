@@ -1,5 +1,5 @@
+mod accounts;
 mod borrow;
-mod common;
 mod deposit_collateral;
 mod liquidation;
 mod repay;

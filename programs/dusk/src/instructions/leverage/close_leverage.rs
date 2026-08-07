@@ -4,7 +4,7 @@ use anchor_spl::{
     token_interface::{Mint, Token2022, TokenAccount},
 };
 
-use super::common::{
+use super::settlement::{
     invoke_delegated_approval_callback, leverage_collateral_credit, leverage_swap_fee_credit, record_leverage_interest,
     settle_inline_leverage_hlp, split_delegated_accounts, validate_leverage_futarchy_pda,
     validate_leverage_interest_account, validate_leverage_market_pda, validate_leverage_mints,
@@ -13,18 +13,18 @@ use super::common::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{LeveragePositionClosed, LeverageSwapEvent, MarketEventMetadata},
+    events::{LeveragePositionClosed, LeverageSwapReceipt, MarketEventMetadata},
     generate_market_seeds,
     instructions::{
-        common::{require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout},
-        referral::common::{referral_interest_accrued_event_at_slot, validate_referral_binding},
-        SwapContext, SwapPlan,
+        accounts::{require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout},
+        referral::accounting::{referral_interest_accrued_event_at_slot, validate_referral_binding},
+        PreparedSwap, SwapRequest,
     },
-    market::{LeverageSwapPlan, LeverageSwapQuote},
-    shared::token::{get_transfer_fee_for_epoch, transfer_checked_with_remaining_accounts},
+    market::{LeverageSwapQuote, PreparedLeverageSwap},
     state::{
         FutarchyAuthority, LeverageDelegation, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner,
     },
+    token::{get_transfer_fee_for_epoch, transfer_checked_with_remaining_accounts},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -369,22 +369,21 @@ impl<'info> CloseLeverage<'info> {
         );
 
         // Quote the credited collateral as the position's final debt repayment.
-        let SwapPlan {
+        let PreparedSwap {
             quote,
             base_pre_rebalance,
             quote_pre_rebalance,
             fee_eligible_ylp_supply,
             interest_eligibility,
-        } = SwapContext {
+        } = SwapRequest {
             current_slot,
             asset_in: collateral_asset,
             reserve_credit: collateral_reserve_credit,
-            reserved_daily_borrow: 0,
         }
-        .plan(&mut ctx.accounts.market)?;
+        .prepare(&mut ctx.accounts.market)?;
         ctx.accounts.market.observe_current_risk(current_slot)?;
         let swap = LeverageSwapQuote::from_amm(quote, current_slot);
-        let swap_plan = LeverageSwapPlan {
+        let prepared_swap = PreparedLeverageSwap {
             swap,
             base_pre_rebalance,
             quote_pre_rebalance,
@@ -397,7 +396,7 @@ impl<'info> CloseLeverage<'info> {
         let receipt = ctx.accounts.market.close_leverage(
             &mut ctx.accounts.leverage_position,
             args.min_amount_out,
-            swap_plan,
+            prepared_swap,
             swap_fee_credit,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
@@ -493,7 +492,7 @@ impl<'info> CloseLeverage<'info> {
             collateral_sold: receipt.collateral_sold,
             closeout_value: receipt.closeout_value,
             residual: residual_credit,
-            swap: LeverageSwapEvent::new(
+            swap: LeverageSwapReceipt::new(
                 receipt.swap,
                 swap_fee_credit,
                 ctx.accounts.market.base_side.reserves.live_reserve,

@@ -106,7 +106,7 @@ const update = concentrationParameterUpdate({
   peakDepthNad: 20n * 1_000_000_000n,
   fadeScaleNad: 10_000_000n,
   // Optional. Omission uses 216,000 slots (approximately 24 hours).
-  rampDurationSlots: 432_000,
+  concentrationRampDurationSlots: 432_000,
 });
 
 const metadata = await uploadProposalMetadata({

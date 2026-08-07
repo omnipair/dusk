@@ -11,7 +11,7 @@ use spl_transfer_hook_interface::{
 use crate::{
     constants::{TRANSFER_HOOK_EXTRA_ACCOUNT_METAS_SEED_PREFIX, YIELD_ACCOUNT_SEED_PREFIX},
     errors::ErrorCode,
-    instructions::common::validate_lp_mint,
+    instructions::accounts::validate_lp_mint,
     state::{Market, MarketAsset, YieldTokenKind},
 };
 

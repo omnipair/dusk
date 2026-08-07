@@ -2,6 +2,10 @@
 
 Omnipair Dusk (v2) is the standalone Dusk market program. It uses market terminology, floating yield LP shares, aggregate hedged LP vault accounting, isolated spot-margin leverage, direct-yLP parameter governance, and an optional oracle-less Dusk Concentrated AMM. See [`CONCENTRATION.md`](./CONCENTRATION.md) for the curve, recentering, fee, and protected-liquidity specification.
 
+See [`COMPUTE_BENCHMARKS.md`](./COMPUTE_BENCHMARKS.md) for the complete
+53-instruction LiteSVM CU table, including sample counts, averages, observed
+maxima, headroom, and deterministic swap-path regression ceilings.
+
 ## Source Boundaries
 
 Rust source follows the V1-inspired conventions in [`STYLE.md`](./STYLE.md).
@@ -16,7 +20,7 @@ Instruction modules are split by domain: `market`, `governance`, `liquidity`, `s
 
 | Flow | Anchor adapter | Domain owner |
 | --- | --- | --- |
-| Swap and preview | `instructions/spot`, `instructions/swap_plan`, `instructions/preview` | `state/market.rs`, `market/amm.rs` |
+| Swap and preview | `instructions/spot`, `instructions/prepare_swap`, `instructions/preview` | `state/market.rs`, `market/amm.rs` |
 | yLP and hLP | `instructions/liquidity` | `state/market.rs`, `market/liquidity.rs` |
 | Borrow and liquidation | `instructions/lending` | `state/borrow_position.rs`, `state/market.rs`, `market/lending.rs` |
 | Isolated leverage | `instructions/leverage` | `state/leverage_position.rs`, `state/leverage_delegation.rs`, `market/leverage.rs` |
@@ -26,7 +30,7 @@ Instruction modules are split by domain: `market`, `governance`, `liquidity`, `s
 
 Omnipair Dusk (v2) exposes the current market instruction set:
 
-- `initialize`, `initialize_lp_metadata`, `set_reduce_only`
+- `initialize_market`, `initialize_lp_metadata`, `set_market_reduce_only`
 - `create_parameter_proposal`, `support_parameter_proposal`, `queue_parameter_proposal`, `execute_parameter_proposal`, `withdraw_parameter_support`
 - `add_liquidity`, `remove_liquidity`
 - `set_yield_recipient`, `claim_yield`
@@ -80,9 +84,10 @@ limit is capped at 3,000 bps. IRM defaults are 7,000 bps target utilization,
 4 NAD steepness, and adjustment speed 20/year, with allowed ranges of
 6,000–7,500 bps, 2–8 NAD, and 1–50/year respectively.
 
-`max_daily_borrow_bps` sizes one shared bucket per debt asset against
-conservative depth. Gross new principal from fixed lending, isolated leverage,
-direct hLP funding, and automatic hLP funding consumes the same bucket. It
+`max_daily_borrow_bps` sizes one public-lending borrow bucket per debt asset
+against conservative depth. Only gross principal borrowed through the lending
+`borrow` path consumes it; isolated leverage and direct or automatic hLP funding
+do not, because those operations do not lend cash out of the market. The bucket
 refills continuously over 24 hours with remainder accounting that is
 checkpoint-frequency-independent while the absolute limit is fixed; it is a
 leaky/token bucket, not an exact trailing-window sum. Conservative-depth
@@ -215,7 +220,7 @@ hLP checkpointing computes NAV, attempts the spot-based leverage adjustment, rec
 | Leverage collateral vault | `leverage_collateral`, `market`, `collateral_mint` | derive from seed tuple |
 | LP token metadata | Metaplex `metadata`, token metadata program, `lp_mint` | `deriveTokenMetadataAddress` |
 
-yLP and hLP mints are supplied to `initialize`. The two asset mints and all three LP mints must be pairwise distinct, and each LP mint is validated by mint authority, decimals, Token-2022 owner, immutable Dusk transfer hook, fee-free extension rules, no freeze authority, vanity suffix, and zero supply at market creation. LP metadata is created in follow-up `initialize_lp_metadata` calls, one mint per transaction. The permissionless, idempotent `initialize_yield_accounts` creates both asset-stream accounts for one owner and LP mint; `initialize_lp_transfer_hook` creates and validates the canonical Token-2022 extra-account-meta PDA on-chain without a seeded client fixture.
+yLP and hLP mints are supplied to `initialize_market`. The two asset mints and all three LP mints must be pairwise distinct, and each LP mint is validated by mint authority, decimals, Token-2022 owner, immutable Dusk transfer hook, fee-free extension rules, no freeze authority, vanity suffix, and zero supply at market creation. LP metadata is created in follow-up `initialize_lp_metadata` calls, one mint per transaction. The permissionless, idempotent `initialize_yield_accounts` creates both asset-stream accounts for one owner and LP mint; `initialize_lp_transfer_hook` creates and validates the canonical Token-2022 extra-account-meta PDA on-chain without a seeded client fixture.
 
 Referral accruals are market-specific liabilities. Their backing remains in the corresponding market interest vault until the referrer claims to the partner's current recipient.
 
@@ -223,12 +228,12 @@ Referral accruals are market-specific liabilities. Their backing remains in the 
 
 Indexers should consume Dusk events from the standalone Dusk IDL:
 
-- `MarketCreated`, `MarketUpdated`, `MarketHealthUpdated`
+- `MarketCreated`, `MarketReduceOnlyUpdated`, `MarketHealthUpdated`
 - `LiquidityAdded`, `LiquidityRemoved`
 - `YieldRecipientUpdated`, `YieldClaimed`
 - `SwapExecuted`
 - `MarketCollateralDeposited`, `MarketCollateralWithdrawn`, `MarketDebtUpdated`
-- `PositionLiquidated`
+- `BorrowPositionLiquidated`
 - `HlpOpened`, `HlpClosed`
 - `LeveragePositionOpened`, `LeveragePositionClosed`, `LeveragePositionUpdated`, `LeveragePositionLiquidated`
 - `LeverageDelegationUpdated`

@@ -16,7 +16,7 @@ fn indexer_receipts_remain_compact() {
         base_live_reserve: 8,
         quote_live_reserve: 9,
     };
-    let leverage_swap = LeverageSwapEvent {
+    let leverage_swap = LeverageSwapReceipt {
         asset_in_side: 0,
         amount_in: 1,
         amount_out: 2,
@@ -80,7 +80,7 @@ fn indexer_receipts_remain_compact() {
         base_live_reserve: 8,
         quote_live_reserve: 9,
     };
-    let liquidated = PositionLiquidated {
+    let liquidated = BorrowPositionLiquidated {
         market: Pubkey::new_unique(),
         borrow_position: Pubkey::new_unique(),
         borrower: Pubkey::new_unique(),
@@ -108,7 +108,7 @@ fn indexer_receipts_remain_compact() {
     assert_eq!(HlpOpened::DISCRIMINATOR.len() + opened.try_to_vec().unwrap().len(), 137);
     assert_eq!(HlpClosed::DISCRIMINATOR.len() + closed.try_to_vec().unwrap().len(), 145);
     assert_eq!(
-        PositionLiquidated::DISCRIMINATOR.len() + liquidated.try_to_vec().unwrap().len(),
+        BorrowPositionLiquidated::DISCRIMINATOR.len() + liquidated.try_to_vec().unwrap().len(),
         201
     );
 }

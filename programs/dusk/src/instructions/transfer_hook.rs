@@ -11,7 +11,7 @@ use spl_transfer_hook_interface::{get_extra_account_metas_address, instruction::
 use crate::{
     constants::YIELD_ACCOUNT_SEED_PREFIX,
     errors::ErrorCode,
-    instructions::common::validate_canonical_lp_token_account_key,
+    instructions::accounts::validate_canonical_lp_token_account_key,
     state::{Market, YieldAccount, YieldTokenKind},
 };
 

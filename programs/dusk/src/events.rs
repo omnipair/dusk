@@ -43,7 +43,7 @@ pub struct MarketCreated {
 }
 
 #[event]
-pub struct MarketUpdated {
+pub struct MarketReduceOnlyUpdated {
     pub market: Pubkey,
     pub reduce_only: bool,
     pub metadata: MarketEventMetadata,
@@ -274,7 +274,7 @@ pub struct SwapExecuted {
 /// Actual AMM receipt embedded in a leverage action.
 /// `None` on `LeveragePositionUpdated` means the action was margin-only.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LeverageSwapEvent {
+pub struct LeverageSwapReceipt {
     pub asset_in_side: u8,
     pub amount_in: u64,
     pub amount_out: u64,
@@ -290,7 +290,7 @@ pub struct LeverageSwapEvent {
     pub quote_live_reserve: u64,
 }
 
-impl LeverageSwapEvent {
+impl LeverageSwapReceipt {
     pub fn new(
         quote: LeverageSwapQuote,
         credit: LeverageSwapFeeCredit,
@@ -331,7 +331,7 @@ pub struct LeveragePositionOpened {
     pub closeout_value: u64,
     pub equity: u64,
     pub multiplier_bps: u64,
-    pub swap: LeverageSwapEvent,
+    pub swap: LeverageSwapReceipt,
     pub metadata: MarketEventMetadata,
 }
 
@@ -347,7 +347,7 @@ pub struct LeveragePositionClosed {
     pub collateral_sold: u64,
     pub closeout_value: u64,
     pub residual: u64,
-    pub swap: LeverageSwapEvent,
+    pub swap: LeverageSwapReceipt,
     pub metadata: MarketEventMetadata,
 }
 
@@ -367,7 +367,7 @@ pub struct LeveragePositionUpdated {
     pub closeout_value: u64,
     /// Net tokens paid to the owner by this update, if any.
     pub owner_credit: u64,
-    pub swap: Option<LeverageSwapEvent>,
+    pub swap: Option<LeverageSwapReceipt>,
     pub metadata: MarketEventMetadata,
 }
 
@@ -386,7 +386,7 @@ pub struct LeveragePositionLiquidated {
     pub closeout_value: u64,
     pub liquidator_amount: u64,
     pub owner_residual: u64,
-    pub swap: LeverageSwapEvent,
+    pub swap: LeverageSwapReceipt,
     pub metadata: MarketEventMetadata,
 }
 
@@ -455,7 +455,7 @@ pub struct MarketDebtUpdated {
 }
 
 #[event]
-pub struct PositionLiquidated {
+pub struct BorrowPositionLiquidated {
     pub market: Pubkey,
     pub borrow_position: Pubkey,
     pub borrower: Pubkey,

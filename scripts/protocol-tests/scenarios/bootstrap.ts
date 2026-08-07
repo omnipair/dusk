@@ -32,7 +32,7 @@ export const BOOTSTRAP_SCENARIOS: ScenarioDefinition[] = [
       );
       harness.assertEqual(
         "one market initialization transaction is captured",
-        await recordBootstrapInstructions(harness, "initialize"),
+        await recordBootstrapInstructions(harness, "initialize_market"),
         1
       );
       const market = await harness.market();

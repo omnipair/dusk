@@ -127,7 +127,7 @@ async function main() {
   if (!marketAccount) {
     console.log(`Initializing Dusk yLP/hLP market ${market.toBase58()}`);
     const signature = await program.methods
-      .initialize({
+      .initializeMarket({
         config: defaultMarketConfig(),
         paramsHash: [...paramsHash],
       })

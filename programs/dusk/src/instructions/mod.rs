@@ -1,17 +1,19 @@
-mod common;
+mod accounts;
 mod futarchy;
 mod governance;
 mod lending;
 mod leverage;
 mod liquidity;
 mod market;
+mod prepare_swap;
 mod preview;
 mod referral;
 mod spot;
-mod swap_plan;
 pub mod transfer_hook;
 
-pub(crate) use swap_plan::{hlp_receipt_mutates_curve_inventory, split_claimable_fee_credit, SwapContext, SwapPlan};
+pub(crate) use prepare_swap::{
+    hlp_receipt_mutates_curve_inventory, split_claimable_fee_credit, PreparedSwap, SwapRequest,
+};
 
 pub use futarchy::*;
 pub use governance::*;

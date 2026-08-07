@@ -10,11 +10,11 @@ use crate::{
     errors::ErrorCode,
     events::HlpOpened,
     generate_market_seeds,
-    shared::token::{create_token_account, token_mint_to_with_instruction, transfer_checked_with_remaining_accounts},
     state::{FutarchyAuthority, Market, MarketAsset, YieldAccount, YieldTokenKind},
+    token::{create_token_account, token_mint_to_with_instruction, transfer_checked_with_remaining_accounts},
 };
 
-use crate::instructions::common::{
+use crate::instructions::accounts::{
     derive_hlp_ylp_vault_address, require_reserve_custody, require_supported_asset_mint, token_program_for_mint,
     validate_lp_mint, validate_owner_asset_account, validate_owner_lp_account, validate_side_vault_accounts,
 };
@@ -176,8 +176,9 @@ impl<'info> DepositSingleSided<'info> {
             self.market.checkpoint_hlp_vaults()?;
             self.market.assert_hlp_entry_available(target_asset)?;
             if self.market.has_active_hlp()
-                && self.market.amm.ramp.active
-                && (!self.market.amm.applied_curve_parameters.is_cpmm() || !self.market.amm.ramp.target.is_cpmm())
+                && self.market.amm.concentration_ramp.active
+                && (!self.market.amm.applied_curve_parameters.is_cpmm()
+                    || !self.market.amm.concentration_ramp.target.is_cpmm())
             {
                 let desired = self
                     .market
@@ -270,12 +271,10 @@ impl<'info> DepositSingleSided<'info> {
 
         // Apply hLP accounting and checkpoint the immutable post-deposit curve.
         let current_slot = Clock::get()?.slot;
-        let receipt = ctx.accounts.market.deposit_single_sided(
-            target_asset,
-            deposit_credit,
-            args.min_hlp_amount,
-            current_slot,
-        )?;
+        let receipt = ctx
+            .accounts
+            .market
+            .deposit_single_sided(target_asset, deposit_credit, args.min_hlp_amount)?;
         // Validation verified that no due concentrated controller
         // state would price this entry against a stale NAV. One final curve
         // evaluation now supplies D/Q accounting and the exact risk observation

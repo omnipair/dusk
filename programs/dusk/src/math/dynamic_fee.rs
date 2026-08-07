@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 use crate::{
     constants::{BPS_DENOMINATOR, MAX_PARAMETER_FEE_BPS, NAD, TARGET_MS_PER_SLOT},
     errors::ErrorCode,
-    shared::math::ceil_div,
+    math::ceil_div,
 };
 
 #[cfg(test)]

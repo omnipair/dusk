@@ -837,7 +837,7 @@ function defaultAmmConfig() {
     volatilityFeeCoefficientNad: toBN(
       duskEnv("AMM_VOLATILITY_FEE_COEFFICIENT_NAD") ?? "0"
     ),
-    rampDurationSlots: toBN(duskEnv("AMM_RAMP_DURATION_SLOTS") ?? "216000"),
+    concentrationRampDurationSlots: toBN(duskEnv("AMM_RAMP_DURATION_SLOTS") ?? "216000"),
     reserved: Array(33).fill(0),
   };
 }
@@ -1187,7 +1187,7 @@ async function buildInitializeMarketTx(params: {
     TOKEN_PROGRAM_ID
   );
   const instruction = await program.methods
-    .initialize({
+    .initializeMarket({
       config: params.config,
       paramsHash: Array.from(params.paramsHash),
     })
@@ -1330,7 +1330,7 @@ async function prepareCreateMarketTx(params: {
   });
   const config = marketConfigFromBody(params.config);
   const instruction = await program.methods
-    .initialize({
+    .initializeMarket({
       config,
       paramsHash: Array.from(paramsHash),
     })
@@ -1568,7 +1568,7 @@ async function bootstrapUncached(): Promise<StoredMarket> {
 
   if (!existingMarketAccount) {
     const signature = await program.methods
-      .initialize({
+      .initializeMarket({
         config: defaultMarketConfig(),
         paramsHash: Array.from(paramsHash),
       })
@@ -1600,7 +1600,7 @@ async function bootstrapUncached(): Promise<StoredMarket> {
       .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
       .rpc();
     console.log(`Dusk fork market initialized: ${signature}`);
-    recordBootstrapTransaction("initialize market", signature, ["initialize"]);
+    recordBootstrapTransaction("initialize market", signature, ["initialize_market"]);
   }
 
   const [ylpHookValidation, baseHlpHookValidation, quoteHlpHookValidation] = await Promise.all([
@@ -1759,7 +1759,7 @@ function marketConfigPayload(marketAccount: any) {
       volatilityFeeCoefficientNad: stringValue(
         field(amm, "volatilityFeeCoefficientNad", "volatility_fee_coefficient_nad")
       ),
-      rampDurationSlots: stringValue(field(amm, "rampDurationSlots", "ramp_duration_slots")),
+      concentrationRampDurationSlots: stringValue(field(amm, "concentrationRampDurationSlots", "concentration_ramp_duration_slots")),
       reserved: Array.from(field<number[]>(amm, "reserved") ?? []),
     },
     irm: {
@@ -1907,8 +1907,8 @@ async function marketPayload(stored: StoredMarket) {
   const quoteReserves = field<any>(quoteSide, "reserves");
   const baseFees = field<any>(baseSide, "fees");
   const quoteFees = field<any>(quoteSide, "fees");
-  const baseDailyLimits = field<any>(baseSide, "dailyLimits", "daily_limits");
-  const quoteDailyLimits = field<any>(quoteSide, "dailyLimits", "daily_limits");
+  const baseDailyBorrowBucket = field<any>(baseSide, "dailyBorrowBucket", "daily_borrow_bucket");
+  const quoteDailyBorrowBucket = field<any>(quoteSide, "dailyBorrowBucket", "daily_borrow_bucket");
   const debt = field<any>(marketAccount, "debt");
   const health = await currentMarketHealth(new PublicKey(stored.market));
   const insurance = field<any>(marketAccount, "insurance");
@@ -2021,22 +2021,22 @@ async function marketPayload(stored: StoredMarket) {
         field(quoteFees, "unallocatedSwapFeeLiability", "unallocated_swap_fee_liability")
       ),
       baseDailyBorrowedBucket: stringValue(
-        field(baseDailyLimits, "borrowedBucket", "borrowed_bucket")
+        field(baseDailyBorrowBucket, "borrowedBucket", "borrowed_bucket")
       ),
       quoteDailyBorrowedBucket: stringValue(
-        field(quoteDailyLimits, "borrowedBucket", "borrowed_bucket")
+        field(quoteDailyBorrowBucket, "borrowedBucket", "borrowed_bucket")
       ),
       baseDailyLastDecaySlot: stringValue(
-        field(baseDailyLimits, "lastDecaySlot", "last_decay_slot")
+        field(baseDailyBorrowBucket, "lastDecaySlot", "last_decay_slot")
       ),
       quoteDailyLastDecaySlot: stringValue(
-        field(quoteDailyLimits, "lastDecaySlot", "last_decay_slot")
+        field(quoteDailyBorrowBucket, "lastDecaySlot", "last_decay_slot")
       ),
       baseDailyDecayRemainderMs: stringValue(
-        field(baseDailyLimits, "decayRemainderMs", "decay_remainder_ms")
+        field(baseDailyBorrowBucket, "decayRemainderMs", "decay_remainder_ms")
       ),
       quoteDailyDecayRemainderMs: stringValue(
-        field(quoteDailyLimits, "decayRemainderMs", "decay_remainder_ms")
+        field(quoteDailyBorrowBucket, "decayRemainderMs", "decay_remainder_ms")
       ),
       globalHealthBaseContributionForQuoteDebt: stringValue(
         field(
@@ -2936,7 +2936,7 @@ function parameterUpdateFromBody(update: Record<string, unknown>) {
       concentration: {
         peakDepthNad: toBN(String(concentration.peakDepthNad)),
         fadeScaleNad: toBN(String(concentration.fadeScaleNad)),
-        rampDurationSlots: toBN(String(concentration.rampDurationSlots ?? 216_000)),
+        concentrationRampDurationSlots: toBN(String(concentration.concentrationRampDurationSlots ?? 216_000)),
       },
     };
   }
@@ -3058,6 +3058,8 @@ async function buildCreateParameterProposalTx(params: {
       quoteHlpYlpVault: new PublicKey(params.market.quoteHlpYlpVault),
       token2022Program: TOKEN_2022_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
+      eventAuthority: m.eventAuthority,
+      program: PROGRAM_ID,
     })
     .instruction();
   return {
@@ -3112,6 +3114,8 @@ async function buildSupportParameterProposalTx(params: {
       quoteHlpYlpVault: new PublicKey(params.market.quoteHlpYlpVault),
       token2022Program: TOKEN_2022_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
+      eventAuthority: m.eventAuthority,
+      program: PROGRAM_ID,
     })
     .instruction();
   return {
@@ -3137,6 +3141,8 @@ async function buildQueueParameterProposalTx(params: {
       ylpMint: m.ylpMint,
       baseHlpYlpVault: new PublicKey(params.market.baseHlpYlpVault),
       quoteHlpYlpVault: new PublicKey(params.market.quoteHlpYlpVault),
+      eventAuthority: m.eventAuthority,
+      program: PROGRAM_ID,
     })
     .instruction();
   return serializeOwnerTransaction(params.caller, [instruction]);
@@ -3151,7 +3157,12 @@ async function buildExecuteParameterProposalTx(params: {
   const m = marketFromStored(params.market);
   const instruction = await program.methods
     .executeParameterProposal()
-    .accounts({ market: m.market, proposal: params.proposal })
+    .accounts({
+      market: m.market,
+      proposal: params.proposal,
+      eventAuthority: m.eventAuthority,
+      program: PROGRAM_ID,
+    })
     .instruction();
   return serializeOwnerTransaction(params.caller, [instruction]);
 }
@@ -3195,6 +3206,8 @@ async function buildWithdrawParameterSupportTx(params: {
         "ylp"
       ),
       token2022Program: TOKEN_2022_PROGRAM_ID,
+      eventAuthority: m.eventAuthority,
+      program: PROGRAM_ID,
     })
     .instruction();
   return {
@@ -3275,7 +3288,7 @@ async function buildSetMarketReduceOnlyTx(params: {
   const { program } = initializeRuntime();
   const m = marketFromStored(params.market);
   const instruction = await program.methods
-    .setReduceOnly({ reduceOnly: params.reduceOnly })
+    .setMarketReduceOnly({ reduceOnly: params.reduceOnly })
     .accounts({
       market: m.market,
       authoritySigner: params.authority,
@@ -3553,7 +3566,7 @@ function marketConfigFromBody(config: Record<string, unknown>) {
       volatilityCapNad: toBN(String(amm.volatilityCapNad)),
       divergenceFeeCoefficientNad: toBN(String(amm.divergenceFeeCoefficientNad)),
       volatilityFeeCoefficientNad: toBN(String(amm.volatilityFeeCoefficientNad)),
-      rampDurationSlots: toBN(String(amm.rampDurationSlots)),
+      concentrationRampDurationSlots: toBN(String(amm.concentrationRampDurationSlots)),
       reserved: Array.isArray(amm.reserved) ? amm.reserved : Array(33).fill(0),
     },
     irm: {

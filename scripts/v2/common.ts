@@ -555,7 +555,7 @@ export function defaultAmmConfig() {
     volatilityCapNad: new anchor.BN(duskEnv("AMM_VOLATILITY_CAP_NAD", "0")),
     divergenceFeeCoefficientNad: new anchor.BN(duskEnv("AMM_DIVERGENCE_FEE_COEFFICIENT_NAD", "0")),
     volatilityFeeCoefficientNad: new anchor.BN(duskEnv("AMM_VOLATILITY_FEE_COEFFICIENT_NAD", "0")),
-    rampDurationSlots: new anchor.BN(
+    concentrationRampDurationSlots: new anchor.BN(
       duskEnv("AMM_RAMP_DURATION_SLOTS", "216000")
     ),
     reserved: Array(33).fill(0),

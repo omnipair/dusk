@@ -80,7 +80,7 @@ export type ParameterUpdate =
       kind: "concentration";
       peakDepthNad: BN;
       fadeScaleNad: BN;
-      rampDurationSlots: BN;
+      concentrationRampDurationSlots: BN;
     }
   | { kind: "irm"; config: IrmConfig }
   | {
@@ -262,18 +262,18 @@ export function feeParameterUpdate(input: FeeProfileInput): ParameterUpdate {
 export function concentrationParameterUpdate(input: {
   peakDepthNad: GovernanceIntegerLike;
   fadeScaleNad: GovernanceIntegerLike;
-  rampDurationSlots?: GovernanceIntegerLike;
+  concentrationRampDurationSlots?: GovernanceIntegerLike;
 }): ParameterUpdate {
   const peakDepthNad = toU64BigInt(input.peakDepthNad, "peakDepthNad");
   const fadeScaleNad = toU64BigInt(input.fadeScaleNad, "fadeScaleNad");
-  const rampDurationSlots = assertRange(
+  const concentrationRampDurationSlots = assertRange(
     toU64BigInt(
-      input.rampDurationSlots ?? DEFAULT_CONCENTRATION_RAMP_DURATION_SLOTS,
-      "rampDurationSlots"
+      input.concentrationRampDurationSlots ?? DEFAULT_CONCENTRATION_RAMP_DURATION_SLOTS,
+      "concentrationRampDurationSlots"
     ),
     BigInt(MIN_CONCENTRATION_RAMP_DURATION_SLOTS),
     BigInt(MAX_CONCENTRATION_RAMP_DURATION_SLOTS),
-    "rampDurationSlots"
+    "concentrationRampDurationSlots"
   );
 
   if (peakDepthNad === 0n || fadeScaleNad === 0n) {
@@ -302,7 +302,7 @@ export function concentrationParameterUpdate(input: {
     kind: "concentration",
     peakDepthNad: toBN(peakDepthNad),
     fadeScaleNad: toBN(fadeScaleNad),
-    rampDurationSlots: toBN(rampDurationSlots),
+    concentrationRampDurationSlots: toBN(concentrationRampDurationSlots),
   };
 }
 
@@ -419,7 +419,7 @@ export function anchorParameterUpdate(update: ParameterUpdate): Record<string, u
         concentration: {
           peakDepthNad: update.peakDepthNad,
           fadeScaleNad: update.fadeScaleNad,
-          rampDurationSlots: update.rampDurationSlots,
+          concentrationRampDurationSlots: update.concentrationRampDurationSlots,
         },
       };
     case "irm":
@@ -450,7 +450,7 @@ export function parameterUpdateFromAnchor(value: unknown): ParameterUpdate {
     return concentrationParameterUpdate({
       peakDepthNad: integerField(fields, "peakDepthNad"),
       fadeScaleNad: integerField(fields, "fadeScaleNad"),
-      rampDurationSlots: integerField(fields, "rampDurationSlots"),
+      concentrationRampDurationSlots: integerField(fields, "concentrationRampDurationSlots"),
     });
   }
   if (update.irm !== undefined) {
@@ -830,7 +830,7 @@ function encodeParameterUpdate(update: ParameterUpdate): Uint8Array {
         Uint8Array.of(1),
         encodeU64(update.peakDepthNad, "peakDepthNad"),
         encodeU64(update.fadeScaleNad, "fadeScaleNad"),
-        encodeU64(update.rampDurationSlots, "rampDurationSlots")
+        encodeU64(update.concentrationRampDurationSlots, "concentrationRampDurationSlots")
       );
     case "irm":
       return concatBytes(

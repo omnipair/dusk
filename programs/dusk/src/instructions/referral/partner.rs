@@ -1,10 +1,10 @@
 use anchor_lang::prelude::*;
 
 use crate::{
+    account::get_size_with_discriminator,
     constants::{FUTARCHY_AUTHORITY_SEED_PREFIX, REFERRAL_PARTNER_SEED_PREFIX},
     errors::ErrorCode,
     events::{ReferralPartnerConfigured, ReferralRecipientUpdated},
-    shared::account::get_size_with_discriminator,
     state::{FutarchyAuthority, ReferralPartner},
 };
 

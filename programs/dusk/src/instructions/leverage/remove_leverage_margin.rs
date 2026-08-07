@@ -9,12 +9,12 @@ use crate::{
     errors::ErrorCode,
     events::{LeveragePositionUpdated, MarketEventMetadata},
     generate_market_seeds,
-    shared::token::transfer_checked_with_remaining_accounts,
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset},
+    token::transfer_checked_with_remaining_accounts,
 };
 
-use super::common::{validate_leverage_collateral_risk_mint, validate_leverage_mints, validate_owner_debt_account};
-use crate::instructions::common::{
+use super::settlement::{validate_leverage_collateral_risk_mint, validate_leverage_mints, validate_owner_debt_account};
+use crate::instructions::accounts::{
     require_reserve_custody, token_account_credit, token_program_for_mint, validate_side_vault_accounts,
 };
 

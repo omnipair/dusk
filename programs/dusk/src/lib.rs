@@ -1,13 +1,14 @@
 use anchor_lang::prelude::*;
 
+pub mod account;
 pub mod constants;
 pub mod errors;
 pub mod events;
 pub mod instructions;
 pub mod market;
 pub mod math;
-pub mod shared;
 pub mod state;
+pub mod token;
 
 pub use instructions::*;
 pub use state::*;
@@ -113,7 +114,7 @@ pub mod dusk {
 
     // Market instructions
     #[access_control(ctx.accounts.validate(&args))]
-    pub fn initialize(ctx: Context<InitializeMarket>, args: InitializeMarketArgs) -> Result<()> {
+    pub fn initialize_market(ctx: Context<InitializeMarket>, args: InitializeMarketArgs) -> Result<()> {
         InitializeMarket::handle_initialize(ctx, args)
     }
 
@@ -123,7 +124,7 @@ pub mod dusk {
     }
 
     #[access_control(ctx.accounts.validate())]
-    pub fn set_reduce_only(ctx: Context<SetMarketReduceOnly>, args: SetMarketReduceOnlyArgs) -> Result<()> {
+    pub fn set_market_reduce_only(ctx: Context<SetMarketReduceOnly>, args: SetMarketReduceOnlyArgs) -> Result<()> {
         SetMarketReduceOnly::handle_set(ctx, args)
     }
 

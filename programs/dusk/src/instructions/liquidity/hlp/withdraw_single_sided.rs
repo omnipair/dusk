@@ -9,11 +9,11 @@ use crate::{
     errors::ErrorCode,
     events::HlpClosed,
     generate_market_seeds,
-    shared::token::{token_burn, transfer_checked_with_remaining_accounts},
     state::{FutarchyAuthority, Market, MarketAsset, YieldAccount, YieldTokenKind},
+    token::{token_burn, transfer_checked_with_remaining_accounts},
 };
 
-use crate::instructions::common::{
+use crate::instructions::accounts::{
     require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
     validate_interest_accounts, validate_lp_mint, validate_owner_asset_account, validate_owner_lp_account,
     validate_side_vault_accounts,

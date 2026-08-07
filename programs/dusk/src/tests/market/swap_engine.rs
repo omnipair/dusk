@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     constants::{BPS_DENOMINATOR, INTEREST_INITIAL_RATE_AT_TARGET_NAD, MARKET_LAYOUT_VERSION, MIN_HALF_LIFE_MS},
-    state::{AmmConfig, AmmCurveParameters, AmmState, Debt, MarketConfig, MarketSide, ReserveShares, Reserves},
+    state::{AmmConfig, ConcentrationParameters, AmmState, Debt, MarketConfig, MarketSide, ReserveShares, Reserves},
 };
 use proptest::prelude::*;
 
@@ -506,7 +506,7 @@ fn disabled_dynamic_fee_has_exact_legacy_fee_identity() {
 #[test]
 fn zero_depth_swap_engine_matches_raw_cpmm_normalization_rounding_and_fees() {
     let market = raw_cpmm_market(1_234_567_890_123, 9, 3_210_987_654, 6, 30);
-    assert_eq!(market.current_curve_parameters(10), AmmCurveParameters::cpmm());
+    assert_eq!(market.current_curve_parameters(10), ConcentrationParameters::cpmm());
 
     for (asset_in, reserve_credit) in [
         (MarketAsset::Base, 17_345_678_901_u64),
@@ -518,9 +518,9 @@ fn zero_depth_swap_engine_matches_raw_cpmm_normalization_rounding_and_fees() {
         let reserves = market.curve_reserves_nad().unwrap();
         let input_nad = crate::math::normalize_to_nad(net_input as u128, market.side(asset_in).asset_decimals).unwrap();
         let expected_output_nad = match asset_in {
-            MarketAsset::Base => crate::math::calculate_normalized_amount_out(reserves.base, reserves.quote, input_nad),
+            MarketAsset::Base => crate::math::cpmm_amount_out_nad(reserves.base, reserves.quote, input_nad),
             MarketAsset::Quote => {
-                crate::math::calculate_normalized_amount_out(reserves.quote, reserves.base, input_nad)
+                crate::math::cpmm_amount_out_nad(reserves.quote, reserves.base, input_nad)
             }
         }
         .unwrap();

@@ -9,17 +9,17 @@ use crate::{
     errors::ErrorCode,
     events::{MarketDebtUpdated, MarketEventMetadata, MarketHealthUpdated},
     generate_market_seeds,
-    shared::token::{get_transfer_fee, get_transfer_inverse_fee, transfer_checked_with_remaining_accounts},
     state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
+    token::{get_transfer_fee, get_transfer_inverse_fee, transfer_checked_with_remaining_accounts},
 };
 
-use crate::instructions::common::{
+use crate::instructions::accounts::{
     require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
     validate_interest_accounts,
 };
 
-use super::common::validate_debt_reserve_accounts;
-use crate::instructions::referral::common::{
+use super::accounts::validate_debt_reserve_accounts;
+use crate::instructions::referral::accounting::{
     accrue_referral_interest, referral_interest_accrued_event_at_slot, validate_referral_binding,
 };
 
@@ -125,7 +125,7 @@ impl<'info> Repay<'info> {
         Ok(())
     }
 
-    crate::instructions::common::market_update_and_validate!(RepayArgs);
+    crate::instructions::accounts::market_update_and_validate!(RepayArgs);
 
     pub fn handle_repay(mut ctx: Context<'_, '_, '_, 'info, Self>, args: RepayArgs) -> Result<()> {
         let remaining_accounts = ctx.remaining_accounts;

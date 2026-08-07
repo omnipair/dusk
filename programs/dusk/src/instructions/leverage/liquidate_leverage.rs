@@ -7,24 +7,24 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{LeveragePositionLiquidated, LeverageSwapEvent, MarketEventMetadata},
+    events::{LeveragePositionLiquidated, LeverageSwapReceipt, MarketEventMetadata},
     generate_market_seeds,
-    market::{LeverageSwapPlan, LeverageSwapQuote},
-    shared::token::transfer_checked_with_remaining_accounts,
+    market::{LeverageSwapQuote, PreparedLeverageSwap},
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
+    token::transfer_checked_with_remaining_accounts,
 };
 
-use super::common::{
+use super::settlement::{
     leverage_collateral_vault_pda, leverage_position_pda, leverage_swap_fee_credit, record_leverage_interest,
     settle_inline_leverage_hlp, validate_leverage_futarchy_pda, validate_leverage_interest_account,
     validate_leverage_market_pda, validate_leverage_mints, validate_leverage_reserve_accounts,
     validate_owner_debt_account,
 };
-use crate::instructions::common::{
+use crate::instructions::accounts::{
     require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout,
 };
-use crate::instructions::referral::common::{referral_interest_accrued_event_at_slot, validate_referral_binding};
-use crate::instructions::{SwapContext, SwapPlan};
+use crate::instructions::referral::accounting::{referral_interest_accrued_event_at_slot, validate_referral_binding};
+use crate::instructions::{PreparedSwap, SwapRequest};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct LiquidateLeverageArgs {
@@ -194,22 +194,21 @@ impl<'info> LiquidateLeverage<'info> {
         require!(collateral_reserve_credit > 0, ErrorCode::AmountZero);
 
         // Quote the credited collateral as a debt-asset liquidation swap.
-        let SwapPlan {
+        let PreparedSwap {
             quote,
             base_pre_rebalance,
             quote_pre_rebalance,
             fee_eligible_ylp_supply,
             interest_eligibility,
-        } = SwapContext {
+        } = SwapRequest {
             current_slot,
             asset_in: collateral_asset,
             reserve_credit: collateral_reserve_credit,
-            reserved_daily_borrow: 0,
         }
-        .plan(&mut ctx.accounts.market)?;
+        .prepare(&mut ctx.accounts.market)?;
         ctx.accounts.market.observe_current_risk(current_slot)?;
         let swap = LeverageSwapQuote::from_amm(quote, current_slot);
-        let swap_plan = LeverageSwapPlan {
+        let prepared_swap = PreparedLeverageSwap {
             swap,
             base_pre_rebalance,
             quote_pre_rebalance,
@@ -221,7 +220,7 @@ impl<'info> LiquidateLeverage<'info> {
         // Commit liquidation accounting and settle the resulting hLP exposure.
         let receipt = ctx.accounts.market.liquidate_leverage(
             &mut ctx.accounts.leverage_position,
-            swap_plan,
+            prepared_swap,
             swap_fee_credit,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
@@ -335,7 +334,7 @@ impl<'info> LiquidateLeverage<'info> {
             closeout_value: receipt.closeout_value,
             liquidator_amount,
             owner_residual,
-            swap: LeverageSwapEvent::new(
+            swap: LeverageSwapReceipt::new(
                 receipt.swap,
                 swap_fee_credit,
                 ctx.accounts.market.base_side.reserves.live_reserve,

@@ -9,15 +9,15 @@ use crate::{
     errors::ErrorCode,
     events::{MarketCollateralWithdrawn, MarketEventMetadata, MarketHealthUpdated},
     generate_market_seeds,
-    shared::token::transfer_checked_with_remaining_accounts,
     state::{BorrowPosition, FutarchyAuthority, Market},
+    token::transfer_checked_with_remaining_accounts,
 };
 
-use crate::instructions::common::{
+use crate::instructions::accounts::{
     require_supported_asset_mint, token_account_credit, token_account_debit, token_program_for_mint,
 };
 
-use super::common::validate_collateral_accounts;
+use super::accounts::validate_collateral_accounts;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct WithdrawCollateralArgs {
@@ -112,7 +112,7 @@ impl<'info> WithdrawCollateral<'info> {
         Ok(())
     }
 
-    crate::instructions::common::market_update_and_validate!(WithdrawCollateralArgs);
+    crate::instructions::accounts::market_update_and_validate!(WithdrawCollateralArgs);
 
     pub fn handle_withdraw(mut ctx: Context<'_, '_, '_, 'info, Self>, args: WithdrawCollateralArgs) -> Result<()> {
         let remaining_accounts = ctx.remaining_accounts;

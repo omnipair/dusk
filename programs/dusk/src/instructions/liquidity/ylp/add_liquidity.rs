@@ -5,21 +5,19 @@ use anchor_spl::{
 };
 
 use crate::{
+    account::{get_size_with_discriminator, initialize_pda_account_if_needed},
     constants::*,
     errors::ErrorCode,
     events::{LiquidityAdded, MarketEventMetadata},
     generate_market_seeds,
-    shared::{
-        account::{get_size_with_discriminator, initialize_pda_account_if_needed},
-        token::{get_transfer_fee, get_transfer_inverse_fee, token_mint_to, transfer_checked_with_remaining_accounts},
-    },
     state::{FutarchyAuthority, Market, YieldAccount, YieldTokenKind},
+    token::{get_transfer_fee, get_transfer_inverse_fee, token_mint_to, transfer_checked_with_remaining_accounts},
 };
 
 use super::{validate_ylp_market_pda, ylp_yield_account_pda};
 
 use super::super::initialize_or_validate_yield_account;
-use crate::instructions::common::{
+use crate::instructions::accounts::{
     require_reserve_custody, require_supported_asset_mint, token_program_for_mint, validate_lp_mint,
     validate_owner_asset_account, validate_owner_lp_account, validate_side_vault_accounts,
 };
@@ -79,7 +77,7 @@ pub struct AddLiquidity<'info> {
     pub system_program: Program<'info, System>,
 }
 
-struct AddLiquidityTransferPlan {
+struct AddLiquidityTransfers {
     base_transfer_amount: u64,
     quote_transfer_amount: u64,
 }
@@ -133,23 +131,23 @@ impl<'info> AddLiquidity<'info> {
             expected_quote_yield_account,
             ErrorCode::InvalidYieldAccount
         );
-        let transfer_plan = self.transfer_plan(args)?;
+        let transfers = self.transfers(args)?;
         require_gte!(
             self.owner_base_account.amount,
-            transfer_plan.base_transfer_amount,
+            transfers.base_transfer_amount,
             ErrorCode::InsufficientBalance
         );
         require_gte!(
             self.owner_quote_account.amount,
-            transfer_plan.quote_transfer_amount,
+            transfers.quote_transfer_amount,
             ErrorCode::InsufficientBalance
         );
         Ok(())
     }
 
-    crate::instructions::common::market_update_and_validate!(AddLiquidityArgs);
+    crate::instructions::accounts::market_update_and_validate!(AddLiquidityArgs);
 
-    fn transfer_plan(&self, args: &AddLiquidityArgs) -> Result<AddLiquidityTransferPlan> {
+    fn transfers(&self, args: &AddLiquidityArgs) -> Result<AddLiquidityTransfers> {
         // Preview against the maximum credits available after transfer fees.
         let base_transfer_fee = get_transfer_fee(&self.base_mint.to_account_info(), args.base_deposit_amount)?;
         let quote_transfer_fee = get_transfer_fee(&self.quote_mint.to_account_info(), args.quote_deposit_amount)?;
@@ -192,7 +190,7 @@ impl<'info> AddLiquidity<'info> {
             ErrorCode::SlippageExceeded
         );
 
-        Ok(AddLiquidityTransferPlan {
+        Ok(AddLiquidityTransfers {
             base_transfer_amount,
             quote_transfer_amount,
         })
@@ -324,7 +322,7 @@ impl<'info> AddLiquidity<'info> {
         }
 
         // Transfer both assets and measure their actual reserve credits.
-        let transfer_plan = ctx.accounts.transfer_plan(&args)?;
+        let transfers = ctx.accounts.transfers(&args)?;
         let base_reserve_before = ctx.accounts.base_reserve_vault.amount;
         let quote_reserve_before = ctx.accounts.quote_reserve_vault.amount;
         let base_token_program = token_program_for_mint(
@@ -343,7 +341,7 @@ impl<'info> AddLiquidity<'info> {
             ctx.accounts.base_reserve_vault.to_account_info(),
             ctx.accounts.base_mint.to_account_info(),
             base_token_program,
-            transfer_plan.base_transfer_amount,
+            transfers.base_transfer_amount,
             ctx.accounts.base_mint.decimals,
             &[],
             ctx.remaining_accounts,
@@ -354,7 +352,7 @@ impl<'info> AddLiquidity<'info> {
             ctx.accounts.quote_reserve_vault.to_account_info(),
             ctx.accounts.quote_mint.to_account_info(),
             quote_token_program,
-            transfer_plan.quote_transfer_amount,
+            transfers.quote_transfer_amount,
             ctx.accounts.quote_mint.decimals,
             &[],
             ctx.remaining_accounts,

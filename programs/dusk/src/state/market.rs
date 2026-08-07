@@ -5,7 +5,6 @@ use crate::{
     errors::ErrorCode,
     market::{lending::max_cf_bps_from_liquidation_cf, liquidity as rebalance},
     math::*,
-    shared::math::{ceil_div, slots_to_ms, SqrtU128},
     state::{
         borrow_position::{BorrowPosition, CollateralReceipt},
         futarchy_authority::{FutarchyAuthority, ProtocolAuctionLane, ProtocolAuctionSplit, ProtocolRevenueSource},
@@ -35,8 +34,8 @@ pub const MAX_AMM_VOLATILITY_NAD: u64 = 10 * NAD;
 /// Governance/arithmetic bound on signal sensitivity. Separate fee-share caps
 /// bound the Huberized divergence marginal and the volatility debit.
 pub const MAX_AMM_FEE_COEFFICIENT_NAD: u64 = 100 * NAD;
-pub const MIN_AMM_RAMP_DURATION_SLOTS: u64 = 216_000;
-pub const MAX_AMM_RAMP_DURATION_SLOTS: u64 = 1_512_000;
+pub const MIN_CONCENTRATION_RAMP_DURATION_SLOTS: u64 = 216_000;
+pub const MAX_CONCENTRATION_RAMP_DURATION_SLOTS: u64 = 1_512_000;
 pub const MAX_AMM_ADJUSTMENT_INTERVAL_SLOTS: u64 = 216_000;
 /// Fixed configuration extension room retained for future typed AMM controls.
 ///
@@ -92,7 +91,7 @@ pub struct AmmConfig {
     pub volatility_cap_nad: u64,
     pub divergence_fee_coefficient_nad: u64,
     pub volatility_fee_coefficient_nad: u64,
-    pub ramp_duration_slots: u64,
+    pub concentration_ramp_duration_slots: u64,
     pub reserved: [u8; AMM_CONFIG_RESERVED_BYTES],
 }
 
@@ -110,19 +109,19 @@ impl Default for AmmConfig {
             volatility_cap_nad: 0,
             divergence_fee_coefficient_nad: 0,
             volatility_fee_coefficient_nad: 0,
-            ramp_duration_slots: MIN_AMM_RAMP_DURATION_SLOTS,
+            concentration_ramp_duration_slots: MIN_CONCENTRATION_RAMP_DURATION_SLOTS,
             reserved: [0; AMM_CONFIG_RESERVED_BYTES],
         }
     }
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
-pub struct AmmCurveParameters {
+pub struct ConcentrationParameters {
     pub peak_depth_nad: u64,
     pub fade_scale_nad: u64,
 }
 
-impl AmmCurveParameters {
+impl ConcentrationParameters {
     pub const fn cpmm() -> Self {
         Self {
             peak_depth_nad: 0,
@@ -188,8 +187,8 @@ impl AmmCurveParameters {
 }
 
 impl AmmConfig {
-    pub const fn curve_parameters(&self) -> AmmCurveParameters {
-        AmmCurveParameters {
+    pub const fn curve_parameters(&self) -> ConcentrationParameters {
+        ConcentrationParameters {
             peak_depth_nad: self.peak_depth_nad,
             fade_scale_nad: self.fade_scale_nad,
         }
@@ -237,7 +236,8 @@ impl AmmConfig {
             ErrorCode::InvalidMarketConfig
         );
         require!(
-            (MIN_AMM_RAMP_DURATION_SLOTS..=MAX_AMM_RAMP_DURATION_SLOTS).contains(&self.ramp_duration_slots),
+            (MIN_CONCENTRATION_RAMP_DURATION_SLOTS..=MAX_CONCENTRATION_RAMP_DURATION_SLOTS)
+                .contains(&self.concentration_ramp_duration_slots),
             ErrorCode::InvalidMarketConfig
         );
         require!(
@@ -251,18 +251,18 @@ impl AmmConfig {
 /// A linear ramp whose governance delay is enforced by a queued parameter
 /// proposal. The ramp begins in the slot where that proposal executes.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
-pub struct AmmRamp {
+pub struct ConcentrationRamp {
     pub active: bool,
-    pub start: AmmCurveParameters,
-    pub target: AmmCurveParameters,
+    pub start: ConcentrationParameters,
+    pub target: ConcentrationParameters,
     pub start_slot: u64,
     pub end_slot: u64,
 }
 
-impl AmmRamp {
+impl ConcentrationRamp {
     pub fn start(
-        start: AmmCurveParameters,
-        target: AmmCurveParameters,
+        start: ConcentrationParameters,
+        target: ConcentrationParameters,
         applied_slot: u64,
         duration_slots: u64,
     ) -> Result<Self> {
@@ -273,7 +273,7 @@ impl AmmRamp {
         target.validate_endpoint()?;
         require!(start != target, ErrorCode::InvalidMarketConfig);
         require!(
-            (MIN_AMM_RAMP_DURATION_SLOTS..=MAX_AMM_RAMP_DURATION_SLOTS).contains(&duration_slots),
+            (MIN_CONCENTRATION_RAMP_DURATION_SLOTS..=MAX_CONCENTRATION_RAMP_DURATION_SLOTS).contains(&duration_slots),
             ErrorCode::InvalidMarketConfig
         );
         let end_slot = applied_slot
@@ -288,7 +288,7 @@ impl AmmRamp {
         })
     }
 
-    pub fn parameters_at(&self, fallback: AmmCurveParameters, slot: u64) -> AmmCurveParameters {
+    pub fn parameters_at(&self, fallback: ConcentrationParameters, slot: u64) -> ConcentrationParameters {
         if !self.active {
             return fallback;
         }
@@ -317,7 +317,7 @@ impl AmmRamp {
         } else {
             0
         };
-        AmmCurveParameters {
+        ConcentrationParameters {
             peak_depth_nad,
             fade_scale_nad,
         }
@@ -342,7 +342,7 @@ pub struct DeferredControllerTarget {
     /// 0 = none, 1 = parameter ramp, 2 = center move.
     pub kind: u8,
     pub center_price_nad: u64,
-    pub parameters: AmmCurveParameters,
+    pub parameters: ConcentrationParameters,
     pub required_nad: u128,
     pub evaluated_base_reserve_nad: u128,
     pub evaluated_quote_reserve_nad: u128,
@@ -371,7 +371,7 @@ pub struct AmmState {
     pub initialized: bool,
     /// Parameters already admitted by the protected-profit gate. Time alone
     /// never changes this field.
-    pub applied_curve_parameters: AmmCurveParameters,
+    pub applied_curve_parameters: ConcentrationParameters,
     /// Authoritative geometry for `applied_curve_parameters`. CPMM stores the
     /// all-zero cache. Only initialization or an admitted parameter change may
     /// replace it; center and reserve changes reuse it unchanged.
@@ -383,7 +383,7 @@ pub struct AmmState {
     pub last_adjustment_slot: u64,
     /// Prevents repeated instructions in one slot from advancing a ramp more
     /// than once.
-    pub last_ramp_update_slot: u64,
+    pub last_concentration_ramp_update_slot: u64,
     pub volatility_accumulator_nad: u64,
     pub invariant_d_nad: u128,
     /// Curve formula revision represented by `invariant_d_nad`.
@@ -404,7 +404,7 @@ pub struct AmmState {
     pub retain_dynamic_surcharge: bool,
     /// The requested protection target exceeded its principal-budget cap.
     pub retention_target_saturated: bool,
-    pub ramp: AmmRamp,
+    pub concentration_ramp: ConcentrationRamp,
     /// Retained surcharge changed executable inventory after the last exact
     /// forward-target solve. While stale, retention stays on until a decision
     /// point refreshes the target or executes a funded recenter.
@@ -418,14 +418,14 @@ impl Default for AmmState {
     fn default() -> Self {
         Self {
             initialized: false,
-            applied_curve_parameters: AmmCurveParameters::cpmm(),
+            applied_curve_parameters: ConcentrationParameters::cpmm(),
             concentrated_geometry_cache: ConcentratedGeometryCache::default(),
             center_price_nad: 0,
             price_ema_nad: 0,
             last_trade_price_nad: 0,
             last_observation_slot: 0,
             last_adjustment_slot: 0,
-            last_ramp_update_slot: 0,
+            last_concentration_ramp_update_slot: 0,
             volatility_accumulator_nad: 0,
             invariant_d_nad: 0,
             curve_math_revision: CONCENTRATED_MATH_REVISION,
@@ -436,7 +436,7 @@ impl Default for AmmState {
             retention_hard_cap_nad: 0,
             retain_dynamic_surcharge: false,
             retention_target_saturated: false,
-            ramp: AmmRamp::default(),
+            concentration_ramp: ConcentrationRamp::default(),
             retention_target_stale: false,
             deferred_controller_target: DeferredControllerTarget::default(),
             _reserved: [0; AMM_STATE_RESERVED_BYTES],
@@ -472,7 +472,7 @@ impl AmmState {
             last_trade_price_nad: initial_price_nad,
             last_observation_slot: current_slot,
             last_adjustment_slot: current_slot,
-            last_ramp_update_slot: current_slot,
+            last_concentration_ramp_update_slot: current_slot,
             volatility_accumulator_nad: 0,
             invariant_d_nad: 0,
             curve_math_revision: CONCENTRATED_MATH_REVISION,
@@ -483,7 +483,7 @@ impl AmmState {
             retention_hard_cap_nad: 0,
             retain_dynamic_surcharge: false,
             retention_target_saturated: false,
-            ramp: AmmRamp::default(),
+            concentration_ramp: ConcentrationRamp::default(),
             retention_target_stale: false,
             deferred_controller_target: DeferredControllerTarget::default(),
             _reserved: [0; AMM_STATE_RESERVED_BYTES],
@@ -512,7 +512,7 @@ impl AmmState {
         self.curve_math_revision = CONCENTRATED_MATH_REVISION;
     }
 
-    pub fn effective_curve_parameters(&self, config: &AmmConfig, _slot: u64) -> AmmCurveParameters {
+    pub fn effective_curve_parameters(&self, config: &AmmConfig, _slot: u64) -> ConcentrationParameters {
         if self.initialized {
             self.applied_curve_parameters
         } else {
@@ -523,8 +523,8 @@ impl AmmState {
     /// Returns the clock-proposed ramp point. A caller must value this
     /// candidate on the current reserves and fund any impairment before
     /// committing it with `commit_applied_curve_parameters`.
-    pub fn desired_curve_parameters(&self, config: &AmmConfig, slot: u64) -> AmmCurveParameters {
-        self.ramp.parameters_at(config.curve_parameters(), slot)
+    pub fn desired_curve_parameters(&self, config: &AmmConfig, slot: u64) -> ConcentrationParameters {
+        self.concentration_ramp.parameters_at(config.curve_parameters(), slot)
     }
 
     /// Records a candidate only after the caller has enforced the
@@ -532,12 +532,19 @@ impl AmmState {
     /// valuation itself.
     pub fn commit_applied_curve_parameters(
         &mut self,
-        candidate: AmmCurveParameters,
+        candidate: ConcentrationParameters,
         geometry_cache: Option<ConcentratedGeometryCache>,
         current_slot: u64,
     ) -> Result<()> {
-        require!(self.initialized && self.ramp.active, ErrorCode::InvalidMarketConfig);
-        require_gt!(current_slot, self.last_ramp_update_slot, ErrorCode::InvalidArgument);
+        require!(
+            self.initialized && self.concentration_ramp.active,
+            ErrorCode::InvalidMarketConfig
+        );
+        require_gt!(
+            current_slot,
+            self.last_concentration_ramp_update_slot,
+            ErrorCode::InvalidArgument
+        );
         candidate.validate_runtime()?;
         let concentrated_geometry_cache = if candidate.is_cpmm() {
             require!(geometry_cache.is_none(), ErrorCode::BrokenInvariant);
@@ -553,34 +560,34 @@ impl AmmState {
         };
         self.applied_curve_parameters = candidate;
         self.concentrated_geometry_cache = concentrated_geometry_cache;
-        self.last_ramp_update_slot = current_slot;
+        self.last_concentration_ramp_update_slot = current_slot;
         Ok(())
     }
 
     /// Starts a ramp when a timelocked concentration proposal executes. The
     /// prior endpoint is supplied explicitly because `config` already holds target.
-    pub fn start_applied_ramp(
+    pub fn start_concentration_ramp(
         &mut self,
-        old_parameters: AmmCurveParameters,
+        old_parameters: ConcentrationParameters,
         config: &AmmConfig,
         current_slot: u64,
     ) -> Result<()> {
         require!(self.initialized, ErrorCode::InvalidMarketConfig);
         require!(
-            !self.ramp.active || self.ramp.is_finished(current_slot),
+            !self.concentration_ramp.active || self.concentration_ramp.is_finished(current_slot),
             ErrorCode::InvalidMarketConfig
         );
         require!(
             self.applied_curve_parameters == old_parameters,
             ErrorCode::InvalidMarketConfig
         );
-        self.ramp = AmmRamp::start(
+        self.concentration_ramp = ConcentrationRamp::start(
             old_parameters,
             config.curve_parameters(),
             current_slot,
-            config.ramp_duration_slots,
+            config.concentration_ramp_duration_slots,
         )?;
-        self.last_ramp_update_slot = current_slot;
+        self.last_concentration_ramp_update_slot = current_slot;
         self.invalidate_deferred_controller_target();
         Ok(())
     }
@@ -596,11 +603,13 @@ impl AmmState {
 
     /// Clears completed ramp history only after the protected-profit gate has
     /// admitted the target. Clock completion alone is insufficient.
-    pub fn settle_ramp(&mut self, current_slot: u64) -> bool {
-        if !self.ramp.is_finished(current_slot) || self.applied_curve_parameters != self.ramp.target {
+    pub fn settle_concentration_ramp(&mut self, current_slot: u64) -> bool {
+        if !self.concentration_ramp.is_finished(current_slot)
+            || self.applied_curve_parameters != self.concentration_ramp.target
+        {
             return false;
         }
-        self.ramp = AmmRamp::default();
+        self.concentration_ramp = ConcentrationRamp::default();
         true
     }
 
@@ -2166,8 +2175,6 @@ impl Market {
         amount_in_for_quote: u64,
         reserve_input_credit: u64,
         current_slot: u64,
-        reserved_borrow_asset: MarketAsset,
-        reserved_daily_borrow: u64,
     ) -> Result<HlpRebalanceReceipt> {
         rebalance::pre_solve_one_hlp_for_swap(
             self,
@@ -2176,8 +2183,6 @@ impl Market {
             amount_in_for_quote,
             reserve_input_credit,
             current_slot,
-            reserved_borrow_asset,
-            reserved_daily_borrow,
         )
     }
 
@@ -2266,11 +2271,11 @@ impl Market {
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
-pub struct DailyLimits {
-    /// Gross new principal currently consuming the per-side borrow-flow
-    /// capacity. This is a 24-hour leaky/token bucket, not an exact trailing
-    /// window sum: it permits a full burst after idle and then refills at the
-    /// configured daily rate.
+pub struct DailyBorrowBucket {
+    /// Gross principal lent out through the public borrow path. Internal hLP
+    /// funding and isolated leverage do not consume this capacity. This is a
+    /// 24-hour leaky/token bucket, not an exact trailing-window sum: it permits
+    /// a full burst after idle and then refills at the configured daily rate.
     pub borrowed_bucket: u64,
     pub last_decay_slot: u64,
     /// Numerator remainder from `limit * elapsed_ms / MS_PER_DAY`. For a fixed
@@ -2280,7 +2285,7 @@ pub struct DailyLimits {
     pub decay_remainder_ms: u64,
 }
 
-impl DailyLimits {
+impl DailyBorrowBucket {
     pub fn decay_to_slot(&mut self, limit: u64, current_slot: u64) -> Result<()> {
         let elapsed_ms = slots_to_ms(self.last_decay_slot, current_slot).ok_or(ErrorCode::InvalidArgument)?;
         if self.borrowed_bucket == 0 {
@@ -2618,15 +2623,16 @@ impl Market {
             MarketParameterUpdate::Concentration {
                 peak_depth_nad,
                 fade_scale_nad,
-                ramp_duration_slots,
+                concentration_ramp_duration_slots,
             } => {
-                let target = AmmCurveParameters {
+                let target = ConcentrationParameters {
                     peak_depth_nad: *peak_depth_nad,
                     fade_scale_nad: *fade_scale_nad,
                 };
                 target.validate_endpoint()?;
                 require!(
-                    (MIN_AMM_RAMP_DURATION_SLOTS..=MAX_AMM_RAMP_DURATION_SLOTS).contains(ramp_duration_slots),
+                    (MIN_CONCENTRATION_RAMP_DURATION_SLOTS..=MAX_CONCENTRATION_RAMP_DURATION_SLOTS)
+                        .contains(concentration_ramp_duration_slots),
                     ErrorCode::InvalidParameterUpdate
                 );
                 require!(
@@ -2714,17 +2720,18 @@ impl Market {
                 MarketParameterUpdate::Concentration {
                     peak_depth_nad,
                     fade_scale_nad,
-                    ramp_duration_slots,
+                    concentration_ramp_duration_slots,
                 } => {
                     let applied = self.amm.effective_curve_parameters(&previous_config.amm, current_slot);
                     let mut next = self.config;
                     next.amm.peak_depth_nad = *peak_depth_nad;
                     next.amm.fade_scale_nad = *fade_scale_nad;
-                    next.amm.ramp_duration_slots = *ramp_duration_slots;
+                    next.amm.concentration_ramp_duration_slots = *concentration_ramp_duration_slots;
                     next.validate()?;
                     self.config = next;
                     if self.amm.initialized {
-                        self.amm.start_applied_ramp(applied, &self.config.amm, current_slot)?;
+                        self.amm
+                            .start_concentration_ramp(applied, &self.config.amm, current_slot)?;
                     }
                 }
                 MarketParameterUpdate::Irm(irm) => {
@@ -2753,8 +2760,12 @@ impl Market {
                     let old_limit_bps = self.config.max_daily_borrow_bps;
                     let base_limit = self.daily_limit_for_side(MarketAsset::Base, old_limit_bps)?;
                     let quote_limit = self.daily_limit_for_side(MarketAsset::Quote, old_limit_bps)?;
-                    self.base_side.daily_limits.decay_to_slot(base_limit, current_slot)?;
-                    self.quote_side.daily_limits.decay_to_slot(quote_limit, current_slot)?;
+                    self.base_side
+                        .daily_borrow_bucket
+                        .decay_to_slot(base_limit, current_slot)?;
+                    self.quote_side
+                        .daily_borrow_bucket
+                        .decay_to_slot(quote_limit, current_slot)?;
                     let mut next = self.config;
                     next.max_daily_borrow_bps = *max_daily_borrow_bps;
                     next.validate()?;
@@ -3045,7 +3056,12 @@ impl Market {
             borrow_amount,
             ErrorCode::InsufficientBorrowHeadroom
         );
-        self.record_new_borrow(borrow_asset, borrow_amount, current_slot)?;
+        let daily_borrow_limit = self.daily_limit_for_side(borrow_asset, self.config.max_daily_borrow_bps)?;
+        self.side_mut(borrow_asset).daily_borrow_bucket.record_borrow(
+            borrow_amount,
+            daily_borrow_limit,
+            current_slot,
+        )?;
         let debt_side = self.side_mut(borrow_asset);
         debt_side.reserves.cash_reserve = debt_side
             .reserves
@@ -4102,7 +4118,7 @@ pub struct MarketSide {
     pub reserves: Reserves,
     pub shares: ReserveShares,
     pub fees: Fees,
-    pub daily_limits: DailyLimits,
+    pub daily_borrow_bucket: DailyBorrowBucket,
 }
 
 impl MarketSide {

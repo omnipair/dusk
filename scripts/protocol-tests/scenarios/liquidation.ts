@@ -777,7 +777,7 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
         },
       });
 
-      const liquidationEvents = harness.events(settlement, "PositionLiquidated");
+      const liquidationEvents = harness.events(settlement, "BorrowPositionLiquidated");
       harness.assertEqual("bad-debt settlement emits one liquidation receipt", liquidationEvents.length, 1);
       const receipt = liquidationEvents[0].data as Record<string, { toString(): string }>;
       const repaid = eventAmount(receipt, "repaid_amount");

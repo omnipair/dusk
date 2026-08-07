@@ -43,7 +43,7 @@ pub struct LeverageSwapFeeCredit {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LeverageSwapPlan {
+pub struct PreparedLeverageSwap {
     pub swap: LeverageSwapQuote,
     pub base_pre_rebalance: HlpRebalanceReceipt,
     pub quote_pre_rebalance: HlpRebalanceReceipt,
@@ -271,16 +271,19 @@ impl Market {
     /// side; no maintenance call can be required later.
     fn finalize_leverage_swap_hlp(
         &mut self,
-        plan: LeverageSwapPlan,
+        prepared_swap: PreparedLeverageSwap,
         current_slot: u64,
     ) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
         self.finalize_amm_trade_after_inventory_checkpoint(
-            plan.swap.start_price_nad,
-            plan.swap.end_price_nad,
+            prepared_swap.swap.start_price_nad,
+            prepared_swap.swap.end_price_nad,
             current_slot,
         )?;
-        let receipts =
-            self.finalize_hlp_vaults_for_swap(plan.base_pre_rebalance, plan.quote_pre_rebalance, current_slot)?;
+        let receipts = self.finalize_hlp_vaults_for_swap(
+            prepared_swap.base_pre_rebalance,
+            prepared_swap.quote_pre_rebalance,
+            current_slot,
+        )?;
         let final_curve_evaluation = self.checkpoint_amm_neutral_inventory(current_slot)?;
         // The leverage quote was frozen before reserve, debt, retained-fee,
         // and hLP mutations. Record the actual final executable endpoint so a
@@ -303,7 +306,7 @@ impl Market {
         margin_credit: u64,
         multiplier_bps: u64,
         collateral_credit: u64,
-        plan: LeverageSwapPlan,
+        prepared_swap: PreparedLeverageSwap,
         swap_fee_credit: LeverageSwapFeeCredit,
         opened_at: i64,
         opened_slot: u64,
@@ -311,7 +314,7 @@ impl Market {
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
     ) -> Result<LeverageOpenReceipt> {
-        let swap = plan.swap;
+        let swap = prepared_swap.swap;
         require!(margin_credit > 0, ErrorCode::AmountZero);
         require!(multiplier_bps > BPS_DENOMINATOR as u64, ErrorCode::InvalidArgument);
         require!(
@@ -346,7 +349,7 @@ impl Market {
             pre_finalize_closeout_value,
             borrowed_amount,
         )?;
-        self.record_leverage_borrow(debt_asset, borrowed_amount, opened_slot)?;
+        self.debit_leverage_cash(debt_asset, borrowed_amount)?;
         let fees = self.apply_leverage_swap(
             debt_asset,
             swap,
@@ -355,7 +358,7 @@ impl Market {
             swap_fee_credit,
             protocol_fee_bps,
             protocol_auction_split,
-            plan.fee_eligible_ylp_supply,
+            prepared_swap.fee_eligible_ylp_supply,
             opened_slot,
         )?;
         let debt_shares = self.add_isolated_borrow_debt(debt_asset, borrowed_amount)?;
@@ -376,7 +379,7 @@ impl Market {
             opened_slot,
             bump,
         );
-        let (base_hlp_rebalance, quote_hlp_rebalance) = self.finalize_leverage_swap_hlp(plan, opened_slot)?;
+        let (base_hlp_rebalance, quote_hlp_rebalance) = self.finalize_leverage_swap_hlp(prepared_swap, opened_slot)?;
         let closeout_value = self.require_position_initial_leverage_health(position, opened_slot)?;
         let equity = closeout_value
             .checked_sub(borrowed_amount)
@@ -401,13 +404,13 @@ impl Market {
         position: &mut LeveragePosition,
         borrowed_amount: u64,
         collateral_credit: u64,
-        plan: LeverageSwapPlan,
+        prepared_swap: PreparedLeverageSwap,
         swap_fee_credit: LeverageSwapFeeCredit,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
         current_slot: u64,
     ) -> Result<LeverageUpdateReceipt> {
-        let swap = plan.swap;
+        let swap = prepared_swap.swap;
         position.require_open()?;
         require!(borrowed_amount > 0, ErrorCode::AmountZero);
         require!(collateral_credit > 0, ErrorCode::InsufficientOutputAmount);
@@ -442,7 +445,7 @@ impl Market {
             pre_finalize_closeout_value,
             debt_after,
         )?;
-        self.record_leverage_borrow(debt_asset, borrowed_amount, current_slot)?;
+        self.debit_leverage_cash(debt_asset, borrowed_amount)?;
         let fees = self.apply_leverage_swap(
             debt_asset,
             swap,
@@ -451,7 +454,7 @@ impl Market {
             swap_fee_credit,
             protocol_fee_bps,
             protocol_auction_split,
-            plan.fee_eligible_ylp_supply,
+            prepared_swap.fee_eligible_ylp_supply,
             current_slot,
         )?;
         let added_shares = self.add_isolated_borrow_debt(debt_asset, borrowed_amount)?;
@@ -464,7 +467,7 @@ impl Market {
             .checked_add(borrowed_amount as u128)
             .ok_or(ErrorCode::DebtMathOverflow)?;
         position.credit_collateral(collateral_credit)?;
-        let (base_hlp_rebalance, quote_hlp_rebalance) = self.finalize_leverage_swap_hlp(plan, current_slot)?;
+        let (base_hlp_rebalance, quote_hlp_rebalance) = self.finalize_leverage_swap_hlp(prepared_swap, current_slot)?;
         let closeout_value = self.require_position_initial_leverage_health(position, current_slot)?;
         Ok(LeverageUpdateReceipt {
             borrowed_amount,
@@ -486,13 +489,13 @@ impl Market {
         position: &mut LeveragePosition,
         collateral_debit: u64,
         min_repay_out: u64,
-        plan: LeverageSwapPlan,
+        prepared_swap: PreparedLeverageSwap,
         swap_fee_credit: LeverageSwapFeeCredit,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
         current_slot: u64,
     ) -> Result<LeverageUpdateReceipt> {
-        let swap = plan.swap;
+        let swap = prepared_swap.swap;
         position.require_open()?;
         require!(collateral_debit > 0, ErrorCode::AmountZero);
         require_gt!(
@@ -554,11 +557,11 @@ impl Market {
             swap_fee_credit,
             protocol_fee_bps,
             protocol_auction_split,
-            plan.fee_eligible_ylp_supply,
+            prepared_swap.fee_eligible_ylp_supply,
             current_slot,
         )?;
         position.debit_collateral(collateral_debit)?;
-        let (base_hlp_rebalance, quote_hlp_rebalance) = self.finalize_leverage_swap_hlp(plan, current_slot)?;
+        let (base_hlp_rebalance, quote_hlp_rebalance) = self.finalize_leverage_swap_hlp(prepared_swap, current_slot)?;
         let closeout_value = self.leverage_closeout_value(position, current_slot)?;
         require_leverage_not_liquidatable(closeout_value, clearance.remaining_debt)?;
         Ok(LeverageUpdateReceipt {
@@ -580,13 +583,13 @@ impl Market {
         &mut self,
         position: &mut LeveragePosition,
         min_residual_out: u64,
-        plan: LeverageSwapPlan,
+        prepared_swap: PreparedLeverageSwap,
         swap_fee_credit: LeverageSwapFeeCredit,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
         current_slot: u64,
     ) -> Result<LeverageCloseReceipt> {
-        let swap = plan.swap;
+        let swap = prepared_swap.swap;
         position.require_open()?;
         let debt_asset = position.debt_asset()?;
         let collateral_asset = debt_asset.opposite();
@@ -630,11 +633,11 @@ impl Market {
             swap_fee_credit,
             protocol_fee_bps,
             protocol_auction_split,
-            plan.fee_eligible_ylp_supply,
+            prepared_swap.fee_eligible_ylp_supply,
             current_slot,
         )?;
         position.collateral_amount = 0;
-        let (base_hlp_rebalance, quote_hlp_rebalance) = self.finalize_leverage_swap_hlp(plan, current_slot)?;
+        let (base_hlp_rebalance, quote_hlp_rebalance) = self.finalize_leverage_swap_hlp(prepared_swap, current_slot)?;
         Ok(LeverageCloseReceipt {
             debt_repaid: clearance.cash_repaid,
             interest_paid: clearance.interest_paid,
@@ -651,13 +654,13 @@ impl Market {
     pub fn liquidate_leverage(
         &mut self,
         position: &mut LeveragePosition,
-        plan: LeverageSwapPlan,
+        prepared_swap: PreparedLeverageSwap,
         swap_fee_credit: LeverageSwapFeeCredit,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
         current_slot: u64,
     ) -> Result<LeverageLiquidationReceipt> {
-        let swap = plan.swap;
+        let swap = prepared_swap.swap;
         position.require_open()?;
         let debt_asset = position.debt_asset()?;
         let collateral_asset = debt_asset.opposite();
@@ -751,7 +754,7 @@ impl Market {
             swap_fee_credit,
             protocol_fee_bps,
             protocol_auction_split,
-            plan.fee_eligible_ylp_supply,
+            prepared_swap.fee_eligible_ylp_supply,
             current_slot,
         )?;
         if writeoff.aggregate_debt_written_off > 0 {
@@ -767,7 +770,7 @@ impl Market {
             self.checkpoint_amm_socialized_loss_raw(current_slot)?;
         }
         position.collateral_amount = 0;
-        let (base_hlp_rebalance, quote_hlp_rebalance) = self.finalize_leverage_swap_hlp(plan, current_slot)?;
+        let (base_hlp_rebalance, quote_hlp_rebalance) = self.finalize_leverage_swap_hlp(prepared_swap, current_slot)?;
         Ok(LeverageLiquidationReceipt {
             debt_repaid: clearance.cash_repaid,
             interest_paid: clearance.interest_paid,
@@ -868,7 +871,7 @@ impl Market {
             pre_finalize_closeout_quote.amount_out,
             debt_after,
         )?;
-        self.record_leverage_borrow(debt_asset, borrow_amount, current_slot)?;
+        self.debit_leverage_cash(debt_asset, borrow_amount)?;
         let shares = self.add_isolated_borrow_debt(debt_asset, borrow_amount)?;
         position.debt_shares = position
             .debt_shares
@@ -1062,13 +1065,12 @@ impl Market {
         Ok(fees)
     }
 
-    fn record_leverage_borrow(&mut self, debt_asset: MarketAsset, gross_debt: u64, current_slot: u64) -> Result<()> {
+    fn debit_leverage_cash(&mut self, debt_asset: MarketAsset, gross_debt: u64) -> Result<()> {
         require_gte!(
             self.side(debt_asset).reserves.cash_reserve,
             gross_debt,
             ErrorCode::InsufficientBorrowHeadroom
         );
-        self.record_new_borrow(debt_asset, gross_debt, current_slot)?;
         let debt_side = self.side_mut(debt_asset);
         debt_side.reserves.cash_reserve = debt_side
             .reserves

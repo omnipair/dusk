@@ -5,16 +5,17 @@ use anchor_spl::{
 };
 
 use crate::{
+    account::get_size_with_discriminator,
     constants::*,
     errors::ErrorCode,
     events::{MarketCollateralDeposited, MarketEventMetadata},
-    shared::{account::get_size_with_discriminator, token::transfer_checked_with_remaining_accounts},
     state::{BorrowPosition, Market},
+    token::transfer_checked_with_remaining_accounts,
 };
 
-use crate::instructions::common::{require_supported_asset_mint, token_program_for_mint};
+use crate::instructions::accounts::{require_supported_asset_mint, token_program_for_mint};
 
-use super::common::validate_collateral_accounts;
+use super::accounts::validate_collateral_accounts;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct DepositCollateralArgs {
@@ -91,7 +92,7 @@ impl<'info> DepositCollateral<'info> {
         Ok(())
     }
 
-    crate::instructions::common::market_update_and_validate!(DepositCollateralArgs);
+    crate::instructions::accounts::market_update_and_validate!(DepositCollateralArgs);
 
     pub fn handle_deposit(mut ctx: Context<'_, '_, '_, 'info, Self>, args: DepositCollateralArgs) -> Result<()> {
         let borrow_position_bump = ctx.bumps.borrow_position;

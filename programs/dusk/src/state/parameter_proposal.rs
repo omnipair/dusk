@@ -41,7 +41,7 @@ pub enum MarketParameterUpdate {
     Concentration {
         peak_depth_nad: u64,
         fade_scale_nad: u64,
-        ramp_duration_slots: u64,
+        concentration_ramp_duration_slots: u64,
     },
     Irm(IrmConfig),
     EmaHalfLives {
@@ -50,6 +50,7 @@ pub enum MarketParameterUpdate {
         q_ms: u64,
         center_price_ms: u64,
     },
+    /// Rolling limit for principal lent out through the public borrow path.
     DailyBorrowLimit {
         max_daily_borrow_bps: u16,
     },
@@ -131,7 +132,10 @@ pub enum ParameterProposalStatus {
 
 impl ParameterProposalStatus {
     pub fn is_terminal(self) -> bool {
-        matches!(self, Self::Executed | Self::Cancelled | Self::Expired | Self::Stale)
+        match self {
+            Self::Executed | Self::Cancelled | Self::Expired | Self::Stale => true,
+            Self::Collecting | Self::Queued => false,
+        }
     }
 
     pub fn code(self) -> u8 {

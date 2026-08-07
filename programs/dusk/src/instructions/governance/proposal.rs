@@ -2,18 +2,16 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, Token2022, TokenAccount};
 
 use crate::{
+    account::get_size_with_discriminator,
     constants::*,
     errors::ErrorCode,
     events::{ParameterProposalCreated, ParameterProposalExecuted, ParameterProposalQueued},
-    instructions::common::validate_lp_mint,
-    shared::{
-        account::get_size_with_discriminator,
-        token::{create_token_account, token_burn},
-    },
+    instructions::accounts::validate_lp_mint,
     state::{
         Market, MarketParameterUpdate, ParameterProposal, ParameterProposalStatus, ProposalMetadataV1, ProposalSupport,
         YieldAccount, YieldTokenKind,
     },
+    token::{create_token_account, token_burn},
 };
 
 use super::{
@@ -29,6 +27,7 @@ pub struct CreateParameterProposalArgs {
     pub initial_support: u64,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: CreateParameterProposalArgs)]
 pub struct CreateParameterProposal<'info> {
@@ -284,7 +283,7 @@ impl<'info> CreateParameterProposal<'info> {
             .accounts
             .proposal
             .queue_if_supported(eligible_supply, clock.unix_timestamp)?;
-        emit!(ParameterProposalCreated {
+        emit_cpi!(ParameterProposalCreated {
             proposal: proposal_key,
             market: market_key,
             proposer: proposer_key,
@@ -297,7 +296,7 @@ impl<'info> CreateParameterProposal<'info> {
             status: ctx.accounts.proposal.status.code(),
         });
         if queued {
-            emit!(ParameterProposalQueued {
+            emit_cpi!(ParameterProposalQueued {
                 proposal: proposal_key,
                 total_locked: ctx.accounts.proposal.queued_support,
                 eligible_supply: ctx.accounts.proposal.queued_eligible_ylp,
@@ -334,6 +333,7 @@ fn governance_vault_amount(
     Ok(account.amount)
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct QueueParameterProposal<'info> {
     #[account(
@@ -389,7 +389,7 @@ impl<'info> QueueParameterProposal<'info> {
                 .queue_if_supported(eligible_supply, Clock::get()?.unix_timestamp)?,
             ErrorCode::ProposalSupportInsufficient
         );
-        emit!(ParameterProposalQueued {
+        emit_cpi!(ParameterProposalQueued {
             proposal: ctx.accounts.proposal.key(),
             total_locked: ctx.accounts.proposal.queued_support,
             eligible_supply: ctx.accounts.proposal.queued_eligible_ylp,
@@ -401,6 +401,7 @@ impl<'info> QueueParameterProposal<'info> {
     }
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct ExecuteParameterProposal<'info> {
     #[account(
@@ -451,7 +452,7 @@ impl<'info> ExecuteParameterProposal<'info> {
             .market
             .execute_parameter_update(&ctx.accounts.proposal.update, clock.slot)?;
         ctx.accounts.proposal.status = ParameterProposalStatus::Executed;
-        emit!(ParameterProposalExecuted {
+        emit_cpi!(ParameterProposalExecuted {
             proposal: ctx.accounts.proposal.key(),
             market: ctx.accounts.market.key(),
             family: ctx.accounts.proposal.family.code(),

@@ -73,6 +73,7 @@ import {
   LITESVM_COMPUTE_UNIT_LIMIT,
   recordExternalTransferHookComputeUnits,
   recordSwapComputeScenario,
+  recordTransactionComputeUnits,
   trackV2Instruction,
 } from "./utils/instruction-coverage.js";
 
@@ -255,7 +256,7 @@ function marketConfig() {
       volatilityCapNad: new BN(0),
       divergenceFeeCoefficientNad: new BN(0),
       volatilityFeeCoefficientNad: new BN(0),
-      rampDurationSlots: new BN(216_000),
+      concentrationRampDurationSlots: new BN(216_000),
       reserved: Array(33).fill(0),
     },
     irm: {
@@ -667,6 +668,11 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       if (result && "err" in result && (result as any).err) {
         throw new Error(`Transaction failed: ${JSON.stringify((result as any).err)}`);
       }
+      const computeUnits = (result as any)?.computeUnitsConsumed?.();
+      if (computeUnits === undefined) {
+        throw new Error("LiteSVM did not expose compute units for the submitted transaction");
+      }
+      recordTransactionComputeUnits(transaction, BigInt(computeUnits));
     } finally {
       svm.withSigverify(true);
     }
@@ -685,6 +691,11 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       throw new Error(`Simulation failed: ${err?.toString?.() ?? err}\n${prettyLogs ?? ""}`);
     }
     const meta = result?.meta?.();
+    const computeUnits = meta?.computeUnitsConsumed?.();
+    if (computeUnits === undefined) {
+      throw new Error("LiteSVM did not expose compute units for the simulated transaction");
+    }
+    recordTransactionComputeUnits(transaction, BigInt(computeUnits));
     const returnData = meta?.returnData?.();
     if (!returnData) {
       throw new Error(`Simulation did not return data\n${meta?.prettyLogs?.() ?? ""}`);
@@ -766,7 +777,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     const quoteInterestVault = deriveMarketInterestVaultAddress(market, quoteMint)[0];
 
     const tx = await program.methods
-      .initialize({
+      .initializeMarket({
         config,
         paramsHash: [...paramsHash],
       })
@@ -1408,7 +1419,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
 
   it("initializes a final yLP/hLP market with hooked Token-2022 LP mints", async function () {
     const fixture = await initializeFinalMarket(42);
-    trackV2Instruction("initialize", this.test?.title);
+    trackV2Instruction("initializeMarket", this.test?.title);
 
     const account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
@@ -3021,7 +3032,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     expect(ordinary.amm.applied_curve_parameters.peak_depth_nad.isZero()).to.equal(true);
     expect(ordinary.amm.applied_curve_parameters.fade_scale_nad.isZero()).to.equal(true);
     expect(ordinary.config.amm.adjustment_step_nad.isZero()).to.equal(true);
-    expect(ordinary.amm.ramp.active).to.equal(false);
+    expect(ordinary.amm.concentration_ramp.active).to.equal(false);
     expect(ordinary.amm.deferred_controller_target.kind).to.equal(0);
     expect(ordinary.amm.last_observation_slot.toString()).to.equal(sameSlot.toString());
 
@@ -3753,19 +3764,19 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     const startPeakDepth =
       ramped.amm.applied_curve_parameters.peak_depth_nad;
     const targetPeakDepth = startPeakDepth.mul(new BN(2));
-    ramped.amm.ramp.active = true;
-    ramped.amm.ramp.start = {
+    ramped.amm.concentration_ramp.active = true;
+    ramped.amm.concentration_ramp.start = {
       ...ramped.amm.applied_curve_parameters,
     };
-    ramped.amm.ramp.target = {
+    ramped.amm.concentration_ramp.target = {
       peak_depth_nad: targetPeakDepth,
       fade_scale_nad: ramped.amm.applied_curve_parameters.fade_scale_nad,
     };
-    const rampStartSlot = ramped.amm.last_observation_slot;
-    const rampSwapSlot = BigInt(rampStartSlot.add(new BN(1)).toString());
-    ramped.amm.ramp.start_slot = rampStartSlot;
-    ramped.amm.ramp.end_slot = rampStartSlot.add(new BN(9_000));
-    ramped.amm.last_ramp_update_slot = rampStartSlot;
+    const concentrationRampStartSlot = ramped.amm.last_observation_slot;
+    const rampSwapSlot = BigInt(concentrationRampStartSlot.add(new BN(1)).toString());
+    ramped.amm.concentration_ramp.start_slot = concentrationRampStartSlot;
+    ramped.amm.concentration_ramp.end_slot = concentrationRampStartSlot.add(new BN(9_000));
+    ramped.amm.last_concentration_ramp_update_slot = concentrationRampStartSlot;
     ramped.config.amm.peak_depth_nad = targetPeakDepth;
 
     const marketLayout = (accountCoder as any).accountLayouts.get("Market");
@@ -3797,10 +3808,10 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         startPeakDepth
       )
     ).to.equal(true);
-    expect(advanced.amm.last_ramp_update_slot.toString()).to.equal(
+    expect(advanced.amm.last_concentration_ramp_update_slot.toString()).to.equal(
       rampSwapSlot.toString()
     );
-    expect(advanced.amm.ramp.active).to.equal(true);
+    expect(advanced.amm.concentration_ramp.active).to.equal(true);
     expect(advanced.amm.retention_target_stale).to.equal(true);
     expect(advanced.last_marginal_observation_nad.gt(new BN(0))).to.equal(true);
     expect(advanced.curve_revision.gt(advanced.risk_revision)).to.equal(true);
@@ -3973,7 +3984,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     expect(authority.global_reduce_only).to.equal(true);
 
     const marketTx = await program.methods
-      .setReduceOnly({
+      .setMarketReduceOnly({
         reduceOnly: true,
       })
       .accounts({
@@ -3984,7 +3995,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       })
       .transaction();
     await sendTransactionWithUncheckedSigners(marketTx, [payer], [REDUCE_ONLY_EMERGENCY_AUTHORITY]);
-    trackV2Instruction("setReduceOnly", this.test?.title);
+    trackV2Instruction("setMarketReduceOnly", this.test?.title);
 
     const marketAccount = svm.getAccount(fixture.market);
     expect(marketAccount).to.not.equal(null);
@@ -5680,7 +5691,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     await connection.sendTransaction(bidTx, [payer]);
     trackV2Instruction("bidLiquidationAuction", this.test?.title);
 
-    const liquidationEvent = cpiEvent(bidTx, "positionLiquidated");
+    const liquidationEvent = cpiEvent(bidTx, "borrowPositionLiquidated");
     expect(liquidationEvent.market.toString()).to.equal(fixture.market.toString());
     expect(liquidationEvent.borrowPosition.toString()).to.equal(borrowPosition.toString());
     expect(liquidationEvent.borrower.toString()).to.equal(payer.publicKey.toString());
@@ -6384,9 +6395,14 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         quoteHlpYlpVault: fixture.quoteHlpYlpVault,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(createTx, [payer]);
+    expect(cpiEvent(createTx, "parameterProposalCreated").proposal.toString()).to.equal(
+      proposal.toString()
+    );
     trackV2Instruction("createParameterProposal", this.test?.title);
 
     const baseHlpYlp = await getAccount(
@@ -6417,6 +6433,8 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         ylpMint: fixture.ylpMint,
         baseHlpYlpVault: fixture.baseHlpYlpVault,
         quoteHlpYlpVault: fixture.quoteHlpYlpVault,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     let insufficientQueueRejected = false;
@@ -6445,9 +6463,17 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         quoteHlpYlpVault: fixture.quoteHlpYlpVault,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(supportTx, [payer]);
+    expect(cpiEvent(supportTx, "parameterProposalSupported").proposal.toString()).to.equal(
+      proposal.toString()
+    );
+    expect(cpiEvent(supportTx, "parameterProposalQueued").proposal.toString()).to.equal(
+      proposal.toString()
+    );
     trackV2Instruction("supportParameterProposal", this.test?.title);
 
     marketAccount = svm.getAccount(fixture.market);
@@ -6457,7 +6483,12 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
 
     const executeTx = await program.methods
       .executeParameterProposal()
-      .accounts({ market: fixture.market, proposal })
+      .accounts({
+        market: fixture.market,
+        proposal,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
       .transaction();
     let earlyExecutionRejected = false;
     try {
@@ -6474,9 +6505,17 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
 
     const maturedExecuteTx = await program.methods
       .executeParameterProposal()
-      .accounts({ market: fixture.market, proposal })
+      .accounts({
+        market: fixture.market,
+        proposal,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
       .transaction();
     await connection.sendTransaction(maturedExecuteTx, [payer]);
+    expect(cpiEvent(maturedExecuteTx, "parameterProposalExecuted").proposal.toString()).to.equal(
+      proposal.toString()
+    );
     trackV2Instruction("executeParameterProposal", this.test?.title);
 
     marketAccount = svm.getAccount(fixture.market);
@@ -6497,9 +6536,14 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
         baseYieldAccount,
         quoteYieldAccount,
         token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
       })
       .transaction();
     await connection.sendTransaction(withdrawTx, [payer]);
+    expect(cpiEvent(withdrawTx, "parameterProposalSupportWithdrawn").proposal.toString()).to.equal(
+      proposal.toString()
+    );
     trackV2Instruction("withdrawParameterSupport", this.test?.title);
 
     const ownerYlpAfter = await getAccount(
@@ -6514,5 +6558,88 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
     expect(marketAccount).to.not.equal(null);
     market = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
     expect(market.governance_locked_ylp.toNumber()).to.equal(0);
+
+    const queueNonce = new BN(2);
+    const queuedProposal = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("parameter_proposal"),
+        fixture.market.toBuffer(),
+        proposer.toBuffer(),
+        queueNonce.toArrayLike(Buffer, "le", 8),
+      ],
+      DUSK_PROGRAM_ID
+    )[0];
+    const queuedProposalSupport = PublicKey.findProgramAddressSync(
+      [Buffer.from("proposal_support"), queuedProposal.toBuffer(), proposer.toBuffer()],
+      DUSK_PROGRAM_ID
+    )[0];
+    const queuedSupport = eligibleSupply / 2n;
+    const queueCreateTx = await program.methods
+      .createParameterProposal({
+        nonce: queueNonce,
+        update: {
+          dailyBorrowLimit: {
+            maxDailyBorrowBps: 1_800,
+          },
+        },
+        metadata: {
+          version: 1,
+          title: "Measure denominator-fall queue",
+          descriptionUri: "ipfs://dusk-litesvm-denominator-fall-proposal",
+          descriptionSha256: Array(32).fill(2),
+          descriptionLen: 1,
+        },
+        initialSupport: new BN(queuedSupport.toString()),
+      })
+      .accounts({
+        proposer,
+        market: fixture.market,
+        proposal: queuedProposal,
+        proposalSupport: queuedProposalSupport,
+        ylpMint: fixture.ylpMint,
+        proposerYlpAccount: fixture.ownerYlpAccount,
+        baseYieldAccount,
+        quoteYieldAccount,
+        baseHlpYlpVault: fixture.baseHlpYlpVault,
+        quoteHlpYlpVault: fixture.quoteHlpYlpVault,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(queueCreateTx, [payer]);
+
+    await connection.sendTransaction(
+      new Transaction().add(
+        createBurnCheckedInstruction(
+          fixture.ownerYlpAccount,
+          fixture.ylpMint,
+          payer.publicKey,
+          2n,
+          6,
+          [],
+          TOKEN_2022_PROGRAM_ID
+        )
+      ),
+      [payer]
+    );
+
+    const successfulQueueTx = await program.methods
+      .queueParameterProposal()
+      .accounts({
+        market: fixture.market,
+        proposal: queuedProposal,
+        ylpMint: fixture.ylpMint,
+        baseHlpYlpVault: fixture.baseHlpYlpVault,
+        quoteHlpYlpVault: fixture.quoteHlpYlpVault,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(successfulQueueTx, [payer]);
+    expect(
+      cpiEvent(successfulQueueTx, "parameterProposalQueued").proposal.toString()
+    ).to.equal(queuedProposal.toString());
   });
 });

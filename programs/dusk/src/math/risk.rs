@@ -5,12 +5,12 @@ use crate::{
         BPS_DENOMINATOR, LTV_BUFFER_BPS, MAX_COLLATERAL_FACTOR_BPS, NAD, NATURAL_LOG_OF_TWO_NAD, TAYLOR_TERMS,
     },
     errors::ErrorCode,
-    shared::math::{slots_to_ms, taylor_exp},
+    math::{slots_to_ms, taylor_exp},
 };
 
 use super::{
-    calculate_normalized_amount_out, concentrated::validate_parameters, concentrated_prepare_curve,
-    concentrated_quote_exact_out, ConcentratedSwapDirection,
+    concentrated::validate_parameters, concentrated_prepare_curve, concentrated_quote_exact_out, cpmm_amount_out_nad,
+    ConcentratedSwapDirection,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -39,10 +39,10 @@ impl ConcentratedRiskCurve {
         if self.peak_depth_nad == 0 {
             return match direction {
                 ConcentratedSwapDirection::BaseToQuote => {
-                    calculate_normalized_amount_out(self.base_reserve_nad, self.quote_reserve_nad, amount_in_nad)
+                    cpmm_amount_out_nad(self.base_reserve_nad, self.quote_reserve_nad, amount_in_nad)
                 }
                 ConcentratedSwapDirection::QuoteToBase => {
-                    calculate_normalized_amount_out(self.quote_reserve_nad, self.base_reserve_nad, amount_in_nad)
+                    cpmm_amount_out_nad(self.quote_reserve_nad, self.base_reserve_nad, amount_in_nad)
                 }
             };
         }

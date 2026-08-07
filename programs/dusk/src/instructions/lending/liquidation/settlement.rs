@@ -117,5 +117,5 @@ pub(super) fn validate_liquidation_accounts<'info>(
 
 #[cfg(test)]
 mod tests {
-    include!("../../../tests/instructions/lending/liquidation/common.rs");
+    include!("../../../tests/instructions/lending/liquidation/settlement.rs");
 }

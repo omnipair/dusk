@@ -9,8 +9,8 @@ use crate::{
     constants::{HLP_PRE_SOLVE_EVALUATIONS, HLP_PRE_SOLVE_LOSS_THRESHOLD_NAD, NAD},
     errors::ErrorCode,
     math::{
-        calculate_normalized_amount_out, closed_form_pre_adjustment_nad, concentrated_marginal_price_nad,
-        concentrated_quote_exact_out, denormalize_from_nad_ceil, denormalize_from_nad_floor, hlp_opposite_exposure_nad,
+        closed_form_pre_adjustment_nad, concentrated_marginal_price_nad, concentrated_quote_exact_out,
+        cpmm_amount_out_nad, denormalize_from_nad_ceil, denormalize_from_nad_floor, hlp_opposite_exposure_nad,
         mul_div_u128, normalize_to_nad, ratio_lte_full_width, sqrt_ratio_nad, ConcentratedSwapDirection,
         HlpInventoryValuesNad,
     },
@@ -39,7 +39,7 @@ fn recognized_hlp_residual_exposure(actual_residual_nad: i128, nav_nad: u128) ->
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct HedgeReceipt {
+pub struct SingleSidedLiquidityReceipt {
     pub deposit_amount: u64,
     pub borrowed_amount: u64,
     pub ylp_amount: u64,
@@ -87,8 +87,7 @@ impl Market {
         target_asset: MarketAsset,
         deposit_amount: u64,
         min_hlp_amount: u64,
-        current_slot: u64,
-    ) -> Result<HedgeReceipt> {
+    ) -> Result<SingleSidedLiquidityReceipt> {
         let market = self;
         require!(deposit_amount > 0, ErrorCode::AmountZero);
         require_hlp_settlement_available(market, target_asset)?;
@@ -126,7 +125,6 @@ impl Market {
         .map_err(|_| ErrorCode::MarketMathOverflow)?;
         require!(borrowed_amount > 0, ErrorCode::InsufficientLiquidity);
         require_hlp_borrow_headroom(market.side(target_asset.opposite()), borrowed_amount)?;
-        market.record_new_borrow(target_asset.opposite(), borrowed_amount, current_slot)?;
         checkpoint_hlp_yield_from_ylp(market, target_asset)?;
 
         let (ylp_amount, hlp_amount, hlp_supply, post_prices) = match target_asset {
@@ -276,7 +274,7 @@ impl Market {
         market.assert_market_health_snapshot(&health)?;
         market.assert_virtual_reserve_invariant(MarketAsset::Base)?;
         market.assert_virtual_reserve_invariant(MarketAsset::Quote)?;
-        Ok(HedgeReceipt {
+        Ok(SingleSidedLiquidityReceipt {
             deposit_amount,
             borrowed_amount,
             ylp_amount,
@@ -287,7 +285,11 @@ impl Market {
             interest_paid: 0,
         })
     }
-    pub fn withdraw_single_sided(&mut self, target_asset: MarketAsset, hlp_amount: u64) -> Result<HedgeReceipt> {
+    pub fn withdraw_single_sided(
+        &mut self,
+        target_asset: MarketAsset,
+        hlp_amount: u64,
+    ) -> Result<SingleSidedLiquidityReceipt> {
         let market = self;
         require!(hlp_amount > 0, ErrorCode::AmountZero);
         let residual_exposure = match target_asset {
@@ -352,14 +354,14 @@ impl Market {
                         market.base_hlp_vault.cached_settlement_price_nad = settlement_reference_before;
                     }
                 }
-                HedgeReceipt {
+                SingleSidedLiquidityReceipt {
                     hlp_amount,
                     ylp_amount,
                     hlp_supply: market.base_hlp_vault.hlp_supply,
                     target_amount_out: base_out,
                     debt_repaid: debt_clearance.debt_reduced,
                     interest_paid,
-                    ..HedgeReceipt::default()
+                    ..SingleSidedLiquidityReceipt::default()
                 }
             }
             MarketAsset::Quote => {
@@ -408,14 +410,14 @@ impl Market {
                         market.quote_hlp_vault.cached_settlement_price_nad = settlement_reference_before;
                     }
                 }
-                HedgeReceipt {
+                SingleSidedLiquidityReceipt {
                     hlp_amount,
                     ylp_amount,
                     hlp_supply: market.quote_hlp_vault.hlp_supply,
                     target_amount_out: quote_out,
                     debt_repaid: debt_clearance.debt_reduced,
                     interest_paid,
-                    ..HedgeReceipt::default()
+                    ..SingleSidedLiquidityReceipt::default()
                 }
             }
         };
@@ -531,7 +533,7 @@ pub(crate) fn combine_hlp_rebalance_receipts(
 }
 
 /// Pre-positions one hLP side against the conservative preliminary swap path.
-/// The swap plan invokes this once per target numeraire from the same frozen
+/// The prepared swap invokes this once per target numeraire from the same frozen
 /// quote and reserve-input coordinates.
 pub fn pre_solve_one_hlp_for_swap(
     market: &mut Market,
@@ -540,8 +542,6 @@ pub fn pre_solve_one_hlp_for_swap(
     amount_in_for_quote: u64,
     reserve_input_credit: u64,
     current_slot: u64,
-    reserved_borrow_asset: MarketAsset,
-    reserved_daily_borrow: u64,
 ) -> Result<HlpRebalanceReceipt> {
     let rebalance_needed = match target_asset {
         MarketAsset::Base => market.base_hlp_vault.hlp_supply > 0 || market.base_hlp_vault.residual_exposure != 0,
@@ -558,13 +558,7 @@ pub fn pre_solve_one_hlp_for_swap(
     // describes the concentrated curve. The exact post-trade correction still
     // settles the trade's own movement.
     if !market.current_curve_parameters(curve_slot(market)).is_cpmm() {
-        return rebalance_one_hlp_with_reservation(
-            market,
-            target_asset,
-            current_slot,
-            reserved_borrow_asset,
-            reserved_daily_borrow,
-        );
+        return rebalance_one_hlp(market, target_asset, current_slot);
     }
 
     let valuation = current_hlp_valuation(market, target_asset)?;
@@ -762,15 +756,7 @@ pub fn pre_solve_one_hlp_for_swap(
         -i128::try_from(pre_adjustment_nad).map_err(|_| ErrorCode::MarketMathOverflow)?
     };
     let (receipt, post_prices) = if ideal_delta > 0 {
-        leverage_up_proportional(
-            market,
-            target_asset,
-            ideal_delta,
-            valuation,
-            current_slot,
-            reserved_borrow_asset,
-            reserved_daily_borrow,
-        )?
+        leverage_up_proportional(market, target_asset, ideal_delta, valuation)?
     } else {
         deleverage_proportional(market, target_asset, ideal_delta, valuation)?
     };
@@ -966,8 +952,8 @@ impl<'a> CpmmPreSolveSnapshot<'a> {
             let input_nad = normalize_to_nad(amount_in_for_quote as u128, self.market.side(asset_in).asset_decimals)?;
             require!(input_nad > 0, ErrorCode::AmountZero);
             let output_nad = match asset_in {
-                MarketAsset::Base => calculate_normalized_amount_out(base_nad, quote_nad, input_nad)?,
-                MarketAsset::Quote => calculate_normalized_amount_out(quote_nad, base_nad, input_nad)?,
+                MarketAsset::Base => cpmm_amount_out_nad(base_nad, quote_nad, input_nad)?,
+                MarketAsset::Quote => cpmm_amount_out_nad(quote_nad, base_nad, input_nad)?,
             };
             let amount_out =
                 denormalize_from_nad_floor(output_nad, self.market.side(asset_in.opposite()).asset_decimals)?;
@@ -1221,7 +1207,7 @@ fn deposit_quote_hlp(
 }
 
 #[cfg(test)]
-fn withdraw_base_hlp(market: &mut Market, hlp_amount: u64) -> Result<HedgeReceipt> {
+fn withdraw_base_hlp(market: &mut Market, hlp_amount: u64) -> Result<SingleSidedLiquidityReceipt> {
     let supply = market.base_hlp_vault.hlp_supply;
     require_gte!(supply, hlp_amount, ErrorCode::InsufficientBalance);
     let ylp_amount = proportional(market.base_hlp_vault.ylp_shares, hlp_amount, supply)?;
@@ -1258,19 +1244,19 @@ fn withdraw_base_hlp(market: &mut Market, hlp_amount: u64) -> Result<HedgeReceip
         market.base_hlp_vault.last_nav_nad = hlp_nav_nad_with_prices(market, MarketAsset::Base, current_prices)?;
         market.base_hlp_vault.cached_settlement_price_nad = current_prices.for_asset(MarketAsset::Base);
     }
-    Ok(HedgeReceipt {
+    Ok(SingleSidedLiquidityReceipt {
         hlp_amount,
         ylp_amount,
         hlp_supply: market.base_hlp_vault.hlp_supply,
         target_amount_out: base_out,
         debt_repaid: debt_clearance.debt_reduced,
         interest_paid,
-        ..HedgeReceipt::default()
+        ..SingleSidedLiquidityReceipt::default()
     })
 }
 
 #[cfg(test)]
-fn withdraw_quote_hlp(market: &mut Market, hlp_amount: u64) -> Result<HedgeReceipt> {
+fn withdraw_quote_hlp(market: &mut Market, hlp_amount: u64) -> Result<SingleSidedLiquidityReceipt> {
     let supply = market.quote_hlp_vault.hlp_supply;
     require_gte!(supply, hlp_amount, ErrorCode::InsufficientBalance);
     let ylp_amount = proportional(market.quote_hlp_vault.ylp_shares, hlp_amount, supply)?;
@@ -1307,14 +1293,14 @@ fn withdraw_quote_hlp(market: &mut Market, hlp_amount: u64) -> Result<HedgeRecei
         market.quote_hlp_vault.last_nav_nad = hlp_nav_nad_with_prices(market, MarketAsset::Quote, current_prices)?;
         market.quote_hlp_vault.cached_settlement_price_nad = current_prices.for_asset(MarketAsset::Quote);
     }
-    Ok(HedgeReceipt {
+    Ok(SingleSidedLiquidityReceipt {
         hlp_amount,
         ylp_amount,
         hlp_supply: market.quote_hlp_vault.hlp_supply,
         target_amount_out: quote_out,
         debt_repaid: debt_clearance.debt_reduced,
         interest_paid,
-        ..HedgeReceipt::default()
+        ..SingleSidedLiquidityReceipt::default()
     })
 }
 
@@ -1479,17 +1465,7 @@ fn settled_close_target_amount(
 pub(crate) fn rebalance_one_hlp(
     market: &mut Market,
     target_asset: MarketAsset,
-    current_slot: u64,
-) -> Result<HlpRebalanceReceipt> {
-    rebalance_one_hlp_with_reservation(market, target_asset, current_slot, target_asset, 0)
-}
-
-fn rebalance_one_hlp_with_reservation(
-    market: &mut Market,
-    target_asset: MarketAsset,
-    current_slot: u64,
-    reserved_borrow_asset: MarketAsset,
-    reserved_daily_borrow: u64,
+    _current_slot: u64,
 ) -> Result<HlpRebalanceReceipt> {
     checkpoint_hlp_yield_from_ylp(market, target_asset)?;
     let valuation = current_hlp_valuation(market, target_asset)?;
@@ -1508,15 +1484,7 @@ fn rebalance_one_hlp_with_reservation(
             valuation.prices,
         )
     } else if ideal_delta > 0 {
-        leverage_up_proportional(
-            market,
-            target_asset,
-            ideal_delta,
-            valuation,
-            current_slot,
-            reserved_borrow_asset,
-            reserved_daily_borrow,
-        )?
+        leverage_up_proportional(market, target_asset, ideal_delta, valuation)?
     } else if ideal_delta < 0 {
         deleverage_proportional(market, target_asset, ideal_delta, valuation)?
     } else {
@@ -1800,28 +1768,12 @@ fn leverage_up_proportional(
     target_asset: MarketAsset,
     ideal_delta: i128,
     valuation: HlpValuation,
-    current_slot: u64,
-    reserved_borrow_asset: MarketAsset,
-    reserved_daily_borrow: u64,
 ) -> Result<(HlpRebalanceReceipt, HlpCurvePrices)> {
     let borrowed_asset = target_asset.opposite();
-    // Controller-driven hLP funding must never hold the parent swap/leverage
-    // operation hostage. Clip to the shared borrow-flow budget and preserve
-    // the unexecuted amount as residual exposure for a later operation.
-    // Reuse one conservative-depth evaluation for both the capacity preview
-    // and the eventual bucket write; no limit-affecting state changes occur
-    // between them.
-    let (daily_limit, daily_remaining) = market.daily_borrow_budget(borrowed_asset, current_slot)?;
-    let available_after_reservation = if borrowed_asset == reserved_borrow_asset {
-        daily_remaining.saturating_sub(reserved_daily_borrow)
-    } else {
-        daily_remaining
-    };
-    let borrow_headroom = market
-        .side(borrowed_asset)
-        .reserves
-        .cash_reserve
-        .min(available_after_reservation);
+    // Controller-driven hLP funding is internal leverage, not lender cash
+    // leaving the market. Clip only to cash headroom and preserve any
+    // unexecuted amount as residual exposure for a later operation.
+    let borrow_headroom = market.side(borrowed_asset).reserves.cash_reserve;
     let feasible_delta_nad = if borrow_headroom == 0 {
         0
     } else {
@@ -1861,7 +1813,6 @@ fn leverage_up_proportional(
             valuation.prices,
         ));
     }
-    market.record_new_borrow_with_limit(borrowed_asset, amounts.debt_amount, daily_limit, current_slot)?;
     credit_hlp_live_reserve(market, target_asset, MarketAsset::Base, base_leg_amount)?;
     credit_hlp_live_reserve(market, target_asset, MarketAsset::Quote, quote_leg_amount)?;
     market.base_side.shares.mint(ylp_amount)?;

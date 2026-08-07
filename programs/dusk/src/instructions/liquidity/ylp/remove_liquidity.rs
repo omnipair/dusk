@@ -9,13 +9,13 @@ use crate::{
     errors::ErrorCode,
     events::{LiquidityRemoved, MarketEventMetadata, MarketHealthUpdated},
     generate_market_seeds,
-    shared::token::{token_burn, transfer_checked_with_remaining_accounts},
     state::{Market, YieldAccount, YieldTokenKind},
+    token::{token_burn, transfer_checked_with_remaining_accounts},
 };
 
 use super::{validate_ylp_market_pda, ylp_yield_account_pda};
 
-use crate::instructions::common::{
+use crate::instructions::accounts::{
     require_reserve_custody, require_supported_asset_mint, token_account_credit, token_account_debit,
     token_program_for_mint, validate_lp_mint, validate_owner_asset_account, validate_owner_lp_account,
     validate_side_vault_accounts,
@@ -142,7 +142,7 @@ impl<'info> RemoveLiquidity<'info> {
         Ok(())
     }
 
-    crate::instructions::common::market_update_and_validate!(RemoveLiquidityArgs);
+    crate::instructions::accounts::market_update_and_validate!(RemoveLiquidityArgs);
 
     pub fn handle_remove_liquidity(ctx: Context<'_, '_, '_, 'info, Self>, args: RemoveLiquidityArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();

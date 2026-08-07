@@ -1,6 +1,6 @@
 use super::*;
 use crate::state::{
-    FeeProfile, IrmConfig, DEFAULT_DAILY_BORROW_BPS, MIN_AMM_RAMP_DURATION_SLOTS,
+    FeeProfile, IrmConfig, DEFAULT_DAILY_BORROW_BPS, MIN_CONCENTRATION_RAMP_DURATION_SLOTS,
 };
 use proptest::prelude::*;
 
@@ -217,7 +217,7 @@ fn borrow_preserves_virtual_reserve_as_cash_plus_debt() {
     assert_eq!(market.base_side.reserves.live_reserve, 1_000_000);
     assert_eq!(market.base_side.reserves.cash_reserve, 900_000);
     assert_eq!(market.debt.fixed_base_debt().unwrap(), 100_000);
-    assert_eq!(market.base_side.daily_limits.borrowed_bucket, 100_000);
+    assert_eq!(market.base_side.daily_borrow_bucket.borrowed_bucket, 100_000);
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
 }
@@ -233,7 +233,7 @@ fn borrow_never_exceeds_cash_headroom() {
         .unwrap_err();
 
     assert_eq!(err, anchor_lang::prelude::error!(ErrorCode::InsufficientBorrowHeadroom));
-    assert_eq!(market.base_side.daily_limits.borrowed_bucket, 0);
+    assert_eq!(market.base_side.daily_borrow_bucket.borrowed_bucket, 0);
     assert_eq!(position.fixed_base_shares, 0);
 }
 
@@ -515,13 +515,13 @@ fn borrower_risk_valuation_uses_q_ema_depth_cap() {
     let value = market
         .collateral_value_nad(MarketAsset::Base, 50_000, &market.risk)
         .unwrap();
-    let expected = crate::math::calculate_normalized_amount_out(
+    let expected = crate::math::cpmm_amount_out_nad(
         100_000_u128 * NAD as u128,
         100_000_u128 * NAD as u128,
         50_000_u128 * NAD as u128,
     )
     .unwrap();
-    let live_depth_value = crate::math::calculate_normalized_amount_out(
+    let live_depth_value = crate::math::cpmm_amount_out_nad(
         1_000_000_u128 * NAD as u128,
         1_000_000_u128 * NAD as u128,
         50_000_u128 * NAD as u128,
@@ -580,7 +580,7 @@ fn reconstructed_risk_curve_caps_q_by_sudden_current_drawdown() {
 }
 
 #[test]
-fn daily_limits_use_conservative_q_at_current_spot_ratio() {
+fn daily_borrow_bucket_use_conservative_q_at_current_spot_ratio() {
     let mut market = invariant_market(4_000_000, 1_000_000);
     market.risk.q_ema_nad = 1_000_000_u128 * NAD as u128;
 
@@ -589,11 +589,11 @@ fn daily_limits_use_conservative_q_at_current_spot_ratio() {
 }
 
 #[test]
-fn daily_limits_track_post_swap_reserve_ratio() {
+fn daily_borrow_bucket_track_post_swap_reserve_ratio() {
     let mut market = invariant_market(1_000_000, 1_000_000);
     market.risk.q_ema_nad = 1_000_000_u128 * NAD as u128;
     let amount_in = 250_000;
-    let amount_out = crate::math::calculate_raw_amount_out(1_000_000, 1_000_000, amount_in).unwrap();
+    let amount_out = crate::math::cpmm_amount_out(1_000_000, 1_000_000, amount_in).unwrap();
     market.base_side.reserves.live_reserve += amount_in;
     market.quote_side.reserves.live_reserve -= amount_out;
 
@@ -604,7 +604,7 @@ fn daily_limits_track_post_swap_reserve_ratio() {
 }
 
 #[test]
-fn daily_limits_use_live_depth_when_q_ema_is_empty_or_above_spot() {
+fn daily_borrow_bucket_use_live_depth_when_q_ema_is_empty_or_above_spot() {
     let mut market = invariant_market(800_000, 1_200_000);
 
     assert_eq!(market.daily_limit_for_side(MarketAsset::Base, 2_500).unwrap(), 200_000);
@@ -616,7 +616,7 @@ fn daily_limits_use_live_depth_when_q_ema_is_empty_or_above_spot() {
 }
 
 #[test]
-fn daily_limits_follow_q_drawdown_growth_and_proportional_liquidity() {
+fn daily_borrow_bucket_follow_q_drawdown_growth_and_proportional_liquidity() {
     let mut market = invariant_market(2_000_000, 2_000_000);
     market.risk.q_ema_nad = 1_000_000_u128 * NAD as u128;
 
@@ -633,7 +633,7 @@ fn daily_limits_follow_q_drawdown_growth_and_proportional_liquidity() {
 }
 
 #[test]
-fn daily_limits_respect_mixed_token_decimals() {
+fn daily_borrow_bucket_respect_mixed_token_decimals() {
     let mut market = invariant_market(1_000_000_000, 2_000_000_000_000);
     market.base_side.asset_decimals = 6;
     market.quote_side.asset_decimals = 9;
@@ -1030,23 +1030,23 @@ fn concentration_execution_starts_the_selected_ramp_from_the_applied_shape() {
     let mut market = invariant_market(1_000_000, 1_000_000);
     market.finalize_amm_transition_and_observe_risk(1).unwrap();
     let applied_before = market.amm.applied_curve_parameters;
-    let duration = MIN_AMM_RAMP_DURATION_SLOTS + 123;
+    let duration = MIN_CONCENTRATION_RAMP_DURATION_SLOTS + 123;
 
     market
         .execute_parameter_update(
             &MarketParameterUpdate::Concentration {
                 peak_depth_nad: 200 * NAD,
                 fade_scale_nad: NAD / 100,
-                ramp_duration_slots: duration,
+                concentration_ramp_duration_slots: duration,
             },
             2,
         )
         .unwrap();
 
-    assert!(market.amm.ramp.active);
-    assert_eq!(market.amm.ramp.start, applied_before);
-    assert_eq!(market.amm.ramp.start_slot, 2);
-    assert_eq!(market.amm.ramp.end_slot, 2 + duration);
+    assert!(market.amm.concentration_ramp.active);
+    assert_eq!(market.amm.concentration_ramp.start, applied_before);
+    assert_eq!(market.amm.concentration_ramp.start_slot, 2);
+    assert_eq!(market.amm.concentration_ramp.end_slot, 2 + duration);
     assert_eq!(market.amm.applied_curve_parameters, applied_before);
     assert_eq!(market.parameter_revisions, [0, 1, 0, 0, 0]);
 }
@@ -1076,8 +1076,8 @@ fn utilization_rejection_rolls_back_old_parameter_checkpointing() {
 fn daily_borrow_rate_change_checkpoints_both_buckets_under_the_old_rate() {
     let mut market = invariant_market(1_000_000, 1_000_000);
     assert_eq!(market.config.max_daily_borrow_bps, 2_000);
-    market.base_side.daily_limits.borrowed_bucket = 200_000;
-    market.quote_side.daily_limits.borrowed_bucket = 150_000;
+    market.base_side.daily_borrow_bucket.borrowed_bucket = 200_000;
+    market.quote_side.daily_borrow_bucket.borrowed_bucket = 150_000;
     let half_day_slot = MS_PER_DAY / TARGET_MS_PER_SLOT / 2;
 
     market
@@ -1091,9 +1091,9 @@ fn daily_borrow_rate_change_checkpoints_both_buckets_under_the_old_rate() {
 
     // The old 20%/day absolute rate is 200_000 atoms/day. Applying the new
     // 30% rate retroactively would have released 150_000 instead of 100_000.
-    assert_eq!(market.base_side.daily_limits.borrowed_bucket, 100_000);
-    assert_eq!(market.quote_side.daily_limits.borrowed_bucket, 50_000);
-    assert_eq!(market.base_side.daily_limits.last_decay_slot, half_day_slot);
-    assert_eq!(market.quote_side.daily_limits.last_decay_slot, half_day_slot);
+    assert_eq!(market.base_side.daily_borrow_bucket.borrowed_bucket, 100_000);
+    assert_eq!(market.quote_side.daily_borrow_bucket.borrowed_bucket, 50_000);
+    assert_eq!(market.base_side.daily_borrow_bucket.last_decay_slot, half_day_slot);
+    assert_eq!(market.quote_side.daily_borrow_bucket.last_decay_slot, half_day_slot);
     assert_eq!(market.config.max_daily_borrow_bps, 3_000);
 }

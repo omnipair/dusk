@@ -14,20 +14,20 @@ use crate::{
     constants::*,
     errors::ErrorCode,
     generate_market_seeds,
-    instructions::common::{
+    instructions::accounts::{
         require_supported_asset_mint, token_account_credit, token_account_info_amount, token_account_info_credit,
         token_program_for_mint, validate_interest_accounts, validate_owner_asset_account, validate_side_vault_accounts,
         HlpSwapAccountLayout, BASE_HLP_YLP_VAULT_INDEX, BASE_INTEREST_VAULT_INDEX, HLP_SWAP_ACCOUNT_PREFIX_LEN,
         HLP_YLP_MINT_INDEX, QUOTE_HLP_YLP_VAULT_INDEX, QUOTE_INTEREST_VAULT_INDEX,
     },
     instructions::liquidity::record_inline_hlp_interest_credit,
-    instructions::referral::common::{accrue_referral_interest, ReferralInterestAccrualReceipt},
+    instructions::referral::accounting::{accrue_referral_interest, ReferralInterestAccrualReceipt},
     market::{HlpRebalanceReceipt, LeverageSwapFeeCredit, LeverageSwapQuote},
-    shared::token::{
+    state::{FutarchyAuthority, HlpYieldEligibility, Market, MarketAsset, ReferralAccrual, ReferralPartner},
+    token::{
         get_transfer_fee_for_epoch, is_fee_free_mint, token_burn, token_mint_to,
         transfer_checked_with_remaining_accounts,
     },
-    state::{FutarchyAuthority, HlpYieldEligibility, Market, MarketAsset, ReferralAccrual, ReferralPartner},
 };
 
 pub const LEVERAGE_DELEGATE_CLOSE: u32 = 1 << 0;
@@ -544,5 +544,5 @@ pub fn validate_owner_debt_account<'info>(
 
 #[cfg(test)]
 mod tests {
-    include!("../../tests/instructions/leverage/common.rs");
+    include!("../../tests/instructions/leverage/settlement.rs");
 }

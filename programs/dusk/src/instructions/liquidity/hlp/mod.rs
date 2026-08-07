@@ -37,9 +37,9 @@ pub(crate) fn validate_hlp_authority_pdas(
     .map_err(|_| error!(ErrorCode::InvalidMarket))?;
     require_keys_eq!(market_key, expected_market, ErrorCode::InvalidMarket);
 
-    let futarchy_bump = [futarchy_authority.bump];
+    let futarchy_authority_bump = [futarchy_authority.bump];
     let expected_futarchy =
-        Pubkey::create_program_address(&[FUTARCHY_AUTHORITY_SEED_PREFIX, &futarchy_bump], &crate::ID)
+        Pubkey::create_program_address(&[FUTARCHY_AUTHORITY_SEED_PREFIX, &futarchy_authority_bump], &crate::ID)
             .map_err(|_| error!(ErrorCode::InvalidFutarchyAuthority))?;
     require_keys_eq!(
         futarchy_authority_key,

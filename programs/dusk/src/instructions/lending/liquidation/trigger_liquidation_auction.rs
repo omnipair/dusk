@@ -46,7 +46,7 @@ impl<'info> TriggerLiquidationAuction<'info> {
         Ok(())
     }
 
-    crate::instructions::common::market_update_and_validate!();
+    crate::instructions::accounts::market_update_and_validate!();
 
     pub fn handle_trigger(ctx: Context<Self>) -> Result<()> {
         let debt_asset_mint_key = ctx.accounts.debt_asset_mint.key();
