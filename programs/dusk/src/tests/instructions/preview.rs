@@ -1,5 +1,5 @@
 use super::*;
-use crate::state::SwapFeeBreakdown;
+use crate::market::SwapFeeBreakdown;
 use proptest::prelude::*;
 
 impl<'a> NewPositionPreviewContext<'a> {

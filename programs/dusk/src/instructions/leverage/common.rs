@@ -22,14 +22,12 @@ use crate::{
     },
     instructions::liquidity::record_inline_hlp_interest_credit,
     instructions::referral::common::{accrue_referral_interest, ReferralInterestAccrualReceipt},
+    market::{HlpRebalanceReceipt, LeverageSwapFeeCredit, LeverageSwapQuote},
     shared::token::{
         get_transfer_fee_for_epoch, is_fee_free_mint, token_burn, token_mint_to,
         transfer_checked_with_remaining_accounts,
     },
-    state::{
-        FutarchyAuthority, HlpRebalanceReceipt, HlpYieldEligibility, LeverageSwapFeeCredit, LeverageSwapQuote, Market,
-        MarketAsset, ReferralAccrual, ReferralPartner,
-    },
+    state::{FutarchyAuthority, HlpYieldEligibility, Market, MarketAsset, ReferralAccrual, ReferralPartner},
 };
 
 pub const LEVERAGE_DELEGATE_CLOSE: u32 = 1 << 0;

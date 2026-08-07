@@ -6,6 +6,7 @@ use crate::instructions::{split_claimable_fee_credit, SwapContext, SwapPlan};
 use crate::{
     constants::*,
     errors::ErrorCode,
+    market::{max_cf_bps_from_liquidation_cf, DynamicBorrowTerms, LiquidationPricing},
     math::{
         denormalize_from_nad_floor, health_bps, instantaneous_rate_apr_nad, market_k_nad, normalize_to_nad,
         pessimistic_max_debt_on_curve_nad, utilization_bps, utilization_error_nad,
@@ -14,14 +15,7 @@ use crate::{
         math::{ceil_div, SqrtU128},
         token::{get_transfer_fee, get_transfer_inverse_fee},
     },
-    state::{
-        market::{
-            health::{max_cf_bps_from_liquidation_cf, DynamicBorrowTerms},
-            transitions::liquidation::LiquidationPricing,
-            AmmCurveParameters,
-        },
-        BorrowPosition, Market, MarketAsset, MarketHealth, Risk,
-    },
+    state::{AmmCurveParameters, BorrowPosition, Market, MarketAsset, MarketHealth, Risk},
 };
 
 // Most preview instructions update and return serialized market state. Swap

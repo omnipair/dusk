@@ -148,6 +148,41 @@ const sources = new Map(
   ])
 );
 
+const architecturePlacementErrors = [];
+for (const [file, source] of originalSources) {
+  if (!file.startsWith("programs/dusk/src/")) continue;
+  if (file.startsWith("programs/dusk/src/state/")) {
+    const relativeStatePath = file.slice("programs/dusk/src/state/".length);
+    if (relativeStatePath.includes("/")) {
+      architecturePlacementErrors.push(
+        `${file}: state is account-shaped; production state files must live directly under state/`
+      );
+    } else if (relativeStatePath !== "mod.rs") {
+      const accountCount = [...blankNonCode(source).matchAll(/^\s*#\[account(?:\([^\]]*\))?\]/gm)].length;
+      if (accountCount !== 1) {
+        architecturePlacementErrors.push(
+          `${file}: expected exactly one #[account] declaration, found ${accountCount}`
+        );
+      }
+    }
+  }
+  if (file.includes("/state/market/transitions/")) {
+    architecturePlacementErrors.push(
+      `${file}: checked mutations belong to their owning domain, not a generic transitions module`
+    );
+  }
+  if (/\bstate::market::transitions\b/.test(source)) {
+    architecturePlacementErrors.push(
+      `${file}: import the owning domain facade instead of transition internals`
+    );
+  }
+  if (/\btrait\s+Transition\b/.test(blankNonCode(source))) {
+    architecturePlacementErrors.push(
+      `${file}: persistent lifecycles may use explicit statuses, but atomic operations must not use a generic Transition trait`
+    );
+  }
+}
+
 const instructionTestPlacementErrors = [];
 for (const [file, originalSource] of originalSources) {
   const instructionSource =
@@ -330,6 +365,7 @@ const publicAudit = process.argv.includes("--public")
     )
   : [];
 
+for (const error of architecturePlacementErrors) console.error(error);
 for (const error of instructionTestPlacementErrors) console.error(error);
 
 for (const candidate of actionable) {
@@ -350,9 +386,14 @@ if (process.argv.includes("--public")) {
   console.log(`Public low-use audit candidates: ${publicAudit.length}.`);
 } else if (process.argv.includes("--broad")) {
   console.log(`Broad one-use audit candidates: ${actionable.length}; internal declarations scanned: ${declarations.length}.`);
-} else if (instructionTestPlacementErrors.length > 0 || actionable.length > 0) {
+} else if (
+  architecturePlacementErrors.length > 0 ||
+  instructionTestPlacementErrors.length > 0 ||
+  actionable.length > 0
+) {
   console.error(
-    `Code-shape check failed: ${instructionTestPlacementErrors.length} misplaced instruction test module(s); ` +
+    `Code-shape check failed: ${architecturePlacementErrors.length} architecture placement error(s); ` +
+      `${instructionTestPlacementErrors.length} misplaced instruction test module(s); ` +
       `${actionable.length} private/internal production function(s) have at most one call.`
   );
   process.exit(1);

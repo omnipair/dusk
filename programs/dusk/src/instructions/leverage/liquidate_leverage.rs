@@ -9,11 +9,9 @@ use crate::{
     errors::ErrorCode,
     events::{LeveragePositionLiquidated, LeverageSwapEvent, MarketEventMetadata},
     generate_market_seeds,
+    market::{LeverageSwapPlan, LeverageSwapQuote},
     shared::token::transfer_checked_with_remaining_accounts,
-    state::{
-        FutarchyAuthority, LeveragePosition, LeverageSwapPlan, LeverageSwapQuote, Market, MarketAsset, ReferralAccrual,
-        ReferralPartner,
-    },
+    state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
 };
 
 use super::common::{

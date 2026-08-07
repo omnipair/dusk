@@ -3,6 +3,27 @@
 Dusk follows the readable instruction style established in Omnipair V1 while
 keeping Dusk's stricter safety, testing, and code-shape rules.
 
+## Architecture
+
+Dusk uses three direct layers:
+
+1. instruction adapters own Anchor accounts, validation, token CPIs, custody
+   reconciliation, and events;
+2. account methods and the small `market/` domain modules own checked state
+   mutation and return receipts only when another phase needs the result;
+3. pure math owns stateless fixed-point algorithms and quotes.
+
+`state/` is account-shaped: every production state file defines exactly one
+`#[account]` type. Serialized child values stay beside their owning account;
+they do not become files or directories of their own. This is the Omnipair V1
+rule: a state file represents an on-chain account, not an architectural noun.
+
+Use an explicit state machine only for state that persists across transactions,
+such as proposal, auction, or ramp lifecycles. A swap, borrow, repayment, or LP
+change is an atomic domain operation, not a separate state-machine framework.
+The `market/` directory exists only for the few large behaviors shared by
+multiple instructions: AMM, liquidity, lending, and leverage.
+
 ## Instruction files
 
 Use this order:
@@ -55,6 +76,17 @@ Token-2022 correctness.
   only the `#[cfg(test)]` include bridge.
 - Every private, non-recursive production helper needs at least two genuine
   production call sites. Inline one-use helpers.
+- Prefer the least code that states the business operation directly. Do not
+  extract wrappers, forwarding methods, builders, traits, or helper functions
+  merely for symmetry, naming, testing, or visual tidiness. Extract code only
+  when reuse, recursion, borrow/stack constraints, or a genuinely independent
+  algorithm requires a boundary.
+- Every `state/*.rs` file except `mod.rs` owns exactly one `#[account]`; do not
+  create nested production modules under `state/`.
+- Do not add a generic `transitions` module or `Transition` trait. Place checked
+  mutations with the domain that owns their invariants.
+- Keep complex money-moving entrypoints separate. Group only short related
+  administrative entrypoints whose account and mutation stories remain clear.
 
 ## Required checks
 

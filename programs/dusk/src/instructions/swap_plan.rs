@@ -2,12 +2,8 @@ use anchor_lang::prelude::*;
 
 use crate::{
     errors::ErrorCode,
-    state::{
-        market::transitions::hedge::{
-            hlp_curve_prices_from_base_price_nad, pre_solve_one_hlp_for_swap, require_residual_hlp_swap_safe,
-        },
-        AmmSwapQuote, HlpRebalanceReceipt, HlpYieldEligibility, Market, MarketAsset, SwapFeeBreakdown,
-    },
+    market::{AmmSwapQuote, HlpRebalanceReceipt, SwapFeeBreakdown},
+    state::{HlpYieldEligibility, Market, MarketAsset},
 };
 
 /// All state-derived inputs frozen for one swap quote. Execution and preview
@@ -77,8 +73,7 @@ impl SwapContext {
                 preliminary.amount_in_for_quote,
                 ErrorCode::BrokenInvariant
             );
-            let base = pre_solve_one_hlp_for_swap(
-                market,
+            let base = market.pre_solve_hlp_for_swap(
                 MarketAsset::Base,
                 self.asset_in,
                 preliminary.amount_in_for_quote,
@@ -87,8 +82,7 @@ impl SwapContext {
                 self.asset_in,
                 self.reserved_daily_borrow,
             )?;
-            let quote = pre_solve_one_hlp_for_swap(
-                market,
+            let quote = market.pre_solve_hlp_for_swap(
                 MarketAsset::Quote,
                 self.asset_in,
                 preliminary.amount_in_for_quote,
@@ -141,20 +135,10 @@ impl SwapContext {
             preliminary,
         )?;
         if let Some(operation_start_price_nad) = operation_start_price_nad {
-            let start_prices = hlp_curve_prices_from_base_price_nad(operation_start_price_nad as u128)?;
-            let end_prices = hlp_curve_prices_from_base_price_nad(quote.reserve_end_price_nad as u128)?;
-            require_residual_hlp_swap_safe(
-                market,
-                MarketAsset::Base,
-                start_prices,
-                end_prices,
+            market.require_residual_hlp_swap_safety(
+                operation_start_price_nad as u128,
+                quote.reserve_end_price_nad as u128,
                 base_hlp_residual_on_entry,
-            )?;
-            require_residual_hlp_swap_safe(
-                market,
-                MarketAsset::Quote,
-                start_prices,
-                end_prices,
                 quote_hlp_residual_on_entry,
             )?;
         }

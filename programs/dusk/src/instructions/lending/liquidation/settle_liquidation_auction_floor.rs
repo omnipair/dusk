@@ -19,11 +19,9 @@ use crate::{
             accrue_referral_interest, referral_interest_accrued_event_at_slot, validate_referral_binding,
         },
     },
+    market::LiquidationPricing,
     shared::token::{get_transfer_fee, get_transfer_inverse_fee, transfer_checked_with_remaining_accounts},
-    state::{
-        market::transitions::liquidation::LiquidationPricing, BorrowPosition, FutarchyAuthority, Market,
-        ReferralAccrual, ReferralPartner,
-    },
+    state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]

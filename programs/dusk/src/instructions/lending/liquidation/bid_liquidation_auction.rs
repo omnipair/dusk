@@ -9,12 +9,10 @@ use crate::{
     errors::ErrorCode,
     events::PositionLiquidated,
     generate_market_seeds,
+    market::LiquidationPricing,
     math::risk::exponential_price_decay,
     shared::token::{get_transfer_fee, get_transfer_inverse_fee, transfer_checked_with_remaining_accounts},
-    state::{
-        market::transitions::liquidation::LiquidationPricing, BorrowPosition, FutarchyAuthority, Market,
-        ReferralAccrual, ReferralPartner,
-    },
+    state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
 };
 
 use super::common::{reconcile_insurance_funding_credit, validate_liquidation_accounts};

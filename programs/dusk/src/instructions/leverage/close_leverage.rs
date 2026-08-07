@@ -20,10 +20,10 @@ use crate::{
         referral::common::{referral_interest_accrued_event_at_slot, validate_referral_binding},
         SwapContext, SwapPlan,
     },
+    market::{LeverageSwapPlan, LeverageSwapQuote},
     shared::token::{get_transfer_fee_for_epoch, transfer_checked_with_remaining_accounts},
     state::{
-        FutarchyAuthority, LeverageDelegation, LeveragePosition, LeverageSwapPlan, LeverageSwapQuote, Market,
-        MarketAsset, ReferralAccrual, ReferralPartner,
+        FutarchyAuthority, LeverageDelegation, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner,
     },
 };
 

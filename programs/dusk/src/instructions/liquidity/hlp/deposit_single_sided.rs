@@ -174,13 +174,7 @@ impl<'info> DepositSingleSided<'info> {
         if self.market.base_side.reserves.live_reserve > 0 && self.market.quote_side.reserves.live_reserve > 0 {
             self.market.advance_amm_clock(current_slot)?;
             self.market.checkpoint_hlp_vaults()?;
-            let prices = crate::state::market::transitions::hedge::current_hlp_curve_prices(&self.market)?;
-            let entry = crate::state::market::transitions::hedge::current_hlp_entry_state_with_prices(
-                &self.market,
-                target_asset,
-                prices,
-            )?;
-            require!(entry.disposition.admits_entry(), ErrorCode::HlpSettlementUnavailable);
+            self.market.assert_hlp_entry_available(target_asset)?;
             if self.market.has_active_hlp()
                 && self.market.amm.ramp.active
                 && (!self.market.amm.applied_curve_parameters.is_cpmm() || !self.market.amm.ramp.target.is_cpmm())

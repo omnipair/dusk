@@ -1,19 +1,26 @@
 # Omnipair Dusk (v2)
 
-Omnipair Dusk (v2) is the standalone Dusk market program. It uses market terminology, floating yield LP shares, aggregate hedged LP vault accounting, isolated spot-margin leverage, and an optional oracle-less Dusk Concentrated AMM. See [`CONCENTRATION.md`](./CONCENTRATION.md) for the curve, recentering, fee, and protected-liquidity specification.
+Omnipair Dusk (v2) is the standalone Dusk market program. It uses market terminology, floating yield LP shares, aggregate hedged LP vault accounting, isolated spot-margin leverage, direct-yLP parameter governance, and an optional oracle-less Dusk Concentrated AMM. See [`CONCENTRATION.md`](./CONCENTRATION.md) for the curve, recentering, fee, and protected-liquidity specification.
 
 ## Source Boundaries
 
 Rust source follows the V1-inspired conventions in [`STYLE.md`](./STYLE.md).
 
-- `instructions/`: Anchor account validation, inventory movement, slippage checks, and events.
-- `transitions/`: atomic accounting mutations with small receipts for events and tests.
-- `state/`: account layouts, embedded market books, and invariants.
-- `tokens/`: validation for Token-2022 yLP and hLP mints.
-- `math/`: fixed-point concentrated-AMM/CPMM, dynamic-fee, EMA, valuation, and interest helpers.
-- `utils/`: shared accounting helpers used by transitions.
+- `instructions/`: Anchor account validation, token CPIs, custody reconciliation, slippage checks, and events. Small administrative entrypoints are grouped by domain; complex money paths remain separate.
+- `state/`: one file per serialized Anchor account. Embedded values live with their owning account instead of becoming pseudo-state modules.
+- `market/`: the four shared Market behaviors: AMM, liquidity, lending, and leverage. Operations are written directly without a generic transition or wrapper layer.
+- `math/`: pure fixed-point concentrated-AMM/CPMM, dynamic-fee, EMA, valuation, and interest algorithms.
+- `shared/`: reusable account, token, and arithmetic adapters that do not own protocol state transitions.
 
-Instruction modules are split by domain: `market`, `governance`, `liquidity`, `yielding`, `spot`, `lending`, `leverage`, `referral`, and `futarchy`.
+Instruction modules are split by domain: `market`, `governance`, `liquidity`, `spot`, `lending`, `leverage`, `referral`, and `futarchy`.
+
+| Flow | Anchor adapter | Domain owner |
+| --- | --- | --- |
+| Swap and preview | `instructions/spot`, `instructions/swap_plan`, `instructions/preview` | `state/market.rs`, `market/amm.rs` |
+| yLP and hLP | `instructions/liquidity` | `state/market.rs`, `market/liquidity.rs` |
+| Borrow and liquidation | `instructions/lending` | `state/borrow_position.rs`, `state/market.rs`, `market/lending.rs` |
+| Isolated leverage | `instructions/leverage` | `state/leverage_position.rs`, `state/leverage_delegation.rs`, `market/leverage.rs` |
+| Parameter governance | `instructions/governance` | `state/parameter_proposal.rs`, `state/proposal_support.rs`, `state/market.rs` |
 
 ## Public Instructions
 

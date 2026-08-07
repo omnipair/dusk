@@ -613,7 +613,7 @@ is concentrated.
 This satisfies “lending matches swaps” at the **invariant-mechanics** level,
 not at the net voluntary-swap-proceeds level. Lending underwriting, health, and
 liquidation references evaluate the fee-free pessimistic curve in
-`math/risk.rs` and `state/market/health.rs`. The auction bidder transfers debt
+`math/risk.rs` and `market/lending.rs`. The auction bidder transfers debt
 tokens directly for collateral, so no AMM fee is mechanically owed.
 
 The selected release policy is the **external-auction model**.

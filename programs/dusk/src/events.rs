@@ -1,6 +1,7 @@
 use crate::{
     errors::ErrorCode,
-    state::{LeverageSwapFeeCredit, LeverageSwapQuote, MarketConfig},
+    market::{LeverageSwapFeeCredit, LeverageSwapQuote},
+    state::MarketConfig,
 };
 use anchor_lang::prelude::*;
 

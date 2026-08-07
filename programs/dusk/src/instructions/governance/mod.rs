@@ -1,14 +1,8 @@
-mod create_parameter_proposal;
-mod execute_parameter_proposal;
-mod queue_parameter_proposal;
-mod support_parameter_proposal;
-mod withdraw_parameter_support;
+mod proposal;
+mod support;
 
-pub use create_parameter_proposal::*;
-pub use execute_parameter_proposal::*;
-pub use queue_parameter_proposal::*;
-pub use support_parameter_proposal::*;
-pub use withdraw_parameter_support::*;
+pub use proposal::*;
+pub use support::*;
 
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount};

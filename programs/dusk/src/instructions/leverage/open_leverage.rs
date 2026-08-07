@@ -8,14 +8,12 @@ use crate::{
     constants::*,
     errors::ErrorCode,
     events::{LeveragePositionOpened, LeverageSwapEvent, MarketEventMetadata, ReferralBound},
+    market::{leverage_debt_from_margin, LeverageSwapPlan, LeverageSwapQuote},
     shared::{
         account::{get_size_with_discriminator, initialize_pda_account_if_needed},
         token::{create_token_account, transfer_checked_with_remaining_accounts},
     },
-    state::{
-        leverage_debt_from_margin, FutarchyAuthority, LeveragePosition, LeverageSwapPlan, LeverageSwapQuote, Market,
-        MarketAsset, ReferralAccrual, ReferralPartner,
-    },
+    state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
 };
 
 use super::common::{

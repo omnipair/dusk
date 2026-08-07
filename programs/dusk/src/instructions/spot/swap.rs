@@ -9,8 +9,9 @@ use crate::{
     errors::ErrorCode,
     events::SwapExecuted,
     generate_market_seeds,
+    market::HlpRebalanceReceipt,
     shared::token::{get_transfer_fee_for_epoch, token_burn, token_mint_to, transfer_checked_with_remaining_accounts},
-    state::{FutarchyAuthority, HlpRebalanceReceipt, Market, MarketAsset},
+    state::{FutarchyAuthority, Market, MarketAsset},
 };
 
 use crate::instructions::common::{
