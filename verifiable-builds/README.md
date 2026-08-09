@@ -1,6 +1,6 @@
 # Verifiable Builds
 
-This directory is reserved for generated Omnipair Dusk (v2) build artifacts.
+This directory is reserved for generated Omnipair V2 (Dusk) build artifacts.
 
 Expected generated files:
 

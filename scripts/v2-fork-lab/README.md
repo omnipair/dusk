@@ -1,4 +1,4 @@
-# Omnipair Dusk (v2) Surfpool Mainnet-Fork Lab
+# Omnipair V2 (Dusk) Surfpool Mainnet-Fork Lab
 
 This stack runs `dusk` against a private Surfpool mainnet fork and exposes a small fork API for the Dusk webapp. It is intentionally separate from the Helius-backed indexer path because private Surfpool transactions are not visible to Helius Atlas.
 

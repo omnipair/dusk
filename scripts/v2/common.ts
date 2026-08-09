@@ -571,17 +571,17 @@ export function defaultLpMetadata(kind: "ylp" | "baseHlp" | "quoteHlp") {
         : "QUOTE_HLP";
   const defaults = {
     ylp: {
-      name: "Omnipair Dusk (v2) yLP",
+      name: "Omnipair V2 (Dusk) yLP",
       symbol: "yLP",
       uri: "https://omnipair.fi/metadata/dusk/ylp.json",
     },
     baseHlp: {
-      name: "Omnipair Dusk (v2) Base hLP",
+      name: "Omnipair V2 (Dusk) Base hLP",
       symbol: "hLP",
       uri: "https://omnipair.fi/metadata/dusk/base-hlp.json",
     },
     quoteHlp: {
-      name: "Omnipair Dusk (v2) Quote hLP",
+      name: "Omnipair V2 (Dusk) Quote hLP",
       symbol: "hLP",
       uri: "https://omnipair.fi/metadata/dusk/quote-hlp.json",
     },

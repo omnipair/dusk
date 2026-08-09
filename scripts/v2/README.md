@@ -1,6 +1,6 @@
-# Omnipair Dusk (v2) Devnet Helpers
+# Omnipair V2 (Dusk) Devnet Helpers
 
-These scripts create a disposable Omnipair Dusk (v2) devnet market and tester balances without committing keypairs.
+These scripts create a disposable Omnipair V2 (Dusk) devnet market and tester balances without committing keypairs.
 
 Local state and generated keypairs live in `~/.config/omnipair/dusk-devnet` by default. Override with `DUSK_DEVNET_CONFIG_DIR` or `DUSK_DEVNET_STATE`.
 

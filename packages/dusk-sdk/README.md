@@ -1,6 +1,7 @@
 # @omnipair/dusk-sdk
 
-TypeScript SDK for Omnipair Dusk market layout v3.
+TypeScript SDK for Dusk, the Omnipair V2 protocol architecture. This package
+targets Dusk market layout v1.
 
 A `Dusk` instance is an enriched Anchor program facade. It exposes the raw
 Anchor program through `dusk.program`, alongside typed on-chain reads and
@@ -86,7 +87,7 @@ same generic path for every Dusk instruction in the IDL.
 
 ### Direct-yLP Parameter Governance
 
-Market layout v3 has no market manager. A direct yLP holder burn-locks at least
+Market layout v1 has no market manager. A direct yLP holder burn-locks at least
 1% of eligible direct yLP to create a typed proposal. Strictly more than 50%
 support queues it for a 7-day timelock and a 7-day execution window. Execution
 is permissionless and succeeds only while both lending sides are below 80%

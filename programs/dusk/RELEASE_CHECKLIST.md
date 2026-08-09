@@ -1,6 +1,6 @@
-# Omnipair Dusk (v2) Release Checklist
+# Omnipair V2 (Dusk) Release Checklist
 
-Use this checklist before treating the standalone Omnipair Dusk (v2) market program as
+Use this checklist before treating the standalone Dusk market program for Omnipair V2 as
 production-ready. The root README covers the shared CI/CD and Squads deployment
 mechanics; this file captures the Dusk-specific gates that must be cleared before
 mainnet launch or upgrade.

@@ -268,7 +268,7 @@ function marketConfig() {
   };
 }
 
-describe("Omnipair Dusk (v2) final model smoke", () => {
+describe("Omnipair V2 (Dusk) final model smoke", () => {
   let svm: LiteSVM;
   let connection: LiteSVMConnection;
   let payer: Keypair;
@@ -813,7 +813,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       market,
       lpMint: ylpMint,
       lpTokenMetadata: ylpTokenMetadata,
-      name: "Omnipair Dusk (v2) yLP",
+      name: "Omnipair V2 (Dusk) yLP",
       symbol: "yLP",
       uri: "https://omnipair.fi/metadata/dusk/ylp.json",
     });
@@ -821,7 +821,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       market,
       lpMint: baseHlpMint,
       lpTokenMetadata: baseHlpTokenMetadata,
-      name: "Omnipair Dusk (v2) Base hLP",
+      name: "Omnipair V2 (Dusk) Base hLP",
       symbol: "hLP",
       uri: "https://omnipair.fi/metadata/dusk/base-hlp.json",
     });
@@ -829,7 +829,7 @@ describe("Omnipair Dusk (v2) final model smoke", () => {
       market,
       lpMint: quoteHlpMint,
       lpTokenMetadata: quoteHlpTokenMetadata,
-      name: "Omnipair Dusk (v2) Quote hLP",
+      name: "Omnipair V2 (Dusk) Quote hLP",
       symbol: "hLP",
       uri: "https://omnipair.fi/metadata/dusk/quote-hlp.json",
     });

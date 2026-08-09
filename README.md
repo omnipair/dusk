@@ -1,12 +1,13 @@
 <p align="center">
-  <img src="assets/omnipair-dusk-hero.png" alt="Omnipair Dusk (v2)" width="100%" />
+  <img src="assets/omnipair-dusk-hero.png" alt="Omnipair V2 (Dusk)" width="100%" />
 </p>
 
-> **Experimental software.** Omnipair Dusk (v2) is unaudited, incomplete, and under active development. It is published for research, review, and testing only. Do not deploy it to mainnet, integrate it in production, or use it with real funds until the implementation, tests, audits, and launch process are complete.
+> **Experimental software.** Omnipair V2 (Dusk) is unaudited, incomplete, and under active development. It is published for research, review, and testing only. Do not deploy it to mainnet, integrate it in production, or use it with real funds until the implementation, tests, audits, and launch process are complete.
 
-# Omnipair Dusk (v2)
+# Omnipair V2 (Dusk)
 
-**Omnipair Dusk (v2)** is an oracle-less lending protocol on Solana.
+**Dusk** is the Omnipair V2 protocol architecture: an oracle-less lending
+protocol on Solana.
 
 Dusk is the next generation of Omnipair: a standalone market program that brings swaps, lending, yield-bearing liquidity, leveraged LP vaults, and isolated spot-margin leverage into one capital-efficient protocol without relying on external price oracles.
 
@@ -165,7 +166,7 @@ Dusk is designed around market-local risk accounting:
 
 ## Instruction Surface
 
-Omnipair Dusk (v2) exposes simple market actions:
+Dusk exposes simple market actions:
 
 ```text
 initialize
@@ -350,7 +351,7 @@ Dusk extends the invariant set only where hLP needs native 2x LP tracking:
 
 ## Verification
 
-Core Omnipair Dusk (v2) verification gates:
+Core Omnipair V2 (Dusk) verification gates:
 
 ```bash
 anchor build -p dusk
@@ -368,7 +369,7 @@ Run the dusk-sdk build whenever public IDL, account, event, seed, or instruction
 
 ## Security And Status
 
-Omnipair Dusk (v2) is the standalone Dusk market program.
+Dusk is the standalone market program for Omnipair V2.
 
 Before Dusk is treated as production-ready, it should complete final security
 review, release artifact verification, and owner signoff for app, SDK, indexing,

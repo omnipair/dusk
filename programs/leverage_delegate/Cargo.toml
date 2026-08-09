@@ -1,7 +1,7 @@
 [package]
 name = "leverage_delegate"
 version = "2.0.0"
-description = "Permissionless leverage delegation strategies for Omnipair Dusk (v2)"
+description = "Permissionless leverage delegation strategies for Omnipair V2 (Dusk)"
 edition = "2021"
 resolver = "2"
 

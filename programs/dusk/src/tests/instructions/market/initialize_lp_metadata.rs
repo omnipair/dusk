@@ -36,7 +36,7 @@ fn lp_vanity_suffix(market: &Market, lp_mint: Pubkey) -> Result<&'static str> {
 
 fn valid_metadata() -> InitializeLpMetadataArgs {
     InitializeLpMetadataArgs {
-        name: "Omnipair Dusk (v2) yLP".to_string(),
+        name: "Omnipair V2 (Dusk) yLP".to_string(),
         symbol: "yLP".to_string(),
         uri: "https://omnipair.fi/metadata/dusk/ylp.json".to_string(),
     }

@@ -18,7 +18,7 @@ use solana_security_txt::security_txt;
 
 #[cfg(not(feature = "no-entrypoint"))]
 security_txt! {
-    name: "Omnipair Dusk (v3)",
+    name: "Omnipair V2 (Dusk)",
     project_url: "https://omnipair.fi",
     contacts: "email:security@omnipair.fi,telegram:rustfully",
     source_code: "https://github.com/omnipair/dusk",

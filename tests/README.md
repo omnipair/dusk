@@ -1,6 +1,6 @@
-# Omnipair Dusk (v2) Tests
+# Omnipair V2 (Dusk) Tests
 
-This directory contains LiteSVM smoke tests for the standalone Omnipair Dusk (v2) program.
+This directory contains LiteSVM smoke tests for the standalone Dusk program for Omnipair V2.
 
 ## Running
 

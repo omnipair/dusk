@@ -10,7 +10,7 @@ export type Dusk = {
     "name": "dusk",
     "version": "2.0.0",
     "spec": "0.1.0",
-    "description": "Omnipair Dusk (v2) market architecture program"
+    "description": "Dusk market architecture program for Omnipair V2"
   },
   "instructions": [
     {

@@ -152,8 +152,9 @@ fn concentrated_ready_amm_serialized_layout_is_locked() {
     assert_eq!(AMM_STATE_RESERVED_BYTES, 0);
     assert_eq!(<AmmState as anchor_lang::Space>::INIT_SPACE, 433);
     assert_eq!(<MarketConfig as anchor_lang::Space>::INIT_SPACE, 195);
-    // Layout v3 removes manager/operator and pending whole-config state, then
-    // adds direct-yLP governance locks plus five independent family revisions.
+    // The initial Dusk layout starts without manager/operator or pending
+    // whole-config state, and includes direct-yLP governance locks plus five
+    // independent family revisions.
     // The leaky daily buckets carry one additional u64 remainder per side
     // (+16 bytes total). Dev markets are recreated, so this is canonical.
     assert_eq!(<Market as anchor_lang::Space>::INIT_SPACE, 2_801);

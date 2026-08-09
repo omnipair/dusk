@@ -1,7 +1,7 @@
-# Omnipair Dusk (v2) Owner Signoff Checklist
+# Omnipair V2 (Dusk) Owner Signoff Checklist
 
 Use this checklist with `RELEASE_CHECKLIST.md` before declaring the standalone
-Omnipair Dusk (v2) market program production-ready. The local program gates can be completed by
+Dusk market program for Omnipair V2 production-ready. The local program gates can be completed by
 engineering; the signoffs below require the relevant owners to review the final
 branch, deployed artifacts, or target-cluster behavior.
 

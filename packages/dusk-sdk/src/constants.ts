@@ -17,7 +17,7 @@ export const DUSK_PROGRAM_ID = new PublicKey(getProgramIdFromEnv(DEFAULT_PROGRAM
 export const PROGRAM_ID = DUSK_PROGRAM_ID;
 export const TOKEN_METADATA_PROGRAM_ID = new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID);
 
-/** Direct-yLP parameter-governance constants. These values are immutable in v3. */
+/** Direct-yLP parameter-governance constants. These values are immutable for Dusk market layout v1. */
 export const GOVERNANCE_BPS_DENOMINATOR = 10_000;
 export const PARAMETER_PROPOSAL_SPONSOR_BPS = 100;
 export const PARAMETER_PROPOSAL_SUPPORT_BPS = 5_000;

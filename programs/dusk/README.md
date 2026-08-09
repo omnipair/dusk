@@ -1,6 +1,6 @@
-# Omnipair Dusk (v2)
+# Omnipair V2 (Dusk)
 
-Omnipair Dusk (v2) is the standalone Dusk market program. It uses market terminology, floating yield LP shares, aggregate hedged LP vault accounting, isolated spot-margin leverage, direct-yLP parameter governance, and an optional oracle-less Dusk Concentrated AMM. See [`CONCENTRATION.md`](./CONCENTRATION.md) for the curve, recentering, fee, and protected-liquidity specification.
+Dusk is the standalone market program for Omnipair V2. It uses market terminology, floating yield LP shares, aggregate hedged LP vault accounting, isolated spot-margin leverage, direct-yLP parameter governance, and an optional oracle-less Dusk Concentrated AMM. See [`CONCENTRATION.md`](./CONCENTRATION.md) for the curve, recentering, fee, and protected-liquidity specification.
 
 See [`COMPUTE_BENCHMARKS.md`](./COMPUTE_BENCHMARKS.md) for the complete
 53-instruction LiteSVM CU table, including sample counts, averages, observed
@@ -28,7 +28,7 @@ Instruction modules are split by domain: `market`, `governance`, `liquidity`, `s
 
 ## Public Instructions
 
-Omnipair Dusk (v2) exposes the current market instruction set:
+Dusk exposes the current market instruction set:
 
 - `initialize_market`, `initialize_lp_metadata`, `set_market_reduce_only`
 - `create_parameter_proposal`, `support_parameter_proposal`, `queue_parameter_proposal`, `execute_parameter_proposal`, `withdraw_parameter_support`
@@ -295,7 +295,7 @@ different.
 
 ## Verification
 
-Useful focused checks while changing Omnipair Dusk (v2):
+Useful focused checks while changing Omnipair V2 (Dusk):
 
 ```bash
 cargo fmt -p dusk -- --check

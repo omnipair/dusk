@@ -143,7 +143,7 @@ pub const LEVERAGE_MAINTENANCE_BUFFER_BPS: u16 = 700; // 7%
 /// Increment this only for an incompatible account-layout change after
 /// deployment, never for ordinary feature work or product naming.
 #[constant]
-pub const MARKET_LAYOUT_VERSION: u8 = 3;
+pub const MARKET_LAYOUT_VERSION: u8 = 1;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 #[cfg(feature = "development")]
