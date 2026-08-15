@@ -184,9 +184,23 @@ impl SwapRequest {
         let pre_state = market.dynamic_fee_pre_state(self.current_slot)?;
         let preliminary =
             market.preliminary_swap_inputs_for_state(self.reserve_credit, self.current_slot, pre_state)?;
-        let explicit = market
-            .quote_explicit_integrated_with_fee(self.asset_in, self.reserve_credit, preliminary)?
+        let integrated_start = market.integrated_curve_state_nad()?;
+        let mut explicit = market
+            .quote_explicit_integrated_with_fee_from_state(
+                self.asset_in,
+                self.reserve_credit,
+                preliminary,
+                integrated_start,
+            )?
             .ok_or(ErrorCode::BrokenInvariant)?;
+        if cash_policy == SwapCashPolicy::Spot {
+            crate::market::liquidity::apply_explicit_hlp_recovery(
+                market,
+                self.asset_in,
+                integrated_start,
+                &mut explicit,
+            )?;
+        }
         let transition = prepare_explicit_hlp_transition(market, explicit, self.asset_in)?;
         require!(
             transition

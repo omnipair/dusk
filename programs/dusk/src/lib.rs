@@ -201,8 +201,20 @@ pub mod dusk {
 
     // Spot instructions
     pub fn swap<'info>(ctx: Context<'_, '_, '_, 'info, Swap<'info>>, args: SwapArgs) -> Result<()> {
-        let (current_slot, current_epoch) = ctx.accounts.validate_and_read_clock(&args)?;
-        Swap::handle_swap(ctx, args, current_slot, current_epoch)
+        let mode = SwapExecutionMode::Ordinary;
+        let (current_slot, current_epoch) = ctx.accounts.validate_and_read_clock(&args, mode)?;
+        Swap::handle_swap(ctx, args, current_slot, current_epoch, mode)
+    }
+
+    /// Permissionless critical hLP recovery. The caller supplies the hLP's
+    /// borrowed asset and receives target collateral through the same exact
+    /// O(1) swap/hedge transition as an ordinary recovery swap. It is live in
+    /// reduce-only mode and rejects unless the selected vault is at or beyond
+    /// the 9/8 funding-stress boundary.
+    pub fn liquidate_hlp<'info>(ctx: Context<'_, '_, '_, 'info, Swap<'info>>, args: SwapArgs) -> Result<()> {
+        let mode = SwapExecutionMode::CriticalHlpLiquidation;
+        let (current_slot, current_epoch) = ctx.accounts.validate_and_read_clock(&args, mode)?;
+        Swap::handle_swap(ctx, args, current_slot, current_epoch, mode)
     }
 
     // Lending instructions

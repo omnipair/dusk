@@ -294,6 +294,13 @@ pub struct SwapPreview {
     pub final_spot_price_nad: u64,
     pub base_hlp_quote_debt_delta: i128,
     pub quote_hlp_base_debt_delta: i128,
+    /// Yield-Basis-like recovery funded exclusively by the stressed hLP.
+    pub hlp_recovery_target_asset: u8,
+    pub hlp_recovery_funding_gap: u64,
+    pub hlp_recovery_matched_input: u64,
+    pub hlp_recovery_bonus_output: u64,
+    pub hlp_recovery_discount_bps: u16,
+    pub hlp_recovery_critical: bool,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -653,6 +660,12 @@ impl<'info> PreviewSwap<'info> {
             final_spot_price_nad: explicit_metadata.5,
             base_hlp_quote_debt_delta: explicit_debt_deltas.0,
             quote_hlp_base_debt_delta: explicit_debt_deltas.1,
+            hlp_recovery_target_asset: quote.recovery.target_asset,
+            hlp_recovery_funding_gap: quote.recovery.funding_gap,
+            hlp_recovery_matched_input: quote.recovery.matched_input,
+            hlp_recovery_bonus_output: quote.recovery.bonus_output,
+            hlp_recovery_discount_bps: quote.recovery.discount_bps,
+            hlp_recovery_critical: quote.recovery.critical,
         })
     }
 }

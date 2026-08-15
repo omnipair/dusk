@@ -266,6 +266,13 @@ pub struct SwapExecuted {
     pub volatility_fee: u64,
     /// Dynamic surcharge retained as executable principal.
     pub retained_fee: u64,
+    /// Extra output funded by deleveraging the stressed hLP.
+    pub hlp_recovery_target_asset: u8,
+    pub hlp_recovery_funding_gap: u64,
+    pub hlp_recovery_matched_input: u64,
+    pub hlp_recovery_bonus_output: u64,
+    pub hlp_recovery_discount_bps: u16,
+    pub hlp_recovery_critical: bool,
     /// Final executable reserves after retention and inline hLP correction.
     pub base_live_reserve: u64,
     pub quote_live_reserve: u64,

@@ -317,6 +317,9 @@ pub enum ErrorCode {
     #[msg("hLP settlement is unavailable")]
     HlpSettlementUnavailable,
 
+    #[msg("hLP funding position is not eligible for permissionless liquidation")]
+    HlpNotLiquidatable,
+
     #[msg("Borrow headroom is insufficient")]
     InsufficientBorrowHeadroom,
 

@@ -9,7 +9,7 @@ use crate::{
     errors::ErrorCode,
     events::SwapExecuted,
     generate_market_seeds,
-    market::HlpRebalanceReceipt,
+    market::{HlpRebalanceReceipt, HlpRecoveryBreakdown},
     state::{FutarchyAuthority, Market, MarketAsset},
     token::{get_transfer_fee_for_epoch, token_burn, token_mint_to, transfer_checked_with_remaining_accounts},
 };
@@ -27,6 +27,12 @@ use crate::instructions::{rebalance_executes_token_changes, SwapRequest};
 pub struct SwapArgs {
     pub exact_asset_in: u64,
     pub min_asset_out: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SwapExecutionMode {
+    Ordinary,
+    CriticalHlpLiquidation,
 }
 
 #[event_cpi]
@@ -75,7 +81,7 @@ pub struct Swap<'info> {
 }
 
 impl<'info> Swap<'info> {
-    pub fn validate_and_read_clock(&self, args: &SwapArgs) -> Result<(u64, u64)> {
+    pub(crate) fn validate_and_read_clock(&self, args: &SwapArgs, mode: SwapExecutionMode) -> Result<(u64, u64)> {
         // Read the sysvar once for the complete swap. In particular, do not
         // call `Market::assert_started`, which would fetch `Clock` a second
         // time before the slot-driven AMM/debt pipeline begins.
@@ -85,10 +91,12 @@ impl<'info> Swap<'info> {
             clock.unix_timestamp >= self.market.config.start_time,
             ErrorCode::MarketNotStarted
         );
-        require!(
-            !self.futarchy_authority.is_reduce_only(self.market.reduce_only),
-            ErrorCode::ReduceOnlyMode
-        );
+        if mode == SwapExecutionMode::Ordinary {
+            require!(
+                !self.futarchy_authority.is_reduce_only(self.market.reduce_only),
+                ErrorCode::ReduceOnlyMode
+            );
+        }
         require!(args.exact_asset_in > 0, ErrorCode::AmountZero);
         require_gte!(
             self.trader_asset_in_account.amount,
@@ -128,11 +136,12 @@ impl<'info> Swap<'info> {
         Ok((clock.slot, clock.epoch))
     }
 
-    pub fn handle_swap(
+    pub(crate) fn handle_swap(
         mut ctx: Context<'_, '_, '_, 'info, Self>,
         args: SwapArgs,
         current_slot: u64,
         current_epoch: u64,
+        mode: SwapExecutionMode,
     ) -> Result<()> {
         // The fixed hLP prefix is checked before transfer-fee, invariant,
         // controller, or hedge math. Only the trailing account slice is ever
@@ -161,6 +170,9 @@ impl<'info> Swap<'info> {
             reserve_credit,
         }
         .prepare(&mut ctx.accounts.market)?;
+        if mode == SwapExecutionMode::CriticalHlpLiquidation {
+            require_critical_hlp_liquidation(prepared.quote.recovery, asset_in)?;
+        }
         let finalized = prepared.finalize_state(
             &mut ctx.accounts.market,
             current_slot,
@@ -289,12 +301,29 @@ impl<'info> Swap<'info> {
             divergence_fee: quote.fee.divergence_surcharge_debit,
             volatility_fee: quote.fee.volatility_surcharge_debit,
             retained_fee: quote.fee.retained_surcharge,
+            hlp_recovery_target_asset: quote.recovery.target_asset,
+            hlp_recovery_funding_gap: quote.recovery.funding_gap,
+            hlp_recovery_matched_input: quote.recovery.matched_input,
+            hlp_recovery_bonus_output: quote.recovery.bonus_output,
+            hlp_recovery_discount_bps: quote.recovery.discount_bps,
+            hlp_recovery_critical: quote.recovery.critical,
             base_live_reserve: ctx.accounts.market.base_side.reserves.live_reserve,
             quote_live_reserve: ctx.accounts.market.quote_side.reserves.live_reserve,
         });
 
         Ok(())
     }
+}
+
+fn require_critical_hlp_liquidation(recovery: HlpRecoveryBreakdown, asset_in: MarketAsset) -> Result<()> {
+    require!(
+        recovery.critical
+            && recovery.matched_input > 0
+            && recovery.bonus_output > 0
+            && recovery.target_asset == asset_in.opposite().code(),
+        ErrorCode::HlpNotLiquidatable
+    );
+    Ok(())
 }
 
 fn apply_single_hlp_rebalance_token_changes<'info>(

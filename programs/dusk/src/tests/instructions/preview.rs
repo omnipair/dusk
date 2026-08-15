@@ -253,6 +253,81 @@ fn concentrated_hlp_preview_and_execution_share_the_same_accepted_plan_in_both_d
 }
 
 #[test]
+fn stressed_hlp_recovery_improves_the_matching_swap_and_restores_the_hedge() {
+    let healthy = active_concentrated_preview_market();
+    let mut stressed = healthy.clone();
+    stressed.debt.quote_borrow_index_nad = mul_div_u128(stressed.debt.quote_borrow_index_nad, 17, 16).unwrap();
+
+    // Quote input supplies the asset borrowed by the Base hLP, so the Base hLP
+    // pays the incremental Base output and deleverages in the same transition.
+    let request = SwapRequest {
+        current_slot: 1,
+        asset_in: MarketAsset::Quote,
+        reserve_credit: 350_000,
+    };
+    let mut healthy_quote_market = healthy;
+    let healthy_prepared = request.prepare(&mut healthy_quote_market).unwrap();
+
+    let ordinary_ylp_shares_before = stressed
+        .base_side
+        .shares
+        .ylp_supply
+        .checked_sub(stressed.base_hlp_vault.ylp_shares)
+        .unwrap()
+        .checked_sub(stressed.quote_hlp_vault.ylp_shares)
+        .unwrap();
+    let prepared = request.prepare(&mut stressed).unwrap();
+    assert_eq!(prepared.quote.recovery.target_asset, MarketAsset::Base.code());
+    assert!(prepared.quote.recovery.funding_gap > 0);
+    assert!(prepared.quote.recovery.matched_input > 0);
+    assert!(prepared.quote.recovery.bonus_output > 0);
+    assert!(prepared.quote.recovery.discount_bps > 0);
+    assert!(prepared.quote.amount_out > healthy_prepared.quote.amount_out);
+
+    let receipt = prepared
+        .finalize_state(
+            &mut stressed,
+            request.current_slot,
+            2_500,
+            crate::state::ProtocolAuctionSplit {
+                fee_auction_bps: 6_000,
+                buyback_auction_bps: 4_000,
+            },
+        )
+        .unwrap();
+    assert!(receipt.base_rebalance.interest_paid > 0);
+    stressed.assert_market_invariants().unwrap();
+
+    let supply = stressed.base_side.shares.ylp_supply as u128;
+    let curve_reserves = stressed.curve_reserves_nad().unwrap();
+    let opposite_claim = mul_div_u128(
+        curve_reserves.quote,
+        stressed.base_hlp_vault.ylp_shares as u128,
+        supply,
+    )
+    .unwrap();
+    let debt = Debt::shares_to_debt(stressed.base_hlp_vault.debt_shares, stressed.debt.quote_borrow_index_nad).unwrap();
+    let debt_nad = debt.checked_mul(NAD as u128).unwrap();
+    assert!(
+        opposite_claim.abs_diff(debt_nad) <= NAD as u128,
+        "opposite_claim={opposite_claim} debt_nad={debt_nad} delta={}",
+        opposite_claim.abs_diff(debt_nad)
+    );
+
+    // Recovery may burn hLP-owned yLP, but it must not confiscate ordinary
+    // yLP ownership to finance the trader improvement.
+    let ordinary_ylp_shares_after = stressed
+        .base_side
+        .shares
+        .ylp_supply
+        .checked_sub(stressed.base_hlp_vault.ylp_shares)
+        .unwrap()
+        .checked_sub(stressed.quote_hlp_vault.ylp_shares)
+        .unwrap();
+    assert_eq!(ordinary_ylp_shares_after, ordinary_ylp_shares_before);
+}
+
+#[test]
 fn explicit_spot_reconstructs_both_hlps_without_solver_cells() {
     let mut market = active_explicit_preview_market();
     let prepared = SwapRequest {

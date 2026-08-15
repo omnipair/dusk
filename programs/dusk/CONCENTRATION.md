@@ -68,6 +68,26 @@ The implementation reconstructs debt and yLP ownership from final ordinary
 reserves using canonical floor/ceil claim rules. Both active hLPs are checked at
 atom precision after Spot, leverage, and liquidation transitions.
 
+### Passive funding recovery
+
+If indexed funding debt grows above an hLP's canonical opposite-asset claim,
+a Spot swap whose input is that borrowed asset receives an hLP-funded output
+improvement. Stress is measured as `debt / opposite_claim`: the discount ramps
+linearly to 500 bps at 17/16 and reports critical stress at 9/8. Matching input,
+the funding gap, and remaining hLP target equity cap the tranche.
+
+The complete trader input still executes on the ordinary curve. Only the bonus
+output is paid by reducing the stressed hLP's target equity; ordinary yLP shares
+and published fee claims are untouched. The final transition pays accrued
+funding interest and selects debt directly from the final proportional yLP
+claim, using a fixed adjacent-atom rounding certificate rather than an
+iterative solver. At the 9/8 critical boundary, anyone may submit the same
+transition through `liquidate_hlp`. It remains available in reduce-only mode,
+uses the ordinary swap account layout, and rejects unless the caller's input
+actually receives a critical hLP-funded recovery tranche. Existing arbitrage
+and liquidation bots can therefore recover idle markets without a dedicated
+keeper.
+
 ## Accounting invariants
 
 For each asset:
@@ -90,7 +110,8 @@ ordinary withdrawals cannot deploy or redeem that bucket.
 ## Preview surface
 
 Preview reports the band bounds, current branch, ordinary reserves, final spot,
-fee breakdown, and hLP debt deltas. Ordinary swap arguments are unchanged.
+fee breakdown, hLP debt deltas, and the hLP recovery gap/match/discount/bonus/
+critical flag. Ordinary swap arguments are unchanged.
 
 ## Acceptance
 

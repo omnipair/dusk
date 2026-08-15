@@ -224,3 +224,40 @@ fn token_2022_hlp_interest_reads_net_credit_from_remaining_vault_data() {
     assert_eq!(actual_credit, 9_700);
     assert!(actual_credit < gross_interest_paid);
 }
+
+#[test]
+fn permissionless_hlp_liquidation_requires_a_critical_funded_recovery() {
+    let eligible = HlpRecoveryBreakdown {
+        target_asset: MarketAsset::Quote.code(),
+        funding_gap: 125_000,
+        matched_input: 100_000,
+        bonus_output: 5_000,
+        discount_bps: 500,
+        critical: true,
+    };
+    require_critical_hlp_liquidation(eligible, MarketAsset::Base).unwrap();
+
+    for rejected in [
+        HlpRecoveryBreakdown {
+            critical: false,
+            ..eligible
+        },
+        HlpRecoveryBreakdown {
+            matched_input: 0,
+            ..eligible
+        },
+        HlpRecoveryBreakdown {
+            bonus_output: 0,
+            ..eligible
+        },
+        HlpRecoveryBreakdown {
+            target_asset: MarketAsset::Base.code(),
+            ..eligible
+        },
+    ] {
+        assert_eq!(
+            require_critical_hlp_liquidation(rejected, MarketAsset::Base).unwrap_err(),
+            error!(ErrorCode::HlpNotLiquidatable)
+        );
+    }
+}

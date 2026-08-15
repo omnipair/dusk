@@ -1560,6 +1560,14 @@ impl Market {
                 volatility_fee_rate_nad: dynamic.volatility_rate_nad,
                 total_fee_rate_nad: dynamic.total_rate_nad,
             },
+            recovery: HlpRecoveryBreakdown {
+                target_asset: 0,
+                funding_gap: 0,
+                matched_input: 0,
+                bonus_output: 0,
+                discount_bps: 0,
+                critical: false,
+            },
         }))
     }
 
@@ -2029,6 +2037,16 @@ pub struct SwapFeeBreakdown {
     pub total_fee_rate_nad: u64,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HlpRecoveryBreakdown {
+    pub target_asset: u8,
+    pub funding_gap: u64,
+    pub matched_input: u64,
+    pub bonus_output: u64,
+    pub discount_bps: u16,
+    pub critical: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AmmSwapQuote {
     pub asset_in: MarketAsset,
@@ -2043,6 +2061,7 @@ pub struct AmmSwapQuote {
     pub decayed_volatility_nad: u64,
     pub post_success_volatility_nad: u64,
     pub fee: SwapFeeBreakdown,
+    pub recovery: HlpRecoveryBreakdown,
     endpoints: Option<AmmSwapEndpoints>,
 }
 
@@ -2056,6 +2075,7 @@ pub(crate) struct ExplicitIntegratedAmmQuote {
     pub decayed_volatility_nad: u64,
     pub post_success_volatility_nad: u64,
     pub fee: SwapFeeBreakdown,
+    pub recovery: HlpRecoveryBreakdown,
 }
 
 impl ExplicitIntegratedAmmQuote {
@@ -2069,6 +2089,7 @@ impl ExplicitIntegratedAmmQuote {
             decayed_volatility_nad: self.decayed_volatility_nad,
             post_success_volatility_nad: self.post_success_volatility_nad,
             fee: self.fee,
+            recovery: self.recovery,
             endpoints: None,
         }
     }
@@ -2121,6 +2142,14 @@ impl AmmSwapQuote {
             decayed_volatility_nad,
             post_success_volatility_nad,
             fee,
+            recovery: HlpRecoveryBreakdown {
+                target_asset: 0,
+                funding_gap: 0,
+                matched_input: 0,
+                bonus_output: 0,
+                discount_bps: 0,
+                critical: false,
+            },
             endpoints: None,
         }
     }
@@ -2682,6 +2711,7 @@ impl Market {
                 volatility_fee_rate_nad: dynamic.volatility_rate_nad,
                 total_fee_rate_nad: dynamic.total_rate_nad,
             },
+            recovery: HlpRecoveryBreakdown::default(),
             endpoints: Some(AmmSwapEndpoints {
                 trade: trade_endpoint,
                 reserve: reserve_endpoint,

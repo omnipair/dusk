@@ -179,6 +179,45 @@ pub(crate) fn reconstruct_hlp_endpoint(state: IntegratedCurveState) -> Result<In
     })
 }
 
+/// Applies an hLP-funded target-asset output bonus after the ordinary curve
+/// has priced the complete input. The bonus changes no curve coordinate; it
+/// burns only the selected hLP's equity and reconstructs that vault's matching
+/// opposite claim/debt at the already-quoted endpoint.
+pub(crate) fn apply_hlp_recovery_bonus(
+    start: IntegratedCurveState,
+    quote: &mut IntegratedFrozenFeeQuote,
+    target_is_base: bool,
+    bonus_output_nad: u128,
+) -> Result<()> {
+    if bonus_output_nad == 0 {
+        return Ok(());
+    }
+    let end = &mut quote.executable.end;
+    if target_is_base {
+        end.base_hlp_equity = end
+            .base_hlp_equity
+            .checked_sub(bonus_output_nad)
+            .ok_or(ErrorCode::InsufficientLiquidity)?;
+    } else {
+        end.quote_hlp_equity = end
+            .quote_hlp_equity
+            .checked_sub(bonus_output_nad)
+            .ok_or(ErrorCode::InsufficientLiquidity)?;
+    }
+    let hlp = reconstruct_hlp_endpoint(*end)?;
+    end.base_hlp_quote_debt = hlp.base_hlp_quote_debt;
+    end.quote_hlp_base_debt = hlp.quote_hlp_base_debt;
+    quote.executable.hlp = hlp;
+    quote.executable.base_hlp_quote_debt_delta = signed_delta(hlp.base_hlp_quote_debt, start.base_hlp_quote_debt)?;
+    quote.executable.quote_hlp_base_debt_delta = signed_delta(hlp.quote_hlp_base_debt, start.quote_hlp_base_debt)?;
+    quote.executable.amount_out = quote
+        .executable
+        .amount_out
+        .checked_add(bonus_output_nad)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    Ok(())
+}
+
 fn current_hlp(state: IntegratedCurveState) -> Result<IntegratedHlpEndpoint> {
     let total_base = state
         .ordinary_base

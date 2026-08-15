@@ -3980,6 +3980,172 @@ export type Dusk = {
       ]
     },
     {
+      "name": "liquidateHlp",
+      "docs": [
+        "Permissionless critical hLP recovery. The caller supplies the hLP's",
+        "borrowed asset and receives target collateral through the same exact",
+        "O(1) swap/hedge transition as an ordinary recovery swap. It is live in",
+        "reduce-only mode and rejects unless the selected vault is at or beyond",
+        "the 9/8 funding-stress boundary."
+      ],
+      "discriminator": [
+        21,
+        45,
+        129,
+        212,
+        235,
+        140,
+        120,
+        17
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "futarchyAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "trader",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "assetInMint"
+        },
+        {
+          "name": "assetOutMint"
+        },
+        {
+          "name": "reserveInVault",
+          "writable": true
+        },
+        {
+          "name": "reserveOutVault",
+          "writable": true
+        },
+        {
+          "name": "traderAssetInAccount",
+          "writable": true
+        },
+        {
+          "name": "traderAssetOutAccount",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "swapArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "liquidateLeverage",
       "discriminator": [
         188,
@@ -5247,7 +5413,7 @@ export type Dusk = {
           "name": "authoritySigner",
           "writable": true,
           "signer": true,
-          "address": "ApUjQxxTQLTzPcGqYTowjTHoUBdzutWe9yXr1oAhKPZQ"
+          "address": "3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV"
         },
         {
           "name": "futarchyAuthority",
@@ -5345,7 +5511,7 @@ export type Dusk = {
         {
           "name": "authoritySigner",
           "signer": true,
-          "address": "ApUjQxxTQLTzPcGqYTowjTHoUBdzutWe9yXr1oAhKPZQ"
+          "address": "3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV"
         },
         {
           "name": "eventAuthority",
@@ -8727,136 +8893,141 @@ export type Dusk = {
     },
     {
       "code": 6105,
+      "name": "hlpNotLiquidatable",
+      "msg": "hLP funding position is not eligible for permissionless liquidation"
+    },
+    {
+      "code": 6106,
       "name": "insufficientBorrowHeadroom",
       "msg": "Borrow headroom is insufficient"
     },
     {
-      "code": 6106,
+      "code": 6107,
       "name": "insufficientMarketHealth",
       "msg": "Market health is insufficient"
     },
     {
-      "code": 6107,
+      "code": 6108,
       "name": "invalidBorrowPosition",
       "msg": "Invalid borrow position"
     },
     {
-      "code": 6108,
+      "code": 6109,
       "name": "positionNotLiquidatable",
       "msg": "Position is not liquidatable"
     },
     {
-      "code": 6109,
+      "code": 6110,
       "name": "insufficientInsurance",
       "msg": "Insurance coverage is insufficient"
     },
     {
-      "code": 6110,
+      "code": 6111,
       "name": "liquidationSocializationExceeded",
       "msg": "Socialized liquidation loss exceeds caller cap"
     },
     {
-      "code": 6111,
+      "code": 6112,
       "name": "invalidClaimMint",
       "msg": "Claim mint must not charge transfer fees"
     },
     {
-      "code": 6112,
+      "code": 6113,
       "name": "unbackedFeeLiability",
       "msg": "Fee liability is not backed by its custody balance"
     },
     {
-      "code": 6113,
+      "code": 6114,
       "name": "invalidMarketFeeAuthority",
       "msg": "Invalid market fee authority"
     },
     {
-      "code": 6114,
+      "code": 6115,
       "name": "marketReduceOnly",
       "msg": "Market is reduce-only"
     },
     {
-      "code": 6115,
+      "code": 6116,
       "name": "marketNotStarted",
       "msg": "Market has not started"
     },
     {
-      "code": 6116,
+      "code": 6117,
       "name": "marketMathOverflow",
       "msg": "Market math overflow"
     },
     {
-      "code": 6117,
+      "code": 6118,
       "name": "dailyLimitExceeded",
       "msg": "Daily liquidity limit exceeded"
     },
     {
-      "code": 6118,
+      "code": 6119,
       "name": "instructionNotLive",
       "msg": "Instruction is intentionally not live yet"
     },
     {
-      "code": 6119,
+      "code": 6120,
       "name": "liquidationRepayTooLarge",
       "msg": "Liquidation repay amount exceeds partial liquidation cap"
     },
     {
-      "code": 6120,
+      "code": 6121,
       "name": "leverageMultiplierTooHigh",
       "msg": "Leverage multiplier exceeds circuit breaker"
     },
     {
-      "code": 6121,
+      "code": 6122,
       "name": "leverageInitialMarginTooLow",
       "msg": "Leverage position does not have enough initial margin"
     },
     {
-      "code": 6122,
+      "code": 6123,
       "name": "leverageUnwindImpactTooHigh",
       "msg": "Leverage unwind impact exceeds limit"
     },
     {
-      "code": 6123,
+      "code": 6124,
       "name": "leveragePositionNotLiquidatable",
       "msg": "Leverage position is not liquidatable"
     },
     {
-      "code": 6124,
+      "code": 6125,
       "name": "invalidSigner",
       "msg": "Invalid signer"
     },
     {
-      "code": 6125,
+      "code": 6126,
       "name": "invalidLeveragePosition",
       "msg": "Invalid leverage position"
     },
     {
-      "code": 6126,
+      "code": 6127,
       "name": "invalidLeverageDelegation",
       "msg": "Invalid leverage delegation"
     },
     {
-      "code": 6127,
+      "code": 6128,
       "name": "invalidReferralInterestShareBps",
       "msg": "Referral interest share exceeds the protocol hard cap"
     },
     {
-      "code": 6128,
+      "code": 6129,
       "name": "invalidReferralPartner",
       "msg": "Invalid referral partner"
     },
     {
-      "code": 6129,
+      "code": 6130,
       "name": "referralPartnerNotActive",
       "msg": "Referral partner is not active"
     },
     {
-      "code": 6130,
+      "code": 6131,
       "name": "invalidReferralAccrual",
       "msg": "Invalid referral accrual account"
     },
     {
-      "code": 6131,
+      "code": 6132,
       "name": "invalidLeverageCollateralMint",
       "msg": "Leverage collateral mint must not have transfer fee configuration"
     }
@@ -14119,6 +14290,33 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "hlpRecoveryTargetAsset",
+            "docs": [
+              "Extra output funded by deleveraging the stressed hLP."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "hlpRecoveryFundingGap",
+            "type": "u64"
+          },
+          {
+            "name": "hlpRecoveryMatchedInput",
+            "type": "u64"
+          },
+          {
+            "name": "hlpRecoveryBonusOutput",
+            "type": "u64"
+          },
+          {
+            "name": "hlpRecoveryDiscountBps",
+            "type": "u16"
+          },
+          {
+            "name": "hlpRecoveryCritical",
+            "type": "bool"
+          },
+          {
             "name": "baseLiveReserve",
             "docs": [
               "Final executable reserves after retention and inline hLP correction."
@@ -14357,6 +14555,33 @@ export type Dusk = {
           {
             "name": "quoteHlpBaseDebtDelta",
             "type": "i128"
+          },
+          {
+            "name": "hlpRecoveryTargetAsset",
+            "docs": [
+              "Yield-Basis-like recovery funded exclusively by the stressed hLP."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "hlpRecoveryFundingGap",
+            "type": "u64"
+          },
+          {
+            "name": "hlpRecoveryMatchedInput",
+            "type": "u64"
+          },
+          {
+            "name": "hlpRecoveryBonusOutput",
+            "type": "u64"
+          },
+          {
+            "name": "hlpRecoveryDiscountBps",
+            "type": "u16"
+          },
+          {
+            "name": "hlpRecoveryCritical",
+            "type": "bool"
           }
         ]
       }
