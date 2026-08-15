@@ -236,6 +236,7 @@ impl<'info> LiquidateLeverage<'info> {
             receipt.quote_hlp_rebalance,
             interest_eligibility,
         )?;
+        ctx.accounts.debt_interest_vault.reload()?;
 
         // Pay the liquidator first, then return any residual to the owner.
         let debt_token_program = token_program_for_mint(

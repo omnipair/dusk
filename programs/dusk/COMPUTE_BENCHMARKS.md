@@ -6,15 +6,51 @@ authoritative swap guards come from deterministic LiteSVM scenarios in
 transaction telemetry for every public instruction; it is diagnostic and
 cannot substitute for a named-path measurement.
 
+## O(1) explicit concentrated+hLP acceptance (2026-08-15)
+
+The representative complete swap uses the explicit three-branch curve,
+gross-path toxicity and volatility fees, two active hLP vaults, algebraic
+zero-opposite-exposure reconstruction, retained-principal handling, and the
+normal token/account commit path. On LiteSVM's default 32 KiB heap it consumed
+**97,457 CU** and completed successfully, below the **100,000 CU** product
+ceiling. The measured SBF artifact SHA-256 is
+`7839cac7aa799552369782e04b770df6e56877b66069f4c0178e78645e9858a2`.
+
+Retained toxicity surcharge is now credited to a custody-backed,
+non-quoteable reserve bucket. Ordinary swaps only credit that bucket; they do
+not rebuild the curve. A separately measured funded-recenter transaction
+consumed **191,305 CU** while atomically deploying the previously protected
+reserve, reconstructing the curve at the new center, and executing the
+triggering swap. The complete suite's largest swap, an active-hLP funded
+recenter, consumed **205,296 CU**. The triggering swap may seed a new protected
+bucket for a later recenter.
+
+Reproduction command:
+
+```sh
+npm run test-litesvm:no-build -- --grep "measures O\\(1\\) concentrated hLP swap"
+```
+
+The production swap path contains no finite-difference, Jacobian, Broyden, or
+iterative invariant solve. Legacy solver entry points are test-only
+differential references with no production caller or state authority.
+
+The final no-build validation passed **51/51 LiteSVM tests**, exercised
+**53/53 public instructions**, and recorded 1,027 successful transactions or
+simulations. Its largest observed transaction was 269,775 CU. Named swap-path
+maxima were 55,419 CU for same-slot CPMM, 64,401 CU for centered
+concentration, 97,457 CU for active concentrated hLP, and 191,305 CU for a
+funded recenter.
+
 ## Acceptance contract
 
 The ordinary path is a legacy-SPL, no-debt, inactive-hLP, same-slot CPMM swap.
 It must consume **strictly less than 100,000 CU**.
 
-hLP entry is live. Its rows measure aggregate funding-cap admission,
-reserve-backing conservation, active correction, stored residual correction,
-and inline settlement. They do not establish bounded loss, liquidation, or a
-terminal insolvency waterfall; those mechanisms remain open design work.
+hLP entry is live. The explicit path reconstructs hLP ownership and indexed
+debt algebraically so each active vault ends with zero opposite-asset exposure
+at canonical atom precision. Passive funding-debt insolvency and its terminal
+recovery waterfall remain a separate economic design risk.
 
 The benchmark keeps LiteSVM's default 32 KiB transaction heap. A larger heap
 may be requested only by the specific scenario that proves it is necessary;
@@ -56,10 +92,10 @@ The required named scenarios are:
 | Group | Deterministic scenario |
 |---|---|
 | CPMM | same slot; advanced slot; active debt after elapsed-slot accrual |
-| Concentration | centered; finite transition; a trade wholly inside an exact-CPMM tail |
+| Concentration | centered; finite transition; a trade wholly inside a shifted-CPMM tail |
 | Dynamic fees | divergence stress; volatility stress; retained surcharge |
-| Lazy controller | due parameter ramp; due funded recenter |
-| hLP | active correction; stored residual correction |
+| Lazy controller | due funded recenter |
+| hLP | active integrated hedge; funding-interest settlement |
 | Token behavior | Token-2022 asset swap |
 
 External transfer-hook overhead is recorded as a separate direct Token-2022
@@ -69,7 +105,7 @@ hook), not an isolated hook-program measurement. The `token_2022_swap`
 scenario measures Dusk's Token-2022 transfer path without pretending that
 every third-party hook has the same cost.
 
-## Finished-binary measurements
+## Historical pre-explicit finished-binary measurements
 
 The following deterministic maxima were captured on 2026-08-10 across five
 fully successful no-build runs of one finished SBF binary. The artifact was

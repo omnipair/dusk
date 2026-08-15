@@ -544,8 +544,10 @@ export function defaultMarketConfig() {
 
 export function defaultAmmConfig() {
   return {
-    peakDepthNad: new anchor.BN(duskEnv("AMM_PEAK_DEPTH_NAD", "0")),
-    fadeScaleNad: new anchor.BN(duskEnv("AMM_FADE_SCALE_NAD", "0")),
+    rangeWidthNad: new anchor.BN(duskEnv("AMM_RANGE_WIDTH_NAD", "0")),
+    concentratedLiquidityShareNad: new anchor.BN(
+      duskEnv("AMM_CONCENTRATED_LIQUIDITY_SHARE_NAD", "0")
+    ),
     centerEmaHalfLifeMs: new anchor.BN(duskEnv("AMM_CENTER_EMA_HALF_LIFE_MS", "60000")),
     volatilityHalfLifeMs: new anchor.BN(duskEnv("AMM_VOLATILITY_HALF_LIFE_MS", "60000")),
     adjustmentThresholdNad: new anchor.BN(duskEnv("AMM_ADJUSTMENT_THRESHOLD_NAD", "0")),
@@ -555,9 +557,6 @@ export function defaultAmmConfig() {
     volatilityCapNad: new anchor.BN(duskEnv("AMM_VOLATILITY_CAP_NAD", "0")),
     divergenceFeeCoefficientNad: new anchor.BN(duskEnv("AMM_DIVERGENCE_FEE_COEFFICIENT_NAD", "0")),
     volatilityFeeCoefficientNad: new anchor.BN(duskEnv("AMM_VOLATILITY_FEE_COEFFICIENT_NAD", "0")),
-    concentrationRampDurationSlots: new anchor.BN(
-      duskEnv("AMM_RAMP_DURATION_SLOTS", "216000")
-    ),
     reserved: Array(33).fill(0),
   };
 }

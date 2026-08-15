@@ -39,9 +39,8 @@ impl ParameterFamily {
 pub enum MarketParameterUpdate {
     Fee(FeeProfile),
     Concentration {
-        peak_depth_nad: u64,
-        fade_scale_nad: u64,
-        concentration_ramp_duration_slots: u64,
+        range_width_nad: u64,
+        concentrated_liquidity_share_nad: u64,
     },
     Irm(IrmConfig),
     EmaHalfLives {

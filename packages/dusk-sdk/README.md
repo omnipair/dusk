@@ -104,14 +104,14 @@ import {
 } from "@omnipair/dusk-sdk";
 
 const update = concentrationParameterUpdate({
-  peakDepthNad: 20n * 1_000_000_000n,
-  fadeScaleNad: 10_000_000n,
-  // Optional. Omission uses 216,000 slots (approximately 24 hours).
-  concentrationRampDurationSlots: 432_000,
+  // A 2x log-symmetric range around the sticky EMA center.
+  rangeWidthNad: 2n * 1_000_000_000n,
+  // 80% of curve liquidity is concentrated; 20% remains full-range.
+  concentratedLiquidityShareNad: 800_000_000n,
 });
 
 const metadata = await uploadProposalMetadata({
-  title: "Increase depth around the current center",
+  title: "Increase the concentrated-liquidity share",
   markdown: markdownSource, // string or exact UTF-8 Uint8Array
   upload: async (exactBytes, { contentType }) => {
     // Pin to IPFS, upload to Arweave, or use durable HTTPS storage.

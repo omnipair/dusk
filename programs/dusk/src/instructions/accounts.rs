@@ -216,6 +216,7 @@ pub(crate) fn require_reserve_custody(vault_balance: u64, market_side: &MarketSi
         .cash_reserve
         .checked_add(market_side.fees.swap_fee_custody_balance)
         .and_then(|value| value.checked_add(hlp_backing_inventory))
+        .and_then(|value| value.checked_add(market_side.reserves.protected_recenter_reserve))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     require_gte!(vault_balance, required, ErrorCode::UnbackedFeeLiability);
     Ok(())

@@ -22,12 +22,10 @@ export const REQUIRED_SWAP_COMPUTE_SCENARIOS = [
   "dynamic_fee_divergence_stress",
   "dynamic_fee_volatility_stress",
   "retained_surcharge",
-  "controller_due_ramp",
   "controller_due_recenter",
   "concentrated_hlp_active",
   "concentrated_hlp_funding_interest",
   "hlp_active",
-  "hlp_residual_correction",
   "token_2022_swap",
 ] as const;
 
@@ -78,13 +76,11 @@ const COMPUTE_SCENARIO_BASELINES: Partial<
     ceiling: 111_782n,
   },
   retained_surcharge: { measuredMaximum: 475_662n, ceiling: 499_446n },
-  controller_due_ramp: { measuredMaximum: 490_651n, ceiling: 515_184n },
   controller_due_recenter: {
     measuredMaximum: 404_326n,
     ceiling: 424_543n,
   },
   hlp_active: { measuredMaximum: 106_768n, ceiling: 112_107n },
-  hlp_residual_correction: { measuredMaximum: 168_751n, ceiling: 177_189n },
   token_2022_swap: { measuredMaximum: 66_500n, ceiling: 69_825n },
 };
 

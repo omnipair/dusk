@@ -89,7 +89,7 @@ Normal LPs enter with `add_liquidity`, depositing both assets at the current mar
 asset_claim = user_ylp_shares * live_reserve / total_ylp_supply
 ```
 
-Base swap fees, distributed dynamic surcharge, and borrow interest do not auto-compound into principal reserves. Swap-fee liabilities stay physically in the reserve vault as `swap_fee_custody_balance`, outside executable `cash_reserve`; interest liabilities stay in the side-specific interest vault. Public-borrow interest uses the all-yLP growth lane, while hLP funding interest uses a separate non-hLP denominator and source-specific rounding carry. Both are claimed through `claim_yield`. Only dynamic surcharge retained while the protected recentering budget is below target becomes reserve principal; once funded, new surcharge returns to claimable yLP/hLP yield.
+Base swap fees, distributed dynamic surcharge, and borrow interest do not auto-compound into principal reserves. Swap-fee liabilities stay physically in the reserve vault as `swap_fee_custody_balance`, outside executable `cash_reserve`; interest liabilities stay in the side-specific interest vault. Public-borrow interest uses the all-yLP growth lane, while hLP funding interest uses a separate non-hLP denominator and source-specific rounding carry. Both are claimed through `claim_yield`. Dynamic surcharge retained while recenter protection is being funded enters a custody-backed, non-quoteable Base/Quote bucket. A later admitted recenter deploys that bucket; ordinary yLP withdrawals cannot claim it. Once protection is no longer retaining, new surcharge returns to claimable yLP/hLP yield.
 
 ## Isolated Leverage
 
@@ -361,8 +361,8 @@ Other invariants:
 The core GAMM reserve/lending relationship is preserved, while the swap invariant is now configurable:
 
 - The market is still priced from in-protocol reserves, not external oracles.
-- `peak_depth = 0, fade_scale = 0` is exact V1-style CPMM; positive values activate the independently implemented Dusk Concentrated AMM.
-- `peak_depth` is the extra marginal-depth multiplier at the center, while `fade_scale` controls how much balance-factor error is tolerated before that extra depth fades toward CPMM. They are the only invariant knobs; fee, EMA, and recenter controls are separate.
+- `concentrated_liquidity_share = 0` is exact V1-style CPMM; positive values add one explicit concentrated band while preserving a nonzero full-range CPMM tail.
+- `range_width` sets the log-symmetric band around the sticky center, and `concentrated_liquidity_share` sets the fraction of curve liquidity assigned to it. Fee, EMA, and recenter controls remain separate.
 - Swaps and conservative lending/liquidation shapes use the same applied curve.
 - Normal borrow and repay paths still preserve `R_live = R_cash + D_cash_backed`.
 - Cash constraints still matter: virtual depth can quote, but only cash can leave vaults or settle realized liabilities.
@@ -370,7 +370,7 @@ The core GAMM reserve/lending relationship is preserved, while the swap invarian
 - Base swap fees remain reserve-custodied outside executable cash, while borrow interest remains in the interest vault; both stay outside principal reserves and are distributed through yield accounting.
 - Dynamic surcharge is claimable after the AMM's protected budget is funded; before then it is retained as the only fee-derived recentering principal.
 
-Dusk extends the invariant set only where hLP needs native 2x LP tracking:
+Dusk extends the invariant set where hLP needs curve-aware Yield Basis hedging:
 
 - V1 had no hLP component, so `R_hLP_live = 0`.
 - Dusk allows only hLP transitions to mutate `R_hLP_live`.

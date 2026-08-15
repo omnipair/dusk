@@ -6,6 +6,8 @@ fn cpmm_config() -> AmmConfig {
     AmmConfig {
         peak_depth_nad: 0,
         fade_scale_nad: 0,
+        range_width_nad: 0,
+        concentrated_liquidity_share_nad: 0,
         center_ema_half_life_ms: MIN_HALF_LIFE_MS,
         volatility_half_life_ms: MIN_HALF_LIFE_MS,
         adjustment_threshold_nad: 0,
@@ -15,7 +17,6 @@ fn cpmm_config() -> AmmConfig {
         volatility_cap_nad: NAD,
         divergence_fee_coefficient_nad: NAD,
         volatility_fee_coefficient_nad: NAD,
-        concentration_ramp_duration_slots: MIN_CONCENTRATION_RAMP_DURATION_SLOTS,
         reserved: [0; AMM_CONFIG_RESERVED_BYTES],
     }
 }
@@ -69,7 +70,24 @@ fn validates_cpmm_and_concentrated_endpoints() {
 }
 
 #[test]
-fn validates_signal_fee_and_ramp_bounds() {
+fn explicit_curve_parameters_round_trip_in_public_config() {
+    let mut config = cpmm_config();
+    let parameters = ExplicitCurveParameters {
+        range_width_nad: 2 * NAD,
+        concentrated_liquidity_share_nad: NAD / 2,
+    };
+    config.set_explicit_curve_parameters(parameters).unwrap();
+    assert_eq!(config.explicit_curve_parameters().unwrap(), Some(parameters));
+    assert!(!config.is_cpmm());
+    config.validate().unwrap();
+
+    let mut malformed = config;
+    malformed.reserved[0] = 1;
+    assert!(malformed.validate().is_err());
+}
+
+#[test]
+fn validates_signal_and_fee_bounds() {
     let mut at_coefficient_bound = concentrated_config();
     at_coefficient_bound.divergence_fee_coefficient_nad = MAX_AMM_FEE_COEFFICIENT_NAD;
     at_coefficient_bound.volatility_fee_coefficient_nad = MAX_AMM_FEE_COEFFICIENT_NAD;
@@ -93,20 +111,6 @@ fn validates_signal_fee_and_ramp_bounds() {
 
     config = concentrated_config();
     config.volatility_shock_cap_nad = config.volatility_cap_nad + 1;
-    assert!(config.validate().is_err());
-
-    config = concentrated_config();
-    config.concentration_ramp_duration_slots = MIN_CONCENTRATION_RAMP_DURATION_SLOTS - 1;
-    assert!(config.validate().is_err());
-
-    config = concentrated_config();
-    config.concentration_ramp_duration_slots = MIN_CONCENTRATION_RAMP_DURATION_SLOTS;
-    assert!(config.validate().is_ok());
-
-    config.concentration_ramp_duration_slots = MAX_CONCENTRATION_RAMP_DURATION_SLOTS;
-    assert!(config.validate().is_ok());
-
-    config.concentration_ramp_duration_slots = MAX_CONCENTRATION_RAMP_DURATION_SLOTS + 1;
     assert!(config.validate().is_err());
 
     config = concentrated_config();
@@ -417,7 +421,8 @@ fn cpmm_transition_accepts_sub_minimum_runtime_points_without_applying_time_alon
     assert!(first_candidate.peak_depth_nad < MIN_AMM_PEAK_DEPTH_NAD);
     assert_eq!(
         first_candidate.fade_scale_nad,
-        (target.fade_scale_nad / target.concentration_ramp_duration_slots).max(MIN_AMM_FADE_SCALE_NAD)
+        (target.fade_scale_nad / MIN_CONCENTRATION_RAMP_DURATION_SLOTS)
+            .max(MIN_AMM_FADE_SCALE_NAD)
     );
     assert_eq!(
         state.effective_curve_parameters(&target, 101),

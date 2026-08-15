@@ -586,6 +586,43 @@ impl PreparedDivergenceStatePotential {
     }
 }
 
+/// One-shot gross-path toxicity charge. Unlike the legacy implicit fee solve,
+/// this evaluates the already-quoted gross endpoint once; the caller freezes
+/// the result before producing the executable net quote.
+pub(crate) fn gross_path_divergence_fee_raw(
+    center_input_reserve_raw: u64,
+    start_input_reserve_raw: u64,
+    gross_end_input_reserve_raw: u64,
+    coefficient_nad: u64,
+    divergence_fee_share_cap_bps: u16,
+) -> Result<(u128, bool)> {
+    require!(
+        gross_end_input_reserve_raw >= start_input_reserve_raw,
+        ErrorCode::InvalidArgument
+    );
+    if coefficient_nad == 0 || divergence_fee_share_cap_bps == 0 {
+        return Ok((0, false));
+    }
+    let start_outward = start_input_reserve_raw.saturating_sub(center_input_reserve_raw);
+    let end_outward = gross_end_input_reserve_raw.saturating_sub(center_input_reserve_raw);
+    if end_outward <= start_outward {
+        return Ok((0, false));
+    }
+    // The explicit curve freezes toxicity from the provisional gross path and
+    // caps the resulting component once against gross input. It therefore
+    // does not need the legacy Huber-threshold search: evaluate the analytic
+    // potential at both endpoints directly and let the caller apply the
+    // configured component/total budgets.
+    let (start, start_saturated) =
+        uncapped_divergence_state_potential_raw_saturating(start_outward, center_input_reserve_raw, coefficient_nad)?;
+    let (end, end_saturated) =
+        uncapped_divergence_state_potential_raw_saturating(end_outward, center_input_reserve_raw, coefficient_nad)?;
+    if start_saturated || end_saturated {
+        return Ok((u128::MAX, true));
+    }
+    Ok((end.checked_sub(start).ok_or(ErrorCode::FeeMathOverflow)?, false))
+}
+
 fn uncapped_divergence_marginal_rate_raw_nad(
     center_input_reserve_raw: u64,
     outward_coordinate_raw: u64,

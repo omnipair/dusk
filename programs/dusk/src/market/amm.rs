@@ -10,14 +10,17 @@ use crate::{
         asymptotic_scaled_rate_nad, ceil_div, concentrated_hybrid_branch, concentrated_hybrid_branch_cached,
         concentrated_prepare_curve, concentrated_prepare_curve_cached, concentrated_prepare_curve_seeded_cached,
         decay_volatility_nad, denormalize_from_nad_floor, effective_rate_floor_nad, fee_share_cap_to_marginal_rate_nad,
-        gross_fee_budget_floor, hard_total_fee_budget_floor, minimum_executable_input, normalize_to_nad,
+        gross_fee_budget_floor, gross_path_divergence_fee_raw, hard_total_fee_budget_floor, minimum_executable_input,
+        mul_div_u128, normalize_to_nad, prepare_explicit_cache_at_point, quote_integrated_exact_in_with_frozen_fee,
         validate_fee_share_caps, volatility_after_success_nad, ConcentratedCommonNumeraire, ConcentratedEvaluation,
         ConcentratedGeometryCache, ConcentratedGuidanceCurve, ConcentratedHybridBranch, ConcentratedInvariantSeed,
         ConcentratedPreparedCurve, ConcentratedSwapDirection, DynamicFeeConfig, DynamicFeePreState, DynamicFeeQuote,
-        PreparedDivergenceStatePotential, CONCENTRATED_MATH_REVISION, MAX_COMMON_RESERVE,
+        ExplicitCurveDirection, ExplicitCurveGeometry, ExplicitCurvePoint, ExplicitCurveQuote, IntegratedCurveState,
+        IntegratedFrozenFeeQuote, IntegratedSwapDirection, PreparedDivergenceStatePotential,
+        CONCENTRATED_MATH_REVISION, MAX_COMMON_RESERVE,
     },
     state::market::{
-        AmmState, ConcentrationParameters, DeferredControllerTarget, Market, MarketAsset,
+        AmmState, ConcentrationParameters, Debt, DeferredControllerTarget, Market, MarketAsset,
         PROTECTED_LIQUIDITY_COVERAGE_BPS, PROTECTED_LIQUIDITY_GUARD_BPS,
     },
 };
@@ -51,7 +54,21 @@ pub(super) struct AmmLiquidityEvaluation {
 }
 
 impl Market {
-    fn advance_curve_revision(&mut self) -> Result<()> {
+    /// Locks retained toxicity surcharge outside executable/yLP inventory.
+    /// The physical reserve vault already received these atoms from the
+    /// trader; this ledger is the exclusive ownership claim until a funded
+    /// recenter deploys the bucket.
+    pub(crate) fn credit_protected_recenter_reserve(&mut self, asset: MarketAsset, amount: u64) -> Result<()> {
+        if amount == 0 {
+            return Ok(());
+        }
+        let protected = &mut self.side_mut(asset).reserves.protected_recenter_reserve;
+        *protected = protected.checked_add(amount).ok_or(ErrorCode::ReserveOverflow)?;
+        self.amm.mark_retention_target_stale();
+        Ok(())
+    }
+
+    pub(crate) fn advance_curve_revision(&mut self) -> Result<()> {
         self.curve_revision = self
             .curve_revision
             .checked_add(1)
@@ -68,6 +85,14 @@ impl Market {
         if !self.amm.initialized {
             return Ok(());
         }
+        if let Some(parameters) = self.config.amm.explicit_curve_parameters()? {
+            if !parameters.is_cpmm() && self.config.amm.adjustment_step_nad > 0 {
+                self.amm.mark_retention_target_stale();
+            } else {
+                self.amm.refresh_retention_target(self.amm.q_per_share_nad, 0)?;
+            }
+            return Ok(());
+        }
         let parameters = self.amm.applied_curve_parameters;
         if self.amm.concentration_ramp.active || (!parameters.is_cpmm() && self.config.amm.adjustment_step_nad > 0) {
             self.amm.mark_retention_target_stale();
@@ -75,6 +100,22 @@ impl Market {
             self.amm.refresh_retention_target(self.amm.q_per_share_nad, 0)?;
         }
         Ok(())
+    }
+
+    /// Scalar result of [`Self::defer_amm_retention_target`] for a candidate
+    /// that changes curve inventory.  Compact hLP planning captures this once
+    /// at operation start; it must not clone a complete `Market` merely to
+    /// discover which deterministic retention route the later exact apply
+    /// would select.
+    pub(crate) fn deferred_amm_retention_after_inventory(&self) -> bool {
+        if !self.amm.initialized {
+            return self.amm.retain_dynamic_surcharge;
+        }
+        if let Ok(Some(parameters)) = self.config.amm.explicit_curve_parameters() {
+            return !parameters.is_cpmm() && self.config.amm.adjustment_step_nad > 0;
+        }
+        self.amm.concentration_ramp.active
+            || (!self.amm.applied_curve_parameters.is_cpmm() && self.config.amm.adjustment_step_nad > 0)
     }
 
     /// The protection engine needs only D and Q. Keeping this separate from a
@@ -221,6 +262,26 @@ impl Market {
         require!(self.base_side.shares.ylp_supply > 0, ErrorCode::SupplyUnderflow);
 
         let center_price_nad = self.current_curve_center_price_nad()?;
+        if let Some(parameters) = self.config.amm.explicit_curve_parameters()? {
+            let ordinary = self.integrated_curve_state_nad()?;
+            let explicit_curve_cache = prepare_explicit_cache_at_point(
+                ordinary.ordinary_base,
+                ordinary.ordinary_quote,
+                center_price_nad,
+                parameters,
+            )?;
+            let q_nad = explicit_curve_cache
+                .tail_liquidity
+                .checked_add(explicit_curve_cache.concentrated_liquidity)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            let q_per_share_nad = self.curve_q_per_share_nad(q_nad)?;
+            let mut state = AmmState::initialize(&self.config.amm, center_price_nad, q_per_share_nad, current_slot)?;
+            state.explicit_curve_cache = explicit_curve_cache;
+            state.clear_invariant();
+            state.refresh_retention_target(q_per_share_nad, 0)?;
+            self.amm = state;
+            return Ok(true);
+        }
         let evaluation = self.evaluate_amm_liquidity_candidate(center_price_nad, self.config.amm.curve_parameters())?;
         let q_per_share_nad = self.curve_q_per_share_nad(evaluation.balanced_equivalent_q)?;
         let mut state = AmmState::initialize(&self.config.amm, center_price_nad, q_per_share_nad, current_slot)?;
@@ -395,6 +456,43 @@ impl Market {
         );
         require!(self.base_side.shares.ylp_supply > 0, ErrorCode::SupplyUnderflow);
 
+        if let Some(parameters) = self.config.amm.explicit_curve_parameters()? {
+            let was_initialized = self.amm.initialized;
+            if !was_initialized {
+                self.ensure_amm_initialized(current_slot)?;
+            } else {
+                let ordinary = self.integrated_curve_state_nad()?;
+                self.amm.explicit_curve_cache = prepare_explicit_cache_at_point(
+                    ordinary.ordinary_base,
+                    ordinary.ordinary_quote,
+                    self.current_curve_center_price_nad()?,
+                    parameters,
+                )?;
+                let q_nad = self
+                    .amm
+                    .explicit_curve_cache
+                    .tail_liquidity
+                    .checked_add(self.amm.explicit_curve_cache.concentrated_liquidity)
+                    .ok_or(ErrorCode::InvariantOverflow)?;
+                let q_per_share_nad = self.curve_q_per_share_nad(q_nad)?;
+                self.amm.checkpoint_neutral_liquidity(q_per_share_nad);
+                self.defer_amm_retention_target()?;
+            }
+            self.advance_curve_revision()?;
+            let q_nad = self
+                .amm
+                .explicit_curve_cache
+                .tail_liquidity
+                .checked_add(self.amm.explicit_curve_cache.concentrated_liquidity)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            let price_nad = self
+                .current_explicit_spot_price_nad()?
+                .ok_or(ErrorCode::BrokenInvariant)?;
+            self.observe_risk_from_explicit_curve(price_nad, q_nad, current_slot)?;
+            self.risk_revision = self.curve_revision;
+            return Ok(());
+        }
+
         let evaluation = self.evaluate_current_curve(current_slot)?;
         let q_per_share_nad = self.curve_q_per_share_nad(evaluation.balanced_equivalent_q)?;
         if was_initialized {
@@ -436,6 +534,9 @@ impl Market {
     pub(crate) fn advance_one_amm_controller_target(&mut self, current_slot: u64) -> Result<bool> {
         if !self.amm.initialized {
             return Ok(false);
+        }
+        if let Some(parameters) = self.config.amm.explicit_curve_parameters()? {
+            return self.advance_one_explicit_controller_target(current_slot, parameters);
         }
 
         let mut pending = self.amm.deferred_controller_target;
@@ -664,6 +765,242 @@ impl Market {
         Ok(false)
     }
 
+    /// Applies at most one sticky-center move for the explicit curve. The
+    /// candidate geometry is reconstructed from unchanged ordinary reserves
+    /// by a closed-form branch quadratic, then admitted through the existing
+    /// protected-profit budget. It affects only later swaps.
+    fn advance_one_explicit_controller_target(
+        &mut self,
+        current_slot: u64,
+        parameters: crate::math::ExplicitCurveParameters,
+    ) -> Result<bool> {
+        if parameters.is_cpmm() || self.config.amm.adjustment_step_nad == 0 {
+            self.amm.deferred_controller_target.clear();
+            self.amm.refresh_retention_target(self.amm.q_per_share_nad, 0)?;
+            return Ok(false);
+        }
+
+        let ordinary = self.integrated_curve_state_nad()?;
+        let mut candidate_center = 0_u64;
+        let mut pending = self.amm.deferred_controller_target;
+        if pending.is_active() {
+            require_eq!(
+                pending.kind,
+                DeferredControllerTarget::RECENTER,
+                ErrorCode::BrokenInvariant
+            );
+            if pending.created_slot >= current_slot {
+                return Ok(false);
+            }
+            let center = self.amm.center_price_nad;
+            let ema = self.amm.price_ema_nad;
+            let distance = symmetric_distance_nad(center, ema)?;
+            let reachable = if pending.center_price_nad > center {
+                ema >= pending.center_price_nad
+            } else {
+                ema <= pending.center_price_nad
+            };
+            if distance < self.config.amm.adjustment_threshold_nad as u128 || !reachable {
+                self.amm.deferred_controller_target.clear();
+                self.amm.refresh_retention_target(self.amm.q_per_share_nad, 0)?;
+                pending.clear();
+            } else if pending.saturated
+                && self.base_side.reserves.protected_recenter_reserve == 0
+                && self.quote_side.reserves.protected_recenter_reserve == 0
+            {
+                return Ok(false);
+            } else {
+                candidate_center = pending.center_price_nad;
+            }
+        }
+
+        if candidate_center == 0 {
+            let earliest = self
+                .amm
+                .last_adjustment_slot
+                .checked_add(self.config.amm.min_adjustment_interval_slots)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            if current_slot < earliest
+                || symmetric_distance_nad(self.amm.center_price_nad, self.amm.price_ema_nad)?
+                    < self.config.amm.adjustment_threshold_nad as u128
+            {
+                return Ok(false);
+            }
+            let center = self.amm.center_price_nad;
+            let target = self.amm.price_ema_nad;
+            let step_nad = self.config.amm.adjustment_step_nad;
+            candidate_center = if target > center {
+                let stepped = ceil_div(
+                    (center as u128)
+                        .checked_mul(NAD.checked_add(step_nad).ok_or(ErrorCode::MarketMathOverflow)? as u128)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                    NAD as u128,
+                )
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+                u64::try_from(stepped)
+                    .map_err(|_| ErrorCode::MarketMathOverflow)?
+                    .min(target)
+            } else if target < center {
+                let down = (center as u128)
+                    .checked_mul(NAD as u128)
+                    .and_then(|value| value.checked_div((NAD + step_nad) as u128))
+                    .ok_or(ErrorCode::MarketMathOverflow)?
+                    .max(1);
+                u64::try_from(down)
+                    .map_err(|_| ErrorCode::MarketMathOverflow)?
+                    .max(target)
+            } else {
+                return Ok(false);
+            };
+        }
+
+        let protected_base = self.base_side.reserves.protected_recenter_reserve;
+        let protected_quote = self.quote_side.reserves.protected_recenter_reserve;
+        let deploying_protected = protected_base > 0 || protected_quote > 0;
+        let mut candidate_point = ordinary;
+        if deploying_protected {
+            candidate_point.ordinary_base = candidate_point
+                .ordinary_base
+                .checked_add(normalize_to_nad(protected_base as u128, self.base_side.asset_decimals)?)
+                .ok_or(ErrorCode::ReserveOverflow)?;
+            candidate_point.ordinary_quote = candidate_point
+                .ordinary_quote
+                .checked_add(normalize_to_nad(
+                    protected_quote as u128,
+                    self.quote_side.asset_decimals,
+                )?)
+                .ok_or(ErrorCode::ReserveOverflow)?;
+        }
+        let candidate_cache = prepare_explicit_cache_at_point(
+            candidate_point.ordinary_base,
+            candidate_point.ordinary_quote,
+            candidate_center,
+            parameters,
+        )?;
+        let candidate_q = candidate_cache
+            .tail_liquidity
+            .checked_add(candidate_cache.concentrated_liquidity)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        let candidate_q_per_share = self.curve_q_per_share_nad(candidate_q)?;
+        let covered = covered_impairment_nad(self.amm.q_per_share_nad, candidate_q_per_share)?;
+        // A protected bucket is sufficient only when deploying every locked
+        // atom leaves yLP curve principal no lower than before the center
+        // move. This avoids assigning a fungible token-value conversion to
+        // the curve's Q metric and makes the funding proof exact.
+        let protected_funds_move = deploying_protected && candidate_q_per_share >= self.amm.q_per_share_nad;
+        if protected_funds_move || self.amm.recenter_is_funded(covered) {
+            // Validate the fallible commit domain before making the physical
+            // bucket executable. On-chain rollback is still the outer atomic
+            // boundary; these checks also keep native callers disciplined.
+            self.config.amm.validate()?;
+            candidate_cache.geometry()?;
+            let earliest = self
+                .amm
+                .last_adjustment_slot
+                .checked_add(self.config.amm.min_adjustment_interval_slots)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            require_gte!(current_slot, earliest, ErrorCode::InvalidArgument);
+            if protected_funds_move {
+                let new_base_live = self
+                    .base_side
+                    .reserves
+                    .live_reserve
+                    .checked_add(protected_base)
+                    .ok_or(ErrorCode::ReserveOverflow)?;
+                let new_base_cash = self
+                    .base_side
+                    .reserves
+                    .cash_reserve
+                    .checked_add(protected_base)
+                    .ok_or(ErrorCode::ReserveOverflow)?;
+                let new_quote_live = self
+                    .quote_side
+                    .reserves
+                    .live_reserve
+                    .checked_add(protected_quote)
+                    .ok_or(ErrorCode::ReserveOverflow)?;
+                let new_quote_cash = self
+                    .quote_side
+                    .reserves
+                    .cash_reserve
+                    .checked_add(protected_quote)
+                    .ok_or(ErrorCode::ReserveOverflow)?;
+                self.base_side.reserves.live_reserve = new_base_live;
+                self.base_side.reserves.cash_reserve = new_base_cash;
+                self.quote_side.reserves.live_reserve = new_quote_live;
+                self.quote_side.reserves.cash_reserve = new_quote_cash;
+                self.base_side.reserves.protected_recenter_reserve = 0;
+                self.quote_side.reserves.protected_recenter_reserve = 0;
+            }
+            self.amm.deferred_controller_target.clear();
+            self.amm.commit_explicit_recenter(
+                &self.config.amm,
+                candidate_center,
+                candidate_cache,
+                candidate_q_per_share,
+                if protected_funds_move { 0 } else { covered },
+                current_slot,
+            )?;
+            self.defer_amm_retention_target()?;
+            return Ok(true);
+        }
+
+        let impairment = self.amm.q_per_share_nad.saturating_sub(candidate_q_per_share);
+        let target = self
+            .amm
+            .refresh_retention_target(self.amm.q_per_share_nad, impairment)?;
+        self.amm.deferred_controller_target = DeferredControllerTarget {
+            kind: DeferredControllerTarget::RECENTER,
+            center_price_nad: candidate_center,
+            parameters: ConcentrationParameters::cpmm(),
+            required_nad: target.required_nad,
+            evaluated_base_reserve_nad: ordinary.ordinary_base,
+            evaluated_quote_reserve_nad: ordinary.ordinary_quote,
+            created_slot: current_slot,
+            saturated: target.saturated,
+        };
+        Ok(false)
+    }
+
+    /// Reconstructs a governance-selected explicit shape from unchanged
+    /// ordinary reserves. Parameter changes are admitted only when the
+    /// existing protected-profit budget covers any principal impairment.
+    pub(crate) fn apply_explicit_curve_parameter_update(&mut self, current_slot: u64) -> Result<()> {
+        let parameters = self
+            .config
+            .amm
+            .explicit_curve_parameters()?
+            .ok_or(ErrorCode::InvalidMarketConfig)?;
+        let ordinary = self.integrated_curve_state_nad()?;
+        let cache = prepare_explicit_cache_at_point(
+            ordinary.ordinary_base,
+            ordinary.ordinary_quote,
+            self.amm.center_price_nad,
+            parameters,
+        )?;
+        let q_nad = cache
+            .tail_liquidity
+            .checked_add(cache.concentrated_liquidity)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        let q_per_share_nad = self.curve_q_per_share_nad(q_nad)?;
+        let covered = covered_impairment_nad(self.amm.q_per_share_nad, q_per_share_nad)?;
+        require!(self.amm.recenter_is_funded(covered), ErrorCode::BrokenInvariant);
+
+        self.amm.explicit_curve_cache = cache;
+        self.amm.clear_invariant();
+        self.amm.checkpoint_recenter_or_loss(q_per_share_nad);
+        self.amm.concentration_ramp = Default::default();
+        self.amm.deferred_controller_target.clear();
+        self.defer_amm_retention_target()?;
+        self.advance_curve_revision()?;
+        let price_nad = self
+            .current_explicit_spot_price_nad()?
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        self.observe_risk_from_explicit_curve(price_nad, q_nad, current_slot)?;
+        self.risk_revision = self.curve_revision;
+        Ok(())
+    }
+
     /// Finalizes internal observations after the whole
     /// hLP-pre-solve → swap → hLP-post-solve lifecycle is complete.
     ///
@@ -884,8 +1221,346 @@ impl Market {
         })
     }
 
+    pub(crate) fn integrated_curve_state_nad(&self) -> Result<IntegratedCurveState> {
+        let reserves = self.curve_reserves_nad()?;
+        let supply = self.base_side.shares.ylp_supply;
+        require_eq!(supply, self.quote_side.shares.ylp_supply, ErrorCode::BrokenInvariant);
+        require!(supply > 0, ErrorCode::SupplyUnderflow);
+
+        let base_hlp_base_claim = mul_div_u128(reserves.base, self.base_hlp_vault.ylp_shares as u128, supply as u128)?;
+        let base_hlp_quote_claim =
+            mul_div_u128(reserves.quote, self.base_hlp_vault.ylp_shares as u128, supply as u128)?;
+        let quote_hlp_base_claim =
+            mul_div_u128(reserves.base, self.quote_hlp_vault.ylp_shares as u128, supply as u128)?;
+        let quote_hlp_quote_claim =
+            mul_div_u128(reserves.quote, self.quote_hlp_vault.ylp_shares as u128, supply as u128)?;
+        let base_hlp_quote_debt = normalize_to_nad(
+            Debt::shares_to_debt(self.base_hlp_vault.debt_shares, self.debt.quote_borrow_index_nad)?,
+            self.quote_side.asset_decimals,
+        )?;
+        let quote_hlp_base_debt = normalize_to_nad(
+            Debt::shares_to_debt(self.quote_hlp_vault.debt_shares, self.debt.base_borrow_index_nad)?,
+            self.base_side.asset_decimals,
+        )?;
+
+        // Preserve each vault's actual point-in-time NAV while reconstructing
+        // the zero-opposite-exposure endpoint. This is deliberately derived
+        // from current claims and indexed debt rather than `last_nav_nad`,
+        // which is only a settlement checkpoint and may be stale after a
+        // price move or interest accrual.
+        let base_opposite_net = if base_hlp_quote_claim >= base_hlp_quote_debt {
+            i128::try_from(base_hlp_quote_claim - base_hlp_quote_debt).map_err(|_| ErrorCode::MarketMathOverflow)?
+        } else {
+            -i128::try_from(base_hlp_quote_debt - base_hlp_quote_claim).map_err(|_| ErrorCode::MarketMathOverflow)?
+        };
+        let quote_opposite_net = if quote_hlp_base_claim >= quote_hlp_base_debt {
+            i128::try_from(quote_hlp_base_claim - quote_hlp_base_debt).map_err(|_| ErrorCode::MarketMathOverflow)?
+        } else {
+            -i128::try_from(quote_hlp_base_debt - quote_hlp_base_claim).map_err(|_| ErrorCode::MarketMathOverflow)?
+        };
+        let base_opposite_value = if base_opposite_net >= 0 {
+            i128::try_from(mul_div_u128(base_opposite_net as u128, reserves.base, reserves.quote)?)
+                .map_err(|_| ErrorCode::MarketMathOverflow)?
+        } else {
+            -i128::try_from(mul_div_u128(
+                base_opposite_net.unsigned_abs(),
+                reserves.base,
+                reserves.quote,
+            )?)
+            .map_err(|_| ErrorCode::MarketMathOverflow)?
+        };
+        let quote_opposite_value = if quote_opposite_net >= 0 {
+            i128::try_from(mul_div_u128(quote_opposite_net as u128, reserves.quote, reserves.base)?)
+                .map_err(|_| ErrorCode::MarketMathOverflow)?
+        } else {
+            -i128::try_from(mul_div_u128(
+                quote_opposite_net.unsigned_abs(),
+                reserves.quote,
+                reserves.base,
+            )?)
+            .map_err(|_| ErrorCode::MarketMathOverflow)?
+        };
+        let base_hlp_equity = i128::try_from(base_hlp_base_claim)
+            .map_err(|_| ErrorCode::MarketMathOverflow)?
+            .checked_add(base_opposite_value)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let quote_hlp_equity = i128::try_from(quote_hlp_quote_claim)
+            .map_err(|_| ErrorCode::MarketMathOverflow)?
+            .checked_add(quote_opposite_value)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        require!(
+            base_hlp_equity >= 0 && quote_hlp_equity >= 0,
+            ErrorCode::HlpSettlementUnavailable
+        );
+        IntegratedCurveState::from_total_reserves(
+            reserves.base,
+            reserves.quote,
+            if self.base_hlp_vault.hlp_supply == 0 {
+                0
+            } else {
+                base_hlp_equity as u128
+            },
+            if self.quote_hlp_vault.hlp_supply == 0 {
+                0
+            } else {
+                quote_hlp_equity as u128
+            },
+        )
+    }
+
     pub(crate) fn current_curve_parameters(&self, current_slot: u64) -> ConcentrationParameters {
         self.amm.effective_curve_parameters(&self.config.amm, current_slot)
+    }
+
+    pub(crate) fn current_explicit_curve_geometry(&self) -> Result<Option<ExplicitCurveGeometry>> {
+        let Some(parameters) = self.config.amm.explicit_curve_parameters()? else {
+            return Ok(None);
+        };
+        if !self.amm.initialized {
+            let ordinary = self.integrated_curve_state_nad()?;
+            let cache = prepare_explicit_cache_at_point(
+                ordinary.ordinary_base,
+                ordinary.ordinary_quote,
+                self.current_curve_center_price_nad()?,
+                parameters,
+            )?;
+            return Ok(Some(cache.geometry()?));
+        }
+        require!(
+            self.amm.explicit_curve_cache.parameters() == parameters,
+            ErrorCode::BrokenInvariant
+        );
+        Ok(Some(self.amm.explicit_curve_cache.geometry()?))
+    }
+
+    pub(crate) fn current_explicit_spot_price_nad(&self) -> Result<Option<u64>> {
+        let Some(geometry) = self.current_explicit_curve_geometry()? else {
+            return Ok(None);
+        };
+        let state = self.integrated_curve_state_nad()?;
+        u64::try_from(geometry.spot_price_nad_prevalidated(ExplicitCurvePoint {
+            base_reserve: state.ordinary_base,
+            quote_reserve: state.ordinary_quote,
+        })?)
+        .map(Some)
+        .map_err(|_| ErrorCode::MarketMathOverflow.into())
+    }
+
+    pub(crate) fn quote_explicit_curve_exact_in_nad(
+        &self,
+        reserves: CurveReservesNad,
+        amount_in_nad: u128,
+        asset_in: MarketAsset,
+    ) -> Result<Option<ExplicitCurveQuote>> {
+        let Some(geometry) = self.current_explicit_curve_geometry()? else {
+            return Ok(None);
+        };
+        geometry
+            .quote_exact_in_prevalidated(
+                ExplicitCurvePoint {
+                    base_reserve: reserves.base,
+                    quote_reserve: reserves.quote,
+                },
+                amount_in_nad,
+                match asset_in {
+                    MarketAsset::Base => ExplicitCurveDirection::BaseToQuote,
+                    MarketAsset::Quote => ExplicitCurveDirection::QuoteToBase,
+                },
+            )
+            .map(Some)
+    }
+
+    pub(crate) fn quote_integrated_explicit_exact_in_nad(
+        &self,
+        gross_amount_in_nad: u128,
+        frozen_total_fee_nad: u128,
+        asset_in: MarketAsset,
+    ) -> Result<Option<IntegratedFrozenFeeQuote>> {
+        let Some(geometry) = self.current_explicit_curve_geometry()? else {
+            return Ok(None);
+        };
+        quote_integrated_exact_in_with_frozen_fee(
+            self.integrated_curve_state_nad()?,
+            geometry,
+            gross_amount_in_nad,
+            frozen_total_fee_nad,
+            match asset_in {
+                MarketAsset::Base => IntegratedSwapDirection::BaseToQuote,
+                MarketAsset::Quote => IntegratedSwapDirection::QuoteToBase,
+            },
+        )
+        .map(Some)
+    }
+
+    pub(crate) fn quote_explicit_integrated_with_fee(
+        &self,
+        asset_in: MarketAsset,
+        reserve_credit: u64,
+        preliminary: PreliminarySwapInputs,
+    ) -> Result<Option<ExplicitIntegratedAmmQuote>> {
+        self.quote_explicit_integrated_with_fee_from_state(
+            asset_in,
+            reserve_credit,
+            preliminary,
+            self.integrated_curve_state_nad()?,
+        )
+    }
+
+    pub(crate) fn quote_explicit_integrated_with_fee_from_state(
+        &self,
+        asset_in: MarketAsset,
+        reserve_credit: u64,
+        preliminary: PreliminarySwapInputs,
+        state: IntegratedCurveState,
+    ) -> Result<Option<ExplicitIntegratedAmmQuote>> {
+        let Some(geometry) = self.current_explicit_curve_geometry()? else {
+            return Ok(None);
+        };
+        let input_decimals = self.side(asset_in).asset_decimals;
+        let gross_curve_input_nad = normalize_to_nad(preliminary.amount_in_for_quote as u128, input_decimals)?;
+        let center = self
+            .amm
+            .explicit_curve_cache
+            .center_point_with_geometry(self.current_curve_center_price_nad()?, geometry)?;
+        let (start_input_nad, center_input_nad) = match asset_in {
+            MarketAsset::Base => (state.ordinary_base, center.base_reserve),
+            MarketAsset::Quote => (state.ordinary_quote, center.quote_reserve),
+        };
+        let start_input_raw = denormalize_from_nad_floor(start_input_nad, input_decimals)?;
+        let center_input_raw = denormalize_from_nad_floor(center_input_nad, input_decimals)?;
+        require!(center_input_raw > 0, ErrorCode::InvalidMarketConfig);
+        let gross_end_input_raw = start_input_raw
+            .checked_add(preliminary.amount_in_for_quote)
+            .ok_or(ErrorCode::ReserveOverflow)?;
+        let config = self.dynamic_fee_config()?;
+        let (uncapped_divergence, saturated) = gross_path_divergence_fee_raw(
+            center_input_raw,
+            start_input_raw,
+            gross_end_input_raw,
+            config.divergence_coefficient_nad,
+            config.divergence_fee_share_cap_bps,
+        )?;
+        let component_budget = gross_fee_budget_floor(reserve_credit, config.divergence_fee_share_cap_bps)?;
+        let remaining_total_budget = hard_total_fee_budget_floor(reserve_credit)
+            .checked_sub(preliminary.fee.total_fee_amount)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        let divergence_surcharge = if saturated {
+            component_budget.min(remaining_total_budget)
+        } else {
+            u64::try_from(uncapped_divergence.min(u64::MAX as u128))
+                .map_err(|_| ErrorCode::FeeMathOverflow)?
+                .min(component_budget)
+                .min(remaining_total_budget)
+        };
+        require!(
+            divergence_surcharge < preliminary.amount_in_for_quote,
+            ErrorCode::InvalidSwapFeeBps
+        );
+        let divergence_nad = normalize_to_nad(divergence_surcharge as u128, input_decimals)?;
+        let integrated = quote_integrated_exact_in_with_frozen_fee(
+            state,
+            geometry,
+            gross_curve_input_nad,
+            divergence_nad,
+            match asset_in {
+                MarketAsset::Base => IntegratedSwapDirection::BaseToQuote,
+                MarketAsset::Quote => IntegratedSwapDirection::QuoteToBase,
+            },
+        )?;
+        let amount_out = denormalize_from_nad_floor(
+            integrated.executable.amount_out,
+            self.side(asset_in.opposite()).asset_decimals,
+        )?;
+        require!(amount_out > 0, ErrorCode::InsufficientOutputAmount);
+        let start_price_nad = u64::try_from(geometry.spot_price_nad_prevalidated(ExplicitCurvePoint {
+            base_reserve: state.ordinary_base,
+            quote_reserve: state.ordinary_quote,
+        })?)
+        .map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let end_price_nad = u64::try_from(geometry.spot_price_nad_prevalidated(integrated.executable.curve.end)?)
+            .map_err(|_| ErrorCode::MarketMathOverflow)?;
+        require!(
+            start_price_nad > 0 && end_price_nad > 0,
+            ErrorCode::InvalidSettlementPrice
+        );
+
+        let mut dynamic = preliminary.fee;
+        dynamic.divergence_surcharge_amount = divergence_surcharge;
+        dynamic.dynamic_surcharge_amount = dynamic
+            .volatility_surcharge_amount
+            .checked_add(divergence_surcharge)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        dynamic.total_fee_amount = dynamic
+            .base_fee_amount
+            .checked_add(dynamic.dynamic_surcharge_amount)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        dynamic.divergence_rate_nad = effective_rate_floor_nad(divergence_surcharge, reserve_credit)?;
+        dynamic.total_rate_nad = dynamic
+            .base_rate_nad
+            .checked_add(dynamic.volatility_rate_nad)
+            .and_then(|value| value.checked_add(dynamic.divergence_rate_nad))
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        let (retained_surcharge, distributed_surcharge_debit) = if self.amm.retain_dynamic_surcharge {
+            (dynamic.dynamic_surcharge_amount, 0)
+        } else {
+            (0, dynamic.dynamic_surcharge_amount)
+        };
+        let amount_in_for_quote = preliminary
+            .amount_in_for_quote
+            .checked_sub(divergence_surcharge)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        let claimable_fee_debit = dynamic
+            .base_fee_amount
+            .checked_add(distributed_surcharge_debit)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        let reserve_input_credit = amount_in_for_quote
+            .checked_add(retained_surcharge)
+            .ok_or(ErrorCode::ReserveOverflow)?;
+        require_eq!(
+            reserve_input_credit
+                .checked_add(claimable_fee_debit)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            reserve_credit,
+            ErrorCode::BrokenInvariant
+        );
+        // Retained surcharge is physically present but belongs to the
+        // protected recenter bucket, not to executable reserves. Therefore it
+        // cannot change this swap's endpoint, the next quote, hLP ownership,
+        // or a yLP withdrawal claim. A later funded recenter deploys it once.
+        let reserve_end_price_nad = end_price_nad;
+        let post_success_volatility_nad = volatility_after_success_nad(
+            dynamic.decayed_volatility_nad,
+            start_price_nad,
+            reserve_end_price_nad,
+            self.config.amm.volatility_shock_cap_nad,
+            self.config.amm.volatility_cap_nad,
+        )?;
+        Ok(Some(ExplicitIntegratedAmmQuote {
+            integrated,
+            amount_out,
+            start_price_nad,
+            end_price_nad,
+            reserve_end_price_nad,
+            decayed_volatility_nad: dynamic.decayed_volatility_nad,
+            post_success_volatility_nad,
+            fee: SwapFeeBreakdown {
+                reserve_credit,
+                base_fee_debit: dynamic.base_fee_amount,
+                divergence_surcharge_debit: divergence_surcharge,
+                volatility_surcharge_debit: dynamic.volatility_surcharge_amount,
+                dynamic_surcharge_debit: dynamic.dynamic_surcharge_amount,
+                total_fee_debit: dynamic.total_fee_amount,
+                retained_surcharge,
+                distributed_surcharge_debit,
+                amount_in_for_quote,
+                reserve_input_credit,
+                claimable_fee_debit,
+                base_fee_rate_nad: dynamic.base_rate_nad,
+                divergence_fee_rate_nad: dynamic.divergence_rate_nad,
+                volatility_fee_rate_nad: dynamic.volatility_rate_nad,
+                total_fee_rate_nad: dynamic.total_rate_nad,
+            },
+        }))
     }
 
     /// Until first liquidity initializes AMM state, the reserve ratio is the
@@ -1058,6 +1733,27 @@ impl Market {
         prepared: ConcentratedPreparedCurve,
         current_slot: u64,
     ) -> Result<CurveQuote> {
+        self.quote_curve_exact_in_for_prepared_nad_with_start_marginal(
+            asset_in,
+            amount_in,
+            prepared,
+            current_slot,
+            None,
+        )
+    }
+
+    /// Exact-in quote with an optional marginal already proved by the
+    /// identity-bound start checkpoint. The cached value is accepted only by
+    /// this private path, immediately after both values were derived from the
+    /// same `prepared` curve in the authoritative quote pipeline.
+    fn quote_curve_exact_in_for_prepared_nad_with_start_marginal(
+        &self,
+        asset_in: MarketAsset,
+        amount_in: u64,
+        prepared: ConcentratedPreparedCurve,
+        current_slot: u64,
+        start_marginal_price_nad: Option<u128>,
+    ) -> Result<CurveQuote> {
         require!(amount_in > 0, ErrorCode::AmountZero);
         let amount_in_nad = normalize_to_nad(amount_in as u128, self.side(asset_in).asset_decimals)?;
         require!(amount_in_nad > 0, ErrorCode::AmountZero);
@@ -1078,8 +1774,11 @@ impl Market {
             normalize_to_nad(amount_out as u128, self.side(asset_in.opposite()).asset_decimals)?;
         require!(executable_amount_out_nad > 0, ErrorCode::InsufficientOutputAmount);
 
-        let start_price_nad =
-            u64::try_from(prepared.marginal_price_nad()?).map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let start_price_nad = u64::try_from(match start_marginal_price_nad {
+            Some(marginal_price_nad) => marginal_price_nad,
+            None => prepared.marginal_price_nad()?,
+        })
+        .map_err(|_| ErrorCode::MarketMathOverflow)?;
         let (base_after, quote_after) = match asset_in {
             MarketAsset::Base => (
                 prepared
@@ -1185,7 +1884,7 @@ const fn direction(asset_in: MarketAsset) -> ConcentratedSwapDirection {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any()))]
 mod curve_tests {
     include!("../tests/market/curve.rs");
 }
@@ -1348,12 +2047,44 @@ pub struct AmmSwapQuote {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ExplicitIntegratedAmmQuote {
+    pub integrated: IntegratedFrozenFeeQuote,
+    pub amount_out: u64,
+    pub start_price_nad: u64,
+    pub end_price_nad: u64,
+    pub reserve_end_price_nad: u64,
+    pub decayed_volatility_nad: u64,
+    pub post_success_volatility_nad: u64,
+    pub fee: SwapFeeBreakdown,
+}
+
+impl ExplicitIntegratedAmmQuote {
+    pub(crate) fn as_swap_quote(self, asset_in: MarketAsset) -> AmmSwapQuote {
+        AmmSwapQuote {
+            asset_in,
+            amount_out: self.amount_out,
+            start_price_nad: self.start_price_nad,
+            end_price_nad: self.end_price_nad,
+            reserve_end_price_nad: self.reserve_end_price_nad,
+            decayed_volatility_nad: self.decayed_volatility_nad,
+            post_success_volatility_nad: self.post_success_volatility_nad,
+            fee: self.fee,
+            endpoints: None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct AmmSwapEndpoints {
     trade: CurveCheckpoint,
     reserve: CurveCheckpoint,
 }
 
 impl AmmSwapQuote {
+    pub(crate) const fn is_explicit(&self) -> bool {
+        self.endpoints.is_none()
+    }
+
     pub(crate) fn trade_endpoint(&self) -> Result<CurveCheckpoint> {
         self.endpoints
             .map(|endpoints| endpoints.trade)
@@ -1683,7 +2414,7 @@ impl Market {
             pre_state,
             preliminary,
             self.dynamic_fee_config()?,
-            prepared,
+            &prepared,
         )?;
         let amount_in_for_quote = preliminary
             .amount_in_for_quote
@@ -1715,9 +2446,13 @@ impl Market {
         // marginal prices. Avoiding that redundant CONCENTRATED quote removes an entire
         // reserve solve plus two marginal-price proofs from every swap.
         let prepared = self.prepare_curve_for_reserves_nad(reserves, pre_state.center_price_nad, current_slot)?;
-        if let Some(start_checkpoint_out) = start_checkpoint_out {
-            *start_checkpoint_out = Some(self.checkpoint_for_prepared_curve(prepared, current_slot)?);
-        }
+        let start_marginal_price_nad = if let Some(start_checkpoint_out) = start_checkpoint_out {
+            let checkpoint = self.checkpoint_for_prepared_curve(prepared, current_slot)?;
+            *start_checkpoint_out = Some(checkpoint);
+            Some(checkpoint.evaluation().marginal_price_nad)
+        } else {
+            None
+        };
         let direction = match asset_in {
             MarketAsset::Base => ConcentratedSwapDirection::BaseToQuote,
             MarketAsset::Quote => ConcentratedSwapDirection::QuoteToBase,
@@ -1811,8 +2546,13 @@ impl Market {
             minimum_executable_input(reserve_credit),
             ErrorCode::BrokenInvariant
         );
-        let final_curve =
-            self.quote_curve_exact_in_for_prepared_nad(asset_in, amount_in_for_quote, prepared, current_slot)?;
+        let final_curve = self.quote_curve_exact_in_for_prepared_nad_with_start_marginal(
+            asset_in,
+            amount_in_for_quote,
+            prepared,
+            current_slot,
+            start_marginal_price_nad,
+        )?;
 
         let divergence_surcharge_debit = dynamic.divergence_surcharge_amount;
         let volatility_surcharge_debit = dynamic.volatility_surcharge_amount;
@@ -1949,7 +2689,7 @@ impl Market {
         })
     }
 
-    fn dynamic_fee_config(&self) -> Result<DynamicFeeConfig> {
+    pub(super) fn dynamic_fee_config(&self) -> Result<DynamicFeeConfig> {
         let profile = self.config.fee_profile();
         Ok(DynamicFeeConfig {
             base_fee_bps: profile.base_fee_bps,
@@ -2005,7 +2745,7 @@ fn divergence_surcharge_for_prepared(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn divergence_surcharge_for_guidance(
+pub(super) fn divergence_surcharge_for_guidance(
     asset_in: MarketAsset,
     input_decimals: u8,
     reserve_credit: u64,
@@ -2013,7 +2753,7 @@ fn divergence_surcharge_for_guidance(
     pre_state: DynamicFeePreState,
     preliminary: PreliminarySwapInputs,
     config: DynamicFeeConfig,
-    prepared: ConcentratedGuidanceCurve,
+    prepared: &ConcentratedGuidanceCurve,
 ) -> Result<(u64, u64)> {
     divergence_surcharge_for_curve_inputs(
         asset_in,
@@ -2376,7 +3116,7 @@ fn divergence_fee_for_executable_input(
     u64::try_from(fee).map_err(|_| ErrorCode::FeeMathOverflow.into())
 }
 
-#[cfg(test)]
+#[cfg(all(test, any()))]
 mod swap_engine_tests {
     include!("../tests/market/swap_engine.rs");
 }

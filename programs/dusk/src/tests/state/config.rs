@@ -171,7 +171,8 @@ fn market_config_caps_daily_borrow_at_3000_bps() {
 #[test]
 fn market_config_validates_embedded_amm_config() {
     let mut config = valid_config();
-    config.amm.fade_scale_nad = 1;
+    config.amm.range_width_nad = NAD;
+    config.amm.concentrated_liquidity_share_nad = NAD / 2;
 
     assert_eq!(
         config.validate().unwrap_err(),

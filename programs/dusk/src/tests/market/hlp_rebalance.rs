@@ -592,27 +592,36 @@ fn compact_bounded_i_greater_than_b_settlement_is_same_d_sufficient_in_both_dire
         assert!(valuation.ideal_delta < 0);
 
         HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES.with(|count| count.set(0));
+        HLP_COMPACT_GUIDANCE_EXACT_OUT_CANONICAL_FALLBACKS.with(|count| count.set(0));
         let compact = plan_compact_hlp_deleverage(
             fixed,
             state,
             target_asset,
             valuation.ideal_delta,
             valuation,
-            anchor,
+            &anchor,
             state.base_side.ylp_supply,
             HlpGuidanceSettlementProbeMode::Bounded,
+            SwapCashFloors::default(),
         )
         .unwrap();
         let proof = compact
             .guidance_settlement
             .unwrap_or_else(|| panic!("expected bounded I>B proof for {target_asset:?}"));
         let facts = proof.facts();
+        assert_eq!(
+            normalize_to_nad(facts.target_retained as u128, fixed.decimals(target_asset)).unwrap(),
+            facts.selected_input_nad
+        );
+        assert!(matches!(
+            proof.sample_mode(),
+            HlpGuidanceSettlementSampleMode::BoundedP2High | HlpGuidanceSettlementSampleMode::BoundedP3Positive
+        ));
         assert!(facts.borrowed_shortfall > 0);
         assert!(facts.selected_input_nad > 0);
         assert!(facts.target_retained > 0);
 
-        let HlpRebalancePlan::Deleverage { ylp_burn_amount, .. } = compact.plan
-        else {
+        let HlpRebalancePlan::Deleverage { ylp_burn_amount, .. } = compact.plan else {
             panic!("expected compact deleverage plan for {target_asset:?}")
         };
         let post_ylp_supply = state.base_side.ylp_supply.checked_sub(ylp_burn_amount).unwrap();
@@ -623,35 +632,240 @@ fn compact_bounded_i_greater_than_b_settlement_is_same_d_sufficient_in_both_dire
         )
         .unwrap();
         let same_d = anchor
-            .prepare_guidance_successor_with_invariant(
+            .prepare_supply_scaled_guidance_successor(
                 facts.post_entitlement_curve_reserves_nad.base,
                 facts.post_entitlement_curve_reserves_nad.quote,
-                scaled_d,
+                state.base_side.ylp_supply,
+                post_ylp_supply,
             )
             .unwrap();
+        assert!(same_d.invariant_d() >= scaled_d);
         let direction = match target_asset {
             MarketAsset::Base => ConcentratedSwapDirection::BaseToQuote,
             MarketAsset::Quote => ConcentratedSwapDirection::QuoteToBase,
         };
         let borrowed_asset = target_asset.opposite();
-        let amount_out_nad = normalize_to_nad(
-            facts.borrowed_shortfall as u128,
-            fixed.decimals(borrowed_asset),
-        )
-        .unwrap();
+        let amount_out_nad =
+            normalize_to_nad(facts.borrowed_shortfall as u128, fixed.decimals(borrowed_asset)).unwrap();
         let exact_input = same_d
             .quote_exact_out_input_bracket(amount_out_nad, direction)
             .unwrap()
             .1;
         assert!(facts.selected_input_nad >= exact_input);
-        assert!(
-            same_d
-                .quote_exact_in(facts.selected_input_nad, direction)
-                .unwrap()
-                >= amount_out_nad
-        );
+        assert!(same_d.quote_exact_in(facts.selected_input_nad, direction).unwrap() >= amount_out_nad);
         let probes = HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES.with(Cell::get);
-        assert!((1..=2).contains(&probes), "target={target_asset:?} probes={probes}");
+        assert!(
+            (2..=MAX_RESIDUAL_PROBES_PER_BOUNDED_EXACT_OUT_LEG as u32).contains(&probes),
+            "target={target_asset:?} probes={probes}"
+        );
+        assert_eq!(HLP_COMPACT_GUIDANCE_EXACT_OUT_CANONICAL_FALLBACKS.with(Cell::get), 0);
+    }
+}
+
+#[test]
+fn compact_bounded_i_greater_than_b_stays_live_at_solvent_two_point_one_funding() {
+    let scale = 1_000_000_u64;
+    let mut fixture = active_concentrated_hlp_market_with_decimals(6);
+    fixture.base_side.credit_reserve(500_000 * scale, true).unwrap();
+    fixture.quote_side.credit_reserve(1_000_000 * scale, true).unwrap();
+    fixture.checkpoint_amm_neutral_inventory(0).unwrap();
+    fixture.debt.base_borrow_index_nad = 21 * NAD as u128 / 10;
+    fixture.debt.quote_borrow_index_nad = 21 * NAD as u128 / 10;
+
+    let mut radially_raised = 0_u32;
+    for target_asset in [MarketAsset::Base, MarketAsset::Quote] {
+        let market = fixture.clone();
+        let fixed = HlpPlannerStatic::capture(&market).unwrap();
+        let start_state = HlpPlannerState::capture(&market);
+        let reserves = start_state.curve_reserves_nad(fixed).unwrap();
+        let canonical = market
+            .prepare_curve_for_reserves_nad(
+                reserves,
+                market.current_curve_center_price_nad().unwrap(),
+                curve_slot(&market),
+            )
+            .unwrap();
+        let anchor = canonical
+            .prepare_guidance_successor_with_invariant(reserves.base, reserves.quote, canonical.invariant_d())
+            .unwrap();
+        let valuation = current_hlp_valuation(&market, target_asset).unwrap();
+        assert!(valuation.ideal_delta < 0, "target={target_asset:?}");
+
+        HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES.with(|count| count.set(0));
+        HLP_COMPACT_GUIDANCE_EXACT_OUT_CANONICAL_FALLBACKS.with(|count| count.set(0));
+        let compact = plan_compact_hlp_deleverage(
+            fixed,
+            start_state,
+            target_asset,
+            valuation.ideal_delta,
+            valuation,
+            &anchor,
+            start_state.base_side.ylp_supply,
+            HlpGuidanceSettlementProbeMode::Bounded,
+            SwapCashFloors::default(),
+        )
+        .unwrap_or_else(|error| panic!("target={target_asset:?}: {error:?}"));
+        let proof = compact
+            .guidance_settlement
+            .unwrap_or_else(|| panic!("expected bounded I>B proof for {target_asset:?}"));
+        let facts = proof.facts();
+        assert_eq!(
+            normalize_to_nad(facts.target_retained as u128, fixed.decimals(target_asset)).unwrap(),
+            facts.selected_input_nad
+        );
+        assert!(matches!(
+            proof.sample_mode(),
+            HlpGuidanceSettlementSampleMode::BoundedP2High | HlpGuidanceSettlementSampleMode::BoundedP3Positive
+        ));
+        let HlpRebalancePlan::Deleverage {
+            ylp_burn_amount,
+            interest_paid,
+            base_entitlement_amount,
+            quote_entitlement_amount,
+            ..
+        } = compact.plan
+        else {
+            panic!("expected compact deleverage plan for {target_asset:?}")
+        };
+        let borrowed_entitlement = match target_asset {
+            MarketAsset::Base => quote_entitlement_amount,
+            MarketAsset::Quote => base_entitlement_amount,
+        };
+        assert!(interest_paid > borrowed_entitlement);
+        let post_supply = start_state.base_side.ylp_supply.checked_sub(ylp_burn_amount).unwrap();
+        let scaled_d = mul_div_u128(
+            anchor.invariant_d(),
+            post_supply as u128,
+            start_state.base_side.ylp_supply as u128,
+        )
+        .unwrap();
+        let prepared = anchor
+            .prepare_supply_scaled_guidance_successor(
+                facts.post_entitlement_curve_reserves_nad.base,
+                facts.post_entitlement_curve_reserves_nad.quote,
+                start_state.base_side.ylp_supply,
+                post_supply,
+            )
+            .unwrap();
+        radially_raised += u32::from(prepared.invariant_d() > scaled_d);
+
+        let probes = HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES.with(Cell::get);
+        assert!(
+            (2..=MAX_RESIDUAL_PROBES_PER_BOUNDED_EXACT_OUT_LEG as u32).contains(&probes),
+            "target={target_asset:?} probes={probes}"
+        );
+        assert_eq!(HLP_COMPACT_GUIDANCE_EXACT_OUT_CANONICAL_FALLBACKS.with(Cell::get), 0);
+        let mut post_state = start_state;
+        let receipt = apply_compact_hlp_rebalance_plan_to_planner_state(fixed, &mut post_state, compact).unwrap();
+        assert_eq!(receipt.ylp_burn_amount, ylp_burn_amount);
+        assert!(post_state.base_side.ylp_supply < start_state.base_side.ylp_supply);
+        assert_eq!(post_state.base_side.ylp_supply, post_state.quote_side.ylp_supply);
+        assert!(post_state.vault(target_asset).debt_shares < start_state.vault(target_asset).debt_shares);
+        let post_reserves = post_state.curve_reserves_nad(fixed).unwrap();
+        assert!(post_reserves.base > 0 && post_reserves.quote > 0);
+    }
+    assert!(radially_raised > 0);
+}
+
+#[test]
+fn compact_i_greater_than_b_fallback_matches_only_insufficient_liquidity() {
+    assert!(hlp_guidance_exact_out_settlement::is_insufficient_liquidity(&error!(
+        ErrorCode::InsufficientLiquidity
+    )));
+    assert!(!hlp_guidance_exact_out_settlement::is_insufficient_liquidity(&error!(
+        ErrorCode::BrokenInvariant
+    )));
+
+    let market = active_concentrated_hlp_market_with_decimals(6);
+    let fixed = HlpPlannerStatic::capture(&market).unwrap();
+    let state = HlpPlannerState::capture(&market);
+    let reserves = state.curve_reserves_nad(fixed).unwrap();
+    let canonical = market
+        .prepare_curve_for_reserves_nad(
+            reserves,
+            market.current_curve_center_price_nad().unwrap(),
+            curve_slot(&market),
+        )
+        .unwrap();
+    let anchor = canonical
+        .prepare_guidance_successor_with_invariant(reserves.base, reserves.quote, canonical.invariant_d())
+        .unwrap();
+    let borrowed_reserve = state.curve_reserve(fixed, MarketAsset::Quote).unwrap();
+
+    HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES.with(|count| count.set(0));
+    HLP_COMPACT_GUIDANCE_EXACT_OUT_CANONICAL_FALLBACKS.with(|count| count.set(0));
+    let error = HlpGuidanceSettlementProof::plan(
+        fixed,
+        state,
+        &anchor,
+        state.base_side.ylp_supply,
+        MarketAsset::Base,
+        1,
+        0,
+        borrowed_reserve,
+        state.base_side.ylp_supply - 1,
+        HlpGuidanceSettlementProbeMode::Bounded,
+    )
+    .unwrap_err();
+    assert_eq!(error, error!(ErrorCode::InsufficientLiquidity));
+    assert_eq!(HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES.with(Cell::get), 0);
+    assert_eq!(HLP_COMPACT_GUIDANCE_EXACT_OUT_CANONICAL_FALLBACKS.with(Cell::get), 1);
+}
+
+#[test]
+fn compact_cash_floors_match_market_for_isolated_lifecycle_policies() {
+    let mut market = Market::default();
+    market.debt.base_borrow_index_nad = NAD as u128 + 123_456_789;
+    market.debt.quote_borrow_index_nad = NAD as u128 + 987_654_321;
+    let base_principal = 700_000_u64;
+    let quote_principal = 900_000_u64;
+    let base_position_shares = market
+        .debt
+        .add_isolated_debt(MarketAsset::Base, base_principal)
+        .unwrap();
+    market.debt.add_isolated_debt(MarketAsset::Base, 300_000).unwrap();
+    let quote_position_shares = market
+        .debt
+        .add_isolated_debt(MarketAsset::Quote, quote_principal)
+        .unwrap();
+    market.debt.add_isolated_debt(MarketAsset::Quote, 400_000).unwrap();
+    let fixed = HlpPlannerStatic::capture(&market).unwrap();
+    let state = HlpPlannerState::capture(&market);
+
+    for (debt_asset, debt_shares, debt_principal) in [
+        (MarketAsset::Base, base_position_shares, base_principal as u128),
+        (MarketAsset::Quote, quote_position_shares, quote_principal as u128),
+    ] {
+        let asset_in = debt_asset.opposite();
+        for policy in [
+            SwapCashPolicy::Decrease {
+                debt_asset,
+                debt_shares,
+                debt_principal,
+            },
+            SwapCashPolicy::Close {
+                debt_asset,
+                debt_shares,
+                debt_principal,
+            },
+            SwapCashPolicy::Liquidate {
+                debt_asset,
+                debt_shares,
+                debt_principal,
+            },
+        ] {
+            // A one-token repayment can legitimately be too small to burn one
+            // share once the borrow index has accrued above 1.0. Keep every
+            // case inside the executable repayment domain so this test isolates
+            // compact/full floor parity rather than minimum-repayment behavior.
+            for amount_out in [2_u64, 333_333, 2_000_000] {
+                assert_eq!(
+                    policy.floors(&market, asset_in, amount_out).unwrap(),
+                    policy.floors_from_planner(fixed, state, asset_in, amount_out).unwrap(),
+                    "policy={policy:?} debt_asset={debt_asset:?} amount_out={amount_out}",
+                );
+            }
+        }
     }
 }
 
@@ -982,7 +1196,7 @@ fn joint_hlp_pair_plan_rejects_stale_and_second_leg_tampering_atomically() {
     let mut stale = market.clone();
     stale.debt.base_borrow_index_nad += 1;
     let stale_before = stale.try_to_vec().unwrap();
-    let error = apply_hlp_rebalance_pair_plan(&mut stale, plan).unwrap_err();
+    let error = apply_hlp_rebalance_pair_plan(&mut stale, &plan).unwrap_err();
     assert_eq!(error, error!(ErrorCode::BrokenInvariant));
     assert_eq!(stale.try_to_vec().unwrap(), stale_before);
 
@@ -993,7 +1207,7 @@ fn joint_hlp_pair_plan_rejects_stale_and_second_leg_tampering_atomically() {
     quote_plan.common_mut().start.quote_live_reserve += 1;
     let mut candidate = market.clone();
     let candidate_before = candidate.try_to_vec().unwrap();
-    let error = apply_hlp_rebalance_pair_plan(&mut candidate, tampered).unwrap_err();
+    let error = apply_hlp_rebalance_pair_plan(&mut candidate, &tampered).unwrap_err();
     assert_eq!(error, error!(ErrorCode::BrokenInvariant));
     assert_eq!(candidate.try_to_vec().unwrap(), candidate_before);
 
@@ -1003,7 +1217,7 @@ fn joint_hlp_pair_plan_rejects_stale_and_second_leg_tampering_atomically() {
     };
     let mut candidate = market;
     let candidate_before = candidate.try_to_vec().unwrap();
-    let error = apply_hlp_rebalance_pair_plan(&mut candidate, inactive_tamper).unwrap_err();
+    let error = apply_hlp_rebalance_pair_plan(&mut candidate, &inactive_tamper).unwrap_err();
     assert_eq!(error, error!(ErrorCode::BrokenInvariant));
     assert_eq!(candidate.try_to_vec().unwrap(), candidate_before);
 }
@@ -1736,8 +1950,17 @@ fn matched_cpmm_trace_accounts_rebalance_principal_and_releases_it_on_close() {
     let mut market = matched_symmetric_hlp_market();
 
     apply_test_composite_swap(&mut market, MarketAsset::Base, 350_000);
+    let trace = stage4b2a_last_trace();
+    assert_eq!(trace.a1_coordinate, Some((-22_491_640_730_838, 29_009_707_431_716)));
+    assert_eq!(trace.a2_coordinate, Some((-22_491_536_532_954, 29_016_042_212_191)));
+    assert_eq!(
+        trace.a2_rows,
+        Some([7_677_827, 399_077_244, 2_951_054_032, 1_653_230_718, 0, 0])
+    );
+    assert_eq!(trace.a1_topology, trace.a2_topology);
+    assert!(trace.raw_coordinate.is_none());
 
-    assert_eq!(market.base_side.reserves.base_hlp_backing_inventory, 25_735);
+    assert_eq!(market.base_side.reserves.base_hlp_backing_inventory, 25_734);
     assert_eq!(market.base_side.reserves.quote_hlp_backing_inventory, 0);
     assert_eq!(market.quote_side.reserves.total_hlp_backing_inventory().unwrap(), 0);
 
@@ -1745,7 +1968,7 @@ fn matched_cpmm_trace_accounts_rebalance_principal_and_releases_it_on_close() {
     market
         .withdraw_single_sided(MarketAsset::Base, supply_before / 2)
         .unwrap();
-    assert_eq!(market.base_side.reserves.base_hlp_backing_inventory, 12_868);
+    assert_eq!(market.base_side.reserves.base_hlp_backing_inventory, 12_867);
 
     let remaining = market.base_hlp_vault.hlp_supply;
     market.withdraw_single_sided(MarketAsset::Base, remaining).unwrap();
@@ -1757,10 +1980,12 @@ fn matched_cpmm_trace_accounts_rebalance_principal_and_releases_it_on_close() {
 fn partial_interest_exit_with_second_hlp_and_backing_excludes_both_nested_claims() {
     let mut market = matched_symmetric_hlp_market();
     CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(|count| count.set(0));
+    CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(|count| count.set(0));
     CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(|count| count.set(0));
     apply_test_composite_swap(&mut market, MarketAsset::Base, 350_000);
     assert_eq!(CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(Cell::get), 6);
-    assert_eq!(CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get), 1);
+    assert_eq!(CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get), 4);
+    assert_eq!(CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get), 2);
     let backing_before = market.base_side.reserves.base_hlp_backing_inventory;
     assert!(backing_before > 0);
     market.debt.quote_borrow_index_nad = 11 * NAD as u128 / 10;
@@ -2122,12 +2347,24 @@ fn compact_guidance_lifecycle_matches_full_fixed_endpoints_for_spot_directions()
             market.config.divergence_fee_share_cap_bps = 2_000;
             market.config.amm.divergence_fee_coefficient_nad = 10 * NAD;
             market.amm.retain_dynamic_surcharge = retain_dynamic_surcharge;
-            let (_, _, quote) = solve_concentrated_hlp_swap(&mut market, asset_in, 350_000 * scale)
-                .unwrap_or_else(|error| {
-                    panic!(
-                        "retain={retain_dynamic_surcharge} asset_in={asset_in:?}: {error:?}"
-                    )
-                });
+            let before = market.try_to_vec().unwrap();
+            HLP_COMPACT_GUIDANCE_CELLS.with(|count| count.set(0));
+            HLP_COMPACT_GUIDANCE_EXACT_IN_PROBES.with(|count| count.set(0));
+            let result = solve_concentrated_hlp_swap(&mut market, asset_in, 350_000 * scale);
+            let cells = HLP_COMPACT_GUIDANCE_CELLS.with(Cell::get);
+            let probes = HLP_COMPACT_GUIDANCE_EXACT_IN_PROBES.with(Cell::get);
+            eprintln!(
+                "compact-spot retain={retain_dynamic_surcharge} asset_in={asset_in:?} cells={cells} exact_in_probes={probes}"
+            );
+            assert!(cells > 0);
+            assert!(probes <= cells.saturating_mul(MAX_RESIDUAL_PROBES_PER_VARIABLE_LEG as u32));
+            if asset_in == MarketAsset::Quote {
+                assert_eq!(result.unwrap_err(), error!(ErrorCode::HlpSettlementUnavailable));
+                assert_eq!(market.try_to_vec().unwrap(), before);
+                continue;
+            }
+            let (_, _, quote) = result
+                .unwrap_or_else(|error| panic!("retain={retain_dynamic_surcharge} asset_in={asset_in:?}: {error:?}"));
             if retain_dynamic_surcharge {
                 assert!(quote.fee.retained_surcharge > 0);
             }
@@ -2136,74 +2373,517 @@ fn compact_guidance_lifecycle_matches_full_fixed_endpoints_for_spot_directions()
 }
 
 #[test]
+fn fixed_d_final_mark_interval_is_conservative_for_the_future_compact_scorer() {
+    assert_eq!(hlp_guidance_final_mark_epsilon_nad(0), 0);
+    assert_eq!(hlp_guidance_final_mark_epsilon_nad(1), 1);
+    assert_eq!(hlp_guidance_final_mark_epsilon_nad(4), 1);
+    assert_eq!(hlp_guidance_final_mark_epsilon_nad(5), 2);
+
+    let budget_nad = 100_u128;
+    let boundary = HlpGuidanceFinalMarkInterval::around(75, budget_nad).unwrap();
+    assert_eq!(boundary.lower_nad, 50);
+    assert_eq!(boundary.upper_nad, 100);
+    assert!(boundary.wholly_inside_budget(budget_nad));
+
+    let outside = HlpGuidanceFinalMarkInterval::around(76, budget_nad).unwrap();
+    assert!(!outside.wholly_inside_budget(budget_nad));
+
+    let ambiguous = HlpGuidanceFinalMarkInterval::around(20, budget_nad).unwrap();
+    assert!(ambiguous.contains(0));
+    assert!(!ambiguous.excludes_zero());
+
+    let directional = HlpGuidanceFinalMarkInterval::around(26, budget_nad).unwrap();
+    assert!(!directional.contains(0));
+    assert!(directional.excludes_zero());
+}
+
+#[test]
+fn compact_guidance_guard_covers_partial_backing_roundtrip_interest_and_borrow_policy() {
+    let _verification = VerifyCompactHlpGuidanceGuard::enable();
+    let scale = 1_000_000_u64;
+
+    let mut partial = active_concentrated_hlp_market_with_decimals(6);
+    constrain_side_cash_preserving_hlp_invariant(&mut partial, MarketAsset::Base, 5_000);
+    constrain_side_cash_preserving_hlp_invariant(&mut partial, MarketAsset::Quote, 5_000);
+    partial.checkpoint_amm_neutral_inventory(0).unwrap();
+    for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut market = partial.clone();
+        let (_, _, quote) = solve_concentrated_hlp_swap(&mut market, asset_in, 100_000 * scale)
+            .unwrap_or_else(|error| panic!("partial asset_in={asset_in:?}: {error:?}"));
+        assert!(quote.amount_out > 0);
+    }
+
+    let mut roundtrip = active_concentrated_hlp_market_with_decimals(6);
+    let first = apply_concentrated_hlp_swap(&mut roundtrip, MarketAsset::Quote, 100_000 * scale).unwrap();
+    let reverse =
+        apply_concentrated_hlp_swap(&mut roundtrip, MarketAsset::Base, (first.amount_out / 2).max(1)).unwrap();
+    assert!(reverse.amount_out > 0);
+
+    for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut market = active_concentrated_hlp_market_with_decimals(6);
+        let principal = 200_000 * scale;
+        let unpaid_interest = 500 * scale;
+        market.base_side.reserves.cash_reserve -= principal;
+        market.debt.fixed_base_shares = principal as u128;
+        market.debt.fixed_base_principal = principal;
+        market.debt.base_borrow_index_nad =
+            ((principal as u128 + unpaid_interest as u128) * NAD as u128) / principal as u128;
+        market.base_side.reserves.live_reserve += unpaid_interest;
+        HLP_COMPACT_GUIDANCE_CELLS.with(|count| count.set(0));
+        reset_stage4b2a_test_state();
+        let before = market.try_to_vec().unwrap();
+        let result = solve_concentrated_hlp_swap(&mut market, asset_in, 100_000 * scale);
+        // This asymmetric-interest oracle currently fails closed at exact A1.
+        // Two bounded quote cells and four compact evaluations prove that the
+        // center/axis scheduler ran first. The quote-axis trace is allocated
+        // only after its cell/fingerprint comparison; a default trace proves
+        // that comparison matched without a reflected-axis fallback.
+        assert_eq!(result.unwrap_err(), error!(ErrorCode::HlpSettlementUnavailable));
+        assert_eq!(market.try_to_vec().unwrap(), before);
+        assert_eq!(HLP_COMPACT_GUIDANCE_CELLS.with(Cell::get), 2);
+        assert_stage4c_counts(4, 0, 1);
+        assert_eq!(
+            HLP_STAGE4B2A_LAST_TRACE.with(|trace| *trace.borrow()),
+            Some(HlpStage4B2aTestTrace::default())
+        );
+    }
+
+    for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut market = active_concentrated_hlp_market_with_decimals(6);
+        let reserve_credit = 100_000 * scale;
+        let current_slot = curve_slot(&market);
+        let pre_state = market.dynamic_fee_pre_state(current_slot).unwrap();
+        let preliminary = market
+            .preliminary_swap_inputs_for_state(reserve_credit, current_slot, pre_state)
+            .unwrap();
+        let (_, _, quote) = pre_solve_hlps_for_swap_joint(
+            &mut market,
+            asset_in,
+            reserve_credit,
+            current_slot,
+            pre_state,
+            preliminary,
+            SwapCashPolicy::Borrow {
+                asset: asset_in,
+                amount: 25_000 * scale,
+            },
+        )
+        .unwrap_or_else(|error| panic!("borrow asset_in={asset_in:?}: {error:?}"));
+        assert!(quote.amount_out > 0);
+    }
+}
+
+#[test]
 fn compact_bounded_basis_quote_drives_the_same_fixed_endpoint_lifecycle() {
     let scale = 1_000_000_u64;
-    for retain_dynamic_surcharge in [false, true] {
-        for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
-            let mut market = active_concentrated_hlp_market_with_decimals(6);
-            market.config.divergence_fee_share_cap_bps = 2_000;
-            market.config.amm.divergence_fee_coefficient_nad = 10 * NAD;
-            market.amm.retain_dynamic_surcharge = retain_dynamic_surcharge;
-            let current_slot = curve_slot(&market);
-            let reserve_credit = 100_000 * scale;
-            let pre_state = market.dynamic_fee_pre_state(current_slot).unwrap();
-            let preliminary = market
-                .preliminary_swap_inputs_for_state(reserve_credit, current_slot, pre_state)
-                .unwrap();
-            let start_reserves = market.curve_reserves_nad().unwrap();
-            let start_prepared = market
-                .prepare_curve_for_reserves_nad(
-                    start_reserves,
-                    market.current_curve_center_price_nad().unwrap(),
-                    current_slot,
-                )
-                .unwrap();
-            let frozen_prices =
-                hlp_curve_prices_from_base_price_nad(start_prepared.marginal_price_nad().unwrap()).unwrap();
-            let context = ConcentratedHlpSolveContext {
-                base_start: concentrated_hlp_start(&market, MarketAsset::Base, frozen_prices).unwrap(),
-                quote_start: concentrated_hlp_start(&market, MarketAsset::Quote, frozen_prices).unwrap(),
-                frozen_prices,
-                asset_in,
-                reserve_credit,
-                current_slot,
-                pre_state,
-                preliminary,
-                cash_policy: SwapCashPolicy::Spot,
-                guidance_start_prepared: start_prepared,
-                guidance_start_ylp_supply: market.base_side.shares.ylp_supply,
-            };
-
-            // The immutable anchor is captured from the operation start. The
-            // mutable state may later carry a different candidate supply; do
-            // not recapture this static from a prepositioned candidate.
-            let fixed = HlpPlannerStatic::capture(&market).unwrap();
-            let state = HlpPlannerState::capture(&market);
-            let basis = ConcentratedGuidanceBasis::capture(&market, &context).unwrap();
-            HLP_COMPACT_GUIDANCE_CELLS.with(|count| count.set(0));
-            HLP_COMPACT_GUIDANCE_EXACT_IN_PROBES.with(|count| count.set(0));
-            let bounded = basis
-                .quote_bounded(&market, &context, fixed, state, false)
-                .unwrap_or_else(|error| {
-                    panic!(
-                        "retain={retain_dynamic_surcharge} asset_in={asset_in:?}: {error:?}"
+    let mut bounded_outputs = [[0_u64; 2]; 2];
+    for with_public_interest in [false, true] {
+        for retain_dynamic_surcharge in [false, true] {
+            for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
+                let mut market = active_concentrated_hlp_market_with_decimals(6);
+                if with_public_interest {
+                    let curve_before = market.curve_reserves_nad().unwrap();
+                    let principal = 200_000 * scale;
+                    let unpaid_interest = 500 * scale;
+                    market.base_side.reserves.cash_reserve -= principal;
+                    market.debt.fixed_base_shares = principal as u128;
+                    market.debt.fixed_base_principal = principal;
+                    market.debt.base_borrow_index_nad =
+                        ((principal as u128 + unpaid_interest as u128) * NAD as u128) / principal as u128;
+                    market.base_side.reserves.live_reserve += unpaid_interest;
+                    assert_eq!(market.curve_reserves_nad().unwrap(), curve_before);
+                    assert_eq!(
+                        market.unrealized_interest(MarketAsset::Base).unwrap(),
+                        unpaid_interest as u128,
+                    );
+                }
+                market.config.divergence_fee_share_cap_bps = 2_000;
+                market.config.amm.divergence_fee_coefficient_nad = 10 * NAD;
+                market.amm.retain_dynamic_surcharge = retain_dynamic_surcharge;
+                let current_slot = curve_slot(&market);
+                let reserve_credit = 100_000 * scale;
+                let pre_state = market.dynamic_fee_pre_state(current_slot).unwrap();
+                let preliminary = market
+                    .preliminary_swap_inputs_for_state(reserve_credit, current_slot, pre_state)
+                    .unwrap();
+                let start_reserves = market.curve_reserves_nad().unwrap();
+                let start_prepared = market
+                    .prepare_curve_for_reserves_nad(
+                        start_reserves,
+                        market.current_curve_center_price_nad().unwrap(),
+                        current_slot,
                     )
-                });
-            assert_eq!(HLP_COMPACT_GUIDANCE_CELLS.with(Cell::get), 1);
-            assert!((1..=2).contains(&HLP_COMPACT_GUIDANCE_EXACT_IN_PROBES.with(Cell::get)));
+                    .unwrap();
+                let frozen_prices =
+                    hlp_curve_prices_from_base_price_nad(start_prepared.marginal_price_nad().unwrap()).unwrap();
+                let context = ConcentratedHlpSolveContext {
+                    base_start: concentrated_hlp_start(&market, MarketAsset::Base, frozen_prices).unwrap(),
+                    quote_start: concentrated_hlp_start(&market, MarketAsset::Quote, frozen_prices).unwrap(),
+                    frozen_prices,
+                    asset_in,
+                    reserve_credit,
+                    current_slot,
+                    pre_state,
+                    preliminary,
+                    cash_policy: SwapCashPolicy::Spot,
+                    guidance_start_prepared: start_prepared,
+                    guidance_start_ylp_supply: market.base_side.shares.ylp_supply,
+                    guidance_start_fixed: HlpPlannerStatic::capture(&market).unwrap(),
+                };
 
-            let exact = project_concentrated_hlp_candidate(&market, &context, preliminary, false)
-                .unwrap()
-                .common();
+                // The immutable anchor is captured from the operation start. The
+                // mutable state may later carry a different candidate supply; do
+                // not recapture this static from a prepositioned candidate.
+                let fixed = HlpPlannerStatic::capture(&market).unwrap();
+                let state = HlpPlannerState::capture(&market);
+                let basis = ConcentratedGuidanceBasis::capture(&market, &context).unwrap();
+                HLP_COMPACT_GUIDANCE_CELLS.with(|count| count.set(0));
+                HLP_COMPACT_GUIDANCE_EXACT_IN_PROBES.with(|count| count.set(0));
+                HLP_COMPACT_GUIDANCE_BRACKET_QUOTES.with(|count| count.set(0));
+                HLP_COMPACT_GUIDANCE_STRUCTURAL_GAPS.with(|count| count.set(0));
+                let bounded = basis
+                    .quote_bounded(&market, &context, fixed, state, false)
+                    .unwrap_or_else(|error| {
+                        panic!("retain={retain_dynamic_surcharge} asset_in={asset_in:?}: {error:?}")
+                    });
+                assert_eq!(HLP_COMPACT_GUIDANCE_CELLS.with(Cell::get), 1);
+                assert!((1..=MAX_RESIDUAL_PROBES_PER_VARIABLE_LEG)
+                    .contains(&(HLP_COMPACT_GUIDANCE_EXACT_IN_PROBES.with(Cell::get) as usize)));
+                assert_eq!(bounded.exact_in_mode, ConcentratedGuidanceExactInMode::Bracket);
+                assert_eq!(HLP_COMPACT_GUIDANCE_BRACKET_QUOTES.with(Cell::get), 1);
+                assert_eq!(HLP_COMPACT_GUIDANCE_STRUCTURAL_GAPS.with(Cell::get), 0);
+
+                let mut exact_projection = None;
+                project_concentrated_hlp_candidate(&market, &context, preliminary, false, &mut exact_projection)
+                    .unwrap();
+                let exact = exact_projection.unwrap().common();
+                assert_eq!(bounded.common.amount_in_after_fee, exact.amount_in_after_fee);
+                assert!(bounded.common.amount_out <= exact.amount_out);
+                assert_eq!(bounded.start_ylp_supply, state.base_side.ylp_supply);
+                if !with_public_interest {
+                    bounded_outputs[usize::from(retain_dynamic_surcharge)]
+                        [usize::from(asset_in == MarketAsset::Quote)] = bounded.common.amount_out;
+                }
+                if retain_dynamic_surcharge {
+                    assert!(bounded.common.retained_surcharge > 0);
+                    assert!(bounded.reserve.invariant_d() >= bounded.trade.invariant_d());
+                }
+
+                let endpoints = HlpGuidanceEndpointCapability {
+                    current_slot,
+                    curve_revision: market.curve_revision,
+                    center_price_nad: market.current_curve_center_price_nad().unwrap(),
+                    parameters: market.current_curve_parameters(current_slot),
+                    retain_dynamic_surcharge: bounded.retain_dynamic_surcharge,
+                    trade_prepared: bounded.trade,
+                    reserve_prepared: bounded.reserve,
+                };
+                let args = HlpAuthoritativeLifecycleArgs {
+                    amount_in_after_fee: bounded.common.amount_in_after_fee,
+                    retained_surcharge: bounded.common.retained_surcharge,
+                    amount_out: bounded.common.amount_out,
+                    trade_start_price_nad: bounded.common.start_price_nad,
+                    start_checkpoint: None,
+                    endpoints: HlpLifecycleEndpointMode::Guidance(endpoints),
+                    expected_trade_price_nad: bounded.common.end_price_nad,
+                    expected_reserve_price_nad: bounded.common.reserve_end_price_nad,
+                };
+                let preposition = HlpCandidatePreposition {
+                    base_receipt: empty_hlp_rebalance_receipt(MarketAsset::Base),
+                    quote_receipt: empty_hlp_rebalance_receipt(MarketAsset::Quote),
+                    base_settlement_mode: HlpGuidanceSettlementSampleMode::None,
+                    quote_settlement_mode: HlpGuidanceSettlementSampleMode::None,
+                    base_settlement_d_action: None,
+                    quote_settlement_d_action: None,
+                    base_topology: HlpPackedPlanTopology::inactive(),
+                    quote_topology: HlpPackedPlanTopology::inactive(),
+                    preliminary,
+                };
+                let compact =
+                    compact_hlp_lifecycle_tracking_from_state(&market, &context, &args, fixed, state, preposition)
+                        .unwrap();
+
+                let mut frozen_cached = None;
+                for freeze_post_rebalance_mark in [false, true] {
+                    CACHED_HLP_LIFECYCLE_RESULT.with(|result| {
+                        result.borrow_mut().take();
+                    });
+                    let mut cached_state = state;
+                    let mut settlement_trace = HlpGuidanceSettlementSampleTrace {
+                        pre_base: preposition.base_settlement_mode,
+                        pre_quote: preposition.quote_settlement_mode,
+                        post_base: HlpGuidanceSettlementSampleMode::None,
+                        post_quote: HlpGuidanceSettlementSampleMode::None,
+                    };
+                    let mut structural_topology = HlpStructuralTopologyTrace {
+                        pre_base: preposition.base_topology,
+                        pre_quote: preposition.quote_topology,
+                        ..HlpStructuralTopologyTrace::default()
+                    };
+                    let mut guidance_d_actions = HlpGuidanceDActionTrace::default();
+                    let cached_tracking = compact_hlp_lifecycle_tracking_stream(
+                        &context,
+                        fixed,
+                        &mut cached_state,
+                        &preposition,
+                        bounded.common,
+                        &endpoints,
+                        &mut settlement_trace,
+                        &mut guidance_d_actions,
+                        &mut structural_topology,
+                        HlpGuidanceSettlementProbeMode::Bounded,
+                        freeze_post_rebalance_mark,
+                    )
+                    .unwrap();
+                    let cached = CACHED_HLP_LIFECYCLE_RESULT
+                        .with(|result| result.borrow_mut().take())
+                        .expect("cached lifecycle witness");
+                    assert_eq!(cached.state, cached_state);
+                    assert_eq!(cached.tracking, cached_tracking);
+
+                    let uncached = compact_hlp_lifecycle_tracking_from_state_with_options(
+                        &market,
+                        &context,
+                        &args,
+                        fixed,
+                        state,
+                        preposition,
+                        HlpGuidanceSettlementProbeMode::Bounded,
+                        freeze_post_rebalance_mark,
+                    )
+                    .unwrap();
+                    assert_eq!(
+                    cached, uncached,
+                    "cached/uncached lifecycle diverged retain={retain_dynamic_surcharge} asset_in={asset_in:?} freeze={freeze_post_rebalance_mark}",
+                );
+                    if freeze_post_rebalance_mark {
+                        frozen_cached = Some(cached);
+                    } else {
+                        assert_eq!(cached, compact);
+                    }
+                }
+                let mut scratch = Market::default();
+                let full = scratch_authoritative_result_preserving_preposition(&mut scratch, &market, &context, &args)
+                    .unwrap();
+                assert_eq!(compact, full);
+                let frozen_cached = frozen_cached.expect("frozen cached lifecycle witness");
+                assert_eq!(frozen_cached.state, full.state);
+                assert_eq!(frozen_cached.base_post_receipt, full.base_post_receipt);
+                assert_eq!(frozen_cached.quote_post_receipt, full.quote_post_receipt);
+                assert_eq!(frozen_cached.transition, full.transition);
+                assert_eq!(
+                    (
+                        frozen_cached.tracking.base_trade_error_nad,
+                        frozen_cached.tracking.base_reserve_error_nad,
+                        frozen_cached.tracking.base_retained_contribution_nad,
+                        frozen_cached.tracking.quote_trade_error_nad,
+                        frozen_cached.tracking.quote_reserve_error_nad,
+                        frozen_cached.tracking.quote_retained_contribution_nad,
+                    ),
+                    (
+                        full.tracking.base_trade_error_nad,
+                        full.tracking.base_reserve_error_nad,
+                        full.tracking.base_retained_contribution_nad,
+                        full.tracking.quote_trade_error_nad,
+                        full.tracking.quote_reserve_error_nad,
+                        full.tracking.quote_retained_contribution_nad,
+                    ),
+                );
+            }
+        }
+    }
+    assert_eq!(bounded_outputs[0], bounded_outputs[1]);
+}
+
+#[test]
+fn compact_structural_gap_quote_drives_the_same_fixed_endpoint_lifecycle() {
+    let market = active_concentrated_hlp_market_with_decimals(6);
+    let asset_in = MarketAsset::Quote;
+    let reserve_credit = 3;
+    let current_slot = curve_slot(&market);
+    assert_eq!(market.current_curve_center_price_nad().unwrap(), 2 * NAD);
+    let pre_state = market.dynamic_fee_pre_state(current_slot).unwrap();
+    let preliminary = market
+        .preliminary_swap_inputs_for_state(reserve_credit, current_slot, pre_state)
+        .unwrap();
+    assert_eq!(preliminary.amount_in_for_quote, reserve_credit);
+    let start_reserves = market.curve_reserves_nad().unwrap();
+    let start_prepared = market
+        .prepare_curve_for_reserves_nad(
+            start_reserves,
+            market.current_curve_center_price_nad().unwrap(),
+            current_slot,
+        )
+        .unwrap();
+    let frozen_prices = hlp_curve_prices_from_base_price_nad(start_prepared.marginal_price_nad().unwrap()).unwrap();
+    let fixed = HlpPlannerStatic::capture(&market).unwrap();
+    let state = HlpPlannerState::capture(&market);
+    let context = ConcentratedHlpSolveContext {
+        base_start: concentrated_hlp_start(&market, MarketAsset::Base, frozen_prices).unwrap(),
+        quote_start: concentrated_hlp_start(&market, MarketAsset::Quote, frozen_prices).unwrap(),
+        frozen_prices,
+        asset_in,
+        reserve_credit,
+        current_slot,
+        pre_state,
+        preliminary,
+        cash_policy: SwapCashPolicy::Spot,
+        guidance_start_prepared: start_prepared,
+        guidance_start_ylp_supply: market.base_side.shares.ylp_supply,
+        guidance_start_fixed: fixed,
+    };
+    let basis = ConcentratedGuidanceBasis::capture(&market, &context).unwrap();
+
+    HLP_COMPACT_GUIDANCE_CELLS.with(|count| count.set(0));
+    HLP_COMPACT_GUIDANCE_EXACT_IN_PROBES.with(|count| count.set(0));
+    HLP_COMPACT_GUIDANCE_BRACKET_QUOTES.with(|count| count.set(0));
+    HLP_COMPACT_GUIDANCE_STRUCTURAL_GAPS.with(|count| count.set(0));
+    let bounded = basis.quote_bounded(&market, &context, fixed, state, false).unwrap();
+
+    assert_eq!(bounded.exact_in_mode, ConcentratedGuidanceExactInMode::StructuralGap);
+    assert_eq!(bounded.common.amount_out, 1);
+    assert_eq!(HLP_COMPACT_GUIDANCE_CELLS.with(Cell::get), 1);
+    assert_eq!(HLP_COMPACT_GUIDANCE_EXACT_IN_PROBES.with(Cell::get), 0);
+    assert_eq!(HLP_COMPACT_GUIDANCE_BRACKET_QUOTES.with(Cell::get), 0);
+    assert_eq!(HLP_COMPACT_GUIDANCE_STRUCTURAL_GAPS.with(Cell::get), 1);
+
+    let endpoints = HlpGuidanceEndpointCapability {
+        current_slot,
+        curve_revision: market.curve_revision,
+        center_price_nad: market.current_curve_center_price_nad().unwrap(),
+        parameters: market.current_curve_parameters(current_slot),
+        retain_dynamic_surcharge: bounded.retain_dynamic_surcharge,
+        trade_prepared: bounded.trade,
+        reserve_prepared: bounded.reserve,
+    };
+    let args = HlpAuthoritativeLifecycleArgs {
+        amount_in_after_fee: bounded.common.amount_in_after_fee,
+        retained_surcharge: bounded.common.retained_surcharge,
+        amount_out: bounded.common.amount_out,
+        trade_start_price_nad: bounded.common.start_price_nad,
+        start_checkpoint: None,
+        endpoints: HlpLifecycleEndpointMode::Guidance(endpoints),
+        expected_trade_price_nad: bounded.common.end_price_nad,
+        expected_reserve_price_nad: bounded.common.reserve_end_price_nad,
+    };
+    let compact = compact_hlp_lifecycle_tracking_from_state(
+        &market,
+        &context,
+        &args,
+        fixed,
+        state,
+        HlpCandidatePreposition {
+            base_receipt: empty_hlp_rebalance_receipt(MarketAsset::Base),
+            quote_receipt: empty_hlp_rebalance_receipt(MarketAsset::Quote),
+            base_settlement_mode: HlpGuidanceSettlementSampleMode::None,
+            quote_settlement_mode: HlpGuidanceSettlementSampleMode::None,
+            base_settlement_d_action: None,
+            quote_settlement_d_action: None,
+            base_topology: HlpPackedPlanTopology::inactive(),
+            quote_topology: HlpPackedPlanTopology::inactive(),
+            preliminary,
+        },
+    )
+    .unwrap();
+    let mut scratch = Market::default();
+    let full = scratch_authoritative_result_preserving_preposition(&mut scratch, &market, &context, &args).unwrap();
+    assert_eq!(compact, full);
+}
+
+#[test]
+fn compact_bounded_basis_keeps_operation_anchor_across_mint_and_burn_prepositions() {
+    let scale = 1_000_000_u64;
+    let delta = 10_000_i128 * NAD as i128;
+    for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
+        let operation_start = active_concentrated_hlp_market_with_decimals(6);
+        let current_slot = curve_slot(&operation_start);
+        let reserve_credit = 100_000 * scale;
+        let pre_state = operation_start.dynamic_fee_pre_state(current_slot).unwrap();
+        let preliminary = operation_start
+            .preliminary_swap_inputs_for_state(reserve_credit, current_slot, pre_state)
+            .unwrap();
+        let start_reserves = operation_start.curve_reserves_nad().unwrap();
+        let start_prepared = operation_start
+            .prepare_curve_for_reserves_nad(
+                start_reserves,
+                operation_start.current_curve_center_price_nad().unwrap(),
+                current_slot,
+            )
+            .unwrap();
+        let frozen_prices = hlp_curve_prices_from_base_price_nad(start_prepared.marginal_price_nad().unwrap()).unwrap();
+        let context = ConcentratedHlpSolveContext {
+            base_start: concentrated_hlp_start(&operation_start, MarketAsset::Base, frozen_prices).unwrap(),
+            quote_start: concentrated_hlp_start(&operation_start, MarketAsset::Quote, frozen_prices).unwrap(),
+            frozen_prices,
+            asset_in,
+            reserve_credit,
+            current_slot,
+            pre_state,
+            preliminary,
+            cash_policy: SwapCashPolicy::Spot,
+            guidance_start_prepared: start_prepared,
+            guidance_start_ylp_supply: operation_start.base_side.shares.ylp_supply,
+            guidance_start_fixed: HlpPlannerStatic::capture(&operation_start).unwrap(),
+        };
+        let operation_fixed = HlpPlannerStatic::capture(&operation_start).unwrap();
+        let basis = ConcentratedGuidanceBasis::capture(&operation_start, &context).unwrap();
+
+        for (target_asset, requested_delta) in [
+            (MarketAsset::Base, delta),
+            (MarketAsset::Base, -delta),
+            (MarketAsset::Quote, delta),
+            (MarketAsset::Quote, -delta),
+        ] {
+            let mut candidate = operation_start.clone();
+            let (base_delta, quote_delta) = match target_asset {
+                MarketAsset::Base => (requested_delta, 0),
+                MarketAsset::Quote => (0, requested_delta),
+            };
+            let preposition = apply_hlp_candidate_preposition(
+                &mut candidate,
+                &context,
+                SwapCashFloors::default(),
+                base_delta,
+                quote_delta,
+            )
+            .unwrap_or_else(|error| {
+                panic!("asset_in={asset_in:?} target={target_asset:?} delta={requested_delta}: {error:?}")
+            });
+            let receipt = match target_asset {
+                MarketAsset::Base => preposition.base_receipt,
+                MarketAsset::Quote => preposition.quote_receipt,
+            };
+            if requested_delta > 0 {
+                assert!(receipt.ylp_mint_amount > 0);
+            } else {
+                assert!(receipt.ylp_burn_amount > 0);
+            }
+            let candidate_state = HlpPlannerState::capture(&candidate);
+            assert_ne!(candidate_state.base_side.ylp_supply, operation_fixed.start_ylp_supply);
+
+            let bounded = basis
+                .quote_bounded(&candidate, &context, operation_fixed, candidate_state, true)
+                .unwrap_or_else(|error| {
+                    panic!("bounded asset_in={asset_in:?} target={target_asset:?} delta={requested_delta}: {error:?}")
+                });
+            let mut exact_projection = None;
+            project_concentrated_hlp_candidate(
+                &candidate,
+                &context,
+                preposition.preliminary,
+                false,
+                &mut exact_projection,
+            )
+            .unwrap();
+            let exact = exact_projection.unwrap().common();
             assert_eq!(bounded.common.amount_in_after_fee, exact.amount_in_after_fee);
             assert!(bounded.common.amount_out <= exact.amount_out);
-            assert_eq!(bounded.start_ylp_supply, state.base_side.ylp_supply);
 
             let endpoints = HlpGuidanceEndpointCapability {
                 current_slot,
-                curve_revision: market.curve_revision,
-                center_price_nad: market.current_curve_center_price_nad().unwrap(),
-                parameters: market.current_curve_parameters(current_slot),
+                curve_revision: candidate.curve_revision,
+                center_price_nad: candidate.current_curve_center_price_nad().unwrap(),
+                parameters: candidate.current_curve_parameters(current_slot),
                 retain_dynamic_surcharge: bounded.retain_dynamic_surcharge,
                 trade_prepared: bounded.trade,
                 reserve_prepared: bounded.reserve,
@@ -2212,22 +2892,2880 @@ fn compact_bounded_basis_quote_drives_the_same_fixed_endpoint_lifecycle() {
                 amount_in_after_fee: bounded.common.amount_in_after_fee,
                 retained_surcharge: bounded.common.retained_surcharge,
                 amount_out: bounded.common.amount_out,
+                trade_start_price_nad: bounded.common.start_price_nad,
+                start_checkpoint: None,
                 endpoints: HlpLifecycleEndpointMode::Guidance(endpoints),
                 expected_trade_price_nad: bounded.common.end_price_nad,
                 expected_reserve_price_nad: bounded.common.reserve_end_price_nad,
             };
-            let compact = compact_hlp_lifecycle_tracking(&market, &context, &args).unwrap();
-            let mut scratch = Market::default();
-            let full = scratch_authoritative_result_preserving_preposition(
-                &mut scratch,
-                &market,
+            let compact = compact_hlp_lifecycle_tracking_from_state(
+                &operation_start,
                 &context,
                 &args,
+                operation_fixed,
+                candidate_state,
+                preposition,
             )
             .unwrap();
+            let mut scratch = Market::default();
+            let full =
+                scratch_authoritative_result_preserving_preposition(&mut scratch, &candidate, &context, &args).unwrap();
             assert_eq!(compact, full);
         }
     }
+}
+
+fn reset_stage4b2a_test_state() {
+    CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(|count| count.set(0));
+    CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(|count| count.set(0));
+    CONCENTRATED_PRE_SOLVE_RAW_EVALUATIONS.with(|count| count.set(0));
+    CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(|count| count.set(0));
+    HLP_RAW_CANONICAL_SCALAR_CALLS.with(|count| count.set(0));
+    HLP_RAW_CANONICAL_SCALAR_RESIDUALS.with(|count| count.set(0));
+    HLP_STAGE4B2A_LAST_TRACE.with(|trace| *trace.borrow_mut() = None);
+}
+
+fn stage4b2a_last_trace() -> HlpStage4B2aTestTrace {
+    HLP_STAGE4B2A_LAST_TRACE.with(|trace| trace.borrow().expect("Stage4B2a trace"))
+}
+
+fn assert_stage4c_rawless_success_trace(
+    expected_a1: (i128, i128),
+    expected_a2: (i128, i128),
+    expected_a2_rows: [i128; 6],
+    expected_post_kinds: (HlpPlanTopologyKind, HlpPlanTopologyKind),
+) {
+    let trace = stage4b2a_last_trace();
+    assert_eq!(trace.a1_coordinate, Some(expected_a1));
+    assert_eq!(trace.raw_coordinate, None);
+    assert_eq!(trace.raw_rows, None);
+    assert_eq!(trace.raw_topology, None);
+    assert_eq!(trace.raw_signature, None);
+    assert_eq!(trace.raw_robust, None);
+    assert_eq!(trace.a2_coordinate, Some(expected_a2));
+    assert_eq!(trace.a2_rows, Some(expected_a2_rows));
+    assert_eq!(trace.a1_topology, trace.a2_topology);
+    let a1_signature = trace.a1_signature.expect("exact A1 signature");
+    let a2_signature = trace.a2_signature.expect("exact A2 signature");
+    assert!(hlp_preposition_signature_class_matches(
+        a1_signature.base,
+        a2_signature.base,
+    ));
+    assert!(hlp_preposition_signature_class_matches(
+        a1_signature.quote,
+        a2_signature.quote,
+    ));
+    let topology = trace.a2_topology.expect("exact A2 topology");
+    assert_eq!(topology.post_base.kind(), expected_post_kinds.0);
+    assert_eq!(topology.post_quote.kind(), expected_post_kinds.1);
+}
+
+fn assert_stage4c_counts(compact: u32, raw: u32, authorities: u32) {
+    assert_eq!(CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get), compact);
+    assert_eq!(CONCENTRATED_PRE_SOLVE_RAW_EVALUATIONS.with(Cell::get), raw);
+    assert_eq!(
+        CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get),
+        authorities
+    );
+    assert_eq!(
+        CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(Cell::get),
+        compact + authorities
+    );
+}
+
+fn stage4b2a_spot_market(retain_dynamic_surcharge: bool) -> Market {
+    let mut market = active_concentrated_hlp_market_with_decimals(6);
+    market.config.divergence_fee_share_cap_bps = 2_000;
+    market.config.amm.divergence_fee_coefficient_nad = 10 * NAD;
+    market.amm.retain_dynamic_surcharge = retain_dynamic_surcharge;
+    market
+}
+
+fn stage4c_signed_round_away_divisor(value: i128, divisor: u128) -> Option<i128> {
+    if value == 0 || divisor == 0 {
+        return None;
+    }
+    let magnitude = value
+        .unsigned_abs()
+        .checked_add(divisor.checked_sub(1)?)?
+        .checked_div(divisor)?;
+    let magnitude = i128::try_from(magnitude).ok()?;
+    if value < 0 {
+        magnitude.checked_neg()
+    } else {
+        Some(magnitude)
+    }
+}
+
+fn stage4c_opposite_half_budget_target(current: i128, budget: u128) -> Option<i128> {
+    let half = i128::try_from(budget.checked_div(2)?).ok()?;
+    if current > 0 {
+        half.checked_neg()
+    } else if current < 0 {
+        Some(half)
+    } else {
+        Some(0)
+    }
+}
+
+/// Test-only, scalar-only seed. It integrates operation-start marginal
+/// geometry without running a quote, checkpoint, or lifecycle.
+fn stage4c_zero_quote_geometry_seed(
+    compact: &HlpCompactSolveContext,
+    context: &ConcentratedHlpSolveContext,
+    reserve_credit: u64,
+) -> ((i128, i128), u64, u64, u128) {
+    let start = *compact.guidance.start.guidance();
+    let start_base = compact
+        .start_state
+        .curve_reserve(compact.fixed, MarketAsset::Base)
+        .unwrap();
+    let start_quote = compact
+        .start_state
+        .curve_reserve(compact.fixed, MarketAsset::Quote)
+        .unwrap();
+    let start_reserves_nad = compact.start_state.curve_reserves_nad(compact.fixed).unwrap();
+    let (divergence_surcharge, _) = divergence_surcharge_for_guidance(
+        context.asset_in,
+        compact.fixed.decimals(context.asset_in),
+        reserve_credit,
+        start_reserves_nad,
+        context.pre_state,
+        context.preliminary,
+        compact.guidance.fee_config,
+        &start,
+    )
+    .unwrap();
+    let scalar_input = context
+        .preliminary
+        .amount_in_for_quote
+        .checked_sub(divergence_surcharge)
+        .unwrap();
+    let input_nad = normalize_to_nad(scalar_input as u128, compact.fixed.decimals(context.asset_in)).unwrap();
+    let start_input_price_nad = context.frozen_prices.for_asset(context.asset_in);
+    let direction = match context.asset_in {
+        MarketAsset::Base => ConcentratedSwapDirection::BaseToQuote,
+        MarketAsset::Quote => ConcentratedSwapDirection::QuoteToBase,
+    };
+
+    let half_input = scalar_input / 2;
+    let half_input_nad = normalize_to_nad(half_input as u128, compact.fixed.decimals(context.asset_in)).unwrap();
+    let half_output_nad = mul_div_u128(half_input_nad, start_input_price_nad, NAD as u128).unwrap();
+    let half_output =
+        denormalize_from_nad_floor(half_output_nad, compact.fixed.decimals(context.asset_in.opposite())).unwrap();
+    let (midpoint_base, midpoint_quote) = match context.asset_in {
+        MarketAsset::Base => (
+            start_base.checked_add(half_input).unwrap(),
+            start_quote.checked_sub(half_output).unwrap(),
+        ),
+        MarketAsset::Quote => (
+            start_base.checked_sub(half_output).unwrap(),
+            start_quote.checked_add(half_input).unwrap(),
+        ),
+    };
+    let midpoint = start
+        .prepare_guidance_successor(
+            normalize_to_nad(midpoint_base as u128, compact.fixed.base_decimals).unwrap(),
+            normalize_to_nad(midpoint_quote as u128, compact.fixed.quote_decimals).unwrap(),
+        )
+        .unwrap();
+    let midpoint_base_price_nad = midpoint.marginal_price_nad().unwrap();
+    let midpoint_input_price_nad = match direction {
+        ConcentratedSwapDirection::BaseToQuote => midpoint_base_price_nad,
+        ConcentratedSwapDirection::QuoteToBase => {
+            mul_div_u128(NAD as u128, NAD as u128, midpoint_base_price_nad).unwrap()
+        }
+    };
+    let midpoint_output_nad = mul_div_u128(input_nad, midpoint_input_price_nad, NAD as u128).unwrap();
+    let midpoint_output =
+        denormalize_from_nad_floor(midpoint_output_nad, compact.fixed.decimals(context.asset_in.opposite())).unwrap();
+    let (provisional_base, provisional_quote) = match context.asset_in {
+        MarketAsset::Base => (
+            start_base.checked_add(scalar_input).unwrap(),
+            start_quote.checked_sub(midpoint_output).unwrap(),
+        ),
+        MarketAsset::Quote => (
+            start_base.checked_sub(midpoint_output).unwrap(),
+            start_quote.checked_add(scalar_input).unwrap(),
+        ),
+    };
+    let provisional = start
+        .prepare_guidance_successor(
+            normalize_to_nad(provisional_base as u128, compact.fixed.base_decimals).unwrap(),
+            normalize_to_nad(provisional_quote as u128, compact.fixed.quote_decimals).unwrap(),
+        )
+        .unwrap();
+    let provisional_base_price_nad = provisional.marginal_price_nad().unwrap();
+    let provisional_input_price_nad = match direction {
+        ConcentratedSwapDirection::BaseToQuote => provisional_base_price_nad,
+        ConcentratedSwapDirection::QuoteToBase => {
+            mul_div_u128(NAD as u128, NAD as u128, provisional_base_price_nad).unwrap()
+        }
+    };
+    let simpson_input_price_nad = start_input_price_nad
+        .checked_add(midpoint_input_price_nad.checked_mul(4).unwrap())
+        .and_then(|value| value.checked_add(provisional_input_price_nad))
+        .unwrap()
+        / 6;
+    let output_nad = mul_div_u128(input_nad, simpson_input_price_nad, NAD as u128).unwrap();
+    let output = denormalize_from_nad_floor(output_nad, compact.fixed.decimals(context.asset_in.opposite())).unwrap();
+    let (endpoint_base, endpoint_quote) = match context.asset_in {
+        MarketAsset::Base => (
+            start_base.checked_add(scalar_input).unwrap(),
+            start_quote.checked_sub(output).unwrap(),
+        ),
+        MarketAsset::Quote => (
+            start_base.checked_sub(output).unwrap(),
+            start_quote.checked_add(scalar_input).unwrap(),
+        ),
+    };
+
+    // Interpolate the small Simpson output correction along the already
+    // sampled marginal-price chord; this adds no residual/quote capability.
+    let (midpoint_output_reserve, provisional_output_reserve, endpoint_output_reserve) = match context.asset_in {
+        MarketAsset::Base => (midpoint_quote, provisional_quote, endpoint_quote),
+        MarketAsset::Quote => (midpoint_base, provisional_base, endpoint_base),
+    };
+    let reserve_span = midpoint_output_reserve.abs_diff(provisional_output_reserve);
+    let reserve_offset = endpoint_output_reserve
+        .abs_diff(provisional_output_reserve)
+        .min(reserve_span);
+    let price_offset = mul_div_u128(
+        midpoint_base_price_nad.abs_diff(provisional_base_price_nad),
+        reserve_offset as u128,
+        reserve_span as u128,
+    )
+    .unwrap();
+    let endpoint_base_price_nad = if midpoint_base_price_nad >= provisional_base_price_nad {
+        provisional_base_price_nad.checked_add(price_offset).unwrap()
+    } else {
+        provisional_base_price_nad.checked_sub(price_offset).unwrap()
+    };
+    let endpoint_prices = hlp_curve_prices_from_base_price_nad(endpoint_base_price_nad).unwrap();
+    let coordinate = (
+        if context.base_start.active {
+            compact_concentrated_hlp_needed_delta(
+                compact.fixed,
+                compact.start_state,
+                compact.start_state,
+                MarketAsset::Base,
+                context.frozen_prices,
+                endpoint_prices,
+                endpoint_base,
+                endpoint_quote,
+                context.base_start.tracking.principal_nav_nad,
+            )
+            .unwrap()
+        } else {
+            0
+        },
+        if context.quote_start.active {
+            compact_concentrated_hlp_needed_delta(
+                compact.fixed,
+                compact.start_state,
+                compact.start_state,
+                MarketAsset::Quote,
+                context.frozen_prices,
+                endpoint_prices,
+                endpoint_base,
+                endpoint_quote,
+                context.quote_start.tracking.principal_nav_nad,
+            )
+            .unwrap()
+        } else {
+            0
+        },
+    );
+    (coordinate, scalar_input, output, endpoint_base_price_nad)
+}
+
+/// Test-only characterization of frozen-center scalar cells using the same
+/// bounded exact-out settlement mode as the full projected center. The
+/// frozen quote and all three prepared-curve marks remain unchanged.
+#[allow(clippy::too_many_arguments)]
+fn evaluate_stage4c_frozen_center_bounded_axis(
+    compact: &HlpCompactSolveContext,
+    context: &ConcentratedHlpSolveContext,
+    cash_floors: SwapCashFloors,
+    base_delta_nad: i128,
+    quote_delta_nad: i128,
+    frozen: &HlpFrozenA1Projection,
+    candidate_out: &mut Option<ConcentratedHlpCandidate>,
+) -> Result<()> {
+    CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(|count| count.set(count.get().saturating_add(1)));
+    CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(|count| count.set(count.get().saturating_add(1)));
+    let (mut state, mut preposition, inventory_changed) = apply_compact_hlp_candidate_preposition(
+        compact,
+        context,
+        cash_floors,
+        base_delta_nad,
+        quote_delta_nad,
+        HlpGuidanceSettlementProbeMode::Bounded,
+    )?;
+    require_eq!(
+        frozen.retain_dynamic_surcharge,
+        compact.fixed.retain_dynamic_surcharge(inventory_changed),
+        ErrorCode::BrokenInvariant
+    );
+    let (common, endpoints, anchor_d_actions) = frozen_cell_projection(compact, context, state, frozen)?;
+    let required_cash_floors =
+        context
+            .cash_policy
+            .floors_from_planner(compact.fixed, state, context.asset_in, common.amount_out)?;
+    let settlement_cash_available = required_cash_floors.available_from_planner(state);
+    let start_prices = hlp_curve_prices_from_base_price_nad(common.start_price_nad as u128)?;
+    refresh_compact_hlp_candidate_preposition(
+        compact.fixed,
+        &mut state,
+        context,
+        &mut preposition,
+        base_delta_nad,
+        quote_delta_nad,
+        start_prices,
+    )?;
+    let mut guidance_settlement_trace = HlpGuidanceSettlementSampleTrace {
+        pre_base: preposition.base_settlement_mode,
+        pre_quote: preposition.quote_settlement_mode,
+        post_base: HlpGuidanceSettlementSampleMode::None,
+        post_quote: HlpGuidanceSettlementSampleMode::None,
+    };
+    let mut guidance_d_actions = HlpGuidanceDActionTrace {
+        anchors: anchor_d_actions,
+        pre_base: preposition.base_settlement_d_action,
+        pre_quote: preposition.quote_settlement_d_action,
+        ..HlpGuidanceDActionTrace::default()
+    };
+    let mut structural_topology = HlpStructuralTopologyTrace {
+        pre_base: preposition.base_topology,
+        pre_quote: preposition.quote_topology,
+        ..HlpStructuralTopologyTrace::default()
+    };
+    let lifecycle = compact_hlp_lifecycle_tracking_stream(
+        context,
+        compact.fixed,
+        &mut state,
+        &preposition,
+        common,
+        &endpoints,
+        &mut guidance_settlement_trace,
+        &mut guidance_d_actions,
+        &mut structural_topology,
+        HlpGuidanceSettlementProbeMode::Bounded,
+        true,
+    )?;
+    let base_tracking_error_nad = lifecycle
+        .base_error_nad
+        .checked_sub(lifecycle.base_retained_contribution_nad)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let quote_tracking_error_nad = lifecycle
+        .quote_error_nad
+        .checked_sub(lifecycle.quote_retained_contribution_nad)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    preposition.base_receipt.tracking_retained_contribution_nad = lifecycle.base_retained_contribution_nad;
+    preposition.quote_receipt.tracking_retained_contribution_nad = lifecycle.quote_retained_contribution_nad;
+    *candidate_out = Some(ConcentratedHlpCandidate {
+        base_receipt: preposition.base_receipt,
+        quote_receipt: preposition.quote_receipt,
+        authoritative: None,
+        guidance_exact_in_mode: None,
+        guidance_settlement_trace: Some(guidance_settlement_trace),
+        guidance_d_actions: Some(guidance_d_actions),
+        structural_topology,
+        base_principal_tracking_error_nad: lifecycle.base_principal_error_nad,
+        quote_principal_tracking_error_nad: lifecycle.quote_principal_error_nad,
+        base_tracking_error_nad,
+        quote_tracking_error_nad,
+        base_trade_tracking_error_nad: lifecycle.base_trade_error_nad,
+        quote_trade_tracking_error_nad: lifecycle.quote_trade_error_nad,
+        base_reserve_tracking_error_nad: lifecycle.base_reserve_error_nad,
+        quote_reserve_tracking_error_nad: lifecycle.quote_reserve_error_nad,
+        base_endpoint_exposure_nad: lifecycle.base_exposure_nad,
+        quote_endpoint_exposure_nad: lifecycle.quote_exposure_nad,
+        base_trade_endpoint_safe: concentrated_hlp_trade_endpoint_is_safe(
+            context.base_start,
+            lifecycle.base_trade_error_nad,
+        ),
+        quote_trade_endpoint_safe: concentrated_hlp_trade_endpoint_is_safe(
+            context.quote_start,
+            lifecycle.quote_trade_error_nad,
+        ),
+        reserve_endpoint_safe: concentrated_hlp_reserve_is_safe(
+            context.base_start,
+            lifecycle.base_trade_error_nad,
+            lifecycle.base_reserve_error_nad,
+        ) && concentrated_hlp_reserve_is_safe(
+            context.quote_start,
+            lifecycle.quote_trade_error_nad,
+            lifecycle.quote_reserve_error_nad,
+        ),
+        settlement_cash_available,
+        next_base_delta_nad: base_delta_nad,
+        next_quote_delta_nad: quote_delta_nad,
+    });
+    Ok(())
+}
+
+/// Test-only low-cell schedule: two full projected cells establish P0 and a
+/// fresh center; the center's complete bounded quote/marks are then frozen
+/// into two raw scalar axes before the unchanged exact-A1/raw/exact-A2 tail.
+fn assert_stage4c_center_fresh_active(
+    snapshot: Market,
+    asset_in: MarketAsset,
+    label: &str,
+    expect_axis_trace_match: Option<bool>,
+    bounded_axes: bool,
+    axis_divisor: i128,
+    rawless_expected_safe: Option<bool>,
+) {
+    assert_stage4c_center_fresh_active_with_credit(
+        snapshot,
+        asset_in,
+        350_000 * 1_000_000,
+        label,
+        expect_axis_trace_match,
+        bounded_axes,
+        axis_divisor,
+        rawless_expected_safe,
+        None,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn assert_stage4c_center_fresh_active_with_credit(
+    mut snapshot: Market,
+    asset_in: MarketAsset,
+    reserve_credit: u64,
+    label: &str,
+    expect_axis_trace_match: Option<bool>,
+    bounded_axes: bool,
+    axis_divisor: i128,
+    rawless_expected_safe: Option<bool>,
+    frozen_a1_local_expected_safe: Option<bool>,
+) {
+    assert_ne!(axis_divisor, 0);
+    let current_slot = curve_slot(&snapshot);
+    snapshot.prepare_amm_for_swap(current_slot).unwrap();
+    let pre_state = snapshot.dynamic_fee_pre_state(current_slot).unwrap();
+    let preliminary = snapshot
+        .preliminary_swap_inputs_for_state(reserve_credit, current_slot, pre_state)
+        .unwrap();
+    let mut context = None;
+    capture_concentrated_hlp_solve_context_into(
+        &snapshot,
+        asset_in,
+        reserve_credit,
+        current_slot,
+        pre_state,
+        preliminary,
+        SwapCashPolicy::Spot,
+        &mut context,
+    )
+    .unwrap();
+    let context = context.unwrap();
+    assert!(context.base_start.active);
+    let active_axis_count = u8::from(context.base_start.active) + u8::from(context.quote_start.active);
+    let mut compact = None;
+    HlpCompactSolveContext::capture_into(&snapshot, &context, &mut compact).unwrap();
+    let compact = compact.unwrap();
+    let cash_floors = context.cash_policy.floors(&snapshot, asset_in, 0).unwrap();
+
+    reset_stage4b2a_test_state();
+    HLP_COMPACT_GUIDANCE_EXACT_IN_PROBES.with(|count| count.set(0));
+    HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES.with(|count| count.set(0));
+    HLP_RAW_CANONICAL_SCALAR_CALLS.with(|count| count.set(0));
+    HLP_RAW_CANONICAL_SCALAR_RESIDUALS.with(|count| count.set(0));
+
+    let mut p0_projection = None;
+    let mut p0_candidate = None;
+    evaluate_compact_concentrated_hlp_candidate(
+        &compact,
+        &context,
+        cash_floors,
+        0,
+        0,
+        false,
+        &mut p0_projection,
+        &mut p0_candidate,
+    )
+    .unwrap();
+    let p0_candidate = p0_candidate.unwrap();
+    let center_coordinate = (p0_candidate.next_base_delta_nad, p0_candidate.next_quote_delta_nad);
+    assert_ne!(center_coordinate, (0, 0));
+    let p0_in = HLP_COMPACT_GUIDANCE_EXACT_IN_PROBES.with(Cell::get);
+    let p0_out = HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES.with(Cell::get);
+
+    let center_in_before = HLP_COMPACT_GUIDANCE_EXACT_IN_PROBES.with(Cell::get);
+    let center_out_before = HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES.with(Cell::get);
+    let mut center_projection = None;
+    let mut center_candidate = None;
+    evaluate_compact_concentrated_hlp_candidate(
+        &compact,
+        &context,
+        cash_floors,
+        center_coordinate.0,
+        center_coordinate.1,
+        true,
+        &mut center_projection,
+        &mut center_candidate,
+    )
+    .unwrap();
+    let center_candidate = center_candidate.unwrap();
+    let center_in = HLP_COMPACT_GUIDANCE_EXACT_IN_PROBES
+        .with(Cell::get)
+        .saturating_sub(center_in_before);
+    let center_out = HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES
+        .with(Cell::get)
+        .saturating_sub(center_out_before);
+    assert!(center_candidate.settlement_cash_available);
+    assert!(hlp_exact_derivative_sample_is_unbound(&center_candidate, &context,));
+    let center_topology = center_candidate.structural_topology;
+    let center_trace = center_candidate.guidance_settlement_trace.unwrap();
+    let center_signature = hlp_preposition_pair_signature(&center_candidate);
+    let center_rows = HlpExactSampleRows::from_candidate(&center_candidate);
+    let base_row = hlp_exact_control_row(&center_candidate, MarketAsset::Base, context.base_start).unwrap();
+    let quote_row = hlp_exact_control_row(&center_candidate, MarketAsset::Quote, context.quote_start).unwrap();
+    let center_base_error = center_rows.value(MarketAsset::Base, base_row);
+    let center_quote_error = center_rows.value(MarketAsset::Quote, quote_row);
+
+    let ConcentratedHlpProjection::FrozenCenter(frozen_center_projection) = center_projection.unwrap() else {
+        panic!("{label}: center must freeze bounded guidance")
+    };
+    let exact_in_mode = frozen_center_projection.exact_in_mode;
+    let frozen_center = frozen_center_projection.frozen;
+
+    // The finite-difference origin and axes must score the same scalar
+    // function. Re-evaluate the exact center through its frozen payload and
+    // bind every lifecycle row and structural fingerprint before forming J.
+    let mut frozen_center_candidate = None;
+    evaluate_frozen_center_axis_concentrated_hlp_candidate(
+        &compact,
+        &context,
+        cash_floors,
+        center_coordinate.0,
+        center_coordinate.1,
+        &frozen_center_projection,
+        &mut frozen_center_candidate,
+    )
+    .unwrap();
+    let frozen_center_candidate = frozen_center_candidate.unwrap();
+    assert_eq!(
+        hlp_stage4b2a_test_rows(&frozen_center_candidate),
+        hlp_stage4b2a_test_rows(&center_candidate),
+        "{label}: frozen-center rows changed at the origin",
+    );
+    assert_eq!(frozen_center_candidate.structural_topology, center_topology);
+    assert_eq!(
+        frozen_center_candidate.guidance_settlement_trace,
+        center_candidate.guidance_settlement_trace,
+    );
+    assert_eq!(
+        frozen_center_candidate.guidance_exact_in_mode,
+        center_candidate.guidance_exact_in_mode,
+    );
+    assert_eq!(frozen_center_candidate.base_receipt, center_candidate.base_receipt);
+    assert_eq!(frozen_center_candidate.quote_receipt, center_candidate.quote_receipt);
+    assert_eq!(
+        hlp_preposition_pair_signature(&frozen_center_candidate),
+        center_signature,
+    );
+    // This extra witness is test-only and is excluded from the conceptual
+    // production schedule counters asserted below.
+    CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(|count| count.set(count.get() - 1));
+    CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(|count| count.set(count.get() - 1));
+
+    let base_probe_delta = signed_mul_div_round_i128(
+        hlp_exact_axis_probe_delta(center_coordinate.0, context.base_start, center_base_error).unwrap(),
+        1,
+        axis_divisor,
+    )
+    .unwrap();
+    let quote_probe_delta = signed_mul_div_round_i128(
+        hlp_exact_axis_probe_delta(center_coordinate.1, context.quote_start, center_quote_error).unwrap(),
+        1,
+        axis_divisor,
+    )
+    .unwrap();
+    let base_axis_coordinate = (center_coordinate.0 + base_probe_delta, center_coordinate.1);
+    let quote_axis_coordinate = (center_coordinate.0, center_coordinate.1 + quote_probe_delta);
+    eprintln!(
+        "CENTER-FRESH AXIS CELL {label} divisor={axis_divisor} center={center_coordinate:?} base_axis={base_axis_coordinate:?} quote_axis={quote_axis_coordinate:?}"
+    );
+    let axes_out_before = HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES.with(Cell::get);
+    let axes_scalar_calls_before = HLP_RAW_CANONICAL_SCALAR_CALLS.with(Cell::get);
+    let axes_scalar_residuals_before = HLP_RAW_CANONICAL_SCALAR_RESIDUALS.with(Cell::get);
+    let mut base_axis_candidate = None;
+    if bounded_axes {
+        evaluate_stage4c_frozen_center_bounded_axis(
+            &compact,
+            &context,
+            cash_floors,
+            base_axis_coordinate.0,
+            base_axis_coordinate.1,
+            &frozen_center,
+            &mut base_axis_candidate,
+        )
+        .unwrap();
+    } else {
+        evaluate_frozen_a1_raw_concentrated_hlp_candidate(
+            &compact,
+            &context,
+            cash_floors,
+            base_axis_coordinate.0,
+            base_axis_coordinate.1,
+            &frozen_center,
+            &mut base_axis_candidate,
+        )
+        .unwrap();
+    }
+    let base_axis_candidate = base_axis_candidate.unwrap();
+    let quote_axis_candidate = if context.quote_start.active {
+        let mut candidate = None;
+        if bounded_axes {
+            evaluate_stage4c_frozen_center_bounded_axis(
+                &compact,
+                &context,
+                cash_floors,
+                quote_axis_coordinate.0,
+                quote_axis_coordinate.1,
+                &frozen_center,
+                &mut candidate,
+            )
+            .unwrap();
+        } else {
+            evaluate_frozen_a1_raw_concentrated_hlp_candidate(
+                &compact,
+                &context,
+                cash_floors,
+                quote_axis_coordinate.0,
+                quote_axis_coordinate.1,
+                &frozen_center,
+                &mut candidate,
+            )
+            .unwrap();
+        }
+        candidate.unwrap()
+    } else {
+        center_candidate
+    };
+    let axes_out = HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES
+        .with(Cell::get)
+        .saturating_sub(axes_out_before);
+    let axes_scalar_calls = HLP_RAW_CANONICAL_SCALAR_CALLS
+        .with(Cell::get)
+        .saturating_sub(axes_scalar_calls_before);
+    let axes_scalar_residuals = HLP_RAW_CANONICAL_SCALAR_RESIDUALS
+        .with(Cell::get)
+        .saturating_sub(axes_scalar_residuals_before);
+    for (asset, axis) in [
+        (MarketAsset::Base, &base_axis_candidate),
+        (MarketAsset::Quote, &quote_axis_candidate),
+    ] {
+        let signature = hlp_preposition_pair_signature(axis);
+        assert!(axis.settlement_cash_available, "{label}: {asset:?} axis cash");
+        assert!(hlp_exact_derivative_sample_is_unbound(axis, &context));
+        assert_eq!(axis.structural_topology, center_topology);
+        let same_signature_class = |left: HlpPrepositionSignature, right: HlpPrepositionSignature| {
+            (left.ylp_mint_amount > 0) == (right.ylp_mint_amount > 0)
+                && (left.ylp_burn_amount > 0) == (right.ylp_burn_amount > 0)
+                && left.debt_delta.signum() == right.debt_delta.signum()
+        };
+        assert!(same_signature_class(center_signature.base, signature.base));
+        assert!(same_signature_class(center_signature.quote, signature.quote));
+    }
+    let base_axis_trace = base_axis_candidate.guidance_settlement_trace.unwrap();
+    let quote_axis_trace = quote_axis_candidate.guidance_settlement_trace.unwrap();
+    eprintln!(
+        "CENTER-FRESH {label} P0={center_coordinate:?} center_rows={:?} center_mode={exact_in_mode:?} center_topology={center_topology:?} center_trace={center_trace:?} center_signature={center_signature:?} center_d={:?} base_axis={base_axis_coordinate:?}/{:?}/trace={base_axis_trace:?}/signature={:?}/d={:?}/d_match={} quote_axis={quote_axis_coordinate:?}/{:?}/trace={quote_axis_trace:?}/signature={:?}/d={:?}/d_match={} active_axes={active_axis_count} probes=(p0_in={p0_in},p0_out={p0_out},center_in={center_in},center_out={center_out},axes_out={axes_out},axes_scalar_calls={axes_scalar_calls},axes_scalar_residuals={axes_scalar_residuals})",
+        hlp_stage4b2a_test_rows(&center_candidate),
+        center_candidate.guidance_d_actions,
+        hlp_stage4b2a_test_rows(&base_axis_candidate),
+        hlp_preposition_pair_signature(&base_axis_candidate),
+        base_axis_candidate.guidance_d_actions,
+        base_axis_candidate.guidance_d_actions == center_candidate.guidance_d_actions,
+        hlp_stage4b2a_test_rows(&quote_axis_candidate),
+        hlp_preposition_pair_signature(&quote_axis_candidate),
+        quote_axis_candidate.guidance_d_actions,
+        quote_axis_candidate.guidance_d_actions == center_candidate.guidance_d_actions,
+    );
+    let axis_trace_matches = (!context.base_start.active || base_axis_trace == center_trace)
+        && (!context.quote_start.active || quote_axis_trace == center_trace);
+    let Some(expect_axis_trace_match) = expect_axis_trace_match else {
+        return;
+    };
+    assert_eq!(axis_trace_matches, expect_axis_trace_match);
+    if !axis_trace_matches {
+        return;
+    }
+
+    let basis = HlpFiniteDifferenceBasis {
+        origin: center_rows,
+        base_probe_delta_nad: base_probe_delta,
+        base_probe: HlpExactSampleRows::from_candidate(&base_axis_candidate),
+        quote_probe_delta_nad: quote_probe_delta,
+        quote_probe: HlpExactSampleRows::from_candidate(&quote_axis_candidate),
+        base_probe_recorded: context.base_start.active,
+        quote_probe_recorded: context.quote_start.active,
+        ..HlpFiniteDifferenceBasis::default()
+    };
+    let zero_step = basis.solve_step(
+        &context,
+        center_coordinate.0,
+        center_coordinate.1,
+        base_row,
+        quote_row,
+        center_base_error,
+        center_quote_error,
+    );
+    let reflected_step = zero_step
+        .is_none()
+        .then(|| {
+            hlp_reflected_guidance_step(
+                &context,
+                center_coordinate.0,
+                center_coordinate.1,
+                center_candidate.next_base_delta_nad,
+                center_candidate.next_quote_delta_nad,
+                base_axis_candidate.next_base_delta_nad,
+                quote_axis_candidate.next_quote_delta_nad,
+            )
+        })
+        .flatten();
+    let boundary_base_error = hlp_initial_active_set_residual(center_base_error, context.base_start).unwrap();
+    let boundary_quote_error = hlp_initial_active_set_residual(center_quote_error, context.quote_start).unwrap();
+    let (base_step, quote_step) = zero_step
+        .or(reflected_step)
+        .or_else(|| {
+            basis.solve_step(
+                &context,
+                center_coordinate.0,
+                center_coordinate.1,
+                base_row,
+                quote_row,
+                boundary_base_error,
+                boundary_quote_error,
+            )
+        })
+        .unwrap();
+    let a1_coordinate = (center_coordinate.0 + base_step, center_coordinate.1 + quote_step);
+    assert!(hlp_coordinate_within_center_trust(
+        center_coordinate.0,
+        a1_coordinate.0,
+        context.base_start,
+    ));
+    assert!(hlp_coordinate_within_center_trust(
+        center_coordinate.1,
+        a1_coordinate.1,
+        context.quote_start,
+    ));
+
+    let mut lifecycle_scratch = Market::default();
+    let mut a1_market = snapshot.clone();
+    let mut a1_projection = None;
+    let mut a1_candidate_slot = None;
+    let mut a1_terminal_scratch = HlpTerminalSwapScratch::default();
+    evaluate_concentrated_hlp_candidate(
+        &mut a1_market,
+        &mut lifecycle_scratch,
+        &snapshot,
+        &context,
+        cash_floors,
+        a1_coordinate.0,
+        a1_coordinate.1,
+        HlpCandidateEvaluationMode::Authoritative,
+        &mut a1_projection,
+        &mut a1_candidate_slot,
+        &mut a1_terminal_scratch,
+    )
+    .unwrap();
+    let a1_candidate = a1_candidate_slot.as_ref().unwrap();
+    assert!(a1_candidate.settlement_cash_available);
+    assert!(a1_candidate.reserve_endpoint_safe);
+    assert!(hlp_exact_derivative_sample_is_unbound(&a1_candidate, &context));
+    let a1_topology = a1_candidate.structural_topology;
+    let a1_signature = hlp_preposition_pair_signature(&a1_candidate);
+    assert_eq!(a1_topology, center_topology);
+    assert!(hlp_preposition_signature_class_matches(
+        center_signature.base,
+        a1_signature.base,
+    ));
+    assert!(hlp_preposition_signature_class_matches(
+        center_signature.quote,
+        a1_signature.quote,
+    ));
+    let retry_base_row = hlp_exact_control_row(&a1_candidate, MarketAsset::Base, context.base_start).unwrap();
+    let retry_quote_row = hlp_exact_control_row(&a1_candidate, MarketAsset::Quote, context.quote_start).unwrap();
+    let current_base_error = hlp_exact_control_value(&a1_candidate, MarketAsset::Base, retry_base_row);
+    let current_quote_error = hlp_exact_control_value(&a1_candidate, MarketAsset::Quote, retry_quote_row);
+    if let Some(expected_safe) = frozen_a1_local_expected_safe {
+        let snapshot_before = snapshot.try_to_vec().unwrap();
+        let a1_rows = hlp_stage4b2a_test_rows(&a1_candidate).unwrap();
+        let a1_base_safe = concentrated_hlp_candidate_components_are_safe(
+            context.base_start,
+            a1_candidate.base_principal_tracking_error_nad,
+            a1_candidate.base_tracking_error_nad,
+            a1_candidate.base_endpoint_exposure_nad,
+        ) && a1_candidate.base_trade_endpoint_safe;
+        let a1_quote_safe = concentrated_hlp_candidate_components_are_safe(
+            context.quote_start,
+            a1_candidate.quote_principal_tracking_error_nad,
+            a1_candidate.quote_tracking_error_nad,
+            a1_candidate.quote_endpoint_exposure_nad,
+        ) && a1_candidate.quote_trade_endpoint_safe;
+        let a1_safe = a1_base_safe && a1_quote_safe && a1_candidate.reserve_endpoint_safe;
+        if a1_safe {
+            eprintln!(
+                "FROZEN-A1-LOCAL {label} exact-safe A1={a1_coordinate:?} rows={a1_rows:?} counts=(compact={},authority={})",
+                CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get),
+                CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get),
+            );
+            assert!(expected_safe);
+            assert_eq!(CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get), 1);
+            return;
+        }
+
+        let exact_a1 = *a1_candidate;
+        let inventory_changed = exact_a1.base_receipt.ylp_mint_amount != 0
+            || exact_a1.base_receipt.ylp_burn_amount != 0
+            || exact_a1.quote_receipt.ylp_mint_amount != 0
+            || exact_a1.quote_receipt.ylp_burn_amount != 0;
+        downgrade_authoritative_a1_projection(
+            a1_projection.as_mut().unwrap(),
+            &context,
+            &compact,
+            a1_market.base_side.shares.ylp_supply,
+            inventory_changed,
+            a1_topology,
+        )
+        .unwrap();
+        let Some(ConcentratedHlpProjection::FrozenA1(frozen_a1)) = a1_projection.take() else {
+            panic!("{label}: exact A1 projection must destructively downgrade")
+        };
+        let mut frozen_a1_slot = Some(frozen_a1);
+        a1_candidate_slot = None;
+        a1_market.clone_from(&snapshot);
+        lifecycle_scratch.clone_from(&snapshot);
+        assert!(a1_projection.is_none());
+        assert!(a1_candidate_slot.is_none());
+
+        let mut local_origin_slot = None;
+        evaluate_stage4c_frozen_center_bounded_axis(
+            &compact,
+            &context,
+            cash_floors,
+            a1_coordinate.0,
+            a1_coordinate.1,
+            frozen_a1_slot.as_ref().unwrap(),
+            &mut local_origin_slot,
+        )
+        .unwrap();
+        let local_origin = local_origin_slot.as_ref().unwrap();
+        let origin_rows = hlp_stage4b2a_test_rows(local_origin).unwrap();
+        assert_eq!(origin_rows, a1_rows, "{label}: same-coordinate FrozenA1 rows");
+        assert_eq!(local_origin.structural_topology, a1_topology);
+        let origin_signature = hlp_preposition_pair_signature(local_origin);
+        assert!(hlp_preposition_signature_class_matches(
+            a1_signature.base,
+            origin_signature.base,
+        ));
+        assert!(hlp_preposition_signature_class_matches(
+            a1_signature.quote,
+            origin_signature.quote,
+        ));
+        assert_eq!(
+            local_origin.base_receipt.tracking_retained_contribution_nad,
+            exact_a1.base_receipt.tracking_retained_contribution_nad,
+        );
+        assert_eq!(
+            local_origin.quote_receipt.tracking_retained_contribution_nad,
+            exact_a1.quote_receipt.tracking_retained_contribution_nad,
+        );
+        assert!(local_origin.settlement_cash_available);
+        assert!(hlp_exact_derivative_sample_is_unbound(local_origin, &context));
+        let origin_trace = local_origin.guidance_settlement_trace.unwrap();
+        let origin_actions = local_origin.guidance_d_actions.unwrap();
+
+        let local_base_probe_delta = if context.base_start.active {
+            stage4c_signed_round_away_divisor(
+                hlp_exact_axis_probe_delta(a1_coordinate.0, context.base_start, current_base_error).unwrap(),
+                16,
+            )
+            .unwrap()
+        } else {
+            0
+        };
+        let local_quote_probe_delta = if context.quote_start.active {
+            stage4c_signed_round_away_divisor(
+                hlp_exact_axis_probe_delta(a1_coordinate.1, context.quote_start, current_quote_error).unwrap(),
+                16,
+            )
+            .unwrap()
+        } else {
+            0
+        };
+        let local_base_coordinate = (
+            a1_coordinate.0.checked_add(local_base_probe_delta).unwrap(),
+            a1_coordinate.1,
+        );
+        let local_quote_coordinate = (
+            a1_coordinate.0,
+            a1_coordinate.1.checked_add(local_quote_probe_delta).unwrap(),
+        );
+        let mut local_base_slot = None;
+        if context.base_start.active {
+            evaluate_stage4c_frozen_center_bounded_axis(
+                &compact,
+                &context,
+                cash_floors,
+                local_base_coordinate.0,
+                local_base_coordinate.1,
+                frozen_a1_slot.as_ref().unwrap(),
+                &mut local_base_slot,
+            )
+            .unwrap();
+        } else {
+            local_base_slot = Some(*local_origin);
+        }
+        let mut local_quote_slot = None;
+        if context.quote_start.active {
+            evaluate_stage4c_frozen_center_bounded_axis(
+                &compact,
+                &context,
+                cash_floors,
+                local_quote_coordinate.0,
+                local_quote_coordinate.1,
+                frozen_a1_slot.as_ref().unwrap(),
+                &mut local_quote_slot,
+            )
+            .unwrap();
+        } else {
+            local_quote_slot = Some(*local_origin);
+        }
+
+        for (asset, axis) in [
+            (MarketAsset::Base, local_base_slot.as_ref().unwrap()),
+            (MarketAsset::Quote, local_quote_slot.as_ref().unwrap()),
+        ] {
+            let active = match asset {
+                MarketAsset::Base => context.base_start.active,
+                MarketAsset::Quote => context.quote_start.active,
+            };
+            if !active {
+                continue;
+            }
+            let signature = hlp_preposition_pair_signature(axis);
+            assert!(axis.settlement_cash_available, "{label}: local {asset:?} cash");
+            assert!(hlp_exact_derivative_sample_is_unbound(axis, &context));
+            assert_eq!(axis.structural_topology, a1_topology);
+            assert_eq!(axis.guidance_settlement_trace, Some(origin_trace));
+            assert!(
+                axis.guidance_d_actions
+                    .unwrap()
+                    .frozen_cell_numeric_function_matches(origin_actions),
+                "{label}: local {asset:?} D-action branch",
+            );
+            assert!(hlp_preposition_signature_class_matches(
+                a1_signature.base,
+                signature.base,
+            ));
+            assert!(hlp_preposition_signature_class_matches(
+                a1_signature.quote,
+                signature.quote,
+            ));
+            match asset {
+                MarketAsset::Base => assert_ne!(signature.base, origin_signature.base),
+                MarketAsset::Quote => assert_ne!(signature.quote, origin_signature.quote),
+            }
+        }
+
+        let local_basis = HlpFiniteDifferenceBasis {
+            origin: HlpExactSampleRows::from_candidate(local_origin),
+            base_probe_delta_nad: local_base_probe_delta,
+            base_probe: HlpExactSampleRows::from_candidate(local_base_slot.as_ref().unwrap()),
+            quote_probe_delta_nad: local_quote_probe_delta,
+            quote_probe: HlpExactSampleRows::from_candidate(local_quote_slot.as_ref().unwrap()),
+            base_probe_recorded: context.base_start.active,
+            quote_probe_recorded: context.quote_start.active,
+            ..HlpFiniteDifferenceBasis::default()
+        };
+        let base_target =
+            stage4c_opposite_half_budget_target(current_base_error, context.base_start.tracking.loss_budget_nad)
+                .unwrap();
+        let quote_target =
+            stage4c_opposite_half_budget_target(current_quote_error, context.quote_start.tracking.loss_budget_nad)
+                .unwrap();
+        let (local_base_step, local_quote_step) = local_basis
+            .solve_step(
+                &context,
+                a1_coordinate.0,
+                a1_coordinate.1,
+                retry_base_row,
+                retry_quote_row,
+                current_base_error.checked_sub(base_target).unwrap(),
+                current_quote_error.checked_sub(quote_target).unwrap(),
+            )
+            .unwrap();
+        let terminal_coordinate = (
+            a1_coordinate.0.checked_add(local_base_step).unwrap(),
+            a1_coordinate.1.checked_add(local_quote_step).unwrap(),
+        );
+        assert!(hlp_coordinate_within_center_trust(
+            center_coordinate.0,
+            terminal_coordinate.0,
+            context.base_start,
+        ));
+        assert!(hlp_coordinate_within_center_trust(
+            center_coordinate.1,
+            terminal_coordinate.1,
+            context.quote_start,
+        ));
+
+        let local_base_rows = hlp_stage4b2a_test_rows(local_base_slot.as_ref().unwrap()).unwrap();
+        let local_quote_rows = hlp_stage4b2a_test_rows(local_quote_slot.as_ref().unwrap()).unwrap();
+        local_origin_slot = None;
+        local_base_slot = None;
+        local_quote_slot = None;
+        frozen_a1_slot = None;
+        assert!(local_origin_slot.is_none());
+        assert!(local_base_slot.is_none());
+        assert!(local_quote_slot.is_none());
+        assert!(frozen_a1_slot.is_none());
+        a1_market.clone_from(&snapshot);
+        lifecycle_scratch.clone_from(&snapshot);
+
+        let mut a2_market = snapshot.clone();
+        let mut a2_projection = None;
+        let mut a2_candidate_slot = None;
+        let mut a2_terminal_scratch = HlpTerminalSwapScratch::default();
+        evaluate_concentrated_hlp_candidate(
+            &mut a2_market,
+            &mut lifecycle_scratch,
+            &snapshot,
+            &context,
+            cash_floors,
+            terminal_coordinate.0,
+            terminal_coordinate.1,
+            HlpCandidateEvaluationMode::Authoritative,
+            &mut a2_projection,
+            &mut a2_candidate_slot,
+            &mut a2_terminal_scratch,
+        )
+        .unwrap();
+        let a2_candidate = a2_candidate_slot.as_ref().unwrap();
+        let a2_rows = hlp_stage4b2a_test_rows(a2_candidate).unwrap();
+        let a2_base_safe = concentrated_hlp_candidate_components_are_safe(
+            context.base_start,
+            a2_candidate.base_principal_tracking_error_nad,
+            a2_candidate.base_tracking_error_nad,
+            a2_candidate.base_endpoint_exposure_nad,
+        ) && a2_candidate.base_trade_endpoint_safe;
+        let a2_quote_safe = concentrated_hlp_candidate_components_are_safe(
+            context.quote_start,
+            a2_candidate.quote_principal_tracking_error_nad,
+            a2_candidate.quote_tracking_error_nad,
+            a2_candidate.quote_endpoint_exposure_nad,
+        ) && a2_candidate.quote_trade_endpoint_safe;
+        let a2_signature = hlp_preposition_pair_signature(a2_candidate);
+        let inactive_zero = (context.base_start.active || [a2_rows[0], a2_rows[2], a2_rows[4]] == [0; 3])
+            && (context.quote_start.active || [a2_rows[1], a2_rows[3], a2_rows[5]] == [0; 3]);
+        let identity = a2_candidate.authoritative.is_some()
+            && a2_projection.as_ref().unwrap().authoritative()
+            && a2_candidate.settlement_cash_available
+            && a2_candidate.structural_topology == center_topology
+            && a2_candidate.structural_topology == a1_topology
+            && hlp_preposition_signature_class_matches(center_signature.base, a2_signature.base)
+            && hlp_preposition_signature_class_matches(center_signature.quote, a2_signature.quote)
+            && hlp_preposition_signature_class_matches(a1_signature.base, a2_signature.base)
+            && hlp_preposition_signature_class_matches(a1_signature.quote, a2_signature.quote)
+            && inactive_zero
+            && hlp_exact_derivative_sample_is_unbound(a2_candidate, &context)
+            && hlp_coordinate_within_center_trust(center_coordinate.0, terminal_coordinate.0, context.base_start)
+            && hlp_coordinate_within_center_trust(center_coordinate.1, terminal_coordinate.1, context.quote_start);
+        let terminal_safe = a2_base_safe && a2_quote_safe && a2_candidate.reserve_endpoint_safe;
+        eprintln!(
+            "FROZEN-A1-LOCAL {label} center={center_coordinate:?} A1={a1_coordinate:?}/rows={a1_rows:?} origin_rows={origin_rows:?}/equal={} local_base={local_base_coordinate:?}/rows={local_base_rows:?} local_quote={local_quote_coordinate:?}/rows={local_quote_rows:?} targets=({base_target},{quote_target}) correction=({local_base_step},{local_quote_step}) A2={terminal_coordinate:?}/rows={a2_rows:?}/safe=({a2_base_safe},{a2_quote_safe},{})/identity={identity} counts=(compact={},raw={},authority={},candidate={})",
+            origin_rows == a1_rows,
+            a2_candidate.reserve_endpoint_safe,
+            CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get),
+            CONCENTRATED_PRE_SOLVE_RAW_EVALUATIONS.with(Cell::get),
+            CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get),
+            CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(Cell::get),
+        );
+        assert!(identity);
+        assert_eq!(terminal_safe, expected_safe);
+        assert_eq!(
+            CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get),
+            3 + 2 * u32::from(active_axis_count)
+        );
+        assert_eq!(CONCENTRATED_PRE_SOLVE_RAW_EVALUATIONS.with(Cell::get), 0);
+        assert_eq!(CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get), 2);
+        assert_eq!(snapshot.try_to_vec().unwrap(), snapshot_before);
+        return;
+    }
+    let solved_raw = basis
+        .solve_broyden_candidate(
+            &context,
+            center_coordinate.0,
+            center_coordinate.1,
+            a1_coordinate.0,
+            a1_coordinate.1,
+            retry_base_row,
+            retry_quote_row,
+            current_base_error,
+            current_quote_error,
+        )
+        .unwrap();
+    let raw_coordinate = (
+        hlp_force_adjacent_atom_if_needed(
+            &snapshot,
+            context.frozen_prices,
+            context.base_start,
+            a1_candidate.base_receipt,
+            a1_coordinate.0,
+            solved_raw.0,
+            current_base_error,
+        )
+        .unwrap(),
+        hlp_force_adjacent_atom_if_needed(
+            &snapshot,
+            context.frozen_prices,
+            context.quote_start,
+            a1_candidate.quote_receipt,
+            a1_coordinate.1,
+            solved_raw.1,
+            current_quote_error,
+        )
+        .unwrap(),
+    );
+    if let Some(expected_safe) = rawless_expected_safe {
+        let a1_rows = hlp_stage4b2a_test_rows(&a1_candidate).unwrap();
+        assert!(hlp_coordinate_within_center_trust(
+            center_coordinate.0,
+            raw_coordinate.0,
+            context.base_start,
+        ));
+        assert!(hlp_coordinate_within_center_trust(
+            center_coordinate.1,
+            raw_coordinate.1,
+            context.quote_start,
+        ));
+
+        // Deliberately erase every exact-A1 capability before the terminal
+        // authority. Only the scalar Broyden coordinate and structural
+        // fingerprints survive this boundary.
+        a1_candidate_slot = None;
+        a1_projection = None;
+        assert!(a1_candidate_slot.is_none());
+        assert!(a1_projection.is_none());
+        drop(a1_market);
+        drop(lifecycle_scratch);
+
+        let snapshot_before = snapshot.try_to_vec().unwrap();
+        let mut a2_market = snapshot.clone();
+        let mut a2_lifecycle_scratch = Market::default();
+        let mut a2_projection = None;
+        let mut a2_candidate = None;
+        let mut a2_terminal_scratch = HlpTerminalSwapScratch::default();
+        evaluate_concentrated_hlp_candidate(
+            &mut a2_market,
+            &mut a2_lifecycle_scratch,
+            &snapshot,
+            &context,
+            cash_floors,
+            raw_coordinate.0,
+            raw_coordinate.1,
+            HlpCandidateEvaluationMode::Authoritative,
+            &mut a2_projection,
+            &mut a2_candidate,
+            &mut a2_terminal_scratch,
+        )
+        .unwrap();
+        assert!(a2_projection.as_ref().unwrap().authoritative());
+        let a2_candidate = a2_candidate.unwrap();
+        assert!(a2_candidate.authoritative.is_some());
+        let a2_rows = hlp_stage4b2a_test_rows(&a2_candidate).unwrap();
+        let a2_signature = hlp_preposition_pair_signature(&a2_candidate);
+        let base_safe = concentrated_hlp_candidate_components_are_safe(
+            context.base_start,
+            a2_candidate.base_principal_tracking_error_nad,
+            a2_candidate.base_tracking_error_nad,
+            a2_candidate.base_endpoint_exposure_nad,
+        ) && a2_candidate.base_trade_endpoint_safe;
+        let quote_safe = concentrated_hlp_candidate_components_are_safe(
+            context.quote_start,
+            a2_candidate.quote_principal_tracking_error_nad,
+            a2_candidate.quote_tracking_error_nad,
+            a2_candidate.quote_endpoint_exposure_nad,
+        ) && a2_candidate.quote_trade_endpoint_safe;
+        let inactive_zero = (context.base_start.active || [a2_rows[0], a2_rows[2], a2_rows[4]] == [0; 3])
+            && (context.quote_start.active || [a2_rows[1], a2_rows[3], a2_rows[5]] == [0; 3]);
+        let topology_matches =
+            a2_candidate.structural_topology == center_topology && a2_candidate.structural_topology == a1_topology;
+        let signature_class_matches = hlp_preposition_signature_class_matches(center_signature.base, a2_signature.base)
+            && hlp_preposition_signature_class_matches(center_signature.quote, a2_signature.quote)
+            && hlp_preposition_signature_class_matches(a1_signature.base, a2_signature.base)
+            && hlp_preposition_signature_class_matches(a1_signature.quote, a2_signature.quote);
+        let identity = a2_candidate.settlement_cash_available
+            && topology_matches
+            && signature_class_matches
+            && inactive_zero
+            && hlp_exact_derivative_sample_is_unbound(&a2_candidate, &context)
+            && hlp_coordinate_within_center_trust(center_coordinate.0, raw_coordinate.0, context.base_start)
+            && hlp_coordinate_within_center_trust(center_coordinate.1, raw_coordinate.1, context.quote_start);
+        let terminal_safe = base_safe && quote_safe && a2_candidate.reserve_endpoint_safe;
+        let observed_compact = CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get);
+        let observed_raw = CONCENTRATED_PRE_SOLVE_RAW_EVALUATIONS.with(Cell::get);
+        let observed_authority = CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get);
+        let observed_candidates = CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(Cell::get);
+        let canonical_calls = HLP_RAW_CANONICAL_SCALAR_CALLS.with(Cell::get);
+        let canonical_residuals = HLP_RAW_CANONICAL_SCALAR_RESIDUALS.with(Cell::get);
+        eprintln!(
+            "CENTER-FRESH RAWLESS {label} center={center_coordinate:?} A1={a1_coordinate:?}/rows={a1_rows:?}/topology={a1_topology:?}/signature={a1_signature:?} A2={raw_coordinate:?}/rows={a2_rows:?}/safe=({base_safe},{quote_safe},{})/cash={}/inactive_zero={inactive_zero}/topology_match={topology_matches}/signature_class={signature_class_matches}/signature={a2_signature:?}/identity={identity} counts=(compact={observed_compact},raw={observed_raw},authority={observed_authority},candidate={observed_candidates},canonical_calls={canonical_calls},canonical_residuals={canonical_residuals})",
+            a2_candidate.reserve_endpoint_safe,
+            a2_candidate.settlement_cash_available,
+        );
+        assert!(identity);
+        assert_eq!(terminal_safe, expected_safe);
+        assert_eq!(observed_compact, 2 + u32::from(active_axis_count));
+        assert_eq!(observed_raw, 0);
+        assert_eq!(observed_authority, 2);
+        assert_eq!(observed_candidates, observed_compact + observed_authority);
+        assert_eq!(canonical_calls, 0);
+        assert_eq!(canonical_residuals, 0);
+        assert_eq!(snapshot.try_to_vec().unwrap(), snapshot_before);
+        if !expected_safe {
+            a2_market.clone_from(&snapshot);
+            assert_eq!(a2_market.try_to_vec().unwrap(), snapshot_before);
+        }
+        return;
+    }
+    let inventory_changed = a1_candidate.base_receipt.ylp_mint_amount != 0
+        || a1_candidate.base_receipt.ylp_burn_amount != 0
+        || a1_candidate.quote_receipt.ylp_mint_amount != 0
+        || a1_candidate.quote_receipt.ylp_burn_amount != 0;
+    downgrade_authoritative_a1_projection(
+        a1_projection.as_mut().unwrap(),
+        &context,
+        &compact,
+        a1_market.base_side.shares.ylp_supply,
+        inventory_changed,
+        a1_topology,
+    )
+    .unwrap();
+    let ConcentratedHlpProjection::FrozenA1(frozen_a1) = a1_projection.unwrap() else {
+        panic!("{label}: A1 must freeze")
+    };
+    let mut raw_candidate = None;
+    evaluate_frozen_a1_raw_concentrated_hlp_candidate(
+        &compact,
+        &context,
+        cash_floors,
+        raw_coordinate.0,
+        raw_coordinate.1,
+        &frozen_a1,
+        &mut raw_candidate,
+    )
+    .unwrap();
+    let raw_candidate = raw_candidate.unwrap();
+    let raw_signature = hlp_preposition_pair_signature(&raw_candidate);
+    let raw_robust = concentrated_hlp_raw_candidate_is_robust(&context, &raw_candidate);
+    eprintln!(
+        "CENTER-FRESH {label} A1={a1_coordinate:?} rows={:?} topology={a1_topology:?} signature={a1_signature:?} raw={raw_coordinate:?} rows={:?} robust={raw_robust} topology={:?} signature={raw_signature:?} conceptual_counts=(full=2,scalar_axes={active_axis_count},raw=1,authority=1_so_far)",
+        hlp_stage4b2a_test_rows(&a1_candidate),
+        hlp_stage4b2a_test_rows(&raw_candidate),
+        raw_candidate.structural_topology,
+    );
+    assert!(raw_candidate.settlement_cash_available);
+    assert_eq!(raw_candidate.structural_topology, a1_topology);
+    assert!(hlp_exact_derivative_sample_is_unbound(&raw_candidate, &context));
+    assert!(raw_robust);
+
+    let mut a2_market = snapshot.clone();
+    let mut a2_projection = None;
+    let mut a2_candidate = None;
+    let mut a2_terminal_scratch = HlpTerminalSwapScratch::default();
+    evaluate_concentrated_hlp_candidate(
+        &mut a2_market,
+        &mut lifecycle_scratch,
+        &snapshot,
+        &context,
+        cash_floors,
+        raw_coordinate.0,
+        raw_coordinate.1,
+        HlpCandidateEvaluationMode::Authoritative,
+        &mut a2_projection,
+        &mut a2_candidate,
+        &mut a2_terminal_scratch,
+    )
+    .unwrap();
+    let a2_candidate = a2_candidate.unwrap();
+    let base_safe = concentrated_hlp_candidate_components_are_safe(
+        context.base_start,
+        a2_candidate.base_principal_tracking_error_nad,
+        a2_candidate.base_tracking_error_nad,
+        a2_candidate.base_endpoint_exposure_nad,
+    ) && a2_candidate.base_trade_endpoint_safe;
+    let quote_safe = concentrated_hlp_candidate_components_are_safe(
+        context.quote_start,
+        a2_candidate.quote_principal_tracking_error_nad,
+        a2_candidate.quote_tracking_error_nad,
+        a2_candidate.quote_endpoint_exposure_nad,
+    ) && a2_candidate.quote_trade_endpoint_safe;
+    let identity = a2_candidate.settlement_cash_available
+        && a2_candidate.reserve_endpoint_safe
+        && a2_candidate.structural_topology == a1_topology
+        && a2_candidate.structural_topology == raw_candidate.structural_topology
+        && hlp_preposition_pair_signature(&a2_candidate) == raw_signature
+        && hlp_exact_derivative_sample_is_unbound(&a2_candidate, &context)
+        && hlp_coordinate_within_center_trust(center_coordinate.0, raw_coordinate.0, context.base_start)
+        && hlp_coordinate_within_center_trust(center_coordinate.1, raw_coordinate.1, context.quote_start);
+    let observed_compact = CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get);
+    let observed_raw = CONCENTRATED_PRE_SOLVE_RAW_EVALUATIONS.with(Cell::get);
+    let observed_authority = CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get);
+    let observed_candidates = CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(Cell::get);
+    let bounded_out_total = HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES.with(Cell::get);
+    let canonical_calls_total = HLP_RAW_CANONICAL_SCALAR_CALLS.with(Cell::get);
+    let canonical_residuals_total = HLP_RAW_CANONICAL_SCALAR_RESIDUALS.with(Cell::get);
+    eprintln!(
+        "CENTER-FRESH {label} A2={raw_coordinate:?} rows={:?} safe=({base_safe},{quote_safe},{}) identity={identity} topology={:?} signature={:?} conceptual_counts=(full=2,scalar_axes={active_axis_count},raw=1,authority=2) observed_counters=(compact={observed_compact},raw={observed_raw},authority={observed_authority},candidate={observed_candidates},bounded_out_residuals={bounded_out_total},canonical_calls={canonical_calls_total},canonical_residuals={canonical_residuals_total})",
+        hlp_stage4b2a_test_rows(&a2_candidate),
+        a2_candidate.reserve_endpoint_safe,
+        a2_candidate.structural_topology,
+        hlp_preposition_pair_signature(&a2_candidate),
+    );
+    assert!(base_safe);
+    assert!(quote_safe);
+    assert!(identity);
+    assert_eq!(observed_authority, 2);
+}
+
+fn stage4c_candidate_is_fully_safe(
+    candidate: &ConcentratedHlpCandidate,
+    context: &ConcentratedHlpSolveContext,
+) -> bool {
+    concentrated_hlp_candidate_components_are_safe(
+        context.base_start,
+        candidate.base_principal_tracking_error_nad,
+        candidate.base_tracking_error_nad,
+        candidate.base_endpoint_exposure_nad,
+    ) && candidate.base_trade_endpoint_safe
+        && concentrated_hlp_candidate_components_are_safe(
+            context.quote_start,
+            candidate.quote_principal_tracking_error_nad,
+            candidate.quote_tracking_error_nad,
+            candidate.quote_endpoint_exposure_nad,
+        )
+        && candidate.quote_trade_endpoint_safe
+        && candidate.reserve_endpoint_safe
+}
+
+/// Re-score only the final combined/principal/exposure rows at the exact A1
+/// post-rebalance mark. The frozen-flow evaluator has already bound the real
+/// trade and reserve anchors, settlement branches, topology, and post plans;
+/// this local test helper replaces the final scalar mark without adding it to
+/// a production capability or projection struct.
+fn stage4c_rescore_frozen_flow_at_exact_mark(
+    candidate: &mut ConcentratedHlpCandidate,
+    compact: &HlpCompactSolveContext,
+    context: &ConcentratedHlpSolveContext,
+    exact_final_mark_base_nad: u128,
+) {
+    let cached = CACHED_HLP_LIFECYCLE_RESULT.with(|result| result.borrow().expect("cached compact lifecycle"));
+    assert_eq!(cached.transition.socialized_principal_loss, 0);
+    assert_eq!(cached.transition.removed_unrealized_interest, 0);
+    let prices = hlp_curve_prices_from_base_price_nad(exact_final_mark_base_nad).unwrap();
+    let base_active = cached.state.active(compact.fixed, MarketAsset::Base);
+    let quote_active = cached.state.active(compact.fixed, MarketAsset::Quote);
+    let (base_values, quote_values) = hlp_planner_inventory_values_pair_nad_with_prices(
+        compact.fixed,
+        cached.state,
+        prices,
+        base_active,
+        quote_active,
+    )
+    .unwrap();
+    let base = hlp_planner_tracking_from_endpoint(
+        compact.fixed,
+        cached.state,
+        MarketAsset::Base,
+        prices,
+        hlp_lifecycle_endpoint_from_values(base_values).unwrap(),
+        context.base_start,
+    )
+    .unwrap();
+    let quote = hlp_planner_tracking_from_endpoint(
+        compact.fixed,
+        cached.state,
+        MarketAsset::Quote,
+        prices,
+        hlp_lifecycle_endpoint_from_values(quote_values).unwrap(),
+        context.quote_start,
+    )
+    .unwrap();
+    candidate.base_principal_tracking_error_nad = base.0;
+    candidate.base_tracking_error_nad = base
+        .2
+        .checked_sub(candidate.base_receipt.tracking_retained_contribution_nad)
+        .unwrap();
+    candidate.base_endpoint_exposure_nad = base.3;
+    candidate.quote_principal_tracking_error_nad = quote.0;
+    candidate.quote_tracking_error_nad = quote
+        .2
+        .checked_sub(candidate.quote_receipt.tracking_retained_contribution_nad)
+        .unwrap();
+    candidate.quote_endpoint_exposure_nad = quote.3;
+}
+
+/// Test-only CU-minimal experiment. Authority A1 runs at the untouched swap
+/// coordinate, and its exact endpoints supply both the initial needed-delta
+/// algebra and an authority-erased frozen-flow scalar function. No production
+/// phase or evaluator calls this schedule.
+fn assert_stage4c_zero_a1_frozen_flow_schedule(
+    mut snapshot: Market,
+    asset_in: MarketAsset,
+    reserve_credit: u64,
+    label: &str,
+) {
+    let current_slot = curve_slot(&snapshot);
+    snapshot.prepare_amm_for_swap(current_slot).unwrap();
+    let pre_state = snapshot.dynamic_fee_pre_state(current_slot).unwrap();
+    let preliminary = snapshot
+        .preliminary_swap_inputs_for_state(reserve_credit, current_slot, pre_state)
+        .unwrap();
+    let mut context_slot = None;
+    capture_concentrated_hlp_solve_context_into(
+        &snapshot,
+        asset_in,
+        reserve_credit,
+        current_slot,
+        pre_state,
+        preliminary,
+        SwapCashPolicy::Spot,
+        &mut context_slot,
+    )
+    .unwrap();
+    let context = context_slot.unwrap();
+    let mut compact_slot = None;
+    HlpCompactSolveContext::capture_into(&snapshot, &context, &mut compact_slot).unwrap();
+    let compact = compact_slot.unwrap();
+    let cash_floors = context.cash_policy.floors(&snapshot, asset_in, 0).unwrap();
+
+    reset_stage4b2a_test_state();
+    let snapshot_before = snapshot.try_to_vec().unwrap();
+    let active_axis_count = u32::from(context.base_start.active) + u32::from(context.quote_start.active);
+
+    // A1 is the first authority and always evaluates the real swap request at
+    // the untouched preposition coordinate.
+    let mut a1_market = snapshot.clone();
+    let mut lifecycle_scratch = Market::default();
+    let mut a1_projection_slot = None;
+    let mut a1_candidate_slot = None;
+    let mut a1_terminal_scratch = HlpTerminalSwapScratch::default();
+    evaluate_concentrated_hlp_candidate(
+        &mut a1_market,
+        &mut lifecycle_scratch,
+        &snapshot,
+        &context,
+        cash_floors,
+        0,
+        0,
+        HlpCandidateEvaluationMode::Authoritative,
+        &mut a1_projection_slot,
+        &mut a1_candidate_slot,
+        &mut a1_terminal_scratch,
+    )
+    .unwrap();
+    let a1_candidate = *a1_candidate_slot.as_ref().unwrap();
+    let a1_projection = a1_projection_slot.as_ref().unwrap();
+    assert!(a1_projection.authoritative());
+    assert!(a1_candidate.authoritative.is_some());
+    assert!(a1_candidate.settlement_cash_available);
+    assert!(hlp_exact_derivative_sample_is_unbound(&a1_candidate, &context));
+    let a1_rows = hlp_stage4b2a_test_rows(&a1_candidate).unwrap();
+    let a1_topology = a1_candidate.structural_topology;
+
+    // Authoritative evaluation intentionally leaves next_* at its input in
+    // production. Re-run the exact same needed-delta algebra here against the
+    // exact A1 endpoint and its prepositioned planner state.
+    let common = a1_projection.common();
+    let start_prices = hlp_curve_prices_from_base_price_nad(common.start_price_nad as u128).unwrap();
+    let endpoint_prices = hlp_curve_prices_from_base_price_nad(common.end_price_nad as u128).unwrap();
+    let endpoint_base =
+        denormalize_from_nad_floor(common.endpoint_reserves.base, a1_market.base_side.asset_decimals).unwrap();
+    let endpoint_quote =
+        denormalize_from_nad_floor(common.endpoint_reserves.quote, a1_market.quote_side.asset_decimals).unwrap();
+    let center_coordinate = (
+        if context.base_start.active {
+            concentrated_hlp_needed_delta(
+                &snapshot,
+                &a1_market,
+                MarketAsset::Base,
+                start_prices,
+                endpoint_prices,
+                endpoint_base,
+                endpoint_quote,
+                context.base_start.tracking.principal_nav_nad,
+            )
+            .unwrap()
+        } else {
+            0
+        },
+        if context.quote_start.active {
+            concentrated_hlp_needed_delta(
+                &snapshot,
+                &a1_market,
+                MarketAsset::Quote,
+                start_prices,
+                endpoint_prices,
+                endpoint_base,
+                endpoint_quote,
+                context.quote_start.tracking.principal_nav_nad,
+            )
+            .unwrap()
+        } else {
+            0
+        },
+    );
+    assert_ne!(
+        center_coordinate,
+        (0, 0),
+        "{label}: exact A1 produced no next coordinate"
+    );
+
+    // Destroy the exact quote/checkpoint capability after preserving only its
+    // authority-free flow anchors and scalar final mark.
+    let exact_a1_final_mark_base_nad = current_hlp_curve_prices(&lifecycle_scratch).unwrap().base_in_quote_nad;
+    let inventory_changed = a1_candidate.base_receipt.ylp_mint_amount != 0
+        || a1_candidate.base_receipt.ylp_burn_amount != 0
+        || a1_candidate.quote_receipt.ylp_mint_amount != 0
+        || a1_candidate.quote_receipt.ylp_burn_amount != 0;
+    downgrade_authoritative_a1_projection(
+        a1_projection_slot.as_mut().unwrap(),
+        &context,
+        &compact,
+        a1_market.base_side.shares.ylp_supply,
+        inventory_changed,
+        a1_topology,
+    )
+    .unwrap();
+    let Some(ConcentratedHlpProjection::FrozenA1(frozen)) = a1_projection_slot.take() else {
+        panic!("{label}: A1 authority was not erased")
+    };
+    a1_candidate_slot = None;
+    a1_market.clone_from(&snapshot);
+    lifecycle_scratch.clone_from(&snapshot);
+    assert!(a1_candidate_slot.is_none());
+    assert!(a1_projection_slot.is_none());
+
+    let mut center_slot = None;
+    evaluate_stage4c_frozen_center_bounded_axis(
+        &compact,
+        &context,
+        cash_floors,
+        center_coordinate.0,
+        center_coordinate.1,
+        &frozen,
+        &mut center_slot,
+    )
+    .unwrap();
+    stage4c_rescore_frozen_flow_at_exact_mark(
+        center_slot.as_mut().unwrap(),
+        &compact,
+        &context,
+        exact_a1_final_mark_base_nad,
+    );
+    let center = *center_slot.as_ref().unwrap();
+    assert!(center.settlement_cash_available);
+    assert!(hlp_exact_derivative_sample_is_unbound(&center, &context));
+    let center_topology = center.structural_topology;
+    let center_mode = center.guidance_exact_in_mode;
+    let center_trace = center.guidance_settlement_trace.unwrap();
+    let center_actions = center.guidance_d_actions.unwrap();
+    let center_signature = hlp_preposition_pair_signature(&center);
+    let center_rows = HlpExactSampleRows::from_candidate(&center);
+    let base_row = hlp_exact_control_row(&center, MarketAsset::Base, context.base_start).unwrap();
+    let quote_row = hlp_exact_control_row(&center, MarketAsset::Quote, context.quote_start).unwrap();
+    let center_base_error = center_rows.value(MarketAsset::Base, base_row);
+    let center_quote_error = center_rows.value(MarketAsset::Quote, quote_row);
+
+    let base_probe_delta = if context.base_start.active {
+        stage4c_signed_round_away_divisor(
+            hlp_exact_axis_probe_delta(center_coordinate.0, context.base_start, center_base_error).unwrap(),
+            16,
+        )
+        .unwrap()
+    } else {
+        0
+    };
+    let quote_probe_delta = if context.quote_start.active {
+        stage4c_signed_round_away_divisor(
+            hlp_exact_axis_probe_delta(center_coordinate.1, context.quote_start, center_quote_error).unwrap(),
+            16,
+        )
+        .unwrap()
+    } else {
+        0
+    };
+
+    let mut base_axis_slot = None;
+    if context.base_start.active {
+        evaluate_stage4c_frozen_center_bounded_axis(
+            &compact,
+            &context,
+            cash_floors,
+            center_coordinate.0.checked_add(base_probe_delta).unwrap(),
+            center_coordinate.1,
+            &frozen,
+            &mut base_axis_slot,
+        )
+        .unwrap();
+        stage4c_rescore_frozen_flow_at_exact_mark(
+            base_axis_slot.as_mut().unwrap(),
+            &compact,
+            &context,
+            exact_a1_final_mark_base_nad,
+        );
+    } else {
+        base_axis_slot = Some(center);
+    }
+    let mut quote_axis_slot = None;
+    if context.quote_start.active {
+        evaluate_stage4c_frozen_center_bounded_axis(
+            &compact,
+            &context,
+            cash_floors,
+            center_coordinate.0,
+            center_coordinate.1.checked_add(quote_probe_delta).unwrap(),
+            &frozen,
+            &mut quote_axis_slot,
+        )
+        .unwrap();
+        stage4c_rescore_frozen_flow_at_exact_mark(
+            quote_axis_slot.as_mut().unwrap(),
+            &compact,
+            &context,
+            exact_a1_final_mark_base_nad,
+        );
+    } else {
+        quote_axis_slot = Some(center);
+    }
+
+    for (asset, axis) in [
+        (MarketAsset::Base, base_axis_slot.as_ref().unwrap()),
+        (MarketAsset::Quote, quote_axis_slot.as_ref().unwrap()),
+    ] {
+        let active = match asset {
+            MarketAsset::Base => context.base_start.active,
+            MarketAsset::Quote => context.quote_start.active,
+        };
+        if !active {
+            continue;
+        }
+        let signature = hlp_preposition_pair_signature(axis);
+        assert!(axis.settlement_cash_available, "{label}: {asset:?} axis cash");
+        assert!(hlp_exact_derivative_sample_is_unbound(axis, &context));
+        assert_eq!(axis.structural_topology, center_topology, "{label}: {asset:?} topology");
+        assert_eq!(axis.guidance_exact_in_mode, center_mode, "{label}: {asset:?} mode");
+        assert_eq!(
+            axis.guidance_settlement_trace,
+            Some(center_trace),
+            "{label}: {asset:?} trace"
+        );
+        assert_eq!(
+            axis.guidance_d_actions,
+            Some(center_actions),
+            "{label}: {asset:?} D actions"
+        );
+        assert!(hlp_preposition_signature_class_matches(
+            center_signature.base,
+            signature.base,
+        ));
+        assert!(hlp_preposition_signature_class_matches(
+            center_signature.quote,
+            signature.quote,
+        ));
+    }
+
+    let basis = HlpFiniteDifferenceBasis {
+        origin: center_rows,
+        guidance_exact_in_mode: center_mode,
+        guidance_settlement_trace: Some(center_trace),
+        base_probe_delta_nad: base_probe_delta,
+        base_probe: HlpExactSampleRows::from_candidate(base_axis_slot.as_ref().unwrap()),
+        quote_probe_delta_nad: quote_probe_delta,
+        quote_probe: HlpExactSampleRows::from_candidate(quote_axis_slot.as_ref().unwrap()),
+        base_signature: center_signature.base,
+        quote_signature: center_signature.quote,
+        base_probe_recorded: context.base_start.active,
+        quote_probe_recorded: context.quote_start.active,
+    };
+    let base_residual = hlp_initial_active_set_residual(center_base_error, context.base_start).unwrap();
+    let quote_residual = hlp_initial_active_set_residual(center_quote_error, context.quote_start).unwrap();
+    let first_step = basis
+        .solve_step(
+            &context,
+            center_coordinate.0,
+            center_coordinate.1,
+            base_row,
+            quote_row,
+            base_residual,
+            quote_residual,
+        )
+        .unwrap();
+    let first_j_coordinate = (
+        center_coordinate.0.checked_add(first_step.0).unwrap(),
+        center_coordinate.1.checked_add(first_step.1).unwrap(),
+    );
+
+    // One scalar terminal cell decides whether the first-J point is already
+    // usable or supplies the sole good-Broyden correction.
+    let mut terminal_guidance_slot = None;
+    evaluate_stage4c_frozen_center_bounded_axis(
+        &compact,
+        &context,
+        cash_floors,
+        first_j_coordinate.0,
+        first_j_coordinate.1,
+        &frozen,
+        &mut terminal_guidance_slot,
+    )
+    .unwrap();
+    stage4c_rescore_frozen_flow_at_exact_mark(
+        terminal_guidance_slot.as_mut().unwrap(),
+        &compact,
+        &context,
+        exact_a1_final_mark_base_nad,
+    );
+    let terminal_guidance = *terminal_guidance_slot.as_ref().unwrap();
+    let terminal_signature = hlp_preposition_pair_signature(&terminal_guidance);
+    assert!(terminal_guidance.settlement_cash_available);
+    assert!(hlp_exact_derivative_sample_is_unbound(&terminal_guidance, &context));
+    assert_eq!(terminal_guidance.structural_topology, center_topology);
+    assert_eq!(terminal_guidance.guidance_exact_in_mode, center_mode);
+    assert_eq!(terminal_guidance.guidance_settlement_trace, Some(center_trace));
+    assert_eq!(terminal_guidance.guidance_d_actions, Some(center_actions));
+    assert!(hlp_preposition_signature_class_matches(
+        center_signature.base,
+        terminal_signature.base,
+    ));
+    assert!(hlp_preposition_signature_class_matches(
+        center_signature.quote,
+        terminal_signature.quote,
+    ));
+    let first_j_guidance_safe = stage4c_candidate_is_fully_safe(&terminal_guidance, &context);
+    let terminal_coordinate = if first_j_guidance_safe {
+        first_j_coordinate
+    } else {
+        let current_base_error = hlp_exact_control_value(&terminal_guidance, MarketAsset::Base, base_row);
+        let current_quote_error = hlp_exact_control_value(&terminal_guidance, MarketAsset::Quote, quote_row);
+        basis
+            .solve_broyden_candidate(
+                &context,
+                center_coordinate.0,
+                center_coordinate.1,
+                first_j_coordinate.0,
+                first_j_coordinate.1,
+                base_row,
+                quote_row,
+                current_base_error,
+                current_quote_error,
+            )
+            .unwrap()
+    };
+    assert!(hlp_coordinate_within_center_trust(
+        center_coordinate.0,
+        terminal_coordinate.0,
+        context.base_start,
+    ));
+    assert!(hlp_coordinate_within_center_trust(
+        center_coordinate.1,
+        terminal_coordinate.1,
+        context.quote_start,
+    ));
+
+    center_slot = None;
+    base_axis_slot = None;
+    quote_axis_slot = None;
+    terminal_guidance_slot = None;
+    let _ = frozen;
+    assert!(center_slot.is_none());
+    assert!(base_axis_slot.is_none());
+    assert!(quote_axis_slot.is_none());
+    assert!(terminal_guidance_slot.is_none());
+
+    let mut a2_market = snapshot.clone();
+    let mut a2_projection_slot = None;
+    let mut a2_candidate_slot = None;
+    let mut a2_terminal_scratch = HlpTerminalSwapScratch::default();
+    evaluate_concentrated_hlp_candidate(
+        &mut a2_market,
+        &mut lifecycle_scratch,
+        &snapshot,
+        &context,
+        cash_floors,
+        terminal_coordinate.0,
+        terminal_coordinate.1,
+        HlpCandidateEvaluationMode::Authoritative,
+        &mut a2_projection_slot,
+        &mut a2_candidate_slot,
+        &mut a2_terminal_scratch,
+    )
+    .unwrap();
+    let a2 = a2_candidate_slot.as_ref().unwrap();
+    let a2_rows = hlp_stage4b2a_test_rows(a2).unwrap();
+    let a2_signature = hlp_preposition_pair_signature(a2);
+    let inactive_rows_zero = (context.base_start.active || [a2_rows[0], a2_rows[2], a2_rows[4]] == [0; 3])
+        && (context.quote_start.active || [a2_rows[1], a2_rows[3], a2_rows[5]] == [0; 3]);
+    let a2_identity = a2.authoritative.is_some()
+        && a2_projection_slot.as_ref().unwrap().authoritative()
+        && a2.settlement_cash_available
+        && a2.structural_topology == center_topology
+        && hlp_preposition_signature_class_matches(center_signature.base, a2_signature.base)
+        && hlp_preposition_signature_class_matches(center_signature.quote, a2_signature.quote)
+        && inactive_rows_zero
+        && hlp_exact_derivative_sample_is_unbound(a2, &context)
+        && hlp_coordinate_within_center_trust(center_coordinate.0, terminal_coordinate.0, context.base_start)
+        && hlp_coordinate_within_center_trust(center_coordinate.1, terminal_coordinate.1, context.quote_start);
+    let a2_safe = stage4c_candidate_is_fully_safe(a2, &context);
+    eprintln!(
+        "ZERO-A1 {label} A1=(0,0)/rows={a1_rows:?}/topology={a1_topology:?} center={center_coordinate:?}/rows={:?}/topology={center_topology:?} axes=({base_probe_delta},{quote_probe_delta}) first_J={first_j_coordinate:?}/rows={:?}/guidance_safe={first_j_guidance_safe} correction={} A2={terminal_coordinate:?}/rows={a2_rows:?}/identity={a2_identity}/safe={a2_safe} counts=(scalar={},authority={})",
+        hlp_stage4b2a_test_rows(&center).unwrap(),
+        hlp_stage4b2a_test_rows(&terminal_guidance).unwrap(),
+        !first_j_guidance_safe,
+        CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get),
+        CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get),
+    );
+    assert!(a2_identity);
+    assert!(!a2_safe, "{label}: zero-A1 schedule unexpectedly became safe");
+    assert_eq!(
+        CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get),
+        2 + active_axis_count
+    );
+    assert_eq!(CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get), 2);
+    assert_eq!(snapshot.try_to_vec().unwrap(), snapshot_before);
+}
+
+#[test]
+fn stage4c_zero_a1_frozen_flow_solvent_two_point_one_base_remains_red() {
+    let scale = 1_000_000_u64;
+    let mut market = active_concentrated_hlp_market_with_decimals(6);
+    market.base_side.credit_reserve(500_000 * scale, true).unwrap();
+    market.quote_side.credit_reserve(1_000_000 * scale, true).unwrap();
+    market.checkpoint_amm_neutral_inventory(0).unwrap();
+    market.debt.base_borrow_index_nad = 21 * NAD as u128 / 10;
+    market.debt.quote_borrow_index_nad = 21 * NAD as u128 / 10;
+    assert_stage4c_zero_a1_frozen_flow_schedule(market, MarketAsset::Base, 350_000 * scale, "solvent-2.1-base");
+}
+
+/*
+fn assert_stage4c_zero_quote_one_authority_broyden_spot_base(
+    mut snapshot: Market,
+    asset_in: MarketAsset,
+    reserve_credit: u64,
+    label: &str,
+) {
+    let current_slot = curve_slot(&snapshot);
+    snapshot.prepare_amm_for_swap(current_slot).unwrap();
+    let pre_state = snapshot.dynamic_fee_pre_state(current_slot).unwrap();
+    let preliminary = snapshot
+        .preliminary_swap_inputs_for_state(reserve_credit, current_slot, pre_state)
+        .unwrap();
+    let mut context_slot = None;
+    capture_concentrated_hlp_solve_context_into(
+        &snapshot,
+        asset_in,
+        reserve_credit,
+        current_slot,
+        pre_state,
+        preliminary,
+        SwapCashPolicy::Spot,
+        &mut context_slot,
+    )
+    .unwrap();
+    let context = context_slot.unwrap();
+    let mut compact_slot = None;
+    HlpCompactSolveContext::capture_into(&snapshot, &context, &mut compact_slot).unwrap();
+    let compact = compact_slot.unwrap();
+    let cash_floors = context.cash_policy.floors(&snapshot, asset_in, 0).unwrap();
+    let (center_coordinate, scalar_input, scalar_output, scalar_end_price) =
+        stage4c_zero_quote_geometry_seed(&compact, &context, reserve_credit);
+    assert_ne!(center_coordinate, (0, 0));
+    let snapshot_before = snapshot.try_to_vec().unwrap();
+    reset_stage4b2a_test_state();
+
+    let mut center_projection_slot = None;
+    let mut center_candidate_slot = None;
+    evaluate_compact_concentrated_hlp_candidate(
+        &compact,
+        &context,
+        cash_floors,
+        center_coordinate.0,
+        center_coordinate.1,
+        true,
+        &mut center_projection_slot,
+        &mut center_candidate_slot,
+    )
+    .unwrap();
+    let center = *center_candidate_slot.as_ref().unwrap();
+    let Some(ConcentratedHlpProjection::FrozenCenter(frozen_center)) =
+        center_projection_slot
+    else {
+        panic!("{label}: fresh center must freeze")
+    };
+    assert!(center.settlement_cash_available);
+    assert!(hlp_exact_derivative_sample_is_unbound(&center, &context));
+    let center_rows = hlp_stage4b2a_test_rows(&center).unwrap();
+    let center_topology = center.structural_topology;
+    let center_signature = hlp_preposition_pair_signature(&center);
+    let base_row =
+        hlp_exact_control_row(&center, MarketAsset::Base, context.base_start).unwrap();
+    let quote_row =
+        hlp_exact_control_row(&center, MarketAsset::Quote, context.quote_start).unwrap();
+    let center_base_error =
+        hlp_exact_control_value(&center, MarketAsset::Base, base_row);
+    let center_quote_error =
+        hlp_exact_control_value(&center, MarketAsset::Quote, quote_row);
+
+    let base_probe_delta = stage4c_signed_round_away_divisor(
+        hlp_exact_axis_probe_delta(
+            center_coordinate.0,
+            context.base_start,
+            center_base_error,
+        )
+        .unwrap(),
+        16,
+    )
+    .unwrap();
+    let quote_probe_delta = stage4c_signed_round_away_divisor(
+        hlp_exact_axis_probe_delta(
+            center_coordinate.1,
+            context.quote_start,
+            center_quote_error,
+        )
+        .unwrap(),
+        16,
+    )
+    .unwrap();
+    let base_axis_coordinate = (
+        center_coordinate.0.checked_add(base_probe_delta).unwrap(),
+        center_coordinate.1,
+    );
+    let quote_axis_coordinate = (
+        center_coordinate.0,
+        center_coordinate.1.checked_add(quote_probe_delta).unwrap(),
+    );
+    let mut base_axis_slot = None;
+    evaluate_stage4c_frozen_center_bounded_axis(
+        &compact,
+        &context,
+        cash_floors,
+        base_axis_coordinate.0,
+        base_axis_coordinate.1,
+        &frozen_center.frozen,
+        &mut base_axis_slot,
+    )
+    .unwrap();
+    let base_axis = *base_axis_slot.as_ref().unwrap();
+    let mut quote_axis_slot = None;
+    evaluate_stage4c_frozen_center_bounded_axis(
+        &compact,
+        &context,
+        cash_floors,
+        quote_axis_coordinate.0,
+        quote_axis_coordinate.1,
+        &frozen_center.frozen,
+        &mut quote_axis_slot,
+    )
+    .unwrap();
+    let quote_axis = *quote_axis_slot.as_ref().unwrap();
+    for axis in [&base_axis, &quote_axis] {
+        let signature = hlp_preposition_pair_signature(axis);
+        assert!(axis.settlement_cash_available);
+        assert!(hlp_exact_derivative_sample_is_unbound(axis, &context));
+        assert_eq!(axis.structural_topology, center_topology);
+        assert!(hlp_preposition_signature_class_matches(
+            center_signature.base,
+            signature.base,
+        ));
+        assert!(hlp_preposition_signature_class_matches(
+            center_signature.quote,
+            signature.quote,
+        ));
+    }
+    let basis = HlpFiniteDifferenceBasis {
+        origin: HlpExactSampleRows::from_candidate(&center),
+        base_probe_delta_nad: base_probe_delta,
+        base_probe: HlpExactSampleRows::from_candidate(&base_axis),
+        quote_probe_delta_nad: quote_probe_delta,
+        quote_probe: HlpExactSampleRows::from_candidate(&quote_axis),
+        base_probe_recorded: true,
+        quote_probe_recorded: true,
+        ..HlpFiniteDifferenceBasis::default()
+    };
+    let base_target = stage4c_opposite_half_budget_target(
+        center_base_error,
+        context.base_start.tracking.loss_budget_nad,
+    )
+    .unwrap();
+    let quote_target = stage4c_opposite_half_budget_target(
+        center_quote_error,
+        context.quote_start.tracking.loss_budget_nad,
+    )
+    .unwrap();
+    let first_step = basis
+        .solve_step(
+            &context,
+            center_coordinate.0,
+            center_coordinate.1,
+            base_row,
+            quote_row,
+            center_base_error.checked_sub(base_target).unwrap(),
+            center_quote_error.checked_sub(quote_target).unwrap(),
+        )
+        .unwrap();
+    let first_j_coordinate = (
+        center_coordinate.0.checked_add(first_step.0).unwrap(),
+        center_coordinate.1.checked_add(first_step.1).unwrap(),
+    );
+    let mut first_j_slot = None;
+    evaluate_stage4c_frozen_center_bounded_axis(
+        &compact,
+        &context,
+        cash_floors,
+        first_j_coordinate.0,
+        first_j_coordinate.1,
+        &frozen_center.frozen,
+        &mut first_j_slot,
+    )
+    .unwrap();
+    let first_j = *first_j_slot.as_ref().unwrap();
+    let first_j_rows = hlp_stage4b2a_test_rows(&first_j).unwrap();
+    let first_j_base_error =
+        hlp_exact_control_value(&first_j, MarketAsset::Base, base_row);
+    let first_j_quote_error =
+        hlp_exact_control_value(&first_j, MarketAsset::Quote, quote_row);
+    let first_j_contracts =
+        first_j_base_error.unsigned_abs() < center_base_error.unsigned_abs()
+            && first_j_quote_error.unsigned_abs() < center_quote_error.unsigned_abs();
+    let terminal_coordinate = basis
+        .solve_broyden_candidate(
+            &context,
+            center_coordinate.0,
+            center_coordinate.1,
+            first_j_coordinate.0,
+            first_j_coordinate.1,
+            base_row,
+            quote_row,
+            first_j_base_error,
+            first_j_quote_error,
+        )
+        .unwrap();
+    assert!(hlp_coordinate_within_center_trust(
+        center_coordinate.0,
+        terminal_coordinate.0,
+        context.base_start,
+    ));
+    assert!(hlp_coordinate_within_center_trust(
+        center_coordinate.1,
+        terminal_coordinate.1,
+        context.quote_start,
+    ));
+
+    center_candidate_slot = None;
+    base_axis_slot = None;
+    quote_axis_slot = None;
+    first_j_slot = None;
+    let mut terminal_market = snapshot.clone();
+    let mut lifecycle_scratch = Market::default();
+    let mut terminal_projection_slot = None;
+    let mut terminal_candidate_slot = None;
+    let mut terminal_scratch = HlpTerminalSwapScratch::default();
+    evaluate_concentrated_hlp_candidate(
+        &mut terminal_market,
+        &mut lifecycle_scratch,
+        &snapshot,
+        &context,
+        cash_floors,
+        terminal_coordinate.0,
+        terminal_coordinate.1,
+        HlpCandidateEvaluationMode::Authoritative,
+        &mut terminal_projection_slot,
+        &mut terminal_candidate_slot,
+        &mut terminal_scratch,
+    )
+    .unwrap();
+    let terminal = terminal_candidate_slot.as_ref().unwrap();
+    let terminal_rows = hlp_stage4b2a_test_rows(terminal).unwrap();
+    let terminal_signature = hlp_preposition_pair_signature(terminal);
+    let identity = terminal.authoritative.is_some()
+        && terminal_projection_slot.as_ref().unwrap().authoritative()
+        && terminal.settlement_cash_available
+        && hlp_exact_derivative_sample_is_unbound(terminal, &context)
+        && terminal.structural_topology == center_topology
+        && hlp_preposition_signature_class_matches(
+            center_signature.base,
+            terminal_signature.base,
+        )
+        && hlp_preposition_signature_class_matches(
+            center_signature.quote,
+            terminal_signature.quote,
+        )
+        && hlp_coordinate_within_center_trust(
+            center_coordinate.0,
+            terminal_coordinate.0,
+            context.base_start,
+        )
+        && hlp_coordinate_within_center_trust(
+            center_coordinate.1,
+            terminal_coordinate.1,
+            context.quote_start,
+        );
+    let safe = stage4c_candidate_is_fully_safe(terminal, &context);
+    eprintln!(
+        "ZERO-QUOTE-ONE-AUTH-BROYDEN {label} scalar=(in={scalar_input},out={scalar_output},end_price={scalar_end_price}) center={center_coordinate:?}/rows={center_rows:?}/topology={center_topology:?} axes=({base_axis_coordinate:?}/{:?},{quote_axis_coordinate:?}/{:?}) targets=({base_target},{quote_target}) first_step={first_step:?} first_J={first_j_coordinate:?}/rows={first_j_rows:?}/contracts={first_j_contracts} A2={terminal_coordinate:?}/rows={terminal_rows:?}/safe={safe}/identity={identity} counts=(compact={},raw={},authority={},candidate={})",
+        hlp_stage4b2a_test_rows(&base_axis).unwrap(),
+        hlp_stage4b2a_test_rows(&quote_axis).unwrap(),
+        CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get),
+        CONCENTRATED_PRE_SOLVE_RAW_EVALUATIONS.with(Cell::get),
+        CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get),
+        CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(Cell::get),
+    );
+    assert!(first_j_contracts);
+    assert!(identity);
+    assert!(safe);
+    assert_eq!(CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get), 4);
+    assert_eq!(CONCENTRATED_PRE_SOLVE_RAW_EVALUATIONS.with(Cell::get), 0);
+    assert_eq!(CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get), 1);
+    assert_eq!(snapshot.try_to_vec().unwrap(), snapshot_before);
+}
+
+#[test]
+fn stage4c_zero_quote_one_authority_broyden_spot_base_diagnostic() {
+    assert_stage4c_zero_quote_one_authority_broyden_spot_base(
+        stage4b2a_spot_market(false),
+        MarketAsset::Base,
+        350_000 * 1_000_000,
+        "spot-base",
+    );
+}
+*/
+
+fn assert_stage4c_zero_quote_exact_a1_frozen_broyden_remains_red(
+    mut snapshot: Market,
+    asset_in: MarketAsset,
+    reserve_credit: u64,
+    label: &str,
+) {
+    let current_slot = curve_slot(&snapshot);
+    snapshot.prepare_amm_for_swap(current_slot).unwrap();
+    let pre_state = snapshot.dynamic_fee_pre_state(current_slot).unwrap();
+    let preliminary = snapshot
+        .preliminary_swap_inputs_for_state(reserve_credit, current_slot, pre_state)
+        .unwrap();
+    let mut context_slot = None;
+    capture_concentrated_hlp_solve_context_into(
+        &snapshot,
+        asset_in,
+        reserve_credit,
+        current_slot,
+        pre_state,
+        preliminary,
+        SwapCashPolicy::Spot,
+        &mut context_slot,
+    )
+    .unwrap();
+    let context = context_slot.unwrap();
+    let mut compact_slot = None;
+    HlpCompactSolveContext::capture_into(&snapshot, &context, &mut compact_slot).unwrap();
+    let compact = compact_slot.unwrap();
+    let cash_floors = context.cash_policy.floors(&snapshot, asset_in, 0).unwrap();
+    let (a1_coordinate, scalar_input, scalar_output, scalar_end_price) =
+        stage4c_zero_quote_geometry_seed(&compact, &context, reserve_credit);
+    assert_ne!(a1_coordinate, (0, 0));
+    let snapshot_before = snapshot.try_to_vec().unwrap();
+    reset_stage4b2a_test_state();
+
+    let mut lifecycle_scratch = Market::default();
+    let mut a1_market = snapshot.clone();
+    let mut a1_projection_slot = None;
+    let mut a1_candidate_slot = None;
+    let mut terminal_scratch = HlpTerminalSwapScratch::default();
+    evaluate_concentrated_hlp_candidate(
+        &mut a1_market,
+        &mut lifecycle_scratch,
+        &snapshot,
+        &context,
+        cash_floors,
+        a1_coordinate.0,
+        a1_coordinate.1,
+        HlpCandidateEvaluationMode::Authoritative,
+        &mut a1_projection_slot,
+        &mut a1_candidate_slot,
+        &mut terminal_scratch,
+    )
+    .unwrap();
+    let exact_a1 = *a1_candidate_slot.as_ref().unwrap();
+    assert!(exact_a1.authoritative.is_some());
+    assert!(a1_projection_slot.as_ref().unwrap().authoritative());
+    assert!(exact_a1.settlement_cash_available);
+    assert!(hlp_exact_derivative_sample_is_unbound(&exact_a1, &context));
+    let a1_rows = hlp_stage4b2a_test_rows(&exact_a1).unwrap();
+    let a1_topology = exact_a1.structural_topology;
+    let a1_signature = hlp_preposition_pair_signature(&exact_a1);
+    let base_row = hlp_exact_control_row(&exact_a1, MarketAsset::Base, context.base_start).unwrap();
+    let quote_row = hlp_exact_control_row(&exact_a1, MarketAsset::Quote, context.quote_start).unwrap();
+    let a1_base_error = hlp_exact_control_value(&exact_a1, MarketAsset::Base, base_row);
+    let a1_quote_error = hlp_exact_control_value(&exact_a1, MarketAsset::Quote, quote_row);
+
+    let inventory_changed = exact_a1.base_receipt.ylp_mint_amount != 0
+        || exact_a1.base_receipt.ylp_burn_amount != 0
+        || exact_a1.quote_receipt.ylp_mint_amount != 0
+        || exact_a1.quote_receipt.ylp_burn_amount != 0;
+    downgrade_authoritative_a1_projection(
+        a1_projection_slot.as_mut().unwrap(),
+        &context,
+        &compact,
+        a1_market.base_side.shares.ylp_supply,
+        inventory_changed,
+        a1_topology,
+    )
+    .unwrap();
+    let Some(ConcentratedHlpProjection::FrozenA1(frozen_a1)) = a1_projection_slot.take() else {
+        panic!("{label}: exact A1 must destructively downgrade")
+    };
+    a1_candidate_slot = None;
+    a1_market.clone_from(&snapshot);
+    lifecycle_scratch.clone_from(&snapshot);
+
+    let mut origin_slot = None;
+    evaluate_stage4c_frozen_center_bounded_axis(
+        &compact,
+        &context,
+        cash_floors,
+        a1_coordinate.0,
+        a1_coordinate.1,
+        &frozen_a1,
+        &mut origin_slot,
+    )
+    .unwrap();
+    let origin = *origin_slot.as_ref().unwrap();
+    let origin_rows = hlp_stage4b2a_test_rows(&origin).unwrap();
+    assert_eq!(origin_rows, a1_rows);
+    assert_eq!(origin.structural_topology, a1_topology);
+    let origin_signature = hlp_preposition_pair_signature(&origin);
+    assert!(hlp_preposition_signature_class_matches(
+        a1_signature.base,
+        origin_signature.base,
+    ));
+    assert!(hlp_preposition_signature_class_matches(
+        a1_signature.quote,
+        origin_signature.quote,
+    ));
+
+    let base_probe_delta = stage4c_signed_round_away_divisor(
+        hlp_exact_axis_probe_delta(a1_coordinate.0, context.base_start, a1_base_error).unwrap(),
+        16,
+    )
+    .unwrap();
+    let quote_probe_delta = stage4c_signed_round_away_divisor(
+        hlp_exact_axis_probe_delta(a1_coordinate.1, context.quote_start, a1_quote_error).unwrap(),
+        16,
+    )
+    .unwrap();
+    let base_axis_coordinate = (a1_coordinate.0.checked_add(base_probe_delta).unwrap(), a1_coordinate.1);
+    let quote_axis_coordinate = (a1_coordinate.0, a1_coordinate.1.checked_add(quote_probe_delta).unwrap());
+    let mut base_axis_slot = None;
+    evaluate_stage4c_frozen_center_bounded_axis(
+        &compact,
+        &context,
+        cash_floors,
+        base_axis_coordinate.0,
+        base_axis_coordinate.1,
+        &frozen_a1,
+        &mut base_axis_slot,
+    )
+    .unwrap();
+    let base_axis = *base_axis_slot.as_ref().unwrap();
+    let mut quote_axis_slot = None;
+    evaluate_stage4c_frozen_center_bounded_axis(
+        &compact,
+        &context,
+        cash_floors,
+        quote_axis_coordinate.0,
+        quote_axis_coordinate.1,
+        &frozen_a1,
+        &mut quote_axis_slot,
+    )
+    .unwrap();
+    let quote_axis = *quote_axis_slot.as_ref().unwrap();
+    for axis in [&base_axis, &quote_axis] {
+        let signature = hlp_preposition_pair_signature(axis);
+        assert!(axis.settlement_cash_available);
+        assert!(hlp_exact_derivative_sample_is_unbound(axis, &context));
+        assert_eq!(axis.structural_topology, a1_topology);
+        assert!(hlp_preposition_signature_class_matches(
+            a1_signature.base,
+            signature.base,
+        ));
+        assert!(hlp_preposition_signature_class_matches(
+            a1_signature.quote,
+            signature.quote,
+        ));
+    }
+
+    let basis = HlpFiniteDifferenceBasis {
+        origin: HlpExactSampleRows::from_candidate(&origin),
+        base_probe_delta_nad: base_probe_delta,
+        base_probe: HlpExactSampleRows::from_candidate(&base_axis),
+        quote_probe_delta_nad: quote_probe_delta,
+        quote_probe: HlpExactSampleRows::from_candidate(&quote_axis),
+        base_probe_recorded: true,
+        quote_probe_recorded: true,
+        ..HlpFiniteDifferenceBasis::default()
+    };
+    let base_target =
+        stage4c_opposite_half_budget_target(a1_base_error, context.base_start.tracking.loss_budget_nad).unwrap();
+    let quote_target =
+        stage4c_opposite_half_budget_target(a1_quote_error, context.quote_start.tracking.loss_budget_nad).unwrap();
+    let first_step = basis
+        .solve_step(
+            &context,
+            a1_coordinate.0,
+            a1_coordinate.1,
+            base_row,
+            quote_row,
+            a1_base_error.checked_sub(base_target).unwrap(),
+            a1_quote_error.checked_sub(quote_target).unwrap(),
+        )
+        .unwrap();
+    let first_j_coordinate = (
+        a1_coordinate.0.checked_add(first_step.0).unwrap(),
+        a1_coordinate.1.checked_add(first_step.1).unwrap(),
+    );
+    let mut first_j_slot = None;
+    evaluate_stage4c_frozen_center_bounded_axis(
+        &compact,
+        &context,
+        cash_floors,
+        first_j_coordinate.0,
+        first_j_coordinate.1,
+        &frozen_a1,
+        &mut first_j_slot,
+    )
+    .unwrap();
+    let first_j = *first_j_slot.as_ref().unwrap();
+    let first_j_rows = hlp_stage4b2a_test_rows(&first_j).unwrap();
+    let first_j_base_error = hlp_exact_control_value(&first_j, MarketAsset::Base, base_row);
+    let first_j_quote_error = hlp_exact_control_value(&first_j, MarketAsset::Quote, quote_row);
+    let first_j_contracts = first_j_base_error.unsigned_abs() < a1_base_error.unsigned_abs()
+        && first_j_quote_error.unsigned_abs() < a1_quote_error.unsigned_abs();
+    let terminal_coordinate = basis
+        .solve_broyden_candidate(
+            &context,
+            a1_coordinate.0,
+            a1_coordinate.1,
+            first_j_coordinate.0,
+            first_j_coordinate.1,
+            base_row,
+            quote_row,
+            first_j_base_error,
+            first_j_quote_error,
+        )
+        .unwrap();
+    assert!(hlp_coordinate_within_center_trust(
+        a1_coordinate.0,
+        terminal_coordinate.0,
+        context.base_start,
+    ));
+    assert!(hlp_coordinate_within_center_trust(
+        a1_coordinate.1,
+        terminal_coordinate.1,
+        context.quote_start,
+    ));
+
+    origin_slot = None;
+    base_axis_slot = None;
+    quote_axis_slot = None;
+    first_j_slot = None;
+    let mut a2_market = snapshot.clone();
+    let mut a2_projection_slot = None;
+    let mut a2_candidate_slot = None;
+    let mut a2_terminal_scratch = HlpTerminalSwapScratch::default();
+    evaluate_concentrated_hlp_candidate(
+        &mut a2_market,
+        &mut lifecycle_scratch,
+        &snapshot,
+        &context,
+        cash_floors,
+        terminal_coordinate.0,
+        terminal_coordinate.1,
+        HlpCandidateEvaluationMode::Authoritative,
+        &mut a2_projection_slot,
+        &mut a2_candidate_slot,
+        &mut a2_terminal_scratch,
+    )
+    .unwrap();
+    let a2 = a2_candidate_slot.as_ref().unwrap();
+    let a2_rows = hlp_stage4b2a_test_rows(a2).unwrap();
+    let a2_signature = hlp_preposition_pair_signature(a2);
+    let identity = a2.authoritative.is_some()
+        && a2_projection_slot.as_ref().unwrap().authoritative()
+        && a2.settlement_cash_available
+        && hlp_exact_derivative_sample_is_unbound(a2, &context)
+        && a2.structural_topology == a1_topology
+        && hlp_preposition_signature_class_matches(a1_signature.base, a2_signature.base)
+        && hlp_preposition_signature_class_matches(a1_signature.quote, a2_signature.quote)
+        && hlp_coordinate_within_center_trust(a1_coordinate.0, terminal_coordinate.0, context.base_start)
+        && hlp_coordinate_within_center_trust(a1_coordinate.1, terminal_coordinate.1, context.quote_start);
+    let safe = stage4c_candidate_is_fully_safe(a2, &context);
+    eprintln!(
+        "ZERO-QUOTE-EXACT-A1-FROZEN-BROYDEN {label} scalar=(in={scalar_input},out={scalar_output},end_price={scalar_end_price}) A1={a1_coordinate:?}/rows={a1_rows:?}/topology={a1_topology:?} origin={origin_rows:?}/equal={} axes=({base_axis_coordinate:?}/{:?},{quote_axis_coordinate:?}/{:?}) targets=({base_target},{quote_target}) first_step={first_step:?} first_J={first_j_coordinate:?}/rows={first_j_rows:?}/contracts={first_j_contracts} A2={terminal_coordinate:?}/rows={a2_rows:?}/safe={safe}/identity={identity} counts=(compact={},raw={},authority={},candidate={})",
+        origin_rows == a1_rows,
+        hlp_stage4b2a_test_rows(&base_axis).unwrap(),
+        hlp_stage4b2a_test_rows(&quote_axis).unwrap(),
+        CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get),
+        CONCENTRATED_PRE_SOLVE_RAW_EVALUATIONS.with(Cell::get),
+        CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get),
+        CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(Cell::get),
+    );
+    assert!(first_j_contracts);
+    assert!(identity);
+    assert!(!safe);
+    assert_eq!(CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get), 4);
+    assert_eq!(CONCENTRATED_PRE_SOLVE_RAW_EVALUATIONS.with(Cell::get), 0);
+    assert_eq!(CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get), 2);
+    assert_eq!(snapshot.try_to_vec().unwrap(), snapshot_before);
+}
+
+#[test]
+fn stage4c_zero_quote_exact_a1_frozen_broyden_spot_base_remains_red() {
+    assert_stage4c_zero_quote_exact_a1_frozen_broyden_remains_red(
+        stage4b2a_spot_market(false),
+        MarketAsset::Base,
+        350_000 * 1_000_000,
+        "spot-base",
+    );
+}
+
+#[test]
+fn stage4c_center_fresh_spot_base_differential() {
+    assert_stage4c_center_fresh_active(
+        stage4b2a_spot_market(false),
+        MarketAsset::Base,
+        "spot-base",
+        Some(true),
+        false,
+        1,
+        None,
+    );
+}
+
+#[test]
+fn stage4c_center_fresh_solvent_two_point_one_base_differential() {
+    let scale = 1_000_000_u64;
+    let mut market = active_concentrated_hlp_market_with_decimals(6);
+    market.base_side.credit_reserve(500_000 * scale, true).unwrap();
+    market.quote_side.credit_reserve(1_000_000 * scale, true).unwrap();
+    market.checkpoint_amm_neutral_inventory(0).unwrap();
+    market.debt.base_borrow_index_nad = 21 * NAD as u128 / 10;
+    market.debt.quote_borrow_index_nad = 21 * NAD as u128 / 10;
+    assert_stage4c_center_fresh_active(market, MarketAsset::Base, "solvent-2.1-base", Some(true), true, 1, None);
+}
+
+#[test]
+fn stage4c_center_fresh_one_active_unpaid_base_differential() {
+    let scale = 1_000_000_u64;
+    let mut market = seeded_market();
+    market.base_side.asset_decimals = 6;
+    market.quote_side.asset_decimals = 6;
+    configure_market_depth(&mut market, 1_000_000 * scale, 20_000);
+    market
+        .deposit_single_sided(MarketAsset::Base, 100_000 * scale, 1)
+        .unwrap();
+    enable_concentrated_curve(&mut market);
+    let curve_before = market.curve_reserves_nad().unwrap();
+    let principal = 200_000 * scale;
+    let unpaid_interest = 500 * scale;
+    market.base_side.reserves.cash_reserve -= principal;
+    market.debt.fixed_base_shares = principal as u128;
+    market.debt.fixed_base_principal = principal;
+    market.debt.base_borrow_index_nad =
+        ((principal as u128 + unpaid_interest as u128) * NAD as u128) / principal as u128;
+    market.base_side.reserves.live_reserve += unpaid_interest;
+    assert_eq!(market.curve_reserves_nad().unwrap(), curve_before);
+
+    assert_stage4c_center_fresh_active(
+        market,
+        MarketAsset::Base,
+        "one-active-unpaid-base",
+        Some(true),
+        true,
+        -1,
+        None,
+    );
+}
+
+#[test]
+fn stage4c_center_fresh_rawless_spot_base_characterization() {
+    assert_stage4c_center_fresh_active(
+        stage4b2a_spot_market(false),
+        MarketAsset::Base,
+        "rawless-spot-base",
+        Some(true),
+        true,
+        -1,
+        Some(true),
+    );
+}
+
+#[test]
+fn stage4c_center_fresh_rawless_solvent_two_point_one_base_characterization() {
+    let scale = 1_000_000_u64;
+    let mut market = active_concentrated_hlp_market_with_decimals(6);
+    market.base_side.credit_reserve(500_000 * scale, true).unwrap();
+    market.quote_side.credit_reserve(1_000_000 * scale, true).unwrap();
+    market.checkpoint_amm_neutral_inventory(0).unwrap();
+    market.debt.base_borrow_index_nad = 21 * NAD as u128 / 10;
+    market.debt.quote_borrow_index_nad = 21 * NAD as u128 / 10;
+    assert_stage4c_center_fresh_active(
+        market,
+        MarketAsset::Base,
+        "rawless-solvent-2.1-base",
+        Some(true),
+        true,
+        1,
+        Some(true),
+    );
+}
+
+#[test]
+fn stage4c_center_fresh_rawless_one_active_unpaid_base_characterization() {
+    let scale = 1_000_000_u64;
+    let mut market = seeded_market();
+    market.base_side.asset_decimals = 6;
+    market.quote_side.asset_decimals = 6;
+    configure_market_depth(&mut market, 1_000_000 * scale, 20_000);
+    market
+        .deposit_single_sided(MarketAsset::Base, 100_000 * scale, 1)
+        .unwrap();
+    enable_concentrated_curve(&mut market);
+    let curve_before = market.curve_reserves_nad().unwrap();
+    let principal = 200_000 * scale;
+    let unpaid_interest = 500 * scale;
+    market.base_side.reserves.cash_reserve -= principal;
+    market.debt.fixed_base_shares = principal as u128;
+    market.debt.fixed_base_principal = principal;
+    market.debt.base_borrow_index_nad =
+        ((principal as u128 + unpaid_interest as u128) * NAD as u128) / principal as u128;
+    market.base_side.reserves.live_reserve += unpaid_interest;
+    assert_eq!(market.curve_reserves_nad().unwrap(), curve_before);
+    assert_stage4c_center_fresh_active(
+        market,
+        MarketAsset::Base,
+        "rawless-one-active-unpaid-base",
+        Some(true),
+        true,
+        -1,
+        Some(true),
+    );
+}
+
+#[test]
+fn stage4c_center_fresh_rawless_spot_quote_remains_red() {
+    assert_stage4c_center_fresh_active(
+        stage4b2a_spot_market(false),
+        MarketAsset::Quote,
+        "rawless-spot-quote",
+        Some(true),
+        true,
+        -1,
+        Some(false),
+    );
+}
+
+#[test]
+fn stage4c_frozen_a1_local_spot_quote_is_safe() {
+    assert_stage4c_center_fresh_active_with_credit(
+        stage4b2a_spot_market(false),
+        MarketAsset::Quote,
+        350_000 * 1_000_000,
+        "frozen-a1-local-spot-quote",
+        Some(true),
+        true,
+        1,
+        None,
+        Some(true),
+    );
+}
+
+#[test]
+fn stage4c_opposite_full_axis_active_quote_characterization() {
+    assert_stage4c_center_fresh_active(
+        active_concentrated_hlp_market_with_decimals(6),
+        MarketAsset::Quote,
+        "opposite-full-axis-active-quote",
+        Some(true),
+        true,
+        -1,
+        Some(true),
+    );
+}
+
+#[test]
+fn stage4c_opposite_full_axis_asymmetric_unpaid_quote_characterization() {
+    let scale = 1_000_000_u64;
+    let mut market = seeded_market();
+    market.base_side.asset_decimals = 6;
+    market.quote_side.asset_decimals = 6;
+    configure_market_depth(&mut market, 1_000_000 * scale, 20_000);
+    market
+        .deposit_single_sided(MarketAsset::Base, 100_000 * scale, 1)
+        .unwrap();
+    enable_concentrated_curve(&mut market);
+    let curve_before = market.curve_reserves_nad().unwrap();
+    let principal = 200_000 * scale;
+    let unpaid_interest = 500 * scale;
+    market.base_side.reserves.cash_reserve -= principal;
+    market.debt.fixed_base_shares = principal as u128;
+    market.debt.fixed_base_principal = principal;
+    market.debt.base_borrow_index_nad =
+        ((principal as u128 + unpaid_interest as u128) * NAD as u128) / principal as u128;
+    market.base_side.reserves.live_reserve += unpaid_interest;
+    assert_eq!(market.curve_reserves_nad().unwrap(), curve_before);
+    assert_stage4c_center_fresh_active(
+        market,
+        MarketAsset::Quote,
+        "opposite-full-axis-asymmetric-unpaid-quote",
+        Some(true),
+        true,
+        -1,
+        Some(true),
+    );
+}
+
+#[test]
+fn stage4c_opposite_full_axis_funding_one_point_one_characterization() {
+    for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut market = active_concentrated_hlp_market_with_decimals(6);
+        market.debt.base_borrow_index_nad = 11 * NAD as u128 / 10;
+        market.debt.quote_borrow_index_nad = 11 * NAD as u128 / 10;
+        assert_stage4c_center_fresh_active(
+            market,
+            asset_in,
+            match asset_in {
+                MarketAsset::Base => "opposite-full-axis-funding-1.1-base",
+                MarketAsset::Quote => "opposite-full-axis-funding-1.1-quote",
+            },
+            Some(true),
+            true,
+            -1,
+            Some(true),
+        );
+    }
+}
+
+#[test]
+fn stage4c_guidance_d_action_two_sign_joint_base_500k_characterization() {
+    for axis_divisor in [1_i128, -1] {
+        assert_stage4c_center_fresh_active_with_credit(
+            active_concentrated_hlp_market_with_decimals(6),
+            MarketAsset::Base,
+            500_000 * 1_000_000,
+            if axis_divisor > 0 {
+                "guidance-d-joint-base-500k-inward"
+            } else {
+                "guidance-d-joint-base-500k-reflected"
+            },
+            None,
+            true,
+            axis_divisor,
+            None,
+            None,
+        );
+    }
+}
+
+#[test]
+fn stage4c_guidance_d_action_two_sign_asymmetric_unpaid_quote_characterization() {
+    let build = || {
+        let scale = 1_000_000_u64;
+        let mut market = seeded_market();
+        market.base_side.asset_decimals = 6;
+        market.quote_side.asset_decimals = 6;
+        configure_market_depth(&mut market, 1_000_000 * scale, 20_000);
+        market
+            .deposit_single_sided(MarketAsset::Base, 100_000 * scale, 1)
+            .unwrap();
+        enable_concentrated_curve(&mut market);
+        let curve_before = market.curve_reserves_nad().unwrap();
+        let principal = 200_000 * scale;
+        let unpaid_interest = 500 * scale;
+        market.base_side.reserves.cash_reserve -= principal;
+        market.debt.fixed_base_shares = principal as u128;
+        market.debt.fixed_base_principal = principal;
+        market.debt.base_borrow_index_nad =
+            ((principal as u128 + unpaid_interest as u128) * NAD as u128) / principal as u128;
+        market.base_side.reserves.live_reserve += unpaid_interest;
+        assert_eq!(market.curve_reserves_nad().unwrap(), curve_before);
+        market
+    };
+    for axis_divisor in [1_i128, -1] {
+        assert_stage4c_center_fresh_active(
+            build(),
+            MarketAsset::Quote,
+            if axis_divisor > 0 {
+                "guidance-d-asymmetric-unpaid-quote-inward"
+            } else {
+                "guidance-d-asymmetric-unpaid-quote-reflected"
+            },
+            None,
+            true,
+            axis_divisor,
+            None,
+        );
+    }
+}
+
+fn assert_stage4b2a_spot_base_success(retain_dynamic_surcharge: bool) {
+    let mut market = stage4b2a_spot_market(retain_dynamic_surcharge);
+    reset_stage4b2a_test_state();
+    let (base, quote, swap_quote) =
+        solve_concentrated_hlp_swap(&mut market, MarketAsset::Base, 350_000 * 1_000_000).unwrap();
+    assert_stage4c_counts(4, 0, 2);
+    assert_stage4c_rawless_success_trace(
+        (-33_851_687_807_396, 102_352_277_765_190),
+        (-33_857_586_522_400, 102_377_850_307_588),
+        [
+            -1_136_968,
+            -1_478_635,
+            153_280_704_813,
+            371_163_871_277,
+            3_732_182_583_535,
+            8_582_241_134_363,
+        ],
+        (HlpPlanTopologyKind::DeleverageDirect, HlpPlanTopologyKind::LeverageUp),
+    );
+    assert_concentrated_candidate_safe(&market, base, quote, swap_quote);
+    assert_market_hlp_invariants(&market);
+}
+
+#[test]
+fn stage4c_rawless_spot_base_matches_exact_a2() {
+    assert_stage4b2a_spot_base_success(false);
+}
+#[test]
+fn stage4c_rawless_retained_base_matches_exact_a2() {
+    assert_stage4b2a_spot_base_success(true);
+}
+
+#[test]
+fn stage4c_rawless_solvent_two_point_one_base_is_safe() {
+    let scale = 1_000_000_u64;
+    let mut market = active_concentrated_hlp_market_with_decimals(6);
+    market.base_side.credit_reserve(500_000 * scale, true).unwrap();
+    market.quote_side.credit_reserve(1_000_000 * scale, true).unwrap();
+    market.checkpoint_amm_neutral_inventory(0).unwrap();
+    market.debt.base_borrow_index_nad = 21 * NAD as u128 / 10;
+    market.debt.quote_borrow_index_nad = 21 * NAD as u128 / 10;
+
+    reset_stage4b2a_test_state();
+    let (base, quote, swap_quote) =
+        solve_concentrated_hlp_swap(&mut market, MarketAsset::Base, 350_000 * scale).unwrap();
+    assert_stage4c_counts(4, 0, 2);
+    assert_concentrated_candidate_safe(&market, base, quote, swap_quote);
+    assert_market_hlp_invariants(&market);
+}
+
+#[test]
+fn stage4c_frozen_center_fingerprint_mutation_fails_closed() {
+    let mut market = stage4b2a_spot_market(false);
+    let before = market.try_to_vec().unwrap();
+    reset_stage4b2a_test_state();
+    let _mutation = MutateFrozenCenterFingerprintGuard::enable();
+    assert_eq!(
+        solve_concentrated_hlp_swap(&mut market, MarketAsset::Base, 350_000 * 1_000_000).unwrap_err(),
+        error!(ErrorCode::HlpSettlementUnavailable)
+    );
+    assert_eq!(market.try_to_vec().unwrap(), before);
+    assert_stage4c_counts(3, 0, 0);
+    assert_eq!(HLP_STAGE4B2A_LAST_TRACE.with(|trace| *trace.borrow()), None);
+}
+
+#[test]
+fn stage4c_rawless_one_active_unpaid_base_matches_exact_a2() {
+    let scale = 1_000_000_u64;
+    let mut market = seeded_market();
+    market.base_side.asset_decimals = 6;
+    market.quote_side.asset_decimals = 6;
+    configure_market_depth(&mut market, 1_000_000 * scale, 20_000);
+    market
+        .deposit_single_sided(MarketAsset::Base, 100_000 * scale, 1)
+        .unwrap();
+    enable_concentrated_curve(&mut market);
+    let curve_before = market.curve_reserves_nad().unwrap();
+    let principal = 200_000 * scale;
+    let unpaid_interest = 500 * scale;
+    market.base_side.reserves.cash_reserve -= principal;
+    market.debt.fixed_base_shares = principal as u128;
+    market.debt.fixed_base_principal = principal;
+    market.debt.base_borrow_index_nad =
+        ((principal as u128 + unpaid_interest as u128) * NAD as u128) / principal as u128;
+    market.base_side.reserves.live_reserve += unpaid_interest;
+    assert_eq!(market.curve_reserves_nad().unwrap(), curve_before);
+
+    reset_stage4b2a_test_state();
+    let (base, quote, swap_quote) =
+        solve_concentrated_hlp_swap(&mut market, MarketAsset::Base, 350_000 * scale).unwrap();
+    assert_stage4c_counts(3, 0, 2);
+    assert_stage4c_rawless_success_trace(
+        (-37_520_473_080_830, 0),
+        (-37_518_581_549_747, 0),
+        [-186_511, 0, -185_140, 0, 0, 0],
+        (HlpPlanTopologyKind::DeleverageDirect, HlpPlanTopologyKind::Inactive),
+    );
+    assert_eq!(quote, empty_hlp_rebalance_receipt(MarketAsset::Quote));
+    assert_concentrated_candidate_safe(&market, base, quote, swap_quote);
+    assert_market_hlp_invariants(&market);
+}
+
+#[test]
+fn stage4c_rawless_spot_quote_red_restores_after_a2() {
+    let mut market = stage4b2a_spot_market(false);
+    let before = market.try_to_vec().unwrap();
+    reset_stage4b2a_test_state();
+    assert_eq!(
+        solve_concentrated_hlp_swap(&mut market, MarketAsset::Quote, 350_000 * 1_000_000).unwrap_err(),
+        error!(ErrorCode::HlpSettlementUnavailable)
+    );
+    assert_eq!(market.try_to_vec().unwrap(), before);
+    assert_stage4c_counts(4, 0, 2);
+    let trace = stage4b2a_last_trace();
+    assert_eq!(trace.a1_coordinate, Some((16_864_563_184_013, -28_861_710_222_310)));
+    assert_eq!(trace.raw_coordinate, None);
+    assert_eq!(
+        trace.a2_rows,
+        Some([
+            -1_542_153_621,
+            -2_652_297_016,
+            -20_580_792,
+            -40_995_302,
+            1_954_132_041_226,
+            3_352_692_979_496,
+        ])
+    );
+    assert_eq!(trace.raw_rows, None);
+    assert_eq!(trace.raw_robust, None);
+    assert_eq!(trace.a2_coordinate, Some((16_865_824_197_463, -28_858_824_833_913)));
+    assert_eq!(trace.a1_topology, trace.a2_topology);
+    let a1_signature = trace.a1_signature.unwrap();
+    let a2_signature = trace.a2_signature.unwrap();
+    assert!(hlp_preposition_signature_class_matches(
+        a1_signature.base,
+        a2_signature.base
+    ));
+    assert!(hlp_preposition_signature_class_matches(
+        a1_signature.quote,
+        a2_signature.quote
+    ));
 }
 
 #[test]
@@ -2258,6 +5796,42 @@ fn concentrated_predictor_jointly_tracks_both_hlps_with_bounded_exact_quotes() {
                 assert_market_hlp_invariants(&market);
             }
         }
+    }
+}
+
+#[test]
+fn cpmm_predictor_keeps_four_compact_samples_and_one_authoritative_gate() {
+    let scale = 1_000_000_u64;
+    for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut market = seeded_market();
+        market.base_side.asset_decimals = 6;
+        market.quote_side.asset_decimals = 6;
+        configure_market_depth(&mut market, 1_000_000 * scale, 20_000);
+        market
+            .deposit_single_sided(MarketAsset::Base, 100_000 * scale, 1)
+            .unwrap();
+        market
+            .deposit_single_sided(MarketAsset::Quote, 200_000 * scale, 1)
+            .unwrap();
+        market.config.settlement_divergence_bps = BPS_DENOMINATOR;
+        market.ensure_amm_initialized(0).unwrap();
+        assert!(market.current_curve_parameters(0).is_cpmm());
+
+        CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(|count| count.set(0));
+        CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(|count| count.set(0));
+        CONCENTRATED_PRE_SOLVE_RAW_EVALUATIONS.with(|count| count.set(0));
+        CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(|count| count.set(0));
+        HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES.with(|count| count.set(0));
+        HLP_COMPACT_GUIDANCE_EXACT_OUT_CANONICAL_FALLBACKS.with(|count| count.set(0));
+        let (base, quote, swap_quote) = solve_concentrated_hlp_swap(&mut market, asset_in, 100_000 * scale).unwrap();
+
+        assert_eq!(CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(Cell::get), 5);
+        assert_eq!(CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get), 4);
+        assert_eq!(CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get), 1);
+        assert_eq!(HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES.with(Cell::get), 0);
+        assert_eq!(HLP_COMPACT_GUIDANCE_EXACT_OUT_CANONICAL_FALLBACKS.with(Cell::get), 0);
+        assert_concentrated_candidate_safe(&market, base, quote, swap_quote);
+        assert_market_hlp_invariants(&market);
     }
 }
 
@@ -2364,12 +5938,18 @@ fn concentrated_predictor_is_deterministic_and_restores_state_on_fail_closed_coa
     for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
         let mut capped = coarse.clone();
         CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(|count| count.set(0));
+        CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(|count| count.set(0));
+        CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(|count| count.set(0));
         assert_eq!(
             solve_concentrated_hlp_swap(&mut capped, asset_in, 500_000).unwrap_err(),
             error!(ErrorCode::HlpSettlementUnavailable)
         );
         let evaluations = CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(Cell::get);
+        let compact_evaluations = CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get);
+        let authoritative_evaluations = CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get);
         assert!(evaluations > 1 && evaluations <= HLP_CONCENTRATED_MAX_CANDIDATE_EVALUATIONS);
+        assert!(compact_evaluations <= HLP_CONCENTRATED_MAX_COMPACT_EVALUATIONS);
+        assert!(authoritative_evaluations <= 1);
         assert_eq!(capped.try_to_vec().unwrap(), coarse_before);
     }
 
@@ -2427,19 +6007,36 @@ fn concentrated_predictor_tracks_trade_nav_and_bounds_retained_principal_endpoin
         assert_eq!(exact_guidance_input, zero_plan_quote.fee.amount_in_for_quote);
 
         CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(|count| count.set(0));
+        CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(|count| count.set(0));
+        CONCENTRATED_PRE_SOLVE_RAW_EVALUATIONS.with(|count| count.set(0));
         CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(|count| count.set(0));
         let prepared = crate::instructions::SwapRequest {
             current_slot: 0,
             asset_in,
             reserve_credit: 350_000 * scale,
         }
-        .prepare(&mut market)
-        .unwrap();
+        .prepare(&mut market);
+        if asset_in == MarketAsset::Quote {
+            assert_eq!(prepared.unwrap_err(), error!(ErrorCode::HlpSettlementUnavailable));
+            assert_stage4c_counts(4, 0, 2);
+            continue;
+        }
+        let prepared = prepared.unwrap();
         let quote = prepared.quote;
         let evaluations = CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(Cell::get);
+        let compact_evaluations = CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get);
+        let raw_evaluations = CONCENTRATED_PRE_SOLVE_RAW_EVALUATIONS.with(Cell::get);
         let authoritative_evaluations = CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get);
-        assert_eq!(evaluations, 6, "asset_in={asset_in:?}");
-        assert_eq!(authoritative_evaluations, 1, "asset_in={asset_in:?}");
+        assert_eq!(
+            (
+                evaluations,
+                compact_evaluations,
+                raw_evaluations,
+                authoritative_evaluations
+            ),
+            (6, 4, 0, 2),
+            "asset_in={asset_in:?}"
+        );
         assert!(authoritative_evaluations <= HLP_CONCENTRATED_MAX_AUTHORITATIVE_EVALUATIONS);
 
         assert!(quote.fee.retained_surcharge > 0);
@@ -2562,10 +6159,22 @@ fn concentrated_predictor_handles_exact_high_divergence_with_distributed_surchar
         let mut market = active_concentrated_hlp_market_with_decimals(6);
         market.config.divergence_fee_share_cap_bps = 2_000;
         market.config.amm.divergence_fee_coefficient_nad = 10 * NAD;
+        market.config.amm.adjustment_threshold_nad = 0;
         market.config.amm.adjustment_step_nad = 0;
+        market.config.amm.min_adjustment_interval_slots = 0;
         market.amm.retain_dynamic_surcharge = false;
         CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(|count| count.set(0));
-        let (base, quote_receipt, quote) = solve_concentrated_hlp_swap(&mut market, asset_in, 350_000 * scale).unwrap();
+        CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(|count| count.set(0));
+        CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(|count| count.set(0));
+        let (base, quote_receipt, quote) = solve_concentrated_hlp_swap(&mut market, asset_in, 350_000 * scale)
+            .unwrap_or_else(|error| {
+                panic!(
+                    "asset_in={asset_in:?} candidates={} compact={} authority={}: {error:?}",
+                    CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(Cell::get),
+                    CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get),
+                    CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get),
+                )
+            });
         let evaluations = CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(Cell::get);
 
         assert!(evaluations <= HLP_CONCENTRATED_MAX_CANDIDATE_EVALUATIONS);
@@ -2717,7 +6326,7 @@ fn concentrated_predictor_excludes_hlp_funding_interest_from_tracking_and_nested
 }
 
 #[test]
-fn two_active_concentrated_hlps_with_funding_interest_settle_both_directions_within_six_evaluations() {
+fn two_active_concentrated_hlps_with_funding_interest_settle_both_directions_within_stage4b1_caps() {
     let scale = 1_000_000_u64;
     for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
         let mut market = active_concentrated_hlp_market_with_decimals(6);
@@ -2726,7 +6335,10 @@ fn two_active_concentrated_hlps_with_funding_interest_settle_both_directions_wit
         assert_eq!(market.unrealized_interest(MarketAsset::Base).unwrap(), 0);
         assert_eq!(market.unrealized_interest(MarketAsset::Quote).unwrap(), 0);
         CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(|count| count.set(0));
+        CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(|count| count.set(0));
         CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(|count| count.set(0));
+        HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES.with(|count| count.set(0));
+        HLP_COMPACT_GUIDANCE_EXACT_OUT_CANONICAL_FALLBACKS.with(|count| count.set(0));
 
         let prepared = crate::instructions::SwapRequest {
             current_slot: 0,
@@ -2736,10 +6348,32 @@ fn two_active_concentrated_hlps_with_funding_interest_settle_both_directions_wit
         .prepare(&mut market)
         .unwrap_or_else(|error| panic!("asset_in={asset_in:?}: {error:?}"));
         let evaluations = CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(Cell::get);
+        let compact_evaluations = CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get);
         let authoritative_evaluations = CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get);
         assert!(evaluations <= HLP_CONCENTRATED_MAX_CANDIDATE_EVALUATIONS);
+        assert!(compact_evaluations <= 4, "asset_in={asset_in:?}");
         assert!(authoritative_evaluations <= HLP_CONCENTRATED_MAX_AUTHORITATIVE_EVALUATIONS);
-        assert_eq!(authoritative_evaluations, 1, "asset_in={asset_in:?}");
+        let expected_authoritative_evaluations = match asset_in {
+            MarketAsset::Base => 2,
+            MarketAsset::Quote => 1,
+        };
+        assert_eq!(
+            authoritative_evaluations, expected_authoritative_evaluations,
+            "asset_in={asset_in:?}"
+        );
+        let exact_out_probes = HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES.with(Cell::get);
+        assert!(
+            exact_out_probes
+                <= compact_evaluations
+                    .saturating_mul(4)
+                    .saturating_mul(MAX_RESIDUAL_PROBES_PER_BOUNDED_EXACT_OUT_LEG as u32),
+            "asset_in={asset_in:?} exact_out_probes={exact_out_probes}"
+        );
+        assert_eq!(
+            HLP_COMPACT_GUIDANCE_EXACT_OUT_CANONICAL_FALLBACKS.with(Cell::get),
+            0,
+            "asset_in={asset_in:?}"
+        );
         let finalized = prepared
             .finalize_state(&mut market, 0, 0, crate::state::ProtocolAuctionSplit::default())
             .unwrap();
@@ -2900,20 +6534,62 @@ fn concentrated_interest_shortfall_is_minimal_and_replays_exactly() {
     let mut first = fixture.clone();
     let mut replay = fixture.clone();
     CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(|count| count.set(0));
+    CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(|count| count.set(0));
+    CONCENTRATED_PRE_SOLVE_RAW_EVALUATIONS.with(|count| count.set(0));
     CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(|count| count.set(0));
+    HLP_COMPACT_GUIDANCE_EXACT_IN_PROBES.with(|count| count.set(0));
+    HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES.with(|count| count.set(0));
+    HLP_COMPACT_GUIDANCE_EXACT_OUT_CANONICAL_FALLBACKS.with(|count| count.set(0));
+    HLP_RAW_CANONICAL_SCALAR_CALLS.with(|count| count.set(0));
+    HLP_RAW_CANONICAL_SCALAR_RESIDUALS.with(|count| count.set(0));
     let prepared = request.prepare(&mut first).unwrap();
     let first_evaluations = CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(Cell::get);
+    let first_compact_evaluations = CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get);
+    let first_raw_evaluations = CONCENTRATED_PRE_SOLVE_RAW_EVALUATIONS.with(Cell::get);
     let first_authoritative_evaluations = CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get);
+    let first_exact_in_probes = HLP_COMPACT_GUIDANCE_EXACT_IN_PROBES.with(Cell::get);
+    let first_exact_out_probes = HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES.with(Cell::get);
+    let first_exact_out_fallbacks = HLP_COMPACT_GUIDANCE_EXACT_OUT_CANONICAL_FALLBACKS.with(Cell::get);
+    let first_raw_scalar_calls = HLP_RAW_CANONICAL_SCALAR_CALLS.with(Cell::get);
+    let first_raw_scalar_residuals = HLP_RAW_CANONICAL_SCALAR_RESIDUALS.with(Cell::get);
     CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(|count| count.set(0));
+    CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(|count| count.set(0));
+    CONCENTRATED_PRE_SOLVE_RAW_EVALUATIONS.with(|count| count.set(0));
     CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(|count| count.set(0));
+    HLP_COMPACT_GUIDANCE_EXACT_IN_PROBES.with(|count| count.set(0));
+    HLP_RAW_CANONICAL_SCALAR_CALLS.with(|count| count.set(0));
+    HLP_RAW_CANONICAL_SCALAR_RESIDUALS.with(|count| count.set(0));
     let replay_prepared = request.prepare(&mut replay).unwrap();
     let replay_evaluations = CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(Cell::get);
+    let replay_compact_evaluations = CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get);
+    let replay_raw_evaluations = CONCENTRATED_PRE_SOLVE_RAW_EVALUATIONS.with(Cell::get);
     let replay_authoritative_evaluations = CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get);
+    let replay_exact_in_probes = HLP_COMPACT_GUIDANCE_EXACT_IN_PROBES.with(Cell::get);
+    let replay_raw_scalar_calls = HLP_RAW_CANONICAL_SCALAR_CALLS.with(Cell::get);
+    let replay_raw_scalar_residuals = HLP_RAW_CANONICAL_SCALAR_RESIDUALS.with(Cell::get);
 
     assert_eq!(first_evaluations, 6);
+    assert_eq!(first_compact_evaluations, 4);
+    assert_eq!(first_raw_evaluations, 0);
     assert_eq!(replay_evaluations, first_evaluations);
-    assert_eq!(first_authoritative_evaluations, 1);
+    assert_eq!(replay_compact_evaluations, first_compact_evaluations);
+    assert_eq!(replay_raw_evaluations, first_raw_evaluations);
+    assert_eq!(first_authoritative_evaluations, 2);
+    assert_eq!(first_exact_in_probes, 10);
+    assert_eq!(first_exact_out_probes, 30);
+    assert_eq!(first_exact_out_fallbacks, 0);
+    assert_eq!(first_raw_scalar_calls, 0);
+    assert_eq!(first_raw_scalar_residuals, 0);
     assert_eq!(replay_authoritative_evaluations, first_authoritative_evaluations);
+    assert_eq!(replay_exact_in_probes, first_exact_in_probes);
+    assert_eq!(replay_raw_scalar_calls, first_raw_scalar_calls);
+    assert_eq!(replay_raw_scalar_residuals, first_raw_scalar_residuals);
+    assert_stage4c_rawless_success_trace(
+        (-159_850_010_344_773, -205_993_557_286_745),
+        (-159_848_952_677_555, -205_984_576_466_221),
+        [1_625_896, 5_412_265, -46_693_392, 2_171_555_593, 0, 0],
+        (HlpPlanTopologyKind::DeleverageExactOut, HlpPlanTopologyKind::LeverageUp),
+    );
     assert!(first_evaluations <= HLP_CONCENTRATED_MAX_CANDIDATE_EVALUATIONS);
     assert!(first_authoritative_evaluations <= HLP_CONCENTRATED_MAX_AUTHORITATIVE_EVALUATIONS);
     assert_eq!(prepared.quote, replay_prepared.quote);
@@ -2933,31 +6609,28 @@ fn concentrated_interest_shortfall_is_minimal_and_replays_exactly() {
     let target_leg = ylp_live_underlying_amount(&fixture, MarketAsset::Base, base_receipt.ylp_burn_amount).unwrap();
     let borrowed_leg = ylp_live_underlying_amount(&fixture, MarketAsset::Quote, base_receipt.ylp_burn_amount).unwrap();
     let interest = base_receipt.interest_paid;
-    assert_eq!(base_receipt.ylp_burn_amount, 56_417_254_452);
-    assert_eq!(target_leg, 79_924_443_807);
-    assert_eq!(borrowed_leg, 159_848_887_614);
-    assert_eq!(interest, 167_460_739_405);
+    assert_eq!(base_receipt.ylp_burn_amount, 56_417_277_415);
+    assert_eq!(target_leg, 79_924_476_337);
+    assert_eq!(borrowed_leg, 159_848_952_675);
+    assert_eq!(interest, 167_460_807_564);
     assert!(interest > borrowed_leg);
 
     let shortfall = interest - borrowed_leg;
     let target_debit =
         settled_close_target_amount(&fixture, MarketAsset::Base, target_leg, borrowed_leg, interest).unwrap();
     let exact_target_input = target_leg - target_debit;
-    assert_eq!(shortfall, 7_611_851_791);
-    assert_eq!(exact_target_input, 3_805_970_384);
-    assert_eq!(target_debit, 76_118_473_423);
+    assert_eq!(shortfall, 7_611_854_889);
+    assert_eq!(exact_target_input, 3_805_971_933);
+    assert_eq!(target_debit, 76_118_504_404);
 
     let mut post_burn_reserves = fixture.curve_reserves_nad().unwrap();
     post_burn_reserves.base -= normalize_to_nad(target_leg as u128, fixture.base_side.asset_decimals).unwrap();
     post_burn_reserves.quote -= normalize_to_nad(borrowed_leg as u128, fixture.quote_side.asset_decimals).unwrap();
-    assert_eq!(
-        denormalize_from_nad_floor(post_burn_reserves.base, fixture.base_side.asset_decimals).unwrap(),
-        1_620_075_556_193
-    );
-    assert_eq!(
-        denormalize_from_nad_floor(post_burn_reserves.quote, fixture.quote_side.asset_decimals).unwrap(),
-        3_240_151_112_386
-    );
+    let post_base_raw = denormalize_from_nad_floor(post_burn_reserves.base, fixture.base_side.asset_decimals).unwrap();
+    let post_quote_raw =
+        denormalize_from_nad_floor(post_burn_reserves.quote, fixture.quote_side.asset_decimals).unwrap();
+    assert_eq!(post_base_raw, 1_620_075_523_663);
+    assert_eq!(post_quote_raw, 3_240_151_047_325);
     let insufficient_curve = fixture
         .prepare_curve_for_reserves_nad(post_burn_reserves, fixture.current_curve_center_price_nad().unwrap(), 0)
         .unwrap();
@@ -2972,17 +6645,17 @@ fn concentrated_interest_shortfall_is_minimal_and_replays_exactly() {
         .quote_curve_exact_in_for_prepared_nad(MarketAsset::Base, exact_target_input, sufficient_curve, 0)
         .unwrap()
         .amount_out;
-    assert_eq!(insufficient_out, shortfall - 2);
-    assert_eq!(sufficient_out, shortfall);
+    assert_eq!(insufficient_out, 7_611_854_887);
+    assert_eq!(sufficient_out, 7_611_854_889);
     assert!(insufficient_out < shortfall && sufficient_out >= shortfall);
 
-    let post_base_raw = 1_620_075_556_193_u128;
-    let post_quote_raw = 3_240_151_112_386_u128;
+    let post_base_raw = u128::from(post_base_raw);
+    let post_quote_raw = u128::from(post_quote_raw);
     let cpmm_denominator = post_quote_raw - u128::from(shortfall);
     let cpmm_input = (post_base_raw * u128::from(shortfall) + cpmm_denominator - 1) / cpmm_denominator;
-    assert_eq!(cpmm_input, 3_814_887_935);
+    assert_eq!(cpmm_input, 3_814_889_492);
     assert_ne!(u128::from(exact_target_input), cpmm_input);
-    assert_eq!(prepared.quote.amount_out, 679_953_442_637);
+    assert_eq!(prepared.quote.amount_out, 679_953_441_070);
 
     let finalized = prepared
         .finalize_state(&mut first, 0, 0, crate::state::ProtocolAuctionSplit::default())
@@ -3004,12 +6677,12 @@ fn concentrated_interest_shortfall_is_minimal_and_replays_exactly() {
         finalized.base_rebalance,
         finalized.quote_rebalance,
     );
-    assert_eq!((base_tracking_delta, quote_tracking_delta), (-5_756_704, 213_120));
+    assert_eq!((base_tracking_delta, quote_tracking_delta), (1_625_896, 5_412_265));
     assert!(base_tracking_delta.unsigned_abs() <= prepared.base_pre_rebalance.tracking_loss_budget_nad);
     assert!(quote_tracking_delta.unsigned_abs() <= prepared.quote_pre_rebalance.tracking_loss_budget_nad);
     let final_reserves = first.curve_reserves_nad().unwrap();
-    assert_eq!(final_reserves.base, 1_921_372_038_371_000);
-    assert_eq!(final_reserves.quote, 2_456_704_225_285_000);
+    assert_eq!(final_reserves.base, 1_921_372_047_756_000);
+    assert_eq!(final_reserves.quote, 2_456_704_243_898_000);
     first.checkpoint_amm_neutral_inventory(0).unwrap();
     replay.checkpoint_amm_neutral_inventory(0).unwrap();
     assert_eq!(first.try_to_vec().unwrap(), replay.try_to_vec().unwrap());
@@ -4548,6 +8221,100 @@ fn concentrated_rebalance_uses_actual_inventory_exposure_and_preserves_curve_pri
     );
 }
 
+/// Deleverage debits ride the live-reserve ray while lever-up legs ride the
+/// curve-reserve ray, so a deleverage moves the executable curve reserves off
+/// the proportional ray exactly when per-side unrealized interest is
+/// asymmetric (U_b/C_b != U_q/C_q). The control arm shows the same deleverage
+/// is exactly proportional (and price-preserving) without unrealized
+/// interest. This pins the counterexample in
+/// design/hlp-analytic-solver-phase1.md §3.2: joint hLP prepositions do not
+/// factor through one aggregate depth coordinate. The marginal price is a
+/// weak detector here because deep concentration flattens price response
+/// near center, so the assertion is on the ray departure itself.
+#[test]
+fn deleverage_with_asymmetric_unrealized_interest_leaves_the_proportional_ray() {
+    struct DeleverOutcome {
+        ray_gap: u128,
+        atom_tolerance: u128,
+        price_moved: bool,
+    }
+
+    fn delever_base_vault(market: &mut Market) -> DeleverOutcome {
+        // Grow the base vault's quote funding debt so its exposure turns
+        // negative and the rebalance takes the deleverage path.
+        market.debt.quote_borrow_index_nad = (NAD as u128) * 105 / 100;
+        let price_before = market.curve_marginal_price_nad(0).unwrap();
+        let curve_before = (
+            market.curve_reserve(MarketAsset::Base).unwrap() as u128,
+            market.curve_reserve(MarketAsset::Quote).unwrap() as u128,
+        );
+        let (base_receipt, _) = rebalance_hlp_vaults(market).unwrap();
+        assert!(
+            base_receipt.ideal_delta < 0,
+            "fixture must take the deleverage path: {:?}",
+            base_receipt
+        );
+        assert!(base_receipt.ylp_burn_amount > 0);
+        assert_market_hlp_invariants(market);
+        let curve_after = (
+            market.curve_reserve(MarketAsset::Base).unwrap() as u128,
+            market.curve_reserve(MarketAsset::Quote).unwrap() as u128,
+        );
+        // The post-deleverage reserves are on the pre-deleverage proportional
+        // ray iff the cross-products match. One raw atom of leg rounding moves
+        // the cross-product by at most one opposing reserve.
+        let ray_gap = (curve_after.0 * curve_before.1).abs_diff(curve_after.1 * curve_before.0);
+        DeleverOutcome {
+            ray_gap,
+            atom_tolerance: curve_before.0 + curve_before.1,
+            price_moved: market.curve_marginal_price_nad(0).unwrap() != price_before,
+        }
+    }
+
+    let control_outcome = delever_base_vault(&mut active_concentrated_hlp_market());
+    assert!(
+        control_outcome.ray_gap <= control_outcome.atom_tolerance,
+        "control deleverage without unrealized interest left the proportional ray: gap {}",
+        control_outcome.ray_gap
+    );
+    assert!(!control_outcome.price_moved);
+
+    let mut market = active_concentrated_hlp_market();
+    // Coherent accrued-unpaid fixed base interest: a borrower holds 250k of
+    // principal (cash down by the borrowed amount, indexed debt up by the
+    // same), and a further 300k of interest has accrued on the claim (live up,
+    // matching the indexed-debt growth in the virtual reserve identity). The
+    // executable curve reserve `live - unrealized` is unchanged by
+    // construction, so both vault valuations and the marginal price are
+    // untouched until the deleverage burns against the live basis.
+    let principal = 250_000_u64;
+    let interest = 300_000_u64;
+    assert_eq!(market.debt.base_borrow_index_nad, NAD as u128);
+    let base_curve_before = market.curve_reserve(MarketAsset::Base).unwrap();
+    market.debt.fixed_base_shares = (principal + interest) as u128;
+    market.debt.fixed_base_principal = principal;
+    market.base_side.reserves.cash_reserve -= principal;
+    market.base_side.reserves.live_reserve += interest;
+    assert_eq!(
+        market.unrealized_interest(MarketAsset::Base).unwrap(),
+        interest as u128
+    );
+    assert_eq!(market.unrealized_interest(MarketAsset::Quote).unwrap(), 0);
+    assert_eq!(market.curve_reserve(MarketAsset::Base).unwrap(), base_curve_before);
+    assert_market_hlp_invariants(&market);
+
+    let outcome = delever_base_vault(&mut market);
+    assert!(
+        outcome.ray_gap > 100 * outcome.atom_tolerance,
+        "asymmetric unrealized interest must push the curve reserves off the \
+         proportional ray through the live-basis deleverage debit: gap {} \
+         (atom tolerance {})",
+        outcome.ray_gap,
+        outcome.atom_tolerance
+    );
+    assert!(outcome.price_moved);
+}
+
 #[test]
 fn due_funded_ramp_blocks_new_hlp_deposit_until_a_swap_like_operation_advances_it() {
     let (mut market, due_slot) = funded_due_ramp_with_residual_base_hlp();
@@ -4782,21 +8549,76 @@ fn swap_round_trip_then_hlp_close_leaves_no_synthetic_residuals() {
     let mut market = active_hlp_market();
 
     CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(|count| count.set(0));
+    CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(|count| count.set(0));
     CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(|count| count.set(0));
     let first_swap = apply_test_composite_swap(&mut market, MarketAsset::Base, 350_000);
     let first_counts = (
         CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(Cell::get),
+        CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get),
         CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get),
     );
     CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(|count| count.set(0));
+    CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(|count| count.set(0));
     CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(|count| count.set(0));
     let _second_swap = apply_test_composite_swap(&mut market, MarketAsset::Quote, first_swap.amount_out);
     let second_counts = (
         CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(Cell::get),
+        CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get),
         CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get),
     );
-    assert_eq!(first_counts, (6, 1));
-    assert_eq!(second_counts, (6, 1));
+    assert_eq!(first_counts, (5, 4, 1));
+    assert_eq!(second_counts, (7, 5, 2));
+    let trace = HLP_STAGE4B2A_LAST_TRACE
+        .with(|trace| *trace.borrow())
+        .expect("reflected Quote-axis trace");
+    assert_eq!(
+        trace.rejected_quote_axis_coordinate,
+        Some((28_832_969_290_939, -44_108_081_728_358))
+    );
+    assert_eq!(
+        trace.rejected_quote_axis_rows,
+        Some([
+            -14_836_569_950,
+            -281_792_762_527,
+            -13_207_274_600,
+            -279_763_734_438,
+            0,
+            0,
+        ])
+    );
+    assert_eq!(
+        trace.rejected_quote_axis_topology,
+        Some(HlpStructuralTopologyTrace {
+            pre_base: HlpPackedPlanTopology(0x004),
+            pre_quote: HlpPackedPlanTopology(0x0a5),
+            post_base: HlpPackedPlanTopology(0x004),
+            post_quote: HlpPackedPlanTopology(0x0e5),
+        })
+    );
+    assert_eq!(
+        trace.reflected_quote_axis_coordinate,
+        Some((28_832_969_290_939, -45_417_576_121_978))
+    );
+    assert_eq!(
+        trace.reflected_quote_axis_rows,
+        Some([-17_337_244_612, 199_207_237_473, -15_197_829_332, 201_473_727_060, 0, 0,])
+    );
+    assert_eq!(
+        trace.reflected_quote_axis_topology,
+        Some(HlpStructuralTopologyTrace {
+            pre_base: HlpPackedPlanTopology(0x004),
+            pre_quote: HlpPackedPlanTopology(0x0a5),
+            post_base: HlpPackedPlanTopology(0x004),
+            post_quote: HlpPackedPlanTopology(0x0a5),
+        })
+    );
+    assert_eq!(trace.a2_coordinate, Some((28_924_261_894_461, -44_874_579_976_086)));
+    assert_eq!(
+        trace.a2_rows,
+        Some([-836_570_322, -790_063_059, 1_275_118_882, 3_213_405_971, 0, 0,])
+    );
+    assert_eq!(trace.a1_topology, trace.a2_topology);
+    assert_eq!(trace.a2_topology, trace.reflected_quote_axis_topology);
 
     // Close must realize no more than the marked pre-close NAV. Comparing to
     // the original deposit confounds close accounting with PnL earned or lost
@@ -4874,4 +8696,272 @@ fn mass_unwind_is_order_independent_when_cash_is_available() {
     assert_eq!(ylp_first.quote_side.reserves.live_reserve, 0);
     assert_eq!(ylp_first.base_side.shares.ylp_supply, 0);
     assert_eq!(ylp_first.quote_side.shares.ylp_supply, 0);
+}
+
+/// Test-only one-authority characterization. P0 and a fresh projected center
+/// establish the full bounded quote, then frozen-center axes solve directly
+/// to the opposite half-budget interior. Only the terminal point is granted
+/// authoritative quote/checkpoint capability.
+fn assert_stage4c_one_authority_interior_target(
+    mut snapshot: Market,
+    asset_in: MarketAsset,
+    reserve_credit: u64,
+    label: &str,
+) {
+    let current_slot = curve_slot(&snapshot);
+    snapshot.prepare_amm_for_swap(current_slot).unwrap();
+    let pre_state = snapshot.dynamic_fee_pre_state(current_slot).unwrap();
+    let preliminary = snapshot
+        .preliminary_swap_inputs_for_state(reserve_credit, current_slot, pre_state)
+        .unwrap();
+    let mut context_slot = None;
+    capture_concentrated_hlp_solve_context_into(
+        &snapshot,
+        asset_in,
+        reserve_credit,
+        current_slot,
+        pre_state,
+        preliminary,
+        SwapCashPolicy::Spot,
+        &mut context_slot,
+    )
+    .unwrap();
+    let context = context_slot.unwrap();
+    let mut compact_slot = None;
+    HlpCompactSolveContext::capture_into(&snapshot, &context, &mut compact_slot).unwrap();
+    let compact = compact_slot.unwrap();
+    let cash_floors = context.cash_policy.floors(&snapshot, asset_in, 0).unwrap();
+    let active_axis_count = u32::from(context.base_start.active) + u32::from(context.quote_start.active);
+
+    reset_stage4b2a_test_state();
+    let snapshot_before = snapshot.try_to_vec().unwrap();
+
+    let mut p0_projection_slot = None;
+    let mut p0_candidate_slot = None;
+    evaluate_compact_concentrated_hlp_candidate(
+        &compact,
+        &context,
+        cash_floors,
+        0,
+        0,
+        false,
+        &mut p0_projection_slot,
+        &mut p0_candidate_slot,
+    )
+    .unwrap();
+    let p0 = p0_candidate_slot.unwrap();
+    let center_coordinate = (p0.next_base_delta_nad, p0.next_quote_delta_nad);
+    assert_ne!(center_coordinate, (0, 0), "{label}: P0 produced no center");
+
+    let mut center_projection_slot = None;
+    let mut center_candidate_slot = None;
+    evaluate_compact_concentrated_hlp_candidate(
+        &compact,
+        &context,
+        cash_floors,
+        center_coordinate.0,
+        center_coordinate.1,
+        true,
+        &mut center_projection_slot,
+        &mut center_candidate_slot,
+    )
+    .unwrap();
+    let center = center_candidate_slot.unwrap();
+    assert!(center.settlement_cash_available, "{label}: center cash");
+    assert!(hlp_exact_derivative_sample_is_unbound(&center, &context));
+    let center_topology = center.structural_topology;
+    let center_signature = hlp_preposition_pair_signature(&center);
+    let center_mode = center.guidance_exact_in_mode;
+    let center_trace = center.guidance_settlement_trace;
+    let center_rows = HlpExactSampleRows::from_candidate(&center);
+    let base_row = hlp_exact_control_row(&center, MarketAsset::Base, context.base_start).unwrap();
+    let quote_row = hlp_exact_control_row(&center, MarketAsset::Quote, context.quote_start).unwrap();
+    let center_base_error = center_rows.value(MarketAsset::Base, base_row);
+    let center_quote_error = center_rows.value(MarketAsset::Quote, quote_row);
+    let ConcentratedHlpProjection::FrozenCenter(frozen_center) = center_projection_slot.unwrap() else {
+        panic!("{label}: center did not freeze its bounded quote")
+    };
+
+    let base_probe_delta = if context.base_start.active {
+        hlp_exact_axis_probe_delta(center_coordinate.0, context.base_start, center_base_error).unwrap()
+    } else {
+        0
+    };
+    let quote_probe_delta = if context.quote_start.active {
+        hlp_exact_axis_probe_delta(center_coordinate.1, context.quote_start, center_quote_error).unwrap()
+    } else {
+        0
+    };
+    let mut base_axis_slot = None;
+    if context.base_start.active {
+        evaluate_frozen_center_axis_concentrated_hlp_candidate(
+            &compact,
+            &context,
+            cash_floors,
+            center_coordinate.0.checked_add(base_probe_delta).unwrap(),
+            center_coordinate.1,
+            &frozen_center,
+            &mut base_axis_slot,
+        )
+        .unwrap();
+    } else {
+        base_axis_slot = Some(center);
+    }
+    let mut quote_axis_slot = None;
+    if context.quote_start.active {
+        evaluate_frozen_center_axis_concentrated_hlp_candidate(
+            &compact,
+            &context,
+            cash_floors,
+            center_coordinate.0,
+            center_coordinate.1.checked_add(quote_probe_delta).unwrap(),
+            &frozen_center,
+            &mut quote_axis_slot,
+        )
+        .unwrap();
+    } else {
+        quote_axis_slot = Some(center);
+    }
+    let base_axis = *base_axis_slot.as_ref().unwrap();
+    let quote_axis = *quote_axis_slot.as_ref().unwrap();
+    for (asset, axis) in [(MarketAsset::Base, &base_axis), (MarketAsset::Quote, &quote_axis)] {
+        let active = match asset {
+            MarketAsset::Base => context.base_start.active,
+            MarketAsset::Quote => context.quote_start.active,
+        };
+        if !active {
+            continue;
+        }
+        let axis_signature = hlp_preposition_pair_signature(axis);
+        assert!(axis.settlement_cash_available, "{label}: {asset:?} axis cash");
+        assert!(hlp_exact_derivative_sample_is_unbound(axis, &context));
+        assert_eq!(
+            axis.structural_topology, center_topology,
+            "{label}: {asset:?} axis topology"
+        );
+        assert_eq!(axis.guidance_exact_in_mode, center_mode, "{label}: {asset:?} axis mode");
+        assert_eq!(
+            axis.guidance_settlement_trace, center_trace,
+            "{label}: {asset:?} axis trace"
+        );
+        assert!(hlp_preposition_signature_class_matches(
+            center_signature.base,
+            axis_signature.base,
+        ));
+        assert!(hlp_preposition_signature_class_matches(
+            center_signature.quote,
+            axis_signature.quote,
+        ));
+    }
+
+    let basis = HlpFiniteDifferenceBasis {
+        origin: center_rows,
+        guidance_exact_in_mode: center_mode,
+        guidance_settlement_trace: center_trace,
+        base_probe_delta_nad: base_probe_delta,
+        base_probe: HlpExactSampleRows::from_candidate(&base_axis),
+        quote_probe_delta_nad: quote_probe_delta,
+        quote_probe: HlpExactSampleRows::from_candidate(&quote_axis),
+        base_signature: center_signature.base,
+        quote_signature: center_signature.quote,
+        base_probe_recorded: context.base_start.active,
+        quote_probe_recorded: context.quote_start.active,
+    };
+    let base_target = if context.base_start.active {
+        stage4c_opposite_half_budget_target(center_base_error, context.base_start.tracking.loss_budget_nad).unwrap()
+    } else {
+        0
+    };
+    let quote_target = if context.quote_start.active {
+        stage4c_opposite_half_budget_target(center_quote_error, context.quote_start.tracking.loss_budget_nad).unwrap()
+    } else {
+        0
+    };
+    let (base_step, quote_step) = basis
+        .solve_step(
+            &context,
+            center_coordinate.0,
+            center_coordinate.1,
+            base_row,
+            quote_row,
+            center_base_error.checked_sub(base_target).unwrap(),
+            center_quote_error.checked_sub(quote_target).unwrap(),
+        )
+        .unwrap_or_else(|| panic!("{label}: interior-target basis was singular or untrusted"));
+    let terminal_coordinate = (
+        center_coordinate.0.checked_add(base_step).unwrap(),
+        center_coordinate.1.checked_add(quote_step).unwrap(),
+    );
+    let base_trusted =
+        hlp_coordinate_within_center_trust(center_coordinate.0, terminal_coordinate.0, context.base_start);
+    let quote_trusted =
+        hlp_coordinate_within_center_trust(center_coordinate.1, terminal_coordinate.1, context.quote_start);
+
+    let _ = frozen_center;
+
+    let mut terminal_market = snapshot.clone();
+    let mut lifecycle_scratch = Market::default();
+    let mut terminal_projection_slot = None;
+    let mut terminal_candidate_slot = None;
+    let mut terminal_scratch = HlpTerminalSwapScratch::default();
+    evaluate_concentrated_hlp_candidate(
+        &mut terminal_market,
+        &mut lifecycle_scratch,
+        &snapshot,
+        &context,
+        cash_floors,
+        terminal_coordinate.0,
+        terminal_coordinate.1,
+        HlpCandidateEvaluationMode::Authoritative,
+        &mut terminal_projection_slot,
+        &mut terminal_candidate_slot,
+        &mut terminal_scratch,
+    )
+    .unwrap();
+    let terminal = terminal_candidate_slot.as_ref().unwrap();
+    let terminal_rows = hlp_stage4b2a_test_rows(terminal).unwrap();
+    let terminal_signature = hlp_preposition_pair_signature(terminal);
+    let topology_matches = terminal.structural_topology == center_topology;
+    let signature_matches = hlp_preposition_signature_class_matches(center_signature.base, terminal_signature.base)
+        && hlp_preposition_signature_class_matches(center_signature.quote, terminal_signature.quote);
+    let inactive_rows_zero = (context.base_start.active
+        || [terminal_rows[0], terminal_rows[2], terminal_rows[4]] == [0; 3])
+        && (context.quote_start.active || [terminal_rows[1], terminal_rows[3], terminal_rows[5]] == [0; 3]);
+    let cash = terminal.settlement_cash_available;
+    let unbound = hlp_exact_derivative_sample_is_unbound(terminal, &context);
+    let safe = stage4c_candidate_is_fully_safe(terminal, &context);
+    eprintln!(
+        "ONE-AUTHORITY {label} center={center_coordinate:?}/rows={:?}/topology={center_topology:?}/signature={center_signature:?} base_axis=({}, {})/rows={:?} quote_axis=({}, {})/rows={:?} targets=({base_target},{quote_target}) predicted={terminal_coordinate:?} exact_rows={terminal_rows:?}/topology={:?}/signature={terminal_signature:?}/cash={cash}/unbound={unbound}/trust=({base_trusted},{quote_trusted})/identity=(topology={topology_matches},signature={signature_matches},inactive={inactive_rows_zero})/safe={safe} counts=(compact={},authority={})",
+        hlp_stage4b2a_test_rows(&center).unwrap(),
+        center_coordinate.0.checked_add(base_probe_delta).unwrap(),
+        center_coordinate.1,
+        hlp_stage4b2a_test_rows(&base_axis).unwrap(),
+        center_coordinate.0,
+        center_coordinate.1.checked_add(quote_probe_delta).unwrap(),
+        hlp_stage4b2a_test_rows(&quote_axis).unwrap(),
+        terminal.structural_topology,
+        CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get),
+        CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get),
+    );
+    assert!(terminal_projection_slot.as_ref().unwrap().authoritative());
+    assert!(terminal.authoritative.is_some());
+    assert!(cash && unbound && base_trusted && quote_trusted);
+    assert!(topology_matches && signature_matches && inactive_rows_zero);
+    assert!(!safe, "{label}: one-authority interior target unexpectedly became safe");
+    assert_eq!(
+        CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(Cell::get),
+        2 + active_axis_count
+    );
+    assert_eq!(CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS.with(Cell::get), 1);
+    assert_eq!(snapshot.try_to_vec().unwrap(), snapshot_before);
+}
+
+#[test]
+fn stage4c_one_authority_interior_target_spot_base_remains_red() {
+    assert_stage4c_one_authority_interior_target(
+        stage4b2a_spot_market(false),
+        MarketAsset::Base,
+        350_000 * 1_000_000,
+        "spot-base",
+    );
 }

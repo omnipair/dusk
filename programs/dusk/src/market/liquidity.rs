@@ -1,7 +1,8 @@
 use anchor_lang::prelude::*;
+use core::cell::Cell;
 
 #[cfg(test)]
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 
 use crate::state::HlpVault;
 use crate::{
@@ -9,15 +10,23 @@ use crate::{
     errors::ErrorCode,
     math::{
         concentrated_marginal_price_nad, denormalize_from_nad_ceil, denormalize_from_nad_floor,
-        hlp_opposite_exposure_nad, mul_div_rem_u128, mul_div_u128, normalize_to_nad, ratio_lte_full_width,
-        sqrt_ratio_nad, ConcentratedGuidanceCurve, ConcentratedInvariantSeed, ConcentratedPreparedCurve,
-        ConcentratedSwapDirection, DynamicFeePreState, HlpInventoryValuesNad,
+        hlp_opposite_exposure_nad, minimum_executable_input, mul_div_rem_u128, mul_div_u128, normalize_to_nad,
+        ratio_lte_full_width, reconstruct_hlp_endpoint, reconstruct_hlp_ownership, sqrt_ratio_nad,
+        ConcentratedCanonicalGuidanceAnchor, ConcentratedGuidanceCurve, ConcentratedGuidanceDAction,
+        ConcentratedGuidanceExactInMode, ConcentratedGuidanceExactOutMode, ConcentratedPreparedCurve,
+        ConcentratedSwapDirection, DynamicFeeConfig, DynamicFeePreState, HlpInventoryValuesNad, IntegratedCurveState,
     },
-    state::{ConcentrationParameters, Debt, DebtClearance, DebtRepaymentQuote, Market, MarketAsset},
+    state::{AmmState, ConcentrationParameters, Debt, DebtClearance, DebtRepaymentQuote, Market, MarketAsset},
 };
 
+#[cfg(test)]
+use crate::math::{MAX_RESIDUAL_PROBES_PER_BOUNDED_EXACT_OUT_LEG, MAX_RESIDUAL_PROBES_PER_VARIABLE_LEG};
+
 use super::{
-    amm::{CurveCheckpoint, CurveReservesNad, PreliminarySwapInputs},
+    amm::{
+        divergence_surcharge_for_guidance, CurveCheckpoint, CurveReservesNad, ExplicitIntegratedAmmQuote,
+        PreliminarySwapInputs,
+    },
     AmmSwapQuote,
 };
 
@@ -46,8 +55,11 @@ const HLP_REBALANCE_DUST_NAV_DENOMINATOR: u128 = 1_000_000;
 /// floor for coarse assets whose accounting cannot represent that tolerance.
 const HLP_CONCENTRATED_TRACKING_NAV_DENOMINATOR: u128 = 1_000_000;
 /// One lifecycle-accounting seed, a possibly bounded and then canonicalized
-/// center, independent axes, one lifecycle-accounting final plan, and one
-/// exact authority. Only the exact authority can be accepted.
+/// center, independent axes, an optional one-shot reflected Quote axis, and
+/// at most two exact authorities. Only an exact authority can be accepted.
+/// Ordinary solves use four projected evaluations; a reflected axis or a
+/// canonicalized center may consume the fifth.
+const HLP_CONCENTRATED_MAX_COMPACT_EVALUATIONS: u32 = 5;
 const HLP_CONCENTRATED_MAX_CANDIDATE_EVALUATIONS: u32 = 7;
 const HLP_CONCENTRATED_MAX_AUTHORITATIVE_EVALUATIONS: u32 = 2;
 
@@ -74,6 +86,10 @@ impl SwapCashFloors {
 
     pub(crate) fn available(self, market: &Market) -> bool {
         market.base_side.reserves.cash_reserve >= self.base && market.quote_side.reserves.cash_reserve >= self.quote
+    }
+
+    fn available_from_planner(self, state: HlpPlannerState) -> bool {
+        state.base_side.cash_reserve >= self.base && state.quote_side.cash_reserve >= self.quote
     }
 }
 
@@ -163,6 +179,80 @@ impl SwapCashPolicy {
         }
         Ok(floors)
     }
+
+    fn floors_from_planner(
+        self,
+        fixed: HlpPlannerStatic,
+        state: HlpPlannerState,
+        asset_in: MarketAsset,
+        amount_out: u64,
+    ) -> Result<SwapCashFloors> {
+        let debt = Debt {
+            base_borrow_index_nad: fixed.base_borrow_index_nad,
+            quote_borrow_index_nad: fixed.quote_borrow_index_nad,
+            isolated_base_shares: state.debt.isolated_base_shares,
+            isolated_quote_shares: state.debt.isolated_quote_shares,
+            isolated_base_principal: state.debt.isolated_base_principal,
+            isolated_quote_principal: state.debt.isolated_quote_principal,
+            ..Debt::default()
+        };
+        let mut floors = SwapCashFloors::default();
+        match self {
+            Self::Spot => floors.set(asset_in.opposite(), amount_out),
+            Self::Borrow { asset, amount } => {
+                require!(asset == asset_in, ErrorCode::BrokenInvariant);
+                floors.set(asset, amount);
+                floors.set(asset_in.opposite(), amount_out);
+            }
+            Self::Decrease {
+                debt_asset,
+                debt_shares,
+                debt_principal,
+            } => {
+                require!(debt_asset == asset_in.opposite(), ErrorCode::BrokenInvariant);
+                let clearance = debt.isolated_clearance_for_max(debt_asset, debt_shares, debt_principal, amount_out)?;
+                floors.set(debt_asset, clearance.interest_paid);
+            }
+            Self::Close {
+                debt_asset,
+                debt_shares,
+                debt_principal,
+            } => {
+                require!(debt_asset == asset_in.opposite(), ErrorCode::BrokenInvariant);
+                let clearance = debt.isolated_clearance_for_max(debt_asset, debt_shares, debt_principal, u64::MAX)?;
+                floors.set(
+                    debt_asset,
+                    clearance
+                        .interest_paid
+                        .checked_add(amount_out.saturating_sub(clearance.cash_repaid))
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                );
+            }
+            Self::Liquidate {
+                debt_asset,
+                debt_shares,
+                debt_principal,
+            } => {
+                require!(debt_asset == asset_in.opposite(), ErrorCode::BrokenInvariant);
+                if debt_shares == 0 {
+                    require_eq!(debt_principal, 0, ErrorCode::BrokenInvariant);
+                    return Ok(floors);
+                }
+                let full = debt.isolated_repayment_for_max(debt_asset, debt_shares, u64::MAX)?;
+                let repay_credit = amount_out.min(full.cash_repaid);
+                let repayment_basis = (full.cash_repaid as u128).max(debt_principal);
+                let (_, interest) =
+                    crate::math::realized_interest_split(repay_credit, repayment_basis, debt_principal)?;
+                floors.set(
+                    debt_asset,
+                    interest
+                        .checked_add(amount_out.saturating_sub(full.cash_repaid))
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                );
+            }
+        }
+        Ok(floors)
+    }
 }
 
 fn isolated_repayment_cash_and_interest(
@@ -184,20 +274,54 @@ fn isolated_repayment_cash_and_interest(
 #[cfg(test)]
 thread_local! {
     static CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS: Cell<u32> = const { Cell::new(0) };
+    static CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS: Cell<u32> = const { Cell::new(0) };
+    static CONCENTRATED_PRE_SOLVE_RAW_EVALUATIONS: Cell<u32> = const { Cell::new(0) };
     static CONCENTRATED_PRE_SOLVE_AUTHORITATIVE_EVALUATIONS: Cell<u32> = const { Cell::new(0) };
     static VERIFY_COMPACT_HLP_GUIDANCE: Cell<bool> = const { Cell::new(false) };
     static HLP_DELEVERAGE_FULL_CAPACITY_EVALUATIONS: Cell<u32> = const { Cell::new(0) };
     static HLP_DELEVERAGE_CHEAP_REPAYMENT_EVALUATIONS: Cell<u32> = const { Cell::new(0) };
     static HLP_DELEVERAGE_LEGACY_CAPACITY_EVALUATIONS: Cell<u32> = const { Cell::new(0) };
     static HLP_COMPACT_GUIDANCE_CELLS: Cell<u32> = const { Cell::new(0) };
+    static HLP_COMPACT_GUIDANCE_BRACKET_QUOTES: Cell<u32> = const { Cell::new(0) };
+    static HLP_COMPACT_GUIDANCE_STRUCTURAL_GAPS: Cell<u32> = const { Cell::new(0) };
     static HLP_COMPACT_GUIDANCE_EXACT_IN_PROBES: Cell<u32> = const { Cell::new(0) };
     static HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES: Cell<u32> = const { Cell::new(0) };
+    static HLP_COMPACT_GUIDANCE_EXACT_OUT_P2_QUOTES: Cell<u32> = const { Cell::new(0) };
+    static HLP_COMPACT_GUIDANCE_EXACT_OUT_P3_QUOTES: Cell<u32> = const { Cell::new(0) };
+    static HLP_COMPACT_GUIDANCE_EXACT_OUT_ANALYTIC_QUOTES: Cell<u32> = const { Cell::new(0) };
+    static HLP_COMPACT_GUIDANCE_EXACT_OUT_CANONICAL_FALLBACKS: Cell<u32> = const { Cell::new(0) };
+    static HLP_RAW_CANONICAL_SCALAR_CALLS: Cell<u32> = const { Cell::new(0) };
+    static HLP_RAW_CANONICAL_SCALAR_RESIDUALS: Cell<u32> = const { Cell::new(0) };
+    static HLP_COMPACT_GUIDANCE_DIFFERENTIALS: Cell<u32> = const { Cell::new(0) };
+    static MUTATE_FROZEN_CENTER_FINGERPRINT: Cell<bool> = const { Cell::new(false) };
+    static HLP_STAGE4B2A_LAST_TRACE: RefCell<Option<HlpStage4B2aTestTrace>> = const { RefCell::new(None) };
     static SCRATCH_HLP_LIFECYCLE_RESULT: RefCell<Option<HlpCompactLifecycleResult>> = const { RefCell::new(None) };
+    static CACHED_HLP_LIFECYCLE_RESULT: RefCell<Option<HlpCompactLifecycleResult>> = const { RefCell::new(None) };
 }
 
 #[cfg(test)]
 struct VerifyCompactHlpGuidanceGuard {
     previous: bool,
+}
+
+#[cfg(test)]
+struct MutateFrozenCenterFingerprintGuard {
+    previous: bool,
+}
+
+#[cfg(test)]
+impl MutateFrozenCenterFingerprintGuard {
+    fn enable() -> Self {
+        let previous = MUTATE_FROZEN_CENTER_FINGERPRINT.with(|enabled| enabled.replace(true));
+        Self { previous }
+    }
+}
+
+#[cfg(test)]
+impl Drop for MutateFrozenCenterFingerprintGuard {
+    fn drop(&mut self) {
+        MUTATE_FROZEN_CENTER_FINGERPRINT.with(|enabled| enabled.set(self.previous));
+    }
 }
 
 #[cfg(test)]
@@ -309,6 +433,388 @@ impl Default for HlpRebalanceReceipt {
             tracking_retained_contribution_nad: 0,
             preposition_capacity_bound: false,
         }
+    }
+}
+
+/// Identity-bound O(1) hLP ownership/debt reconstruction for the explicit
+/// curve. The quote fixes the ordinary tranche; this plan only realizes
+/// accrued hLP funding interest and refinances both vaults to the quoted
+/// zero-opposite-exposure endpoint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ExplicitHlpTransition {
+    expected_curve_revision: u64,
+    expected_ylp_supply: u64,
+    expected_base_ylp_shares: u64,
+    expected_quote_ylp_shares: u64,
+    expected_base_debt_shares: u128,
+    expected_quote_debt_shares: u128,
+    expected_base_debt_principal: u64,
+    expected_quote_debt_principal: u64,
+    final_ylp_supply: u64,
+    final_base_ylp_shares: u64,
+    final_quote_ylp_shares: u64,
+    final_base_debt_shares: u128,
+    final_quote_debt_shares: u128,
+    final_base_debt: u64,
+    final_quote_debt: u64,
+    final_base_live_reserve: u64,
+    final_quote_live_reserve: u64,
+    base_interest_paid: u64,
+    quote_interest_paid: u64,
+    base_receipt: HlpRebalanceReceipt,
+    quote_receipt: HlpRebalanceReceipt,
+}
+
+fn signed_u64_delta(end: u64, start: u64) -> Result<i128> {
+    if end >= start {
+        i128::try_from(end - start).map_err(|_| ErrorCode::MarketMathOverflow.into())
+    } else {
+        i128::try_from(start - end)
+            .map(|value| -value)
+            .map_err(|_| ErrorCode::MarketMathOverflow.into())
+    }
+}
+
+fn explicit_hlp_receipt(
+    target_asset: MarketAsset,
+    start_ylp_shares: u64,
+    end_ylp_shares: u64,
+    start_debt: u64,
+    end_debt: u64,
+    interest_paid: u64,
+    nav_nad: u128,
+    start_supply: u64,
+) -> Result<HlpRebalanceReceipt> {
+    Ok(HlpRebalanceReceipt {
+        target_asset,
+        ideal_delta: signed_u64_delta(end_debt, start_debt)?,
+        executed_delta: signed_u64_delta(end_debt, start_debt)?,
+        residual_exposure: 0,
+        current_swap_fee_eligible_ylp_shares: start_ylp_shares,
+        ylp_mint_amount: end_ylp_shares.saturating_sub(start_ylp_shares),
+        ylp_burn_amount: start_ylp_shares.saturating_sub(end_ylp_shares),
+        debt_delta: signed_u64_delta(end_debt, start_debt)?,
+        interest_paid,
+        nav_nad,
+        tracking_start_nav_nad: i128::try_from(nav_nad).map_err(|_| ErrorCode::MarketMathOverflow)?,
+        tracking_loss_budget_nad: 0,
+        tracking_base_unrealized_interest: 0,
+        tracking_quote_unrealized_interest: 0,
+        tracking_start_ylp_shares: start_ylp_shares,
+        tracking_start_ylp_supply: start_supply,
+        tracking_retained_contribution_nad: 0,
+        preposition_capacity_bound: false,
+    })
+}
+
+pub(crate) fn prepare_explicit_hlp_transition(
+    market: &Market,
+    quote: ExplicitIntegratedAmmQuote,
+    asset_in: MarketAsset,
+) -> Result<ExplicitHlpTransition> {
+    let _ = asset_in;
+    prepare_explicit_hlp_transition_from_end(market, quote.integrated.executable.end, false)
+}
+
+/// Rebuilds the exact one-sided hLP endpoint around an already materialized
+/// ordinary reserve point. Liquidation uses this after a socialized reserve
+/// haircut so the loss cannot be overwritten by the pre-loss swap plan.
+pub(crate) fn prepare_explicit_hlp_transition_at_current_state(market: &Market) -> Result<ExplicitHlpTransition> {
+    prepare_explicit_hlp_transition_from_end(market, market.integrated_curve_state_nad()?, true)
+}
+
+fn prepare_explicit_hlp_transition_from_end(
+    market: &Market,
+    mut end: IntegratedCurveState,
+    preserve_current_ordinary_reserves: bool,
+) -> Result<ExplicitHlpTransition> {
+    require_eq!(
+        market.base_side.shares.ylp_supply,
+        market.quote_side.shares.ylp_supply,
+        ErrorCode::BrokenInvariant
+    );
+    require_eq!(
+        market.base_side.reserves.total_hlp_backing_inventory()?,
+        0,
+        ErrorCode::BrokenInvariant
+    );
+    require_eq!(
+        market.quote_side.reserves.total_hlp_backing_inventory()?,
+        0,
+        ErrorCode::BrokenInvariant
+    );
+    let start_supply = market.base_side.shares.ylp_supply;
+    let ordinary_supply = start_supply
+        .checked_sub(market.base_hlp_vault.ylp_shares)
+        .and_then(|value| value.checked_sub(market.quote_hlp_vault.ylp_shares))
+        .ok_or(ErrorCode::BrokenInvariant)?;
+    let endpoint = reconstruct_hlp_endpoint(end)?;
+    end.base_hlp_quote_debt = endpoint.base_hlp_quote_debt;
+    end.quote_hlp_base_debt = endpoint.quote_hlp_base_debt;
+    let ownership = reconstruct_hlp_ownership(
+        ordinary_supply,
+        end.ordinary_base,
+        end.ordinary_quote,
+        end.base_hlp_equity,
+        end.quote_hlp_equity,
+    )?;
+
+    let desired_base_quote_debt =
+        denormalize_from_nad_floor(endpoint.base_hlp_quote_debt, market.quote_side.asset_decimals)?;
+    let desired_quote_base_debt =
+        denormalize_from_nad_floor(endpoint.quote_hlp_base_debt, market.base_side.asset_decimals)?;
+    let final_base_debt_shares = if desired_base_quote_debt == 0 {
+        0
+    } else {
+        Debt::debt_to_shares(desired_base_quote_debt, market.debt.quote_borrow_index_nad)?
+    };
+    let final_quote_debt_shares = if desired_quote_base_debt == 0 {
+        0
+    } else {
+        Debt::debt_to_shares(desired_quote_base_debt, market.debt.base_borrow_index_nad)?
+    };
+    let final_base_debt = u64::try_from(Debt::shares_to_debt(
+        final_base_debt_shares,
+        market.debt.quote_borrow_index_nad,
+    )?)
+    .map_err(|_| ErrorCode::DebtMathOverflow)?;
+    let final_quote_debt = u64::try_from(Debt::shares_to_debt(
+        final_quote_debt_shares,
+        market.debt.base_borrow_index_nad,
+    )?)
+    .map_err(|_| ErrorCode::DebtMathOverflow)?;
+    let current_base_debt = u64::try_from(Debt::shares_to_debt(
+        market.base_hlp_vault.debt_shares,
+        market.debt.quote_borrow_index_nad,
+    )?)
+    .map_err(|_| ErrorCode::DebtMathOverflow)?;
+    let current_quote_debt = u64::try_from(Debt::shares_to_debt(
+        market.quote_hlp_vault.debt_shares,
+        market.debt.base_borrow_index_nad,
+    )?)
+    .map_err(|_| ErrorCode::DebtMathOverflow)?;
+    let base_interest_paid = current_base_debt.saturating_sub(market.base_hlp_vault.debt_principal);
+    let quote_interest_paid = current_quote_debt.saturating_sub(market.quote_hlp_vault.debt_principal);
+
+    let (final_base_live_before_interest, final_quote_live_before_interest) = if preserve_current_ordinary_reserves {
+        // Changing hLP ownership/debt around an already materialized reserve
+        // point must not create or destroy ordinary curve reserves. Preserve
+        // the exact raw identity and change only hLP funding debt.
+        let old_base_hlp_live =
+            u64::try_from(market.hlp_live_reserve(MarketAsset::Base)?).map_err(|_| ErrorCode::ReserveOverflow)?;
+        let old_quote_hlp_live =
+            u64::try_from(market.hlp_live_reserve(MarketAsset::Quote)?).map_err(|_| ErrorCode::ReserveOverflow)?;
+        (
+            market
+                .base_side
+                .reserves
+                .live_reserve
+                .checked_sub(old_base_hlp_live)
+                .and_then(|value| value.checked_add(final_quote_debt))
+                .ok_or(ErrorCode::ReserveOverflow)?,
+            market
+                .quote_side
+                .reserves
+                .live_reserve
+                .checked_sub(old_quote_hlp_live)
+                .and_then(|value| value.checked_add(final_base_debt))
+                .ok_or(ErrorCode::ReserveOverflow)?,
+        )
+    } else {
+        // A quoted swap has not materialized its endpoint yet, so reconstruct
+        // the exact post-swap live reserves from the quoted ordinary point.
+        let ordinary_base = denormalize_from_nad_floor(end.ordinary_base, market.base_side.asset_decimals)?;
+        let ordinary_quote = denormalize_from_nad_floor(end.ordinary_quote, market.quote_side.asset_decimals)?;
+        let base_equity = denormalize_from_nad_floor(end.base_hlp_equity, market.base_side.asset_decimals)?;
+        let quote_equity = denormalize_from_nad_floor(end.quote_hlp_equity, market.quote_side.asset_decimals)?;
+        (
+            ordinary_base
+                .checked_add(base_equity)
+                .and_then(|value| value.checked_add(final_quote_debt))
+                .ok_or(ErrorCode::ReserveOverflow)?,
+            ordinary_quote
+                .checked_add(quote_equity)
+                .and_then(|value| value.checked_add(final_base_debt))
+                .ok_or(ErrorCode::ReserveOverflow)?,
+        )
+    };
+    // The reconstructed endpoint already replaces indexed hLP debt (principal
+    // plus accrued interest) with the new principal debt. Paying that accrued
+    // interest also debits reserve cash. Each interest atom therefore leaves
+    // the virtual reserve twice: once from the hLP-live component and once
+    // from cash. Bind the quoted endpoint to that exact accounting transition.
+    let final_base_live_reserve = final_base_live_before_interest
+        .checked_sub(quote_interest_paid)
+        .and_then(|value| value.checked_sub(quote_interest_paid))
+        .ok_or(ErrorCode::ReserveUnderflow)?;
+    let final_quote_live_reserve = final_quote_live_before_interest
+        .checked_sub(base_interest_paid)
+        .and_then(|value| value.checked_sub(base_interest_paid))
+        .ok_or(ErrorCode::ReserveUnderflow)?;
+
+    let base_receipt = explicit_hlp_receipt(
+        MarketAsset::Base,
+        market.base_hlp_vault.ylp_shares,
+        ownership.base_hlp_ylp_shares,
+        current_base_debt,
+        final_base_debt,
+        base_interest_paid,
+        end.base_hlp_equity,
+        start_supply,
+    )?;
+    let quote_receipt = explicit_hlp_receipt(
+        MarketAsset::Quote,
+        market.quote_hlp_vault.ylp_shares,
+        ownership.quote_hlp_ylp_shares,
+        current_quote_debt,
+        final_quote_debt,
+        quote_interest_paid,
+        end.quote_hlp_equity,
+        start_supply,
+    )?;
+
+    Ok(ExplicitHlpTransition {
+        expected_curve_revision: market.curve_revision,
+        expected_ylp_supply: start_supply,
+        expected_base_ylp_shares: market.base_hlp_vault.ylp_shares,
+        expected_quote_ylp_shares: market.quote_hlp_vault.ylp_shares,
+        expected_base_debt_shares: market.base_hlp_vault.debt_shares,
+        expected_quote_debt_shares: market.quote_hlp_vault.debt_shares,
+        expected_base_debt_principal: market.base_hlp_vault.debt_principal,
+        expected_quote_debt_principal: market.quote_hlp_vault.debt_principal,
+        final_ylp_supply: ownership.total_ylp_supply,
+        final_base_ylp_shares: ownership.base_hlp_ylp_shares,
+        final_quote_ylp_shares: ownership.quote_hlp_ylp_shares,
+        final_base_debt_shares,
+        final_quote_debt_shares,
+        final_base_debt,
+        final_quote_debt,
+        final_base_live_reserve,
+        final_quote_live_reserve,
+        base_interest_paid,
+        quote_interest_paid,
+        base_receipt,
+        quote_receipt,
+    })
+}
+
+impl ExplicitHlpTransition {
+    pub(crate) fn debt_deltas(&self) -> (i128, i128) {
+        (self.base_receipt.debt_delta, self.quote_receipt.debt_delta)
+    }
+
+    pub(crate) fn interest_cash_floors(&self, asset_in: MarketAsset, amount_out: u64) -> SwapCashFloors {
+        let mut floors = SwapCashFloors::default();
+        floors.set(
+            MarketAsset::Base,
+            self.quote_interest_paid
+                .saturating_add(if asset_in == MarketAsset::Quote { amount_out } else { 0 }),
+        );
+        floors.set(
+            MarketAsset::Quote,
+            self.base_interest_paid
+                .saturating_add(if asset_in == MarketAsset::Base { amount_out } else { 0 }),
+        );
+        floors
+    }
+
+    pub(crate) fn consume(&self, market: &mut Market) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
+        require_eq!(
+            market.curve_revision,
+            self.expected_curve_revision,
+            ErrorCode::BrokenInvariant
+        );
+        require_eq!(
+            market.base_side.shares.ylp_supply,
+            self.expected_ylp_supply,
+            ErrorCode::BrokenInvariant
+        );
+        require_eq!(
+            market.quote_side.shares.ylp_supply,
+            self.expected_ylp_supply,
+            ErrorCode::BrokenInvariant
+        );
+        require_eq!(
+            market.base_hlp_vault.ylp_shares,
+            self.expected_base_ylp_shares,
+            ErrorCode::BrokenInvariant
+        );
+        require_eq!(
+            market.quote_hlp_vault.ylp_shares,
+            self.expected_quote_ylp_shares,
+            ErrorCode::BrokenInvariant
+        );
+        require_eq!(
+            market.base_hlp_vault.debt_shares,
+            self.expected_base_debt_shares,
+            ErrorCode::BrokenInvariant
+        );
+        require_eq!(
+            market.quote_hlp_vault.debt_shares,
+            self.expected_quote_debt_shares,
+            ErrorCode::BrokenInvariant
+        );
+        require_eq!(
+            market.base_hlp_vault.debt_principal,
+            self.expected_base_debt_principal,
+            ErrorCode::BrokenInvariant
+        );
+        require_eq!(
+            market.quote_hlp_vault.debt_principal,
+            self.expected_quote_debt_principal,
+            ErrorCode::BrokenInvariant
+        );
+
+        if self.quote_interest_paid > 0 {
+            debit_cash_for_hlp_interest(&mut market.base_side, self.quote_interest_paid)?;
+        }
+        if self.base_interest_paid > 0 {
+            debit_cash_for_hlp_interest(&mut market.quote_side, self.base_interest_paid)?;
+        }
+        let old_base_hlp_live = market.hlp_live_reserve(MarketAsset::Base)?;
+        let old_quote_hlp_live = market.hlp_live_reserve(MarketAsset::Quote)?;
+        let identity_base_live = (market.base_side.reserves.live_reserve as u128)
+            .checked_sub(old_base_hlp_live)
+            .and_then(|value| value.checked_add(self.final_quote_debt as u128))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let identity_quote_live = (market.quote_side.reserves.live_reserve as u128)
+            .checked_sub(old_quote_hlp_live)
+            .and_then(|value| value.checked_add(self.final_base_debt as u128))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        // The quoted ordinary output, each target equity, and the reconstructed
+        // opposite debt are independently floored to raw atoms. Their summed
+        // reserve identity can therefore differ from the raw cash transition
+        // by at most three atoms, without leaving any debt/claim mismatch.
+        const MAX_EXPLICIT_HLP_LIVE_DUST_ATOMS: u128 = 3;
+        require!(
+            identity_base_live.abs_diff(self.final_base_live_reserve as u128) <= MAX_EXPLICIT_HLP_LIVE_DUST_ATOMS
+                && identity_quote_live.abs_diff(self.final_quote_live_reserve as u128)
+                    <= MAX_EXPLICIT_HLP_LIVE_DUST_ATOMS,
+            ErrorCode::BrokenInvariant
+        );
+        market.base_side.shares.ylp_supply = self.final_ylp_supply;
+        market.quote_side.shares.ylp_supply = self.final_ylp_supply;
+        market.base_hlp_vault.ylp_shares = self.final_base_ylp_shares;
+        market.quote_hlp_vault.ylp_shares = self.final_quote_ylp_shares;
+        market.base_hlp_vault.debt_shares = self.final_base_debt_shares;
+        market.quote_hlp_vault.debt_shares = self.final_quote_debt_shares;
+        market.base_hlp_vault.debt_principal = self.final_base_debt;
+        market.quote_hlp_vault.debt_principal = self.final_quote_debt;
+        market.base_hlp_vault.base_hlp_live_reserve = 0;
+        market.base_hlp_vault.quote_hlp_live_reserve = self.final_base_debt;
+        market.quote_hlp_vault.base_hlp_live_reserve = self.final_quote_debt;
+        market.quote_hlp_vault.quote_hlp_live_reserve = 0;
+        market.base_side.reserves.live_reserve =
+            u64::try_from(identity_base_live).map_err(|_| ErrorCode::ReserveOverflow)?;
+        market.quote_side.reserves.live_reserve =
+            u64::try_from(identity_quote_live).map_err(|_| ErrorCode::ReserveOverflow)?;
+        market.base_hlp_vault.last_nav_nad = self.base_receipt.nav_nad;
+        market.quote_hlp_vault.last_nav_nad = self.quote_receipt.nav_nad;
+        market.base_hlp_vault.residual_exposure = 0;
+        market.quote_hlp_vault.residual_exposure = 0;
+        market.assert_virtual_reserve_invariant(MarketAsset::Base)?;
+        market.assert_virtual_reserve_invariant(MarketAsset::Quote)?;
+        Ok((self.base_receipt, self.quote_receipt))
     }
 }
 
@@ -821,6 +1327,10 @@ struct ConcentratedHlpCandidate {
     base_receipt: HlpRebalanceReceipt,
     quote_receipt: HlpRebalanceReceipt,
     authoritative: Option<(CurveCheckpoint, AmmSwapQuote)>,
+    guidance_exact_in_mode: Option<ConcentratedGuidanceExactInMode>,
+    guidance_settlement_trace: Option<HlpGuidanceSettlementSampleTrace>,
+    guidance_d_actions: Option<HlpGuidanceDActionTrace>,
+    structural_topology: HlpStructuralTopologyTrace,
     base_principal_tracking_error_nad: i128,
     quote_principal_tracking_error_nad: i128,
     base_tracking_error_nad: i128,
@@ -837,6 +1347,43 @@ struct ConcentratedHlpCandidate {
     settlement_cash_available: bool,
     next_base_delta_nad: i128,
     next_quote_delta_nad: i128,
+}
+
+/// Guidance-function identity for the three curve anchors consumed by one
+/// compact candidate. It is deliberately separate from structural topology:
+/// clamp regimes are scalar-function branches, not settlement capabilities.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct HlpGuidanceDActionFingerprint {
+    start: ConcentratedGuidanceDAction,
+    trade: ConcentratedGuidanceDAction,
+    reserve: ConcentratedGuidanceDAction,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct HlpGuidanceDActionTrace {
+    anchors: HlpGuidanceDActionFingerprint,
+    pre_base: Option<ConcentratedGuidanceDAction>,
+    pre_quote: Option<ConcentratedGuidanceDAction>,
+    post_base: Option<ConcentratedGuidanceDAction>,
+    post_quote: Option<ConcentratedGuidanceDAction>,
+    final_mark: Option<ConcentratedGuidanceDAction>,
+}
+
+impl HlpGuidanceDActionTrace {
+    /// The frozen-cell start preparation is a feasibility proof only: its
+    /// prepared curve and clamp action are discarded before any quote,
+    /// settlement, mark, cash, or row calculation. Keep executing it so an
+    /// invalid anchor still fails closed, but exclude only that action from
+    /// the finite-difference function identity.
+    fn frozen_cell_numeric_function_matches(self, other: Self) -> bool {
+        self.anchors.trade == other.anchors.trade
+            && self.anchors.reserve == other.anchors.reserve
+            && self.pre_base == other.pre_base
+            && self.pre_quote == other.pre_quote
+            && self.post_base == other.post_base
+            && self.post_quote == other.post_quote
+            && self.final_mark == other.final_mark
+    }
 }
 
 /// Quote coordinates projected for one concentrated hLP candidate. Keeping
@@ -860,23 +1407,37 @@ enum ConcentratedHlpProjection {
     Guidance {
         common: ConcentratedHlpProjectionCommon,
         endpoints: HlpGuidanceEndpointCapability,
+        exact_in_mode: ConcentratedGuidanceExactInMode,
+        guidance_d_actions: HlpGuidanceDActionFingerprint,
     },
     Authoritative {
         common: ConcentratedHlpProjectionCommon,
         start_checkpoint: CurveCheckpoint,
         quote: AmmSwapQuote,
     },
+    FrozenCenter(HlpFrozenCenterProjection),
+    FrozenA1(HlpFrozenA1Projection),
 }
 
 impl ConcentratedHlpProjection {
     const fn common(&self) -> ConcentratedHlpProjectionCommon {
         match self {
             Self::Guidance { common, .. } | Self::Authoritative { common, .. } => *common,
+            Self::FrozenCenter(center) => center.frozen.common,
+            Self::FrozenA1(frozen) => frozen.common,
         }
     }
 
     const fn authoritative(&self) -> bool {
         matches!(self, Self::Authoritative { .. })
+    }
+
+    const fn guidance_exact_in_mode(&self) -> Option<ConcentratedGuidanceExactInMode> {
+        match self {
+            Self::Guidance { exact_in_mode, .. } => Some(*exact_in_mode),
+            Self::FrozenCenter(center) => Some(center.exact_in_mode),
+            Self::Authoritative { .. } | Self::FrozenA1(_) => None,
+        }
     }
 
     const fn authoritative_quote(&self) -> Option<(CurveCheckpoint, AmmSwapQuote)> {
@@ -886,9 +1447,34 @@ impl ConcentratedHlpProjection {
                 quote,
                 ..
             } => Some((*start_checkpoint, *quote)),
-            Self::Guidance { .. } => None,
+            Self::Guidance { .. } | Self::FrozenCenter(_) | Self::FrozenA1(_) => None,
         }
     }
+}
+
+/// Authority-free full-center quote and marks. Axis cells may rescale these
+/// anchors and run bounded settlement only; no checkpoint or executable quote
+/// can escape this payload.
+#[derive(Clone, Copy)]
+struct HlpFrozenCenterProjection {
+    frozen: HlpFrozenA1Projection,
+    exact_in_mode: ConcentratedGuidanceExactInMode,
+    guidance_d_actions: HlpGuidanceDActionTrace,
+}
+
+/// Authority-erased exact-A1 flow. All three curve values are opaque guidance
+/// curves carrying only the exact A1 invariant anchors. The authoritative
+/// quote and checkpoint are destroyed when this payload replaces the
+/// projection scratch slot.
+#[derive(Clone, Copy)]
+struct HlpFrozenA1Projection {
+    common: ConcentratedHlpProjectionCommon,
+    start_anchor: ConcentratedGuidanceCurve,
+    trade_anchor: ConcentratedGuidanceCurve,
+    reserve_anchor: ConcentratedGuidanceCurve,
+    anchor_ylp_supply: u64,
+    retain_dynamic_surcharge: bool,
+    structural_topology: HlpStructuralTopologyTrace,
 }
 
 /// Snapshot-bound, planner-only curve endpoints. Unlike `CurveCheckpoint`,
@@ -906,7 +1492,7 @@ struct HlpGuidanceEndpointCapability {
 }
 
 impl HlpGuidanceEndpointCapability {
-    fn require_identity(self, market: &Market) -> Result<()> {
+    fn require_curve_identity(&self, market: &Market) -> Result<()> {
         require_eq!(self.current_slot, curve_slot(market), ErrorCode::BrokenInvariant);
         require_eq!(self.curve_revision, market.curve_revision, ErrorCode::BrokenInvariant);
         require_eq!(
@@ -918,6 +1504,11 @@ impl HlpGuidanceEndpointCapability {
             self.parameters == market.current_curve_parameters(self.current_slot),
             ErrorCode::BrokenInvariant
         );
+        Ok(())
+    }
+
+    fn require_identity(&self, market: &Market) -> Result<()> {
+        self.require_curve_identity(market)?;
         require_eq!(
             self.retain_dynamic_surcharge,
             market.amm.retain_dynamic_surcharge,
@@ -926,14 +1517,14 @@ impl HlpGuidanceEndpointCapability {
         Ok(())
     }
 
-    fn trade_reserves(self) -> CurveReservesNad {
+    fn trade_reserves(&self) -> CurveReservesNad {
         CurveReservesNad {
             base: self.trade_prepared.base_reserve_nad(),
             quote: self.trade_prepared.quote_reserve_nad(),
         }
     }
 
-    fn reserve_reserves(self) -> CurveReservesNad {
+    fn reserve_reserves(&self) -> CurveReservesNad {
         CurveReservesNad {
             base: self.reserve_prepared.base_reserve_nad(),
             quote: self.reserve_prepared.quote_reserve_nad(),
@@ -947,33 +1538,27 @@ impl HlpGuidanceEndpointCapability {
     /// `CurveCheckpoint` can escape this boundary.
     #[cfg(test)]
     fn fresh_guidance_for_reserves(
-        self,
+        &self,
         market: &Market,
         reserves: CurveReservesNad,
     ) -> Result<ConcentratedGuidanceCurve> {
-        self.require_identity(market)?;
-        let canonical = market.prepare_curve_for_reserves_nad(
-            reserves,
-            self.center_price_nad,
-            self.current_slot,
-        )?;
-        canonical.prepare_guidance_successor_with_invariant(
-            reserves.base,
-            reserves.quote,
-            canonical.invariant_d(),
-        )
+        // Retention routing does not affect curve geometry. Compact callers
+        // validate the selected route once against the operation-start static
+        // and may therefore use an untouched identity Market here even when a
+        // sealed preposition selects the deferred route.
+        self.require_curve_identity(market)?;
+        let canonical = market.prepare_curve_for_reserves_nad(reserves, self.center_price_nad, self.current_slot)?;
+        canonical.prepare_guidance_successor_with_invariant(reserves.base, reserves.quote, canonical.invariant_d())
     }
 }
 
-/// Operation-bound basis for the test-only compact guidance planner.  The
+/// Operation-bound basis for the compact guidance planner.  The
 /// only curve object it can carry is `ConcentratedGuidanceCurve`; no method
 /// exposes a canonical prepared curve, checkpoint, quote, or persisted AMM
-/// state.  Production `LifecycleProjected` remains unchanged until the full
-/// compact differential is green.
-#[cfg(test)]
+/// state. It is captured and identity-checked once at operation start.
 #[derive(Clone, Copy)]
 struct ConcentratedGuidanceBasis {
-    start: ConcentratedGuidanceCurve,
+    start: ConcentratedCanonicalGuidanceAnchor,
     start_ylp_supply: u64,
     current_slot: u64,
     curve_revision: u64,
@@ -983,6 +1568,7 @@ struct ConcentratedGuidanceBasis {
     reserve_credit: u64,
     pre_state: DynamicFeePreState,
     preliminary: PreliminarySwapInputs,
+    fee_config: DynamicFeeConfig,
 }
 
 #[cfg(test)]
@@ -993,17 +1579,23 @@ struct HlpCompactGuidanceQuote {
     reserve: ConcentratedGuidanceCurve,
     retain_dynamic_surcharge: bool,
     start_ylp_supply: u64,
+    exact_in_mode: ConcentratedGuidanceExactInMode,
 }
 
-#[cfg(test)]
 impl ConcentratedGuidanceBasis {
     fn capture(market: &Market, context: &ConcentratedHlpSolveContext) -> Result<Self> {
         let reserves = market.curve_reserves_nad()?;
-        let start = context.guidance_start_prepared.prepare_guidance_successor_with_invariant(
+        require_eq!(
+            context.guidance_start_prepared.base_reserve_nad(),
             reserves.base,
+            ErrorCode::BrokenInvariant
+        );
+        require_eq!(
+            context.guidance_start_prepared.quote_reserve_nad(),
             reserves.quote,
-            context.guidance_start_prepared.invariant_d(),
-        )?;
+            ErrorCode::BrokenInvariant
+        );
+        let start = context.guidance_start_prepared.seal_canonical_guidance_anchor()?;
         Ok(Self {
             start,
             start_ylp_supply: context.guidance_start_ylp_supply,
@@ -1015,10 +1607,11 @@ impl ConcentratedGuidanceBasis {
             reserve_credit: context.reserve_credit,
             pre_state: context.pre_state,
             preliminary: context.preliminary,
+            fee_config: market.dynamic_fee_config()?,
         })
     }
 
-    fn require_identity(self, market: &Market, context: &ConcentratedHlpSolveContext) -> Result<()> {
+    fn require_identity(&self, market: &Market, context: &ConcentratedHlpSolveContext) -> Result<()> {
         require_eq!(self.current_slot, context.current_slot, ErrorCode::BrokenInvariant);
         require_eq!(self.curve_revision, market.curve_revision, ErrorCode::BrokenInvariant);
         require_eq!(
@@ -1037,69 +1630,103 @@ impl ConcentratedGuidanceBasis {
         Ok(())
     }
 
-    fn prepared_for(
-        self,
+    fn prepared_for(&self, fixed: HlpPlannerStatic, state: HlpPlannerState) -> Result<ConcentratedGuidanceCurve> {
+        self.prepared_for_with_action(fixed, state)
+            .map(|(guidance, _)| guidance)
+    }
+
+    fn prepared_for_with_action(
+        &self,
         fixed: HlpPlannerStatic,
         state: HlpPlannerState,
-    ) -> Result<ConcentratedGuidanceCurve> {
+    ) -> Result<(ConcentratedGuidanceCurve, ConcentratedGuidanceDAction)> {
         let supply = state.base_side.ylp_supply;
         require_eq!(supply, state.quote_side.ylp_supply, ErrorCode::BrokenInvariant);
         require!(self.start_ylp_supply > 0 && supply > 0, ErrorCode::SupplyUnderflow);
-        require_eq!(self.start_ylp_supply, fixed.start_ylp_supply, ErrorCode::BrokenInvariant);
-        let scaled_invariant_d = mul_div_u128(
-            self.start.invariant_d(),
-            supply as u128,
-            self.start_ylp_supply as u128,
-        )?;
+        require_eq!(
+            self.start_ylp_supply,
+            fixed.start_ylp_supply,
+            ErrorCode::BrokenInvariant
+        );
         let reserves = state.curve_reserves_nad(fixed)?;
         self.start
-            .prepare_guidance_successor_with_invariant(reserves.base, reserves.quote, scaled_invariant_d)
+            .prepare_candidate_guidance_with_action(reserves.base, reserves.quote, self.start_ylp_supply, supply)
     }
 
-    fn quote_bounded(
-        self,
-        market: &Market,
-        context: &ConcentratedHlpSolveContext,
+    #[inline(never)]
+    fn quote_bounded_into(
+        &self,
         fixed: HlpPlannerStatic,
         state: HlpPlannerState,
         inventory_changed: bool,
-    ) -> Result<HlpCompactGuidanceQuote> {
-        self.require_identity(market, context)?;
+        projection_out: &mut Option<ConcentratedHlpProjection>,
+    ) -> Result<()> {
+        #[cfg(test)]
         HLP_COMPACT_GUIDANCE_CELLS.with(|count| count.set(count.get().saturating_add(1)));
-        let prepared = self.prepared_for(fixed, state)?;
+        let (prepared, start_d_action) = self.prepared_for_with_action(fixed, state)?;
         let reserves = state.curve_reserves_nad(fixed)?;
-        let amount_in_after_fee = market.exact_swap_input_for_prepared_guidance(
+        let (divergence_surcharge, _) = divergence_surcharge_for_guidance(
             self.asset_in,
+            fixed.decimals(self.asset_in),
             self.reserve_credit,
             reserves,
             self.pre_state,
             self.preliminary,
-            prepared,
+            self.fee_config,
+            &prepared,
         )?;
-        let amount_in_nad = normalize_to_nad(
-            amount_in_after_fee as u128,
-            fixed.decimals(self.asset_in),
-        )?;
+        let amount_in_after_fee = self
+            .preliminary
+            .amount_in_for_quote
+            .checked_sub(divergence_surcharge)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        require!(amount_in_after_fee > 0, ErrorCode::InsufficientOutputAmount);
+        require_gte!(
+            amount_in_after_fee,
+            minimum_executable_input(self.reserve_credit),
+            ErrorCode::BrokenInvariant
+        );
+        let amount_in_nad = normalize_to_nad(amount_in_after_fee as u128, fixed.decimals(self.asset_in))?;
+        let output_atom_nad = normalize_to_nad(1, fixed.decimals(self.asset_in.opposite()))?;
         let direction = match self.asset_in {
             MarketAsset::Base => ConcentratedSwapDirection::BaseToQuote,
             MarketAsset::Quote => ConcentratedSwapDirection::QuoteToBase,
         };
+        #[cfg(test)]
         let probes_before = crate::math::residual_evaluations();
-        let amount_out_nad = prepared.quote_bounded_exact_in(amount_in_nad, direction)?;
+        let bounded_quote = prepared.quote_bounded_exact_in_with_mode(amount_in_nad, direction, output_atom_nad)?;
+        let amount_out_nad = bounded_quote.amount_out_nad;
+        #[cfg(test)]
         let probes = crate::math::residual_evaluations().saturating_sub(probes_before);
-        require!(probes <= 2, ErrorCode::BrokenInvariant);
-        HLP_COMPACT_GUIDANCE_EXACT_IN_PROBES.with(|count| {
-            count.set(count.get().saturating_add(u32::try_from(probes).unwrap_or(u32::MAX)))
-        });
-        let amount_out = denormalize_from_nad_floor(
-            amount_out_nad,
-            fixed.decimals(self.asset_in.opposite()),
-        )?;
+        #[cfg(test)]
+        require!(
+            probes <= MAX_RESIDUAL_PROBES_PER_VARIABLE_LEG,
+            ErrorCode::BrokenInvariant
+        );
+        #[cfg(test)]
+        match bounded_quote.mode {
+            ConcentratedGuidanceExactInMode::Bracket if prepared.is_concentrated() && amount_out_nad > 0 => {
+                require!(
+                    (1..=MAX_RESIDUAL_PROBES_PER_VARIABLE_LEG).contains(&probes),
+                    ErrorCode::BrokenInvariant
+                );
+                HLP_COMPACT_GUIDANCE_BRACKET_QUOTES.with(|count| count.set(count.get().saturating_add(1)));
+            }
+            ConcentratedGuidanceExactInMode::Bracket => {
+                HLP_COMPACT_GUIDANCE_BRACKET_QUOTES.with(|count| count.set(count.get().saturating_add(1)));
+            }
+            ConcentratedGuidanceExactInMode::StructuralGap => {
+                require_eq!(probes, 0, ErrorCode::BrokenInvariant);
+                HLP_COMPACT_GUIDANCE_STRUCTURAL_GAPS.with(|count| count.set(count.get().saturating_add(1)));
+            }
+        }
+        #[cfg(test)]
+        HLP_COMPACT_GUIDANCE_EXACT_IN_PROBES
+            .with(|count| count.set(count.get().saturating_add(u32::try_from(probes).unwrap_or(u32::MAX))));
+        let amount_out = denormalize_from_nad_floor(amount_out_nad, fixed.decimals(self.asset_in.opposite()))?;
         require!(amount_out > 0, ErrorCode::InsufficientOutputAmount);
-        let executable_output_nad = normalize_to_nad(
-            amount_out as u128,
-            fixed.decimals(self.asset_in.opposite()),
-        )?;
+        let executable_output_nad = normalize_to_nad(amount_out as u128, fixed.decimals(self.asset_in.opposite()))?;
+        require_eq!(executable_output_nad, amount_out_nad, ErrorCode::BrokenInvariant);
         let endpoint_reserves = match self.asset_in {
             MarketAsset::Base => CurveReservesNad {
                 base: reserves
@@ -1122,7 +1749,8 @@ impl ConcentratedGuidanceBasis {
                     .ok_or(ErrorCode::ReserveOverflow)?,
             },
         };
-        let trade = prepared.prepare_guidance_successor(endpoint_reserves.base, endpoint_reserves.quote)?;
+        let (trade, trade_d_action) = prepared
+            .prepare_locally_floored_guidance_successor_with_action(endpoint_reserves.base, endpoint_reserves.quote)?;
         let retain_dynamic_surcharge = if inventory_changed {
             fixed.retain_dynamic_surcharge_after_inventory
         } else {
@@ -1138,10 +1766,7 @@ impl ConcentratedGuidanceBasis {
             .ok_or(ErrorCode::FeeMathOverflow)?;
         let mut reserve_endpoint_reserves = endpoint_reserves;
         if retained_surcharge > 0 {
-            let retained_nad = normalize_to_nad(
-                retained_surcharge as u128,
-                fixed.decimals(self.asset_in),
-            )?;
+            let retained_nad = normalize_to_nad(retained_surcharge as u128, fixed.decimals(self.asset_in))?;
             match self.asset_in {
                 MarketAsset::Base => {
                     reserve_endpoint_reserves.base = reserve_endpoint_reserves
@@ -1157,31 +1782,73 @@ impl ConcentratedGuidanceBasis {
                 }
             }
         }
-        // Retained surcharge is a non-homogeneous reserve credit. Keep it
-        // guidance-typed and same-D in this bounded predictor; the separate
-        // exact authority remains the only canonical successor proof.
-        let reserve = trade.prepare_guidance_successor(
+        // Retained surcharge is a non-homogeneous reserve credit. Re-establish
+        // its local radial floor from the final aligned output and actual input,
+        // while keeping the endpoint guidance-typed and non-authoritative.
+        let (reserve, reserve_d_action) = trade.prepare_locally_floored_guidance_successor_with_action(
             reserve_endpoint_reserves.base,
             reserve_endpoint_reserves.quote,
         )?;
-        Ok(HlpCompactGuidanceQuote {
+        *projection_out = Some(ConcentratedHlpProjection::Guidance {
             common: ConcentratedHlpProjectionCommon {
                 amount_in_after_fee,
                 retained_surcharge,
                 amount_out,
                 start_price_nad: u64::try_from(prepared.marginal_price_nad()?)
                     .map_err(|_| ErrorCode::MarketMathOverflow)?,
-                end_price_nad: u64::try_from(trade.marginal_price_nad()?)
-                    .map_err(|_| ErrorCode::MarketMathOverflow)?,
+                end_price_nad: u64::try_from(trade.marginal_price_nad()?).map_err(|_| ErrorCode::MarketMathOverflow)?,
                 endpoint_reserves,
                 reserve_endpoint_reserves,
                 reserve_end_price_nad: u64::try_from(reserve.marginal_price_nad()?)
                     .map_err(|_| ErrorCode::MarketMathOverflow)?,
             },
-            trade,
-            reserve,
-            retain_dynamic_surcharge,
+            endpoints: HlpGuidanceEndpointCapability {
+                current_slot: self.current_slot,
+                curve_revision: self.curve_revision,
+                center_price_nad: self.center_price_nad,
+                parameters: self.parameters,
+                retain_dynamic_surcharge,
+                trade_prepared: trade,
+                reserve_prepared: reserve,
+            },
+            exact_in_mode: bounded_quote.mode,
+            guidance_d_actions: HlpGuidanceDActionFingerprint {
+                start: start_d_action,
+                trade: trade_d_action,
+                reserve: reserve_d_action,
+            },
+        });
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn quote_bounded(
+        &self,
+        market: &Market,
+        context: &ConcentratedHlpSolveContext,
+        fixed: HlpPlannerStatic,
+        state: HlpPlannerState,
+        inventory_changed: bool,
+    ) -> Result<HlpCompactGuidanceQuote> {
+        self.require_identity(market, context)?;
+        let mut projection = None;
+        self.quote_bounded_into(fixed, state, inventory_changed, &mut projection)?;
+        let Some(ConcentratedHlpProjection::Guidance {
+            common,
+            endpoints,
+            exact_in_mode,
+            guidance_d_actions: _,
+        }) = projection
+        else {
+            return err!(ErrorCode::BrokenInvariant);
+        };
+        Ok(HlpCompactGuidanceQuote {
+            common,
+            trade: endpoints.trade_prepared,
+            reserve: endpoints.reserve_prepared,
+            retain_dynamic_surcharge: endpoints.retain_dynamic_surcharge,
             start_ylp_supply: state.base_side.ylp_supply,
+            exact_in_mode,
         })
     }
 }
@@ -1229,10 +1896,14 @@ impl HlpExactSampleRows {
 #[derive(Clone, Copy, Default)]
 struct HlpFiniteDifferenceBasis {
     origin: HlpExactSampleRows,
+    guidance_exact_in_mode: Option<ConcentratedGuidanceExactInMode>,
+    guidance_settlement_trace: Option<HlpGuidanceSettlementSampleTrace>,
     base_probe_delta_nad: i128,
     base_probe: HlpExactSampleRows,
     quote_probe_delta_nad: i128,
     quote_probe: HlpExactSampleRows,
+    base_signature: HlpPrepositionSignature,
+    quote_signature: HlpPrepositionSignature,
     base_probe_recorded: bool,
     quote_probe_recorded: bool,
 }
@@ -1243,8 +1914,9 @@ enum HlpSolvePhase {
     PlanCenter,
     PlanBaseAxis,
     PlanQuoteAxis,
-    PlanFinal,
-    AuthorizeCorrected,
+    PlanQuoteAxisReflected,
+    AuthorizeA1,
+    AuthorizeA2,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1267,7 +1939,7 @@ impl HlpCandidateEvaluationMode {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HlpExactControlRow {
     Combined,
     Trade,
@@ -1278,6 +1950,64 @@ struct HlpPrepositionSignature {
     ylp_mint_amount: u64,
     ylp_burn_amount: u64,
     debt_delta: i128,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct HlpPrepositionPairSignature {
+    base: HlpPrepositionSignature,
+    quote: HlpPrepositionSignature,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+enum HlpPlanTopologyKind {
+    Inactive = 0,
+    NoopSettled = 1,
+    NoopUnhedgeable = 2,
+    NoopCapacityOrGranularity = 3,
+    LeverageUp = 4,
+    DeleverageDirect = 5,
+    DeleverageExactOut = 6,
+}
+
+/// Packed plan-derived structural identity. Bits encode the semantic plan
+/// kind, capacity binding, per-reserve cash/synthetic source, exact-out proof
+/// presence, and complete debt clearance. It contains no settlement proof or
+/// checkpoint capability.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct HlpPackedPlanTopology(u16);
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct HlpStructuralTopologyTrace {
+    pre_base: HlpPackedPlanTopology,
+    pre_quote: HlpPackedPlanTopology,
+    post_base: HlpPackedPlanTopology,
+    post_quote: HlpPackedPlanTopology,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct HlpStage4B2aTestTrace {
+    rejected_quote_axis_coordinate: Option<(i128, i128)>,
+    rejected_quote_axis_rows: Option<[i128; 6]>,
+    rejected_quote_axis_topology: Option<HlpStructuralTopologyTrace>,
+    reflected_quote_axis_coordinate: Option<(i128, i128)>,
+    reflected_quote_axis_rows: Option<[i128; 6]>,
+    reflected_quote_axis_topology: Option<HlpStructuralTopologyTrace>,
+    a1_coordinate: Option<(i128, i128)>,
+    a1_rows: Option<[i128; 6]>,
+    a1_topology: Option<HlpStructuralTopologyTrace>,
+    a1_signature: Option<HlpPrepositionPairSignature>,
+    raw_coordinate: Option<(i128, i128)>,
+    raw_rows: Option<[i128; 6]>,
+    raw_topology: Option<HlpStructuralTopologyTrace>,
+    raw_signature: Option<HlpPrepositionPairSignature>,
+    raw_robust: Option<bool>,
+    a2_coordinate: Option<(i128, i128)>,
+    a2_rows: Option<[i128; 6]>,
+    a2_topology: Option<HlpStructuralTopologyTrace>,
+    a2_signature: Option<HlpPrepositionPairSignature>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1321,15 +2051,214 @@ struct HlpAuthoritativeLifecycleArgs {
     amount_in_after_fee: u64,
     retained_surcharge: u64,
     amount_out: u64,
+    trade_start_price_nad: u64,
+    start_checkpoint: Option<CurveCheckpoint>,
     endpoints: HlpLifecycleEndpointMode,
     expected_trade_price_nad: u64,
     expected_reserve_price_nad: u64,
+}
+
+/// Exact Spot-only post-authority state carried out of the accepted terminal
+/// lifecycle. Guidance cannot construct this type, and leverage deliberately
+/// discards it until its later position/socialized-loss barriers can be bound.
+pub(crate) struct HlpTerminalSwapPlan {
+    capability: Box<HlpTerminalSwapCapability>,
+    consumed: Cell<bool>,
+}
+
+impl core::fmt::Debug for HlpTerminalSwapPlan {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter
+            .debug_struct("HlpTerminalSwapPlan")
+            .field("consumed", &self.consumed.get())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct HlpTerminalCoreState {
+    planner: HlpPlannerState,
+    amm: AmmState,
+    base_last_nav_nad: u128,
+    base_cached_settlement_price_nad: u128,
+    quote_last_nav_nad: u128,
+    quote_cached_settlement_price_nad: u128,
+    curve_revision: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct HlpTerminalSwapCapability {
+    current_slot: u64,
+    base_pre_receipt: HlpRebalanceReceipt,
+    quote_pre_receipt: HlpRebalanceReceipt,
+    expected_pre_rebalance: HlpTerminalCoreState,
+    terminal: HlpTerminalCoreState,
+    base_post_receipt: HlpRebalanceReceipt,
+    quote_post_receipt: HlpRebalanceReceipt,
+    final_prices: HlpCurvePrices,
+    final_evaluation: Option<crate::math::ConcentratedEvaluation>,
+}
+
+#[derive(Default)]
+struct HlpTerminalSwapScratch {
+    capability: Box<HlpTerminalSwapCapability>,
+    valid: bool,
+}
+
+/// Keep construction of the large terminal payload out of the solver frame.
+/// On SBF, expanding `Box::<HlpTerminalSwapCapability>::default()` inline can
+/// materialize part of the 2.4 KiB payload in the caller before it is copied
+/// into the heap allocation.
+#[inline(never)]
+fn allocate_hlp_terminal_swap_capability() -> Box<HlpTerminalSwapCapability> {
+    Box::default()
+}
+
+impl HlpTerminalSwapScratch {
+    fn new() -> Self {
+        Self {
+            capability: allocate_hlp_terminal_swap_capability(),
+            valid: false,
+        }
+    }
+}
+
+impl HlpTerminalCoreState {
+    /// Captures directly into the heap-owned terminal payload. Keeping the
+    /// destination explicit prevents SBF from first materializing this large
+    /// aggregate in the lifecycle caller's stack frame.
+    fn capture_into(&mut self, market: &Market) {
+        self.planner.capture_into(market);
+        self.amm = market.amm;
+        self.base_last_nav_nad = market.base_hlp_vault.last_nav_nad;
+        self.base_cached_settlement_price_nad = market.base_hlp_vault.cached_settlement_price_nad;
+        self.quote_last_nav_nad = market.quote_hlp_vault.last_nav_nad;
+        self.quote_cached_settlement_price_nad = market.quote_hlp_vault.cached_settlement_price_nad;
+        self.curve_revision = market.curve_revision;
+    }
+
+    /// Compares the carried core directly against the market. Avoid forming
+    /// another 816-byte `HlpTerminalCoreState` in the SBF consumer frame.
+    fn matches_market(&self, market: &Market) -> bool {
+        self.planner.matches_market(market)
+            && self.amm == market.amm
+            && self.base_last_nav_nad == market.base_hlp_vault.last_nav_nad
+            && self.base_cached_settlement_price_nad == market.base_hlp_vault.cached_settlement_price_nad
+            && self.quote_last_nav_nad == market.quote_hlp_vault.last_nav_nad
+            && self.quote_cached_settlement_price_nad == market.quote_hlp_vault.cached_settlement_price_nad
+            && self.curve_revision == market.curve_revision
+    }
+
+    /// Applies only the planner/AMM core advanced by the authoritative
+    /// lifecycle. Fee liabilities and every hLP yield accumulator/checkpoint
+    /// deliberately remain on the real market: those are updated from the
+    /// actual swap fee immediately before this capability is consumed.
+    fn apply_to_market(&self, market: &mut Market) {
+        let planner = &self.planner;
+
+        market.base_side.reserves.live_reserve = planner.base_side.live_reserve;
+        market.base_side.reserves.cash_reserve = planner.base_side.cash_reserve;
+        market.base_side.reserves.base_hlp_backing_inventory = planner.base_side.base_hlp_backing_inventory;
+        market.base_side.reserves.quote_hlp_backing_inventory = planner.base_side.quote_hlp_backing_inventory;
+        market.base_side.shares.ylp_supply = planner.base_side.ylp_supply;
+
+        market.quote_side.reserves.live_reserve = planner.quote_side.live_reserve;
+        market.quote_side.reserves.cash_reserve = planner.quote_side.cash_reserve;
+        market.quote_side.reserves.base_hlp_backing_inventory = planner.quote_side.base_hlp_backing_inventory;
+        market.quote_side.reserves.quote_hlp_backing_inventory = planner.quote_side.quote_hlp_backing_inventory;
+        market.quote_side.shares.ylp_supply = planner.quote_side.ylp_supply;
+
+        market.base_hlp_vault.debt_shares = planner.base_vault.debt_shares;
+        market.base_hlp_vault.residual_exposure = planner.base_vault.residual_exposure;
+        market.base_hlp_vault.ylp_shares = planner.base_vault.ylp_shares;
+        market.base_hlp_vault.base_hlp_live_reserve = planner.base_vault.base_hlp_live_reserve;
+        market.base_hlp_vault.quote_hlp_live_reserve = planner.base_vault.quote_hlp_live_reserve;
+        market.base_hlp_vault.debt_principal = planner.base_vault.debt_principal;
+
+        market.quote_hlp_vault.debt_shares = planner.quote_vault.debt_shares;
+        market.quote_hlp_vault.residual_exposure = planner.quote_vault.residual_exposure;
+        market.quote_hlp_vault.ylp_shares = planner.quote_vault.ylp_shares;
+        market.quote_hlp_vault.base_hlp_live_reserve = planner.quote_vault.base_hlp_live_reserve;
+        market.quote_hlp_vault.quote_hlp_live_reserve = planner.quote_vault.quote_hlp_live_reserve;
+        market.quote_hlp_vault.debt_principal = planner.quote_vault.debt_principal;
+
+        market.debt.isolated_base_shares = planner.debt.isolated_base_shares;
+        market.debt.isolated_quote_shares = planner.debt.isolated_quote_shares;
+        market.debt.isolated_base_principal = planner.debt.isolated_base_principal;
+        market.debt.isolated_quote_principal = planner.debt.isolated_quote_principal;
+
+        market.amm = self.amm;
+        market.base_hlp_vault.last_nav_nad = self.base_last_nav_nad;
+        market.base_hlp_vault.cached_settlement_price_nad = self.base_cached_settlement_price_nad;
+        market.quote_hlp_vault.last_nav_nad = self.quote_last_nav_nad;
+        market.quote_hlp_vault.cached_settlement_price_nad = self.quote_cached_settlement_price_nad;
+        market.curve_revision = self.curve_revision;
+    }
+}
+
+impl HlpTerminalSwapPlan {
+    /// Commits the exact post-hLP core already produced by the accepted Spot
+    /// authority. This is single-use and has no legacy fallback: any identity
+    /// mismatch fails the enclosing transaction before plan-owned state is
+    /// applied.
+    pub(crate) fn consume_after_spot_barriers(
+        &self,
+        market: &mut Market,
+        current_slot: u64,
+        base_pre_receipt: HlpRebalanceReceipt,
+        quote_pre_receipt: HlpRebalanceReceipt,
+    ) -> Result<(
+        HlpRebalanceReceipt,
+        HlpRebalanceReceipt,
+        Option<crate::math::ConcentratedEvaluation>,
+    )> {
+        require!(!self.consumed.get(), ErrorCode::BrokenInvariant);
+        let capability = self.capability.as_ref();
+        require_eq!(current_slot, capability.current_slot, ErrorCode::BrokenInvariant);
+        require!(
+            base_pre_receipt == capability.base_pre_receipt,
+            ErrorCode::BrokenInvariant
+        );
+        require!(
+            quote_pre_receipt == capability.quote_pre_receipt,
+            ErrorCode::BrokenInvariant
+        );
+
+        // Preserve the legacy fee/yield ordering. These checkpoints consume
+        // the real fee write and mutate only fields intentionally excluded
+        // from HlpTerminalCoreState.
+        checkpoint_pre_solve_fee_eligibility(market, &base_pre_receipt)?;
+        checkpoint_pre_solve_fee_eligibility(market, &quote_pre_receipt)?;
+        checkpoint_hlp_yield_from_ylp_pair(market, true, true)?;
+        require!(
+            capability.expected_pre_rebalance.matches_market(market),
+            ErrorCode::BrokenInvariant
+        );
+
+        self.consumed.set(true);
+        capability.terminal.apply_to_market(market);
+        require!(capability.terminal.matches_market(market), ErrorCode::BrokenInvariant);
+        require_hlp_end_to_end_tracking(market, base_pre_receipt, capability.final_prices)?;
+        require_hlp_end_to_end_tracking(market, quote_pre_receipt, capability.final_prices)?;
+
+        Ok((
+            combine_hlp_rebalance_receipts(base_pre_receipt, capability.base_post_receipt)?,
+            combine_hlp_rebalance_receipts(quote_pre_receipt, capability.quote_post_receipt)?,
+            capability.final_evaluation,
+        ))
+    }
 }
 
 #[derive(Clone, Copy)]
 struct HlpCandidatePreposition {
     base_receipt: HlpRebalanceReceipt,
     quote_receipt: HlpRebalanceReceipt,
+    base_settlement_mode: HlpGuidanceSettlementSampleMode,
+    quote_settlement_mode: HlpGuidanceSettlementSampleMode,
+    base_settlement_d_action: Option<ConcentratedGuidanceDAction>,
+    quote_settlement_d_action: Option<ConcentratedGuidanceDAction>,
+    base_topology: HlpPackedPlanTopology,
+    quote_topology: HlpPackedPlanTopology,
     preliminary: PreliminarySwapInputs,
 }
 
@@ -1346,24 +2275,110 @@ struct ConcentratedHlpSolveContext {
     cash_policy: SwapCashPolicy,
     guidance_start_prepared: ConcentratedPreparedCurve,
     guidance_start_ylp_supply: u64,
+    #[cfg(test)]
+    guidance_start_fixed: HlpPlannerStatic,
 }
 
-/// Jointly pre-positions both hLP numeraires against one exact applied-curve
-/// lifecycle endpoint. Candidate transitions use the real reserve, share, and
-/// debt mutations in deterministic base-then-quote order; only a candidate
-/// inside both vault-local combined tracking budgets can become the quoted
-/// market state.
-pub(crate) fn pre_solve_hlps_for_swap_joint(
-    market: &mut Market,
+impl ConcentratedHlpSolveContext {
+    fn require_compact_operation_identity(&self, market_identity: &Market, _fixed: HlpPlannerStatic) -> Result<()> {
+        #[cfg(test)]
+        require!(_fixed == self.guidance_start_fixed, ErrorCode::BrokenInvariant);
+        require_eq!(
+            curve_slot(market_identity),
+            self.current_slot,
+            ErrorCode::BrokenInvariant
+        );
+        require_eq!(
+            market_identity.base_side.shares.ylp_supply,
+            self.guidance_start_ylp_supply,
+            ErrorCode::BrokenInvariant
+        );
+        require_eq!(
+            market_identity.quote_side.shares.ylp_supply,
+            self.guidance_start_ylp_supply,
+            ErrorCode::BrokenInvariant
+        );
+        let reserves = market_identity.curve_reserves_nad()?;
+        require_eq!(
+            self.guidance_start_prepared.base_reserve_nad(),
+            reserves.base,
+            ErrorCode::BrokenInvariant
+        );
+        require_eq!(
+            self.guidance_start_prepared.quote_reserve_nad(),
+            reserves.quote,
+            ErrorCode::BrokenInvariant
+        );
+        let canonical = market_identity.prepare_curve_for_reserves_nad(
+            reserves,
+            market_identity.current_curve_center_price_nad()?,
+            self.current_slot,
+        )?;
+        require!(canonical == self.guidance_start_prepared, ErrorCode::BrokenInvariant);
+        require!(
+            market_identity.dynamic_fee_pre_state(self.current_slot)? == self.pre_state,
+            ErrorCode::BrokenInvariant
+        );
+        require!(
+            market_identity.preliminary_swap_inputs_for_state(
+                self.reserve_credit,
+                self.current_slot,
+                self.pre_state,
+            )? == self.preliminary,
+            ErrorCode::BrokenInvariant
+        );
+        Ok(())
+    }
+}
+
+/// Sealed operation-start inputs for every non-authoritative cell. Candidate
+/// evaluation copies only the 256-byte economic state; neither the full Market
+/// nor canonical curve preparation is repeated inside the phase machine.
+struct HlpCompactSolveContext {
+    fixed: HlpPlannerStatic,
+    start_state: HlpPlannerState,
+    guidance: ConcentratedGuidanceBasis,
+}
+
+impl HlpCompactSolveContext {
+    #[inline(never)]
+    fn capture_into(
+        market: &Market,
+        context: &ConcentratedHlpSolveContext,
+        compact_out: &mut Option<Self>,
+    ) -> Result<()> {
+        let fixed = HlpPlannerStatic::capture(market)?;
+        let start_state = HlpPlannerState::capture(market);
+        context.require_compact_operation_identity(market, fixed)?;
+        let guidance = ConcentratedGuidanceBasis::capture(market, context)?;
+        guidance.require_identity(market, context)?;
+        *compact_out = Some(Self {
+            fixed,
+            start_state,
+            guidance,
+        });
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct HlpPreSolveScratch {
+    context: Option<ConcentratedHlpSolveContext>,
+    compact: Option<HlpCompactSolveContext>,
+}
+
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn capture_concentrated_hlp_solve_context_into(
+    snapshot: &Market,
     asset_in: MarketAsset,
     reserve_credit: u64,
     current_slot: u64,
     pre_state: DynamicFeePreState,
     preliminary: PreliminarySwapInputs,
     cash_policy: SwapCashPolicy,
-) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt, AmmSwapQuote)> {
-    let mut snapshot = Box::<Market>::default();
-    snapshot.as_mut().clone_from(market);
+    context_out: &mut Option<ConcentratedHlpSolveContext>,
+) -> Result<()> {
     let guidance_start_reserves = snapshot.curve_reserves_nad()?;
     let guidance_start_prepared = snapshot.prepare_curve_for_reserves_nad(
         guidance_start_reserves,
@@ -1371,9 +2386,9 @@ pub(crate) fn pre_solve_hlps_for_swap_joint(
         current_slot,
     )?;
     let frozen_prices = hlp_curve_prices_from_base_price_nad(guidance_start_prepared.marginal_price_nad()?)?;
-    let base_start = concentrated_hlp_start(&snapshot, MarketAsset::Base, frozen_prices)?;
-    let quote_start = concentrated_hlp_start(&snapshot, MarketAsset::Quote, frozen_prices)?;
-    let context = ConcentratedHlpSolveContext {
+    let base_start = concentrated_hlp_start(snapshot, MarketAsset::Base, frozen_prices)?;
+    let quote_start = concentrated_hlp_start(snapshot, MarketAsset::Quote, frozen_prices)?;
+    *context_out = Some(ConcentratedHlpSolveContext {
         base_start,
         quote_start,
         frozen_prices,
@@ -1385,13 +2400,82 @@ pub(crate) fn pre_solve_hlps_for_swap_joint(
         cash_policy,
         guidance_start_prepared,
         guidance_start_ylp_supply: snapshot.base_side.shares.ylp_supply,
-    };
+        #[cfg(test)]
+        guidance_start_fixed: HlpPlannerStatic::capture(snapshot)?,
+    });
+    let context = context_out.as_ref().ok_or(ErrorCode::BrokenInvariant)?;
     require!(
         context.base_start.active || context.quote_start.active,
         ErrorCode::HlpSettlementUnavailable
     );
+    Ok(())
+}
 
-    solve_concentrated_hlp_candidates(market, &snapshot, &context)
+/// Jointly pre-positions both hLP numeraires against one exact applied-curve
+/// lifecycle endpoint. Candidate transitions use the real reserve, share, and
+/// debt mutations in deterministic base-then-quote order; only a candidate
+/// inside both vault-local combined tracking budgets can become the quoted
+/// market state.
+/// Legacy finite-difference/Broyden reference retained only for differential
+/// tests. Production swap-like operations use the O(1) explicit transition.
+#[cfg(test)]
+pub(crate) fn pre_solve_hlps_for_swap_joint(
+    market: &mut Market,
+    asset_in: MarketAsset,
+    reserve_credit: u64,
+    current_slot: u64,
+    pre_state: DynamicFeePreState,
+    preliminary: PreliminarySwapInputs,
+    cash_policy: SwapCashPolicy,
+) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt, AmmSwapQuote)> {
+    pre_solve_hlps_for_swap_joint_with_terminal(
+        market,
+        asset_in,
+        reserve_credit,
+        current_slot,
+        pre_state,
+        preliminary,
+        cash_policy,
+    )
+    .map(|(base, quote, swap, _)| (base, quote, swap))
+}
+
+#[cfg(test)]
+pub(crate) fn pre_solve_hlps_for_swap_joint_with_terminal(
+    market: &mut Market,
+    asset_in: MarketAsset,
+    reserve_credit: u64,
+    current_slot: u64,
+    pre_state: DynamicFeePreState,
+    preliminary: PreliminarySwapInputs,
+    cash_policy: SwapCashPolicy,
+) -> Result<(
+    HlpRebalanceReceipt,
+    HlpRebalanceReceipt,
+    AmmSwapQuote,
+    Option<HlpTerminalSwapPlan>,
+)> {
+    let mut snapshot = Box::<Market>::default();
+    snapshot.as_mut().clone_from(market);
+    // Both immutable solver contexts are several kilobytes together. Keep
+    // them in one setup allocation and initialize each through an out-slot so
+    // the SBF entry frame never stages either value on its stack.
+    let mut setup = Box::<HlpPreSolveScratch>::default();
+    capture_concentrated_hlp_solve_context_into(
+        &snapshot,
+        asset_in,
+        reserve_credit,
+        current_slot,
+        pre_state,
+        preliminary,
+        cash_policy,
+        &mut setup.context,
+    )?;
+    let context = setup.context.as_ref().ok_or(ErrorCode::BrokenInvariant)?;
+    HlpCompactSolveContext::capture_into(&snapshot, context, &mut setup.compact)?;
+    let compact = setup.compact.as_ref().ok_or(ErrorCode::BrokenInvariant)?;
+
+    solve_concentrated_hlp_candidates(market, &snapshot, context, compact)
 }
 
 #[inline(never)]
@@ -1399,8 +2483,14 @@ fn solve_concentrated_hlp_candidates(
     market: &mut Market,
     snapshot: &Market,
     context: &ConcentratedHlpSolveContext,
-) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt, AmmSwapQuote)> {
-    let result = solve_concentrated_hlp_candidates_inner(market, snapshot, context);
+    compact: &HlpCompactSolveContext,
+) -> Result<(
+    HlpRebalanceReceipt,
+    HlpRebalanceReceipt,
+    AmmSwapQuote,
+    Option<HlpTerminalSwapPlan>,
+)> {
+    let result = solve_concentrated_hlp_candidates_inner(market, snapshot, context, compact);
     if result.is_err() {
         market.clone_from(snapshot);
     }
@@ -1412,8 +2502,16 @@ fn solve_concentrated_hlp_candidates_inner(
     market: &mut Market,
     snapshot: &Market,
     context: &ConcentratedHlpSolveContext,
-) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt, AmmSwapQuote)> {
+    compact: &HlpCompactSolveContext,
+) -> Result<(
+    HlpRebalanceReceipt,
+    HlpRebalanceReceipt,
+    AmmSwapQuote,
+    Option<HlpTerminalSwapPlan>,
+)> {
     debug_log_heap(10);
+    #[cfg(test)]
+    HLP_STAGE4B2A_LAST_TRACE.with(|trace| *trace.borrow_mut() = None);
     // One solver-wide scratch market preserves each authoritative candidate's
     // preposition while its full lifecycle is evaluated. Reusing this box
     // avoids both an unsafe >4 KiB stack frame and per-candidate allocation.
@@ -1428,29 +2526,39 @@ fn solve_concentrated_hlp_candidates_inner(
     // Freeze the operation-start floor; any sample whose actual settlement
     // needs bind it is rejected rather than mixed into the derivative basis.
     let cash_floors = context.cash_policy.floors(snapshot, context.asset_in, 0)?;
-    let mut candidate: Option<ConcentratedHlpCandidate>;
+    // A candidate is 1,200 bytes. Reuse one solver-wide heap slot so every
+    // phase can inspect it by reference without leaving too little SBF frame
+    // space for outgoing evaluator arguments.
+    let mut candidate_scratch = Box::<Option<ConcentratedHlpCandidate>>::default();
+    // The accepted exact authority writes its terminal Spot capability into
+    // one solver-wide heap slot. It never rides inside the already-large
+    // candidate payload or an SBF call frame.
+    let mut terminal_scratch = HlpTerminalSwapScratch::new();
     let mut phase = HlpSolvePhase::ProjectSeed;
-    let mut basis = HlpFiniteDifferenceBasis::default();
+    // The finite-difference basis stays live from PlanCenter through A2. Keep
+    // that solver-wide payload beside the other heap-backed scratch values so
+    // the SBF frame retains room for evaluator call arguments.
+    let mut basis = Box::<HlpFiniteDifferenceBasis>::default();
     let mut center_base_delta_nad = 0_i128;
     let mut center_quote_delta_nad = 0_i128;
     let mut base_row = HlpExactControlRow::Combined;
     let mut quote_row = HlpExactControlRow::Combined;
-    let mut center_base_signature = HlpPrepositionSignature::default();
-    let mut center_quote_signature = HlpPrepositionSignature::default();
     let mut center_canonicalized = false;
     let mut center_next_base_delta_nad = 0_i128;
     let mut center_next_quote_delta_nad = 0_i128;
     let mut base_axis_next_delta_nad = 0_i128;
-    let mut final_from_reflected_guidance = false;
+    let mut compact_evaluations = 0_u32;
     let mut authoritative_evaluations = 0_u32;
+    let mut center_topology: Option<HlpStructuralTopologyTrace> = None;
+    let mut a1_topology: Option<HlpStructuralTopologyTrace> = None;
     for evaluation_index in 0..HLP_CONCENTRATED_MAX_CANDIDATE_EVALUATIONS {
         let mode = match phase {
             HlpSolvePhase::ProjectSeed
             | HlpSolvePhase::PlanCenter
             | HlpSolvePhase::PlanBaseAxis
             | HlpSolvePhase::PlanQuoteAxis
-            | HlpSolvePhase::PlanFinal => HlpCandidateEvaluationMode::LifecycleProjected,
-            HlpSolvePhase::AuthorizeCorrected => HlpCandidateEvaluationMode::Authoritative,
+            | HlpSolvePhase::PlanQuoteAxisReflected => HlpCandidateEvaluationMode::LifecycleProjected,
+            HlpSolvePhase::AuthorizeA1 | HlpSolvePhase::AuthorizeA2 => HlpCandidateEvaluationMode::Authoritative,
         };
         if mode.authoritative() {
             authoritative_evaluations = authoritative_evaluations
@@ -1461,21 +2569,63 @@ fn solve_concentrated_hlp_candidates_inner(
                 authoritative_evaluations,
                 ErrorCode::BrokenInvariant
             );
+        } else if mode == HlpCandidateEvaluationMode::LifecycleProjected {
+            compact_evaluations = compact_evaluations
+                .checked_add(1)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            require_gte!(
+                HLP_CONCENTRATED_MAX_COMPACT_EVALUATIONS,
+                compact_evaluations,
+                ErrorCode::BrokenInvariant
+            );
         }
-        market.clone_from(snapshot);
-        candidate = None;
-        let evaluation = evaluate_concentrated_hlp_candidate(
-            market,
-            lifecycle_scratch.as_mut(),
-            snapshot,
-            context,
-            cash_floors,
-            base_delta_nad,
-            quote_delta_nad,
-            mode,
-            projection_scratch.as_mut(),
-            &mut candidate,
-        );
+        *candidate_scratch = None;
+        terminal_scratch.valid = false;
+        let evaluation = match mode {
+            HlpCandidateEvaluationMode::Authoritative => {
+                market.clone_from(snapshot);
+                evaluate_concentrated_hlp_candidate(
+                    market,
+                    lifecycle_scratch.as_mut(),
+                    snapshot,
+                    context,
+                    cash_floors,
+                    base_delta_nad,
+                    quote_delta_nad,
+                    mode,
+                    projection_scratch.as_mut(),
+                    candidate_scratch.as_mut(),
+                    &mut terminal_scratch,
+                )
+            }
+            HlpCandidateEvaluationMode::LifecycleProjected => match phase {
+                HlpSolvePhase::ProjectSeed | HlpSolvePhase::PlanCenter => evaluate_compact_concentrated_hlp_candidate(
+                    compact,
+                    context,
+                    cash_floors,
+                    base_delta_nad,
+                    quote_delta_nad,
+                    phase == HlpSolvePhase::PlanCenter,
+                    projection_scratch.as_mut(),
+                    candidate_scratch.as_mut(),
+                ),
+                HlpSolvePhase::PlanBaseAxis | HlpSolvePhase::PlanQuoteAxis | HlpSolvePhase::PlanQuoteAxisReflected => {
+                    let Some(ConcentratedHlpProjection::FrozenCenter(center)) = projection_scratch.as_ref() else {
+                        return err!(ErrorCode::BrokenInvariant);
+                    };
+                    evaluate_frozen_center_axis_concentrated_hlp_candidate(
+                        compact,
+                        context,
+                        cash_floors,
+                        base_delta_nad,
+                        quote_delta_nad,
+                        center,
+                        candidate_scratch.as_mut(),
+                    )
+                }
+                _ => return err!(ErrorCode::BrokenInvariant),
+            },
+        };
         debug_log_heap(20 + u64::from(evaluation_index));
         if evaluation.is_err() {
             market.clone_from(snapshot);
@@ -1486,12 +2636,12 @@ fn solve_concentrated_hlp_candidates_inner(
                 // quote may safely authorize.
                 base_delta_nad = 0;
                 quote_delta_nad = 0;
-                phase = HlpSolvePhase::AuthorizeCorrected;
+                phase = HlpSolvePhase::AuthorizeA1;
                 continue;
             }
             return err!(ErrorCode::HlpSettlementUnavailable);
         }
-        let candidate = candidate.ok_or(ErrorCode::BrokenInvariant)?;
+        let candidate = candidate_scratch.as_ref().as_ref().ok_or(ErrorCode::BrokenInvariant)?;
         let base_lifecycle_safe = concentrated_hlp_candidate_components_are_safe(
             context.base_start,
             candidate.base_principal_tracking_error_nad,
@@ -1507,7 +2657,78 @@ fn solve_concentrated_hlp_candidates_inner(
         let base_safe = base_lifecycle_safe && candidate.base_trade_endpoint_safe;
         let quote_safe = quote_lifecycle_safe && candidate.quote_trade_endpoint_safe;
         let fully_safe = base_safe && quote_safe && candidate.reserve_endpoint_safe;
-        if mode.authoritative() && candidate.settlement_cash_available && fully_safe {
+        let authority_inactive_rows_zero = !mode.authoritative()
+            || (concentrated_hlp_inactive_rows_are_zero(
+                context.base_start,
+                candidate.base_tracking_error_nad,
+                candidate.base_trade_tracking_error_nad,
+                candidate.base_reserve_tracking_error_nad,
+            ) && concentrated_hlp_inactive_rows_are_zero(
+                context.quote_start,
+                candidate.quote_tracking_error_nad,
+                candidate.quote_trade_tracking_error_nad,
+                candidate.quote_reserve_tracking_error_nad,
+            ));
+        let terminal_identity_matches = match phase {
+            HlpSolvePhase::AuthorizeA2 => {
+                a1_topology == Some(candidate.structural_topology)
+                    && center_topology == Some(candidate.structural_topology)
+                    && hlp_preposition_signature_class_matches(
+                        basis.base_signature,
+                        hlp_preposition_signature(candidate.base_receipt),
+                    )
+                    && hlp_preposition_signature_class_matches(
+                        basis.quote_signature,
+                        hlp_preposition_signature(candidate.quote_receipt),
+                    )
+                    && authority_inactive_rows_zero
+                    && candidate.authoritative.is_some()
+                    && hlp_exact_derivative_sample_is_unbound(&candidate, context)
+                    && hlp_coordinate_within_center_trust(center_base_delta_nad, base_delta_nad, context.base_start)
+                    && hlp_coordinate_within_center_trust(center_quote_delta_nad, quote_delta_nad, context.quote_start)
+            }
+            HlpSolvePhase::AuthorizeA1 => {
+                authority_inactive_rows_zero
+                    && candidate.authoritative.is_some()
+                    && hlp_exact_derivative_sample_is_unbound(&candidate, context)
+                    && center_topology
+                        .map(|topology| {
+                            candidate.structural_topology == topology
+                                && hlp_preposition_signature_class_matches(
+                                    basis.base_signature,
+                                    hlp_preposition_signature(candidate.base_receipt),
+                                )
+                                && hlp_preposition_signature_class_matches(
+                                    basis.quote_signature,
+                                    hlp_preposition_signature(candidate.quote_receipt),
+                                )
+                                && hlp_coordinate_within_center_trust(
+                                    center_base_delta_nad,
+                                    base_delta_nad,
+                                    context.base_start,
+                                )
+                                && hlp_coordinate_within_center_trust(
+                                    center_quote_delta_nad,
+                                    quote_delta_nad,
+                                    context.quote_start,
+                                )
+                        })
+                        .unwrap_or(true)
+            }
+            _ => true,
+        };
+        #[cfg(test)]
+        if phase == HlpSolvePhase::AuthorizeA2 {
+            HLP_STAGE4B2A_LAST_TRACE.with(|trace| {
+                if let Some(trace) = trace.borrow_mut().as_mut() {
+                    trace.a2_coordinate = Some((base_delta_nad, quote_delta_nad));
+                    trace.a2_rows = hlp_stage4b2a_test_rows(&candidate);
+                    trace.a2_topology = Some(candidate.structural_topology);
+                    trace.a2_signature = Some(hlp_preposition_pair_signature(&candidate));
+                }
+            });
+        }
+        if mode.authoritative() && candidate.settlement_cash_available && fully_safe && terminal_identity_matches {
             let (start_checkpoint, quote) = candidate.authoritative.ok_or(ErrorCode::BrokenInvariant)?;
             if candidate.base_receipt.ylp_mint_amount != 0
                 || candidate.base_receipt.ylp_burn_amount != 0
@@ -1522,12 +2743,23 @@ fn solve_concentrated_hlp_candidates_inner(
                     return err!(ErrorCode::HlpSettlementUnavailable);
                 }
             }
-            return Ok((candidate.base_receipt, candidate.quote_receipt, quote));
+            let terminal_plan = if context.cash_policy == SwapCashPolicy::Spot {
+                require!(terminal_scratch.valid, ErrorCode::BrokenInvariant);
+                Some(HlpTerminalSwapPlan {
+                    capability: terminal_scratch.capability,
+                    consumed: Cell::new(false),
+                })
+            } else {
+                None
+            };
+            return Ok((candidate.base_receipt, candidate.quote_receipt, quote, terminal_plan));
         }
         match phase {
             HlpSolvePhase::ProjectSeed => {
                 if fully_safe {
-                    phase = HlpSolvePhase::PlanFinal;
+                    // Preserve the exact-zero fast path. Any nonzero center
+                    // still samples every active axis before A1.
+                    phase = HlpSolvePhase::AuthorizeA1;
                     continue;
                 }
                 center_base_delta_nad = if context.base_start.active {
@@ -1570,12 +2802,10 @@ fn solve_concentrated_hlp_candidates_inner(
                     center_canonicalized = true;
                     continue;
                 }
-                if fully_safe {
-                    phase = HlpSolvePhase::PlanFinal;
-                    continue;
-                }
                 require!(
-                    candidate.settlement_cash_available && (!center_capacity_bound || center_canonicalized),
+                    candidate.settlement_cash_available
+                        && (!center_capacity_bound || center_canonicalized)
+                        && hlp_exact_derivative_sample_is_unbound(&candidate, context),
                     ErrorCode::HlpSettlementUnavailable
                 );
                 base_row = hlp_exact_control_row(&candidate, MarketAsset::Base, context.base_start)
@@ -1583,10 +2813,15 @@ fn solve_concentrated_hlp_candidates_inner(
                 quote_row = hlp_exact_control_row(&candidate, MarketAsset::Quote, context.quote_start)
                     .ok_or(ErrorCode::HlpSettlementUnavailable)?;
                 basis.origin = HlpExactSampleRows::from_candidate(&candidate);
+                basis.guidance_exact_in_mode =
+                    Some(candidate.guidance_exact_in_mode.ok_or(ErrorCode::BrokenInvariant)?);
+                basis.guidance_settlement_trace =
+                    Some(candidate.guidance_settlement_trace.ok_or(ErrorCode::BrokenInvariant)?);
+                center_topology = Some(candidate.structural_topology);
                 let origin_base_error_nad = basis.origin.value(MarketAsset::Base, base_row);
                 let origin_quote_error_nad = basis.origin.value(MarketAsset::Quote, quote_row);
-                center_base_signature = hlp_preposition_signature(candidate.base_receipt);
-                center_quote_signature = hlp_preposition_signature(candidate.quote_receipt);
+                basis.base_signature = hlp_preposition_signature(candidate.base_receipt);
+                basis.quote_signature = hlp_preposition_signature(candidate.quote_receipt);
                 center_next_base_delta_nad = candidate.next_base_delta_nad;
                 center_next_quote_delta_nad = candidate.next_quote_delta_nad;
                 basis.base_probe_delta_nad =
@@ -1612,10 +2847,22 @@ fn solve_concentrated_hlp_candidates_inner(
                 }
             }
             HlpSolvePhase::PlanBaseAxis => {
+                let center_topology = center_topology.ok_or(ErrorCode::BrokenInvariant)?;
                 require!(
                     candidate.settlement_cash_available
+                        && candidate.guidance_exact_in_mode == basis.guidance_exact_in_mode
+                        && candidate.guidance_settlement_trace == basis.guidance_settlement_trace
+                        && candidate.structural_topology == center_topology
                         && hlp_exact_derivative_sample_is_unbound(&candidate, context)
-                        && hlp_preposition_signature(candidate.base_receipt) != center_base_signature,
+                        && hlp_preposition_signature_class_matches(
+                            basis.base_signature,
+                            hlp_preposition_signature(candidate.base_receipt),
+                        )
+                        && hlp_preposition_signature_class_matches(
+                            basis.quote_signature,
+                            hlp_preposition_signature(candidate.quote_receipt),
+                        )
+                        && hlp_preposition_signature(candidate.base_receipt) != basis.base_signature,
                     ErrorCode::HlpSettlementUnavailable
                 );
                 basis.base_probe = HlpExactSampleRows::from_candidate(&candidate);
@@ -1685,16 +2932,64 @@ fn solve_concentrated_hlp_candidates_inner(
                             ),
                         ErrorCode::HlpSettlementUnavailable
                     );
-                    phase = HlpSolvePhase::PlanFinal;
+                    phase = HlpSolvePhase::AuthorizeA1;
                 }
             }
-            HlpSolvePhase::PlanQuoteAxis => {
+            HlpSolvePhase::PlanQuoteAxis | HlpSolvePhase::PlanQuoteAxisReflected => {
+                let center_topology = center_topology.ok_or(ErrorCode::BrokenInvariant)?;
+                require!(candidate.settlement_cash_available, ErrorCode::HlpSettlementUnavailable);
                 require!(
-                    candidate.settlement_cash_available
-                        && hlp_exact_derivative_sample_is_unbound(&candidate, context)
-                        && hlp_preposition_signature(candidate.quote_receipt) != center_quote_signature,
+                    hlp_exact_derivative_sample_is_unbound(&candidate, context),
                     ErrorCode::HlpSettlementUnavailable
                 );
+                let quote_axis_cell_matches = hlp_quote_axis_cell_matches(
+                    &candidate,
+                    &basis,
+                    center_topology,
+                    basis.base_signature,
+                    basis.quote_signature,
+                );
+                #[cfg(test)]
+                HLP_STAGE4B2A_LAST_TRACE.with(|trace| {
+                    let mut trace = trace.borrow_mut();
+                    let trace = trace.get_or_insert_with(HlpStage4B2aTestTrace::default);
+                    if phase == HlpSolvePhase::PlanQuoteAxis && !quote_axis_cell_matches {
+                        trace.rejected_quote_axis_coordinate = Some((base_delta_nad, quote_delta_nad));
+                        trace.rejected_quote_axis_rows = hlp_stage4b2a_test_rows(&candidate);
+                        trace.rejected_quote_axis_topology = Some(candidate.structural_topology);
+                    } else if phase == HlpSolvePhase::PlanQuoteAxisReflected {
+                        trace.reflected_quote_axis_coordinate = Some((base_delta_nad, quote_delta_nad));
+                        trace.reflected_quote_axis_rows = hlp_stage4b2a_test_rows(&candidate);
+                        trace.reflected_quote_axis_topology = Some(candidate.structural_topology);
+                    }
+                });
+                if !quote_axis_cell_matches {
+                    require!(
+                        phase == HlpSolvePhase::PlanQuoteAxis
+                            && compact_evaluations < HLP_CONCENTRATED_MAX_COMPACT_EVALUATIONS,
+                        ErrorCode::HlpSettlementUnavailable
+                    );
+                    basis.quote_probe_delta_nad = basis
+                        .quote_probe_delta_nad
+                        .checked_neg()
+                        .ok_or(ErrorCode::MarketMathOverflow)?;
+                    require!(basis.quote_probe_delta_nad != 0, ErrorCode::HlpSettlementUnavailable);
+                    base_delta_nad = center_base_delta_nad;
+                    quote_delta_nad = center_quote_delta_nad
+                        .checked_add(basis.quote_probe_delta_nad)
+                        .ok_or(ErrorCode::MarketMathOverflow)?;
+                    require!(
+                        quote_delta_nad != center_quote_delta_nad
+                            && hlp_coordinate_within_center_trust(
+                                center_quote_delta_nad,
+                                quote_delta_nad,
+                                context.quote_start,
+                            ),
+                        ErrorCode::HlpSettlementUnavailable
+                    );
+                    phase = HlpSolvePhase::PlanQuoteAxisReflected;
+                    continue;
+                }
                 basis.quote_probe = HlpExactSampleRows::from_candidate(&candidate);
                 basis.quote_probe_recorded = true;
                 let origin_base_error = basis.origin.value(MarketAsset::Base, base_row);
@@ -1724,7 +3019,6 @@ fn solve_concentrated_hlp_candidates_inner(
                         )
                     })
                     .flatten();
-                final_from_reflected_guidance = reflected_step.is_some();
                 let (base_step, quote_step) = zero_step
                     .or(reflected_step)
                     .or_else(|| {
@@ -1768,26 +3062,41 @@ fn solve_concentrated_hlp_candidates_inner(
                         ),
                     ErrorCode::HlpSettlementUnavailable
                 );
-                phase = HlpSolvePhase::PlanFinal;
+                phase = HlpSolvePhase::AuthorizeA1;
             }
-            HlpSolvePhase::PlanFinal => {
-                if fully_safe {
-                    phase = HlpSolvePhase::AuthorizeCorrected;
-                    continue;
-                }
+            HlpSolvePhase::AuthorizeA1 => {
+                let center_topology = center_topology.ok_or(ErrorCode::BrokenInvariant)?;
+                require!(candidate.settlement_cash_available, ErrorCode::HlpSettlementUnavailable);
+                require!(candidate.reserve_endpoint_safe, ErrorCode::HlpSettlementUnavailable);
                 require!(
-                    candidate.settlement_cash_available
-                        && candidate.reserve_endpoint_safe
+                    candidate.structural_topology == center_topology
+                        && hlp_preposition_signature_class_matches(
+                            basis.base_signature,
+                            hlp_preposition_signature(candidate.base_receipt),
+                        )
+                        && hlp_preposition_signature_class_matches(
+                            basis.quote_signature,
+                            hlp_preposition_signature(candidate.quote_receipt),
+                        )
                         && hlp_exact_derivative_sample_is_unbound(&candidate, context),
+                    ErrorCode::HlpSettlementUnavailable
+                );
+                require!(
+                    hlp_coordinate_within_center_trust(center_base_delta_nad, base_delta_nad, context.base_start,)
+                        && hlp_coordinate_within_center_trust(
+                            center_quote_delta_nad,
+                            quote_delta_nad,
+                            context.quote_start,
+                        ),
                     ErrorCode::HlpSettlementUnavailable
                 );
                 let retry_base_row = hlp_exact_control_row(&candidate, MarketAsset::Base, context.base_start)
                     .ok_or(ErrorCode::HlpSettlementUnavailable)?;
                 let retry_quote_row = hlp_exact_control_row(&candidate, MarketAsset::Quote, context.quote_start)
                     .ok_or(ErrorCode::HlpSettlementUnavailable)?;
-                let current_base_error_nad = hlp_exact_control_value(&candidate, MarketAsset::Base, retry_base_row);
-                let current_quote_error_nad = hlp_exact_control_value(&candidate, MarketAsset::Quote, retry_quote_row);
-                let (mut solved_base_delta_nad, mut solved_quote_delta_nad) = basis
+                let current_base_error = hlp_exact_control_value(&candidate, MarketAsset::Base, retry_base_row);
+                let current_quote_error = hlp_exact_control_value(&candidate, MarketAsset::Quote, retry_quote_row);
+                let (solved_base_delta_nad, solved_quote_delta_nad) = basis
                     .solve_broyden_candidate(
                         context,
                         center_base_delta_nad,
@@ -1796,58 +3105,118 @@ fn solve_concentrated_hlp_candidates_inner(
                         quote_delta_nad,
                         retry_base_row,
                         retry_quote_row,
-                        current_base_error_nad,
-                        current_quote_error_nad,
+                        current_base_error,
+                        current_quote_error,
                     )
                     .ok_or(ErrorCode::HlpSettlementUnavailable)?;
-                if final_from_reflected_guidance && (base_safe != quote_safe) {
-                    if !base_safe {
-                        solved_base_delta_nad = hlp_adjacent_share_phase_coordinate(
-                            market,
-                            snapshot,
-                            context,
-                            cash_floors,
-                            candidate.base_receipt,
-                            base_delta_nad,
-                            quote_delta_nad,
-                            solved_base_delta_nad,
-                        )?;
-                        solved_quote_delta_nad = quote_delta_nad;
-                    } else {
-                        solved_quote_delta_nad = hlp_adjacent_share_phase_coordinate(
-                            market,
-                            snapshot,
-                            context,
-                            cash_floors,
-                            candidate.quote_receipt,
-                            base_delta_nad,
-                            quote_delta_nad,
-                            solved_quote_delta_nad,
-                        )?;
-                        solved_base_delta_nad = base_delta_nad;
-                    }
-                }
-                base_delta_nad = hlp_force_adjacent_atom_if_needed(
+                let coarse_terminal_cell = (context.base_start.active
+                    && context.base_start.tracking.loss_budget_nad <= context.base_start.target_atom_nad)
+                    || (context.quote_start.active
+                        && context.quote_start.tracking.loss_budget_nad <= context.quote_start.target_atom_nad);
+                // A coarse concentrated cell can jump across the only safe
+                // raw atom, so damp its continuous Broyden correction.  CPMM
+                // has no concentration-branch discontinuity and the same
+                // damping can leave an otherwise valid terminal just outside
+                // the coarse loss budget; keep its exact affine correction.
+                let damp_terminal_correction = coarse_terminal_cell && !compact.guidance.parameters.is_cpmm();
+                let (solved_base_delta_nad, solved_quote_delta_nad) = if damp_terminal_correction {
+                    let base_correction = solved_base_delta_nad
+                        .checked_sub(base_delta_nad)
+                        .and_then(|step| signed_mul_div_round_i128(step, 1, 2))
+                        .ok_or(ErrorCode::MarketMathOverflow)?;
+                    let quote_correction = solved_quote_delta_nad
+                        .checked_sub(quote_delta_nad)
+                        .and_then(|step| signed_mul_div_round_i128(step, 1, 2))
+                        .ok_or(ErrorCode::MarketMathOverflow)?;
+                    (
+                        base_delta_nad
+                            .checked_add(base_correction)
+                            .ok_or(ErrorCode::MarketMathOverflow)?,
+                        quote_delta_nad
+                            .checked_add(quote_correction)
+                            .ok_or(ErrorCode::MarketMathOverflow)?,
+                    )
+                } else {
+                    (solved_base_delta_nad, solved_quote_delta_nad)
+                };
+                let a2_base_delta_nad = hlp_force_adjacent_atom_if_needed(
                     snapshot,
                     context.frozen_prices,
                     context.base_start,
                     candidate.base_receipt,
                     base_delta_nad,
                     solved_base_delta_nad,
-                    current_base_error_nad,
+                    current_base_error,
                 )?;
-                quote_delta_nad = hlp_force_adjacent_atom_if_needed(
+                let a2_quote_delta_nad = hlp_force_adjacent_atom_if_needed(
                     snapshot,
                     context.frozen_prices,
                     context.quote_start,
                     candidate.quote_receipt,
                     quote_delta_nad,
                     solved_quote_delta_nad,
-                    current_quote_error_nad,
+                    current_quote_error,
                 )?;
-                phase = HlpSolvePhase::AuthorizeCorrected;
+                require!(
+                    basis
+                        .candidate_is_distinct(
+                            center_base_delta_nad,
+                            center_quote_delta_nad,
+                            a2_base_delta_nad,
+                            a2_quote_delta_nad,
+                            base_delta_nad,
+                            quote_delta_nad,
+                        )
+                        .unwrap_or(false)
+                        && hlp_coordinate_within_center_trust(
+                            center_base_delta_nad,
+                            a2_base_delta_nad,
+                            context.base_start,
+                        )
+                        && hlp_coordinate_within_center_trust(
+                            center_quote_delta_nad,
+                            a2_quote_delta_nad,
+                            context.quote_start,
+                        ),
+                    ErrorCode::HlpSettlementUnavailable
+                );
+                let topology = candidate.structural_topology;
+                let a1_base_signature = hlp_preposition_signature(candidate.base_receipt);
+                let a1_quote_signature = hlp_preposition_signature(candidate.quote_receipt);
+                #[cfg(test)]
+                let signature = hlp_preposition_pair_signature(&candidate);
+                #[cfg(test)]
+                HLP_STAGE4B2A_LAST_TRACE.with(|trace| {
+                    let mut trace = trace.borrow_mut();
+                    let trace = trace.get_or_insert_with(HlpStage4B2aTestTrace::default);
+                    trace.a1_coordinate = Some((base_delta_nad, quote_delta_nad));
+                    trace.a1_rows = hlp_stage4b2a_test_rows(&candidate);
+                    trace.a1_topology = Some(topology);
+                    trace.a1_signature = Some(signature);
+                });
+                a1_topology = Some(topology);
+                // The center -> A1 class was checked above. Reuse these fixed
+                // slots for the A1 class so the terminal exact A2 can prove
+                // the transitive center == A1 == A2 branch class without
+                // retaining either exact receipt.
+                basis.base_signature = a1_base_signature;
+                basis.quote_signature = a1_quote_signature;
+                base_delta_nad = a2_base_delta_nad;
+                quote_delta_nad = a2_quote_delta_nad;
+
+                // Exact A1 is evidence only. Destroy both copies of its
+                // authority (projection and candidate quote/checkpoint), then
+                // erase both mutable lifecycle markets before the fresh A2.
+                *candidate_scratch = None;
+                *projection_scratch = None;
+                market.clone_from(snapshot);
+                lifecycle_scratch.as_mut().clone_from(snapshot);
+                phase = HlpSolvePhase::AuthorizeA2;
             }
-            HlpSolvePhase::AuthorizeCorrected => break,
+            // A2 could only reach this arm after failing one of the exact
+            // cash/row/reserve/checkpoint/topology gates above. It is terminal
+            // for the fixed two-authority slice; no tree selector is attempted.
+            HlpSolvePhase::AuthorizeA2 => return err!(ErrorCode::HlpSettlementUnavailable),
         }
     }
 
@@ -1860,6 +3229,44 @@ fn hlp_preposition_signature(receipt: HlpRebalanceReceipt) -> HlpPrepositionSign
         ylp_mint_amount: receipt.ylp_mint_amount,
         ylp_burn_amount: receipt.ylp_burn_amount,
         debt_delta: receipt.debt_delta,
+    }
+}
+
+fn hlp_preposition_signature_class_matches(
+    expected: HlpPrepositionSignature,
+    observed: HlpPrepositionSignature,
+) -> bool {
+    (expected.ylp_mint_amount > 0) == (observed.ylp_mint_amount > 0)
+        && (expected.ylp_burn_amount > 0) == (observed.ylp_burn_amount > 0)
+        && expected.debt_delta.signum() == observed.debt_delta.signum()
+}
+
+fn hlp_quote_axis_cell_matches(
+    candidate: &ConcentratedHlpCandidate,
+    basis: &HlpFiniteDifferenceBasis,
+    center_topology: HlpStructuralTopologyTrace,
+    center_base_signature: HlpPrepositionSignature,
+    center_quote_signature: HlpPrepositionSignature,
+) -> bool {
+    candidate.guidance_exact_in_mode == basis.guidance_exact_in_mode
+        && candidate.guidance_settlement_trace == basis.guidance_settlement_trace
+        && candidate.structural_topology == center_topology
+        && hlp_preposition_signature_class_matches(
+            center_base_signature,
+            hlp_preposition_signature(candidate.base_receipt),
+        )
+        && hlp_preposition_signature_class_matches(
+            center_quote_signature,
+            hlp_preposition_signature(candidate.quote_receipt),
+        )
+        && hlp_preposition_signature(candidate.quote_receipt) != center_quote_signature
+}
+
+#[cfg(test)]
+fn hlp_preposition_pair_signature(candidate: &ConcentratedHlpCandidate) -> HlpPrepositionPairSignature {
+    HlpPrepositionPairSignature {
+        base: hlp_preposition_signature(candidate.base_receipt),
+        quote: hlp_preposition_signature(candidate.quote_receipt),
     }
 }
 
@@ -2055,11 +3462,12 @@ fn hlp_exact_control_value(candidate: &ConcentratedHlpCandidate, asset: MarketAs
     }
 }
 
-/// Builds one scale-aware exact finite-difference axis around the
-/// authoritative center. The residual-to-economic-NAV ratio selects a local
-/// square-root scale, bounded between 1/256 and 1/4 of the center coordinate.
-/// The probe always moves inward; it remains guidance only, and the sampled
-/// state must still prove an unbound yLP/debt mutation before entering J.
+/// Builds one scale-aware exact finite-difference axis around the projected
+/// center. The residual-to-economic-NAV ratio selects a local square-root
+/// scale, bounded between 1/256 and 1/4 of the center coordinate. The probe
+/// moves toward zero so both the center and sample preserve their coordinate
+/// sign. Every accepted cell remains guidance only and must prove an unbound
+/// yLP/debt mutation.
 fn hlp_exact_axis_probe_delta(
     center_delta_nad: i128,
     start: ConcentratedHlpStart,
@@ -2795,6 +4203,15 @@ fn concentrated_hlp_candidate_components_are_safe(
     !start.active || tracking_error_nad.unsigned_abs() <= start.tracking.loss_budget_nad
 }
 
+fn concentrated_hlp_inactive_rows_are_zero(
+    start: ConcentratedHlpStart,
+    combined_nad: i128,
+    trade_nad: i128,
+    reserve_nad: i128,
+) -> bool {
+    start.active || (combined_nad == 0 && trade_nad == 0 && reserve_nad == trade_nad)
+}
+
 fn concentrated_hlp_trade_endpoint_is_safe(start: ConcentratedHlpStart, tracking_error_nad: i128) -> bool {
     !start.active
         || i128::try_from(start.tracking.loss_budget_nad)
@@ -2838,13 +4255,78 @@ fn concentrated_hlp_reserve_is_safe(
     )
 }
 
+fn concentrated_hlp_raw_side_is_robust(
+    start: ConcentratedHlpStart,
+    combined_nad: i128,
+    trade_nad: i128,
+    reserve_nad: i128,
+) -> bool {
+    if !start.active {
+        return combined_nad == 0 && trade_nad == 0 && reserve_nad == 0;
+    }
+    let epsilon = hlp_guidance_final_mark_epsilon_nad(start.tracking.loss_budget_nad);
+    let combined_safe = combined_nad
+        .unsigned_abs()
+        .checked_add(epsilon)
+        .map(|magnitude| magnitude <= start.tracking.loss_budget_nad)
+        .unwrap_or(false);
+    let trade_minimum = i128::try_from(start.tracking.loss_budget_nad)
+        .ok()
+        .and_then(i128::checked_neg);
+    let trade_safe = trade_minimum.map(|minimum| trade_nad >= minimum).unwrap_or(false);
+    let reserve_diff_safe = reserve_nad
+        .checked_sub(trade_nad)
+        .and_then(|difference| {
+            i128::try_from(start.target_atom_nad)
+                .ok()
+                .and_then(i128::checked_neg)
+                .map(|minimum| difference >= minimum)
+        })
+        .unwrap_or(false);
+    combined_safe && trade_safe && reserve_diff_safe
+}
+
+fn concentrated_hlp_raw_candidate_is_robust(
+    context: &ConcentratedHlpSolveContext,
+    candidate: &ConcentratedHlpCandidate,
+) -> bool {
+    concentrated_hlp_raw_side_is_robust(
+        context.base_start,
+        candidate.base_tracking_error_nad,
+        candidate.base_trade_tracking_error_nad,
+        candidate.base_reserve_tracking_error_nad,
+    ) && concentrated_hlp_raw_side_is_robust(
+        context.quote_start,
+        candidate.quote_tracking_error_nad,
+        candidate.quote_trade_tracking_error_nad,
+        candidate.quote_reserve_tracking_error_nad,
+    )
+}
+
+#[cfg(test)]
+fn hlp_stage4b2a_test_rows(candidate: &ConcentratedHlpCandidate) -> Option<[i128; 6]> {
+    Some([
+        candidate.base_tracking_error_nad,
+        candidate.quote_tracking_error_nad,
+        candidate.base_trade_tracking_error_nad,
+        candidate.quote_trade_tracking_error_nad,
+        candidate
+            .base_reserve_tracking_error_nad
+            .checked_sub(candidate.base_trade_tracking_error_nad)?,
+        candidate
+            .quote_reserve_tracking_error_nad
+            .checked_sub(candidate.quote_trade_tracking_error_nad)?,
+    ])
+}
+
 #[inline(never)]
 fn project_concentrated_hlp_candidate(
     market: &Market,
     context: &ConcentratedHlpSolveContext,
     preliminary: PreliminarySwapInputs,
     authoritative: bool,
-) -> Result<ConcentratedHlpProjection> {
+    projection_out: &mut Option<ConcentratedHlpProjection>,
+) -> Result<()> {
     if authoritative {
         let mut start_checkpoint = None;
         let quote = market.quote_amm_swap_for_reserves_nad_with_start(
@@ -2856,7 +4338,7 @@ fn project_concentrated_hlp_candidate(
             preliminary,
             Some(&mut start_checkpoint),
         )?;
-        Ok(ConcentratedHlpProjection::Authoritative {
+        *projection_out = Some(ConcentratedHlpProjection::Authoritative {
             common: ConcentratedHlpProjectionCommon {
                 amount_in_after_fee: quote.fee.amount_in_for_quote,
                 retained_surcharge: quote.fee.retained_surcharge,
@@ -2869,7 +4351,8 @@ fn project_concentrated_hlp_candidate(
             },
             start_checkpoint: start_checkpoint.ok_or(ErrorCode::BrokenInvariant)?,
             quote,
-        })
+        });
+        Ok(())
     } else {
         let reserves = market.curve_reserves_nad()?;
         let candidate_ylp_supply = market.base_side.shares.ylp_supply;
@@ -2944,7 +4427,7 @@ fn project_concentrated_hlp_candidate(
         };
         let reserve_end_price_nad =
             u64::try_from(reserve_prepared.marginal_price_nad()?).map_err(|_| ErrorCode::MarketMathOverflow)?;
-        Ok(ConcentratedHlpProjection::Guidance {
+        *projection_out = Some(ConcentratedHlpProjection::Guidance {
             common: ConcentratedHlpProjectionCommon {
                 amount_in_after_fee: guidance_executable_input,
                 retained_surcharge,
@@ -2964,7 +4447,10 @@ fn project_concentrated_hlp_candidate(
                 trade_prepared: quote.endpoint_prepared,
                 reserve_prepared,
             },
-        })
+            exact_in_mode: ConcentratedGuidanceExactInMode::Bracket,
+            guidance_d_actions: HlpGuidanceDActionFingerprint::default(),
+        });
+        Ok(())
     }
 }
 
@@ -3063,6 +4549,794 @@ const fn neutral_concentrated_hlp_side_tracking() -> ConcentratedHlpSideTracking
     }
 }
 
+fn compact_concentrated_pool_value_nad(
+    fixed: HlpPlannerStatic,
+    target_asset: MarketAsset,
+    prices: HlpCurvePrices,
+    base_amount: u64,
+    quote_amount: u64,
+) -> Result<u128> {
+    hlp_planner_asset_value_in_target_nad(fixed, prices, MarketAsset::Base, base_amount, target_asset)?
+        .checked_add(hlp_planner_asset_value_in_target_nad(
+            fixed,
+            prices,
+            MarketAsset::Quote,
+            quote_amount,
+            target_asset,
+        )?)
+        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compact_concentrated_hlp_needed_delta(
+    fixed: HlpPlannerStatic,
+    original: HlpPlannerState,
+    candidate: HlpPlannerState,
+    target_asset: MarketAsset,
+    start_prices: HlpCurvePrices,
+    endpoint_prices: HlpCurvePrices,
+    endpoint_base: u64,
+    endpoint_quote: u64,
+    start_nav_nad: i128,
+) -> Result<i128> {
+    let supply = candidate.base_side.ylp_supply;
+    require_eq!(supply, candidate.quote_side.ylp_supply, ErrorCode::BrokenInvariant);
+    require!(supply > 0, ErrorCode::SupplyUnderflow);
+    let original_shares = original.vault(target_asset).ylp_shares;
+    let existing_base_claim = u64::try_from(mul_div_u128(
+        endpoint_base as u128,
+        original_shares as u128,
+        supply as u128,
+    )?)
+    .map_err(|_| ErrorCode::MarketMathOverflow)?;
+    let existing_quote_claim = u64::try_from(mul_div_u128(
+        endpoint_quote as u128,
+        original_shares as u128,
+        supply as u128,
+    )?)
+    .map_err(|_| ErrorCode::MarketMathOverflow)?;
+    let existing_collateral = compact_concentrated_pool_value_nad(
+        fixed,
+        target_asset,
+        endpoint_prices,
+        existing_base_claim,
+        existing_quote_claim,
+    )?;
+    let original_debt = u64::try_from(Debt::shares_to_debt(
+        original.vault(target_asset).debt_shares,
+        fixed.borrow_index(target_asset.opposite()),
+    )?)
+    .map_err(|_| ErrorCode::DebtMathOverflow)?;
+    let original_debt_value = hlp_planner_asset_value_in_target_nad(
+        fixed,
+        endpoint_prices,
+        target_asset.opposite(),
+        original_debt,
+        target_asset,
+    )?;
+    let existing_error = signed_value_difference(existing_collateral, original_debt_value)?
+        .checked_sub(start_nav_nad)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    if existing_error == 0 {
+        return Ok(0);
+    }
+    let start_pool_value = compact_concentrated_pool_value_nad(
+        fixed,
+        target_asset,
+        start_prices,
+        candidate.curve_reserve(fixed, MarketAsset::Base)?,
+        candidate.curve_reserve(fixed, MarketAsset::Quote)?,
+    )?;
+    let end_pool_value =
+        compact_concentrated_pool_value_nad(fixed, target_asset, endpoint_prices, endpoint_base, endpoint_quote)?;
+    concentrated_hlp_payoff_adjustment(
+        existing_error,
+        start_pool_value,
+        end_pool_value,
+        start_prices.for_asset(target_asset.opposite()),
+        endpoint_prices.for_asset(target_asset.opposite()),
+    )
+}
+
+#[inline(never)]
+fn downgrade_authoritative_a1_projection(
+    projection: &mut ConcentratedHlpProjection,
+    context: &ConcentratedHlpSolveContext,
+    compact: &HlpCompactSolveContext,
+    a1_ylp_supply: u64,
+    inventory_changed: bool,
+    structural_topology: HlpStructuralTopologyTrace,
+) -> Result<()> {
+    require!(a1_ylp_supply > 0, ErrorCode::SupplyUnderflow);
+    let frozen = {
+        let ConcentratedHlpProjection::Authoritative {
+            common,
+            start_checkpoint,
+            quote,
+        } = projection
+        else {
+            return err!(ErrorCode::BrokenInvariant);
+        };
+        let trade_checkpoint = quote.trade_endpoint()?;
+        let reserve_checkpoint = quote.reserve_endpoint()?;
+        let start_anchor = context
+            .guidance_start_prepared
+            .prepare_guidance_successor_with_invariant(
+                start_checkpoint.reserves.base,
+                start_checkpoint.reserves.quote,
+                start_checkpoint.evaluation().invariant_d,
+            )?;
+        let trade_anchor = context
+            .guidance_start_prepared
+            .prepare_guidance_successor_with_invariant(
+                trade_checkpoint.reserves.base,
+                trade_checkpoint.reserves.quote,
+                trade_checkpoint.evaluation().invariant_d,
+            )?;
+        let reserve_anchor = context
+            .guidance_start_prepared
+            .prepare_guidance_successor_with_invariant(
+                reserve_checkpoint.reserves.base,
+                reserve_checkpoint.reserves.quote,
+                reserve_checkpoint.evaluation().invariant_d,
+            )?;
+        HlpFrozenA1Projection {
+            common: *common,
+            start_anchor,
+            trade_anchor,
+            reserve_anchor,
+            anchor_ylp_supply: a1_ylp_supply,
+            retain_dynamic_surcharge: compact.fixed.retain_dynamic_surcharge(inventory_changed),
+            structural_topology,
+        }
+    };
+    // This assignment destroys the only projection-scratch copy of the exact
+    // quote/checkpoint. The successor carries guidance curves only.
+    *projection = ConcentratedHlpProjection::FrozenA1(frozen);
+    Ok(())
+}
+
+#[inline(never)]
+fn freeze_compact_center_projection(
+    projection: &mut ConcentratedHlpProjection,
+    compact: &HlpCompactSolveContext,
+    context: &ConcentratedHlpSolveContext,
+    center_state: HlpPlannerState,
+    inventory_changed: bool,
+    structural_topology: HlpStructuralTopologyTrace,
+    mut guidance_d_actions: HlpGuidanceDActionTrace,
+) -> Result<HlpGuidanceDActionTrace> {
+    let center_ylp_supply = center_state.base_side.ylp_supply;
+    require_eq!(
+        center_ylp_supply,
+        center_state.quote_side.ylp_supply,
+        ErrorCode::BrokenInvariant
+    );
+    require!(center_ylp_supply > 0, ErrorCode::SupplyUnderflow);
+    let (frozen, exact_in_mode) = {
+        let ConcentratedHlpProjection::Guidance {
+            common,
+            endpoints,
+            exact_in_mode,
+            guidance_d_actions: _,
+        } = projection
+        else {
+            return err!(ErrorCode::BrokenInvariant);
+        };
+        (
+            HlpFrozenA1Projection {
+                common: *common,
+                start_anchor: compact.guidance.prepared_for(compact.fixed, center_state)?,
+                trade_anchor: endpoints.trade_prepared,
+                reserve_anchor: endpoints.reserve_prepared,
+                anchor_ylp_supply: center_ylp_supply,
+                retain_dynamic_surcharge: compact.fixed.retain_dynamic_surcharge(inventory_changed),
+                structural_topology,
+            },
+            *exact_in_mode,
+        )
+    };
+    // The finite-difference origin is the frozen-anchor scalar function, not
+    // the composition that originally constructed PlanCenter. Derive its
+    // prospective 1:1 clamp regime exactly as an axis cell will.
+    let (_, _, frozen_anchor_actions) = frozen_cell_projection(compact, context, center_state, &frozen)?;
+    guidance_d_actions.anchors = frozen_anchor_actions;
+    #[cfg(test)]
+    let exact_in_mode = if MUTATE_FROZEN_CENTER_FINGERPRINT.with(Cell::get) {
+        match exact_in_mode {
+            ConcentratedGuidanceExactInMode::Bracket => ConcentratedGuidanceExactInMode::StructuralGap,
+            ConcentratedGuidanceExactInMode::StructuralGap => ConcentratedGuidanceExactInMode::Bracket,
+        }
+    } else {
+        exact_in_mode
+    };
+    *projection = ConcentratedHlpProjection::FrozenCenter(HlpFrozenCenterProjection {
+        frozen,
+        exact_in_mode,
+        guidance_d_actions,
+    });
+    Ok(guidance_d_actions)
+}
+
+#[inline(never)]
+fn frozen_cell_projection(
+    compact: &HlpCompactSolveContext,
+    context: &ConcentratedHlpSolveContext,
+    state: HlpPlannerState,
+    frozen: &HlpFrozenA1Projection,
+) -> Result<(
+    ConcentratedHlpProjectionCommon,
+    HlpGuidanceEndpointCapability,
+    HlpGuidanceDActionFingerprint,
+)> {
+    let cell_ylp_supply = state.base_side.ylp_supply;
+    require_eq!(cell_ylp_supply, state.quote_side.ylp_supply, ErrorCode::BrokenInvariant);
+    require!(cell_ylp_supply > 0, ErrorCode::SupplyUnderflow);
+    let start_reserves = state.curve_reserves_nad(compact.fixed)?;
+    // Consume the frozen start-D anchor as an opaque scaled-domain proof. Its
+    // marginal mark is intentionally ignored; all scalar-cell valuations use
+    // the payload's frozen start/trade/reserve marks.
+    let (_cell_start, start_d_action) = frozen
+        .start_anchor
+        .prepare_supply_scaled_guidance_successor_with_action(
+            start_reserves.base,
+            start_reserves.quote,
+            frozen.anchor_ylp_supply,
+            cell_ylp_supply,
+        )?;
+
+    let mut endpoint_state = state;
+    super::apply_leverage_lifecycle_to_planner_state(
+        compact.fixed,
+        &mut endpoint_state,
+        context.cash_policy,
+        context.asset_in,
+        frozen.common.amount_in_after_fee,
+        frozen.common.amount_out,
+    )?;
+    require_eq!(
+        cell_ylp_supply,
+        endpoint_state.base_side.ylp_supply,
+        ErrorCode::BrokenInvariant
+    );
+    require_eq!(
+        cell_ylp_supply,
+        endpoint_state.quote_side.ylp_supply,
+        ErrorCode::BrokenInvariant
+    );
+    let trade_reserves = endpoint_state.curve_reserves_nad(compact.fixed)?;
+    let (trade, trade_d_action) = frozen
+        .trade_anchor
+        .prepare_supply_scaled_guidance_successor_with_action(
+            trade_reserves.base,
+            trade_reserves.quote,
+            frozen.anchor_ylp_supply,
+            cell_ylp_supply,
+        )?;
+    if frozen.common.retained_surcharge > 0 {
+        let side = endpoint_state.side_mut(context.asset_in);
+        side.live_reserve = side
+            .live_reserve
+            .checked_add(frozen.common.retained_surcharge)
+            .ok_or(ErrorCode::ReserveOverflow)?;
+        side.cash_reserve = side
+            .cash_reserve
+            .checked_add(frozen.common.retained_surcharge)
+            .ok_or(ErrorCode::ReserveOverflow)?;
+    }
+    let reserve_reserves = endpoint_state.curve_reserves_nad(compact.fixed)?;
+    let (reserve, reserve_d_action) = frozen
+        .reserve_anchor
+        .prepare_supply_scaled_guidance_successor_with_action(
+            reserve_reserves.base,
+            reserve_reserves.quote,
+            frozen.anchor_ylp_supply,
+            cell_ylp_supply,
+        )?;
+    let mut common = frozen.common;
+    common.endpoint_reserves = trade_reserves;
+    common.reserve_endpoint_reserves = reserve_reserves;
+    Ok((
+        common,
+        HlpGuidanceEndpointCapability {
+            current_slot: compact.guidance.current_slot,
+            curve_revision: compact.guidance.curve_revision,
+            center_price_nad: compact.guidance.center_price_nad,
+            parameters: compact.guidance.parameters,
+            retain_dynamic_surcharge: frozen.retain_dynamic_surcharge,
+            trade_prepared: trade,
+            reserve_prepared: reserve,
+        },
+        HlpGuidanceDActionFingerprint {
+            start: start_d_action,
+            trade: trade_d_action,
+            reserve: reserve_d_action,
+        },
+    ))
+}
+
+/// Evaluates one center-relative scalar axis while freezing the fresh
+/// center's main quote and all start/trade/reserve marks. Settlement remains
+/// bounded at every active exact-out site; the cell is guidance-only.
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn evaluate_frozen_center_axis_concentrated_hlp_candidate(
+    compact: &HlpCompactSolveContext,
+    context: &ConcentratedHlpSolveContext,
+    cash_floors: SwapCashFloors,
+    base_delta_nad: i128,
+    quote_delta_nad: i128,
+    center: &HlpFrozenCenterProjection,
+    candidate_out: &mut Option<ConcentratedHlpCandidate>,
+) -> Result<()> {
+    debug_log_heap(145);
+    #[cfg(test)]
+    CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(|count| count.set(count.get().saturating_add(1)));
+    #[cfg(test)]
+    CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(|count| count.set(count.get().saturating_add(1)));
+    let (mut state, mut preposition, inventory_changed) = apply_compact_hlp_candidate_preposition(
+        compact,
+        context,
+        cash_floors,
+        base_delta_nad,
+        quote_delta_nad,
+        HlpGuidanceSettlementProbeMode::Bounded,
+    )?;
+    require_eq!(
+        center.frozen.retain_dynamic_surcharge,
+        compact.fixed.retain_dynamic_surcharge(inventory_changed),
+        ErrorCode::BrokenInvariant
+    );
+    let (common, endpoints, anchor_d_actions) = frozen_cell_projection(compact, context, state, &center.frozen)?;
+    let required_cash_floors =
+        context
+            .cash_policy
+            .floors_from_planner(compact.fixed, state, context.asset_in, common.amount_out)?;
+    let settlement_cash_available = required_cash_floors.available_from_planner(state);
+    let start_prices = hlp_curve_prices_from_base_price_nad(common.start_price_nad as u128)?;
+    refresh_compact_hlp_candidate_preposition(
+        compact.fixed,
+        &mut state,
+        context,
+        &mut preposition,
+        base_delta_nad,
+        quote_delta_nad,
+        start_prices,
+    )?;
+    let mut guidance_settlement_trace = HlpGuidanceSettlementSampleTrace {
+        pre_base: preposition.base_settlement_mode,
+        pre_quote: preposition.quote_settlement_mode,
+        post_base: HlpGuidanceSettlementSampleMode::None,
+        post_quote: HlpGuidanceSettlementSampleMode::None,
+    };
+    let mut guidance_d_actions = HlpGuidanceDActionTrace {
+        anchors: anchor_d_actions,
+        pre_base: preposition.base_settlement_d_action,
+        pre_quote: preposition.quote_settlement_d_action,
+        ..HlpGuidanceDActionTrace::default()
+    };
+    let mut structural_topology = HlpStructuralTopologyTrace {
+        pre_base: preposition.base_topology,
+        pre_quote: preposition.quote_topology,
+        ..HlpStructuralTopologyTrace::default()
+    };
+    let lifecycle = compact_hlp_lifecycle_tracking_stream(
+        context,
+        compact.fixed,
+        &mut state,
+        &preposition,
+        common,
+        &endpoints,
+        &mut guidance_settlement_trace,
+        &mut guidance_d_actions,
+        &mut structural_topology,
+        HlpGuidanceSettlementProbeMode::Bounded,
+        true,
+    )?;
+    require!(
+        guidance_d_actions.frozen_cell_numeric_function_matches(center.guidance_d_actions),
+        ErrorCode::HlpSettlementUnavailable
+    );
+    let base_tracking_error_nad = lifecycle
+        .base_error_nad
+        .checked_sub(lifecycle.base_retained_contribution_nad)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let quote_tracking_error_nad = lifecycle
+        .quote_error_nad
+        .checked_sub(lifecycle.quote_retained_contribution_nad)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    preposition.base_receipt.tracking_retained_contribution_nad = lifecycle.base_retained_contribution_nad;
+    preposition.quote_receipt.tracking_retained_contribution_nad = lifecycle.quote_retained_contribution_nad;
+    *candidate_out = Some(ConcentratedHlpCandidate {
+        base_receipt: preposition.base_receipt,
+        quote_receipt: preposition.quote_receipt,
+        authoritative: None,
+        guidance_exact_in_mode: Some(center.exact_in_mode),
+        guidance_settlement_trace: Some(guidance_settlement_trace),
+        guidance_d_actions: Some(guidance_d_actions),
+        structural_topology,
+        base_principal_tracking_error_nad: lifecycle.base_principal_error_nad,
+        quote_principal_tracking_error_nad: lifecycle.quote_principal_error_nad,
+        base_tracking_error_nad,
+        quote_tracking_error_nad,
+        base_trade_tracking_error_nad: lifecycle.base_trade_error_nad,
+        quote_trade_tracking_error_nad: lifecycle.quote_trade_error_nad,
+        base_reserve_tracking_error_nad: lifecycle.base_reserve_error_nad,
+        quote_reserve_tracking_error_nad: lifecycle.quote_reserve_error_nad,
+        base_endpoint_exposure_nad: lifecycle.base_exposure_nad,
+        quote_endpoint_exposure_nad: lifecycle.quote_exposure_nad,
+        base_trade_endpoint_safe: concentrated_hlp_trade_endpoint_is_safe(
+            context.base_start,
+            lifecycle.base_trade_error_nad,
+        ),
+        quote_trade_endpoint_safe: concentrated_hlp_trade_endpoint_is_safe(
+            context.quote_start,
+            lifecycle.quote_trade_error_nad,
+        ),
+        reserve_endpoint_safe: concentrated_hlp_reserve_is_safe(
+            context.base_start,
+            lifecycle.base_trade_error_nad,
+            lifecycle.base_reserve_error_nad,
+        ) && concentrated_hlp_reserve_is_safe(
+            context.quote_start,
+            lifecycle.quote_trade_error_nad,
+            lifecycle.quote_reserve_error_nad,
+        ),
+        settlement_cash_available,
+        next_base_delta_nad: base_delta_nad,
+        next_quote_delta_nad: quote_delta_nad,
+    });
+    debug_log_heap(149);
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn evaluate_frozen_a1_raw_concentrated_hlp_candidate(
+    compact: &HlpCompactSolveContext,
+    context: &ConcentratedHlpSolveContext,
+    cash_floors: SwapCashFloors,
+    base_delta_nad: i128,
+    quote_delta_nad: i128,
+    frozen: &HlpFrozenA1Projection,
+    candidate_out: &mut Option<ConcentratedHlpCandidate>,
+) -> Result<()> {
+    debug_log_heap(150);
+    #[cfg(test)]
+    CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(|count| count.set(count.get().saturating_add(1)));
+    #[cfg(test)]
+    CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(|count| count.set(count.get().saturating_add(1)));
+    #[cfg(test)]
+    CONCENTRATED_PRE_SOLVE_RAW_EVALUATIONS.with(|count| count.set(count.get().saturating_add(1)));
+    let (mut state, mut preposition, inventory_changed) = apply_compact_hlp_candidate_preposition(
+        compact,
+        context,
+        cash_floors,
+        base_delta_nad,
+        quote_delta_nad,
+        HlpGuidanceSettlementProbeMode::CanonicalScalar,
+    )?;
+    require_eq!(
+        frozen.retain_dynamic_surcharge,
+        compact.fixed.retain_dynamic_surcharge(inventory_changed),
+        ErrorCode::BrokenInvariant
+    );
+    debug_log_heap(151);
+    let (common, endpoints, anchor_d_actions) = frozen_cell_projection(compact, context, state, frozen)?;
+    let required_cash_floors =
+        context
+            .cash_policy
+            .floors_from_planner(compact.fixed, state, context.asset_in, common.amount_out)?;
+    let settlement_cash_available = required_cash_floors.available_from_planner(state);
+    let start_prices = hlp_curve_prices_from_base_price_nad(common.start_price_nad as u128)?;
+    refresh_compact_hlp_candidate_preposition(
+        compact.fixed,
+        &mut state,
+        context,
+        &mut preposition,
+        base_delta_nad,
+        quote_delta_nad,
+        start_prices,
+    )?;
+    debug_log_heap(152);
+    let mut guidance_settlement_trace = HlpGuidanceSettlementSampleTrace {
+        pre_base: preposition.base_settlement_mode,
+        pre_quote: preposition.quote_settlement_mode,
+        post_base: HlpGuidanceSettlementSampleMode::None,
+        post_quote: HlpGuidanceSettlementSampleMode::None,
+    };
+    let mut guidance_d_actions = HlpGuidanceDActionTrace {
+        anchors: anchor_d_actions,
+        pre_base: preposition.base_settlement_d_action,
+        pre_quote: preposition.quote_settlement_d_action,
+        ..HlpGuidanceDActionTrace::default()
+    };
+    let mut structural_topology = HlpStructuralTopologyTrace {
+        pre_base: preposition.base_topology,
+        pre_quote: preposition.quote_topology,
+        ..HlpStructuralTopologyTrace::default()
+    };
+    let lifecycle = compact_hlp_lifecycle_tracking_stream(
+        context,
+        compact.fixed,
+        &mut state,
+        &preposition,
+        common,
+        &endpoints,
+        &mut guidance_settlement_trace,
+        &mut guidance_d_actions,
+        &mut structural_topology,
+        HlpGuidanceSettlementProbeMode::CanonicalScalar,
+        true,
+    )?;
+    debug_log_heap(153);
+    let base_tracking_error_nad = lifecycle
+        .base_error_nad
+        .checked_sub(lifecycle.base_retained_contribution_nad)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let quote_tracking_error_nad = lifecycle
+        .quote_error_nad
+        .checked_sub(lifecycle.quote_retained_contribution_nad)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    preposition.base_receipt.tracking_retained_contribution_nad = lifecycle.base_retained_contribution_nad;
+    preposition.quote_receipt.tracking_retained_contribution_nad = lifecycle.quote_retained_contribution_nad;
+    *candidate_out = Some(ConcentratedHlpCandidate {
+        base_receipt: preposition.base_receipt,
+        quote_receipt: preposition.quote_receipt,
+        authoritative: None,
+        guidance_exact_in_mode: None,
+        guidance_settlement_trace: Some(guidance_settlement_trace),
+        guidance_d_actions: Some(guidance_d_actions),
+        structural_topology,
+        base_principal_tracking_error_nad: lifecycle.base_principal_error_nad,
+        quote_principal_tracking_error_nad: lifecycle.quote_principal_error_nad,
+        base_tracking_error_nad,
+        quote_tracking_error_nad,
+        base_trade_tracking_error_nad: lifecycle.base_trade_error_nad,
+        quote_trade_tracking_error_nad: lifecycle.quote_trade_error_nad,
+        base_reserve_tracking_error_nad: lifecycle.base_reserve_error_nad,
+        quote_reserve_tracking_error_nad: lifecycle.quote_reserve_error_nad,
+        base_endpoint_exposure_nad: lifecycle.base_exposure_nad,
+        quote_endpoint_exposure_nad: lifecycle.quote_exposure_nad,
+        base_trade_endpoint_safe: concentrated_hlp_trade_endpoint_is_safe(
+            context.base_start,
+            lifecycle.base_trade_error_nad,
+        ),
+        quote_trade_endpoint_safe: concentrated_hlp_trade_endpoint_is_safe(
+            context.quote_start,
+            lifecycle.quote_trade_error_nad,
+        ),
+        reserve_endpoint_safe: concentrated_hlp_reserve_is_safe(
+            context.base_start,
+            lifecycle.base_trade_error_nad,
+            lifecycle.base_reserve_error_nad,
+        ) && concentrated_hlp_reserve_is_safe(
+            context.quote_start,
+            lifecycle.quote_trade_error_nad,
+            lifecycle.quote_reserve_error_nad,
+        ),
+        settlement_cash_available,
+        // A frozen raw score is terminal guidance for A2, never a source of
+        // another scheduler hint.
+        next_base_delta_nad: base_delta_nad,
+        next_quote_delta_nad: quote_delta_nad,
+    });
+    debug_log_heap(154);
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn evaluate_compact_concentrated_hlp_candidate(
+    compact: &HlpCompactSolveContext,
+    context: &ConcentratedHlpSolveContext,
+    cash_floors: SwapCashFloors,
+    base_delta_nad: i128,
+    quote_delta_nad: i128,
+    freeze_center_projection: bool,
+    projection_out: &mut Option<ConcentratedHlpProjection>,
+    candidate_out: &mut Option<ConcentratedHlpCandidate>,
+) -> Result<()> {
+    debug_log_heap(140);
+    #[cfg(test)]
+    CONCENTRATED_PRE_SOLVE_CANDIDATE_EVALUATIONS.with(|count| count.set(count.get() + 1));
+    #[cfg(test)]
+    CONCENTRATED_PRE_SOLVE_COMPACT_EVALUATIONS.with(|count| count.set(count.get() + 1));
+    let (mut state, mut preposition, inventory_changed) = apply_compact_hlp_candidate_preposition(
+        compact,
+        context,
+        cash_floors,
+        base_delta_nad,
+        quote_delta_nad,
+        HlpGuidanceSettlementProbeMode::Bounded,
+    )?;
+    debug_log_heap(141);
+    compact
+        .guidance
+        .quote_bounded_into(compact.fixed, state, inventory_changed, projection_out)?;
+    let (common, endpoints, exact_in_mode, anchor_d_actions) = match projection_out.as_ref() {
+        Some(ConcentratedHlpProjection::Guidance {
+            common,
+            endpoints,
+            exact_in_mode,
+            guidance_d_actions,
+        }) => (*common, *endpoints, *exact_in_mode, *guidance_d_actions),
+        _ => return err!(ErrorCode::BrokenInvariant),
+    };
+    let required_cash_floors =
+        context
+            .cash_policy
+            .floors_from_planner(compact.fixed, state, context.asset_in, common.amount_out)?;
+    let settlement_cash_available = required_cash_floors.available_from_planner(state);
+    let start_prices = hlp_curve_prices_from_base_price_nad(common.start_price_nad as u128)?;
+    refresh_compact_hlp_candidate_preposition(
+        compact.fixed,
+        &mut state,
+        context,
+        &mut preposition,
+        base_delta_nad,
+        quote_delta_nad,
+        start_prices,
+    )?;
+    let guidance_state = state;
+    debug_log_heap(142);
+    let mut guidance_settlement_trace = HlpGuidanceSettlementSampleTrace {
+        pre_base: preposition.base_settlement_mode,
+        pre_quote: preposition.quote_settlement_mode,
+        post_base: HlpGuidanceSettlementSampleMode::None,
+        post_quote: HlpGuidanceSettlementSampleMode::None,
+    };
+    let mut guidance_d_actions = HlpGuidanceDActionTrace {
+        anchors: anchor_d_actions,
+        pre_base: preposition.base_settlement_d_action,
+        pre_quote: preposition.quote_settlement_d_action,
+        ..HlpGuidanceDActionTrace::default()
+    };
+    let mut structural_topology = HlpStructuralTopologyTrace {
+        pre_base: preposition.base_topology,
+        pre_quote: preposition.quote_topology,
+        ..HlpStructuralTopologyTrace::default()
+    };
+    let lifecycle = compact_hlp_lifecycle_tracking_stream(
+        context,
+        compact.fixed,
+        &mut state,
+        &preposition,
+        common,
+        &endpoints,
+        &mut guidance_settlement_trace,
+        &mut guidance_d_actions,
+        &mut structural_topology,
+        HlpGuidanceSettlementProbeMode::Bounded,
+        freeze_center_projection,
+    )?;
+    debug_log_heap(143);
+    let base_tracking_error_nad = lifecycle
+        .base_error_nad
+        .checked_sub(lifecycle.base_retained_contribution_nad)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let quote_tracking_error_nad = lifecycle
+        .quote_error_nad
+        .checked_sub(lifecycle.quote_retained_contribution_nad)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let base_trade_endpoint_safe =
+        concentrated_hlp_trade_endpoint_is_safe(context.base_start, lifecycle.base_trade_error_nad);
+    let quote_trade_endpoint_safe =
+        concentrated_hlp_trade_endpoint_is_safe(context.quote_start, lifecycle.quote_trade_error_nad);
+    let reserve_endpoint_safe = concentrated_hlp_reserve_is_safe(
+        context.base_start,
+        lifecycle.base_trade_error_nad,
+        lifecycle.base_reserve_error_nad,
+    ) && concentrated_hlp_reserve_is_safe(
+        context.quote_start,
+        lifecycle.quote_trade_error_nad,
+        lifecycle.quote_reserve_error_nad,
+    );
+    let endpoint_base = denormalize_from_nad_floor(common.endpoint_reserves.base, compact.fixed.base_decimals)?;
+    let endpoint_quote = denormalize_from_nad_floor(common.endpoint_reserves.quote, compact.fixed.quote_decimals)?;
+    let endpoint_prices = hlp_curve_prices_from_base_price_nad(common.end_price_nad as u128)?;
+    let base_needs_hint = context.base_start.active
+        && !(concentrated_hlp_candidate_components_are_safe(
+            context.base_start,
+            lifecycle.base_principal_error_nad,
+            base_tracking_error_nad,
+            lifecycle.base_exposure_nad,
+        ) && base_trade_endpoint_safe
+            && concentrated_hlp_reserve_is_safe(
+                context.base_start,
+                lifecycle.base_trade_error_nad,
+                lifecycle.base_reserve_error_nad,
+            ));
+    let quote_needs_hint = context.quote_start.active
+        && !(concentrated_hlp_candidate_components_are_safe(
+            context.quote_start,
+            lifecycle.quote_principal_error_nad,
+            quote_tracking_error_nad,
+            lifecycle.quote_exposure_nad,
+        ) && quote_trade_endpoint_safe
+            && concentrated_hlp_reserve_is_safe(
+                context.quote_start,
+                lifecycle.quote_trade_error_nad,
+                lifecycle.quote_reserve_error_nad,
+            ));
+    let next_base_delta_nad = if base_needs_hint {
+        compact_concentrated_hlp_needed_delta(
+            compact.fixed,
+            compact.start_state,
+            guidance_state,
+            MarketAsset::Base,
+            start_prices,
+            endpoint_prices,
+            endpoint_base,
+            endpoint_quote,
+            context.base_start.tracking.principal_nav_nad,
+        )?
+    } else {
+        base_delta_nad
+    };
+    let next_quote_delta_nad = if quote_needs_hint {
+        compact_concentrated_hlp_needed_delta(
+            compact.fixed,
+            compact.start_state,
+            guidance_state,
+            MarketAsset::Quote,
+            start_prices,
+            endpoint_prices,
+            endpoint_base,
+            endpoint_quote,
+            context.quote_start.tracking.principal_nav_nad,
+        )?
+    } else {
+        quote_delta_nad
+    };
+    preposition.base_receipt.tracking_retained_contribution_nad = lifecycle.base_retained_contribution_nad;
+    preposition.quote_receipt.tracking_retained_contribution_nad = lifecycle.quote_retained_contribution_nad;
+    *candidate_out = Some(ConcentratedHlpCandidate {
+        base_receipt: preposition.base_receipt,
+        quote_receipt: preposition.quote_receipt,
+        authoritative: None,
+        guidance_exact_in_mode: Some(exact_in_mode),
+        guidance_settlement_trace: Some(guidance_settlement_trace),
+        guidance_d_actions: Some(guidance_d_actions),
+        structural_topology,
+        base_principal_tracking_error_nad: lifecycle.base_principal_error_nad,
+        quote_principal_tracking_error_nad: lifecycle.quote_principal_error_nad,
+        base_tracking_error_nad,
+        quote_tracking_error_nad,
+        base_trade_tracking_error_nad: lifecycle.base_trade_error_nad,
+        quote_trade_tracking_error_nad: lifecycle.quote_trade_error_nad,
+        base_reserve_tracking_error_nad: lifecycle.base_reserve_error_nad,
+        quote_reserve_tracking_error_nad: lifecycle.quote_reserve_error_nad,
+        base_endpoint_exposure_nad: lifecycle.base_exposure_nad,
+        quote_endpoint_exposure_nad: lifecycle.quote_exposure_nad,
+        base_trade_endpoint_safe,
+        quote_trade_endpoint_safe,
+        reserve_endpoint_safe,
+        settlement_cash_available,
+        next_base_delta_nad,
+        next_quote_delta_nad,
+    });
+    if freeze_center_projection {
+        let frozen_anchor_actions = freeze_compact_center_projection(
+            projection_out.as_mut().ok_or(ErrorCode::BrokenInvariant)?,
+            compact,
+            context,
+            guidance_state,
+            inventory_changed,
+            structural_topology,
+            guidance_d_actions,
+        )?;
+        let candidate = candidate_out.as_mut().ok_or(ErrorCode::BrokenInvariant)?;
+        let actions = candidate
+            .guidance_d_actions
+            .as_mut()
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        *actions = frozen_anchor_actions;
+    }
+    debug_log_heap(144);
+    Ok(())
+}
+
 #[inline(never)]
 fn evaluate_concentrated_hlp_candidate(
     market: &mut Market,
@@ -3075,6 +5349,7 @@ fn evaluate_concentrated_hlp_candidate(
     mode: HlpCandidateEvaluationMode,
     projection_out: &mut Option<ConcentratedHlpProjection>,
     candidate_out: &mut Option<ConcentratedHlpCandidate>,
+    terminal_scratch: &mut HlpTerminalSwapScratch,
 ) -> Result<()> {
     debug_log_heap(100);
     #[cfg(test)]
@@ -3087,12 +5362,7 @@ fn evaluate_concentrated_hlp_candidate(
         apply_hlp_candidate_preposition(market, context, cash_floors, base_delta_nad, quote_delta_nad)?;
     debug_log_heap(101);
     let preliminary = preposition.preliminary;
-    *projection_out = Some(project_concentrated_hlp_candidate(
-        market,
-        context,
-        preliminary,
-        mode.exact_quote(),
-    )?);
+    project_concentrated_hlp_candidate(market, context, preliminary, mode.exact_quote(), projection_out)?;
     let projection = projection_out.as_ref().ok_or(ErrorCode::BrokenInvariant)?;
     let projection_common = projection.common();
     require_eq!(
@@ -3117,16 +5387,29 @@ fn evaluate_concentrated_hlp_candidate(
     debug_log_heap(103);
     let mut base_tracking = neutral_concentrated_hlp_side_tracking();
     let mut quote_tracking = neutral_concentrated_hlp_side_tracking();
+    let mut structural_topology = HlpStructuralTopologyTrace {
+        pre_base: preposition.base_topology,
+        pre_quote: preposition.quote_topology,
+        ..HlpStructuralTopologyTrace::default()
+    };
     let mut reserve_endpoint_safe = true;
     let mut next_base_delta_nad = base_delta_nad;
     let mut next_quote_delta_nad = quote_delta_nad;
     let mut base_endpoint_exposure_nad = 0_i128;
     let mut quote_endpoint_exposure_nad = 0_i128;
     if mode.runs_lifecycle() {
+        #[cfg(test)]
         let lifecycle_args = hlp_lifecycle_args_for_projection(market, context, projection)?;
         #[cfg(test)]
         let lifecycle = if !mode.authoritative() && VERIFY_COMPACT_HLP_GUIDANCE.with(Cell::get) {
-            let compact = compact_hlp_lifecycle_tracking(market, context, &lifecycle_args)?;
+            let compact = compact_hlp_lifecycle_tracking_from_state(
+                original,
+                context,
+                &lifecycle_args,
+                context.guidance_start_fixed,
+                HlpPlannerState::capture(market),
+                preposition,
+            )?;
             let full = scratch_authoritative_result_preserving_preposition(
                 lifecycle_scratch,
                 market,
@@ -3138,10 +5421,11 @@ fn evaluate_concentrated_hlp_candidate(
                 "compact hLP guidance lifecycle diverged from the fixed-endpoint full lifecycle"
             );
 
-            // Keep the pre-existing canonical endpoint differential after the
-            // stronger compact/full equality. This comparison is deliberately
-            // limited to the control rows because the compact contract is
-            // bound to the opaque fixed-D guidance endpoints above.
+            // Keep the canonical endpoint differential after the stronger
+            // compact/full equality. The fixed-D flow and a canonical
+            // endpoint re-solve share exact trade/reserve topology, while a
+            // post-rebalance final mark may differ inside the protocol's
+            // predeclared guidance envelope.
             let reference_args = full_guidance_reference_args(market, context, projection)?;
             let reference = scratch_authoritative_result_preserving_preposition(
                 lifecycle_scratch,
@@ -3149,17 +5433,37 @@ fn evaluate_concentrated_hlp_candidate(
                 context,
                 &reference_args,
             )?;
-            assert_eq!(
-                full.tracking, reference.tracking,
-                "fixed-endpoint full guidance rows diverged from canonical endpoint rows"
+            assert_fixed_d_final_mark_matches_canonical_envelope(
+                context,
+                context.guidance_start_fixed,
+                full,
+                reference,
             );
+            HLP_COMPACT_GUIDANCE_DIFFERENTIALS.with(|count| count.set(count.get().saturating_add(1)));
             full.tracking
         } else {
-            scratch_authoritative_preserving_preposition(lifecycle_scratch, market, context, &lifecycle_args)?
+            scratch_authoritative_preserving_preposition(
+                lifecycle_scratch,
+                market,
+                context,
+                &lifecycle_args,
+                preposition.base_receipt,
+                preposition.quote_receipt,
+                &mut structural_topology,
+                (mode.authoritative() && context.cash_policy == SwapCashPolicy::Spot).then_some(terminal_scratch),
+            )?
         };
         #[cfg(not(test))]
-        let lifecycle =
-            scratch_authoritative_preserving_preposition(lifecycle_scratch, market, context, &lifecycle_args)?;
+        let lifecycle = scratch_authoritative_projection_preserving_preposition(
+            lifecycle_scratch,
+            market,
+            context,
+            projection,
+            preposition.base_receipt,
+            preposition.quote_receipt,
+            &mut structural_topology,
+            terminal_scratch,
+        )?;
         debug_log_heap(110);
         debug_log_heap(111);
         base_tracking.principal_error_nad = lifecycle.base_principal_error_nad;
@@ -3270,10 +5574,19 @@ fn evaluate_concentrated_hlp_candidate(
     }
     preposition.base_receipt.tracking_retained_contribution_nad = base_tracking.retained_contribution_nad;
     preposition.quote_receipt.tracking_retained_contribution_nad = quote_tracking.retained_contribution_nad;
+    if mode.authoritative() && context.cash_policy == SwapCashPolicy::Spot {
+        require!(terminal_scratch.valid, ErrorCode::BrokenInvariant);
+        terminal_scratch.capability.base_pre_receipt = preposition.base_receipt;
+        terminal_scratch.capability.quote_pre_receipt = preposition.quote_receipt;
+    }
     *candidate_out = Some(ConcentratedHlpCandidate {
         base_receipt: preposition.base_receipt,
         quote_receipt: preposition.quote_receipt,
         authoritative: projection.authoritative_quote(),
+        guidance_exact_in_mode: projection.guidance_exact_in_mode(),
+        guidance_settlement_trace: None,
+        guidance_d_actions: None,
+        structural_topology,
         base_principal_tracking_error_nad: base_tracking.principal_error_nad,
         quote_principal_tracking_error_nad: quote_tracking.principal_error_nad,
         base_tracking_error_nad: base_tracking.error_nad,
@@ -3295,6 +5608,34 @@ fn evaluate_concentrated_hlp_candidate(
     Ok(())
 }
 
+/// Keeps the generic 1,152-byte endpoint argument bundle out of the exact
+/// candidate evaluator's SBF frame. Production reaches this evaluator only
+/// for an authoritative projection; guidance uses the compact evaluator.
+#[cfg(not(test))]
+#[inline(never)]
+fn scratch_authoritative_projection_preserving_preposition(
+    lifecycle_market: &mut Market,
+    prepositioned: &Market,
+    context: &ConcentratedHlpSolveContext,
+    projection: &ConcentratedHlpProjection,
+    base_pre_receipt: HlpRebalanceReceipt,
+    quote_pre_receipt: HlpRebalanceReceipt,
+    structural_topology: &mut HlpStructuralTopologyTrace,
+    terminal_scratch: &mut HlpTerminalSwapScratch,
+) -> Result<HlpLifecycleTracking> {
+    let args = hlp_lifecycle_args_for_projection(prepositioned, context, projection)?;
+    scratch_authoritative_preserving_preposition(
+        lifecycle_market,
+        prepositioned,
+        context,
+        &args,
+        base_pre_receipt,
+        quote_pre_receipt,
+        structural_topology,
+        (context.cash_policy == SwapCashPolicy::Spot).then_some(terminal_scratch),
+    )
+}
+
 /// Selects the endpoint capability used by the shared lifecycle accounting.
 /// Guidance carries a private prepared-curve capability; only the exact quote
 /// carries canonical `CurveCheckpoint`s and can become authoritative.
@@ -3304,17 +5645,26 @@ fn hlp_lifecycle_args_for_projection(
     projection: &ConcentratedHlpProjection,
 ) -> Result<HlpAuthoritativeLifecycleArgs> {
     let common = projection.common();
+    let start_checkpoint = match projection {
+        ConcentratedHlpProjection::Authoritative { start_checkpoint, .. } => Some(*start_checkpoint),
+        _ => None,
+    };
     let endpoints = match projection {
         ConcentratedHlpProjection::Authoritative { quote, .. } => HlpLifecycleEndpointMode::Authoritative {
             trade: quote.trade_endpoint()?,
             reserve: quote.reserve_endpoint()?,
         },
         ConcentratedHlpProjection::Guidance { endpoints, .. } => HlpLifecycleEndpointMode::Guidance(*endpoints),
+        ConcentratedHlpProjection::FrozenCenter(_) | ConcentratedHlpProjection::FrozenA1(_) => {
+            return err!(ErrorCode::BrokenInvariant)
+        }
     };
     Ok(HlpAuthoritativeLifecycleArgs {
         amount_in_after_fee: common.amount_in_after_fee,
         retained_surcharge: common.retained_surcharge,
         amount_out: common.amount_out,
+        trade_start_price_nad: common.start_price_nad,
+        start_checkpoint,
         endpoints,
         expected_trade_price_nad: common.end_price_nad,
         expected_reserve_price_nad: common.reserve_end_price_nad,
@@ -3347,6 +5697,8 @@ fn full_guidance_reference_args(
         amount_in_after_fee: common.amount_in_after_fee,
         retained_surcharge: common.retained_surcharge,
         amount_out: common.amount_out,
+        trade_start_price_nad: common.start_price_nad,
+        start_checkpoint: None,
         endpoints: HlpLifecycleEndpointMode::CanonicalGuidance { trade, reserve },
         expected_trade_price_nad: common.end_price_nad,
         expected_reserve_price_nad: common.reserve_end_price_nad,
@@ -3363,6 +5715,10 @@ fn scratch_authoritative_preserving_preposition(
     prepositioned: &Market,
     context: &ConcentratedHlpSolveContext,
     args: &HlpAuthoritativeLifecycleArgs,
+    base_pre_receipt: HlpRebalanceReceipt,
+    quote_pre_receipt: HlpRebalanceReceipt,
+    structural_topology: &mut HlpStructuralTopologyTrace,
+    terminal_scratch: Option<&mut HlpTerminalSwapScratch>,
 ) -> Result<HlpLifecycleTracking> {
     lifecycle_market.clone_from(prepositioned);
     scratch_authoritative_hlp_lifecycle_tracking(
@@ -3374,6 +5730,12 @@ fn scratch_authoritative_preserving_preposition(
         args.endpoints,
         args.expected_trade_price_nad,
         args.expected_reserve_price_nad,
+        args.trade_start_price_nad,
+        args.start_checkpoint,
+        base_pre_receipt,
+        quote_pre_receipt,
+        Some(structural_topology),
+        terminal_scratch,
     )
 }
 
@@ -3388,6 +5750,7 @@ fn scratch_authoritative_result_preserving_preposition(
     SCRATCH_HLP_LIFECYCLE_RESULT.with(|result| {
         result.borrow_mut().take();
     });
+    let mut structural_topology = HlpStructuralTopologyTrace::default();
     let tracking = scratch_authoritative_hlp_lifecycle_tracking(
         lifecycle_market,
         context,
@@ -3397,6 +5760,12 @@ fn scratch_authoritative_result_preserving_preposition(
         args.endpoints,
         args.expected_trade_price_nad,
         args.expected_reserve_price_nad,
+        args.trade_start_price_nad,
+        args.start_checkpoint,
+        empty_hlp_rebalance_receipt(MarketAsset::Base),
+        empty_hlp_rebalance_receipt(MarketAsset::Quote),
+        Some(&mut structural_topology),
+        None,
     )?;
     let result = SCRATCH_HLP_LIFECYCLE_RESULT
         .with(|result| result.borrow_mut().take())
@@ -3405,6 +5774,7 @@ fn scratch_authoritative_result_preserving_preposition(
     Ok(result)
 }
 
+#[inline(never)]
 fn apply_hlp_candidate_preposition(
     market: &mut Market,
     context: &ConcentratedHlpSolveContext,
@@ -3435,13 +5805,16 @@ fn apply_hlp_candidate_preposition(
         None
     };
     debug_log_heap(302);
-    let base_receipt = if context.base_start.active {
+    let (base_receipt, base_topology) = if context.base_start.active {
         apply_concentrated_hlp_pre_adjustment(market, MarketAsset::Base, base_delta_nad, base_valuation, cash_floors)?
     } else {
-        empty_hlp_rebalance_receipt(MarketAsset::Base)
+        (
+            empty_hlp_rebalance_receipt(MarketAsset::Base),
+            HlpPackedPlanTopology::inactive(),
+        )
     };
     debug_log_heap(303);
-    let quote_receipt = if context.quote_start.active {
+    let (quote_receipt, quote_topology) = if context.quote_start.active {
         apply_concentrated_hlp_pre_adjustment(
             market,
             MarketAsset::Quote,
@@ -3450,7 +5823,10 @@ fn apply_hlp_candidate_preposition(
             cash_floors,
         )?
     } else {
-        empty_hlp_rebalance_receipt(MarketAsset::Quote)
+        (
+            empty_hlp_rebalance_receipt(MarketAsset::Quote),
+            HlpPackedPlanTopology::inactive(),
+        )
     };
     debug_log_heap(304);
     let mutates_curve_inventory = base_receipt.ylp_mint_amount != 0
@@ -3468,6 +5844,12 @@ fn apply_hlp_candidate_preposition(
     Ok(HlpCandidatePreposition {
         base_receipt,
         quote_receipt,
+        base_settlement_mode: HlpGuidanceSettlementSampleMode::None,
+        quote_settlement_mode: HlpGuidanceSettlementSampleMode::None,
+        base_settlement_d_action: None,
+        quote_settlement_d_action: None,
+        base_topology,
+        quote_topology,
         preliminary,
     })
 }
@@ -3509,9 +5891,12 @@ fn apply_concentrated_hlp_pre_adjustment(
     requested_delta_nad: i128,
     valuation: Option<HlpValuation>,
     cash_floors: SwapCashFloors,
-) -> Result<HlpRebalanceReceipt> {
+) -> Result<(HlpRebalanceReceipt, HlpPackedPlanTopology)> {
     if requested_delta_nad == 0 {
-        return Ok(empty_hlp_rebalance_receipt(target_asset));
+        return Ok((
+            empty_hlp_rebalance_receipt(target_asset),
+            HlpPackedPlanTopology(HlpPlanTopologyKind::NoopSettled as u16),
+        ));
     }
     let valuation = valuation.ok_or(ErrorCode::HlpSettlementUnavailable)?;
     require!(
@@ -3539,6 +5924,7 @@ fn apply_concentrated_hlp_pre_adjustment(
             cash_floors,
         )?
     };
+    let topology = hlp_packed_plan_topology(&plan, false)?;
     let current_swap_fee_eligible_ylp_shares = if plan.ylp_mint_amount() > 0 {
         ylp_shares_before
     } else {
@@ -3547,7 +5933,7 @@ fn apply_concentrated_hlp_pre_adjustment(
             .ok_or(ErrorCode::SupplyUnderflow)?
     };
     plan.set_current_swap_fee_eligible_ylp_shares(current_swap_fee_eligible_ylp_shares);
-    apply_hlp_rebalance_plan(market, plan)
+    Ok((apply_hlp_rebalance_plan(market, plan)?, topology))
 }
 
 fn scratch_hlp_lifecycle_tracking(
@@ -3614,6 +6000,12 @@ fn scratch_authoritative_hlp_lifecycle_tracking(
     endpoints: HlpLifecycleEndpointMode,
     expected_trade_price_nad: u64,
     expected_reserve_price_nad: u64,
+    trade_start_price_nad: u64,
+    start_checkpoint: Option<CurveCheckpoint>,
+    base_pre_receipt: HlpRebalanceReceipt,
+    quote_pre_receipt: HlpRebalanceReceipt,
+    mut structural_topology: Option<&mut HlpStructuralTopologyTrace>,
+    mut terminal_scratch: Option<&mut HlpTerminalSwapScratch>,
 ) -> Result<HlpLifecycleTracking> {
     debug_log_heap(200);
     let guidance_rebalance_start = match endpoints {
@@ -3763,6 +6155,27 @@ fn scratch_authoritative_hlp_lifecycle_tracking(
         .map(|asset| market.apply_leverage_socialized_loss(asset, transition, context.current_slot))
         .transpose()?
         .unwrap_or_default();
+    if let Some(terminal) = terminal_scratch.as_deref_mut() {
+        require!(context.cash_policy == SwapCashPolicy::Spot, ErrorCode::BrokenInvariant);
+        require!(
+            transition == crate::market::LeverageLifecycleTransition::default(),
+            ErrorCode::BrokenInvariant
+        );
+        require!(
+            matches!(endpoints, HlpLifecycleEndpointMode::Authoritative { .. }),
+            ErrorCode::BrokenInvariant
+        );
+        require!(start_checkpoint.is_some(), ErrorCode::BrokenInvariant);
+        terminal.capability.current_slot = context.current_slot;
+        terminal.capability.base_pre_receipt = base_pre_receipt;
+        terminal.capability.quote_pre_receipt = quote_pre_receipt;
+        market.finalize_amm_trade_after_inventory_checkpoint(
+            trade_start_price_nad,
+            expected_trade_price_nad,
+            context.current_slot,
+        )?;
+        terminal.capability.expected_pre_rebalance.capture_into(market);
+    }
     let base_start = lifecycle_tracking_start_after_transition(
         market,
         context.base_start,
@@ -3783,31 +6196,70 @@ fn scratch_authoritative_hlp_lifecycle_tracking(
     // and the joint rebalance that changes curve geometry; otherwise avoid a
     // second concentrated marginal-price solve for the identical reserves.
     let rebalance_start_price_nad = (transition.socialized_principal_loss == 0).then_some(expected_reserve_price_nad);
-    let (_base_post_receipt, _quote_post_receipt, _, final_prices, base_endpoint, quote_endpoint) =
+    let (_base_post_receipt, _quote_post_receipt, final_evaluation, final_prices, base_endpoint, quote_endpoint) =
         if transition.socialized_principal_loss == 0 {
-        if let Some(start) = guidance_rebalance_start {
+            if let Some(start) = guidance_rebalance_start {
+                rebalance_hlps_after_swap_joint_with_curve_mode(
+                    market,
+                    rebalance_start_price_nad,
+                    HlpPostRebalanceCurveMode::Guidance {
+                        start,
+                        current_slot: context.current_slot,
+                    },
+                    structural_topology.as_deref_mut(),
+                )?
+            } else {
+                rebalance_hlps_after_swap_joint_with_curve_mode(
+                    market,
+                    rebalance_start_price_nad,
+                    HlpPostRebalanceCurveMode::Canonical {
+                        current_slot: context.current_slot,
+                    },
+                    structural_topology.as_deref_mut(),
+                )?
+            }
+        } else {
+            // A one-sided socialized-loss reserve mutation is not homogeneous
+            // in yLP supply. Keep the canonical post-loss solve for this rare
+            // guidance sample instead of reusing a scaled planner invariant.
             rebalance_hlps_after_swap_joint_with_curve_mode(
                 market,
                 rebalance_start_price_nad,
-                HlpPostRebalanceCurveMode::Guidance {
-                    start,
+                HlpPostRebalanceCurveMode::Canonical {
                     current_slot: context.current_slot,
                 },
+                structural_topology.as_deref_mut(),
             )?
-        } else {
-            rebalance_hlps_after_swap_joint(market, context.current_slot, rebalance_start_price_nad)?
-        }
-        } else {
-        // A one-sided socialized-loss reserve mutation is not homogeneous
-        // in yLP supply. Keep the canonical post-loss solve for this rare
-        // guidance sample instead of reusing a scaled planner invariant.
-        rebalance_hlps_after_swap_joint(market, context.current_slot, rebalance_start_price_nad)?
         };
     debug_log_heap(207);
     let base =
         hlp_lifecycle_tracking_from_endpoint(market, MarketAsset::Base, final_prices, base_endpoint, base_start)?;
     let quote =
         hlp_lifecycle_tracking_from_endpoint(market, MarketAsset::Quote, final_prices, quote_endpoint, quote_start)?;
+    if let Some(terminal) = terminal_scratch {
+        let post_mutates_inventory = _base_post_receipt.ylp_mint_amount != 0
+            || _base_post_receipt.ylp_burn_amount != 0
+            || _quote_post_receipt.ylp_mint_amount != 0
+            || _quote_post_receipt.ylp_burn_amount != 0;
+        let pre_mutates_inventory = base_pre_receipt.ylp_mint_amount != 0
+            || base_pre_receipt.ylp_burn_amount != 0
+            || quote_pre_receipt.ylp_mint_amount != 0
+            || quote_pre_receipt.ylp_burn_amount != 0;
+        let final_evaluation = if let Some(evaluation) = final_evaluation {
+            require!(post_mutates_inventory, ErrorCode::BrokenInvariant);
+            Some(evaluation)
+        } else if pre_mutates_inventory || post_mutates_inventory {
+            Some(market.checkpoint_amm_neutral_inventory(context.current_slot)?)
+        } else {
+            None
+        };
+        terminal.capability.terminal.capture_into(market);
+        terminal.capability.base_post_receipt = _base_post_receipt;
+        terminal.capability.quote_post_receipt = _quote_post_receipt;
+        terminal.capability.final_prices = final_prices;
+        terminal.capability.final_evaluation = final_evaluation;
+        terminal.valid = true;
+    }
     debug_log_heap(208);
     let tracking = HlpLifecycleTracking {
         base_principal_error_nad: base.0,
@@ -4671,6 +7123,7 @@ pub(crate) fn rebalance_hlps_after_swap_joint(
         market,
         start_price_nad,
         HlpPostRebalanceCurveMode::Canonical { current_slot },
+        None,
     )
 }
 
@@ -4689,6 +7142,7 @@ fn rebalance_hlps_after_swap_joint_with_curve_mode(
     market: &mut Market,
     start_price_nad: Option<u64>,
     curve_mode: HlpPostRebalanceCurveMode,
+    structural_topology: Option<&mut HlpStructuralTopologyTrace>,
 ) -> Result<(
     HlpRebalanceReceipt,
     HlpRebalanceReceipt,
@@ -4725,7 +7179,7 @@ fn rebalance_hlps_after_swap_joint_with_curve_mode(
         market.quote_side.shares.ylp_supply,
         ErrorCode::BrokenInvariant
     );
-    let (base, quote) = match curve_mode {
+    let (base, quote, base_topology, quote_topology) = match curve_mode {
         HlpPostRebalanceCurveMode::Canonical { .. } => {
             plan_and_apply_hlp_rebalance_pair(market, base_valuation, quote_valuation)?
         }
@@ -4733,6 +7187,10 @@ fn rebalance_hlps_after_swap_joint_with_curve_mode(
             plan_and_apply_hlp_rebalance_pair_guidance(market, base_valuation, quote_valuation)?
         }
     };
+    if let Some(topology) = structural_topology {
+        topology.post_base = base_topology;
+        topology.post_quote = quote_topology;
+    }
     let inventory_changed = base.ylp_mint_amount != 0
         || base.ylp_burn_amount != 0
         || quote.ylp_mint_amount != 0
@@ -4750,11 +7208,13 @@ fn rebalance_hlps_after_swap_joint_with_curve_mode(
                     ErrorCode::BrokenInvariant
                 );
                 require!(start_ylp_supply > 0 && final_ylp_supply > 0, ErrorCode::SupplyUnderflow);
-                let invariant_d =
-                    mul_div_u128(start.invariant_d(), final_ylp_supply as u128, start_ylp_supply as u128)?;
                 let reserves = market.curve_reserves_nad()?;
-                let final_prepared =
-                    start.prepare_guidance_successor_with_invariant(reserves.base, reserves.quote, invariant_d)?;
+                let final_prepared = start.prepare_supply_scaled_guidance_successor(
+                    reserves.base,
+                    reserves.quote,
+                    start_ylp_supply,
+                    final_ylp_supply,
+                )?;
                 let evaluation = final_prepared.evaluation()?;
                 market.ensure_amm_initialized(current_slot)?;
                 let q_per_share_nad = market.curve_q_per_share_nad(evaluation.balanced_equivalent_q)?;
@@ -5045,7 +7505,6 @@ struct HlpValuation {
 /// reusable state values (`start` and `work`) are exactly 256 bytes each.  No
 /// yield checkpoints, settlement references, or AMM authority can be carried
 /// through this representation.
-#[cfg(test)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct HlpPlannerSide {
     pub(super) live_reserve: u64,
@@ -5055,7 +7514,6 @@ pub(super) struct HlpPlannerSide {
     pub(super) ylp_supply: u64,
 }
 
-#[cfg(test)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct HlpPlannerVault {
     pub(super) debt_shares: u128,
@@ -5066,7 +7524,6 @@ pub(super) struct HlpPlannerVault {
     pub(super) debt_principal: u64,
 }
 
-#[cfg(test)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct HlpPlannerDebt {
     pub(super) isolated_base_shares: u128,
@@ -5075,7 +7532,6 @@ pub(super) struct HlpPlannerDebt {
     pub(super) isolated_quote_principal: u64,
 }
 
-#[cfg(test)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct HlpPlannerState {
     pub(super) base_side: HlpPlannerSide,
@@ -5085,7 +7541,6 @@ pub(super) struct HlpPlannerState {
     pub(super) debt: HlpPlannerDebt,
 }
 
-#[cfg(test)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct HlpPlannerStatic {
     pub(super) base_borrow_index_nad: u128,
@@ -5101,13 +7556,10 @@ pub(super) struct HlpPlannerStatic {
     pub(super) retain_dynamic_surcharge_after_inventory: bool,
 }
 
-#[cfg(test)]
 const _: [(); 256] = [(); core::mem::size_of::<HlpPlannerState>()];
 
-#[cfg(test)]
 const _: [(); 80] = [(); core::mem::size_of::<HlpPlannerStatic>()];
 
-#[cfg(test)]
 impl HlpPlannerStatic {
     pub(super) fn capture(market: &Market) -> Result<Self> {
         require_eq!(
@@ -5124,14 +7576,6 @@ impl HlpPlannerStatic {
             .checked_sub(u128::from(market.debt.fixed_quote_principal).min(quote_fixed_debt))
             .ok_or(ErrorCode::DebtMathOverflow)?;
 
-        // `defer_amm_retention_target` depends only on the frozen AMM/config
-        // state and on whether inventory changed, not on the candidate size.
-        // Compute its route once; compact candidates select it only after both
-        // Base and Quote preposition legs have been derived.
-        let mut deferred = Market::default();
-        deferred.clone_from(market);
-        deferred.defer_amm_retention_target()?;
-
         Ok(Self {
             base_borrow_index_nad: market.debt.base_borrow_index_nad,
             quote_borrow_index_nad: market.debt.quote_borrow_index_nad,
@@ -5143,7 +7587,7 @@ impl HlpPlannerStatic {
             base_has_hlp_supply: market.base_hlp_vault.hlp_supply > 0,
             quote_has_hlp_supply: market.quote_hlp_vault.hlp_supply > 0,
             retain_dynamic_surcharge_at_start: market.amm.retain_dynamic_surcharge,
-            retain_dynamic_surcharge_after_inventory: deferred.amm.retain_dynamic_surcharge,
+            retain_dynamic_surcharge_after_inventory: market.deferred_amm_retention_after_inventory(),
         })
     }
 
@@ -5151,6 +7595,14 @@ impl HlpPlannerStatic {
         match asset {
             MarketAsset::Base => self.base_borrow_index_nad,
             MarketAsset::Quote => self.quote_borrow_index_nad,
+        }
+    }
+
+    pub(super) const fn retain_dynamic_surcharge(self, inventory_changed: bool) -> bool {
+        if inventory_changed {
+            self.retain_dynamic_surcharge_after_inventory
+        } else {
+            self.retain_dynamic_surcharge_at_start
         }
     }
 
@@ -5176,7 +7628,6 @@ impl HlpPlannerStatic {
     }
 }
 
-#[cfg(test)]
 impl HlpPlannerState {
     pub(super) fn capture(market: &Market) -> Self {
         let side = |asset: MarketAsset| {
@@ -5215,6 +7666,81 @@ impl HlpPlannerState {
                 isolated_quote_principal: market.debt.isolated_quote_principal,
             },
         }
+    }
+
+    /// Updates an existing planner snapshot without constructing a 256-byte
+    /// return value. The terminal capability uses this to write straight into
+    /// its heap allocation.
+    fn capture_into(&mut self, market: &Market) {
+        let base_side = &market.base_side;
+        let quote_side = &market.quote_side;
+        let base_vault = &market.base_hlp_vault;
+        let quote_vault = &market.quote_hlp_vault;
+
+        self.base_side.live_reserve = base_side.reserves.live_reserve;
+        self.base_side.cash_reserve = base_side.reserves.cash_reserve;
+        self.base_side.base_hlp_backing_inventory = base_side.reserves.base_hlp_backing_inventory;
+        self.base_side.quote_hlp_backing_inventory = base_side.reserves.quote_hlp_backing_inventory;
+        self.base_side.ylp_supply = base_side.shares.ylp_supply;
+
+        self.quote_side.live_reserve = quote_side.reserves.live_reserve;
+        self.quote_side.cash_reserve = quote_side.reserves.cash_reserve;
+        self.quote_side.base_hlp_backing_inventory = quote_side.reserves.base_hlp_backing_inventory;
+        self.quote_side.quote_hlp_backing_inventory = quote_side.reserves.quote_hlp_backing_inventory;
+        self.quote_side.ylp_supply = quote_side.shares.ylp_supply;
+
+        self.base_vault.debt_shares = base_vault.debt_shares;
+        self.base_vault.residual_exposure = base_vault.residual_exposure;
+        self.base_vault.ylp_shares = base_vault.ylp_shares;
+        self.base_vault.base_hlp_live_reserve = base_vault.base_hlp_live_reserve;
+        self.base_vault.quote_hlp_live_reserve = base_vault.quote_hlp_live_reserve;
+        self.base_vault.debt_principal = base_vault.debt_principal;
+
+        self.quote_vault.debt_shares = quote_vault.debt_shares;
+        self.quote_vault.residual_exposure = quote_vault.residual_exposure;
+        self.quote_vault.ylp_shares = quote_vault.ylp_shares;
+        self.quote_vault.base_hlp_live_reserve = quote_vault.base_hlp_live_reserve;
+        self.quote_vault.quote_hlp_live_reserve = quote_vault.quote_hlp_live_reserve;
+        self.quote_vault.debt_principal = quote_vault.debt_principal;
+
+        self.debt.isolated_base_shares = market.debt.isolated_base_shares;
+        self.debt.isolated_quote_shares = market.debt.isolated_quote_shares;
+        self.debt.isolated_base_principal = market.debt.isolated_base_principal;
+        self.debt.isolated_quote_principal = market.debt.isolated_quote_principal;
+    }
+
+    fn matches_market(&self, market: &Market) -> bool {
+        let base_side = &market.base_side;
+        let quote_side = &market.quote_side;
+        let base_vault = &market.base_hlp_vault;
+        let quote_vault = &market.quote_hlp_vault;
+
+        self.base_side.live_reserve == base_side.reserves.live_reserve
+            && self.base_side.cash_reserve == base_side.reserves.cash_reserve
+            && self.base_side.base_hlp_backing_inventory == base_side.reserves.base_hlp_backing_inventory
+            && self.base_side.quote_hlp_backing_inventory == base_side.reserves.quote_hlp_backing_inventory
+            && self.base_side.ylp_supply == base_side.shares.ylp_supply
+            && self.quote_side.live_reserve == quote_side.reserves.live_reserve
+            && self.quote_side.cash_reserve == quote_side.reserves.cash_reserve
+            && self.quote_side.base_hlp_backing_inventory == quote_side.reserves.base_hlp_backing_inventory
+            && self.quote_side.quote_hlp_backing_inventory == quote_side.reserves.quote_hlp_backing_inventory
+            && self.quote_side.ylp_supply == quote_side.shares.ylp_supply
+            && self.base_vault.debt_shares == base_vault.debt_shares
+            && self.base_vault.residual_exposure == base_vault.residual_exposure
+            && self.base_vault.ylp_shares == base_vault.ylp_shares
+            && self.base_vault.base_hlp_live_reserve == base_vault.base_hlp_live_reserve
+            && self.base_vault.quote_hlp_live_reserve == base_vault.quote_hlp_live_reserve
+            && self.base_vault.debt_principal == base_vault.debt_principal
+            && self.quote_vault.debt_shares == quote_vault.debt_shares
+            && self.quote_vault.residual_exposure == quote_vault.residual_exposure
+            && self.quote_vault.ylp_shares == quote_vault.ylp_shares
+            && self.quote_vault.base_hlp_live_reserve == quote_vault.base_hlp_live_reserve
+            && self.quote_vault.quote_hlp_live_reserve == quote_vault.quote_hlp_live_reserve
+            && self.quote_vault.debt_principal == quote_vault.debt_principal
+            && self.debt.isolated_base_shares == market.debt.isolated_base_shares
+            && self.debt.isolated_quote_shares == market.debt.isolated_quote_shares
+            && self.debt.isolated_base_principal == market.debt.isolated_base_principal
+            && self.debt.isolated_quote_principal == market.debt.isolated_quote_principal
     }
 
     pub(super) const fn side(self, asset: MarketAsset) -> HlpPlannerSide {
@@ -5505,10 +8031,29 @@ mod hlp_exact_out_settlement {
 
 use hlp_exact_out_settlement::Checkpoint as HlpExactOutSettlementCheckpoint;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum HlpGuidanceSettlementSampleMode {
+    #[default]
+    None,
+    AnalyticCpmm,
+    BoundedP2High,
+    BoundedP3Positive,
+    CanonicalScalarFallback,
+    #[cfg(test)]
+    ExactReference,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct HlpGuidanceSettlementSampleTrace {
+    pre_base: HlpGuidanceSettlementSampleMode,
+    pre_quote: HlpGuidanceSettlementSampleMode,
+    post_base: HlpGuidanceSettlementSampleMode,
+    post_quote: HlpGuidanceSettlementSampleMode,
+}
+
 /// Planner-only exact-out evidence.  It contains no curve checkpoint or
 /// canonical prepared curve and cannot be passed to the authoritative Market
 /// applier.  Construction is limited to an opaque guidance curve.
-#[cfg(test)]
 mod hlp_guidance_exact_out_settlement {
     use super::*;
 
@@ -5518,13 +8063,25 @@ mod hlp_guidance_exact_out_settlement {
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub(super) struct Proof {
         facts: HlpExactOutSettlementFacts,
+        sample_mode: HlpGuidanceSettlementSampleMode,
+        guidance_d_action: Option<ConcentratedGuidanceDAction>,
         _seal: Seal,
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub(super) enum ProbeMode {
+        #[cfg(test)]
         ExactReference,
         Bounded,
+        CanonicalScalar,
+    }
+
+    pub(super) fn is_insufficient_liquidity(error: &anchor_lang::error::Error) -> bool {
+        matches!(
+            error,
+            anchor_lang::error::Error::AnchorError(anchor)
+                if anchor.error_code_number == u32::from(ErrorCode::InsufficientLiquidity)
+        )
     }
 
     impl Proof {
@@ -5532,7 +8089,7 @@ mod hlp_guidance_exact_out_settlement {
         pub(super) fn plan(
             fixed: HlpPlannerStatic,
             state: HlpPlannerState,
-            anchor: ConcentratedGuidanceCurve,
+            anchor: &ConcentratedGuidanceCurve,
             anchor_ylp_supply: u64,
             target_asset: MarketAsset,
             target_redeemed: u64,
@@ -5558,53 +8115,153 @@ mod hlp_guidance_exact_out_settlement {
                 .checked_sub(borrowed_redeemed)
                 .filter(|shortfall| *shortfall > 0)
                 .ok_or(ErrorCode::AmountZero)?;
-            require!(
-                anchor_ylp_supply > 0 && post_ylp_supply > 0,
-                ErrorCode::SupplyUnderflow
-            );
-            let prepared = match mode {
-                ProbeMode::ExactReference => anchor.prepare_hint_successor(
-                    post_entitlement_curve_reserves_nad.base,
-                    post_entitlement_curve_reserves_nad.quote,
-                )?,
-                ProbeMode::Bounded => {
-                    let invariant_d = mul_div_u128(
-                        anchor.invariant_d(),
-                        post_ylp_supply as u128,
-                        anchor_ylp_supply as u128,
-                    )?;
-                    anchor.prepare_guidance_successor_with_invariant(
-                        post_entitlement_curve_reserves_nad.base,
-                        post_entitlement_curve_reserves_nad.quote,
-                        invariant_d,
-                    )?
-                }
-            };
-            let amount_out_nad = normalize_to_nad(
-                borrowed_shortfall as u128,
-                fixed.decimals(borrowed_asset),
-            )?;
+            require!(anchor_ylp_supply > 0 && post_ylp_supply > 0, ErrorCode::SupplyUnderflow);
+            let amount_out_nad = normalize_to_nad(borrowed_shortfall as u128, fixed.decimals(borrowed_asset))?;
+            let input_atom_nad = normalize_to_nad(1, fixed.decimals(target_asset))?;
             let direction = match target_asset {
                 MarketAsset::Base => ConcentratedSwapDirection::BaseToQuote,
                 MarketAsset::Quote => ConcentratedSwapDirection::QuoteToBase,
             };
-            let selected_input_nad = match mode {
-                ProbeMode::ExactReference => prepared.quote_exact_out_input_bracket(amount_out_nad, direction)?.1,
-                ProbeMode::Bounded => {
+            let (selected_input_nad, sample_mode, guidance_d_action) = match mode {
+                #[cfg(test)]
+                ProbeMode::ExactReference => (
+                    anchor.quote_hint_successor_exact_out_input_upper(
+                        post_entitlement_curve_reserves_nad.base,
+                        post_entitlement_curve_reserves_nad.quote,
+                        amount_out_nad,
+                        direction,
+                        input_atom_nad,
+                    )?,
+                    HlpGuidanceSettlementSampleMode::ExactReference,
+                    None,
+                ),
+                ProbeMode::CanonicalScalar => {
+                    #[cfg(test)]
                     let probes_before = crate::math::residual_evaluations();
-                    let input = prepared.quote_bounded_exact_out_input(amount_out_nad, direction)?;
-                    let probes = crate::math::residual_evaluations().saturating_sub(probes_before);
-                    require!(probes <= 2, ErrorCode::BrokenInvariant);
-                    HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES.with(|count| {
-                        count.set(count.get().saturating_add(u32::try_from(probes).unwrap_or(u32::MAX)))
+                    #[cfg(test)]
+                    HLP_RAW_CANONICAL_SCALAR_CALLS.with(|count| count.set(count.get().saturating_add(1)));
+                    let selected = anchor.quote_hint_successor_exact_out_input_upper(
+                        post_entitlement_curve_reserves_nad.base,
+                        post_entitlement_curve_reserves_nad.quote,
+                        amount_out_nad,
+                        direction,
+                        input_atom_nad,
+                    );
+                    #[cfg(test)]
+                    HLP_RAW_CANONICAL_SCALAR_RESIDUALS.with(|count| {
+                        let probes = crate::math::residual_evaluations().saturating_sub(probes_before);
+                        count.set(count.get().saturating_add(u32::try_from(probes).unwrap_or(u32::MAX)));
                     });
-                    input
+                    (
+                        selected?,
+                        HlpGuidanceSettlementSampleMode::CanonicalScalarFallback,
+                        None,
+                    )
+                }
+                ProbeMode::Bounded => {
+                    let (bounded, bounded_d_action) = match anchor.prepare_supply_scaled_guidance_successor_with_action(
+                        post_entitlement_curve_reserves_nad.base,
+                        post_entitlement_curve_reserves_nad.quote,
+                        anchor_ylp_supply,
+                        post_ylp_supply,
+                    ) {
+                        Ok((prepared, action)) => {
+                            #[cfg(test)]
+                            let probes_before = crate::math::residual_evaluations();
+                            let quote =
+                                prepared.quote_bounded_exact_out_input(amount_out_nad, direction, input_atom_nad);
+                            #[cfg(test)]
+                            let probes = crate::math::residual_evaluations().saturating_sub(probes_before);
+                            #[cfg(test)]
+                            {
+                                require!(
+                                    probes <= MAX_RESIDUAL_PROBES_PER_BOUNDED_EXACT_OUT_LEG,
+                                    ErrorCode::BrokenInvariant
+                                );
+                                HLP_COMPACT_GUIDANCE_EXACT_OUT_PROBES.with(|count| {
+                                    count.set(count.get().saturating_add(u32::try_from(probes).unwrap_or(u32::MAX)))
+                                });
+                            }
+                            let quote = match quote {
+                                Ok(quote) => {
+                                    #[cfg(test)]
+                                    match quote.mode {
+                                        ConcentratedGuidanceExactOutMode::AnalyticCpmm => {
+                                            require_eq!(probes, 0, ErrorCode::BrokenInvariant);
+                                            HLP_COMPACT_GUIDANCE_EXACT_OUT_ANALYTIC_QUOTES
+                                                .with(|count| count.set(count.get().saturating_add(1)));
+                                        }
+                                        ConcentratedGuidanceExactOutMode::BoundedP2High => {
+                                            require!(
+                                                (2..=MAX_RESIDUAL_PROBES_PER_BOUNDED_EXACT_OUT_LEG).contains(&probes),
+                                                ErrorCode::BrokenInvariant
+                                            );
+                                            HLP_COMPACT_GUIDANCE_EXACT_OUT_P2_QUOTES
+                                                .with(|count| count.set(count.get().saturating_add(1)));
+                                        }
+                                        ConcentratedGuidanceExactOutMode::BoundedP3Positive => {
+                                            require_eq!(
+                                                probes,
+                                                MAX_RESIDUAL_PROBES_PER_BOUNDED_EXACT_OUT_LEG,
+                                                ErrorCode::BrokenInvariant
+                                            );
+                                            HLP_COMPACT_GUIDANCE_EXACT_OUT_P3_QUOTES
+                                                .with(|count| count.set(count.get().saturating_add(1)));
+                                        }
+                                    }
+                                    Some(quote)
+                                }
+                                Err(error) if is_insufficient_liquidity(&error) => None,
+                                Err(error) => return Err(error),
+                            };
+                            (quote, Some(action))
+                        }
+                        Err(error) if is_insufficient_liquidity(&error) => (None, None),
+                        Err(error) => return Err(error),
+                    };
+                    let bounded = if let Some(quote) = bounded {
+                        let retained = denormalize_from_nad_ceil(quote.amount_in_nad, fixed.decimals(target_asset))?;
+                        (retained <= target_redeemed).then_some(quote)
+                    } else {
+                        None
+                    };
+                    if let Some(quote) = bounded {
+                        let sample_mode = match quote.mode {
+                            ConcentratedGuidanceExactOutMode::AnalyticCpmm => {
+                                HlpGuidanceSettlementSampleMode::AnalyticCpmm
+                            }
+                            ConcentratedGuidanceExactOutMode::BoundedP2High => {
+                                HlpGuidanceSettlementSampleMode::BoundedP2High
+                            }
+                            ConcentratedGuidanceExactOutMode::BoundedP3Positive => {
+                                HlpGuidanceSettlementSampleMode::BoundedP3Positive
+                            }
+                        };
+                        (quote.amount_in_nad, sample_mode, bounded_d_action)
+                    } else {
+                        #[cfg(test)]
+                        HLP_COMPACT_GUIDANCE_EXACT_OUT_CANONICAL_FALLBACKS
+                            .with(|count| count.set(count.get().saturating_add(1)));
+                        (
+                            anchor.quote_hint_successor_exact_out_input_upper(
+                                post_entitlement_curve_reserves_nad.base,
+                                post_entitlement_curve_reserves_nad.quote,
+                                amount_out_nad,
+                                direction,
+                                input_atom_nad,
+                            )?,
+                            HlpGuidanceSettlementSampleMode::CanonicalScalarFallback,
+                            bounded_d_action,
+                        )
+                    }
                 }
             };
-            let target_retained = denormalize_from_nad_ceil(
+            let target_retained = denormalize_from_nad_ceil(selected_input_nad, fixed.decimals(target_asset))?;
+            require_eq!(
+                normalize_to_nad(target_retained as u128, fixed.decimals(target_asset))?,
                 selected_input_nad,
-                fixed.decimals(target_asset),
-            )?;
+                ErrorCode::BrokenInvariant
+            );
             require_gte!(target_redeemed, target_retained, ErrorCode::HlpSettlementUnavailable);
             let target_amount = target_redeemed
                 .checked_sub(target_retained)
@@ -5631,6 +8288,8 @@ mod hlp_guidance_exact_out_settlement {
                         selected_input_nad,
                         target_retained,
                     },
+                    sample_mode,
+                    guidance_d_action,
                     _seal: Seal,
                 },
             ))
@@ -5639,13 +8298,21 @@ mod hlp_guidance_exact_out_settlement {
         pub(super) const fn facts(self) -> HlpExactOutSettlementFacts {
             self.facts
         }
+
+        pub(super) const fn sample_mode(self) -> HlpGuidanceSettlementSampleMode {
+            self.sample_mode
+        }
+
+        pub(super) const fn guidance_d_action(self) -> Option<ConcentratedGuidanceDAction> {
+            self.guidance_d_action
+        }
     }
 }
 
-#[cfg(test)]
-use hlp_guidance_exact_out_settlement::{ProbeMode as HlpGuidanceSettlementProbeMode, Proof as HlpGuidanceSettlementProof};
+use hlp_guidance_exact_out_settlement::{
+    ProbeMode as HlpGuidanceSettlementProbeMode, Proof as HlpGuidanceSettlementProof,
+};
 
-#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct HlpCompactRebalancePlan {
     plan: HlpRebalancePlan,
@@ -5731,6 +8398,116 @@ struct HlpRebalancePairPlan {
     start: HlpRebalancePairStart,
     base: HlpRebalancePairLegPlan,
     quote: HlpRebalancePairLegPlan,
+}
+
+impl HlpPackedPlanTopology {
+    #[cfg(test)]
+    const KIND_MASK: u16 = 0b111;
+    const CAPACITY_BOUND: u16 = 1 << 3;
+    const BASE_CASH: u16 = 1 << 4;
+    const BASE_SYNTHETIC: u16 = 1 << 5;
+    const QUOTE_CASH: u16 = 1 << 6;
+    const QUOTE_SYNTHETIC: u16 = 1 << 7;
+    const EXACT_OUT: u16 = 1 << 8;
+    const FULL_DEBT_CLEARANCE: u16 = 1 << 9;
+
+    const fn inactive() -> Self {
+        Self(HlpPlanTopologyKind::Inactive as u16)
+    }
+
+    #[cfg(test)]
+    const fn kind(self) -> HlpPlanTopologyKind {
+        match self.0 & Self::KIND_MASK {
+            0 => HlpPlanTopologyKind::Inactive,
+            1 => HlpPlanTopologyKind::NoopSettled,
+            2 => HlpPlanTopologyKind::NoopUnhedgeable,
+            3 => HlpPlanTopologyKind::NoopCapacityOrGranularity,
+            4 => HlpPlanTopologyKind::LeverageUp,
+            5 => HlpPlanTopologyKind::DeleverageDirect,
+            6 => HlpPlanTopologyKind::DeleverageExactOut,
+            _ => unreachable!(),
+        }
+    }
+}
+
+fn hlp_packed_plan_topology(plan: &HlpRebalancePlan, guidance_exact_out: bool) -> Result<HlpPackedPlanTopology> {
+    let common = plan.common();
+    let mut bits = if common.capacity_bound {
+        HlpPackedPlanTopology::CAPACITY_BOUND
+    } else {
+        0
+    };
+    let kind = match plan {
+        HlpRebalancePlan::Noop { reason, .. } => {
+            require!(!guidance_exact_out, ErrorCode::BrokenInvariant);
+            match reason {
+                HlpRebalanceNoopReason::Settled => HlpPlanTopologyKind::NoopSettled,
+                HlpRebalanceNoopReason::Unhedgeable => HlpPlanTopologyKind::NoopUnhedgeable,
+                HlpRebalanceNoopReason::CapacityOrGranularity => HlpPlanTopologyKind::NoopCapacityOrGranularity,
+            }
+        }
+        HlpRebalancePlan::LeverageUp { .. } => {
+            require!(!guidance_exact_out, ErrorCode::BrokenInvariant);
+            HlpPlanTopologyKind::LeverageUp
+        }
+        HlpRebalancePlan::Deleverage {
+            base_reserve_debit,
+            quote_reserve_debit,
+            base_cash_debit,
+            quote_cash_debit,
+            debt_repayment,
+            debt_clearance,
+            exact_out_checkpoint,
+            ..
+        } => {
+            require_gte!(*base_reserve_debit, *base_cash_debit, ErrorCode::BrokenInvariant);
+            require_gte!(*quote_reserve_debit, *quote_cash_debit, ErrorCode::BrokenInvariant);
+            if *base_cash_debit > 0 {
+                bits |= HlpPackedPlanTopology::BASE_CASH;
+            }
+            if base_reserve_debit > base_cash_debit {
+                bits |= HlpPackedPlanTopology::BASE_SYNTHETIC;
+            }
+            if *quote_cash_debit > 0 {
+                bits |= HlpPackedPlanTopology::QUOTE_CASH;
+            }
+            if quote_reserve_debit > quote_cash_debit {
+                bits |= HlpPackedPlanTopology::QUOTE_SYNTHETIC;
+            }
+            let exact_out = exact_out_checkpoint.is_some() || guidance_exact_out;
+            require!(
+                !(exact_out_checkpoint.is_some() && guidance_exact_out),
+                ErrorCode::BrokenInvariant
+            );
+            if exact_out {
+                bits |= HlpPackedPlanTopology::EXACT_OUT;
+            }
+            if debt_repayment.shares_to_burn == common.start.target_debt_shares && debt_clearance.remaining_debt == 0 {
+                bits |= HlpPackedPlanTopology::FULL_DEBT_CLEARANCE;
+            }
+            if exact_out {
+                HlpPlanTopologyKind::DeleverageExactOut
+            } else {
+                HlpPlanTopologyKind::DeleverageDirect
+            }
+        }
+    };
+    bits |= kind as u16;
+    Ok(HlpPackedPlanTopology(bits))
+}
+
+fn hlp_packed_pair_leg_topology(plan: &HlpRebalancePairLegPlan) -> Result<HlpPackedPlanTopology> {
+    match plan {
+        HlpRebalancePairLegPlan::Inactive { .. } => Ok(HlpPackedPlanTopology::inactive()),
+        HlpRebalancePairLegPlan::Active(plan) => hlp_packed_plan_topology(plan, false),
+    }
+}
+
+fn hlp_packed_pair_topology(plan: &HlpRebalancePairPlan) -> Result<(HlpPackedPlanTopology, HlpPackedPlanTopology)> {
+    Ok((
+        hlp_packed_pair_leg_topology(&plan.base)?,
+        hlp_packed_pair_leg_topology(&plan.quote)?,
+    ))
 }
 
 impl HlpRebalancePlan {
@@ -5995,7 +8772,6 @@ fn capture_hlp_rebalance_state(market: &Market, target_asset: MarketAsset) -> Hl
     }
 }
 
-#[cfg(test)]
 fn capture_hlp_rebalance_state_from_planner(
     fixed: HlpPlannerStatic,
     state: HlpPlannerState,
@@ -6221,20 +8997,14 @@ fn derive_hlp_rebalance_post_state_from_values(
     base_decimals: u8,
     quote_decimals: u8,
 ) -> Result<HlpRebalanceState> {
-    derive_hlp_rebalance_post_state_from_values_with_guidance(
-        plan,
-        base_decimals,
-        quote_decimals,
-        None,
-    )
+    derive_hlp_rebalance_post_state_from_values_with_guidance(plan, base_decimals, quote_decimals, None)
 }
 
 fn derive_hlp_rebalance_post_state_from_values_with_guidance(
     plan: &HlpRebalancePlan,
     base_decimals: u8,
     quote_decimals: u8,
-    #[cfg(test)] guidance_settlement: Option<HlpExactOutSettlementFacts>,
-    #[cfg(not(test))] _guidance_settlement: Option<HlpExactOutSettlementFacts>,
+    guidance_settlement: Option<HlpExactOutSettlementFacts>,
 ) -> Result<HlpRebalanceState> {
     let common = *plan.common();
     let mut post = common.start;
@@ -6345,15 +9115,11 @@ fn derive_hlp_rebalance_post_state_from_values_with_guidance(
                     ),
                 };
             let canonical_settlement = exact_out_checkpoint.map(HlpExactOutSettlementCheckpoint::facts);
-            #[cfg(test)]
             require!(
                 canonical_settlement.is_none() || guidance_settlement.is_none(),
                 ErrorCode::BrokenInvariant
             );
-            #[cfg(test)]
             let settlement = canonical_settlement.or(guidance_settlement);
-            #[cfg(not(test))]
-            let settlement = canonical_settlement;
             match settlement {
                 Some(settlement) => {
                     require!(interest_paid > borrowed_entitlement, ErrorCode::BrokenInvariant);
@@ -6531,7 +9297,6 @@ fn commit_hlp_rebalance_state(market: &mut Market, target_asset: MarketAsset, po
     }
 }
 
-#[cfg(test)]
 fn commit_hlp_rebalance_planner_state(state: &mut HlpPlannerState, target_asset: MarketAsset, post: HlpRebalanceState) {
     state.base_side.live_reserve = post.base_live_reserve;
     state.base_side.cash_reserve = post.base_cash_reserve;
@@ -6557,7 +9322,6 @@ fn commit_hlp_rebalance_planner_state(state: &mut HlpPlannerState, target_asset:
     vault.quote_hlp_live_reserve = post.target_quote_hlp_live_reserve;
 }
 
-#[cfg(test)]
 fn apply_hlp_rebalance_plan_to_planner_state(
     fixed: HlpPlannerStatic,
     state: &mut HlpPlannerState,
@@ -6578,7 +9342,6 @@ fn apply_hlp_rebalance_plan_to_planner_state(
     Ok(receipt)
 }
 
-#[cfg(test)]
 fn apply_compact_hlp_rebalance_plan_to_planner_state(
     fixed: HlpPlannerStatic,
     state: &mut HlpPlannerState,
@@ -6586,13 +9349,11 @@ fn apply_compact_hlp_rebalance_plan_to_planner_state(
 ) -> Result<HlpRebalanceReceipt> {
     let target_asset = compact.plan.common().target_asset;
     require!(
-        capture_hlp_rebalance_state_from_planner(fixed, *state, target_asset)
-            == compact.plan.common().start,
+        capture_hlp_rebalance_state_from_planner(fixed, *state, target_asset) == compact.plan.common().start,
         ErrorCode::BrokenInvariant
     );
     if let HlpRebalancePlan::Deleverage {
-        exact_out_checkpoint,
-        ..
+        exact_out_checkpoint, ..
     } = compact.plan
     {
         require!(exact_out_checkpoint.is_none(), ErrorCode::BrokenInvariant);
@@ -6677,6 +9438,7 @@ fn plan_hlp_rebalance_pair_leg(
 /// successor is committed only long enough to construct Quote against the
 /// canonical intermediate state, then the compact pair checkpoint restores
 /// the caller before the complete pair is applied atomically.
+#[inline(never)]
 fn plan_hlp_rebalance_pair(
     market: &mut Market,
     base_valuation: Option<HlpValuation>,
@@ -6708,9 +9470,16 @@ fn plan_and_apply_hlp_rebalance_pair(
     market: &mut Market,
     base_valuation: Option<HlpValuation>,
     quote_valuation: Option<HlpValuation>,
-) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
+) -> Result<(
+    HlpRebalanceReceipt,
+    HlpRebalanceReceipt,
+    HlpPackedPlanTopology,
+    HlpPackedPlanTopology,
+)> {
     let plan = plan_hlp_rebalance_pair(market, base_valuation, quote_valuation)?;
-    apply_hlp_rebalance_pair_plan(market, plan)
+    let topology = hlp_packed_pair_topology(&plan)?;
+    let receipts = apply_hlp_rebalance_pair_plan(market, &plan)?;
+    Ok((receipts.0, receipts.1, topology.0, topology.1))
 }
 
 /// Planner-only pair application on a disposable guidance scratch market.
@@ -6722,7 +9491,12 @@ fn plan_and_apply_hlp_rebalance_pair_guidance(
     market: &mut Market,
     base_valuation: Option<HlpValuation>,
     quote_valuation: Option<HlpValuation>,
-) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
+) -> Result<(
+    HlpRebalanceReceipt,
+    HlpRebalanceReceipt,
+    HlpPackedPlanTopology,
+    HlpPackedPlanTopology,
+)> {
     let base_active = market.base_hlp_vault.hlp_supply > 0 || market.base_hlp_vault.residual_exposure != 0;
     let quote_active = market.quote_hlp_vault.hlp_supply > 0 || market.quote_hlp_vault.residual_exposure != 0;
     require!(
@@ -6730,18 +9504,20 @@ fn plan_and_apply_hlp_rebalance_pair_guidance(
         ErrorCode::BrokenInvariant
     );
     let base_plan = plan_hlp_rebalance_pair_leg(market, MarketAsset::Base, base_valuation)?;
+    let base_topology = hlp_packed_pair_leg_topology(&base_plan)?;
     let (base, base_post) = derive_hlp_rebalance_pair_leg_post(market, MarketAsset::Base, base_plan)?;
     if let Some(post) = base_post {
         commit_hlp_rebalance_state(market, MarketAsset::Base, post);
     }
     debug_log_heap(404);
     let quote_plan = plan_hlp_rebalance_pair_leg(market, MarketAsset::Quote, quote_valuation)?;
+    let quote_topology = hlp_packed_pair_leg_topology(&quote_plan)?;
     let (quote, quote_post) = derive_hlp_rebalance_pair_leg_post(market, MarketAsset::Quote, quote_plan)?;
     if let Some(post) = quote_post {
         commit_hlp_rebalance_state(market, MarketAsset::Quote, post);
     }
     debug_log_heap(405);
-    Ok((base, quote))
+    Ok((base, quote, base_topology, quote_topology))
 }
 
 fn derive_hlp_rebalance_pair_leg_post(
@@ -6766,7 +9542,6 @@ fn derive_hlp_rebalance_pair_leg_post(
     }
 }
 
-#[cfg(test)]
 fn apply_hlp_rebalance_pair_to_planner_state(
     fixed: HlpPlannerStatic,
     state: &mut HlpPlannerState,
@@ -6794,9 +9569,10 @@ fn apply_hlp_rebalance_pair_to_planner_state(
     Ok((base, quote))
 }
 
+#[inline(never)]
 fn apply_hlp_rebalance_pair_plan(
     market: &mut Market,
-    plan: HlpRebalancePairPlan,
+    plan: &HlpRebalancePairPlan,
 ) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
     require!(
         capture_hlp_rebalance_pair_start(market) == plan.start,
@@ -6811,7 +9587,7 @@ fn apply_hlp_rebalance_pair_plan(
     let planner_expected = {
         let fixed = HlpPlannerStatic::capture(market)?;
         let mut state = HlpPlannerState::capture(market);
-        let receipts = apply_hlp_rebalance_pair_to_planner_state(fixed, &mut state, plan)?;
+        let receipts = apply_hlp_rebalance_pair_to_planner_state(fixed, &mut state, *plan)?;
         (state, receipts)
     };
     let (base, base_post) = derive_hlp_rebalance_pair_leg_post(market, MarketAsset::Base, plan.base)?;
@@ -7798,6 +10574,12 @@ fn require_hlp_settlement_available(market: &Market, target_asset: MarketAsset) 
 /// identical curve for every inventory/debt leg is semantically redundant and
 /// exhausts Solana's non-freeing 32 KiB program heap on composite swaps.
 pub(crate) fn current_hlp_curve_prices(market: &Market) -> Result<HlpCurvePrices> {
+    if market.config.amm.explicit_curve_parameters()?.is_some() {
+        let price_nad = market
+            .current_explicit_spot_price_nad()?
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        return hlp_curve_prices_from_base_price_nad(price_nad as u128);
+    }
     let slot = curve_slot(market);
     let parameters = market.current_curve_parameters(slot);
     let base_price_nad = if parameters.is_cpmm() {
@@ -7993,7 +10775,6 @@ fn current_hlp_inventory_values_nad_with_prices(
 /// Values both vaults from one immutable reserve/supply snapshot. This keeps
 /// the two numeraires on the same curve state while avoiding four repeated
 /// curve-reserve derivations in the joint lifecycle hot path.
-#[cfg(test)]
 fn hlp_planner_asset_value_in_target_nad(
     fixed: HlpPlannerStatic,
     prices: HlpCurvePrices,
@@ -8013,7 +10794,6 @@ fn hlp_planner_asset_value_in_target_nad(
 
 /// Fused compact-state inventory snapshot. Curve reserves, yLP claims, and
 /// indexed hLP debts are each derived once and then valued in both numeraires.
-#[cfg(test)]
 fn hlp_planner_inventory_values_pair_nad_with_prices(
     fixed: HlpPlannerStatic,
     state: HlpPlannerState,
@@ -8034,7 +10814,169 @@ fn hlp_planner_inventory_values_pair_nad_with_prices(
     )
 }
 
-#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct HlpPlannerRawInventory {
+    base_claim: u64,
+    quote_claim: u64,
+    borrowed_debt: u64,
+}
+
+/// Price-independent hLP claims for both vaults at one reserve/share state.
+/// Keeping the six raw atoms separate preserves the existing floor-before-
+/// pricing order when one snapshot is valued at more than one marginal mark.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct HlpPlannerRawInventoryPair {
+    base: HlpPlannerRawInventory,
+    quote: HlpPlannerRawInventory,
+}
+
+const _: [(); 48] = [(); core::mem::size_of::<HlpPlannerRawInventoryPair>()];
+
+fn hlp_planner_ylp_claim_for_curve(reserve: u64, shares: u64, supply: u64) -> Result<u64> {
+    if shares == 0 || supply == 0 {
+        return Ok(0);
+    }
+    u64::try_from(mul_div_u128(reserve as u128, shares as u128, supply as u128)?)
+        .map_err(|_| ErrorCode::MarketMathOverflow.into())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn hlp_planner_raw_inventory_pair_for_curve(
+    fixed: &HlpPlannerStatic,
+    state: &HlpPlannerState,
+    base_curve: u64,
+    quote_curve: u64,
+    base_active: bool,
+    quote_active: bool,
+) -> Result<HlpPlannerRawInventoryPair> {
+    let base_supply = state.base_side.ylp_supply;
+    let quote_supply = state.quote_side.ylp_supply;
+    require_eq!(base_supply, quote_supply, ErrorCode::BrokenInvariant);
+
+    let base = if base_active {
+        let shares = state.base_vault.ylp_shares;
+        HlpPlannerRawInventory {
+            base_claim: hlp_planner_ylp_claim_for_curve(base_curve, shares, base_supply)?,
+            quote_claim: hlp_planner_ylp_claim_for_curve(quote_curve, shares, quote_supply)?,
+            borrowed_debt: u64::try_from(Debt::shares_to_debt(
+                state.base_vault.debt_shares,
+                fixed.quote_borrow_index_nad,
+            )?)
+            .map_err(|_| ErrorCode::DebtMathOverflow)?,
+        }
+    } else {
+        HlpPlannerRawInventory::default()
+    };
+    let quote = if quote_active {
+        let shares = state.quote_vault.ylp_shares;
+        HlpPlannerRawInventory {
+            base_claim: hlp_planner_ylp_claim_for_curve(base_curve, shares, base_supply)?,
+            quote_claim: hlp_planner_ylp_claim_for_curve(quote_curve, shares, quote_supply)?,
+            borrowed_debt: u64::try_from(Debt::shares_to_debt(
+                state.quote_vault.debt_shares,
+                fixed.base_borrow_index_nad,
+            )?)
+            .map_err(|_| ErrorCode::DebtMathOverflow)?,
+        }
+    } else {
+        HlpPlannerRawInventory::default()
+    };
+    Ok(HlpPlannerRawInventoryPair { base, quote })
+}
+
+fn refresh_hlp_planner_raw_inventory_pair_curve_asset(
+    raw: &mut HlpPlannerRawInventoryPair,
+    state: &HlpPlannerState,
+    asset: MarketAsset,
+    curve_reserve: u64,
+    base_active: bool,
+    quote_active: bool,
+) -> Result<()> {
+    let supply = match asset {
+        MarketAsset::Base => state.base_side.ylp_supply,
+        MarketAsset::Quote => state.quote_side.ylp_supply,
+    };
+    if base_active {
+        let claim = hlp_planner_ylp_claim_for_curve(curve_reserve, state.base_vault.ylp_shares, supply)?;
+        match asset {
+            MarketAsset::Base => raw.base.base_claim = claim,
+            MarketAsset::Quote => raw.base.quote_claim = claim,
+        }
+    }
+    if quote_active {
+        let claim = hlp_planner_ylp_claim_for_curve(curve_reserve, state.quote_vault.ylp_shares, supply)?;
+        match asset {
+            MarketAsset::Base => raw.quote.base_claim = claim,
+            MarketAsset::Quote => raw.quote.quote_claim = claim,
+        }
+    }
+    Ok(())
+}
+
+fn hlp_planner_inventory_values_pair_from_raw_with_prices(
+    fixed: &HlpPlannerStatic,
+    raw: &HlpPlannerRawInventoryPair,
+    prices: HlpCurvePrices,
+    base_active: bool,
+    quote_active: bool,
+) -> Result<(HlpInventoryValuesNad, HlpInventoryValuesNad)> {
+    let base_values = if base_active {
+        HlpInventoryValuesNad {
+            target_inventory_value_nad: hlp_planner_asset_value_in_target_nad(
+                *fixed,
+                prices,
+                MarketAsset::Base,
+                raw.base.base_claim,
+                MarketAsset::Base,
+            )?,
+            opposite_inventory_value_nad: hlp_planner_asset_value_in_target_nad(
+                *fixed,
+                prices,
+                MarketAsset::Quote,
+                raw.base.quote_claim,
+                MarketAsset::Base,
+            )?,
+            debt_value_nad: hlp_planner_asset_value_in_target_nad(
+                *fixed,
+                prices,
+                MarketAsset::Quote,
+                raw.base.borrowed_debt,
+                MarketAsset::Base,
+            )?,
+        }
+    } else {
+        HlpInventoryValuesNad::default()
+    };
+    let quote_values = if quote_active {
+        HlpInventoryValuesNad {
+            target_inventory_value_nad: hlp_planner_asset_value_in_target_nad(
+                *fixed,
+                prices,
+                MarketAsset::Quote,
+                raw.quote.quote_claim,
+                MarketAsset::Quote,
+            )?,
+            opposite_inventory_value_nad: hlp_planner_asset_value_in_target_nad(
+                *fixed,
+                prices,
+                MarketAsset::Base,
+                raw.quote.base_claim,
+                MarketAsset::Quote,
+            )?,
+            debt_value_nad: hlp_planner_asset_value_in_target_nad(
+                *fixed,
+                prices,
+                MarketAsset::Base,
+                raw.quote.borrowed_debt,
+                MarketAsset::Quote,
+            )?,
+        }
+    } else {
+        HlpInventoryValuesNad::default()
+    };
+    Ok((base_values, quote_values))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn hlp_planner_inventory_values_pair_for_curve_with_prices(
     fixed: HlpPlannerStatic,
@@ -8045,93 +10987,11 @@ fn hlp_planner_inventory_values_pair_for_curve_with_prices(
     base_active: bool,
     quote_active: bool,
 ) -> Result<(HlpInventoryValuesNad, HlpInventoryValuesNad)> {
-    let base_supply = state.base_side.ylp_supply;
-    let quote_supply = state.quote_side.ylp_supply;
-    require_eq!(base_supply, quote_supply, ErrorCode::BrokenInvariant);
-
-    let claim = |reserve: u64, shares: u64, supply: u64| -> Result<u64> {
-        if shares == 0 || supply == 0 {
-            return Ok(0);
-        }
-        u64::try_from(mul_div_u128(reserve as u128, shares as u128, supply as u128)?)
-            .map_err(|_| ErrorCode::MarketMathOverflow.into())
-    };
-
-    let base_values = if base_active {
-        let shares = state.base_vault.ylp_shares;
-        let base_claim = claim(base_curve, shares, base_supply)?;
-        let quote_claim = claim(quote_curve, shares, quote_supply)?;
-        let quote_debt = u64::try_from(Debt::shares_to_debt(
-            state.base_vault.debt_shares,
-            fixed.quote_borrow_index_nad,
-        )?)
-        .map_err(|_| ErrorCode::DebtMathOverflow)?;
-        HlpInventoryValuesNad {
-            target_inventory_value_nad: hlp_planner_asset_value_in_target_nad(
-                fixed,
-                prices,
-                MarketAsset::Base,
-                base_claim,
-                MarketAsset::Base,
-            )?,
-            opposite_inventory_value_nad: hlp_planner_asset_value_in_target_nad(
-                fixed,
-                prices,
-                MarketAsset::Quote,
-                quote_claim,
-                MarketAsset::Base,
-            )?,
-            debt_value_nad: hlp_planner_asset_value_in_target_nad(
-                fixed,
-                prices,
-                MarketAsset::Quote,
-                quote_debt,
-                MarketAsset::Base,
-            )?,
-        }
-    } else {
-        HlpInventoryValuesNad::default()
-    };
-
-    let quote_values = if quote_active {
-        let shares = state.quote_vault.ylp_shares;
-        let base_claim = claim(base_curve, shares, base_supply)?;
-        let quote_claim = claim(quote_curve, shares, quote_supply)?;
-        let base_debt = u64::try_from(Debt::shares_to_debt(
-            state.quote_vault.debt_shares,
-            fixed.base_borrow_index_nad,
-        )?)
-        .map_err(|_| ErrorCode::DebtMathOverflow)?;
-        HlpInventoryValuesNad {
-            target_inventory_value_nad: hlp_planner_asset_value_in_target_nad(
-                fixed,
-                prices,
-                MarketAsset::Quote,
-                quote_claim,
-                MarketAsset::Quote,
-            )?,
-            opposite_inventory_value_nad: hlp_planner_asset_value_in_target_nad(
-                fixed,
-                prices,
-                MarketAsset::Base,
-                base_claim,
-                MarketAsset::Quote,
-            )?,
-            debt_value_nad: hlp_planner_asset_value_in_target_nad(
-                fixed,
-                prices,
-                MarketAsset::Base,
-                base_debt,
-                MarketAsset::Quote,
-            )?,
-        }
-    } else {
-        HlpInventoryValuesNad::default()
-    };
-    Ok((base_values, quote_values))
+    let raw =
+        hlp_planner_raw_inventory_pair_for_curve(&fixed, &state, base_curve, quote_curve, base_active, quote_active)?;
+    hlp_planner_inventory_values_pair_from_raw_with_prices(&fixed, &raw, prices, base_active, quote_active)
 }
 
-#[cfg(test)]
 fn hlp_planner_raw_amount_from_target_value_nad(
     fixed: HlpPlannerStatic,
     prices: HlpCurvePrices,
@@ -8152,7 +11012,6 @@ fn hlp_planner_raw_amount_from_target_value_nad(
     denormalize_from_nad_floor(amount_nad, fixed.decimals(asset))
 }
 
-#[cfg(test)]
 fn hlp_planner_proportional_rebalance_amounts(
     fixed: HlpPlannerStatic,
     target_asset: MarketAsset,
@@ -8203,7 +11062,6 @@ fn hlp_planner_proportional_rebalance_amounts(
     })
 }
 
-#[cfg(test)]
 fn hlp_planner_plan_common(
     fixed: HlpPlannerStatic,
     state: HlpPlannerState,
@@ -8222,7 +11080,6 @@ fn hlp_planner_plan_common(
     }
 }
 
-#[cfg(test)]
 fn hlp_planner_noop(
     fixed: HlpPlannerStatic,
     state: HlpPlannerState,
@@ -8248,7 +11105,6 @@ fn hlp_planner_noop(
     }
 }
 
-#[cfg(test)]
 fn hlp_planner_funding_headroom(
     fixed: HlpPlannerStatic,
     state: HlpPlannerState,
@@ -8269,12 +11125,12 @@ fn hlp_planner_funding_headroom(
     u64::try_from(headroom).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
-#[cfg(test)]
 fn hlp_planner_require_borrow_headroom(
     fixed: HlpPlannerStatic,
     state: HlpPlannerState,
     borrowed_asset: MarketAsset,
     amount: u64,
+    cash_floor: u64,
 ) -> Result<u128> {
     let current_shares = state.vault(borrowed_asset.opposite()).debt_shares;
     let borrow_index_nad = fixed.borrow_index(borrowed_asset);
@@ -8283,24 +11139,26 @@ fn hlp_planner_require_borrow_headroom(
         .checked_add(added_shares)
         .ok_or(ErrorCode::DebtShareMathOverflow)?;
     let projected_debt = Debt::shares_to_debt(projected_shares, borrow_index_nad)?;
+    let spendable_cash = state.side(borrowed_asset).cash_reserve.saturating_sub(cash_floor);
     require_gte!(
-        state.side(borrowed_asset).cash_reserve as u128,
+        spendable_cash as u128,
         projected_debt,
         ErrorCode::InsufficientBorrowHeadroom
     );
     Ok(added_shares)
 }
 
-#[cfg(test)]
 fn plan_compact_hlp_leverage_up(
     fixed: HlpPlannerStatic,
     state: HlpPlannerState,
     target_asset: MarketAsset,
     ideal_delta: i128,
     valuation: HlpValuation,
+    cash_floors: SwapCashFloors,
 ) -> Result<HlpCompactRebalancePlan> {
     let borrowed_asset = target_asset.opposite();
-    let borrow_headroom = hlp_planner_funding_headroom(fixed, state, borrowed_asset)?;
+    let borrow_headroom = hlp_planner_funding_headroom(fixed, state, borrowed_asset)?
+        .saturating_sub(cash_floors.for_asset(borrowed_asset));
     let feasible_delta_nad = if borrow_headroom == 0 {
         0
     } else {
@@ -8326,8 +11184,13 @@ fn plan_compact_hlp_leverage_up(
             HlpRebalanceNoopReason::CapacityOrGranularity,
         ));
     }
-    let debt_shares_added =
-        hlp_planner_require_borrow_headroom(fixed, state, borrowed_asset, amounts.debt_amount)?;
+    let debt_shares_added = hlp_planner_require_borrow_headroom(
+        fixed,
+        state,
+        borrowed_asset,
+        amounts.debt_amount,
+        cash_floors.for_asset(borrowed_asset),
+    )?;
     let (base_leg_amount, quote_leg_amount) = match target_asset {
         MarketAsset::Base => (amounts.target_leg_amount, amounts.borrowed_leg_amount),
         MarketAsset::Quote => (amounts.borrowed_leg_amount, amounts.target_leg_amount),
@@ -8365,7 +11228,6 @@ fn plan_compact_hlp_leverage_up(
     })
 }
 
-#[cfg(test)]
 fn hlp_planner_deleverage_repay_amount_for_legs(
     fixed: HlpPlannerStatic,
     target_asset: MarketAsset,
@@ -8375,32 +11237,22 @@ fn hlp_planner_deleverage_repay_amount_for_legs(
     current_debt_raw_cap: u64,
 ) -> Result<u64> {
     let borrowed_asset = target_asset.opposite();
-    let removed_value_nad = hlp_planner_asset_value_in_target_nad(
-        fixed,
-        prices,
-        target_asset,
-        target_leg,
-        target_asset,
-    )?
-    .checked_add(hlp_planner_asset_value_in_target_nad(
-        fixed,
-        prices,
-        borrowed_asset,
-        borrowed_leg,
-        target_asset,
-    )?)
-    .ok_or(ErrorCode::MarketMathOverflow)?;
-    Ok(hlp_planner_raw_amount_from_target_value_nad(
-        fixed,
-        prices,
-        borrowed_asset,
-        target_asset,
-        removed_value_nad,
-    )?
-    .min(current_debt_raw_cap))
+    let removed_value_nad =
+        hlp_planner_asset_value_in_target_nad(fixed, prices, target_asset, target_leg, target_asset)?
+            .checked_add(hlp_planner_asset_value_in_target_nad(
+                fixed,
+                prices,
+                borrowed_asset,
+                borrowed_leg,
+                target_asset,
+            )?)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+    Ok(
+        hlp_planner_raw_amount_from_target_value_nad(fixed, prices, borrowed_asset, target_asset, removed_value_nad)?
+            .min(current_debt_raw_cap),
+    )
 }
 
-#[cfg(test)]
 fn hlp_planner_deleverage_burn_facts_if_executable(
     fixed: HlpPlannerStatic,
     state: HlpPlannerState,
@@ -8437,11 +11289,8 @@ fn hlp_planner_deleverage_burn_facts_if_executable(
     }
     let debt_repayment = vault.repayment_for_max(repay_amount, borrow_index)?;
     let principal = u128::from(vault.debt_principal).min(current_debt);
-    let (_, interest_paid) = crate::math::realized_interest_split(
-        debt_repayment.position_debt_reduced,
-        current_debt,
-        principal,
-    )?;
+    let (_, interest_paid) =
+        crate::math::realized_interest_split(debt_repayment.position_debt_reduced, current_debt, principal)?;
     Ok(Some(HlpDeleverageBurnFacts {
         ylp_burn_amount: ylp_burn,
         base_leg_amount: base_leg,
@@ -8454,27 +11303,24 @@ fn hlp_planner_deleverage_burn_facts_if_executable(
     }))
 }
 
-#[cfg(test)]
 fn hlp_planner_deleverage_cash_capacity_for_burn(
     fixed: HlpPlannerStatic,
     state: HlpPlannerState,
     target_asset: MarketAsset,
     ylp_burn: u64,
     valuation: HlpValuation,
+    cash_floors: SwapCashFloors,
 ) -> Result<Option<(HlpDeleverageBurnFacts, bool)>> {
-    let Some(facts) =
-        hlp_planner_deleverage_burn_facts_if_executable(fixed, state, target_asset, ylp_burn, valuation)?
+    let Some(facts) = hlp_planner_deleverage_burn_facts_if_executable(fixed, state, target_asset, ylp_burn, valuation)?
     else {
         return Ok(None);
     };
     let borrowed_asset = target_asset.opposite();
     let vault = state.vault(target_asset);
-    let target_cash_needed = facts
-        .leg_amount(target_asset)
-        .saturating_sub(match target_asset {
-            MarketAsset::Base => vault.base_hlp_live_reserve,
-            MarketAsset::Quote => vault.quote_hlp_live_reserve,
-        });
+    let target_cash_needed = facts.leg_amount(target_asset).saturating_sub(match target_asset {
+        MarketAsset::Base => vault.base_hlp_live_reserve,
+        MarketAsset::Quote => vault.quote_hlp_live_reserve,
+    });
     let borrowed_cash_needed = facts
         .leg_amount(borrowed_asset)
         .saturating_sub(match borrowed_asset {
@@ -8482,26 +11328,37 @@ fn hlp_planner_deleverage_cash_capacity_for_burn(
             MarketAsset::Quote => vault.quote_hlp_live_reserve,
         })
         .max(facts.interest_paid);
+    let spendable_cash = |asset: MarketAsset| {
+        state
+            .side(asset)
+            .cash_reserve
+            .saturating_sub(cash_floors.for_asset(asset))
+    };
     Ok(Some((
         facts,
-        target_cash_needed <= state.side(target_asset).cash_reserve
-            && borrowed_cash_needed <= state.side(borrowed_asset).cash_reserve,
+        target_cash_needed <= spendable_cash(target_asset) && borrowed_cash_needed <= spendable_cash(borrowed_asset),
     )))
 }
 
-#[cfg(test)]
 fn cap_hlp_planner_deleverage_ylp_burn(
     fixed: HlpPlannerStatic,
     state: HlpPlannerState,
     target_asset: MarketAsset,
     desired_burn: u64,
     valuation: HlpValuation,
+    cash_floors: SwapCashFloors,
 ) -> Result<HlpDeleverageBurnFacts> {
     if desired_burn == 0 {
         return Ok(HlpDeleverageBurnFacts::default());
     }
-    let Some((desired, available)) =
-        hlp_planner_deleverage_cash_capacity_for_burn(fixed, state, target_asset, desired_burn, valuation)?
+    let Some((desired, available)) = hlp_planner_deleverage_cash_capacity_for_burn(
+        fixed,
+        state,
+        target_asset,
+        desired_burn,
+        valuation,
+        cash_floors,
+    )?
     else {
         return Ok(HlpDeleverageBurnFacts::default());
     };
@@ -8511,7 +11368,10 @@ fn cap_hlp_planner_deleverage_ylp_burn(
     let start = capture_hlp_rebalance_state_from_planner(fixed, state, target_asset);
     let vault = hlp_vault_from_rebalance_state(start);
     let borrowed_asset = target_asset.opposite();
-    let borrowed_cash = state.side(borrowed_asset).cash_reserve;
+    let borrowed_cash = state
+        .side(borrowed_asset)
+        .cash_reserve
+        .saturating_sub(cash_floors.for_asset(borrowed_asset));
     let Some(maximum_interest_safe_repay) = maximum_hlp_interest_safe_repay_input(
         &vault,
         fixed.borrow_index(borrowed_asset),
@@ -8536,7 +11396,12 @@ fn cap_hlp_planner_deleverage_ylp_burn(
         target_ylp_supply: state.side(target_asset).ylp_supply,
         borrowed_live_reserve: state.side(borrowed_asset).live_reserve,
         borrowed_ylp_supply: state.side(borrowed_asset).ylp_supply,
-        target_leg_cap: target_hlp_available.saturating_add(state.side(target_asset).cash_reserve),
+        target_leg_cap: target_hlp_available.saturating_add(
+            state
+                .side(target_asset)
+                .cash_reserve
+                .saturating_sub(cash_floors.for_asset(target_asset)),
+        ),
         borrowed_leg_cap: borrowed_hlp_available.saturating_add(borrowed_cash),
         current_debt_raw_cap: u64::try_from(desired.current_debt).unwrap_or(u64::MAX),
         maximum_interest_safe_repay,
@@ -8576,7 +11441,7 @@ fn cap_hlp_planner_deleverage_ylp_burn(
         return Ok(HlpDeleverageBurnFacts::default());
     }
     let Some((selected, selected_available)) =
-        hlp_planner_deleverage_cash_capacity_for_burn(fixed, state, target_asset, upper, valuation)?
+        hlp_planner_deleverage_cash_capacity_for_burn(fixed, state, target_asset, upper, valuation, cash_floors)?
     else {
         return Ok(HlpDeleverageBurnFacts::default());
     };
@@ -8584,7 +11449,7 @@ fn cap_hlp_planner_deleverage_ylp_burn(
     require!(upper < desired_burn, ErrorCode::BrokenInvariant);
     let adjacent = upper.checked_add(1).ok_or(ErrorCode::MarketMathOverflow)?;
     let Some((_, adjacent_available)) =
-        hlp_planner_deleverage_cash_capacity_for_burn(fixed, state, target_asset, adjacent, valuation)?
+        hlp_planner_deleverage_cash_capacity_for_burn(fixed, state, target_asset, adjacent, valuation, cash_floors)?
     else {
         return err!(ErrorCode::BrokenInvariant);
     };
@@ -8592,16 +11457,16 @@ fn cap_hlp_planner_deleverage_ylp_burn(
     Ok(selected)
 }
 
-#[cfg(test)]
 fn plan_compact_hlp_deleverage(
     fixed: HlpPlannerStatic,
     state: HlpPlannerState,
     target_asset: MarketAsset,
     ideal_delta: i128,
     valuation: HlpValuation,
-    settlement_anchor: ConcentratedGuidanceCurve,
+    settlement_anchor: &ConcentratedGuidanceCurve,
     settlement_anchor_supply: u64,
     settlement_mode: HlpGuidanceSettlementProbeMode,
+    cash_floors: SwapCashFloors,
 ) -> Result<HlpCompactRebalancePlan> {
     let start = capture_hlp_rebalance_state_from_planner(fixed, state, target_asset);
     let collateral_value_nad = valuation
@@ -8644,13 +11509,7 @@ fn plan_compact_hlp_deleverage(
     let desired_burn = u64::try_from(base_burn.min(quote_burn))
         .map_err(|_| ErrorCode::MarketMathOverflow)?
         .min(start.target_ylp_shares);
-    let burn = cap_hlp_planner_deleverage_ylp_burn(
-        fixed,
-        state,
-        target_asset,
-        desired_burn,
-        valuation,
-    )?;
+    let burn = cap_hlp_planner_deleverage_ylp_burn(fixed, state, target_asset, desired_burn, valuation, cash_floors)?;
     capacity_bound |= burn.ylp_burn_amount < desired_burn;
     if burn.ylp_burn_amount == 0 {
         return Ok(hlp_planner_noop(
@@ -8718,11 +11577,13 @@ fn plan_compact_hlp_deleverage(
     let base_cash_debit = base_interest.max(base_reserve_debit.saturating_sub(hlp_available(MarketAsset::Base)));
     let quote_cash_debit = quote_interest.max(quote_reserve_debit.saturating_sub(hlp_available(MarketAsset::Quote)));
     let mut planned_vault = hlp_vault_from_rebalance_state(start);
-    let debt_clearance = planned_vault.clear_debt_repay(
-        burn.debt_repayment.shares_to_burn,
-        fixed.borrow_index(borrowed_asset),
-    )?;
-    require_eq!(debt_clearance.interest_paid, burn.interest_paid, ErrorCode::BrokenInvariant);
+    let debt_clearance =
+        planned_vault.clear_debt_repay(burn.debt_repayment.shares_to_burn, fixed.borrow_index(borrowed_asset))?;
+    require_eq!(
+        debt_clearance.interest_paid,
+        burn.interest_paid,
+        ErrorCode::BrokenInvariant
+    );
     planned_vault.debit_ylp(burn.ylp_burn_amount)?;
     Ok(HlpCompactRebalancePlan {
         plan: HlpRebalancePlan::Deleverage {
@@ -8750,15 +11611,15 @@ fn plan_compact_hlp_deleverage(
     })
 }
 
-#[cfg(test)]
 fn plan_compact_hlp_rebalance_from_valuation(
     fixed: HlpPlannerStatic,
     state: HlpPlannerState,
     target_asset: MarketAsset,
     valuation: HlpValuation,
-    settlement_anchor: ConcentratedGuidanceCurve,
+    settlement_anchor: &ConcentratedGuidanceCurve,
     settlement_anchor_supply: u64,
     settlement_mode: HlpGuidanceSettlementProbeMode,
+    cash_floors: SwapCashFloors,
 ) -> Result<HlpCompactRebalancePlan> {
     let ideal_delta = recognized_hlp_residual_exposure(valuation.ideal_delta, valuation.nav_nad);
     if !valuation.proportional_hedge_available && ideal_delta != 0 {
@@ -8772,7 +11633,7 @@ fn plan_compact_hlp_rebalance_from_valuation(
             HlpRebalanceNoopReason::Unhedgeable,
         ))
     } else if ideal_delta > 0 {
-        plan_compact_hlp_leverage_up(fixed, state, target_asset, ideal_delta, valuation)
+        plan_compact_hlp_leverage_up(fixed, state, target_asset, ideal_delta, valuation, cash_floors)
     } else if ideal_delta < 0 {
         plan_compact_hlp_deleverage(
             fixed,
@@ -8783,6 +11644,7 @@ fn plan_compact_hlp_rebalance_from_valuation(
             settlement_anchor,
             settlement_anchor_supply,
             settlement_mode,
+            cash_floors,
         )
     } else {
         Ok(hlp_planner_noop(
@@ -8795,6 +11657,202 @@ fn plan_compact_hlp_rebalance_from_valuation(
             HlpRebalanceNoopReason::Settled,
         ))
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn plan_compact_hlp_pre_adjustment(
+    fixed: HlpPlannerStatic,
+    state: HlpPlannerState,
+    target_asset: MarketAsset,
+    requested_delta_nad: i128,
+    valuation: Option<HlpValuation>,
+    cash_floors: SwapCashFloors,
+    settlement_anchor: &ConcentratedGuidanceCurve,
+    settlement_anchor_supply: u64,
+    settlement_mode: HlpGuidanceSettlementProbeMode,
+) -> Result<HlpCompactRebalancePlan> {
+    if requested_delta_nad == 0 {
+        return Ok(HlpCompactRebalancePlan {
+            plan: HlpRebalancePlan::Noop {
+                common: hlp_planner_plan_common(fixed, state, target_asset, 0, 0, false),
+                reason: HlpRebalanceNoopReason::Settled,
+            },
+            guidance_settlement: None,
+        });
+    }
+    let valuation = valuation.ok_or(ErrorCode::HlpSettlementUnavailable)?;
+    require!(
+        valuation.proportional_hedge_available,
+        ErrorCode::HlpSettlementUnavailable
+    );
+    if requested_delta_nad > 0 {
+        plan_compact_hlp_leverage_up(fixed, state, target_asset, requested_delta_nad, valuation, cash_floors)
+    } else {
+        plan_compact_hlp_deleverage(
+            fixed,
+            state,
+            target_asset,
+            requested_delta_nad,
+            valuation,
+            settlement_anchor,
+            settlement_anchor_supply,
+            settlement_mode,
+            cash_floors,
+        )
+    }
+}
+
+/// Compact Base-then-Quote preposition. Both valuations are frozen at the
+/// operation start, while the Quote plan is derived from the already-applied
+/// Base successor so its sealed state and any bounded I>B proof cannot be
+/// reordered or replayed against the wrong share/debt phase.
+#[inline(never)]
+fn apply_compact_hlp_candidate_preposition(
+    compact: &HlpCompactSolveContext,
+    context: &ConcentratedHlpSolveContext,
+    cash_floors: SwapCashFloors,
+    base_delta_nad: i128,
+    quote_delta_nad: i128,
+    settlement_mode: HlpGuidanceSettlementProbeMode,
+) -> Result<(HlpPlannerState, HlpCandidatePreposition, bool)> {
+    let fixed = compact.fixed;
+    let mut state = compact.start_state;
+    let base_valuation = (base_delta_nad != 0)
+        .then(|| hlp_valuation_from_values(context.base_start.inventory_values, context.frozen_prices))
+        .transpose()?;
+    let quote_valuation = (quote_delta_nad != 0)
+        .then(|| hlp_valuation_from_values(context.quote_start.inventory_values, context.frozen_prices))
+        .transpose()?;
+
+    let apply_leg = |state: &mut HlpPlannerState,
+                     target_asset: MarketAsset,
+                     requested_delta_nad: i128,
+                     valuation: Option<HlpValuation>|
+     -> Result<(
+        HlpRebalanceReceipt,
+        HlpGuidanceSettlementSampleMode,
+        Option<ConcentratedGuidanceDAction>,
+        HlpPackedPlanTopology,
+    )> {
+        let ylp_shares_before = state.vault(target_asset).ylp_shares;
+        let mut compact_plan = plan_compact_hlp_pre_adjustment(
+            fixed,
+            *state,
+            target_asset,
+            requested_delta_nad,
+            valuation,
+            cash_floors,
+            compact.guidance.start.guidance(),
+            compact.guidance.start_ylp_supply,
+            settlement_mode,
+        )?;
+        let settlement_mode = compact_plan
+            .guidance_settlement
+            .map(HlpGuidanceSettlementProof::sample_mode)
+            .unwrap_or(HlpGuidanceSettlementSampleMode::None);
+        let settlement_d_action = compact_plan
+            .guidance_settlement
+            .and_then(HlpGuidanceSettlementProof::guidance_d_action);
+        let topology = hlp_packed_plan_topology(&compact_plan.plan, compact_plan.guidance_settlement.is_some())?;
+        let eligible = if compact_plan.plan.ylp_mint_amount() > 0 {
+            ylp_shares_before
+        } else {
+            ylp_shares_before
+                .checked_sub(compact_plan.plan.ylp_burn_amount())
+                .ok_or(ErrorCode::SupplyUnderflow)?
+        };
+        compact_plan.plan.set_current_swap_fee_eligible_ylp_shares(eligible);
+        Ok((
+            apply_compact_hlp_rebalance_plan_to_planner_state(fixed, state, compact_plan)?,
+            settlement_mode,
+            settlement_d_action,
+            topology,
+        ))
+    };
+
+    let (base_receipt, base_settlement_mode, base_settlement_d_action, base_topology) = if context.base_start.active {
+        apply_leg(&mut state, MarketAsset::Base, base_delta_nad, base_valuation)?
+    } else {
+        (
+            empty_hlp_rebalance_receipt(MarketAsset::Base),
+            HlpGuidanceSettlementSampleMode::None,
+            None,
+            HlpPackedPlanTopology::inactive(),
+        )
+    };
+    let (quote_receipt, quote_settlement_mode, quote_settlement_d_action, quote_topology) =
+        if context.quote_start.active {
+            apply_leg(&mut state, MarketAsset::Quote, quote_delta_nad, quote_valuation)?
+        } else {
+            (
+                empty_hlp_rebalance_receipt(MarketAsset::Quote),
+                HlpGuidanceSettlementSampleMode::None,
+                None,
+                HlpPackedPlanTopology::inactive(),
+            )
+        };
+    let inventory_changed = base_receipt.ylp_mint_amount != 0
+        || base_receipt.ylp_burn_amount != 0
+        || quote_receipt.ylp_mint_amount != 0
+        || quote_receipt.ylp_burn_amount != 0;
+    Ok((
+        state,
+        HlpCandidatePreposition {
+            base_receipt,
+            quote_receipt,
+            base_settlement_mode,
+            quote_settlement_mode,
+            base_settlement_d_action,
+            quote_settlement_d_action,
+            base_topology,
+            quote_topology,
+            preliminary: context.preliminary,
+        },
+        inventory_changed,
+    ))
+}
+
+fn refresh_compact_hlp_candidate_preposition(
+    fixed: HlpPlannerStatic,
+    state: &mut HlpPlannerState,
+    context: &ConcentratedHlpSolveContext,
+    preposition: &mut HlpCandidatePreposition,
+    base_delta_nad: i128,
+    quote_delta_nad: i128,
+    start_prices: HlpCurvePrices,
+) -> Result<()> {
+    if base_delta_nad != 0 || quote_delta_nad != 0 {
+        let (base_values, quote_values) = hlp_planner_inventory_values_pair_nad_with_prices(
+            fixed,
+            *state,
+            start_prices,
+            context.base_start.active,
+            context.quote_start.active,
+        )?;
+        if context.base_start.active {
+            preposition.base_receipt = refresh_compact_hlp_after_rebalance_from_valuation(
+                state,
+                MarketAsset::Base,
+                preposition.base_receipt,
+                hlp_valuation_from_values(base_values, start_prices)?,
+            )?;
+        }
+        if context.quote_start.active {
+            preposition.quote_receipt = refresh_compact_hlp_after_rebalance_from_valuation(
+                state,
+                MarketAsset::Quote,
+                preposition.quote_receipt,
+                hlp_valuation_from_values(quote_values, start_prices)?,
+            )?;
+        }
+    }
+    if context.base_start.active {
+        stamp_hlp_tracking_reference(&mut preposition.base_receipt, context.base_start.tracking);
+    }
+    if context.quote_start.active {
+        stamp_hlp_tracking_reference(&mut preposition.quote_receipt, context.quote_start.tracking);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -8818,7 +11876,315 @@ struct HlpCompactLifecycleResult {
     transition: crate::market::LeverageLifecycleTransition,
 }
 
+/// A fixed-D final mark may move a continuous final row by at most one quarter
+/// of that side's protocol loss budget when A2 canonically re-solves it.
+const HLP_GUIDANCE_FINAL_MARK_ENVELOPE_DIVISOR: u128 = 4;
+
 #[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct HlpGuidanceFinalMarkInterval {
+    lower_nad: i128,
+    upper_nad: i128,
+}
+
+#[cfg(test)]
+impl HlpGuidanceFinalMarkInterval {
+    fn around(guidance_nad: i128, loss_budget_nad: u128) -> Option<Self> {
+        let epsilon_nad = hlp_guidance_final_mark_epsilon_nad(loss_budget_nad);
+        Self::around_epsilon(guidance_nad, epsilon_nad)
+    }
+
+    fn around_epsilon(guidance_nad: i128, epsilon_nad: u128) -> Option<Self> {
+        let epsilon_nad = i128::try_from(epsilon_nad).ok()?;
+        Some(Self {
+            lower_nad: guidance_nad.checked_sub(epsilon_nad)?,
+            upper_nad: guidance_nad.checked_add(epsilon_nad)?,
+        })
+    }
+
+    const fn contains(self, value_nad: i128) -> bool {
+        value_nad >= self.lower_nad && value_nad <= self.upper_nad
+    }
+
+    fn wholly_inside_budget(self, loss_budget_nad: u128) -> bool {
+        let Ok(budget_nad) = i128::try_from(loss_budget_nad) else {
+            return false;
+        };
+        let Some(minimum_nad) = budget_nad.checked_neg() else {
+            return false;
+        };
+        self.lower_nad >= minimum_nad && self.upper_nad <= budget_nad
+    }
+
+    const fn excludes_zero(self) -> bool {
+        self.lower_nad > 0 || self.upper_nad < 0
+    }
+}
+
+const fn hlp_guidance_final_mark_epsilon_nad(loss_budget_nad: u128) -> u128 {
+    let quotient = loss_budget_nad / HLP_GUIDANCE_FINAL_MARK_ENVELOPE_DIVISOR;
+    if loss_budget_nad % HLP_GUIDANCE_FINAL_MARK_ENVELOPE_DIVISOR == 0 {
+        quotient
+    } else {
+        quotient + 1
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct HlpGuidanceFinalMarkSide {
+    principal_nad: i128,
+    combined_nad: i128,
+    trade_nad: i128,
+    reserve_nad: i128,
+    retained_nad: i128,
+    exposure_nad: i128,
+}
+
+#[cfg(test)]
+impl HlpLifecycleTracking {
+    const fn final_mark_side(self, asset: MarketAsset) -> HlpGuidanceFinalMarkSide {
+        match asset {
+            MarketAsset::Base => HlpGuidanceFinalMarkSide {
+                principal_nad: self.base_principal_error_nad,
+                combined_nad: self.base_error_nad,
+                trade_nad: self.base_trade_error_nad,
+                reserve_nad: self.base_reserve_error_nad,
+                retained_nad: self.base_retained_contribution_nad,
+                exposure_nad: self.base_exposure_nad,
+            },
+            MarketAsset::Quote => HlpGuidanceFinalMarkSide {
+                principal_nad: self.quote_principal_error_nad,
+                combined_nad: self.quote_error_nad,
+                trade_nad: self.quote_trade_error_nad,
+                reserve_nad: self.quote_reserve_error_nad,
+                retained_nad: self.quote_retained_contribution_nad,
+                exposure_nad: self.quote_exposure_nad,
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct HlpPostReceiptDiscreteFingerprint {
+    target_asset: MarketAsset,
+    current_swap_fee_eligible_ylp_shares: u64,
+    ylp_mint_amount: u64,
+    ylp_burn_amount: u64,
+    debt_delta: i128,
+    interest_paid: u64,
+    tracking_start_nav_nad: i128,
+    tracking_loss_budget_nad: u128,
+    tracking_base_unrealized_interest: u64,
+    tracking_quote_unrealized_interest: u64,
+    tracking_start_ylp_shares: u64,
+    tracking_start_ylp_supply: u64,
+    tracking_retained_contribution_nad: i128,
+    preposition_capacity_bound: bool,
+}
+
+#[cfg(test)]
+impl From<HlpRebalanceReceipt> for HlpPostReceiptDiscreteFingerprint {
+    fn from(receipt: HlpRebalanceReceipt) -> Self {
+        Self {
+            target_asset: receipt.target_asset,
+            current_swap_fee_eligible_ylp_shares: receipt.current_swap_fee_eligible_ylp_shares,
+            ylp_mint_amount: receipt.ylp_mint_amount,
+            ylp_burn_amount: receipt.ylp_burn_amount,
+            debt_delta: receipt.debt_delta,
+            interest_paid: receipt.interest_paid,
+            tracking_start_nav_nad: receipt.tracking_start_nav_nad,
+            tracking_loss_budget_nad: receipt.tracking_loss_budget_nad,
+            tracking_base_unrealized_interest: receipt.tracking_base_unrealized_interest,
+            tracking_quote_unrealized_interest: receipt.tracking_quote_unrealized_interest,
+            tracking_start_ylp_shares: receipt.tracking_start_ylp_shares,
+            tracking_start_ylp_supply: receipt.tracking_start_ylp_supply,
+            tracking_retained_contribution_nad: receipt.tracking_retained_contribution_nad,
+            preposition_capacity_bound: receipt.preposition_capacity_bound,
+        }
+    }
+}
+
+#[cfg(test)]
+fn assert_guidance_final_mark_value(field: &str, guidance_nad: i128, canonical_nad: i128, epsilon_nad: u128) {
+    let interval = HlpGuidanceFinalMarkInterval::around_epsilon(guidance_nad, epsilon_nad)
+        .expect("guidance final-mark interval must be representable");
+    assert!(
+        interval.contains(canonical_nad),
+        "{field} escaped fixed-D final-mark envelope: guidance={guidance_nad} canonical={canonical_nad} epsilon={epsilon_nad} interval={interval:?}"
+    );
+    if guidance_nad.unsigned_abs() > epsilon_nad || canonical_nad.unsigned_abs() > epsilon_nad {
+        assert_eq!(
+            guidance_nad < 0,
+            canonical_nad < 0,
+            "{field} changed sign outside fixed-D final-mark ambiguity: guidance={guidance_nad} canonical={canonical_nad} epsilon={epsilon_nad}"
+        );
+    }
+}
+
+#[cfg(test)]
+fn assert_post_receipt_matches_final_mark_envelope(
+    asset: MarketAsset,
+    guidance: HlpRebalanceReceipt,
+    canonical: HlpRebalanceReceipt,
+    epsilon_nad: u128,
+) {
+    assert_eq!(guidance.target_asset, asset);
+    assert_eq!(canonical.target_asset, asset);
+    assert_eq!(
+        HlpPostReceiptDiscreteFingerprint::from(guidance),
+        HlpPostReceiptDiscreteFingerprint::from(canonical),
+        "{asset:?} post-rebalance discrete receipt topology diverged"
+    );
+    assert_guidance_final_mark_value(
+        "post receipt ideal_delta",
+        guidance.ideal_delta,
+        canonical.ideal_delta,
+        epsilon_nad,
+    );
+    assert_guidance_final_mark_value(
+        "post receipt residual_exposure",
+        guidance.residual_exposure,
+        canonical.residual_exposure,
+        epsilon_nad,
+    );
+    assert!(
+        guidance.nav_nad.abs_diff(canonical.nav_nad) <= epsilon_nad,
+        "{asset:?} post receipt NAV escaped fixed-D final-mark envelope: guidance={} canonical={} epsilon={epsilon_nad}",
+        guidance.nav_nad,
+        canonical.nav_nad,
+    );
+    for (label, receipt) in [("guidance", guidance), ("canonical", canonical)] {
+        assert_eq!(
+            receipt.executed_delta,
+            receipt
+                .ideal_delta
+                .checked_sub(receipt.residual_exposure)
+                .expect("post receipt execution identity must be representable"),
+            "{asset:?} {label} post receipt broke executed = ideal - residual"
+        );
+    }
+    let executed_epsilon_nad = epsilon_nad
+        .checked_mul(2)
+        .expect("two-sided receipt envelope must be representable");
+    assert!(
+        guidance.executed_delta.abs_diff(canonical.executed_delta) <= executed_epsilon_nad,
+        "{asset:?} executed delta escaped its derived two-sided envelope"
+    );
+}
+
+#[cfg(test)]
+fn hlp_planner_state_without_residuals(mut state: HlpPlannerState) -> HlpPlannerState {
+    state.base_vault.residual_exposure = 0;
+    state.quote_vault.residual_exposure = 0;
+    state
+}
+
+#[cfg(test)]
+fn assert_fixed_d_final_mark_matches_canonical_envelope(
+    context: &ConcentratedHlpSolveContext,
+    fixed: HlpPlannerStatic,
+    guidance: HlpCompactLifecycleResult,
+    canonical: HlpCompactLifecycleResult,
+) {
+    assert_eq!(
+        guidance.transition, canonical.transition,
+        "fixed-D and canonical same-flow lifecycle transitions diverged"
+    );
+    assert_eq!(
+        hlp_planner_state_without_residuals(guidance.state),
+        hlp_planner_state_without_residuals(canonical.state),
+        "fixed-D and canonical same-flow post states diverged outside persisted residuals"
+    );
+
+    for (asset, start, guidance_receipt, canonical_receipt) in [
+        (
+            MarketAsset::Base,
+            context.base_start,
+            guidance.base_post_receipt,
+            canonical.base_post_receipt,
+        ),
+        (
+            MarketAsset::Quote,
+            context.quote_start,
+            guidance.quote_post_receipt,
+            canonical.quote_post_receipt,
+        ),
+    ] {
+        let guidance_side = guidance.tracking.final_mark_side(asset);
+        let canonical_side = canonical.tracking.final_mark_side(asset);
+        assert_eq!(
+            guidance.state.active(fixed, asset),
+            canonical.state.active(fixed, asset),
+            "{asset:?} final active set diverged"
+        );
+        if !start.active {
+            assert_eq!(guidance_side, HlpGuidanceFinalMarkSide::default());
+            assert_eq!(canonical_side, HlpGuidanceFinalMarkSide::default());
+            assert_eq!(guidance_receipt, empty_hlp_rebalance_receipt(asset));
+            assert_eq!(canonical_receipt, empty_hlp_rebalance_receipt(asset));
+            continue;
+        }
+
+        let epsilon_nad = hlp_guidance_final_mark_epsilon_nad(start.tracking.loss_budget_nad);
+        assert_eq!(
+            guidance_side.trade_nad, canonical_side.trade_nad,
+            "{asset:?} trade row diverged"
+        );
+        assert_eq!(
+            guidance_side.reserve_nad, canonical_side.reserve_nad,
+            "{asset:?} reserve row diverged"
+        );
+        assert_eq!(
+            guidance_side.retained_nad, canonical_side.retained_nad,
+            "{asset:?} retained contribution diverged"
+        );
+        assert_guidance_final_mark_value(
+            "final principal row",
+            guidance_side.principal_nad,
+            canonical_side.principal_nad,
+            epsilon_nad,
+        );
+        assert_guidance_final_mark_value(
+            "final combined row",
+            guidance_side.combined_nad,
+            canonical_side.combined_nad,
+            epsilon_nad,
+        );
+        assert_guidance_final_mark_value(
+            "final interest component",
+            guidance_side
+                .combined_nad
+                .checked_sub(guidance_side.principal_nad)
+                .expect("guidance final interest component must be representable"),
+            canonical_side
+                .combined_nad
+                .checked_sub(canonical_side.principal_nad)
+                .expect("canonical final interest component must be representable"),
+            epsilon_nad,
+        );
+        assert_guidance_final_mark_value(
+            "final endpoint exposure",
+            guidance_side.exposure_nad,
+            canonical_side.exposure_nad,
+            epsilon_nad,
+        );
+
+        let guidance_residual = guidance.state.vault(asset).residual_exposure;
+        let canonical_residual = canonical.state.vault(asset).residual_exposure;
+        assert_eq!(guidance_residual, guidance_receipt.residual_exposure);
+        assert_eq!(canonical_residual, canonical_receipt.residual_exposure);
+        assert_guidance_final_mark_value(
+            "persisted residual exposure",
+            guidance_residual,
+            canonical_residual,
+            epsilon_nad,
+        );
+        assert_post_receipt_matches_final_mark_envelope(asset, guidance_receipt, canonical_receipt, epsilon_nad);
+    }
+}
+
 fn hlp_planner_signed_asset_value_in_target_nad(
     fixed: HlpPlannerStatic,
     prices: HlpCurvePrices,
@@ -8842,7 +12208,221 @@ fn hlp_planner_signed_asset_value_in_target_nad(
     }
 }
 
-#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct HlpPlannerUnrealizedInterestPair {
+    base: u64,
+    quote: u64,
+}
+
+const _: [(); 16] = [(); core::mem::size_of::<HlpPlannerUnrealizedInterestPair>()];
+
+impl HlpPlannerUnrealizedInterestPair {
+    fn capture(fixed: &HlpPlannerStatic, state: &HlpPlannerState) -> Result<Self> {
+        Ok(Self {
+            base: u64::try_from(state.unrealized_interest(*fixed, MarketAsset::Base)?)
+                .map_err(|_| ErrorCode::MarketMathOverflow)?,
+            quote: u64::try_from(state.unrealized_interest(*fixed, MarketAsset::Quote)?)
+                .map_err(|_| ErrorCode::MarketMathOverflow)?,
+        })
+    }
+
+    const fn for_asset(self, asset: MarketAsset) -> u64 {
+        match asset {
+            MarketAsset::Base => self.base,
+            MarketAsset::Quote => self.quote,
+        }
+    }
+
+    fn curve_reserve(self, state: &HlpPlannerState, asset: MarketAsset) -> Result<u64> {
+        let live_reserve = match asset {
+            MarketAsset::Base => state.base_side.live_reserve,
+            MarketAsset::Quote => state.quote_side.live_reserve,
+        };
+        live_reserve
+            .checked_sub(self.for_asset(asset))
+            .ok_or_else(|| ErrorCode::BrokenInvariant.into())
+    }
+
+    fn curve_reserves_nad(self, fixed: &HlpPlannerStatic, state: &HlpPlannerState) -> Result<CurveReservesNad> {
+        Ok(CurveReservesNad {
+            base: normalize_to_nad(
+                self.curve_reserve(state, MarketAsset::Base)? as u128,
+                fixed.base_decimals,
+            )?,
+            quote: normalize_to_nad(
+                self.curve_reserve(state, MarketAsset::Quote)? as u128,
+                fixed.quote_decimals,
+            )?,
+        })
+    }
+}
+
+/// Cached frozen-interest tracking for one hLP side. Start claims are floored
+/// once at their original share/supply coordinate; current claims are refreshed
+/// only when the candidate's post-rebalance share coordinate changes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct HlpPlannerRawTrackingKernel {
+    active: bool,
+    start_principal_nav_nad: i128,
+    base_unrealized_interest: u64,
+    quote_unrealized_interest: u64,
+    start_base_public_claim: u64,
+    start_quote_public_claim: u64,
+    base_claim_delta: i128,
+    quote_claim_delta: i128,
+}
+
+#[cfg(not(target_os = "solana"))]
+const _: [(); 96] = [(); core::mem::size_of::<HlpPlannerRawTrackingKernel>()];
+#[cfg(target_os = "solana")]
+const _: [(); 88] = [(); core::mem::size_of::<HlpPlannerRawTrackingKernel>()];
+
+impl HlpPlannerRawTrackingKernel {
+    fn capture_after_transition(
+        state: &HlpPlannerState,
+        target_asset: MarketAsset,
+        mut start: ConcentratedHlpStart,
+        transition: crate::market::LeverageLifecycleTransition,
+        removed_interest_asset: Option<MarketAsset>,
+        current_interest: HlpPlannerUnrealizedInterestPair,
+    ) -> Result<Self> {
+        if !start.active {
+            return Ok(Self::default());
+        }
+        if let (Some(asset), amount) = (removed_interest_asset, transition.removed_unrealized_interest) {
+            if amount > 0 {
+                let tracked = match asset {
+                    MarketAsset::Base => &mut start.tracking.base_unrealized_interest,
+                    MarketAsset::Quote => &mut start.tracking.quote_unrealized_interest,
+                };
+                *tracked = tracked.checked_sub(amount).ok_or(ErrorCode::MarketMathOverflow)?;
+            }
+        }
+        start.tracking.base_unrealized_interest = start.tracking.base_unrealized_interest.min(current_interest.base);
+        start.tracking.quote_unrealized_interest = start.tracking.quote_unrealized_interest.min(current_interest.quote);
+
+        let vault_shares = match target_asset {
+            MarketAsset::Base => state.base_vault.ylp_shares,
+            MarketAsset::Quote => state.quote_vault.ylp_shares,
+        };
+        let final_ylp_supply = state.base_side.ylp_supply;
+        require_eq!(
+            final_ylp_supply,
+            state.quote_side.ylp_supply,
+            ErrorCode::BrokenInvariant
+        );
+        let (base_public_claim, quote_public_claim) = hlp_interest_claims_for_shares(
+            start.tracking.base_unrealized_interest,
+            start.tracking.quote_unrealized_interest,
+            vault_shares,
+            final_ylp_supply,
+        )?;
+        let (start_base_public_claim, start_quote_public_claim) = hlp_interest_claims_for_shares(
+            start.tracking.base_unrealized_interest,
+            start.tracking.quote_unrealized_interest,
+            start.tracking.start_ylp_shares,
+            start.tracking.start_ylp_supply,
+        )?;
+        Ok(Self {
+            active: true,
+            start_principal_nav_nad: start.tracking.principal_nav_nad,
+            base_unrealized_interest: start.tracking.base_unrealized_interest,
+            quote_unrealized_interest: start.tracking.quote_unrealized_interest,
+            start_base_public_claim,
+            start_quote_public_claim,
+            base_claim_delta: i128::from(base_public_claim)
+                .checked_sub(i128::from(start_base_public_claim))
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            quote_claim_delta: i128::from(quote_public_claim)
+                .checked_sub(i128::from(start_quote_public_claim))
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+        })
+    }
+
+    fn rebase_start_principal(&mut self, socialized_nav_delta_nad: i128) -> Result<()> {
+        if self.active {
+            self.start_principal_nav_nad = self
+                .start_principal_nav_nad
+                .checked_add(socialized_nav_delta_nad)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+        }
+        Ok(())
+    }
+
+    fn refresh_current_claims(&mut self, state: &HlpPlannerState, target_asset: MarketAsset) -> Result<()> {
+        if !self.active {
+            return Ok(());
+        }
+        let vault_shares = match target_asset {
+            MarketAsset::Base => state.base_vault.ylp_shares,
+            MarketAsset::Quote => state.quote_vault.ylp_shares,
+        };
+        let final_ylp_supply = state.base_side.ylp_supply;
+        require_eq!(
+            final_ylp_supply,
+            state.quote_side.ylp_supply,
+            ErrorCode::BrokenInvariant
+        );
+        let (base_public_claim, quote_public_claim) = hlp_interest_claims_for_shares(
+            self.base_unrealized_interest,
+            self.quote_unrealized_interest,
+            vault_shares,
+            final_ylp_supply,
+        )?;
+        self.base_claim_delta = i128::from(base_public_claim)
+            .checked_sub(i128::from(self.start_base_public_claim))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.quote_claim_delta = i128::from(quote_public_claim)
+            .checked_sub(i128::from(self.start_quote_public_claim))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        Ok(())
+    }
+}
+
+fn hlp_planner_tracking_from_raw_kernel(
+    fixed: &HlpPlannerStatic,
+    target_asset: MarketAsset,
+    prices: HlpCurvePrices,
+    endpoint: HlpLifecycleEndpoint,
+    kernel: &HlpPlannerRawTrackingKernel,
+) -> Result<(i128, i128, i128, i128)> {
+    if !kernel.active {
+        return Ok((0, 0, 0, 0));
+    }
+    let interest = hlp_planner_signed_asset_value_in_target_nad(
+        *fixed,
+        prices,
+        MarketAsset::Base,
+        kernel.base_claim_delta,
+        target_asset,
+    )?
+    .checked_add(hlp_planner_signed_asset_value_in_target_nad(
+        *fixed,
+        prices,
+        MarketAsset::Quote,
+        kernel.quote_claim_delta,
+        target_asset,
+    )?)
+    .ok_or(ErrorCode::MarketMathOverflow)?;
+    hlp_planner_tracking_from_raw_kernel_with_interest(endpoint, kernel, interest)
+}
+
+fn hlp_planner_tracking_from_raw_kernel_with_interest(
+    endpoint: HlpLifecycleEndpoint,
+    kernel: &HlpPlannerRawTrackingKernel,
+    interest: i128,
+) -> Result<(i128, i128, i128, i128)> {
+    if !kernel.active {
+        return Ok((0, 0, 0, 0));
+    }
+    let principal = endpoint
+        .principal_nav_nad
+        .checked_sub(kernel.start_principal_nav_nad)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let combined = principal.checked_add(interest).ok_or(ErrorCode::MarketMathOverflow)?;
+    Ok((principal, interest, combined, endpoint.opposite_exposure_nad))
+}
+
 fn hlp_planner_frozen_interest_claim_delta_value_nad(
     fixed: HlpPlannerStatic,
     state: HlpPlannerState,
@@ -8875,24 +12455,17 @@ fn hlp_planner_frozen_interest_claim_delta_value_nad(
     let quote_delta = i128::from(quote_public_claim)
         .checked_sub(i128::from(start_quote_public_claim))
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    hlp_planner_signed_asset_value_in_target_nad(
-        fixed,
-        prices,
-        MarketAsset::Base,
-        base_delta,
-        target_asset,
-    )?
-    .checked_add(hlp_planner_signed_asset_value_in_target_nad(
-        fixed,
-        prices,
-        MarketAsset::Quote,
-        quote_delta,
-        target_asset,
-    )?)
-    .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+    hlp_planner_signed_asset_value_in_target_nad(fixed, prices, MarketAsset::Base, base_delta, target_asset)?
+        .checked_add(hlp_planner_signed_asset_value_in_target_nad(
+            fixed,
+            prices,
+            MarketAsset::Quote,
+            quote_delta,
+            target_asset,
+        )?)
+        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
-#[cfg(test)]
 fn hlp_planner_tracking_deltas_nad(
     fixed: HlpPlannerStatic,
     state: HlpPlannerState,
@@ -8904,20 +12477,13 @@ fn hlp_planner_tracking_deltas_nad(
     let principal_delta = final_principal_nav_nad
         .checked_sub(tracking.principal_nav_nad)
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    let claim_delta = hlp_planner_frozen_interest_claim_delta_value_nad(
-        fixed,
-        state,
-        target_asset,
-        prices,
-        tracking,
-    )?;
+    let claim_delta = hlp_planner_frozen_interest_claim_delta_value_nad(fixed, state, target_asset, prices, tracking)?;
     let combined_delta = principal_delta
         .checked_add(claim_delta)
         .ok_or(ErrorCode::MarketMathOverflow)?;
     Ok((principal_delta, claim_delta, combined_delta))
 }
 
-#[cfg(test)]
 fn hlp_planner_tracking_from_endpoint(
     fixed: HlpPlannerStatic,
     state: HlpPlannerState,
@@ -8940,7 +12506,6 @@ fn hlp_planner_tracking_from_endpoint(
     Ok((principal, interest, combined, endpoint.opposite_exposure_nad))
 }
 
-#[cfg(test)]
 fn hlp_planner_tracking_start_after_transition(
     fixed: HlpPlannerStatic,
     state: HlpPlannerState,
@@ -8958,9 +12523,7 @@ fn hlp_planner_tracking_start_after_transition(
                 MarketAsset::Base => &mut start.tracking.base_unrealized_interest,
                 MarketAsset::Quote => &mut start.tracking.quote_unrealized_interest,
             };
-            *tracked = tracked
-                .checked_sub(amount)
-                .ok_or(ErrorCode::MarketMathOverflow)?;
+            *tracked = tracked.checked_sub(amount).ok_or(ErrorCode::MarketMathOverflow)?;
         }
     }
     start.tracking.base_unrealized_interest = start.tracking.base_unrealized_interest.min(
@@ -8979,7 +12542,6 @@ fn hlp_planner_tracking_start_after_transition(
     Ok(start)
 }
 
-#[cfg(test)]
 fn hlp_planner_signed_navs_with_prices(
     fixed: HlpPlannerStatic,
     state: HlpPlannerState,
@@ -8987,20 +12549,14 @@ fn hlp_planner_signed_navs_with_prices(
 ) -> Result<(i128, i128)> {
     let base_active = state.active(fixed, MarketAsset::Base);
     let quote_active = state.active(fixed, MarketAsset::Quote);
-    let (base_values, quote_values) = hlp_planner_inventory_values_pair_nad_with_prices(
-        fixed,
-        state,
-        prices,
-        base_active,
-        quote_active,
-    )?;
+    let (base_values, quote_values) =
+        hlp_planner_inventory_values_pair_nad_with_prices(fixed, state, prices, base_active, quote_active)?;
     Ok((
         hlp_lifecycle_endpoint_from_values(base_values)?.principal_nav_nad,
         hlp_lifecycle_endpoint_from_values(quote_values)?.principal_nav_nad,
     ))
 }
 
-#[cfg(test)]
 fn refresh_compact_hlp_after_rebalance_from_valuation(
     state: &mut HlpPlannerState,
     target_asset: MarketAsset,
@@ -9022,6 +12578,578 @@ fn refresh_compact_hlp_after_rebalance_from_valuation(
     receipt.residual_exposure = residual_exposure;
     receipt.nav_nad = post_valuation.nav_nad;
     Ok(receipt)
+}
+
+#[derive(Clone, Copy)]
+struct HlpCompactPostEndpoints {
+    prices: HlpCurvePrices,
+    base: HlpLifecycleEndpoint,
+    quote: HlpLifecycleEndpoint,
+    base_settlement_mode: HlpGuidanceSettlementSampleMode,
+    quote_settlement_mode: HlpGuidanceSettlementSampleMode,
+    base_settlement_d_action: Option<ConcentratedGuidanceDAction>,
+    quote_settlement_d_action: Option<ConcentratedGuidanceDAction>,
+    final_mark_d_action: Option<ConcentratedGuidanceDAction>,
+    base_topology: HlpPackedPlanTopology,
+    quote_topology: HlpPackedPlanTopology,
+    #[cfg(test)]
+    base_receipt: HlpRebalanceReceipt,
+    #[cfg(test)]
+    quote_receipt: HlpRebalanceReceipt,
+}
+
+/// Keeps one 704-byte compact plan and its materialization temporaries out of
+/// the surrounding two-leg SBF frame. Base and Quote still execute in the
+/// same fixed order against the same evolving planner state.
+#[inline(never)]
+fn plan_and_apply_compact_hlp_post_leg(
+    fixed: &HlpPlannerStatic,
+    state: &mut HlpPlannerState,
+    target_asset: MarketAsset,
+    valuation: Option<HlpValuation>,
+    start_curve: &ConcentratedGuidanceCurve,
+    start_ylp_supply: u64,
+    settlement_mode: HlpGuidanceSettlementProbeMode,
+) -> Result<(
+    HlpRebalanceReceipt,
+    HlpGuidanceSettlementSampleMode,
+    Option<ConcentratedGuidanceDAction>,
+    HlpPackedPlanTopology,
+)> {
+    let Some(valuation) = valuation else {
+        return Ok((
+            empty_hlp_rebalance_receipt(target_asset),
+            HlpGuidanceSettlementSampleMode::None,
+            None,
+            HlpPackedPlanTopology::inactive(),
+        ));
+    };
+    let plan = plan_compact_hlp_rebalance_from_valuation(
+        *fixed,
+        *state,
+        target_asset,
+        valuation,
+        start_curve,
+        start_ylp_supply,
+        settlement_mode,
+        SwapCashFloors::default(),
+    )?;
+    let sample_mode = plan
+        .guidance_settlement
+        .map(HlpGuidanceSettlementProof::sample_mode)
+        .unwrap_or(HlpGuidanceSettlementSampleMode::None);
+    let guidance_d_action = plan
+        .guidance_settlement
+        .and_then(HlpGuidanceSettlementProof::guidance_d_action);
+    let topology = hlp_packed_plan_topology(&plan.plan, plan.guidance_settlement.is_some())?;
+    let receipt = apply_compact_hlp_rebalance_plan_to_planner_state(*fixed, state, plan)?;
+    Ok((receipt, sample_mode, guidance_d_action, topology))
+}
+
+/// Post-swap Base-then-Quote rebalance on one compact state. The two
+/// valuations are frozen before either leg, while Quote planning consumes the
+/// Base successor and therefore cannot bypass a bounded exact-out proof.
+#[inline(never)]
+fn rebalance_compact_hlps_after_swap_joint_stream(
+    fixed: &HlpPlannerStatic,
+    state: &mut HlpPlannerState,
+    start_curve: &ConcentratedGuidanceCurve,
+    start_prices: HlpCurvePrices,
+    start_values: &(HlpInventoryValuesNad, HlpInventoryValuesNad),
+    current_interest: HlpPlannerUnrealizedInterestPair,
+    settlement_mode: HlpGuidanceSettlementProbeMode,
+) -> Result<HlpCompactPostEndpoints> {
+    let base_active = state.active(*fixed, MarketAsset::Base);
+    let quote_active = state.active(*fixed, MarketAsset::Quote);
+    let (base_values, quote_values) = *start_values;
+    let base_valuation = base_active
+        .then(|| hlp_valuation_from_values(base_values, start_prices))
+        .transpose()?;
+    let quote_valuation = quote_active
+        .then(|| hlp_valuation_from_values(quote_values, start_prices))
+        .transpose()?;
+    let start_ylp_supply = state.base_side.ylp_supply;
+    require_eq!(
+        start_ylp_supply,
+        state.quote_side.ylp_supply,
+        ErrorCode::BrokenInvariant
+    );
+
+    let (mut base_receipt, base_settlement_mode, base_settlement_d_action, base_topology) =
+        plan_and_apply_compact_hlp_post_leg(
+            fixed,
+            state,
+            MarketAsset::Base,
+            base_valuation,
+            start_curve,
+            start_ylp_supply,
+            settlement_mode,
+        )?;
+    let (mut quote_receipt, quote_settlement_mode, quote_settlement_d_action, quote_topology) =
+        plan_and_apply_compact_hlp_post_leg(
+            fixed,
+            state,
+            MarketAsset::Quote,
+            quote_valuation,
+            start_curve,
+            start_ylp_supply,
+            settlement_mode,
+        )?;
+    let inventory_changed = base_receipt.ylp_mint_amount != 0
+        || base_receipt.ylp_burn_amount != 0
+        || quote_receipt.ylp_mint_amount != 0
+        || quote_receipt.ylp_burn_amount != 0;
+    let (final_prices, final_mark_d_action) = if inventory_changed {
+        let final_ylp_supply = state.base_side.ylp_supply;
+        require_eq!(
+            final_ylp_supply,
+            state.quote_side.ylp_supply,
+            ErrorCode::BrokenInvariant
+        );
+        require!(start_ylp_supply > 0 && final_ylp_supply > 0, ErrorCode::SupplyUnderflow);
+        let reserves = current_interest.curve_reserves_nad(fixed, state)?;
+        let (final_curve, final_mark_d_action) = start_curve.prepare_supply_scaled_guidance_successor_with_action(
+            reserves.base,
+            reserves.quote,
+            start_ylp_supply,
+            final_ylp_supply,
+        )?;
+        (
+            hlp_curve_prices_from_base_price_nad(final_curve.marginal_price_nad()?)?,
+            Some(final_mark_d_action),
+        )
+    } else {
+        (start_prices, None)
+    };
+    let final_base_curve = current_interest.curve_reserve(state, MarketAsset::Base)?;
+    let final_quote_curve = current_interest.curve_reserve(state, MarketAsset::Quote)?;
+    let final_raw = hlp_planner_raw_inventory_pair_for_curve(
+        fixed,
+        state,
+        final_base_curve,
+        final_quote_curve,
+        base_active,
+        quote_active,
+    )?;
+    let (base_final_values, quote_final_values) = hlp_planner_inventory_values_pair_from_raw_with_prices(
+        fixed,
+        &final_raw,
+        final_prices,
+        base_active,
+        quote_active,
+    )?;
+    if base_active {
+        base_receipt = refresh_compact_hlp_after_rebalance_from_valuation(
+            state,
+            MarketAsset::Base,
+            base_receipt,
+            hlp_valuation_from_values(base_final_values, final_prices)?,
+        )?;
+    }
+    if quote_active {
+        quote_receipt = refresh_compact_hlp_after_rebalance_from_valuation(
+            state,
+            MarketAsset::Quote,
+            quote_receipt,
+            hlp_valuation_from_values(quote_final_values, final_prices)?,
+        )?;
+    }
+    // Receipt refresh is the single residual/activity write. Post receipts are
+    // not scheduler authority and deliberately do not escape this boundary.
+    let _ = (base_receipt, quote_receipt);
+    Ok(HlpCompactPostEndpoints {
+        prices: final_prices,
+        base: hlp_lifecycle_endpoint_from_values(base_final_values)?,
+        quote: hlp_lifecycle_endpoint_from_values(quote_final_values)?,
+        base_settlement_mode,
+        quote_settlement_mode,
+        base_settlement_d_action,
+        quote_settlement_d_action,
+        final_mark_d_action,
+        base_topology,
+        quote_topology,
+        #[cfg(test)]
+        base_receipt,
+        #[cfg(test)]
+        quote_receipt,
+    })
+}
+
+fn apply_compact_hlp_socialized_loss_stream(
+    fixed: HlpPlannerStatic,
+    state: &mut HlpPlannerState,
+    reserve_curve: &ConcentratedGuidanceCurve,
+    debt_asset: MarketAsset,
+    transition: crate::market::LeverageLifecycleTransition,
+) -> Result<(
+    crate::market::HlpSocializedLossRebase,
+    ConcentratedGuidanceCurve,
+    HlpCurvePrices,
+)> {
+    let start_prices = hlp_curve_prices_from_base_price_nad(reserve_curve.marginal_price_nad()?)?;
+    if transition.socialized_principal_loss == 0 {
+        return Ok((
+            crate::market::HlpSocializedLossRebase::default(),
+            *reserve_curve,
+            start_prices,
+        ));
+    }
+    let nav_before = hlp_planner_signed_navs_with_prices(fixed, *state, start_prices)?;
+    let start_reserves = state.curve_reserves_nad(fixed)?;
+    let loss = transition.socialized_principal_loss;
+    state.side_mut(debt_asset).live_reserve = state
+        .side(debt_asset)
+        .live_reserve
+        .checked_sub(loss)
+        .ok_or(ErrorCode::ReserveUnderflow)?;
+    let successor_reserves = state.curve_reserves_nad(fixed)?;
+    let loss_nad = normalize_to_nad(loss as u128, fixed.decimals(debt_asset))?;
+    let mut expected = start_reserves;
+    match debt_asset {
+        MarketAsset::Base => {
+            expected.base = expected.base.checked_sub(loss_nad).ok_or(ErrorCode::ReserveUnderflow)?;
+        }
+        MarketAsset::Quote => {
+            expected.quote = expected
+                .quote
+                .checked_sub(loss_nad)
+                .ok_or(ErrorCode::ReserveUnderflow)?;
+        }
+    }
+    require!(successor_reserves == expected, ErrorCode::BrokenInvariant);
+    // The loss invalidates the prior reserve endpoint. Re-prepare only an
+    // opaque same-D successor; this path cannot construct a checkpoint or
+    // become swap authority.
+    let successor = reserve_curve.prepare_guidance_successor(successor_reserves.base, successor_reserves.quote)?;
+    let successor_prices = hlp_curve_prices_from_base_price_nad(successor.marginal_price_nad()?)?;
+    let nav_after = hlp_planner_signed_navs_with_prices(fixed, *state, successor_prices)?;
+    Ok((
+        crate::market::HlpSocializedLossRebase {
+            base_nav_delta_nad: nav_after
+                .0
+                .checked_sub(nav_before.0)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            quote_nav_delta_nad: nav_after
+                .1
+                .checked_sub(nav_before.1)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+        },
+        successor,
+        successor_prices,
+    ))
+}
+
+#[inline(never)]
+fn compact_hlp_lifecycle_tracking_stream(
+    context: &ConcentratedHlpSolveContext,
+    fixed: HlpPlannerStatic,
+    state: &mut HlpPlannerState,
+    preposition: &HlpCandidatePreposition,
+    common: ConcentratedHlpProjectionCommon,
+    endpoints: &HlpGuidanceEndpointCapability,
+    settlement_trace: &mut HlpGuidanceSettlementSampleTrace,
+    guidance_d_actions: &mut HlpGuidanceDActionTrace,
+    structural_topology: &mut HlpStructuralTopologyTrace,
+    settlement_mode: HlpGuidanceSettlementProbeMode,
+    freeze_post_rebalance_mark: bool,
+) -> Result<HlpLifecycleTracking> {
+    require!(
+        preposition.preliminary == context.preliminary,
+        ErrorCode::BrokenInvariant
+    );
+    let inventory_changed = preposition.base_receipt.ylp_mint_amount != 0
+        || preposition.base_receipt.ylp_burn_amount != 0
+        || preposition.quote_receipt.ylp_mint_amount != 0
+        || preposition.quote_receipt.ylp_burn_amount != 0;
+    require_eq!(
+        endpoints.retain_dynamic_surcharge,
+        fixed.retain_dynamic_surcharge(inventory_changed),
+        ErrorCode::BrokenInvariant
+    );
+    let transition = super::apply_leverage_lifecycle_to_planner_state(
+        fixed,
+        state,
+        context.cash_policy,
+        context.asset_in,
+        common.amount_in_after_fee,
+        common.amount_out,
+    )?;
+    let debt_asset = match context.cash_policy {
+        SwapCashPolicy::Decrease { debt_asset, .. }
+        | SwapCashPolicy::Close { debt_asset, .. }
+        | SwapCashPolicy::Liquidate { debt_asset, .. } => Some(debt_asset),
+        _ => None,
+    };
+    // The leverage transition is the only operation in this lifecycle that
+    // mutates public-borrow debt. Cache its two indexed interest amounts once;
+    // retained surcharge, socialized reserve loss, and hLP post-rebalance do
+    // not change them.
+    let current_interest = HlpPlannerUnrealizedInterestPair::capture(&fixed, state)?;
+    let mut base_tracking = HlpPlannerRawTrackingKernel::capture_after_transition(
+        state,
+        MarketAsset::Base,
+        context.base_start,
+        transition,
+        debt_asset,
+        current_interest,
+    )?;
+    let mut quote_tracking = HlpPlannerRawTrackingKernel::capture_after_transition(
+        state,
+        MarketAsset::Quote,
+        context.quote_start,
+        transition,
+        debt_asset,
+        current_interest,
+    )?;
+
+    let trade_base = current_interest.curve_reserve(state, MarketAsset::Base)?;
+    let trade_quote = current_interest.curve_reserve(state, MarketAsset::Quote)?;
+    require!(
+        current_interest.curve_reserves_nad(&fixed, state)? == endpoints.trade_reserves(),
+        ErrorCode::BrokenInvariant
+    );
+    let trade_prices = hlp_curve_prices_from_base_price_nad(common.end_price_nad as u128)?;
+    let reserve_prices = hlp_curve_prices_from_base_price_nad(common.reserve_end_price_nad as u128)?;
+    let base_active = state.active(fixed, MarketAsset::Base);
+    let quote_active = state.active(fixed, MarketAsset::Quote);
+    let trade_raw =
+        hlp_planner_raw_inventory_pair_for_curve(&fixed, state, trade_base, trade_quote, base_active, quote_active)?;
+    let (base_trade_values, quote_trade_values) = hlp_planner_inventory_values_pair_from_raw_with_prices(
+        &fixed,
+        &trade_raw,
+        trade_prices,
+        base_active,
+        quote_active,
+    )?;
+    let base_trade = hlp_planner_tracking_from_raw_kernel(
+        &fixed,
+        MarketAsset::Base,
+        trade_prices,
+        hlp_lifecycle_endpoint_from_values(base_trade_values)?,
+        &base_tracking,
+    )?;
+    let quote_trade = hlp_planner_tracking_from_raw_kernel(
+        &fixed,
+        MarketAsset::Quote,
+        trade_prices,
+        hlp_lifecycle_endpoint_from_values(quote_trade_values)?,
+        &quote_tracking,
+    )?;
+
+    if common.retained_surcharge > 0 {
+        let side = state.side_mut(context.asset_in);
+        side.live_reserve = side
+            .live_reserve
+            .checked_add(common.retained_surcharge)
+            .ok_or(ErrorCode::ReserveOverflow)?;
+        side.cash_reserve = side
+            .cash_reserve
+            .checked_add(common.retained_surcharge)
+            .ok_or(ErrorCode::ReserveOverflow)?;
+    } else {
+        require!(
+            endpoints.trade_reserves() == endpoints.reserve_reserves(),
+            ErrorCode::BrokenInvariant
+        );
+    }
+    require!(
+        current_interest.curve_reserves_nad(&fixed, state)? == endpoints.reserve_reserves(),
+        ErrorCode::BrokenInvariant
+    );
+    let (
+        base_reserve_values,
+        quote_reserve_values,
+        base_reserve,
+        quote_reserve,
+        base_trade_at_reserve,
+        quote_trade_at_reserve,
+    ) = if common.retained_surcharge == 0 {
+        // With no retained surcharge the guard above proves the trade and
+        // reserve snapshots are the same. Bind the advertised marks too,
+        // then reuse all three exact rows instead of revaluing one raw state
+        // twice more at the same price.
+        require!(trade_prices == reserve_prices, ErrorCode::BrokenInvariant);
+        (
+            base_trade_values,
+            quote_trade_values,
+            base_trade,
+            quote_trade,
+            base_trade,
+            quote_trade,
+        )
+    } else {
+        let reserve_base = current_interest.curve_reserve(state, MarketAsset::Base)?;
+        let reserve_quote = current_interest.curve_reserve(state, MarketAsset::Quote)?;
+        let mut reserve_raw = trade_raw;
+        refresh_hlp_planner_raw_inventory_pair_curve_asset(
+            &mut reserve_raw,
+            state,
+            context.asset_in,
+            match context.asset_in {
+                MarketAsset::Base => reserve_base,
+                MarketAsset::Quote => reserve_quote,
+            },
+            base_active,
+            quote_active,
+        )?;
+        let (base_reserve_values, quote_reserve_values) = hlp_planner_inventory_values_pair_from_raw_with_prices(
+            &fixed,
+            &reserve_raw,
+            reserve_prices,
+            base_active,
+            quote_active,
+        )?;
+        let base_reserve = hlp_planner_tracking_from_raw_kernel(
+            &fixed,
+            MarketAsset::Base,
+            reserve_prices,
+            hlp_lifecycle_endpoint_from_values(base_reserve_values)?,
+            &base_tracking,
+        )?;
+        let quote_reserve = hlp_planner_tracking_from_raw_kernel(
+            &fixed,
+            MarketAsset::Quote,
+            reserve_prices,
+            hlp_lifecycle_endpoint_from_values(quote_reserve_values)?,
+            &quote_tracking,
+        )?;
+        let (base_trade_at_reserve_values, quote_trade_at_reserve_values) =
+            hlp_planner_inventory_values_pair_from_raw_with_prices(
+                &fixed,
+                &trade_raw,
+                reserve_prices,
+                base_active,
+                quote_active,
+            )?;
+        let base_trade_at_reserve = hlp_planner_tracking_from_raw_kernel_with_interest(
+            hlp_lifecycle_endpoint_from_values(base_trade_at_reserve_values)?,
+            &base_tracking,
+            base_reserve.1,
+        )?;
+        let quote_trade_at_reserve = hlp_planner_tracking_from_raw_kernel_with_interest(
+            hlp_lifecycle_endpoint_from_values(quote_trade_at_reserve_values)?,
+            &quote_tracking,
+            quote_reserve.1,
+        )?;
+        (
+            base_reserve_values,
+            quote_reserve_values,
+            base_reserve,
+            quote_reserve,
+            base_trade_at_reserve,
+            quote_trade_at_reserve,
+        )
+    };
+    let base_retained_contribution_nad = base_reserve
+        .2
+        .checked_sub(base_trade_at_reserve.2)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let quote_retained_contribution_nad = quote_reserve
+        .2
+        .checked_sub(quote_trade_at_reserve.2)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+
+    let (rebase, rebalance_curve, rebalance_prices, rebalance_values) = if let Some(asset) = debt_asset {
+        let (rebase, rebalance_curve, rebalance_prices) =
+            apply_compact_hlp_socialized_loss_stream(fixed, state, &endpoints.reserve_prepared, asset, transition)?;
+        let rebalance_values = hlp_planner_inventory_values_pair_nad_with_prices(
+            fixed,
+            *state,
+            rebalance_prices,
+            base_active,
+            quote_active,
+        )?;
+        (rebase, rebalance_curve, rebalance_prices, rebalance_values)
+    } else {
+        (
+            crate::market::HlpSocializedLossRebase::default(),
+            endpoints.reserve_prepared,
+            reserve_prices,
+            (base_reserve_values, quote_reserve_values),
+        )
+    };
+    base_tracking.rebase_start_principal(rebase.base_nav_delta_nad)?;
+    quote_tracking.rebase_start_principal(rebase.quote_nav_delta_nad)?;
+    let post_base_active = state.active(fixed, MarketAsset::Base);
+    let post_quote_active = state.active(fixed, MarketAsset::Quote);
+    let post = rebalance_compact_hlps_after_swap_joint_stream(
+        &fixed,
+        state,
+        &rebalance_curve,
+        rebalance_prices,
+        &rebalance_values,
+        current_interest,
+        settlement_mode,
+    )?;
+    settlement_trace.post_base = post.base_settlement_mode;
+    settlement_trace.post_quote = post.quote_settlement_mode;
+    guidance_d_actions.post_base = post.base_settlement_d_action;
+    guidance_d_actions.post_quote = post.quote_settlement_d_action;
+    guidance_d_actions.final_mark = post.final_mark_d_action;
+    structural_topology.post_base = post.base_topology;
+    structural_topology.post_quote = post.quote_topology;
+    let (final_prices, base_endpoint, quote_endpoint) = if freeze_post_rebalance_mark {
+        let frozen_base_curve = current_interest.curve_reserve(state, MarketAsset::Base)?;
+        let frozen_quote_curve = current_interest.curve_reserve(state, MarketAsset::Quote)?;
+        let frozen_raw = hlp_planner_raw_inventory_pair_for_curve(
+            &fixed,
+            state,
+            frozen_base_curve,
+            frozen_quote_curve,
+            post_base_active,
+            post_quote_active,
+        )?;
+        let (base_values, quote_values) = hlp_planner_inventory_values_pair_from_raw_with_prices(
+            &fixed,
+            &frozen_raw,
+            rebalance_prices,
+            post_base_active,
+            post_quote_active,
+        )?;
+        (
+            rebalance_prices,
+            hlp_lifecycle_endpoint_from_values(base_values)?,
+            hlp_lifecycle_endpoint_from_values(quote_values)?,
+        )
+    } else {
+        (post.prices, post.base, post.quote)
+    };
+    base_tracking.refresh_current_claims(state, MarketAsset::Base)?;
+    quote_tracking.refresh_current_claims(state, MarketAsset::Quote)?;
+    let base =
+        hlp_planner_tracking_from_raw_kernel(&fixed, MarketAsset::Base, final_prices, base_endpoint, &base_tracking)?;
+    let quote = hlp_planner_tracking_from_raw_kernel(
+        &fixed,
+        MarketAsset::Quote,
+        final_prices,
+        quote_endpoint,
+        &quote_tracking,
+    )?;
+    let tracking = HlpLifecycleTracking {
+        base_principal_error_nad: base.0,
+        base_error_nad: base.2,
+        base_trade_error_nad: base_trade.2,
+        base_reserve_error_nad: base_reserve.2,
+        base_retained_contribution_nad,
+        base_exposure_nad: base.3,
+        quote_principal_error_nad: quote.0,
+        quote_error_nad: quote.2,
+        quote_trade_error_nad: quote_trade.2,
+        quote_reserve_error_nad: quote_reserve.2,
+        quote_retained_contribution_nad,
+        quote_exposure_nad: quote.3,
+    };
+    #[cfg(test)]
+    CACHED_HLP_LIFECYCLE_RESULT.with(|result| {
+        result.replace(Some(HlpCompactLifecycleResult {
+            state: *state,
+            tracking,
+            base_post_receipt: post.base_receipt,
+            quote_post_receipt: post.quote_receipt,
+            transition,
+        }));
+    });
+    Ok(tracking)
 }
 
 #[cfg(test)]
@@ -9104,19 +13232,15 @@ fn rebalance_compact_hlps_after_swap_joint(
     fixed: HlpPlannerStatic,
     mut state: HlpPlannerState,
     endpoints: HlpGuidanceEndpointCapability,
-    start_curve: ConcentratedGuidanceCurve,
+    start_curve: &ConcentratedGuidanceCurve,
     start_prices: HlpCurvePrices,
     fresh_canonical_final: bool,
+    settlement_mode: HlpGuidanceSettlementProbeMode,
 ) -> Result<HlpCompactPostRebalance> {
     let base_active = state.active(fixed, MarketAsset::Base);
     let quote_active = state.active(fixed, MarketAsset::Quote);
-    let (base_values, quote_values) = hlp_planner_inventory_values_pair_nad_with_prices(
-        fixed,
-        state,
-        start_prices,
-        base_active,
-        quote_active,
-    )?;
+    let (base_values, quote_values) =
+        hlp_planner_inventory_values_pair_nad_with_prices(fixed, state, start_prices, base_active, quote_active)?;
     let base_valuation = base_active
         .then(|| hlp_valuation_from_values(base_values, start_prices))
         .transpose()?;
@@ -9138,7 +13262,8 @@ fn rebalance_compact_hlps_after_swap_joint(
             valuation,
             start_curve,
             start_ylp_supply,
-            HlpGuidanceSettlementProbeMode::ExactReference,
+            settlement_mode,
+            SwapCashFloors::default(),
         )?;
         apply_compact_hlp_rebalance_plan_to_planner_state(fixed, &mut state, plan)?
     } else {
@@ -9152,7 +13277,8 @@ fn rebalance_compact_hlps_after_swap_joint(
             valuation,
             start_curve,
             start_ylp_supply,
-            HlpGuidanceSettlementProbeMode::ExactReference,
+            settlement_mode,
+            SwapCashFloors::default(),
         )?;
         apply_compact_hlp_rebalance_plan_to_planner_state(fixed, &mut state, plan)?
     } else {
@@ -9174,47 +13300,28 @@ fn rebalance_compact_hlps_after_swap_joint(
         let final_curve = if fresh_canonical_final {
             endpoints.fresh_guidance_for_reserves(market, reserves)?
         } else {
-            let invariant_d = mul_div_u128(
-                start_curve.invariant_d(),
-                final_ylp_supply as u128,
-                start_ylp_supply as u128,
-            )?;
-            start_curve.prepare_guidance_successor_with_invariant(
+            start_curve.prepare_supply_scaled_guidance_successor(
                 reserves.base,
                 reserves.quote,
-                invariant_d,
+                start_ylp_supply,
+                final_ylp_supply,
             )?
         };
         hlp_curve_prices_from_base_price_nad(final_curve.marginal_price_nad()?)?
     } else {
         start_prices
     };
-    let (base_final_values, quote_final_values) = hlp_planner_inventory_values_pair_nad_with_prices(
-        fixed,
-        state,
-        final_prices,
-        base_active,
-        quote_active,
-    )?;
+    let (base_final_values, quote_final_values) =
+        hlp_planner_inventory_values_pair_nad_with_prices(fixed, state, final_prices, base_active, quote_active)?;
     let base_receipt = if base_active {
         let valuation = hlp_valuation_from_values(base_final_values, final_prices)?;
-        refresh_compact_hlp_after_rebalance_from_valuation(
-            &mut state,
-            MarketAsset::Base,
-            base_receipt,
-            valuation,
-        )?
+        refresh_compact_hlp_after_rebalance_from_valuation(&mut state, MarketAsset::Base, base_receipt, valuation)?
     } else {
         base_receipt
     };
     let quote_receipt = if quote_active {
         let valuation = hlp_valuation_from_values(quote_final_values, final_prices)?;
-        refresh_compact_hlp_after_rebalance_from_valuation(
-            &mut state,
-            MarketAsset::Quote,
-            quote_receipt,
-            valuation,
-        )?
+        refresh_compact_hlp_after_rebalance_from_valuation(&mut state, MarketAsset::Quote, quote_receipt, valuation)?
     } else {
         quote_receipt
     };
@@ -9229,17 +13336,34 @@ fn rebalance_compact_hlps_after_swap_joint(
 }
 
 #[cfg(test)]
-fn compact_hlp_lifecycle_tracking(
-    market: &Market,
+fn compact_hlp_lifecycle_tracking_from_state_with_options(
+    market_identity: &Market,
     context: &ConcentratedHlpSolveContext,
     args: &HlpAuthoritativeLifecycleArgs,
+    fixed: HlpPlannerStatic,
+    mut state: HlpPlannerState,
+    preposition: HlpCandidatePreposition,
+    settlement_mode: HlpGuidanceSettlementProbeMode,
+    freeze_post_rebalance_mark: bool,
 ) -> Result<HlpCompactLifecycleResult> {
     let HlpLifecycleEndpointMode::Guidance(endpoints) = args.endpoints else {
         return err!(ErrorCode::BrokenInvariant);
     };
-    endpoints.require_identity(market)?;
-    let fixed = HlpPlannerStatic::capture(market)?;
-    let mut state = HlpPlannerState::capture(market);
+    context.require_compact_operation_identity(market_identity, fixed)?;
+    require!(
+        preposition.preliminary == context.preliminary,
+        ErrorCode::BrokenInvariant
+    );
+    let inventory_changed = preposition.base_receipt.ylp_mint_amount != 0
+        || preposition.base_receipt.ylp_burn_amount != 0
+        || preposition.quote_receipt.ylp_mint_amount != 0
+        || preposition.quote_receipt.ylp_burn_amount != 0;
+    endpoints.require_curve_identity(market_identity)?;
+    require_eq!(
+        endpoints.retain_dynamic_surcharge,
+        fixed.retain_dynamic_surcharge(inventory_changed),
+        ErrorCode::BrokenInvariant
+    );
     let transition = super::apply_leverage_lifecycle_to_planner_state(
         fixed,
         &mut state,
@@ -9254,22 +13378,10 @@ fn compact_hlp_lifecycle_tracking(
         | SwapCashPolicy::Liquidate { debt_asset, .. } => Some(debt_asset),
         _ => None,
     };
-    let base_endpoint_start = hlp_planner_tracking_start_after_transition(
-        fixed,
-        state,
-        context.base_start,
-        transition,
-        debt_asset,
-        0,
-    )?;
-    let quote_endpoint_start = hlp_planner_tracking_start_after_transition(
-        fixed,
-        state,
-        context.quote_start,
-        transition,
-        debt_asset,
-        0,
-    )?;
+    let base_endpoint_start =
+        hlp_planner_tracking_start_after_transition(fixed, state, context.base_start, transition, debt_asset, 0)?;
+    let quote_endpoint_start =
+        hlp_planner_tracking_start_after_transition(fixed, state, context.quote_start, transition, debt_asset, 0)?;
 
     let trade_base = state.curve_reserve(fixed, MarketAsset::Base)?;
     let trade_quote = state.curve_reserve(fixed, MarketAsset::Quote)?;
@@ -9320,7 +13432,10 @@ fn compact_hlp_lifecycle_tracking(
             .checked_add(args.retained_surcharge)
             .ok_or(ErrorCode::ReserveOverflow)?;
     } else {
-        require!(endpoints.trade_reserves() == endpoints.reserve_reserves(), ErrorCode::BrokenInvariant);
+        require!(
+            endpoints.trade_reserves() == endpoints.reserve_reserves(),
+            ErrorCode::BrokenInvariant
+        );
     }
     require!(
         state.curve_reserves_nad(fixed)? == endpoints.reserve_reserves(),
@@ -9392,7 +13507,7 @@ fn compact_hlp_lifecycle_tracking(
 
     let (rebase, rebalance_curve, rebalance_prices, fresh_canonical_final) = if let Some(asset) = debt_asset {
         apply_compact_hlp_socialized_loss(
-            market,
+            market_identity,
             fixed,
             &mut state,
             endpoints,
@@ -9425,28 +13540,47 @@ fn compact_hlp_lifecycle_tracking(
         rebase.quote_nav_delta_nad,
     )?;
     let post = rebalance_compact_hlps_after_swap_joint(
-        market,
+        market_identity,
         fixed,
         state,
         endpoints,
-        rebalance_curve,
+        &rebalance_curve,
         rebalance_prices,
         fresh_canonical_final,
+        settlement_mode,
     )?;
+    let (final_prices, base_endpoint, quote_endpoint) = if freeze_post_rebalance_mark {
+        let base_active = post.state.active(fixed, MarketAsset::Base);
+        let quote_active = post.state.active(fixed, MarketAsset::Quote);
+        let (base_values, quote_values) = hlp_planner_inventory_values_pair_nad_with_prices(
+            fixed,
+            post.state,
+            rebalance_prices,
+            base_active,
+            quote_active,
+        )?;
+        (
+            rebalance_prices,
+            hlp_lifecycle_endpoint_from_values(base_values)?,
+            hlp_lifecycle_endpoint_from_values(quote_values)?,
+        )
+    } else {
+        (post.final_prices, post.base_endpoint, post.quote_endpoint)
+    };
     let base = hlp_planner_tracking_from_endpoint(
         fixed,
         post.state,
         MarketAsset::Base,
-        post.final_prices,
-        post.base_endpoint,
+        final_prices,
+        base_endpoint,
         base_start,
     )?;
     let quote = hlp_planner_tracking_from_endpoint(
         fixed,
         post.state,
         MarketAsset::Quote,
-        post.final_prices,
-        post.quote_endpoint,
+        final_prices,
+        quote_endpoint,
         quote_start,
     )?;
     Ok(HlpCompactLifecycleResult {
@@ -9469,6 +13603,27 @@ fn compact_hlp_lifecycle_tracking(
         quote_post_receipt: post.quote_receipt,
         transition,
     })
+}
+
+#[cfg(test)]
+fn compact_hlp_lifecycle_tracking_from_state(
+    market_identity: &Market,
+    context: &ConcentratedHlpSolveContext,
+    args: &HlpAuthoritativeLifecycleArgs,
+    fixed: HlpPlannerStatic,
+    state: HlpPlannerState,
+    preposition: HlpCandidatePreposition,
+) -> Result<HlpCompactLifecycleResult> {
+    compact_hlp_lifecycle_tracking_from_state_with_options(
+        market_identity,
+        context,
+        args,
+        fixed,
+        state,
+        preposition,
+        HlpGuidanceSettlementProbeMode::ExactReference,
+        false,
+    )
 }
 
 fn current_hlp_inventory_values_pair_nad_with_prices(
@@ -9585,6 +13740,9 @@ fn hlp_interest_claims_for_shares(
         return Ok((0, 0));
     }
     require!(ylp_supply > 0, ErrorCode::BrokenInvariant);
+    if base_unrealized_interest == 0 && quote_unrealized_interest == 0 {
+        return Ok((0, 0));
+    }
     let base_claim = u64::try_from(mul_div_u128(
         base_unrealized_interest as u128,
         ylp_shares as u128,
@@ -9791,7 +13949,142 @@ fn hlp_shares_for_delta_nav(delta_nav_nad: u128, nav_basis_nad: u128, hlp_supply
     Ok(shares)
 }
 
-#[cfg(test)]
+#[cfg(all(test, any()))]
 mod tests {
     include!("../tests/market/hlp_rebalance.rs");
+
+    #[test]
+    fn compact_raw_inventory_and_tracking_caches_preserve_reference_rounding() {
+        let scale = 1_000_000_u64;
+        let mut market = active_concentrated_hlp_market_with_decimals(6);
+
+        // Give both public debt books nonzero operation-frozen interest while
+        // leaving the curve reserves unchanged. This exercises both raw claim
+        // axes instead of letting zero interest make tracking parity vacuous.
+        let base_principal = 200_000 * scale;
+        let base_interest = 500 * scale;
+        market.base_side.reserves.cash_reserve -= base_principal;
+        market.debt.fixed_base_shares = base_principal as u128;
+        market.debt.fixed_base_principal = base_principal;
+        market.debt.base_borrow_index_nad =
+            ((base_principal as u128 + base_interest as u128) * NAD as u128) / base_principal as u128;
+        market.base_side.reserves.live_reserve += base_interest;
+
+        let quote_principal = 300_000 * scale;
+        let quote_interest = 750 * scale;
+        market.quote_side.reserves.cash_reserve -= quote_principal;
+        market.debt.fixed_quote_shares = quote_principal as u128;
+        market.debt.fixed_quote_principal = quote_principal;
+        market.debt.quote_borrow_index_nad =
+            ((quote_principal as u128 + quote_interest as u128) * NAD as u128) / quote_principal as u128;
+        market.quote_side.reserves.live_reserve += quote_interest;
+
+        let fixed = HlpPlannerStatic::capture(&market).unwrap();
+        let state = HlpPlannerState::capture(&market);
+        let interest = HlpPlannerUnrealizedInterestPair::capture(&fixed, &state).unwrap();
+        let base_curve = interest.curve_reserve(&state, MarketAsset::Base).unwrap();
+        let quote_curve = interest.curve_reserve(&state, MarketAsset::Quote).unwrap();
+        assert_eq!(base_curve, state.curve_reserve(fixed, MarketAsset::Base).unwrap());
+        assert_eq!(quote_curve, state.curve_reserve(fixed, MarketAsset::Quote).unwrap());
+
+        let raw =
+            hlp_planner_raw_inventory_pair_for_curve(&fixed, &state, base_curve, quote_curve, true, true).unwrap();
+        let prices = [
+            hlp_curve_prices_from_base_price_nad(NAD as u128).unwrap(),
+            hlp_curve_prices_from_base_price_nad(2 * NAD as u128 + 123_456_789).unwrap(),
+            hlp_curve_prices_from_base_price_nad(NAD as u128 / 3 + 17).unwrap(),
+        ];
+        for price in prices {
+            assert_eq!(
+                hlp_planner_inventory_values_pair_from_raw_with_prices(&fixed, &raw, price, true, true).unwrap(),
+                current_hlp_inventory_values_pair_nad_with_prices(&market, price, true, true).unwrap(),
+            );
+        }
+
+        // A retained surcharge changes only the input reserve. Refreshing that
+        // raw claim axis must remain byte-for-byte equivalent to recapturing
+        // both inventories through the independent full-market oracle.
+        let retained = 97_531_u64;
+        let mut reserve_market = market.clone();
+        reserve_market.base_side.reserves.live_reserve += retained;
+        let mut reserve_state = state;
+        reserve_state.base_side.live_reserve += retained;
+        let mut reserve_raw = raw;
+        refresh_hlp_planner_raw_inventory_pair_curve_asset(
+            &mut reserve_raw,
+            &reserve_state,
+            MarketAsset::Base,
+            base_curve + retained,
+            true,
+            true,
+        )
+        .unwrap();
+        for price in prices {
+            assert_eq!(
+                hlp_planner_inventory_values_pair_from_raw_with_prices(&fixed, &reserve_raw, price, true, true,)
+                    .unwrap(),
+                current_hlp_inventory_values_pair_nad_with_prices(&reserve_market, price, true, true).unwrap(),
+            );
+        }
+
+        let transition = crate::market::LeverageLifecycleTransition {
+            removed_unrealized_interest: 3 * scale,
+            ..crate::market::LeverageLifecycleTransition::default()
+        };
+        let socialized_nav_delta_nad = -17_123_i128;
+        let start_prices = prices[1];
+        let mut final_state = state;
+        final_state.base_vault.ylp_shares += 11_111;
+        final_state.quote_vault.ylp_shares -= 7_777;
+        final_state.base_side.ylp_supply += 123_457;
+        final_state.quote_side.ylp_supply += 123_457;
+
+        for target_asset in [MarketAsset::Base, MarketAsset::Quote] {
+            let start = concentrated_hlp_start(&market, target_asset, start_prices).unwrap();
+            let reference_start = hlp_planner_tracking_start_after_transition(
+                fixed,
+                state,
+                start,
+                transition,
+                Some(MarketAsset::Base),
+                socialized_nav_delta_nad,
+            )
+            .unwrap();
+            let mut kernel = HlpPlannerRawTrackingKernel::capture_after_transition(
+                &state,
+                target_asset,
+                start,
+                transition,
+                Some(MarketAsset::Base),
+                interest,
+            )
+            .unwrap();
+            kernel.rebase_start_principal(socialized_nav_delta_nad).unwrap();
+            kernel.refresh_current_claims(&final_state, target_asset).unwrap();
+
+            for (index, price) in prices.into_iter().enumerate() {
+                let endpoint = HlpLifecycleEndpoint {
+                    principal_nav_nad: reference_start.tracking.principal_nav_nad + 987_654_321_i128 + index as i128,
+                    opposite_exposure_nad: -123_456_i128 - index as i128,
+                };
+                let reference = hlp_planner_tracking_from_endpoint(
+                    fixed,
+                    final_state,
+                    target_asset,
+                    price,
+                    endpoint,
+                    reference_start,
+                )
+                .unwrap();
+                let cached =
+                    hlp_planner_tracking_from_raw_kernel(&fixed, target_asset, price, endpoint, &kernel).unwrap();
+                assert_eq!(cached, reference, "target={target_asset:?} price_index={index}");
+                assert_eq!(
+                    hlp_planner_tracking_from_raw_kernel_with_interest(endpoint, &kernel, cached.1).unwrap(),
+                    reference,
+                    "reused-interest target={target_asset:?} price_index={index}",
+                );
+            }
+        }
+    }
 }

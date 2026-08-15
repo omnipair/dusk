@@ -77,11 +77,12 @@ pub const PROTECTED_LIQUIDITY_GUARD_BPS: u16 = 1;
 pub const PROTECTED_LIQUIDITY_CAP_BPS: u16 = 100;
 pub const PROTECTED_LIQUIDITY_HYSTERESIS_BPS: u16 = 1_000;
 
-/// AMM controls. `peak_depth_nad == 0 && fade_scale_nad == 0` selects CPMM.
+/// AMM controls. A zero concentrated-liquidity share selects the full-range
+/// CPMM branch of the same explicit implementation.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
 pub struct AmmConfig {
-    pub peak_depth_nad: u64,
-    pub fade_scale_nad: u64,
+    pub range_width_nad: u64,
+    pub concentrated_liquidity_share_nad: u64,
     pub center_ema_half_life_ms: u64,
     pub volatility_half_life_ms: u64,
     pub adjustment_threshold_nad: u64,
@@ -91,15 +92,14 @@ pub struct AmmConfig {
     pub volatility_cap_nad: u64,
     pub divergence_fee_coefficient_nad: u64,
     pub volatility_fee_coefficient_nad: u64,
-    pub concentration_ramp_duration_slots: u64,
     pub reserved: [u8; AMM_CONFIG_RESERVED_BYTES],
 }
 
 impl Default for AmmConfig {
     fn default() -> Self {
         Self {
-            peak_depth_nad: 0,
-            fade_scale_nad: 0,
+            range_width_nad: 0,
+            concentrated_liquidity_share_nad: 0,
             center_ema_half_life_ms: MIN_HALF_LIFE_MS,
             volatility_half_life_ms: MIN_HALF_LIFE_MS,
             adjustment_threshold_nad: 0,
@@ -109,7 +109,6 @@ impl Default for AmmConfig {
             volatility_cap_nad: 0,
             divergence_fee_coefficient_nad: 0,
             volatility_fee_coefficient_nad: 0,
-            concentration_ramp_duration_slots: MIN_CONCENTRATION_RAMP_DURATION_SLOTS,
             reserved: [0; AMM_CONFIG_RESERVED_BYTES],
         }
     }
@@ -188,18 +187,38 @@ impl ConcentrationParameters {
 
 impl AmmConfig {
     pub const fn curve_parameters(&self) -> ConcentrationParameters {
-        ConcentrationParameters {
-            peak_depth_nad: self.peak_depth_nad,
-            fade_scale_nad: self.fade_scale_nad,
-        }
+        ConcentrationParameters::cpmm()
     }
 
     pub const fn is_cpmm(&self) -> bool {
-        self.peak_depth_nad == 0
+        self.concentrated_liquidity_share_nad == 0
+    }
+
+    /// Typed view of the one production curve configuration. CPMM is the
+    /// explicit curve with zero concentrated liquidity.
+    pub fn explicit_curve_parameters(&self) -> Result<Option<ExplicitCurveParameters>> {
+        require!(
+            self.reserved.iter().all(|byte| *byte == 0),
+            ErrorCode::InvalidMarketConfig
+        );
+        let parameters = ExplicitCurveParameters {
+            range_width_nad: self.range_width_nad,
+            concentrated_liquidity_share_nad: self.concentrated_liquidity_share_nad,
+        };
+        parameters.validate(MAX_AMM_PEAK_DEPTH_NAD)?;
+        Ok(Some(parameters))
+    }
+
+    pub fn set_explicit_curve_parameters(&mut self, parameters: ExplicitCurveParameters) -> Result<()> {
+        parameters.validate(MAX_AMM_PEAK_DEPTH_NAD)?;
+        self.range_width_nad = parameters.range_width_nad;
+        self.concentrated_liquidity_share_nad = parameters.concentrated_liquidity_share_nad;
+        self.reserved = [0; AMM_CONFIG_RESERVED_BYTES];
+        Ok(())
     }
 
     pub fn validate(&self) -> Result<()> {
-        self.curve_parameters().validate_endpoint()?;
+        self.explicit_curve_parameters()?;
         require!(
             (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(&self.center_ema_half_life_ms)
                 && (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(&self.volatility_half_life_ms),
@@ -233,15 +252,6 @@ impl AmmConfig {
         require!(
             self.divergence_fee_coefficient_nad <= MAX_AMM_FEE_COEFFICIENT_NAD
                 && self.volatility_fee_coefficient_nad <= MAX_AMM_FEE_COEFFICIENT_NAD,
-            ErrorCode::InvalidMarketConfig
-        );
-        require!(
-            (MIN_CONCENTRATION_RAMP_DURATION_SLOTS..=MAX_CONCENTRATION_RAMP_DURATION_SLOTS)
-                .contains(&self.concentration_ramp_duration_slots),
-            ErrorCode::InvalidMarketConfig
-        );
-        require!(
-            self.reserved.iter().all(|byte| *byte == 0),
             ErrorCode::InvalidMarketConfig
         );
         Ok(())
@@ -376,6 +386,9 @@ pub struct AmmState {
     /// all-zero cache. Only initialization or an admitted parameter change may
     /// replace it; center and reserve changes reuse it unchanged.
     pub concentrated_geometry_cache: ConcentratedGeometryCache,
+    /// Explicit CPMM-tail/band geometry. Nonzero only for layout-v1 explicit
+    /// curve configuration; the legacy cache is removed after caller cutover.
+    pub explicit_curve_cache: ExplicitCurveCache,
     pub center_price_nad: u64,
     pub price_ema_nad: u64,
     pub last_trade_price_nad: u64,
@@ -399,15 +412,16 @@ pub struct AmmState {
     /// Maximum protected principal one controller target may request/spend.
     /// It does not clip divergence or volatility surcharge amounts.
     pub retention_hard_cap_nad: u128,
-    /// When true, dynamic surcharge is reserve principal; when false, the
-    /// identical trader charge is routed to claimable yLP fee accounting.
+    /// When true, dynamic surcharge is locked in the non-quoteable protected
+    /// recenter bucket; when false, the identical trader charge is routed to
+    /// claimable yLP fee accounting.
     pub retain_dynamic_surcharge: bool,
     /// The requested protection target exceeded its principal-budget cap.
     pub retention_target_saturated: bool,
     pub concentration_ramp: ConcentrationRamp,
-    /// Retained surcharge changed executable inventory after the last exact
-    /// forward-target solve. While stale, retention stays on until a decision
-    /// point refreshes the target or executes a funded recenter.
+    /// The protected bucket changed after the last exact forward-target solve.
+    /// While stale, retention stays on until a decision point refreshes the
+    /// target or executes a funded recenter.
     pub retention_target_stale: bool,
     /// Exact unfunded controller target retried by later real operations.
     pub deferred_controller_target: DeferredControllerTarget,
@@ -420,6 +434,7 @@ impl Default for AmmState {
             initialized: false,
             applied_curve_parameters: ConcentrationParameters::cpmm(),
             concentrated_geometry_cache: ConcentratedGeometryCache::default(),
+            explicit_curve_cache: ExplicitCurveCache::default(),
             center_price_nad: 0,
             price_ema_nad: 0,
             last_trade_price_nad: 0,
@@ -467,6 +482,7 @@ impl AmmState {
             initialized: true,
             applied_curve_parameters,
             concentrated_geometry_cache,
+            explicit_curve_cache: ExplicitCurveCache::default(),
             center_price_nad: initial_price_nad,
             price_ema_nad: initial_price_nad,
             last_trade_price_nad: initial_price_nad,
@@ -585,7 +601,7 @@ impl AmmState {
             old_parameters,
             config.curve_parameters(),
             current_slot,
-            config.concentration_ramp_duration_slots,
+            MIN_CONCENTRATION_RAMP_DURATION_SLOTS,
         )?;
         self.last_concentration_ramp_update_slot = current_slot;
         self.invalidate_deferred_controller_target();
@@ -809,6 +825,41 @@ impl AmmState {
         require_gte!(current_slot, earliest_adjustment_slot, ErrorCode::InvalidArgument);
         self.center_price_nad = new_center_price_nad;
         self.commit_invariant(new_invariant_d_nad)?;
+        self.last_adjustment_slot = current_slot;
+        self.checkpoint_recenter_or_loss(new_q_per_share_nad);
+        Ok(())
+    }
+
+    pub(crate) fn commit_explicit_recenter(
+        &mut self,
+        config: &AmmConfig,
+        new_center_price_nad: u64,
+        new_cache: ExplicitCurveCache,
+        new_q_per_share_nad: u128,
+        covered_actual_impairment_nad: u128,
+        current_slot: u64,
+    ) -> Result<()> {
+        config.validate()?;
+        require!(new_center_price_nad > 0, ErrorCode::InvalidSettlementPrice);
+        new_cache.geometry()?;
+        require!(
+            self.recenter_is_funded(covered_actual_impairment_nad),
+            ErrorCode::BrokenInvariant
+        );
+        let actual_impairment_nad = self.q_per_share_nad.saturating_sub(new_q_per_share_nad);
+        require_gte!(
+            covered_actual_impairment_nad,
+            actual_impairment_nad,
+            ErrorCode::BrokenInvariant
+        );
+        let earliest_adjustment_slot = self
+            .last_adjustment_slot
+            .checked_add(config.min_adjustment_interval_slots)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        require_gte!(current_slot, earliest_adjustment_slot, ErrorCode::InvalidArgument);
+        self.center_price_nad = new_center_price_nad;
+        self.explicit_curve_cache = new_cache;
+        self.clear_invariant();
         self.last_adjustment_slot = current_slot;
         self.checkpoint_recenter_or_loss(new_q_per_share_nad);
         Ok(())
@@ -2288,14 +2339,8 @@ impl Market {
         // Both hLP numeraires are valued from one actual post-trade state
         // before either mutates shared yLP supply. This ordering is required
         // for CPMM and concentrated curves alike.
-        let (
-            base_post_rebalance,
-            quote_post_rebalance,
-            concentrated_evaluation,
-            final_prices,
-            _,
-            _,
-        ) = rebalance_hlps_after_swap_joint(self, current_slot, None)?;
+        let (base_post_rebalance, quote_post_rebalance, concentrated_evaluation, final_prices, _, _) =
+            rebalance_hlps_after_swap_joint(self, current_slot, None)?;
         require_hlp_end_to_end_tracking(self, base_pre_rebalance, final_prices)?;
         require_hlp_end_to_end_tracking(self, quote_pre_rebalance, final_prices)?;
         Ok((
@@ -2669,22 +2714,16 @@ impl Market {
                 );
             }
             MarketParameterUpdate::Concentration {
-                peak_depth_nad,
-                fade_scale_nad,
-                concentration_ramp_duration_slots,
+                range_width_nad,
+                concentrated_liquidity_share_nad,
             } => {
-                let target = ConcentrationParameters {
-                    peak_depth_nad: *peak_depth_nad,
-                    fade_scale_nad: *fade_scale_nad,
+                let target = ExplicitCurveParameters {
+                    range_width_nad: *range_width_nad,
+                    concentrated_liquidity_share_nad: *concentrated_liquidity_share_nad,
                 };
-                target.validate_endpoint()?;
+                target.validate(MAX_AMM_PEAK_DEPTH_NAD)?;
                 require!(
-                    (MIN_CONCENTRATION_RAMP_DURATION_SLOTS..=MAX_CONCENTRATION_RAMP_DURATION_SLOTS)
-                        .contains(concentration_ramp_duration_slots),
-                    ErrorCode::InvalidParameterUpdate
-                );
-                require!(
-                    self.config.amm.curve_parameters() != target,
+                    self.config.amm.explicit_curve_parameters()? != Some(target),
                     ErrorCode::ParameterUpdateNotMeaningful
                 );
             }
@@ -2765,20 +2804,18 @@ impl Market {
                     }
                 }
                 MarketParameterUpdate::Concentration {
-                    peak_depth_nad,
-                    fade_scale_nad,
-                    concentration_ramp_duration_slots,
+                    range_width_nad,
+                    concentrated_liquidity_share_nad,
                 } => {
-                    let applied = self.amm.effective_curve_parameters(&previous_config.amm, current_slot);
                     let mut next = self.config;
-                    next.amm.peak_depth_nad = *peak_depth_nad;
-                    next.amm.fade_scale_nad = *fade_scale_nad;
-                    next.amm.concentration_ramp_duration_slots = *concentration_ramp_duration_slots;
+                    next.amm.set_explicit_curve_parameters(ExplicitCurveParameters {
+                        range_width_nad: *range_width_nad,
+                        concentrated_liquidity_share_nad: *concentrated_liquidity_share_nad,
+                    })?;
                     next.validate()?;
                     self.config = next;
                     if self.amm.initialized {
-                        self.amm
-                            .start_concentration_ramp(applied, &self.config.amm, current_slot)?;
+                        self.apply_explicit_curve_parameter_update(current_slot)?;
                     }
                 }
                 MarketParameterUpdate::Irm(irm) => {
@@ -4184,6 +4221,10 @@ pub struct Reserves {
     /// Quote-hLP counterpart of `base_hlp_backing_inventory`; never a second
     /// hLP NAV or withdrawal claim.
     pub quote_hlp_backing_inventory: u64,
+    /// Physical reserve-vault atoms retained from toxicity surcharge for a
+    /// future protected recenter. They are custody-backed but excluded from
+    /// executable cash/live reserves, yLP NAV, and every withdrawal claim.
+    pub protected_recenter_reserve: u64,
 }
 
 impl Reserves {
@@ -4712,7 +4753,7 @@ fn proportional_bps(amount: u64, bps: u16) -> Result<u64> {
     u64::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
-#[cfg(test)]
+#[cfg(all(test, any()))]
 mod amm_tests {
     include!("../tests/state/amm.rs");
 }

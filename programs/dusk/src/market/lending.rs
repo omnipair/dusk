@@ -5,7 +5,7 @@ use super::amm::CurveCheckpoint;
 use crate::{
     constants::{
         BPS_DENOMINATOR, LIQUIDATION_CLOSE_FACTOR_BPS, LIQUIDATION_INCENTIVE_BPS, LIQUIDATION_INSURANCE_FUNDING_BPS,
-        LIQUIDATION_MAX_INCENTIVE_BPS, LIQUIDATION_PENALTY_BPS, LTV_BUFFER_BPS, NAD,
+        LIQUIDATION_MAX_INCENTIVE_BPS, LIQUIDATION_PENALTY_BPS, LTV_BUFFER_BPS, MAX_COLLATERAL_FACTOR_BPS, NAD,
     },
     errors::ErrorCode,
     math::*,
@@ -66,6 +66,27 @@ impl Market {
 
     pub fn current_risk(&self) -> Result<Risk> {
         let current_slot = Clock::get().map(|clock| clock.slot).unwrap_or(self.last_update_slot);
+        if self.config.amm.explicit_curve_parameters()?.is_some() {
+            let price_nad = self
+                .current_explicit_spot_price_nad()?
+                .ok_or(ErrorCode::BrokenInvariant)?;
+            let q_nad = self
+                .amm
+                .explicit_curve_cache
+                .tail_liquidity
+                .checked_add(self.amm.explicit_curve_cache.concentrated_liquidity)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            let quote_price_nad = u64::try_from(
+                (NAD as u128)
+                    .checked_mul(NAD as u128)
+                    .and_then(|value| value.checked_div(price_nad as u128))
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+            )
+            .map_err(|_| ErrorCode::MarketMathOverflow)?;
+            return self
+                .risk
+                .refreshed(price_nad, quote_price_nad, q_nad, &self.config, current_slot);
+        }
         let evaluation = self.evaluate_current_curve(current_slot)?;
         self.risk_from_curve_evaluation(evaluation, current_slot)
     }
@@ -107,6 +128,36 @@ impl Market {
         Ok(())
     }
 
+    /// O(1) risk observation for the explicit tail+band curve. The quote has
+    /// already evaluated the exact final marginal price; total explicit
+    /// liquidity replaces the legacy balanced-equivalent root.
+    pub(crate) fn observe_risk_from_explicit_curve(
+        &mut self,
+        current_base_price_nad: u64,
+        current_q_nad: u128,
+        current_slot: u64,
+    ) -> Result<()> {
+        require!(
+            current_base_price_nad > 0 && current_q_nad > 0,
+            ErrorCode::InsufficientLiquidity
+        );
+        let current_quote_price_nad = (NAD as u128)
+            .checked_mul(NAD as u128)
+            .and_then(|value| value.checked_div(current_base_price_nad as u128))
+            .and_then(|value| u64::try_from(value).ok())
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.risk = self.risk.refreshed(
+            current_base_price_nad,
+            current_quote_price_nad,
+            current_q_nad,
+            &self.config,
+            current_slot,
+        )?;
+        self.last_marginal_observation_nad = current_base_price_nad;
+        self.last_update_slot = current_slot;
+        Ok(())
+    }
+
     /// Marks the scalar observation as exact for the current curve revision.
     /// Liquidity and explicit risk-refresh paths use this; ordinary swaps
     /// intentionally leave `risk_revision` behind until a risk-sensitive
@@ -125,6 +176,20 @@ impl Market {
     /// reserve shapes. Risk consumers reconstruct the applied shape from this
     /// scalar snapshot and the current curve parameters.
     pub(crate) fn observe_current_risk(&mut self, current_slot: u64) -> Result<()> {
+        if self.config.amm.explicit_curve_parameters()?.is_some() {
+            let price_nad = self
+                .current_explicit_spot_price_nad()?
+                .ok_or(ErrorCode::BrokenInvariant)?;
+            let q_nad = self
+                .amm
+                .explicit_curve_cache
+                .tail_liquidity
+                .checked_add(self.amm.explicit_curve_cache.concentrated_liquidity)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            self.observe_risk_from_explicit_curve(price_nad, q_nad, current_slot)?;
+            self.risk_revision = self.curve_revision;
+            return Ok(());
+        }
         let evaluation = self.evaluate_current_curve(current_slot)?;
         self.observe_exact_risk_from_curve_evaluation(evaluation, current_slot)
     }
@@ -167,6 +232,21 @@ impl Market {
             self.last_marginal_observation_nad = 0;
             self.risk_revision = self.curve_revision;
             self.last_update_slot = current_slot;
+            return Ok(());
+        }
+
+        if self.config.amm.explicit_curve_parameters()?.is_some() {
+            let price_nad = self
+                .current_explicit_spot_price_nad()?
+                .ok_or(ErrorCode::BrokenInvariant)?;
+            let q_nad = self
+                .amm
+                .explicit_curve_cache
+                .tail_liquidity
+                .checked_add(self.amm.explicit_curve_cache.concentrated_liquidity)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            self.observe_risk_from_explicit_curve(price_nad, q_nad, current_slot)?;
+            self.risk_revision = self.curve_revision;
             return Ok(());
         }
 
@@ -213,6 +293,63 @@ impl Market {
             peak_depth_nad: parameters.peak_depth_nad as u128,
             fade_scale_nad: parameters.fade_scale_nad as u128,
         })
+    }
+
+    fn pessimistic_explicit_curve(
+        &self,
+        collateral_asset: MarketAsset,
+        risk: &Risk,
+        include_directional_ema: bool,
+    ) -> Result<Option<(ExplicitCurveGeometry, ExplicitCurvePoint, ExplicitCurveDirection)>> {
+        if self.config.amm.explicit_curve_parameters()?.is_none() {
+            return Ok(None);
+        }
+        let collateral_price_nad =
+            self.pessimistic_collateral_price_nad(collateral_asset, risk, include_directional_ema);
+        require!(collateral_price_nad > 0, ErrorCode::InvalidSettlementPrice);
+        let base_price_nad = match collateral_asset {
+            MarketAsset::Base => collateral_price_nad as u128,
+            MarketAsset::Quote => ceil_div(
+                (NAD as u128)
+                    .checked_mul(NAD as u128)
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+                collateral_price_nad as u128,
+            )
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+        };
+        let geometry = self
+            .current_explicit_curve_geometry()?
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        // Reconstruct the same explicit shape at the pessimistic price, but
+        // cap its total depth by the conservative Q observation. Scaling the
+        // tail scales the concentrated tranche by the configured share, so
+        // this preserves concentration while preventing stale/full live
+        // depth from leaking into lending and liquidation valuations.
+        let current_total_liquidity = self
+            .amm
+            .explicit_curve_cache
+            .tail_liquidity
+            .checked_add(self.amm.explicit_curve_cache.concentrated_liquidity)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        require!(current_total_liquidity > 0, ErrorCode::InsufficientLiquidity);
+        let conservative_q_nad = risk.conservative_q_nad();
+        let target_total_liquidity = if conservative_q_nad == 0 {
+            current_total_liquidity
+        } else {
+            conservative_q_nad.min(current_total_liquidity)
+        };
+        let target_tail_liquidity = mul_div_u128(
+            self.amm.explicit_curve_cache.tail_liquidity,
+            target_total_liquidity,
+            current_total_liquidity,
+        )?
+        .max(1);
+        let point = geometry.point_at_price_nad(base_price_nad, target_tail_liquidity)?;
+        let direction = match collateral_asset {
+            MarketAsset::Base => ExplicitCurveDirection::BaseToQuote,
+            MarketAsset::Quote => ExplicitCurveDirection::QuoteToBase,
+        };
+        Ok(Some((geometry, point, direction)))
     }
 
     pub(crate) fn pessimistic_risk_curve(
@@ -330,13 +467,57 @@ impl Market {
         )?;
         let collateral_amount_nad =
             normalize_to_nad(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
-        let (curve, collateral_to_debt) = self.pessimistic_risk_curve(collateral_asset, risk, true)?;
-        let terms = pessimistic_max_debt_on_curve_nad(
-            collateral_amount_nad,
-            curve,
-            collateral_to_debt,
-            effective_existing_debt_nad,
-        )?;
+        let terms = if let Some((geometry, point, direction)) =
+            self.pessimistic_explicit_curve(collateral_asset, risk, true)?
+        {
+            let impact_value = geometry
+                .quote_exact_in(point, collateral_amount_nad, direction)?
+                .amount_out;
+            let utilized = if effective_existing_debt_nad == 0 {
+                0
+            } else {
+                geometry
+                    .quote_exact_out(point, effective_existing_debt_nad, direction)?
+                    .amount_in
+            };
+            let total_value = geometry
+                .quote_exact_in(
+                    point,
+                    utilized
+                        .checked_add(collateral_amount_nad)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                    direction,
+                )?
+                .amount_out;
+            let user_max_debt = total_value.saturating_sub(effective_existing_debt_nad);
+            let base_cf_bps = if impact_value == 0 {
+                0
+            } else {
+                user_max_debt
+                    .saturating_mul(BPS_DENOMINATOR as u128)
+                    .checked_div(impact_value)
+                    .unwrap_or(0)
+            };
+            let liquidation_cf_bps = base_cf_bps.min(MAX_COLLATERAL_FACTOR_BPS as u128) as u16;
+            let max_cf_bps = ((liquidation_cf_bps as u32).saturating_mul((BPS_DENOMINATOR - LTV_BUFFER_BPS) as u32)
+                / BPS_DENOMINATOR as u32) as u16;
+            DynamicCollateralTerms {
+                max_debt_nad: impact_value
+                    .saturating_mul(max_cf_bps as u128)
+                    .checked_div(BPS_DENOMINATOR as u128)
+                    .unwrap_or(0),
+                max_cf_bps,
+                liquidation_cf_bps,
+            }
+        } else {
+            let (curve, collateral_to_debt) = self.pessimistic_risk_curve(collateral_asset, risk, true)?;
+            pessimistic_max_debt_on_curve_nad(
+                collateral_amount_nad,
+                curve,
+                collateral_to_debt,
+                effective_existing_debt_nad,
+            )?
+        };
 
         Ok(DynamicBorrowTerms {
             max_debt: denormalize_from_nad_floor(terms.max_debt_nad, self.side(debt_asset).asset_decimals)?,
@@ -451,8 +632,16 @@ impl Market {
         collateral_amount: u64,
         risk: &Risk,
     ) -> Result<u128> {
+        if collateral_amount == 0 {
+            return Ok(0);
+        }
         let collateral_amount_nad =
             normalize_to_nad(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
+        if let Some((geometry, point, direction)) = self.pessimistic_explicit_curve(collateral_asset, risk, true)? {
+            return geometry
+                .quote_exact_in(point, collateral_amount_nad, direction)
+                .map(|quote| quote.amount_out);
+        }
         let (curve, collateral_to_debt) = self.pessimistic_risk_curve(collateral_asset, risk, true)?;
         curve.exact_in(collateral_amount_nad, collateral_to_debt)
     }
@@ -463,8 +652,16 @@ impl Market {
         collateral_amount: u64,
         risk: &Risk,
     ) -> Result<u128> {
+        if collateral_amount == 0 {
+            return Ok(0);
+        }
         let collateral_amount_nad =
             normalize_to_nad(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
+        if let Some((geometry, point, direction)) = self.pessimistic_explicit_curve(collateral_asset, risk, false)? {
+            return geometry
+                .quote_exact_in(point, collateral_amount_nad, direction)
+                .map(|quote| quote.amount_out);
+        }
         let (curve, collateral_to_debt) = self.pessimistic_risk_curve(collateral_asset, risk, false)?;
         curve.exact_in(collateral_amount_nad, collateral_to_debt)
     }
@@ -512,9 +709,38 @@ impl Market {
         if projected_total_debt_nad >= debt_reserve_nad {
             return Ok((existing_total_debt_nad, 0));
         }
-        let (curve, collateral_to_debt) =
-            self.risk_curve_from_ordered_reserves(collateral_asset, risk, collateral_reserve_nad, debt_reserve_nad)?;
-        let required_collateral_nad = curve.exact_out(projected_total_debt_nad, collateral_to_debt)?;
+        let required_collateral_nad = if self.config.amm.explicit_curve_parameters()?.is_some() {
+            let geometry = self
+                .current_explicit_curve_geometry()?
+                .ok_or(ErrorCode::BrokenInvariant)?;
+            let (point, direction) = match collateral_asset {
+                MarketAsset::Base => (
+                    ExplicitCurvePoint {
+                        base_reserve: collateral_reserve_nad,
+                        quote_reserve: debt_reserve_nad,
+                    },
+                    ExplicitCurveDirection::BaseToQuote,
+                ),
+                MarketAsset::Quote => (
+                    ExplicitCurvePoint {
+                        base_reserve: debt_reserve_nad,
+                        quote_reserve: collateral_reserve_nad,
+                    },
+                    ExplicitCurveDirection::QuoteToBase,
+                ),
+            };
+            geometry
+                .quote_exact_out(point, projected_total_debt_nad, direction)?
+                .amount_in
+        } else {
+            let (curve, collateral_to_debt) = self.risk_curve_from_ordered_reserves(
+                collateral_asset,
+                risk,
+                collateral_reserve_nad,
+                debt_reserve_nad,
+            )?;
+            curve.exact_out(projected_total_debt_nad, collateral_to_debt)?
+        };
         let stored_contribution_nad = normalize_to_nad(
             aggregate_contribution as u128,
             self.side(collateral_asset).asset_decimals,
@@ -565,6 +791,12 @@ impl Market {
         risk: &Risk,
         include_directional_ema: bool,
     ) -> Result<(u128, u128)> {
+        if let Some((_, point, _)) = self.pessimistic_explicit_curve(collateral_asset, risk, include_directional_ema)? {
+            return Ok(match collateral_asset {
+                MarketAsset::Base => (point.base_reserve, point.quote_reserve),
+                MarketAsset::Quote => (point.quote_reserve, point.base_reserve),
+            });
+        }
         let request = self.risk_curve_request(collateral_asset, risk, include_directional_ema)?;
         let reserves = concentrated_risk_reserves_at_price_q(
             request.target_base_price_nad,
@@ -598,6 +830,15 @@ impl Market {
     }
 
     pub(crate) fn conservative_risk_reserve_depths(&self, risk: &Risk) -> Result<(u64, u64)> {
+        if self.config.amm.explicit_curve_parameters()?.is_some() {
+            let (base_nad, quote_nad) = self.pessimistic_virtual_reserves_nad(MarketAsset::Base, risk, true)?;
+            return Ok((
+                denormalize_from_nad_floor(base_nad, self.base_side.asset_decimals)?
+                    .min(self.curve_reserve(MarketAsset::Base)?),
+                denormalize_from_nad_floor(quote_nad, self.quote_side.asset_decimals)?
+                    .min(self.curve_reserve(MarketAsset::Quote)?),
+            ));
+        }
         let curve_reserves = self.curve_reserves_nad()?;
         let current_q_nad = if risk.cached_q_nad > 0 {
             risk.cached_q_nad
@@ -1153,9 +1394,15 @@ fn collateral_amount_for_debt_value_with_pricing(
             )
             .ok_or(ErrorCode::MarketMathOverflow)?;
             let collateral_asset = debt_asset.opposite();
-            let (curve, collateral_to_debt) = market.pessimistic_risk_curve(collateral_asset, &risk, true)?;
             let debt_amount_nad = normalize_to_nad(debt_with_penalty, market.side(debt_asset).asset_decimals)?;
-            let collateral_amount_nad = curve.exact_out(debt_amount_nad, collateral_to_debt)?;
+            let collateral_amount_nad = if let Some((geometry, point, direction)) =
+                market.pessimistic_explicit_curve(collateral_asset, &risk, true)?
+            {
+                geometry.quote_exact_out(point, debt_amount_nad, direction)?.amount_in
+            } else {
+                let (curve, collateral_to_debt) = market.pessimistic_risk_curve(collateral_asset, &risk, true)?;
+                curve.exact_out(debt_amount_nad, collateral_to_debt)?
+            };
             denormalize_from_nad_ceil(collateral_amount_nad, market.side(collateral_asset).asset_decimals)
         }
         LiquidationPricing::ReferencePrice {

@@ -412,6 +412,10 @@ impl<'info> CloseLeverage<'info> {
             receipt.quote_hlp_rebalance,
             interest_eligibility,
         )?;
+        // Inline hLP funding settlement may have credited this same vault.
+        // Refresh before measuring the position-interest transfer so the
+        // referral split cannot count the earlier hLP credit a second time.
+        ctx.accounts.debt_interest_vault.reload()?;
 
         // Pay the owner's residual and route accrued interest.
         let debt_token_program = token_program_for_mint(

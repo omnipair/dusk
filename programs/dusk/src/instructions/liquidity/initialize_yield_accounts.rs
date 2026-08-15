@@ -139,8 +139,7 @@ impl<'info> InitializeYieldAccounts<'info> {
 
         // New accounts start at current indices so they cannot claim historical yield.
         market.accrue_interest()?;
-        let contexts =
-            current_yield_contexts(market, lp_mint)?.ok_or_else(|| error!(ErrorCode::InvalidLpMintKey))?;
+        let contexts = current_yield_contexts(market, lp_mint)?.ok_or_else(|| error!(ErrorCode::InvalidLpMintKey))?;
         let base_context = contexts.items[0].ok_or_else(|| error!(ErrorCode::InvalidYieldAccount))?;
         let quote_context = contexts.items[1].ok_or_else(|| error!(ErrorCode::InvalidYieldAccount))?;
         require!(

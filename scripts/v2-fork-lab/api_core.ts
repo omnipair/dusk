@@ -2491,8 +2491,10 @@ function defaultMarketConfig() {
 
 function defaultAmmConfig() {
   return {
-    peakDepthNad: toBN(duskEnv("AMM_PEAK_DEPTH_NAD") ?? "0"),
-    fadeScaleNad: toBN(duskEnv("AMM_FADE_SCALE_NAD") ?? "0"),
+    rangeWidthNad: toBN(duskEnv("AMM_RANGE_WIDTH_NAD") ?? "0"),
+    concentratedLiquidityShareNad: toBN(
+      duskEnv("AMM_CONCENTRATED_LIQUIDITY_SHARE_NAD") ?? "0"
+    ),
     centerEmaHalfLifeMs: toBN(duskEnv("AMM_CENTER_EMA_HALF_LIFE_MS") ?? "60000"),
     volatilityHalfLifeMs: toBN(duskEnv("AMM_VOLATILITY_HALF_LIFE_MS") ?? "60000"),
     adjustmentThresholdNad: toBN(duskEnv("AMM_ADJUSTMENT_THRESHOLD_NAD") ?? "0"),
@@ -2506,7 +2508,6 @@ function defaultAmmConfig() {
     volatilityFeeCoefficientNad: toBN(
       duskEnv("AMM_VOLATILITY_FEE_COEFFICIENT_NAD") ?? "0"
     ),
-    concentrationRampDurationSlots: toBN(duskEnv("AMM_RAMP_DURATION_SLOTS") ?? "216000"),
     reserved: Array(33).fill(0),
   };
 }
@@ -4367,8 +4368,10 @@ function marketConfigPayload(marketAccount: any) {
       field(config, "borrowMarketHealthFloorBps", "borrow_market_health_floor_bps") ?? 0
     ),
     amm: {
-      peakDepthNad: stringValue(field(amm, "peakDepthNad", "peak_depth_nad")),
-      fadeScaleNad: stringValue(field(amm, "fadeScaleNad", "fade_scale_nad")),
+      rangeWidthNad: stringValue(field(amm, "rangeWidthNad", "range_width_nad")),
+      concentratedLiquidityShareNad: stringValue(
+        field(amm, "concentratedLiquidityShareNad", "concentrated_liquidity_share_nad")
+      ),
       centerEmaHalfLifeMs: stringValue(field(amm, "centerEmaHalfLifeMs", "center_ema_half_life_ms")),
       volatilityHalfLifeMs: stringValue(
         field(amm, "volatilityHalfLifeMs", "volatility_half_life_ms")
@@ -4390,7 +4393,6 @@ function marketConfigPayload(marketAccount: any) {
       volatilityFeeCoefficientNad: stringValue(
         field(amm, "volatilityFeeCoefficientNad", "volatility_fee_coefficient_nad")
       ),
-      concentrationRampDurationSlots: stringValue(field(amm, "concentrationRampDurationSlots", "concentration_ramp_duration_slots")),
       reserved: Array.from(field<number[]>(amm, "reserved") ?? []),
     },
     irm: {
@@ -5630,9 +5632,10 @@ function parameterUpdateFromBody(update: Record<string, unknown>) {
     const concentration = update.concentration as Record<string, unknown>;
     return {
       concentration: {
-        peakDepthNad: toBN(String(concentration.peakDepthNad)),
-        fadeScaleNad: toBN(String(concentration.fadeScaleNad)),
-        concentrationRampDurationSlots: toBN(String(concentration.concentrationRampDurationSlots ?? 216_000)),
+        rangeWidthNad: toBN(String(concentration.rangeWidthNad)),
+        concentratedLiquidityShareNad: toBN(
+          String(concentration.concentratedLiquidityShareNad)
+        ),
       },
     };
   }
@@ -6333,8 +6336,11 @@ function marketConfigFromBody(config: Record<string, unknown>) {
       "config.borrowMarketHealthFloorBps",
     ),
     amm: {
-      peakDepthNad: u64(amm.peakDepthNad, "config.amm.peakDepthNad"),
-      fadeScaleNad: u64(amm.fadeScaleNad, "config.amm.fadeScaleNad"),
+      rangeWidthNad: u64(amm.rangeWidthNad, "config.amm.rangeWidthNad"),
+      concentratedLiquidityShareNad: u64(
+        amm.concentratedLiquidityShareNad,
+        "config.amm.concentratedLiquidityShareNad",
+      ),
       centerEmaHalfLifeMs: u64(
         amm.centerEmaHalfLifeMs,
         "config.amm.centerEmaHalfLifeMs",
@@ -6370,10 +6376,6 @@ function marketConfigFromBody(config: Record<string, unknown>) {
       volatilityFeeCoefficientNad: u64(
         amm.volatilityFeeCoefficientNad,
         "config.amm.volatilityFeeCoefficientNad",
-      ),
-      concentrationRampDurationSlots: u64(
-        amm.concentrationRampDurationSlots,
-        "config.amm.concentrationRampDurationSlots",
       ),
       reserved,
     },

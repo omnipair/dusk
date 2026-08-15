@@ -212,6 +212,7 @@ impl<'info> DecreaseLeverage<'info> {
             receipt.quote_hlp_rebalance,
             interest_eligibility,
         )?;
+        ctx.accounts.debt_interest_vault.reload()?;
         let referral_receipt = record_leverage_interest(
             &mut ctx.accounts.market,
             debt_asset,
