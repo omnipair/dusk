@@ -37,7 +37,9 @@ yarn test-litesvm:no-build --grep "initializes a final yLP/hLP market"
   quote interest vault]`, with transfer-hook extras appended afterward.
 - Collateral deposit/withdraw and fixed debt borrow/repay.
 - Owner and delegated leverage close flows, including callback settlement.
-- hLP single-sided deposit/withdraw with aggregate vault-owned yLP and funding debt settlement.
+- hLP single-sided deposit/withdraw with aggregate vault-owned yLP, funding debt
+  settlement, reserve-backing conservation, and predictive CPMM/concentrated
+  swap settlement.
 
 The smoke coverage report is maintained in
 `tests/utils/instruction-coverage.ts`. It tracks whether each Dusk instruction

@@ -22,12 +22,16 @@ use crate::{
     },
     instructions::liquidity::record_inline_hlp_interest_credit,
     instructions::referral::accounting::{accrue_referral_interest, ReferralInterestAccrualReceipt},
-    market::{HlpRebalanceReceipt, LeverageSwapFeeCredit, LeverageSwapQuote},
+    market::{HlpRebalanceReceipt, LeverageSwapFeeCredit, LeverageSwapQuote, PreparedLeverageSwap},
     state::{FutarchyAuthority, HlpYieldEligibility, Market, MarketAsset, ReferralAccrual, ReferralPartner},
     token::{
         get_transfer_fee_for_epoch, is_fee_free_mint, token_burn, token_mint_to,
         transfer_checked_with_remaining_accounts,
     },
+};
+use crate::{
+    instructions::{PreparedSwap, SwapRequest},
+    market::liquidity::SwapCashPolicy,
 };
 
 pub const LEVERAGE_DELEGATE_CLOSE: u32 = 1 << 0;
@@ -38,6 +42,39 @@ pub const LEVERAGE_DELEGATE_DECREASE: u32 = 1 << 4;
 pub const LEVERAGE_DELEGATE_CLOSE_SETTLED: u32 = 1 << 5;
 pub const LEVERAGE_DELEGATION_APPROVAL_MAGIC: [u8; 8] = *b"OMNILVDA";
 pub const LEVERAGE_DELEGATION_APPROVAL_VERSION: u8 = 1;
+
+/// Narrows the large AMM quote to the leverage settlement payload before it
+/// returns to an instruction handler. Keeping the two identity-bound curve
+/// checkpoints inside this non-inlined frame avoids overlapping them with
+/// account-creation and token-CPI frames.
+#[inline(never)]
+pub(super) fn prepare_leverage_swap(
+    market: &mut Market,
+    request: SwapRequest,
+    cash_policy: SwapCashPolicy,
+) -> Result<PreparedLeverageSwap> {
+    let current_slot = request.current_slot;
+    let PreparedSwap {
+        quote,
+        base_pre_rebalance,
+        quote_pre_rebalance,
+        fee_eligible_ylp_supply,
+        interest_eligibility,
+        cash_policy,
+        explicit_transition,
+        ..
+    } = request.prepare_with_cash_policy(market, cash_policy)?;
+    market.observe_current_risk(current_slot)?;
+    Ok(PreparedLeverageSwap {
+        swap: LeverageSwapQuote::from_amm(quote, current_slot),
+        base_pre_rebalance,
+        quote_pre_rebalance,
+        fee_eligible_ylp_supply,
+        interest_eligibility,
+        cash_policy,
+        explicit_transition,
+    })
+}
 
 /// Validates the canonical Market PDA outside Anchor's generated account
 /// parser. Keeping the seed-array construction out of `try_accounts` avoids
@@ -459,7 +496,7 @@ pub fn leverage_collateral_credit(mint: &InterfaceAccount<Mint>, gross_amount: u
     let fee = get_transfer_fee_for_epoch(&mint.to_account_info(), gross_amount, epoch)?;
     gross_amount
         .checked_sub(fee)
-        .ok_or(ErrorCode::MarketMathOverflow.into())
+        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
 pub fn leverage_swap_fee_credit(quote: &LeverageSwapQuote) -> Result<LeverageSwapFeeCredit> {
@@ -482,6 +519,7 @@ pub fn record_leverage_interest<'info>(
     referral_partner: Option<&Account<'info, ReferralPartner>>,
     referral_accrual: Option<&mut Account<'info, ReferralAccrual>>,
     interest_paid: u64,
+    interest_eligibility: HlpYieldEligibility,
     remaining_accounts: &[AccountInfo<'info>],
 ) -> Result<ReferralInterestAccrualReceipt> {
     if interest_paid == 0 {
@@ -525,12 +563,15 @@ pub fn record_leverage_interest<'info>(
         interest_vault_credit,
         futarchy_authority.revenue_share.interest_bps,
     )?;
-    market.side_mut(debt_asset).record_interest_credit(
+    market.side_mut(debt_asset).record_interest_credit_with_supply(
         interest_vault_credit,
         futarchy_authority.revenue_share.interest_bps,
         futarchy_authority.protocol_auction_split,
         referral_receipt.quote.referral_amount,
+        interest_eligibility.ylp_supply,
     )?;
+    market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, interest_eligibility.base_hlp_ylp_shares)?;
+    market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, interest_eligibility.quote_hlp_ylp_shares)?;
     Ok(referral_receipt)
 }
 

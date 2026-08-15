@@ -97,10 +97,10 @@ pub fn handle_transfer_hook<'info>(
         mutate_program_owned_account::<Market, _, _>(&accounts[5], ErrorCode::InvalidMarket, |market| {
             require_keys_eq!(*accounts[6].key, market.base_side.asset_mint, ErrorCode::InvalidMint);
             require_keys_eq!(*accounts[7].key, market.quote_side.asset_mint, ErrorCode::InvalidMint);
-            let contexts = current_yield_contexts(market, lp_mint)?.ok_or(error!(ErrorCode::InvalidMint))?;
+            let contexts = current_yield_contexts(market, lp_mint)?.ok_or_else(|| error!(ErrorCode::InvalidMint))?;
             Ok((
-                contexts.items[0].ok_or(error!(ErrorCode::InvalidYieldAccount))?,
-                contexts.items[1].ok_or(error!(ErrorCode::InvalidYieldAccount))?,
+                contexts.items[0].ok_or_else(|| error!(ErrorCode::InvalidYieldAccount))?,
+                contexts.items[1].ok_or_else(|| error!(ErrorCode::InvalidYieldAccount))?,
             ))
         })?;
 

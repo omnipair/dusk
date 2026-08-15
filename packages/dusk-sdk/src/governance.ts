@@ -3,13 +3,10 @@ import { type PublicKey } from "@solana/web3.js";
 
 import { address, type AddressLike } from "./address.js";
 import {
-  DEFAULT_CONCENTRATION_RAMP_DURATION_SLOTS,
   GOVERNANCE_BPS_DENOMINATOR,
-  MAX_CONCENTRATION_RAMP_DURATION_SLOTS,
   MAX_PROPOSAL_DESCRIPTION_BYTES,
   MAX_PROPOSAL_DESCRIPTION_URI_BYTES,
   MAX_PROPOSAL_TITLE_BYTES,
-  MIN_CONCENTRATION_RAMP_DURATION_SLOTS,
   PARAMETER_PROPOSAL_SPONSOR_BPS,
   PARAMETER_PROPOSAL_SUPPORT_BPS,
   PROPOSAL_METADATA_VERSION,
@@ -27,10 +24,7 @@ export const MIN_IRM_CURVE_STEEPNESS_NAD = 2n * NAD;
 export const MAX_IRM_CURVE_STEEPNESS_NAD = 8n * NAD;
 export const MIN_IRM_ADJUSTMENT_SPEED_PER_YEAR = 1n;
 export const MAX_IRM_ADJUSTMENT_SPEED_PER_YEAR = 50n;
-export const MIN_CONCENTRATION_PEAK_DEPTH_NAD = 2n * NAD;
-export const MAX_CONCENTRATION_PEAK_DEPTH_NAD = 2_000n * NAD;
-export const MIN_CONCENTRATION_FADE_SCALE_NAD = 100n;
-export const MAX_CONCENTRATION_FADE_SCALE_NAD = 199_000_000n;
+export const MAX_CONCENTRATION_AMPLIFICATION_NAD = 2_000n * NAD;
 export const MAX_FEE_COEFFICIENT_NAD = 100n * NAD;
 export const MAX_VOLATILITY_ACCUMULATOR_NAD = 10n * NAD;
 export const MAX_DAILY_BORROW_BPS = 3_000;
@@ -78,9 +72,8 @@ export type ParameterUpdate =
   | { kind: "fee"; profile: FeeProfile }
   | {
       kind: "concentration";
-      peakDepthNad: BN;
-      fadeScaleNad: BN;
-      concentrationRampDurationSlots: BN;
+      rangeWidthNad: BN;
+      concentratedLiquidityShareNad: BN;
     }
   | { kind: "irm"; config: IrmConfig }
   | {
@@ -258,51 +251,40 @@ export function feeParameterUpdate(input: FeeProfileInput): ParameterUpdate {
   };
 }
 
-/** Build a concentration update, defaulting the ramp to the immutable 24-hour minimum. */
+/** Build an atomic, protected concentration update. */
 export function concentrationParameterUpdate(input: {
-  peakDepthNad: GovernanceIntegerLike;
-  fadeScaleNad: GovernanceIntegerLike;
-  concentrationRampDurationSlots?: GovernanceIntegerLike;
+  rangeWidthNad: GovernanceIntegerLike;
+  concentratedLiquidityShareNad: GovernanceIntegerLike;
 }): ParameterUpdate {
-  const peakDepthNad = toU64BigInt(input.peakDepthNad, "peakDepthNad");
-  const fadeScaleNad = toU64BigInt(input.fadeScaleNad, "fadeScaleNad");
-  const concentrationRampDurationSlots = assertRange(
-    toU64BigInt(
-      input.concentrationRampDurationSlots ?? DEFAULT_CONCENTRATION_RAMP_DURATION_SLOTS,
-      "concentrationRampDurationSlots"
-    ),
-    BigInt(MIN_CONCENTRATION_RAMP_DURATION_SLOTS),
-    BigInt(MAX_CONCENTRATION_RAMP_DURATION_SLOTS),
-    "concentrationRampDurationSlots"
+  const rangeWidthNad = toU64BigInt(input.rangeWidthNad, "rangeWidthNad");
+  const concentratedLiquidityShareNad = toU64BigInt(
+    input.concentratedLiquidityShareNad,
+    "concentratedLiquidityShareNad"
   );
-
-  if (peakDepthNad === 0n || fadeScaleNad === 0n) {
-    if (peakDepthNad !== 0n || fadeScaleNad !== 0n) {
-      throw new Error("CPMM concentration must use the exact (0, 0) endpoint");
+  if (concentratedLiquidityShareNad === 0n) {
+    if (rangeWidthNad !== 0n) {
+      throw new Error("CPMM concentration must use rangeWidthNad = 0");
     }
   } else {
-    assertRange(
-      peakDepthNad,
-      MIN_CONCENTRATION_PEAK_DEPTH_NAD,
-      MAX_CONCENTRATION_PEAK_DEPTH_NAD,
-      "peakDepthNad"
-    );
-    assertRange(
-      fadeScaleNad,
-      MIN_CONCENTRATION_FADE_SCALE_NAD,
-      MAX_CONCENTRATION_FADE_SCALE_NAD,
-      "fadeScaleNad"
-    );
-    if (fadeScaleNad > peakDepthNad * 100n) {
-      throw new Error("fadeScaleNad must not exceed peakDepthNad * 100");
+    if (rangeWidthNad <= NAD) {
+      throw new Error("rangeWidthNad must be greater than 1 NAD");
+    }
+    if (concentratedLiquidityShareNad >= NAD) {
+      throw new Error("concentratedLiquidityShareNad must be less than 1 NAD");
+    }
+    const tailShareNad = NAD - concentratedLiquidityShareNad;
+    if (
+      concentratedLiquidityShareNad * NAD >
+      MAX_CONCENTRATION_AMPLIFICATION_NAD * tailShareNad
+    ) {
+      throw new Error("concentrated liquidity exceeds the maximum amplification policy");
     }
   }
 
   return {
     kind: "concentration",
-    peakDepthNad: toBN(peakDepthNad),
-    fadeScaleNad: toBN(fadeScaleNad),
-    concentrationRampDurationSlots: toBN(concentrationRampDurationSlots),
+    rangeWidthNad: toBN(rangeWidthNad),
+    concentratedLiquidityShareNad: toBN(concentratedLiquidityShareNad),
   };
 }
 
@@ -417,9 +399,8 @@ export function anchorParameterUpdate(update: ParameterUpdate): Record<string, u
     case "concentration":
       return {
         concentration: {
-          peakDepthNad: update.peakDepthNad,
-          fadeScaleNad: update.fadeScaleNad,
-          concentrationRampDurationSlots: update.concentrationRampDurationSlots,
+          rangeWidthNad: update.rangeWidthNad,
+          concentratedLiquidityShareNad: update.concentratedLiquidityShareNad,
         },
       };
     case "irm":
@@ -448,9 +429,8 @@ export function parameterUpdateFromAnchor(value: unknown): ParameterUpdate {
   if (update.concentration !== undefined) {
     const fields = objectValue(update.concentration, "concentration update");
     return concentrationParameterUpdate({
-      peakDepthNad: integerField(fields, "peakDepthNad"),
-      fadeScaleNad: integerField(fields, "fadeScaleNad"),
-      concentrationRampDurationSlots: integerField(fields, "concentrationRampDurationSlots"),
+      rangeWidthNad: integerField(fields, "rangeWidthNad"),
+      concentratedLiquidityShareNad: integerField(fields, "concentratedLiquidityShareNad"),
     });
   }
   if (update.irm !== undefined) {
@@ -828,9 +808,8 @@ function encodeParameterUpdate(update: ParameterUpdate): Uint8Array {
     case "concentration":
       return concatBytes(
         Uint8Array.of(1),
-        encodeU64(update.peakDepthNad, "peakDepthNad"),
-        encodeU64(update.fadeScaleNad, "fadeScaleNad"),
-        encodeU64(update.concentrationRampDurationSlots, "concentrationRampDurationSlots")
+        encodeU64(update.rangeWidthNad, "rangeWidthNad"),
+        encodeU64(update.concentratedLiquidityShareNad, "concentratedLiquidityShareNad")
       );
     case "irm":
       return concatBytes(

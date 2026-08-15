@@ -32,6 +32,8 @@ mainnet launch or upgrade.
 ## 2. Security Review
 
 - Run a fresh end-to-end review against the final Dusk source tree.
+- Reconcile every new finding into `programs/dusk/AUDIT_STATUS.md`; do not infer
+  current severity from dated reports under the ignored `.audit/` directory.
 - Re-check the Dusk invariants in `programs/dusk/README.md`.
 - Re-check the Dusk Concentrated AMM, recentering, fee, and protected-liquidity specification in
   `programs/dusk/CONCENTRATION.md`.
@@ -40,8 +42,23 @@ mainnet launch or upgrade.
   conservative `Q` and the exact applied CPMM/Dusk Concentrated AMM risk
   shapes. Confirm checkpoint-frequency-independent refill at a fixed absolute
   limit, conservative-depth resizing, no repayment/exit refund, and enforcement
-  for fixed lending, isolated leverage, direct hLP funding, and automatic hLP
-  funding; it is not an exact trailing-window sum.
+  only for public lending `borrow`. Isolated leverage and direct or automatic
+  hLP funding do not consume the bucket because they do not lend cash out. It
+  is not an exact trailing-window sum.
+- Re-check active-hLP prediction on both CPMM and concentration bounds the combined deposited-asset
+  principal plus frozen public-interest claim to
+  `max(one raw target atom, 1 ppm operation-start economic NAV)` through the
+  final joint correction. Confirm funding interest is excluded from both hLP
+  claims, is sourced from the payer's burn legs (including exact target-side
+  shortfall conversion), and cannot become an additional shared-live debit.
+  Include retained surcharge and cap/fail-closed paths.
+- Treat passive interest-driven hLP insolvency and terminal loss recovery as an
+  open High finding. Do not sign off until the design is resolved or the risk
+  is explicitly accepted.
+- Reconcile reserve custody as executable cash + swap-fee custody + both
+  source-scoped hLP backing inventories. Re-run the exact 25,631-atom CPMM and
+  37,886-atom concentrated conservation regressions and the indexed
+  debt-share aggregate-funding boundary tests.
 - Re-check borrower and liquidation valuation reconstruct the same applied
   curve used by swaps at their respective pessimistic internal EMA prices.
 - Re-check the lower/upper Dusk Concentrated AMM invariant bounds, exact-in/out reserve bounds,
@@ -92,10 +109,12 @@ cargo check -p dusk --lib --features production
 cargo test -p dusk --lib --features production -- --nocapture
 anchor build -p dusk
 anchor build -p leverage_delegate
-anchor build -p dusk -- --features production
 npm run check-idl-current --prefix packages/dusk-sdk
 npm run build --prefix packages/dusk-sdk
 yarn test-litesvm
+yarn test-litesvm:release
+anchor build -p dusk -- --features production
+DUSK_EXPECT_PRODUCTION_MINT_SUFFIXES=1 yarn test-litesvm:no-build --grep "supports the hLP launch profile"
 ```
 
 The Dusk Concentrated AMM SBF swap is a mandatory gate; a native-only pass is not
@@ -129,7 +148,7 @@ typecheck gates.
 - Confirm `packages/dusk-sdk/src/constants.ts` exports the intended Dusk
   program ID and PDA helpers.
 - Confirm yLP and hLP Token-2022 mint constraints remain represented in both
-  code and IDL-visible account flows.
+  code and IDL-visible account flows, including live hLP entry and withdrawal.
 - Confirm the generated interface contains `initialize_yield_accounts`,
   `initialize_lp_transfer_hook`, and all five parameter-proposal instructions;
   `YieldAccount` contains `lp_mint`,
@@ -153,6 +172,8 @@ typecheck gates.
 
 ## 6. Mainnet Deployment
 
+- Dusk is pre-deployment. Confirm the reviewed artifact still targets fresh
+  layout-v1 market genesis; migration/import behavior is outside this release.
 - Confirm repository variable `DUSK_RELEASES_ENABLED=true` is intentionally set
   for the approved release window before publishing release artifacts.
 - Confirm repository variable `DUSK_MAINNET_BUFFER_DEPLOYS_ENABLED=true` is
@@ -196,5 +217,5 @@ target/types/dusk.ts
 - Confirm the app, SDK, and indexers are using the deployed Dusk program ID.
 - Smoke-test market initialization, add/remove liquidity, swap, borrow/repay,
   liquidation rejection while healthy, yield claims, protocol fee claims,
-  hLP open/close, and the full direct-yLP proposal lifecycle on the target
+  hLP entry/exit, and the full direct-yLP proposal lifecycle on the target
   cluster.

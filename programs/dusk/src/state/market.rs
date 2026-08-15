@@ -17,7 +17,7 @@ use crate::market::{HlpRebalanceReceipt, SwapFeeBreakdown};
 use rebalance::{
     checkpoint_hlp_yield_from_ylp, checkpoint_one_hlp_with_prices, checkpoint_pre_solve_fee_eligibility,
     combine_hlp_rebalance_receipts, current_hlp_curve_prices, current_hlp_entry_state_with_prices,
-    empty_hlp_rebalance_receipt, rebalance_one_hlp,
+    rebalance_hlps_after_swap_joint, require_hlp_end_to_end_tracking,
 };
 
 /// Extra marginal-depth multiplier at the balanced center, NAD-scaled.
@@ -41,7 +41,7 @@ pub const MAX_AMM_ADJUSTMENT_INTERVAL_SLOTS: u64 = 216_000;
 ///
 /// Keep this wire-carried reserve compact: the complete `MarketConfig` is also
 /// an initialize/update instruction argument, and 64 bytes made the
-/// initialize transaction exceed Solana's 1,232-byte limit. Layout v2 keeps
+/// initialize transaction exceed Solana's 1,232-byte limit. Layout v1 keeps
 /// this 33-byte wire reserve for future configuration fields. One reserve byte
 /// stores the account-only curve-math revision below; because `AmmConfig` is
 /// embedded twice, this keeps `Market` from growing.
@@ -61,7 +61,7 @@ pub const AMM_DEFERRED_CONTROLLER_TARGET_BYTES: usize = core::mem::size_of::<u8>
     + 2 * core::mem::size_of::<u64>()
     + 4 * core::mem::size_of::<u128>()
     + core::mem::size_of::<bool>();
-/// Layout v2 materializes the parameter-bound concentration geometry,
+/// Layout v1 materializes the parameter-bound concentration geometry,
 /// retained-funding marker, and deferred controller target as concrete state.
 /// Pessimistic lending shapes are intentionally reconstructed only by
 /// risk-sensitive operations instead of being persisted in every market.
@@ -77,11 +77,12 @@ pub const PROTECTED_LIQUIDITY_GUARD_BPS: u16 = 1;
 pub const PROTECTED_LIQUIDITY_CAP_BPS: u16 = 100;
 pub const PROTECTED_LIQUIDITY_HYSTERESIS_BPS: u16 = 1_000;
 
-/// AMM controls. `peak_depth_nad == 0 && fade_scale_nad == 0` selects CPMM.
+/// AMM controls. A zero concentrated-liquidity share selects the full-range
+/// CPMM branch of the same explicit implementation.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
 pub struct AmmConfig {
-    pub peak_depth_nad: u64,
-    pub fade_scale_nad: u64,
+    pub range_width_nad: u64,
+    pub concentrated_liquidity_share_nad: u64,
     pub center_ema_half_life_ms: u64,
     pub volatility_half_life_ms: u64,
     pub adjustment_threshold_nad: u64,
@@ -91,15 +92,14 @@ pub struct AmmConfig {
     pub volatility_cap_nad: u64,
     pub divergence_fee_coefficient_nad: u64,
     pub volatility_fee_coefficient_nad: u64,
-    pub concentration_ramp_duration_slots: u64,
     pub reserved: [u8; AMM_CONFIG_RESERVED_BYTES],
 }
 
 impl Default for AmmConfig {
     fn default() -> Self {
         Self {
-            peak_depth_nad: 0,
-            fade_scale_nad: 0,
+            range_width_nad: 0,
+            concentrated_liquidity_share_nad: 0,
             center_ema_half_life_ms: MIN_HALF_LIFE_MS,
             volatility_half_life_ms: MIN_HALF_LIFE_MS,
             adjustment_threshold_nad: 0,
@@ -109,7 +109,6 @@ impl Default for AmmConfig {
             volatility_cap_nad: 0,
             divergence_fee_coefficient_nad: 0,
             volatility_fee_coefficient_nad: 0,
-            concentration_ramp_duration_slots: MIN_CONCENTRATION_RAMP_DURATION_SLOTS,
             reserved: [0; AMM_CONFIG_RESERVED_BYTES],
         }
     }
@@ -188,18 +187,38 @@ impl ConcentrationParameters {
 
 impl AmmConfig {
     pub const fn curve_parameters(&self) -> ConcentrationParameters {
-        ConcentrationParameters {
-            peak_depth_nad: self.peak_depth_nad,
-            fade_scale_nad: self.fade_scale_nad,
-        }
+        ConcentrationParameters::cpmm()
     }
 
     pub const fn is_cpmm(&self) -> bool {
-        self.peak_depth_nad == 0
+        self.concentrated_liquidity_share_nad == 0
+    }
+
+    /// Typed view of the one production curve configuration. CPMM is the
+    /// explicit curve with zero concentrated liquidity.
+    pub fn explicit_curve_parameters(&self) -> Result<Option<ExplicitCurveParameters>> {
+        require!(
+            self.reserved.iter().all(|byte| *byte == 0),
+            ErrorCode::InvalidMarketConfig
+        );
+        let parameters = ExplicitCurveParameters {
+            range_width_nad: self.range_width_nad,
+            concentrated_liquidity_share_nad: self.concentrated_liquidity_share_nad,
+        };
+        parameters.validate(MAX_AMM_PEAK_DEPTH_NAD)?;
+        Ok(Some(parameters))
+    }
+
+    pub fn set_explicit_curve_parameters(&mut self, parameters: ExplicitCurveParameters) -> Result<()> {
+        parameters.validate(MAX_AMM_PEAK_DEPTH_NAD)?;
+        self.range_width_nad = parameters.range_width_nad;
+        self.concentrated_liquidity_share_nad = parameters.concentrated_liquidity_share_nad;
+        self.reserved = [0; AMM_CONFIG_RESERVED_BYTES];
+        Ok(())
     }
 
     pub fn validate(&self) -> Result<()> {
-        self.curve_parameters().validate_endpoint()?;
+        self.explicit_curve_parameters()?;
         require!(
             (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(&self.center_ema_half_life_ms)
                 && (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(&self.volatility_half_life_ms),
@@ -233,15 +252,6 @@ impl AmmConfig {
         require!(
             self.divergence_fee_coefficient_nad <= MAX_AMM_FEE_COEFFICIENT_NAD
                 && self.volatility_fee_coefficient_nad <= MAX_AMM_FEE_COEFFICIENT_NAD,
-            ErrorCode::InvalidMarketConfig
-        );
-        require!(
-            (MIN_CONCENTRATION_RAMP_DURATION_SLOTS..=MAX_CONCENTRATION_RAMP_DURATION_SLOTS)
-                .contains(&self.concentration_ramp_duration_slots),
-            ErrorCode::InvalidMarketConfig
-        );
-        require!(
-            self.reserved.iter().all(|byte| *byte == 0),
             ErrorCode::InvalidMarketConfig
         );
         Ok(())
@@ -376,6 +386,9 @@ pub struct AmmState {
     /// all-zero cache. Only initialization or an admitted parameter change may
     /// replace it; center and reserve changes reuse it unchanged.
     pub concentrated_geometry_cache: ConcentratedGeometryCache,
+    /// Explicit CPMM-tail/band geometry. Nonzero only for layout-v1 explicit
+    /// curve configuration; the legacy cache is removed after caller cutover.
+    pub explicit_curve_cache: ExplicitCurveCache,
     pub center_price_nad: u64,
     pub price_ema_nad: u64,
     pub last_trade_price_nad: u64,
@@ -399,15 +412,16 @@ pub struct AmmState {
     /// Maximum protected principal one controller target may request/spend.
     /// It does not clip divergence or volatility surcharge amounts.
     pub retention_hard_cap_nad: u128,
-    /// When true, dynamic surcharge is reserve principal; when false, the
-    /// identical trader charge is routed to claimable yLP fee accounting.
+    /// When true, dynamic surcharge is locked in the non-quoteable protected
+    /// recenter bucket; when false, the identical trader charge is routed to
+    /// claimable yLP fee accounting.
     pub retain_dynamic_surcharge: bool,
     /// The requested protection target exceeded its principal-budget cap.
     pub retention_target_saturated: bool,
     pub concentration_ramp: ConcentrationRamp,
-    /// Retained surcharge changed executable inventory after the last exact
-    /// forward-target solve. While stale, retention stays on until a decision
-    /// point refreshes the target or executes a funded recenter.
+    /// The protected bucket changed after the last exact forward-target solve.
+    /// While stale, retention stays on until a decision point refreshes the
+    /// target or executes a funded recenter.
     pub retention_target_stale: bool,
     /// Exact unfunded controller target retried by later real operations.
     pub deferred_controller_target: DeferredControllerTarget,
@@ -420,6 +434,7 @@ impl Default for AmmState {
             initialized: false,
             applied_curve_parameters: ConcentrationParameters::cpmm(),
             concentrated_geometry_cache: ConcentratedGeometryCache::default(),
+            explicit_curve_cache: ExplicitCurveCache::default(),
             center_price_nad: 0,
             price_ema_nad: 0,
             last_trade_price_nad: 0,
@@ -467,6 +482,7 @@ impl AmmState {
             initialized: true,
             applied_curve_parameters,
             concentrated_geometry_cache,
+            explicit_curve_cache: ExplicitCurveCache::default(),
             center_price_nad: initial_price_nad,
             price_ema_nad: initial_price_nad,
             last_trade_price_nad: initial_price_nad,
@@ -585,7 +601,7 @@ impl AmmState {
             old_parameters,
             config.curve_parameters(),
             current_slot,
-            config.concentration_ramp_duration_slots,
+            MIN_CONCENTRATION_RAMP_DURATION_SLOTS,
         )?;
         self.last_concentration_ramp_update_slot = current_slot;
         self.invalidate_deferred_controller_target();
@@ -809,6 +825,41 @@ impl AmmState {
         require_gte!(current_slot, earliest_adjustment_slot, ErrorCode::InvalidArgument);
         self.center_price_nad = new_center_price_nad;
         self.commit_invariant(new_invariant_d_nad)?;
+        self.last_adjustment_slot = current_slot;
+        self.checkpoint_recenter_or_loss(new_q_per_share_nad);
+        Ok(())
+    }
+
+    pub(crate) fn commit_explicit_recenter(
+        &mut self,
+        config: &AmmConfig,
+        new_center_price_nad: u64,
+        new_cache: ExplicitCurveCache,
+        new_q_per_share_nad: u128,
+        covered_actual_impairment_nad: u128,
+        current_slot: u64,
+    ) -> Result<()> {
+        config.validate()?;
+        require!(new_center_price_nad > 0, ErrorCode::InvalidSettlementPrice);
+        new_cache.geometry()?;
+        require!(
+            self.recenter_is_funded(covered_actual_impairment_nad),
+            ErrorCode::BrokenInvariant
+        );
+        let actual_impairment_nad = self.q_per_share_nad.saturating_sub(new_q_per_share_nad);
+        require_gte!(
+            covered_actual_impairment_nad,
+            actual_impairment_nad,
+            ErrorCode::BrokenInvariant
+        );
+        let earliest_adjustment_slot = self
+            .last_adjustment_slot
+            .checked_add(config.min_adjustment_interval_slots)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        require_gte!(current_slot, earliest_adjustment_slot, ErrorCode::InvalidArgument);
+        self.center_price_nad = new_center_price_nad;
+        self.explicit_curve_cache = new_cache;
+        self.clear_invariant();
         self.last_adjustment_slot = current_slot;
         self.checkpoint_recenter_or_loss(new_q_per_share_nad);
         Ok(())
@@ -1106,6 +1157,7 @@ pub struct DebtClearance {
     pub principal_paid: u64,
     pub interest_paid: u64,
     pub remaining_debt: u64,
+    pub(crate) position_principal_reduced: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1120,7 +1172,7 @@ impl DebtClearance {
     pub fn live_debit_for_cash_repay(&self) -> Result<u64> {
         self.aggregate_debt_reduced
             .checked_sub(self.principal_paid)
-            .ok_or(ErrorCode::MarketMathOverflow.into())
+            .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
     }
 }
 
@@ -1141,7 +1193,7 @@ impl Debt {
                 .ok_or(ErrorCode::MarketMathOverflow)?,
             borrow_index_nad,
         )
-        .ok_or(ErrorCode::MarketMathOverflow.into())
+        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
     }
 
     pub fn shares_to_debt(shares: u128, borrow_index_nad: u128) -> Result<u128> {
@@ -1153,7 +1205,7 @@ impl Debt {
         shares
             .checked_mul(borrow_index_nad)
             .and_then(|value| value.checked_div(NAD as u128))
-            .ok_or(ErrorCode::MarketMathOverflow.into())
+            .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
     }
 
     /// Returns the maximum share burn whose canonical aggregate debt delta is
@@ -1333,71 +1385,105 @@ impl Debt {
         position_principal: &mut u128,
         max_repay_amount: u64,
     ) -> Result<DebtClearance> {
-        let repayment = self.isolated_repayment_for_max(asset, *position_shares, max_repay_amount)?;
-        let shares_burned = repayment.shares_to_burn;
-        let current_debt_u128 = Self::shares_to_debt(*position_shares, self.borrow_index(asset))?;
+        let clearance =
+            self.isolated_clearance_for_max(asset, *position_shares, *position_principal, max_repay_amount)?;
         let remaining_shares = position_shares
-            .checked_sub(shares_burned)
+            .checked_sub(clearance.shares_burned)
             .ok_or(ErrorCode::DebtShareMathOverflow)?;
-        let remaining_debt = repayment.remaining_position_debt;
-        let debt_reduced = repayment.position_debt_reduced;
-
-        let aggregate_shares_before = match asset {
-            MarketAsset::Base => self.isolated_base_shares,
-            MarketAsset::Quote => self.isolated_quote_shares,
-        };
-        let aggregate_debt_before = Self::shares_to_debt(aggregate_shares_before, self.borrow_index(asset))?;
-        let aggregate_debt_reduced = repayment.cash_repaid;
-
         let (aggregate_shares, aggregate_principal) = match asset {
             MarketAsset::Base => (&mut self.isolated_base_shares, &mut self.isolated_base_principal),
             MarketAsset::Quote => (&mut self.isolated_quote_shares, &mut self.isolated_quote_principal),
         };
-        let position_principal_raw = u64::try_from(*position_principal).map_err(|_| ErrorCode::DebtMathOverflow)?;
-        require_gte!(
-            *aggregate_principal,
-            position_principal_raw,
-            ErrorCode::DebtMathOverflow
-        );
-        let position_principal_before = (*position_principal).min(current_debt_u128);
-        let (position_principal_reduced, _) =
-            crate::math::realized_interest_split(debt_reduced, current_debt_u128, position_principal_before)?;
-        let aggregate_principal_before = u128::from(*aggregate_principal).min(aggregate_debt_before);
-        let (principal_paid, interest_paid) = crate::math::realized_interest_split(
-            aggregate_debt_reduced,
-            aggregate_debt_before,
-            aggregate_principal_before,
-        )?;
         *position_shares = remaining_shares;
         *aggregate_shares = aggregate_shares
-            .checked_sub(shares_burned)
+            .checked_sub(clearance.shares_burned)
             .ok_or(ErrorCode::DebtShareMathOverflow)?;
         *position_principal = position_principal
-            .checked_sub(position_principal_reduced as u128)
+            .checked_sub(clearance.position_principal_reduced as u128)
             .ok_or(ErrorCode::DebtMathOverflow)?;
-        // Aggregate isolated principal is the exact sum of its position
-        // principals. The canonical aggregate cash delta can have a different
-        // floor phase from the position-local debt delta, so `principal_paid`
-        // remains the cash/interest classification but must not mutate this
-        // ownership ledger.
         *aggregate_principal = aggregate_principal
-            .checked_sub(position_principal_reduced)
+            .checked_sub(clearance.position_principal_reduced)
             .ok_or(ErrorCode::DebtMathOverflow)?;
         if *position_shares == 0 {
+            require_eq!(*position_principal, 0, ErrorCode::BrokenInvariant);
             *position_principal = 0;
         }
         if *aggregate_shares == 0 {
+            require_eq!(*aggregate_principal, 0, ErrorCode::BrokenInvariant);
             *aggregate_principal = 0;
         }
+        Ok(clearance)
+    }
+
+    pub(crate) fn isolated_clearance_for_max(
+        &self,
+        asset: MarketAsset,
+        position_shares: u128,
+        position_principal: u128,
+        max_repay_amount: u64,
+    ) -> Result<DebtClearance> {
+        let repayment = self.isolated_repayment_for_max(asset, position_shares, max_repay_amount)?;
+        let borrow_index_nad = self.borrow_index(asset);
+        let position_debt = Self::shares_to_debt(position_shares, borrow_index_nad)?;
+        let aggregate_shares = match asset {
+            MarketAsset::Base => self.isolated_base_shares,
+            MarketAsset::Quote => self.isolated_quote_shares,
+        };
+        let aggregate_principal = match asset {
+            MarketAsset::Base => self.isolated_base_principal,
+            MarketAsset::Quote => self.isolated_quote_principal,
+        };
+        let position_principal_raw = u64::try_from(position_principal).map_err(|_| ErrorCode::DebtMathOverflow)?;
+        require_gte!(aggregate_principal, position_principal_raw, ErrorCode::DebtMathOverflow);
+        let (position_principal_reduced, _) = crate::math::realized_interest_split(
+            repayment.position_debt_reduced,
+            position_debt,
+            position_principal.min(position_debt),
+        )?;
+        let aggregate_debt_before = Self::shares_to_debt(aggregate_shares, borrow_index_nad)?;
+        let aggregate_debt_after = aggregate_debt_before
+            .checked_sub(repayment.cash_repaid as u128)
+            .ok_or(ErrorCode::DebtMathOverflow)?;
+        let aggregate_principal_after = aggregate_principal
+            .checked_sub(position_principal_reduced)
+            .ok_or(ErrorCode::DebtMathOverflow)?;
+        let aggregate_interest_before = aggregate_debt_before
+            .checked_sub(u128::from(aggregate_principal).min(aggregate_debt_before))
+            .ok_or(ErrorCode::DebtMathOverflow)?;
+        let aggregate_interest_after = aggregate_debt_after
+            .checked_sub(u128::from(aggregate_principal_after).min(aggregate_debt_after))
+            .ok_or(ErrorCode::DebtMathOverflow)?;
+        // Only a positive reduction in the exact aggregate unrealized-interest
+        // coordinate leaves executable principal unchanged. A one-atom floor
+        // phase may instead increase that coordinate; classify that atom as
+        // principal so split repayments keep the curve delta conservative.
+        require!(
+            aggregate_interest_after
+                <= aggregate_interest_before
+                    .checked_add(1)
+                    .ok_or(ErrorCode::DebtMathOverflow)?,
+            ErrorCode::BrokenInvariant
+        );
+        let interest_paid = u64::try_from(
+            aggregate_interest_before
+                .checked_sub(aggregate_interest_after)
+                .unwrap_or(0),
+        )
+        .map_err(|_| ErrorCode::DebtMathOverflow)?;
+        let principal_paid = repayment
+            .cash_repaid
+            .checked_sub(interest_paid)
+            .ok_or(ErrorCode::DebtMathOverflow)?;
 
         Ok(DebtClearance {
-            shares_burned,
+            shares_burned: repayment.shares_to_burn,
             cash_repaid: repayment.cash_repaid,
-            debt_reduced,
-            aggregate_debt_reduced,
+            debt_reduced: repayment.position_debt_reduced,
+            aggregate_debt_reduced: repayment.cash_repaid,
             principal_paid,
             interest_paid,
-            remaining_debt,
+            remaining_debt: repayment.remaining_position_debt,
+            position_principal_reduced,
         })
     }
 
@@ -1540,6 +1626,11 @@ pub struct Fees {
     pub swap_fee_growth_remainder_scaled: u64,
     /// Interest counterpart of `swap_fee_growth_remainder_scaled`.
     pub interest_growth_remainder_scaled: u64,
+    /// Source-scoped Q64 carry for interest paid by hLP funding debt. Funding
+    /// uses a non-hLP denominator, while public interest uses total yLP
+    /// supply; sharing one carry across those denominators would eventually
+    /// leak rounding entitlement between the two populations.
+    pub hlp_funding_interest_growth_remainder_scaled: u64,
     /// Claimable swap fees physically held in the reserve vault but excluded
     /// from executable cash and live reserves.
     pub swap_fee_custody_balance: u64,
@@ -1703,7 +1794,7 @@ impl Fees {
             .and_then(|value| value.checked_add(self.interest_protocol_fee_liability))
             .and_then(|value| value.checked_add(self.interest_buyback_fee_liability))
             .and_then(|value| value.checked_add(self.referral_interest_liability))
-            .ok_or(ErrorCode::MarketMathOverflow.into())
+            .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
     }
 
     pub fn assert_backed(&self) -> Result<()> {
@@ -1794,26 +1885,49 @@ impl Fees {
     pub fn protocol_fee_liability(&self) -> Result<u64> {
         self.swap_protocol_fee_liability
             .checked_add(self.interest_protocol_fee_liability)
-            .ok_or(ErrorCode::MarketMathOverflow.into())
+            .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
     }
 
     pub fn buyback_fee_liability(&self) -> Result<u64> {
         self.swap_buyback_fee_liability
             .checked_add(self.interest_buyback_fee_liability)
-            .ok_or(ErrorCode::MarketMathOverflow.into())
+            .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
     }
 }
 
 /// LP ownership frozen before an operation may mint or burn vault-owned yLP.
-/// Any hLP debt interest realized by that operation was accrued by debt that
-/// existed at this snapshot; newly borrowed principal at the same debt index
-/// cannot create interest. Inline settlement therefore uses these balances,
-/// never post-rebalance supply, when publishing the eventual vault credit.
+/// Funding entitlement is deliberately payment-time: ordinary yLP present at
+/// this snapshot participates even if the debt accrued earlier, while a holder
+/// that exited before the snapshot does not. Newly borrowed principal at the
+/// same debt index cannot create interest. Inline settlement uses this
+/// partition to prove that ordinary-plus-burned-MIN supply was conserved
+/// across hLP rebalancing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct HlpYieldEligibility {
     pub ylp_supply: u64,
     pub base_hlp_ylp_shares: u64,
     pub quote_hlp_ylp_shares: u64,
+}
+
+impl HlpYieldEligibility {
+    /// yLP supply eligible for interest paid by an hLP funding position.
+    ///
+    /// Both hLP vault balances are excluded. The permanently burned
+    /// `MIN_LIQUIDITY` shares remain in this denominator, so funding interest
+    /// has a deterministic sink when no ordinary yLP holder exists and cannot
+    /// be captured by a later deposit.
+    pub fn non_hlp_ylp_supply(self) -> Result<u64> {
+        let hlp_ylp_shares = self
+            .base_hlp_ylp_shares
+            .checked_add(self.quote_hlp_ylp_shares)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let supply = self
+            .ylp_supply
+            .checked_sub(hlp_ylp_shares)
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        require_gte!(supply, MIN_LIQUIDITY, ErrorCode::BrokenInvariant);
+        Ok(supply)
+    }
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
@@ -1973,6 +2087,7 @@ impl HlpVault {
             principal_paid,
             interest_paid,
             remaining_debt,
+            position_principal_reduced: principal_paid,
         })
     }
 
@@ -2168,24 +2283,6 @@ impl Market {
         Ok(())
     }
 
-    pub(crate) fn pre_solve_hlp_for_swap(
-        &mut self,
-        target_asset: MarketAsset,
-        asset_in: MarketAsset,
-        amount_in_for_quote: u64,
-        reserve_input_credit: u64,
-        current_slot: u64,
-    ) -> Result<HlpRebalanceReceipt> {
-        rebalance::pre_solve_one_hlp_for_swap(
-            self,
-            target_asset,
-            asset_in,
-            amount_in_for_quote,
-            reserve_input_credit,
-            current_slot,
-        )
-    }
-
     pub fn require_residual_hlp_swap_safety(
         &self,
         start_base_price_nad: u128,
@@ -2230,30 +2327,26 @@ impl Market {
         Ok((base_delta, quote_delta))
     }
 
-    pub fn finalize_hlp_vaults_for_swap(
+    pub(crate) fn finalize_hlp_vaults_for_swap(
         &mut self,
         base_pre_rebalance: HlpRebalanceReceipt,
         quote_pre_rebalance: HlpRebalanceReceipt,
         current_slot: u64,
-    ) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
+        _concentrated_start_price_nad: Option<u64>,
+    ) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt, Option<ConcentratedEvaluation>)> {
         checkpoint_pre_solve_fee_eligibility(self, &base_pre_rebalance)?;
         checkpoint_pre_solve_fee_eligibility(self, &quote_pre_rebalance)?;
-        // A swap moves both numeraires. Correct each active side explicitly so
-        // neither vault carries avoidable delta into the next user operation.
-        let base_post_rebalance = if self.base_hlp_vault.hlp_supply > 0 || self.base_hlp_vault.residual_exposure != 0 {
-            rebalance_one_hlp(self, MarketAsset::Base, current_slot)?
-        } else {
-            empty_hlp_rebalance_receipt(MarketAsset::Base)
-        };
-        let quote_post_rebalance = if self.quote_hlp_vault.hlp_supply > 0 || self.quote_hlp_vault.residual_exposure != 0
-        {
-            rebalance_one_hlp(self, MarketAsset::Quote, current_slot)?
-        } else {
-            empty_hlp_rebalance_receipt(MarketAsset::Quote)
-        };
+        // Both hLP numeraires are valued from one actual post-trade state
+        // before either mutates shared yLP supply. This ordering is required
+        // for CPMM and concentrated curves alike.
+        let (base_post_rebalance, quote_post_rebalance, concentrated_evaluation, final_prices, _, _) =
+            rebalance_hlps_after_swap_joint(self, current_slot, None)?;
+        require_hlp_end_to_end_tracking(self, base_pre_rebalance, final_prices)?;
+        require_hlp_end_to_end_tracking(self, quote_pre_rebalance, final_prices)?;
         Ok((
             combine_hlp_rebalance_receipts(base_pre_rebalance, base_post_rebalance)?,
             combine_hlp_rebalance_receipts(quote_pre_rebalance, quote_post_rebalance)?,
+            concentrated_evaluation,
         ))
     }
 
@@ -2621,22 +2714,16 @@ impl Market {
                 );
             }
             MarketParameterUpdate::Concentration {
-                peak_depth_nad,
-                fade_scale_nad,
-                concentration_ramp_duration_slots,
+                range_width_nad,
+                concentrated_liquidity_share_nad,
             } => {
-                let target = ConcentrationParameters {
-                    peak_depth_nad: *peak_depth_nad,
-                    fade_scale_nad: *fade_scale_nad,
+                let target = ExplicitCurveParameters {
+                    range_width_nad: *range_width_nad,
+                    concentrated_liquidity_share_nad: *concentrated_liquidity_share_nad,
                 };
-                target.validate_endpoint()?;
+                target.validate(MAX_AMM_PEAK_DEPTH_NAD)?;
                 require!(
-                    (MIN_CONCENTRATION_RAMP_DURATION_SLOTS..=MAX_CONCENTRATION_RAMP_DURATION_SLOTS)
-                        .contains(concentration_ramp_duration_slots),
-                    ErrorCode::InvalidParameterUpdate
-                );
-                require!(
-                    self.config.amm.curve_parameters() != target,
+                    self.config.amm.explicit_curve_parameters()? != Some(target),
                     ErrorCode::ParameterUpdateNotMeaningful
                 );
             }
@@ -2685,7 +2772,6 @@ impl Market {
     pub fn execute_parameter_update(&mut self, update: &MarketParameterUpdate, current_slot: u64) -> Result<()> {
         self.assert_current_version()?;
         self.validate_parameter_update(update)?;
-
         let previous_config = self.config;
         let previous_base_side = self.base_side;
         let previous_quote_side = self.quote_side;
@@ -2718,20 +2804,18 @@ impl Market {
                     }
                 }
                 MarketParameterUpdate::Concentration {
-                    peak_depth_nad,
-                    fade_scale_nad,
-                    concentration_ramp_duration_slots,
+                    range_width_nad,
+                    concentrated_liquidity_share_nad,
                 } => {
-                    let applied = self.amm.effective_curve_parameters(&previous_config.amm, current_slot);
                     let mut next = self.config;
-                    next.amm.peak_depth_nad = *peak_depth_nad;
-                    next.amm.fade_scale_nad = *fade_scale_nad;
-                    next.amm.concentration_ramp_duration_slots = *concentration_ramp_duration_slots;
+                    next.amm.set_explicit_curve_parameters(ExplicitCurveParameters {
+                        range_width_nad: *range_width_nad,
+                        concentrated_liquidity_share_nad: *concentrated_liquidity_share_nad,
+                    })?;
                     next.validate()?;
                     self.config = next;
                     if self.amm.initialized {
-                        self.amm
-                            .start_concentration_ramp(applied, &self.config.amm, current_slot)?;
+                        self.apply_explicit_curve_parameter_update(current_slot)?;
                     }
                 }
                 MarketParameterUpdate::Irm(irm) => {
@@ -3132,7 +3216,7 @@ impl Market {
         aggregate_contribution
             .checked_sub(position_contribution)
             .and_then(|value| value.checked_add(target_contribution))
-            .ok_or(ErrorCode::MarketMathOverflow.into())
+            .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
     }
 
     pub(crate) fn reconcile_global_health_contribution(
@@ -3417,6 +3501,26 @@ impl Market {
         self.base_side.assert_share_backing()?;
         self.quote_side.assert_share_backing()?;
 
+        // The instruction checkpoints the departing holder before this burn.
+        // Once only the permanently burned minimum remains outside the two
+        // hLP vaults, discard source-specific funding dust so a later yLP
+        // cohort cannot inherit a fraction left by the prior cohort.
+        let hlp_ylp_shares = self
+            .base_hlp_vault
+            .ylp_shares
+            .checked_add(self.quote_hlp_vault.ylp_shares)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let non_hlp_ylp_supply = self
+            .base_side
+            .shares
+            .ylp_supply
+            .checked_sub(hlp_ylp_shares)
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        if non_hlp_ylp_supply == MIN_LIQUIDITY {
+            self.base_side.fees.hlp_funding_interest_growth_remainder_scaled = 0;
+            self.quote_side.fees.hlp_funding_interest_growth_remainder_scaled = 0;
+        }
+
         Ok(RemoveLiquidityReceipt {
             ylp_amount,
             base_amount_out,
@@ -3555,6 +3659,30 @@ impl Market {
         self.quote_side.assert_share_backing()?;
         self.base_side.fees.assert_backed()?;
         self.quote_side.fees.assert_backed()?;
+        if self.base_hlp_vault.hlp_supply == 0 {
+            require_eq!(
+                self.base_side.reserves.base_hlp_backing_inventory,
+                0,
+                ErrorCode::BrokenInvariant
+            );
+            require_eq!(
+                self.quote_side.reserves.base_hlp_backing_inventory,
+                0,
+                ErrorCode::BrokenInvariant
+            );
+        }
+        if self.quote_hlp_vault.hlp_supply == 0 {
+            require_eq!(
+                self.base_side.reserves.quote_hlp_backing_inventory,
+                0,
+                ErrorCode::BrokenInvariant
+            );
+            require_eq!(
+                self.quote_side.reserves.quote_hlp_backing_inventory,
+                0,
+                ErrorCode::BrokenInvariant
+            );
+        }
         self.assert_virtual_reserve_invariant(MarketAsset::Base)?;
         self.assert_virtual_reserve_invariant(MarketAsset::Quote)?;
         Ok(())
@@ -3594,7 +3722,43 @@ impl Market {
     pub fn hlp_live_reserve(&self, asset: MarketAsset) -> Result<u128> {
         (self.base_hlp_vault.hlp_live_reserve(asset) as u128)
             .checked_add(self.quote_hlp_vault.hlp_live_reserve(asset) as u128)
-            .ok_or(ErrorCode::MarketMathOverflow.into())
+            .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+    }
+
+    /// Indexed aggregate hLP funding debt denominated in `asset`. Base debt is
+    /// carried by the quote hLP vault and quote debt by the base hLP vault.
+    pub fn hlp_funding_debt(&self, asset: MarketAsset) -> Result<u128> {
+        match asset {
+            MarketAsset::Base => {
+                Debt::shares_to_debt(self.quote_hlp_vault.debt_shares, self.debt.base_borrow_index_nad)
+            }
+            MarketAsset::Quote => {
+                Debt::shares_to_debt(self.base_hlp_vault.debt_shares, self.debt.quote_borrow_index_nad)
+            }
+        }
+    }
+
+    /// Admission-only capacity for new hLP funding. Existing hLP debt does not
+    /// reserve cash from ordinary withdrawals, borrows, or liquidations.
+    pub fn hlp_funding_headroom(&self, asset: MarketAsset) -> Result<u64> {
+        let (debt_shares, borrow_index_nad) = match asset {
+            MarketAsset::Base => (self.quote_hlp_vault.debt_shares, self.debt.base_borrow_index_nad),
+            MarketAsset::Quote => (self.base_hlp_vault.debt_shares, self.debt.quote_borrow_index_nad),
+        };
+        let cash = self.side(asset).reserves.cash_reserve as u128;
+        // Debt conversion floors total shares. Solve the largest total share
+        // count whose converted debt remains <= cash; subtracting floored raw
+        // debt would overstate capacity when the next borrow rounds shares up.
+        let max_total_shares = mul_div_ceil_u128(
+            cash.checked_add(1).ok_or(ErrorCode::MarketMathOverflow)?,
+            NAD as u128,
+            borrow_index_nad,
+        )?
+        .checked_sub(1)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+        let available_shares = max_total_shares.saturating_sub(debt_shares);
+        let headroom = mul_div_u128(available_shares, borrow_index_nad, NAD as u128)?;
+        u64::try_from(headroom).map_err(|_| ErrorCode::MarketMathOverflow.into())
     }
 
     /// Point-in-time lending utilization used by both the IRM and parameter
@@ -3606,14 +3770,7 @@ impl Market {
             MarketAsset::Quote => self.debt.fixed_quote_debt()?,
         };
         let isolated_debt = self.debt.isolated_debt(asset)?;
-        let hlp_funding_debt = match asset {
-            MarketAsset::Base => {
-                Debt::shares_to_debt(self.quote_hlp_vault.debt_shares, self.debt.base_borrow_index_nad)?
-            }
-            MarketAsset::Quote => {
-                Debt::shares_to_debt(self.base_hlp_vault.debt_shares, self.debt.quote_borrow_index_nad)?
-            }
-        };
+        let hlp_funding_debt = self.hlp_funding_debt(asset)?;
         let total_debt = fixed_debt
             .checked_add(isolated_debt)
             .and_then(|value| value.checked_add(hlp_funding_debt))
@@ -3811,7 +3968,7 @@ fn total_cash_backed_borrowed(market: &Market, asset: MarketAsset, index_nad: u1
     let isolated_debt = Debt::shares_to_debt(isolated, index_nad)?;
     margin_fixed_debt
         .checked_add(isolated_debt)
-        .ok_or(ErrorCode::MarketMathOverflow.into())
+        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
 fn reconcile_global_health_contribution(
@@ -4056,6 +4213,51 @@ pub struct Reserves {
     pub live_reserve: u64,
     // Cash Reserves (r_cash)
     pub cash_reserve: u64,
+    /// Physical reserve-vault atoms removed from executable AMM inventory by
+    /// base-hLP deleveraging. They are conservation-only bookkeeping, excluded
+    /// from hLP NAV and exit output, and return to executable cash pro rata as
+    /// base hLP exits.
+    pub base_hlp_backing_inventory: u64,
+    /// Quote-hLP counterpart of `base_hlp_backing_inventory`; never a second
+    /// hLP NAV or withdrawal claim.
+    pub quote_hlp_backing_inventory: u64,
+    /// Physical reserve-vault atoms retained from toxicity surcharge for a
+    /// future protected recenter. They are custody-backed but excluded from
+    /// executable cash/live reserves, yLP NAV, and every withdrawal claim.
+    pub protected_recenter_reserve: u64,
+}
+
+impl Reserves {
+    pub fn hlp_backing_inventory(&self, target_asset: MarketAsset) -> u64 {
+        match target_asset {
+            MarketAsset::Base => self.base_hlp_backing_inventory,
+            MarketAsset::Quote => self.quote_hlp_backing_inventory,
+        }
+    }
+
+    pub fn total_hlp_backing_inventory(&self) -> Result<u64> {
+        self.base_hlp_backing_inventory
+            .checked_add(self.quote_hlp_backing_inventory)
+            .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+    }
+
+    pub fn credit_hlp_backing_inventory(&mut self, target_asset: MarketAsset, amount: u64) -> Result<()> {
+        let inventory = match target_asset {
+            MarketAsset::Base => &mut self.base_hlp_backing_inventory,
+            MarketAsset::Quote => &mut self.quote_hlp_backing_inventory,
+        };
+        *inventory = inventory.checked_add(amount).ok_or(ErrorCode::MarketMathOverflow)?;
+        Ok(())
+    }
+
+    pub fn debit_hlp_backing_inventory(&mut self, target_asset: MarketAsset, amount: u64) -> Result<()> {
+        let inventory = match target_asset {
+            MarketAsset::Base => &mut self.base_hlp_backing_inventory,
+            MarketAsset::Quote => &mut self.quote_hlp_backing_inventory,
+        };
+        *inventory = inventory.checked_sub(amount).ok_or(ErrorCode::MarketMathOverflow)?;
+        Ok(())
+    }
 }
 
 impl FeesReceipt {
@@ -4136,7 +4338,7 @@ impl MarketSide {
         (self.reserves.live_reserve as u128)
             .checked_mul(crate::constants::NAD as u128)
             .and_then(|value| value.checked_div(self.shares.ylp_supply as u128))
-            .ok_or(ErrorCode::MarketMathOverflow.into())
+            .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
     }
 
     pub fn credit_reserve(&mut self, amount: u64, credit_cash: bool) -> Result<()> {
@@ -4317,6 +4519,67 @@ impl MarketSide {
         FeesReceipt::from_side(self)
     }
 
+    /// Record interest paid by an hLP funding position. Its LP share is
+    /// indexed over ordinary yLP plus the permanently burned minimum shares,
+    /// using a source-specific carry so public-interest rounding cannot cross
+    /// into or out of this distribution lane.
+    pub fn record_hlp_funding_interest_credit_with_supply(
+        &mut self,
+        interest_credit: u64,
+        protocol_fee_bps: u16,
+        protocol_auction_split: ProtocolAuctionSplit,
+        eligible_ylp_supply: u64,
+    ) -> Result<FeesReceipt> {
+        if interest_credit == 0 {
+            return FeesReceipt::from_side(self);
+        }
+        require!(eligible_ylp_supply > 0, ErrorCode::BrokenInvariant);
+        let (protocol_fee, lp_interest) = split_revenue(interest_credit, protocol_fee_bps)?;
+        let (fee_auction_amount, buyback_auction_amount) =
+            split_protocol_auction_fee(protocol_fee, &protocol_auction_split)?;
+        let (growth_delta, remainder_scaled) = distribute_growth_q64(
+            lp_interest,
+            eligible_ylp_supply,
+            self.fees.hlp_funding_interest_growth_remainder_scaled,
+        )?;
+
+        self.fees.interest_vault_balance = self
+            .fees
+            .interest_vault_balance
+            .checked_add(interest_credit)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.fees.interest_protocol_fee_liability = self
+            .fees
+            .interest_protocol_fee_liability
+            .checked_add(fee_auction_amount)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.fees.interest_buyback_fee_liability = self
+            .fees
+            .interest_buyback_fee_liability
+            .checked_add(buyback_auction_amount)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.fees.interest_growth_index_q64 = self
+            .fees
+            .interest_growth_index_q64
+            .checked_add(growth_delta)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.fees.interest_liability = self
+            .fees
+            .interest_liability
+            .checked_add(lp_interest)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        // With no ordinary holder, burned MIN_LIQUIDITY is the complete sink.
+        // Discard its sub-Q64 carry as well so a later depositor cannot inherit
+        // any fraction of already-published funding interest.
+        self.fees.hlp_funding_interest_growth_remainder_scaled = if eligible_ylp_supply == MIN_LIQUIDITY {
+            0
+        } else {
+            remainder_scaled
+        };
+        self.fees.assert_backed()?;
+        FeesReceipt::from_side(self)
+    }
+
     pub fn settle_referral_interest_claim(&mut self, amount: u64, interest_vault_balance: u64) -> Result<()> {
         require!(amount > 0, ErrorCode::AmountZero);
         self.fees.referral_interest_liability = self
@@ -4490,7 +4753,7 @@ fn proportional_bps(amount: u64, bps: u16) -> Result<u64> {
     u64::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
-#[cfg(test)]
+#[cfg(all(test, any()))]
 mod amm_tests {
     include!("../tests/state/amm.rs");
 }

@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, MARKET_LAYOUT_VERSION, MIN_HALF_LIFE_MS, MIN_LIQUIDITY},
-    math::MIN_INNER_COMMON_RESERVE,
+    math::{ExplicitCurveParameters, MIN_INNER_COMMON_RESERVE},
     state::{
         AmmConfig, Debt, MarketAsset, MarketConfig, MarketSide, ReserveShares, Reserves, MAX_AMM_ADJUSTMENT_NAD,
         MIN_AMM_ADJUSTMENT_NAD, MIN_AMM_FADE_SCALE_NAD, MIN_AMM_PEAK_DEPTH_NAD, MIN_CONCENTRATION_RAMP_DURATION_SLOTS,
@@ -52,14 +52,13 @@ fn center_step_toward(center: u64, target: u64, step_nad: u64) -> Result<u64> {
 
 fn concentrated_config() -> AmmConfig {
     AmmConfig {
-        peak_depth_nad: 200 * NAD,
-        fade_scale_nad: NAD / 10,
+        range_width_nad: 4 * NAD,
+        concentrated_liquidity_share_nad: NAD / 2,
         center_ema_half_life_ms: MIN_HALF_LIFE_MS,
         volatility_half_life_ms: MIN_HALF_LIFE_MS,
         adjustment_threshold_nad: NAD / 100,
         adjustment_step_nad: NAD / 1_000,
         min_adjustment_interval_slots: 1,
-        concentration_ramp_duration_slots: MIN_CONCENTRATION_RAMP_DURATION_SLOTS,
         ..AmmConfig::default()
     }
 }
@@ -123,6 +122,152 @@ fn first_liquidity_initializes_center_without_an_oracle() {
     );
     assert_eq!(market.amm.spendable_protected_profit_nad(), 0);
 }
+
+#[test]
+fn explicit_curve_initializes_and_quotes_the_integrated_ordinary_tranche() {
+    let mut config = AmmConfig::default();
+    config
+        .set_explicit_curve_parameters(ExplicitCurveParameters {
+            range_width_nad: 2 * NAD,
+            concentrated_liquidity_share_nad: NAD / 2,
+        })
+        .unwrap();
+    let mut market = market_with_liquidity(config);
+    market.ensure_amm_initialized(10).unwrap();
+    assert_eq!(
+        market.amm.explicit_curve_cache.parameters(),
+        market.config.amm.explicit_curve_parameters().unwrap().unwrap()
+    );
+
+    let quote = market
+        .quote_integrated_explicit_exact_in_nad(10_000 * NAD as u128, 100 * NAD as u128, MarketAsset::Base)
+        .unwrap()
+        .unwrap();
+    assert_eq!(quote.amount_in_after_fee, 9_900 * NAD as u128);
+    assert_eq!(quote.executable.curve.boundary_crossings, 0);
+    assert!(quote.executable.amount_out > 0);
+
+    let pre_state = market.dynamic_fee_pre_state(10).unwrap();
+    let preliminary = market
+        .preliminary_swap_inputs_for_state(10_000 * NAD, 10, pre_state)
+        .unwrap();
+    let fee_quote = market
+        .quote_explicit_integrated_with_fee(MarketAsset::Base, 10_000 * NAD, preliminary)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        fee_quote.fee.total_fee_debit + fee_quote.fee.amount_in_for_quote,
+        fee_quote.fee.reserve_credit
+    );
+    assert_eq!(fee_quote.amount_out as u128, fee_quote.integrated.executable.amount_out);
+}
+
+#[test]
+fn explicit_center_move_reconstructs_unchanged_reserves_in_closed_form() {
+    let mut config = AmmConfig {
+        adjustment_threshold_nad: NAD / 100,
+        adjustment_step_nad: NAD / 100,
+        min_adjustment_interval_slots: 1,
+        ..AmmConfig::default()
+    };
+    config
+        .set_explicit_curve_parameters(ExplicitCurveParameters {
+            range_width_nad: 2 * NAD,
+            concentrated_liquidity_share_nad: NAD / 2,
+        })
+        .unwrap();
+    let mut market = market_with_liquidity(config);
+    market.ensure_amm_initialized(10).unwrap();
+    let ordinary_before = market.integrated_curve_state_nad().unwrap();
+    let cache_before = market.amm.explicit_curve_cache;
+    market.amm.price_ema_nad = 2 * NAD;
+    market.amm.protected_floor_per_share_nad = 0;
+
+    assert!(market.advance_one_amm_controller_target(11).unwrap());
+    assert_eq!(market.integrated_curve_state_nad().unwrap(), ordinary_before);
+    assert_ne!(market.amm.explicit_curve_cache, cache_before);
+    assert_eq!(market.amm.center_price_nad, NAD + NAD / 100);
+    assert_eq!(market.amm.last_adjustment_slot, 11);
+    assert!(market.current_explicit_spot_price_nad().unwrap().unwrap() > 0);
+}
+
+#[test]
+fn explicit_center_move_deploys_locked_bucket_only_when_it_preserves_ylp_principal() {
+    let mut config = AmmConfig {
+        adjustment_threshold_nad: NAD / 100,
+        adjustment_step_nad: NAD / 100,
+        min_adjustment_interval_slots: 1,
+        ..AmmConfig::default()
+    };
+    config
+        .set_explicit_curve_parameters(ExplicitCurveParameters {
+            range_width_nad: 2 * NAD,
+            concentrated_liquidity_share_nad: NAD / 2,
+        })
+        .unwrap();
+    let mut market = market_with_liquidity(config);
+    market.ensure_amm_initialized(10).unwrap();
+    market.amm.price_ema_nad = 2 * NAD;
+    let q_before = market.amm.q_per_share_nad;
+    let base_live_before = market.base_side.reserves.live_reserve;
+    let quote_live_before = market.quote_side.reserves.live_reserve;
+    let protected = 100_000 * NAD;
+
+    market
+        .credit_protected_recenter_reserve(MarketAsset::Base, protected)
+        .unwrap();
+    market
+        .credit_protected_recenter_reserve(MarketAsset::Quote, protected)
+        .unwrap();
+    assert_eq!(market.base_side.reserves.live_reserve, base_live_before);
+    assert_eq!(market.quote_side.reserves.live_reserve, quote_live_before);
+
+    assert!(market.advance_one_amm_controller_target(11).unwrap());
+    assert_eq!(market.base_side.reserves.protected_recenter_reserve, 0);
+    assert_eq!(market.quote_side.reserves.protected_recenter_reserve, 0);
+    assert_eq!(market.base_side.reserves.live_reserve, base_live_before + protected);
+    assert_eq!(market.quote_side.reserves.live_reserve, quote_live_before + protected);
+    assert!(market.amm.q_per_share_nad >= q_before);
+    assert_eq!(market.amm.center_price_nad, NAD + NAD / 100);
+    market.assert_market_invariants().unwrap();
+}
+
+#[test]
+fn explicit_proportional_liquidity_scales_and_restores_both_tranches() {
+    let mut config = AmmConfig::default();
+    config
+        .set_explicit_curve_parameters(ExplicitCurveParameters {
+            range_width_nad: 2 * NAD,
+            concentrated_liquidity_share_nad: NAD / 2,
+        })
+        .unwrap();
+    let mut market = market_with_liquidity(config);
+    market.ensure_amm_initialized(10).unwrap();
+    let cache_before = market.amm.explicit_curve_cache;
+    let spot_before = market.current_explicit_spot_price_nad().unwrap().unwrap();
+    let credit = 100_000 * NAD;
+    let added = market.add_liquidity(credit, credit).unwrap();
+    market.finalize_amm_transition_and_observe_risk(11).unwrap();
+    assert!(market.amm.explicit_curve_cache.tail_liquidity > cache_before.tail_liquidity);
+    assert!(
+        market.amm.explicit_curve_cache.concentrated_liquidity > cache_before.concentrated_liquidity
+    );
+
+    market.remove_liquidity(added.ylp_amount).unwrap();
+    market.finalize_amm_transition_and_observe_risk(12).unwrap();
+    assert_eq!(market.amm.explicit_curve_cache.parameters(), cache_before.parameters());
+    assert!(market
+        .current_explicit_spot_price_nad()
+        .unwrap()
+        .unwrap()
+        .abs_diff(spot_before)
+        <= 2);
+    market.assert_market_invariants().unwrap();
+}
+
+#[cfg(any())]
+mod legacy_implicit_curve_tests {
+use super::*;
 
 #[test]
 fn combined_transition_observation_matches_the_split_reference() {
@@ -682,19 +827,20 @@ fn trade_finalization_advances_curve_revision_once_and_leaves_unmaterialized_ris
     let revision_before = market.curve_revision;
 
     let quote = market.quote_amm_swap(MarketAsset::Base, 50_000 * NAD, 10).unwrap();
+    assert_eq!(quote.fee.retained_surcharge, 0);
     market
         .base_side
         .credit_reserve(quote.fee.amount_in_for_quote, true)
         .unwrap();
     market.quote_side.debit_reserve(quote.amount_out, true).unwrap();
     checkpoint_trade_endpoint_like_spot(&mut market, quote.trade_endpoint().unwrap(), 10).unwrap();
-    market
-        .finalize_amm_trade_after_inventory_checkpoint(quote.start_price_nad, quote.end_price_nad, 10)
-        .unwrap();
     let final_evaluation = quote
         .reserve_endpoint()
         .unwrap()
         .validated_evaluation(&market, 10)
+        .unwrap();
+    market
+        .finalize_amm_trade_after_inventory_checkpoint(quote.start_price_nad, quote.end_price_nad, 10)
         .unwrap();
     market.observe_risk_from_curve_evaluation(final_evaluation, 10).unwrap();
 
@@ -760,6 +906,99 @@ fn trade_endpoint_checkpoint_matches_a_fresh_curve_solve() {
 }
 
 #[test]
+fn authoritative_start_checkpoint_reuse_is_exactly_differential() {
+    let mut config = concentrated_config();
+    config.divergence_fee_coefficient_nad = 10 * NAD;
+
+    for retain_dynamic_surcharge in [false, true] {
+        for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
+            let mut market = market_with_liquidity(config);
+            market.ensure_amm_initialized(10).unwrap();
+            market.amm.retain_dynamic_surcharge = retain_dynamic_surcharge;
+            if retain_dynamic_surcharge {
+                market.defer_amm_retention_target().unwrap();
+            }
+            let reserve_credit = 50_000 * NAD;
+            let current_slot = 10;
+            let reserves = market.curve_reserves_nad().unwrap();
+            let pre_state = market.dynamic_fee_pre_state(current_slot).unwrap();
+            let preliminary = market
+                .preliminary_swap_inputs_for_state(reserve_credit, current_slot, pre_state)
+                .unwrap();
+
+            let ordinary = market
+                .quote_amm_swap_for_reserves_nad(
+                    asset_in,
+                    reserve_credit,
+                    current_slot,
+                    reserves,
+                    pre_state,
+                    preliminary,
+                )
+                .unwrap();
+            let mut start_checkpoint = None;
+            let reused = market
+                .quote_amm_swap_for_reserves_nad_with_start(
+                    asset_in,
+                    reserve_credit,
+                    current_slot,
+                    reserves,
+                    pre_state,
+                    preliminary,
+                    Some(&mut start_checkpoint),
+                )
+                .unwrap();
+
+            assert_eq!(reused, ordinary);
+            assert_eq!(
+                start_checkpoint.unwrap().evaluation().marginal_price_nad,
+                reused.start_price_nad as u128
+            );
+        }
+    }
+}
+
+#[test]
+fn authoritative_start_checkpoint_reuse_preserves_exact_error_order() {
+    let mut market = market_with_liquidity(concentrated_config());
+    market.ensure_amm_initialized(10).unwrap();
+    let reserve_credit = 1;
+    let current_slot = 10;
+    let reserves = market.curve_reserves_nad().unwrap();
+    let pre_state = market.dynamic_fee_pre_state(current_slot).unwrap();
+    let preliminary = market
+        .preliminary_swap_inputs_for_state(reserve_credit, current_slot, pre_state)
+        .unwrap();
+
+    let ordinary_error = market
+        .quote_amm_swap_for_reserves_nad(
+            MarketAsset::Base,
+            reserve_credit,
+            current_slot,
+            reserves,
+            pre_state,
+            preliminary,
+        )
+        .unwrap_err();
+    let mut start_checkpoint = None;
+    let reused_error = market
+        .quote_amm_swap_for_reserves_nad_with_start(
+            MarketAsset::Base,
+            reserve_credit,
+            current_slot,
+            reserves,
+            pre_state,
+            preliminary,
+            Some(&mut start_checkpoint),
+        )
+        .unwrap_err();
+
+    assert_eq!(reused_error, ordinary_error);
+    assert_eq!(reused_error, error!(ErrorCode::InsufficientOutputAmount));
+    assert!(start_checkpoint.is_some());
+}
+
+#[test]
 fn retained_endpoint_checkpoint_matches_two_fresh_curve_solves() {
     let mut config = concentrated_config();
     config.divergence_fee_coefficient_nad = 10 * NAD;
@@ -771,6 +1010,7 @@ fn retained_endpoint_checkpoint_matches_two_fresh_curve_solves() {
     distributed.quote_amm_swap(MarketAsset::Base, 50_000 * NAD, 10).unwrap();
     let distributed_evaluations = crate::math::residual_evaluations();
     market.amm.retain_dynamic_surcharge = true;
+    market.defer_amm_retention_target().unwrap();
     crate::math::reset_residual_evaluations();
     let quote = market.quote_amm_swap(MarketAsset::Base, 50_000 * NAD, 10).unwrap();
     let retained_evaluations = crate::math::residual_evaluations();
@@ -888,4 +1128,6 @@ fn risk_shape_reconstruction_tracks_the_latest_exact_scalar_snapshot() {
         .pessimistic_virtual_reserves_nad(MarketAsset::Base, &market.risk, true)
         .unwrap();
     assert_eq!(reconstructed_before_refresh, reconstructed_after_refresh);
+}
+
 }

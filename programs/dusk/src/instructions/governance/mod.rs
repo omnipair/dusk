@@ -120,7 +120,7 @@ pub(crate) fn direct_ylp_eligible_supply(
     total_ownership
         .checked_sub(base_hlp_ylp_amount)
         .and_then(|amount| amount.checked_sub(quote_hlp_ylp_amount))
-        .ok_or(ErrorCode::InvalidHlpVault.into())
+        .ok_or_else(|| ErrorCode::InvalidHlpVault.into())
 }
 
 pub(crate) fn validate_supporter_accounts(

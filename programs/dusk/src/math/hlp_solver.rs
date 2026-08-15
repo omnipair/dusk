@@ -1,4 +1,4 @@
-//! Pure math for the hedged-LP within-swap tracking solver (Phase 2).
+//! Pure math for the hedged-LP within-swap tracking solver.
 //!
 //! A 2x-leveraged constant-product LP tracks its deposit asset only in the
 //! continuous-rebalancing limit. A single discrete swap of price ratio `r`
@@ -6,13 +6,10 @@
 //! pre-positioning the vault before the swap with a `Δpre = E0 * (sqrt(r) - 1)`
 //! leverage adjustment and finishing with the usual post-swap rebalance.
 //!
-//! In Omnipair the pre-adjustment is a *price-neutral synthetic deepening*, so
-//! it changes the realized `r` (endogenous): the production `Δpre` is the fixed
-//! point `a = E0 * (sqrt(r(a)) - 1)`, approximated by the protocol-fixed
-//! three-evaluation safeguarded secant predictor over the real swap simulator.
-//! These functions are the numeraire-only building blocks (loss estimate and
-//! closed-form seed); market-state orchestration runs only when estimated
-//! tracking loss exceeds the configured threshold.
+//! These functions are invariant-independent numeraire building blocks and
+//! analytic references. Production active-hLP swaps use the shared bounded
+//! joint lifecycle solver for CPMM and concentration; they do not authorize a
+//! state transition from this one-sided closed-form expression.
 //!
 //! All ratios/amounts are NAD fixed point (`NAD == 1.0`).
 
@@ -72,6 +69,28 @@ fn signed_with_direction(magnitude: u128, negative: bool) -> Result<i128> {
     signed_from_magnitude(magnitude, negative)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Total `mul_div_rem_u128` entries, and the subset that fall through to
+    /// the 128-iteration wide accumulation. Diagnostic only.
+    static MUL_DIV_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static MUL_DIV_WIDE_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_mul_div_counters() {
+    MUL_DIV_CALLS.with(|count| count.set(0));
+    MUL_DIV_WIDE_CALLS.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn mul_div_counters() -> (usize, usize) {
+    (
+        MUL_DIV_CALLS.with(std::cell::Cell::get),
+        MUL_DIV_WIDE_CALLS.with(std::cell::Cell::get),
+    )
+}
+
 /// Exact `floor(value * numerator / denominator)` with a checked u128 result.
 ///
 /// The ordinary path is one native multiply and divide. If the product is
@@ -80,12 +99,16 @@ fn signed_with_direction(magnitude: u128, negative: bool) -> Result<i128> {
 /// longer fits. No software big-integer limbs are used.
 pub(crate) fn mul_div_rem_u128(value: u128, numerator: u128, denominator: u128) -> Result<(u128, u128)> {
     require!(denominator > 0, ErrorCode::DenominatorOverflow);
+    #[cfg(test)]
+    MUL_DIV_CALLS.with(|count| count.set(count.get() + 1));
     if value == 0 || numerator == 0 {
         return Ok((0, 0));
     }
     if let Some(product) = value.checked_mul(numerator) {
         return Ok((product / denominator, product % denominator));
     }
+    #[cfg(test)]
+    MUL_DIV_WIDE_CALLS.with(|count| count.set(count.get() + 1));
 
     let whole = value / denominator;
     let base_quotient = whole.checked_mul(numerator).ok_or(ErrorCode::MarketMathOverflow)?;
@@ -316,9 +339,9 @@ pub fn tracking_loss_nad(equity_nad: u128, r_nad: u128) -> Result<u128> {
 }
 
 /// Closed-form pre-adjustment magnitude `|E0 * (sqrt(r) - 1)|`, in NAD, plus
-/// whether it is a lever-up (`r > 1`) or a deleverage (`r < 1`). Used as the
-/// initial safeguarded-secant seed; the accepted value is checked against the
-/// simulator because the synthetic deepening makes `r` endogenous.
+/// whether it is a lever-up (`r > 1`) or a deleverage (`r < 1`). This is an
+/// analytic CPMM counterfactual retained for theorem and regression tests; the
+/// applied-curve predictor does not use it as a production seed.
 pub fn closed_form_pre_adjustment_nad(equity_nad: u128, r_nad: u128) -> Result<(u128, bool)> {
     let s = sqrt_ratio_nad(r_nad)?;
     let nad = NAD as u128;

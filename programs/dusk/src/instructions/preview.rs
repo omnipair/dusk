@@ -2,18 +2,31 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_interface::Mint;
 
 use crate::instructions::accounts::require_supported_asset_mint;
-use crate::instructions::{split_claimable_fee_credit, PreparedSwap, SwapRequest};
+use crate::instructions::{split_claimable_fee_credit, SwapRequest};
 use crate::{
     constants::*,
     errors::ErrorCode,
     market::{max_cf_bps_from_liquidation_cf, DynamicBorrowTerms, LiquidationPricing},
     math::{
-        ceil_div, cpmm_invariant_nad, denormalize_from_nad_floor, health_bps, instantaneous_rate_apr_nad,
-        normalize_to_nad, pessimistic_max_debt_on_curve_nad, utilization_bps, utilization_error_nad, SqrtU128,
+        ceil_div, geometric_mean_floor, health_bps, instantaneous_rate_apr_nad, normalize_to_nad, utilization_bps,
+        utilization_error_nad,
     },
-    state::{BorrowPosition, ConcentrationParameters, Market, MarketAsset, MarketHealth, Risk},
+    state::{BorrowPosition, FutarchyAuthority, Market, MarketAsset, MarketHealth, Risk},
     token::{get_transfer_fee, get_transfer_inverse_fee},
 };
+
+#[cfg(target_os = "solana")]
+#[inline(always)]
+fn debug_log_heap(tag: u64) {
+    let cursor = unsafe { *(0x300000000 as *const u64) };
+    let used = if cursor == 0 { 0 } else { 0x300008000_u64 - cursor };
+    solana_program::log::sol_log_64(tag, cursor, used, 0, 0);
+    solana_program::log::sol_log_compute_units();
+}
+
+#[cfg(not(target_os = "solana"))]
+#[inline(always)]
+fn debug_log_heap(_tag: u64) {}
 
 // Most preview instructions update and return serialized market state. Swap
 // preview is deliberately pure: all clock/ramp/hLP simulation runs on a clone
@@ -83,6 +96,12 @@ pub struct PreviewSwap<'info> {
     )]
     pub market: Box<Account<'info, Market>>,
 
+    #[account(
+        seeds = [FUTARCHY_AUTHORITY_SEED_PREFIX],
+        bump = futarchy_authority.bump
+    )]
+    pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
+
     pub asset_in_mint: Box<InterfaceAccount<'info, Mint>>,
     pub asset_out_mint: Box<InterfaceAccount<'info, Mint>>,
 }
@@ -135,6 +154,8 @@ pub struct PreviewBorrowPosition<'info> {
 pub struct PreviewSide {
     pub live_reserve: u64,
     pub cash_reserve: u64,
+    pub base_hlp_backing_inventory: u64,
+    pub quote_hlp_backing_inventory: u64,
     pub ylp_supply: u64,
     pub ylp_exchange_rate_nad: u128,
     pub spot_price_nad: u64,
@@ -158,9 +179,6 @@ pub struct MarketPreview {
     pub slot: u64,
     pub base: PreviewSide,
     pub quote: PreviewSide,
-    /// Raw reserve-product telemetry. Lending risk uses CONCENTRATED Q, exposed under
-    /// `amm.balanced_equivalent_q_nad`, rather than this CPMM-era diagnostic.
-    pub reserve_product_k_nad: u128,
     pub liquidity_nad: u128,
     pub health: MarketHealth,
     pub amm: PreviewAmm,
@@ -189,13 +207,15 @@ pub struct PreviewAmm {
     pub retention_active: bool,
     pub retention_target_saturated: bool,
     pub retention_target_stale: bool,
-    pub applied_curve_parameters: ConcentrationParameters,
-    pub desired_curve_parameters: ConcentrationParameters,
-    pub target_curve_parameters: ConcentrationParameters,
-    pub concentration_ramp_active: bool,
-    pub concentration_ramp_start_parameters: ConcentrationParameters,
-    pub concentration_ramp_start_slot: u64,
-    pub concentration_ramp_end_slot: u64,
+    pub protected_recenter_base_reserve: u64,
+    pub protected_recenter_quote_reserve: u64,
+    pub range_width_nad: u64,
+    pub concentrated_liquidity_share_nad: u64,
+    pub lower_range_price_nad: u64,
+    pub upper_range_price_nad: u64,
+    pub explicit_curve_branch: u8,
+    pub ordinary_base_reserve_nad: u128,
+    pub ordinary_quote_reserve_nad: u128,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -245,9 +265,10 @@ pub struct SwapPreview {
     pub volatility_fee_rate_nad: u64,
     pub total_fee_rate_nad: u64,
     pub start_price_nad: u64,
-    /// Invariant-preserving trade endpoint before retained surcharge enters reserves.
+    /// Invariant-preserving executable trade endpoint.
     pub trade_end_price_nad: u64,
-    /// Final pool marginal price after retained surcharge enters reserves.
+    /// Final executable marginal price. A protected retained surcharge is
+    /// non-quoteable, so it does not change this value.
     pub reserve_end_price_nad: u64,
     pub center_price_nad: u64,
     pub price_ema_nad: u64,
@@ -255,11 +276,24 @@ pub struct SwapPreview {
     pub post_success_volatility_nad: u64,
     pub retention_active: bool,
     pub retention_target_saturated: bool,
+    pub protected_recenter_base_reserve: u64,
+    pub protected_recenter_quote_reserve: u64,
     pub protected_profit_per_share_nad: u128,
     pub projected_protected_profit_per_share_nad: u128,
     pub retention_required_nad: u128,
     pub retention_stop_nad: u128,
     pub retention_hard_cap_nad: u128,
+    /// Explicit range metadata. Zeroes denote the legacy curve during the
+    /// temporary caller migration.
+    pub lower_range_price_nad: u64,
+    pub upper_range_price_nad: u64,
+    /// 0=lower tail, 1=concentrated band, 2=upper tail.
+    pub explicit_curve_branch: u8,
+    pub ordinary_base_reserve_nad: u128,
+    pub ordinary_quote_reserve_nad: u128,
+    pub final_spot_price_nad: u64,
+    pub base_hlp_quote_debt_delta: i128,
+    pub quote_hlp_base_debt_delta: i128,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -330,20 +364,39 @@ impl<'info> PreviewMarket<'info> {
         let slot = Clock::get()?.slot;
         let amm = {
             let state = &market.amm;
-            let configured_target = market.config.amm.curve_parameters();
-            let target_curve_parameters = if state.concentration_ramp.active {
-                state.concentration_ramp.target
-            } else {
-                configured_target
-            };
+            let explicit_parameters = market.config.amm.explicit_curve_parameters()?;
             let (executable_base_reserve, executable_quote_reserve, balanced_equivalent_q_nad) = if state.initialized {
+                let q_nad = state
+                    .explicit_curve_cache
+                    .tail_liquidity
+                    .checked_add(state.explicit_curve_cache.concentrated_liquidity)
+                    .ok_or(ErrorCode::InvariantOverflow)?;
                 (
                     market.curve_reserve(MarketAsset::Base)?,
                     market.curve_reserve(MarketAsset::Quote)?,
-                    market.evaluate_current_curve(slot)?.balanced_equivalent_q,
+                    q_nad,
                 )
             } else {
                 (0, 0, 0)
+            };
+            let explicit_metadata = if state.initialized && explicit_parameters.is_some() {
+                let geometry = state.explicit_curve_cache.geometry()?;
+                let ordinary = market.integrated_curve_state_nad()?;
+                let (lower, upper) = geometry.range_prices_nad()?.unwrap_or((0, 0));
+                (
+                    u64::try_from(lower).map_err(|_| ErrorCode::MarketMathOverflow)?,
+                    u64::try_from(upper).map_err(|_| ErrorCode::MarketMathOverflow)?,
+                    geometry
+                        .branch(crate::math::ExplicitCurvePoint {
+                            base_reserve: ordinary.ordinary_base,
+                            quote_reserve: ordinary.ordinary_quote,
+                        })
+                        .code(),
+                    ordinary.ordinary_base,
+                    ordinary.ordinary_quote,
+                )
+            } else {
+                (0, 0, 0, 0, 0)
             };
 
             PreviewAmm {
@@ -372,23 +425,33 @@ impl<'info> PreviewMarket<'info> {
                 retention_active: state.retain_dynamic_surcharge,
                 retention_target_saturated: state.retention_target_saturated,
                 retention_target_stale: state.retention_target_stale,
-                applied_curve_parameters: state.effective_curve_parameters(&market.config.amm, slot),
-                desired_curve_parameters: state.desired_curve_parameters(&market.config.amm, slot),
-                target_curve_parameters,
-                concentration_ramp_active: state.concentration_ramp.active,
-                concentration_ramp_start_parameters: state.concentration_ramp.start,
-                concentration_ramp_start_slot: state.concentration_ramp.start_slot,
-                concentration_ramp_end_slot: state.concentration_ramp.end_slot,
+                protected_recenter_base_reserve: market.base_side.reserves.protected_recenter_reserve,
+                protected_recenter_quote_reserve: market.quote_side.reserves.protected_recenter_reserve,
+                range_width_nad: explicit_parameters.map(|value| value.range_width_nad).unwrap_or(0),
+                concentrated_liquidity_share_nad: explicit_parameters
+                    .map(|value| value.concentrated_liquidity_share_nad)
+                    .unwrap_or(0),
+                lower_range_price_nad: explicit_metadata.0,
+                upper_range_price_nad: explicit_metadata.1,
+                explicit_curve_branch: explicit_metadata.2,
+                ordinary_base_reserve_nad: explicit_metadata.3,
+                ordinary_quote_reserve_nad: explicit_metadata.4,
             }
         };
         Ok(MarketPreview {
             slot,
             base: preview_side(market, MarketAsset::Base, slot)?,
             quote: preview_side(market, MarketAsset::Quote, slot)?,
-            reserve_product_k_nad: cpmm_invariant_nad(&market.base_side, &market.quote_side)?,
-            liquidity_nad: cpmm_invariant_nad(&market.base_side, &market.quote_side)?
-                .sqrt()
-                .ok_or(ErrorCode::MarketMathOverflow)?,
+            liquidity_nad: geometric_mean_floor(
+                normalize_to_nad(
+                    market.base_side.reserves.live_reserve as u128,
+                    market.base_side.asset_decimals,
+                )?,
+                normalize_to_nad(
+                    market.quote_side.reserves.live_reserve as u128,
+                    market.quote_side.asset_decimals,
+                )?,
+            )?,
             health: market.market_health()?,
             amm,
         })
@@ -476,10 +539,11 @@ impl<'info> PreviewSwap<'info> {
         require_supported_asset_mint(&ctx.accounts.asset_out_mint)?;
 
         let slot = Clock::get()?.slot;
-        // Match executable spot on a heap-backed clone without persisting any
-        // preview side effect.
-        let mut quote_market = Box::new(Market::default());
-        quote_market.as_mut().clone_from(&**ctx.accounts.market);
+        // This account is intentionally read-only, so Anchor will not persist
+        // the in-memory simulation. Reusing its already-deserialized storage
+        // avoids allocating a second full Market solely for preview.
+        let quote_market: &mut Market = &mut ctx.accounts.market;
+        debug_log_heap(1);
         let asset_in = quote_market.asset_for_mint(ctx.accounts.asset_in_mint.key())?;
         let asset_out = quote_market.asset_for_mint(ctx.accounts.asset_out_mint.key())?;
         require!(asset_out == asset_in.opposite(), ErrorCode::InvalidMint);
@@ -489,31 +553,54 @@ impl<'info> PreviewSwap<'info> {
             .exact_asset_in
             .checked_sub(transfer_fee)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let PreparedSwap { quote, .. } = SwapRequest {
+        let prepared = SwapRequest {
             current_slot: slot,
             asset_in,
             reserve_credit,
         }
-        .prepare(&mut quote_market)?;
-        let market: &Market = &quote_market;
+        .prepare(quote_market)?;
+        debug_log_heap(2);
+        let quote = prepared.quote;
+        let explicit_debt_deltas = prepared
+            .explicit_transition
+            .as_deref()
+            .map(|transition| transition.debt_deltas())
+            .unwrap_or((0, 0));
         // The one user-to-reserve transfer fee was already removed when
         // deriving `reserve_credit`. Claimable fees stay in that reserve vault,
         // so they must not pay a fictitious second Token-2022 transfer fee.
         let claimable_fee_credit = quote.fee.claimable_fee_debit;
         let (base_fee_credit, distributed_surcharge_credit) =
             split_claimable_fee_credit(&quote.fee, claimable_fee_credit)?;
-        let protected_before = market.amm.spendable_protected_profit_nad();
-        let projected_protected_profit_per_share_nad = if quote.fee.retained_surcharge == 0 {
-            protected_before
+        prepared.finalize_state(
+            quote_market,
+            slot,
+            ctx.accounts.futarchy_authority.revenue_share.swap_bps,
+            ctx.accounts.futarchy_authority.protocol_auction_split,
+        )?;
+        debug_log_heap(3);
+        let projected_protected_profit_per_share_nad = quote_market.amm.spendable_protected_profit_nad();
+        let market: &Market = quote_market;
+        let explicit_metadata = if let Some(geometry) = market.current_explicit_curve_geometry()? {
+            let ordinary = market.integrated_curve_state_nad()?;
+            let (lower, upper) = geometry.range_prices_nad()?.unwrap_or((0, 0));
+            (
+                u64::try_from(lower).map_err(|_| ErrorCode::MarketMathOverflow)?,
+                u64::try_from(upper).map_err(|_| ErrorCode::MarketMathOverflow)?,
+                geometry
+                    .branch(crate::math::ExplicitCurvePoint {
+                        base_reserve: ordinary.ordinary_base,
+                        quote_reserve: ordinary.ordinary_quote,
+                    })
+                    .code(),
+                ordinary.ordinary_base,
+                ordinary.ordinary_quote,
+                market
+                    .current_explicit_spot_price_nad()?
+                    .ok_or(ErrorCode::BrokenInvariant)?,
+            )
         } else {
-            let post_trade_q =
-                market.curve_q_per_share_nad(quote.trade_endpoint()?.evaluation().balanced_equivalent_q)?;
-            let with_retained_q =
-                market.curve_q_per_share_nad(quote.reserve_endpoint()?.evaluation().balanced_equivalent_q)?;
-            require_gte!(with_retained_q, post_trade_q, ErrorCode::BrokenInvariant);
-            protected_before
-                .checked_add(with_retained_q - post_trade_q)
-                .ok_or(ErrorCode::MarketMathOverflow)?
+            (0, 0, 0, 0, 0, quote.reserve_end_price_nad)
         };
         let (market_side_in, market_side_out) = market.swap_sides(asset_in);
         Ok(SwapPreview {
@@ -523,16 +610,8 @@ impl<'info> PreviewSwap<'info> {
             transfer_fee,
             reserve_credit,
             amount_out: quote.amount_out,
-            reserve_in_live_reserve: market_side_in
-                .reserves
-                .live_reserve
-                .checked_add(quote.fee.reserve_input_credit)
-                .ok_or(ErrorCode::ReserveOverflow)?,
-            reserve_out_live_reserve: market_side_out
-                .reserves
-                .live_reserve
-                .checked_sub(quote.amount_out)
-                .ok_or(ErrorCode::ReserveUnderflow)?,
+            reserve_in_live_reserve: market_side_in.reserves.live_reserve,
+            reserve_out_live_reserve: market_side_out.reserves.live_reserve,
             base_fee_debit: quote.fee.base_fee_debit,
             divergence_surcharge_debit: quote.fee.divergence_surcharge_debit,
             volatility_surcharge_debit: quote.fee.volatility_surcharge_debit,
@@ -559,11 +638,21 @@ impl<'info> PreviewSwap<'info> {
             post_success_volatility_nad: quote.post_success_volatility_nad,
             retention_active: market.amm.retain_dynamic_surcharge,
             retention_target_saturated: market.amm.retention_target_saturated,
+            protected_recenter_base_reserve: market.base_side.reserves.protected_recenter_reserve,
+            protected_recenter_quote_reserve: market.quote_side.reserves.protected_recenter_reserve,
             protected_profit_per_share_nad: market.amm.spendable_protected_profit_nad(),
             projected_protected_profit_per_share_nad,
             retention_required_nad: market.amm.retention_required_nad,
             retention_stop_nad: market.amm.retention_stop_nad,
             retention_hard_cap_nad: market.amm.retention_hard_cap_nad,
+            lower_range_price_nad: explicit_metadata.0,
+            upper_range_price_nad: explicit_metadata.1,
+            explicit_curve_branch: explicit_metadata.2,
+            ordinary_base_reserve_nad: explicit_metadata.3,
+            ordinary_quote_reserve_nad: explicit_metadata.4,
+            final_spot_price_nad: explicit_metadata.5,
+            base_hlp_quote_debt_delta: explicit_debt_deltas.0,
+            quote_hlp_base_debt_delta: explicit_debt_deltas.1,
         })
     }
 }
@@ -586,9 +675,6 @@ impl<'info> PreviewBorrowCapacity<'info> {
         let max_debt_by_cash = debt_side.reserves.cash_reserve;
         let slot = Clock::get()?.slot;
         let max_debt_by_daily_limit = daily_borrow_remaining(market, debt_asset, slot)?;
-        let collateral_asset_for_context = debt_asset.opposite();
-        let (collateral_virtual_reserve_nad, debt_virtual_reserve_nad) =
-            market.pessimistic_virtual_reserves_nad(collateral_asset_for_context, &risk, true)?;
         let preview_context = NewPositionPreviewContext {
             market,
             debt_asset,
@@ -599,12 +685,6 @@ impl<'info> PreviewBorrowCapacity<'info> {
                 MarketAsset::Base => market.debt.global_health_quote_contribution_for_base_debt,
                 MarketAsset::Quote => market.debt.global_health_base_contribution_for_quote_debt,
             },
-            collateral_amount_nad: normalize_to_nad(
-                args.collateral_amount as u128,
-                market.side(collateral_asset_for_context).asset_decimals,
-            )?,
-            collateral_virtual_reserve_nad,
-            debt_virtual_reserve_nad,
         };
         let max_debt_by_health = {
             let current_health = market.market_health_from_risk(&risk)?;
@@ -759,6 +839,8 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
     Ok(PreviewSide {
         live_reserve: side.reserves.live_reserve,
         cash_reserve: side.reserves.cash_reserve,
+        base_hlp_backing_inventory: side.reserves.base_hlp_backing_inventory,
+        quote_hlp_backing_inventory: side.reserves.quote_hlp_backing_inventory,
         ylp_supply: side.shares.ylp_supply,
         ylp_exchange_rate_nad: side.ylp_exchange_rate_nad()?,
         spot_price_nad: {
@@ -803,9 +885,6 @@ struct NewPositionPreviewContext<'a> {
     risk: &'a Risk,
     existing_total_debt_nad: u128,
     current_aggregate_contribution: u64,
-    collateral_amount_nad: u128,
-    collateral_virtual_reserve_nad: u128,
-    debt_virtual_reserve_nad: u128,
 }
 
 impl<'a> NewPositionPreviewContext<'a> {
@@ -826,39 +905,15 @@ impl<'a> NewPositionPreviewContext<'a> {
             .current_aggregate_contribution
             .checked_add(contribution)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let (effective_existing_debt_nad, projected_market_health_bps) =
-            self.market.global_side_health_with_virtual_reserves(
-                self.debt_asset,
-                self.existing_total_debt_nad,
-                projected_total_debt_nad,
-                projected_aggregate,
-                self.risk,
-                self.collateral_virtual_reserve_nad,
-                self.debt_virtual_reserve_nad,
-            )?;
-        let collateral_asset = self.debt_asset.opposite();
-        let (curve, collateral_to_debt) = self.market.risk_curve_from_ordered_reserves(
-            collateral_asset,
+        let terms = self.market.dynamic_borrow_terms(
+            self.debt_asset,
+            self.collateral_amount,
+            self.existing_total_debt_nad,
+            projected_total_debt_nad,
+            projected_aggregate,
             self.risk,
-            self.collateral_virtual_reserve_nad,
-            self.debt_virtual_reserve_nad,
         )?;
-        let terms = pessimistic_max_debt_on_curve_nad(
-            self.collateral_amount_nad,
-            curve,
-            collateral_to_debt,
-            effective_existing_debt_nad,
-        )?;
-        Ok((
-            DynamicBorrowTerms {
-                max_debt: denormalize_from_nad_floor(terms.max_debt_nad, debt_decimals)?,
-                max_cf_bps: terms.max_cf_bps,
-                liquidation_cf_bps: terms.liquidation_cf_bps,
-                effective_existing_debt_nad,
-                projected_market_health_bps,
-            },
-            contribution,
-        ))
+        Ok((terms, contribution))
     }
 }
 

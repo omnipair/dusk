@@ -213,7 +213,7 @@ fn concentrated_endpoint_checkpoint_uses_the_raw_rounded_output_coordinate() {
 }
 
 #[test]
-fn endpoint_checkpoint_rejects_any_reserve_center_or_parameter_mismatch() {
+fn endpoint_checkpoint_rejects_any_identity_mismatch() {
     let mut market = market_with_reserves(1_000 * NAD, 1_000 * NAD);
     market.config.amm = AmmConfig {
         peak_depth_nad: 200 * NAD,
@@ -239,6 +239,45 @@ fn endpoint_checkpoint_rejects_any_reserve_center_or_parameter_mismatch() {
 
     market.amm.applied_curve_parameters.peak_depth_nad += 1;
     assert!(checkpoint.evaluation_if_matches(&market, 10).unwrap().is_none());
+    market.amm.applied_curve_parameters.peak_depth_nad -= 1;
+
+    market.curve_revision += 1;
+    assert!(checkpoint.evaluation_if_matches(&market, 10).unwrap().is_none());
+    market.curve_revision -= 1;
+
+    market.amm.retain_dynamic_surcharge = !market.amm.retain_dynamic_surcharge;
+    assert!(checkpoint.evaluation_if_matches(&market, 10).unwrap().is_none());
+    market.amm.retain_dynamic_surcharge = !market.amm.retain_dynamic_surcharge;
+
+    assert!(checkpoint.evaluation_if_matches(&market, 11).unwrap().is_none());
+}
+
+#[test]
+fn cached_neutral_inventory_checkpoint_matches_the_fresh_state_transition() {
+    let mut cached = market_with_reserves(1_000 * NAD, 2_000 * NAD);
+    cached.config.amm = AmmConfig {
+        peak_depth_nad: 200 * NAD,
+        fade_scale_nad: NAD / 10,
+        ..AmmConfig::default()
+    };
+    cached.ensure_amm_initialized(10).unwrap();
+    let prepared = cached
+        .prepare_curve_for_reserves_nad(
+            cached.curve_reserves_nad().unwrap(),
+            cached.current_curve_center_price_nad().unwrap(),
+            10,
+        )
+        .unwrap();
+    let checkpoint = cached.checkpoint_for_prepared_curve(prepared, 10).unwrap();
+    let mut fresh = cached.clone();
+
+    let cached_evaluation = cached
+        .checkpoint_amm_neutral_inventory_from_quote(checkpoint, 10)
+        .unwrap();
+    let fresh_evaluation = fresh.checkpoint_amm_neutral_inventory(10).unwrap();
+
+    assert_eq!(cached_evaluation, fresh_evaluation);
+    assert_eq!(cached.try_to_vec().unwrap(), fresh.try_to_vec().unwrap());
 }
 
 #[test]

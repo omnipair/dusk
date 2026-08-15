@@ -5,8 +5,8 @@ use anchor_spl::{
 };
 
 use super::settlement::{
-    invoke_delegated_approval_callback, leverage_collateral_credit, leverage_swap_fee_credit, record_leverage_interest,
-    settle_inline_leverage_hlp, split_delegated_accounts, validate_leverage_futarchy_pda,
+    invoke_delegated_approval_callback, leverage_collateral_credit, leverage_swap_fee_credit, prepare_leverage_swap,
+    record_leverage_interest, settle_inline_leverage_hlp, split_delegated_accounts, validate_leverage_futarchy_pda,
     validate_leverage_interest_account, validate_leverage_market_pda, validate_leverage_mints,
     validate_leverage_reserve_accounts, DelegatedCpiArgs, LEVERAGE_DELEGATE_CLOSE, LEVERAGE_DELEGATE_CLOSE_SETTLED,
 };
@@ -18,9 +18,9 @@ use crate::{
     instructions::{
         accounts::{require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout},
         referral::accounting::{referral_interest_accrued_event_at_slot, validate_referral_binding},
-        PreparedSwap, SwapRequest,
+        SwapRequest,
     },
-    market::{LeverageSwapQuote, PreparedLeverageSwap},
+    market::liquidity::SwapCashPolicy,
     state::{
         FutarchyAuthority, LeverageDelegation, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner,
     },
@@ -369,27 +369,21 @@ impl<'info> CloseLeverage<'info> {
         );
 
         // Quote the credited collateral as the position's final debt repayment.
-        let PreparedSwap {
-            quote,
-            base_pre_rebalance,
-            quote_pre_rebalance,
-            fee_eligible_ylp_supply,
-            interest_eligibility,
-        } = SwapRequest {
-            current_slot,
-            asset_in: collateral_asset,
-            reserve_credit: collateral_reserve_credit,
-        }
-        .prepare(&mut ctx.accounts.market)?;
-        ctx.accounts.market.observe_current_risk(current_slot)?;
-        let swap = LeverageSwapQuote::from_amm(quote, current_slot);
-        let prepared_swap = PreparedLeverageSwap {
-            swap,
-            base_pre_rebalance,
-            quote_pre_rebalance,
-            fee_eligible_ylp_supply,
-            interest_eligibility,
-        };
+        let prepared_swap = prepare_leverage_swap(
+            &mut ctx.accounts.market,
+            SwapRequest {
+                current_slot,
+                asset_in: collateral_asset,
+                reserve_credit: collateral_reserve_credit,
+            },
+            SwapCashPolicy::Close {
+                debt_asset,
+                debt_shares: ctx.accounts.leverage_position.debt_shares,
+                debt_principal: ctx.accounts.leverage_position.debt_principal,
+            },
+        )?;
+        let swap = prepared_swap.swap;
+        let interest_eligibility = prepared_swap.interest_eligibility;
         let swap_fee_credit = leverage_swap_fee_credit(&swap)?;
 
         // Commit the close and settle the resulting hLP exposure.
@@ -418,6 +412,10 @@ impl<'info> CloseLeverage<'info> {
             receipt.quote_hlp_rebalance,
             interest_eligibility,
         )?;
+        // Inline hLP funding settlement may have credited this same vault.
+        // Refresh before measuring the position-interest transfer so the
+        // referral split cannot count the earlier hLP credit a second time.
+        ctx.accounts.debt_interest_vault.reload()?;
 
         // Pay the owner's residual and route accrued interest.
         let debt_token_program = token_program_for_mint(
@@ -455,6 +453,7 @@ impl<'info> CloseLeverage<'info> {
             ctx.accounts.referral_partner.as_deref(),
             ctx.accounts.referral_accrual.as_deref_mut(),
             receipt.interest_paid,
+            interest_eligibility,
             h_lp_accounts.hook_accounts(ctx.remaining_accounts),
         )?;
         ctx.accounts.debt_reserve_vault.reload()?;

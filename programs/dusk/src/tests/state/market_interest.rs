@@ -19,11 +19,13 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
     base_side.reserves = Reserves {
         live_reserve: base_cash,
         cash_reserve: base_cash,
+        ..Reserves::default()
     };
     let mut quote_side = MarketSide::default();
     quote_side.reserves = Reserves {
         live_reserve: quote_cash,
         cash_reserve: quote_cash,
+        ..Reserves::default()
     };
     Market {
         version: MARKET_LAYOUT_VERSION,

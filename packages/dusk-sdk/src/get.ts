@@ -79,6 +79,7 @@ export interface SimulateOptions {
 
 export interface PreviewSwapParams extends SimulateOptions {
   market: AddressLike;
+  futarchyAuthority?: AddressLike;
   assetInMint: AddressLike;
   assetOutMint: AddressLike;
   exactAssetIn: BN;
@@ -272,6 +273,8 @@ export class DuskGet {
       .accounts(
         normalizeAccountKeys({
           market: params.market,
+          futarchyAuthority:
+            params.futarchyAuthority ?? deriveFutarchyAuthorityAddress()[0],
           assetInMint: params.assetInMint,
           assetOutMint: params.assetOutMint,
         })

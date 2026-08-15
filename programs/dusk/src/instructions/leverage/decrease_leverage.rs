@@ -9,21 +9,21 @@ use crate::{
     errors::ErrorCode,
     events::{LeveragePositionUpdated, LeverageSwapReceipt, MarketEventMetadata},
     generate_market_seeds,
-    market::{LeverageSwapQuote, PreparedLeverageSwap},
+    market::liquidity::SwapCashPolicy,
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
     token::transfer_checked_with_remaining_accounts,
 };
 
 use super::settlement::{
-    leverage_swap_fee_credit, record_leverage_interest, settle_inline_leverage_hlp, validate_leverage_futarchy_pda,
-    validate_leverage_interest_account, validate_leverage_market_pda, validate_leverage_mints,
-    validate_leverage_reserve_accounts,
+    leverage_swap_fee_credit, prepare_leverage_swap, record_leverage_interest, settle_inline_leverage_hlp,
+    validate_leverage_futarchy_pda, validate_leverage_interest_account, validate_leverage_market_pda,
+    validate_leverage_mints, validate_leverage_reserve_accounts,
 };
 use crate::instructions::accounts::{
     require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout,
 };
 use crate::instructions::referral::accounting::{referral_interest_accrued_event_at_slot, validate_referral_binding};
-use crate::instructions::{PreparedSwap, SwapRequest};
+use crate::instructions::SwapRequest;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct DecreaseLeverageArgs {
@@ -168,27 +168,21 @@ impl<'info> DecreaseLeverage<'info> {
         require!(collateral_reserve_credit > 0, ErrorCode::AmountZero);
 
         // Quote the credited collateral as a debt repayment.
-        let PreparedSwap {
-            quote,
-            base_pre_rebalance,
-            quote_pre_rebalance,
-            fee_eligible_ylp_supply,
-            interest_eligibility,
-        } = SwapRequest {
-            current_slot,
-            asset_in: collateral_asset,
-            reserve_credit: collateral_reserve_credit,
-        }
-        .prepare(&mut ctx.accounts.market)?;
-        ctx.accounts.market.observe_current_risk(current_slot)?;
-        let swap = LeverageSwapQuote::from_amm(quote, current_slot);
-        let prepared_swap = PreparedLeverageSwap {
-            swap,
-            base_pre_rebalance,
-            quote_pre_rebalance,
-            fee_eligible_ylp_supply,
-            interest_eligibility,
-        };
+        let prepared_swap = prepare_leverage_swap(
+            &mut ctx.accounts.market,
+            SwapRequest {
+                current_slot,
+                asset_in: collateral_asset,
+                reserve_credit: collateral_reserve_credit,
+            },
+            SwapCashPolicy::Decrease {
+                debt_asset,
+                debt_shares: ctx.accounts.leverage_position.debt_shares,
+                debt_principal: ctx.accounts.leverage_position.debt_principal,
+            },
+        )?;
+        let swap = prepared_swap.swap;
+        let interest_eligibility = prepared_swap.interest_eligibility;
         let swap_fee_credit = leverage_swap_fee_credit(&swap)?;
 
         // Commit position accounting and settle hLP exposure and interest.
@@ -218,6 +212,7 @@ impl<'info> DecreaseLeverage<'info> {
             receipt.quote_hlp_rebalance,
             interest_eligibility,
         )?;
+        ctx.accounts.debt_interest_vault.reload()?;
         let referral_receipt = record_leverage_interest(
             &mut ctx.accounts.market,
             debt_asset,
@@ -232,6 +227,7 @@ impl<'info> DecreaseLeverage<'info> {
             ctx.accounts.referral_partner.as_deref(),
             ctx.accounts.referral_accrual.as_deref_mut(),
             receipt.interest_paid,
+            interest_eligibility,
             h_lp_accounts.hook_accounts(ctx.remaining_accounts),
         )?;
 

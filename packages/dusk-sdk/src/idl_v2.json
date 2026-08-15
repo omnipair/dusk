@@ -4566,6 +4566,36 @@
           }
         },
         {
+          "name": "futarchy_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "asset_in_mint"
         },
         {
@@ -8929,17 +8959,18 @@
     {
       "name": "AmmConfig",
       "docs": [
-        "AMM controls. `peak_depth_nad == 0 && fade_scale_nad == 0` selects CPMM."
+        "AMM controls. A zero concentrated-liquidity share selects the full-range",
+        "CPMM branch of the same explicit implementation."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "peak_depth_nad",
+            "name": "range_width_nad",
             "type": "u64"
           },
           {
-            "name": "fade_scale_nad",
+            "name": "concentrated_liquidity_share_nad",
             "type": "u64"
           },
           {
@@ -8976,10 +9007,6 @@
           },
           {
             "name": "volatility_fee_coefficient_nad",
-            "type": "u64"
-          },
-          {
-            "name": "concentration_ramp_duration_slots",
             "type": "u64"
           },
           {
@@ -9029,6 +9056,18 @@
             "type": {
               "defined": {
                 "name": "ConcentratedGeometryCache"
+              }
+            }
+          },
+          {
+            "name": "explicit_curve_cache",
+            "docs": [
+              "Explicit CPMM-tail/band geometry. Nonzero only for layout-v1 explicit",
+              "curve configuration; the legacy cache is removed after caller cutover."
+            ],
+            "type": {
+              "defined": {
+                "name": "ExplicitCurveCache"
               }
             }
           },
@@ -9112,8 +9151,9 @@
           {
             "name": "retain_dynamic_surcharge",
             "docs": [
-              "When true, dynamic surcharge is reserve principal; when false, the",
-              "identical trader charge is routed to claimable yLP fee accounting."
+              "When true, dynamic surcharge is locked in the non-quoteable protected",
+              "recenter bucket; when false, the identical trader charge is routed to",
+              "claimable yLP fee accounting."
             ],
             "type": "bool"
           },
@@ -9135,9 +9175,9 @@
           {
             "name": "retention_target_stale",
             "docs": [
-              "Retained surcharge changed executable inventory after the last exact",
-              "forward-target solve. While stale, retention stays on until a decision",
-              "point refreshes the target or executes a funded recenter."
+              "The protected bucket changed after the last exact forward-target solve.",
+              "While stale, retention stays on until a decision point refreshes the",
+              "target or executes a funded recenter."
             ],
             "type": "bool"
           },
@@ -10012,6 +10052,42 @@
       }
     },
     {
+      "name": "ExplicitCurveCache",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "math_revision",
+            "type": "u8"
+          },
+          {
+            "name": "range_width_nad",
+            "type": "u64"
+          },
+          {
+            "name": "concentrated_liquidity_share_nad",
+            "type": "u64"
+          },
+          {
+            "name": "tail_liquidity",
+            "type": "u128"
+          },
+          {
+            "name": "concentrated_liquidity",
+            "type": "u128"
+          },
+          {
+            "name": "lower_sqrt_price_nad",
+            "type": "u128"
+          },
+          {
+            "name": "upper_sqrt_price_nad",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
       "name": "FeeProfile",
       "docs": [
         "Complete mutable fee surface. The fields remain embedded in their existing",
@@ -10083,6 +10159,16 @@
             "name": "interest_growth_remainder_scaled",
             "docs": [
               "Interest counterpart of `swap_fee_growth_remainder_scaled`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "hlp_funding_interest_growth_remainder_scaled",
+            "docs": [
+              "Source-scoped Q64 carry for interest paid by hLP funding debt. Funding",
+              "uses a non-hLP denominator, while public interest uses total yLP",
+              "supply; sharing one carry across those denominators would eventually",
+              "leak rounding entitlement between the two populations."
             ],
             "type": "u64"
           },
@@ -11983,15 +12069,11 @@
             "name": "Concentration",
             "fields": [
               {
-                "name": "peak_depth_nad",
+                "name": "range_width_nad",
                 "type": "u64"
               },
               {
-                "name": "fade_scale_nad",
-                "type": "u64"
-              },
-              {
-                "name": "concentration_ramp_duration_slots",
+                "name": "concentrated_liquidity_share_nad",
                 "type": "u64"
               }
             ]
@@ -12063,14 +12145,6 @@
                 "name": "PreviewSide"
               }
             }
-          },
-          {
-            "name": "reserve_product_k_nad",
-            "docs": [
-              "Raw reserve-product telemetry. Lending risk uses CONCENTRATED Q, exposed under",
-              "`amm.balanced_equivalent_q_nad`, rather than this CPMM-era diagnostic."
-            ],
-            "type": "u128"
           },
           {
             "name": "liquidity_nad",
@@ -12733,48 +12807,40 @@
             "type": "bool"
           },
           {
-            "name": "applied_curve_parameters",
-            "type": {
-              "defined": {
-                "name": "ConcentrationParameters"
-              }
-            }
-          },
-          {
-            "name": "desired_curve_parameters",
-            "type": {
-              "defined": {
-                "name": "ConcentrationParameters"
-              }
-            }
-          },
-          {
-            "name": "target_curve_parameters",
-            "type": {
-              "defined": {
-                "name": "ConcentrationParameters"
-              }
-            }
-          },
-          {
-            "name": "concentration_ramp_active",
-            "type": "bool"
-          },
-          {
-            "name": "concentration_ramp_start_parameters",
-            "type": {
-              "defined": {
-                "name": "ConcentrationParameters"
-              }
-            }
-          },
-          {
-            "name": "concentration_ramp_start_slot",
+            "name": "protected_recenter_base_reserve",
             "type": "u64"
           },
           {
-            "name": "concentration_ramp_end_slot",
+            "name": "protected_recenter_quote_reserve",
             "type": "u64"
+          },
+          {
+            "name": "range_width_nad",
+            "type": "u64"
+          },
+          {
+            "name": "concentrated_liquidity_share_nad",
+            "type": "u64"
+          },
+          {
+            "name": "lower_range_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "upper_range_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "explicit_curve_branch",
+            "type": "u8"
+          },
+          {
+            "name": "ordinary_base_reserve_nad",
+            "type": "u128"
+          },
+          {
+            "name": "ordinary_quote_reserve_nad",
+            "type": "u128"
           }
         ]
       }
@@ -12808,6 +12874,14 @@
           },
           {
             "name": "cash_reserve",
+            "type": "u64"
+          },
+          {
+            "name": "base_hlp_backing_inventory",
+            "type": "u64"
+          },
+          {
+            "name": "quote_hlp_backing_inventory",
             "type": "u64"
           },
           {
@@ -13696,6 +13770,33 @@
           {
             "name": "cash_reserve",
             "type": "u64"
+          },
+          {
+            "name": "base_hlp_backing_inventory",
+            "docs": [
+              "Physical reserve-vault atoms removed from executable AMM inventory by",
+              "base-hLP deleveraging. They are conservation-only bookkeeping, excluded",
+              "from hLP NAV and exit output, and return to executable cash pro rata as",
+              "base hLP exits."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "quote_hlp_backing_inventory",
+            "docs": [
+              "Quote-hLP counterpart of `base_hlp_backing_inventory`; never a second",
+              "hLP NAV or withdrawal claim."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "protected_recenter_reserve",
+            "docs": [
+              "Physical reserve-vault atoms retained from toxicity surcharge for a",
+              "future protected recenter. They are custody-backed but excluded from",
+              "executable cash/live reserves, yLP NAV, and every withdrawal claim."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -14148,14 +14249,15 @@
           {
             "name": "trade_end_price_nad",
             "docs": [
-              "Invariant-preserving trade endpoint before retained surcharge enters reserves."
+              "Invariant-preserving executable trade endpoint."
             ],
             "type": "u64"
           },
           {
             "name": "reserve_end_price_nad",
             "docs": [
-              "Final pool marginal price after retained surcharge enters reserves."
+              "Final executable marginal price. A protected retained surcharge is",
+              "non-quoteable, so it does not change this value."
             ],
             "type": "u64"
           },
@@ -14184,6 +14286,14 @@
             "type": "bool"
           },
           {
+            "name": "protected_recenter_base_reserve",
+            "type": "u64"
+          },
+          {
+            "name": "protected_recenter_quote_reserve",
+            "type": "u64"
+          },
+          {
             "name": "protected_profit_per_share_nad",
             "type": "u128"
           },
@@ -14202,6 +14312,45 @@
           {
             "name": "retention_hard_cap_nad",
             "type": "u128"
+          },
+          {
+            "name": "lower_range_price_nad",
+            "docs": [
+              "Explicit range metadata. Zeroes denote the legacy curve during the",
+              "temporary caller migration."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "upper_range_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "explicit_curve_branch",
+            "docs": [
+              "0=lower tail, 1=concentrated band, 2=upper tail."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "ordinary_base_reserve_nad",
+            "type": "u128"
+          },
+          {
+            "name": "ordinary_quote_reserve_nad",
+            "type": "u128"
+          },
+          {
+            "name": "final_spot_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "base_hlp_quote_debt_delta",
+            "type": "i128"
+          },
+          {
+            "name": "quote_hlp_base_debt_delta",
+            "type": "i128"
           }
         ]
       }

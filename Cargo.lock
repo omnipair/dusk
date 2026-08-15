@@ -648,6 +648,7 @@ dependencies = [
  "proptest",
  "quickcheck",
  "rand 0.8.5",
+ "solana-program",
  "solana-security-txt",
  "spl-math",
  "spl-tlv-account-resolution",

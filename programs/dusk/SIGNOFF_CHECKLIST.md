@@ -24,6 +24,8 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 
 - Confirm the reviewed source is the final standalone `programs/dusk`
   tree.
+- Review `programs/dusk/AUDIT_STATUS.md` and reconcile every new finding there;
+  dated reports under the ignored `.audit/` directory are historical evidence.
 - Review the core invariants listed in `programs/dusk/README.md`.
 - Review `programs/dusk/CONCENTRATION.md`, including Dusk Concentrated AMM bounds, funded
   recentering, protected-surcharge accounting, and the no-oracle limitations.
@@ -32,9 +34,23 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 - Review conservative `Q`, exact CPMM/Dusk Concentrated AMM reconstructed risk
   shapes, and each debt side's shared 24-hour leaky/token bucket. Confirm
   checkpoint-frequency-independent refill at a fixed absolute limit, the
-  conservative-depth resizing rule, no repayment/exit refund, and coverage of
-  fixed lending, isolated leverage, direct hLP funding, and automatic hLP
-  funding; do not review it as an exact trailing-window sum.
+  conservative-depth resizing rule, no repayment/exit refund, and enforcement
+  only for public lending `borrow`. Isolated leverage and direct or automatic
+  hLP funding do not consume the bucket because they do not lend cash out; do
+  not review it as an exact trailing-window sum.
+- Verify the joint CPMM/concentrated hLP predictor and correction share one
+  `max(one raw target atom, 1 ppm operation-start economic NAV)` budget for
+  deposited-asset principal plus the frozen public-interest claim, and use the
+  exact trader curve/fee endpoint. Confirm both hLPs are excluded from funding
+  yield and the payer's burn legs, including exact target-side shortfall
+  conversion, bear the cost without an additional shared-live debit.
+- Treat passive interest-driven hLP insolvency and terminal loss recovery as an
+  open High finding. Do not sign off until the design is resolved or the risk
+  is explicitly accepted.
+- Review reserve conservation across executable cash, swap-fee custody, and
+  both source-scoped hLP backing inventories. Confirm projected aggregate
+  indexed hLP debt is capped in debt-share space for every positive funding
+  transition without blocking withdrawal or deleveraging.
 - Review floating yLP liquidity, matched yLP redemption, and Token-2022
   transfer checkpointing.
 - Review fee liabilities and settlement paths for yLP, hLP, protocol, and
@@ -108,6 +124,8 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 
 ## Deployment And Verification
 
+- Dusk is pre-deployment. Confirm the reviewed artifact creates fresh layout-v1
+  markets; migration/import behavior is outside this release.
 - Confirm `programs/dusk/src/lib.rs` declares the intended program ID.
 - Build the verifiable binary with production features and embedded
   `GIT_REV`/`GIT_RELEASE` metadata.

@@ -4572,6 +4572,36 @@ export type Dusk = {
           }
         },
         {
+          "name": "futarchyAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "assetInMint"
         },
         {
@@ -8935,17 +8965,18 @@ export type Dusk = {
     {
       "name": "ammConfig",
       "docs": [
-        "AMM controls. `peak_depth_nad == 0 && fade_scale_nad == 0` selects CPMM."
+        "AMM controls. A zero concentrated-liquidity share selects the full-range",
+        "CPMM branch of the same explicit implementation."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "peakDepthNad",
+            "name": "rangeWidthNad",
             "type": "u64"
           },
           {
-            "name": "fadeScaleNad",
+            "name": "concentratedLiquidityShareNad",
             "type": "u64"
           },
           {
@@ -8982,10 +9013,6 @@ export type Dusk = {
           },
           {
             "name": "volatilityFeeCoefficientNad",
-            "type": "u64"
-          },
-          {
-            "name": "concentrationRampDurationSlots",
             "type": "u64"
           },
           {
@@ -9035,6 +9062,18 @@ export type Dusk = {
             "type": {
               "defined": {
                 "name": "concentratedGeometryCache"
+              }
+            }
+          },
+          {
+            "name": "explicitCurveCache",
+            "docs": [
+              "Explicit CPMM-tail/band geometry. Nonzero only for layout-v1 explicit",
+              "curve configuration; the legacy cache is removed after caller cutover."
+            ],
+            "type": {
+              "defined": {
+                "name": "explicitCurveCache"
               }
             }
           },
@@ -9118,8 +9157,9 @@ export type Dusk = {
           {
             "name": "retainDynamicSurcharge",
             "docs": [
-              "When true, dynamic surcharge is reserve principal; when false, the",
-              "identical trader charge is routed to claimable yLP fee accounting."
+              "When true, dynamic surcharge is locked in the non-quoteable protected",
+              "recenter bucket; when false, the identical trader charge is routed to",
+              "claimable yLP fee accounting."
             ],
             "type": "bool"
           },
@@ -9141,9 +9181,9 @@ export type Dusk = {
           {
             "name": "retentionTargetStale",
             "docs": [
-              "Retained surcharge changed executable inventory after the last exact",
-              "forward-target solve. While stale, retention stays on until a decision",
-              "point refreshes the target or executes a funded recenter."
+              "The protected bucket changed after the last exact forward-target solve.",
+              "While stale, retention stays on until a decision point refreshes the",
+              "target or executes a funded recenter."
             ],
             "type": "bool"
           },
@@ -10018,6 +10058,42 @@ export type Dusk = {
       }
     },
     {
+      "name": "explicitCurveCache",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mathRevision",
+            "type": "u8"
+          },
+          {
+            "name": "rangeWidthNad",
+            "type": "u64"
+          },
+          {
+            "name": "concentratedLiquidityShareNad",
+            "type": "u64"
+          },
+          {
+            "name": "tailLiquidity",
+            "type": "u128"
+          },
+          {
+            "name": "concentratedLiquidity",
+            "type": "u128"
+          },
+          {
+            "name": "lowerSqrtPriceNad",
+            "type": "u128"
+          },
+          {
+            "name": "upperSqrtPriceNad",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
       "name": "feeProfile",
       "docs": [
         "Complete mutable fee surface. The fields remain embedded in their existing",
@@ -10089,6 +10165,16 @@ export type Dusk = {
             "name": "interestGrowthRemainderScaled",
             "docs": [
               "Interest counterpart of `swap_fee_growth_remainder_scaled`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "hlpFundingInterestGrowthRemainderScaled",
+            "docs": [
+              "Source-scoped Q64 carry for interest paid by hLP funding debt. Funding",
+              "uses a non-hLP denominator, while public interest uses total yLP",
+              "supply; sharing one carry across those denominators would eventually",
+              "leak rounding entitlement between the two populations."
             ],
             "type": "u64"
           },
@@ -11989,15 +12075,11 @@ export type Dusk = {
             "name": "concentration",
             "fields": [
               {
-                "name": "peakDepthNad",
+                "name": "rangeWidthNad",
                 "type": "u64"
               },
               {
-                "name": "fadeScaleNad",
-                "type": "u64"
-              },
-              {
-                "name": "concentrationRampDurationSlots",
+                "name": "concentratedLiquidityShareNad",
                 "type": "u64"
               }
             ]
@@ -12069,14 +12151,6 @@ export type Dusk = {
                 "name": "previewSide"
               }
             }
-          },
-          {
-            "name": "reserveProductKNad",
-            "docs": [
-              "Raw reserve-product telemetry. Lending risk uses CONCENTRATED Q, exposed under",
-              "`amm.balanced_equivalent_q_nad`, rather than this CPMM-era diagnostic."
-            ],
-            "type": "u128"
           },
           {
             "name": "liquidityNad",
@@ -12739,48 +12813,40 @@ export type Dusk = {
             "type": "bool"
           },
           {
-            "name": "appliedCurveParameters",
-            "type": {
-              "defined": {
-                "name": "concentrationParameters"
-              }
-            }
-          },
-          {
-            "name": "desiredCurveParameters",
-            "type": {
-              "defined": {
-                "name": "concentrationParameters"
-              }
-            }
-          },
-          {
-            "name": "targetCurveParameters",
-            "type": {
-              "defined": {
-                "name": "concentrationParameters"
-              }
-            }
-          },
-          {
-            "name": "concentrationRampActive",
-            "type": "bool"
-          },
-          {
-            "name": "concentrationRampStartParameters",
-            "type": {
-              "defined": {
-                "name": "concentrationParameters"
-              }
-            }
-          },
-          {
-            "name": "concentrationRampStartSlot",
+            "name": "protectedRecenterBaseReserve",
             "type": "u64"
           },
           {
-            "name": "concentrationRampEndSlot",
+            "name": "protectedRecenterQuoteReserve",
             "type": "u64"
+          },
+          {
+            "name": "rangeWidthNad",
+            "type": "u64"
+          },
+          {
+            "name": "concentratedLiquidityShareNad",
+            "type": "u64"
+          },
+          {
+            "name": "lowerRangePriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "upperRangePriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "explicitCurveBranch",
+            "type": "u8"
+          },
+          {
+            "name": "ordinaryBaseReserveNad",
+            "type": "u128"
+          },
+          {
+            "name": "ordinaryQuoteReserveNad",
+            "type": "u128"
           }
         ]
       }
@@ -12814,6 +12880,14 @@ export type Dusk = {
           },
           {
             "name": "cashReserve",
+            "type": "u64"
+          },
+          {
+            "name": "baseHlpBackingInventory",
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpBackingInventory",
             "type": "u64"
           },
           {
@@ -13702,6 +13776,33 @@ export type Dusk = {
           {
             "name": "cashReserve",
             "type": "u64"
+          },
+          {
+            "name": "baseHlpBackingInventory",
+            "docs": [
+              "Physical reserve-vault atoms removed from executable AMM inventory by",
+              "base-hLP deleveraging. They are conservation-only bookkeeping, excluded",
+              "from hLP NAV and exit output, and return to executable cash pro rata as",
+              "base hLP exits."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpBackingInventory",
+            "docs": [
+              "Quote-hLP counterpart of `base_hlp_backing_inventory`; never a second",
+              "hLP NAV or withdrawal claim."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "protectedRecenterReserve",
+            "docs": [
+              "Physical reserve-vault atoms retained from toxicity surcharge for a",
+              "future protected recenter. They are custody-backed but excluded from",
+              "executable cash/live reserves, yLP NAV, and every withdrawal claim."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -14154,14 +14255,15 @@ export type Dusk = {
           {
             "name": "tradeEndPriceNad",
             "docs": [
-              "Invariant-preserving trade endpoint before retained surcharge enters reserves."
+              "Invariant-preserving executable trade endpoint."
             ],
             "type": "u64"
           },
           {
             "name": "reserveEndPriceNad",
             "docs": [
-              "Final pool marginal price after retained surcharge enters reserves."
+              "Final executable marginal price. A protected retained surcharge is",
+              "non-quoteable, so it does not change this value."
             ],
             "type": "u64"
           },
@@ -14190,6 +14292,14 @@ export type Dusk = {
             "type": "bool"
           },
           {
+            "name": "protectedRecenterBaseReserve",
+            "type": "u64"
+          },
+          {
+            "name": "protectedRecenterQuoteReserve",
+            "type": "u64"
+          },
+          {
             "name": "protectedProfitPerShareNad",
             "type": "u128"
           },
@@ -14208,6 +14318,45 @@ export type Dusk = {
           {
             "name": "retentionHardCapNad",
             "type": "u128"
+          },
+          {
+            "name": "lowerRangePriceNad",
+            "docs": [
+              "Explicit range metadata. Zeroes denote the legacy curve during the",
+              "temporary caller migration."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "upperRangePriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "explicitCurveBranch",
+            "docs": [
+              "0=lower tail, 1=concentrated band, 2=upper tail."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "ordinaryBaseReserveNad",
+            "type": "u128"
+          },
+          {
+            "name": "ordinaryQuoteReserveNad",
+            "type": "u128"
+          },
+          {
+            "name": "finalSpotPriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "baseHlpQuoteDebtDelta",
+            "type": "i128"
+          },
+          {
+            "name": "quoteHlpBaseDebtDelta",
+            "type": "i128"
           }
         ]
       }

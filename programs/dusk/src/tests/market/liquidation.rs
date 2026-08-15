@@ -35,6 +35,7 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
     base_side.reserves = Reserves {
         live_reserve: 1_000_000_000,
         cash_reserve: 1_000_000_000,
+        ..Reserves::default()
     };
     let mut quote_side = MarketSide {
         asset_mint: quote_mint,
@@ -44,6 +45,7 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
     quote_side.reserves = Reserves {
         live_reserve: 1_000_000_000,
         cash_reserve: 1_000_000_000,
+        ..Reserves::default()
     };
 
     let debt = Debt {
@@ -54,7 +56,9 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
         global_health_base_contribution_for_quote_debt: 109,
         ..Debt::default()
     };
-    let market = Market {
+    base_side.shares.ylp_supply = 1_000_000_000;
+    quote_side.shares.ylp_supply = 1_000_000_000;
+    let mut market = Market {
         version: MARKET_LAYOUT_VERSION,
         ylp_mint: Pubkey::new_unique(),
         base_side,
@@ -76,6 +80,8 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
         reduce_only: false,
         bump: 255,
     };
+    market.prepare_amm_for_swap(0).unwrap();
+    market.refresh_risk().unwrap();
     let borrow_position = BorrowPosition {
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
@@ -166,13 +172,13 @@ fn market_with_cash_backed_debt(
             base_side.reserves = Reserves {
                 live_reserve: debt_live,
                 cash_reserve: debt_cash_after_borrow,
+                ..Reserves::default()
             };
-            base_side.shares.ylp_supply = debt_live;
             quote_side.reserves = Reserves {
                 live_reserve: collateral_cash,
                 cash_reserve: collateral_cash,
+                ..Reserves::default()
             };
-            quote_side.shares.ylp_supply = collateral_cash;
             debt.base_borrow_index_nad = next_index;
             debt.fixed_base_shares = shares;
             debt.fixed_base_principal = borrow_amount;
@@ -185,13 +191,13 @@ fn market_with_cash_backed_debt(
             base_side.reserves = Reserves {
                 live_reserve: collateral_cash,
                 cash_reserve: collateral_cash,
+                ..Reserves::default()
             };
-            base_side.shares.ylp_supply = collateral_cash;
             quote_side.reserves = Reserves {
                 live_reserve: debt_live,
                 cash_reserve: debt_cash_after_borrow,
+                ..Reserves::default()
             };
-            quote_side.shares.ylp_supply = debt_live;
             debt.quote_borrow_index_nad = next_index;
             debt.fixed_quote_shares = shares;
             debt.fixed_quote_principal = borrow_amount;
@@ -202,7 +208,10 @@ fn market_with_cash_backed_debt(
         }
     }
 
-    let market = Market {
+    let ylp_supply = debt_live.min(collateral_cash).max(1);
+    base_side.shares.ylp_supply = ylp_supply;
+    quote_side.shares.ylp_supply = ylp_supply;
+    let mut market = Market {
         version: MARKET_LAYOUT_VERSION,
         ylp_mint: Pubkey::new_unique(),
         base_side,
@@ -224,6 +233,8 @@ fn market_with_cash_backed_debt(
         reduce_only: false,
         bump: 255,
     };
+    market.prepare_amm_for_swap(0).unwrap();
+    market.refresh_risk().unwrap();
 
     (market, borrow_position)
 }
