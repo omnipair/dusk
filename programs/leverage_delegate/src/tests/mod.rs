@@ -145,6 +145,33 @@ fn trigger_rules_match_take_profit_and_stop_loss_direction() {
 }
 
 #[test]
+fn delegated_close_uses_canonical_aggregate_cash_repayment() {
+    use dusk::state::{Debt, MarketAsset};
+
+    let index = (NAD as u128) * 103 / 100;
+    let mut debt = Debt {
+        base_borrow_index_nad: index,
+        ..Debt::default()
+    };
+    let position_shares = debt.add_isolated_debt(MarketAsset::Base, 34).unwrap();
+    debt.add_isolated_debt(MarketAsset::Base, 67).unwrap();
+
+    let displayed_debt = Debt::shares_to_debt(position_shares, index).unwrap() as u64;
+    let cash_repaid = debt
+        .isolated_repayment_for_max(MarketAsset::Base, position_shares, u64::MAX)
+        .unwrap()
+        .cash_repaid;
+
+    // Aggregate floor phases can make a full close cost one atom more than the
+    // position's displayed debt. The callback must bind the amount Dusk will
+    // actually accept, or its residual approval is one atom too high.
+    assert_eq!(displayed_debt, 35);
+    assert_eq!(cash_repaid, 36);
+    assert_eq!(100_u64.checked_sub(displayed_debt), Some(65));
+    assert_eq!(100_u64.checked_sub(cash_repaid), Some(64));
+}
+
+#[test]
 fn approval_payload_binds_close_action_and_delegation() {
     let market = Pubkey::new_unique();
     let owner = Pubkey::new_unique();

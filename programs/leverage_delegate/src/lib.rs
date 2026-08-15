@@ -386,12 +386,18 @@ impl<'info> BeforeLeverageOrder<'info> {
             ctx.accounts.custody_token_account.amount == 0,
             LeverageDelegateError::InvalidTokenAccount
         );
-        let debt_amount = ctx
+        let cash_repaid = ctx
             .accounts
-            .leverage_position
-            .debt_amount(&ctx.accounts.market.debt)?;
+            .market
+            .debt
+            .isolated_repayment_for_max(
+                debt_asset,
+                ctx.accounts.leverage_position.debt_shares,
+                u64::MAX,
+            )?
+            .cash_repaid;
         let residual = closeout_value
-            .checked_sub(debt_amount)
+            .checked_sub(cash_repaid)
             .ok_or(LeverageDelegateError::InvalidOrder)?;
         let output_amount = residual
             .checked_sub(get_transfer_fee(
