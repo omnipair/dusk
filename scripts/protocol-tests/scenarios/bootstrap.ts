@@ -6,7 +6,7 @@ async function recordBootstrapInstructions(
   harness: ProtocolTestHarness,
   instructionName: string
 ): Promise<number> {
-  const transactions = (await harness.bootstrapEvidence()).filter((entry) =>
+  const transactions = (await harness.bootstrapEvidence()).transactions.filter((entry) =>
     entry.instructions.includes(instructionName)
   );
   for (const transaction of transactions) {
@@ -25,15 +25,25 @@ export const BOOTSTRAP_SCENARIOS: ScenarioDefinition[] = [
     id: "bootstrap.authority-and-market",
     fatal: true,
     async run(harness) {
-      harness.assertEqual(
-        "one futarchy authority initialization transaction is captured",
-        await recordBootstrapInstructions(harness, "init_futarchy_authority"),
-        1
+      const bootstrapEvidence = await harness.bootstrapEvidence();
+      const authorityTransactionCount = await recordBootstrapInstructions(
+        harness,
+        "init_futarchy_authority",
       );
       harness.assertEqual(
-        "one market initialization transaction is captured",
+        "fresh-stack futarchy authority bootstrap uses the protocol instruction",
+        bootstrapEvidence.futarchyAuthorityBootstrapMode,
+        "transaction",
+      );
+      harness.assertEqual(
+        "one genuine futarchy authority initialization transaction is captured",
+        authorityTransactionCount,
+        1,
+      );
+      harness.assertEqual(
+        "every configured market initialization transaction is captured",
         await recordBootstrapInstructions(harness, "initialize_market"),
-        1
+        harness.config.markets.length,
       );
       const market = await harness.market();
       const futarchy = await harness.futarchy();
@@ -77,9 +87,9 @@ export const BOOTSTRAP_SCENARIOS: ScenarioDefinition[] = [
     fatal: true,
     async run(harness) {
       harness.assertEqual(
-        "all three LP metadata initialization transactions are captured",
+        "all configured-market LP metadata initialization transactions are captured",
         await recordBootstrapInstructions(harness, "initialize_lp_metadata"),
-        3
+        harness.config.markets.length * 3,
       );
       const market = await harness.market();
       const metadataAddresses = [

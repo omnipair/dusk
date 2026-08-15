@@ -195,24 +195,27 @@ pub fn token_account_credit(balance_before: u64, token_account: &InterfaceAccoun
     token_account
         .amount
         .checked_sub(balance_before)
-        .ok_or(ErrorCode::MarketMathOverflow.into())
+        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
 pub fn token_account_debit(balance_before: u64, token_account: &InterfaceAccount<TokenAccount>) -> Result<u64> {
     balance_before
         .checked_sub(token_account.amount)
-        .ok_or(ErrorCode::MarketMathOverflow.into())
+        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
-/// Proves that the live reserve vault still backs both executable AMM cash
-/// and every swap-fee atom deliberately excluded from that cash. Callers must
-/// pass a balance read after their final reserve-vault token movement (or a
-/// deterministically projected post-CPI balance on the optimized swap path).
+/// Proves that the reserve vault still backs executable cash and every
+/// deliberately excluded fee or hLP-backing atom. Callers must pass a balance
+/// read after their final reserve-vault token movement (or a deterministically
+/// projected post-CPI balance on the optimized swap path). The lower bound
+/// tolerates unsolicited token donations, which remain non-executable.
 pub(crate) fn require_reserve_custody(vault_balance: u64, market_side: &MarketSide) -> Result<()> {
+    let hlp_backing_inventory = market_side.reserves.total_hlp_backing_inventory()?;
     let required = market_side
         .reserves
         .cash_reserve
         .checked_add(market_side.fees.swap_fee_custody_balance)
+        .and_then(|value| value.checked_add(hlp_backing_inventory))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     require_gte!(vault_balance, required, ErrorCode::UnbackedFeeLiability);
     Ok(())
@@ -236,7 +239,7 @@ pub fn token_account_info_amount(token_account: &AccountInfo) -> Result<u64> {
 pub fn token_account_info_credit(balance_before: u64, token_account: &AccountInfo) -> Result<u64> {
     token_account_info_amount(token_account)?
         .checked_sub(balance_before)
-        .ok_or(ErrorCode::MarketMathOverflow.into())
+        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
 #[cfg(test)]

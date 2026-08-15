@@ -36,7 +36,7 @@ use std::cell::Cell;
 use crate::{constants::NAD, errors::ErrorCode};
 
 use super::{
-    cpmm::{cpmm_amount_in_nad, cpmm_amount_out_nad},
+    cpmm::{cpmm_amount_in_nad, cpmm_amount_out_nad, geometric_mean_floor},
     isqrt, mul_div_ceil_u128, mul_div_rem_u128, mul_div_u128, ratio_lte_full_width,
 };
 
@@ -69,6 +69,18 @@ thread_local! {
     static SQRT_Q64_EVALUATIONS: Cell<usize> = const { Cell::new(0) };
     static SQRT_Q80_EVALUATIONS: Cell<usize> = const { Cell::new(0) };
     static Q80_FALLBACK_EVALUATIONS: Cell<usize> = const { Cell::new(0) };
+    // Differential tests can disable only the Inner Newton hint while
+    // retaining every exact bracket/sign check used by production.
+    static INNER_NEWTON_ACCELERATION_ENABLED: Cell<bool> = const { Cell::new(true) };
+}
+
+#[cfg(test)]
+pub(crate) fn set_inner_newton_acceleration_enabled(enabled: bool) -> bool {
+    INNER_NEWTON_ACCELERATION_ENABLED.with(|state| {
+        let previous = state.get();
+        state.set(enabled);
+        previous
+    })
 }
 
 #[cfg(test)]
@@ -303,11 +315,23 @@ pub(crate) struct ConcentratedPreparedCurve {
     pub(crate) geometry: Option<ConcentratedC1Geometry>,
 }
 
+/// Opaque non-authoritative curve projection. Its inner prepared curve is
+/// intentionally inaccessible outside this module, so same-invariant
+/// guidance can never be converted into a persisted market checkpoint.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ConcentratedGuidanceCurve(ConcentratedPreparedCurve);
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ConcentratedInvariantSeed {
     Hint(u128),
     #[cfg(test)]
     Exact(u128),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PreparedCurveInvariantSeed {
+    Canonical(ConcentratedInvariantSeed),
+    Guidance(u128),
 }
 
 impl ConcentratedPreparedCurve {
@@ -702,6 +726,231 @@ impl ConcentratedPreparedCurve {
         Ok((sufficient_input - 1, sufficient_input))
     }
 
+    /// Two-probe, conservative-side guidance for an exact-input quote.  This
+    /// is intentionally weaker than `quote_exact_in`: it neither constructs a
+    /// canonical successor invariant nor proves the adjacent output atom.
+    #[cfg(test)]
+    fn quote_bounded_guidance_exact_in(
+        self,
+        amount_in_nad: u128,
+        direction: ConcentratedSwapDirection,
+    ) -> Result<u128> {
+        if amount_in_nad == 0 {
+            return Ok(0);
+        }
+        if self.peak_depth_nad == 0 {
+            return self.quote_exact_in(amount_in_nad, direction);
+        }
+        let geometry = self.geometry.ok_or(ErrorCode::BrokenInvariant)?;
+        validate_bounded_guidance_basis(
+            self.base_common,
+            self.quote_common,
+            self.invariant_d,
+            geometry,
+        )?;
+        let (input_reserve_nad, output_reserve_nad, input_common, output_common) = match direction {
+            ConcentratedSwapDirection::BaseToQuote => (
+                self.base_reserve_nad,
+                self.quote_reserve_nad,
+                self.base_common,
+                self.quote_common,
+            ),
+            ConcentratedSwapDirection::QuoteToBase => (
+                self.quote_reserve_nad,
+                self.base_reserve_nad,
+                self.quote_common,
+                self.base_common,
+            ),
+        };
+        let input_after_nad = input_reserve_nad
+            .checked_add(amount_in_nad)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        let input_scale = self.input_common_scale(direction)?;
+        let output_scale = self.output_common_scale(direction)?;
+        let input_after_common = input_scale.to_common_floor(input_after_nad)?;
+        if input_after_common <= input_common {
+            return Ok(0);
+        }
+
+        let high_context = bounded_guidance_residual_context(input_after_common, output_common, geometry)?;
+        let high_evaluation = hybrid_residual_evaluation_with_context(
+            input_after_common,
+            output_common,
+            self.invariant_d,
+            Some(geometry),
+            Some(high_context),
+        )?;
+        if !high_evaluation.positive {
+            return Ok(0);
+        }
+
+        let Some(newton) = variable_reserve_newton_probe(
+            input_after_common,
+            output_common,
+            self.invariant_d,
+            high_evaluation,
+            Some(geometry),
+            Some(high_context),
+        )?
+        .filter(|candidate| *candidate > 0 && *candidate < output_common)
+        else {
+            return Ok(0);
+        };
+        let full_step = output_common
+            .checked_sub(newton)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        // Stay on the verified high side more often than an undamped Newton
+        // point while still moving most of the predicted distance.
+        let damped_step = mul_div_ceil_u128(full_step, 3, 4)?.max(1);
+        let candidate = output_common
+            .checked_sub(damped_step)
+            .filter(|candidate| *candidate > 0 && *candidate < output_common)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        let candidate_context = bounded_guidance_residual_context(input_after_common, candidate, geometry)?;
+        require!(
+            candidate_context.branch == high_context.branch,
+            ErrorCode::InvariantOverflow
+        );
+        let candidate_evaluation = hybrid_residual_evaluation_with_context(
+            input_after_common,
+            candidate,
+            self.invariant_d,
+            Some(geometry),
+            Some(candidate_context),
+        )?;
+        if !candidate_evaluation.positive {
+            // The only still-verified positive point is the unchanged output
+            // reserve, which corresponds to zero output. Surface that as a
+            // guidance miss rather than emit an optimistic amount.
+            return Ok(0);
+        }
+
+        let output_after_nad = output_scale.common_to_raw_ceil(candidate)?;
+        require!(
+            output_after_nad > 0 && output_after_nad <= output_reserve_nad,
+            ErrorCode::OutputAmountOverflow
+        );
+        let rounded_common = output_scale.to_common_floor(output_after_nad)?;
+        require!(
+            rounded_common >= candidate && rounded_common <= output_common,
+            ErrorCode::InvariantOverflow
+        );
+        let rounded_context = bounded_guidance_residual_context(input_after_common, rounded_common, geometry)?;
+        require!(
+            rounded_context.branch == candidate_context.branch,
+            ErrorCode::InvariantOverflow
+        );
+        Ok(output_reserve_nad - output_after_nad)
+    }
+
+    /// Two-probe, sufficient-side guidance for an exact-output request. The
+    /// first probe checks the actual current input reserve. The second checks
+    /// one deterministic, raw-rounded complete-reserve seed and emits it only
+    /// when that exact rounded point is residual-positive.
+    #[cfg(test)]
+    fn quote_bounded_guidance_exact_out_input(
+        self,
+        amount_out_nad: u128,
+        direction: ConcentratedSwapDirection,
+    ) -> Result<u128> {
+        if amount_out_nad == 0 {
+            return Ok(0);
+        }
+        if self.peak_depth_nad == 0 {
+            return Ok(self.quote_exact_out_input_bracket(amount_out_nad, direction)?.1);
+        }
+        let geometry = self.geometry.ok_or(ErrorCode::BrokenInvariant)?;
+        validate_bounded_guidance_basis(
+            self.base_common,
+            self.quote_common,
+            self.invariant_d,
+            geometry,
+        )?;
+        let (input_reserve_nad, output_reserve_nad, input_common, _output_common) = match direction {
+            ConcentratedSwapDirection::BaseToQuote => (
+                self.base_reserve_nad,
+                self.quote_reserve_nad,
+                self.base_common,
+                self.quote_common,
+            ),
+            ConcentratedSwapDirection::QuoteToBase => (
+                self.quote_reserve_nad,
+                self.base_reserve_nad,
+                self.quote_common,
+                self.base_common,
+            ),
+        };
+        require!(
+            amount_out_nad > 0 && amount_out_nad < output_reserve_nad,
+            ErrorCode::InsufficientLiquidity
+        );
+        let input_scale = self.input_common_scale(direction)?;
+        let output_scale = self.output_common_scale(direction)?;
+        let output_after_nad = output_reserve_nad
+            .checked_sub(amount_out_nad)
+            .ok_or(ErrorCode::InsufficientLiquidity)?;
+        let output_after_common = output_scale.to_common_floor(output_after_nad)?;
+        require!(output_after_common > 0, ErrorCode::InsufficientLiquidity);
+
+        // The low probe is the actual current input reserve. It is allowed to
+        // sit below x+y=D: that is an ordinary off-curve insufficient point,
+        // not an invalid guidance basis.
+        let low_context = bounded_guidance_residual_context(output_after_common, input_common, geometry)?;
+        let low_evaluation = hybrid_residual_evaluation_with_context(
+            output_after_common,
+            input_common,
+            self.invariant_d,
+            Some(geometry),
+            Some(low_context),
+        )?;
+        if low_evaluation.positive {
+            // The compact I>B settlement has no economically valid zero-input
+            // branch: it must debit a positive retained target amount. A
+            // positive current-input residual under an opaque scaled D is
+            // therefore a guidance miss, never a free settlement estimate.
+            return err!(ErrorCode::InsufficientLiquidity);
+        }
+
+        // q=4*x*y/D^2=1 is residual-positive for every concentrated branch.
+        // Combine it with the structural sum floor, round to an executable raw
+        // input first, and spend the second/last residual probe on that exact
+        // rounded point. No intermediate Newton probe is permitted here.
+        let four_fixed = output_after_common
+            .checked_mul(4)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        let q_one_input_common = mul_div_ceil_u128(self.invariant_d, self.invariant_d, four_fixed)?;
+        let structural_input_common = self.invariant_d.saturating_sub(output_after_common);
+        let sufficient_seed_common = q_one_input_common
+            .max(structural_input_common)
+            .max(input_common.checked_add(1).ok_or(ErrorCode::InvariantOverflow)?)
+            .min(MAX_COMMON_RESERVE);
+        require!(sufficient_seed_common > input_common, ErrorCode::InsufficientLiquidity);
+        let sufficient_input_after_nad = input_scale.common_to_raw_ceil(sufficient_seed_common)?;
+        require_gte!(
+            sufficient_input_after_nad,
+            input_reserve_nad,
+            ErrorCode::BrokenInvariant
+        );
+        let rounded_common = input_scale.to_common_floor(sufficient_input_after_nad)?;
+        require!(
+            rounded_common >= sufficient_seed_common && rounded_common <= MAX_COMMON_RESERVE,
+            ErrorCode::InvariantOverflow
+        );
+        let rounded_context = bounded_guidance_residual_context(output_after_common, rounded_common, geometry)?;
+        let rounded_evaluation = hybrid_residual_evaluation_with_context(
+            output_after_common,
+            rounded_common,
+            self.invariant_d,
+            Some(geometry),
+            Some(rounded_context),
+        )?;
+        require!(rounded_evaluation.positive, ErrorCode::InsufficientLiquidity);
+        sufficient_input_after_nad
+            .checked_sub(input_reserve_nad)
+            .filter(|input| *input > 0)
+            .ok_or_else(|| ErrorCode::InsufficientLiquidity.into())
+    }
+
     pub(crate) const fn common_numeraire(self) -> ConcentratedCommonNumeraire {
         self.common_numeraire
     }
@@ -758,8 +1007,196 @@ impl ConcentratedPreparedCurve {
             self.peak_depth_nad,
             self.fade_scale_nad,
             self.geometry_cache(),
-            Some(invariant_seed),
+            Some(PreparedCurveInvariantSeed::Canonical(invariant_seed)),
         )
+    }
+
+    /// Guidance-only endpoint at the already-proven start invariant. Raw
+    /// output flooring can move the canonical endpoint invariant by an atom;
+    /// callers must never persist this projection or use it as the executable
+    /// quote. It exists only to guide a later fully authoritative solve.
+    pub(crate) fn prepare_guidance_successor(
+        self,
+        base_reserve_nad: u128,
+        quote_reserve_nad: u128,
+    ) -> Result<ConcentratedGuidanceCurve> {
+        self.prepare_guidance_successor_with_invariant(base_reserve_nad, quote_reserve_nad, self.invariant_d)
+    }
+
+    pub(crate) fn prepare_guidance_successor_with_invariant(
+        self,
+        base_reserve_nad: u128,
+        quote_reserve_nad: u128,
+        invariant_d: u128,
+    ) -> Result<ConcentratedGuidanceCurve> {
+        prepare_curve_internal(
+            base_reserve_nad,
+            quote_reserve_nad,
+            self.center_price_nad,
+            self.peak_depth_nad,
+            self.fade_scale_nad,
+            self.geometry_cache(),
+            Some(PreparedCurveInvariantSeed::Guidance(invariant_d)),
+        )
+        .map(ConcentratedGuidanceCurve)
+    }
+}
+
+#[cfg(test)]
+fn validate_bounded_guidance_basis(
+    base_common: u128,
+    quote_common: u128,
+    invariant_d: u128,
+    geometry: ConcentratedC1Geometry,
+) -> Result<()> {
+    validate_bounded_common_reserves(base_common, quote_common)?;
+    require!(invariant_d > 0, ErrorCode::InvalidArgument);
+    require_gte!(
+        base_common
+            .checked_add(quote_common)
+            .ok_or(ErrorCode::InvariantOverflow)?,
+        invariant_d,
+        ErrorCode::InvariantOverflow
+    );
+    // Full-width `D^2 >= 4*x*y`, expressed as x/D <= D/(4*y)
+    // so neither cross-product is materialized in u128.
+    let four_quote = quote_common.checked_mul(4).ok_or(ErrorCode::InvariantOverflow)?;
+    require!(
+        ratio_lte_full_width(base_common, invariant_d, invariant_d, four_quote)?,
+        ErrorCode::InvariantOverflow
+    );
+    let context = ConcentratedResidualContext::derive(geometry, base_common, quote_common)?;
+    if context.branch == ConcentratedHybridBranch::Inner {
+        require!(
+            base_common >= MIN_INNER_COMMON_RESERVE && quote_common >= MIN_INNER_COMMON_RESERVE,
+            ErrorCode::InsufficientLiquidity
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+fn bounded_guidance_residual_context(
+    fixed: u128,
+    variable: u128,
+    geometry: ConcentratedC1Geometry,
+) -> Result<ConcentratedResidualContext> {
+    validate_bounded_common_reserves(fixed, variable)?;
+    let context = ConcentratedResidualContext::derive(geometry, fixed, variable)?;
+    if context.branch == ConcentratedHybridBranch::Inner {
+        require!(
+            fixed >= MIN_INNER_COMMON_RESERVE && variable >= MIN_INNER_COMMON_RESERVE,
+            ErrorCode::InsufficientLiquidity
+        );
+    }
+    Ok(context)
+}
+
+impl ConcentratedGuidanceCurve {
+    pub(crate) const fn invariant_d(self) -> u128 {
+        self.0.invariant_d
+    }
+
+    pub(crate) const fn base_reserve_nad(self) -> u128 {
+        self.0.base_reserve_nad
+    }
+
+    pub(crate) const fn quote_reserve_nad(self) -> u128 {
+        self.0.quote_reserve_nad
+    }
+
+    pub(crate) const fn common_numeraire(self) -> ConcentratedCommonNumeraire {
+        self.0.common_numeraire
+    }
+
+    pub(crate) fn marginal_price_nad(self) -> Result<u128> {
+        self.0.marginal_price_nad()
+    }
+
+    pub(crate) fn evaluation(self) -> Result<ConcentratedEvaluation> {
+        self.0.evaluation()
+    }
+
+    pub(crate) fn quote_exact_in(
+        self,
+        amount_in_nad: u128,
+        direction: ConcentratedSwapDirection,
+    ) -> Result<u128> {
+        self.0.quote_exact_in(amount_in_nad, direction)
+    }
+
+    /// Bounded, non-authoritative exact-in predictor used only by the compact
+    /// hLP planner differential.  Unlike the canonical quote, this performs
+    /// at most two residual evaluations and returns an output only from a
+    /// residual-positive (conservative remaining-reserve) point.  It carries
+    /// no adjacent-atom proof and can never be converted into a checkpoint.
+    #[cfg(test)]
+    pub(crate) fn quote_bounded_exact_in(
+        self,
+        amount_in_nad: u128,
+        direction: ConcentratedSwapDirection,
+    ) -> Result<u128> {
+        self.0.quote_bounded_guidance_exact_in(amount_in_nad, direction)
+    }
+
+    /// Bounded, non-authoritative exact-out predictor.  The returned input is
+    /// emitted only after the second probe proves it is on the sufficient
+    /// (residual-positive) side.  Failure to establish that side in two probes
+    /// is a guidance miss, never an authorization shortcut.
+    #[cfg(test)]
+    pub(crate) fn quote_bounded_exact_out_input(
+        self,
+        amount_out_nad: u128,
+        direction: ConcentratedSwapDirection,
+    ) -> Result<u128> {
+        self.0
+            .quote_bounded_guidance_exact_out_input(amount_out_nad, direction)
+    }
+
+    /// Exact scalar reference for compact-planner differential tests.  The
+    /// result remains guidance-only because this type cannot expose the inner
+    /// prepared curve or construct a `CurveCheckpoint`.
+    #[cfg(test)]
+    pub(crate) fn quote_exact_out_input_bracket(
+        self,
+        amount_out_nad: u128,
+        direction: ConcentratedSwapDirection,
+    ) -> Result<(u128, u128)> {
+        self.0.quote_exact_out_input_bracket(amount_out_nad, direction)
+    }
+
+    pub(crate) fn prepare_guidance_successor(
+        self,
+        base_reserve_nad: u128,
+        quote_reserve_nad: u128,
+    ) -> Result<Self> {
+        self.prepare_guidance_successor_with_invariant(base_reserve_nad, quote_reserve_nad, self.0.invariant_d)
+    }
+
+    pub(crate) fn prepare_guidance_successor_with_invariant(
+        self,
+        base_reserve_nad: u128,
+        quote_reserve_nad: u128,
+        invariant_d: u128,
+    ) -> Result<Self> {
+        self.0
+            .prepare_guidance_successor_with_invariant(base_reserve_nad, quote_reserve_nad, invariant_d)
+    }
+
+    /// Even a canonically re-solved successor remains guidance-typed so no
+    /// downstream code can accidentally turn a planner state into authority.
+    pub(crate) fn prepare_hint_successor(
+        self,
+        base_reserve_nad: u128,
+        quote_reserve_nad: u128,
+    ) -> Result<Self> {
+        self.0
+            .prepare_successor(
+                base_reserve_nad,
+                quote_reserve_nad,
+                ConcentratedInvariantSeed::Hint(self.0.invariant_d),
+            )
+            .map(Self)
     }
 }
 
@@ -1766,57 +2203,97 @@ fn transition_newton_probe(
     })
 }
 
-fn geometric_mean_floor(x: u128, y: u128) -> Result<u128> {
-    let root = if let Some(product) = x.checked_mul(y) {
-        // A leading-bit seed reaches the exact floor root in logarithmically
-        // fewer u128 divisions than starting Babylonian iteration at y/2.
-        isqrt(product)
-    } else {
-        // Retain the top 63-64 bits of both factors. Their product fits u128,
-        // and choosing an even total shift makes the square-root rescaling
-        // exact. One full-width Newton step then recovers all discarded bits.
-        let x_bits = u128::BITS - x.leading_zeros();
-        let y_bits = u128::BITS - y.leading_zeros();
-        let mut x_shift = x_bits.saturating_sub(64);
-        let mut y_shift = y_bits.saturating_sub(64);
-        if (x_shift + y_shift) & 1 == 1 {
-            if x_shift > 0 {
-                x_shift += 1;
-            } else {
-                y_shift += 1;
-            }
+/// Continuous Newton accelerator for the inner concentrated branch.
+///
+/// With `x` and `D` fixed, the executable scalar is
+///
+///   R(y) = 2*P*q*w*h + q - 1,
+///   q = 4*x*y/D^2,
+///   w = (s/(s + max(1-q, 0)))^2,
+///   h = (x+y-D)/D.
+///
+/// Its exact continuous derivative satisfies
+///
+///   y*R'(y) = q + 2*P*q*w*(h + y/D + 2*q*h/(s+1-q)), q < 1,
+///             q + 2*P*q*w*(h + y/D),               q >= 1.
+///
+/// Fixed-point rounding means this is guidance only. The caller retains the
+/// authoritative sign bracket and adjacent-atom proof. Arithmetic failure is
+/// deliberately ignored so the accelerator cannot narrow the quote domain.
+fn inner_newton_probe(
+    fixed: u128,
+    variable: u128,
+    d: u128,
+    evaluation: ConcentratedResidualEvaluation,
+    geometry: ConcentratedC1Geometry,
+) -> Option<u128> {
+    (|| -> Result<Option<u128>> {
+        let sum = fixed.checked_add(variable).ok_or(ErrorCode::InvariantOverflow)?;
+        if sum < d {
+            return Ok(None);
         }
-        let mantissa_product = (x >> x_shift)
-            .checked_mul(y >> y_shift)
+        let q = evaluation.q64;
+        if q == Q64_ONE {
+            return Ok(None);
+        }
+        let delta = Q64_ONE.saturating_sub(q.min(Q64_ONE));
+        let denominator = geometry
+            .scale_q64
+            .checked_add(delta)
             .ok_or(ErrorCode::InvariantOverflow)?;
-        let seed = isqrt(mantissa_product)
-            .checked_shl((x_shift + y_shift) / 2)
+        let weight_base = div_q64(geometry.scale_q64, denominator)?;
+        let weight = mul_q64(weight_base, weight_base)?;
+        let coefficient = mul_q64(
+            geometry.peak_q64.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?,
+            mul_q64(q, weight)?,
+        )?;
+        let h = div_q64(sum - d, d)?;
+        let variable_over_d = div_q64(variable, d)?;
+        let curvature = if q < Q64_ONE {
+            div_q64(
+                mul_q64(q, h)?.checked_mul(2).ok_or(ErrorCode::InvariantOverflow)?,
+                denominator,
+            )?
+        } else {
+            0
+        };
+        let derivative_bracket = h
+            .checked_add(variable_over_d)
+            .and_then(|value| value.checked_add(curvature))
             .ok_or(ErrorCode::InvariantOverflow)?;
-        require!(seed > 0, ErrorCode::InvariantOverflow);
-        let reciprocal = mul_div_u128(x, y, seed).map_err(|_| ErrorCode::InvariantOverflow)?;
-        require_gte!(reciprocal, seed, ErrorCode::InvariantOverflow);
-        let mut candidate = seed
-            .checked_add((reciprocal - seed) / 2)
-            .ok_or(ErrorCode::InvariantOverflow)?;
+        let derivative_times_variable = q
+            .checked_add(mul_q64(coefficient, derivative_bracket)?)
+            .filter(|value| *value > 0)
+            .ok_or(ErrorCode::DenominatorOverflow)?;
+        let step = mul_div_ceil_u128(evaluation.magnitude, variable, derivative_times_variable)
+            .map_err(|_| ErrorCode::InvariantOverflow)?
+            .max(1);
+        Ok(if evaluation.positive {
+            variable.checked_sub(step)
+        } else {
+            variable.checked_add(step)
+        })
+    })()
+    .ok()
+    .flatten()
+}
 
-        // At the configured raw-reserve/decimal bounds the Newton candidate is
-        // adjacent to the exact root. The fixed correction bound fails closed
-        // if those normalization bounds are ever widened.
-        for _ in 0..32 {
-            if !ratio_lte_full_width(candidate, x, y, candidate)? {
-                candidate = candidate.checked_sub(1).ok_or(ErrorCode::InvariantOverflow)?;
-                continue;
-            }
-            let successor = candidate.checked_add(1).ok_or(ErrorCode::InvariantOverflow)?;
-            if ratio_lte_full_width(successor, x, y, successor)? {
-                candidate = successor;
-                continue;
-            }
-            return Ok(candidate);
+fn variable_reserve_newton_probe(
+    fixed: u128,
+    variable: u128,
+    d: u128,
+    evaluation: ConcentratedResidualEvaluation,
+    geometry: Option<ConcentratedC1Geometry>,
+    context: Option<ConcentratedResidualContext>,
+) -> Result<Option<u128>> {
+    if context.map(|context| context.branch) == Some(ConcentratedHybridBranch::Inner) {
+        #[cfg(test)]
+        if !INNER_NEWTON_ACCELERATION_ENABLED.with(Cell::get) {
+            return Ok(None);
         }
-        return err!(ErrorCode::InvariantOverflow);
-    };
-    Ok(root)
+        return Ok(geometry.and_then(|geometry| inner_newton_probe(fixed, variable, d, evaluation, geometry)));
+    }
+    transition_newton_probe(fixed, variable, evaluation, context)
 }
 
 #[cfg(test)]
@@ -1833,7 +2310,7 @@ fn prepare_curve_internal(
     peak_depth_nad: u128,
     fade_scale_nad: u128,
     geometry_cache: Option<ConcentratedGeometryCache>,
-    invariant_seed: Option<ConcentratedInvariantSeed>,
+    invariant_seed: Option<PreparedCurveInvariantSeed>,
 ) -> Result<ConcentratedPreparedCurve> {
     validate_parameters(center_price_nad, peak_depth_nad, fade_scale_nad)?;
     let common_numeraire = ConcentratedCommonNumeraire::for_center(center_price_nad)?;
@@ -1866,7 +2343,7 @@ fn prepare_curve_internal(
         .transpose()?;
     let invariant_d = match invariant_seed {
         #[cfg(test)]
-        Some(ConcentratedInvariantSeed::Exact(invariant_d)) => {
+        Some(PreparedCurveInvariantSeed::Canonical(ConcentratedInvariantSeed::Exact(invariant_d))) => {
             require!(invariant_d > 0, ErrorCode::BrokenInvariant);
             if peak_depth_nad == 0 {
                 require_eq!(
@@ -1895,9 +2372,13 @@ fn prepare_curve_internal(
             }
             invariant_d
         }
+        Some(PreparedCurveInvariantSeed::Guidance(invariant_d)) => {
+            require!(invariant_d > 0, ErrorCode::BrokenInvariant);
+            invariant_d
+        }
         seed => {
             let hint = match seed {
-                Some(ConcentratedInvariantSeed::Hint(value)) => Some(value),
+                Some(PreparedCurveInvariantSeed::Canonical(ConcentratedInvariantSeed::Hint(value))) => Some(value),
                 _ => None,
             };
             let branch = residual_context
@@ -2088,7 +2569,7 @@ pub(crate) fn concentrated_prepare_curve_seeded_cached(
         peak_depth_nad,
         fade_scale_nad,
         Some(geometry_cache),
-        Some(invariant_seed),
+        Some(PreparedCurveInvariantSeed::Canonical(invariant_seed)),
     )
 }
 
@@ -2212,8 +2693,9 @@ fn solve_variable_reserve(
             low = structural_probe;
             low_magnitude = evaluation.magnitude;
         }
-        safeguarded_newton_probe = transition_newton_probe(fixed, structural_probe, evaluation, context)?
-            .filter(|candidate| *candidate > low && *candidate < high);
+        safeguarded_newton_probe =
+            variable_reserve_newton_probe(fixed, structural_probe, d, evaluation, geometry, context)?
+                .filter(|candidate| *candidate > low && *candidate < high);
     }
     let mut previous_probe_was_valid = None;
     for iteration in 0..CONCENTRATED_RESERVE_MAX_ITERS {
@@ -2258,11 +2740,41 @@ fn solve_variable_reserve(
                 high_magnitude = high_magnitude.div_ceil(2);
             }
         }
-        safeguarded_newton_probe = transition_newton_probe(fixed, probe, evaluation, context)?
+        safeguarded_newton_probe = variable_reserve_newton_probe(fixed, probe, d, evaluation, geometry, context)?
             .filter(|candidate| *candidate > low && *candidate < high);
         previous_probe_was_valid = Some(valid);
     }
     require!(high - low <= 1, ErrorCode::InvariantOverflow);
+    Ok((low, high))
+}
+
+/// Test-only canonical reference that deliberately uses plain bisection.
+/// Production acceleration must return the identical adjacent sign bracket.
+#[cfg(test)]
+pub(crate) fn solve_variable_reserve_bisection_reference(
+    fixed: u128,
+    d: u128,
+    geometry: Option<ConcentratedC1Geometry>,
+    mut low: u128,
+    mut high: u128,
+) -> Result<(u128, u128)> {
+    require!(low < high, ErrorCode::InvalidArgument);
+    require!(
+        !hybrid_residual(fixed, low, d, geometry)?.0,
+        ErrorCode::InvariantOverflow
+    );
+    require!(
+        hybrid_residual(fixed, high, d, geometry)?.0,
+        ErrorCode::InvariantOverflow
+    );
+    while high - low > 1 {
+        let probe = low + (high - low) / 2;
+        if hybrid_residual(fixed, probe, d, geometry)?.0 {
+            high = probe;
+        } else {
+            low = probe;
+        }
+    }
     Ok((low, high))
 }
 

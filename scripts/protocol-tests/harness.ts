@@ -1,9 +1,17 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { BorshCoder, EventParser, utils, type Idl } from "@coral-xyz/anchor";
 import { getAccount, getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
-import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  SYSVAR_CLOCK_PUBKEY,
+  Transaction,
+  type FetchFn,
+} from "@solana/web3.js";
 
 import { SCENARIO_CATALOG } from "./catalog.js";
 import type {
@@ -20,13 +28,123 @@ import type {
 
 const DEFAULT_API_URL = "http://127.0.0.1:8080";
 const DEFAULT_OUTPUT_DIR = ".protocol-test-lab/runs";
+const DEFAULT_HTTP_TIMEOUT_MS = 150_000;
+const DEFAULT_SCENARIO_TIMEOUT_MS = 900_000;
+const DEVELOPMENT_EMERGENCY_AUTHORITY_DOMAIN =
+  "omnipair-dusk-development-reduce-only-emergency-authority-v1";
+
+export class ScenarioTimeoutError extends Error {}
+export class MutationOutcomeUncertainError extends Error {}
+
+export class ForkApiResponseError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  readonly payload: unknown;
+
+  constructor(
+    method: string,
+    path: string,
+    status: number,
+    payload: unknown,
+  ) {
+    const code = typeof payload === "object" && payload !== null &&
+        typeof (payload as { code?: unknown }).code === "string" &&
+        (payload as { code: string }).code
+      ? (payload as { code: string }).code
+      : null;
+    super(
+      `${method} ${path} failed with HTTP ${status}${code ? ` (${code})` : ""}: ${stableJson(payload)}`,
+    );
+    this.name = "ForkApiResponseError";
+    this.status = status;
+    this.code = code;
+    this.payload = payload;
+  }
+}
+
+function positiveIntegerEnv(
+  name: string,
+  fallback: number,
+  maximum: number,
+): number {
+  const value = process.env[name];
+  if (value === undefined || value === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive safe integer`);
+  }
+  if (parsed > maximum) {
+    throw new Error(`${name} must be no greater than ${maximum}`);
+  }
+  return parsed;
+}
+
+async function boundedFetch(
+  input: Parameters<typeof globalThis.fetch>[0],
+  init: RequestInit | undefined,
+  timeoutMs: number,
+  timeoutMessage: string,
+  externalSignal?: AbortSignal,
+): Promise<Response> {
+  const controller = new AbortController();
+  const signals = [init?.signal, externalSignal]
+    .filter((signal): signal is AbortSignal => signal !== undefined && signal !== null);
+  const abortFrom = (signal: AbortSignal) => {
+    controller.abort(signal.reason ?? new Error("Request was aborted"));
+  };
+  const listeners = signals.map((signal) => {
+    const listener = () => abortFrom(signal);
+    if (signal.aborted) abortFrom(signal);
+    else signal.addEventListener("abort", listener, { once: true });
+    return { signal, listener };
+  });
+  const timeoutError = new Error(timeoutMessage);
+  const timer = setTimeout(() => controller.abort(timeoutError), timeoutMs);
+  try {
+    const response = await globalThis.fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+    const body = await response.arrayBuffer();
+    const responseHasNoBody =
+      response.status === 101 ||
+      response.status === 204 ||
+      response.status === 205 ||
+      response.status === 304;
+    return new Response(responseHasNoBody ? null : body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+  } catch (error) {
+    if (controller.signal.aborted && controller.signal.reason instanceof Error) {
+      throw controller.signal.reason;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    for (const { signal, listener } of listeners) {
+      signal.removeEventListener("abort", listener);
+    }
+  }
+}
 
 export interface ForkConfig {
   rpcUrl: string;
-  privateRpcUrl: string;
   programId: string;
   payer: string;
   market: string;
+  markets: Array<{
+    label: string;
+    market: string;
+    marketKind: "cpmm" | "concentrated";
+    baseMint: string;
+    quoteMint: string;
+    baseDecimals: number;
+    quoteDecimals: number;
+    paramsHash: string;
+    seededLiquidity: boolean;
+  }>;
   fixtureMode: "mainnet" | "token2022-fees" | "mixed-decimals";
   baseMint: string;
   quoteMint: string;
@@ -90,6 +208,14 @@ export interface BootstrapTransactionEvidence {
   instructions: string[];
 }
 
+export interface BootstrapEvidence {
+  transactions: BootstrapTransactionEvidence[];
+  futarchyAuthorityBootstrapMode:
+    | "transaction"
+    | "surfpool-account-seed"
+    | "preexisting";
+}
+
 interface IdlInstruction {
   name: string;
   discriminator: number[];
@@ -116,6 +242,15 @@ export interface ExecuteOptions {
   apiSigned?: boolean;
 }
 
+export interface AssertApiRejectionOptions {
+  wallet: string;
+  endpoint: string;
+  body: Record<string, unknown>;
+  label: string;
+  expectedStatus: number;
+  expectedCode: string;
+}
+
 function jsonReplacer(_key: string, value: unknown): unknown {
   return typeof value === "bigint" ? value.toString() : value;
 }
@@ -129,7 +264,8 @@ function errorText(error: unknown): string {
 }
 
 function isTransientForkError(error: unknown): boolean {
-  return /Internal error|Failed to fetch accounts from remote|error sending request for url/i.test(
+  if (error instanceof MutationOutcomeUncertainError) return false;
+  return /BlockhashNotFound|blockhash not found|Internal error|Failed to fetch accounts from remote|error sending request for url/i.test(
     errorText(error)
   );
 }
@@ -142,7 +278,21 @@ function parseErrorCode(logs: string[], fallback: unknown): string | null {
     if (customCode) return customCode;
   }
   const fallbackText = errorText(fallback);
-  return fallbackText.match(/custom program error: (0x[0-9a-f]+)/i)?.[1] ?? null;
+  return (
+    fallbackText.match(/custom program error: (0x[0-9a-f]+)/i)?.[1] ?? null
+  );
+}
+
+function jsonRpcMethod(init: unknown): string | null {
+  if (!init || typeof init !== "object") return null;
+  const body = (init as { body?: unknown }).body;
+  if (typeof body !== "string") return null;
+  try {
+    const payload = JSON.parse(body) as { method?: unknown };
+    return typeof payload.method === "string" ? payload.method : null;
+  } catch {
+    return null;
+  }
 }
 
 function runId(revision: string): string {
@@ -188,15 +338,29 @@ export class ProtocolTestHarness {
   readonly markdownPath: string;
   readonly issuesPath: string;
   readonly instructionDiscriminators: Map<string, string>;
+  readonly httpTimeoutMs: number;
+  readonly scenarioTimeoutMs: number;
 
   config!: ForkConfig;
   connection!: Connection;
   report!: ProtocolTestRun;
   currentScenario: ScenarioResult | null = null;
+  private bootstrapEvidencePromise: Promise<BootstrapEvidence> | null = null;
+  private currentScenarioAbortController: AbortController | null = null;
 
   constructor() {
     this.apiUrl = (process.env.FORK_API_URL ?? process.env.V2_FORK_API_URL ?? DEFAULT_API_URL).replace(/\/$/, "");
     this.outputRoot = resolve(process.env.PROTOCOL_TEST_OUTPUT_DIR ?? DEFAULT_OUTPUT_DIR);
+    this.httpTimeoutMs = positiveIntegerEnv(
+      "PROTOCOL_TEST_HTTP_TIMEOUT_MS",
+      DEFAULT_HTTP_TIMEOUT_MS,
+      300_000,
+    );
+    this.scenarioTimeoutMs = positiveIntegerEnv(
+      "PROTOCOL_TEST_SCENARIO_TIMEOUT_MS",
+      DEFAULT_SCENARIO_TIMEOUT_MS,
+      3_600_000,
+    );
     this.idl = JSON.parse(readFileSync(resolve("target/idl/dusk.json"), "utf8")) as DuskIdl;
     this.idlInstructions = this.idl.instructions.map((instruction) => instruction.name).sort();
     this.gitRevision = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
@@ -213,7 +377,14 @@ export class ProtocolTestHarness {
       referrer: Keypair.generate(),
       liquidator: Keypair.generate(),
       bidder: Keypair.generate(),
-      emergency: Keypair.fromSeed(Uint8Array.from({ length: 32 }, () => 42)),
+      // Use a domain-derived development key whose address is verified absent
+      // from the mainnet fork. The former common [42; 32] seed maps to a live
+      // program-owned mainnet account and must not be overwritten by a faucet.
+      emergency: Keypair.fromSeed(
+        createHash("sha256")
+          .update(DEVELOPMENT_EMERGENCY_AUTHORITY_DOMAIN)
+          .digest(),
+      ),
     };
     this.instructionDiscriminators = new Map(
       this.idl.instructions.map((instruction) => [
@@ -225,7 +396,35 @@ export class ProtocolTestHarness {
 
   async initialize(): Promise<void> {
     this.config = await this.get<ForkConfig>("/api/v2/fork/config");
-    this.connection = new Connection(this.config.rpcUrl, "confirmed");
+    const rpcFetch = (async (input: unknown, init?: unknown) => {
+      try {
+        return await boundedFetch(
+          input as Parameters<typeof globalThis.fetch>[0],
+          init as RequestInit | undefined,
+          this.httpTimeoutMs,
+          `Solana RPC request timed out after ${this.httpTimeoutMs}ms`,
+          this.currentScenarioAbortController?.signal,
+        );
+      } catch (error) {
+        if (jsonRpcMethod(init) === "sendTransaction") {
+          throw new MutationOutcomeUncertainError(
+            `Solana sendTransaction outcome is uncertain: ${errorText(error)}`,
+          );
+        }
+        throw error;
+      }
+    }) as FetchFn;
+    this.connection = new Connection(this.config.rpcUrl, {
+      commitment: "confirmed",
+      fetch: rpcFetch,
+    });
+    // web3.js caches the blockhash used by the legacy Transaction simulation
+    // overload for 30 seconds. Surfnet's transaction-mode bank can invalidate
+    // that blockhash after a single submitted transaction, causing later
+    // rejection probes to report BlockhashNotFound instead of the protocol
+    // error under test. Force every legacy simulation to observe a fresh bank.
+    (this.connection as unknown as { _disableBlockhashCaching: boolean })
+      ._disableBlockhashCaching = true;
     const scenarios = SCENARIO_CATALOG.map((entry) => this.emptyScenarioResult(entry));
     this.report = {
       schemaVersion: 1,
@@ -253,6 +452,7 @@ export class ProtocolTestHarness {
 
   async runScenarios(definitions: ScenarioDefinition[]): Promise<ProtocolTestRun> {
     const implementedIds = new Set(definitions.map((definition) => definition.id));
+    let fatalRunError: ScenarioTimeoutError | MutationOutcomeUncertainError | null = null;
     for (const definition of definitions) {
       const result = this.report.scenarios.find((scenario) => scenario.id === definition.id);
       if (!result) throw new Error(`Scenario ${definition.id} is not present in the catalog`);
@@ -270,20 +470,43 @@ export class ProtocolTestHarness {
       result.startedAt = new Date().toISOString();
       const started = Date.now();
       console.log(`\n[RUN ] ${result.id}: ${result.title}`);
+      const abortController = new AbortController();
+      this.currentScenarioAbortController = abortController;
+      const timeoutError = new ScenarioTimeoutError(
+        `Scenario ${result.id} timed out after ${this.scenarioTimeoutMs}ms; aborting the protocol run to prevent late state mutation`,
+      );
+      let timeout: NodeJS.Timeout | undefined;
       try {
-        await definition.run(this);
+        await Promise.race([
+          definition.run(this),
+          new Promise<never>((_resolvePromise, reject) => {
+            timeout = setTimeout(() => {
+              abortController.abort(timeoutError);
+              reject(timeoutError);
+            }, this.scenarioTimeoutMs);
+          }),
+        ]);
         result.status = "passed";
         console.log(`[PASS] ${result.id}`);
       } catch (error) {
         result.status = "failed";
         result.error = errorText(error);
         console.error(`[FAIL] ${result.id}: ${result.error}`);
+        if (
+          error instanceof ScenarioTimeoutError ||
+          error instanceof MutationOutcomeUncertainError
+        ) {
+          fatalRunError = error;
+        }
       } finally {
+        if (timeout !== undefined) clearTimeout(timeout);
+        this.currentScenarioAbortController = null;
         result.finishedAt = new Date().toISOString();
         result.durationMs = Date.now() - started;
         this.currentScenario = null;
         this.persist();
       }
+      if (fatalRunError) break;
       if (definition.fatal && result.status === "failed") {
         console.error(`[STOP] ${result.id} is a required clean-state precondition`);
         break;
@@ -293,12 +516,8 @@ export class ProtocolTestHarness {
     for (const result of this.report.scenarios) {
       if (!implementedIds.has(result.id)) result.status = "not-run";
     }
-    this.report.finishedAt = new Date().toISOString();
-    this.report.durationMs = Date.now() - Date.parse(this.report.startedAt);
-    this.report.status = this.report.scenarios.some((scenario) => scenario.status === "failed")
-      ? "failed"
-      : "passed";
-    this.persist();
+    this.finalizeReport();
+    if (fatalRunError) throw fatalRunError;
     return this.report;
   }
 
@@ -313,13 +532,20 @@ export class ProtocolTestHarness {
     let instructionNames: string[] = [];
     let caught: unknown = null;
     let transientRetries = 0;
+    let submissionAttempted = false;
+    let submissionConfirmed = false;
 
+    // Each attempt rebuilds the transaction through the API. This matters for
+    // Surfnet transaction-mode banks, where an otherwise healthy simulation can
+    // race past the short-lived blockhash embedded in the previous response.
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       simulation = { err: null, unitsConsumed: null, logs: [], returnData: null };
       signature = null;
       slot = null;
       instructionNames = [];
       caught = null;
+      submissionAttempted = false;
+      submissionConfirmed = false;
       try {
         const response = await this.post<ForkTransactionResponse>(options.endpoint, {
           owner: signer.publicKey.toBase58(),
@@ -341,6 +567,15 @@ export class ProtocolTestHarness {
             : null,
         };
 
+        // Infrastructure errors are not evidence of an expected protocol
+        // rejection. Rebuild before evaluating either success or failure.
+        if (simulation.err) {
+          const simulationFailure = new Error(
+            `Transaction simulation failed: ${stableJson(simulation.err)}`,
+          );
+          if (isTransientForkError(simulationFailure)) throw simulationFailure;
+        }
+
         if (expected === "failure") {
           if (!simulation.err) {
             throw new Error("Transaction simulation succeeded but failure was expected");
@@ -350,18 +585,25 @@ export class ProtocolTestHarness {
             throw new Error(`Transaction simulation failed: ${stableJson(simulation.err)}`);
           }
           if (options.submit !== false) {
+            submissionAttempted = true;
             signature = await this.connection.sendRawTransaction(transaction.serialize(), {
               skipPreflight: false,
               maxRetries: 3,
             });
             slot = await this.waitForConfirmation(signature);
+            submissionConfirmed = true;
             simulation.cpiEventData = await this.confirmedCpiEventData(signature);
           }
         }
         break;
       } catch (error) {
-        caught = error;
-        if (signature === null && attempt < 3 && isTransientForkError(error)) {
+        caught = submissionAttempted && !submissionConfirmed &&
+            !(error instanceof MutationOutcomeUncertainError)
+          ? new MutationOutcomeUncertainError(
+              `Transaction submission outcome is uncertain${signature ? ` for ${signature}` : ""}: ${errorText(error)}`,
+            )
+          : error;
+        if (signature === null && attempt < 3 && isTransientForkError(caught)) {
           transientRetries += 1;
           await new Promise((resolvePromise) => setTimeout(resolvePromise, 500 * attempt));
           continue;
@@ -400,6 +642,7 @@ export class ProtocolTestHarness {
     scenario.evidence.push(evidence);
     this.persist();
 
+    if (caught instanceof MutationOutcomeUncertainError) throw caught;
     if (!passed) throw new Error(`${options.label}: ${evidence.error ?? "unexpected transaction result"}`);
     return evidence;
   }
@@ -410,20 +653,86 @@ export class ProtocolTestHarness {
     body: Record<string, unknown>
   ): Promise<ProbeResult> {
     const signer = this.wallet(walletName);
-    const response = await this.post<ForkTransactionResponse>(endpoint, {
-      owner: signer.publicKey.toBase58(),
-      ...body,
-    });
-    const transaction = Transaction.from(Buffer.from(response.transaction, "base64"));
-    transaction.sign(signer);
-    const simulated = await this.simulateWithTransientRetry(transaction);
-    const logs = simulated.value.logs ?? [];
-    return {
-      succeeds: simulated.value.err == null,
-      errorCode: parseErrorCode(logs, simulated.value.err),
-      unitsConsumed: simulated.value.unitsConsumed ?? null,
-      logs,
-    };
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        // Rebuild on every retry so both state-derived accounts and the
+        // short-lived Surfnet blockhash come from the current bank.
+        const response = await this.post<ForkTransactionResponse>(endpoint, {
+          owner: signer.publicKey.toBase58(),
+          ...body,
+        });
+        const transaction = Transaction.from(Buffer.from(response.transaction, "base64"));
+        transaction.sign(signer);
+        const simulated = await (this.connection as any).simulateTransaction(transaction);
+        const logs = simulated.value.logs ?? [];
+        if (simulated.value.err != null) {
+          const simulationFailure = new Error(
+            `Transaction simulation failed: ${stableJson(simulated.value.err)}`,
+          );
+          if (isTransientForkError(simulationFailure)) throw simulationFailure;
+        }
+        return {
+          succeeds: simulated.value.err == null,
+          errorCode: parseErrorCode(logs, simulated.value.err),
+          unitsConsumed: simulated.value.unitsConsumed ?? null,
+          logs,
+        };
+      } catch (error) {
+        if (attempt === 3 || !isTransientForkError(error)) throw error;
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 500 * attempt));
+      }
+    }
+    throw new Error("Transaction probe retries exhausted");
+  }
+
+  async assertApiRejection(
+    options: AssertApiRejectionOptions,
+  ): Promise<ForkApiResponseError> {
+    if (
+      !Number.isInteger(options.expectedStatus) ||
+      options.expectedStatus < 400 ||
+      options.expectedStatus > 499
+    ) {
+      throw new Error("Expected API rejection status must be a 4xx integer");
+    }
+
+    const signer = this.wallet(options.wallet);
+    let rejection: unknown;
+    try {
+      await this.post(options.endpoint, {
+        owner: signer.publicKey.toBase58(),
+        ...options.body,
+      });
+    } catch (error) {
+      rejection = error;
+    }
+
+    if (rejection instanceof MutationOutcomeUncertainError) throw rejection;
+    if (!(rejection instanceof ForkApiResponseError)) {
+      const detail = rejection === undefined
+        ? "the API request succeeded"
+        : `a generic infrastructure failure occurred: ${errorText(rejection)}`;
+      throw new Error(
+        `${options.label}: expected a deterministic API rejection, but ${detail}`,
+      );
+    }
+    if (rejection.status >= 500) {
+      throw new Error(
+        `${options.label}: expected a deterministic API rejection, received infrastructure HTTP ${rejection.status}`,
+      );
+    }
+
+    this.assertEqual(
+      `${options.label} HTTP status`,
+      rejection.status,
+      options.expectedStatus,
+    );
+    this.assertEqual(
+      `${options.label} API code`,
+      rejection.code,
+      options.expectedCode,
+    );
+    return rejection;
   }
 
   async buildSignedTransaction(
@@ -477,22 +786,31 @@ export class ProtocolTestHarness {
     let signature: string | null = null;
     let slot: number | null = null;
     let caught: unknown = null;
+    let submissionAttempted = false;
+    let submissionConfirmed = false;
     try {
       if (expected === "failure") {
         if (!simulation.err) throw new Error("Built transaction succeeded but failure was expected");
       } else {
         if (simulation.err) throw new Error(`Built transaction simulation failed: ${stableJson(simulation.err)}`);
         if (options.submit !== false) {
+          submissionAttempted = true;
           signature = await this.connection.sendRawTransaction(options.transaction.serialize(), {
             skipPreflight: false,
             maxRetries: 3,
           });
           slot = await this.waitForConfirmation(signature);
+          submissionConfirmed = true;
           simulation.cpiEventData = await this.confirmedCpiEventData(signature);
         }
       }
     } catch (error) {
-      caught = error;
+      caught = submissionAttempted && !submissionConfirmed &&
+          !(error instanceof MutationOutcomeUncertainError)
+        ? new MutationOutcomeUncertainError(
+            `Built transaction submission outcome is uncertain${signature ? ` for ${signature}` : ""}: ${errorText(error)}`,
+          )
+        : error;
     }
     const passed = expected === "failure"
       ? Boolean(simulation.err) && caught === null
@@ -515,6 +833,7 @@ export class ProtocolTestHarness {
     };
     scenario.evidence.push(evidence);
     this.persist();
+    if (caught instanceof MutationOutcomeUncertainError) throw caught;
     if (!passed) throw new Error(`${options.label}: ${evidence.error ?? "unexpected transaction result"}`);
     return evidence;
   }
@@ -549,6 +868,60 @@ export class ProtocolTestHarness {
     this.observe(`fork clock advanced ${seconds} seconds and ${slots} slots`, result);
   }
 
+  /// Surfnet's Clock account free-runs with wall time while risk snapshots
+  /// only advance when transactions execute, and signature confirmation can
+  /// surface before the account store that serves later simulations reflects
+  /// the same transaction. Either effect can make a just-refreshed auction
+  /// reference simulate as stale. Poll the program-visible precondition
+  /// (Clock account slot minus the market risk snapshot slot) until it
+  /// objectively holds; never inspect the guarded simulation itself.
+  async awaitAuctionReferenceAge(options: {
+    label: string;
+    minAgeSlots?: bigint;
+    maxAgeSlots?: bigint;
+    timeoutMs?: number;
+  }): Promise<void> {
+    const deadline = Date.now() + (options.timeoutMs ?? 20_000);
+    const coder = new BorshCoder(this.idl as unknown as Idl);
+    const market = new PublicKey(this.config.market);
+    let lastSnapshotSlot = 0n;
+    let clockSlot = 0n;
+    while (Date.now() < deadline) {
+      const [marketAccount, clockAccount] = await Promise.all([
+        this.connection.getAccountInfo(market, "confirmed"),
+        this.connection.getAccountInfo(SYSVAR_CLOCK_PUBKEY, "confirmed"),
+      ]);
+      if (marketAccount && clockAccount && clockAccount.data.length >= 8) {
+        // The raw BorshCoder keeps IDL snake_case field names; only the
+        // Program client converts to camelCase.
+        const decoded = coder.accounts.decode("Market", marketAccount.data);
+        const rawSnapshotSlot = decoded?.risk?.last_snapshot_slot ?? decoded?.risk?.lastSnapshotSlot;
+        if (rawSnapshotSlot === undefined) {
+          throw new Error(`${options.label}: decoded market account has no risk snapshot slot`);
+        }
+        lastSnapshotSlot = BigInt(rawSnapshotSlot.toString());
+        clockSlot = clockAccount.data.readBigUInt64LE(0);
+        const age = clockSlot > lastSnapshotSlot ? clockSlot - lastSnapshotSlot : 0n;
+        const minSatisfied = options.minAgeSlots === undefined || age >= options.minAgeSlots;
+        const maxSatisfied =
+          options.maxAgeSlots === undefined || (lastSnapshotSlot > 0n && age <= options.maxAgeSlots);
+        if (minSatisfied && maxSatisfied) {
+          this.observe(options.label, {
+            lastSnapshotSlot: lastSnapshotSlot.toString(),
+            clockSlot: clockSlot.toString(),
+            ageSlots: age.toString(),
+          });
+          return;
+        }
+      }
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
+    }
+    throw new Error(
+      `${options.label}: auction reference age did not reach the requested bounds before timeout ` +
+        `(lastSnapshotSlot=${lastSnapshotSlot}, clockSlot=${clockSlot})`,
+    );
+  }
+
   async market(): Promise<MarketPayload> {
     return this.get<MarketPayload>(`/api/v2/markets/${this.config.market}`);
   }
@@ -557,11 +930,11 @@ export class ProtocolTestHarness {
     return this.get<any>("/api/v2/fork/futarchy");
   }
 
-  async bootstrapEvidence(): Promise<BootstrapTransactionEvidence[]> {
-    const payload = await this.get<{ transactions: BootstrapTransactionEvidence[] }>(
-      "/api/v2/fork/bootstrap-evidence"
+  async bootstrapEvidence(): Promise<BootstrapEvidence> {
+    this.bootstrapEvidencePromise ??= this.get<BootstrapEvidence>(
+      "/api/v2/fork/bootstrap-evidence",
     );
-    return payload.transactions;
+    return this.bootstrapEvidencePromise;
   }
 
   async recordConfirmedSignature(label: string, signature: string): Promise<TransactionEvidence> {
@@ -684,7 +1057,10 @@ export class ProtocolTestHarness {
         const duskProgramId = new PublicKey(this.config.programId);
         for (const group of transaction.meta?.innerInstructions ?? []) {
           for (const instruction of group.instructions) {
-            const compiled = instruction as { data?: string; programIdIndex?: number };
+            const compiled = instruction as {
+              data?: string;
+              programIdIndex?: number;
+            };
             const invokedProgram = compiled.programIdIndex === undefined
               ? undefined
               : accountKeys[compiled.programIdIndex];
@@ -809,13 +1185,72 @@ export class ProtocolTestHarness {
   }
 
   private async fetchJson<T>(path: string, init: RequestInit): Promise<T> {
-    const response = await fetch(`${this.apiUrl}${path}`, {
-      ...init,
-      headers: { "content-type": "application/json" },
-    });
-    const payload = await response.json() as any;
-    if (!response.ok || payload?.success === false) {
-      throw new Error(`${init.method} ${path} failed: ${stableJson(payload)}`);
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+    };
+    let serverSigned =
+      path === "/api/v2/fork/tx/bootstrap-rejection" ||
+      path === "/api/v2/fork/tx/create-market";
+    if (typeof init.body === "string" && init.body) {
+      try {
+        const bootstrapSigned = JSON.parse(init.body)?.bootstrapSigned;
+        serverSigned =
+          serverSigned ||
+          (bootstrapSigned !== undefined &&
+            bootstrapSigned !== null &&
+            bootstrapSigned !== false);
+      } catch {
+        // The API owns malformed-JSON reporting; do not hide it in the harness.
+      }
+    }
+    if (
+      (path.startsWith("/api/v2/fork/admin/") || serverSigned) &&
+      process.env.FORK_ADMIN_TOKEN
+    ) {
+      headers["x-fork-admin-token"] = process.env.FORK_ADMIN_TOKEN;
+    }
+    const method = init.method ?? "GET";
+    let response: Response;
+    try {
+      response = await boundedFetch(
+        `${this.apiUrl}${path}`,
+        {
+          ...init,
+          headers,
+        },
+        this.httpTimeoutMs,
+        `${method} ${path} timed out after ${this.httpTimeoutMs}ms`,
+        this.currentScenarioAbortController?.signal,
+      );
+    } catch (error) {
+      if (method === "POST") {
+        throw new MutationOutcomeUncertainError(
+          `${method} ${path} outcome is uncertain: ${errorText(error)}`,
+        );
+      }
+      throw error;
+    }
+    let payload: any;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      if (method === "POST") {
+        throw new MutationOutcomeUncertainError(
+          `${method} ${path} returned an unreadable response; outcome is uncertain: ${errorText(error)}`,
+        );
+      }
+      throw error;
+    }
+    if (method === "POST" && payload?.uncertainOutcome === true) {
+      throw new MutationOutcomeUncertainError(
+        `${method} ${path} outcome is uncertain: ${stableJson(payload)}`,
+      );
+    }
+    if (!response.ok) {
+      throw new ForkApiResponseError(method, path, response.status, payload);
+    }
+    if (payload?.success === false) {
+      throw new Error(`${method} ${path} failed: ${stableJson(payload)}`);
     }
     return (payload?.data ?? payload) as T;
   }
@@ -870,6 +1305,17 @@ export class ProtocolTestHarness {
       executed,
       executionMissing: this.idlInstructions.filter((name) => !executed.includes(name)),
     };
+  }
+
+  private finalizeReport(): void {
+    this.report.finishedAt = new Date().toISOString();
+    this.report.durationMs = Date.now() - Date.parse(this.report.startedAt);
+    this.report.status = this.report.scenarios.some(
+      (scenario) => scenario.status === "failed",
+    )
+      ? "failed"
+      : "passed";
+    this.persist();
   }
 
   private persist(): void {

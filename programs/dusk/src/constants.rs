@@ -71,7 +71,7 @@ pub const MIN_LIQUIDITY: u64 = 1_000;
 //   rate_at_target_next = rate_at_target * e^(speed * error * dt/year)  (clamped)
 //
 // The curve gives an immediate, graded response to utilization; the anchor
-// makes the *level* market-driven (no hardcoded ceiling), so the protocol
+// makes the *level* market-driven (with a bounded ceiling), so the protocol
 // never has to know the "right" rate in advance.
 /// Lower/upper bounds and initial value for the adaptive anchor (APR in NAD).
 pub const INTEREST_MIN_RATE_AT_TARGET_NAD: u128 = (NAD as u128) / 1_000; // 0.1% APR
@@ -83,16 +83,6 @@ pub const INTEREST_MAX_ADAPTATION_STEP_NAD: i128 = (NAD as i128) / 2;
 /// Upper bound on the elapsed time charged in a single accrual, to bound
 /// index growth (and therefore overflow / abuse) for very stale markets.
 pub const MAX_INTEREST_ACCRUAL_MS: u64 = MS_PER_YEAR;
-
-// HEDGED-LP PRE/POST TRACKING SOLVER (Phase 2)
-/// Only run the (expensive) pre/post solve when the estimated within-swap
-/// tracking loss exceeds this NAD threshold; below it the cheap post-swap
-/// rebalance is sufficient.
-pub const HLP_PRE_SOLVE_LOSS_THRESHOLD_NAD: u128 = NAD as u128;
-/// Fixed number of safeguarded secant evaluations after the no-adjustment
-/// probe. Cap-bound and exact-root cases may finish without consuming unused
-/// evaluations; no path may exceed this budget.
-pub const HLP_PRE_SOLVE_EVALUATIONS: u32 = 3;
 
 #[constant]
 pub const MARKET_V2_SEED_PREFIX: &[u8] = b"market_v2";
@@ -147,6 +137,6 @@ pub const MARKET_LAYOUT_VERSION: u8 = 1;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 #[cfg(feature = "development")]
-pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("2iXtA8oeZqUU5pofxK971TCEvFGfems2AcDRaZHKD2pQ");
+pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("ApUjQxxTQLTzPcGqYTowjTHoUBdzutWe9yXr1oAhKPZQ");
 #[cfg(not(feature = "development"))]
 pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");

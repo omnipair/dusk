@@ -21,7 +21,7 @@ use crate::instructions::accounts::{
     QUOTE_INTEREST_VAULT_INDEX,
 };
 use crate::instructions::liquidity::record_inline_hlp_interest_credit;
-use crate::instructions::{hlp_receipt_mutates_curve_inventory, split_claimable_fee_credit, PreparedSwap, SwapRequest};
+use crate::instructions::{rebalance_executes_token_changes, SwapRequest};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct SwapArgs {
@@ -155,118 +155,22 @@ impl<'info> Swap<'info> {
                 current_epoch,
             )?)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let PreparedSwap {
-            quote,
-            base_pre_rebalance,
-            quote_pre_rebalance,
-            fee_eligible_ylp_supply,
-            interest_eligibility,
-        } = SwapRequest {
+        let prepared = SwapRequest {
             current_slot,
             asset_in,
             reserve_credit,
         }
         .prepare(&mut ctx.accounts.market)?;
-        let (base_fee_credit, distributed_surcharge_credit) =
-            split_claimable_fee_credit(&quote.fee, quote.fee.claimable_fee_debit)?;
-
-        let trade_endpoint = quote.trade_endpoint()?;
-        let reserve_endpoint = quote.reserve_endpoint()?;
-        {
-            let market = &mut ctx.accounts.market;
-            require_eq!(
-                quote.fee.reserve_input_credit,
-                quote
-                    .fee
-                    .amount_in_for_quote
-                    .checked_add(quote.fee.retained_surcharge)
-                    .ok_or(ErrorCode::ReserveOverflow)?,
-                ErrorCode::BrokenInvariant
-            );
-            {
-                let (side_in, side_out) = market.swap_sides_mut(quote.asset_in);
-                require_gte!(
-                    side_out.reserves.cash_reserve,
-                    quote.amount_out,
-                    ErrorCode::InsufficientLiquidity
-                );
-                side_in.credit_reserve(quote.fee.amount_in_for_quote, true)?;
-                side_out.debit_reserve(quote.amount_out, true)?;
-            }
-
-            // The invariant-preserving trade and rounding dust are neutral.
-            // Validate and reuse the quote-time endpoint instead of solving D/Q
-            // again. Only a retained surcharge can increase protected budget.
-            market.ensure_amm_initialized(current_slot)?;
-            require!(market.amm.initialized, ErrorCode::BrokenInvariant);
-            let evaluation = trade_endpoint.validated_evaluation(market, current_slot)?;
-            let q_per_share_nad = market.curve_q_per_share_nad(evaluation.balanced_equivalent_q)?;
-            market.amm.commit_invariant(evaluation.invariant_d)?;
-            market.amm.checkpoint_neutral_liquidity(q_per_share_nad);
-
-            if quote.fee.retained_surcharge > 0 {
-                market
-                    .side_mut(quote.asset_in)
-                    .credit_reserve(quote.fee.retained_surcharge, true)?;
-                let evaluation = reserve_endpoint.validated_evaluation(market, current_slot)?;
-                let q_per_share_nad = market.curve_q_per_share_nad(evaluation.balanced_equivalent_q)?;
-                market.amm.commit_invariant(evaluation.invariant_d)?;
-                market.amm.checkpoint_retained_surcharge(q_per_share_nad)?;
-            }
-
-            {
-                let (side_in, side_out) = market.swap_sides_mut(quote.asset_in);
-                side_in.record_claimable_swap_fees(
-                    base_fee_credit,
-                    distributed_surcharge_credit,
-                    protocol_fee_bps,
-                    protocol_auction_split,
-                    fee_eligible_ylp_supply,
-                )?;
-                side_in.assert_share_backing()?;
-                side_out.assert_share_backing()?;
-                side_in.fees.assert_backed()?;
-            }
-        }
-        ctx.accounts.market.finalize_amm_trade_after_inventory_checkpoint(
-            quote.start_price_nad,
-            quote.end_price_nad,
+        let finalized = prepared.finalize_state(
+            &mut ctx.accounts.market,
             current_slot,
+            protocol_fee_bps,
+            protocol_auction_split,
         )?;
-        let (base_rebalance, quote_rebalance) =
-            ctx.accounts
-                .market
-                .finalize_hlp_vaults_for_swap(base_pre_rebalance, quote_pre_rebalance, current_slot)?;
-        let h_lp_tokens_will_change =
-            rebalance_executes_token_changes(&base_rebalance) || rebalance_executes_token_changes(&quote_rebalance);
-        let h_lp_mutates_curve_inventory = hlp_receipt_mutates_curve_inventory(&base_rebalance)
-            || hlp_receipt_mutates_curve_inventory(&quote_rebalance);
-        require!(
-            !h_lp_tokens_will_change || h_lp_mutates_curve_inventory,
-            ErrorCode::BrokenInvariant
-        );
-        let final_curve_evaluation = if h_lp_mutates_curve_inventory {
-            // Internal hLP settlement changes executable inventory, so refresh
-            // D/Q once and reuse that evaluation for the scalar risk mark.
-            ctx.accounts.market.checkpoint_amm_neutral_inventory(current_slot)?
-        } else if quote.fee.retained_surcharge > 0 {
-            // The reserve endpoint was identity-validated when the retained
-            // surcharge was checkpointed above. No state capable of changing
-            // that identity has run since, so reuse its bound evaluation.
-            quote.reserve_endpoint()?.evaluation()
-        } else {
-            // With no retained surcharge, the trade endpoint is also the
-            // reserve endpoint and was identity-validated by the neutral
-            // inventory checkpoint above.
-            quote.trade_endpoint()?.evaluation()
-        };
-        // Advance EMA/Q state from the exact final endpoint, but leave the
-        // pessimistic lending shapes stale until a risk-sensitive operation
-        // materializes them. This avoids treating the pre-swap mark as the
-        // observation for all time until the next borrow or liquidation.
-        ctx.accounts
-            .market
-            .observe_risk_from_curve_evaluation(final_curve_evaluation, current_slot)?;
+        let quote = prepared.quote;
+        let interest_eligibility = prepared.interest_eligibility;
+        let base_rebalance = finalized.base_rebalance;
+        let quote_rebalance = finalized.quote_rebalance;
 
         // Final commit validation uses cached vault balances plus the known
         // net input, gross output, and gross hLP-interest deltas. This catches
@@ -391,10 +295,6 @@ impl<'info> Swap<'info> {
 
         Ok(())
     }
-}
-
-fn rebalance_executes_token_changes(receipt: &HlpRebalanceReceipt) -> bool {
-    receipt.ylp_mint_amount > 0 || receipt.ylp_burn_amount > 0 || receipt.interest_paid > 0
 }
 
 fn apply_single_hlp_rebalance_token_changes<'info>(

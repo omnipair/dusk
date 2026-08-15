@@ -1,0 +1,2196 @@
+{
+  "address": "EPGF9iFrbGnhWgC3To9rC9vxinEYuDHaz4RXgLPvuRkp",
+  "metadata": {
+    "name": "leverage_delegate",
+    "version": "2.0.0",
+    "spec": "0.1.0",
+    "description": "Permissionless leverage delegation strategies for Omnipair V2 (Dusk)"
+  },
+  "instructions": [
+    {
+      "name": "after_close_order",
+      "discriminator": [
+        156,
+        224,
+        238,
+        250,
+        95,
+        229,
+        235,
+        59
+      ],
+      "accounts": [
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  111,
+                  114,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "order.position",
+                "account": "LeverageOrder"
+              },
+              {
+                "kind": "account",
+                "path": "order.owner",
+                "account": "LeverageOrder"
+              },
+              {
+                "kind": "arg",
+                "path": "args.order_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true
+        },
+        {
+          "name": "leverage_position"
+        },
+        {
+          "name": "leverage_delegation"
+        },
+        {
+          "name": "custody_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  101,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "order"
+              }
+            ]
+          }
+        },
+        {
+          "name": "custody_token_account",
+          "writable": true
+        },
+        {
+          "name": "executor_token_account",
+          "writable": true
+        },
+        {
+          "name": "owner_token_account",
+          "writable": true
+        },
+        {
+          "name": "token_mint"
+        },
+        {
+          "name": "executor",
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ExecuteOrderArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "before_stop_loss",
+      "discriminator": [
+        246,
+        62,
+        82,
+        232,
+        168,
+        199,
+        121,
+        78
+      ],
+      "accounts": [
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  111,
+                  114,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position"
+              },
+              {
+                "kind": "account",
+                "path": "order.owner",
+                "account": "LeverageOrder"
+              },
+              {
+                "kind": "arg",
+                "path": "args.order_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "market"
+        },
+        {
+          "name": "leverage_position"
+        },
+        {
+          "name": "leverage_delegation"
+        },
+        {
+          "name": "custody_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  101,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "order"
+              }
+            ]
+          }
+        },
+        {
+          "name": "custody_token_account"
+        },
+        {
+          "name": "token_mint"
+        },
+        {
+          "name": "executor",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ExecuteOrderArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "before_take_profit",
+      "discriminator": [
+        5,
+        35,
+        111,
+        0,
+        223,
+        131,
+        193,
+        31
+      ],
+      "accounts": [
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  111,
+                  114,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position"
+              },
+              {
+                "kind": "account",
+                "path": "order.owner",
+                "account": "LeverageOrder"
+              },
+              {
+                "kind": "arg",
+                "path": "args.order_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "market"
+        },
+        {
+          "name": "leverage_position"
+        },
+        {
+          "name": "leverage_delegation"
+        },
+        {
+          "name": "custody_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  101,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "order"
+              }
+            ]
+          }
+        },
+        {
+          "name": "custody_token_account"
+        },
+        {
+          "name": "token_mint"
+        },
+        {
+          "name": "executor",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ExecuteOrderArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "cancel_leverage_order",
+      "discriminator": [
+        26,
+        88,
+        173,
+        106,
+        175,
+        242,
+        203,
+        122
+      ],
+      "accounts": [
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  111,
+                  114,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "order.position",
+                "account": "LeverageOrder"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "arg",
+                "path": "args.order_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "_args",
+          "type": {
+            "defined": {
+              "name": "CancelLeverageOrderArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_leverage_order",
+      "discriminator": [
+        197,
+        206,
+        10,
+        223,
+        89,
+        46,
+        93,
+        17
+      ],
+      "accounts": [
+        {
+          "name": "market"
+        },
+        {
+          "name": "leverage_position"
+        },
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  111,
+                  114,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "arg",
+                "path": "args.order_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "CreateLeverageOrderArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "update_leverage_order",
+      "discriminator": [
+        25,
+        101,
+        101,
+        3,
+        125,
+        229,
+        46,
+        242
+      ],
+      "accounts": [
+        {
+          "name": "market"
+        },
+        {
+          "name": "leverage_position"
+        },
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  111,
+                  114,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "arg",
+                "path": "args.order_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "UpdateLeverageOrderArgs"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "LeverageDelegation",
+      "discriminator": [
+        49,
+        60,
+        29,
+        23,
+        243,
+        219,
+        16,
+        214
+      ]
+    },
+    {
+      "name": "LeverageOrder",
+      "discriminator": [
+        232,
+        162,
+        45,
+        148,
+        106,
+        106,
+        37,
+        132
+      ]
+    },
+    {
+      "name": "LeveragePosition",
+      "discriminator": [
+        88,
+        78,
+        124,
+        68,
+        228,
+        129,
+        34,
+        251
+      ]
+    },
+    {
+      "name": "Market",
+      "discriminator": [
+        219,
+        190,
+        213,
+        55,
+        0,
+        227,
+        198,
+        154
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidOrder",
+      "msg": "Invalid leverage order"
+    },
+    {
+      "code": 6001,
+      "name": "TriggerNotMet",
+      "msg": "Order trigger is not met"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidTokenAccount",
+      "msg": "Invalid token account"
+    },
+    {
+      "code": 6003,
+      "name": "MathOverflow",
+      "msg": "Math overflow"
+    },
+    {
+      "code": 6004,
+      "name": "ApprovalSerializationFailed",
+      "msg": "Approval serialization failed"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidMarketVersion",
+      "msg": "Unsupported Dusk market version"
+    }
+  ],
+  "types": [
+    {
+      "name": "AmmConfig",
+      "docs": [
+        "AMM controls. `peak_depth_nad == 0 && fade_scale_nad == 0` selects CPMM."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "peak_depth_nad",
+            "type": "u64"
+          },
+          {
+            "name": "fade_scale_nad",
+            "type": "u64"
+          },
+          {
+            "name": "center_ema_half_life_ms",
+            "type": "u64"
+          },
+          {
+            "name": "volatility_half_life_ms",
+            "type": "u64"
+          },
+          {
+            "name": "adjustment_threshold_nad",
+            "type": "u64"
+          },
+          {
+            "name": "adjustment_step_nad",
+            "type": "u64"
+          },
+          {
+            "name": "min_adjustment_interval_slots",
+            "type": "u64"
+          },
+          {
+            "name": "volatility_shock_cap_nad",
+            "type": "u64"
+          },
+          {
+            "name": "volatility_cap_nad",
+            "type": "u64"
+          },
+          {
+            "name": "divergence_fee_coefficient_nad",
+            "type": "u64"
+          },
+          {
+            "name": "volatility_fee_coefficient_nad",
+            "type": "u64"
+          },
+          {
+            "name": "concentration_ramp_duration_slots",
+            "type": "u64"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                33
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "AmmState",
+      "docs": [
+        "Embedded mutable state for concentration, internal signals, protected",
+        "liquidity, and an active parameter ramp."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "initialized",
+            "type": "bool"
+          },
+          {
+            "name": "applied_curve_parameters",
+            "docs": [
+              "Parameters already admitted by the protected-profit gate. Time alone",
+              "never changes this field."
+            ],
+            "type": {
+              "defined": {
+                "name": "ConcentrationParameters"
+              }
+            }
+          },
+          {
+            "name": "concentrated_geometry_cache",
+            "docs": [
+              "Authoritative geometry for `applied_curve_parameters`. CPMM stores the",
+              "all-zero cache. Only initialization or an admitted parameter change may",
+              "replace it; center and reserve changes reuse it unchanged."
+            ],
+            "type": {
+              "defined": {
+                "name": "ConcentratedGeometryCache"
+              }
+            }
+          },
+          {
+            "name": "center_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "price_ema_nad",
+            "type": "u64"
+          },
+          {
+            "name": "last_trade_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "last_observation_slot",
+            "type": "u64"
+          },
+          {
+            "name": "last_adjustment_slot",
+            "type": "u64"
+          },
+          {
+            "name": "last_concentration_ramp_update_slot",
+            "docs": [
+              "Prevents repeated instructions in one slot from advancing a ramp more",
+              "than once."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "volatility_accumulator_nad",
+            "type": "u64"
+          },
+          {
+            "name": "invariant_d_nad",
+            "type": "u128"
+          },
+          {
+            "name": "curve_math_revision",
+            "docs": [
+              "Curve formula revision represented by `invariant_d_nad`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "q_per_share_nad",
+            "type": "u128"
+          },
+          {
+            "name": "protected_floor_per_share_nad",
+            "docs": [
+              "yLP principal floor protected from funded recenter/ramp impairment."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "retention_required_nad",
+            "docs": [
+              "Fresh protected-profit target that arms retained surcharge routing.",
+              "This is a principal-budget target, never a cap on trader fees."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "retention_stop_nad",
+            "docs": [
+              "Hysteresis threshold below which retention remains armed."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "retention_hard_cap_nad",
+            "docs": [
+              "Maximum protected principal one controller target may request/spend.",
+              "It does not clip divergence or volatility surcharge amounts."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "retain_dynamic_surcharge",
+            "docs": [
+              "When true, dynamic surcharge is reserve principal; when false, the",
+              "identical trader charge is routed to claimable yLP fee accounting."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "retention_target_saturated",
+            "docs": [
+              "The requested protection target exceeded its principal-budget cap."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "concentration_ramp",
+            "type": {
+              "defined": {
+                "name": "ConcentrationRamp"
+              }
+            }
+          },
+          {
+            "name": "retention_target_stale",
+            "docs": [
+              "Retained surcharge changed executable inventory after the last exact",
+              "forward-target solve. While stale, retention stays on until a decision",
+              "point refreshes the target or executes a funded recenter."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "deferred_controller_target",
+            "docs": [
+              "Exact unfunded controller target retried by later real operations."
+            ],
+            "type": {
+              "defined": {
+                "name": "DeferredControllerTarget"
+              }
+            }
+          },
+          {
+            "name": "_reserved",
+            "type": {
+              "array": [
+                "u8",
+                0
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "CancelLeverageOrderArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "order_id",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConcentratedGeometryCache",
+      "docs": [
+        "Parameter-bound authoritative geometry persisted by market state.",
+        "",
+        "Q80 derivation is intentionally paid only when the applied shape changes.",
+        "Ordinary quotes reconstruct every Q64/Q48 projection with shifts."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "math_revision",
+            "type": "u8"
+          },
+          {
+            "name": "peak_depth_nad",
+            "type": "u64"
+          },
+          {
+            "name": "fade_scale_nad",
+            "type": "u64"
+          },
+          {
+            "name": "peak_q80",
+            "type": "u128"
+          },
+          {
+            "name": "scale_q80",
+            "type": "u128"
+          },
+          {
+            "name": "v_start_q80",
+            "type": "u128"
+          },
+          {
+            "name": "v_tail_q80",
+            "type": "u128"
+          },
+          {
+            "name": "reserve_ratio_start_q80",
+            "type": "u128"
+          },
+          {
+            "name": "reserve_ratio_tail_q80",
+            "type": "u128"
+          },
+          {
+            "name": "negative_q_prime_start_q80",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConcentrationParameters",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "peak_depth_nad",
+            "type": "u64"
+          },
+          {
+            "name": "fade_scale_nad",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConcentrationRamp",
+      "docs": [
+        "A linear ramp whose governance delay is enforced by a queued parameter",
+        "proposal. The ramp begins in the slot where that proposal executes."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "start",
+            "type": {
+              "defined": {
+                "name": "ConcentrationParameters"
+              }
+            }
+          },
+          {
+            "name": "target",
+            "type": {
+              "defined": {
+                "name": "ConcentrationParameters"
+              }
+            }
+          },
+          {
+            "name": "start_slot",
+            "type": "u64"
+          },
+          {
+            "name": "end_slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreateLeverageOrderArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "order_id",
+            "type": "u64"
+          },
+          {
+            "name": "kind",
+            "type": "u8"
+          },
+          {
+            "name": "trigger_closeout_price_nad",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DailyBorrowBucket",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "borrowed_bucket",
+            "docs": [
+              "Gross principal lent out through the public borrow path. Internal hLP",
+              "funding and isolated leverage do not consume this capacity. This is a",
+              "24-hour leaky/token bucket, not an exact trailing-window sum: it permits",
+              "a full burst after idle and then refills at the configured daily rate."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "last_decay_slot",
+            "type": "u64"
+          },
+          {
+            "name": "decay_remainder_ms",
+            "docs": [
+              "Numerator remainder from `limit * elapsed_ms / MS_PER_DAY`. For a fixed",
+              "absolute limit, carrying it makes refill independent of how often the",
+              "bucket is checkpointed. The bps-derived absolute limit can still move",
+              "when conservative market depth changes."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Debt",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "fixed_base_shares",
+            "type": "u128"
+          },
+          {
+            "name": "fixed_quote_shares",
+            "type": "u128"
+          },
+          {
+            "name": "base_borrow_index_nad",
+            "type": "u128"
+          },
+          {
+            "name": "quote_borrow_index_nad",
+            "type": "u128"
+          },
+          {
+            "name": "base_rate_at_target_nad",
+            "type": "u128"
+          },
+          {
+            "name": "quote_rate_at_target_nad",
+            "type": "u128"
+          },
+          {
+            "name": "global_health_base_contribution_for_quote_debt",
+            "type": "u64"
+          },
+          {
+            "name": "global_health_quote_contribution_for_base_debt",
+            "type": "u64"
+          },
+          {
+            "name": "base_last_accrual_slot",
+            "type": "u64"
+          },
+          {
+            "name": "quote_last_accrual_slot",
+            "type": "u64"
+          },
+          {
+            "name": "fixed_base_principal",
+            "docs": [
+              "Aggregate outstanding *principal* (borrowed token amount, excluding",
+              "accrued interest) backing fixed margin debt on each side. Accrued",
+              "interest is `fixed_*_debt - fixed_*_principal`; tracked so interest can",
+              "be routed to the interest vault (non-compounding) instead of",
+              "compounding into reserves. Principal is a raw token-atom balance and is",
+              "therefore bounded by the corresponding `u64` reserve custody domain."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "fixed_quote_principal",
+            "type": "u64"
+          },
+          {
+            "name": "isolated_base_shares",
+            "docs": [
+              "Aggregate isolated leverage debt. This debt contributes to utilization",
+              "and interest, but is intentionally not utilized as normal margin debt.",
+              "Shares remain `u128`; raw principal remains in the token account's",
+              "`u64` amount domain."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "isolated_quote_shares",
+            "type": "u128"
+          },
+          {
+            "name": "isolated_base_principal",
+            "type": "u64"
+          },
+          {
+            "name": "isolated_quote_principal",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DeferredControllerTarget",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "kind",
+            "docs": [
+              "0 = none, 1 = parameter ramp, 2 = center move."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "center_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "parameters",
+            "type": {
+              "defined": {
+                "name": "ConcentrationParameters"
+              }
+            }
+          },
+          {
+            "name": "required_nad",
+            "type": "u128"
+          },
+          {
+            "name": "evaluated_base_reserve_nad",
+            "type": "u128"
+          },
+          {
+            "name": "evaluated_quote_reserve_nad",
+            "type": "u128"
+          },
+          {
+            "name": "created_slot",
+            "type": "u64"
+          },
+          {
+            "name": "saturated",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExecuteOrderArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "order_id",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Fees",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "swap_fee_growth_index_q64",
+            "type": "u128"
+          },
+          {
+            "name": "interest_growth_index_q64",
+            "type": "u128"
+          },
+          {
+            "name": "swap_fee_growth_remainder_scaled",
+            "docs": [
+              "Scaled fee entitlement not yet representable by the integer growth",
+              "index. The corresponding whole-token backing already sits in",
+              "`swap_fee_liability`; it must never be redistributed as unallocated",
+              "revenue."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "interest_growth_remainder_scaled",
+            "docs": [
+              "Interest counterpart of `swap_fee_growth_remainder_scaled`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "hlp_funding_interest_growth_remainder_scaled",
+            "docs": [
+              "Source-scoped Q64 carry for interest paid by hLP funding debt. Funding",
+              "uses a non-hLP denominator, while public interest uses total yLP",
+              "supply; sharing one carry across those denominators would eventually",
+              "leak rounding entitlement between the two populations."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "swap_fee_custody_balance",
+            "docs": [
+              "Claimable swap fees physically held in the reserve vault but excluded",
+              "from executable cash and live reserves."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "interest_vault_balance",
+            "type": "u64"
+          },
+          {
+            "name": "swap_fee_liability",
+            "type": "u64"
+          },
+          {
+            "name": "interest_liability",
+            "type": "u64"
+          },
+          {
+            "name": "unallocated_swap_fee_liability",
+            "type": "u64"
+          },
+          {
+            "name": "unallocated_interest_liability",
+            "type": "u64"
+          },
+          {
+            "name": "swap_protocol_fee_liability",
+            "type": "u64"
+          },
+          {
+            "name": "swap_buyback_fee_liability",
+            "type": "u64"
+          },
+          {
+            "name": "interest_protocol_fee_liability",
+            "type": "u64"
+          },
+          {
+            "name": "interest_buyback_fee_liability",
+            "type": "u64"
+          },
+          {
+            "name": "referral_interest_liability",
+            "type": "u64"
+          },
+          {
+            "name": "fee_auction_reference_market",
+            "docs": [
+              "Governance-approved reference market for fee-lane auctions. A default",
+              "key permits only the sold market itself when it directly pairs the sold",
+              "and accepted mints."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "buyback_auction_reference_market",
+            "docs": [
+              "Governance-approved reference market for buyback-lane auctions. A",
+              "default key has the same direct-market-only meaning as above."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_swap_auction_epoch",
+            "type": {
+              "defined": {
+                "name": "ProtocolAuctionEpoch"
+              }
+            }
+          },
+          {
+            "name": "fee_interest_auction_epoch",
+            "type": {
+              "defined": {
+                "name": "ProtocolAuctionEpoch"
+              }
+            }
+          },
+          {
+            "name": "buyback_swap_auction_epoch",
+            "type": {
+              "defined": {
+                "name": "ProtocolAuctionEpoch"
+              }
+            }
+          },
+          {
+            "name": "buyback_interest_auction_epoch",
+            "type": {
+              "defined": {
+                "name": "ProtocolAuctionEpoch"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "HlpVault",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ylp_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "ylp_shares",
+            "type": "u64"
+          },
+          {
+            "name": "base_hlp_live_reserve",
+            "docs": [
+              "hLP-owned live reserve depth that is not backed by reserve cash or",
+              "normal cash-backed debt. This is the explicit synthetic live component",
+              "in `r_virtual = r_cash + r_cash_backed_debt + r_hlp_live`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "quote_hlp_live_reserve",
+            "type": "u64"
+          },
+          {
+            "name": "debt_shares",
+            "docs": [
+              "Funding debt used by the hLP vault. It accrues interest and counts",
+              "toward utilization, but is not same-side cash-backed reserve debt."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "debt_principal",
+            "docs": [
+              "Raw borrowed token atoms; products and indexed shares stay `u128`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "hlp_supply",
+            "type": "u64"
+          },
+          {
+            "name": "residual_exposure",
+            "type": "i128"
+          },
+          {
+            "name": "base_swap_fee_growth_index_q64",
+            "type": "u128"
+          },
+          {
+            "name": "base_interest_growth_index_q64",
+            "type": "u128"
+          },
+          {
+            "name": "quote_swap_fee_growth_index_q64",
+            "type": "u128"
+          },
+          {
+            "name": "quote_interest_growth_index_q64",
+            "type": "u128"
+          },
+          {
+            "name": "base_swap_fee_checkpoint_q64",
+            "type": "u128"
+          },
+          {
+            "name": "base_interest_checkpoint_q64",
+            "type": "u128"
+          },
+          {
+            "name": "quote_swap_fee_checkpoint_q64",
+            "type": "u128"
+          },
+          {
+            "name": "quote_interest_checkpoint_q64",
+            "type": "u128"
+          },
+          {
+            "name": "base_swap_fee_remainder_q64",
+            "docs": [
+              "Aggregate sub-atom yLP entitlement carried across hLP checkpoints.",
+              "These are distinct from each holder YieldAccount remainder: this layer",
+              "converts vault-owned yLP growth into hLP growth without double-flooring."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "base_interest_remainder_q64",
+            "type": "u64"
+          },
+          {
+            "name": "quote_swap_fee_remainder_q64",
+            "type": "u64"
+          },
+          {
+            "name": "quote_interest_remainder_q64",
+            "type": "u64"
+          },
+          {
+            "name": "base_swap_fee_growth_remainder_scaled",
+            "docs": [
+              "Sub-index distribution carry for the second, yLP-to-hLP allocation",
+              "layer. Whole-token backing represented here has already left the",
+              "corresponding `unallocated_*` bucket."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "base_interest_growth_remainder_scaled",
+            "type": "u64"
+          },
+          {
+            "name": "quote_swap_fee_growth_remainder_scaled",
+            "type": "u64"
+          },
+          {
+            "name": "quote_interest_growth_remainder_scaled",
+            "type": "u64"
+          },
+          {
+            "name": "unallocated_base_swap_fee_amount",
+            "type": "u64"
+          },
+          {
+            "name": "unallocated_base_interest_amount",
+            "type": "u64"
+          },
+          {
+            "name": "unallocated_quote_swap_fee_amount",
+            "type": "u64"
+          },
+          {
+            "name": "unallocated_quote_interest_amount",
+            "type": "u64"
+          },
+          {
+            "name": "last_nav_nad",
+            "type": "u128"
+          },
+          {
+            "name": "cached_settlement_price_nad",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Insurance",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "base_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "quote_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "base_available",
+            "type": "u64"
+          },
+          {
+            "name": "quote_available",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IrmConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "target_utilization_bps",
+            "type": "u16"
+          },
+          {
+            "name": "curve_steepness_nad",
+            "type": "u64"
+          },
+          {
+            "name": "adjustment_speed_per_year",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LeverageDelegation",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "debt_asset",
+            "type": "u8"
+          },
+          {
+            "name": "delegated_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "approved_actions",
+            "type": "u32"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LeverageOrder",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "order_id",
+            "type": "u64"
+          },
+          {
+            "name": "kind",
+            "type": "u8"
+          },
+          {
+            "name": "trigger_closeout_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "staged_margin",
+            "type": "u64"
+          },
+          {
+            "name": "staged_custody_token_account",
+            "type": "pubkey"
+          },
+          {
+            "name": "staged_output_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "staged_output_amount",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LeveragePosition",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "position_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "referral_partner",
+            "type": "pubkey"
+          },
+          {
+            "name": "referral_interest_share_bps",
+            "type": "u16"
+          },
+          {
+            "name": "debt_asset",
+            "type": "u8"
+          },
+          {
+            "name": "collateral_amount",
+            "type": "u64"
+          },
+          {
+            "name": "margin_amount",
+            "type": "u64"
+          },
+          {
+            "name": "open_notional",
+            "type": "u64"
+          },
+          {
+            "name": "debt_principal",
+            "type": "u128"
+          },
+          {
+            "name": "debt_shares",
+            "type": "u128"
+          },
+          {
+            "name": "multiplier_bps",
+            "type": "u64"
+          },
+          {
+            "name": "opened_at",
+            "type": "i64"
+          },
+          {
+            "name": "opened_slot",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Market",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "ylp_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "base_side",
+            "type": {
+              "defined": {
+                "name": "MarketSide"
+              }
+            }
+          },
+          {
+            "name": "quote_side",
+            "type": {
+              "defined": {
+                "name": "MarketSide"
+              }
+            }
+          },
+          {
+            "name": "config",
+            "type": {
+              "defined": {
+                "name": "MarketConfig"
+              }
+            }
+          },
+          {
+            "name": "amm",
+            "type": {
+              "defined": {
+                "name": "AmmState"
+              }
+            }
+          },
+          {
+            "name": "debt",
+            "type": {
+              "defined": {
+                "name": "Debt"
+              }
+            }
+          },
+          {
+            "name": "base_hlp_vault",
+            "type": {
+              "defined": {
+                "name": "HlpVault"
+              }
+            }
+          },
+          {
+            "name": "quote_hlp_vault",
+            "type": {
+              "defined": {
+                "name": "HlpVault"
+              }
+            }
+          },
+          {
+            "name": "risk",
+            "type": {
+              "defined": {
+                "name": "Risk"
+              }
+            }
+          },
+          {
+            "name": "insurance",
+            "type": {
+              "defined": {
+                "name": "Insurance"
+              }
+            }
+          },
+          {
+            "name": "params_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "governance_locked_ylp",
+            "docs": [
+              "External yLP burned into active governance support. This is added back",
+              "when computing direct-yLP eligibility; internal reserve-share supply is",
+              "intentionally unchanged by governance locking."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "parameter_revisions",
+            "docs": [
+              "Independent monotone revisions for fee, concentration, IRM, EMA, and",
+              "daily-borrow-limit parameter families, in that order."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                5
+              ]
+            }
+          },
+          {
+            "name": "last_marginal_observation_nad",
+            "docs": [
+              "Latest trader-visible marginal price committed by a curve mutation."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "curve_revision",
+            "docs": [
+              "Monotone revision for executable-curve mutations."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "risk_revision",
+            "docs": [
+              "Curve revision represented by the materialized lending-risk snapshot."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "last_update_slot",
+            "type": "u64"
+          },
+          {
+            "name": "reduce_only",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "swap_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "divergence_fee_share_cap_bps",
+            "type": "u16"
+          },
+          {
+            "name": "volatility_fee_share_cap_bps",
+            "type": "u16"
+          },
+          {
+            "name": "target_hlp_leverage_bps",
+            "type": "u16"
+          },
+          {
+            "name": "settlement_divergence_bps",
+            "type": "u16"
+          },
+          {
+            "name": "ema_half_life_ms",
+            "type": "u64"
+          },
+          {
+            "name": "directional_ema_half_life_ms",
+            "type": "u64"
+          },
+          {
+            "name": "q_ema_half_life_ms",
+            "type": "u64"
+          },
+          {
+            "name": "max_daily_borrow_bps",
+            "type": "u16"
+          },
+          {
+            "name": "global_health_contribution_cap_bps",
+            "type": "u16"
+          },
+          {
+            "name": "borrow_market_health_floor_bps",
+            "type": "u16"
+          },
+          {
+            "name": "amm",
+            "type": {
+              "defined": {
+                "name": "AmmConfig"
+              }
+            }
+          },
+          {
+            "name": "irm",
+            "type": {
+              "defined": {
+                "name": "IrmConfig"
+              }
+            }
+          },
+          {
+            "name": "start_time",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketSide",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_decimals",
+            "type": "u8"
+          },
+          {
+            "name": "hlp_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "reserve_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "collateral_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "interest_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "reserves",
+            "type": {
+              "defined": {
+                "name": "Reserves"
+              }
+            }
+          },
+          {
+            "name": "shares",
+            "type": {
+              "defined": {
+                "name": "ReserveShares"
+              }
+            }
+          },
+          {
+            "name": "fees",
+            "type": {
+              "defined": {
+                "name": "Fees"
+              }
+            }
+          },
+          {
+            "name": "daily_borrow_bucket",
+            "type": {
+              "defined": {
+                "name": "DailyBorrowBucket"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProtocolAuctionEpoch",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "start_slot",
+            "type": "u64"
+          },
+          {
+            "name": "tracked_inventory",
+            "docs": [
+              "Liability remaining immediately after the preceding fill. A larger",
+              "current liability proves that new inventory arrived and starts a new",
+              "epoch instead of inheriting an old floor price."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReserveShares",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ylp_supply",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Reserves",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "live_reserve",
+            "type": "u64"
+          },
+          {
+            "name": "cash_reserve",
+            "type": "u64"
+          },
+          {
+            "name": "base_hlp_backing_inventory",
+            "docs": [
+              "Physical reserve-vault atoms removed from executable AMM inventory by",
+              "base-hLP deleveraging. They are conservation-only bookkeeping, excluded",
+              "from hLP NAV and exit output, and return to executable cash pro rata as",
+              "base hLP exits."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "quote_hlp_backing_inventory",
+            "docs": [
+              "Quote-hLP counterpart of `base_hlp_backing_inventory`; never a second",
+              "hLP NAV or withdrawal claim."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Risk",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "base_price_ema_nad",
+            "type": "u64"
+          },
+          {
+            "name": "quote_price_ema_nad",
+            "type": "u64"
+          },
+          {
+            "name": "directional_base_price_ema_nad",
+            "type": "u64"
+          },
+          {
+            "name": "directional_quote_price_ema_nad",
+            "type": "u64"
+          },
+          {
+            "name": "cached_spot_base_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "cached_spot_quote_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "cached_q_nad",
+            "docs": [
+              "Last observed balanced-equivalent CONCENTRATED depth."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "q_ema_nad",
+            "docs": [
+              "EMA of balanced-equivalent CONCENTRATED depth. This replaces the CPMM `K` EMA",
+              "while retaining the same serialized width."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "last_snapshot_slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateLeverageOrderArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "order_id",
+            "type": "u64"
+          },
+          {
+            "name": "kind",
+            "type": "u8"
+          },
+          {
+            "name": "trigger_closeout_price_nad",
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ]
+}

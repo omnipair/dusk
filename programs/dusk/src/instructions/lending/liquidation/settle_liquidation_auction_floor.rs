@@ -402,20 +402,13 @@ impl<'info> SettleLiquidationAuctionFloor<'info> {
 
         let current_slot = Clock::get()?.slot;
         if liquidation_receipt.socialized_loss > 0 {
-            ctx.accounts.market.checkpoint_amm_socialized_loss_raw(current_slot)?;
-            let parameters = ctx.accounts.market.amm.applied_curve_parameters;
-            if ctx.accounts.market.amm.concentration_ramp.active
-                || (!parameters.is_cpmm() && ctx.accounts.market.config.amm.adjustment_step_nad > 0)
-            {
-                ctx.accounts.market.amm.mark_retention_target_stale();
-            } else {
-                let q_per_share_nad = ctx.accounts.market.amm.q_per_share_nad;
-                ctx.accounts.market.amm.refresh_retention_target(q_per_share_nad, 0)?;
-            }
+            ctx.accounts
+                .market
+                .finalize_amm_socialized_loss_and_observe_risk(current_slot)?;
         } else {
             ctx.accounts.market.finalize_amm_transition(current_slot)?;
+            ctx.accounts.market.refresh_risk()?;
         }
-        ctx.accounts.market.refresh_risk()?;
         require_reserve_custody(ctx.accounts.reserve_vault.amount, ctx.accounts.market.side(debt_asset))?;
 
         emit_cpi!(BorrowPositionLiquidated {

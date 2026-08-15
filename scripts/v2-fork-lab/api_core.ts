@@ -1,6 +1,18 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import http from "node:http";
-import { createHash } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
 import { dirname, resolve } from "node:path";
 import anchor from "@coral-xyz/anchor";
 import BN from "bn.js";
@@ -10,16 +22,20 @@ import {
   NATIVE_MINT,
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
+  calculateEpochFee,
+  createAssociatedTokenAccountIdempotentInstruction,
   createAssociatedTokenAccountInstruction,
   createInitializeMintInstruction,
   createInitializeTransferFeeConfigInstruction,
   createInitializeTransferHookInstruction,
   createMintToCheckedInstruction,
+  createTransferCheckedInstruction,
   createTransferCheckedWithTransferHookInstruction,
   getAccount,
   getAssociatedTokenAddressSync,
   getMint,
   getMintLen,
+  getTransferFeeConfig,
 } from "@solana/spl-token";
 import {
   ComputeBudgetProgram,
@@ -31,6 +47,7 @@ import {
   SYSVAR_INSTRUCTIONS_PUBKEY,
   Transaction,
   TransactionInstruction,
+  type AccountMeta,
 } from "@solana/web3.js";
 import { SCENARIO_CATALOG } from "../protocol-tests/catalog.js";
 
@@ -42,6 +59,15 @@ const BPF_LOADER_UPGRADEABLE_ID = new PublicKey("BPFLoaderUpgradeab1e11111111111
 const TOKEN_METADATA_PROGRAM_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
 const SYSVAR_CLOCK_PUBKEY = new PublicKey("SysvarC1ock11111111111111111111111111111111");
 const NAD = 1_000_000_000n;
+const DEPLOYMENT_SCHEMA_VERSION = "dusk-deployment.v1";
+const DEPLOYMENT_COMMITMENT = "confirmed" as const;
+const API_STARTED_AT = new Date().toISOString();
+const UPGRADEABLE_PROGRAM_TAG = 2;
+const UPGRADEABLE_PROGRAM_DATA_TAG = 3;
+const UPGRADEABLE_PROGRAM_DATA_METADATA_BYTES = 45;
+const DEFAULT_PUBLIC_RPC_PROBE_TIMEOUT_MS = 5_000;
+const PUBLIC_RPC_PROBE_MAX_RESPONSE_BYTES = 65_536;
+const PUBLIC_RPC_FILTER_PROBE_METHOD = "surfnet_duskPublicFilterProbe";
 
 function duskEnv(name: string): string | undefined;
 function duskEnv(name: string, fallback: string): string;
@@ -51,8 +77,10 @@ function duskEnv(name: string, fallback?: string): string | undefined {
 }
 
 const SURFPOOL_RPC_URL = process.env.SURFPOOL_RPC_URL ?? "http://127.0.0.1:8899";
-const PUBLIC_RPC_URL = normalizePublicUrl(
-  process.env.PUBLIC_SURFPOOL_RPC_URL ?? process.env.SURFPOOL_RPC_PROXY_URL ?? SURFPOOL_RPC_URL
+const PUBLIC_RPC_URL = resolvePublicRpcUrl(process.env, SURFPOOL_RPC_URL);
+const HAS_EXPLICIT_PUBLIC_RPC_URL = Boolean(
+  process.env.PUBLIC_SURFPOOL_RPC_URL?.trim() ||
+    process.env.SURFPOOL_RPC_PROXY_URL?.trim(),
 );
 const PROGRAM_ID = new PublicKey(duskEnv("PROGRAM_ID", DEFAULT_PROGRAM_ID));
 const DEFAULT_SOL_FUNDING = Number(process.env.FORK_DEFAULT_SOL_FUNDING ?? "10");
@@ -68,9 +96,20 @@ type YieldTokenKind = "ylp" | "hlp";
 type ProtocolAuctionLane = "fee" | "buyback";
 type ProtocolRevenueSource = "swap" | "interest";
 type ForkMarketFixture = "mainnet" | "token2022-fees" | "mixed-decimals";
+type ForkMarketKind = "cpmm" | "concentrated";
+
+type BootstrapMarketDefinition = {
+  label: string;
+  kind: ForkMarketKind;
+  baseMint: PublicKey;
+  quoteMint: PublicKey;
+  paramsHash: Buffer;
+  config: ReturnType<typeof defaultMarketConfig>;
+};
 
 type StoredMarket = {
   label: string;
+  marketKind?: ForkMarketKind;
   programId: string;
   market: string;
   paramsHash: string;
@@ -101,15 +140,219 @@ type StoredMarket = {
   transferHookValidationAccounts: Record<string, string>;
 };
 
-type ForkState = {
-  markets: Record<string, StoredMarket>;
-};
-
 type BootstrapTransactionEvidence = {
   label: string;
   signature: string;
   instructions: string[];
 };
+
+type FutarchyAuthorityBootstrapMode =
+  | "transaction"
+  | "surfpool-account-seed"
+  | "preexisting";
+
+type BootstrapEvidencePayload = {
+  transactions: BootstrapTransactionEvidence[];
+  futarchyAuthorityBootstrapMode: FutarchyAuthorityBootstrapMode;
+};
+
+type ForkState = {
+  markets: Record<string, StoredMarket>;
+  bootstrapTransactions: BootstrapTransactionEvidence[];
+  bootstrapEvidenceDeploymentFingerprint: string | null;
+  futarchyAuthorityBootstrapMode: FutarchyAuthorityBootstrapMode | null;
+};
+
+type LoadedIdl = {
+  idl: anchor.Idl;
+  path: string;
+  rawSha256: string;
+  canonicalSha256: string;
+};
+
+export class DeploymentIdentityChangedError extends Error {
+  readonly code = "deployment_identity_changed";
+  readonly uncertainOutcome = true;
+
+  constructor(
+    message = "Surfpool deployment identity changed during the request",
+  ) {
+    super(message);
+    this.name = "DeploymentIdentityChangedError";
+  }
+}
+
+export class ForkMutationOutcomeUncertainError extends Error {
+  readonly code = "fork_mutation_outcome_uncertain";
+  readonly httpStatus = 409;
+  readonly uncertainOutcome = true;
+
+  constructor(operation: string, cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    super(
+      `${operation} may have been partially applied; reconcile fork state before retrying: ${detail}`,
+    );
+    this.name = "ForkMutationOutcomeUncertainError";
+  }
+}
+
+export class ForkAdminAuthConfigurationError extends Error {
+  readonly code = "fork_admin_auth_not_configured";
+  readonly httpStatus = 503;
+
+  constructor() {
+    super(
+      "Fork admin API is unavailable because FORK_ADMIN_TOKEN is not configured",
+    );
+    this.name = "ForkAdminAuthConfigurationError";
+  }
+}
+
+export class ForkAdminAuthenticationRequiredError extends Error {
+  readonly code = "fork_admin_auth_required";
+  readonly httpStatus = 401;
+
+  constructor() {
+    super("Fork admin API requires the x-fork-admin-token request header");
+    this.name = "ForkAdminAuthenticationRequiredError";
+  }
+}
+
+export class ForkAdminAuthorizationError extends Error {
+  readonly code = "fork_admin_auth_forbidden";
+  readonly httpStatus = 403;
+
+  constructor() {
+    super("Fork admin API token is invalid");
+    this.name = "ForkAdminAuthorizationError";
+  }
+}
+
+export class LeverageOrderNotActionableError extends Error {
+  readonly code = "leverage_order_not_actionable";
+  readonly httpStatus = 409;
+
+  constructor() {
+    super("Leverage order is no longer actionable");
+    this.name = "LeverageOrderNotActionableError";
+  }
+}
+
+type LeverageOrderAccountInfo = {
+  owner: PublicKey;
+  executable: boolean;
+  data: Uint8Array;
+};
+
+function requireActionableLeverageOrderAccount(
+  account: LeverageOrderAccountInfo | null,
+): void {
+  if (account === null || account.data.byteLength === 0) {
+    throw new LeverageOrderNotActionableError();
+  }
+  if (
+    account.executable ||
+    !account.owner.equals(LEVERAGE_DELEGATE_PROGRAM_ID)
+  ) {
+    throw new Error("Leverage order account is invalid");
+  }
+}
+
+type HeaderReadableRequest = Pick<http.IncomingMessage, "url"> & {
+  headers?: http.IncomingHttpHeaders | { get(name: string): string | null };
+};
+
+function requestHeader(
+  req: HeaderReadableRequest,
+  name: string,
+): string | undefined {
+  const headers = req.headers;
+  if (!headers) return undefined;
+
+  const headerGetter = (headers as { get?: unknown }).get;
+  if (typeof headerGetter === "function") {
+    return headerGetter.call(headers, name) ?? undefined;
+  }
+
+  const normalizedName = name.toLowerCase();
+  const record = headers as http.IncomingHttpHeaders;
+  const direct = record[normalizedName];
+  const value =
+    direct ??
+    Object.entries(record).find(
+      ([key]) => key.toLowerCase() === normalizedName,
+    )?.[1];
+  if (Array.isArray(value)) return value.length === 1 ? value[0] : "";
+  return typeof value === "string" ? value : undefined;
+}
+
+function isForkAdminPath(rawUrl: string | undefined): boolean {
+  const path =
+    new URL(rawUrl ?? "/", "http://localhost").pathname.replace(/\/$/, "") ||
+    "/";
+  return (
+    path === "/api/v2/fork/admin" || path.startsWith("/api/v2/fork/admin/")
+  );
+}
+
+function isForkServerSignedRequest(
+  req: HeaderReadableRequest,
+  body: Record<string, unknown>,
+): boolean {
+  const path =
+    new URL(req.url ?? "/", "http://localhost").pathname.replace(/\/$/, "") ||
+    "/";
+  const bootstrapSigned = body.bootstrapSigned;
+  return (
+    path === "/api/v2/fork/tx/bootstrap-rejection" ||
+    path === "/api/v2/fork/tx/create-market" ||
+    (bootstrapSigned !== undefined &&
+      bootstrapSigned !== null &&
+      bootstrapSigned !== false)
+  );
+}
+
+function bootstrapSignedFromBody(value: unknown): boolean {
+  if (value === undefined || value === null || value === false) return false;
+  if (value === true) return true;
+  throw new Error("bootstrapSigned must be a boolean");
+}
+
+function constantTimeTokenEquals(expected: string, received: string): boolean {
+  const expectedDigest = createHash("sha256").update(expected, "utf8").digest();
+  const receivedDigest = createHash("sha256").update(received, "utf8").digest();
+  return timingSafeEqual(expectedDigest, receivedDigest);
+}
+
+function requireForkAdminToken(req: HeaderReadableRequest): void {
+  const configuredToken = process.env.FORK_ADMIN_TOKEN;
+  if (!configuredToken || configuredToken.trim().length === 0) {
+    throw new ForkAdminAuthConfigurationError();
+  }
+
+  const receivedToken = requestHeader(req, "x-fork-admin-token");
+  if (receivedToken === undefined)
+    throw new ForkAdminAuthenticationRequiredError();
+  if (!constantTimeTokenEquals(configuredToken, receivedToken)) {
+    throw new ForkAdminAuthorizationError();
+  }
+}
+
+export function requireForkAdminAuthorization(
+  req: HeaderReadableRequest,
+): void {
+  if (isForkAdminPath(req.url)) requireForkAdminToken(req);
+}
+
+export function requireForkServerSigningAuthorization(
+  req: HeaderReadableRequest,
+  body: Record<string, unknown>,
+): void {
+  if (isForkServerSignedRequest(req, body)) {
+    requireForkAdminToken(req);
+    bootstrapSignedFromBody(body.bootstrapSigned);
+  }
+}
 
 let runtime:
   | {
@@ -119,16 +362,23 @@ let runtime:
       program: any;
       idl: anchor.Idl;
       accountCoder: anchor.BorshAccountsCoder;
+      idlPath: string;
+      idlRawSha256: string;
+      idlCanonicalSha256: string;
     }
   | undefined;
 let runtimeError: string | null = null;
-let bootstrapPromise: Promise<StoredMarket> | undefined;
+const bootstrapPromises = new Map<string, Promise<StoredMarket[]>>();
+const bootstrapEvidencePromises = new Map<
+  string,
+  Promise<BootstrapEvidencePayload>
+>();
+let bootstrapQueue: Promise<void> = Promise.resolve();
 let leverageDelegateProgram: any;
-let bootstrapTransactionEvidence: BootstrapTransactionEvidence[] = [];
-
-function recordBootstrapTransaction(label: string, signature: string, instructions: string[]) {
-  bootstrapTransactionEvidence.push({ label, signature, instructions });
-}
+let leverageDelegateIdl: LoadedIdl | undefined;
+let forkGenerationPromise: Promise<string> | undefined;
+const programBinaryHashPromises = new Map<string, Promise<string>>();
+let observedRuntimeForkId: string | undefined;
 
 function stateDir(): string {
   return resolve(process.env.FORK_LAB_STATE_DIR ?? ".v2-fork-lab");
@@ -166,15 +416,164 @@ function ensureStateDir() {
   mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
 }
 
-function readState(): ForkState {
-  ensureStateDir();
-  if (!existsSync(statePath())) return { markets: {} };
-  return JSON.parse(readFileSync(statePath(), "utf8")) as ForkState;
+function emptyForkState(): ForkState {
+  return {
+    markets: {},
+    bootstrapTransactions: [],
+    bootstrapEvidenceDeploymentFingerprint: null,
+    futarchyAuthorityBootstrapMode: null,
+  };
 }
 
-function writeState(state: ForkState) {
+function normalizeBootstrapTransactions(
+  value: unknown,
+): BootstrapTransactionEvidence[] {
+  if (!Array.isArray(value)) return [];
+  return mergeBootstrapTransactions(
+    value.flatMap((entry) => {
+      if (!entry || typeof entry !== "object") return [];
+      const record = entry as Record<string, unknown>;
+      if (
+        typeof record.label !== "string" ||
+        typeof record.signature !== "string" ||
+        !Array.isArray(record.instructions) ||
+        record.instructions.some((instruction) => typeof instruction !== "string")
+      ) {
+        return [];
+      }
+      return [{
+        label: record.label,
+        signature: record.signature,
+        instructions: record.instructions as string[],
+      }];
+    }),
+  );
+}
+
+function normalizeForkState(value: unknown): ForkState {
+  if (!value || typeof value !== "object") return emptyForkState();
+  const record = value as Record<string, unknown>;
+  const mode = record.futarchyAuthorityBootstrapMode;
+  return {
+    markets:
+      record.markets && typeof record.markets === "object" && !Array.isArray(record.markets)
+        ? record.markets as Record<string, StoredMarket>
+        : {},
+    bootstrapTransactions: normalizeBootstrapTransactions(record.bootstrapTransactions),
+    bootstrapEvidenceDeploymentFingerprint:
+      typeof record.bootstrapEvidenceDeploymentFingerprint === "string"
+        ? record.bootstrapEvidenceDeploymentFingerprint
+        : null,
+    futarchyAuthorityBootstrapMode:
+      mode === "transaction" ||
+      mode === "surfpool-account-seed" ||
+      mode === "preexisting"
+        ? mode
+        : null,
+  };
+}
+
+function mergeBootstrapTransactions(
+  ...collections: BootstrapTransactionEvidence[][]
+): BootstrapTransactionEvidence[] {
+  const bySignature = new Map<string, BootstrapTransactionEvidence>();
+  for (const collection of collections) {
+    for (const transaction of collection) {
+      const previous = bySignature.get(transaction.signature);
+      bySignature.set(transaction.signature, previous
+        ? {
+            label: previous.label,
+            signature: previous.signature,
+            instructions: Array.from(new Set([
+              ...previous.instructions,
+              ...transaction.instructions,
+            ])),
+          }
+        : {
+            label: transaction.label,
+            signature: transaction.signature,
+            instructions: Array.from(new Set(transaction.instructions)),
+          });
+    }
+  }
+  return Array.from(bySignature.values());
+}
+
+function readState(): ForkState {
   ensureStateDir();
-  writeFileSync(statePath(), `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  if (!existsSync(statePath())) return emptyForkState();
+  return normalizeForkState(JSON.parse(readFileSync(statePath(), "utf8")));
+}
+
+function writeState(
+  state: ForkState,
+  options: { replaceBootstrapEvidence?: boolean } = {},
+) {
+  ensureStateDir();
+  let next = normalizeForkState(state);
+  if (!options.replaceBootstrapEvidence && existsSync(statePath())) {
+    const persisted = readState();
+    const sameDeployment =
+      !persisted.bootstrapEvidenceDeploymentFingerprint ||
+      !next.bootstrapEvidenceDeploymentFingerprint ||
+      persisted.bootstrapEvidenceDeploymentFingerprint ===
+        next.bootstrapEvidenceDeploymentFingerprint;
+    if (sameDeployment) {
+      next = {
+        ...next,
+        bootstrapTransactions: mergeBootstrapTransactions(
+          persisted.bootstrapTransactions,
+          next.bootstrapTransactions,
+        ),
+        bootstrapEvidenceDeploymentFingerprint:
+          persisted.bootstrapEvidenceDeploymentFingerprint ??
+          next.bootstrapEvidenceDeploymentFingerprint,
+        futarchyAuthorityBootstrapMode:
+          persisted.futarchyAuthorityBootstrapMode ??
+          next.futarchyAuthorityBootstrapMode,
+      };
+    }
+  }
+  const path = statePath();
+  const temporaryPath = `${path}.${process.pid}.tmp`;
+  writeFileSync(temporaryPath, `${JSON.stringify(next, null, 2)}\n`, {
+    mode: 0o600,
+  });
+  renameSync(temporaryPath, path);
+}
+
+function beginBootstrapEvidence(deploymentFingerprint: string): void {
+  const state = readState();
+  if (state.bootstrapEvidenceDeploymentFingerprint === deploymentFingerprint) {
+    return;
+  }
+  state.bootstrapTransactions = [];
+  state.bootstrapEvidenceDeploymentFingerprint = deploymentFingerprint;
+  state.futarchyAuthorityBootstrapMode = null;
+  writeState(state, { replaceBootstrapEvidence: true });
+}
+
+function recordBootstrapTransaction(
+  label: string,
+  signature: string,
+  instructions: string[],
+): void {
+  const state = readState();
+  state.bootstrapTransactions = mergeBootstrapTransactions(
+    state.bootstrapTransactions,
+    [{ label, signature, instructions }],
+  );
+  writeState(state, { replaceBootstrapEvidence: true });
+}
+
+function recordFutarchyAuthorityBootstrapMode(
+  mode: FutarchyAuthorityBootstrapMode,
+  options: { onlyIfMissing?: boolean } = {},
+): void {
+  const state = readState();
+  if (options.onlyIfMissing && state.futarchyAuthorityBootstrapMode) return;
+  state.futarchyAuthorityBootstrapMode = mode;
+  writeState(state, { replaceBootstrapEvidence: true });
 }
 
 function normalizePublicUrl(value: string): string {
@@ -183,7 +582,352 @@ function normalizePublicUrl(value: string): string {
   return `https://${value}`;
 }
 
-function loadIdl(): anchor.Idl {
+function nonBlankEnvironmentValue(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+export function resolvePublicRpcUrl(
+  env: NodeJS.ProcessEnv = process.env,
+  surfpoolRpcUrl = env.SURFPOOL_RPC_URL ?? "http://127.0.0.1:8899",
+): string {
+  const explicitPublicRpcUrl =
+    nonBlankEnvironmentValue(env.PUBLIC_SURFPOOL_RPC_URL) ??
+    nonBlankEnvironmentValue(env.SURFPOOL_RPC_PROXY_URL);
+  if (env.DUSK_REQUIRE_PUBLIC_RPC_URL === "true") {
+    if (explicitPublicRpcUrl === undefined) {
+      throw new Error(
+        "DUSK_REQUIRE_PUBLIC_RPC_URL=true requires an explicit " +
+          "PUBLIC_SURFPOOL_RPC_URL or SURFPOOL_RPC_PROXY_URL",
+      );
+    }
+    const parsed = new URL(explicitPublicRpcUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error(
+        "PUBLIC_SURFPOOL_RPC_URL must use http: or https: when " +
+          "DUSK_REQUIRE_PUBLIC_RPC_URL=true",
+      );
+    }
+  }
+  return normalizePublicUrl(explicitPublicRpcUrl ?? surfpoolRpcUrl);
+}
+
+function forkHealthPayload(params: {
+  publicRpcUrl: string;
+  publicRpcVerified: boolean;
+  publicRpcFilterVerified: boolean;
+  runtimeInitialized: boolean;
+  runtimeError: string | null;
+  prebootstrappedMarketCount: number;
+}): Record<string, unknown> {
+  return {
+    ok: true,
+    publicRpcUrl: params.publicRpcUrl,
+    publicRpcVerified: params.publicRpcVerified,
+    publicRpcFilterVerified: params.publicRpcFilterVerified,
+    runtimeInitialized: params.runtimeInitialized,
+    runtimeError: params.runtimeError,
+    prebootstrappedMarketCount: params.prebootstrappedMarketCount,
+  };
+}
+
+function publicForkRpcPayload(publicRpcUrl: string): { rpcUrl: string } {
+  return { rpcUrl: publicRpcUrl };
+}
+
+type PublicRpcIdentity = {
+  genesisHash: string;
+  forkId: string;
+};
+
+type PublicRpcVerification = PublicRpcIdentity & {
+  filterVerified: true;
+};
+
+function createGenerationPinnedGenesisHashReader(
+  load: () => Promise<string>,
+): {
+  read(
+    generation: string,
+    confirmGeneration: () => Promise<string>,
+  ): Promise<string>;
+  reset(): void;
+} {
+  let pinned:
+    | { generation: string; promise: Promise<string> }
+    | undefined;
+  return {
+    read(generation, confirmGeneration) {
+      if (pinned?.generation === generation) return pinned.promise;
+      const entry = {
+        generation,
+        promise: Promise.resolve().then(async () => {
+          const genesisHash = await load();
+          const confirmedGeneration = await confirmGeneration();
+          if (confirmedGeneration !== generation) {
+            throw new DeploymentIdentityChangedError(
+              "Surfpool fork generation changed while pinning its genesis hash",
+            );
+          }
+          return genesisHash;
+        }),
+      };
+      pinned = entry;
+      const pending = entry.promise;
+      void pending.catch(() => {
+        // A transient startup failure must be recoverable without restarting
+        // the process. A successful value remains pinned only to the exact
+        // 32-byte fork generation that was re-observed after the remote read.
+        if (pinned === entry) pinned = undefined;
+      });
+      return pending;
+    },
+    reset() {
+      pinned = undefined;
+    },
+  };
+}
+
+const lifecycleGenesisHash = createGenerationPinnedGenesisHashReader(
+  () => initializeRuntime().connection.getGenesisHash(),
+);
+
+function publicRpcProbeTimeoutMs(
+  raw = process.env.FORK_API_PUBLIC_RPC_PROBE_TIMEOUT_MS,
+): number {
+  if (raw === undefined || raw === "") return DEFAULT_PUBLIC_RPC_PROBE_TIMEOUT_MS;
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 60_000) {
+    throw new Error(
+      "FORK_API_PUBLIC_RPC_PROBE_TIMEOUT_MS must be an integer between 1 and 60000",
+    );
+  }
+  return parsed;
+}
+
+async function readBoundedPublicRpcProbeResponse(
+  response: Response,
+): Promise<Buffer> {
+  const contentLength = response.headers.get("content-length");
+  if (contentLength !== null) {
+    const parsed = Number(contentLength);
+    if (!Number.isSafeInteger(parsed) || parsed < 0) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error("Public Surfpool RPC returned an invalid content length");
+    }
+    if (parsed > PUBLIC_RPC_PROBE_MAX_RESPONSE_BYTES) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error("Public Surfpool RPC probe response is too large");
+    }
+  }
+  if (!response.body) return Buffer.alloc(0);
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (total + value.byteLength > PUBLIC_RPC_PROBE_MAX_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error("Public Surfpool RPC probe response is too large");
+      }
+      chunks.push(Buffer.from(value));
+      total += value.byteLength;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, total);
+}
+
+async function publicRpcProbeRequest(
+  publicRpcUrl: string,
+  method: string,
+  params: unknown[],
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+): Promise<{ status: number; payload: Record<string, unknown> }> {
+  const response = await fetchImpl(publicRpcUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: "dusk-public-rpc-readiness",
+      method,
+      params,
+    }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const body = await readBoundedPublicRpcProbeResponse(response);
+  let payload: unknown;
+  try {
+    payload = JSON.parse(body.toString("utf8"));
+  } catch {
+    throw new Error("Public Surfpool RPC probe returned invalid JSON");
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("Public Surfpool RPC probe returned an invalid payload");
+  }
+  return { status: response.status, payload: payload as Record<string, unknown> };
+}
+
+export async function verifyPublicRpcEndpoint(
+  expected: PublicRpcIdentity,
+  options: {
+    publicRpcUrl?: string;
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+    namespace?: string;
+    programId?: PublicKey;
+  } = {},
+): Promise<PublicRpcVerification> {
+  const publicRpcUrl = options.publicRpcUrl ?? PUBLIC_RPC_URL;
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const timeoutMs = options.timeoutMs ?? publicRpcProbeTimeoutMs();
+  const programId = options.programId ?? PROGRAM_ID;
+  const namespace = options.namespace ?? process.env.DUSK_FORK_NAMESPACE ?? "dusk-surfpool";
+
+  // Probe a deliberately nonexistent Surfnet method. The filtered public
+  // proxy rejects every surfnet_* method before forwarding it, while a raw or
+  // misconfigured Surfnet endpoint returns JSON-RPC method-not-found. This
+  // proves the browser URL does not expose the cheatcode surface without
+  // risking a mutation during readiness.
+  const filter = await publicRpcProbeRequest(
+    publicRpcUrl,
+    PUBLIC_RPC_FILTER_PROBE_METHOD,
+    [],
+    fetchImpl,
+    timeoutMs,
+  );
+  const filterError = filter.payload.error;
+  if (
+    filter.status !== 403 ||
+    !filterError ||
+    typeof filterError !== "object" ||
+    (filterError as { code?: unknown }).code !== -32099
+  ) {
+    throw new Error(
+      "PUBLIC_SURFPOOL_RPC_URL is not the filtered Dusk Surfpool proxy",
+    );
+  }
+
+  // Surfpool forwards getGenesisHash to its configured remote datasource in
+  // online fork mode. A readiness poll must not turn into an external RPC
+  // dependency or amplify upstream traffic. getHealth is local-only; the
+  // random fork-generation marker below provides the exact fork identity.
+  const health = await publicRpcProbeRequest(
+    publicRpcUrl,
+    "getHealth",
+    [],
+    fetchImpl,
+    timeoutMs,
+  );
+  if (
+    health.status < 200 ||
+    health.status >= 300 ||
+    health.payload.error !== undefined ||
+    health.payload.result !== "ok"
+  ) {
+    throw new Error("Public Surfpool RPC health probe failed");
+  }
+
+  const markerAddress = PublicKey.findProgramAddressSync(
+    [Buffer.from("surfpool_fork_generation_v1")],
+    programId,
+  )[0];
+  const marker = await publicRpcProbeRequest(
+    publicRpcUrl,
+    "getAccountInfo",
+    [
+      markerAddress.toBase58(),
+      { commitment: DEPLOYMENT_COMMITMENT, encoding: "base64" },
+    ],
+    fetchImpl,
+    timeoutMs,
+  );
+  const markerResult = marker.payload.result;
+  const markerValue =
+    markerResult && typeof markerResult === "object"
+      ? (markerResult as { value?: unknown }).value
+      : null;
+  if (
+    marker.status < 200 ||
+    marker.status >= 300 ||
+    marker.payload.error !== undefined ||
+    !markerValue ||
+    typeof markerValue !== "object"
+  ) {
+    throw new Error("Public Surfpool RPC fork marker is missing");
+  }
+  const owner = (markerValue as { owner?: unknown }).owner;
+  const encodedData = (markerValue as { data?: unknown }).data;
+  if (
+    owner !== programId.toBase58() ||
+    !Array.isArray(encodedData) ||
+    encodedData.length !== 2 ||
+    typeof encodedData[0] !== "string" ||
+    encodedData[1] !== "base64"
+  ) {
+    throw new Error("Public Surfpool RPC fork marker is malformed");
+  }
+  const markerData = Buffer.from(encodedData[0], "base64");
+  if (markerData.length !== 32) {
+    throw new Error("Public Surfpool RPC fork marker has invalid data");
+  }
+  const forkId = deriveForkGenerationId(
+    namespace,
+    expected.genesisHash,
+    programId.toBase58(),
+    markerData,
+  );
+  if (forkId !== expected.forkId) {
+    throw new Error("Public Surfpool RPC fork identity does not match the private fork");
+  }
+  return {
+    genesisHash: expected.genesisHash,
+    forkId,
+    filterVerified: true,
+  };
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+      .join(",")}}`;
+  }
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined)
+    throw new Error("Cannot canonicalize an undefined JSON value");
+  return serialized;
+}
+
+function sha256(value: string | Buffer): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function loadJsonIdl(path: string, expectedProgramId: PublicKey): LoadedIdl {
+  const raw = readFileSync(path, "utf8");
+  const parsed = JSON.parse(raw) as anchor.Idl;
+  const address = String((parsed as { address?: unknown }).address ?? "");
+  if (address !== expectedProgramId.toBase58()) {
+    throw new Error(
+      `IDL ${path} declares ${address || "no program address"}; expected ${expectedProgramId.toBase58()}`,
+    );
+  }
+  return {
+    idl: parsed,
+    path,
+    rawSha256: sha256(raw),
+    canonicalSha256: sha256(canonicalJson(parsed)),
+  };
+}
+
+function loadIdl(): LoadedIdl {
   const candidates = [
     duskEnv("IDL_PATH"),
     "target/idl/dusk.json",
@@ -193,8 +937,7 @@ function loadIdl(): anchor.Idl {
   for (const candidate of candidates) {
     const path = resolve(candidate);
     if (existsSync(path)) {
-      const idl = JSON.parse(readFileSync(path, "utf8"));
-      return { ...idl, address: PROGRAM_ID.toBase58() } as anchor.Idl;
+      return loadJsonIdl(path, PROGRAM_ID);
     }
   }
 
@@ -203,14 +946,30 @@ function loadIdl(): anchor.Idl {
   );
 }
 
+function loadLeverageDelegateIdl(): LoadedIdl {
+  if (leverageDelegateIdl) return leverageDelegateIdl;
+  const candidates = [
+    duskEnv("LEVERAGE_DELEGATE_IDL_PATH"),
+    "target/idl/leverage_delegate.json",
+    "scripts/v2-fork-lab/idl/leverage_delegate.json",
+  ].filter(Boolean) as string[];
+  for (const candidate of candidates) {
+    const path = resolve(candidate);
+    if (existsSync(path)) {
+      leverageDelegateIdl = loadJsonIdl(path, LEVERAGE_DELEGATE_PROGRAM_ID);
+      return leverageDelegateIdl;
+    }
+  }
+  throw new Error(
+    `Leverage delegate IDL not found. Tried ${candidates.map((path) => resolve(path)).join(", ")}`,
+  );
+}
+
 function getLeverageDelegateProgram() {
   if (leverageDelegateProgram) return leverageDelegateProgram;
   const { provider } = initializeRuntime();
-  const idl = JSON.parse(readFileSync(resolve("target/idl/leverage_delegate.json"), "utf8"));
-  leverageDelegateProgram = new anchor.Program(
-    { ...idl, address: LEVERAGE_DELEGATE_PROGRAM_ID.toBase58() } as anchor.Idl,
-    provider
-  );
+  const { idl } = loadLeverageDelegateIdl();
+  leverageDelegateProgram = new anchor.Program(idl, provider);
   return leverageDelegateProgram;
 }
 
@@ -226,14 +985,68 @@ function parseKeypairSecret(value: string): Keypair {
   return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(json) as number[]));
 }
 
-function loadOrCreateKeypair(label: string): { keypair: Keypair; path: string; created: boolean } {
+const FORK_DERIVED_KEYPAIR_DOMAIN = "dusk-fork-derived-keypair-v1";
+
+function configuredForkControllerKeypair(): Keypair | null {
+  const inline =
+    process.env.FORK_LAB_PAYER_KEYPAIR_JSON ??
+    process.env.FORK_LAB_PAYER_KEYPAIR_BASE64;
+  if (inline) return parseKeypairSecret(inline);
+
+  const configuredPath =
+    process.env.FORK_LAB_PAYER_KEYPAIR ?? process.env.ANCHOR_WALLET;
+  if (!configuredPath) return null;
+  const path = resolve(configuredPath);
+  if (!existsSync(path)) {
+    throw new Error(`Configured Surfpool controller signer is missing: ${path}`);
+  }
+  return readKeypairFile(path);
+}
+
+function deriveForkKeypair(controller: Keypair, label: string): Keypair {
+  if (!label) throw new Error("Derived fork keypair label is required");
+  const seed = createHmac(
+    "sha256",
+    Buffer.from(controller.secretKey.subarray(0, 32)),
+  )
+    .update(FORK_DERIVED_KEYPAIR_DOMAIN, "utf8")
+    .update("\0", "utf8")
+    .update(label, "utf8")
+    .digest();
+  return Keypair.fromSeed(seed);
+}
+
+function loadOrCreateKeypair(label: string): {
+  keypair: Keypair;
+  path: string;
+  created: boolean;
+} {
   ensureStateDir();
   const safeLabel = label.replace(/[^a-zA-Z0-9_-]/g, "-");
   const path = resolve(stateDir(), `${safeLabel}.json`);
+  const controller = configuredForkControllerKeypair();
+  const deterministic = controller
+    ? deriveForkKeypair(controller, label)
+    : null;
   if (existsSync(path)) {
-    return { keypair: readKeypairFile(path), path, created: false };
+    const persisted = readKeypairFile(path);
+    if (
+      deterministic &&
+      !Buffer.from(persisted.secretKey).equals(
+        Buffer.from(deterministic.secretKey),
+      )
+    ) {
+      throw new Error(
+        `Persisted hosted fork keypair ${path} does not match deterministic controller derivation`,
+      );
+    }
+    return {
+      keypair: deterministic ?? persisted,
+      path,
+      created: false,
+    };
   }
-  const keypair = Keypair.generate();
+  const keypair = deterministic ?? Keypair.generate();
   writeFileSync(path, JSON.stringify(Array.from(keypair.secretKey)), { mode: 0o600 });
   return { keypair, path, created: true };
 }
@@ -252,10 +1065,18 @@ function loadPayer(): Keypair {
     return payer;
   }
 
-  const keypairPath =
-    process.env.FORK_LAB_PAYER_KEYPAIR ?? process.env.ANCHOR_WALLET ?? "deployer-keypair.json";
+  const configuredKeypairPath =
+    process.env.FORK_LAB_PAYER_KEYPAIR ?? process.env.ANCHOR_WALLET;
+  const keypairPath = configuredKeypairPath ?? "deployer-keypair.json";
   const resolved = resolve(keypairPath);
   if (existsSync(resolved)) return readKeypairFile(resolved);
+
+  if (process.env.DUSK_REQUIRE_EXPLICIT_FORK_SIGNER === "true") {
+    throw new Error(
+      "Hosted Surfpool requires FORK_LAB_PAYER_KEYPAIR_JSON, " +
+        "FORK_LAB_PAYER_KEYPAIR_BASE64, or an existing explicit signer path",
+    );
+  }
 
   return loadOrCreateKeypair("payer").keypair;
 }
@@ -266,16 +1087,33 @@ function initializeRuntime() {
   try {
     const payer = loadPayer();
     const connection = new Connection(SURFPOOL_RPC_URL, "confirmed");
+    // web3.js caches a legacy transaction blockhash for 30 seconds. Surfnet's
+    // transaction-mode bank can advance beyond that cached hash much sooner,
+    // especially between the two market bootstraps. Force each legacy
+    // send/simulation to poll a new blockhash instead of reusing the cache.
+    (connection as unknown as { _disableBlockhashCaching: boolean })
+      ._disableBlockhashCaching = true;
     const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(payer), {
       commitment: "confirmed",
       preflightCommitment: "confirmed",
       skipPreflight: false,
     });
-    const idl = loadIdl();
-    const program = new anchor.Program({ ...idl, address: PROGRAM_ID.toBase58() } as any, provider);
+    const loadedIdl = loadIdl();
+    const idl = loadedIdl.idl;
+    const program = new anchor.Program(idl as any, provider);
     const accountCoder = new anchor.BorshAccountsCoder(idl);
     anchor.setProvider(provider);
-    runtime = { payer, connection, provider, program, idl, accountCoder };
+    runtime = {
+      payer,
+      connection,
+      provider,
+      program,
+      idl,
+      accountCoder,
+      idlPath: loadedIdl.path,
+      idlRawSha256: loadedIdl.rawSha256,
+      idlCanonicalSha256: loadedIdl.canonicalSha256,
+    };
     runtimeError = null;
     return runtime;
   } catch (error) {
@@ -496,20 +1334,28 @@ function deriveProgramDataAddress(): PublicKey {
   return PublicKey.findProgramAddressSync([PROGRAM_ID.toBuffer()], BPF_LOADER_UPGRADEABLE_ID)[0];
 }
 
-function orderedMints(mintA: PublicKey, mintB: PublicKey): [PublicKey, PublicKey] {
-  return Buffer.compare(mintA.toBuffer(), mintB.toBuffer()) < 0 ? [mintA, mintB] : [mintB, mintA];
-}
-
-function paramsHashForMarket(label: string, baseMint: PublicKey, quoteMint: PublicKey): Buffer {
+function paramsHashForMarket(
+  label: string,
+  baseMint: PublicKey,
+  quoteMint: PublicKey,
+  kind: ForkMarketKind = "cpmm",
+  allowGenericOverride = true,
+): Buffer {
+  const kindOverride = duskEnv(`FORK_PARAMS_HASH_${kind.toUpperCase()}`);
   const override =
-    duskEnv("FORK_PARAMS_HASH") ?? duskEnv("MARKET_PARAMS_HASH");
+    kindOverride ??
+    (allowGenericOverride
+      ? (duskEnv("FORK_PARAMS_HASH") ?? duskEnv("MARKET_PARAMS_HASH"))
+      : undefined);
   if (override) {
     const bytes = Buffer.from(override.replace(/^0x/, ""), "hex");
-    if (bytes.length !== 32) throw new Error("DUSK_FORK_PARAMS_HASH must be 32 bytes");
+    if (bytes.length !== 32) {
+      throw new Error(`DUSK_FORK_PARAMS_HASH_${kind.toUpperCase()} must be 32 bytes`);
+    }
     return bytes;
   }
   return createHash("sha256")
-    .update(`dusk-mainnet-fork:${label}:${baseMint.toBase58()}:${quoteMint.toBase58()}`)
+    .update(`dusk-mainnet-fork:v2:${kind}:${label}:${baseMint.toBase58()}:${quoteMint.toBase58()}`)
     .digest();
 }
 
@@ -551,13 +1397,17 @@ function field<T = unknown>(obj: any, camel: string, snake?: string): T {
   return undefined as T;
 }
 
-function parseUnits(value: string | number | bigint | undefined, decimals: number): bigint {
+function parseUnits(value: string | number | bigint | undefined,
+  decimals: number,
+): bigint {
   if (typeof value === "bigint") return value;
   const raw = String(value ?? "0").trim();
   if (!/^\d+(\.\d+)?$/.test(raw)) throw new Error(`Invalid decimal amount: ${raw}`);
   const [whole, fraction = ""] = raw.split(".");
   const normalizedFraction = fraction.padEnd(decimals, "0").slice(0, decimals);
-  return BigInt(whole) * 10n ** BigInt(decimals) + BigInt(normalizedFraction || "0");
+  return (
+    BigInt(whole) * 10n ** BigInt(decimals) + BigInt(normalizedFraction || "0")
+  );
 }
 
 async function rpcRequest(method: string, params: unknown[]) {
@@ -566,7 +1416,10 @@ async function rpcRequest(method: string, params: unknown[]) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
   });
-  const payload = (await response.json()) as { result?: unknown; error?: unknown };
+  const payload = (await response.json()) as {
+    result?: unknown;
+    error?: unknown;
+  };
   if (payload.error) throw new Error(`${method} failed: ${JSON.stringify(payload.error)}`);
   return payload.result;
 }
@@ -579,116 +1432,441 @@ async function timeTravel(seconds: number, slots: number) {
     throw new Error("time travel slots must be a nonnegative safe integer");
   }
   const { connection } = initializeRuntime();
-  let absoluteTimestamp: number | null = null;
-  let timestampResult: unknown = null;
-  if (seconds > 0) {
-    const currentSlot = await connection.getSlot("confirmed");
-    const blockTime = await connection.getBlockTime(currentSlot);
-    absoluteTimestamp = (blockTime ?? Math.floor(Date.now() / 1000)) * 1_000 + seconds * 1_000;
-    timestampResult = await rpcRequest("surfnet_timeTravel", [{ absoluteTimestamp }]);
-  }
-  // Surfpool writes an epoch-relative Clock.slot during timestamp travel. Apply
-  // absolute-slot travel last so programs observe the same slot returned by RPC.
-  const slot = await connection.getSlot("confirmed");
-  const absoluteSlot = slot + slots;
-  const slotResult = slots > 0
-    ? await rpcRequest("surfnet_timeTravel", [{ absoluteSlot }])
-    : null;
-  const clockBeforeNormalization = await connection.getAccountInfo(SYSVAR_CLOCK_PUBKEY, "confirmed");
-  const clockSlotBeforeNormalization = clockBeforeNormalization
-    ? clockBeforeNormalization.data.readBigUInt64LE(0).toString()
-    : null;
-  let normalizationSignature: string | null = null;
-  if (seconds === 0 && slots > 0) {
-    const { provider, payer } = initializeRuntime();
-    normalizationSignature = await provider.sendAndConfirm(
-      new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 })),
-      [payer]
+  let mutationAttempted = false;
+  try {
+    let absoluteTimestamp: number | null = null;
+    let timestampResult: unknown = null;
+    if (seconds > 0) {
+      const currentSlot = await connection.getSlot("confirmed");
+      const [blockTime, clockAccount] = await Promise.all([
+        connection.getBlockTime(currentSlot),
+        connection.getAccountInfo(SYSVAR_CLOCK_PUBKEY, "confirmed"),
+      ]);
+      const clockUnixTimestamp = clockAccount && clockAccount.data.length >= 40
+        ? Number(clockAccount.data.readBigInt64LE(32))
+        : null;
+      if (clockUnixTimestamp !== null && !Number.isSafeInteger(clockUnixTimestamp)) {
+        throw new Error("Fork Clock unix timestamp is outside the safe integer range");
+      }
+      // Surfpool time travel mutates the Clock sysvar independently from the
+      // remote-backed getBlockTime surface. Always advance from the newest
+      // observed time so a later scenario can never request travel backwards.
+      const currentTimestamp = Math.max(
+        blockTime ?? Number.MIN_SAFE_INTEGER,
+        clockUnixTimestamp ?? Number.MIN_SAFE_INTEGER,
+        Math.floor(Date.now() / 1_000),
+      );
+      absoluteTimestamp =
+        currentTimestamp * 1_000 + seconds * 1_000;
+      mutationAttempted = true;
+      timestampResult = await rpcRequest("surfnet_timeTravel", [
+        { absoluteTimestamp },
+      ]);
+    }
+    // Surfpool writes an epoch-relative Clock.slot during timestamp travel. Apply
+    // absolute-slot travel last so programs observe the same slot returned by RPC.
+    const slot = await connection.getSlot("confirmed");
+    const absoluteSlot = slot + slots;
+    let slotResult: unknown = null;
+    if (slots > 0) {
+      mutationAttempted = true;
+      slotResult = await rpcRequest("surfnet_timeTravel", [{ absoluteSlot }]);
+    }
+    const clockBeforeNormalization = await connection.getAccountInfo(
+      SYSVAR_CLOCK_PUBKEY,
+      "confirmed",
     );
+    const clockSlotBeforeNormalization = clockBeforeNormalization
+      ? clockBeforeNormalization.data.readBigUInt64LE(0).toString()
+      : null;
+    let normalizationSignature: string | null = null;
+    if (seconds === 0 && slots > 0) {
+      const { provider, payer } = initializeRuntime();
+      mutationAttempted = true;
+      normalizationSignature = await provider.sendAndConfirm(
+        new Transaction().add(
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }),
+        ),
+        [payer],
+      );
+    }
+    const clockAfterNormalization = await connection.getAccountInfo(
+      SYSVAR_CLOCK_PUBKEY,
+      "confirmed",
+    );
+    const clockSlotAfterNormalization = clockAfterNormalization
+      ? clockAfterNormalization.data.readBigUInt64LE(0).toString()
+      : null;
+    return {
+      seconds,
+      slots,
+      absoluteTimestamp,
+      absoluteSlot,
+      slotResult,
+      timestampResult,
+      clockSlotBeforeNormalization,
+      clockSlotAfterNormalization,
+      normalizationSignature,
+    };
+  } catch (error) {
+    if (mutationAttempted) {
+      throw new ForkMutationOutcomeUncertainError("Fork time travel", error);
+    }
+    throw error;
   }
-  const clockAfterNormalization = await connection.getAccountInfo(SYSVAR_CLOCK_PUBKEY, "confirmed");
-  const clockSlotAfterNormalization = clockAfterNormalization
-    ? clockAfterNormalization.data.readBigUInt64LE(0).toString()
-    : null;
-  return {
-    seconds,
-    slots,
-    absoluteTimestamp,
-    absoluteSlot,
-    slotResult,
-    timestampResult,
-    clockSlotBeforeNormalization,
-    clockSlotAfterNormalization,
-    normalizationSignature,
-  };
+}
+
+type LamportAirdropSurface = Pick<
+  Connection,
+  "requestAirdrop" | "confirmTransaction"
+>;
+
+export async function requestLamportAirdrop(
+  connection: LamportAirdropSurface,
+  pubkey: PublicKey,
+  lamports: number,
+): Promise<void> {
+  try {
+    const signature = await connection.requestAirdrop(pubkey, lamports);
+    const confirmation = await connection.confirmTransaction(
+      signature,
+      "confirmed",
+    );
+    if (confirmation.value.err) {
+      throw new Error(
+        `Airdrop transaction ${signature} failed: ${JSON.stringify(confirmation.value.err)}`,
+      );
+    }
+  } catch (error) {
+    // Once requestAirdrop has been attempted, a transport or confirmation
+    // failure cannot prove that the fork rejected the mutation. Never follow
+    // an ambiguous airdrop with an exact surfnet_setAccount write: the airdrop
+    // may already have landed and the fallback could lower an existing wallet.
+    throw new ForkMutationOutcomeUncertainError("Fork SOL funding", error);
+  }
 }
 
 async function setLamports(pubkey: PublicKey, sol: number) {
+  const lamports = lamportsForSolFunding(sol);
+  if (!shouldMutateWalletLamports(sol)) return;
   const { connection } = initializeRuntime();
-  try {
-    const signature = await connection.requestAirdrop(pubkey, sol * LAMPORTS_PER_SOL);
-    await connection.confirmTransaction(signature, "confirmed");
-  } catch {
-    await rpcRequest("surfnet_setAccount", [
-      pubkey.toBase58(),
-      {
-        lamports: sol * LAMPORTS_PER_SOL,
-        owner: SystemProgram.programId.toBase58(),
-      },
-    ]);
+  await requestLamportAirdrop(connection, pubkey, lamports);
+}
+
+function lamportsForSolFunding(sol: number): number {
+  const lamports = sol * LAMPORTS_PER_SOL;
+  if (!Number.isSafeInteger(lamports) || lamports < 0) {
+    throw new Error(
+      "Fork SOL funding must resolve to a nonnegative safe-integer lamport amount",
+    );
+  }
+  return lamports;
+}
+
+function shouldMutateWalletLamports(sol: number): boolean {
+  return sol > 0;
+}
+
+type ExistingWalletAccount = {
+  owner: PublicKey;
+  executable: boolean;
+  data: { length: number };
+};
+
+function requireFundableForkWallet(
+  wallet: PublicKey,
+  existingAccount: ExistingWalletAccount | null,
+): void {
+  if (!PublicKey.isOnCurve(wallet.toBytes())) {
+    throw new Error("Fork wallet funding requires an on-curve wallet address");
+  }
+  if (!existingAccount) return;
+  if (
+    !existingAccount.owner.equals(SystemProgram.programId) ||
+    existingAccount.executable ||
+    existingAccount.data.length !== 0
+  ) {
+    throw new Error(
+      "Fork wallet funding requires an absent or plain SystemProgram-owned wallet account",
+    );
   }
 }
 
-async function setTokenBalance(
+function monotonicForkTokenFundingAmount(
+  current: bigint,
+  requested: bigint,
+): bigint {
+  return requested > current ? requested : current;
+}
+
+function additiveForkTokenTopUpAmount(
+  current: bigint,
+  requestedMinimum: bigint,
+): bigint {
+  return requestedMinimum > current ? requestedMinimum - current : 0n;
+}
+
+function grossTransferAmountForNet(
+  netAmount: bigint,
+  feeForAmount: (amount: bigint) => bigint,
+): bigint {
+  if (netAmount <= 0n) return 0n;
+  let low = netAmount;
+  let high = BigInt(Number.MAX_SAFE_INTEGER);
+  if (high - feeForAmount(high) < netAmount) {
+    throw new Error(
+      "Fork token top-up cannot satisfy the requested net amount within the JSON safe-integer range",
+    );
+  }
+  while (low < high) {
+    const middle = low + (high - low) / 2n;
+    if (middle - feeForAmount(middle) >= netAmount) high = middle;
+    else low = middle + 1n;
+  }
+  return low;
+}
+
+type ForkFundingAssetPair = Pick<
+  StoredMarket,
+  "baseMint" | "quoteMint" | "baseTokenProgram" | "quoteTokenProgram"
+>;
+
+function forkFundingAssetPairMatches(
+  selected: ForkFundingAssetPair,
+  configured: ForkFundingAssetPair,
+): boolean {
+  return (
+    selected.baseMint === configured.baseMint &&
+    selected.quoteMint === configured.quoteMint &&
+    selected.baseTokenProgram === configured.baseTokenProgram &&
+    selected.quoteTokenProgram === configured.quoteTokenProgram
+  );
+}
+
+type ForkTokenFundingPlan = {
+  owner: PublicKey;
+  mint: PublicKey;
+  requestedMinimum: bigint;
+  tokenAccount: PublicKey;
+  tokenProgram: PublicKey;
+};
+
+async function prepareTokenFunding(
   owner: PublicKey,
   mint: PublicKey,
   amount: bigint,
-  tokenProgram: PublicKey
-) {
+  tokenProgram: PublicKey,
+): Promise<ForkTokenFundingPlan> {
   if (amount > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new Error(`surfnet_setTokenAccount amount is above JSON safe integer range: ${amount}`);
+    throw new Error(
+      `surfnet_setTokenAccount amount is above JSON safe integer range: ${amount}`,
+    );
   }
-  if (forkMarketFixture() !== "mainnet" && tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) {
-    const { connection, payer, provider } = initializeRuntime();
-    const tokenAccount = await createAtaIfMissing({
-      payer,
-      owner,
-      mint,
+  const { connection } = initializeRuntime();
+  const tokenAccount = getAssociatedTokenAddressSync(
+    mint,
+    owner,
+    false,
+    tokenProgram,
+  );
+  const existing = await connection.getAccountInfo(
+    tokenAccount,
+    DEPLOYMENT_COMMITMENT,
+  );
+  // Parse an existing ATA before any mutation so a malformed/wrong-program
+  // account fails closed. Its amount is deliberately not carried into the
+  // execution plan: the public wallet may spend or receive tokens between
+  // preparation and the additive top-up.
+  if (existing) {
+    const decoded = await getAccount(
+      connection,
+      tokenAccount,
+      DEPLOYMENT_COMMITMENT,
       tokenProgram,
-    });
-    const current = (await getAccount(connection, tokenAccount, "confirmed", tokenProgram)).amount;
-    if (current > amount) {
-      throw new Error(`Fixture Token-2022 balance cannot be reduced from ${current} to ${amount}`);
-    }
-    const mintAmount = amount - current;
-    if (mintAmount > 0n) {
-      const decimals = (await getMint(connection, mint, "confirmed", tokenProgram)).decimals;
-      await provider.sendAndConfirm(
-        new Transaction().add(
-          createMintToCheckedInstruction(
-            mint,
-            tokenAccount,
-            payer.publicKey,
-            mintAmount,
-            decimals,
-            [],
-            tokenProgram
-          )
-        ),
-        [payer]
+    );
+    if (
+      !decoded.isInitialized ||
+      decoded.isFrozen ||
+      !decoded.mint.equals(mint) ||
+      !decoded.owner.equals(owner)
+    ) {
+      throw new Error(
+        "Fork token funding requires an initialized, unfrozen associated token account owned by the requested wallet",
       );
     }
-    return;
   }
-  await rpcRequest("surfnet_setTokenAccount", [
-    owner.toBase58(),
-    mint.toBase58(),
-    {
-      amount: Number(amount),
-      state: "initialized",
-    },
-    tokenProgram.toBase58(),
-  ]);
+  return {
+    owner,
+    mint,
+    requestedMinimum: amount,
+    tokenAccount,
+    tokenProgram,
+  };
+}
+
+async function setTokenBalance(plan: ForkTokenFundingPlan) {
+  const {
+    owner,
+    mint,
+    requestedMinimum,
+    tokenAccount,
+    tokenProgram,
+  } = plan;
+  const { connection, payer, provider } = initializeRuntime();
+  const latestTarget = await connection.getAccountInfo(
+    tokenAccount,
+    DEPLOYMENT_COMMITMENT,
+  );
+  const latestAmount = latestTarget
+    ? (await getAccount(
+        connection,
+        tokenAccount,
+        DEPLOYMENT_COMMITMENT,
+        tokenProgram,
+      )).amount
+    : 0n;
+  const netTopUp = additiveForkTokenTopUpAmount(
+    latestAmount,
+    requestedMinimum,
+  );
+  if (netTopUp === 0n) return;
+
+  if (forkMarketFixture() !== "mainnet") {
+    if (!latestTarget) {
+      await createAtaIfMissing({
+        payer,
+        owner,
+        mint,
+        tokenProgram,
+      });
+    }
+    const decimals = (
+      await getMint(connection, mint, DEPLOYMENT_COMMITMENT, tokenProgram)
+    ).decimals;
+    await provider.sendAndConfirm(
+      new Transaction().add(
+        createMintToCheckedInstruction(
+          mint,
+          tokenAccount,
+          payer.publicKey,
+          netTopUp,
+          decimals,
+          [],
+          tokenProgram,
+        ),
+      ),
+      [payer],
+    );
+  } else {
+    const mintAccount = await getMint(
+      connection,
+      mint,
+      DEPLOYMENT_COMMITMENT,
+      tokenProgram,
+    );
+    let grossTopUp = netTopUp;
+    if (tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) {
+      const transferFeeConfig = getTransferFeeConfig(mintAccount);
+      if (transferFeeConfig) {
+        const epoch = BigInt(
+          (await connection.getEpochInfo(DEPLOYMENT_COMMITMENT)).epoch,
+        );
+        grossTopUp = grossTransferAmountForNet(
+          netTopUp,
+          (candidate) => calculateEpochFee(transferFeeConfig, epoch, candidate),
+        );
+      }
+    }
+    if (grossTopUp > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error("Fork token top-up exceeds the JSON safe-integer range");
+    }
+
+    // Never exact-write a public user's ATA. A concurrent public transaction
+    // or another API replica can credit that ATA after our read; an absolute
+    // surfnet_setTokenAccount would then erase the newer balance. Cheatcode
+    // only a deterministic controller-owned reservoir and transfer additively
+    // through the real token program. Races can overfund or fail, but cannot
+    // lower the user's balance.
+    const faucetAuthority = deriveForkKeypair(
+      payer,
+      `public-token-faucet:${mint.toBase58()}:${tokenProgram.toBase58()}`,
+    );
+    const faucetTokenAccount = getAssociatedTokenAddressSync(
+      mint,
+      faucetAuthority.publicKey,
+      false,
+      tokenProgram,
+    );
+    await rpcRequest("surfnet_setTokenAccount", [
+      faucetAuthority.publicKey.toBase58(),
+      mint.toBase58(),
+      {
+        amount: Number.MAX_SAFE_INTEGER,
+        state: "initialized",
+      },
+      tokenProgram.toBase58(),
+    ]);
+
+    const instructions: TransactionInstruction[] = [];
+    if (!latestTarget) {
+      instructions.push(
+        createAssociatedTokenAccountIdempotentInstruction(
+          payer.publicKey,
+          tokenAccount,
+          owner,
+          mint,
+          tokenProgram,
+          ASSOCIATED_TOKEN_PROGRAM_ID,
+        ),
+      );
+    }
+    instructions.push(
+      tokenProgram.equals(TOKEN_2022_PROGRAM_ID)
+        ? await createTransferCheckedWithTransferHookInstruction(
+            connection,
+            faucetTokenAccount,
+            mint,
+            tokenAccount,
+            faucetAuthority.publicKey,
+            grossTopUp,
+            mintAccount.decimals,
+            [],
+            DEPLOYMENT_COMMITMENT,
+            tokenProgram,
+          )
+        : createTransferCheckedInstruction(
+            faucetTokenAccount,
+            mint,
+            tokenAccount,
+            faucetAuthority.publicKey,
+            grossTopUp,
+            mintAccount.decimals,
+            [],
+            tokenProgram,
+          ),
+    );
+    await provider.sendAndConfirm(new Transaction().add(...instructions), [
+      payer,
+      faucetAuthority,
+    ]);
+  }
+
+  const finalAmount = (
+    await getAccount(
+      connection,
+      tokenAccount,
+      DEPLOYMENT_COMMITMENT,
+      tokenProgram,
+    )
+  ).amount;
+  if (finalAmount < requestedMinimum) {
+    throw new ForkMutationOutcomeUncertainError(
+      "Fork token top-up",
+      new Error(
+        `wallet balance ${finalAmount} remains below requested minimum ${requestedMinimum}`,
+      ),
+    );
+  }
 }
 
 async function setRawAccount(params: {
@@ -704,6 +1882,495 @@ async function setRawAccount(params: {
     data: params.data.toString("hex"),
   };
   await rpcRequest("surfnet_setAccount", [params.pubkey.toBase58(), account]);
+}
+
+function forkGenerationMarkerAddress(): PublicKey {
+  return pda(seed("surfpool_fork_generation_v1"));
+}
+
+function controllerSignerMarkerAddress(): PublicKey {
+  return pda(seed("surfpool_controller_signer_v1"));
+}
+
+function seededLiquidityMarkerAddress(market: PublicKey): PublicKey {
+  return pda(seed("surfpool_seeded_liquidity_v1"), market.toBuffer());
+}
+
+async function hasSeededLiquidityMarker(market: PublicKey): Promise<boolean> {
+  const { connection } = initializeRuntime();
+  const marker = seededLiquidityMarkerAddress(market);
+  const account = await connection.getAccountInfo(
+    marker,
+    DEPLOYMENT_COMMITMENT,
+  );
+  if (!account) return false;
+  if (!account.owner.equals(PROGRAM_ID)) {
+    throw new Error(
+      `Seeded-liquidity marker ${marker.toBase58()} has wrong owner ${account.owner.toBase58()}`,
+    );
+  }
+  if (!account.data.equals(market.toBuffer())) {
+    throw new Error(
+      `Seeded-liquidity marker ${marker.toBase58()} has invalid market data`,
+    );
+  }
+  return true;
+}
+
+async function recordSeededLiquidity(market: PublicKey): Promise<void> {
+  await setRawAccount({
+    pubkey: seededLiquidityMarkerAddress(market),
+    owner: PROGRAM_ID,
+    lamports: 1_000_000,
+    data: market.toBuffer(),
+  });
+  if (!(await hasSeededLiquidityMarker(market))) {
+    throw new Error(
+      `Seeded-liquidity marker was not persisted for ${market.toBase58()}`,
+    );
+  }
+}
+
+async function verifyControllerSignerMarker(): Promise<void> {
+  const { connection, payer } = initializeRuntime();
+  const marker = controllerSignerMarkerAddress();
+  const account = await connection.getAccountInfo(
+    marker,
+    DEPLOYMENT_COMMITMENT,
+  );
+  if (!account) {
+    throw new Error(
+      `Surfpool controller signer marker ${marker.toBase58()} is missing`,
+    );
+  }
+  if (!account.owner.equals(PROGRAM_ID)) {
+    throw new Error(
+      `Surfpool controller signer marker has wrong owner ${account.owner.toBase58()}`,
+    );
+  }
+  if (!account.data.equals(payer.publicKey.toBuffer())) {
+    throw new Error(
+      `API signer ${payer.publicKey.toBase58()} does not match the RPC bootstrap controller`,
+    );
+  }
+}
+
+async function recordControllerSignerMarker(): Promise<void> {
+  const { connection, payer } = initializeRuntime();
+  const marker = controllerSignerMarkerAddress();
+  const existing = await connection.getAccountInfo(
+    marker,
+    DEPLOYMENT_COMMITMENT,
+  );
+  if (!existing) {
+    await setRawAccount({
+      pubkey: marker,
+      owner: PROGRAM_ID,
+      lamports: 1_000_000,
+      data: payer.publicKey.toBuffer(),
+    });
+  }
+  await verifyControllerSignerMarker();
+}
+
+function deriveForkGenerationId(
+  namespace: string,
+  genesisHash: string,
+  programId: string,
+  markerData: Buffer,
+): string {
+  return `surfpool-${sha256(
+    `${namespace}:${genesisHash}:${programId}:${markerData.toString("hex")}`,
+  )}`;
+}
+
+async function createForkGenerationMarker(): Promise<void> {
+  const marker = forkGenerationMarkerAddress();
+  await setRawAccount({
+    pubkey: marker,
+    owner: PROGRAM_ID,
+    lamports: 1_000_000,
+    data: randomBytes(32),
+  });
+}
+
+type ForkGenerationObservation = {
+  markerData: Buffer;
+  markerHex: string;
+  sourceSlot: number;
+};
+
+async function observeForkGeneration(
+  minimumContextSlot: number,
+): Promise<ForkGenerationObservation> {
+  const { connection } = initializeRuntime();
+  const marker = forkGenerationMarkerAddress();
+  let observation = await connection.getAccountInfoAndContext(marker, {
+    commitment: DEPLOYMENT_COMMITMENT,
+    minContextSlot: minimumContextSlot,
+  });
+  if (!observation.value) {
+    if (process.env.DUSK_REQUIRE_EXTERNAL_FORK_MARKER === "true") {
+      throw new Error(
+        `Surfpool fork generation marker ${marker.toBase58()} is missing; the RPC service must initialize it`,
+      );
+    }
+    if (!forkGenerationPromise) {
+      forkGenerationPromise = createForkGenerationMarker()
+        .then(() => "created")
+        .finally(() => {
+          forkGenerationPromise = undefined;
+        });
+    }
+    await forkGenerationPromise;
+    observation = await connection.getAccountInfoAndContext(marker, {
+      commitment: DEPLOYMENT_COMMITMENT,
+      minContextSlot: minimumContextSlot,
+    });
+  }
+  const account = observation.value;
+  if (!account)
+    throw new Error("Surfpool fork generation marker was not persisted");
+  if (!account.owner.equals(PROGRAM_ID)) {
+    throw new Error(
+      `Surfpool fork generation marker has wrong owner ${account.owner.toBase58()}`,
+    );
+  }
+  if (account.data.length !== 32) {
+    throw new Error(
+      `Surfpool fork generation marker has invalid length ${account.data.length}; expected 32`,
+    );
+  }
+  return {
+    markerData: Buffer.from(account.data),
+    markerHex: account.data.toString("hex"),
+    sourceSlot: observation.context.slot,
+  };
+}
+
+function deploymentBuildRevision(): string {
+  return (
+    process.env.DUSK_BUILD_REVISION ??
+    process.env.RAILWAY_GIT_COMMIT_SHA ??
+    process.env.VERCEL_GIT_COMMIT_SHA ??
+    "snapshot0-local-unversioned"
+  );
+}
+
+function resetWeb3TransportCachesAfterForkChange(connection: Connection): void {
+  const mutable = connection as unknown as {
+    _pollingBlockhash: boolean;
+    _blockhashInfo: {
+      latestBlockhash: null;
+      lastFetch: number;
+      simulatedSignatures: string[];
+      transactionSignatures: string[];
+    };
+  };
+  mutable._pollingBlockhash = false;
+  mutable._blockhashInfo = {
+    latestBlockhash: null,
+    lastFetch: 0,
+    simulatedSignatures: [],
+    transactionSignatures: [],
+  };
+}
+
+function parseUpgradeableProgramDataHeader(data: Buffer): {
+  programDataSlot: string;
+  upgradeAuthority: string | null;
+} {
+  if (
+    data.length < 13 ||
+    data.readUInt32LE(0) !== UPGRADEABLE_PROGRAM_DATA_TAG
+  ) {
+    throw new Error("Malformed upgradeable ProgramData header");
+  }
+  const programDataSlot = data.readBigUInt64LE(4).toString();
+  const authorityOption = data[12];
+  if (authorityOption === 0) return { programDataSlot, upgradeAuthority: null };
+  if (
+    authorityOption !== 1 ||
+    data.length < UPGRADEABLE_PROGRAM_DATA_METADATA_BYTES
+  ) {
+    throw new Error("Malformed upgradeable ProgramData authority option");
+  }
+  return {
+    programDataSlot,
+    upgradeAuthority: new PublicKey(data.subarray(13, 45)).toBase58(),
+  };
+}
+
+function cacheProgramBinaryHash(
+  cacheKey: string,
+  load: () => Promise<string>,
+): Promise<string> {
+  const existing = programBinaryHashPromises.get(cacheKey);
+  if (existing) return existing;
+  const pending = load().catch((error) => {
+    if (programBinaryHashPromises.get(cacheKey) === pending) {
+      programBinaryHashPromises.delete(cacheKey);
+    }
+    throw error;
+  });
+  programBinaryHashPromises.set(cacheKey, pending);
+  while (programBinaryHashPromises.size > 32) {
+    const oldest = programBinaryHashPromises.keys().next().value as
+      | string
+      | undefined;
+    if (!oldest || oldest === cacheKey) break;
+    programBinaryHashPromises.delete(oldest);
+  }
+  return pending;
+}
+
+async function observeUpgradeableProgram(
+  programId: PublicKey,
+  minimumContextSlot: number,
+  forkId: string,
+) {
+  const { connection } = initializeRuntime();
+  const programObservation = await connection.getAccountInfoAndContext(
+    programId,
+    {
+      commitment: DEPLOYMENT_COMMITMENT,
+      minContextSlot: minimumContextSlot,
+      dataSlice: { offset: 0, length: 36 },
+    },
+  );
+  const programAccount = programObservation.value;
+  if (!programAccount?.executable) {
+    throw new Error(
+      `Program ${programId.toBase58()} is missing or not executable`,
+    );
+  }
+  if (!programAccount.owner.equals(BPF_LOADER_UPGRADEABLE_ID)) {
+    throw new Error(
+      `Program ${programId.toBase58()} has unsupported loader ${programAccount.owner.toBase58()}`,
+    );
+  }
+  if (
+    programAccount.data.length < 36 ||
+    programAccount.data.readUInt32LE(0) !== UPGRADEABLE_PROGRAM_TAG
+  ) {
+    throw new Error(
+      `Program ${programId.toBase58()} has malformed upgradeable-loader state`,
+    );
+  }
+  const programDataAddress = new PublicKey(programAccount.data.subarray(4, 36));
+  const programDataObservation = await connection.getAccountInfoAndContext(
+    programDataAddress,
+    {
+      commitment: DEPLOYMENT_COMMITMENT,
+      minContextSlot: Math.max(
+        minimumContextSlot,
+        programObservation.context.slot,
+      ),
+      dataSlice: { offset: 0, length: UPGRADEABLE_PROGRAM_DATA_METADATA_BYTES },
+    },
+  );
+  const programDataAccount = programDataObservation.value;
+  if (
+    !programDataAccount ||
+    !programDataAccount.owner.equals(BPF_LOADER_UPGRADEABLE_ID)
+  ) {
+    throw new Error(
+      `Program data ${programDataAddress.toBase58()} for ${programId.toBase58()} is missing or has the wrong loader`,
+    );
+  }
+  const header = parseUpgradeableProgramDataHeader(programDataAccount.data);
+  const cacheKey = canonicalJson({
+    forkId,
+    programId: programId.toBase58(),
+    programDataAddress: programDataAddress.toBase58(),
+    programDataSlot: header.programDataSlot,
+    upgradeAuthority: header.upgradeAuthority,
+  });
+  const binarySha256 = await cacheProgramBinaryHash(cacheKey, async () => {
+    const fullObservation = await connection.getAccountInfoAndContext(
+      programDataAddress,
+      {
+        commitment: DEPLOYMENT_COMMITMENT,
+        minContextSlot: programDataObservation.context.slot,
+      },
+    );
+    const fullAccount = fullObservation.value;
+    if (!fullAccount || !fullAccount.owner.equals(BPF_LOADER_UPGRADEABLE_ID)) {
+      throw new Error(
+        `Program data ${programDataAddress.toBase58()} changed while hashing ${programId.toBase58()}`,
+      );
+    }
+    if (fullAccount.data.length <= UPGRADEABLE_PROGRAM_DATA_METADATA_BYTES) {
+      throw new Error(
+        `Program data ${programDataAddress.toBase58()} for ${programId.toBase58()} has no binary payload`,
+      );
+    }
+    const fullHeader = parseUpgradeableProgramDataHeader(fullAccount.data);
+    if (
+      fullHeader.programDataSlot !== header.programDataSlot ||
+      fullHeader.upgradeAuthority !== header.upgradeAuthority
+    ) {
+      throw new DeploymentIdentityChangedError(
+        `Program data ${programDataAddress.toBase58()} changed while its binary was being hashed`,
+      );
+    }
+    return sha256(
+      fullAccount.data.subarray(UPGRADEABLE_PROGRAM_DATA_METADATA_BYTES),
+    );
+  });
+  return {
+    programDataAddress: programDataAddress.toBase58(),
+    programDataSlot: header.programDataSlot,
+    upgradeAuthority: header.upgradeAuthority,
+    binarySha256,
+    sourceSlot: Math.min(
+      programObservation.context.slot,
+      programDataObservation.context.slot,
+    ),
+  };
+}
+
+export async function deploymentEnvelope(minimumSourceSlot = 0) {
+  if (!Number.isSafeInteger(minimumSourceSlot) || minimumSourceSlot < 0) {
+    throw new Error(
+      "Deployment envelope minimum source slot must be a nonnegative safe integer",
+    );
+  }
+  const current = initializeRuntime();
+  const delegateIdl = loadLeverageDelegateIdl();
+  const forkGeneration = await observeForkGeneration(minimumSourceSlot);
+  const genesisHash = await lifecycleGenesisHash.read(
+    forkGeneration.markerHex,
+    async () => (
+      await observeForkGeneration(forkGeneration.sourceSlot)
+    ).markerHex,
+  );
+  const namespace = process.env.DUSK_FORK_NAMESPACE ?? "dusk-surfpool";
+  const forkId = deriveForkGenerationId(
+    namespace,
+    genesisHash,
+    PROGRAM_ID.toBase58(),
+    forkGeneration.markerData,
+  );
+  if (
+    observedRuntimeForkId &&
+    observedRuntimeForkId !== forkId
+  ) {
+    resetWeb3TransportCachesAfterForkChange(current.connection);
+  }
+  observedRuntimeForkId = forkId;
+  const [duskProgram, delegateProgram] = await Promise.all([
+    observeUpgradeableProgram(
+      PROGRAM_ID,
+      minimumSourceSlot,
+      forkId,
+    ),
+    observeUpgradeableProgram(
+      LEVERAGE_DELEGATE_PROGRAM_ID,
+      minimumSourceSlot,
+      forkId,
+    ),
+  ]);
+  const sourceSlot = Math.min(
+    duskProgram.sourceSlot,
+    delegateProgram.sourceSlot,
+    forkGeneration.sourceSlot,
+  );
+  const envelope = {
+    schemaVersion: DEPLOYMENT_SCHEMA_VERSION,
+    network: "surfpool",
+    forkSourceNetwork: process.env.SURFPOOL_NETWORK ?? "mainnet",
+    genesisHash,
+    forkId,
+    programId: PROGRAM_ID.toBase58(),
+    programDataAddress: duskProgram.programDataAddress,
+    programDataSlot: duskProgram.programDataSlot,
+    programUpgradeAuthority: duskProgram.upgradeAuthority,
+    leverageDelegateProgramId: LEVERAGE_DELEGATE_PROGRAM_ID.toBase58(),
+    leverageDelegateProgramDataAddress: delegateProgram.programDataAddress,
+    leverageDelegateProgramDataSlot: delegateProgram.programDataSlot,
+    leverageDelegateUpgradeAuthority: delegateProgram.upgradeAuthority,
+    idlSha256: current.idlCanonicalSha256,
+    idlRawSha256: current.idlRawSha256,
+    leverageDelegateIdlSha256: delegateIdl.canonicalSha256,
+    leverageDelegateIdlRawSha256: delegateIdl.rawSha256,
+    commitment: DEPLOYMENT_COMMITMENT,
+    sourceSlot,
+    observedAt: new Date().toISOString(),
+    apiStartedAt: API_STARTED_AT,
+    buildRevision: deploymentBuildRevision(),
+    programBinarySha256: duskProgram.binarySha256,
+    leverageDelegateBinarySha256: delegateProgram.binarySha256,
+  };
+  return {
+    ...envelope,
+    deploymentIdentitySha256: deploymentIdentityFingerprint(envelope),
+  };
+}
+
+function maximumResponseSourceSlot(value: unknown): number {
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    return 0;
+  const data = (value as Record<string, unknown>).data;
+  if (data === null || typeof data !== "object" || Array.isArray(data))
+    return 0;
+  const dataRecord = data as Record<string, unknown>;
+  const markets = Array.isArray(dataRecord.markets)
+    ? dataRecord.markets
+    : typeof dataRecord.marketAddress === "string"
+      ? [dataRecord]
+      : [];
+  return markets.reduce<number>((maximum, market) => {
+    if (market === null || typeof market !== "object" || Array.isArray(market))
+      return maximum;
+    const state = (market as Record<string, unknown>).state;
+    if (state === null || typeof state !== "object" || Array.isArray(state))
+      return maximum;
+    const stateRecord = state as Record<string, unknown>;
+    return [
+      stateRecord.sourceSlot,
+      stateRecord.healthSourceSlot,
+    ].reduce<number>(
+      (marketMaximum, sourceSlot) =>
+        Number.isSafeInteger(sourceSlot) && (sourceSlot as number) >= 0
+          ? Math.max(marketMaximum, sourceSlot as number)
+          : marketMaximum,
+      maximum,
+    );
+  }, 0);
+}
+
+function deploymentIdentityFingerprint(
+  deployment: Record<string, any>,
+): string {
+  return sha256(
+    canonicalJson({
+      schemaVersion: deployment.schemaVersion,
+      network: deployment.network,
+      forkSourceNetwork: deployment.forkSourceNetwork,
+      genesisHash: deployment.genesisHash,
+      forkId: deployment.forkId,
+      programId: deployment.programId,
+      programDataAddress: deployment.programDataAddress,
+      programDataSlot: deployment.programDataSlot,
+      programUpgradeAuthority: deployment.programUpgradeAuthority,
+      leverageDelegateProgramId: deployment.leverageDelegateProgramId,
+      leverageDelegateProgramDataAddress:
+        deployment.leverageDelegateProgramDataAddress,
+      leverageDelegateProgramDataSlot:
+        deployment.leverageDelegateProgramDataSlot,
+      leverageDelegateUpgradeAuthority:
+        deployment.leverageDelegateUpgradeAuthority,
+      idlSha256: deployment.idlSha256,
+      idlRawSha256: deployment.idlRawSha256,
+      leverageDelegateIdlSha256: deployment.leverageDelegateIdlSha256,
+      leverageDelegateIdlRawSha256: deployment.leverageDelegateIdlRawSha256,
+      commitment: deployment.commitment,
+      buildRevision: deployment.buildRevision,
+      programBinarySha256: deployment.programBinarySha256,
+      leverageDelegateBinarySha256: deployment.leverageDelegateBinarySha256,
+    }),
+  );
 }
 
 async function tokenProgramForMint(mint: PublicKey): Promise<PublicKey> {
@@ -764,6 +2431,7 @@ async function createAtaIfMissing(params: {
   mint: PublicKey;
   tokenProgram: PublicKey;
   allowOwnerOffCurve?: boolean;
+  onMutationAttempted?: () => void;
 }): Promise<PublicKey> {
   const { provider } = initializeRuntime();
   const ata = await ataInstructionIfMissing({
@@ -774,6 +2442,7 @@ async function createAtaIfMissing(params: {
     allowOwnerOffCurve: params.allowOwnerOffCurve,
   });
   if (ata.instruction) {
+    params.onMutationAttempted?.();
     await provider.sendAndConfirm(new Transaction().add(ata.instruction), [params.payer]);
   }
   return ata.address;
@@ -842,6 +2511,117 @@ function defaultAmmConfig() {
   };
 }
 
+function configuredMarketKinds(fixture: ForkMarketFixture): ForkMarketKind[] {
+  const configured = process.env.FORK_BOOTSTRAP_MARKETS ?? (fixture === "mainnet" ? "both" : "cpmm");
+  if (configured === "both") return ["cpmm", "concentrated"];
+  if (configured === "cpmm" || configured === "concentrated") return [configured];
+  throw new Error(
+    `Unsupported FORK_BOOTSTRAP_MARKETS: ${configured}; expected cpmm, concentrated, or both`
+  );
+}
+
+function marketConfigForKind(kind: ForkMarketKind): ReturnType<typeof defaultMarketConfig> {
+  const config = defaultMarketConfig();
+  if (kind === "cpmm") {
+    return {
+      ...config,
+      amm: {
+        ...config.amm,
+        peakDepthNad: toBN(0),
+        fadeScaleNad: toBN(0),
+      },
+    };
+  }
+  return {
+    ...config,
+    amm: {
+      ...config.amm,
+      peakDepthNad: toBN(duskEnv("AMM_PEAK_DEPTH_NAD") ?? "200000000000"),
+      fadeScaleNad: toBN(duskEnv("AMM_FADE_SCALE_NAD") ?? "100000000"),
+    },
+  };
+}
+
+function marketKindFromConfig(config: any): ForkMarketKind {
+  const amm = field<any>(config, "amm") ?? config?.amm ?? {};
+  return toBigInt(field(amm, "peakDepthNad", "peak_depth_nad")) > 0n &&
+    toBigInt(field(amm, "fadeScaleNad", "fade_scale_nad")) > 0n
+    ? "concentrated"
+    : "cpmm";
+}
+
+function bootstrapMarketDefinitions(
+  fixture: ForkMarketFixture,
+  baseMint: PublicKey,
+  quoteMint: PublicKey
+): BootstrapMarketDefinition[] {
+  if (baseMint.equals(quoteMint)) throw new Error("Dusk fork base and quote mints must differ");
+  const kinds = configuredMarketKinds(fixture);
+  if (
+    kinds.length > 1 &&
+    (duskEnv("FORK_PARAMS_HASH") || duskEnv("MARKET_PARAMS_HASH"))
+  ) {
+    throw new Error(
+      "A shared DUSK_FORK_PARAMS_HASH cannot identify two markets; use " +
+        "DUSK_FORK_PARAMS_HASH_CPMM and DUSK_FORK_PARAMS_HASH_CONCENTRATED"
+    );
+  }
+  const configuredLabel = duskEnv("MARKET_LABEL");
+  const labelPrefix = configuredLabel ??
+    (fixture === "mainnet" ? "meta-usdc" : `dusk-${fixture}-fixture`);
+  const definitions = kinds.map((kind) => {
+    const label = kinds.length === 1 ? labelPrefix : `${labelPrefix}-${kind}`;
+    return {
+      label,
+      kind,
+      baseMint,
+      quoteMint,
+      paramsHash: paramsHashForMarket(label, baseMint, quoteMint, kind, kinds.length === 1),
+      config: marketConfigForKind(kind),
+    };
+  });
+  if (new Set(definitions.map((definition) => definition.paramsHash.toString("hex"))).size !== definitions.length) {
+    throw new Error("Configured Dusk markets must use distinct params hashes");
+  }
+  return definitions;
+}
+
+/** Pure bootstrap helpers exported for deterministic tests that do not start Surfpool. */
+export const forkMarketPureHelpers = {
+  canonicalJson,
+  bootstrapSignedFromBody,
+  constantTimeTokenEquals,
+  createGenerationPinnedGenesisHashReader,
+  deploymentIdentityFingerprint,
+  deriveForkKeypair,
+  deriveForkGenerationId,
+  forkHealthPayload,
+  isForkAdminPath,
+  isForkServerSignedRequest,
+  maximumResponseSourceSlot,
+  marketConfigFromBody,
+  parseUpgradeableProgramDataHeader,
+  publicForkRpcPayload,
+  requestHeader,
+  requireForkAdminAuthorization,
+  sha256,
+  loadOrCreateKeypair,
+  configuredMarketKinds,
+  marketConfigForKind,
+  marketKindFromConfig,
+  bootstrapMarketDefinitions,
+  hlpSwapRemainingAccountPrefix,
+  lamportsForSolFunding,
+  additiveForkTokenTopUpAmount,
+  forkFundingAssetPairMatches,
+  grossTransferAmountForNet,
+  monotonicForkTokenFundingAmount,
+  requireFundableForkWallet,
+  requireActionableLeverageOrderAccount,
+  shouldMutateWalletLamports,
+  mergeBootstrapTransactions,
+};
+
 function defaultLpMetadata(kind: "ylp" | "baseHlp" | "quoteHlp") {
   const suffix =
     kind === "ylp"
@@ -873,10 +2653,20 @@ function defaultLpMetadata(kind: "ylp" | "baseHlp" | "quoteHlp") {
   };
 }
 
-async function ensureFutarchyAuthority(futarchyAuthority: PublicKey) {
+async function ensureFutarchyAuthority(
+  futarchyAuthority: PublicKey,
+  onMutationAttempted?: () => void,
+) {
   const { program, payer, accountCoder, connection } = initializeRuntime();
   const existing = await program.account.futarchyAuthority.fetchNullable(futarchyAuthority);
-  if (existing) return existing;
+  if (existing) {
+    recordFutarchyAuthorityBootstrapMode("preexisting", {
+      onlyIfMissing: true,
+    });
+    return existing;
+  }
+
+  onMutationAttempted?.();
 
   await setLamports(payer.publicKey, DEFAULT_SOL_FUNDING);
 
@@ -906,16 +2696,42 @@ async function ensureFutarchyAuthority(futarchyAuthority: PublicKey) {
       .rpc();
     console.log(`Dusk futarchy authority initialized: ${signature}`);
     recordBootstrapTransaction("initialize futarchy authority", signature, ["init_futarchy_authority"]);
+    recordFutarchyAuthorityBootstrapMode("transaction");
     return await program.account.futarchyAuthority.fetch(futarchyAuthority);
   } catch (error) {
+    // A transport error can arrive after Surfnet landed the transaction. Re-read
+    // the PDA before deciding the initialization failed; fork-history discovery
+    // will still recover and verify the genuine signature for API replicas.
+    const landed = await program.account.futarchyAuthority.fetchNullable(
+      futarchyAuthority,
+    );
+    if (landed) return landed;
+    if (process.env.DUSK_ALLOW_SURFPOOL_AUTHORITY_ACCOUNT_SEED !== "true") {
+      throw error;
+    }
     console.warn(
-      `initFutarchyAuthority failed; seeding authority account through Surfpool: ${
+      `initFutarchyAuthority failed; explicit Surfpool account-seed fallback is enabled: ${
         error instanceof Error ? error.message : String(error)
       }`
     );
   }
 
   const [, bump] = PublicKey.findProgramAddressSync([seed("futarchy_authority")], PROGRAM_ID);
+  const defaultAuction = {
+    accepted_mint: NATIVE_MINT,
+    recipients: {
+      treasury: payer.publicKey,
+      staking_vault: payer.publicKey,
+      treasury_bps: 10_000,
+      staking_vault_bps: 0,
+    },
+    params: {
+      start_multiplier_bps: 12_000,
+      floor_multiplier_bps: 8_000,
+      duration_slots: toBN(216_000),
+      max_reference_age_slots: toBN(21_600),
+    },
+  };
   const data = await accountCoder.encode("FutarchyAuthority", {
     version: 3,
     authority: payer.publicKey,
@@ -934,6 +2750,12 @@ async function ensureFutarchyAuthority(futarchyAuthority: PublicKey) {
       buybacks_vault_bps: 0,
       team_treasury_bps: 10_000,
     },
+    protocol_auction_split: {
+      fee_auction_bps: 10_000,
+      buyback_auction_bps: 0,
+    },
+    fee_auction: defaultAuction,
+    buyback_auction: defaultAuction,
     global_reduce_only: false,
     bump,
   });
@@ -943,6 +2765,7 @@ async function ensureFutarchyAuthority(futarchyAuthority: PublicKey) {
     lamports: await connection.getMinimumBalanceForRentExemption(data.length),
     data,
   });
+  recordFutarchyAuthorityBootstrapMode("surfpool-account-seed");
   return await program.account.futarchyAuthority.fetch(futarchyAuthority);
 }
 
@@ -950,11 +2773,13 @@ async function createHookedLpMintIfMissing(params: {
   label: string;
   decimals: number;
   mintAuthority: PublicKey;
+  onMutationAttempted?: () => void;
 }) {
   const { connection, payer } = initializeRuntime();
   const { keypair, path } = loadOrCreateKeypair(`mint-${params.label}`);
   const existing = await connection.getAccountInfo(keypair.publicKey, "confirmed");
   if (!existing) {
+    params.onMutationAttempted?.();
     await setLamports(payer.publicKey, DEFAULT_SOL_FUNDING);
     const mintLen = getMintLen([ExtensionType.TransferHook]);
     const lamports = await connection.getMinimumBalanceForRentExemption(mintLen);
@@ -1059,33 +2884,31 @@ async function fixtureAssetMints(fixture: ForkMarketFixture): Promise<[PublicKey
     ];
   }
   if (fixture === "token2022-fees") {
-    return Promise.all([
-      createFixtureAssetMintIfMissing({
-        label: `${fixture}-base`,
-        decimals: 6,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-        transferFeeBps: 100,
-      }),
-      createFixtureAssetMintIfMissing({
-        label: `${fixture}-quote`,
-        decimals: 6,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-        transferFeeBps: 50,
-      }),
-    ]);
+    const baseMint = await createFixtureAssetMintIfMissing({
+      label: `${fixture}-base`,
+      decimals: 6,
+      tokenProgram: TOKEN_2022_PROGRAM_ID,
+      transferFeeBps: 100,
+    });
+    const quoteMint = await createFixtureAssetMintIfMissing({
+      label: `${fixture}-quote`,
+      decimals: 6,
+      tokenProgram: TOKEN_2022_PROGRAM_ID,
+      transferFeeBps: 50,
+    });
+    return [baseMint, quoteMint];
   }
-  return Promise.all([
-    createFixtureAssetMintIfMissing({
-      label: `${fixture}-zero`,
-      decimals: 0,
-      tokenProgram: TOKEN_PROGRAM_ID,
-    }),
-    createFixtureAssetMintIfMissing({
-      label: `${fixture}-nine`,
-      decimals: 9,
-      tokenProgram: TOKEN_PROGRAM_ID,
-    }),
-  ]);
+  const baseMint = await createFixtureAssetMintIfMissing({
+    label: `${fixture}-zero`,
+    decimals: 0,
+    tokenProgram: TOKEN_PROGRAM_ID,
+  });
+  const quoteMint = await createFixtureAssetMintIfMissing({
+    label: `${fixture}-nine`,
+    decimals: 9,
+    tokenProgram: TOKEN_PROGRAM_ID,
+  });
+  return [baseMint, quoteMint];
 }
 
 function deriveTransferHookValidationAddress(lpMint: PublicKey): PublicKey {
@@ -1223,6 +3046,7 @@ async function buildInitializeMarketTx(params: {
 
 function storedMarketDefinition(params: {
   label: string;
+  marketKind?: ForkMarketKind;
   addresses: ReturnType<typeof deriveMarketAddresses>;
   paramsHash: Buffer;
   baseMint: PublicKey;
@@ -1238,6 +3062,7 @@ function storedMarketDefinition(params: {
 }): StoredMarket {
   return {
     label: params.label,
+    marketKind: params.marketKind,
     programId: PROGRAM_ID.toBase58(),
     market: params.addresses.market.toBase58(),
     paramsHash: params.paramsHash.toString("hex"),
@@ -1276,16 +3101,24 @@ function storedMarketDefinition(params: {
 async function prepareCreateMarketTx(params: {
   owner: PublicKey;
   label: string;
-  mintA: PublicKey;
-  mintB: PublicKey;
+  baseMint: PublicKey;
+  quoteMint: PublicKey;
   config: Record<string, unknown>;
 }) {
   const { connection, program, payer } = initializeRuntime();
-  if (!params.label.trim()) throw new Error("Market name is required");
-  if (params.mintA.equals(params.mintB)) throw new Error("Choose two different token mints");
+  const marketLabel = params.label.trim();
+  if (!marketLabel) throw new Error("Market name is required");
+  if (params.baseMint.equals(params.quoteMint)) throw new Error("Choose two different token mints");
+  const config = marketConfigFromBody(params.config);
+  const marketKind = marketKindFromConfig(config);
 
-  const [baseMint, quoteMint] = orderedMints(params.mintA, params.mintB);
-  const paramsHash = paramsHashForCustomMarket(params.label.trim(), baseMint, quoteMint);
+  const baseMint = params.baseMint;
+  const quoteMint = params.quoteMint;
+  const paramsHash = paramsHashForCustomMarket(
+    marketLabel,
+    baseMint,
+    quoteMint,
+  );
   const addresses = deriveMarketAddresses(baseMint, quoteMint, paramsHash);
   if (await connection.getAccountInfo(addresses.market, "confirmed")) {
     throw new Error(`Market already exists at ${addresses.market.toBase58()}`);
@@ -1299,86 +3132,116 @@ async function prepareCreateMarketTx(params: {
     mintDecimals(baseMint, baseTokenProgram),
     mintDecimals(quoteMint, quoteTokenProgram),
   ]);
-  const mintLabel = `${params.label}-${paramsHash.toString("hex").slice(0, 10)}`;
-  const [ylp, baseHlp, quoteHlp] = await Promise.all([
-    createHookedLpMintIfMissing({
+  const mintLabel = `${marketLabel}-${paramsHash.toString("hex").slice(0, 10)}`;
+  let mutationAttempted = false;
+  const markMutationAttempted = () => {
+    mutationAttempted = true;
+  };
+
+  try {
+    // Keep controller writes sequential. Promise.all can reject before a
+    // sibling write starts, returning a certain-looking error while that
+    // sibling subsequently mutates the fork.
+    const ylp = await createHookedLpMintIfMissing({
       label: `${mintLabel}-ylp`,
       decimals: baseDecimals,
       mintAuthority: addresses.market,
-    }),
-    createHookedLpMintIfMissing({
+      onMutationAttempted: markMutationAttempted,
+    });
+    const baseHlp = await createHookedLpMintIfMissing({
       label: `${mintLabel}-base-hlp`,
       decimals: baseDecimals,
       mintAuthority: addresses.market,
-    }),
-    createHookedLpMintIfMissing({
+      onMutationAttempted: markMutationAttempted,
+    });
+    const quoteHlp = await createHookedLpMintIfMissing({
       label: `${mintLabel}-quote-hlp`,
       decimals: quoteDecimals,
       mintAuthority: addresses.market,
-    }),
-  ]);
+      onMutationAttempted: markMutationAttempted,
+    });
 
-  const futarchy = await ensureFutarchyAuthority(addresses.futarchyAuthority);
-  const teamTreasury =
-    field<PublicKey>(field(futarchy, "recipients"), "teamTreasury", "team_treasury") ?? payer.publicKey;
-  const teamTreasuryWsolAccount = await createAtaIfMissing({
-    payer,
-    owner: teamTreasury,
-    mint: NATIVE_MINT,
-    tokenProgram: TOKEN_PROGRAM_ID,
-    allowOwnerOffCurve: true,
-  });
-  const config = marketConfigFromBody(params.config);
-  const instruction = await program.methods
-    .initializeMarket({
-      config,
-      paramsHash: Array.from(paramsHash),
-    })
-    .accounts({
-      payer: params.owner,
+    const futarchy = await ensureFutarchyAuthority(
+      addresses.futarchyAuthority,
+      markMutationAttempted,
+    );
+    const teamTreasury =
+      field<PublicKey>(
+        field(futarchy, "recipients"),
+        "teamTreasury",
+        "team_treasury",
+      ) ?? payer.publicKey;
+    const teamTreasuryWsolAccount = await createAtaIfMissing({
+      payer,
+      owner: teamTreasury,
+      mint: NATIVE_MINT,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      allowOwnerOffCurve: true,
+      onMutationAttempted: markMutationAttempted,
+    });
+    const instruction = await program.methods
+      .initializeMarket({
+        config,
+        paramsHash: Array.from(paramsHash),
+      })
+      .accounts({
+        payer: params.owner,
+        baseMint,
+        quoteMint,
+        market: addresses.market,
+        futarchyAuthority: addresses.futarchyAuthority,
+        ylpMint: ylp.mint,
+        baseHlpMint: baseHlp.mint,
+        quoteHlpMint: quoteHlp.mint,
+        baseReserveVault: addresses.baseReserveVault,
+        quoteReserveVault: addresses.quoteReserveVault,
+        baseCollateralVault: addresses.baseCollateralVault,
+        quoteCollateralVault: addresses.quoteCollateralVault,
+        baseInsuranceVault: addresses.baseInsuranceVault,
+        quoteInsuranceVault: addresses.quoteInsuranceVault,
+        baseInterestVault: addresses.baseInterestVault,
+        quoteInterestVault: addresses.quoteInterestVault,
+        teamTreasury,
+        teamTreasuryWsolAccount,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: addresses.eventAuthority,
+        program: PROGRAM_ID,
+      })
+      .instruction();
+    const stored = storedMarketDefinition({
+      label: marketLabel,
+      marketKind,
+      addresses,
+      paramsHash,
       baseMint,
       quoteMint,
-      market: addresses.market,
-      futarchyAuthority: addresses.futarchyAuthority,
+      baseDecimals,
+      quoteDecimals,
+      baseTokenProgram,
+      quoteTokenProgram,
       ylpMint: ylp.mint,
       baseHlpMint: baseHlp.mint,
       quoteHlpMint: quoteHlp.mint,
-      baseReserveVault: addresses.baseReserveVault,
-      quoteReserveVault: addresses.quoteReserveVault,
-      baseCollateralVault: addresses.baseCollateralVault,
-      quoteCollateralVault: addresses.quoteCollateralVault,
-      baseInsuranceVault: addresses.baseInsuranceVault,
-      quoteInsuranceVault: addresses.quoteInsuranceVault,
-      baseInterestVault: addresses.baseInterestVault,
-      quoteInterestVault: addresses.quoteInterestVault,
-      teamTreasury,
-      teamTreasuryWsolAccount,
-      systemProgram: SystemProgram.programId,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      token2022Program: TOKEN_2022_PROGRAM_ID,
-      eventAuthority: addresses.eventAuthority,
-      program: PROGRAM_ID,
-    })
-    .instruction();
-  const stored = storedMarketDefinition({
-    label: params.label.trim(),
-    addresses,
-    paramsHash,
-    baseMint,
-    quoteMint,
-    baseDecimals,
-    quoteDecimals,
-    baseTokenProgram,
-    quoteTokenProgram,
-    ylpMint: ylp.mint,
-    baseHlpMint: baseHlp.mint,
-    quoteHlpMint: quoteHlp.mint,
-  });
-  return {
-    stored,
-    config: marketConfigPayload({ config }),
-    transaction: await serializeOwnerTransaction(params.owner, [instruction]),
-  };
+    });
+    return {
+      stored,
+      config: marketConfigPayload({ config }),
+      transaction: await serializeOwnerTransaction(params.owner, [instruction]),
+    };
+  } catch (error) {
+    if (
+      mutationAttempted &&
+      !(error instanceof ForkMutationOutcomeUncertainError)
+    ) {
+      throw new ForkMutationOutcomeUncertainError(
+        "Fork market preparation",
+        error,
+      );
+    }
+    throw error;
+  }
 }
 
 async function buildFinalizeMarketTx(owner: PublicKey, stored: StoredMarket) {
@@ -1425,23 +3288,24 @@ async function buildInvalidConfigMarketTx(stored: StoredMarket) {
   const quoteMint = new PublicKey(stored.quoteMint);
   const paramsHash = paramsHashForMarket(marketLabel, baseMint, quoteMint);
   const addresses = deriveMarketAddresses(baseMint, quoteMint, paramsHash);
-  const [ylp, baseHlp, quoteHlp] = await Promise.all([
-    createHookedLpMintIfMissing({
-      label: `${marketLabel}-ylp`,
-      decimals: stored.baseDecimals,
-      mintAuthority: addresses.market,
-    }),
-    createHookedLpMintIfMissing({
-      label: `${marketLabel}-base-hlp`,
-      decimals: stored.baseDecimals,
-      mintAuthority: addresses.market,
-    }),
-    createHookedLpMintIfMissing({
-      label: `${marketLabel}-quote-hlp`,
-      decimals: stored.quoteDecimals,
-      mintAuthority: addresses.market,
-    }),
-  ]);
+  // Surfnet's transaction-mode bank advances around each submitted write.
+  // Serializing controller-owned mint creation prevents sibling transactions
+  // from racing on a blockhash that another submission has just advanced.
+  const ylp = await createHookedLpMintIfMissing({
+    label: `${marketLabel}-ylp`,
+    decimals: stored.baseDecimals,
+    mintAuthority: addresses.market,
+  });
+  const baseHlp = await createHookedLpMintIfMissing({
+    label: `${marketLabel}-base-hlp`,
+    decimals: stored.baseDecimals,
+    mintAuthority: addresses.market,
+  });
+  const quoteHlp = await createHookedLpMintIfMissing({
+    label: `${marketLabel}-quote-hlp`,
+    decimals: stored.quoteDecimals,
+    mintAuthority: addresses.market,
+  });
   return buildInitializeMarketTx({
     stored,
     addresses,
@@ -1477,27 +3341,763 @@ async function buildInitializeLpMetadataTx(params: {
 }
 
 async function bootstrap(): Promise<StoredMarket> {
-  initializeRuntime();
-  bootstrapPromise ??= bootstrapUncached().catch((error) => {
-    bootstrapPromise = undefined;
-    throw error;
-  });
-  return bootstrapPromise;
+  const markets = await bootstrapMarkets();
+  const primary = markets[0];
+  if (!primary) throw new Error("Dusk fork bootstrap produced no markets");
+  return primary;
 }
 
-async function bootstrapUncached(): Promise<StoredMarket> {
-  bootstrapTransactionEvidence = [];
-  const { connection, payer, program } = initializeRuntime();
-  const state = readState();
-  const fixture = forkMarketFixture();
-  const marketLabel = duskEnv("MARKET_LABEL") ??
-    (fixture === "mainnet" ? "meta-usdc-mainnet-fork" : `dusk-${fixture}-fixture`);
+/** Single-controller entrypoint used by the Surfpool RPC service before API replicas start. */
+export async function bootstrapForkMarkets(): Promise<StoredMarket[]> {
+  await recordControllerSignerMarker();
+  return bootstrapMarkets();
+}
 
+async function bootstrapMarkets(
+  expectedDeploymentFingerprint?: string,
+): Promise<StoredMarket[]> {
+  initializeRuntime();
+  const observed = await deploymentEnvelope();
+  const deploymentFingerprint = deploymentIdentityFingerprint(observed);
+  if (
+    expectedDeploymentFingerprint &&
+    expectedDeploymentFingerprint !== deploymentFingerprint
+  ) {
+    throw new DeploymentIdentityChangedError(
+      "Deployment identity changed before market bootstrap",
+    );
+  }
+  const existing = bootstrapPromises.get(deploymentFingerprint);
+  if (existing) return existing;
+  for (const cachedFingerprint of bootstrapPromises.keys()) {
+    if (cachedFingerprint !== deploymentFingerprint) {
+      bootstrapPromises.delete(cachedFingerprint);
+    }
+  }
+  const pending = bootstrapQueue.then(async () => {
+    const before = await deploymentEnvelope();
+    if (deploymentIdentityFingerprint(before) !== deploymentFingerprint) {
+      throw new DeploymentIdentityChangedError(
+        "Deployment identity changed while bootstrap was waiting to start",
+      );
+    }
+    const markets =
+      process.env.DUSK_REQUIRE_PREBOOTSTRAPPED_MARKETS === "true"
+        ? await verifyPrebootstrappedMarkets()
+        : await bootstrapUncached(deploymentFingerprint);
+    const after = await deploymentEnvelope();
+    if (deploymentIdentityFingerprint(after) !== deploymentFingerprint) {
+      throw new DeploymentIdentityChangedError(
+        "Deployment identity changed while bootstrapping markets",
+      );
+    }
+    return markets;
+  });
+  bootstrapQueue = pending.then(
+    () => undefined,
+    () => undefined,
+  );
+  const guarded = pending.catch((error) => {
+    if (bootstrapPromises.get(deploymentFingerprint) === guarded) {
+      bootstrapPromises.delete(deploymentFingerprint);
+    }
+    throw error;
+  });
+  bootstrapPromises.set(deploymentFingerprint, guarded);
+  return guarded;
+}
+
+async function bootstrapUncached(
+  deploymentFingerprint: string,
+): Promise<StoredMarket[]> {
+  beginBootstrapEvidence(deploymentFingerprint);
+  const { payer } = initializeRuntime();
+  const fixture = forkMarketFixture();
   await setLamports(payer.publicKey, DEFAULT_SOL_FUNDING);
-  const [defaultBase, defaultQuote] = await fixtureAssetMints(fixture);
-  const [baseMint, quoteMint] = orderedMints(defaultBase, defaultQuote);
-  const paramsHash = paramsHashForMarket(marketLabel, baseMint, quoteMint);
+  const [baseMint, quoteMint] = await fixtureAssetMints(fixture);
+  const definitions = bootstrapMarketDefinitions(fixture, baseMint, quoteMint);
+  const state = readState();
+  const markets: StoredMarket[] = [];
+  for (const definition of definitions) {
+    markets.push(await bootstrapMarketUncached(definition, state));
+  }
+  return markets;
+}
+
+type ExpectedLpBootstrapTarget = {
+  kind: "ylp" | "baseHlp" | "quoteHlp";
+  mint: string;
+  metadata: string;
+  validation: string | undefined;
+};
+
+function expectedLpBootstrapTargets(
+  market: StoredMarket,
+): ExpectedLpBootstrapTarget[] {
+  return [
+    {
+      kind: "ylp",
+      mint: market.ylpMint,
+      metadata: market.ylpTokenMetadata,
+      validation: market.transferHookValidationAccounts.ylp,
+    },
+    {
+      kind: "baseHlp",
+      mint: market.baseHlpMint,
+      metadata: market.baseHlpTokenMetadata,
+      validation: market.transferHookValidationAccounts.baseHlp,
+    },
+    {
+      kind: "quoteHlp",
+      mint: market.quoteHlpMint,
+      metadata: market.quoteHlpTokenMetadata,
+      validation: market.transferHookValidationAccounts.quoteHlp,
+    },
+  ];
+}
+
+function publicKeyAt(accountKeys: PublicKey[], index: number): string | null {
+  return accountKeys[index]?.toBase58() ?? null;
+}
+
+function matchesBootstrapAccounts(
+  accountKeys: PublicKey[],
+  expected: Array<string | PublicKey>,
+): boolean {
+  return expected.every((value, index) =>
+    publicKeyAt(accountKeys, index) ===
+      (value instanceof PublicKey ? value.toBase58() : value),
+  );
+}
+
+function expectedBootstrapInstructionLabel(
+  instructionName: string,
+  accountKeys: PublicKey[],
+  markets: StoredMarket[],
+  payer: PublicKey,
+): string | null {
+  if (instructionName === "init_futarchy_authority") {
+    return matchesBootstrapAccounts(accountKeys, [
+      payer,
+      pda(seed("futarchy_authority")),
+      deriveProgramDataAddress(),
+      SystemProgram.programId,
+    ])
+      ? "initialize futarchy authority"
+      : null;
+  }
+
+  if (instructionName === "initialize_market") {
+    const market = markets.find((candidate) =>
+      matchesBootstrapAccounts(accountKeys, [
+        payer,
+        candidate.baseMint,
+        candidate.quoteMint,
+        candidate.ylpMint,
+        candidate.baseHlpMint,
+        candidate.quoteHlpMint,
+        candidate.market,
+        pda(seed("futarchy_authority")),
+      ]) &&
+      publicKeyAt(accountKeys, 18) === SystemProgram.programId.toBase58() &&
+      publicKeyAt(accountKeys, 19) === TOKEN_PROGRAM_ID.toBase58() &&
+      publicKeyAt(accountKeys, 20) === TOKEN_2022_PROGRAM_ID.toBase58() &&
+      publicKeyAt(accountKeys, 21) === candidate.eventAuthority &&
+      publicKeyAt(accountKeys, 22) === PROGRAM_ID.toBase58()
+    );
+    return market ? `initialize market ${market.label}` : null;
+  }
+
+  if (instructionName === "initialize_lp_transfer_hook") {
+    for (const market of markets) {
+      for (const target of expectedLpBootstrapTargets(market)) {
+        if (
+          target.validation &&
+          matchesBootstrapAccounts(accountKeys, [
+            payer,
+            market.market,
+            target.mint,
+            target.validation,
+            SystemProgram.programId,
+          ])
+        ) {
+          return `initialize ${market.label} ${target.kind} transfer hook`;
+        }
+      }
+    }
+    return null;
+  }
+
+  if (instructionName === "initialize_lp_metadata") {
+    for (const market of markets) {
+      for (const target of expectedLpBootstrapTargets(market)) {
+        if (matchesBootstrapAccounts(accountKeys, [
+          payer,
+          market.market,
+          target.mint,
+          target.metadata,
+          SystemProgram.programId,
+          SYSVAR_INSTRUCTIONS_PUBKEY,
+          TOKEN_2022_PROGRAM_ID,
+          TOKEN_METADATA_PROGRAM_ID,
+        ])) {
+          return `initialize ${market.label} ${target.kind} metadata`;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function bootstrapInstructionName(data: Buffer): string | null {
+  if (data.length < 8) return null;
+  const instructions = (initializeRuntime().idl as unknown as {
+    instructions?: Array<{ name?: unknown; discriminator?: unknown }>;
+  }).instructions ?? [];
+  for (const instruction of instructions) {
+    if (
+      typeof instruction.name === "string" &&
+      Array.isArray(instruction.discriminator) &&
+      Buffer.from(instruction.discriminator).equals(data.subarray(0, 8))
+    ) {
+      return instruction.name;
+    }
+  }
+  return null;
+}
+
+function transactionAccountKeys(transaction: any): PublicKey[] {
+  const message = transaction.transaction.message;
+  const staticAccountKeys = message.staticAccountKeys ?? message.accountKeys ?? [];
+  const loadedAddresses = transaction.meta?.loadedAddresses;
+  return [
+    ...staticAccountKeys,
+    ...(loadedAddresses?.writable ?? []),
+    ...(loadedAddresses?.readonly ?? []),
+  ].map((key: PublicKey | { pubkey: PublicKey }) =>
+    key instanceof PublicKey ? key : key.pubkey,
+  );
+}
+
+function compiledInstructionData(instruction: any): Buffer {
+  return typeof instruction.data === "string"
+    ? Buffer.from(anchor.utils.bytes.bs58.decode(instruction.data))
+    : Buffer.from(instruction.data ?? []);
+}
+
+async function verifiedBootstrapTransaction(
+  signature: string,
+  markets: StoredMarket[],
+): Promise<{ evidence: BootstrapTransactionEvidence; slot: number } | null> {
+  const { connection, payer } = initializeRuntime();
+  const transaction = await connection.getTransaction(signature, {
+    commitment: "confirmed",
+    maxSupportedTransactionVersion: 0,
+  });
+  if (!transaction || transaction.meta?.err) return null;
+
+  const message: any = transaction.transaction.message;
+  const transactionKeys = transactionAccountKeys(transaction);
+  const compiledInstructions =
+    message.compiledInstructions ?? message.instructions ?? [];
+  const matchedInstructions: string[] = [];
+  const labels: string[] = [];
+  for (const instruction of compiledInstructions) {
+    if (
+      publicKeyAt(transactionKeys, instruction.programIdIndex) !==
+      PROGRAM_ID.toBase58()
+    ) {
+      continue;
+    }
+    const instructionName = bootstrapInstructionName(
+      compiledInstructionData(instruction),
+    );
+    if (!instructionName) continue;
+    const accountIndexes: number[] =
+      instruction.accountKeyIndexes ?? instruction.accounts ?? [];
+    const instructionAccountKeys = accountIndexes.map(
+      (index) => transactionKeys[index],
+    );
+    if (instructionAccountKeys.some((key) => !key)) continue;
+    const label = expectedBootstrapInstructionLabel(
+      instructionName,
+      instructionAccountKeys,
+      markets,
+      payer.publicKey,
+    );
+    if (!label) continue;
+    matchedInstructions.push(instructionName);
+    labels.push(label);
+  }
+  if (matchedInstructions.length === 0) return null;
+  return {
+    evidence: {
+      label: Array.from(new Set(labels)).join("; "),
+      signature,
+      instructions: Array.from(new Set(matchedInstructions)),
+    },
+    slot: transaction.slot,
+  };
+}
+
+type BootstrapDiscoveryTarget = {
+  address: PublicKey;
+  instruction: string;
+  label: string;
+};
+
+function bootstrapDiscoveryTargets(
+  markets: StoredMarket[],
+): BootstrapDiscoveryTarget[] {
+  return [
+    {
+      address: pda(seed("futarchy_authority")),
+      instruction: "init_futarchy_authority",
+      label: "initialize futarchy authority",
+    },
+    ...markets.flatMap((market) => [
+      {
+        address: new PublicKey(market.market),
+        instruction: "initialize_market",
+        label: `initialize market ${market.label}`,
+      },
+      ...expectedLpBootstrapTargets(market).map((target) => ({
+        address: new PublicKey(target.metadata),
+        instruction: "initialize_lp_metadata",
+        label: `initialize ${market.label} ${target.kind} metadata`,
+      })),
+    ]),
+  ];
+}
+
+function evidenceMatchesTarget(
+  evidence: BootstrapTransactionEvidence,
+  target: BootstrapDiscoveryTarget,
+): boolean {
+  return evidence.label === target.label &&
+    evidence.instructions.includes(target.instruction);
+}
+
+async function bootstrapEvidencePayloadUncached(
+  markets: StoredMarket[],
+  deploymentFingerprint: string,
+): Promise<BootstrapEvidencePayload> {
+  const { connection } = initializeRuntime();
+  const state = readState();
+  const stateMatchesDeployment =
+    state.bootstrapEvidenceDeploymentFingerprint === deploymentFingerprint;
+  const verifiedBySignature = new Map<
+    string,
+    { evidence: BootstrapTransactionEvidence; slot: number }
+  >();
+  const verificationPromises = new Map<
+    string,
+    Promise<{ evidence: BootstrapTransactionEvidence; slot: number } | null>
+  >();
+  const maxTransactionFetches = 512;
+
+  const verify = (
+    signature: string,
+  ): Promise<{ evidence: BootstrapTransactionEvidence; slot: number } | null> => {
+    const existing = verificationPromises.get(signature);
+    if (existing) return existing;
+    if (verificationPromises.size >= maxTransactionFetches) {
+      return Promise.reject(new Error(
+        `Bootstrap evidence discovery exceeded ${maxTransactionFetches} unique transaction fetches`,
+      ));
+    }
+    const pending = verifiedBootstrapTransaction(signature, markets).then((entry) => {
+      if (entry) verifiedBySignature.set(signature, entry);
+      return entry;
+    });
+    verificationPromises.set(signature, pending);
+    return pending;
+  };
+
+  const persistedTransactions = stateMatchesDeployment
+    ? state.bootstrapTransactions
+    : [];
+  for (let offset = 0; offset < persistedTransactions.length; offset += 8) {
+    await Promise.all(
+      persistedTransactions.slice(offset, offset + 8).map((transaction) =>
+        verify(transaction.signature),
+      ),
+    );
+  }
+
+  const targets = bootstrapDiscoveryTargets(markets);
+  const pageSize = 32;
+  const maxPagesPerTarget = 8;
+  for (const target of targets) {
+    if (Array.from(verifiedBySignature.values()).some((entry) =>
+      evidenceMatchesTarget(entry.evidence, target)
+    )) {
+      continue;
+    }
+
+    let before: string | undefined;
+    let found = false;
+    for (let page = 0; page < maxPagesPerTarget && !found; page += 1) {
+      let signatures;
+      try {
+        signatures = await connection.getSignaturesForAddress(
+          target.address,
+          { limit: pageSize, ...(before ? { before } : {}) },
+          "confirmed",
+        );
+      } catch (error) {
+        throw new Error(
+          `Unable to discover ${target.label} from ${target.address.toBase58()}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+      if (signatures.length === 0) break;
+      const successfulSignatures = signatures.filter((signature) => !signature.err);
+      for (let offset = 0; offset < successfulSignatures.length; offset += 8) {
+        await Promise.all(
+          successfulSignatures.slice(offset, offset + 8).map((signature) =>
+            verify(signature.signature),
+          ),
+        );
+        found = Array.from(verifiedBySignature.values()).some((entry) =>
+          evidenceMatchesTarget(entry.evidence, target)
+        );
+        if (found) break;
+      }
+      before = signatures[signatures.length - 1]?.signature;
+      if (signatures.length < pageSize) break;
+    }
+  }
+
+  // Select one genuine transaction per semantic bootstrap target. A fork may
+  // expose older history for the same deterministic PDA after a service
+  // restart; the latest successful target transaction is authoritative and
+  // must not inflate instruction counts.
+  const verified = targets.flatMap((target) => {
+    const matches = Array.from(verifiedBySignature.values())
+      .filter((entry) => evidenceMatchesTarget(entry.evidence, target))
+      .sort((left, right) =>
+        right.slot - left.slot ||
+        right.evidence.signature.localeCompare(left.evidence.signature),
+      );
+    return matches.slice(0, 1);
+  }).sort((left, right) =>
+    left.slot - right.slot ||
+    left.evidence.signature.localeCompare(right.evidence.signature),
+  );
+  const transactions = mergeBootstrapTransactions(
+    verified.map((entry) => entry.evidence),
+  );
+  const hasAuthorityTransaction = transactions.some((transaction) =>
+    transaction.instructions.includes("init_futarchy_authority"),
+  );
+  const futarchyAuthorityBootstrapMode = hasAuthorityTransaction
+    ? "transaction"
+    : stateMatchesDeployment && state.futarchyAuthorityBootstrapMode
+      ? state.futarchyAuthorityBootstrapMode
+      : "preexisting";
+  const missingTargets = targets.filter((target) =>
+    !transactions.some((transaction) =>
+      evidenceMatchesTarget(transaction, target)
+    ),
+  ).filter((target) =>
+    target.instruction !== "init_futarchy_authority" ||
+    futarchyAuthorityBootstrapMode !== "surfpool-account-seed",
+  );
+  if (missingTargets.length > 0) {
+    throw new Error(
+      `Incomplete confirmed bootstrap evidence after bounded fork-history scan: ${
+        missingTargets.map((target) => target.label).join(", ")
+      }`,
+    );
+  }
+  return { transactions, futarchyAuthorityBootstrapMode };
+}
+
+async function bootstrapEvidencePayload(
+  markets: StoredMarket[],
+  deploymentFingerprint: string,
+): Promise<BootstrapEvidencePayload> {
+  for (const cachedFingerprint of bootstrapEvidencePromises.keys()) {
+    if (cachedFingerprint !== deploymentFingerprint) {
+      bootstrapEvidencePromises.delete(cachedFingerprint);
+    }
+  }
+  const existing = bootstrapEvidencePromises.get(deploymentFingerprint);
+  if (existing) return existing;
+  const pending = bootstrapEvidencePayloadUncached(
+    markets,
+    deploymentFingerprint,
+  );
+  const guarded = pending.catch((error) => {
+    if (bootstrapEvidencePromises.get(deploymentFingerprint) === guarded) {
+      bootstrapEvidencePromises.delete(deploymentFingerprint);
+    }
+    throw error;
+  });
+  bootstrapEvidencePromises.set(deploymentFingerprint, guarded);
+  return guarded;
+}
+
+function requireMatchingPublicKey(
+  actual: PublicKey | undefined,
+  expected: PublicKey,
+  label: string,
+): void {
+  if (!actual?.equals(expected)) {
+    throw new Error(
+      `${label} mismatch: expected ${expected.toBase58()}, received ${actual?.toBase58() ?? "missing"}`,
+    );
+  }
+}
+
+function prebootstrappedMarketDefinitions(): BootstrapMarketDefinition[] {
+  const fixture = forkMarketFixture();
+  if (fixture === "mainnet") {
+    return bootstrapMarketDefinitions(
+      fixture,
+      new PublicKey(duskEnv("BASE_MINT") ?? DEFAULT_META_MINT),
+      new PublicKey(duskEnv("QUOTE_MINT") ?? DEFAULT_USDC_MINT),
+    );
+  }
+
+  // Synthetic fixtures generate mint keypairs during controller bootstrap. A
+  // read-only verifier can use a shared manifest, but must never recreate them.
+  const state = readState();
+  const saved = Object.values(state.markets)[0];
+  if (!saved) {
+    throw new Error(
+      `Read-only ${fixture} verification requires the RPC controller state manifest`,
+    );
+  }
+  return bootstrapMarketDefinitions(
+    fixture,
+    new PublicKey(saved.baseMint),
+    new PublicKey(saved.quoteMint),
+  );
+}
+
+async function requireConfiguredForkFundingAssets(
+  selected: ForkFundingAssetPair,
+): Promise<void> {
+  const definition = prebootstrappedMarketDefinitions()[0];
+  if (!definition) {
+    throw new Error("Public fork funding requires a configured market fixture");
+  }
+  const [baseTokenProgram, quoteTokenProgram] = await Promise.all([
+    tokenProgramForMint(definition.baseMint),
+    tokenProgramForMint(definition.quoteMint),
+  ]);
+  const configured: ForkFundingAssetPair = {
+    baseMint: definition.baseMint.toBase58(),
+    quoteMint: definition.quoteMint.toBase58(),
+    baseTokenProgram: baseTokenProgram.toBase58(),
+    quoteTokenProgram: quoteTokenProgram.toBase58(),
+  };
+  if (!forkFundingAssetPairMatches(selected, configured)) {
+    throw new Error(
+      "Public fork funding is restricted to the configured fixture asset pair",
+    );
+  }
+}
+
+async function verifyPrebootstrappedMarket(
+  definition: BootstrapMarketDefinition,
+): Promise<StoredMarket> {
+  const { connection, program } = initializeRuntime();
+  const addresses = deriveMarketAddresses(
+    definition.baseMint,
+    definition.quoteMint,
+    definition.paramsHash,
+  );
+  const account = await program.account.market.fetchNullable(addresses.market);
+  if (!account) {
+    throw new Error(
+      `Market ${addresses.market.toBase58()} is not bootstrapped; the Surfpool RPC controller must initialize it before API replicas start`,
+    );
+  }
+
+  const baseSide = field<any>(account, "baseSide", "base_side");
+  const quoteSide = field<any>(account, "quoteSide", "quote_side");
+  const insurance = field<any>(account, "insurance");
+  requireMatchingPublicKey(
+    field<PublicKey>(baseSide, "assetMint", "asset_mint"),
+    definition.baseMint,
+    `${definition.label} base mint`,
+  );
+  requireMatchingPublicKey(
+    field<PublicKey>(quoteSide, "assetMint", "asset_mint"),
+    definition.quoteMint,
+    `${definition.label} quote mint`,
+  );
+  const onChainParamsHash = Buffer.from(
+    field<number[] | Uint8Array>(account, "paramsHash", "params_hash") ?? [],
+  );
+  if (!onChainParamsHash.equals(definition.paramsHash)) {
+    throw new Error(`${definition.label} parameter hash does not match config`);
+  }
+  if (marketKindFromConfig(field(account, "config")) !== definition.kind) {
+    throw new Error(`${definition.label} AMM kind does not match config`);
+  }
+
+  const expectedVaults: Array<[PublicKey | undefined, PublicKey, string]> = [
+    [
+      field<PublicKey>(baseSide, "reserveVault", "reserve_vault"),
+      addresses.baseReserveVault,
+      "base reserve vault",
+    ],
+    [
+      field<PublicKey>(quoteSide, "reserveVault", "reserve_vault"),
+      addresses.quoteReserveVault,
+      "quote reserve vault",
+    ],
+    [
+      field<PublicKey>(baseSide, "collateralVault", "collateral_vault"),
+      addresses.baseCollateralVault,
+      "base collateral vault",
+    ],
+    [
+      field<PublicKey>(quoteSide, "collateralVault", "collateral_vault"),
+      addresses.quoteCollateralVault,
+      "quote collateral vault",
+    ],
+    [
+      field<PublicKey>(baseSide, "interestVault", "interest_vault"),
+      addresses.baseInterestVault,
+      "base interest vault",
+    ],
+    [
+      field<PublicKey>(quoteSide, "interestVault", "interest_vault"),
+      addresses.quoteInterestVault,
+      "quote interest vault",
+    ],
+    [
+      field<PublicKey>(insurance, "baseVault", "base_vault"),
+      addresses.baseInsuranceVault,
+      "base insurance vault",
+    ],
+    [
+      field<PublicKey>(insurance, "quoteVault", "quote_vault"),
+      addresses.quoteInsuranceVault,
+      "quote insurance vault",
+    ],
+  ];
+  for (const [actual, expected, label] of expectedVaults) {
+    requireMatchingPublicKey(actual, expected, `${definition.label} ${label}`);
+  }
+
+  const ylpMint = field<PublicKey>(account, "ylpMint", "ylp_mint");
+  const baseHlpMint = field<PublicKey>(baseSide, "hlpMint", "hlp_mint");
+  const quoteHlpMint = field<PublicKey>(quoteSide, "hlpMint", "hlp_mint");
+  if (!ylpMint || !baseHlpMint || !quoteHlpMint) {
+    throw new Error(`${definition.label} is missing one or more LP mints`);
+  }
+
+  const requiredAccounts = [
+    pda(seed("futarchy_authority")),
+    deriveTransferHookValidationAddress(ylpMint),
+    deriveTransferHookValidationAddress(baseHlpMint),
+    deriveTransferHookValidationAddress(quoteHlpMint),
+    tokenMetadataPda(ylpMint),
+    tokenMetadataPda(baseHlpMint),
+    tokenMetadataPda(quoteHlpMint),
+  ];
+  const requiredObservations = await connection.getMultipleAccountsInfo(
+    requiredAccounts,
+    DEPLOYMENT_COMMITMENT,
+  );
+  for (let index = 0; index < requiredAccounts.length; index += 1) {
+    const observed = requiredObservations[index];
+    if (!observed) {
+      throw new Error(
+        `${definition.label} prebootstrap account ${requiredAccounts[index].toBase58()} is missing`,
+      );
+    }
+    const expectedOwner =
+      index < 4 ? PROGRAM_ID : TOKEN_METADATA_PROGRAM_ID;
+    if (!observed.owner.equals(expectedOwner)) {
+      throw new Error(
+        `${definition.label} prebootstrap account ${requiredAccounts[index].toBase58()} has wrong owner`,
+      );
+    }
+  }
+  if (!(await hasSeededLiquidityMarker(addresses.market))) {
+    throw new Error(
+      `${definition.label} has no seeded-liquidity marker; the RPC controller must finish bootstrap`,
+    );
+  }
+  const baseLiveReserve = toBigInt(
+    field(field(baseSide, "reserves"), "liveReserve", "live_reserve"),
+  );
+  const quoteLiveReserve = toBigInt(
+    field(field(quoteSide, "reserves"), "liveReserve", "live_reserve"),
+  );
+  if (baseLiveReserve <= 0n || quoteLiveReserve <= 0n) {
+    throw new Error(`${definition.label} initial liquidity is incomplete`);
+  }
+
+  const [baseTokenProgram, quoteTokenProgram] = await Promise.all([
+    tokenProgramForMint(definition.baseMint),
+    tokenProgramForMint(definition.quoteMint),
+  ]);
+  return storedMarketDefinition({
+    label: definition.label,
+    marketKind: definition.kind,
+    addresses,
+    paramsHash: definition.paramsHash,
+    baseMint: definition.baseMint,
+    quoteMint: definition.quoteMint,
+    baseDecimals: Number(
+      field(baseSide, "assetDecimals", "asset_decimals") ?? 0,
+    ),
+    quoteDecimals: Number(
+      field(quoteSide, "assetDecimals", "asset_decimals") ?? 0,
+    ),
+    baseTokenProgram,
+    quoteTokenProgram,
+    ylpMint,
+    baseHlpMint,
+    quoteHlpMint,
+    seededLiquidity: true,
+  });
+}
+
+async function verifyPrebootstrappedMarkets(): Promise<StoredMarket[]> {
+  await verifyControllerSignerMarker();
+  const definitions = prebootstrappedMarketDefinitions();
+  const markets: StoredMarket[] = [];
+  for (const definition of definitions) {
+    markets.push(await verifyPrebootstrappedMarket(definition));
+  }
+  return markets;
+}
+
+async function bootstrapMarketUncached(
+  definition: BootstrapMarketDefinition,
+  state: ForkState,
+): Promise<StoredMarket> {
+  const { payer, program } = initializeRuntime();
+  const {
+    label: marketLabel,
+    kind: marketKind,
+    baseMint,
+    quoteMint,
+    paramsHash,
+    config,
+  } = definition;
   const addresses = deriveMarketAddresses(baseMint, quoteMint, paramsHash);
+
+  const existingMarketAccount = await program.account.market.fetchNullable(addresses.market);
+  if (
+    !existingMarketAccount &&
+    process.env.DUSK_REQUIRE_PREBOOTSTRAPPED_MARKETS === "true"
+  ) {
+    throw new Error(
+      `Market ${addresses.market.toBase58()} is not bootstrapped; the Surfpool RPC controller must initialize it before API replicas start`,
+    );
+  }
 
   const [baseTokenProgram, quoteTokenProgram] = await Promise.all([
     tokenProgramForMint(baseMint),
@@ -1525,8 +4125,6 @@ async function bootstrapUncached(): Promise<StoredMarket> {
     baseHlp: `${marketLabel}-base-hlp`,
     quoteHlp: `${marketLabel}-quote-hlp`,
   };
-
-  const existingMarketAccount = await program.account.market.fetchNullable(addresses.market);
   let ylpMint = field<PublicKey>(existingMarketAccount, "ylpMint", "ylp_mint");
   const existingBaseSide = field<any>(existingMarketAccount, "baseSide", "base_side");
   const existingQuoteSide = field<any>(existingMarketAccount, "quoteSide", "quote_side");
@@ -1534,23 +4132,23 @@ async function bootstrapUncached(): Promise<StoredMarket> {
   let quoteHlpMint = field<PublicKey>(existingQuoteSide, "hlpMint", "hlp_mint");
 
   if (!existingMarketAccount) {
-    const [ylp, baseHlp, quoteHlp] = await Promise.all([
-      createHookedLpMintIfMissing({
-        label: lpLabels.ylp,
-        decimals: baseDecimals,
-        mintAuthority: addresses.market,
-      }),
-      createHookedLpMintIfMissing({
-        label: lpLabels.baseHlp,
-        decimals: baseDecimals,
-        mintAuthority: addresses.market,
-      }),
-      createHookedLpMintIfMissing({
-        label: lpLabels.quoteHlp,
-        decimals: quoteDecimals,
-        mintAuthority: addresses.market,
-      }),
-    ]);
+    // These are controller-signed writes. Keep them sequential so Surfnet's
+    // transaction-mode bank cannot invalidate a sibling's recent blockhash.
+    const ylp = await createHookedLpMintIfMissing({
+      label: lpLabels.ylp,
+      decimals: baseDecimals,
+      mintAuthority: addresses.market,
+    });
+    const baseHlp = await createHookedLpMintIfMissing({
+      label: lpLabels.baseHlp,
+      decimals: baseDecimals,
+      mintAuthority: addresses.market,
+    });
+    const quoteHlp = await createHookedLpMintIfMissing({
+      label: lpLabels.quoteHlp,
+      decimals: quoteDecimals,
+      mintAuthority: addresses.market,
+    });
     ylpMint = ylp.mint;
     baseHlpMint = baseHlp.mint;
     quoteHlpMint = quoteHlp.mint;
@@ -1569,7 +4167,7 @@ async function bootstrapUncached(): Promise<StoredMarket> {
   if (!existingMarketAccount) {
     const signature = await program.methods
       .initializeMarket({
-        config: defaultMarketConfig(),
+        config,
         paramsHash: Array.from(paramsHash),
       })
       .accounts({
@@ -1603,11 +4201,20 @@ async function bootstrapUncached(): Promise<StoredMarket> {
     recordBootstrapTransaction("initialize market", signature, ["initialize_market"]);
   }
 
-  const [ylpHookValidation, baseHlpHookValidation, quoteHlpHookValidation] = await Promise.all([
-    ensureLpTransferHook({ market: addresses.market, lpMint: ylpMint }),
-    ensureLpTransferHook({ market: addresses.market, lpMint: baseHlpMint }),
-    ensureLpTransferHook({ market: addresses.market, lpMint: quoteHlpMint }),
-  ]);
+  // Hook initialization also submits controller-owned transactions and must
+  // obey the same one-write-at-a-time blockhash discipline.
+  const ylpHookValidation = await ensureLpTransferHook({
+    market: addresses.market,
+    lpMint: ylpMint,
+  });
+  const baseHlpHookValidation = await ensureLpTransferHook({
+    market: addresses.market,
+    lpMint: baseHlpMint,
+  });
+  const quoteHlpHookValidation = await ensureLpTransferHook({
+    market: addresses.market,
+    lpMint: quoteHlpMint,
+  });
   const transferHookValidationAccounts = {
     ylp: ylpHookValidation.toBase58(),
     baseHlp: baseHlpHookValidation.toBase58(),
@@ -1633,9 +4240,31 @@ async function bootstrapUncached(): Promise<StoredMarket> {
     metadata: defaultLpMetadata("quoteHlp"),
   });
 
-  const previous = state.markets[marketLabel];
+  let seededLiquidity = await hasSeededLiquidityMarker(addresses.market);
+  if (!seededLiquidity && existingMarketAccount) {
+    const baseLiveReserve = toBigInt(
+      field(field(existingBaseSide, "reserves"), "liveReserve", "live_reserve"),
+    );
+    const quoteLiveReserve = toBigInt(
+      field(
+        field(existingQuoteSide, "reserves"),
+        "liveReserve",
+        "live_reserve",
+      ),
+    );
+    if (baseLiveReserve > 0n || quoteLiveReserve > 0n) {
+      // Adopt forks created before the durable marker was introduced without depositing twice.
+      await recordSeededLiquidity(addresses.market);
+      seededLiquidity = true;
+    } else if (process.env.DUSK_REQUIRE_PREBOOTSTRAPPED_MARKETS === "true") {
+      throw new Error(
+        `Market ${addresses.market.toBase58()} has no seeded-liquidity marker; the Surfpool RPC controller must finish bootstrap`,
+      );
+    }
+  }
   const stored: StoredMarket = {
     label: marketLabel,
+    marketKind,
     programId: PROGRAM_ID.toBase58(),
     market: addresses.market.toBase58(),
     paramsHash: paramsHash.toString("hex"),
@@ -1662,10 +4291,7 @@ async function bootstrapUncached(): Promise<StoredMarket> {
     baseHlpYlpVault: baseHlpYlpVault.toBase58(),
     quoteHlpYlpVault: quoteHlpYlpVault.toBase58(),
     eventAuthority: addresses.eventAuthority.toBase58(),
-    seededLiquidity:
-      Boolean(existingMarketAccount) &&
-      previous?.market === addresses.market.toBase58() &&
-      previous.seededLiquidity,
+    seededLiquidity,
     transferHookValidationAccounts,
   };
 
@@ -1674,6 +4300,7 @@ async function bootstrapUncached(): Promise<StoredMarket> {
 
   if (duskEnv("SEED_LIQUIDITY") !== "0" && !stored.seededLiquidity) {
     await seedInitialLiquidity(stored);
+    await recordSeededLiquidity(addresses.market);
     stored.seededLiquidity = true;
     state.markets[marketLabel] = stored;
     writeState(state);
@@ -1691,8 +4318,12 @@ async function seedInitialLiquidity(market: StoredMarket) {
   const baseProgram = new PublicKey(market.baseTokenProgram);
   const quoteProgram = new PublicKey(market.quoteTokenProgram);
 
-  await setTokenBalance(payer.publicKey, baseMint, baseAmount, baseProgram);
-  await setTokenBalance(payer.publicKey, quoteMint, quoteAmount, quoteProgram);
+  const [baseFunding, quoteFunding] = await Promise.all([
+    prepareTokenFunding(payer.publicKey, baseMint, baseAmount, baseProgram),
+    prepareTokenFunding(payer.publicKey, quoteMint, quoteAmount, quoteProgram),
+  ]);
+  await setTokenBalance(baseFunding);
+  await setTokenBalance(quoteFunding);
   const tx = await buildAddLiquidityTx({
     owner: payer.publicKey,
     market,
@@ -1879,7 +4510,11 @@ async function yieldAccountPayload(
 async function currentMarketHealth(market: PublicKey) {
   const { connection, payer, program } = initializeRuntime();
   const instruction = await program.methods.previewMarket().accounts({ market }).instruction();
-  const transaction = new Transaction().add(instruction);
+  const transaction = new Transaction().add(
+    ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }),
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
+    instruction,
+  );
   transaction.feePayer = payer.publicKey;
   transaction.recentBlockhash = (await connection.getLatestBlockhash("confirmed")).blockhash;
   const simulation = await connection.simulateTransaction(transaction);
@@ -1891,15 +4526,38 @@ async function currentMarketHealth(market: PublicKey) {
     throw new Error("preview_market health simulation returned no Dusk data");
   }
   const preview = program.coder.types.decode(
-    "MarketPreview",
-    Buffer.from(returnData.data[0], returnData.data[1])
+    "marketPreview",
+    Buffer.from(returnData.data[0], returnData.data[1]),
   );
-  return field<any>(preview, "health");
+  return {
+    health: field<any>(preview, "health"),
+    sourceSlot: simulation.context.slot,
+  };
 }
 
 async function marketPayload(stored: StoredMarket) {
-  const { program } = initializeRuntime();
-  const marketAccount = await program.account.market.fetch(new PublicKey(stored.market));
+  const { connection, program } = initializeRuntime();
+  const marketAddress = new PublicKey(stored.market);
+  const healthObservation = await currentMarketHealth(marketAddress);
+  const marketObservation = await program.account.market.fetchAndContext(
+    marketAddress,
+    DEPLOYMENT_COMMITMENT,
+  );
+  const marketAccount = marketObservation.data;
+  const health = healthObservation.health;
+  const sourceSlot = marketObservation.context.slot;
+  const sourceBlockTime = await connection.getBlockTime(sourceSlot);
+  const healthBlockTime = await connection.getBlockTime(
+    healthObservation.sourceSlot,
+  );
+  const sourceObservedAt =
+    sourceBlockTime === null
+      ? null
+      : new Date(sourceBlockTime * 1_000).toISOString();
+  const healthObservedAt =
+    healthBlockTime === null
+      ? null
+      : new Date(healthBlockTime * 1_000).toISOString();
   const config = marketConfigPayload(marketAccount);
   const baseSide = field<any>(marketAccount, "baseSide", "base_side");
   const quoteSide = field<any>(marketAccount, "quoteSide", "quote_side");
@@ -1910,15 +4568,15 @@ async function marketPayload(stored: StoredMarket) {
   const baseDailyBorrowBucket = field<any>(baseSide, "dailyBorrowBucket", "daily_borrow_bucket");
   const quoteDailyBorrowBucket = field<any>(quoteSide, "dailyBorrowBucket", "daily_borrow_bucket");
   const debt = field<any>(marketAccount, "debt");
-  const health = await currentMarketHealth(new PublicKey(stored.market));
   const insurance = field<any>(marketAccount, "insurance");
   const fixedBaseShares = toBigInt(field(debt, "fixedBaseShares", "fixed_base_shares"));
   const fixedQuoteShares = toBigInt(field(debt, "fixedQuoteShares", "fixed_quote_shares"));
   const baseBorrowIndexNad = toBigInt(field(debt, "baseBorrowIndexNad", "base_borrow_index_nad"));
   const quoteBorrowIndexNad = toBigInt(field(debt, "quoteBorrowIndexNad", "quote_borrow_index_nad"));
-  const now = new Date().toISOString();
 
   return {
+    label: stored.label,
+    marketKind: stored.marketKind ?? marketKindFromConfig(config),
     marketAddress: stored.market,
     baseMint: stored.baseMint,
     quoteMint: stored.quoteMint,
@@ -1955,8 +4613,9 @@ async function marketPayload(stored: StoredMarket) {
     reduceOnly: Boolean(field(marketAccount, "reduceOnly", "reduce_only") ?? false),
     createdTxSig: null,
     createdSlot: null,
-    createdAt: now,
-    updatedAt: now,
+    createdAt: null,
+    updatedAt: null,
+    observedAt: sourceObservedAt,
     swapCount: 0,
     lastSwapAt: null,
     state: {
@@ -2058,21 +4717,35 @@ async function marketPayload(stored: StoredMarket) {
       ),
       baseDebtHealthBps: stringValue(field(health, "baseDebtHealthBps", "base_debt_health_bps")),
       quoteDebtHealthBps: stringValue(field(health, "quoteDebtHealthBps", "quote_debt_health_bps")),
+      healthSourceSlot: healthObservation.sourceSlot,
+      healthObservedAt,
       sourceTxSig: null,
-      sourceSlot: null,
-      updatedAt: now,
+      sourceSlot,
+      observedAt: sourceObservedAt,
     },
   };
 }
 
-function forkConfigPayload(stored: StoredMarket) {
+function forkConfigPayload(stored: StoredMarket, markets: StoredMarket[]) {
   return {
-    rpcUrl: PUBLIC_RPC_URL,
-    privateRpcUrl: SURFPOOL_RPC_URL,
+    ...publicForkRpcPayload(PUBLIC_RPC_URL),
     programId: PROGRAM_ID.toBase58(),
     payer: initializeRuntime().payer.publicKey.toBase58(),
     market: stored.market,
+    primaryMarket: stored.market,
     label: stored.label,
+    marketKind: stored.marketKind ?? "cpmm",
+    markets: markets.map((market) => ({
+      label: market.label,
+      market: market.market,
+      marketKind: market.marketKind ?? "cpmm",
+      baseMint: market.baseMint,
+      quoteMint: market.quoteMint,
+      baseDecimals: market.baseDecimals,
+      quoteDecimals: market.quoteDecimals,
+      paramsHash: market.paramsHash,
+      seededLiquidity: market.seededLiquidity,
+    })),
     fixtureMode: forkMarketFixture(),
     baseMint: stored.baseMint,
     quoteMint: stored.quoteMint,
@@ -2115,11 +4788,51 @@ function marketFromStored(stored: StoredMarket) {
   };
 }
 
-async function resolveStoredMarket(marketAddress: string, fallback: StoredMarket): Promise<StoredMarket> {
+type HlpSwapAccountAddresses = Pick<
+  ReturnType<typeof marketFromStored>,
+  | "ylpMint"
+  | "baseHlpYlpVault"
+  | "quoteHlpYlpVault"
+  | "baseInterestVault"
+  | "quoteInterestVault"
+>;
+
+function hlpSwapRemainingAccountPrefix(
+  addresses: HlpSwapAccountAddresses,
+  marketAccount: unknown,
+): AccountMeta[] {
+  const baseHlpVault = field(marketAccount, "baseHlpVault", "base_hlp_vault");
+  const quoteHlpVault = field(marketAccount, "quoteHlpVault", "quote_hlp_vault");
+  const active =
+    toBigInt(field(baseHlpVault, "hlpSupply", "hlp_supply")) > 0n ||
+    toBigInt(field(quoteHlpVault, "hlpSupply", "hlp_supply")) > 0n ||
+    toBigInt(field(baseHlpVault, "residualExposure", "residual_exposure")) !== 0n ||
+    toBigInt(field(quoteHlpVault, "residualExposure", "residual_exposure")) !== 0n;
+  if (!active) return [];
+  return [
+    addresses.ylpMint,
+    addresses.baseHlpYlpVault,
+    addresses.quoteHlpYlpVault,
+    addresses.baseInterestVault,
+    addresses.quoteInterestVault,
+  ].map((pubkey) => ({ pubkey, isWritable: true, isSigner: false }));
+}
+
+async function hlpSwapRemainingAccounts(
+  addresses: HlpSwapAccountAddresses & { market: PublicKey },
+): Promise<AccountMeta[]> {
+  const { program } = initializeRuntime();
+  const marketAccount = await program.account.market.fetch(addresses.market);
+  return hlpSwapRemainingAccountPrefix(addresses, marketAccount);
+}
+
+async function resolveStoredMarket(
+  marketAddress: string,
+  fallback: StoredMarket,
+): Promise<StoredMarket> {
   if (!marketAddress || marketAddress === fallback.market) return fallback;
   const state = readState();
   const saved = Object.values(state.markets).find((market) => market.market === marketAddress);
-  if (saved) return saved;
 
   const { program } = initializeRuntime();
   const market = new PublicKey(marketAddress);
@@ -2144,7 +4857,8 @@ async function resolveStoredMarket(marketAddress: string, fallback: StoredMarket
     tokenProgramForMint(quoteMint),
   ]);
   const stored = storedMarketDefinition({
-    label: `market-${market.toBase58().slice(0, 8)}`,
+    label: saved?.label ?? `market-${market.toBase58().slice(0, 8)}`,
+    marketKind: marketKindFromConfig(field(account, "config")),
     addresses: {
       ...addresses,
       baseReserveVault: field<PublicKey>(baseSide, "reserveVault", "reserve_vault") ?? addresses.baseReserveVault,
@@ -2485,25 +5199,7 @@ async function buildSwapTx(params: {
       program: PROGRAM_ID,
     });
 
-  const refreshedMarket = await program.account.market.fetch(m.market);
-  const baseHlpVault = field(refreshedMarket, "baseHlpVault", "base_hlp_vault");
-  const quoteHlpVault = field(refreshedMarket, "quoteHlpVault", "quote_hlp_vault");
-  const baseHlpSupply = toBigInt(field(baseHlpVault, "hlpSupply", "hlp_supply"));
-  const quoteHlpSupply = toBigInt(
-    field(quoteHlpVault, "hlpSupply", "hlp_supply")
-  );
-  const baseResidualExposure = toBigInt(field(baseHlpVault, "residualExposure", "residual_exposure"));
-  const quoteResidualExposure = toBigInt(field(quoteHlpVault, "residualExposure", "residual_exposure"));
-  const remainingAccounts = [];
-  if (baseHlpSupply > 0n || quoteHlpSupply > 0n || baseResidualExposure !== 0n || quoteResidualExposure !== 0n) {
-    remainingAccounts.push(
-      { pubkey: m.ylpMint, isWritable: true, isSigner: false },
-      { pubkey: m.baseHlpYlpVault, isWritable: true, isSigner: false },
-      { pubkey: m.quoteHlpYlpVault, isWritable: true, isSigner: false },
-      { pubkey: m.baseInterestVault, isWritable: true, isSigner: false },
-      { pubkey: m.quoteInterestVault, isWritable: true, isSigner: false }
-    );
-  }
+  const remainingAccounts = await hlpSwapRemainingAccounts(m);
   if (remainingAccounts.length > 0) builder = builder.remainingAccounts(remainingAccounts);
   instructions.push(await builder.instruction());
   return serializeOwnerTransaction(params.owner, instructions);
@@ -3538,49 +6234,164 @@ async function buildSettleProtocolAuctionTx(params: {
   return serializeOwnerTransaction(params.bidder, instructions);
 }
 
+function integerText(value: unknown, label: string): string {
+  if (BN.isBN(value)) return value.toString(10);
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "number") {
+    if (!Number.isSafeInteger(value)) {
+      throw new Error(`${label} must be a safe integer or decimal string`);
+    }
+    return String(value);
+  }
+  if (typeof value === "string" && /^-?\d+$/.test(value.trim())) {
+    return value.trim();
+  }
+  throw new Error(`${label} must be an integer`);
+}
+
+function boundedIntegerNumber(
+  value: unknown,
+  label: string,
+  minimum: number,
+  maximum: number,
+): number {
+  const parsed = Number(integerText(value, label));
+  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new Error(`${label} must be between ${minimum} and ${maximum}`);
+  }
+  return parsed;
+}
+
+function boundedIntegerBn(
+  value: unknown,
+  label: string,
+  minimum: bigint,
+  maximum: bigint,
+): BN {
+  const text = integerText(value, label);
+  const parsed = BigInt(text);
+  if (parsed < minimum || parsed > maximum) {
+    throw new Error(
+      `${label} must be between ${minimum.toString()} and ${maximum.toString()}`,
+    );
+  }
+  return new BN(text, 10);
+}
+
 function marketConfigFromBody(config: Record<string, unknown>) {
   const amm = (config.amm as Record<string, unknown> | undefined) ?? defaultAmmConfig();
   const defaultIrm = defaultMarketConfig().irm;
   const irm = (config.irm as Record<string, unknown> | undefined) ?? defaultIrm;
+  const u16 = (value: unknown, label: string) =>
+    boundedIntegerNumber(value, label, 0, 65_535);
+  const u64 = (value: unknown, label: string) =>
+    boundedIntegerBn(value, label, 0n, (1n << 64n) - 1n);
+  const i64 = (value: unknown, label: string) =>
+    boundedIntegerBn(value, label, -(1n << 63n), (1n << 63n) - 1n);
+  const reserved = Array.isArray(amm.reserved)
+    ? amm.reserved.map((value, index) =>
+        boundedIntegerNumber(value, `config.amm.reserved[${index}]`, 0, 255),
+      )
+    : Array(33).fill(0);
+  if (reserved.length !== 33) {
+    throw new Error("config.amm.reserved must contain exactly 33 bytes");
+  }
   return {
-    swapFeeBps: Number(config.swapFeeBps),
-    divergenceFeeShareCapBps: Number(config.divergenceFeeShareCapBps ?? 0),
-    volatilityFeeShareCapBps: Number(config.volatilityFeeShareCapBps ?? 0),
-    targetHlpLeverageBps: Number(config.targetHlpLeverageBps),
-    settlementDivergenceBps: Number(config.settlementDivergenceBps),
-    emaHalfLifeMs: toBN(String(config.emaHalfLifeMs)),
-    directionalEmaHalfLifeMs: toBN(String(config.directionalEmaHalfLifeMs)),
-    qEmaHalfLifeMs: toBN(String(config.qEmaHalfLifeMs)),
-    maxDailyBorrowBps: Number(config.maxDailyBorrowBps),
-    globalHealthContributionCapBps: Number(config.globalHealthContributionCapBps),
-    borrowMarketHealthFloorBps: Number(config.borrowMarketHealthFloorBps),
+    swapFeeBps: u16(config.swapFeeBps, "config.swapFeeBps"),
+    divergenceFeeShareCapBps: u16(
+      config.divergenceFeeShareCapBps ?? 0,
+      "config.divergenceFeeShareCapBps",
+    ),
+    volatilityFeeShareCapBps: u16(
+      config.volatilityFeeShareCapBps ?? 0,
+      "config.volatilityFeeShareCapBps",
+    ),
+    targetHlpLeverageBps: u16(
+      config.targetHlpLeverageBps,
+      "config.targetHlpLeverageBps",
+    ),
+    settlementDivergenceBps: u16(
+      config.settlementDivergenceBps,
+      "config.settlementDivergenceBps",
+    ),
+    emaHalfLifeMs: u64(config.emaHalfLifeMs, "config.emaHalfLifeMs"),
+    directionalEmaHalfLifeMs: u64(
+      config.directionalEmaHalfLifeMs,
+      "config.directionalEmaHalfLifeMs",
+    ),
+    qEmaHalfLifeMs: u64(config.qEmaHalfLifeMs, "config.qEmaHalfLifeMs"),
+    maxDailyBorrowBps: u16(
+      config.maxDailyBorrowBps,
+      "config.maxDailyBorrowBps",
+    ),
+    globalHealthContributionCapBps: u16(
+      config.globalHealthContributionCapBps,
+      "config.globalHealthContributionCapBps",
+    ),
+    borrowMarketHealthFloorBps: u16(
+      config.borrowMarketHealthFloorBps,
+      "config.borrowMarketHealthFloorBps",
+    ),
     amm: {
-      peakDepthNad: toBN(String(amm.peakDepthNad)),
-      fadeScaleNad: toBN(String(amm.fadeScaleNad)),
-      centerEmaHalfLifeMs: toBN(String(amm.centerEmaHalfLifeMs)),
-      volatilityHalfLifeMs: toBN(String(amm.volatilityHalfLifeMs)),
-      adjustmentThresholdNad: toBN(String(amm.adjustmentThresholdNad)),
-      adjustmentStepNad: toBN(String(amm.adjustmentStepNad)),
-      minAdjustmentIntervalSlots: toBN(String(amm.minAdjustmentIntervalSlots)),
-      volatilityShockCapNad: toBN(String(amm.volatilityShockCapNad)),
-      volatilityCapNad: toBN(String(amm.volatilityCapNad)),
-      divergenceFeeCoefficientNad: toBN(String(amm.divergenceFeeCoefficientNad)),
-      volatilityFeeCoefficientNad: toBN(String(amm.volatilityFeeCoefficientNad)),
-      concentrationRampDurationSlots: toBN(String(amm.concentrationRampDurationSlots)),
-      reserved: Array.isArray(amm.reserved) ? amm.reserved : Array(33).fill(0),
+      peakDepthNad: u64(amm.peakDepthNad, "config.amm.peakDepthNad"),
+      fadeScaleNad: u64(amm.fadeScaleNad, "config.amm.fadeScaleNad"),
+      centerEmaHalfLifeMs: u64(
+        amm.centerEmaHalfLifeMs,
+        "config.amm.centerEmaHalfLifeMs",
+      ),
+      volatilityHalfLifeMs: u64(
+        amm.volatilityHalfLifeMs,
+        "config.amm.volatilityHalfLifeMs",
+      ),
+      adjustmentThresholdNad: u64(
+        amm.adjustmentThresholdNad,
+        "config.amm.adjustmentThresholdNad",
+      ),
+      adjustmentStepNad: u64(
+        amm.adjustmentStepNad,
+        "config.amm.adjustmentStepNad",
+      ),
+      minAdjustmentIntervalSlots: u64(
+        amm.minAdjustmentIntervalSlots,
+        "config.amm.minAdjustmentIntervalSlots",
+      ),
+      volatilityShockCapNad: u64(
+        amm.volatilityShockCapNad,
+        "config.amm.volatilityShockCapNad",
+      ),
+      volatilityCapNad: u64(
+        amm.volatilityCapNad,
+        "config.amm.volatilityCapNad",
+      ),
+      divergenceFeeCoefficientNad: u64(
+        amm.divergenceFeeCoefficientNad,
+        "config.amm.divergenceFeeCoefficientNad",
+      ),
+      volatilityFeeCoefficientNad: u64(
+        amm.volatilityFeeCoefficientNad,
+        "config.amm.volatilityFeeCoefficientNad",
+      ),
+      concentrationRampDurationSlots: u64(
+        amm.concentrationRampDurationSlots,
+        "config.amm.concentrationRampDurationSlots",
+      ),
+      reserved,
     },
     irm: {
-      targetUtilizationBps: Number(
-        irm.targetUtilizationBps ?? defaultIrm.targetUtilizationBps
+      targetUtilizationBps: u16(
+        irm.targetUtilizationBps ?? defaultIrm.targetUtilizationBps,
+        "config.irm.targetUtilizationBps",
       ),
-      curveSteepnessNad: toBN(
-        String(irm.curveSteepnessNad ?? defaultIrm.curveSteepnessNad)
+      curveSteepnessNad: u64(
+        irm.curveSteepnessNad ?? defaultIrm.curveSteepnessNad,
+        "config.irm.curveSteepnessNad",
       ),
-      adjustmentSpeedPerYear: toBN(
-        String(irm.adjustmentSpeedPerYear ?? defaultIrm.adjustmentSpeedPerYear)
+      adjustmentSpeedPerYear: u64(
+        irm.adjustmentSpeedPerYear ?? defaultIrm.adjustmentSpeedPerYear,
+        "config.irm.adjustmentSpeedPerYear",
       ),
     },
-    startTime: toBN(String(config.startTime)),
+    startTime: i64(config.startTime, "config.startTime"),
   };
 }
 
@@ -3666,8 +6477,7 @@ async function buildOpenLeverageTx(params: {
   }
   const leveragePosition = deriveLeveragePosition(m.market, params.positionId);
   const leverageCollateralVault = deriveLeverageCollateralVault(m.market, collateralMint);
-  instructions.push(
-    await program.methods
+  let builder = program.methods
       .openLeverage({
         positionId: params.positionId,
         debtAsset: debtIsBase ? 0 : 1,
@@ -3694,9 +6504,10 @@ async function buildOpenLeverageTx(params: {
         systemProgram: SystemProgram.programId,
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
-      })
-      .instruction()
-  );
+      });
+  const hLpAccounts = await hlpSwapRemainingAccounts(m);
+  if (hLpAccounts.length > 0) builder = builder.remainingAccounts(hLpAccounts);
+  instructions.push(await builder.instruction());
   return {
     transaction: await serializeOwnerTransaction(params.owner, instructions),
     leveragePosition,
@@ -3719,7 +6530,7 @@ async function buildIncreaseLeverageTx(params: {
   const collateralMint = debtIsBase ? m.quoteMint : m.baseMint;
   const leveragePosition = deriveLeveragePosition(m.market, params.positionId);
   const leverageCollateralVault = deriveLeverageCollateralVault(m.market, collateralMint);
-  const instruction = await program.methods
+  let builder = program.methods
       .increaseLeverage({
         debtAsset: debtIsBase ? 0 : 1,
         debtAmount: toBN(params.debtAmount),
@@ -3740,9 +6551,10 @@ async function buildIncreaseLeverageTx(params: {
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
-      })
-      .instruction();
-  return serializeOwnerTransaction(params.owner, [instruction]);
+      });
+  const hLpAccounts = await hlpSwapRemainingAccounts(m);
+  if (hLpAccounts.length > 0) builder = builder.remainingAccounts(hLpAccounts);
+  return serializeOwnerTransaction(params.owner, [await builder.instruction()]);
 }
 
 async function buildDecreaseLeverageTx(params: {
@@ -3765,8 +6577,8 @@ async function buildDecreaseLeverageTx(params: {
     debtMint
   );
   const leverageCollateralVault = deriveLeverageCollateralVault(m.market, collateralMint);
-  const instruction = await program.methods
-    .decreaseLeverage({
+  let builder = program.methods
+      .decreaseLeverage({
       debtAsset: debtIsBase ? 0 : 1,
       collateralAmount: toBN(params.collateralAmount),
       minRepayOut: toBN(params.minRepayOut),
@@ -3789,9 +6601,10 @@ async function buildDecreaseLeverageTx(params: {
       token2022Program: TOKEN_2022_PROGRAM_ID,
       eventAuthority: m.eventAuthority,
       program: PROGRAM_ID,
-    })
-    .instruction();
-  return serializeOwnerTransaction(params.owner, [instruction]);
+      });
+  const hLpAccounts = await hlpSwapRemainingAccounts(m);
+  if (hLpAccounts.length > 0) builder = builder.remainingAccounts(hLpAccounts);
+  return serializeOwnerTransaction(params.owner, [await builder.instruction()]);
 }
 
 async function buildAddLeverageMarginTx(params: {
@@ -3902,8 +6715,7 @@ async function buildCloseLeverageTx(params: {
     params.positionId,
     debtMint
   );
-  instructions.push(
-    await program.methods
+  let builder = program.methods
       .closeLeverage({ debtAsset: debtIsBase ? 0 : 1, minAmountOut: toBN(params.minAmountOut) })
       .accounts({
         market: m.market,
@@ -3926,9 +6738,10 @@ async function buildCloseLeverageTx(params: {
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
-      })
-      .instruction()
-  );
+      });
+  const hLpAccounts = await hlpSwapRemainingAccounts(m);
+  if (hLpAccounts.length > 0) builder = builder.remainingAccounts(hLpAccounts);
+  instructions.push(await builder.instruction());
   return serializeOwnerTransaction(params.owner, instructions);
 }
 
@@ -4070,7 +6883,7 @@ async function buildDelegatedCloseLeverageTx(params: {
   orderId: bigint;
   minAmountOut: bigint;
 }) {
-  const { program } = initializeRuntime();
+  const { program, provider } = initializeRuntime();
   const delegateProgram = getLeverageDelegateProgram();
   const m = marketFromStored(params.market);
   const debtIsBase = params.debtAsset === "base";
@@ -4078,13 +6891,16 @@ async function buildDelegatedCloseLeverageTx(params: {
   const collateralMint = debtIsBase ? m.quoteMint : m.baseMint;
   const debtTokenProgram = debtIsBase ? m.baseTokenProgram : m.quoteTokenProgram;
   const leveragePosition = deriveLeveragePosition(m.market, params.positionId);
+  const order = deriveLeverageOrder(leveragePosition, params.positionOwner, params.orderId);
+  requireActionableLeverageOrderAccount(
+    await provider.connection.getAccountInfo(order, DEPLOYMENT_COMMITMENT),
+  );
   const referral = await leveragePositionReferralAccounts(
     m.market,
     params.positionId,
     debtMint
   );
   const leverageDelegation = deriveLeverageDelegation(leveragePosition);
-  const order = deriveLeverageOrder(leveragePosition, params.positionOwner, params.orderId);
   const custodyAuthority = deriveLeverageCustodyAuthority(order);
   const instructions: TransactionInstruction[] = [];
 
@@ -4141,6 +6957,7 @@ async function buildDelegatedCloseLeverageTx(params: {
       token2022Program: TOKEN_2022_PROGRAM_ID,
     })
     .instruction();
+  const hLpAccounts = await hlpSwapRemainingAccounts(m);
 
   instructions.push(
     await program.methods
@@ -4175,7 +6992,13 @@ async function buildDelegatedCloseLeverageTx(params: {
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
       })
-      .remainingAccounts([...beforeInstruction.keys, ...afterInstruction.keys])
+      // The program strips the hLP settlement prefix before splitting the
+      // delegated callback accounts at `beforeAccountsLen`.
+      .remainingAccounts([
+        ...hLpAccounts,
+        ...beforeInstruction.keys,
+        ...afterInstruction.keys,
+      ])
       .instruction()
   );
 
@@ -4224,8 +7047,7 @@ async function buildLiquidateLeverageTx(params: {
     params.positionId,
     debtMint
   );
-  instructions.push(
-    await program.methods
+  let builder = program.methods
       .liquidateLeverage({ debtAsset: debtIsBase ? 0 : 1 })
       .accounts({
         market: m.market,
@@ -4247,9 +7069,10 @@ async function buildLiquidateLeverageTx(params: {
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
-      })
-      .instruction()
-  );
+      });
+  const hLpAccounts = await hlpSwapRemainingAccounts(m);
+  if (hLpAccounts.length > 0) builder = builder.remainingAccounts(hLpAccounts);
+  instructions.push(await builder.instruction());
   return {
     transaction: await serializeOwnerTransaction(params.liquidator, instructions),
     leveragePosition,
@@ -4565,13 +7388,18 @@ async function userPositionsPayload(
   const now = new Date().toISOString();
   const positions = [];
   if (!positionId) return positions;
+  const projectionId = (eventType: string, address: PublicKey) =>
+    createHash("sha256")
+      .update(`${stored.market}:${eventType}:${address.toBase58()}`)
+      .digest()
+      .readUIntBE(0, 6);
 
   const borrowPositionAddress = deriveBorrowPosition(market, positionId);
   const borrowPosition = await program.account.borrowPosition.fetchNullable(borrowPositionAddress);
   if (borrowPosition) {
     const auctionDebtAssetCode = Number(field(borrowPosition, "auctionDebtAsset", "auction_debt_asset"));
     positions.push({
-      id: 1,
+      id: projectionId("borrow_position", borrowPositionAddress),
       eventType: "borrow_position",
       market: stored.market,
       owner: wallet.toBase58(),
@@ -4602,7 +7430,7 @@ async function userPositionsPayload(
   const leveragePosition = await program.account.leveragePosition.fetchNullable(leveragePositionAddress);
   if (leveragePosition) {
     positions.push({
-      id: 2,
+      id: projectionId("leverage_position", leveragePositionAddress),
       eventType: "leverage_position",
       market: stored.market,
       owner: stringValue(field(leveragePosition, "owner")),
@@ -4629,7 +7457,7 @@ async function userPositionsPayload(
     const leverageDelegation = await program.account.leverageDelegation.fetchNullable(leverageDelegationAddress);
     if (leverageDelegation) {
       positions.push({
-        id: 3,
+        id: projectionId("leverage_delegation", leverageDelegationAddress),
         eventType: "leverage_delegation",
         market: stored.market,
         owner: stringValue(field(leverageDelegation, "owner")),
@@ -4652,8 +7480,25 @@ async function userPositionsPayload(
   return positions;
 }
 
+let walletFundingQueue: Promise<void> = Promise.resolve();
+
+function serializeWalletFunding<T>(operation: () => Promise<T>): Promise<T> {
+  const pending = walletFundingQueue.then(operation);
+  walletFundingQueue = pending.then(
+    () => undefined,
+    () => undefined,
+  );
+  return pending;
+}
+
 async function fundWallet(body: Record<string, unknown>, stored: StoredMarket) {
   if (!ALLOW_PUBLIC_FUNDING) throw new Error("Public fork wallet funding is disabled");
+  // This is a signer-integrity boundary, not a market launch gate. Funding an
+  // arbitrary Token-2022 mint would let its transfer hook select the shared
+  // controller payer as a writable signer in the server-signed top-up. Both
+  // configured curves remain supported because they share this trusted asset
+  // pair.
+  await requireConfiguredForkFundingAssets(stored);
   const owner = new PublicKey(String(body.wallet ?? body.owner ?? body.publicKey ?? ""));
   const sol = Number(body.sol ?? DEFAULT_SOL_FUNDING);
   const baseAmount = rawAmount(body, ["baseAmount", "baseUiAmount", "tokenAmount"], stored.baseDecimals, DEFAULT_TOKEN_FUNDING_UI);
@@ -4668,20 +7513,51 @@ async function fundWallet(body: Record<string, unknown>, stored: StoredMarket) {
   if (!Number.isFinite(sol) || sol < 0 || sol > MAX_SOL_FUNDING) {
     throw new Error(`Fork SOL funding must be between 0 and ${MAX_SOL_FUNDING}`);
   }
+  lamportsForSolFunding(sol);
   if (baseAmount > maxBaseAmount || quoteAmount > maxQuoteAmount) {
     throw new Error(`Fork token funding is capped at ${MAX_TOKEN_FUNDING_UI} UI units`);
   }
-  await setLamports(owner, sol);
-  await setTokenBalance(owner, new PublicKey(stored.baseMint), baseAmount, new PublicKey(stored.baseTokenProgram));
-  await setTokenBalance(owner, new PublicKey(stored.quoteMint), quoteAmount, new PublicKey(stored.quoteTokenProgram));
-  return {
-    wallet: owner.toBase58(),
-    sol,
-    baseAmount: baseAmount.toString(),
-    quoteAmount: quoteAmount.toString(),
-    baseMint: stored.baseMint,
-    quoteMint: stored.quoteMint,
-  };
+  return serializeWalletFunding(async () => {
+    const { connection } = initializeRuntime();
+    const existingAccount = await connection.getAccountInfo(
+      owner,
+      DEPLOYMENT_COMMITMENT,
+    );
+    requireFundableForkWallet(owner, existingAccount);
+
+    // Resolve and validate both token-account transitions before the first
+    // airdrop or cheatcode. The public faucet is a monotonic top-up: it must
+    // never erase a user's existing fork balance.
+    const basePlan = await prepareTokenFunding(
+      owner,
+      new PublicKey(stored.baseMint),
+      baseAmount,
+      new PublicKey(stored.baseTokenProgram),
+    );
+    const quotePlan = await prepareTokenFunding(
+      owner,
+      new PublicKey(stored.quoteMint),
+      quoteAmount,
+      new PublicKey(stored.quoteTokenProgram),
+    );
+
+    try {
+      if (shouldMutateWalletLamports(sol)) await setLamports(owner, sol);
+      await setTokenBalance(basePlan);
+      await setTokenBalance(quotePlan);
+    } catch (error) {
+      if (error instanceof ForkMutationOutcomeUncertainError) throw error;
+      throw new ForkMutationOutcomeUncertainError("Fork wallet funding", error);
+    }
+    return {
+      wallet: owner.toBase58(),
+      sol,
+      baseAmount: baseAmount.toString(),
+      quoteAmount: quoteAmount.toString(),
+      baseMint: stored.baseMint,
+      quoteMint: stored.quoteMint,
+    };
+  });
 }
 
 async function txResponse(
@@ -4704,18 +7580,40 @@ async function txResponse(
   };
 }
 
-export async function route(req: http.IncomingMessage, body: Record<string, unknown>) {
+async function routeWithoutDeploymentEnvelope(
+  req: http.IncomingMessage,
+  body: Record<string, unknown>,
+  expectedDeployment: Awaited<ReturnType<typeof deploymentEnvelope>>,
+) {
+  const expectedDeploymentFingerprint =
+    deploymentIdentityFingerprint(expectedDeployment);
   const url = new URL(req.url ?? "/", "http://localhost");
   const path = url.pathname.replace(/\/$/, "") || "/";
 
   if (req.method === "GET" && path === "/health") {
-    return {
-      ok: true,
-      rpcUrl: SURFPOOL_RPC_URL,
+    initializeRuntime();
+    const shouldVerifyPublicRpc =
+      process.env.DUSK_REQUIRE_PUBLIC_RPC_URL === "true" ||
+      HAS_EXPLICIT_PUBLIC_RPC_URL;
+    const publicRpcVerification = shouldVerifyPublicRpc
+      ? await verifyPublicRpcEndpoint({
+          genesisHash: expectedDeployment.genesisHash,
+          forkId: expectedDeployment.forkId,
+        })
+      : null;
+    const prebootstrappedMarkets =
+      process.env.DUSK_REQUIRE_PREBOOTSTRAPPED_MARKETS === "true"
+        ? await bootstrapMarkets(expectedDeploymentFingerprint)
+        : [];
+    return forkHealthPayload({
       publicRpcUrl: PUBLIC_RPC_URL,
+      publicRpcVerified: publicRpcVerification !== null,
+      publicRpcFilterVerified:
+        publicRpcVerification?.filterVerified === true,
       runtimeInitialized: Boolean(runtime),
       runtimeError,
-    };
+      prebootstrappedMarketCount: prebootstrappedMarkets.length,
+    });
   }
 
   if (req.method === "GET" && path === "/api/v2/fork/test-catalog") {
@@ -4727,26 +7625,46 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
   }
 
   if (req.method === "GET" && path === "/api/v2/fork/test-runs/latest") {
-    const report = readProtocolTestRun(resolve(protocolTestRunsDir(), "latest.json"));
+    const report = readProtocolTestRun(
+      resolve(protocolTestRunsDir(), "latest.json"),
+    );
     return { success: true, data: { run: report } };
   }
 
-  const protocolTestRunMatch = path.match(/^\/api\/v2\/fork\/test-runs\/([a-zA-Z0-9._-]+)$/);
+  const protocolTestRunMatch = path.match(
+    /^\/api\/v2\/fork\/test-runs\/([a-zA-Z0-9._-]+)$/,
+  );
   if (req.method === "GET" && protocolTestRunMatch) {
     return {
       success: true,
-      data: { run: readProtocolTestRun(protocolTestRunPath(protocolTestRunMatch[1])) },
+      data: {
+        run: readProtocolTestRun(protocolTestRunPath(protocolTestRunMatch[1])),
+      },
     };
   }
 
-  let stored = await bootstrap();
+  const bootstrappedMarkets = await bootstrapMarkets(
+    expectedDeploymentFingerprint,
+  );
+  let stored = bootstrappedMarkets[0];
+  if (!stored) throw new Error("Dusk fork bootstrap produced no markets");
+  const requestedMarket = url.searchParams.get("market");
 
   if (req.method === "GET" && path === "/api/v2/fork/config") {
-    return { success: true, data: forkConfigPayload(stored) };
+    return {
+      success: true,
+      data: forkConfigPayload(stored, bootstrappedMarkets),
+    };
   }
 
   if (req.method === "GET" && path === "/api/v2/fork/bootstrap-evidence") {
-    return { success: true, data: { transactions: bootstrapTransactionEvidence } };
+    return {
+      success: true,
+      data: await bootstrapEvidencePayload(
+        bootstrappedMarkets,
+        expectedDeploymentFingerprint,
+      ),
+    };
   }
 
   if (req.method === "GET" && path === "/api/v2/fork/futarchy") {
@@ -4754,37 +7672,62 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
   }
 
   if (req.method === "GET" && path === "/api/v2/markets") {
+    const requestedLimit = Number(
+      url.searchParams.get("limit") ?? bootstrappedMarkets.length,
+    );
+    const requestedOffset = Number(url.searchParams.get("offset") ?? 0);
+    const limit =
+      Number.isSafeInteger(requestedLimit) && requestedLimit > 0
+        ? Math.min(requestedLimit, 100)
+        : bootstrappedMarkets.length;
+    const offset =
+      Number.isSafeInteger(requestedOffset) && requestedOffset >= 0
+        ? requestedOffset
+        : 0;
+    const page = bootstrappedMarkets.slice(offset, offset + limit);
     return {
       success: true,
       data: {
-        markets: [await marketPayload(stored)],
-        pagination: { limit: 1, offset: 0, total: 1 },
+        markets: await Promise.all(page.map(marketPayload)),
+        pagination: { limit, offset, total: bootstrappedMarkets.length },
       },
     };
   }
 
-  if (req.method === "GET" && path === `/api/v2/markets/${stored.market}`) {
-    return { success: true, data: await marketPayload(stored) };
+  const marketDetailMatch = path.match(/^\/api\/v2\/markets\/([^/]+)$/);
+  if (req.method === "GET" && marketDetailMatch) {
+    const selected = await resolveStoredMarket(marketDetailMatch[1], stored);
+    return { success: true, data: await marketPayload(selected) };
   }
 
-  if (req.method === "GET" && path === `/api/v2/markets/${stored.market}/swaps`) {
+  const marketSwapsMatch = path.match(/^\/api\/v2\/markets\/([^/]+)\/swaps$/);
+  if (req.method === "GET" && marketSwapsMatch) {
+    await resolveStoredMarket(marketSwapsMatch[1], stored);
     return {
       success: true,
       data: { swaps: [], pagination: { limit: 100, offset: 0, total: 0 } },
     };
   }
 
-  const userPositionsMatch = path.match(/^\/api\/v2\/users\/([^/]+)\/positions$/);
+  const userPositionsMatch = path.match(
+    /^\/api\/v2\/users\/([^/]+)\/positions$/,
+  );
   if (req.method === "GET" && userPositionsMatch) {
     const wallet = new PublicKey(userPositionsMatch[1]);
+    const positionId = optionalPublicKey(url.searchParams.get("positionId"));
+    const positionMarkets = requestedMarket
+      ? [await resolveStoredMarket(requestedMarket, stored)]
+      : bootstrappedMarkets;
     return {
       success: true,
       data: {
-        positions: await userPositionsPayload(
-          wallet,
-          stored,
-          optionalPublicKey(url.searchParams.get("positionId"))
-        ),
+        positions: (
+          await Promise.all(
+            positionMarkets.map((market) =>
+              userPositionsPayload(wallet, market, positionId),
+            ),
+          )
+        ).flat(),
       },
     };
   }
@@ -4798,15 +7741,33 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
   }
 
   if (req.method === "GET" && path === "/api/v2/fork/yield-account") {
+    if (requestedMarket)
+      stored = await resolveStoredMarket(requestedMarket, stored);
     const owner = new PublicKey(String(url.searchParams.get("owner") ?? ""));
     const asset = assetFromBody(url.searchParams.get("asset"), "base");
-    const tokenKind = yieldTokenKindFromBody(url.searchParams.get("tokenKind"), "ylp");
+    const tokenKind = yieldTokenKindFromBody(
+      url.searchParams.get("tokenKind"),
+      "ylp",
+    );
     const market = marketFromStored(stored);
-    const lpMint = optionalPublicKey(url.searchParams.get("lpMint")) ??
-      (tokenKind === "ylp" ? market.ylpMint : asset === "base" ? market.baseHlpMint : market.quoteHlpMint);
+    const lpMint =
+      optionalPublicKey(url.searchParams.get("lpMint")) ??
+      (tokenKind === "ylp"
+        ? market.ylpMint
+        : asset === "base"
+          ? market.baseHlpMint
+          : market.quoteHlpMint);
     return {
       success: true,
-      data: { yieldAccount: await yieldAccountPayload(stored, owner, lpMint, asset, tokenKind) },
+      data: {
+        yieldAccount: await yieldAccountPayload(
+          stored,
+          owner,
+          lpMint,
+          asset,
+          tokenKind,
+        ),
+      },
     };
   }
 
@@ -4825,31 +7786,51 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
   if (path === "/api/v2/fork/admin/time-travel") {
     return {
       success: true,
-      data: await timeTravel(Number(body.seconds ?? 30), Number(body.slots ?? 0)),
+      data: await timeTravel(
+        Number(body.seconds ?? 30),
+        Number(body.slots ?? 0),
+      ),
     };
   }
 
-  const owner = new PublicKey(String(body.owner ?? body.wallet ?? body.publicKey ?? ""));
+  const owner = new PublicKey(
+    String(body.owner ?? body.wallet ?? body.publicKey ?? ""),
+  );
 
   if (path === "/api/v2/fork/tx/create-market") {
     const config = body.config as Record<string, unknown> | undefined;
     if (!config) throw new Error("config is required");
+    if (
+      typeof body.baseMint !== "string" ||
+      typeof body.quoteMint !== "string"
+    ) {
+      throw new Error(
+        "baseMint and quoteMint are required in canonical market order",
+      );
+    }
     const prepared = await prepareCreateMarketTx({
       owner,
       label: String(body.label ?? "").trim(),
-      mintA: new PublicKey(String(body.mintA ?? body.baseMint ?? "")),
-      mintB: new PublicKey(String(body.mintB ?? body.quoteMint ?? "")),
+      baseMint: new PublicKey(body.baseMint),
+      quoteMint: new PublicKey(body.quoteMint),
       config,
     });
-    return txResponse("create-market", owner, prepared.stored, prepared.transaction, {
-      label: prepared.stored.label,
-      config: prepared.config,
-      baseMint: prepared.stored.baseMint,
-      quoteMint: prepared.stored.quoteMint,
-      ylpMint: prepared.stored.ylpMint,
-      baseHlpMint: prepared.stored.baseHlpMint,
-      quoteHlpMint: prepared.stored.quoteHlpMint,
-    });
+    return txResponse(
+      "create-market",
+      owner,
+      prepared.stored,
+      prepared.transaction,
+      {
+        label: prepared.stored.label,
+        marketKind: prepared.stored.marketKind,
+        config: prepared.config,
+        baseMint: prepared.stored.baseMint,
+        quoteMint: prepared.stored.quoteMint,
+        ylpMint: prepared.stored.ylpMint,
+        baseHlpMint: prepared.stored.baseHlpMint,
+        quoteHlpMint: prepared.stored.quoteHlpMint,
+      },
+    );
   }
 
   if (path === "/api/v2/fork/tx/finalize-market") {
@@ -4890,58 +7871,95 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     } else {
       throw new Error(`Unsupported bootstrap rejection kind: ${kind}`);
     }
-    return txResponse("bootstrap-rejection", payer.publicKey, stored, transaction, { kind });
+    return txResponse(
+      "bootstrap-rejection",
+      payer.publicKey,
+      stored,
+      transaction,
+      { kind },
+    );
   }
 
   if (path === "/api/v2/fork/tx/set-global-reduce-only") {
     const reduceOnly = Boolean(body.reduceOnly);
-    const transaction = await buildSetGlobalReduceOnlyTx({ authority: owner, reduceOnly });
-    return txResponse("set-global-reduce-only", owner, stored, transaction, { reduceOnly });
+    const transaction = await buildSetGlobalReduceOnlyTx({
+      authority: owner,
+      reduceOnly,
+    });
+    return txResponse("set-global-reduce-only", owner, stored, transaction, {
+      reduceOnly,
+    });
   }
 
   if (path === "/api/v2/fork/tx/set-reduce-only") {
     const reduceOnly = Boolean(body.reduceOnly);
-    const transaction = await buildSetMarketReduceOnlyTx({ authority: owner, market: stored, reduceOnly });
-    return txResponse("set-reduce-only", owner, stored, transaction, { reduceOnly });
+    const transaction = await buildSetMarketReduceOnlyTx({
+      authority: owner,
+      market: stored,
+      reduceOnly,
+    });
+    return txResponse("set-reduce-only", owner, stored, transaction, {
+      reduceOnly,
+    });
   }
 
   if (path === "/api/v2/fork/tx/update-futarchy-authority") {
-    const bootstrapSigned = Boolean(body.bootstrapSigned ?? false);
-    const authority = bootstrapSigned ? initializeRuntime().payer.publicKey : owner;
+    const bootstrapSigned = bootstrapSignedFromBody(body.bootstrapSigned);
+    const authority = bootstrapSigned
+      ? initializeRuntime().payer.publicKey
+      : owner;
     const newAuthority = new PublicKey(String(body.newAuthority ?? ""));
     const transaction = await buildUpdateFutarchyAuthorityTx({
       authority,
       newAuthority,
       bootstrapSigned,
     });
-    return txResponse("update-futarchy-authority", authority, stored, transaction, {
-      newAuthority: newAuthority.toBase58(),
-      bootstrapSigned,
-    });
+    return txResponse(
+      "update-futarchy-authority",
+      authority,
+      stored,
+      transaction,
+      {
+        newAuthority: newAuthority.toBase58(),
+        bootstrapSigned,
+      },
+    );
   }
 
   if (path === "/api/v2/fork/tx/update-protocol-revenue") {
-    const revenueDistribution = body.revenueDistribution as Record<string, unknown> | null | undefined;
-    const protocolAuctionSplit = body.protocolAuctionSplit as Record<string, unknown> | null | undefined;
+    const revenueDistribution = body.revenueDistribution as
+      | Record<string, unknown>
+      | null
+      | undefined;
+    const protocolAuctionSplit = body.protocolAuctionSplit as
+      | Record<string, unknown>
+      | null
+      | undefined;
     const transaction = await buildUpdateProtocolRevenueTx({
       authority: owner,
       swapBps: body.swapBps == null ? null : Number(body.swapBps),
       interestBps: body.interestBps == null ? null : Number(body.interestBps),
       maxReferralInterestShareBps:
-        body.maxReferralInterestShareBps == null ? null : Number(body.maxReferralInterestShareBps),
-      revenueDistribution: revenueDistribution == null
-        ? null
-        : {
-            futarchyTreasuryBps: Number(revenueDistribution.futarchyTreasuryBps),
-            buybacksVaultBps: Number(revenueDistribution.buybacksVaultBps),
-            teamTreasuryBps: Number(revenueDistribution.teamTreasuryBps),
-          },
-      protocolAuctionSplit: protocolAuctionSplit == null
-        ? null
-        : {
-            feeAuctionBps: Number(protocolAuctionSplit.feeAuctionBps),
-            buybackAuctionBps: Number(protocolAuctionSplit.buybackAuctionBps),
-          },
+        body.maxReferralInterestShareBps == null
+          ? null
+          : Number(body.maxReferralInterestShareBps),
+      revenueDistribution:
+        revenueDistribution == null
+          ? null
+          : {
+              futarchyTreasuryBps: Number(
+                revenueDistribution.futarchyTreasuryBps,
+              ),
+              buybacksVaultBps: Number(revenueDistribution.buybacksVaultBps),
+              teamTreasuryBps: Number(revenueDistribution.teamTreasuryBps),
+            },
+      protocolAuctionSplit:
+        protocolAuctionSplit == null
+          ? null
+          : {
+              feeAuctionBps: Number(protocolAuctionSplit.feeAuctionBps),
+              buybackAuctionBps: Number(protocolAuctionSplit.buybackAuctionBps),
+            },
     });
     return txResponse("update-protocol-revenue", owner, stored, transaction);
   }
@@ -4958,21 +7976,33 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
 
   if (path === "/api/v2/fork/tx/update-protocol-auction-config") {
     const lane = protocolAuctionLaneFromBody(body.lane, "fee");
-    const auctionParamsBody = body.params as Record<string, unknown> | null | undefined;
+    const auctionParamsBody = body.params as
+      | Record<string, unknown>
+      | null
+      | undefined;
     const transaction = await buildUpdateProtocolAuctionConfigTx({
       authority: owner,
       lane,
       acceptedMint: optionalPublicKey(body.acceptedMint),
-      auctionParams: auctionParamsBody == null
-        ? null
-        : {
-            startMultiplierBps: Number(auctionParamsBody.startMultiplierBps),
-            floorMultiplierBps: Number(auctionParamsBody.floorMultiplierBps),
-            durationSlots: BigInt(String(auctionParamsBody.durationSlots)),
-            maxReferenceAgeSlots: BigInt(String(auctionParamsBody.maxReferenceAgeSlots)),
-          },
+      auctionParams:
+        auctionParamsBody == null
+          ? null
+          : {
+              startMultiplierBps: Number(auctionParamsBody.startMultiplierBps),
+              floorMultiplierBps: Number(auctionParamsBody.floorMultiplierBps),
+              durationSlots: BigInt(String(auctionParamsBody.durationSlots)),
+              maxReferenceAgeSlots: BigInt(
+                String(auctionParamsBody.maxReferenceAgeSlots),
+              ),
+            },
     });
-    return txResponse("update-protocol-auction-config", owner, stored, transaction, { lane });
+    return txResponse(
+      "update-protocol-auction-config",
+      owner,
+      stored,
+      transaction,
+      { lane },
+    );
   }
 
   if (path === "/api/v2/fork/tx/update-protocol-auction-recipients") {
@@ -4983,9 +8013,16 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
       treasury: optionalPublicKey(body.treasury),
       stakingVault: optionalPublicKey(body.stakingVault),
       treasuryBps: body.treasuryBps == null ? null : Number(body.treasuryBps),
-      stakingVaultBps: body.stakingVaultBps == null ? null : Number(body.stakingVaultBps),
+      stakingVaultBps:
+        body.stakingVaultBps == null ? null : Number(body.stakingVaultBps),
     });
-    return txResponse("update-protocol-auction-recipients", owner, stored, transaction, { lane });
+    return txResponse(
+      "update-protocol-auction-recipients",
+      owner,
+      stored,
+      transaction,
+      { lane },
+    );
   }
 
   if (path === "/api/v2/fork/tx/update-protocol-auction-route") {
@@ -4996,12 +8033,19 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
       market: stored,
       lane,
       soldAsset,
-      referenceMarket: optionalPublicKey(body.referenceMarket) ?? PublicKey.default,
+      referenceMarket:
+        optionalPublicKey(body.referenceMarket) ?? PublicKey.default,
     });
-    return txResponse("update-protocol-auction-route", owner, stored, transaction, {
-      lane,
-      soldAsset,
-    });
+    return txResponse(
+      "update-protocol-auction-route",
+      owner,
+      stored,
+      transaction,
+      {
+        lane,
+        soldAsset,
+      },
+    );
   }
 
   if (path === "/api/v2/fork/tx/settle-protocol-auction") {
@@ -5009,17 +8053,35 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     const source = protocolRevenueSourceFromBody(body.source);
     const soldAsset = assetFromBody(body.soldAsset, "base");
     const authority = await futarchyPayload();
-    const auction = lane === "fee" ? authority.feeAuction : authority.buybackAuction;
+    const auction =
+      lane === "fee" ? authority.feeAuction : authority.buybackAuction;
     const acceptedMint = new PublicKey(auction.acceptedMint);
     const { connection } = initializeRuntime();
-    const acceptedMintInfo = await connection.getAccountInfo(acceptedMint, "confirmed");
-    if (!acceptedMintInfo) throw new Error(`Accepted mint ${acceptedMint.toBase58()} does not exist`);
+    const acceptedMintInfo = await connection.getAccountInfo(
+      acceptedMint,
+      "confirmed",
+    );
+    if (!acceptedMintInfo)
+      throw new Error(
+        `Accepted mint ${acceptedMint.toBase58()} does not exist`,
+      );
     const acceptedTokenProgram = acceptedMintInfo.owner;
-    if (!acceptedTokenProgram.equals(TOKEN_PROGRAM_ID) && !acceptedTokenProgram.equals(TOKEN_2022_PROGRAM_ID)) {
-      throw new Error(`Accepted mint ${acceptedMint.toBase58()} has an unsupported token program`);
+    if (
+      !acceptedTokenProgram.equals(TOKEN_PROGRAM_ID) &&
+      !acceptedTokenProgram.equals(TOKEN_2022_PROGRAM_ID)
+    ) {
+      throw new Error(
+        `Accepted mint ${acceptedMint.toBase58()} has an unsupported token program`,
+      );
     }
-    const acceptedMintAccount = await getMint(connection, acceptedMint, "confirmed", acceptedTokenProgram);
-    const soldDecimals = soldAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
+    const acceptedMintAccount = await getMint(
+      connection,
+      acceptedMint,
+      "confirmed",
+      acceptedTokenProgram,
+    );
+    const soldDecimals =
+      soldAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
     const transaction = await buildSettleProtocolAuctionTx({
       bidder: owner,
       market: stored,
@@ -5032,11 +8094,13 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         treasury: new PublicKey(auction.recipients.treasury),
         stakingVault: new PublicKey(auction.recipients.stakingVault),
       },
-      referenceMarket: new PublicKey(String(body.referenceMarket ?? stored.market)),
+      referenceMarket: new PublicKey(
+        String(body.referenceMarket ?? stored.market),
+      ),
       soldAmount: parseUnits(String(body.soldAmount ?? "0"), soldDecimals),
       maxPaymentAmount: parseUnits(
         String(body.maxPaymentAmount ?? "0"),
-        acceptedMintAccount.decimals
+        acceptedMintAccount.decimals,
       ),
     });
     return txResponse("settle-protocol-auction", owner, stored, transaction, {
@@ -5048,14 +8112,16 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
   }
 
   if (path === "/api/v2/fork/tx/create-parameter-proposal") {
-    const bootstrapSigned = Boolean(body.bootstrapSigned ?? false);
-    const proposer = bootstrapSigned ? initializeRuntime().payer.publicKey : owner;
+    const bootstrapSigned = bootstrapSignedFromBody(body.bootstrapSigned);
+    const proposer = bootstrapSigned
+      ? initializeRuntime().payer.publicKey
+      : owner;
     const nonce = BigInt(String(body.nonce ?? Date.now()));
     const update = body.update as Record<string, unknown> | undefined;
     if (!update) throw new Error("update is required");
     const decimals = await mintDecimals(
       new PublicKey(stored.ylpMint),
-      TOKEN_2022_PROGRAM_ID
+      TOKEN_2022_PROGRAM_ID,
     );
     const built = await buildCreateParameterProposalTx({
       proposer,
@@ -5076,17 +8142,19 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         proposalSupport: built.proposalSupport.toBase58(),
         nonce: nonce.toString(),
         bootstrapSigned,
-      }
+      },
     );
   }
 
   if (path === "/api/v2/fork/tx/support-parameter-proposal") {
-    const bootstrapSigned = Boolean(body.bootstrapSigned ?? false);
-    const supporter = bootstrapSigned ? initializeRuntime().payer.publicKey : owner;
+    const bootstrapSigned = bootstrapSignedFromBody(body.bootstrapSigned);
+    const supporter = bootstrapSigned
+      ? initializeRuntime().payer.publicKey
+      : owner;
     const proposal = new PublicKey(String(body.proposal ?? ""));
     const decimals = await mintDecimals(
       new PublicKey(stored.ylpMint),
-      TOKEN_2022_PROGRAM_ID
+      TOKEN_2022_PROGRAM_ID,
     );
     const built = await buildSupportParameterProposalTx({
       supporter,
@@ -5104,7 +8172,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         proposal: proposal.toBase58(),
         proposalSupport: built.proposalSupport.toBase58(),
         bootstrapSigned,
-      }
+      },
     );
   }
 
@@ -5127,14 +8195,22 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
       market: stored,
       proposal,
     });
-    return txResponse("execute-parameter-proposal", owner, stored, transaction, {
-      proposal: proposal.toBase58(),
-    });
+    return txResponse(
+      "execute-parameter-proposal",
+      owner,
+      stored,
+      transaction,
+      {
+        proposal: proposal.toBase58(),
+      },
+    );
   }
 
   if (path === "/api/v2/fork/tx/withdraw-parameter-support") {
-    const bootstrapSigned = Boolean(body.bootstrapSigned ?? false);
-    const supporter = bootstrapSigned ? initializeRuntime().payer.publicKey : owner;
+    const bootstrapSigned = bootstrapSignedFromBody(body.bootstrapSigned);
+    const supporter = bootstrapSigned
+      ? initializeRuntime().payer.publicKey
+      : owner;
     const proposal = new PublicKey(String(body.proposal ?? ""));
     const built = await buildWithdrawParameterSupportTx({
       supporter,
@@ -5151,7 +8227,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         proposal: proposal.toBase58(),
         proposalSupport: built.proposalSupport.toBase58(),
         bootstrapSigned,
-      }
+      },
     );
   }
 
@@ -5165,47 +8241,78 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
       interestShareBps,
       active,
     });
-    return txResponse("configure-referral-partner", owner, stored, built.transaction, {
-      referrer: referrer.toBase58(),
-      interestShareBps,
-      active,
-      referralPartner: built.referralPartner.toBase58(),
-    });
+    return txResponse(
+      "configure-referral-partner",
+      owner,
+      stored,
+      built.transaction,
+      {
+        referrer: referrer.toBase58(),
+        interestShareBps,
+        active,
+        referralPartner: built.referralPartner.toBase58(),
+      },
+    );
   }
 
   if (path === "/api/v2/fork/tx/set-referral-recipient") {
     const recipient = new PublicKey(String(body.recipient ?? ""));
-    const built = await buildSetReferralRecipientTx({ authority: owner, recipient });
-    return txResponse("set-referral-recipient", owner, stored, built.transaction, {
-      recipient: recipient.toBase58(),
-      referralPartner: built.referralPartner.toBase58(),
+    const built = await buildSetReferralRecipientTx({
+      authority: owner,
+      recipient,
     });
+    return txResponse(
+      "set-referral-recipient",
+      owner,
+      stored,
+      built.transaction,
+      {
+        recipient: recipient.toBase58(),
+        referralPartner: built.referralPartner.toBase58(),
+      },
+    );
   }
 
   if (path === "/api/v2/fork/tx/claim-referral-interest") {
     const asset = assetFromBody(body.asset ?? body.claimAsset, "quote");
-    const assetMint = new PublicKey(asset === "base" ? stored.baseMint : stored.quoteMint);
-    const tokenProgram = new PublicKey(asset === "base" ? stored.baseTokenProgram : stored.quoteTokenProgram);
+    const assetMint = new PublicKey(
+      asset === "base" ? stored.baseMint : stored.quoteMint,
+    );
+    const tokenProgram = new PublicKey(
+      asset === "base" ? stored.baseTokenProgram : stored.quoteTokenProgram,
+    );
     const built = await buildClaimReferralInterestTx({
       authority: owner,
       market: stored,
       assetMint,
       tokenProgram,
     });
-    return txResponse("claim-referral-interest", owner, stored, built.transaction, {
-      asset,
-      recipient: built.recipient.toBase58(),
-      referralPartner: built.referralPartner.toBase58(),
-      referralAccrual: built.referralAccrual.toBase58(),
-      recipientTokenAccount: built.recipientTokenAccount.toBase58(),
-    });
+    return txResponse(
+      "claim-referral-interest",
+      owner,
+      stored,
+      built.transaction,
+      {
+        asset,
+        recipient: built.recipient.toBase58(),
+        referralPartner: built.referralPartner.toBase58(),
+        referralAccrual: built.referralAccrual.toBase58(),
+        recipientTokenAccount: built.recipientTokenAccount.toBase58(),
+      },
+    );
   }
 
   if (path === "/api/v2/fork/tx/set-yield-recipient") {
     const asset = assetFromBody(body.asset, "base");
     const tokenKind = yieldTokenKindFromBody(body.tokenKind, "ylp");
     const recipient = new PublicKey(String(body.recipient ?? owner.toBase58()));
-    const transaction = await buildSetYieldRecipientTx({ owner, market: stored, asset, tokenKind, recipient });
+    const transaction = await buildSetYieldRecipientTx({
+      owner,
+      market: stored,
+      asset,
+      tokenKind,
+      recipient,
+    });
     return txResponse("set-yield-recipient", owner, stored, transaction, {
       asset,
       tokenKind,
@@ -5217,7 +8324,13 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     const asset = assetFromBody(body.asset, "base");
     const tokenKind = yieldTokenKindFromBody(body.tokenKind, "ylp");
     const recipient = new PublicKey(String(body.recipient ?? owner.toBase58()));
-    const transaction = await buildClaimYieldTx({ owner, market: stored, asset, tokenKind, recipient });
+    const transaction = await buildClaimYieldTx({
+      owner,
+      market: stored,
+      asset,
+      tokenKind,
+      recipient,
+    });
     return txResponse("claim-yield", owner, stored, transaction, {
       asset,
       tokenKind,
@@ -5230,16 +8343,17 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     const asset = assetFromBody(body.asset, "base");
     const tokenKind = yieldTokenKindFromBody(body.tokenKind, "ylp");
     const m = marketFromStored(stored);
-    const lpMint = tokenKind === "ylp"
-      ? m.ylpMint
-      : asset === "base"
-        ? m.baseHlpMint
-        : m.quoteHlpMint;
+    const lpMint =
+      tokenKind === "ylp"
+        ? m.ylpMint
+        : asset === "base"
+          ? m.baseHlpMint
+          : m.quoteHlpMint;
     const mint = await getMint(
       initializeRuntime().connection,
       lpMint,
       "confirmed",
-      TOKEN_2022_PROGRAM_ID
+      TOKEN_2022_PROGRAM_ID,
     );
     const amount = parseUnits(String(body.amount ?? "0"), mint.decimals);
     const transaction = await buildTransferLpTx({
@@ -5260,15 +8374,30 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
   }
 
   if (path === "/api/v2/fork/tx/preview-market") {
-    return txResponse("preview-market", owner, stored, await buildPreviewMarketTx(owner, stored));
+    return txResponse(
+      "preview-market",
+      owner,
+      stored,
+      await buildPreviewMarketTx(owner, stored),
+    );
   }
 
   if (path === "/api/v2/fork/tx/preview-add-liquidity") {
     const transaction = await buildPreviewAddLiquidityTx({
       owner,
       market: stored,
-      baseDepositAmount: rawAmount(body, ["baseDepositAmount", "baseAmount"], stored.baseDecimals, "1"),
-      quoteDepositAmount: rawAmount(body, ["quoteDepositAmount", "quoteAmount"], stored.quoteDecimals, "1"),
+      baseDepositAmount: rawAmount(
+        body,
+        ["baseDepositAmount", "baseAmount"],
+        stored.baseDecimals,
+        "1",
+      ),
+      quoteDepositAmount: rawAmount(
+        body,
+        ["quoteDepositAmount", "quoteAmount"],
+        stored.quoteDecimals,
+        "1",
+      ),
     });
     return txResponse("preview-add-liquidity", owner, stored, transaction);
   }
@@ -5283,18 +8412,23 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         body,
         ["exactAssetIn", "amountIn", "amount"],
         assetIn === "base" ? stored.baseDecimals : stored.quoteDecimals,
-        "1"
+        "1",
       ),
     });
     return txResponse("preview-swap", owner, stored, transaction, { assetIn });
   }
 
   if (path === "/api/v2/fork/tx/preview-borrow-capacity") {
-    const collateralAsset = assetFromBody(body.collateralAsset ?? body.asset, "base");
-    const debtDecimals = collateralAsset === "base" ? stored.quoteDecimals : stored.baseDecimals;
-    const projectedBorrowAmount = body.projectedBorrowAmount == null || body.projectedBorrowAmount === ""
-      ? null
-      : rawAmount(body, ["projectedBorrowAmount"], debtDecimals, "0");
+    const collateralAsset = assetFromBody(
+      body.collateralAsset ?? body.asset,
+      "base",
+    );
+    const debtDecimals =
+      collateralAsset === "base" ? stored.quoteDecimals : stored.baseDecimals;
+    const projectedBorrowAmount =
+      body.projectedBorrowAmount == null || body.projectedBorrowAmount === ""
+        ? null
+        : rawAmount(body, ["projectedBorrowAmount"], debtDecimals, "0");
     const transaction = await buildPreviewBorrowCapacityTx({
       owner,
       market: stored,
@@ -5303,11 +8437,13 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         body,
         ["collateralAmount"],
         collateralAsset === "base" ? stored.baseDecimals : stored.quoteDecimals,
-        "1"
+        "1",
       ),
       projectedBorrowAmount,
     });
-    return txResponse("preview-borrow-capacity", owner, stored, transaction, { collateralAsset });
+    return txResponse("preview-borrow-capacity", owner, stored, transaction, {
+      collateralAsset,
+    });
   }
 
   if (path === "/api/v2/fork/tx/preview-borrow-position") {
@@ -5317,7 +8453,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
       owner,
       stored,
       await buildPreviewBorrowPositionTx({ owner, market: stored, positionId }),
-      { borrowPositionId: positionId.toBase58() }
+      { borrowPositionId: positionId.toBase58() },
     );
   }
 
@@ -5326,11 +8462,28 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
       await buildAddLiquidityTx({
         owner,
         market: stored,
-        baseDepositAmount: rawAmount(body, ["baseDepositAmount", "baseAmount"], stored.baseDecimals, "1"),
-        quoteDepositAmount: rawAmount(body, ["quoteDepositAmount", "quoteAmount"], stored.quoteDecimals, "1"),
-        minYlpAmount: rawAmount(body, ["minYlpAmount", "minBaseYlpAmount"], stored.baseDecimals, "0"),
+        baseDepositAmount: rawAmount(
+          body,
+          ["baseDepositAmount", "baseAmount"],
+          stored.baseDecimals,
+          "1",
+        ),
+        quoteDepositAmount: rawAmount(
+          body,
+          ["quoteDepositAmount", "quoteAmount"],
+          stored.quoteDecimals,
+          "1",
+        ),
+        minYlpAmount: rawAmount(
+          body,
+          ["minYlpAmount", "minBaseYlpAmount"],
+          stored.baseDecimals,
+          "0",
+        ),
       })
-    ).serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
+    )
+      .serialize({ requireAllSignatures: false, verifySignatures: false })
+      .toString("base64");
     return txResponse("add-liquidity", owner, stored, transaction);
   }
 
@@ -5338,26 +8491,47 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     const transaction = await buildRemoveLiquidityTx({
       owner,
       market: stored,
-      ylpAmount: rawAmount(body, ["ylpAmount", "amount"], stored.baseDecimals, "1"),
-      minBaseAmountOut: rawAmount(body, ["minBaseAmountOut"], stored.baseDecimals, "0"),
-      minQuoteAmountOut: rawAmount(body, ["minQuoteAmountOut"], stored.quoteDecimals, "0"),
+      ylpAmount: rawAmount(
+        body,
+        ["ylpAmount", "amount"],
+        stored.baseDecimals,
+        "1",
+      ),
+      minBaseAmountOut: rawAmount(
+        body,
+        ["minBaseAmountOut"],
+        stored.baseDecimals,
+        "0",
+      ),
+      minQuoteAmountOut: rawAmount(
+        body,
+        ["minQuoteAmountOut"],
+        stored.quoteDecimals,
+        "0",
+      ),
     });
     return txResponse("remove-liquidity", owner, stored, transaction);
   }
 
   if (path === "/api/v2/fork/tx/swap") {
     const assetIn = assetFromBody(body.assetIn, "base");
-    const decimals = assetIn === "base" ? stored.baseDecimals : stored.quoteDecimals;
+    const decimals =
+      assetIn === "base" ? stored.baseDecimals : stored.quoteDecimals;
     const transaction = await buildSwapTx({
       owner,
       market: stored,
       assetIn,
-      exactAssetIn: rawAmount(body, ["exactAssetIn", "amountIn", "amount"], decimals, "1"),
+      exactAssetIn: rawAmount(
+        body,
+        ["exactAssetIn", "amountIn", "amount"],
+        decimals,
+        "1",
+      ),
       minAssetOut: rawAmount(
         body,
         ["minAssetOut", "minAmountOut"],
         assetIn === "base" ? stored.quoteDecimals : stored.baseDecimals,
-        "0"
+        "0",
       ),
     });
     return txResponse("swap", owner, stored, transaction, { assetIn });
@@ -5365,8 +8539,13 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
 
   if (path === "/api/v2/fork/tx/deposit-collateral") {
     const marketAsset = assetFromBody(body.marketAsset ?? body.asset, "base");
-    const positionId = optionalPublicKey(body.positionId ?? body.borrowPositionId) ?? Keypair.generate().publicKey;
-    const borrowPosition = deriveBorrowPosition(new PublicKey(stored.market), positionId);
+    const positionId =
+      optionalPublicKey(body.positionId ?? body.borrowPositionId) ??
+      Keypair.generate().publicKey;
+    const borrowPosition = deriveBorrowPosition(
+      new PublicKey(stored.market),
+      positionId,
+    );
     const transaction = await buildDepositCollateralTx({
       owner,
       market: stored,
@@ -5376,7 +8555,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         body,
         ["depositAmount", "amount"],
         marketAsset === "base" ? stored.baseDecimals : stored.quoteDecimals,
-        "1"
+        "1",
       ),
     });
     return txResponse("deposit-collateral", owner, stored, transaction, {
@@ -5389,7 +8568,10 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
   if (path === "/api/v2/fork/tx/withdraw-collateral") {
     const marketAsset = assetFromBody(body.marketAsset ?? body.asset, "base");
     const positionId = requiredPositionId(body);
-    const borrowPosition = deriveBorrowPosition(new PublicKey(stored.market), positionId);
+    const borrowPosition = deriveBorrowPosition(
+      new PublicKey(stored.market),
+      positionId,
+    );
     const transaction = await buildWithdrawCollateralTx({
       owner,
       market: stored,
@@ -5399,13 +8581,13 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         body,
         ["withdrawAmount", "amount"],
         marketAsset === "base" ? stored.baseDecimals : stored.quoteDecimals,
-        "1"
+        "1",
       ),
       minAssetAmountOut: rawAmount(
         body,
         ["minAssetAmountOut", "minAmountOut"],
         marketAsset === "base" ? stored.baseDecimals : stored.quoteDecimals,
-        "0"
+        "0",
       ),
       minLiquidationCfBps: Number(body.minLiquidationCfBps ?? 0),
     });
@@ -5419,8 +8601,12 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
   if (path === "/api/v2/fork/tx/borrow") {
     const borrowAsset = assetFromBody(body.borrowAsset ?? body.asset, "quote");
     const positionId = requiredPositionId(body);
-    const borrowPosition = deriveBorrowPosition(new PublicKey(stored.market), positionId);
-    const decimals = borrowAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
+    const borrowPosition = deriveBorrowPosition(
+      new PublicKey(stored.market),
+      positionId,
+    );
+    const decimals =
+      borrowAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
     const amount = rawAmount(body, ["borrowAmount", "amount"], decimals, "1");
     const minDebtAmountOut =
       body.minDebtAmountOut != null && body.minDebtAmountOut !== ""
@@ -5447,7 +8633,10 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
   if (path === "/api/v2/fork/tx/repay") {
     const repayAsset = assetFromBody(body.repayAsset ?? body.asset, "quote");
     const positionId = requiredPositionId(body);
-    const borrowPosition = deriveBorrowPosition(new PublicKey(stored.market), positionId);
+    const borrowPosition = deriveBorrowPosition(
+      new PublicKey(stored.market),
+      positionId,
+    );
     const transaction = await buildRepayTx({
       owner,
       market: stored,
@@ -5457,7 +8646,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         body,
         ["repayAmount", "amount"],
         repayAsset === "base" ? stored.baseDecimals : stored.quoteDecimals,
-        "1"
+        "1",
       ),
     });
     return txResponse("repay", owner, stored, transaction, {
@@ -5469,17 +8658,30 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
 
   if (path === "/api/v2/fork/tx/open-leverage") {
     const debtAsset = assetFromBody(body.debtAsset ?? body.asset, "quote");
-    const positionId = optionalPublicKey(body.positionId) ?? Keypair.generate().publicKey;
-    const debtDecimals = debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
-    const collateralDecimals = debtAsset === "base" ? stored.quoteDecimals : stored.baseDecimals;
+    const positionId =
+      optionalPublicKey(body.positionId) ?? Keypair.generate().publicKey;
+    const debtDecimals =
+      debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
+    const collateralDecimals =
+      debtAsset === "base" ? stored.quoteDecimals : stored.baseDecimals;
     const built = await buildOpenLeverageTx({
       owner,
       market: stored,
       positionId,
       debtAsset,
-      marginAmount: rawAmount(body, ["marginAmount", "amount"], debtDecimals, "1"),
+      marginAmount: rawAmount(
+        body,
+        ["marginAmount", "amount"],
+        debtDecimals,
+        "1",
+      ),
       multiplierBps: BigInt(String(body.multiplierBps ?? 20_000)),
-      minCollateralOut: rawAmount(body, ["minCollateralOut", "minAmountOut"], collateralDecimals, "0"),
+      minCollateralOut: rawAmount(
+        body,
+        ["minCollateralOut", "minAmountOut"],
+        collateralDecimals,
+        "0",
+      ),
       referrer: optionalPublicKey(body.referrer),
     });
     return txResponse("open-leverage", owner, stored, built.transaction, {
@@ -5493,47 +8695,73 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
   if (path === "/api/v2/fork/tx/increase-leverage") {
     const debtAsset = assetFromBody(body.debtAsset ?? body.asset, "quote");
     const positionId = requiredPositionId(body);
-    const debtDecimals = debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
-    const collateralDecimals = debtAsset === "base" ? stored.quoteDecimals : stored.baseDecimals;
+    const debtDecimals =
+      debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
+    const collateralDecimals =
+      debtAsset === "base" ? stored.quoteDecimals : stored.baseDecimals;
     const transaction = await buildIncreaseLeverageTx({
       owner,
       market: stored,
       positionId,
       debtAsset,
       debtAmount: rawAmount(body, ["debtAmount", "amount"], debtDecimals, "1"),
-      minCollateralOut: rawAmount(body, ["minCollateralOut", "minAmountOut"], collateralDecimals, "0"),
+      minCollateralOut: rawAmount(
+        body,
+        ["minCollateralOut", "minAmountOut"],
+        collateralDecimals,
+        "0",
+      ),
     });
     return txResponse("increase-leverage", owner, stored, transaction, {
       debtAsset,
       positionId: positionId.toBase58(),
-      leveragePosition: deriveLeveragePosition(new PublicKey(stored.market), positionId).toBase58(),
+      leveragePosition: deriveLeveragePosition(
+        new PublicKey(stored.market),
+        positionId,
+      ).toBase58(),
     });
   }
 
   if (path === "/api/v2/fork/tx/decrease-leverage") {
     const debtAsset = assetFromBody(body.debtAsset ?? body.asset, "quote");
     const positionId = requiredPositionId(body);
-    const debtDecimals = debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
-    const collateralDecimals = debtAsset === "base" ? stored.quoteDecimals : stored.baseDecimals;
+    const debtDecimals =
+      debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
+    const collateralDecimals =
+      debtAsset === "base" ? stored.quoteDecimals : stored.baseDecimals;
     const transaction = await buildDecreaseLeverageTx({
       owner,
       market: stored,
       positionId,
       debtAsset,
-      collateralAmount: rawAmount(body, ["collateralAmount", "amount"], collateralDecimals, "1"),
-      minRepayOut: rawAmount(body, ["minRepayOut", "minAmountOut"], debtDecimals, "0"),
+      collateralAmount: rawAmount(
+        body,
+        ["collateralAmount", "amount"],
+        collateralDecimals,
+        "1",
+      ),
+      minRepayOut: rawAmount(
+        body,
+        ["minRepayOut", "minAmountOut"],
+        debtDecimals,
+        "0",
+      ),
     });
     return txResponse("decrease-leverage", owner, stored, transaction, {
       debtAsset,
       positionId: positionId.toBase58(),
-      leveragePosition: deriveLeveragePosition(new PublicKey(stored.market), positionId).toBase58(),
+      leveragePosition: deriveLeveragePosition(
+        new PublicKey(stored.market),
+        positionId,
+      ).toBase58(),
     });
   }
 
   if (path === "/api/v2/fork/tx/add-leverage-margin") {
     const debtAsset = assetFromBody(body.debtAsset ?? body.asset, "quote");
     const positionId = requiredPositionId(body);
-    const debtDecimals = debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
+    const debtDecimals =
+      debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
     const transaction = await buildAddLeverageMarginTx({
       owner,
       market: stored,
@@ -5550,8 +8778,14 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
   if (path === "/api/v2/fork/tx/remove-leverage-margin") {
     const debtAsset = assetFromBody(body.debtAsset ?? body.asset, "quote");
     const positionId = requiredPositionId(body);
-    const debtDecimals = debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
-    const amount = rawAmount(body, ["amount", "marginAmount"], debtDecimals, "1");
+    const debtDecimals =
+      debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
+    const amount = rawAmount(
+      body,
+      ["amount", "marginAmount"],
+      debtDecimals,
+      "1",
+    );
     const transaction = await buildRemoveLeverageMarginTx({
       owner,
       market: stored,
@@ -5572,7 +8806,8 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
   if (path === "/api/v2/fork/tx/close-leverage") {
     const debtAsset = assetFromBody(body.debtAsset ?? body.asset, "quote");
     const positionId = requiredPositionId(body);
-    const debtDecimals = debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
+    const debtDecimals =
+      debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
     const transaction = await buildCloseLeverageTx({
       owner,
       market: stored,
@@ -5598,11 +8833,17 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
       delegatedProgram,
       approvedActions: Number(body.approvedActions ?? 0),
     });
-    return txResponse("create-leverage-delegation", owner, stored, built.transaction, {
-      debtAsset,
-      positionId: positionId.toBase58(),
-      leverageDelegation: built.leverageDelegation.toBase58(),
-    });
+    return txResponse(
+      "create-leverage-delegation",
+      owner,
+      stored,
+      built.transaction,
+      {
+        debtAsset,
+        positionId: positionId.toBase58(),
+        leverageDelegation: built.leverageDelegation.toBase58(),
+      },
+    );
   }
 
   if (path === "/api/v2/fork/tx/update-leverage-delegation") {
@@ -5617,20 +8858,36 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
       delegatedProgram,
       approvedActions: Number(body.approvedActions ?? 0),
     });
-    return txResponse("update-leverage-delegation", owner, stored, built.transaction, {
-      debtAsset,
-      positionId: positionId.toBase58(),
-      leverageDelegation: built.leverageDelegation.toBase58(),
-    });
+    return txResponse(
+      "update-leverage-delegation",
+      owner,
+      stored,
+      built.transaction,
+      {
+        debtAsset,
+        positionId: positionId.toBase58(),
+        leverageDelegation: built.leverageDelegation.toBase58(),
+      },
+    );
   }
 
   if (path === "/api/v2/fork/tx/close-leverage-delegation") {
     const positionId = requiredPositionId(body);
-    const built = await buildCloseLeverageDelegationTx({ owner, market: stored, positionId });
-    return txResponse("close-leverage-delegation", owner, stored, built.transaction, {
-      positionId: positionId.toBase58(),
-      leverageDelegation: built.leverageDelegation.toBase58(),
+    const built = await buildCloseLeverageDelegationTx({
+      owner,
+      market: stored,
+      positionId,
     });
+    return txResponse(
+      "close-leverage-delegation",
+      owner,
+      stored,
+      built.transaction,
+      {
+        positionId: positionId.toBase58(),
+        leverageDelegation: built.leverageDelegation.toBase58(),
+      },
+    );
   }
 
   if (path === "/api/v2/fork/tx/create-leverage-order") {
@@ -5642,13 +8899,21 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
       positionId,
       orderId,
       kind: Number(body.kind ?? 1),
-      triggerCloseoutPriceNad: BigInt(String(body.triggerCloseoutPriceNad ?? 1)),
+      triggerCloseoutPriceNad: BigInt(
+        String(body.triggerCloseoutPriceNad ?? 1),
+      ),
     });
-    return txResponse("create-leverage-order", owner, stored, built.transaction, {
-      positionId: positionId.toBase58(),
-      orderId: orderId.toString(),
-      order: built.order.toBase58(),
-    });
+    return txResponse(
+      "create-leverage-order",
+      owner,
+      stored,
+      built.transaction,
+      {
+        positionId: positionId.toBase58(),
+        orderId: orderId.toString(),
+        order: built.order.toBase58(),
+      },
+    );
   }
 
   if (path === "/api/v2/fork/tx/update-leverage-order") {
@@ -5660,20 +8925,29 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
       positionId,
       orderId,
       kind: Number(body.kind ?? 1),
-      triggerCloseoutPriceNad: BigInt(String(body.triggerCloseoutPriceNad ?? 1)),
+      triggerCloseoutPriceNad: BigInt(
+        String(body.triggerCloseoutPriceNad ?? 1),
+      ),
     });
-    return txResponse("update-leverage-order", owner, stored, built.transaction, {
-      positionId: positionId.toBase58(),
-      orderId: orderId.toString(),
-      order: built.order.toBase58(),
-    });
+    return txResponse(
+      "update-leverage-order",
+      owner,
+      stored,
+      built.transaction,
+      {
+        positionId: positionId.toBase58(),
+        orderId: orderId.toString(),
+        order: built.order.toBase58(),
+      },
+    );
   }
 
   if (path === "/api/v2/fork/tx/delegated-close-leverage") {
     const positionId = requiredPositionId(body);
     const positionOwner = new PublicKey(String(body.positionOwner ?? ""));
     const debtAsset = assetFromBody(body.debtAsset ?? body.asset, "quote");
-    const debtDecimals = debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
+    const debtDecimals =
+      debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
     const orderId = BigInt(String(body.orderId ?? 1));
     const built = await buildDelegatedCloseLeverageTx({
       executor: owner,
@@ -5684,19 +8958,25 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
       orderId,
       minAmountOut: rawAmount(body, ["minAmountOut"], debtDecimals, "0"),
     });
-    return txResponse("delegated-close-leverage", owner, stored, built.transaction, {
-      positionOwner: positionOwner.toBase58(),
-      positionId: positionId.toBase58(),
-      debtAsset,
-      orderId: orderId.toString(),
-      leveragePosition: built.leveragePosition.toBase58(),
-      leverageDelegation: built.leverageDelegation.toBase58(),
-      order: built.order.toBase58(),
-      custodyAuthority: built.custodyAuthority.toBase58(),
-      custodyTokenAccount: built.custodyTokenAccount.toBase58(),
-      executorTokenAccount: built.executorTokenAccount.toBase58(),
-      ownerTokenAccount: built.ownerTokenAccount.toBase58(),
-    });
+    return txResponse(
+      "delegated-close-leverage",
+      owner,
+      stored,
+      built.transaction,
+      {
+        positionOwner: positionOwner.toBase58(),
+        positionId: positionId.toBase58(),
+        debtAsset,
+        orderId: orderId.toString(),
+        leveragePosition: built.leveragePosition.toBase58(),
+        leverageDelegation: built.leverageDelegation.toBase58(),
+        order: built.order.toBase58(),
+        custodyAuthority: built.custodyAuthority.toBase58(),
+        custodyTokenAccount: built.custodyTokenAccount.toBase58(),
+        executorTokenAccount: built.executorTokenAccount.toBase58(),
+        ownerTokenAccount: built.ownerTokenAccount.toBase58(),
+      },
+    );
   }
 
   if (path === "/api/v2/fork/tx/liquidate-leverage") {
@@ -5729,25 +9009,46 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
       positionId,
       debtAsset,
     });
-    return txResponse("trigger-liquidation-auction", owner, stored, transaction, {
-      positionId: positionId.toBase58(),
-      debtAsset,
-      borrowPosition: deriveBorrowPosition(new PublicKey(stored.market), positionId).toBase58(),
-    });
+    return txResponse(
+      "trigger-liquidation-auction",
+      owner,
+      stored,
+      transaction,
+      {
+        positionId: positionId.toBase58(),
+        debtAsset,
+        borrowPosition: deriveBorrowPosition(
+          new PublicKey(stored.market),
+          positionId,
+        ).toBase58(),
+      },
+    );
   }
 
   if (path === "/api/v2/fork/tx/bid-liquidation-auction") {
     const positionId = requiredPositionId(body);
     const debtAsset = assetFromBody(body.debtAsset ?? body.asset, "quote");
-    const debtDecimals = debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
-    const collateralDecimals = debtAsset === "base" ? stored.quoteDecimals : stored.baseDecimals;
+    const debtDecimals =
+      debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
+    const collateralDecimals =
+      debtAsset === "base" ? stored.quoteDecimals : stored.baseDecimals;
     const transaction = await buildBidLiquidationAuctionTx({
       liquidator: owner,
       market: stored,
       positionId,
       debtAsset,
-      repayAmount: rawAmount(body, ["repayAmount", "amount"], debtDecimals, "1"),
-      minCollateralOut: rawAmount(body, ["minCollateralOut", "minAmountOut"], collateralDecimals, "0"),
+      repayAmount: rawAmount(
+        body,
+        ["repayAmount", "amount"],
+        debtDecimals,
+        "1",
+      ),
+      minCollateralOut: rawAmount(
+        body,
+        ["minCollateralOut", "minAmountOut"],
+        collateralDecimals,
+        "0",
+      ),
     });
     return txResponse("bid-liquidation-auction", owner, stored, transaction, {
       positionId: positionId.toBase58(),
@@ -5758,22 +9059,50 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
   if (path === "/api/v2/fork/tx/settle-liquidation-auction-floor") {
     const positionId = requiredPositionId(body);
     const debtAsset = assetFromBody(body.debtAsset ?? body.asset, "quote");
-    const debtDecimals = debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
-    const collateralDecimals = debtAsset === "base" ? stored.quoteDecimals : stored.baseDecimals;
+    const debtDecimals =
+      debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
+    const collateralDecimals =
+      debtAsset === "base" ? stored.quoteDecimals : stored.baseDecimals;
     const transaction = await buildSettleLiquidationAuctionFloorTx({
       liquidator: owner,
       market: stored,
       positionId,
       debtAsset,
-      repayAmount: rawAmount(body, ["repayAmount", "amount"], debtDecimals, "1"),
-      minCollateralOut: rawAmount(body, ["minCollateralOut", "minAmountOut"], collateralDecimals, "0"),
-      maxInsuranceDraw: rawAmount(body, ["maxInsuranceDraw"], debtDecimals, "0"),
-      maxSocializedLoss: rawAmount(body, ["maxSocializedLoss"], debtDecimals, "0"),
+      repayAmount: rawAmount(
+        body,
+        ["repayAmount", "amount"],
+        debtDecimals,
+        "1",
+      ),
+      minCollateralOut: rawAmount(
+        body,
+        ["minCollateralOut", "minAmountOut"],
+        collateralDecimals,
+        "0",
+      ),
+      maxInsuranceDraw: rawAmount(
+        body,
+        ["maxInsuranceDraw"],
+        debtDecimals,
+        "0",
+      ),
+      maxSocializedLoss: rawAmount(
+        body,
+        ["maxSocializedLoss"],
+        debtDecimals,
+        "0",
+      ),
     });
-    return txResponse("settle-liquidation-auction-floor", owner, stored, transaction, {
-      positionId: positionId.toBase58(),
-      debtAsset,
-    });
+    return txResponse(
+      "settle-liquidation-auction-floor",
+      owner,
+      stored,
+      transaction,
+      {
+        positionId: positionId.toBase58(),
+        debtAsset,
+      },
+    );
   }
 
   if (path === "/api/v2/fork/tx/deposit-single-sided") {
@@ -5786,16 +9115,18 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         body,
         ["depositAmount", "amount"],
         targetAsset === "base" ? stored.baseDecimals : stored.quoteDecimals,
-        "1"
+        "1",
       ),
       minHlpAmount: rawAmount(
         body,
         ["minHlpAmount"],
         targetAsset === "base" ? stored.baseDecimals : stored.quoteDecimals,
-        "0"
+        "0",
       ),
     });
-    return txResponse("deposit-single-sided", owner, stored, transaction, { targetAsset });
+    return txResponse("deposit-single-sided", owner, stored, transaction, {
+      targetAsset,
+    });
   }
 
   if (path === "/api/v2/fork/tx/withdraw-single-sided") {
@@ -5808,55 +9139,128 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
         body,
         ["hlpAmount", "amount"],
         targetAsset === "base" ? stored.baseDecimals : stored.quoteDecimals,
-        "1"
+        "1",
       ),
       minTargetAmountOut: rawAmount(
         body,
         ["minTargetAmountOut", "minAmountOut"],
         targetAsset === "base" ? stored.baseDecimals : stored.quoteDecimals,
-        "0"
+        "0",
       ),
     });
-    return txResponse("withdraw-single-sided", owner, stored, transaction, { targetAsset });
+    return txResponse("withdraw-single-sided", owner, stored, transaction, {
+      targetAsset,
+    });
   }
 
   throw new Error(`Unsupported route: ${req.method} ${path}`);
 }
 
+/** Every successful read and transaction-build response is reset-race detectable. */
+export async function route(
+  req: http.IncomingMessage,
+  body: Record<string, unknown>,
+) {
+  requireForkAdminAuthorization(req);
+  requireForkServerSigningAuthorization(req, body);
+  const before = await deploymentEnvelope();
+  const beforeFingerprint = deploymentIdentityFingerprint(before);
+  const value = await routeWithoutDeploymentEnvelope(
+    req,
+    body,
+    before,
+  );
+  let after: Awaited<ReturnType<typeof deploymentEnvelope>>;
+  try {
+    after = await deploymentEnvelope(maximumResponseSourceSlot(value));
+  } catch (error) {
+    if (error instanceof DeploymentIdentityChangedError) throw error;
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new DeploymentIdentityChangedError(
+      `Unable to re-observe Surfpool deployment identity after handling the request: ${detail}`,
+    );
+  }
+  if (beforeFingerprint !== deploymentIdentityFingerprint(after)) {
+    throw new DeploymentIdentityChangedError(
+      "Surfpool deployment identity changed while handling the API request",
+    );
+  }
+  return { ...(value as Record<string, unknown>), deployment: after };
+}
+
 export async function localE2E() {
-  const stored = await bootstrap();
+  const markets = await bootstrapMarkets();
+  const stored = markets[0];
+  if (!stored) throw new Error("Dusk fork bootstrap produced no markets");
   const { payer, provider } = initializeRuntime();
   await fundWallet({ wallet: payer.publicKey.toBase58(), sol: DEFAULT_SOL_FUNDING }, stored);
+  const results = [];
+  for (const market of markets) {
+    const addLiquidityTx = await buildAddLiquidityTx({
+      owner: payer.publicKey,
+      market,
+      baseDepositAmount: parseUnits("1", market.baseDecimals),
+      quoteDepositAmount: parseUnits("1", market.quoteDecimals),
+      minYlpAmount: 0n,
+      payerCanSign: true,
+    });
+    addLiquidityTx.sign(payer);
+    const addLiquiditySig = await provider.connection.sendRawTransaction(addLiquidityTx.serialize());
+    await provider.connection.confirmTransaction(addLiquiditySig, "confirmed");
 
-  const addLiquidityTx = await buildAddLiquidityTx({
-    owner: payer.publicKey,
-    market: stored,
-    baseDepositAmount: parseUnits("1", stored.baseDecimals),
-    quoteDepositAmount: parseUnits("1", stored.quoteDecimals),
-    minYlpAmount: 0n,
-    payerCanSign: true,
-  });
-  addLiquidityTx.sign(payer);
-  const addLiquiditySig = await provider.connection.sendRawTransaction(addLiquidityTx.serialize());
-  await provider.connection.confirmTransaction(addLiquiditySig, "confirmed");
-
-  const swapBase64 = await buildSwapTx({
-    owner: payer.publicKey,
-    market: stored,
-    assetIn: "base",
-    exactAssetIn: parseUnits("0.1", stored.baseDecimals),
-    minAssetOut: 0n,
-  });
-  const swapTx = Transaction.from(Buffer.from(swapBase64, "base64"));
-  swapTx.sign(payer);
-  const swapSig = await provider.connection.sendRawTransaction(swapTx.serialize());
-  await provider.connection.confirmTransaction(swapSig, "confirmed");
+    const swapBase64 = await buildSwapTx({
+      owner: payer.publicKey,
+      market,
+      assetIn: "base",
+      exactAssetIn: parseUnits(market.baseDecimals === 0 ? "1" : "0.1", market.baseDecimals),
+      minAssetOut: 0n,
+    });
+    const swapTx = Transaction.from(Buffer.from(swapBase64, "base64"));
+    swapTx.sign(payer);
+    const swapSig = await provider.connection.sendRawTransaction(swapTx.serialize());
+    await provider.connection.confirmTransaction(swapSig, "confirmed");
+    results.push({
+      market: market.market,
+      marketKind: market.marketKind ?? "cpmm",
+      addLiquiditySig,
+      swapSig,
+    });
+  }
 
   return {
     ok: true,
     market: stored.market,
-    addLiquiditySig,
-    swapSig,
-    config: forkConfigPayload(stored),
+    markets: results,
+    addLiquiditySig: results[0]?.addLiquiditySig,
+    swapSig: results[0]?.swapSig,
+    config: forkConfigPayload(stored, markets),
   };
+}
+
+export function shutdownForkRuntime() {
+  const connection = runtime?.connection as any;
+  if (connection?._rpcWebSocketIdleTimeout) {
+    clearTimeout(connection._rpcWebSocketIdleTimeout);
+    connection._rpcWebSocketIdleTimeout = null;
+  }
+  if (connection?._rpcWebSocketHeartbeat) {
+    clearInterval(connection._rpcWebSocketHeartbeat);
+    connection._rpcWebSocketHeartbeat = null;
+  }
+  connection && (connection._subscriptionsByHash = {});
+  connection && (connection._subscriptionCallbacksByServerSubscriptionId = {});
+  const socket = connection?._rpcWebSocket;
+  socket?.removeAllListeners?.();
+  try {
+    socket?.close?.();
+  } catch {
+    // The RPC socket may already have completed its explicit idle close.
+  }
+  runtime = undefined;
+  leverageDelegateProgram = undefined;
+  bootstrapPromises.clear();
+  bootstrapEvidencePromises.clear();
+  bootstrapQueue = Promise.resolve();
+  observedRuntimeForkId = undefined;
+  lifecycleGenesisHash.reset();
 }

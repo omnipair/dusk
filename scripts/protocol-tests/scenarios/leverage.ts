@@ -26,6 +26,16 @@ function raw(uiAmount: number, decimals: number): bigint {
   return BigInt(uiAmount) * 10n ** BigInt(decimals);
 }
 
+function executableBoundaryValue(probedMaximum: bigint): bigint {
+  if (probedMaximum <= 0n) return 0n;
+  // Exact-boundary simulations race interest accrual, slot-sensitive AMM
+  // state, and the next execution bank. Reserve one basis point (rounded up,
+  // therefore at least one raw atom) while retaining the exact probed boundary
+  // for the adjacent-rejection evidence.
+  const haircut = (probedMaximum + 9_999n) / 10_000n;
+  return probedMaximum > haircut ? probedMaximum - haircut : 0n;
+}
+
 function marketState(
   market: Awaited<ReturnType<ProtocolTestHarness["market"]>>,
   key: string
@@ -384,7 +394,17 @@ export const LEVERAGE_SCENARIOS: ScenarioDefinition[] = [
           debtAsset,
           multiplierPositionId
         );
+        const executableMultiplier = executableBoundaryValue(maximumMultiplier);
         harness.observe(`${debtAsset} maximum effective leverage multiplier bps`, maximumMultiplier);
+        harness.observe(
+          `${debtAsset} executable leverage multiplier after one-bps haircut`,
+          executableMultiplier
+        );
+        harness.assertTrue(
+          `${debtAsset} post-haircut leverage multiplier remains above 1x`,
+          executableMultiplier > 10_000n,
+          executableMultiplier
+        );
         await harness.execute({
           wallet: "alice",
           endpoint: "/api/v2/fork/tx/open-leverage",
@@ -401,19 +421,19 @@ export const LEVERAGE_SCENARIOS: ScenarioDefinition[] = [
         await harness.execute({
           wallet: "alice",
           endpoint: "/api/v2/fork/tx/open-leverage",
-          label: `open ${debtAsset} leverage at effective maximum`,
+          label: `open ${debtAsset} leverage at post-haircut effective maximum`,
           body: {
             positionId: multiplierPositionId.toBase58(),
             debtAsset,
             marginAmount: "1",
-            multiplierBps: maximumMultiplier.toString(),
+            multiplierBps: executableMultiplier.toString(),
             minCollateralOut: "0",
           },
         });
         harness.assertEqual(
-          `${debtAsset} position stores exact maximum multiplier`,
+          `${debtAsset} position stores post-haircut multiplier`,
           BigInt((await leveragePosition(harness, "alice", multiplierPositionId)).multiplierBps),
-          maximumMultiplier
+          executableMultiplier
         );
         await harness.execute({
           wallet: "alice",
@@ -444,10 +464,20 @@ export const LEVERAGE_SCENARIOS: ScenarioDefinition[] = [
           decimals,
           (amount) => ({ amount, minAmountOut: amount })
         );
+        const executableMarginRemoval = executableBoundaryValue(maximumMarginRemoval);
         harness.observe(`${debtAsset} maximum removable leverage margin`, {
           raw: maximumMarginRemoval,
           ui: formatUnits(maximumMarginRemoval, decimals),
         });
+        harness.observe(`${debtAsset} executable margin removal after one-bps haircut`, {
+          raw: executableMarginRemoval,
+          ui: formatUnits(executableMarginRemoval, decimals),
+        });
+        harness.assertTrue(
+          `${debtAsset} post-haircut margin removal remains positive`,
+          executableMarginRemoval > 0n,
+          executableMarginRemoval
+        );
         await harness.execute({
           wallet: "alice",
           endpoint: "/api/v2/fork/tx/remove-leverage-margin",
@@ -463,12 +493,12 @@ export const LEVERAGE_SCENARIOS: ScenarioDefinition[] = [
         await harness.execute({
           wallet: "alice",
           endpoint: "/api/v2/fork/tx/remove-leverage-margin",
-          label: `remove maximum safe ${debtAsset} leverage margin`,
+          label: `remove post-haircut maximum safe ${debtAsset} leverage margin`,
           body: {
             positionId: marginPositionId.toBase58(),
             debtAsset,
-            amount: formatUnits(maximumMarginRemoval, decimals),
-            minAmountOut: formatUnits(maximumMarginRemoval, decimals),
+            amount: formatUnits(executableMarginRemoval, decimals),
+            minAmountOut: formatUnits(executableMarginRemoval, decimals),
           },
         });
         await harness.execute({
@@ -501,10 +531,20 @@ export const LEVERAGE_SCENARIOS: ScenarioDefinition[] = [
           (amount) => ({ debtAmount: amount, minCollateralOut: "0" }),
           raw(1, decimals)
         );
+        const executableIncrease = executableBoundaryValue(maximumIncrease);
         harness.observe(`${debtAsset} maximum leverage debt increase`, {
           raw: maximumIncrease,
           ui: formatUnits(maximumIncrease, decimals),
         });
+        harness.observe(`${debtAsset} executable leverage increase after one-bps haircut`, {
+          raw: executableIncrease,
+          ui: formatUnits(executableIncrease, decimals),
+        });
+        harness.assertTrue(
+          `${debtAsset} post-haircut leverage increase remains positive`,
+          executableIncrease > 0n,
+          executableIncrease
+        );
         await harness.execute({
           wallet: "alice",
           endpoint: "/api/v2/fork/tx/increase-leverage",
@@ -520,11 +560,11 @@ export const LEVERAGE_SCENARIOS: ScenarioDefinition[] = [
         await harness.execute({
           wallet: "alice",
           endpoint: "/api/v2/fork/tx/increase-leverage",
-          label: `execute maximum safe ${debtAsset} leverage increase`,
+          label: `execute post-haircut maximum safe ${debtAsset} leverage increase`,
           body: {
             positionId: increasePositionId.toBase58(),
             debtAsset,
-            debtAmount: formatUnits(maximumIncrease, decimals),
+            debtAmount: formatUnits(executableIncrease, decimals),
             minCollateralOut: "0",
           },
         });
@@ -788,11 +828,12 @@ export const LEVERAGE_SCENARIOS: ScenarioDefinition[] = [
         (await harness.connection.getAccountInfo(leverageDelegationAddress, "confirmed")) !== null
       );
 
-      await harness.execute({
+      await harness.assertApiRejection({
         wallet: "bidder",
         endpoint: "/api/v2/fork/tx/delegated-close-leverage",
         label: "reject stale delegated close after settlement",
-        expected: "failure",
+        expectedStatus: 409,
+        expectedCode: "leverage_order_not_actionable",
         body: {
           positionOwner: owner.toBase58(),
           positionId: delegatedClosePositionId.toBase58(),

@@ -15,6 +15,72 @@ use reference_wide::U256;
 const PEAK_DEPTH_200: u128 = 200 * NAD as u128;
 const FADE_TENTH: u128 = NAD as u128 / 10;
 
+struct InnerNewtonTestGuard(bool);
+
+impl Drop for InnerNewtonTestGuard {
+    fn drop(&mut self) {
+        set_inner_newton_acceleration_enabled(self.0);
+    }
+}
+
+fn with_inner_newton_acceleration<T>(enabled: bool, run: impl FnOnce() -> T) -> T {
+    let previous = set_inner_newton_acceleration_enabled(enabled);
+    let _guard = InnerNewtonTestGuard(previous);
+    run()
+}
+
+fn assert_inner_newton_quote_differential(
+    prepared: ConcentratedPreparedCurve,
+    amount_in: u128,
+    direction: ConcentratedSwapDirection,
+) {
+    reset_residual_evaluations();
+    let baseline_output =
+        with_inner_newton_acceleration(false, || prepared.quote_exact_in(amount_in, direction)).unwrap();
+    let baseline_exact_in_evaluations = residual_evaluations();
+
+    reset_residual_evaluations();
+    let accelerated_output =
+        with_inner_newton_acceleration(true, || prepared.quote_exact_in(amount_in, direction)).unwrap();
+    let accelerated_exact_in_evaluations = residual_evaluations();
+    assert_eq!(
+        accelerated_output, baseline_output,
+        "exact-in changed for direction={direction:?} amount={amount_in}"
+    );
+    assert!(
+        accelerated_exact_in_evaluations <= CONCENTRATED_RESERVE_MAX_ITERS + 4,
+        "accelerated exact-in exceeded its fixed proof budget: {accelerated_exact_in_evaluations}; baseline={baseline_exact_in_evaluations}"
+    );
+
+    if baseline_output > 1 {
+        for amount_out in [1, baseline_output / 2, baseline_output] {
+            if amount_out == 0 {
+                continue;
+            }
+            reset_residual_evaluations();
+            let baseline_bracket =
+                with_inner_newton_acceleration(false, || prepared.quote_exact_out_input_bracket(amount_out, direction))
+                    .unwrap();
+            let baseline_exact_out_evaluations = residual_evaluations();
+
+            reset_residual_evaluations();
+            let accelerated_bracket =
+                with_inner_newton_acceleration(true, || prepared.quote_exact_out_input_bracket(amount_out, direction))
+                    .unwrap();
+            let accelerated_exact_out_evaluations = residual_evaluations();
+            assert_eq!(
+                accelerated_bracket, baseline_bracket,
+                "exact-out bracket changed for direction={direction:?} amount_out={amount_out}"
+            );
+            assert_eq!(accelerated_bracket.1 - accelerated_bracket.0, 1);
+            assert!(
+                accelerated_exact_out_evaluations <= CONCENTRATED_RESERVE_MAX_ITERS + 4,
+                "accelerated exact-out exceeded its fixed proof budget: {accelerated_exact_out_evaluations}; baseline={baseline_exact_out_evaluations}"
+            );
+        }
+    }
+}
+
 fn analytical_inner_residual(x: f64, y: f64, d: f64, peak_depth: f64, fade: f64) -> f64 {
     let q = 4.0 * x * y / (d * d);
     let delta = 1.0 - q;
@@ -647,6 +713,115 @@ fn adaptive_numeraire_crossing_is_quote_continuous_and_exact_out_replays() {
 }
 
 #[test]
+fn bounded_same_d_guidance_is_conservative_in_both_directions_with_two_probes() {
+    let fixtures = [
+        (1_000_000_000_000_000_u128, 1_000_000_000_000_000_u128),
+        (1_000_000_000_000, 1_350_000_000_000),
+        (8_000_000_000_000, 1_000_000_000),
+        (1_000_000_000, 8_000_000_000_000),
+    ];
+    let mut exact_in_successes = [0_u32; 2];
+    let mut exact_out_successes = [0_u32; 2];
+
+    for (base, quote) in fixtures {
+        let canonical =
+            concentrated_prepare_curve(base, quote, NAD as u128, PEAK_DEPTH_200, FADE_TENTH).unwrap();
+        let guidance = canonical
+            .prepare_guidance_successor_with_invariant(base, quote, canonical.invariant_d())
+            .unwrap();
+        for (direction_index, direction) in [
+            ConcentratedSwapDirection::BaseToQuote,
+            ConcentratedSwapDirection::QuoteToBase,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let input_reserve = match direction {
+                ConcentratedSwapDirection::BaseToQuote => base,
+                ConcentratedSwapDirection::QuoteToBase => quote,
+            };
+            let output_reserve = match direction {
+                ConcentratedSwapDirection::BaseToQuote => quote,
+                ConcentratedSwapDirection::QuoteToBase => base,
+            };
+            let amount_in = (input_reserve / 1_000).max(1);
+
+            reset_residual_evaluations();
+            let bounded_in = guidance.quote_bounded_exact_in(amount_in, direction);
+            let exact_in_probes = residual_evaluations();
+            assert!(
+                exact_in_probes <= 2,
+                "exact-in probes={exact_in_probes} base={base} quote={quote} direction={direction:?}"
+            );
+            if let Ok(estimate) = bounded_in {
+                let exact = guidance.quote_exact_in(amount_in, direction).unwrap();
+                assert!(
+                    estimate <= exact,
+                    "bounded exact-in overquoted: estimate={estimate} exact={exact} base={base} quote={quote} direction={direction:?}"
+                );
+                if estimate > 0 {
+                    exact_in_successes[direction_index] += 1;
+                }
+            }
+
+            let amount_out = (output_reserve / 10_000).max(1);
+            reset_residual_evaluations();
+            let bounded_out = guidance.quote_bounded_exact_out_input(amount_out, direction);
+            let exact_out_probes = residual_evaluations();
+            assert!(
+                exact_out_probes <= 2,
+                "exact-out probes={exact_out_probes} base={base} quote={quote} direction={direction:?}"
+            );
+            if let Ok(estimate) = bounded_out {
+                let exact = guidance.quote_exact_out_input_bracket(amount_out, direction).unwrap().1;
+                assert!(
+                    estimate >= exact,
+                    "bounded exact-out underquoted input: estimate={estimate} exact={exact} base={base} quote={quote} direction={direction:?}"
+                );
+                assert!(guidance.quote_exact_in(estimate, direction).unwrap() >= amount_out);
+                exact_out_successes[direction_index] += 1;
+            }
+        }
+    }
+
+    assert!(exact_in_successes.into_iter().all(|successes| successes > 0));
+    assert!(exact_out_successes.into_iter().all(|successes| successes > 0));
+}
+
+#[test]
+fn bounded_guidance_rejects_invalid_basis_but_allows_off_curve_probe_geometry() {
+    let reserve = 1_000_000_000_000_000_u128;
+    let canonical =
+        concentrated_prepare_curve(reserve, reserve, NAD as u128, PEAK_DEPTH_200, FADE_TENTH).unwrap();
+
+    for invalid_d in [
+        reserve.checked_mul(2).unwrap().checked_add(1).unwrap(),
+        canonical.invariant_d() / 2,
+    ] {
+        let invalid = canonical
+            .prepare_guidance_successor_with_invariant(reserve, reserve, invalid_d)
+            .unwrap();
+        reset_residual_evaluations();
+        assert!(
+            invalid
+                .quote_bounded_exact_in(reserve / 1_000, ConcentratedSwapDirection::BaseToQuote)
+                .is_err()
+        );
+        assert_eq!(residual_evaluations(), 0);
+    }
+
+    let geometry = canonical.geometry.unwrap();
+    // Off-curve quote probes may legitimately sit on either side of x+y=D;
+    // only raw reserve bounds and branch-specific minimums apply to them.
+    assert!(bounded_guidance_residual_context(reserve * 2, reserve, geometry).is_ok());
+    assert!(bounded_guidance_residual_context(reserve, reserve / 2, geometry).is_ok());
+    assert!(
+        bounded_guidance_residual_context(MIN_INNER_COMMON_RESERVE - 1, MIN_INNER_COMMON_RESERVE, geometry)
+            .is_err()
+    );
+}
+
+#[test]
 fn invariant_roots_are_canonical_adjacent_atoms() {
     for (x, y) in [
         (1_000_000_000_000_u128, 1_010_000_000_000_u128),
@@ -679,7 +854,7 @@ fn invariant_solver_stays_inside_the_fixed_budget() {
 }
 
 #[test]
-fn ordinary_inner_quote_uses_secant_bracketing_without_q80_fallback() {
+fn ordinary_inner_quote_uses_bounded_newton_work_without_q80_fallback() {
     let reserve = 1_000_000_000_000_000_u128;
     let prepared = concentrated_prepare_curve(reserve, reserve, NAD as u128, PEAK_DEPTH_200, FADE_TENTH).unwrap();
     reset_residual_evaluations();
@@ -691,12 +866,231 @@ fn ordinary_inner_quote_uses_secant_bracketing_without_q80_fallback() {
         .unwrap();
     assert!(output > 0);
     assert!(
-        residual_evaluations() <= 32,
+        residual_evaluations() <= 8,
         "ordinary inner quote used {} residual probes",
         residual_evaluations()
     );
     assert_eq!(sqrt_q80_evaluations(), 0);
     assert_eq!(q80_fallback_evaluations(), 0);
+}
+
+#[test]
+fn inner_newton_guidance_covers_both_sides_of_q_one() {
+    let d = 2_000_000_000_u128;
+    let geometry = ConcentratedC1Geometry::derive(PEAK_DEPTH_200, FADE_TENTH).unwrap();
+    for (fixed, variable, expected_q_above_one) in [
+        (999_999_000_u128, 1_000_001_000_u128, false),
+        (1_000_000_001, 1_000_000_001, true),
+    ] {
+        let context = ConcentratedResidualContext::derive(geometry, fixed, variable).unwrap();
+        assert_eq!(context.branch, ConcentratedHybridBranch::Inner);
+        let evaluation =
+            hybrid_residual_evaluation_with_context(fixed, variable, d, Some(geometry), Some(context)).unwrap();
+        assert_eq!(evaluation.q64 > Q64_ONE, expected_q_above_one);
+        assert_ne!(evaluation.q64, Q64_ONE);
+        let candidate = inner_newton_probe(fixed, variable, d, evaluation, geometry)
+            .expect("q=1-adjacent inner state must produce Newton guidance");
+        if evaluation.positive {
+            assert!(candidate < variable);
+        } else {
+            assert!(candidate > variable);
+        }
+    }
+}
+
+#[test]
+fn inner_newton_matches_prior_search_at_center_and_domain_extremes() {
+    for (base, quote, peak, fade, amounts) in [
+        (
+            1_000_000_000_u128,
+            1_000_000_000_u128,
+            CONCENTRATED_MIN_PEAK_DEPTH_NAD,
+            100_u128,
+            [1_u128, 1_000, 100_000],
+        ),
+        (
+            1_000_000_000_000_000,
+            1_000_000_000_000_000,
+            PEAK_DEPTH_200,
+            FADE_TENTH,
+            [1, 1_000_000_000_000, 100_000_000_000_000],
+        ),
+        (
+            1_000_000_000_000_000,
+            1_200_000_000_000_000,
+            PEAK_DEPTH_200,
+            FADE_TENTH,
+            [1, 50_000_000_000_000, 200_000_000_000_000],
+        ),
+        (
+            u64::MAX as u128 - 1_000_000,
+            u64::MAX as u128 - 2_000_000,
+            CONCENTRATED_MAX_PEAK_DEPTH_NAD,
+            CONCENTRATED_MAX_FADE_SCALE_NAD,
+            [1, 131_071, 500_000],
+        ),
+    ] {
+        let prepared = concentrated_prepare_curve(base, quote, NAD as u128, peak, fade).unwrap();
+        for direction in [
+            ConcentratedSwapDirection::BaseToQuote,
+            ConcentratedSwapDirection::QuoteToBase,
+        ] {
+            for amount_in in amounts {
+                assert_inner_newton_quote_differential(prepared, amount_in, direction);
+            }
+        }
+    }
+}
+
+#[test]
+fn inner_newton_matches_prior_search_across_both_c1_joins() {
+    for (peak_depth_nad, fade_scale_nad) in [
+        (CONCENTRATED_MIN_PEAK_DEPTH_NAD, 100_u128),
+        (PEAK_DEPTH_200, FADE_TENTH),
+        (CONCENTRATED_MAX_PEAK_DEPTH_NAD, CONCENTRATED_MAX_FADE_SCALE_NAD),
+    ] {
+        let d = 2_000_000_000_000_u128;
+        let geometry = ConcentratedC1Geometry::derive(peak_depth_nad, fade_scale_nad).unwrap();
+        for (q_q48, v_q48) in [
+            (geometry.q_start_q48, geometry.v_start_q48),
+            (geometry.q_tail_q48, geometry.v_tail_q48),
+        ] {
+            let (low_common, high_common) = reserves_at_c1_coordinate(d, q_q48, v_q48);
+            for (base, quote) in [(high_common, low_common), (low_common, high_common)] {
+                let prepared =
+                    concentrated_prepare_curve(base, quote, NAD as u128, peak_depth_nad, fade_scale_nad).unwrap();
+                for direction in [
+                    ConcentratedSwapDirection::BaseToQuote,
+                    ConcentratedSwapDirection::QuoteToBase,
+                ] {
+                    for amount_in in [d / 1_000_000, d / 100_000, d / 10_000] {
+                        assert_inner_newton_quote_differential(prepared, amount_in, direction);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn variable_reserve_newton_matches_canonical_bisection_across_quote_brackets() {
+    let states = [
+        (
+            1_000_000_000_000_000_u128,
+            1_000_000_000_000_000_u128,
+            NAD as u128,
+            PEAK_DEPTH_200,
+            FADE_TENTH,
+        ),
+        (
+            1_000_000_000_000_000,
+            1_350_000_000_000_000,
+            NAD as u128,
+            PEAK_DEPTH_200,
+            FADE_TENTH,
+        ),
+        (
+            1_350_000_000_000_000,
+            1_000_000_000_000_000,
+            NAD as u128,
+            PEAK_DEPTH_200,
+            FADE_TENTH,
+        ),
+        (
+            8_000_000_000_000,
+            1_000_000_000_000,
+            2 * NAD as u128,
+            PEAK_DEPTH_200,
+            CONCENTRATED_MAX_FADE_SCALE_NAD,
+        ),
+        (
+            1_000_000_000_000,
+            8_000_000_000_000,
+            NAD as u128 / 2,
+            2 * NAD as u128,
+            50_000_000,
+        ),
+        (
+            u64::MAX as u128 / 4,
+            u64::MAX as u128 / 5,
+            NAD as u128,
+            CONCENTRATED_MAX_PEAK_DEPTH_NAD,
+            1,
+        ),
+    ];
+    for (base, quote, center, peak, fade) in states {
+        let prepared = concentrated_prepare_curve(base, quote, center, peak, fade).unwrap();
+        for direction in [
+            ConcentratedSwapDirection::BaseToQuote,
+            ConcentratedSwapDirection::QuoteToBase,
+        ] {
+            let (input_reserve, output_reserve, input_common, output_common) = match direction {
+                ConcentratedSwapDirection::BaseToQuote => (base, quote, prepared.base_common, prepared.quote_common),
+                ConcentratedSwapDirection::QuoteToBase => (quote, base, prepared.quote_common, prepared.base_common),
+            };
+            for divisor in [10_000_u128, 100, 4] {
+                let amount_in = (input_reserve / divisor).max(1);
+                let input_after = input_reserve.checked_add(amount_in).unwrap();
+                let fixed = prepared
+                    .input_common_scale(direction)
+                    .unwrap()
+                    .to_common_floor(input_after)
+                    .unwrap();
+                if fixed > input_common
+                    && hybrid_residual(fixed, output_common, prepared.invariant_d, prepared.geometry)
+                        .unwrap()
+                        .0
+                {
+                    let accelerated =
+                        solve_variable_reserve(fixed, prepared.invariant_d, prepared.geometry, 1, output_common)
+                            .unwrap();
+                    let reference = solve_variable_reserve_bisection_reference(
+                        fixed,
+                        prepared.invariant_d,
+                        prepared.geometry,
+                        1,
+                        output_common,
+                    )
+                    .unwrap();
+                    assert_eq!(accelerated, reference, "exact-in state/direction/divisor mismatch");
+                }
+
+                let amount_out = (output_reserve / divisor).max(1).min(output_reserve - 1);
+                let output_after = output_reserve - amount_out;
+                let fixed = prepared
+                    .output_common_scale(direction)
+                    .unwrap()
+                    .to_common_floor(output_after)
+                    .unwrap();
+                if input_common < MAX_COMMON_RESERVE
+                    && !hybrid_residual(fixed, input_common, prepared.invariant_d, prepared.geometry)
+                        .unwrap()
+                        .0
+                    && hybrid_residual(fixed, MAX_COMMON_RESERVE, prepared.invariant_d, prepared.geometry)
+                        .unwrap()
+                        .0
+                {
+                    let accelerated = solve_variable_reserve(
+                        fixed,
+                        prepared.invariant_d,
+                        prepared.geometry,
+                        input_common,
+                        MAX_COMMON_RESERVE,
+                    )
+                    .unwrap();
+                    let reference = solve_variable_reserve_bisection_reference(
+                        fixed,
+                        prepared.invariant_d,
+                        prepared.geometry,
+                        input_common,
+                        MAX_COMMON_RESERVE,
+                    )
+                    .unwrap();
+                    assert_eq!(accelerated, reference, "exact-out state/direction/divisor mismatch");
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -1363,6 +1757,32 @@ fn parameter_encoding_is_canonical() {
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(32))]
+
+    #[test]
+    fn inner_newton_is_differentially_identical_on_random_inner_quotes(
+        reserve in 1_000_000_000_000_u128..100_000_000_000_000_000_u128,
+        quote_ratio_bps in 9_900_u128..=10_100_u128,
+        input_bps in 1_u128..=100_u128,
+        base_to_quote in any::<bool>(),
+    ) {
+        let base = reserve;
+        let quote = mul_div_floor(reserve, quote_ratio_bps, 10_000).unwrap();
+        let amount_in = mul_div_floor(reserve, input_bps, 10_000).unwrap().max(1);
+        let direction = if base_to_quote {
+            ConcentratedSwapDirection::BaseToQuote
+        } else {
+            ConcentratedSwapDirection::QuoteToBase
+        };
+        let prepared = concentrated_prepare_curve(
+            base,
+            quote,
+            NAD as u128,
+            PEAK_DEPTH_200,
+            FADE_TENTH,
+        )
+        .unwrap();
+        assert_inner_newton_quote_differential(prepared, amount_in, direction);
+    }
 
     #[test]
     fn wide_geometric_mean_is_the_exact_floor(

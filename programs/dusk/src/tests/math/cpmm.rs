@@ -55,6 +55,31 @@ fn normalized_cpmm_uses_full_width_products_without_changing_raw_rounding() {
 }
 
 #[test]
+fn preview_liquidity_supports_the_full_valid_reserve_domain() {
+    use crate::state::Reserves;
+
+    let side = MarketSide {
+        asset_decimals: 0,
+        reserves: Reserves {
+            live_reserve: u64::MAX,
+            ..Reserves::default()
+        },
+        ..MarketSide::default()
+    };
+    let normalized_reserve = u64::MAX as u128 * NAD as u128;
+
+    assert!(normalized_reserve.checked_mul(normalized_reserve).is_none());
+    assert_eq!(
+        geometric_mean_floor(
+            normalize_to_nad(side.reserves.live_reserve as u128, side.asset_decimals).unwrap(),
+            normalize_to_nad(side.reserves.live_reserve as u128, side.asset_decimals).unwrap(),
+        )
+        .unwrap(),
+        normalized_reserve
+    );
+}
+
+#[test]
 fn conservative_k_reconstruction_preserves_spot_ratio() {
     let x = 4_000 * NAD as u128;
     let y = 1_000 * NAD as u128;

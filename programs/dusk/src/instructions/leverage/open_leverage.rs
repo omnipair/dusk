@@ -9,22 +9,22 @@ use crate::{
     constants::*,
     errors::ErrorCode,
     events::{LeveragePositionOpened, LeverageSwapReceipt, MarketEventMetadata, ReferralBound},
-    market::{leverage_debt_from_margin, LeverageSwapQuote, PreparedLeverageSwap},
+    market::{leverage_debt_from_margin, liquidity::SwapCashPolicy},
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
     token::{create_token_account, transfer_checked_with_remaining_accounts},
 };
 
 use super::settlement::{
     leverage_collateral_credit, leverage_collateral_vault_pda, leverage_position_pda, leverage_swap_fee_credit,
-    settle_inline_leverage_hlp, validate_leverage_collateral_risk_mint, validate_leverage_futarchy_pda,
-    validate_leverage_market_pda, validate_leverage_mints, validate_leverage_reserve_accounts,
-    validate_owner_debt_account,
+    prepare_leverage_swap, settle_inline_leverage_hlp, validate_leverage_collateral_risk_mint,
+    validate_leverage_futarchy_pda, validate_leverage_market_pda, validate_leverage_mints,
+    validate_leverage_reserve_accounts, validate_owner_debt_account,
 };
 use crate::instructions::accounts::{
     require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout,
 };
 use crate::instructions::referral::accounting::validate_referral_binding;
-use crate::instructions::{PreparedSwap, SwapRequest};
+use crate::instructions::SwapRequest;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct OpenLeverageArgs {
@@ -208,27 +208,20 @@ impl<'info> OpenLeverage<'info> {
         let notional = margin_credit
             .checked_add(debt_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let PreparedSwap {
-            quote,
-            base_pre_rebalance,
-            quote_pre_rebalance,
-            fee_eligible_ylp_supply,
-            interest_eligibility,
-        } = SwapRequest {
-            current_slot,
-            asset_in: debt_asset,
-            reserve_credit: notional,
-        }
-        .prepare(&mut ctx.accounts.market)?;
-        ctx.accounts.market.observe_current_risk(current_slot)?;
-        let swap = LeverageSwapQuote::from_amm(quote, current_slot);
-        let prepared_swap = PreparedLeverageSwap {
-            swap,
-            base_pre_rebalance,
-            quote_pre_rebalance,
-            fee_eligible_ylp_supply,
-            interest_eligibility,
-        };
+        let prepared_swap = prepare_leverage_swap(
+            &mut ctx.accounts.market,
+            SwapRequest {
+                current_slot,
+                asset_in: debt_asset,
+                reserve_credit: notional,
+            },
+            SwapCashPolicy::Borrow {
+                asset: debt_asset,
+                amount: debt_amount,
+            },
+        )?;
+        let swap = prepared_swap.swap;
+        let interest_eligibility = prepared_swap.interest_eligibility;
         let collateral_credit =
             leverage_collateral_credit(&ctx.accounts.collateral_mint, swap.amount_out, current_epoch)?;
         require_gte!(collateral_credit, args.min_collateral_out, ErrorCode::SlippageExceeded);

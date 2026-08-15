@@ -89,7 +89,7 @@ pub fn instantaneous_rate_apr_nad(rate_at_target_nad: u128, error_nad: i128, ste
     rate_at_target_nad
         .checked_mul(mult as u128)
         .and_then(|value| value.checked_div(NAD as u128))
-        .ok_or(ErrorCode::MarketMathOverflow.into())
+        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
 /// Drift the anchor: `rate_at_target *= e^(speed * error * dt/year)`, using a
@@ -144,7 +144,9 @@ pub fn accrued_index_nad(index_nad: u128, rate_apr_nad: u128, dt_ms: u64) -> Res
         .checked_mul(growth_nad)
         .and_then(|value| value.checked_div(NAD as u128))
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    index_nad.checked_add(delta).ok_or(ErrorCode::MarketMathOverflow.into())
+    index_nad
+        .checked_add(delta)
+        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
 /// Split a debt repayment into the principal returned to the reserve and the

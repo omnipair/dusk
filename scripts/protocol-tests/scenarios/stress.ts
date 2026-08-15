@@ -207,6 +207,16 @@ export const STRESS_SCENARIOS: ScenarioDefinition[] = [
       const exactDebt = BigInt(
         decodePreviewBorrowPositionReturnData(previewData(debtEvidence)).fixedQuoteDebt.toString()
       );
+      const repayMax = await harness.tokenBalance(
+        "alice",
+        harness.config.quoteMint,
+        harness.config.quoteTokenProgram,
+      );
+      harness.assertTrue(
+        "Alice's quote balance covers same-state borrow cleanup debt",
+        repayMax >= exactDebt,
+        { repayMax, previewDebt: exactDebt },
+      );
       await harness.execute({
         wallet: "alice",
         endpoint: "/api/v2/fork/tx/repay",
@@ -214,7 +224,7 @@ export const STRESS_SCENARIOS: ScenarioDefinition[] = [
         body: {
           positionId: staleBorrowPositionId.toBase58(),
           repayAsset: "quote",
-          repayAmount: formatUnits(exactDebt, harness.config.quoteDecimals),
+          repayAmount: formatUnits(repayMax, harness.config.quoteDecimals),
         },
       });
       const repaidEvidence = await harness.execute({

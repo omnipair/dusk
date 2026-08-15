@@ -1,4 +1,4 @@
-//! Pure math for the hedged-LP within-swap tracking solver (Phase 2).
+//! Pure math for the hedged-LP within-swap tracking solver.
 //!
 //! A 2x-leveraged constant-product LP tracks its deposit asset only in the
 //! continuous-rebalancing limit. A single discrete swap of price ratio `r`
@@ -6,13 +6,10 @@
 //! pre-positioning the vault before the swap with a `Δpre = E0 * (sqrt(r) - 1)`
 //! leverage adjustment and finishing with the usual post-swap rebalance.
 //!
-//! In Omnipair the pre-adjustment is a *price-neutral synthetic deepening*, so
-//! it changes the realized `r` (endogenous): the production `Δpre` is the fixed
-//! point `a = E0 * (sqrt(r(a)) - 1)`, approximated by the protocol-fixed
-//! three-evaluation safeguarded secant predictor over the real swap simulator.
-//! These functions are the numeraire-only building blocks (loss estimate and
-//! closed-form seed); market-state orchestration runs only when estimated
-//! tracking loss exceeds the configured threshold.
+//! These functions are invariant-independent numeraire building blocks and
+//! analytic references. Production active-hLP swaps use the shared bounded
+//! joint lifecycle solver for CPMM and concentration; they do not authorize a
+//! state transition from this one-sided closed-form expression.
 //!
 //! All ratios/amounts are NAD fixed point (`NAD == 1.0`).
 
@@ -316,9 +313,9 @@ pub fn tracking_loss_nad(equity_nad: u128, r_nad: u128) -> Result<u128> {
 }
 
 /// Closed-form pre-adjustment magnitude `|E0 * (sqrt(r) - 1)|`, in NAD, plus
-/// whether it is a lever-up (`r > 1`) or a deleverage (`r < 1`). Used as the
-/// initial safeguarded-secant seed; the accepted value is checked against the
-/// simulator because the synthetic deepening makes `r` endogenous.
+/// whether it is a lever-up (`r > 1`) or a deleverage (`r < 1`). This is an
+/// analytic CPMM counterfactual retained for theorem and regression tests; the
+/// applied-curve predictor does not use it as a production seed.
 pub fn closed_form_pre_adjustment_nad(equity_nad: u128, r_nad: u128) -> Result<(u128, bool)> {
     let s = sqrt_ratio_nad(r_nad)?;
     let nad = NAD as u128;

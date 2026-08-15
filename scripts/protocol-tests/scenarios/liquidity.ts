@@ -398,19 +398,21 @@ export const LIQUIDITY_SCENARIOS: ScenarioDefinition[] = [
         label: "mint base hLP for transfer checkpoint test",
         body: { targetAsset: "base", depositAmount: "20", minHlpAmount: "0" },
       });
+      const minted = await harness.lpBalance("trader", harness.config.baseHlpMint) - traderBaseline;
+      harness.assertTrue(
+        "initial hLP deposit mints enough shares for checkpoint transfers",
+        minted >= 3n,
+        minted,
+      );
       await harness.execute({
         wallet: "trader",
         endpoint: "/api/v2/fork/tx/swap",
         label: "accrue underlying yLP fees for base hLP vault",
         body: { assetIn: "base", exactAssetIn: "100", minAssetOut: "0" },
       });
-      await harness.execute({
-        wallet: "trader",
-        endpoint: "/api/v2/fork/tx/deposit-single-sided",
-        label: "checkpoint hLP vault yield before first transfer",
-        body: { targetAsset: "base", depositAmount: "1", minHlpAmount: "0" },
-      });
-      const minted = await harness.lpBalance("trader", harness.config.baseHlpMint) - traderBaseline;
+      // The Token-2022 transfer hook checkpoints both the vault's underlying
+      // yLP growth and the holders. Do not add capital merely to force a
+      // checkpoint: a new hLP entry has independent settlement-admission rules.
       const first = minted / 3n;
       await transferLp(harness, "trader", "bob", "hlp", "base", first, decimals, "transfer base hLP into empty Bob account");
       const traderAfterFirst = await harness.yieldAccount("trader", "base", "hlp");
@@ -445,14 +447,7 @@ export const LIQUIDITY_SCENARIOS: ScenarioDefinition[] = [
         label: "accrue hLP yield while both holders are active",
         body: { assetIn: "base", exactAssetIn: "100", minAssetOut: "0" },
       });
-      await harness.execute({
-        wallet: "trader",
-        endpoint: "/api/v2/fork/tx/deposit-single-sided",
-        label: "checkpoint hLP vault yield for existing receiver",
-        body: { targetAsset: "base", depositAmount: "1", minHlpAmount: "0" },
-      });
-      const totalMinted = await harness.lpBalance("trader", harness.config.baseHlpMint) + first - traderBaseline;
-      const second = totalMinted / 3n;
+      const second = minted / 3n;
       await transferLp(harness, "trader", "bob", "hlp", "base", second, decimals, "transfer base hLP into existing Bob account");
       const traderBeforeFull = await harness.yieldAccount("trader", "base", "hlp");
       const bobBeforeFull = await harness.yieldAccount("bob", "base", "hlp");
@@ -472,12 +467,6 @@ export const LIQUIDITY_SCENARIOS: ScenarioDefinition[] = [
         endpoint: "/api/v2/fork/tx/swap",
         label: "accrue final hLP fee period",
         body: { assetIn: "base", exactAssetIn: "50", minAssetOut: "0" },
-      });
-      await harness.execute({
-        wallet: "bob",
-        endpoint: "/api/v2/fork/tx/deposit-single-sided",
-        label: "checkpoint final hLP vault fee period",
-        body: { targetAsset: "base", depositAmount: "1", minHlpAmount: "0" },
       });
       await transferLp(harness, "bob", "trader", "hlp", "base", 1n, decimals, "checkpoint both hLP holders after final period");
 

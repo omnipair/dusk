@@ -201,10 +201,12 @@ fn isolated_principal_remains_the_sum_across_sequential_close_and_liquidation() 
         .unwrap();
 
     // The aggregate floor phase charges 36 even though the first position's
-    // displayed debt is 35. Cash classification and principal ownership are
-    // deliberately distinct.
+    // displayed debt is 35. The exact aggregate unrealized-interest drop is
+    // two atoms; the remaining 34 atoms are principal.
     assert_eq!(first_close.cash_repaid, 36);
     assert_eq!(first_close.debt_reduced, 35);
+    assert_eq!(first_close.principal_paid, 34);
+    assert_eq!(first_close.interest_paid, 2);
     assert_eq!(first_shares, 0);
     assert_eq!(first_principal, 0);
     assert_eq!(debt.isolated_base_shares, second_shares);
@@ -219,6 +221,60 @@ fn isolated_principal_remains_the_sum_across_sequential_close_and_liquidation() 
     assert_eq!(writeoff.principal_written_off, 67);
     assert_eq!(second_shares, 0);
     assert_eq!(second_principal, 0);
+    assert_eq!(debt.isolated_base_shares, 0);
+    assert_eq!(debt.isolated_base_principal, 0);
+}
+
+#[test]
+fn mixed_age_isolated_clearance_quotes_and_commits_the_exact_interest_cash() {
+    let mut debt = Debt {
+        base_borrow_index_nad: NAD as u128,
+        ..Debt::default()
+    };
+    let mut old_shares = debt.add_isolated_debt(MarketAsset::Base, 100).unwrap();
+    let mut old_principal = 100u128;
+
+    debt.base_borrow_index_nad = (NAD as u128) * 3 / 2;
+    let mut new_shares = debt.add_isolated_debt(MarketAsset::Base, 300).unwrap();
+    let mut new_principal = 300u128;
+    assert_eq!(old_shares, 100);
+    assert_eq!(new_shares, 200);
+    assert_eq!(debt.isolated_debt(MarketAsset::Base).unwrap(), 450);
+    assert_eq!(debt.isolated_base_principal, 400);
+
+    let old_quote = debt
+        .isolated_clearance_for_max(MarketAsset::Base, old_shares, old_principal, u64::MAX)
+        .unwrap();
+    assert_eq!(old_quote.cash_repaid, 150);
+    assert_eq!(old_quote.principal_paid, 100);
+    assert_eq!(old_quote.interest_paid, 50);
+    assert_eq!(
+        debt.clear_isolated_debt(
+            MarketAsset::Base,
+            &mut old_shares,
+            &mut old_principal,
+            u64::MAX,
+        )
+        .unwrap(),
+        old_quote
+    );
+
+    let new_quote = debt
+        .isolated_clearance_for_max(MarketAsset::Base, new_shares, new_principal, u64::MAX)
+        .unwrap();
+    assert_eq!(new_quote.cash_repaid, 300);
+    assert_eq!(new_quote.principal_paid, 300);
+    assert_eq!(new_quote.interest_paid, 0);
+    assert_eq!(
+        debt.clear_isolated_debt(
+            MarketAsset::Base,
+            &mut new_shares,
+            &mut new_principal,
+            u64::MAX,
+        )
+        .unwrap(),
+        new_quote
+    );
     assert_eq!(debt.isolated_base_shares, 0);
     assert_eq!(debt.isolated_base_principal, 0);
 }

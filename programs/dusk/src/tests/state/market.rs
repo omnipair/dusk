@@ -85,6 +85,7 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
     base_side.reserves = Reserves {
         live_reserve: base_cash,
         cash_reserve: base_cash,
+        ..Reserves::default()
     };
     base_side.shares.ylp_supply = base_cash;
     let mut quote_side = MarketSide {
@@ -95,6 +96,7 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
     quote_side.reserves = Reserves {
         live_reserve: quote_cash,
         cash_reserve: quote_cash,
+        ..Reserves::default()
     };
     quote_side.shares.ylp_supply = quote_cash;
     Market {
@@ -1049,6 +1051,33 @@ fn concentration_execution_starts_the_selected_ramp_from_the_applied_shape() {
     assert_eq!(market.amm.concentration_ramp.end_slot, 2 + duration);
     assert_eq!(market.amm.applied_curve_parameters, applied_before);
     assert_eq!(market.parameter_revisions, [0, 1, 0, 0, 0]);
+}
+
+#[test]
+fn active_or_residual_hlp_allows_a_concentration_parameter_ramp() {
+    let update = MarketParameterUpdate::Concentration {
+        peak_depth_nad: 200 * NAD,
+        fade_scale_nad: NAD / 100,
+        concentration_ramp_duration_slots: MIN_CONCENTRATION_RAMP_DURATION_SLOTS,
+    };
+
+    for mut market in [
+        {
+            let mut active = invariant_market(1_000_000, 1_000_000);
+            active.finalize_amm_transition_and_observe_risk(0).unwrap();
+            active.base_hlp_vault.hlp_supply = 1;
+            active
+        },
+        {
+            let mut residual = invariant_market(1_000_000, 1_000_000);
+            residual.finalize_amm_transition_and_observe_risk(0).unwrap();
+            residual.quote_hlp_vault.residual_exposure = 1;
+            residual
+        },
+    ] {
+        market.execute_parameter_update(&update, 1).unwrap();
+        assert!(market.amm.concentration_ramp.active);
+    }
 }
 
 #[test]

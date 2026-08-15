@@ -682,19 +682,20 @@ fn trade_finalization_advances_curve_revision_once_and_leaves_unmaterialized_ris
     let revision_before = market.curve_revision;
 
     let quote = market.quote_amm_swap(MarketAsset::Base, 50_000 * NAD, 10).unwrap();
+    assert_eq!(quote.fee.retained_surcharge, 0);
     market
         .base_side
         .credit_reserve(quote.fee.amount_in_for_quote, true)
         .unwrap();
     market.quote_side.debit_reserve(quote.amount_out, true).unwrap();
     checkpoint_trade_endpoint_like_spot(&mut market, quote.trade_endpoint().unwrap(), 10).unwrap();
-    market
-        .finalize_amm_trade_after_inventory_checkpoint(quote.start_price_nad, quote.end_price_nad, 10)
-        .unwrap();
     let final_evaluation = quote
         .reserve_endpoint()
         .unwrap()
         .validated_evaluation(&market, 10)
+        .unwrap();
+    market
+        .finalize_amm_trade_after_inventory_checkpoint(quote.start_price_nad, quote.end_price_nad, 10)
         .unwrap();
     market.observe_risk_from_curve_evaluation(final_evaluation, 10).unwrap();
 
@@ -771,6 +772,7 @@ fn retained_endpoint_checkpoint_matches_two_fresh_curve_solves() {
     distributed.quote_amm_swap(MarketAsset::Base, 50_000 * NAD, 10).unwrap();
     let distributed_evaluations = crate::math::residual_evaluations();
     market.amm.retain_dynamic_surcharge = true;
+    market.defer_amm_retention_target().unwrap();
     crate::math::reset_residual_evaluations();
     let quote = market.quote_amm_swap(MarketAsset::Base, 50_000 * NAD, 10).unwrap();
     let retained_evaluations = crate::math::residual_evaluations();

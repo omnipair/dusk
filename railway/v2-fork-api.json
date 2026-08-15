@@ -12,7 +12,9 @@
       "packages/dusk-sdk/src/idl_v2.json",
       "scripts/v2-fork-lab/api.ts",
       "scripts/v2-fork-lab/api_core.ts",
-      "scripts/v2-fork-lab/surfpool_v2_e2e.ts"
+      "scripts/v2-fork-lab/idl/leverage_delegate.json",
+      "scripts/v2-fork-lab/surfpool_v2_e2e.ts",
+      "scripts/protocol-tests/**"
     ]
   },
   "deploy": {

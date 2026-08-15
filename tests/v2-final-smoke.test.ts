@@ -56,6 +56,7 @@ import {
   deriveYieldTransferHookValidationAddress,
   deriveTokenMetadataAddress,
   TOKEN_METADATA_PROGRAM_ID,
+  TRANSFER_HOOK_EXECUTE_DISCRIMINATOR,
 } from "../packages/dusk-sdk/src/constants.js";
 import {
   decodePreviewAddLiquidityReturnData,
@@ -495,8 +496,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     return validationAccount;
   }
 
-  async function createHookedLpMint(authority: PublicKey, decimals = 6) {
-    const mint = Keypair.generate();
+  async function createHookedLpMint(
+    authority: PublicKey,
+    decimals = 6,
+    mint = Keypair.generate()
+  ) {
     const mintLen = getMintLen([ExtensionType.TransferHook]);
     await connection.sendTransaction(
       new Transaction().add(
@@ -742,6 +746,28 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   async function initializeFinalMarket(paramsSeed: number, config = marketConfig()) {
     const baseMint = await createMint(connection as any, payer, payer.publicKey, null, 6);
     const quoteMint = await createMint(connection as any, payer, payer.publicKey, null, 6);
+    if (process.env.DUSK_EXPECT_PRODUCTION_MINT_SUFFIXES === "1") {
+      const paramsHash = Buffer.alloc(32, paramsSeed);
+      const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash);
+      // Public test-only keys satisfying production's exact yLP/hLP suffixes.
+      const ylp = Keypair.fromSecretKey(
+        Buffer.from("eVTnT13X34qGGAitZluS8ntUjqyI68RMUTB39YSJVE0IIgiaaycPLv/XpDFF2Hl7Iu1LxQhtESDsHxlf/0Z3tA==", "base64")
+      );
+      const baseHlp = Keypair.fromSecretKey(
+        Buffer.from("mcqSo7BbkVpVF14Stzsj62CcpMdDYV30bPeHBB8XDrkJIUjEkHjWHig2YGwzxgyi/Y+Mdr/fIQR2Wzi/3SvArA==", "base64")
+      );
+      const quoteHlp = Keypair.fromSecretKey(
+        Buffer.from("W1Quna5vQMVJqK+Ah0r6NBQGKcFZnGpN+Wgjj6DCrqMH9fJyiOBna+rsbArFZY2n2Tu5tzuh065P6+95avwDDA==", "base64")
+      );
+      await createHookedLpMint(market, 6, ylp);
+      await createHookedLpMint(market, 6, baseHlp);
+      await createHookedLpMint(market, 6, quoteHlp);
+      return initializeFinalMarketWithMints(paramsSeed, baseMint, quoteMint, config, 6, {
+        ylpMint: ylp.publicKey,
+        baseHlpMint: baseHlp.publicKey,
+        quoteHlpMint: quoteHlp.publicKey,
+      });
+    }
     return initializeFinalMarketWithMints(paramsSeed, baseMint, quoteMint, config);
   }
 
@@ -1272,12 +1298,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     return ((denominator - qNumerator) * 1_000_000_000n) / denominator;
   }
 
-  function isInExactConcentratedTail(
-    fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>
-  ) {
-    const account = svm.getAccount(fixture.market);
-    expect(account).to.not.equal(null);
-    const market = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
+  function concentratedBranch(market: any) {
     const center = BigInt(market.amm.center_price_nad.toString());
     const baseNad = BigInt(market.base_side.reserves.live_reserve.toString()) * 1_000n;
     const quoteNad = BigInt(market.quote_side.reserves.live_reserve.toString()) * 1_000n;
@@ -1289,12 +1310,26 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const tailRatioQ80 = BigInt(
       market.amm.concentrated_geometry_cache.reserve_ratio_tail_q80.toString()
     );
-    return low * (1n << 80n) <= high * tailRatioQ80;
+    if (low * (1n << 80n) <= high * tailRatioQ80) return "tail";
+    const startRatioQ80 = BigInt(
+      market.amm.concentrated_geometry_cache.reserve_ratio_start_q80.toString()
+    );
+    return low * (1n << 80n) <= high * startRatioQ80 ? "transition" : "inner";
+  }
+
+  function isInExactConcentratedTail(
+    fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>
+  ) {
+    const account = svm.getAccount(fixture.market);
+    expect(account).to.not.equal(null);
+    const market = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
+    return concentratedBranch(market) === "tail";
   }
 
   async function openQuoteDebtLeverage(
     fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>,
-    marginAmount = 1_000
+    marginAmount = 1_000,
+    remainingAccounts: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] = []
   ) {
     const positionId = Keypair.generate().publicKey;
     const leveragePosition = deriveLeveragePositionAddress(fixture.market, positionId)[0];
@@ -1303,7 +1338,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       fixture.baseMint
     )[0];
 
-    const tx = await program.methods
+    let builder = program.methods
       .openLeverage({
         positionId,
         debtAsset: 1,
@@ -1329,14 +1364,18 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
         program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    await connection.sendTransaction(tx, [payer]);
+      });
+    if (remainingAccounts.length > 0) {
+      builder = builder.remainingAccounts(remainingAccounts);
+    }
+    const tx = await builder.transaction();
+    const measurement = await connection.sendTransactionMeasured(tx, [payer]);
 
     return {
       positionId,
       leveragePosition,
       leverageCollateralVault,
+      measurement,
     };
   }
 
@@ -1658,6 +1697,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           })
           .accounts({
             market: fixture.market,
+            futarchyAuthority,
             assetInMint: fixture.baseMint,
             assetOutMint: fixture.quoteMint,
           })
@@ -2447,7 +2487,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     );
     expect(ownerQuoteAfterClaim.amount - ownerQuoteBeforeClaim.amount).to.equal(claimable);
   });
-  it("opens base hLP by borrowing quote and locking both yLP sides", async function () {
+  it("supports the hLP launch profile for base hLP entry", async function () {
     const fixture = await addBalancedLiquidity(44);
     const ownerBaseBefore = await getAccount(connection as any, fixture.ownerBaseAccount);
     const hedge = await openBaseHedge(fixture);
@@ -3099,6 +3139,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           })
           .accounts({
             market: fixture.market,
+            futarchyAuthority,
             assetInMint: fixture.baseMint,
             assetOutMint: fixture.quoteMint,
           })
@@ -3115,6 +3156,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .accounts({
         market: fixture.market,
+        futarchyAuthority,
         assetInMint: fixture.baseMint,
         assetOutMint: fixture.quoteMint,
       })
@@ -3230,6 +3272,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           })
           .accounts({
             market: fixture.market,
+            futarchyAuthority,
             assetInMint: fixture.baseMint,
             assetOutMint: fixture.quoteMint,
           })
@@ -3294,6 +3337,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           .previewSwap({ exactAssetIn: grossInput })
           .accounts({
             market: fixture.market,
+            futarchyAuthority,
             assetInMint: fixture.baseMint,
             assetOutMint: fixture.quoteMint,
           })
@@ -3315,6 +3359,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .previewSwap({ exactAssetIn: grossInput })
       .accounts({
         market: fixture.market,
+        futarchyAuthority,
         assetInMint: fixture.baseMint,
         assetOutMint: fixture.quoteMint,
       })
@@ -3359,6 +3404,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           .previewSwap({ exactAssetIn: new BN(10_000_000) })
           .accounts({
             market: fixture.market,
+            futarchyAuthority,
             assetInMint: fixture.baseMint,
             assetOutMint: fixture.quoteMint,
           })
@@ -3401,6 +3447,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           .previewSwap({ exactAssetIn: new BN(grossInput.toString()) })
           .accounts({
             market: distributed.market,
+            futarchyAuthority,
             assetInMint: distributed.baseMint,
             assetOutMint: distributed.quoteMint,
           })
@@ -3439,6 +3486,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           .previewSwap({ exactAssetIn: new BN(retainedGrossInput.toString()) })
           .accounts({
             market: retained.market,
+            futarchyAuthority,
             assetInMint: retained.baseMint,
             assetOutMint: retained.quoteMint,
           })
@@ -3504,6 +3552,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           .previewSwap({ exactAssetIn: new BN(grossInput.toString()) })
           .accounts({
             market: distributed.market,
+            futarchyAuthority,
             assetInMint: distributed.baseMint,
             assetOutMint: distributed.quoteMint,
           })
@@ -3532,6 +3581,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           .previewSwap({ exactAssetIn: new BN(grossInput.toString()) })
           .accounts({
             market: retained.market,
+            futarchyAuthority,
             assetInMint: retained.baseMint,
             assetOutMint: retained.quoteMint,
           })
@@ -3616,6 +3666,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           .previewSwap({ exactAssetIn: new BN(grossInput.toString()) })
           .accounts({
             market: fixture.market,
+            futarchyAuthority,
             assetInMint: fixture.baseMint,
             assetOutMint: fixture.quoteMint,
           })
@@ -3817,71 +3868,338 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(advanced.curve_revision.gt(advanced.risk_revision)).to.equal(true);
   });
 
-  it("executes a funded concentrated recenter with an active hLP below the SBF compute ceiling", async function () {
-    const config = marketConfig();
-    config.amm.peakDepthNad = new BN("200000000000");
-    config.amm.fadeScaleNad = new BN("100000000");
-    config.amm.adjustmentThresholdNad = new BN("1000");
-    config.amm.adjustmentStepNad = new BN("1000");
-    config.amm.minAdjustmentIntervalSlots = new BN(1);
-    config.amm.divergenceFeeCoefficientNad = new BN("10000000000");
-    const fixture = await addBalancedLiquidity(79, config, {
-      baseDeposit: 100_000_000,
-      quoteDeposit: 200_000_000,
-      minYlp: 1,
-      baseMint: 500_000_000,
-      quoteMint: 500_000_000,
-    });
-    await openBaseHedge(fixture, 10_000_000);
-    trackV2Instruction("depositSingleSided", this.test?.title);
+  it("executes active concentrated hLP spot swaps in both directions", async function () {
+    this.timeout(120_000);
 
-    const hLpAccounts = hlpSwapAccounts(fixture);
-    await swapBaseForQuote(fixture, hLpAccounts, 5_000_000, 1);
-    const accountBefore = svm.getAccount(fixture.market);
-    expect(accountBefore).to.not.equal(null);
-    const funded = accountCoder.decode(
-      "Market",
-      Buffer.from(accountBefore!.data)
-    ) as any;
-    expect(funded.base_hlp_vault.hlp_supply.gt(new BN(0))).to.equal(true);
-    expect(funded.amm.retention_target_stale).to.equal(true);
-    expect(funded.amm.retention_hard_cap_nad.gt(new BN(0))).to.equal(true);
+    const interestLiabilityTotal = (side: any) =>
+      BigInt(side.fees.interest_liability.toString()) +
+      BigInt(side.fees.unallocated_interest_liability.toString()) +
+      BigInt(side.fees.referral_interest_liability.toString()) +
+      BigInt(side.fees.interest_protocol_fee_liability.toString()) +
+      BigInt(side.fees.interest_buyback_fee_liability.toString());
 
-    funded.amm.protected_floor_per_share_nad =
-      funded.amm.q_per_share_nad.sub(funded.amm.retention_hard_cap_nad);
-    funded.amm.price_ema_nad = funded.amm.last_trade_price_nad;
-    funded.amm.retention_target_stale = true;
-    const marketLayout = (accountCoder as any).accountLayouts.get("Market");
-    const marketBody = Buffer.alloc(accountBefore!.data.length - 8);
-    const marketBodyLength = marketLayout.layout.encode(funded, marketBody);
-    const fundedData = Buffer.concat([
-      (accountCoder as any).accountDiscriminator("Market"),
-      marketBody.subarray(0, marketBodyLength),
-    ]);
-    expect(fundedData.length).to.equal(accountBefore!.data.length);
-    svm.setAccount(fixture.market, {
-      ...accountBefore!,
-      data: new Uint8Array(fundedData),
-    });
-    const recenterSlot = BigInt(
-      funded.amm.last_adjustment_slot.add(new BN(1)).toString()
-    );
-    svm.warpToSlot(recenterSlot);
+    for (const testCase of [
+      { seed: 97, assetIn: "quote", exactAssetIn: 15_000_000 },
+      { seed: 79, assetIn: "base", exactAssetIn: 35_000_000 },
+    ] as const) {
+      const config = marketConfig();
+      config.amm.peakDepthNad = new BN("200000000000");
+      config.amm.fadeScaleNad = new BN("100000000");
+      const fixture = await addBalancedLiquidity(testCase.seed, config, {
+        // Match the native funding-settlement fixture at 100x scale:
+        // 150m/300m ordinary depth plus 10m/20m hLP deposits.
+        baseDeposit: 150_000_000,
+        quoteDeposit: 300_000_000,
+        minYlp: 1,
+        baseMint: 500_000_000,
+        quoteMint: 500_000_000,
+      });
+      const baseHedge = await openBaseHedge(fixture, 10_000_000);
+      const quoteHedge = await openQuoteHedge(fixture, 20_000_000);
+      trackV2Instruction("depositSingleSided", this.test?.title);
 
-    const oldCenter = funded.amm.center_price_nad;
-    await swapBaseForQuote(fixture, hLpAccounts, 1_000_000, 1);
-    trackV2Instruction("swap", this.test?.title);
+      const marketBeforeAccount = svm.getAccount(fixture.market);
+      expect(marketBeforeAccount).to.not.equal(null);
+      const marketBefore = accountCoder.decode(
+        "Market",
+        Buffer.from(marketBeforeAccount!.data)
+      ) as any;
+      expect(marketBefore.debt.fixed_base_shares.toString()).to.equal("0");
+      expect(marketBefore.debt.fixed_quote_shares.toString()).to.equal("0");
+      expect(marketBefore.debt.fixed_base_principal.toString()).to.equal("0");
+      expect(marketBefore.debt.fixed_quote_principal.toString()).to.equal("0");
+      expect(marketBefore.debt.isolated_base_shares.toString()).to.equal("0");
+      expect(marketBefore.debt.isolated_quote_shares.toString()).to.equal("0");
+      expect(marketBefore.debt.isolated_base_principal.toString()).to.equal("0");
+      expect(marketBefore.debt.isolated_quote_principal.toString()).to.equal("0");
+      // Accrue a deterministic 10% funding premium without public-borrow
+      // interest. hLP funding does not grow live reserves, so changing only
+      // these indexes is the exact post-accrual state the swap must settle.
+      marketBefore.debt.base_borrow_index_nad = new BN("1100000000");
+      marketBefore.debt.quote_borrow_index_nad = new BN("1100000000");
+      const marketLayout = (accountCoder as any).accountLayouts.get("Market");
+      const marketBody = Buffer.alloc(marketBeforeAccount!.data.length - 8);
+      const marketBodyLength = marketLayout.layout.encode(marketBefore, marketBody);
+      const accruedMarketData = Buffer.concat([
+        (accountCoder as any).accountDiscriminator("Market"),
+        marketBody.subarray(0, marketBodyLength),
+      ]);
+      expect(accruedMarketData.length).to.equal(marketBeforeAccount!.data.length);
+      svm.setAccount(fixture.market, {
+        ...marketBeforeAccount!,
+        data: new Uint8Array(accruedMarketData),
+      });
+      expect(marketBefore.base_hlp_vault.hlp_supply.toString()).to.equal("10000000");
+      expect(marketBefore.quote_hlp_vault.hlp_supply.toString()).to.equal("20000000");
+      expect(concentratedBranch(marketBefore)).to.equal("inner");
 
-    const accountAfter = svm.getAccount(fixture.market);
-    expect(accountAfter).to.not.equal(null);
-    const recentered = accountCoder.decode(
-      "Market",
-      Buffer.from(accountAfter!.data)
-    ) as any;
-    expect(recentered.amm.center_price_nad.eq(oldCenter)).to.equal(false);
-    expect(recentered.base_hlp_vault.hlp_supply.gt(new BN(0))).to.equal(true);
-    expect(recentered.last_marginal_observation_nad.gt(new BN(0))).to.equal(true);
-    expect(recentered.curve_revision.gt(recentered.risk_revision)).to.equal(true);
+      const interestCheckpointBefore = [
+        marketBefore.base_hlp_vault.base_interest_growth_index_q64,
+        marketBefore.base_hlp_vault.base_interest_remainder_q64,
+        marketBefore.base_hlp_vault.base_interest_growth_remainder_scaled,
+        marketBefore.base_hlp_vault.unallocated_base_interest_amount,
+        marketBefore.base_hlp_vault.quote_interest_growth_index_q64,
+        marketBefore.base_hlp_vault.quote_interest_remainder_q64,
+        marketBefore.base_hlp_vault.quote_interest_growth_remainder_scaled,
+        marketBefore.base_hlp_vault.unallocated_quote_interest_amount,
+        marketBefore.quote_hlp_vault.base_interest_growth_index_q64,
+        marketBefore.quote_hlp_vault.base_interest_remainder_q64,
+        marketBefore.quote_hlp_vault.base_interest_growth_remainder_scaled,
+        marketBefore.quote_hlp_vault.unallocated_base_interest_amount,
+        marketBefore.quote_hlp_vault.quote_interest_growth_index_q64,
+        marketBefore.quote_hlp_vault.quote_interest_remainder_q64,
+        marketBefore.quote_hlp_vault.quote_interest_growth_remainder_scaled,
+        marketBefore.quote_hlp_vault.unallocated_quote_interest_amount,
+      ].map((value: any) => value.toString());
+      const baseInterestVaultBefore = await getAccount(
+        connection as any,
+        fixture.baseInterestVault
+      );
+      const quoteInterestVaultBefore = await getAccount(
+        connection as any,
+        fixture.quoteInterestVault
+      );
+
+      const baseHlpYlpBefore = await getAccount(
+        connection as any,
+        baseHedge.hlpYlpAccount,
+        undefined,
+        TOKEN_2022_PROGRAM_ID
+      );
+      const quoteHlpYlpBefore = await getAccount(
+        connection as any,
+        quoteHedge.hlpYlpAccount,
+        undefined,
+        TOKEN_2022_PROGRAM_ID
+      );
+      const ownerBaseBefore = await getAccount(connection as any, fixture.ownerBaseAccount);
+      const ownerQuoteBefore = await getAccount(connection as any, fixture.ownerQuoteAccount);
+      const assetInMint = testCase.assetIn === "base" ? fixture.baseMint : fixture.quoteMint;
+      const assetOutMint = testCase.assetIn === "base" ? fixture.quoteMint : fixture.baseMint;
+      const preview = decodePreviewSwapReturnData(
+        await simulateReturnData(
+          await program.methods
+            .previewSwap({ exactAssetIn: new BN(testCase.exactAssetIn) })
+            .accounts({
+              market: fixture.market,
+              futarchyAuthority,
+              assetInMint,
+              assetOutMint,
+            })
+            .transaction()
+        )
+      ) as any;
+      trackV2Instruction("previewSwap", this.test?.title);
+
+      const measurement = testCase.assetIn === "base"
+        ? await swapBaseForQuote(
+            fixture,
+            hlpSwapAccounts(fixture),
+            testCase.exactAssetIn,
+            1
+          )
+        : await swapQuoteForBase(
+            fixture,
+            hlpSwapAccounts(fixture),
+            testCase.exactAssetIn,
+            1
+          );
+      recordSwapComputeScenario("concentrated_hlp_active", measurement);
+      recordSwapComputeScenario("concentrated_hlp_funding_interest", measurement);
+      trackV2Instruction("swap", this.test?.title);
+
+      const swapEvent = cpiEvent(measurement.transaction, "swapExecuted");
+      expect(swapEvent.assetInSide).to.equal(testCase.assetIn === "base" ? 0 : 1);
+      expect(swapEvent.amountIn.toString()).to.equal(testCase.exactAssetIn.toString());
+      expect(swapEvent.amountOut.toString()).to.equal(preview.amountOut.toString());
+      expect(swapEvent.amountInAfterFee.toString()).to.equal(
+        preview.amountInForQuote.toString()
+      );
+      expect(swapEvent.baseFee.toString()).to.equal(preview.baseFeeDebit.toString());
+      expect(swapEvent.divergenceFee.toString()).to.equal(
+        preview.divergenceSurchargeDebit.toString()
+      );
+      expect(swapEvent.volatilityFee.toString()).to.equal(
+        preview.volatilitySurchargeDebit.toString()
+      );
+      expect(swapEvent.retainedFee.toString()).to.equal(preview.retainedSurcharge.toString());
+
+      const ownerBaseAfter = await getAccount(connection as any, fixture.ownerBaseAccount);
+      const ownerQuoteAfter = await getAccount(connection as any, fixture.ownerQuoteAccount);
+      if (testCase.assetIn === "base") {
+        expect(ownerBaseBefore.amount - ownerBaseAfter.amount).to.equal(
+          BigInt(testCase.exactAssetIn)
+        );
+        expect(ownerQuoteAfter.amount - ownerQuoteBefore.amount).to.equal(
+          BigInt(preview.amountOut.toString())
+        );
+      } else {
+        expect(ownerQuoteBefore.amount - ownerQuoteAfter.amount).to.equal(
+          BigInt(testCase.exactAssetIn)
+        );
+        expect(ownerBaseAfter.amount - ownerBaseBefore.amount).to.equal(
+          BigInt(preview.amountOut.toString())
+        );
+      }
+
+      const marketAfterAccount = svm.getAccount(fixture.market);
+      expect(marketAfterAccount).to.not.equal(null);
+      const marketAfter = accountCoder.decode(
+        "Market",
+        Buffer.from(marketAfterAccount!.data)
+      ) as any;
+      const interestCheckpointAfter = [
+        marketAfter.base_hlp_vault.base_interest_growth_index_q64,
+        marketAfter.base_hlp_vault.base_interest_remainder_q64,
+        marketAfter.base_hlp_vault.base_interest_growth_remainder_scaled,
+        marketAfter.base_hlp_vault.unallocated_base_interest_amount,
+        marketAfter.base_hlp_vault.quote_interest_growth_index_q64,
+        marketAfter.base_hlp_vault.quote_interest_remainder_q64,
+        marketAfter.base_hlp_vault.quote_interest_growth_remainder_scaled,
+        marketAfter.base_hlp_vault.unallocated_quote_interest_amount,
+        marketAfter.quote_hlp_vault.base_interest_growth_index_q64,
+        marketAfter.quote_hlp_vault.base_interest_remainder_q64,
+        marketAfter.quote_hlp_vault.base_interest_growth_remainder_scaled,
+        marketAfter.quote_hlp_vault.unallocated_base_interest_amount,
+        marketAfter.quote_hlp_vault.quote_interest_growth_index_q64,
+        marketAfter.quote_hlp_vault.quote_interest_remainder_q64,
+        marketAfter.quote_hlp_vault.quote_interest_growth_remainder_scaled,
+        marketAfter.quote_hlp_vault.unallocated_quote_interest_amount,
+      ].map((value: any) => value.toString());
+      expect(interestCheckpointAfter).to.deep.equal(interestCheckpointBefore);
+      const baseInterestVaultAfter = await getAccount(
+        connection as any,
+        fixture.baseInterestVault
+      );
+      const quoteInterestVaultAfter = await getAccount(
+        connection as any,
+        fixture.quoteInterestVault
+      );
+      const baseInterestCredit = baseInterestVaultAfter.amount - baseInterestVaultBefore.amount;
+      const quoteInterestCredit = quoteInterestVaultAfter.amount - quoteInterestVaultBefore.amount;
+      expect(baseInterestCredit + quoteInterestCredit > 0n).to.equal(true);
+      for (const { beforeSide, afterSide, interestCredit } of [
+        {
+          beforeSide: marketBefore.base_side,
+          afterSide: marketAfter.base_side,
+          interestCredit: baseInterestCredit,
+        },
+        {
+          beforeSide: marketBefore.quote_side,
+          afterSide: marketAfter.quote_side,
+          interestCredit: quoteInterestCredit,
+        },
+      ]) {
+        const liabilityBefore = interestLiabilityTotal(beforeSide);
+        const liabilityAfter = interestLiabilityTotal(afterSide);
+        expect(liabilityAfter - liabilityBefore).to.equal(interestCredit);
+        if (interestCredit === 0n) {
+          expect(liabilityAfter).to.equal(liabilityBefore);
+        }
+        expect(afterSide.fees.unallocated_interest_liability.toString()).to.equal(
+          beforeSide.fees.unallocated_interest_liability.toString()
+        );
+        expect(afterSide.fees.referral_interest_liability.toString()).to.equal(
+          beforeSide.fees.referral_interest_liability.toString()
+        );
+      }
+      expect(baseInterestCredit).to.equal(
+        BigInt(marketAfter.base_side.fees.interest_vault_balance.toString()) -
+          BigInt(marketBefore.base_side.fees.interest_vault_balance.toString())
+      );
+      expect(quoteInterestCredit).to.equal(
+        BigInt(marketAfter.quote_side.fees.interest_vault_balance.toString()) -
+          BigInt(marketBefore.quote_side.fees.interest_vault_balance.toString())
+      );
+      for (const vault of [marketAfter.base_hlp_vault, marketAfter.quote_hlp_vault]) {
+        expect(vault.base_interest_checkpoint_q64.toString()).to.equal(
+          marketAfter.base_side.fees.interest_growth_index_q64.toString()
+        );
+        expect(vault.quote_interest_checkpoint_q64.toString()).to.equal(
+          marketAfter.quote_side.fees.interest_growth_index_q64.toString()
+        );
+      }
+      if (baseInterestCredit > 0n) {
+        expect(
+          marketAfter.base_side.fees.interest_growth_index_q64.gt(
+            marketBefore.base_side.fees.interest_growth_index_q64
+          )
+        ).to.equal(true);
+      }
+      if (quoteInterestCredit > 0n) {
+        expect(
+          marketAfter.quote_side.fees.interest_growth_index_q64.gt(
+            marketBefore.quote_side.fees.interest_growth_index_q64
+          )
+        ).to.equal(true);
+      }
+      if (testCase.assetIn === "base") {
+        expect(concentratedBranch(marketAfter)).to.equal("transition");
+      }
+      expect(marketAfter.base_side.reserves.live_reserve.toString()).to.equal(
+        swapEvent.baseLiveReserve.toString()
+      );
+      expect(marketAfter.quote_side.reserves.live_reserve.toString()).to.equal(
+        swapEvent.quoteLiveReserve.toString()
+      );
+      expect(swapEvent.baseLiveReserve.toString()).to.equal(
+        (testCase.assetIn === "base"
+          ? preview.reserveInLiveReserve
+          : preview.reserveOutLiveReserve
+        ).toString()
+      );
+      expect(swapEvent.quoteLiveReserve.toString()).to.equal(
+        (testCase.assetIn === "base"
+          ? preview.reserveOutLiveReserve
+          : preview.reserveInLiveReserve
+        ).toString()
+      );
+
+      const baseHlpYlpAfter = await getAccount(
+        connection as any,
+        baseHedge.hlpYlpAccount,
+        undefined,
+        TOKEN_2022_PROGRAM_ID
+      );
+      const quoteHlpYlpAfter = await getAccount(
+        connection as any,
+        quoteHedge.hlpYlpAccount,
+        undefined,
+        TOKEN_2022_PROGRAM_ID
+      );
+      expect(
+        baseHlpYlpAfter.amount !== baseHlpYlpBefore.amount ||
+          quoteHlpYlpAfter.amount !== quoteHlpYlpBefore.amount
+      ).to.equal(true);
+      expect(
+        marketAfter.base_hlp_vault.debt_shares.toString() !==
+          marketBefore.base_hlp_vault.debt_shares.toString() ||
+          marketAfter.quote_hlp_vault.debt_shares.toString() !==
+            marketBefore.quote_hlp_vault.debt_shares.toString()
+      ).to.equal(true);
+      expect(baseHlpYlpAfter.amount.toString()).to.equal(
+        marketAfter.base_hlp_vault.ylp_shares.toString()
+      );
+      expect(quoteHlpYlpAfter.amount.toString()).to.equal(
+        marketAfter.quote_hlp_vault.ylp_shares.toString()
+      );
+
+      const baseReserveVault = await getAccount(connection as any, fixture.baseReserveVault);
+      const quoteReserveVault = await getAccount(connection as any, fixture.quoteReserveVault);
+      expect(baseReserveVault.amount).to.equal(
+        BigInt(marketAfter.base_side.reserves.cash_reserve.toString()) +
+          BigInt(marketAfter.base_side.fees.swap_fee_custody_balance.toString()) +
+          BigInt(marketAfter.base_side.reserves.base_hlp_backing_inventory.toString()) +
+          BigInt(marketAfter.base_side.reserves.quote_hlp_backing_inventory.toString())
+      );
+      expect(quoteReserveVault.amount).to.equal(
+        BigInt(marketAfter.quote_side.reserves.cash_reserve.toString()) +
+          BigInt(marketAfter.quote_side.fees.swap_fee_custody_balance.toString()) +
+          BigInt(marketAfter.quote_side.reserves.base_hlp_backing_inventory.toString()) +
+          BigInt(marketAfter.quote_side.reserves.quote_hlp_backing_inventory.toString())
+      );
+      expect(measurement.computeUnits < LITESVM_COMPUTE_UNIT_LIMIT).to.equal(true);
+    }
   });
 
   it("updates Dusk futarchy revenue, recipients, and authority", async function () {
@@ -4330,6 +4648,21 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       TOKEN_2022_PROGRAM_ID
     );
 
+    const preview = decodePreviewSwapReturnData(
+      await simulateReturnData(
+        await program.methods
+          .previewSwap({ exactAssetIn: new BN(1_000) })
+          .accounts({
+            market: fixture.market,
+            futarchyAuthority,
+            assetInMint: fixture.baseMint,
+            assetOutMint: fixture.quoteMint,
+          })
+          .transaction()
+      )
+    ) as any;
+    trackV2Instruction("previewSwap", this.test?.title);
+
     const activeHlpMeasurement = await swapBaseForQuote(fixture, hlpSwapAccounts(fixture));
     recordSwapComputeScenario("hlp_active", activeHlpMeasurement);
     trackV2Instruction("swap", this.test?.title);
@@ -4347,6 +4680,12 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
     expect(decoded.base_hlp_vault.hlp_supply.toNumber()).to.equal(10_000);
     expect(decoded.base_hlp_vault.ylp_shares.toNumber()).to.be.lessThan(14_142);
+    expect(decoded.base_side.reserves.live_reserve.toString()).to.equal(
+      preview.reserveInLiveReserve.toString()
+    );
+    expect(decoded.quote_side.reserves.live_reserve.toString()).to.equal(
+      preview.reserveOutLiveReserve.toString()
+    );
   });
 
   it("settles an active base hLP vault during a large opposite-direction swap", async function () {
@@ -4901,6 +5240,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           .previewSwap({ exactAssetIn: activeDebtSwapInput })
           .accounts({
             market: fixture.market,
+            futarchyAuthority,
             assetInMint: fixture.baseMint,
             assetOutMint: fixture.quoteMint,
           })
@@ -5845,6 +6185,316 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     ) as any;
     expect(after.base_collateral.toNumber()).to.be.lessThan(collateralBefore);
     expect(BigInt(after.fixed_quote_shares.toString()) < debtSharesBefore).to.equal(true);
+  });
+
+  it("opens leverage through active concentrated hLP preparation", async function () {
+    this.timeout(120_000);
+
+    const config = marketConfig();
+    config.amm.peakDepthNad = new BN("200000000000");
+    config.amm.fadeScaleNad = new BN("100000000");
+    const fixture = await addBalancedLiquidity(98, config, {
+      baseDeposit: 100_000_000,
+      quoteDeposit: 200_000_000,
+      minYlp: 1,
+      baseMint: 500_000_000,
+      quoteMint: 500_000_000,
+    });
+    const baseHedge = await openBaseHedge(fixture, 10_000_000);
+    const quoteHedge = await openQuoteHedge(fixture, 20_000_000);
+    const baseHlpYlpBefore = await getAccount(
+      connection as any,
+      baseHedge.hlpYlpAccount,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const quoteHlpYlpBefore = await getAccount(
+      connection as any,
+      quoteHedge.hlpYlpAccount,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const marketBeforeAccount = svm.getAccount(fixture.market);
+    expect(marketBeforeAccount).to.not.equal(null);
+    const marketBefore = accountCoder.decode(
+      "Market",
+      Buffer.from(marketBeforeAccount!.data)
+    ) as any;
+    const ownerQuoteBefore = await getAccount(connection as any, fixture.ownerQuoteAccount);
+
+    const marginAmount = 7_500_000;
+    const notional = 15_000_000;
+    const preview = decodePreviewSwapReturnData(
+      await simulateReturnData(
+        await program.methods
+          .previewSwap({ exactAssetIn: new BN(notional) })
+          .accounts({
+            market: fixture.market,
+            futarchyAuthority,
+            assetInMint: fixture.quoteMint,
+            assetOutMint: fixture.baseMint,
+          })
+          .transaction()
+      )
+    ) as any;
+    trackV2Instruction("previewSwap", this.test?.title);
+
+    const { leveragePosition, leverageCollateralVault, measurement } =
+      await openQuoteDebtLeverage(
+        fixture,
+        marginAmount,
+        hlpSwapAccounts(fixture)
+      );
+    trackV2Instruction("openLeverage", this.test?.title);
+    expect(measurement.computeUnits < LITESVM_COMPUTE_UNIT_LIMIT).to.equal(true);
+
+    const openEvent = cpiEvent(measurement.transaction, "leveragePositionOpened");
+    expect(openEvent.marginAmount.toString()).to.equal(marginAmount.toString());
+    expect(openEvent.borrowedAmount.toString()).to.equal(marginAmount.toString());
+    expect(openEvent.swap.assetInSide).to.equal(1);
+    expect(openEvent.swap.amountIn.toString()).to.equal(notional.toString());
+    expect(openEvent.swap.amountOut.toString()).to.equal(preview.amountOut.toString());
+    expect(openEvent.swap.amountInAfterFee.toString()).to.equal(
+      preview.amountInForQuote.toString()
+    );
+    expect(openEvent.swap.baseLiveReserve.toString()).to.equal(
+      preview.reserveOutLiveReserve.toString()
+    );
+    expect(openEvent.swap.quoteLiveReserve.toString()).to.equal(
+      preview.reserveInLiveReserve.toString()
+    );
+
+    const ownerQuoteAfter = await getAccount(connection as any, fixture.ownerQuoteAccount);
+    expect(ownerQuoteBefore.amount - ownerQuoteAfter.amount).to.equal(BigInt(marginAmount));
+    const collateralVault = await getAccount(connection as any, leverageCollateralVault);
+    expect(collateralVault.amount.toString()).to.equal(openEvent.collateralAmount.toString());
+    const positionAccount = svm.getAccount(leveragePosition);
+    expect(positionAccount).to.not.equal(null);
+    const position = accountCoder.decode(
+      "LeveragePosition",
+      Buffer.from(positionAccount!.data)
+    ) as any;
+    expect(position.debt_principal.toString()).to.equal(marginAmount.toString());
+    expect(position.collateral_amount.toString()).to.equal(openEvent.collateralAmount.toString());
+
+    const marketAfterAccount = svm.getAccount(fixture.market);
+    expect(marketAfterAccount).to.not.equal(null);
+    const marketAfter = accountCoder.decode(
+      "Market",
+      Buffer.from(marketAfterAccount!.data)
+    ) as any;
+    expect(marketAfter.base_side.reserves.live_reserve.toString()).to.equal(
+      openEvent.swap.baseLiveReserve.toString()
+    );
+    expect(marketAfter.quote_side.reserves.live_reserve.toString()).to.equal(
+      openEvent.swap.quoteLiveReserve.toString()
+    );
+    const baseHlpYlpAfter = await getAccount(
+      connection as any,
+      baseHedge.hlpYlpAccount,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const quoteHlpYlpAfter = await getAccount(
+      connection as any,
+      quoteHedge.hlpYlpAccount,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    expect(
+      baseHlpYlpAfter.amount !== baseHlpYlpBefore.amount ||
+        quoteHlpYlpAfter.amount !== quoteHlpYlpBefore.amount
+    ).to.equal(true);
+    expect(
+      marketAfter.base_hlp_vault.debt_shares.toString() !==
+        marketBefore.base_hlp_vault.debt_shares.toString() ||
+        marketAfter.quote_hlp_vault.debt_shares.toString() !==
+          marketBefore.quote_hlp_vault.debt_shares.toString()
+    ).to.equal(true);
+    expect(baseHlpYlpAfter.amount.toString()).to.equal(
+      marketAfter.base_hlp_vault.ylp_shares.toString()
+    );
+    expect(quoteHlpYlpAfter.amount.toString()).to.equal(
+      marketAfter.quote_hlp_vault.ylp_shares.toString()
+    );
+
+    const baseReserveVault = await getAccount(connection as any, fixture.baseReserveVault);
+    const quoteReserveVault = await getAccount(connection as any, fixture.quoteReserveVault);
+    expect(baseReserveVault.amount).to.equal(
+      BigInt(marketAfter.base_side.reserves.cash_reserve.toString()) +
+        BigInt(marketAfter.base_side.fees.swap_fee_custody_balance.toString()) +
+        BigInt(marketAfter.base_side.reserves.base_hlp_backing_inventory.toString()) +
+        BigInt(marketAfter.base_side.reserves.quote_hlp_backing_inventory.toString())
+    );
+    expect(quoteReserveVault.amount).to.equal(
+      BigInt(marketAfter.quote_side.reserves.cash_reserve.toString()) +
+        BigInt(marketAfter.quote_side.fees.swap_fee_custody_balance.toString()) +
+        BigInt(marketAfter.quote_side.reserves.base_hlp_backing_inventory.toString()) +
+        BigInt(marketAfter.quote_side.reserves.quote_hlp_backing_inventory.toString())
+    );
+
+    // Realize nonzero isolated-debt interest after predictive hLP positioning.
+    // The interest belongs to the yLP/hLP ownership snapshot above, not to
+    // shares minted or burned while preparing this close.
+    advanceClockByYear();
+    const ownerQuoteBeforeClose = await getAccount(connection as any, fixture.ownerQuoteAccount);
+    const quoteInterestVaultBefore = await getAccount(
+      connection as any,
+      fixture.quoteInterestVault
+    );
+    const closeTx = await program.methods
+      .closeLeverage({
+        debtAsset: 1,
+        minAmountOut: new BN(0),
+      })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        positionOwner: payer.publicKey,
+        leveragePosition,
+        debtMint: fixture.quoteMint,
+        collateralMint: fixture.baseMint,
+        debtReserveVault: fixture.quoteReserveVault,
+        collateralReserveVault: fixture.baseReserveVault,
+        debtInterestVault: fixture.quoteInterestVault,
+        leverageCollateralVault,
+        ownerDebtAccount: fixture.ownerQuoteAccount,
+        referralPartner: null,
+        referralAccrual: null,
+        leverageDelegation: null,
+        delegatedProgram: null,
+        authority: payer.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
+      .remainingAccounts(hlpSwapAccounts(fixture))
+      .transaction();
+    const closeMeasurement = await connection.sendTransactionMeasured(closeTx, [payer]);
+    trackV2Instruction("closeLeverage", this.test?.title);
+    expect(closeMeasurement.computeUnits < LITESVM_COMPUTE_UNIT_LIMIT).to.equal(true);
+
+    const closeEvent = cpiEvent(closeMeasurement.transaction, "leveragePositionClosed");
+    expect(BigInt(closeEvent.interestPaid.toString()) > 0n).to.equal(true);
+    const ownerQuoteAfterClose = await getAccount(connection as any, fixture.ownerQuoteAccount);
+    expect(ownerQuoteAfterClose.amount - ownerQuoteBeforeClose.amount).to.equal(
+      BigInt(closeEvent.residual.toString())
+    );
+    const quoteInterestVaultAfter = await getAccount(
+      connection as any,
+      fixture.quoteInterestVault
+    );
+    const quoteInterestCredit = quoteInterestVaultAfter.amount - quoteInterestVaultBefore.amount;
+    expect(quoteInterestCredit >= BigInt(closeEvent.interestPaid.toString())).to.equal(true);
+    expect(svm.getAccount(leveragePosition)).to.equal(null);
+
+    const afterCloseAccount = svm.getAccount(fixture.market);
+    expect(afterCloseAccount).to.not.equal(null);
+    const afterClose = accountCoder.decode(
+      "Market",
+      Buffer.from(afterCloseAccount!.data)
+    ) as any;
+    expect(afterClose.base_side.reserves.live_reserve.toString()).to.equal(
+      closeEvent.swap.baseLiveReserve.toString()
+    );
+    expect(afterClose.quote_side.reserves.live_reserve.toString()).to.equal(
+      closeEvent.swap.quoteLiveReserve.toString()
+    );
+    expect(
+      BigInt(afterClose.quote_side.fees.interest_vault_balance.toString()) -
+        BigInt(marketAfter.quote_side.fees.interest_vault_balance.toString())
+    ).to.equal(quoteInterestCredit);
+    const baseHlpYlpAfterClose = await getAccount(
+      connection as any,
+      baseHedge.hlpYlpAccount,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const quoteHlpYlpAfterClose = await getAccount(
+      connection as any,
+      quoteHedge.hlpYlpAccount,
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+    expect(
+      baseHlpYlpAfterClose.amount.toString() !==
+        marketAfter.base_hlp_vault.ylp_shares.toString() ||
+        quoteHlpYlpAfterClose.amount.toString() !==
+          marketAfter.quote_hlp_vault.ylp_shares.toString()
+    ).to.equal(true);
+    expect(baseHlpYlpAfterClose.amount.toString()).to.equal(
+      afterClose.base_hlp_vault.ylp_shares.toString()
+    );
+    expect(quoteHlpYlpAfterClose.amount.toString()).to.equal(
+      afterClose.quote_hlp_vault.ylp_shares.toString()
+    );
+
+    const baseReserveVaultAfterClose = await getAccount(
+      connection as any,
+      fixture.baseReserveVault
+    );
+    const quoteReserveVaultAfterClose = await getAccount(
+      connection as any,
+      fixture.quoteReserveVault
+    );
+    expect(baseReserveVaultAfterClose.amount).to.equal(
+      BigInt(afterClose.base_side.reserves.cash_reserve.toString()) +
+        BigInt(afterClose.base_side.fees.swap_fee_custody_balance.toString()) +
+        BigInt(afterClose.base_side.reserves.base_hlp_backing_inventory.toString()) +
+        BigInt(afterClose.base_side.reserves.quote_hlp_backing_inventory.toString())
+    );
+    expect(quoteReserveVaultAfterClose.amount).to.equal(
+      BigInt(afterClose.quote_side.reserves.cash_reserve.toString()) +
+        BigInt(afterClose.quote_side.fees.swap_fee_custody_balance.toString()) +
+        BigInt(afterClose.quote_side.reserves.base_hlp_backing_inventory.toString()) +
+        BigInt(afterClose.quote_side.reserves.quote_hlp_backing_inventory.toString())
+    );
+
+    const q64 = 1n << 64n;
+    const quoteInterestGrowthAfter = BigInt(
+      afterClose.quote_side.fees.interest_growth_index_q64.toString()
+    );
+    const baseExpectedRemainder = (
+      BigInt(marketAfter.base_hlp_vault.ylp_shares.toString()) *
+        (quoteInterestGrowthAfter -
+          BigInt(marketAfter.base_hlp_vault.quote_interest_checkpoint_q64.toString())) +
+      BigInt(marketAfter.base_hlp_vault.quote_interest_remainder_q64.toString())
+    ) % q64;
+    const quoteExpectedRemainder = (
+      BigInt(marketAfter.quote_hlp_vault.ylp_shares.toString()) *
+        (quoteInterestGrowthAfter -
+          BigInt(marketAfter.quote_hlp_vault.quote_interest_checkpoint_q64.toString())) +
+      BigInt(marketAfter.quote_hlp_vault.quote_interest_remainder_q64.toString())
+    ) % q64;
+    const basePostSharesRemainder = (
+      BigInt(afterClose.base_hlp_vault.ylp_shares.toString()) *
+        (quoteInterestGrowthAfter -
+          BigInt(marketAfter.base_hlp_vault.quote_interest_checkpoint_q64.toString())) +
+      BigInt(marketAfter.base_hlp_vault.quote_interest_remainder_q64.toString())
+    ) % q64;
+    const quotePostSharesRemainder = (
+      BigInt(afterClose.quote_hlp_vault.ylp_shares.toString()) *
+        (quoteInterestGrowthAfter -
+          BigInt(marketAfter.quote_hlp_vault.quote_interest_checkpoint_q64.toString())) +
+      BigInt(marketAfter.quote_hlp_vault.quote_interest_remainder_q64.toString())
+    ) % q64;
+    expect(afterClose.base_hlp_vault.quote_interest_checkpoint_q64.toString()).to.equal(
+      quoteInterestGrowthAfter.toString()
+    );
+    expect(afterClose.quote_hlp_vault.quote_interest_checkpoint_q64.toString()).to.equal(
+      quoteInterestGrowthAfter.toString()
+    );
+    expect(afterClose.base_hlp_vault.quote_interest_remainder_q64.toString()).to.equal(
+      baseExpectedRemainder.toString()
+    );
+    expect(afterClose.quote_hlp_vault.quote_interest_remainder_q64.toString()).to.equal(
+      quoteExpectedRemainder.toString()
+    );
+    expect(
+      baseExpectedRemainder !== basePostSharesRemainder ||
+        quoteExpectedRemainder !== quotePostSharesRemainder
+    ).to.equal(true);
   });
 
   it("opens leverage, updates exposure, and manages delegated permissions", async function () {

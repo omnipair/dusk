@@ -6,9 +6,7 @@ use anchor_lang::prelude::*;
 use crate::{
     constants::{FUTARCHY_AUTHORITY_SEED_PREFIX, MARKET_V2_SEED_PREFIX, YIELD_ACCOUNT_SEED_PREFIX},
     errors::ErrorCode,
-    state::{
-        FutarchyAuthority, HlpYieldEligibility, Market, MarketAsset, MarketSide, ProtocolAuctionSplit, YieldTokenKind,
-    },
+    state::{FutarchyAuthority, HlpYieldEligibility, Market, MarketAsset, ProtocolAuctionSplit, YieldTokenKind},
 };
 
 pub use deposit_single_sided::*;
@@ -101,26 +99,63 @@ pub(crate) fn reconcile_live_hlp_supply(
 }
 
 pub(crate) fn record_hlp_interest_credit(
-    borrowed_side: &mut MarketSide,
+    market: &mut Market,
+    borrowed_asset: MarketAsset,
     actual_interest_credit: u64,
     protocol_fee_bps: u16,
     protocol_auction_split: ProtocolAuctionSplit,
-    eligible_ylp_supply: u64,
+    eligibility: HlpYieldEligibility,
 ) -> Result<()> {
-    borrowed_side.record_interest_credit_with_supply(
-        actual_interest_credit,
-        protocol_fee_bps,
-        protocol_auction_split,
-        0,
-        eligible_ylp_supply,
-    )?;
-    Ok(())
+    if actual_interest_credit == 0 {
+        return Ok(());
+    }
+
+    require_eq!(
+        market.base_side.shares.ylp_supply,
+        market.quote_side.shares.ylp_supply,
+        ErrorCode::BrokenInvariant
+    );
+    let frozen_non_hlp_supply = eligibility.non_hlp_ylp_supply()?;
+    let current_non_hlp_supply = HlpYieldEligibility {
+        ylp_supply: market.base_side.shares.ylp_supply,
+        base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
+        quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares,
+    }
+    .non_hlp_ylp_supply()?;
+    require_eq!(
+        current_non_hlp_supply,
+        frozen_non_hlp_supply,
+        ErrorCode::BrokenInvariant
+    );
+
+    // Every predictive mint/burn checkpoints the ownership interval that
+    // precedes it. Flush any public-interest carry that materializes after
+    // those mutations against the current shares before publishing this
+    // source-specific credit; replaying frozen old shares here would
+    // over-credit a vault that already burned them.
+    market.checkpoint_hlp_yield_from_ylp(MarketAsset::Base)?;
+    market.checkpoint_hlp_yield_from_ylp(MarketAsset::Quote)?;
+
+    market
+        .side_mut(borrowed_asset)
+        .record_hlp_funding_interest_credit_with_supply(
+            actual_interest_credit,
+            protocol_fee_bps,
+            protocol_auction_split,
+            frozen_non_hlp_supply,
+        )?;
+
+    // Advance both vaults across the hLP-funded index delta without crediting
+    // either one. Zero eligible shares preserves their already-earned
+    // sub-atom remainders while preventing self- and cross-rebates.
+    market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, 0)?;
+    market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, 0)
 }
 
 /// Publish one inline hLP interest-vault credit against ownership captured
-/// before predictive or post-trade rebalancing. Both hLP vaults own ordinary
-/// yLP and therefore both must receive their historical share of either
-/// asset's interest stream.
+/// before predictive or post-trade rebalancing. Funding interest publishes
+/// only to the ordinary-plus-MIN lane; frozen hLP balances are excluded even
+/// if the operation mints or burns vault-owned yLP before token settlement.
 pub(crate) fn record_inline_hlp_interest_credit(
     market: &mut Market,
     borrowed_asset: MarketAsset,
@@ -130,14 +165,13 @@ pub(crate) fn record_inline_hlp_interest_credit(
     eligibility: HlpYieldEligibility,
 ) -> Result<()> {
     record_hlp_interest_credit(
-        market.side_mut(borrowed_asset),
+        market,
+        borrowed_asset,
         actual_interest_credit,
         protocol_fee_bps,
         protocol_auction_split,
-        eligibility.ylp_supply,
-    )?;
-    market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, eligibility.base_hlp_ylp_shares)?;
-    market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, eligibility.quote_hlp_ylp_shares)
+        eligibility,
+    )
 }
 
 #[cfg(test)]

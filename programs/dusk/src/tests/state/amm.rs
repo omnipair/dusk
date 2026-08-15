@@ -156,9 +156,11 @@ fn concentrated_ready_amm_serialized_layout_is_locked() {
     // whole-config state, and includes direct-yLP governance locks plus five
     // independent family revisions.
     // The leaky daily buckets carry one additional u64 remainder per side
-    // (+16 bytes total). Dev markets are recreated, so this is canonical.
-    assert_eq!(<Market as anchor_lang::Space>::INIT_SPACE, 2_801);
-    assert_eq!(8 + <Market as anchor_lang::Space>::INIT_SPACE, 2_809);
+    // (+16 bytes total). Four source-scoped hLP backing counters add 32 bytes,
+    // and the two hLP-funding carry fields add another 16 bytes.
+    // Dev markets are recreated, so this is canonical.
+    assert_eq!(<Market as anchor_lang::Space>::INIT_SPACE, 2_849);
+    assert_eq!(8 + <Market as anchor_lang::Space>::INIT_SPACE, 2_857);
 }
 
 #[test]

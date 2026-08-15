@@ -27,7 +27,7 @@ import { AnchorProvider } from "@coral-xyz/anchor";
 import { Connection } from "@solana/web3.js";
 import { Dusk } from "@omnipair/dusk-sdk";
 
-const connection = new Connection("https://api.mainnet-beta.solana.com", "confirmed");
+const connection = new Connection(process.env.SOLANA_RPC_URL!, "confirmed");
 const provider = new AnchorProvider(connection, wallet, { commitment: "confirmed" });
 
 const dusk = new Dusk({

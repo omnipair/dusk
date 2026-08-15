@@ -204,16 +204,20 @@ impl<'info> InitializeMarket<'info> {
         )?;
         require_supported_asset_mint(&self.base_mint)?;
         require_supported_asset_mint(&self.quote_mint)?;
+
         let market = self.market.key();
         validate_lp_mint(&self.ylp_mint, market, self.base_mint.decimals)?;
         validate_lp_mint(&self.base_hlp_mint, market, self.base_mint.decimals)?;
         validate_lp_mint(&self.quote_hlp_mint, market, self.quote_mint.decimals)?;
+
         require_vanity_suffix(&self.ylp_mint, "yLP")?;
         require_vanity_suffix(&self.base_hlp_mint, "hLP")?;
         require_vanity_suffix(&self.quote_hlp_mint, "hLP")?;
+
         require!(self.ylp_mint.supply == 0, ErrorCode::NonZeroSupply);
         require!(self.base_hlp_mint.supply == 0, ErrorCode::NonZeroSupply);
         require!(self.quote_hlp_mint.supply == 0, ErrorCode::NonZeroSupply);
+
         args.config.validate()
     }
 

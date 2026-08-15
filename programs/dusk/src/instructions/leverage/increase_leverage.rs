@@ -9,17 +9,17 @@ use crate::{
     errors::ErrorCode,
     events::{LeveragePositionUpdated, LeverageSwapReceipt, MarketEventMetadata},
     generate_market_seeds,
-    market::{LeverageSwapQuote, PreparedLeverageSwap},
+    market::liquidity::SwapCashPolicy,
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset},
     token::transfer_checked_with_remaining_accounts,
 };
 
 use super::settlement::{
-    leverage_collateral_credit, leverage_swap_fee_credit, settle_inline_leverage_hlp,
+    leverage_collateral_credit, leverage_swap_fee_credit, prepare_leverage_swap, settle_inline_leverage_hlp,
     validate_leverage_collateral_risk_mint, validate_leverage_mints, validate_leverage_reserve_accounts,
 };
 use crate::instructions::accounts::{require_reserve_custody, token_program_for_mint, HlpSwapAccountLayout};
-use crate::instructions::{PreparedSwap, SwapRequest};
+use crate::instructions::SwapRequest;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct IncreaseLeverageArgs {
@@ -130,27 +130,20 @@ impl<'info> IncreaseLeverage<'info> {
         let position_key = ctx.accounts.leverage_position.key();
 
         // Quote the additional debt as a collateral purchase.
-        let PreparedSwap {
-            quote,
-            base_pre_rebalance,
-            quote_pre_rebalance,
-            fee_eligible_ylp_supply,
-            interest_eligibility,
-        } = SwapRequest {
-            current_slot,
-            asset_in: debt_asset,
-            reserve_credit: args.debt_amount,
-        }
-        .prepare(&mut ctx.accounts.market)?;
-        ctx.accounts.market.observe_current_risk(current_slot)?;
-        let swap = LeverageSwapQuote::from_amm(quote, current_slot);
-        let prepared_swap = PreparedLeverageSwap {
-            swap,
-            base_pre_rebalance,
-            quote_pre_rebalance,
-            fee_eligible_ylp_supply,
-            interest_eligibility,
-        };
+        let prepared_swap = prepare_leverage_swap(
+            &mut ctx.accounts.market,
+            SwapRequest {
+                current_slot,
+                asset_in: debt_asset,
+                reserve_credit: args.debt_amount,
+            },
+            SwapCashPolicy::Borrow {
+                asset: debt_asset,
+                amount: args.debt_amount,
+            },
+        )?;
+        let swap = prepared_swap.swap;
+        let interest_eligibility = prepared_swap.interest_eligibility;
         let collateral_credit =
             leverage_collateral_credit(&ctx.accounts.collateral_mint, swap.amount_out, current_epoch)?;
         require_gte!(collateral_credit, args.min_collateral_out, ErrorCode::SlippageExceeded);

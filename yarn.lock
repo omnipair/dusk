@@ -305,6 +305,30 @@
     "@solana/spl-token-metadata" "^0.1.6"
     buffer "^6.0.3"
 
+"@solana/surfpool-darwin-arm64@1.5.0":
+  version "1.5.0"
+  resolved "https://registry.yarnpkg.com/@solana/surfpool-darwin-arm64/-/surfpool-darwin-arm64-1.5.0.tgz#2d9840f4410f6882e8c0918e5385b499f250e15f"
+  integrity sha512-RdjEN7WDAr1Vrp1CD+NAS3pwT//TJclX9zyxjhAMpmBofwDzlCO8/yqv2CbD77UOuB/y3UWz3MvEEHxZfetKsw==
+
+"@solana/surfpool-darwin-x64@1.5.0":
+  version "1.5.0"
+  resolved "https://registry.yarnpkg.com/@solana/surfpool-darwin-x64/-/surfpool-darwin-x64-1.5.0.tgz#6be3f7b93863df1c8142780e6e8379ffc51ac7f8"
+  integrity sha512-8ScgLVX32JX7HH0XkijZxlpsNAALuzaJQDUTjJ1aPazKzunliek27TP9ZkVzzBHypyiY59wpwNue9PUGnGKdIw==
+
+"@solana/surfpool-linux-x64-gnu@1.5.0":
+  version "1.5.0"
+  resolved "https://registry.yarnpkg.com/@solana/surfpool-linux-x64-gnu/-/surfpool-linux-x64-gnu-1.5.0.tgz#3a696170a679d0dce9d62aa19f361b51a7d69ccc"
+  integrity sha512-d+wUCBdzw7U4inKoe+Lj7XlH8Nmd6A00IZOsG3R61NQbqhRVp7zFpVCCzV00RvgAOsSedkI87I6B4ehAuyGPAg==
+
+"@solana/surfpool@1.5.0":
+  version "1.5.0"
+  resolved "https://registry.yarnpkg.com/@solana/surfpool/-/surfpool-1.5.0.tgz#f28146567d0799949680b21d149ca1f8ec97302c"
+  integrity sha512-smTwmZpron2Zf/EcxwcjlJ5cva+nnf4GWpHf7RJj8nEzA4XcHlCDFkO+Dwoe5mapHKelePqFeWpId7Q/7zxEOg==
+  optionalDependencies:
+    "@solana/surfpool-darwin-arm64" "1.5.0"
+    "@solana/surfpool-darwin-x64" "1.5.0"
+    "@solana/surfpool-linux-x64-gnu" "1.5.0"
+
 "@solana/web3.js@^1.32.0":
   version "1.98.0"
   resolved "https://registry.yarnpkg.com/@solana/web3.js/-/web3.js-1.98.0.tgz#21ecfe8198c10831df6f0cfde7f68370d0405917"
@@ -455,10 +479,10 @@
   dependencies:
     "@types/node" "*"
 
-"@types/ws@^8.2.2":
-  version "8.5.14"
-  resolved "https://registry.yarnpkg.com/@types/ws/-/ws-8.5.14.tgz#93d44b268c9127d96026cf44353725dd9b6c3c21"
-  integrity sha512-bd/YFLW+URhBzMXurx7lWByOu+xzU9+kb3RboOteXYDfW+tr+JZa99OyNmPINEGB/ahzKrEuc8rcv4gnpJmxTw==
+"@types/ws@8.18.1", "@types/ws@^8.2.2":
+  version "8.18.1"
+  resolved "https://registry.yarnpkg.com/@types/ws/-/ws-8.18.1.tgz#48464e4bf2ddfd17db13d845467f6070ffea4aa9"
+  integrity sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==
   dependencies:
     "@types/node" "*"
 
@@ -1777,14 +1801,14 @@ wrappy@1:
   integrity sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==
 
 ws@^7.5.10:
-  version "7.5.10"
-  resolved "https://registry.yarnpkg.com/ws/-/ws-7.5.10.tgz#58b5c20dc281633f6c19113f39b349bd8bd558d9"
-  integrity sha512-+dbF1tHwZpXcbOJdVOkzLDxZP1ailvSxM6ZweXTegylPny803bFhA+vqBYw4s31NSAk4S2Qz+AKXK9a4wkdjcQ==
+  version "7.5.13"
+  resolved "https://registry.yarnpkg.com/ws/-/ws-7.5.13.tgz#12aa507eaca76c295c278b1aebf4698ab2c1845f"
+  integrity sha512-rsKI6xDBFVf4r/x8XyChGK04QR/XHroxs/jUcoWvtEZM8TPU/X/uIY9B1CsSzYws9ZJb/6bbBu7dPhFW00CAoA==
 
-ws@^8.5.0:
-  version "8.18.0"
-  resolved "https://registry.yarnpkg.com/ws/-/ws-8.18.0.tgz#0d7505a6eafe2b0e712d232b42279f53bc289bbc"
-  integrity sha512-8VbfWfHLbbwu3+N6OKsOMpBdT4kXPDDB9cJk2bJ6mh9ucxdlnNvH1e+roYkKmN9Nxw2yjz7VzeO9oOz2zJ04Pw==
+ws@8.21.1, ws@^8.5.0:
+  version "8.21.1"
+  resolved "https://registry.yarnpkg.com/ws/-/ws-8.21.1.tgz#045650cd4b1207809e7547146223c3814a9af586"
+  integrity sha512-+0NTnW77fFN/DjQi6k/Sq/Yvk4Sgajw7urW8V+asjXnRgDs9gyGkdb7EzgfhA4goXsRIZKE28fzIXBHEzhuiWw==
 
 y18n@^5.0.5:
   version "5.0.8"

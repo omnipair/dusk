@@ -1125,7 +1125,7 @@ fn position_collateral_value_with_pricing(
             collateral_amount_nad
                 .checked_mul(debt_per_collateral_price_nad as u128)
                 .and_then(|value| value.checked_div(NAD as u128))
-                .ok_or(ErrorCode::MarketMathOverflow.into())
+                .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
         }
     }
 }

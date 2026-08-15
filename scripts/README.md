@@ -20,7 +20,10 @@ documented in `scripts/v2/README.md`.
 ## Fork Lab
 
 ```bash
+yarn build:v2-fork-rpc-controller
+# Requires FORK_SDK_REMOTE_RPC_URL and an explicit FORK_LAB_PAYER_KEYPAIR_*.
 yarn v2-fork:surfpool
+yarn v2-fork:surfpool:cli # legacy local CLI fallback
 yarn v2-fork:rpc-proxy
 yarn v2-fork:api
 yarn test-surfpool-v2
@@ -28,7 +31,9 @@ yarn surfpool-v2-e2e
 ```
 
 The fork lab runs `dusk` against a private Surfpool fork and exposes the
-browser-facing Dusk fork API. See `scripts/v2-fork-lab/README.md`.
+browser-facing Dusk fork API. The public proxy accepts HTTP RPC and same-domain
+WebSocket upgrades; configure its private targets with `SURFPOOL_RPC_URL` and
+`SURFPOOL_WS_URL`. See `scripts/v2-fork-lab/README.md`.
 
 ## Utilities
 

@@ -69,7 +69,7 @@ async function firstPassingRawSwap(
   return high;
 }
 
-async function largestPassingHlpDepositAtDebtBoundary(
+async function largestPassingHlpDepositAtCashBoundary(
   harness: ProtocolTestHarness,
   wallet: string,
   targetAsset: MarketAsset,
@@ -89,8 +89,8 @@ async function largestPassingHlpDepositAtDebtBoundary(
     minHlpAmount: "0",
   });
   harness.assertTrue(
-    `${targetAsset} hLP upper bound reaches shared daily-flow or cash headroom`,
-    highProbe.errorCode === "DailyLimitExceeded" || highProbe.errorCode === "InsufficientBorrowHeadroom",
+    `${targetAsset} hLP upper bound reaches opposite-side cash headroom`,
+    highProbe.errorCode === "InsufficientBorrowHeadroom",
     highProbe.errorCode
   );
 
@@ -245,14 +245,14 @@ export const MARKET_BOUNDARY_SCENARIOS: ScenarioDefinition[] = [
         const before = await harness.market();
         const sharesBefore = await harness.lpBalance("bidder", hlpMint);
         const debtBeforePreview = await previewMarket(harness, `preview before ${targetAsset} hLP cash-boundary search`);
-        const maximum = await largestPassingHlpDepositAtDebtBoundary(
+        const maximum = await largestPassingHlpDepositAtCashBoundary(
           harness,
           "bidder",
           targetAsset,
           raw(1, decimals),
           raw(900_000, decimals)
         );
-        harness.observe(`${targetAsset} maximum hLP deposit at current debt-admission boundary`, {
+        harness.observe(`${targetAsset} maximum hLP deposit at current cash-headroom boundary`, {
           raw: maximum,
           ui: formatUnits(maximum, decimals),
         });
@@ -260,13 +260,13 @@ export const MARKET_BOUNDARY_SCENARIOS: ScenarioDefinition[] = [
         const rejected = await harness.execute({
           wallet: "bidder",
           endpoint: "/api/v2/fork/tx/deposit-single-sided",
-          label: `reject ${targetAsset} hLP deposit one raw unit beyond shared debt capacity`,
+          label: `reject ${targetAsset} hLP deposit one raw unit beyond opposite-side cash headroom`,
           expected: "failure",
           body: { targetAsset, depositAmount: formatUnits(maximum + 1n, decimals), minHlpAmount: "0" },
         });
         harness.assertTrue(
-          `${targetAsset} hLP boundary is the shared daily-flow or cash cap`,
-          rejected.errorCode === "DailyLimitExceeded" || rejected.errorCode === "InsufficientBorrowHeadroom",
+          `${targetAsset} hLP boundary is the opposite-side cash cap`,
+          rejected.errorCode === "InsufficientBorrowHeadroom",
           rejected.errorCode
         );
 
@@ -276,29 +276,50 @@ export const MARKET_BOUNDARY_SCENARIOS: ScenarioDefinition[] = [
           label: `execute maximum ${targetAsset} hLP debt-boundary deposit`,
           body: { targetAsset, depositAmount: formatUnits(maximum, decimals), minHlpAmount: "0" },
         });
-        const afterDeposit = await harness.market();
-        const afterDepositPreview = await previewMarket(harness, `preview maximum ${targetAsset} hLP deposit`);
-        const bucketAfterDeposit = stateValue(afterDeposit, bucketKey);
-        harness.assertTrue(
-          `${targetAsset} hLP funding consumes the opposite-side shared daily bucket`,
-          bucketAfterDeposit > stateValue(before, bucketKey),
-          { before: stateValue(before, bucketKey), after: bucketAfterDeposit }
+        let bucketAfterDeposit = 0n;
+        let debtAfterDeposit = 0n;
+        try {
+          const afterDeposit = await harness.market();
+          const afterDepositPreview = await previewMarket(
+            harness,
+            `preview maximum ${targetAsset} hLP deposit`,
+          );
+          bucketAfterDeposit = stateValue(afterDeposit, bucketKey);
+          debtAfterDeposit = integer(
+            afterDepositPreview[debtPreviewKey].hlpFundingDebt,
+          );
+        } finally {
+          // Clean shared state before evaluating captured evidence. A changed
+          // assertion must not strand a large active hLP and contaminate every
+          // later scenario in the same fresh-stack run.
+          const minted = await harness.lpBalance("bidder", hlpMint) - sharesBefore;
+          if (minted > 0n) {
+            await harness.execute({
+              wallet: "bidder",
+              endpoint: "/api/v2/fork/tx/withdraw-single-sided",
+              label: `withdraw maximum ${targetAsset} hLP cash-boundary deposit`,
+              body: {
+                targetAsset,
+                hlpAmount: formatUnits(minted, decimals),
+                minTargetAmountOut: "0",
+              },
+            });
+          }
+        }
+        const afterExit = await harness.market();
+        const afterExitPreview = await previewMarket(harness, `preview after ${targetAsset} hLP cash-boundary exit`);
+        // Direct hLP funding is internal leverage backed by market cash. It is
+        // deliberately isolated from the public borrower 24-hour flow bucket.
+        harness.assertEqual(
+          `${targetAsset} hLP funding leaves the public daily-borrow bucket unchanged`,
+          bucketAfterDeposit,
+          stateValue(before, bucketKey)
         );
         harness.assertTrue(
           `${targetAsset} hLP deposit creates opposite-side funding debt`,
-          integer(afterDepositPreview[debtPreviewKey].hlpFundingDebt) > integer(debtBeforePreview[debtPreviewKey].hlpFundingDebt),
-          afterDepositPreview[debtPreviewKey].hlpFundingDebt
+          debtAfterDeposit > integer(debtBeforePreview[debtPreviewKey].hlpFundingDebt),
+          debtAfterDeposit
         );
-
-        const minted = await harness.lpBalance("bidder", hlpMint) - sharesBefore;
-        await harness.execute({
-          wallet: "bidder",
-          endpoint: "/api/v2/fork/tx/withdraw-single-sided",
-          label: `withdraw maximum ${targetAsset} hLP cash-boundary deposit`,
-          body: { targetAsset, hlpAmount: formatUnits(minted, decimals), minTargetAmountOut: "0" },
-        });
-        const afterExit = await harness.market();
-        const afterExitPreview = await previewMarket(harness, `preview after ${targetAsset} hLP cash-boundary exit`);
         harness.assertEqual(`${targetAsset} hLP test shares are fully burned`, await harness.lpBalance("bidder", hlpMint), sharesBefore);
         harness.assertEqual(
           `${targetAsset} hLP funding debt returns to baseline`,
@@ -306,9 +327,9 @@ export const MARKET_BOUNDARY_SCENARIOS: ScenarioDefinition[] = [
           integer(debtBeforePreview[debtPreviewKey].hlpFundingDebt)
         );
         harness.assertEqual(
-          `${targetAsset} hLP exit does not refund shared daily-flow capacity`,
+          `${targetAsset} hLP exit keeps the public daily-borrow bucket unchanged`,
           stateValue(afterExit, bucketKey),
-          bucketAfterDeposit
+          stateValue(before, bucketKey)
         );
       }
     },

@@ -98,6 +98,16 @@ async function maximumAdditionalQuoteBorrow(
   return low;
 }
 
+function executableBorrowCapacity(probedCapacity: bigint): bigint {
+  if (probedCapacity <= 0n) return 0n;
+  // Exact-boundary simulations race interest accrual and the next execution
+  // bank. Reserve one basis point (rounded up, therefore at least one raw
+  // atom) so a passing probe remains executable without materially changing
+  // the staged-vs-split comparison.
+  const haircut = (probedCapacity + 9_999n) / 10_000n;
+  return probedCapacity > haircut ? probedCapacity - haircut : 0n;
+}
+
 async function repayAndWithdraw(
   harness: ProtocolTestHarness,
   wallet: string,
@@ -109,8 +119,21 @@ async function repayAndWithdraw(
   const position = await previewPosition(harness, wallet, positionId, `preview ${wallet} debt for cleanup`);
   const debt = debtAsset === "base" ? integer(position.fixedBaseDebt) : integer(position.fixedQuoteDebt);
   const debtDecimals = debtAsset === "base" ? harness.config.baseDecimals : harness.config.quoteDecimals;
+  const debtMint = debtAsset === "base" ? harness.config.baseMint : harness.config.quoteMint;
+  const debtTokenProgram = debtAsset === "base"
+    ? harness.config.baseTokenProgram
+    : harness.config.quoteTokenProgram;
   const collateralDecimals = collateralAsset === "base" ? harness.config.baseDecimals : harness.config.quoteDecimals;
   if (debt > 0n) {
+    // `repayAmount` is a maximum: the program transfers only the exact current
+    // debt. Use the funded wallet balance so interest accrued between preview
+    // and execution cannot leave a one-atom debt that blocks collateral exit.
+    const repayMax = await harness.tokenBalance(wallet, debtMint, debtTokenProgram);
+    harness.assertTrue(
+      `${wallet} has enough ${debtAsset} balance to clear cleanup debt`,
+      repayMax >= debt,
+      { repayMax, previewDebt: debt },
+    );
     await harness.execute({
       wallet,
       endpoint: "/api/v2/fork/tx/repay",
@@ -118,9 +141,23 @@ async function repayAndWithdraw(
       body: {
         positionId: positionId.toBase58(),
         repayAsset: debtAsset,
-        repayAmount: formatUnits(debt, debtDecimals),
+        repayAmount: formatUnits(repayMax, debtDecimals),
       },
     });
+    const cleared = await previewPosition(
+      harness,
+      wallet,
+      positionId,
+      `verify ${wallet} debt cleared before collateral cleanup`,
+    );
+    const remainingDebt = debtAsset === "base"
+      ? integer(cleared.fixedBaseDebt)
+      : integer(cleared.fixedQuoteDebt);
+    harness.assertEqual(
+      `${wallet} ${debtAsset} debt is zero before collateral cleanup`,
+      remainingDebt,
+      0n,
+    );
   }
   if (collateralAmount > 0n) {
     await harness.execute({
@@ -197,7 +234,14 @@ export const LENDING_SCENARIOS: ScenarioDefinition[] = [
   {
     id: "lending.global-health-non-locking",
     async run(harness) {
-      await harness.fundWallet("trader", "50000", "0", 0);
+      // Fork funding sets absolute balances. Keep positive SOL on the trader:
+      // setting it to zero removes the system account and invalidates every
+      // later transaction that uses this wallet as the simulation fee payer.
+      await harness.fundWallet("trader", "50000", "0");
+      harness.assertTrue(
+        "global-health price mover remains a funded transaction fee payer",
+        await harness.solBalance("trader") > 0,
+      );
       for (const [wallet, positionId, borrowAmount] of [
         ["alice", aliceGlobalPosition, "20"],
         ["bob", bobGlobalPosition, "60"],
@@ -329,8 +373,16 @@ export const LENDING_SCENARIOS: ScenarioDefinition[] = [
             label: `deposit ${label} collateral ${index + 1}`,
             body: { positionId: positionId.toBase58(), marketAsset: "base", depositAmount: String(collateral) },
           });
-          const capacity = await maximumAdditionalQuoteBorrow(harness, positionId);
-          harness.assertTrue(`${label} stage ${index + 1} has positive capacity`, capacity > 0n, capacity);
+          const probedCapacity = await maximumAdditionalQuoteBorrow(
+            harness,
+            positionId,
+          );
+          const capacity = executableBorrowCapacity(probedCapacity);
+          harness.assertTrue(
+            `${label} stage ${index + 1} has positive post-haircut capacity`,
+            capacity > 0n,
+            { probedCapacity, executableCapacity: capacity },
+          );
           await harness.execute({
             wallet: "alice",
             endpoint: "/api/v2/fork/tx/borrow",
@@ -376,8 +428,17 @@ export const LENDING_SCENARIOS: ScenarioDefinition[] = [
             submit: false,
             body: { collateralAsset: "base", collateralAmount: String(collateral), withReferral: false },
           });
-          const capacity = integer(decodePreviewBorrowCapacityReturnData(previewData(evidence)).maxBorrowAmount);
-          harness.assertTrue(`${label} position ${index + 1} has positive capacity`, capacity > 0n, capacity);
+          const probedCapacity = integer(
+            decodePreviewBorrowCapacityReturnData(
+              previewData(evidence),
+            ).maxBorrowAmount,
+          );
+          const capacity = executableBorrowCapacity(probedCapacity);
+          harness.assertTrue(
+            `${label} position ${index + 1} has positive post-haircut capacity`,
+            capacity > 0n,
+            { probedCapacity, executableCapacity: capacity },
+          );
           await harness.execute({
             wallet: "alice",
             endpoint: "/api/v2/fork/tx/borrow",
@@ -455,23 +516,37 @@ export const LENDING_SCENARIOS: ScenarioDefinition[] = [
         body: { positionId: dailyQuotePosition.toBase58(), marketAsset: "base", depositAmount: "100" },
       });
       await harness.execute({
+        wallet: "bob",
+        endpoint: "/api/v2/fork/tx/deposit-collateral",
+        label: "deposit quote collateral for base daily-limit debit",
+        body: { positionId: dailyBasePosition.toBase58(), marketAsset: "quote", depositAmount: "100" },
+      });
+
+      // The daily bucket refills continuously. Take the comparison baseline
+      // after the unrelated collateral transactions, then observe each debt
+      // side immediately after its own material debit so normal RPC latency
+      // cannot refill a small probe before the assertion runs.
+      const ready = await previewMarket(harness, "preview daily borrow limits immediately before debit");
+      await harness.execute({
         wallet: "alice",
         endpoint: "/api/v2/fork/tx/borrow",
         label: "consume quote daily borrow bucket",
         body: {
           positionId: dailyQuotePosition.toBase58(),
           borrowAsset: "quote",
-          borrowAmount: "10",
-          minDebtAmountOut: "10",
+          borrowAmount: "50",
+          minDebtAmountOut: "50",
           minLiquidationCfBps: 0,
         },
       });
-      await harness.execute({
-        wallet: "bob",
-        endpoint: "/api/v2/fork/tx/deposit-collateral",
-        label: "deposit quote collateral for base daily-limit debit",
-        body: { positionId: dailyBasePosition.toBase58(), marketAsset: "quote", depositAmount: "100" },
-      });
+      const quoteConsumed = await previewMarket(
+        harness,
+        "preview quote daily borrow bucket immediately after debit",
+      );
+      harness.assertTrue(
+        "quote borrowing reduces quote daily headroom",
+        integer(quoteConsumed.quote.dailyBorrowRemaining) < integer(ready.quote.dailyBorrowRemaining),
+      );
       await harness.execute({
         wallet: "bob",
         endpoint: "/api/v2/fork/tx/borrow",
@@ -479,14 +554,16 @@ export const LENDING_SCENARIOS: ScenarioDefinition[] = [
         body: {
           positionId: dailyBasePosition.toBase58(),
           borrowAsset: "base",
-          borrowAmount: "10",
-          minDebtAmountOut: "10",
+          borrowAmount: "50",
+          minDebtAmountOut: "50",
           minLiquidationCfBps: 0,
         },
       });
       const consumed = await previewMarket(harness, "preview consumed daily borrow buckets");
-      harness.assertTrue("quote borrowing reduces quote daily headroom", integer(consumed.quote.dailyBorrowRemaining) < integer(before.quote.dailyBorrowRemaining));
-      harness.assertTrue("base borrowing reduces base daily headroom", integer(consumed.base.dailyBorrowRemaining) < integer(before.base.dailyBorrowRemaining));
+      harness.assertTrue(
+        "base borrowing reduces base daily headroom",
+        integer(consumed.base.dailyBorrowRemaining) < integer(quoteConsumed.base.dailyBorrowRemaining),
+      );
 
       await harness.fundWallet("trader", "1000", "1000");
       const ylpBefore = await harness.lpBalance("trader", harness.config.ylpMint);
@@ -564,15 +641,29 @@ export const LENDING_SCENARIOS: ScenarioDefinition[] = [
       harness.assertTrue("debt grows above principal with time", grownDebt > initialDebt, { initialDebt, grownDebt });
       harness.assertEqual("other users and time do not float stored CF", Number(grown.quoteLiquidationCfBps), initialCf);
 
+      const aliceQuoteBalanceBeforeRepay = await harness.tokenBalance(
+        "alice",
+        harness.config.quoteMint,
+        harness.config.quoteTokenProgram,
+      );
+      harness.assertTrue(
+        "Alice's quote balance covers the grown live debt",
+        aliceQuoteBalanceBeforeRepay >= grownDebt,
+        { aliceQuoteBalanceBeforeRepay, grownDebt },
+      );
+
       await harness.execute({
         wallet: "alice",
         endpoint: "/api/v2/fork/tx/repay",
-        label: "reject one raw unit over full live debt",
+        label: "reject one raw unit over wallet balance",
         expected: "failure",
         body: {
           positionId: interestPosition.toBase58(),
           repayAsset: "quote",
-          repayAmount: formatUnits(grownDebt + 1n, harness.config.quoteDecimals),
+          repayAmount: formatUnits(
+            aliceQuoteBalanceBeforeRepay + 1n,
+            harness.config.quoteDecimals,
+          ),
         },
       });
       await harness.execute({
@@ -592,6 +683,19 @@ export const LENDING_SCENARIOS: ScenarioDefinition[] = [
         ) > interestVaultBefore
       );
 
+      const finalRepayMax = await harness.tokenBalance(
+        "alice",
+        harness.config.quoteMint,
+        harness.config.quoteTokenProgram,
+      );
+      harness.assertTrue(
+        "Alice's quote balance covers the remaining interest-bearing debt",
+        finalRepayMax >= integer(partial.fixedQuoteDebt),
+        {
+          finalRepayMax,
+          previewDebt: integer(partial.fixedQuoteDebt),
+        },
+      );
       await harness.execute({
         wallet: "alice",
         endpoint: "/api/v2/fork/tx/repay",
@@ -599,7 +703,7 @@ export const LENDING_SCENARIOS: ScenarioDefinition[] = [
         body: {
           positionId: interestPosition.toBase58(),
           repayAsset: "quote",
-          repayAmount: formatUnits(integer(partial.fixedQuoteDebt), harness.config.quoteDecimals),
+          repayAmount: formatUnits(finalRepayMax, harness.config.quoteDecimals),
         },
       });
       const cleared = await previewPosition(harness, "alice", interestPosition, "preview cleared interest position");

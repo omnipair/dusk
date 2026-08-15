@@ -4572,6 +4572,36 @@ export type Dusk = {
           }
         },
         {
+          "name": "futarchyAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "assetInMint"
         },
         {
@@ -5217,7 +5247,7 @@ export type Dusk = {
           "name": "authoritySigner",
           "writable": true,
           "signer": true,
-          "address": "3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV"
+          "address": "ApUjQxxTQLTzPcGqYTowjTHoUBdzutWe9yXr1oAhKPZQ"
         },
         {
           "name": "futarchyAuthority",
@@ -5315,7 +5345,7 @@ export type Dusk = {
         {
           "name": "authoritySigner",
           "signer": true,
-          "address": "3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV"
+          "address": "ApUjQxxTQLTzPcGqYTowjTHoUBdzutWe9yXr1oAhKPZQ"
         },
         {
           "name": "eventAuthority",
@@ -10093,6 +10123,16 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "hlpFundingInterestGrowthRemainderScaled",
+            "docs": [
+              "Source-scoped Q64 carry for interest paid by hLP funding debt. Funding",
+              "uses a non-hLP denominator, while public interest uses total yLP",
+              "supply; sharing one carry across those denominators would eventually",
+              "leak rounding entitlement between the two populations."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "swapFeeCustodyBalance",
             "docs": [
               "Claimable swap fees physically held in the reserve vault but excluded",
@@ -12071,14 +12111,6 @@ export type Dusk = {
             }
           },
           {
-            "name": "reserveProductKNad",
-            "docs": [
-              "Raw reserve-product telemetry. Lending risk uses CONCENTRATED Q, exposed under",
-              "`amm.balanced_equivalent_q_nad`, rather than this CPMM-era diagnostic."
-            ],
-            "type": "u128"
-          },
-          {
             "name": "liquidityNad",
             "type": "u128"
           },
@@ -12814,6 +12846,14 @@ export type Dusk = {
           },
           {
             "name": "cashReserve",
+            "type": "u64"
+          },
+          {
+            "name": "baseHlpBackingInventory",
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpBackingInventory",
             "type": "u64"
           },
           {
@@ -13701,6 +13741,24 @@ export type Dusk = {
           },
           {
             "name": "cashReserve",
+            "type": "u64"
+          },
+          {
+            "name": "baseHlpBackingInventory",
+            "docs": [
+              "Physical reserve-vault atoms removed from executable AMM inventory by",
+              "base-hLP deleveraging. They are conservation-only bookkeeping, excluded",
+              "from hLP NAV and exit output, and return to executable cash pro rata as",
+              "base hLP exits."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpBackingInventory",
+            "docs": [
+              "Quote-hLP counterpart of `base_hlp_backing_inventory`; never a second",
+              "hLP NAV or withdrawal claim."
+            ],
             "type": "u64"
           }
         ]

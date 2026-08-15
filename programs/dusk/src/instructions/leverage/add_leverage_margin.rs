@@ -8,7 +8,9 @@ use crate::{
     constants::*,
     errors::ErrorCode,
     events::{LeveragePositionUpdated, MarketEventMetadata},
-    state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
+    state::{
+        FutarchyAuthority, HlpYieldEligibility, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner,
+    },
     token::{get_transfer_fee_for_epoch, get_transfer_inverse_fee_for_epoch, transfer_checked_with_remaining_accounts},
 };
 
@@ -123,6 +125,11 @@ impl<'info> AddLeverageMargin<'info> {
         let debt_mint_key = ctx.accounts.debt_mint.key();
         let position_key = ctx.accounts.leverage_position.key();
         ctx.accounts.market.prepare_leverage_margin_operation(current_slot)?;
+        let interest_eligibility = HlpYieldEligibility {
+            ylp_supply: ctx.accounts.market.base_side.shares.ylp_supply,
+            base_hlp_ylp_shares: ctx.accounts.market.base_hlp_vault.ylp_shares,
+            quote_hlp_ylp_shares: ctx.accounts.market.quote_hlp_vault.ylp_shares,
+        };
 
         // Resolve the gross transfer required for the exact net debt repayment.
         let reserve_balance_before = ctx.accounts.debt_reserve_vault.amount;
@@ -187,6 +194,7 @@ impl<'info> AddLeverageMargin<'info> {
             ctx.accounts.referral_partner.as_deref(),
             ctx.accounts.referral_accrual.as_deref_mut(),
             receipt.interest_paid,
+            interest_eligibility,
             ctx.remaining_accounts,
         )?;
         ctx.accounts.debt_reserve_vault.reload()?;

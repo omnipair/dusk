@@ -78,14 +78,17 @@ fn lp_mint_requires_an_immutable_dusk_transfer_hook() {
 }
 
 #[test]
-fn reserve_custody_covers_cash_and_excluded_swap_fees() {
+fn reserve_custody_covers_cash_fees_and_hlp_backing_without_rejecting_donations() {
     let mut side = MarketSide::default();
     side.reserves.cash_reserve = 100;
+    side.reserves.base_hlp_backing_inventory = 7;
+    side.reserves.quote_hlp_backing_inventory = 3;
     side.fees.swap_fee_custody_balance = 20;
 
-    require_reserve_custody(120, &side).unwrap();
+    require_reserve_custody(130, &side).unwrap();
+    require_reserve_custody(131, &side).unwrap();
     assert_eq!(
-        require_reserve_custody(119, &side).unwrap_err(),
+        require_reserve_custody(129, &side).unwrap_err(),
         error!(ErrorCode::UnbackedFeeLiability)
     );
 

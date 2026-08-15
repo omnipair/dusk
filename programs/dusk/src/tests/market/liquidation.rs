@@ -35,6 +35,7 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
     base_side.reserves = Reserves {
         live_reserve: 1_000_000_000,
         cash_reserve: 1_000_000_000,
+        ..Reserves::default()
     };
     let mut quote_side = MarketSide {
         asset_mint: quote_mint,
@@ -44,6 +45,7 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
     quote_side.reserves = Reserves {
         live_reserve: 1_000_000_000,
         cash_reserve: 1_000_000_000,
+        ..Reserves::default()
     };
 
     let debt = Debt {
@@ -166,11 +168,13 @@ fn market_with_cash_backed_debt(
             base_side.reserves = Reserves {
                 live_reserve: debt_live,
                 cash_reserve: debt_cash_after_borrow,
+                ..Reserves::default()
             };
             base_side.shares.ylp_supply = debt_live;
             quote_side.reserves = Reserves {
                 live_reserve: collateral_cash,
                 cash_reserve: collateral_cash,
+                ..Reserves::default()
             };
             quote_side.shares.ylp_supply = collateral_cash;
             debt.base_borrow_index_nad = next_index;
@@ -185,11 +189,13 @@ fn market_with_cash_backed_debt(
             base_side.reserves = Reserves {
                 live_reserve: collateral_cash,
                 cash_reserve: collateral_cash,
+                ..Reserves::default()
             };
             base_side.shares.ylp_supply = collateral_cash;
             quote_side.reserves = Reserves {
                 live_reserve: debt_live,
                 cash_reserve: debt_cash_after_borrow,
+                ..Reserves::default()
             };
             quote_side.shares.ylp_supply = debt_live;
             debt.quote_borrow_index_nad = next_index;

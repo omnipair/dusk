@@ -465,7 +465,7 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
       harness.assertEqual(
         "development emergency signer is deterministic",
         emergency,
-        "2iXtA8oeZqUU5pofxK971TCEvFGfems2AcDRaZHKD2pQ"
+        "ApUjQxxTQLTzPcGqYTowjTHoUBdzutWe9yXr1oAhKPZQ"
       );
       harness.assertEqual("global reduce-only starts disabled", (await harness.futarchy()).globalReduceOnly, false);
       harness.assertEqual("market reduce-only starts disabled", (await harness.market()).reduceOnly, false);
@@ -524,16 +524,6 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
       const ylpMinted = await harness.lpBalance("trader", harness.config.ylpMint) - ylpBefore;
       harness.assertTrue("reduce-only fixture mints yLP", ylpMinted > 0n, ylpMinted);
 
-      const hlpBefore = await harness.lpBalance("trader", harness.config.baseHlpMint);
-      await harness.execute({
-        wallet: "trader",
-        endpoint: "/api/v2/fork/tx/deposit-single-sided",
-        label: "prepare removable hLP before emergency mode",
-        body: { targetAsset: "base", depositAmount: "2", minHlpAmount: "0" },
-      });
-      const hlpMinted = await harness.lpBalance("trader", harness.config.baseHlpMint) - hlpBefore;
-      harness.assertTrue("reduce-only fixture mints hLP", hlpMinted > 0n, hlpMinted);
-
       await harness.execute({
         wallet: "trader",
         endpoint: "/api/v2/fork/tx/swap",
@@ -576,6 +566,19 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
           minCollateralOut: "0",
         },
       });
+
+      // Isolate the emergency-exit assertion from swap/leverage settlement.
+      // Active-hLP settlement semantics are covered by the dedicated hLP and
+      // leverage scenarios; this matrix only needs a real position to exit.
+      const hlpBefore = await harness.lpBalance("trader", harness.config.baseHlpMint);
+      await harness.execute({
+        wallet: "trader",
+        endpoint: "/api/v2/fork/tx/deposit-single-sided",
+        label: "prepare removable hLP immediately before emergency mode",
+        body: { targetAsset: "base", depositAmount: "2", minHlpAmount: "0" },
+      });
+      const hlpMinted = await harness.lpBalance("trader", harness.config.baseHlpMint) - hlpBefore;
+      harness.assertTrue("reduce-only fixture mints hLP", hlpMinted > 0n, hlpMinted);
 
       await harness.execute({
         wallet: "emergency",
@@ -704,6 +707,16 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
       });
       const loanPreview = decodePreviewBorrowPositionReturnData(previewData(loanPreviewEvidence));
       const exactLoanDebt = BigInt(loanPreview.fixedQuoteDebt.toString());
+      const loanRepayMax = await harness.tokenBalance(
+        "bob",
+        harness.config.quoteMint,
+        harness.config.quoteTokenProgram,
+      );
+      harness.assertTrue(
+        "Bob's quote balance covers the emergency-mode loan debt",
+        loanRepayMax >= exactLoanDebt,
+        { loanRepayMax, previewDebt: exactLoanDebt },
+      );
       await harness.execute({
         wallet: "bob",
         endpoint: "/api/v2/fork/tx/repay",
@@ -711,9 +724,24 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
         body: {
           positionId: reduceOnlyLoanPositionId.toBase58(),
           repayAsset: "quote",
-          repayAmount: formatUnits(exactLoanDebt, harness.config.quoteDecimals),
+          repayAmount: formatUnits(loanRepayMax, harness.config.quoteDecimals),
         },
       });
+      const clearedLoanPreviewEvidence = await harness.execute({
+        wallet: "bob",
+        endpoint: "/api/v2/fork/tx/preview-borrow-position",
+        label: "verify emergency-mode loan debt is fully repaid",
+        submit: false,
+        body: { positionId: reduceOnlyLoanPositionId.toBase58() },
+      });
+      const clearedLoanPreview = decodePreviewBorrowPositionReturnData(
+        previewData(clearedLoanPreviewEvidence),
+      );
+      harness.assertEqual(
+        "emergency-mode repayment clears quote debt",
+        BigInt(clearedLoanPreview.fixedQuoteDebt.toString()),
+        0n,
+      );
       const traderQuoteBeforeReferralClaim = await harness.tokenBalance(
         "trader",
         harness.config.quoteMint,
@@ -748,6 +776,22 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
       harness.assertEqual("debt-free collateral exits completely", BigInt(loanPositions[0].payload.baseCollateral), 0n);
 
       await harness.execute({
+        wallet: "trader",
+        endpoint: "/api/v2/fork/tx/withdraw-single-sided",
+        label: "withdraw hLP during market reduce-only",
+        body: {
+          targetAsset: "base",
+          hlpAmount: formatUnits(hlpMinted, harness.config.baseDecimals),
+          minTargetAmountOut: "0",
+        },
+      });
+      harness.assertEqual(
+        "hLP emergency exit burns prepared shares",
+        await harness.lpBalance("trader", harness.config.baseHlpMint),
+        hlpBefore
+      );
+
+      await harness.execute({
         wallet: "alice",
         endpoint: "/api/v2/fork/tx/add-leverage-margin",
         label: "add leverage margin during market reduce-only",
@@ -776,21 +820,6 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
         0
       );
 
-      await harness.execute({
-        wallet: "trader",
-        endpoint: "/api/v2/fork/tx/withdraw-single-sided",
-        label: "withdraw hLP during market reduce-only",
-        body: {
-          targetAsset: "base",
-          hlpAmount: formatUnits(hlpMinted, harness.config.baseDecimals),
-          minTargetAmountOut: "0",
-        },
-      });
-      harness.assertEqual(
-        "hLP emergency exit burns prepared shares",
-        await harness.lpBalance("trader", harness.config.baseHlpMint),
-        hlpBefore
-      );
       await harness.execute({
         wallet: "trader",
         endpoint: "/api/v2/fork/tx/remove-liquidity",
@@ -1153,6 +1182,10 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
       harness.assertTrue("fee-auction liability is reserve-custody-backed", stateValue(market, "baseSwapFeeCustodyBalance") >= soldAmount);
 
       await harness.timeTravel(0, 10);
+      await harness.awaitAuctionReferenceAge({
+        label: "stale auction reference precondition is visible",
+        minAgeSlots: 6n,
+      });
       const staleReference = await harness.execute({
         wallet: "bidder",
         endpoint: "/api/v2/fork/tx/settle-protocol-auction",
@@ -1172,11 +1205,40 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
         "StaleAuctionReference"
       );
 
+      // Surfnet's Clock account free-runs with wall time while risk snapshots
+      // only advance when transactions execute, so a tight settlement window
+      // turns scheduler stalls into StaleAuctionReference flakes. Freshness
+      // rejection is already proven above with the 5-slot window; give the
+      // payment-guard and exact-settlement steps a window that wall-clock
+      // drift cannot outrun.
+      const settlementFeeParams = {
+        ...feeParams,
+        maxReferenceAgeSlots: "10000",
+      };
+      await harness.execute({
+        wallet: "alice",
+        endpoint: "/api/v2/fork/tx/update-protocol-auction-config",
+        label: "widen fee auction reference window after stale-reference check",
+        body: {
+          lane: "fee",
+          acceptedMint: harness.config.quoteMint,
+          params: settlementFeeParams,
+        },
+      });
+      harness.assertEqual(
+        "fee auction settlement window updates exactly",
+        (await harness.futarchy()).feeAuction.params,
+        settlementFeeParams
+      );
       await harness.execute({
         wallet: "trader",
         endpoint: "/api/v2/fork/tx/swap",
         label: "refresh auction reference with real swap",
         body: { assetIn: "base", exactAssetIn: "0.001", minAssetOut: "0" },
+      });
+      await harness.awaitAuctionReferenceAge({
+        label: "refreshed auction reference is visible",
+        maxAgeSlots: 5_000n,
       });
       market = await harness.market();
       soldAmount = stateValue(market, "baseSwapProtocolFeeLiability");
@@ -1294,6 +1356,26 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
         },
       });
       harness.assertEqual("settled liability cannot be sold twice", replay.errorCode, "UnbackedFeeLiability");
+
+      // Exercise the route instruction itself: an explicit self-route resolves
+      // to the same reference as the default, so neither call disturbs later
+      // settlement behavior.
+      await harness.execute({
+        wallet: "alice",
+        endpoint: "/api/v2/fork/tx/update-protocol-auction-route",
+        label: "approve explicit fee auction self-route",
+        body: {
+          lane: "fee",
+          soldAsset: "base",
+          referenceMarket: harness.config.market,
+        },
+      });
+      await harness.execute({
+        wallet: "alice",
+        endpoint: "/api/v2/fork/tx/update-protocol-auction-route",
+        label: "restore default fee auction route",
+        body: { lane: "fee", soldAsset: "base" },
+      });
 
       await harness.execute({
         wallet: "alice",

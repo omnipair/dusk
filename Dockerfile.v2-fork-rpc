@@ -2,13 +2,15 @@ FROM rust:1-trixie
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG TARGETARCH
-ARG NODE_VERSION=20.19.0
+ARG NODE_VERSION=22.23.2
 ARG SOLANA_CLI=2.3.11
 ARG ANCHOR_CLI=0.31.1
 
 ENV HOME=/root
 ENV PATH="/opt/node/bin:/root/.cargo/bin:/root/.local/bin:/root/.avm/bin:/root/.local/share/solana/install/active_release/bin:${PATH}"
 ENV FORK_LAB_BUILD=false
+ENV SURFPOOL_HOST=::
+ENV SURFPOOL_HEALTH_HOST=::
 
 RUN apt-get update -qq && apt-get install -y --no-install-recommends \
     bash \
@@ -42,8 +44,6 @@ RUN cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
     && avm install "${ANCHOR_CLI}" \
     && avm use "${ANCHOR_CLI}"
 
-RUN curl -sL https://run.surfpool.run/ | bash
-
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -52,7 +52,14 @@ RUN npm ci --include=dev
 COPY . .
 
 RUN anchor build -p dusk -- --features "development"
+RUN anchor build -p leverage_delegate -- --features "development"
+RUN npm run build:v2-fork-rpc-controller \
+    && test -f dist/v2-fork-lab/surfpool_controller.js \
+    && test -f dist/v2-fork-lab/surfpool_relay_worker.js \
+    && test -f dist/v2-fork-lab/api_core.js \
+    && test -f dist/v2-fork-lab/seed_fork_generation.mjs \
+    && test -f dist/protocol-tests/catalog.js
 
 EXPOSE 8899 8900
 
-CMD ["npm", "run", "v2-fork:surfpool"]
+CMD ["node", "dist/v2-fork-lab/surfpool_controller.js"]

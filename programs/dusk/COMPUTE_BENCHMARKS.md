@@ -11,6 +11,11 @@ cannot substitute for a named-path measurement.
 The ordinary path is a legacy-SPL, no-debt, inactive-hLP, same-slot CPMM swap.
 It must consume **strictly less than 100,000 CU**.
 
+hLP entry is live. Its rows measure aggregate funding-cap admission,
+reserve-backing conservation, active correction, stored residual correction,
+and inline settlement. They do not establish bounded loss, liquidation, or a
+terminal insolvency waterfall; those mechanisms remain open design work.
+
 The benchmark keeps LiteSVM's default 32 KiB transaction heap. A larger heap
 may be requested only by the specific scenario that proves it is necessary;
 that request remains part of the measured transaction and its CU total.
@@ -23,10 +28,10 @@ Every named path has a checked-in measured maximum and a CI ceiling equal to:
 \left\lceil 1.05 \times \operatorname{maximum}_{\mathrm{measured}} \right\rceil
 \]
 
-A baseline is accepted only from one fully successful run of the finished SBF
-binary. A failed or partially executed suite cannot update a ceiling. The test
-harness checks both that all required scenarios ran and that every checked-in
-ceiling is exactly 5% above its measured maximum.
+A baseline is accepted only from fully successful runs of one unchanged,
+finished SBF binary. A failed or partially executed suite cannot update a
+ceiling. The test harness checks both that all required scenarios ran and that
+every checked-in ceiling is exactly 5% above its measured maximum.
 
 Generate candidate baselines with:
 
@@ -66,13 +71,18 @@ every third-party hook has the same cost.
 
 ## Finished-binary measurements
 
-The following deterministic maxima were captured on 2026-08-07 across five
-fully successful runs of the finished SBF binary:
+The following deterministic maxima were captured on 2026-08-10 across five
+fully successful no-build runs of one finished SBF binary. The artifact was
+built once before the five measurement runs:
 
 ```sh
 yarn build:litesvm
 yarn test-litesvm:no-build
 ```
+
+This is the default development/audit binary. hLP entry is enabled in every
+build profile; its settlement paths are therefore part of the measured
+instruction surface.
 
 Each run passed 49/49 LiteSVM tests, exercised and measured 53/53 Dusk
 instructions, and measured every required scenario. Each CI ceiling below is exactly
@@ -87,23 +97,23 @@ bug without changing program math or sanitizing malformed decoded values.
 
 | Scenario | Measured maximum | CI ceiling |
 |---|---:|---:|
-| CPMM, same slot | 56,215 CU | 59,026 CU |
-| CPMM, advanced slot | 89,304 CU | 93,770 CU |
-| CPMM, active debt | 97,982 CU | 102,882 CU |
-| Concentrated, centered | 188,883 CU | 198,328 CU |
-| Concentrated, finite transition | 274,752 CU | 288,490 CU |
-| Concentrated, exact-CPMM tail | 107,976 CU | 113,375 CU |
-| Divergence-fee stress | 356,950 CU | 374,798 CU |
-| Volatility-fee stress | 105,407 CU | 110,678 CU |
-| Retained surcharge | 474,610 CU | 498,341 CU |
-| Due parameter ramp | 489,599 CU | 514,079 CU |
-| Due funded recenter | 403,274 CU | 423,438 CU |
-| Active hLP | 105,701 CU | 110,987 CU |
-| hLP residual correction | 164,258 CU | 172,471 CU |
-| Token-2022 asset swap | 65,448 CU | 68,721 CU |
+| CPMM, same slot | 57,267 CU | 60,131 CU |
+| CPMM, advanced slot | 90,356 CU | 94,874 CU |
+| CPMM, active debt | 99,034 CU | 103,986 CU |
+| Concentrated, centered | 189,935 CU | 199,432 CU |
+| Concentrated, finite transition | 275,804 CU | 289,595 CU |
+| Concentrated, exact-CPMM tail | 109,028 CU | 114,480 CU |
+| Divergence-fee stress | 358,002 CU | 375,903 CU |
+| Volatility-fee stress | 106,459 CU | 111,782 CU |
+| Retained surcharge | 475,662 CU | 499,446 CU |
+| Due parameter ramp | 490,651 CU | 515,184 CU |
+| Due funded recenter | 404,326 CU | 424,543 CU |
+| Active hLP | 106,768 CU | 112,107 CU |
+| hLP residual correction | 168,751 CU | 177,189 CU |
+| Token-2022 asset swap | 66,500 CU | 69,825 CU |
 
 The separately measured direct Token-2022 transfer-hook transaction consumed
-70,859–118,859 CU across the five runs. This is the full Token-2022 transaction cost,
+77,031–93,531 CU across the five runs. This is the full Token-2022 transaction cost,
 not a hook-program-exclusive measurement, and is reported separately because
 hook implementation, extra accounts, and address-dependent canonical PDA bump
 searches are external inputs rather than deterministic Dusk swap guards.
@@ -111,15 +121,18 @@ searches are external inputs rather than deterministic Dusk swap guards.
 Every swap row increased by 6,522–6,528 CU when the compact swap receipt moved
 from a raw log to Anchor's reliable event self-CPI. This is the measured
 end-to-end cost of making the receipt recoverable from inner instructions; it
-is not curve or fee math. The ordinary path remains 43,785 CU below its 100k
+is not curve or fee math. The ordinary path remains 42,733 CU below its 100k
 acceptance limit.
 
 ## Full instruction snapshot
 
-The five finished-binary runs recorded 4,740 successful transaction or
-simulation samples: 48,089 CU weighted average and 672,876 CU observed maximum.
+The five finished-binary runs recorded 4,730 successful transaction or
+simulation samples: 46,946 CU weighted average and 634,554 CU observed maximum.
 The SBF SHA-256 was
-`eb60c252a66342d154d0e6cee36512e6f267b2976061ef666106c7615f71c531`.
+`6c191ccea46caa2e0da54e71974af16505aa328d65fec90a68c5d2ad48be4ac7`.
+The subsequent `yarn test-litesvm:release` gate passed 49/49 tests, measured
+53/53 instructions, enforced every checked-in ceiling, and rebuilt the same
+SBF SHA-256.
 
 Each row attributes the complete transaction cost to every top-level Dusk
 instruction in that transaction. It therefore includes token/system CPIs,
@@ -133,59 +146,59 @@ ceiling.
 
 | Instruction | Samples | Average CU | Observed maximum CU | Headroom |
 |---|---:|---:|---:|---:|
-| `swap` | 180 | 226,961 | 672,876 | 50.16% |
-| `add_liquidity` | 235 | 225,715 | 630,507 | 53.30% |
-| `preview_swap` | 60 | 231,184 | 439,865 | 67.42% |
-| `settle_liquidation_auction_floor` | 5 | 260,031 | 260,031 | 80.74% |
-| `repay` | 30 | 181,824 | 234,618 | 82.62% |
-| `borrow` | 40 | 182,966 | 223,640 | 83.43% |
-| `preview_borrow_capacity` | 10 | 219,425 | 220,118 | 83.69% |
-| `bid_liquidation_auction` | 5 | 217,438 | 217,438 | 83.89% |
-| `delegated_close_leverage` | 5 | 200,991 | 209,991 | 84.45% |
-| `deposit_single_sided` | 75 | 120,374 | 199,459 | 85.23% |
-| `preview_borrow_position` | 10 | 161,451 | 187,009 | 86.15% |
-| `open_leverage` | 25 | 132,640 | 165,182 | 87.76% |
-| `initialize_market` | 250 | 131,568 | 164,994 | 87.78% |
-| `initialize_yield_accounts` | 80 | 46,131 | 162,640 | 87.95% |
-| `add_leverage_margin` | 10 | 121,578 | 160,640 | 88.10% |
-| `trigger_liquidation_auction` | 10 | 128,456 | 128,456 | 90.48% |
-| `decrease_leverage` | 5 | 118,029 | 121,929 | 90.97% |
-| `withdraw_single_sided` | 15 | 104,051 | 118,039 | 91.26% |
-| `close_leverage` | 5 | 112,032 | 115,632 | 91.43% |
-| `increase_leverage` | 10 | 111,144 | 115,045 | 91.48% |
-| `create_parameter_proposal` | 10 | 83,164 | 97,707 | 92.76% |
-| `liquidate_leverage` | 5 | 94,853 | 96,953 | 92.82% |
-| `remove_liquidity` | 10 | 80,654 | 85,157 | 93.69% |
-| `remove_leverage_margin` | 5 | 82,866 | 82,866 | 93.86% |
-| `deposit_collateral` | 40 | 51,578 | 71,585 | 94.70% |
-| `support_parameter_proposal` | 5 | 61,149 | 68,349 | 94.94% |
-| `preview_market` | 5 | 66,392 | 66,392 | 95.08% |
-| `claim_referral_interest` | 15 | 45,752 | 56,926 | 95.78% |
-| `claim_yield` | 5 | 52,877 | 55,577 | 95.88% |
-| `withdraw_parameter_support` | 5 | 51,035 | 55,535 | 95.89% |
-| `withdraw_collateral` | 5 | 55,361 | 55,361 | 95.90% |
-| `execute_parameter_proposal` | 5 | 53,875 | 53,875 | 96.01% |
-| `settle_protocol_auction` | 10 | 50,889 | 50,891 | 96.23% |
-| `initialize_lp_metadata` | 750 | 25,032 | 48,923 | 96.38% |
-| `initialize_lp_transfer_hook` | 15 | 23,316 | 39,135 | 97.10% |
-| `preview_add_liquidity` | 15 | 30,861 | 34,166 | 97.47% |
-| `create_leverage_delegation` | 10 | 27,063 | 32,163 | 97.62% |
-| `update_protocol_auction_route` | 5 | 29,223 | 29,223 | 97.84% |
-| `configure_referral_partner` | 40 | 18,426 | 26,329 | 98.05% |
-| `set_market_reduce_only` | 5 | 25,604 | 25,604 | 98.10% |
-| `queue_parameter_proposal` | 5 | 24,129 | 24,129 | 98.21% |
-| `initialize_referral_accrual` | 30 | 17,533 | 22,839 | 98.31% |
-| `update_leverage_delegation` | 5 | 20,936 | 20,936 | 98.45% |
-| `set_yield_recipient` | 5 | 20,073 | 20,073 | 98.51% |
+| `add_liquidity` | 235 | 227,185 | 634,554 | 53.00% |
+| `swap` | 170 | 207,403 | 490,651 | 63.66% |
+| `preview_swap` | 65 | 220,523 | 441,642 | 67.29% |
+| `settle_liquidation_auction_floor` | 5 | 260,654 | 260,654 | 80.70% |
+| `repay` | 30 | 184,347 | 253,241 | 81.25% |
+| `borrow` | 40 | 184,414 | 227,263 | 83.17% |
+| `preview_borrow_capacity` | 10 | 219,631 | 220,324 | 83.68% |
+| `bid_liquidation_auction` | 5 | 218,061 | 218,061 | 83.85% |
+| `delegated_close_leverage` | 5 | 201,823 | 203,923 | 84.90% |
+| `preview_borrow_position` | 10 | 161,657 | 187,215 | 86.14% |
+| `open_leverage` | 25 | 132,970 | 169,232 | 87.47% |
+| `deposit_single_sided` | 70 | 116,406 | 167,659 | 87.59% |
+| `initialize_yield_accounts` | 80 | 46,469 | 167,659 | 87.59% |
+| `add_leverage_margin` | 10 | 121,301 | 164,263 | 87.84% |
+| `initialize_market` | 250 | 130,568 | 163,700 | 87.88% |
+| `trigger_liquidation_auction` | 10 | 128,662 | 128,662 | 90.47% |
+| `decrease_leverage` | 5 | 120,579 | 124,479 | 90.78% |
+| `increase_leverage` | 10 | 113,244 | 117,595 | 91.29% |
+| `close_leverage` | 5 | 113,082 | 115,182 | 91.47% |
+| `withdraw_single_sided` | 15 | 104,516 | 111,623 | 91.74% |
+| `liquidate_leverage` | 5 | 97,333 | 101,233 | 92.51% |
+| `create_parameter_proposal` | 10 | 85,620 | 97,913 | 92.75% |
+| `remove_liquidity` | 10 | 82,896 | 88,893 | 93.42% |
+| `remove_leverage_margin` | 5 | 83,487 | 83,487 | 93.82% |
+| `support_parameter_proposal` | 5 | 64,055 | 68,555 | 94.93% |
+| `claim_referral_interest` | 15 | 47,558 | 66,132 | 95.11% |
+| `preview_market` | 5 | 61,143 | 61,143 | 95.48% |
+| `initialize_lp_metadata` | 750 | 24,862 | 57,872 | 95.72% |
+| `deposit_collateral` | 40 | 51,297 | 57,860 | 95.72% |
+| `withdraw_collateral` | 5 | 55,567 | 55,567 | 95.89% |
+| `withdraw_parameter_support` | 5 | 52,141 | 54,241 | 95.99% |
+| `execute_parameter_proposal` | 5 | 54,093 | 54,093 | 96.00% |
+| `claim_yield` | 5 | 52,000 | 53,200 | 96.06% |
+| `settle_protocol_auction` | 10 | 51,125 | 51,127 | 96.22% |
+| `preview_add_liquidity` | 15 | 31,067 | 34,372 | 97.46% |
+| `initialize_lp_transfer_hook` | 15 | 22,546 | 30,165 | 97.77% |
+| `update_protocol_auction_route` | 5 | 29,429 | 29,429 | 97.83% |
+| `create_leverage_delegation` | 10 | 25,593 | 29,193 | 97.84% |
+| `initialize_referral_accrual` | 30 | 17,613 | 27,468 | 97.97% |
+| `configure_referral_partner` | 40 | 17,864 | 26,329 | 98.05% |
+| `set_market_reduce_only` | 5 | 25,810 | 25,810 | 98.09% |
+| `queue_parameter_proposal` | 5 | 24,159 | 24,159 | 98.22% |
+| `update_leverage_delegation` | 5 | 20,966 | 20,966 | 98.45% |
+| `set_yield_recipient` | 5 | 20,103 | 20,103 | 98.52% |
 | `init_futarchy_authority` | 5 | 13,933 | 13,933 | 98.97% |
 | `update_protocol_auction_recipients` | 5 | 12,183 | 12,183 | 99.10% |
-| `update_protocol_auction_config` | 10 | 11,977 | 11,977 | 99.11% |
+| `update_protocol_auction_config` | 10 | 11,977 | 11,977 | 99.12% |
 | `update_protocol_revenue` | 35 | 9,718 | 11,522 | 99.15% |
-| `set_referral_recipient` | 10 | 9,924 | 9,924 | 99.26% |
-| `set_global_reduce_only` | 5 | 5,210 | 5,210 | 99.61% |
+| `set_referral_recipient` | 10 | 9,924 | 9,924 | 99.27% |
+| `set_global_reduce_only` | 5 | 5,210 | 5,210 | 99.62% |
 | `update_revenue_recipients` | 5 | 5,058 | 5,058 | 99.63% |
-| `update_futarchy_authority` | 5 | 4,928 | 4,928 | 99.63% |
-| `close_leverage_delegation` | 5 | 3,095 | 3,095 | 99.77% |
+| `update_futarchy_authority` | 5 | 4,928 | 4,928 | 99.64% |
+| `close_leverage_delegation` | 5 | 3,095 | 3,095 | 99.78% |
 
 The release-mode test now rejects a run missing a successful CU sample for any
 of the 53 public Dusk instructions, in addition to enforcing every named swap
@@ -200,12 +213,12 @@ before/after claim.
 
 | Path | Before | Finished rewrite | Delta |
 |---|---:|---:|---:|
-| CPMM, same slot | 111,593 CU | 56,215 CU | -55,378 CU (-49.62%) |
-| CPMM, advanced slot | 164,529 CU | 89,304 CU | -75,225 CU (-45.72%) |
-| Concentrated, centered versus prior mixed range | 677,000–1,323,000 CU | 188,883 CU | -72.10% to -85.72% |
-| Highest named lazy-controller path versus prior mixed high-water mark | 1,323,000 CU | 489,599 CU | -833,401 CU (-62.99%) |
+| CPMM, same slot | 111,593 CU | 57,267 CU | -54,326 CU (-48.68%) |
+| CPMM, advanced slot | 164,529 CU | 90,356 CU | -74,173 CU (-45.08%) |
+| Concentrated, centered versus prior mixed range | 677,000–1,323,000 CU | 189,935 CU | -71.94% to -85.64% |
+| Highest named lazy-controller path versus prior mixed high-water mark | 1,323,000 CU | 490,651 CU | -832,349 CU (-62.91%) |
 
-The ordinary same-slot path is also 28,057–31,243 CU below the observed
+The ordinary same-slot path is also 27,005–30,191 CU below the observed
 Omnipair V1 range of 84,272–87,458 CU. Controller and hLP rows
 already include the lazy work performed by the user operation; there is no
 separate maintenance transaction to add.

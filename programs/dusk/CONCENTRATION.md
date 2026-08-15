@@ -10,9 +10,9 @@ Dusk-native state, controllers, accounting, and terminology.
    depth near an internal center and CPMM tails.
 2. `peak_depth = 0` selects the exact CPMM branch; its canonical encoding also
    sets `fade_scale = 0`. Concentration is optional per market.
-3. Swaps, previews, hLP valuation, leverage, lending risk, and liquidation risk
-   use the same applied curve and the same center. There is no hidden CPMM risk
-   approximation for a concentrated market.
+3. Swaps, previews, leverage, lending risk, and liquidation risk use the same
+   applied curve and center. Active hLP prediction also evaluates the exact
+   concentrated curve; it never substitutes a hidden CPMM approximation.
 4. Dusk never reads an external price oracle. Trades move reserves and produce
    the observations that update the internal EMA.
 5. AMM shape parameters are timelocked and admitted through a gradual, funded
@@ -260,25 +260,48 @@ hide a net worsening of an actionable residual. There is no keeper-only or
 auxiliary controller instruction and no external price input. Without user
 activity there is no new internal price observation, so no state advances.
 
+Active hLP may enter and remain live under CPMM or concentration. After the
+controller applies at most one funded target, the shared active-hLP lifecycle
+freezes one state for both hLP numeraires, applies their canonical base-then-
+quote balanced yLP/debt changes, checkpoints the resulting executable curve
+state, and quotes the trader with the exact applied curve. Under either curve,
+a live-basis yLP burn realizes its accrued-but-unpaid interest entitlement; an
+asymmetric interest balance can therefore move the authoritative quote's start
+price rather than behaving as a pure depth-only change. Candidate states are
+accepted only when each vault's deposited-asset principal plus frozen
+public-interest claim stays within
+`max(one raw target atom, operation-start economic NAV / 1_000_000)` after
+normalizing out only its direct retained-principal contribution. hLP funding
+interest is a full hLP cost: neither hLP vault is eligible for the paying
+vault's or the opposite vault's funding-interest distribution. The LP portion
+is indexed only over operation-start non-hLP yLP supply, with permanently
+burned `MIN_LIQUIDITY` acting as the zero-holder sink. Deleverage carves that
+interest from the payer's borrowed-side yLP burn leg; when the leg is short,
+the exact applied curve converts the minimum required target-side input rather
+than taxing shared live reserves. The exact post-trade
+correction is joint and shares the original operation budget rather than
+receiving a second allowance. Material unconverged or cap-bound worsening flow
+fails closed; restoring residual flow may proceed only when exact exposure
+improves.
+
 With active hLP supply, each genuine operation recomputes correction from
 actual inventory and applies the maximum safe amount inline. A tiny,
-low-precision, cash-constrained, or insolvent remainder stays explicit for the
+low-precision, or cash-constrained remainder stays explicit for the
 next operation; it is never executed later as a stale stored token delta. New
 deposits into a target hLP vault are rejected while that vault carries an
-actionable remainder, while exits and restoring flow stay live. The opposite
-hLP product is not frozen by a one-sided remainder. A due parameter-ramp point
-gates both directions so an entrant cannot mint against a pre-ramp NAV basis.
-Cash and solvency checks always apply.
+actionable remainder, while exits remain available subject to their ordinary
+cash and debt-settlement constraints. The opposite hLP product is not frozen
+by a one-sided remainder. Cash and solvency checks always apply.
 
 Every persisted hLP checkpoint recomputes exposure from actual post-transition
 inventory and debt. Residual exposure is recognized as zero only when it is at
 most `0.00001` target tokens **and** at most one part per million of current hLP
 NAV. Larger residuals—including low-precision token granularity—remain as residual exposure
 and are never relabeled as harmless rounding. Normally they pause new hLP entry
-until a later genuine operation or an hLP exit makes a smaller correction
-executable.
+until a later genuine operation or hLP exit makes a
+smaller correction executable.
 
-There is one narrow admission exception for a production-controller endpoint:
+There is one narrow admission exception for a controller-granularity endpoint:
 the uncapped proportional hedge plan must prove that integer raw-token or yLP
 rounding cannot express one complete correction. A top-up is then accepted
 only if the post-deposit residual is still settled or controller-granularity
@@ -298,8 +321,8 @@ opposite exposure is exactly neutral. These vault-local states do not make
 restoring user operations fail.
 
 Decoupling controller progress from hedge execution is a liveness tradeoff:
-unresolved hLP exposure can persist across bounded funded center or parameter
-steps. It remains explicit in state; the hLP never receives an implicit
+unresolved hLP exposure can persist across bounded funded center steps. It
+remains explicit in state; the hLP never receives an implicit
 favorable mark merely because the controller advanced. The cached settlement
 reference advances only after residual exposure reaches zero, so a partial or
 no-op correction—and a granularity-limited top-up—cannot ratchet the allowed
@@ -603,8 +626,9 @@ is concentrated.
 - hLP pre-positioning distinguishes trader quote input from physical reserve
   credit, and its exact post-correction is valued on the final applied curve.
 - Each debt asset has one shared 24-hour leaky/token bucket for gross new
-  principal from fixed lending, isolated leverage, direct hLP funding, and
-  automatic hLP funding. Continuous refill carries fractional remainder so
+  principal issued through public lending `borrow`. Isolated leverage and
+  direct or automatic hLP funding do not consume it because they do not lend
+  cash out. Continuous refill carries fractional remainder so
   checkpoint frequency cannot change capacity while the absolute limit is
   fixed; conservative-depth changes may resize that bps-derived limit. This is
   not an exact trailing-window sum, and repayments or exits do not refund

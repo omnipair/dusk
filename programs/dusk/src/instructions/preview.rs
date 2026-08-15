@@ -2,18 +2,31 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_interface::Mint;
 
 use crate::instructions::accounts::require_supported_asset_mint;
-use crate::instructions::{split_claimable_fee_credit, PreparedSwap, SwapRequest};
+use crate::instructions::{split_claimable_fee_credit, SwapRequest};
 use crate::{
     constants::*,
     errors::ErrorCode,
     market::{max_cf_bps_from_liquidation_cf, DynamicBorrowTerms, LiquidationPricing},
     math::{
-        ceil_div, cpmm_invariant_nad, denormalize_from_nad_floor, health_bps, instantaneous_rate_apr_nad,
-        normalize_to_nad, pessimistic_max_debt_on_curve_nad, utilization_bps, utilization_error_nad, SqrtU128,
+        ceil_div, denormalize_from_nad_floor, geometric_mean_floor, health_bps, instantaneous_rate_apr_nad,
+        normalize_to_nad, pessimistic_max_debt_on_curve_nad, utilization_bps, utilization_error_nad,
     },
-    state::{BorrowPosition, ConcentrationParameters, Market, MarketAsset, MarketHealth, Risk},
+    state::{BorrowPosition, ConcentrationParameters, FutarchyAuthority, Market, MarketAsset, MarketHealth, Risk},
     token::{get_transfer_fee, get_transfer_inverse_fee},
 };
+
+#[cfg(target_os = "solana")]
+#[inline(always)]
+fn debug_log_heap(tag: u64) {
+    let cursor = unsafe { *(0x300000000 as *const u64) };
+    let used = if cursor == 0 { 0 } else { 0x300008000_u64 - cursor };
+    solana_program::log::sol_log_64(tag, cursor, used, 0, 0);
+    solana_program::log::sol_log_compute_units();
+}
+
+#[cfg(not(target_os = "solana"))]
+#[inline(always)]
+fn debug_log_heap(_tag: u64) {}
 
 // Most preview instructions update and return serialized market state. Swap
 // preview is deliberately pure: all clock/ramp/hLP simulation runs on a clone
@@ -83,6 +96,12 @@ pub struct PreviewSwap<'info> {
     )]
     pub market: Box<Account<'info, Market>>,
 
+    #[account(
+        seeds = [FUTARCHY_AUTHORITY_SEED_PREFIX],
+        bump = futarchy_authority.bump
+    )]
+    pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
+
     pub asset_in_mint: Box<InterfaceAccount<'info, Mint>>,
     pub asset_out_mint: Box<InterfaceAccount<'info, Mint>>,
 }
@@ -135,6 +154,8 @@ pub struct PreviewBorrowPosition<'info> {
 pub struct PreviewSide {
     pub live_reserve: u64,
     pub cash_reserve: u64,
+    pub base_hlp_backing_inventory: u64,
+    pub quote_hlp_backing_inventory: u64,
     pub ylp_supply: u64,
     pub ylp_exchange_rate_nad: u128,
     pub spot_price_nad: u64,
@@ -158,9 +179,6 @@ pub struct MarketPreview {
     pub slot: u64,
     pub base: PreviewSide,
     pub quote: PreviewSide,
-    /// Raw reserve-product telemetry. Lending risk uses CONCENTRATED Q, exposed under
-    /// `amm.balanced_equivalent_q_nad`, rather than this CPMM-era diagnostic.
-    pub reserve_product_k_nad: u128,
     pub liquidity_nad: u128,
     pub health: MarketHealth,
     pub amm: PreviewAmm,
@@ -385,10 +403,16 @@ impl<'info> PreviewMarket<'info> {
             slot,
             base: preview_side(market, MarketAsset::Base, slot)?,
             quote: preview_side(market, MarketAsset::Quote, slot)?,
-            reserve_product_k_nad: cpmm_invariant_nad(&market.base_side, &market.quote_side)?,
-            liquidity_nad: cpmm_invariant_nad(&market.base_side, &market.quote_side)?
-                .sqrt()
-                .ok_or(ErrorCode::MarketMathOverflow)?,
+            liquidity_nad: geometric_mean_floor(
+                normalize_to_nad(
+                    market.base_side.reserves.live_reserve as u128,
+                    market.base_side.asset_decimals,
+                )?,
+                normalize_to_nad(
+                    market.quote_side.reserves.live_reserve as u128,
+                    market.quote_side.asset_decimals,
+                )?,
+            )?,
             health: market.market_health()?,
             amm,
         })
@@ -476,10 +500,11 @@ impl<'info> PreviewSwap<'info> {
         require_supported_asset_mint(&ctx.accounts.asset_out_mint)?;
 
         let slot = Clock::get()?.slot;
-        // Match executable spot on a heap-backed clone without persisting any
-        // preview side effect.
-        let mut quote_market = Box::new(Market::default());
-        quote_market.as_mut().clone_from(&**ctx.accounts.market);
+        // This account is intentionally read-only, so Anchor will not persist
+        // the in-memory simulation. Reusing its already-deserialized storage
+        // avoids allocating a second full Market solely for preview.
+        let quote_market: &mut Market = &mut ctx.accounts.market;
+        debug_log_heap(1);
         let asset_in = quote_market.asset_for_mint(ctx.accounts.asset_in_mint.key())?;
         let asset_out = quote_market.asset_for_mint(ctx.accounts.asset_out_mint.key())?;
         require!(asset_out == asset_in.opposite(), ErrorCode::InvalidMint);
@@ -489,32 +514,29 @@ impl<'info> PreviewSwap<'info> {
             .exact_asset_in
             .checked_sub(transfer_fee)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let PreparedSwap { quote, .. } = SwapRequest {
+        let prepared = SwapRequest {
             current_slot: slot,
             asset_in,
             reserve_credit,
         }
-        .prepare(&mut quote_market)?;
-        let market: &Market = &quote_market;
+        .prepare(quote_market)?;
+        debug_log_heap(2);
+        let quote = prepared.quote;
         // The one user-to-reserve transfer fee was already removed when
         // deriving `reserve_credit`. Claimable fees stay in that reserve vault,
         // so they must not pay a fictitious second Token-2022 transfer fee.
         let claimable_fee_credit = quote.fee.claimable_fee_debit;
         let (base_fee_credit, distributed_surcharge_credit) =
             split_claimable_fee_credit(&quote.fee, claimable_fee_credit)?;
-        let protected_before = market.amm.spendable_protected_profit_nad();
-        let projected_protected_profit_per_share_nad = if quote.fee.retained_surcharge == 0 {
-            protected_before
-        } else {
-            let post_trade_q =
-                market.curve_q_per_share_nad(quote.trade_endpoint()?.evaluation().balanced_equivalent_q)?;
-            let with_retained_q =
-                market.curve_q_per_share_nad(quote.reserve_endpoint()?.evaluation().balanced_equivalent_q)?;
-            require_gte!(with_retained_q, post_trade_q, ErrorCode::BrokenInvariant);
-            protected_before
-                .checked_add(with_retained_q - post_trade_q)
-                .ok_or(ErrorCode::MarketMathOverflow)?
-        };
+        prepared.finalize_state(
+            quote_market,
+            slot,
+            ctx.accounts.futarchy_authority.revenue_share.swap_bps,
+            ctx.accounts.futarchy_authority.protocol_auction_split,
+        )?;
+        debug_log_heap(3);
+        let projected_protected_profit_per_share_nad = quote_market.amm.spendable_protected_profit_nad();
+        let market: &Market = quote_market;
         let (market_side_in, market_side_out) = market.swap_sides(asset_in);
         Ok(SwapPreview {
             asset_in,
@@ -523,16 +545,8 @@ impl<'info> PreviewSwap<'info> {
             transfer_fee,
             reserve_credit,
             amount_out: quote.amount_out,
-            reserve_in_live_reserve: market_side_in
-                .reserves
-                .live_reserve
-                .checked_add(quote.fee.reserve_input_credit)
-                .ok_or(ErrorCode::ReserveOverflow)?,
-            reserve_out_live_reserve: market_side_out
-                .reserves
-                .live_reserve
-                .checked_sub(quote.amount_out)
-                .ok_or(ErrorCode::ReserveUnderflow)?,
+            reserve_in_live_reserve: market_side_in.reserves.live_reserve,
+            reserve_out_live_reserve: market_side_out.reserves.live_reserve,
             base_fee_debit: quote.fee.base_fee_debit,
             divergence_surcharge_debit: quote.fee.divergence_surcharge_debit,
             volatility_surcharge_debit: quote.fee.volatility_surcharge_debit,
@@ -759,6 +773,8 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
     Ok(PreviewSide {
         live_reserve: side.reserves.live_reserve,
         cash_reserve: side.reserves.cash_reserve,
+        base_hlp_backing_inventory: side.reserves.base_hlp_backing_inventory,
+        quote_hlp_backing_inventory: side.reserves.quote_hlp_backing_inventory,
         ylp_supply: side.shares.ylp_supply,
         ylp_exchange_rate_nad: side.ylp_exchange_rate_nad()?,
         spot_price_nad: {

@@ -128,7 +128,7 @@ impl YieldAccount {
     pub fn claimable_amount(&self) -> Result<u64> {
         self.accrued_swap_fee_amount
             .checked_add(self.accrued_interest_amount)
-            .ok_or(ErrorCode::MarketMathOverflow.into())
+            .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
     }
 
     pub fn clear_claimed(&mut self) {

@@ -58,23 +58,39 @@ async function remoteE2E(baseUrl: string) {
     return signature;
   }
 
-  const addLiquiditySig = await buildSignAndSend("/api/v2/fork/tx/add-liquidity", {
-    baseDepositAmount: process.env.FORK_E2E_LIQUIDITY_BASE ?? "1",
-    quoteDepositAmount: process.env.FORK_E2E_LIQUIDITY_QUOTE ?? "1",
-  });
-  const swapSig = await buildSignAndSend("/api/v2/fork/tx/swap", {
-    assetIn: "base",
-    exactAssetIn: process.env.FORK_E2E_SWAP_IN ?? "0.1",
-    minAssetOut: "0",
-  });
+  const markets = Array.isArray(config.markets) && config.markets.length > 0
+    ? config.markets
+    : [{ market: config.market, marketKind: config.marketKind ?? "cpmm" }];
+  const results = [];
+  for (const market of markets) {
+    const addLiquiditySig = await buildSignAndSend("/api/v2/fork/tx/add-liquidity", {
+      market: market.market,
+      baseDepositAmount: process.env.FORK_E2E_LIQUIDITY_BASE ?? "1",
+      quoteDepositAmount: process.env.FORK_E2E_LIQUIDITY_QUOTE ?? "1",
+    });
+    const swapSig = await buildSignAndSend("/api/v2/fork/tx/swap", {
+      market: market.market,
+      assetIn: "base",
+      exactAssetIn: process.env.FORK_E2E_SWAP_IN ??
+        (Number(market.baseDecimals ?? config.baseDecimals) === 0 ? "1" : "0.1"),
+      minAssetOut: "0",
+    });
+    results.push({
+      market: market.market,
+      marketKind: market.marketKind,
+      addLiquiditySig,
+      swapSig,
+    });
+  }
 
   return {
     ok: true,
     mode: "remote-api",
     market: config.market,
+    markets: results,
     wallet: wallet.publicKey.toBase58(),
-    addLiquiditySig,
-    swapSig,
+    addLiquiditySig: results[0]?.addLiquiditySig,
+    swapSig: results[0]?.swapSig,
   };
 }
 

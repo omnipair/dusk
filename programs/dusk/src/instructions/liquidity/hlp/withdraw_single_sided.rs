@@ -9,7 +9,7 @@ use crate::{
     errors::ErrorCode,
     events::HlpClosed,
     generate_market_seeds,
-    state::{FutarchyAuthority, Market, MarketAsset, YieldAccount, YieldTokenKind},
+    state::{FutarchyAuthority, HlpYieldEligibility, Market, MarketAsset, YieldAccount, YieldTokenKind},
     token::{token_burn, transfer_checked_with_remaining_accounts},
 };
 
@@ -193,6 +193,16 @@ impl<'info> WithdrawSingleSided<'info> {
             .accounts
             .market
             .asset_for_hlp_mint(ctx.accounts.target_hlp_mint.key())?;
+        let interest_eligibility = HlpYieldEligibility {
+            ylp_supply: ctx.accounts.market.base_side.shares.ylp_supply,
+            base_hlp_ylp_shares: ctx.accounts.market.base_hlp_vault.ylp_shares,
+            quote_hlp_ylp_shares: ctx.accounts.market.quote_hlp_vault.ylp_shares,
+        };
+        require_eq!(
+            interest_eligibility.ylp_supply,
+            ctx.accounts.market.quote_side.shares.ylp_supply,
+            ErrorCode::BrokenInvariant
+        );
 
         // Checkpoint all yield earned before reducing the owner's hLP balance.
         ctx.accounts.market.checkpoint_hlp_yield_from_ylp(target_asset)?;
@@ -230,12 +240,6 @@ impl<'info> WithdrawSingleSided<'info> {
         )?;
 
         // Settle the hLP debt and credit its closing-period interest.
-        let pre_exit_ylp_supply = ctx.accounts.market.base_side.shares.ylp_supply;
-        require_eq!(
-            pre_exit_ylp_supply,
-            ctx.accounts.market.quote_side.shares.ylp_supply,
-            ErrorCode::BrokenInvariant
-        );
         let receipt = ctx
             .accounts
             .market
@@ -277,31 +281,14 @@ impl<'info> WithdrawSingleSided<'info> {
             ctx.accounts.borrowed_interest_vault.reload()?;
             let interest_vault_credit =
                 token_account_credit(interest_vault_balance_before, &ctx.accounts.borrowed_interest_vault)?;
-            let interest_growth_before = ctx.accounts.market.side(borrowed_asset).fees.interest_growth_index_q64;
             record_hlp_interest_credit(
-                ctx.accounts.market.side_mut(borrowed_asset),
+                &mut ctx.accounts.market,
+                borrowed_asset,
                 interest_vault_credit,
                 ctx.accounts.futarchy_authority.revenue_share.interest_bps,
                 ctx.accounts.futarchy_authority.protocol_auction_split,
-                pre_exit_ylp_supply,
+                interest_eligibility,
             )?;
-            let interest_growth_after = ctx.accounts.market.side(borrowed_asset).fees.interest_growth_index_q64;
-            match borrowed_asset {
-                MarketAsset::Base => ctx.accounts.base_yield_account.credit_interest_growth(
-                    receipt.ylp_amount,
-                    interest_growth_after,
-                    interest_growth_before,
-                )?,
-                MarketAsset::Quote => ctx.accounts.quote_yield_account.credit_interest_growth(
-                    receipt.ylp_amount,
-                    interest_growth_after,
-                    interest_growth_before,
-                )?,
-            }
-            // The exiting yLP shares receive their closing-period interest
-            // directly above. Checkpoint only the shares that remain in the
-            // hLP vault so a burn cannot donate that yield to later holders.
-            ctx.accounts.market.checkpoint_hlp_yield_from_ylp(target_asset)?;
         }
         if receipt.hlp_supply == 0 {
             ctx.accounts.market.drain_hlp_unallocated_yield(

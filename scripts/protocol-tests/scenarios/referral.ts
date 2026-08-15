@@ -18,6 +18,12 @@ function raw(uiAmount: number, decimals: number): bigint {
   return BigInt(uiAmount) * 10n ** BigInt(decimals);
 }
 
+function stateValue(market: Awaited<ReturnType<ProtocolTestHarness["market"]>>, key: string): bigint {
+  const value = market.state[key];
+  if (value === undefined) throw new Error(`Market state does not expose ${key}`);
+  return BigInt(value);
+}
+
 function previewData(evidence: TransactionEvidence): [string, BufferEncoding] {
   const data = evidence.simulation.returnData?.data;
   if (!data) throw new Error(`${evidence.label} did not return preview data`);
@@ -91,17 +97,33 @@ async function repayAll(
   const decimals = debtAsset === "base"
     ? harness.config.baseDecimals
     : harness.config.quoteDecimals;
+  const mint = debtAsset === "base"
+    ? harness.config.baseMint
+    : harness.config.quoteMint;
+  const tokenProgram = debtAsset === "base"
+    ? harness.config.baseTokenProgram
+    : harness.config.quoteTokenProgram;
   const debt = await positionDebt(harness, wallet, positionId, debtAsset, `${label} preview`);
-  return harness.execute({
+  const repayLimit = await harness.tokenBalance(wallet, mint, tokenProgram);
+  harness.assertTrue(`${label} wallet covers live debt`, repayLimit >= debt, { debt, repayLimit });
+  const repayment = await harness.execute({
     wallet,
     endpoint: "/api/v2/fork/tx/repay",
     label,
     body: {
       positionId: positionId.toBase58(),
       repayAsset: debtAsset,
-      repayAmount: formatUnits(debt, decimals),
+      // repayAmount is a maximum: using the available balance absorbs any
+      // index growth between the preview and transaction execution.
+      repayAmount: formatUnits(repayLimit, decimals),
     },
   });
+  harness.assertEqual(
+    `${label} clears live debt`,
+    await positionDebt(harness, wallet, positionId, debtAsset, `${label} cleared-debt preview`),
+    0n
+  );
+  return repayment;
 }
 
 export const REFERRAL_SCENARIOS: ScenarioDefinition[] = [
@@ -342,6 +364,7 @@ export const REFERRAL_SCENARIOS: ScenarioDefinition[] = [
         label: "deposit collateral for repeated referred draws",
         body: { positionId: repeatedBorrowPosition.toBase58(), marketAsset: "base", depositAmount: "100" },
       });
+      const principalBefore = stateValue(await harness.market(), "fixedQuotePrincipal");
       for (const draw of [2, 3]) {
         await harness.execute({
           wallet: "alice",
@@ -359,10 +382,23 @@ export const REFERRAL_SCENARIOS: ScenarioDefinition[] = [
           },
         });
       }
+      const requestedPrincipal = raw(5, harness.config.quoteDecimals);
       harness.assertEqual(
-        "repeated referred draws store only requested principal",
-        await positionDebt(harness, "alice", repeatedBorrowPosition, "quote", "preview repeated referred debt"),
-        raw(5, harness.config.quoteDecimals)
+        "repeated referred draws add only requested principal",
+        stateValue(await harness.market(), "fixedQuotePrincipal") - principalBefore,
+        requestedPrincipal
+      );
+      const liveDebt = await positionDebt(
+        harness,
+        "alice",
+        repeatedBorrowPosition,
+        "quote",
+        "preview repeated referred debt"
+      );
+      harness.assertTrue(
+        "repeated referred debt never falls below requested principal",
+        liveDebt >= requestedPrincipal,
+        { liveDebt, requestedPrincipal }
       );
       const rebind = await harness.execute({
         wallet: "alice",

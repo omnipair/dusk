@@ -1,14 +1,18 @@
 use anchor_lang::prelude::*;
 
-use crate::{errors::ErrorCode, state::MarketSide};
+use crate::errors::ErrorCode;
 
 #[cfg(test)]
-use crate::math::SqrtU128;
+use crate::{
+    constants::{MIN_LIQUIDITY, NAD},
+    math::SqrtU128,
+    state::MarketSide,
+};
 
-use super::{fixed_point::normalize_to_nad, mul_div_ceil_u128, mul_div_u128};
+use super::{isqrt, mul_div_ceil_u128, mul_div_u128, ratio_lte_full_width};
 
 #[cfg(test)]
-use crate::constants::{MIN_LIQUIDITY, NAD};
+use super::fixed_point::normalize_to_nad;
 
 #[cfg(test)]
 pub(crate) fn market_spot_price_nad(collateral_side: &MarketSide, debt_side: &MarketSide) -> Result<u64> {
@@ -27,13 +31,50 @@ pub(crate) fn market_spot_price_nad(collateral_side: &MarketSide, debt_side: &Ma
     u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
-pub(crate) fn cpmm_invariant_nad(base_side: &MarketSide, quote_side: &MarketSide) -> Result<u128> {
-    normalize_to_nad(base_side.reserves.live_reserve as u128, base_side.asset_decimals)?
-        .checked_mul(normalize_to_nad(
-            quote_side.reserves.live_reserve as u128,
-            quote_side.asset_decimals,
-        )?)
-        .ok_or(ErrorCode::MarketMathOverflow.into())
+/// Exact `floor(sqrt(x * y))` without requiring `x * y` to fit in `u128`.
+pub(crate) fn geometric_mean_floor(x: u128, y: u128) -> Result<u128> {
+    let root = if let Some(product) = x.checked_mul(y) {
+        isqrt(product)
+    } else {
+        let x_bits = u128::BITS - x.leading_zeros();
+        let y_bits = u128::BITS - y.leading_zeros();
+        let mut x_shift = x_bits.saturating_sub(64);
+        let mut y_shift = y_bits.saturating_sub(64);
+        if (x_shift + y_shift) & 1 == 1 {
+            if x_shift > 0 {
+                x_shift += 1;
+            } else {
+                y_shift += 1;
+            }
+        }
+        let mantissa_product = (x >> x_shift)
+            .checked_mul(y >> y_shift)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        let seed = isqrt(mantissa_product)
+            .checked_shl((x_shift + y_shift) / 2)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        require!(seed > 0, ErrorCode::InvariantOverflow);
+        let reciprocal = mul_div_u128(x, y, seed).map_err(|_| ErrorCode::InvariantOverflow)?;
+        require_gte!(reciprocal, seed, ErrorCode::InvariantOverflow);
+        let mut candidate = seed
+            .checked_add((reciprocal - seed) / 2)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+
+        for _ in 0..32 {
+            if !ratio_lte_full_width(candidate, x, y, candidate)? {
+                candidate = candidate.checked_sub(1).ok_or(ErrorCode::InvariantOverflow)?;
+                continue;
+            }
+            let successor = candidate.checked_add(1).ok_or(ErrorCode::InvariantOverflow)?;
+            if ratio_lte_full_width(successor, x, y, successor)? {
+                candidate = successor;
+                continue;
+            }
+            return Ok(candidate);
+        }
+        return err!(ErrorCode::InvariantOverflow);
+    };
+    Ok(root)
 }
 
 /// Reconstructs both normalized reserve depths from a conservative K while
