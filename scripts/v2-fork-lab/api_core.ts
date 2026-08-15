@@ -77,6 +77,10 @@ function duskEnv(name: string, fallback?: string): string | undefined {
 }
 
 const SURFPOOL_RPC_URL = process.env.SURFPOOL_RPC_URL ?? "http://127.0.0.1:8899";
+/** Explicit subscription endpoint. Absent, web3.js derives `rpcPort + 1`, which
+ * is only correct for the fixed local 8899/8900 pair, not for the SDK's
+ * independently assigned dynamic ports. */
+const SURFPOOL_WS_URL = process.env.SURFPOOL_WS_URL?.trim() || undefined;
 const PUBLIC_RPC_URL = resolvePublicRpcUrl(process.env, SURFPOOL_RPC_URL);
 const HAS_EXPLICIT_PUBLIC_RPC_URL = Boolean(
   process.env.PUBLIC_SURFPOOL_RPC_URL?.trim() ||
@@ -1086,7 +1090,10 @@ function initializeRuntime() {
 
   try {
     const payer = loadPayer();
-    const connection = new Connection(SURFPOOL_RPC_URL, "confirmed");
+    const connection = new Connection(SURFPOOL_RPC_URL, {
+      commitment: "confirmed",
+      ...(SURFPOOL_WS_URL ? { wsEndpoint: SURFPOOL_WS_URL } : {}),
+    });
     // web3.js caches a legacy transaction blockhash for 30 seconds. Surfnet's
     // transaction-mode bank can advance beyond that cached hash much sooner,
     // especially between the two market bootstraps. Force each legacy

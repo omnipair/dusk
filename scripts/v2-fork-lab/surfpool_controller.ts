@@ -1187,6 +1187,11 @@ export async function startHostedSurfpoolController(
 
     process.env.SURFPOOL_RPC_URL = surfnet.rpcUrl;
     process.env.PUBLIC_SURFPOOL_RPC_URL = surfnet.rpcUrl;
+    // The SDK binds RPC and WS to independent dynamic loopback ports. web3.js
+    // otherwise derives the subscription endpoint as `rpcPort + 1`, which only
+    // happens to be right for the fixed local 8899/8900 pair. Publish the real
+    // WS URL so signature confirmation subscribes to a socket that exists.
+    process.env.SURFPOOL_WS_URL = surfnet.wsUrl;
     process.env.FORK_LAB_PAYER_KEYPAIR_JSON = JSON.stringify(
       Array.from(config.payer.secretKey),
     );
