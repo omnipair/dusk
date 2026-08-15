@@ -136,7 +136,10 @@ pub const LEVERAGE_MAINTENANCE_BUFFER_BPS: u16 = 700; // 7%
 pub const MARKET_LAYOUT_VERSION: u8 = 1;
 
 /// Emergency signer authorized to toggle reduce-only mode.
+///
+/// The development signer is domain-derived so it cannot collide with a real
+/// account on a mainnet fork, where the whole mainnet account set is present.
 #[cfg(feature = "development")]
-pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("2iXtA8oeZqUU5pofxK971TCEvFGfems2AcDRaZHKD2pQ");
+pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("ApUjQxxTQLTzPcGqYTowjTHoUBdzutWe9yXr1oAhKPZQ");
 #[cfg(not(feature = "development"))]
 pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");

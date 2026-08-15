@@ -5247,7 +5247,7 @@ export type Dusk = {
           "name": "authoritySigner",
           "writable": true,
           "signer": true,
-          "address": "3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV"
+          "address": "ApUjQxxTQLTzPcGqYTowjTHoUBdzutWe9yXr1oAhKPZQ"
         },
         {
           "name": "futarchyAuthority",
@@ -5345,7 +5345,7 @@ export type Dusk = {
         {
           "name": "authoritySigner",
           "signer": true,
-          "address": "3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV"
+          "address": "ApUjQxxTQLTzPcGqYTowjTHoUBdzutWe9yXr1oAhKPZQ"
         },
         {
           "name": "eventAuthority",

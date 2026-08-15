@@ -465,7 +465,7 @@ export const GOVERNANCE_SCENARIOS: ScenarioDefinition[] = [
       harness.assertEqual(
         "development emergency signer is deterministic",
         emergency,
-        "2iXtA8oeZqUU5pofxK971TCEvFGfems2AcDRaZHKD2pQ"
+        "ApUjQxxTQLTzPcGqYTowjTHoUBdzutWe9yXr1oAhKPZQ"
       );
       harness.assertEqual("global reduce-only starts disabled", (await harness.futarchy()).globalReduceOnly, false);
       harness.assertEqual("market reduce-only starts disabled", (await harness.market()).reduceOnly, false);
