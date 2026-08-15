@@ -33,8 +33,8 @@ const ENV_KEYS = [
   "DUSK_MARKET_PARAMS_HASH",
   "DUSK_FORK_PARAMS_HASH_CPMM",
   "DUSK_FORK_PARAMS_HASH_CONCENTRATED",
-  "DUSK_AMM_PEAK_DEPTH_NAD",
-  "DUSK_AMM_FADE_SCALE_NAD",
+  "DUSK_AMM_RANGE_WIDTH_NAD",
+  "DUSK_AMM_CONCENTRATED_LIQUIDITY_SHARE_NAD",
 ] as const;
 
 describe("v2 fork two-market bootstrap helpers", () => {
@@ -610,12 +610,15 @@ describe("v2 fork two-market bootstrap helpers", () => {
   it("classifies raw and API-shaped AMM configs consistently", () => {
     expect(
       forkMarketPureHelpers.marketKindFromConfig({
-        amm: { peakDepthNad: "200000000000", fadeScaleNad: "100000000" },
+        amm: {
+          rangeWidthNad: "4000000000",
+          concentratedLiquidityShareNad: "500000000",
+        },
       })
     ).to.equal("concentrated");
     expect(
       forkMarketPureHelpers.marketKindFromConfig({
-        amm: { peak_depth_nad: "0", fade_scale_nad: "0" },
+        amm: { range_width_nad: "0", concentrated_liquidity_share_nad: "0" },
       })
     ).to.equal("cpmm");
   });
@@ -626,7 +629,7 @@ describe("v2 fork two-market bootstrap helpers", () => {
     );
     const canonical = forkMarketPureHelpers.canonicalJson(idl);
     expect(forkMarketPureHelpers.sha256(canonical)).to.equal(
-      "fc4ece4350fd9cdb3564cc4a157c8f0f7eafccfe7fe1cb46b43e34e8ad13eed6",
+      "3d287ccd03a7a4a6f3ece6493612b447a6c43fed28df69b06e5a0b99c513da0d",
     );
     expect(
       forkMarketPureHelpers.sha256(
@@ -651,14 +654,14 @@ describe("v2 fork two-market bootstrap helpers", () => {
       "utf8",
     );
     expect(forkMarketPureHelpers.sha256(vendored)).to.equal(
-      "948b9475071daa318cbc9f0e3cc2f8d150191a4ec3dc54e63a661ea489cc5f4a",
+      "501b7f407c6026cf9dd015df9f8543cd1bccb080a436e343a9748b8ff352e69c",
     );
     expect(
       forkMarketPureHelpers.sha256(
         forkMarketPureHelpers.canonicalJson(JSON.parse(vendored)),
       ),
     ).to.equal(
-      "b2051072480d8da1912c3e4a818f9ca105a8013e33dc5bc2912ab19ceeee5ba1",
+      "ad02b6eefda9786ee001a5e3237ba3c9119e3c3206e68da22170fff02edf3267",
     );
   });
 

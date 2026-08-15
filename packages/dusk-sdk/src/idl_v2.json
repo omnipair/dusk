@@ -5241,7 +5241,7 @@
           "name": "authority_signer",
           "writable": true,
           "signer": true,
-          "address": "3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV"
+          "address": "ApUjQxxTQLTzPcGqYTowjTHoUBdzutWe9yXr1oAhKPZQ"
         },
         {
           "name": "futarchy_authority",
@@ -5339,7 +5339,7 @@
         {
           "name": "authority_signer",
           "signer": true,
-          "address": "3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV"
+          "address": "ApUjQxxTQLTzPcGqYTowjTHoUBdzutWe9yXr1oAhKPZQ"
         },
         {
           "name": "event_authority",

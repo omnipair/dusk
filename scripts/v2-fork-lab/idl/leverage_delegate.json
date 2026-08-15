@@ -722,17 +722,18 @@
     {
       "name": "AmmConfig",
       "docs": [
-        "AMM controls. `peak_depth_nad == 0 && fade_scale_nad == 0` selects CPMM."
+        "AMM controls. A zero concentrated-liquidity share selects the full-range",
+        "CPMM branch of the same explicit implementation."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "peak_depth_nad",
+            "name": "range_width_nad",
             "type": "u64"
           },
           {
-            "name": "fade_scale_nad",
+            "name": "concentrated_liquidity_share_nad",
             "type": "u64"
           },
           {
@@ -769,10 +770,6 @@
           },
           {
             "name": "volatility_fee_coefficient_nad",
-            "type": "u64"
-          },
-          {
-            "name": "concentration_ramp_duration_slots",
             "type": "u64"
           },
           {
@@ -822,6 +819,18 @@
             "type": {
               "defined": {
                 "name": "ConcentratedGeometryCache"
+              }
+            }
+          },
+          {
+            "name": "explicit_curve_cache",
+            "docs": [
+              "Explicit CPMM-tail/band geometry. Nonzero only for layout-v1 explicit",
+              "curve configuration; the legacy cache is removed after caller cutover."
+            ],
+            "type": {
+              "defined": {
+                "name": "ExplicitCurveCache"
               }
             }
           },
@@ -905,8 +914,9 @@
           {
             "name": "retain_dynamic_surcharge",
             "docs": [
-              "When true, dynamic surcharge is reserve principal; when false, the",
-              "identical trader charge is routed to claimable yLP fee accounting."
+              "When true, dynamic surcharge is locked in the non-quoteable protected",
+              "recenter bucket; when false, the identical trader charge is routed to",
+              "claimable yLP fee accounting."
             ],
             "type": "bool"
           },
@@ -928,9 +938,9 @@
           {
             "name": "retention_target_stale",
             "docs": [
-              "Retained surcharge changed executable inventory after the last exact",
-              "forward-target solve. While stale, retention stays on until a decision",
-              "point refreshes the target or executes a funded recenter."
+              "The protected bucket changed after the last exact forward-target solve.",
+              "While stale, retention stays on until a decision point refreshes the",
+              "target or executes a funded recenter."
             ],
             "type": "bool"
           },
@@ -1272,6 +1282,42 @@
           {
             "name": "order_id",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExplicitCurveCache",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "math_revision",
+            "type": "u8"
+          },
+          {
+            "name": "range_width_nad",
+            "type": "u64"
+          },
+          {
+            "name": "concentrated_liquidity_share_nad",
+            "type": "u64"
+          },
+          {
+            "name": "tail_liquidity",
+            "type": "u128"
+          },
+          {
+            "name": "concentrated_liquidity",
+            "type": "u128"
+          },
+          {
+            "name": "lower_sqrt_price_nad",
+            "type": "u128"
+          },
+          {
+            "name": "upper_sqrt_price_nad",
+            "type": "u128"
           }
         ]
       }
@@ -2115,6 +2161,15 @@
             "docs": [
               "Quote-hLP counterpart of `base_hlp_backing_inventory`; never a second",
               "hLP NAV or withdrawal claim."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "protected_recenter_reserve",
+            "docs": [
+              "Physical reserve-vault atoms retained from toxicity surcharge for a",
+              "future protected recenter. They are custody-backed but excluded from",
+              "executable cash/live reserves, yLP NAV, and every withdrawal claim."
             ],
             "type": "u64"
           }

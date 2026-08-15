@@ -2528,8 +2528,8 @@ function marketConfigForKind(kind: ForkMarketKind): ReturnType<typeof defaultMar
       ...config,
       amm: {
         ...config.amm,
-        peakDepthNad: toBN(0),
-        fadeScaleNad: toBN(0),
+        rangeWidthNad: toBN(0),
+        concentratedLiquidityShareNad: toBN(0),
       },
     };
   }
@@ -2537,16 +2537,24 @@ function marketConfigForKind(kind: ForkMarketKind): ReturnType<typeof defaultMar
     ...config,
     amm: {
       ...config.amm,
-      peakDepthNad: toBN(duskEnv("AMM_PEAK_DEPTH_NAD") ?? "200000000000"),
-      fadeScaleNad: toBN(duskEnv("AMM_FADE_SCALE_NAD") ?? "100000000"),
+      rangeWidthNad: toBN(duskEnv("AMM_RANGE_WIDTH_NAD") ?? "4000000000"),
+      concentratedLiquidityShareNad: toBN(
+        duskEnv("AMM_CONCENTRATED_LIQUIDITY_SHARE_NAD") ?? "500000000"
+      ),
     },
   };
 }
 
 function marketKindFromConfig(config: any): ForkMarketKind {
   const amm = field<any>(config, "amm") ?? config?.amm ?? {};
-  return toBigInt(field(amm, "peakDepthNad", "peak_depth_nad")) > 0n &&
-    toBigInt(field(amm, "fadeScaleNad", "fade_scale_nad")) > 0n
+  return toBigInt(field(amm, "rangeWidthNad", "range_width_nad")) > 0n &&
+    toBigInt(
+      field(
+        amm,
+        "concentratedLiquidityShareNad",
+        "concentrated_liquidity_share_nad"
+      )
+    ) > 0n
     ? "concentrated"
     : "cpmm";
 }

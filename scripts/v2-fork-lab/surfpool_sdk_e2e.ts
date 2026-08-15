@@ -290,9 +290,9 @@ export async function runSurfpoolSdkE2E() {
     }
     if (
       configResponse.deployment.idlSha256 !==
-        "fc4ece4350fd9cdb3564cc4a157c8f0f7eafccfe7fe1cb46b43e34e8ad13eed6" ||
+        "3d287ccd03a7a4a6f3ece6493612b447a6c43fed28df69b06e5a0b99c513da0d" ||
       configResponse.deployment.leverageDelegateIdlSha256 !==
-        "b2051072480d8da1912c3e4a818f9ca105a8013e33dc5bc2912ab19ceeee5ba1" ||
+        "ad02b6eefda9786ee001a5e3237ba3c9119e3c3206e68da22170fff02edf3267" ||
       configResponse.deployment.programBinarySha256 !==
         fileSha256(duskSoPath) ||
       configResponse.deployment.leverageDelegateBinarySha256 !==
