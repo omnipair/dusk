@@ -1,4 +1,5 @@
-import anchor, { type BN } from "@coral-xyz/anchor";
+import * as anchorNamespace from "@coral-xyz/anchor";
+import { type BN } from "@coral-xyz/anchor";
 import { type PublicKey } from "@solana/web3.js";
 
 import { address, type AddressLike } from "./address.js";
@@ -32,7 +33,17 @@ export const PARAMETER_PROPOSAL_DIGEST_DOMAIN = "DUSK_PARAMETER_PROPOSAL_V1";
 
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 const PROPOSAL_DIGEST_DOMAIN = new TextEncoder().encode(PARAMETER_PROPOSAL_DIGEST_DOMAIN);
-const { BN: AnchorBN } = anchor;
+
+// `@coral-xyz/anchor` ships both a CommonJS and an ESM build, and they disagree
+// about how `BN` is reachable: bundlers resolve the ESM build, which has no
+// default export, while Node's CJS interop exposes `BN` only through `default`.
+// Reading both keeps this module importable from a browser bundle and from Node.
+type AnchorBNConstructor = new (value: string) => BN;
+const anchorExports = anchorNamespace as unknown as {
+  BN?: AnchorBNConstructor;
+  default?: { BN?: AnchorBNConstructor };
+};
+const AnchorBN = (anchorExports.BN ?? anchorExports.default?.BN) as AnchorBNConstructor;
 
 export interface FeeProfileInput {
   baseFeeBps: number;
