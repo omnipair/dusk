@@ -18,6 +18,8 @@ import {
   deriveBorrowPositionAddress,
   deriveEventAuthorityAddress,
   deriveFutarchyAuthorityAddress,
+  deriveLeverageCollateralVaultAddress,
+  deriveLeveragePositionAddress,
   deriveMarketCollateralVaultAddress,
   deriveMarketInterestVaultAddress,
   deriveMarketReserveVaultAddress,
@@ -1062,6 +1064,404 @@ export class DuskWrite {
   async repayTransaction(params: RepayParams): Promise<Transaction> {
     return new Transaction().add(await this.repayInstruction(params));
   }
+
+  /**
+   * Add balanced yLP liquidity. `minYlpAmount` is the caller's slippage floor;
+   * the program rejects the deposit rather than minting fewer shares.
+   */
+  async addLiquidityInstruction(
+    params: AddLiquidityParams
+  ): Promise<TransactionInstruction> {
+    const common = await this.resolveYlpAccounts(params);
+    return this.instruction(
+      "addLiquidity" as DuskInstructionName,
+      {
+        baseDepositAmount: governanceIntegerBN(
+          params.baseDepositAmount,
+          "baseDepositAmount"
+        ),
+        quoteDepositAmount: governanceIntegerBN(
+          params.quoteDepositAmount,
+          "quoteDepositAmount"
+        ),
+        minYlpAmount: governanceIntegerBN(params.minYlpAmount, "minYlpAmount"),
+      },
+      {
+        accounts: {
+          ...common,
+          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
+        },
+        remainingAccounts: params.remainingAccounts,
+      }
+    );
+  }
+
+  async addLiquidityTransaction(
+    params: AddLiquidityParams
+  ): Promise<Transaction> {
+    return new Transaction().add(await this.addLiquidityInstruction(params));
+  }
+
+  /**
+   * Burn yLP for the underlying pair. Both minimums are enforced by the
+   * program, so a partially-filled withdrawal fails instead of silently
+   * returning less of one side.
+   */
+  async removeLiquidityInstruction(
+    params: RemoveLiquidityParams
+  ): Promise<TransactionInstruction> {
+    const common = await this.resolveYlpAccounts(params);
+    return this.instruction(
+      "removeLiquidity" as DuskInstructionName,
+      {
+        ylpAmount: governanceIntegerBN(params.ylpAmount, "ylpAmount"),
+        minBaseAmountOut: governanceIntegerBN(
+          params.minBaseAmountOut,
+          "minBaseAmountOut"
+        ),
+        minQuoteAmountOut: governanceIntegerBN(
+          params.minQuoteAmountOut,
+          "minQuoteAmountOut"
+        ),
+      },
+      { accounts: common, remainingAccounts: params.remainingAccounts }
+    );
+  }
+
+  async removeLiquidityTransaction(
+    params: RemoveLiquidityParams
+  ): Promise<Transaction> {
+    return new Transaction().add(await this.removeLiquidityInstruction(params));
+  }
+
+  /**
+   * Accounts shared by both balanced yLP instructions. Reserve vaults and yLP
+   * yield accounts derive from the market; token programs resolve per mint so
+   * a Token-2022 side needs no caller branching.
+   */
+  /** Borrow more against an open position and receive collateral. */
+  async increaseLeverageInstruction(
+    params: IncreaseLeverageParams
+  ): Promise<TransactionInstruction> {
+    const core = await this.resolveLeverageAccounts(params);
+    return this.instruction(
+      "increaseLeverage" as DuskInstructionName,
+      {
+        debtAsset: marketAssetIndex(params.debtAsset),
+        debtAmount: governanceIntegerBN(params.debtAmount, "debtAmount"),
+        minCollateralOut: governanceIntegerBN(
+          params.minCollateralOut,
+          "minCollateralOut"
+        ),
+      },
+      {
+        accounts: {
+          market: core.market,
+          futarchyAuthority: core.futarchyAuthority,
+          positionOwner: core.positionOwner,
+          leveragePosition: core.leveragePosition,
+          debtMint: core.debtMint,
+          collateralMint: core.collateralMint,
+          debtReserveVault: core.debtReserveVault,
+          collateralReserveVault: core.collateralReserveVault,
+          leverageCollateralVault: core.leverageCollateralVault,
+          owner: core.owner,
+          tokenProgram: core.tokenProgram,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+        },
+        remainingAccounts: params.remainingAccounts,
+      }
+    );
+  }
+
+  async increaseLeverageTransaction(
+    params: IncreaseLeverageParams
+  ): Promise<Transaction> {
+    return new Transaction().add(
+      await this.increaseLeverageInstruction(params)
+    );
+  }
+
+  /** Sell collateral to repay debt without closing the position. */
+  async decreaseLeverageInstruction(
+    params: DecreaseLeverageParams
+  ): Promise<TransactionInstruction> {
+    const core = await this.resolveLeverageAccounts(params);
+    return this.instruction(
+      "decreaseLeverage" as DuskInstructionName,
+      {
+        debtAsset: marketAssetIndex(params.debtAsset),
+        collateralAmount: governanceIntegerBN(
+          params.collateralAmount,
+          "collateralAmount"
+        ),
+        minRepayOut: governanceIntegerBN(params.minRepayOut, "minRepayOut"),
+      },
+      {
+        accounts: {
+          market: core.market,
+          futarchyAuthority: core.futarchyAuthority,
+          positionOwner: core.positionOwner,
+          leveragePosition: core.leveragePosition,
+          debtMint: core.debtMint,
+          collateralMint: core.collateralMint,
+          debtReserveVault: core.debtReserveVault,
+          collateralReserveVault: core.collateralReserveVault,
+          debtInterestVault: core.debtInterestVault,
+          leverageCollateralVault: core.leverageCollateralVault,
+          referralPartner: core.referralPartner,
+          referralAccrual: core.referralAccrual,
+          owner: core.owner,
+          tokenProgram: core.tokenProgram,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+        },
+        remainingAccounts: params.remainingAccounts,
+      }
+    );
+  }
+
+  async decreaseLeverageTransaction(
+    params: DecreaseLeverageParams
+  ): Promise<Transaction> {
+    return new Transaction().add(
+      await this.decreaseLeverageInstruction(params)
+    );
+  }
+
+  /** Post additional debt-asset margin to a position. */
+  async addLeverageMarginInstruction(
+    params: LeverageMarginParams
+  ): Promise<TransactionInstruction> {
+    const core = await this.resolveLeverageAccounts(params);
+    return this.instruction(
+      "addLeverageMargin" as DuskInstructionName,
+      {
+        debtAsset: marketAssetIndex(params.debtAsset),
+        amount: governanceIntegerBN(params.amount, "amount"),
+      },
+      {
+        accounts: {
+          market: core.market,
+          futarchyAuthority: core.futarchyAuthority,
+          positionOwner: core.positionOwner,
+          leveragePosition: core.leveragePosition,
+          debtMint: core.debtMint,
+          debtReserveVault: core.debtReserveVault,
+          debtInterestVault: core.debtInterestVault,
+          ownerDebtAccount: address(params.ownerDebtAccount),
+          referralPartner: core.referralPartner,
+          referralAccrual: core.referralAccrual,
+          owner: core.owner,
+          tokenProgram: core.tokenProgram,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+        },
+        remainingAccounts: params.remainingAccounts,
+      }
+    );
+  }
+
+  async addLeverageMarginTransaction(
+    params: LeverageMarginParams
+  ): Promise<Transaction> {
+    return new Transaction().add(
+      await this.addLeverageMarginInstruction(params)
+    );
+  }
+
+  /** Withdraw surplus margin, bounded by the position's health. */
+  async removeLeverageMarginInstruction(
+    params: RemoveLeverageMarginParams
+  ): Promise<TransactionInstruction> {
+    const core = await this.resolveLeverageAccounts(params);
+    return this.instruction(
+      "removeLeverageMargin" as DuskInstructionName,
+      {
+        debtAsset: marketAssetIndex(params.debtAsset),
+        amount: governanceIntegerBN(params.amount, "amount"),
+        minAmountOut: governanceIntegerBN(params.minAmountOut, "minAmountOut"),
+      },
+      {
+        accounts: {
+          market: core.market,
+          futarchyAuthority: core.futarchyAuthority,
+          positionOwner: core.positionOwner,
+          leveragePosition: core.leveragePosition,
+          debtMint: core.debtMint,
+          collateralMint: core.collateralMint,
+          debtReserveVault: core.debtReserveVault,
+          ownerDebtAccount: address(params.ownerDebtAccount),
+          owner: core.owner,
+          tokenProgram: core.tokenProgram,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+        },
+        remainingAccounts: params.remainingAccounts,
+      }
+    );
+  }
+
+  async removeLeverageMarginTransaction(
+    params: RemoveLeverageMarginParams
+  ): Promise<Transaction> {
+    return new Transaction().add(
+      await this.removeLeverageMarginInstruction(params)
+    );
+  }
+
+  /**
+   * Close a position. Owner-signed by default; pass the delegation accounts to
+   * settle through `leverage_delegate` instead.
+   */
+  async closeLeverageInstruction(
+    params: CloseLeverageParams
+  ): Promise<TransactionInstruction> {
+    const core = await this.resolveLeverageAccounts(params);
+    return this.instruction(
+      "closeLeverage" as DuskInstructionName,
+      {
+        debtAsset: marketAssetIndex(params.debtAsset),
+        minAmountOut: governanceIntegerBN(params.minAmountOut, "minAmountOut"),
+      },
+      {
+        accounts: {
+          market: core.market,
+          futarchyAuthority: core.futarchyAuthority,
+          positionOwner: core.positionOwner,
+          leveragePosition: core.leveragePosition,
+          debtMint: core.debtMint,
+          collateralMint: core.collateralMint,
+          debtReserveVault: core.debtReserveVault,
+          collateralReserveVault: core.collateralReserveVault,
+          debtInterestVault: core.debtInterestVault,
+          leverageCollateralVault: core.leverageCollateralVault,
+          ownerDebtAccount: address(params.ownerDebtAccount),
+          referralPartner: core.referralPartner,
+          referralAccrual: core.referralAccrual,
+          leverageDelegation: params.leverageDelegation
+            ? address(params.leverageDelegation)
+            : null,
+          delegatedProgram: params.delegatedProgram
+            ? address(params.delegatedProgram)
+            : null,
+          authority: address(params.authority ?? params.positionOwner),
+          tokenProgram: core.tokenProgram,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+        },
+        remainingAccounts: params.remainingAccounts,
+      }
+    );
+  }
+
+  async closeLeverageTransaction(
+    params: CloseLeverageParams
+  ): Promise<Transaction> {
+    return new Transaction().add(await this.closeLeverageInstruction(params));
+  }
+
+  /**
+   * Accounts shared across the leverage lifecycle. Individual builders pass
+   * through only the subset their instruction declares.
+   */
+  private async resolveLeverageAccounts(params: LeverageAccounts) {
+    const market = address(params.market);
+    const positionOwner = address(params.positionOwner);
+    const debtMint = address(params.debtMint);
+    const collateralMint = address(params.collateralMint);
+    const positionId = address(params.positionId);
+    const referralPartner = params.referralPartner
+      ? address(params.referralPartner)
+      : null;
+    const tokenProgram = await tokenProgramForMint(
+      this.program.provider.connection,
+      debtMint
+    );
+    return {
+      market,
+      futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
+      positionOwner,
+      owner: address(params.owner ?? params.positionOwner),
+      leveragePosition: address(
+        params.leveragePosition ??
+          deriveLeveragePositionAddress(market, positionId)[0]
+      ),
+      debtMint,
+      collateralMint,
+      debtReserveVault: address(
+        params.debtReserveVault ??
+          deriveMarketReserveVaultAddress(market, debtMint)[0]
+      ),
+      collateralReserveVault: address(
+        params.collateralReserveVault ??
+          deriveMarketReserveVaultAddress(market, collateralMint)[0]
+      ),
+      debtInterestVault: address(
+        params.debtInterestVault ??
+          deriveMarketInterestVaultAddress(market, debtMint)[0]
+      ),
+      leverageCollateralVault: address(
+        params.leverageCollateralVault ??
+          deriveLeverageCollateralVaultAddress(market, collateralMint)[0]
+      ),
+      referralPartner,
+      referralAccrual: referralPartner
+        ? deriveReferralAccrualAddress(referralPartner, market, debtMint)[0]
+        : null,
+      tokenProgram,
+    };
+  }
+
+  private async resolveYlpAccounts(params: YlpLiquidityAccounts) {
+    const market = address(params.market);
+    const owner = address(params.owner);
+    const baseMint = address(params.baseMint);
+    const quoteMint = address(params.quoteMint);
+    const ylpMint = address(params.ylpMint);
+    const tokenProgram = await tokenProgramForMint(
+      this.program.provider.connection,
+      baseMint
+    );
+    return {
+      market,
+      owner,
+      baseMint,
+      quoteMint,
+      ylpMint,
+      baseReserveVault: address(
+        params.baseReserveVault ??
+          deriveMarketReserveVaultAddress(market, baseMint)[0]
+      ),
+      quoteReserveVault: address(
+        params.quoteReserveVault ??
+          deriveMarketReserveVaultAddress(market, quoteMint)[0]
+      ),
+      ownerBaseAccount: address(params.ownerBaseAccount),
+      ownerQuoteAccount: address(params.ownerQuoteAccount),
+      ownerYlpAccount: address(params.ownerYlpAccount),
+      baseYieldAccount: address(
+        params.baseYieldAccount ??
+          deriveYieldAccountAddress(
+            market,
+            owner,
+            ylpMint,
+            baseMint,
+            "ylp",
+            this.program.programId
+          )[0]
+      ),
+      quoteYieldAccount: address(
+        params.quoteYieldAccount ??
+          deriveYieldAccountAddress(
+            market,
+            owner,
+            ylpMint,
+            quoteMint,
+            "ylp",
+            this.program.programId
+          )[0]
+      ),
+      tokenProgram,
+      token2022Program: TOKEN_2022_PROGRAM_ID,
+    };
+  }
 }
 
 /** Raw base-unit amount. Accepts bigint to keep callers off floating point. */
@@ -1101,6 +1501,92 @@ export interface RepayParams extends LendingPositionAccounts {
   referralPartner?: AddressLike | null;
   reserveVault?: AddressLike;
   interestVault?: AddressLike;
+}
+
+/** Which side of the pair carries the debt. */
+export type MarketAssetSide = "base" | "quote";
+
+function marketAssetIndex(side: MarketAssetSide): number {
+  if (side !== "base" && side !== "quote") {
+    throw new Error(`debtAsset must be "base" or "quote", got ${String(side)}`);
+  }
+  return side === "base" ? 0 : 1;
+}
+
+interface LeverageAccounts {
+  market: AddressLike;
+  positionOwner: AddressLike;
+  /** Position discriminator; the leverage position PDA derives from it. */
+  positionId: AddressLike;
+  debtMint: AddressLike;
+  collateralMint: AddressLike;
+  debtAsset: MarketAssetSide;
+  /** Signer when it differs from the position owner. */
+  owner?: AddressLike;
+  leveragePosition?: AddressLike;
+  debtReserveVault?: AddressLike;
+  collateralReserveVault?: AddressLike;
+  debtInterestVault?: AddressLike;
+  leverageCollateralVault?: AddressLike;
+  referralPartner?: AddressLike | null;
+  remainingAccounts?: AccountMeta[];
+}
+
+export interface IncreaseLeverageParams extends LeverageAccounts {
+  debtAmount: RawAmount;
+  minCollateralOut: RawAmount;
+}
+
+export interface DecreaseLeverageParams extends LeverageAccounts {
+  collateralAmount: RawAmount;
+  minRepayOut: RawAmount;
+}
+
+export interface LeverageMarginParams extends LeverageAccounts {
+  amount: RawAmount;
+  ownerDebtAccount: AddressLike;
+}
+
+export interface RemoveLeverageMarginParams extends LeverageMarginParams {
+  minAmountOut: RawAmount;
+}
+
+export interface CloseLeverageParams extends LeverageAccounts {
+  minAmountOut: RawAmount;
+  ownerDebtAccount: AddressLike;
+  /** Delegated settlement; omit all three for an owner-signed close. */
+  leverageDelegation?: AddressLike | null;
+  delegatedProgram?: AddressLike | null;
+  authority?: AddressLike;
+}
+
+interface YlpLiquidityAccounts {
+  market: AddressLike;
+  owner: AddressLike;
+  baseMint: AddressLike;
+  quoteMint: AddressLike;
+  ylpMint: AddressLike;
+  ownerBaseAccount: AddressLike;
+  ownerQuoteAccount: AddressLike;
+  ownerYlpAccount: AddressLike;
+  baseReserveVault?: AddressLike;
+  quoteReserveVault?: AddressLike;
+  baseYieldAccount?: AddressLike;
+  quoteYieldAccount?: AddressLike;
+  remainingAccounts?: AccountMeta[];
+}
+
+export interface AddLiquidityParams extends YlpLiquidityAccounts {
+  baseDepositAmount: RawAmount;
+  quoteDepositAmount: RawAmount;
+  /** Slippage floor on minted yLP shares. */
+  minYlpAmount: RawAmount;
+}
+
+export interface RemoveLiquidityParams extends YlpLiquidityAccounts {
+  ylpAmount: RawAmount;
+  minBaseAmountOut: RawAmount;
+  minQuoteAmountOut: RawAmount;
 }
 
 function normalizeArgs(args: DuskInstructionArgs): unknown[] {

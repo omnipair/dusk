@@ -42,6 +42,7 @@ export const SEEDS = {
   MARKET_INTEREST_VAULT: Buffer.from("market_interest"),
   BORROW_POSITION: Buffer.from("borrow_position_v2"),
   LEVERAGE_POSITION: Buffer.from("leverage_position_v2"),
+  LEVERAGE_COLLATERAL_VAULT: Buffer.from("leverage_collateral"),
   YIELD_ACCOUNT: Buffer.from("yield"),
   HLP_YLP_VAULT: Buffer.from("hlp_ylp_vault"),
   INSURANCE: Buffer.from("insurance"),
@@ -191,6 +192,17 @@ export function deriveMarketReserveVaultAddress(
 /**
  * Derive market collateral vault PDA address
  */
+/** Per-market collateral custody for leverage positions. */
+export function deriveLeverageCollateralVaultAddress(
+  market: PublicKey,
+  collateralMint: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [SEEDS.LEVERAGE_COLLATERAL_VAULT, market.toBuffer(), collateralMint.toBuffer()],
+    DUSK_PROGRAM_ID
+  );
+}
+
 export function deriveMarketCollateralVaultAddress(
   market: PublicKey,
   collateralMint: PublicKey
