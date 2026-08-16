@@ -15,9 +15,13 @@ import {
 
 import { address, normalizeAccountKeys, type AddressLike } from "./address.js";
 import {
+  deriveBorrowPositionAddress,
   deriveEventAuthorityAddress,
   deriveFutarchyAuthorityAddress,
+  deriveMarketCollateralVaultAddress,
   deriveMarketInterestVaultAddress,
+  deriveMarketReserveVaultAddress,
+  deriveReferralAccrualAddress,
   deriveParameterProposalAddress,
   deriveProposalSupportAddress,
   deriveYieldAccountAddress,
@@ -898,6 +902,205 @@ export class DuskWrite {
       await this.claimReferralInterestInstruction(params)
     );
   }
+
+  /**
+   * Deposit collateral into a borrow position, creating it when `positionId` is
+   * new. Callers pass amounts in raw base units.
+   */
+  async depositCollateralInstruction(
+    params: DepositCollateralParams
+  ): Promise<TransactionInstruction> {
+    const market = address(params.market);
+    const owner = address(params.owner);
+    const assetMint = address(params.assetMint);
+    const positionId = address(params.positionId);
+    const tokenProgram = await tokenProgramForMint(
+      this.program.provider.connection,
+      assetMint
+    );
+    return this.instruction(
+      "depositCollateral" as DuskInstructionName,
+      { positionId, depositAmount: governanceIntegerBN(params.depositAmount, "depositAmount") },
+      {
+        accounts: {
+          market,
+          owner,
+          assetMint,
+          collateralVault: address(
+            params.collateralVault ??
+              deriveMarketCollateralVaultAddress(market, assetMint)[0]
+          ),
+          ownerAssetAccount: address(params.ownerAssetAccount),
+          borrowPosition: address(
+            params.borrowPosition ??
+              deriveBorrowPositionAddress(market, positionId)[0]
+          ),
+          tokenProgram,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+        },
+        remainingAccounts: params.remainingAccounts,
+      }
+    );
+  }
+
+  async depositCollateralTransaction(
+    params: DepositCollateralParams
+  ): Promise<Transaction> {
+    return new Transaction().add(
+      await this.depositCollateralInstruction(params)
+    );
+  }
+
+  /**
+   * Withdraw collateral. `minAssetAmountOut` and `minLiquidationCfBps` are the
+   * caller's slippage and health floors; the program rejects the withdrawal
+   * rather than silently returning less.
+   */
+  async withdrawCollateralInstruction(
+    params: WithdrawCollateralParams
+  ): Promise<TransactionInstruction> {
+    const market = address(params.market);
+    const owner = address(params.owner);
+    const assetMint = address(params.assetMint);
+    const positionId = address(params.positionId);
+    const tokenProgram = await tokenProgramForMint(
+      this.program.provider.connection,
+      assetMint
+    );
+    return this.instruction(
+      "withdrawCollateral" as DuskInstructionName,
+      {
+        withdrawAmount: governanceIntegerBN(params.withdrawAmount, "withdrawAmount"),
+        minAssetAmountOut: governanceIntegerBN(params.minAssetAmountOut, "minAssetAmountOut"),
+        minLiquidationCfBps: params.minLiquidationCfBps,
+      },
+      {
+        accounts: {
+          market,
+          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
+          owner,
+          assetMint,
+          collateralVault: address(
+            params.collateralVault ??
+              deriveMarketCollateralVaultAddress(market, assetMint)[0]
+          ),
+          ownerAssetAccount: address(params.ownerAssetAccount),
+          borrowPosition: address(
+            params.borrowPosition ??
+              deriveBorrowPositionAddress(market, positionId)[0]
+          ),
+          tokenProgram,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+        },
+        remainingAccounts: params.remainingAccounts,
+      }
+    );
+  }
+
+  async withdrawCollateralTransaction(
+    params: WithdrawCollateralParams
+  ): Promise<Transaction> {
+    return new Transaction().add(
+      await this.withdrawCollateralInstruction(params)
+    );
+  }
+
+  /**
+   * Repay borrowed debt. Pass the wallet balance as `repayAmount` to clear a
+   * position; the program repays at most the outstanding debt.
+   */
+  async repayInstruction(params: RepayParams): Promise<TransactionInstruction> {
+    const market = address(params.market);
+    const owner = address(params.owner);
+    const debtAssetMint = address(params.debtAssetMint);
+    const positionId = address(params.positionId);
+    const referralPartner = params.referralPartner
+      ? address(params.referralPartner)
+      : null;
+    const tokenProgram = await tokenProgramForMint(
+      this.program.provider.connection,
+      debtAssetMint
+    );
+    return this.instruction(
+      "repay" as DuskInstructionName,
+      { repayAmount: governanceIntegerBN(params.repayAmount, "repayAmount") },
+      {
+        accounts: {
+          market,
+          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
+          owner,
+          debtAssetMint,
+          reserveVault: address(
+            params.reserveVault ??
+              deriveMarketReserveVaultAddress(market, debtAssetMint)[0]
+          ),
+          interestVault: address(
+            params.interestVault ??
+              deriveMarketInterestVaultAddress(market, debtAssetMint)[0]
+          ),
+          ownerDebtAccount: address(params.ownerDebtAccount),
+          borrowPosition: address(
+            params.borrowPosition ??
+              deriveBorrowPositionAddress(market, positionId)[0]
+          ),
+          referralPartner,
+          referralAccrual: referralPartner
+            ? deriveReferralAccrualAddress(
+                referralPartner,
+                market,
+                debtAssetMint
+              )[0]
+            : null,
+          tokenProgram,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+        },
+        remainingAccounts: params.remainingAccounts,
+      }
+    );
+  }
+
+  async repayTransaction(params: RepayParams): Promise<Transaction> {
+    return new Transaction().add(await this.repayInstruction(params));
+  }
+}
+
+/** Raw base-unit amount. Accepts bigint to keep callers off floating point. */
+export type RawAmount = bigint | number | string;
+
+interface LendingPositionAccounts {
+  market: AddressLike;
+  owner: AddressLike;
+  /** Position discriminator; the borrow position PDA derives from it. */
+  positionId: AddressLike;
+  borrowPosition?: AddressLike;
+  remainingAccounts?: AccountMeta[];
+}
+
+export interface DepositCollateralParams extends LendingPositionAccounts {
+  assetMint: AddressLike;
+  ownerAssetAccount: AddressLike;
+  depositAmount: RawAmount;
+  collateralVault?: AddressLike;
+}
+
+export interface WithdrawCollateralParams extends LendingPositionAccounts {
+  assetMint: AddressLike;
+  ownerAssetAccount: AddressLike;
+  withdrawAmount: RawAmount;
+  minAssetAmountOut: RawAmount;
+  /** Health floor enforced by the program, in basis points. */
+  minLiquidationCfBps: number;
+  collateralVault?: AddressLike;
+}
+
+export interface RepayParams extends LendingPositionAccounts {
+  debtAssetMint: AddressLike;
+  ownerDebtAccount: AddressLike;
+  repayAmount: RawAmount;
+  /** Omit when the position has no referrer. */
+  referralPartner?: AddressLike | null;
+  reserveVault?: AddressLike;
+  interestVault?: AddressLike;
 }
 
 function normalizeArgs(args: DuskInstructionArgs): unknown[] {
