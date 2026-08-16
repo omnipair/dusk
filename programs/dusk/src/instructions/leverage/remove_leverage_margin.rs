@@ -94,6 +94,7 @@ impl<'info> RemoveLeverageMargin<'info> {
         ctx: Context<'_, '_, '_, 'info, Self>,
         args: RemoveLeverageMarginArgs,
         current_slot: u64,
+        current_unix_timestamp: i64,
     ) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.owner.key();
@@ -107,6 +108,7 @@ impl<'info> RemoveLeverageMargin<'info> {
             &mut ctx.accounts.leverage_position,
             args.amount,
             current_slot,
+            current_unix_timestamp,
         )?;
         let debt_token_program = token_program_for_mint(
             &ctx.accounts.debt_mint,

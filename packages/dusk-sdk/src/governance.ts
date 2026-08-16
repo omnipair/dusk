@@ -29,6 +29,16 @@ export const MAX_CONCENTRATION_AMPLIFICATION_NAD = 2_000n * NAD;
 export const MAX_FEE_COEFFICIENT_NAD = 100n * NAD;
 export const MAX_VOLATILITY_ACCUMULATOR_NAD = 10n * NAD;
 export const MAX_DAILY_BORROW_BPS = 3_000;
+export const MIN_CENTER_ADJUSTMENT_NAD = NAD / 1_000_000n;
+export const MAX_CENTER_ADJUSTMENT_NAD = NAD / 10n;
+export const MAX_CENTER_ADJUSTMENT_INTERVAL_SLOTS = 216_000n;
+export const MAX_LAUNCH_FEE_DURATION_SECONDS = 30n * 24n * 60n * 60n;
+export const LAUNCH_FEE_DECAY_DISABLED = 0;
+export const LAUNCH_FEE_DECAY_LINEAR = 1;
+export const LAUNCH_FEE_DECAY_EXPONENTIAL = 2;
+export const LAUNCH_RATE_LIMIT_ASSET_DISABLED = 0;
+export const LAUNCH_RATE_LIMIT_ASSET_BASE = 1;
+export const LAUNCH_RATE_LIMIT_ASSET_QUOTE = 2;
 export const PARAMETER_PROPOSAL_DIGEST_DOMAIN = "DUSK_PARAMETER_PROPOSAL_V1";
 
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
@@ -54,6 +64,14 @@ export interface FeeProfileInput {
   volatilityHalfLifeMs: GovernanceIntegerLike;
   volatilityShockCapNad: GovernanceIntegerLike;
   volatilityAccumulatorCapNad: GovernanceIntegerLike;
+  launchFeeStartBps?: number;
+  launchFeeDurationSeconds?: GovernanceIntegerLike;
+  launchFeeDecayMode?: number;
+  launchRateLimitAsset?: number;
+  launchRateLimitReferenceNad?: GovernanceIntegerLike;
+  launchRateLimitIncrementBps?: number;
+  launchRateLimitMaxFeeBps?: number;
+  launchRateLimitDurationSeconds?: GovernanceIntegerLike;
 }
 
 export interface FeeProfile {
@@ -65,6 +83,14 @@ export interface FeeProfile {
   volatilityHalfLifeMs: BN;
   volatilityShockCapNad: BN;
   volatilityAccumulatorCapNad: BN;
+  launchFeeStartBps: number;
+  launchFeeDurationSeconds: BN;
+  launchFeeDecayMode: number;
+  launchRateLimitAsset: number;
+  launchRateLimitReferenceNad: BN;
+  launchRateLimitIncrementBps: number;
+  launchRateLimitMaxFeeBps: number;
+  launchRateLimitDurationSeconds: BN;
 }
 
 export interface IrmConfigInput {
@@ -94,7 +120,13 @@ export type ParameterUpdate =
       qMs: BN;
       centerPriceMs: BN;
     }
-  | { kind: "dailyBorrowLimit"; maxDailyBorrowBps: number };
+  | { kind: "dailyBorrowLimit"; maxDailyBorrowBps: number }
+  | {
+      kind: "centerController";
+      adjustmentThresholdNad: BN;
+      adjustmentStepNad: BN;
+      minAdjustmentIntervalSlots: BN;
+    };
 
 export type ParameterFamilyName = ParameterUpdate["kind"];
 
@@ -247,6 +279,94 @@ export function feeParameterUpdate(input: FeeProfileInput): ParameterUpdate {
     throw new Error("a nonzero volatility fee coefficient requires an enabled volatility signal");
   }
 
+  const launchFeeStartBps = input.launchFeeStartBps ?? 0;
+  const launchFeeDurationSeconds = toU64BigInt(
+    input.launchFeeDurationSeconds ?? 0,
+    "launchFeeDurationSeconds"
+  );
+  const launchFeeDecayMode = input.launchFeeDecayMode ?? LAUNCH_FEE_DECAY_DISABLED;
+  const launchFeeDisabled =
+    launchFeeStartBps === 0 &&
+    launchFeeDurationSeconds === 0n &&
+    launchFeeDecayMode === LAUNCH_FEE_DECAY_DISABLED;
+  if (
+    !launchFeeDisabled &&
+    (launchFeeStartBps <= input.baseFeeBps ||
+      launchFeeStartBps > MAX_PARAMETER_FEE_BPS ||
+      launchFeeDurationSeconds < 1n ||
+      launchFeeDurationSeconds > MAX_LAUNCH_FEE_DURATION_SECONDS ||
+      ![LAUNCH_FEE_DECAY_LINEAR, LAUNCH_FEE_DECAY_EXPONENTIAL].includes(
+        launchFeeDecayMode
+      ))
+  ) {
+    throw new Error("invalid launch fee start, duration, or decay mode");
+  }
+  if (
+    !launchFeeDisabled &&
+    launchFeeStartBps + input.divergenceFeeShareCapBps + input.volatilityFeeShareCapBps >
+      MAX_PARAMETER_FEE_BPS
+  ) {
+    throw new Error(`launch fee component caps must sum to at most ${MAX_PARAMETER_FEE_BPS} bps`);
+  }
+
+  const launchRateLimitAsset =
+    input.launchRateLimitAsset ?? LAUNCH_RATE_LIMIT_ASSET_DISABLED;
+  const launchRateLimitReferenceNad = toU64BigInt(
+    input.launchRateLimitReferenceNad ?? 0,
+    "launchRateLimitReferenceNad"
+  );
+  const launchRateLimitIncrementBps = input.launchRateLimitIncrementBps ?? 0;
+  const launchRateLimitMaxFeeBps = input.launchRateLimitMaxFeeBps ?? 0;
+  const launchRateLimitDurationSeconds = toU64BigInt(
+    input.launchRateLimitDurationSeconds ?? 0,
+    "launchRateLimitDurationSeconds"
+  );
+  const rateLimitDisabled =
+    launchRateLimitAsset === LAUNCH_RATE_LIMIT_ASSET_DISABLED &&
+    launchRateLimitReferenceNad === 0n &&
+    launchRateLimitIncrementBps === 0 &&
+    launchRateLimitMaxFeeBps === 0 &&
+    launchRateLimitDurationSeconds === 0n;
+  const scheduledPeak = launchFeeDisabled ? input.baseFeeBps : launchFeeStartBps;
+  if (
+    !rateLimitDisabled &&
+    (![LAUNCH_RATE_LIMIT_ASSET_BASE, LAUNCH_RATE_LIMIT_ASSET_QUOTE].includes(
+      launchRateLimitAsset
+    ) ||
+      launchRateLimitReferenceNad === 0n ||
+      launchRateLimitIncrementBps <= 0 ||
+      launchRateLimitMaxFeeBps <= input.baseFeeBps ||
+      launchRateLimitMaxFeeBps < scheduledPeak ||
+      launchRateLimitDurationSeconds < 1n ||
+      launchRateLimitDurationSeconds > MAX_LAUNCH_FEE_DURATION_SECONDS)
+  ) {
+    throw new Error("invalid launch buy-size limiter configuration");
+  }
+  if (!rateLimitDisabled) {
+    assertBps(
+      launchRateLimitIncrementBps,
+      "launchRateLimitIncrementBps",
+      MAX_PARAMETER_FEE_BPS,
+      1
+    );
+    assertBps(
+      launchRateLimitMaxFeeBps,
+      "launchRateLimitMaxFeeBps",
+      MAX_PARAMETER_FEE_BPS,
+      1
+    );
+    if (
+      launchRateLimitMaxFeeBps +
+        input.divergenceFeeShareCapBps +
+        input.volatilityFeeShareCapBps >
+      MAX_PARAMETER_FEE_BPS
+    ) {
+      throw new Error(
+        `rate-limit fee component caps must sum to at most ${MAX_PARAMETER_FEE_BPS} bps`
+      );
+    }
+  }
+
   return {
     kind: "fee",
     profile: {
@@ -258,6 +378,14 @@ export function feeParameterUpdate(input: FeeProfileInput): ParameterUpdate {
       volatilityHalfLifeMs: toBN(volatilityHalfLifeMs),
       volatilityShockCapNad: toBN(volatilityShockCapNad),
       volatilityAccumulatorCapNad: toBN(volatilityAccumulatorCapNad),
+      launchFeeStartBps,
+      launchFeeDurationSeconds: toBN(launchFeeDurationSeconds),
+      launchFeeDecayMode,
+      launchRateLimitAsset,
+      launchRateLimitReferenceNad: toBN(launchRateLimitReferenceNad),
+      launchRateLimitIncrementBps,
+      launchRateLimitMaxFeeBps,
+      launchRateLimitDurationSeconds: toBN(launchRateLimitDurationSeconds),
     },
   };
 }
@@ -357,12 +485,45 @@ export function dailyBorrowLimitParameterUpdate(maxDailyBorrowBps: number): Para
   return { kind: "dailyBorrowLimit", maxDailyBorrowBps };
 }
 
+export function centerControllerParameterUpdate(input: {
+  adjustmentThresholdNad: GovernanceIntegerLike;
+  adjustmentStepNad: GovernanceIntegerLike;
+  minAdjustmentIntervalSlots: GovernanceIntegerLike;
+}): ParameterUpdate {
+  const adjustmentThresholdNad = toU64BigInt(input.adjustmentThresholdNad, "adjustmentThresholdNad");
+  const adjustmentStepNad = toU64BigInt(input.adjustmentStepNad, "adjustmentStepNad");
+  const minAdjustmentIntervalSlots = toU64BigInt(
+    input.minAdjustmentIntervalSlots,
+    "minAdjustmentIntervalSlots"
+  );
+  const disabled =
+    adjustmentThresholdNad === 0n && adjustmentStepNad === 0n && minAdjustmentIntervalSlots === 0n;
+  if (
+    !disabled &&
+    (adjustmentStepNad < MIN_CENTER_ADJUSTMENT_NAD ||
+      adjustmentStepNad > MAX_CENTER_ADJUSTMENT_NAD ||
+      adjustmentThresholdNad < adjustmentStepNad ||
+      adjustmentThresholdNad > MAX_CENTER_ADJUSTMENT_NAD ||
+      minAdjustmentIntervalSlots < 1n ||
+      minAdjustmentIntervalSlots > MAX_CENTER_ADJUSTMENT_INTERVAL_SLOTS)
+  ) {
+    throw new Error("invalid center-controller threshold, step, or interval");
+  }
+  return {
+    kind: "centerController",
+    adjustmentThresholdNad: toBN(adjustmentThresholdNad),
+    adjustmentStepNad: toBN(adjustmentStepNad),
+    minAdjustmentIntervalSlots: toBN(minAdjustmentIntervalSlots),
+  };
+}
+
 export const parameterUpdate = {
   fee: feeParameterUpdate,
   concentration: concentrationParameterUpdate,
   irm: irmParameterUpdate,
   emaHalfLives: emaHalfLivesParameterUpdate,
   dailyBorrowLimit: dailyBorrowLimitParameterUpdate,
+  centerController: centerControllerParameterUpdate,
 } as const;
 
 export function assertParameterUpdate(update: ParameterUpdate): void {
@@ -382,10 +543,13 @@ export function assertParameterUpdate(update: ParameterUpdate): void {
     case "dailyBorrowLimit":
       dailyBorrowLimitParameterUpdate(update.maxDailyBorrowBps);
       return;
+    case "centerController":
+      centerControllerParameterUpdate(update);
+      return;
   }
 }
 
-export function parameterFamilyCode(update: ParameterUpdate): 0 | 1 | 2 | 3 | 4 {
+export function parameterFamilyCode(update: ParameterUpdate): 0 | 1 | 2 | 3 | 4 | 5 {
   switch (update.kind) {
     case "fee":
       return 0;
@@ -397,6 +561,8 @@ export function parameterFamilyCode(update: ParameterUpdate): 0 | 1 | 2 | 3 | 4 
       return 3;
     case "dailyBorrowLimit":
       return 4;
+    case "centerController":
+      return 5;
   }
 }
 
@@ -427,6 +593,14 @@ export function anchorParameterUpdate(update: ParameterUpdate): Record<string, u
       };
     case "dailyBorrowLimit":
       return { dailyBorrowLimit: { maxDailyBorrowBps: update.maxDailyBorrowBps } };
+    case "centerController":
+      return {
+        centerController: {
+          adjustmentThresholdNad: update.adjustmentThresholdNad,
+          adjustmentStepNad: update.adjustmentStepNad,
+          minAdjustmentIntervalSlots: update.minAdjustmentIntervalSlots,
+        },
+      };
   }
 }
 
@@ -464,6 +638,14 @@ export function parameterUpdateFromAnchor(value: unknown): ParameterUpdate {
   if (update.dailyBorrowLimit !== undefined) {
     const fields = objectValue(update.dailyBorrowLimit, "daily borrow-limit update");
     return dailyBorrowLimitParameterUpdate(numberField(fields, "maxDailyBorrowBps"));
+  }
+  if (update.centerController !== undefined) {
+    const fields = objectValue(update.centerController, "center-controller update");
+    return centerControllerParameterUpdate({
+      adjustmentThresholdNad: integerField(fields, "adjustmentThresholdNad"),
+      adjustmentStepNad: integerField(fields, "adjustmentStepNad"),
+      minAdjustmentIntervalSlots: integerField(fields, "minAdjustmentIntervalSlots"),
+    });
   }
   throw new Error("unknown market parameter update variant");
 }
@@ -814,7 +996,18 @@ function encodeParameterUpdate(update: ParameterUpdate): Uint8Array {
         encodeU64(update.profile.volatilityFeeCoefficientNad, "volatilityFeeCoefficientNad"),
         encodeU64(update.profile.volatilityHalfLifeMs, "volatilityHalfLifeMs"),
         encodeU64(update.profile.volatilityShockCapNad, "volatilityShockCapNad"),
-        encodeU64(update.profile.volatilityAccumulatorCapNad, "volatilityAccumulatorCapNad")
+        encodeU64(update.profile.volatilityAccumulatorCapNad, "volatilityAccumulatorCapNad"),
+        encodeU16(update.profile.launchFeeStartBps),
+        encodeU64(update.profile.launchFeeDurationSeconds, "launchFeeDurationSeconds"),
+        Uint8Array.of(update.profile.launchFeeDecayMode),
+        Uint8Array.of(update.profile.launchRateLimitAsset),
+        encodeU64(update.profile.launchRateLimitReferenceNad, "launchRateLimitReferenceNad"),
+        encodeU16(update.profile.launchRateLimitIncrementBps),
+        encodeU16(update.profile.launchRateLimitMaxFeeBps),
+        encodeU64(
+          update.profile.launchRateLimitDurationSeconds,
+          "launchRateLimitDurationSeconds"
+        )
       );
     case "concentration":
       return concatBytes(
@@ -839,6 +1032,13 @@ function encodeParameterUpdate(update: ParameterUpdate): Uint8Array {
       );
     case "dailyBorrowLimit":
       return concatBytes(Uint8Array.of(4), encodeU16(update.maxDailyBorrowBps));
+    case "centerController":
+      return concatBytes(
+        Uint8Array.of(5),
+        encodeU64(update.adjustmentThresholdNad, "adjustmentThresholdNad"),
+        encodeU64(update.adjustmentStepNad, "adjustmentStepNad"),
+        encodeU64(update.minAdjustmentIntervalSlots, "minAdjustmentIntervalSlots")
+      );
   }
 }
 

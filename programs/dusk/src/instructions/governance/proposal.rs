@@ -29,7 +29,11 @@ pub struct CreateParameterProposalArgs {
 
 #[event_cpi]
 #[derive(Accounts)]
-#[instruction(args: CreateParameterProposalArgs)]
+// Account validation only needs the serialized instruction prefix (`nonce`).
+// Deserializing the full metadata/update payload here needlessly expands the
+// SBF `try_accounts` frame; the handler still receives and validates the full
+// `CreateParameterProposalArgs` value.
+#[instruction(nonce: u64)]
 pub struct CreateParameterProposal<'info> {
     #[account(mut)]
     pub proposer: Signer<'info>,
@@ -54,7 +58,7 @@ pub struct CreateParameterProposal<'info> {
             PARAMETER_PROPOSAL_SEED_PREFIX,
             market.key().as_ref(),
             proposer.key().as_ref(),
-            args.nonce.to_le_bytes().as_ref(),
+            nonce.to_le_bytes().as_ref(),
         ],
         bump,
     )]

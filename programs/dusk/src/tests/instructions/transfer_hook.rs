@@ -149,7 +149,7 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
         insurance: Default::default(),
         params_hash: [0; 32],
         governance_locked_ylp: 0,
-        parameter_revisions: [0; 5],
+        parameter_revisions: [0; 6],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,

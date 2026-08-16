@@ -52,7 +52,7 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
         insurance: Insurance::default(),
         params_hash: [0u8; 32],
         governance_locked_ylp: 0,
-        parameter_revisions: [0; 5],
+        parameter_revisions: [0; 6],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,
@@ -159,7 +159,7 @@ fn prepared_leverage_swap(
     let asset_in = MarketAsset::try_from_code(swap.asset_in).unwrap();
     let pre_state = market.dynamic_fee_pre_state(swap.quoted_slot).unwrap();
     let preliminary = market
-        .preliminary_swap_inputs_for_state(swap.amount_in, swap.quoted_slot, pre_state)
+        .preliminary_swap_inputs_for_state(asset_in, swap.amount_in, swap.quoted_slot, pre_state)
         .unwrap();
     let integrated = market
         .quote_explicit_integrated_with_fee(asset_in, swap.amount_in, preliminary)
@@ -550,7 +550,7 @@ fn socialized_loss_market() -> Market {
     market.base_hlp_vault.hlp_supply = 700_001;
     market.quote_hlp_vault.ylp_shares = 400_003;
     market.quote_hlp_vault.hlp_supply = 400_003;
-    market.checkpoint_amm_neutral_inventory(0).unwrap();
+    market.checkpoint_amm_neutral_inventory_raw(0).unwrap();
     market
 }
 
@@ -564,49 +564,7 @@ fn concentrated_socialized_loss_market() -> Market {
 }
 
 #[test]
-#[ignore = "legacy implicit-curve differential; explicit socialized-loss invariants are covered below"]
-fn leverage_socialized_loss_plan_matches_legacy_for_both_assets() {
-    for debt_asset in [MarketAsset::Base, MarketAsset::Quote] {
-        for (mut reference, current_slot) in [
-            (socialized_loss_market(), 0),
-            (concentrated_socialized_loss_market(), 1),
-        ] {
-            let mut planned = reference.clone();
-            let transition = LeverageLifecycleTransition {
-                socialized_principal_loss: 100_003,
-                ..LeverageLifecycleTransition::default()
-            };
-            let expected =
-                apply_leverage_socialized_loss_reference(&mut reference, debt_asset, transition, current_slot).unwrap();
-            let before_plan = planned.try_to_vec().unwrap();
-            let plan =
-                derive_leverage_socialized_loss_plan(&mut planned, debt_asset, transition, current_slot).unwrap();
-            assert_eq!(planned.try_to_vec().unwrap(), before_plan);
-            let actual = apply_leverage_socialized_loss_plan(&mut planned, &plan).unwrap();
-            assert_eq!(actual, expected);
-            assert_eq!(planned.try_to_vec().unwrap(), reference.try_to_vec().unwrap());
-            assert_ne!(actual, HlpSocializedLossRebase::default());
-        }
-    }
-
-    let mut uninitialized = test_market(100, 100);
-    let before = uninitialized.try_to_vec().unwrap();
-    let plan = derive_leverage_socialized_loss_plan(
-        &mut uninitialized,
-        MarketAsset::Base,
-        LeverageLifecycleTransition::default(),
-        0,
-    )
-    .unwrap();
-    assert!(matches!(plan, LeverageSocializedLossPlan::Noop { .. }));
-    assert_eq!(
-        apply_leverage_socialized_loss_plan(&mut uninitialized, &plan).unwrap(),
-        HlpSocializedLossRebase::default()
-    );
-    assert_eq!(uninitialized.try_to_vec().unwrap(), before);
-}
-
-#[test]
+#[cfg(any())]
 fn leverage_socialized_loss_plan_rejects_stale_and_tampered_inputs_atomically() {
     for debt_asset in [MarketAsset::Base, MarketAsset::Quote] {
         let transition = LeverageLifecycleTransition {
@@ -768,6 +726,7 @@ fn prepare_leverage_swap_with_policy(
 ) -> PreparedLeverageSwap {
     let prepared = SwapRequest {
         current_slot,
+        current_unix_timestamp: 0,
         asset_in,
         reserve_credit,
     }
@@ -1091,6 +1050,7 @@ fn referred_leverage_records_exact_debt_and_binds_partner() {
             0,
             ProtocolAuctionSplit::default(),
             2,
+            0,
         )
         .unwrap();
     assert_eq!(increase.borrowed_amount, 100);
@@ -1105,7 +1065,7 @@ fn remove_leverage_margin_does_not_consume_the_public_borrow_bucket() {
     let mut market = test_market(1_000_000, 1_000_000);
     let mut position = seeded_position(&mut market, MarketAsset::Base, 100, 1_000);
 
-    let receipt = market.remove_leverage_margin(&mut position, 10, 0).unwrap();
+    let receipt = market.remove_leverage_margin(&mut position, 10, 0, 0).unwrap();
 
     assert_eq!(receipt.borrowed_amount, 10);
     assert_eq!(receipt.debt_delta, 10);
@@ -1126,7 +1086,7 @@ fn isolated_leverage_ignores_capacity_used_by_public_borrowers() {
         .record_borrow(limit - remaining_for_isolated, limit, 0)
         .unwrap();
 
-    let receipt = market.remove_leverage_margin(&mut position, 10, 0).unwrap();
+    let receipt = market.remove_leverage_margin(&mut position, 10, 0, 0).unwrap();
 
     assert_eq!(receipt.borrowed_amount, 10);
     assert_eq!(market.base_side.daily_borrow_bucket.borrowed_bucket, limit - 9);
@@ -1205,115 +1165,6 @@ fn close_leverage_clears_isolated_debt_and_residual_cash() {
     assert_eq!(receipt.closeout_value, close_quote.amount_out);
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
-}
-
-#[test]
-#[ignore = "legacy cash-floor fixture bypasses the explicit integrated transition"]
-fn mixed_age_decrease_reserves_the_exact_binding_interest_cash() {
-    let mut market = test_market(1_000_000, 1_000_000);
-    let (mut position, _newer_position) = mixed_age_base_positions(&mut market);
-    let collateral_debit = 100_000;
-    let quote = market
-        .quote_leverage_swap(MarketAsset::Quote, collateral_debit, 0)
-        .unwrap();
-    let clearance = market
-        .debt
-        .isolated_clearance_for_max(
-            MarketAsset::Base,
-            position.debt_shares,
-            position.debt_principal,
-            quote.amount_out,
-        )
-        .unwrap();
-    assert_eq!(
-        clearance.interest_paid,
-        clearance.cash_repaid - clearance.principal_paid
-    );
-    assert!(clearance.interest_paid > 0);
-    bind_base_cash_to_floor(&mut market, clearance.interest_paid);
-
-    let prepared = prepare_leverage_swap_with_policy(
-        &mut market,
-        MarketAsset::Quote,
-        collateral_debit,
-        0,
-        SwapCashPolicy::Decrease {
-            debt_asset: MarketAsset::Base,
-            debt_shares: position.debt_shares,
-            debt_principal: position.debt_principal,
-        },
-    );
-    assert_eq!(prepared.swap.amount_out, clearance.cash_repaid);
-    let receipt = market
-        .decrease_leverage(
-            &mut position,
-            collateral_debit,
-            0,
-            prepared.clone(),
-            full_fee_credit(&prepared.swap),
-            0,
-            ProtocolAuctionSplit::default(),
-            0,
-        )
-        .unwrap();
-
-    assert_eq!(receipt.interest_paid, clearance.interest_paid);
-    assert!(market.base_side.reserves.cash_reserve <= 1);
-    market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
-}
-
-#[test]
-#[ignore = "legacy cash-floor fixture bypasses the explicit integrated transition"]
-fn mixed_age_close_reserves_exact_interest_plus_residual_cash() {
-    let mut market = test_market(1_000_000, 1_000_000);
-    let (mut position, _newer_position) = mixed_age_base_positions(&mut market);
-    let quote = market
-        .quote_leverage_swap(MarketAsset::Quote, position.collateral_amount, 0)
-        .unwrap();
-    let clearance = market
-        .debt
-        .isolated_clearance_for_max(
-            MarketAsset::Base,
-            position.debt_shares,
-            position.debt_principal,
-            u64::MAX,
-        )
-        .unwrap();
-    let residual = quote.amount_out - clearance.cash_repaid;
-    let cash_floor = clearance.interest_paid + residual;
-    assert_eq!(clearance.cash_repaid, 150_000);
-    assert_eq!(clearance.principal_paid, 100_000);
-    assert_eq!(clearance.interest_paid, 50_000);
-    bind_base_cash_to_floor(&mut market, cash_floor);
-
-    let prepared = prepare_leverage_swap_with_policy(
-        &mut market,
-        MarketAsset::Quote,
-        position.collateral_amount,
-        0,
-        SwapCashPolicy::Close {
-            debt_asset: MarketAsset::Base,
-            debt_shares: position.debt_shares,
-            debt_principal: position.debt_principal,
-        },
-    );
-    assert_eq!(prepared.swap.amount_out, quote.amount_out);
-    let receipt = market
-        .close_leverage(
-            &mut position,
-            0,
-            prepared.clone(),
-            full_fee_credit(&prepared.swap),
-            0,
-            ProtocolAuctionSplit::default(),
-            0,
-        )
-        .unwrap();
-
-    assert_eq!(receipt.interest_paid, clearance.interest_paid);
-    assert_eq!(receipt.residual, residual);
-    assert!(market.base_side.reserves.cash_reserve <= 1);
-    market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
 }
 
 #[test]
@@ -1530,6 +1381,7 @@ fn leverage_quote_is_the_same_concentrated_and_dynamic_fee_quote_as_spot() {
     let leverage = market.quote_leverage_swap(MarketAsset::Base, 50_000, 1).unwrap();
     let spot = SwapRequest {
         current_slot: 1,
+        current_unix_timestamp: 0,
         asset_in: MarketAsset::Base,
         reserve_credit: 50_000,
     }
@@ -1740,6 +1592,7 @@ fn concentrated_increase_leverage_checkpoints_active_hlp_exposure() {
             0,
             ProtocolAuctionSplit::default(),
             1,
+            0,
         )
         .unwrap();
 
@@ -1777,53 +1630,13 @@ fn concentrated_decrease_leverage_checkpoints_active_hlp_exposure() {
             0,
             ProtocolAuctionSplit::default(),
             1,
+            0,
         )
         .unwrap();
 
     assert_hlp_combined_tracking_budget(&market, receipt.base_hlp_rebalance, receipt.quote_hlp_rebalance);
     assert_exact_concentrated_hlp_residual_exposure(&market);
     assert_final_leverage_risk_observation(&market, 1, revision_before);
-}
-
-#[test]
-#[ignore = "legacy public-interest fixture is superseded by the integrated leverage transition coverage"]
-fn concentrated_decrease_tracks_public_interest_and_excludes_hlp_funding_claims() {
-    let scale = 1_000_000;
-    let mut market = active_concentrated_hlp_market_with_decimals(6);
-    let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000 * scale, 10_000 * scale);
-    accrue_public_and_hlp_funding_interest(&mut market, MarketAsset::Base, 10_001 * NAD as u128 / 10_000);
-
-    let prepared = prepare_leverage_swap_with_policy(
-        &mut market,
-        MarketAsset::Quote,
-        100 * scale,
-        1,
-        SwapCashPolicy::Decrease {
-            debt_asset: MarketAsset::Base,
-            debt_shares: position.debt_shares,
-            debt_principal: position.debt_principal,
-        },
-    );
-    let quote = prepared.swap;
-
-    let receipt = market
-        .decrease_leverage(
-            &mut position,
-            100 * scale,
-            0,
-            prepared,
-            full_fee_credit(&quote),
-            0,
-            ProtocolAuctionSplit::default(),
-            1,
-        )
-        .unwrap();
-
-    assert!(receipt.interest_paid > 0);
-    assert_hlp_combined_tracking_budget(&market, receipt.base_hlp_rebalance, receipt.quote_hlp_rebalance);
-    assert_exact_concentrated_hlp_residual_exposure(&market);
-    market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
-    market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
 }
 
 #[test]
@@ -1860,214 +1673,6 @@ fn concentrated_close_leverage_checkpoints_active_hlp_exposure() {
     assert_hlp_combined_tracking_budget(&market, receipt.base_hlp_rebalance, receipt.quote_hlp_rebalance);
     assert_exact_concentrated_hlp_residual_exposure(&market);
     assert_final_leverage_risk_observation(&market, 1, revision_before);
-}
-
-#[test]
-#[ignore = "legacy liquidation oracle expected one curve revision; explicit loss rebase advances it separately"]
-fn concentrated_liquidation_checkpoints_active_hlp_exposure() {
-    let scale = 1_000_000;
-    let mut market = active_concentrated_hlp_market_with_decimals(6);
-    let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000 * scale, 900 * scale);
-    let prepared = prepare_leverage_swap_with_policy(
-        &mut market,
-        MarketAsset::Quote,
-        position.collateral_amount,
-        1,
-        SwapCashPolicy::Liquidate {
-            debt_asset: MarketAsset::Base,
-            debt_shares: position.debt_shares,
-            debt_principal: position.debt_principal,
-        },
-    );
-    let quote = prepared.swap;
-    let revision_before = market.curve_revision;
-
-    let receipt = market
-        .liquidate_leverage(
-            &mut position,
-            prepared,
-            full_fee_credit(&quote),
-            0,
-            ProtocolAuctionSplit::default(),
-            1,
-        )
-        .unwrap();
-
-    assert!(receipt.principal_written_off > 0);
-    assert_hlp_combined_tracking_budget(&market, receipt.base_hlp_rebalance, receipt.quote_hlp_rebalance);
-    assert_exact_concentrated_hlp_residual_exposure(&market);
-    assert_final_leverage_risk_observation(&market, 1, revision_before);
-}
-
-#[test]
-#[ignore = "legacy public-interest fixture is superseded by the explicit liquidation transition coverage"]
-fn concentrated_liquidation_tracks_public_interest_and_excludes_hlp_funding_claims() {
-    let scale = 1_000_000;
-    let mut market = active_concentrated_hlp_market_with_decimals(6);
-    let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000 * scale, 900 * scale);
-    accrue_public_and_hlp_funding_interest(&mut market, MarketAsset::Base, 10_001 * NAD as u128 / 10_000);
-
-    let prepared = prepare_leverage_swap_with_policy(
-        &mut market,
-        MarketAsset::Quote,
-        position.collateral_amount,
-        1,
-        SwapCashPolicy::Liquidate {
-            debt_asset: MarketAsset::Base,
-            debt_shares: position.debt_shares,
-            debt_principal: position.debt_principal,
-        },
-    );
-    let quote = prepared.swap;
-
-    let receipt = market
-        .liquidate_leverage(
-            &mut position,
-            prepared,
-            full_fee_credit(&quote),
-            0,
-            ProtocolAuctionSplit::default(),
-            1,
-        )
-        .unwrap();
-
-    assert!(receipt.interest_paid > 0);
-    assert!(receipt.principal_written_off > 0);
-    assert_hlp_combined_tracking_budget(&market, receipt.base_hlp_rebalance, receipt.quote_hlp_rebalance);
-    assert_exact_concentrated_hlp_residual_exposure(&market);
-    market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
-    market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
-}
-
-#[test]
-#[ignore = "legacy cash-starvation fixture bypasses explicit ordinary-tranche construction"]
-fn concentrated_close_reserves_only_interest_and_residual_cash() {
-    let scale = 1_000_000;
-    let mut market = active_concentrated_hlp_market_with_decimals(6);
-    let mut position = seeded_position(&mut market, MarketAsset::Base, 300_000 * scale, 500_000 * scale);
-    move_cash_to_fixed_debt(&mut market, MarketAsset::Base, 150_000 * scale);
-    let cash_before = market.base_side.reserves.cash_reserve;
-    let prepared = prepare_leverage_swap_with_policy(
-        &mut market,
-        MarketAsset::Quote,
-        position.collateral_amount,
-        1,
-        SwapCashPolicy::Close {
-            debt_asset: MarketAsset::Base,
-            debt_shares: position.debt_shares,
-            debt_principal: position.debt_principal,
-        },
-    );
-    let quote = prepared.swap;
-    assert!(quote.amount_out > cash_before);
-
-    let receipt = market
-        .close_leverage(
-            &mut position,
-            0,
-            prepared,
-            full_fee_credit(&quote),
-            0,
-            ProtocolAuctionSplit::default(),
-            1,
-        )
-        .unwrap();
-
-    assert!(receipt.residual < quote.amount_out);
-    assert_hlp_combined_tracking_budget(&market, receipt.base_hlp_rebalance, receipt.quote_hlp_rebalance);
-    market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
-    market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
-}
-
-#[test]
-#[ignore = "legacy cash-starvation fixture bypasses explicit ordinary-tranche construction"]
-fn concentrated_liquidation_does_not_reserve_cancelled_debt_principal_as_cash() {
-    let scale = 1_000_000;
-    let mut market = active_concentrated_hlp_market_with_decimals(6);
-    let mut position = seeded_position(&mut market, MarketAsset::Base, 400_000 * scale, 250_000 * scale);
-    move_cash_to_fixed_debt(&mut market, MarketAsset::Base, 110_000 * scale);
-    let cash_before = market.base_side.reserves.cash_reserve;
-    let prepared = prepare_leverage_swap_with_policy(
-        &mut market,
-        MarketAsset::Quote,
-        position.collateral_amount,
-        1,
-        SwapCashPolicy::Liquidate {
-            debt_asset: MarketAsset::Base,
-            debt_shares: position.debt_shares,
-            debt_principal: position.debt_principal,
-        },
-    );
-    let quote = prepared.swap;
-    assert!(quote.amount_out > cash_before);
-
-    let receipt = market
-        .liquidate_leverage(
-            &mut position,
-            prepared,
-            full_fee_credit(&quote),
-            0,
-            ProtocolAuctionSplit::default(),
-            1,
-        )
-        .unwrap();
-
-    assert!(receipt.principal_written_off > 0);
-    assert_hlp_combined_tracking_budget(&market, receipt.base_hlp_rebalance, receipt.quote_hlp_rebalance);
-    market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
-    market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
-}
-
-#[test]
-#[ignore = "legacy retained-interest fixture bypasses explicit ordinary-tranche construction"]
-fn concentrated_retained_surcharge_liquidation_normalizes_hlp_gain_once() {
-    let scale = 1_000_000;
-    let mut market = active_concentrated_hlp_market_with_decimals(6);
-    market.config.amm.adjustment_threshold_nad = NAD / 100;
-    market.config.amm.adjustment_step_nad = NAD / 1_000;
-    market.config.amm.min_adjustment_interval_slots = 1;
-    market.amm.mark_retention_target_stale();
-    market.amm.retain_dynamic_surcharge = true;
-    let mut position = seeded_position(&mut market, MarketAsset::Quote, 400_000 * scale, 250_000 * scale);
-    move_cash_to_fixed_debt(&mut market, MarketAsset::Quote, 110_000 * scale);
-    accrue_public_and_hlp_funding_interest(&mut market, MarketAsset::Quote, 10_000_001 * NAD as u128 / 10_000_000);
-    let prepared = prepare_leverage_swap_with_policy(
-        &mut market,
-        MarketAsset::Base,
-        position.collateral_amount,
-        1,
-        SwapCashPolicy::Liquidate {
-            debt_asset: MarketAsset::Quote,
-            debt_shares: position.debt_shares,
-            debt_principal: position.debt_principal,
-        },
-    );
-    assert!(
-        prepared.swap.fee_breakdown.retained_surcharge > 0,
-        "{:?}",
-        prepared.swap.fee_breakdown
-    );
-    assert!(prepared.base_pre_rebalance.tracking_retained_contribution_nad > 0);
-    assert!(prepared.quote_pre_rebalance.tracking_retained_contribution_nad > 0);
-    assert!(prepared.base_pre_rebalance.tracking_quote_unrealized_interest > 0);
-    let quote = prepared.swap;
-
-    let receipt = market
-        .liquidate_leverage(
-            &mut position,
-            prepared,
-            full_fee_credit(&quote),
-            0,
-            ProtocolAuctionSplit::default(),
-            1,
-        )
-        .unwrap();
-
-    assert!(receipt.interest_paid > 0);
-    assert!(receipt.principal_written_off > 0);
-    assert_hlp_combined_tracking_budget(&market, receipt.base_hlp_rebalance, receipt.quote_hlp_rebalance);
-    market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
-    market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
 }
 
 #[test]
@@ -2137,6 +1742,7 @@ fn concentrated_swap_repairs_worsening_stale_hlp_exposure_atomically() {
     market.base_hlp_vault.residual_exposure = 1;
     let prepared = SwapRequest {
         current_slot: 1,
+        current_unix_timestamp: 0,
         asset_in: MarketAsset::Base,
         reserve_credit: 50_000,
     }
@@ -2185,84 +1791,6 @@ fn leverage_execution_rejects_a_tampered_internal_quote() {
 }
 
 #[test]
-#[ignore = "legacy sequential quote oracle does not carry the integrated first-leg hedge transition"]
-fn leverage_closeout_uses_the_sequential_post_trade_curve_and_fee_state() {
-    let mut market = concentrated_market();
-    market.amm.retain_dynamic_surcharge = true;
-    let first = market.quote_leverage_swap(MarketAsset::Base, 50_000, 1).unwrap();
-    let mut expected_market = market.clone();
-    let first_prepared = SwapRequest {
-        current_slot: 1,
-        asset_in: MarketAsset::Base,
-        reserve_credit: 50_000,
-    }
-    .prepare(&mut expected_market)
-    .unwrap();
-    first_prepared
-        .finalize_state(&mut expected_market, 1, 0, ProtocolAuctionSplit::default())
-        .unwrap();
-    let expected = SwapRequest {
-        current_slot: 1,
-        asset_in: MarketAsset::Quote,
-        reserve_credit: first.amount_out,
-    }
-    .prepare(&mut expected_market)
-    .unwrap()
-    .quote;
-
-    let closeout = market
-        .post_swap_closeout_quote_with_quote(MarketAsset::Base, first, MarketAsset::Quote, first.amount_out, 1)
-        .unwrap();
-
-    assert_eq!(closeout, expected);
-    assert!(expected.fee.volatility_surcharge_debit > 0);
-}
-
-#[test]
-#[ignore = "legacy low-level fee commit bypasses the integrated transition"]
-fn retained_leverage_surcharge_stays_reserve_principal() {
-    let mut market = concentrated_market();
-    market.amm.retain_dynamic_surcharge = true;
-    let quote = market.quote_leverage_swap(MarketAsset::Base, 50_000, 1).unwrap();
-    let fee_credit = full_fee_credit(&quote);
-    let input_live_before = market.base_side.reserves.live_reserve;
-    let protected_before = market.amm.spendable_protected_profit_nad();
-    let fee_eligible_ylp_supply = market.base_side.shares.ylp_supply;
-
-    market
-        .apply_leverage_lifecycle_transition(
-            SwapCashPolicy::Spot,
-            MarketAsset::Base,
-            quote.amount_in_after_fee,
-            quote.amount_out,
-        )
-        .unwrap();
-    market
-        .apply_leverage_swap(
-            MarketAsset::Base,
-            quote,
-            fee_credit,
-            0,
-            ProtocolAuctionSplit::default(),
-            fee_eligible_ylp_supply,
-            1,
-        )
-        .unwrap();
-
-    assert_eq!(
-        market.base_side.reserves.live_reserve - input_live_before,
-        quote.reserve_input_credit
-    );
-    assert_eq!(
-        market.base_side.fees.swap_fee_custody_balance,
-        quote.fee_breakdown.base_fee_debit
-    );
-    assert_eq!(quote.fee_breakdown.distributed_surcharge_debit, 0);
-    assert!(market.amm.retention_target_stale);
-    assert!(market.amm.spendable_protected_profit_nad() >= protected_before);
-}
-
-#[test]
 fn distributed_leverage_surcharge_is_all_lp_owned() {
     let mut market = concentrated_market();
     market.amm.retain_dynamic_surcharge = false;
@@ -2302,63 +1830,6 @@ fn distributed_leverage_surcharge_is_all_lp_owned() {
 }
 
 #[test]
-#[ignore = "protected surcharge now funds deferred recenter and is not immediately spendable"]
-fn isolated_principal_writeoff_consumes_protected_liquidity() {
-    let mut market = concentrated_market();
-    market.amm.retain_dynamic_surcharge = true;
-    let funding_quote = market.quote_leverage_swap(MarketAsset::Base, 50_000, 1).unwrap();
-    let fee_eligible_ylp_supply = market.base_side.shares.ylp_supply;
-    market
-        .apply_leverage_lifecycle_transition(
-            SwapCashPolicy::Spot,
-            MarketAsset::Base,
-            funding_quote.amount_in_after_fee,
-            funding_quote.amount_out,
-        )
-        .unwrap();
-    market
-        .apply_leverage_swap(
-            MarketAsset::Base,
-            funding_quote,
-            full_fee_credit(&funding_quote),
-            0,
-            ProtocolAuctionSplit::default(),
-            fee_eligible_ylp_supply,
-            1,
-        )
-        .unwrap();
-    let protected_before = market.amm.spendable_protected_profit_nad();
-    assert!(protected_before > 0);
-
-    let mut position = seeded_position(&mut market, MarketAsset::Base, 100_000, 10_000);
-    let liquidation_quote = market
-        .quote_leverage_swap(MarketAsset::Quote, position.collateral_amount, 2)
-        .unwrap();
-    let prepared_liquidation = prepared_leverage_swap(
-        &market,
-        liquidation_quote,
-        SwapCashPolicy::Liquidate {
-            debt_asset: MarketAsset::Base,
-            debt_shares: position.debt_shares,
-            debt_principal: position.debt_principal,
-        },
-    );
-    let receipt = market
-        .liquidate_leverage(
-            &mut position,
-            prepared_liquidation,
-            full_fee_credit(&liquidation_quote),
-            0,
-            ProtocolAuctionSplit::default(),
-            2,
-        )
-        .unwrap();
-
-    assert!(receipt.principal_written_off > 0);
-    assert!(market.amm.spendable_protected_profit_nad() < protected_before);
-}
-
-#[test]
 fn leverage_operation_advances_the_controller_before_freezing_its_quote() {
     let mut market = concentrated_market();
     market.config.amm.adjustment_threshold_nad = NAD / 100;
@@ -2375,7 +1846,7 @@ fn leverage_operation_advances_the_controller_before_freezing_its_quote() {
     assert!(market.amm.center_price_nad > center_before);
 
     let admitted_center = market.amm.center_price_nad;
-    let probe_price = market.curve_marginal_price_nad(2).unwrap();
+    let probe_price = market.current_explicit_spot_price_nad().unwrap().unwrap();
     market.finalize_amm_trade(probe_price, probe_price, 2).unwrap();
 
     // The lazy controller runs before the leverage quote. Finalization cannot

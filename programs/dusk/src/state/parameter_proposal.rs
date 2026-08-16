@@ -21,6 +21,7 @@ pub enum ParameterFamily {
     Irm,
     EmaHalfLives,
     DailyBorrowLimit,
+    CenterController,
 }
 
 impl ParameterFamily {
@@ -31,6 +32,7 @@ impl ParameterFamily {
             Self::Irm => 2,
             Self::EmaHalfLives => 3,
             Self::DailyBorrowLimit => 4,
+            Self::CenterController => 5,
         }
     }
 }
@@ -53,6 +55,13 @@ pub enum MarketParameterUpdate {
     DailyBorrowLimit {
         max_daily_borrow_bps: u16,
     },
+    /// Sticky-center movement thresholds. A fully-zero tuple disables center
+    /// adjustment; partial zero tuples are invalid.
+    CenterController {
+        adjustment_threshold_nad: u64,
+        adjustment_step_nad: u64,
+        min_adjustment_interval_slots: u64,
+    },
 }
 
 impl MarketParameterUpdate {
@@ -63,6 +72,7 @@ impl MarketParameterUpdate {
             Self::Irm(_) => ParameterFamily::Irm,
             Self::EmaHalfLives { .. } => ParameterFamily::EmaHalfLives,
             Self::DailyBorrowLimit { .. } => ParameterFamily::DailyBorrowLimit,
+            Self::CenterController { .. } => ParameterFamily::CenterController,
         }
     }
 }

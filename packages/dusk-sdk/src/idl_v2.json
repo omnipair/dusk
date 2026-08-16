@@ -1774,7 +1774,7 @@
               },
               {
                 "kind": "arg",
-                "path": "args.nonce"
+                "path": "nonce"
               }
             ]
           }
@@ -3968,6 +3968,112 @@
           "type": {
             "defined": {
               "name": "InitializeYieldAccountsArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "liquidate_exhausted_hlp",
+      "docs": [
+        "Permissionlessly closes an hLP after passive funding has exhausted its",
+        "marked collateral. Insurance reimburses the borrowed-asset shortfall",
+        "first; only the caller-capped remainder is socialized as unpaid funding",
+        "interest. Ordinary swaps retain their existing account list."
+      ],
+      "discriminator": [
+        240,
+        209,
+        152,
+        23,
+        129,
+        28,
+        166,
+        8
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true
+        },
+        {
+          "name": "futarchy_authority"
+        },
+        {
+          "name": "caller",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "borrowed_mint"
+        },
+        {
+          "name": "borrowed_reserve_vault",
+          "writable": true
+        },
+        {
+          "name": "borrowed_interest_vault",
+          "writable": true
+        },
+        {
+          "name": "insurance_vault",
+          "writable": true
+        },
+        {
+          "name": "ylp_mint",
+          "writable": true
+        },
+        {
+          "name": "target_hlp_ylp_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "LiquidateExhaustedHlpArgs"
             }
           }
         }
@@ -7943,6 +8049,19 @@
       ]
     },
     {
+      "name": "HlpTerminalLiquidated",
+      "discriminator": [
+        80,
+        186,
+        237,
+        212,
+        75,
+        183,
+        43,
+        173
+      ]
+    },
+    {
       "name": "LeverageDelegationUpdated",
       "discriminator": [
         118,
@@ -8917,111 +9036,116 @@
     },
     {
       "code": 6111,
+      "name": "InsuranceDrawExceeded",
+      "msg": "Required insurance draw exceeds caller cap"
+    },
+    {
+      "code": 6112,
       "name": "LiquidationSocializationExceeded",
       "msg": "Socialized liquidation loss exceeds caller cap"
     },
     {
-      "code": 6112,
+      "code": 6113,
       "name": "InvalidClaimMint",
       "msg": "Claim mint must not charge transfer fees"
     },
     {
-      "code": 6113,
+      "code": 6114,
       "name": "UnbackedFeeLiability",
       "msg": "Fee liability is not backed by its custody balance"
     },
     {
-      "code": 6114,
+      "code": 6115,
       "name": "InvalidMarketFeeAuthority",
       "msg": "Invalid market fee authority"
     },
     {
-      "code": 6115,
+      "code": 6116,
       "name": "MarketReduceOnly",
       "msg": "Market is reduce-only"
     },
     {
-      "code": 6116,
+      "code": 6117,
       "name": "MarketNotStarted",
       "msg": "Market has not started"
     },
     {
-      "code": 6117,
+      "code": 6118,
       "name": "MarketMathOverflow",
       "msg": "Market math overflow"
     },
     {
-      "code": 6118,
+      "code": 6119,
       "name": "DailyLimitExceeded",
       "msg": "Daily liquidity limit exceeded"
     },
     {
-      "code": 6119,
+      "code": 6120,
       "name": "InstructionNotLive",
       "msg": "Instruction is intentionally not live yet"
     },
     {
-      "code": 6120,
+      "code": 6121,
       "name": "LiquidationRepayTooLarge",
       "msg": "Liquidation repay amount exceeds partial liquidation cap"
     },
     {
-      "code": 6121,
+      "code": 6122,
       "name": "LeverageMultiplierTooHigh",
       "msg": "Leverage multiplier exceeds circuit breaker"
     },
     {
-      "code": 6122,
+      "code": 6123,
       "name": "LeverageInitialMarginTooLow",
       "msg": "Leverage position does not have enough initial margin"
     },
     {
-      "code": 6123,
+      "code": 6124,
       "name": "LeverageUnwindImpactTooHigh",
       "msg": "Leverage unwind impact exceeds limit"
     },
     {
-      "code": 6124,
+      "code": 6125,
       "name": "LeveragePositionNotLiquidatable",
       "msg": "Leverage position is not liquidatable"
     },
     {
-      "code": 6125,
+      "code": 6126,
       "name": "InvalidSigner",
       "msg": "Invalid signer"
     },
     {
-      "code": 6126,
+      "code": 6127,
       "name": "InvalidLeveragePosition",
       "msg": "Invalid leverage position"
     },
     {
-      "code": 6127,
+      "code": 6128,
       "name": "InvalidLeverageDelegation",
       "msg": "Invalid leverage delegation"
     },
     {
-      "code": 6128,
+      "code": 6129,
       "name": "InvalidReferralInterestShareBps",
       "msg": "Referral interest share exceeds the protocol hard cap"
     },
     {
-      "code": 6129,
+      "code": 6130,
       "name": "InvalidReferralPartner",
       "msg": "Invalid referral partner"
     },
     {
-      "code": 6130,
+      "code": 6131,
       "name": "ReferralPartnerNotActive",
       "msg": "Referral partner is not active"
     },
     {
-      "code": 6131,
+      "code": 6132,
       "name": "InvalidReferralAccrual",
       "msg": "Invalid referral accrual account"
     },
     {
-      "code": 6132,
+      "code": 6133,
       "name": "InvalidLeverageCollateralMint",
       "msg": "Leverage collateral mint must not have transfer fee configuration"
     }
@@ -9181,11 +9305,53 @@
             "type": "u64"
           },
           {
+            "name": "launch_fee_start_bps",
+            "docs": [
+              "Optional launch-only base fee. The premium above `swap_fee_bps`",
+              "decays from `start_time` and is zero after the configured duration."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "launch_fee_duration_seconds",
+            "type": "u64"
+          },
+          {
+            "name": "launch_fee_decay_mode",
+            "type": "u8"
+          },
+          {
+            "name": "launch_rate_limit_asset",
+            "docs": [
+              "Optional launch buy-size limiter. The configured asset is the asset",
+              "being bought, not the input asset. Each full/partial reference amount",
+              "after the first adds `launch_rate_limit_increment_bps`, capped by",
+              "`launch_rate_limit_max_fee_bps`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "launch_rate_limit_reference_nad",
+            "type": "u64"
+          },
+          {
+            "name": "launch_rate_limit_increment_bps",
+            "type": "u16"
+          },
+          {
+            "name": "launch_rate_limit_max_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "launch_rate_limit_duration_seconds",
+            "type": "u64"
+          },
+          {
             "name": "reserved",
             "type": {
               "array": [
                 "u8",
-                33
+                1
               ]
             }
           }
@@ -9195,8 +9361,8 @@
     {
       "name": "AmmState",
       "docs": [
-        "Embedded mutable state for concentration, internal signals, protected",
-        "liquidity, and an active parameter ramp."
+        "Embedded mutable state for the explicit curve, internal signals, and",
+        "protected recenter liquidity."
       ],
       "type": {
         "kind": "struct",
@@ -9206,35 +9372,10 @@
             "type": "bool"
           },
           {
-            "name": "applied_curve_parameters",
-            "docs": [
-              "Parameters already admitted by the protected-profit gate. Time alone",
-              "never changes this field."
-            ],
-            "type": {
-              "defined": {
-                "name": "ConcentrationParameters"
-              }
-            }
-          },
-          {
-            "name": "concentrated_geometry_cache",
-            "docs": [
-              "Authoritative geometry for `applied_curve_parameters`. CPMM stores the",
-              "all-zero cache. Only initialization or an admitted parameter change may",
-              "replace it; center and reserve changes reuse it unchanged."
-            ],
-            "type": {
-              "defined": {
-                "name": "ConcentratedGeometryCache"
-              }
-            }
-          },
-          {
             "name": "explicit_curve_cache",
             "docs": [
-              "Explicit CPMM-tail/band geometry. Nonzero only for layout-v1 explicit",
-              "curve configuration; the legacy cache is removed after caller cutover."
+              "Explicit CPMM-tail/band geometry. CPMM is represented by zero",
+              "concentrated liquidity in this same cache."
             ],
             "type": {
               "defined": {
@@ -9263,27 +9404,8 @@
             "type": "u64"
           },
           {
-            "name": "last_concentration_ramp_update_slot",
-            "docs": [
-              "Prevents repeated instructions in one slot from advancing a ramp more",
-              "than once."
-            ],
-            "type": "u64"
-          },
-          {
             "name": "volatility_accumulator_nad",
             "type": "u64"
-          },
-          {
-            "name": "invariant_d_nad",
-            "type": "u128"
-          },
-          {
-            "name": "curve_math_revision",
-            "docs": [
-              "Curve formula revision represented by `invariant_d_nad`."
-            ],
-            "type": "u8"
           },
           {
             "name": "q_per_share_nad",
@@ -9334,14 +9456,6 @@
               "The requested protection target exceeded its principal-budget cap."
             ],
             "type": "bool"
-          },
-          {
-            "name": "concentration_ramp",
-            "type": {
-              "defined": {
-                "name": "ConcentrationRamp"
-              }
-            }
           },
           {
             "name": "retention_target_stale",
@@ -9780,116 +9894,6 @@
       }
     },
     {
-      "name": "ConcentratedGeometryCache",
-      "docs": [
-        "Parameter-bound authoritative geometry persisted by market state.",
-        "",
-        "Q80 derivation is intentionally paid only when the applied shape changes.",
-        "Ordinary quotes reconstruct every Q64/Q48 projection with shifts."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "math_revision",
-            "type": "u8"
-          },
-          {
-            "name": "peak_depth_nad",
-            "type": "u64"
-          },
-          {
-            "name": "fade_scale_nad",
-            "type": "u64"
-          },
-          {
-            "name": "peak_q80",
-            "type": "u128"
-          },
-          {
-            "name": "scale_q80",
-            "type": "u128"
-          },
-          {
-            "name": "v_start_q80",
-            "type": "u128"
-          },
-          {
-            "name": "v_tail_q80",
-            "type": "u128"
-          },
-          {
-            "name": "reserve_ratio_start_q80",
-            "type": "u128"
-          },
-          {
-            "name": "reserve_ratio_tail_q80",
-            "type": "u128"
-          },
-          {
-            "name": "negative_q_prime_start_q80",
-            "type": "u128"
-          }
-        ]
-      }
-    },
-    {
-      "name": "ConcentrationParameters",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "peak_depth_nad",
-            "type": "u64"
-          },
-          {
-            "name": "fade_scale_nad",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "ConcentrationRamp",
-      "docs": [
-        "A linear ramp whose governance delay is enforced by a queued parameter",
-        "proposal. The ramp begins in the slot where that proposal executes."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "active",
-            "type": "bool"
-          },
-          {
-            "name": "start",
-            "type": {
-              "defined": {
-                "name": "ConcentrationParameters"
-              }
-            }
-          },
-          {
-            "name": "target",
-            "type": {
-              "defined": {
-                "name": "ConcentrationParameters"
-              }
-            }
-          },
-          {
-            "name": "start_slot",
-            "type": "u64"
-          },
-          {
-            "name": "end_slot",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "ConfigureReferralPartnerArgs",
       "type": {
         "kind": "struct",
@@ -10107,21 +10111,13 @@
           {
             "name": "kind",
             "docs": [
-              "0 = none, 1 = parameter ramp, 2 = center move."
+              "0 = none, 2 = center move."
             ],
             "type": "u8"
           },
           {
             "name": "center_price_nad",
             "type": "u64"
-          },
-          {
-            "name": "parameters",
-            "type": {
-              "defined": {
-                "name": "ConcentrationParameters"
-              }
-            }
           },
           {
             "name": "required_nad",
@@ -10298,6 +10294,38 @@
           },
           {
             "name": "volatility_accumulator_cap_nad",
+            "type": "u64"
+          },
+          {
+            "name": "launch_fee_start_bps",
+            "type": "u16"
+          },
+          {
+            "name": "launch_fee_duration_seconds",
+            "type": "u64"
+          },
+          {
+            "name": "launch_fee_decay_mode",
+            "type": "u8"
+          },
+          {
+            "name": "launch_rate_limit_asset",
+            "type": "u8"
+          },
+          {
+            "name": "launch_rate_limit_reference_nad",
+            "type": "u64"
+          },
+          {
+            "name": "launch_rate_limit_increment_bps",
+            "type": "u16"
+          },
+          {
+            "name": "launch_rate_limit_max_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "launch_rate_limit_duration_seconds",
             "type": "u64"
           }
         ]
@@ -10634,6 +10662,54 @@
           },
           {
             "name": "quote_live_reserve",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "HlpTerminalLiquidated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "caller",
+            "type": "pubkey"
+          },
+          {
+            "name": "target_asset",
+            "type": "u8"
+          },
+          {
+            "name": "debt_closed",
+            "type": "u64"
+          },
+          {
+            "name": "ylp_burned",
+            "type": "u64"
+          },
+          {
+            "name": "interest_paid",
+            "type": "u64"
+          },
+          {
+            "name": "insurance_drawn",
+            "type": "u64"
+          },
+          {
+            "name": "socialized_loss",
+            "type": "u64"
+          },
+          {
+            "name": "remaining_hlp_supply",
+            "docs": [
+              "Existing holder tokens remain burnable for zero principal while their",
+              "already-checkpointed fee claims remain independently claimable."
+            ],
             "type": "u64"
           }
         ]
@@ -11482,6 +11558,26 @@
       }
     },
     {
+      "name": "LiquidateExhaustedHlpArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "target_asset",
+            "type": "u8"
+          },
+          {
+            "name": "max_insurance_draw",
+            "type": "u64"
+          },
+          {
+            "name": "max_socialized_loss",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "LiquidateLeverageArgs",
       "type": {
         "kind": "struct",
@@ -11709,13 +11805,13 @@
           {
             "name": "parameter_revisions",
             "docs": [
-              "Independent monotone revisions for fee, concentration, IRM, EMA, and",
-              "daily-borrow-limit parameter families, in that order."
+              "Independent monotone revisions for fee, concentration, IRM, EMA,",
+              "daily-borrow-limit, and center-controller parameter families."
             ],
             "type": {
               "array": [
                 "u64",
-                5
+                6
               ]
             }
           },
@@ -12288,6 +12384,23 @@
                 "type": "u16"
               }
             ]
+          },
+          {
+            "name": "CenterController",
+            "fields": [
+              {
+                "name": "adjustment_threshold_nad",
+                "type": "u64"
+              },
+              {
+                "name": "adjustment_step_nad",
+                "type": "u64"
+              },
+              {
+                "name": "min_adjustment_interval_slots",
+                "type": "u64"
+              }
+            ]
           }
         ]
       }
@@ -12481,6 +12594,9 @@
           },
           {
             "name": "DailyBorrowLimit"
+          },
+          {
+            "name": "CenterController"
           }
         ]
       }
@@ -12932,10 +13048,6 @@
           {
             "name": "decayed_volatility_nad",
             "type": "u64"
-          },
-          {
-            "name": "invariant_d_nad",
-            "type": "u128"
           },
           {
             "name": "balanced_equivalent_q_nad",

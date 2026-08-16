@@ -196,7 +196,6 @@ pub struct PreviewAmm {
     pub last_adjustment_slot: u64,
     pub volatility_accumulator_nad: u64,
     pub decayed_volatility_nad: u64,
-    pub invariant_d_nad: u128,
     pub balanced_equivalent_q_nad: u128,
     pub q_per_share_nad: u128,
     pub protected_floor_per_share_nad: u128,
@@ -368,7 +367,8 @@ impl<'info> PreviewMarket<'info> {
     pub fn handle_preview(ctx: Context<Self>) -> Result<MarketPreview> {
         ctx.accounts.market.update()?;
         let market: &Market = &ctx.accounts.market;
-        let slot = Clock::get()?.slot;
+        let clock = Clock::get()?;
+        let slot = clock.slot;
         let amm = {
             let state = &market.amm;
             let explicit_parameters = market.config.amm.explicit_curve_parameters()?;
@@ -386,7 +386,7 @@ impl<'info> PreviewMarket<'info> {
             } else {
                 (0, 0, 0)
             };
-            let explicit_metadata = if state.initialized && explicit_parameters.is_some() {
+            let explicit_metadata = if state.initialized {
                 let geometry = state.explicit_curve_cache.geometry()?;
                 let ordinary = market.integrated_curve_state_nad()?;
                 let (lower, upper) = geometry.range_prices_nad()?.unwrap_or((0, 0));
@@ -421,7 +421,6 @@ impl<'info> PreviewMarket<'info> {
                 } else {
                     0
                 },
-                invariant_d_nad: state.invariant_d_nad,
                 balanced_equivalent_q_nad,
                 q_per_share_nad: state.q_per_share_nad,
                 protected_floor_per_share_nad: state.protected_floor_per_share_nad,
@@ -434,10 +433,8 @@ impl<'info> PreviewMarket<'info> {
                 retention_target_stale: state.retention_target_stale,
                 protected_recenter_base_reserve: market.base_side.reserves.protected_recenter_reserve,
                 protected_recenter_quote_reserve: market.quote_side.reserves.protected_recenter_reserve,
-                range_width_nad: explicit_parameters.map(|value| value.range_width_nad).unwrap_or(0),
-                concentrated_liquidity_share_nad: explicit_parameters
-                    .map(|value| value.concentrated_liquidity_share_nad)
-                    .unwrap_or(0),
+                range_width_nad: explicit_parameters.range_width_nad,
+                concentrated_liquidity_share_nad: explicit_parameters.concentrated_liquidity_share_nad,
                 lower_range_price_nad: explicit_metadata.0,
                 upper_range_price_nad: explicit_metadata.1,
                 explicit_curve_branch: explicit_metadata.2,
@@ -545,7 +542,8 @@ impl<'info> PreviewSwap<'info> {
         require_supported_asset_mint(&ctx.accounts.asset_in_mint)?;
         require_supported_asset_mint(&ctx.accounts.asset_out_mint)?;
 
-        let slot = Clock::get()?.slot;
+        let clock = Clock::get()?;
+        let slot = clock.slot;
         // This account is intentionally read-only, so Anchor will not persist
         // the in-memory simulation. Reusing its already-deserialized storage
         // avoids allocating a second full Market solely for preview.
@@ -562,6 +560,7 @@ impl<'info> PreviewSwap<'info> {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let prepared = SwapRequest {
             current_slot: slot,
+            current_unix_timestamp: clock.unix_timestamp,
             asset_in,
             reserve_credit,
         }
@@ -857,7 +856,9 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
         ylp_supply: side.shares.ylp_supply,
         ylp_exchange_rate_nad: side.ylp_exchange_rate_nad()?,
         spot_price_nad: {
-            let base_price = market.curve_marginal_price_nad(slot)?;
+            let base_price = market
+                .current_explicit_spot_price_nad()?
+                .ok_or(ErrorCode::BrokenInvariant)?;
             match asset {
                 MarketAsset::Base => base_price,
                 MarketAsset::Quote => {

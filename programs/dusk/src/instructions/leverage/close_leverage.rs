@@ -205,8 +205,17 @@ impl<'info> CloseLeverage<'info> {
         args: CloseLeverageArgs,
         current_slot: u64,
         current_epoch: u64,
+        current_unix_timestamp: i64,
     ) -> Result<()> {
-        Self::execute(ctx, args, None, CloseMode::Owner, current_slot, current_epoch)
+        Self::execute(
+            ctx,
+            args,
+            None,
+            CloseMode::Owner,
+            current_slot,
+            current_epoch,
+            current_unix_timestamp,
+        )
     }
 
     pub fn handle_delegated_close(
@@ -214,6 +223,7 @@ impl<'info> CloseLeverage<'info> {
         args: DelegatedCloseLeverageArgs,
         current_slot: u64,
         current_epoch: u64,
+        current_unix_timestamp: i64,
     ) -> Result<()> {
         Self::execute(
             ctx,
@@ -225,6 +235,7 @@ impl<'info> CloseLeverage<'info> {
             CloseMode::Delegate,
             current_slot,
             current_epoch,
+            current_unix_timestamp,
         )
     }
 
@@ -235,6 +246,7 @@ impl<'info> CloseLeverage<'info> {
         mode: CloseMode,
         current_slot: u64,
         current_epoch: u64,
+        current_unix_timestamp: i64,
     ) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let h_lp_accounts = {
@@ -268,10 +280,11 @@ impl<'info> CloseLeverage<'info> {
         ctx.accounts.market.prepare_amm_for_swap(current_slot)?;
         ctx.accounts.market.advance_one_amm_controller_target(current_slot)?;
         ctx.accounts.market.observe_current_risk(current_slot)?;
-        let close_quote = ctx.accounts.market.quote_leverage_swap(
+        let close_quote = ctx.accounts.market.quote_leverage_swap_at_time(
             collateral_asset,
             expected_collateral_reserve_credit,
             current_slot,
+            current_unix_timestamp,
         )?;
         require_gte!(close_quote.amount_out, debt_amount, ErrorCode::InsufficientAmount);
         let expected_residual = close_quote
@@ -373,6 +386,7 @@ impl<'info> CloseLeverage<'info> {
             &mut ctx.accounts.market,
             SwapRequest {
                 current_slot,
+                current_unix_timestamp,
                 asset_in: collateral_asset,
                 reserve_credit: collateral_reserve_credit,
             },

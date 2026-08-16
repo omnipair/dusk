@@ -72,6 +72,52 @@ fn market_mint_domain_rejects_one_mint_for_both_hlp_sides() {
     }
 }
 
+#[test]
+fn scheduled_market_activates_at_the_exact_configured_timestamp() {
+    let mut market = invariant_market(1_000, 1_000);
+    market.config.start_time = 1_000;
+    assert_eq!(
+        market.assert_started_at(999).unwrap_err(),
+        anchor_lang::prelude::error!(ErrorCode::MarketNotStarted)
+    );
+    market.assert_started_at(1_000).unwrap();
+}
+
+#[test]
+fn ordinary_liquidity_can_seed_before_start_but_reduce_only_still_blocks_it() {
+    let mut market = invariant_market(1_000, 1_000);
+    market.config.start_time = 1_000;
+    let mut futarchy = FutarchyAuthority::initialize(
+        Pubkey::new_unique(),
+        0,
+        0,
+        0,
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+        BPS_DENOMINATOR,
+        0,
+        0,
+        1,
+    )
+    .unwrap();
+
+    assert!(market.assert_started_at(999).is_err());
+    market
+        .assert_liquidity_seeding_available_with_futarchy(&futarchy)
+        .unwrap();
+    futarchy.global_reduce_only = true;
+    assert_eq!(
+        market
+            .assert_liquidity_seeding_available_with_futarchy(&futarchy)
+            .unwrap_err(),
+        anchor_lang::prelude::error!(ErrorCode::ReduceOnlyMode)
+    );
+}
+
 fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
     let base_mint = Pubkey::new_unique();
     let quote_mint = Pubkey::new_unique();
@@ -118,7 +164,7 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
         insurance: Insurance::default(),
         params_hash: [0u8; 32],
         governance_locked_ylp: 0,
-        parameter_revisions: [0; 5],
+        parameter_revisions: [0; 6],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,
@@ -875,9 +921,11 @@ proptest! {
     ) {
         let mut market = invariant_market(base, quote);
         let spot_q = market
-            .evaluate_current_curve(market.last_update_slot)
-            .unwrap()
-            .balanced_equivalent_q;
+            .amm
+            .explicit_curve_cache
+            .tail_liquidity
+            .checked_add(market.amm.explicit_curve_cache.concentrated_liquidity)
+            .unwrap();
         market.risk.q_ema_nad = (spot_q / BPS_DENOMINATOR as u128)
             .checked_mul(q_scale_bps)
             .unwrap();
@@ -977,6 +1025,15 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
         volatility_half_life_ms: MIN_HALF_LIFE_MS,
         volatility_shock_cap_nad: 0,
         volatility_accumulator_cap_nad: 0,
+        launch_fee_start_bps: 500,
+        launch_fee_duration_seconds: 3_600,
+        launch_fee_decay_mode: LAUNCH_FEE_DECAY_LINEAR,
+        launch_rate_limit_asset: LAUNCH_RATE_LIMIT_ASSET_BASE,
+        launch_rate_limit_reference_nad: NAD,
+        launch_rate_limit_increment_bps: 100,
+        launch_rate_limit_max_fee_bps: 2_000,
+        launch_rate_limit_duration_seconds: 3_600,
+        ..FeeProfile::default()
     };
     let before_fee = market.config;
     market
@@ -984,7 +1041,7 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
         .unwrap();
     assert_eq!(market.config.fee_profile(), fee);
     assert_eq!(market.config.max_daily_borrow_bps, before_fee.max_daily_borrow_bps);
-    assert_eq!(market.parameter_revisions, [1, 0, 0, 0, 0]);
+    assert_eq!(market.parameter_revisions, [1, 0, 0, 0, 0, 0]);
 
     let irm = IrmConfig {
         target_utilization_bps: 6_500,
@@ -996,7 +1053,7 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
         .unwrap();
     assert_eq!(market.config.irm, irm);
     assert_eq!(market.config.fee_profile(), fee);
-    assert_eq!(market.parameter_revisions, [1, 0, 1, 0, 0]);
+    assert_eq!(market.parameter_revisions, [1, 0, 1, 0, 0, 0]);
 
     market
         .execute_parameter_update(
@@ -1013,7 +1070,7 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
     assert_eq!(market.config.directional_ema_half_life_ms, 180_000);
     assert_eq!(market.config.q_ema_half_life_ms, 240_000);
     assert_eq!(market.config.amm.center_ema_half_life_ms, 300_000);
-    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 0]);
+    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 0, 0]);
 
     market
         .execute_parameter_update(
@@ -1024,7 +1081,22 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
         )
         .unwrap();
     assert_eq!(market.config.max_daily_borrow_bps, 3_000);
-    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 1]);
+    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 1, 0]);
+
+    market
+        .execute_parameter_update(
+            &MarketParameterUpdate::CenterController {
+                adjustment_threshold_nad: NAD / 100,
+                adjustment_step_nad: NAD / 1_000,
+                min_adjustment_interval_slots: 100,
+            },
+            5,
+        )
+        .unwrap();
+    assert_eq!(market.config.amm.adjustment_threshold_nad, NAD / 100);
+    assert_eq!(market.config.amm.adjustment_step_nad, NAD / 1_000);
+    assert_eq!(market.config.amm.min_adjustment_interval_slots, 100);
+    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 1, 1]);
 }
 
 #[test]
@@ -1041,11 +1113,10 @@ fn concentration_execution_reconstructs_the_selected_explicit_shape() {
         )
         .unwrap();
 
-    assert!(!market.amm.concentration_ramp.active);
     assert_eq!(market.config.amm.range_width_nad, 2 * NAD);
     assert_eq!(market.config.amm.concentrated_liquidity_share_nad, 9 * NAD / 10);
     assert_eq!(market.amm.explicit_curve_cache.range_width_nad, 2 * NAD);
-    assert_eq!(market.parameter_revisions, [0, 1, 0, 0, 0]);
+    assert_eq!(market.parameter_revisions, [0, 1, 0, 0, 0, 0]);
 }
 
 #[test]

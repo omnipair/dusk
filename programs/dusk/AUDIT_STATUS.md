@@ -1,6 +1,6 @@
 # Dusk Internal Audit Status
 
-**Current through:** 2026-08-15
+**Current through:** 2026-08-16
 
 This is the authoritative current disposition of Dusk's known internal
 findings. Dated reports under the ignored `.audit/findings/` directory are
@@ -35,10 +35,10 @@ this matrix.
 | --- | --- | ---: | --- |
 | Concentrated curve continuity, exact tails, maximal quotes, and split resistance | concentrated-AMM `FF-001`–`FF-007`; core `CORE-F01` | High | Replaced the discontinuous haircut and approximate boundaries with the shared exact curve and adjacent-atom maximality checks. See [`CONCENTRATION.md`](./CONCENTRATION.md) and `src/tests/math/concentrated.rs`. |
 | Controller, hLP, leverage, and final-risk ordering | `CORE-F02`–`CORE-F05`; `SI-001`; older product/state hLP and stale-risk findings | High | Spot and all leverage swap families use the explicit O(1) tail+band curve, algebraic zero-opposite-exposure hLP transition, protected recenter admission, and final risk observation. See `src/market/amm.rs`, `src/math/explicit_curve.rs`, `src/math/hlp_integrated.rs`, and their tests. |
-| Controller/config history and deferred work | `SI-002`; `CORE-F04`; older no-crank/config findings | Medium | Elapsed state is checkpointed under the old parameters before activation; saturated or invalidated work has explicit semantics and no maintenance instruction is required. |
+| Controller/config history, launch protection, and deferred work | `SI-002`; `CORE-F04`; older no-crank/config findings | Medium | Elapsed state is checkpointed under the old parameters before activation; saturated or invalidated work has explicit semantics and no maintenance instruction is required. Ordinary yLP can seed before `start_time`, trading activates at the exact timestamp, the launch fee decays from the clock in O(1), and a stateless launch-asset buy-size premium composes under the same hard fee cap. Both are governed through the fee family; no Alpha Vault, extra PDA, or launch keeper exists. Center-controller parameters use their own timelocked governance revision. |
 | Bounded divergence computation | `CORE-F06` | Medium | Full-width fee math has bounded fallbacks and finished-SBF measurements. See [`COMPUTE_BENCHMARKS.md`](./COMPUTE_BENCHMARKS.md). |
 | CPMM preview reserve-product overflow | `CORE-F07` | Low–Medium | Removed the unrepresentable raw `x * y` preview field. Preview now returns exact `floor(sqrt(x * y))` through full-width geometric-mean math; `preview_liquidity_supports_the_full_valid_reserve_domain` covers two maximum valid zero-decimal reserves. |
-| Dead solver and helper surface | `CORE-F08` | Low | Production uses no finite-difference, Jacobian, Broyden, or iterative invariant solver. Legacy solver entry points are `cfg(test)` differential references only and cannot authorize production state. |
+| Dead solver authorization surface | `CORE-F08` | Low | Production uses no finite-difference, Jacobian, Broyden, or iterative invariant solver. The implicit curve, frozen-cell scheduler, terminal-solver capability, and their obsolete fixtures have been removed. |
 | Token-2022 mint identity and transfer accounting | older concentrated/token findings; `YN-01`, `YN-02` | Critical | LP hooks are immutable and bound to Dusk, market mints are pairwise distinct, and transfers checkpoint canonical owner accounts using measured token credits. |
 | Yield identity, initialization, four-stream hLP accounting, and rounding | older product/state yield findings; `YN-03`–`YN-07`; auction/fee-dust finding 4 | High | Canonical idempotent accounts, pre-operation ownership, two-asset hLP revenue, exact aggregate carry, holder remainders, and partial direct-burn reconciliation have regression coverage. |
 | Liquidation auction debt/lifecycle binding | older generic Feynman liquidation High; product/state stale-auction findings; auction finding 3 | High | Auction state is debt-side-bound and settlement first reconciles current risk, cancelling recovered positions before value moves. |
@@ -46,6 +46,7 @@ this matrix.
 | Direct-yLP parameter governance | parameter-governance Feynman/State/Nemesis passes; event-reliability CI finding | CI / reliability | After canonical lazy hLP-vault initialization and CPI-event conversion, the governance passes verified no severity-classified defect. Rust and LiteSVM cover locking, virtual yield, strict majority, immutable actions, revisions, timing, rollback, and remint. The maximum proposal-create transaction is 980/1,232 bytes, leaving 252 bytes of headroom. |
 | hLP reserve conservation | active-hLP exact-trace custody gap | High | Deleveraging cash spill is now recorded as source-scoped, non-executable backing inventory and released proportionally on hLP exit. Reserve custody covers cash, swap-fee custody, and both backing counters while tolerating unsolicited donations. Exact matched regressions account for the former 25,631-atom CPMM and 37,886-atom concentrated gaps. |
 | hLP funding reuse and active-swap tracking loss | repeated cash-headroom reuse; post-only hedge | High | The explicit integrated quote prices only ordinary yLP reserves, then reconstructs hLP yLP ownership and indexed funding debt algebraically at the quoted endpoint. Both active vaults finish with zero opposite-asset exposure; interest cash, virtual reserves, and token-vault settlement are reconciled once. The finished LiteSVM suite covers Spot in both directions plus leverage and liquidation. |
+| Exhausted hLP terminal funding waterfall | passive hLP insolvency without terminal recovery | Medium | Added permissionless `liquidate_exhausted_hlp`. It retires the exhausted vault's yLP ownership, draws only the borrowed-asset insurance balance, credits payable funding interest to yLP, and socializes only the caller-capped residual funding-interest loss. Any shortfall reaching principal fails closed. Existing hLP tokens remain burnable for zero principal while already-checkpointed fee claims remain separate. Focused rollback/accounting coverage and the final SBF/IDL build pass. |
 
 ## Accepted design risks
 
@@ -64,6 +65,8 @@ this matrix.
 
 ## Open findings
 
-| Area | Severity | Open finding |
-| --- | ---: | --- |
-| hLP passive insolvency and terminal recovery | Medium (economic liveness residual) | Ordinary Spot swaps expose a Yield-Basis-like recovery tranche when their input matches a stressed hLP's borrowed asset. At the 9/8 critical boundary, the same exact transition is also exposed as permissionless `liquidate_hlp`, remains available in reduce-only mode, and pays the existing recovery discount from stressed hLP equity. Existing arbitrage/liquidation bots can therefore supply the borrowed asset without a dedicated keeper or new account layout. Ordinary yLP ownership and published hLP fee claims are never spent. Residual risk remains economic rather than authorization-related: execution still depends on the discount covering capital, transaction, and external unwind costs, and an exhausted hLP has no explicit terminal residual-loss waterfall yet. |
+No severity-classified internal defect is currently open. Economic execution is
+still permissionless rather than automatic: the recovery swap supplies an
+in-band arbitrage incentive while equity remains, but the final exhausted-hLP
+waterfall has no separate caller bounty. Its eventual invocation is therefore
+an explicit liveness assumption, not an authorization or solvency bypass.

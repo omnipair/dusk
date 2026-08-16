@@ -152,6 +152,7 @@ impl<'info> LiquidateLeverage<'info> {
         ctx: Context<'_, '_, '_, 'info, Self>,
         args: LiquidateLeverageArgs,
         current_slot: u64,
+        current_unix_timestamp: i64,
     ) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let h_lp_accounts = {
@@ -198,6 +199,7 @@ impl<'info> LiquidateLeverage<'info> {
             &mut ctx.accounts.market,
             SwapRequest {
                 current_slot,
+                current_unix_timestamp,
                 asset_in: collateral_asset,
                 reserve_credit: collateral_reserve_credit,
             },

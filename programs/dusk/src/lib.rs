@@ -202,8 +202,9 @@ pub mod dusk {
     // Spot instructions
     pub fn swap<'info>(ctx: Context<'_, '_, '_, 'info, Swap<'info>>, args: SwapArgs) -> Result<()> {
         let mode = SwapExecutionMode::Ordinary;
-        let (current_slot, current_epoch) = ctx.accounts.validate_and_read_clock(&args, mode)?;
-        Swap::handle_swap(ctx, args, current_slot, current_epoch, mode)
+        let (current_slot, current_epoch, current_unix_timestamp) =
+            ctx.accounts.validate_and_read_clock(&args, mode)?;
+        Swap::handle_swap(ctx, args, current_slot, current_epoch, current_unix_timestamp, mode)
     }
 
     /// Permissionless critical hLP recovery. The caller supplies the hLP's
@@ -213,8 +214,21 @@ pub mod dusk {
     /// the 9/8 funding-stress boundary.
     pub fn liquidate_hlp<'info>(ctx: Context<'_, '_, '_, 'info, Swap<'info>>, args: SwapArgs) -> Result<()> {
         let mode = SwapExecutionMode::CriticalHlpLiquidation;
-        let (current_slot, current_epoch) = ctx.accounts.validate_and_read_clock(&args, mode)?;
-        Swap::handle_swap(ctx, args, current_slot, current_epoch, mode)
+        let (current_slot, current_epoch, current_unix_timestamp) =
+            ctx.accounts.validate_and_read_clock(&args, mode)?;
+        Swap::handle_swap(ctx, args, current_slot, current_epoch, current_unix_timestamp, mode)
+    }
+
+    /// Permissionlessly closes an hLP after passive funding has exhausted its
+    /// marked collateral. Insurance reimburses the borrowed-asset shortfall
+    /// first; only the caller-capped remainder is socialized as unpaid funding
+    /// interest. Ordinary swaps retain their existing account list.
+    pub fn liquidate_exhausted_hlp<'info>(
+        ctx: Context<'_, '_, '_, 'info, LiquidateExhaustedHlp<'info>>,
+        args: LiquidateExhaustedHlpArgs,
+    ) -> Result<()> {
+        let current_slot = ctx.accounts.update_and_validate(&args)?;
+        LiquidateExhaustedHlp::handle(ctx, args, current_slot)
     }
 
     // Lending instructions
@@ -260,7 +274,7 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        CloseLeverage::handle_close(ctx, args, clock.slot, clock.epoch)
+        CloseLeverage::handle_close(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
     }
 
     pub fn delegated_close_leverage<'info>(
@@ -269,7 +283,7 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_delegated_at(&args, clock.unix_timestamp)?;
-        CloseLeverage::handle_delegated_close(ctx, args, clock.slot, clock.epoch)
+        CloseLeverage::handle_delegated_close(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
     }
 
     pub fn increase_leverage<'info>(
@@ -278,7 +292,7 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        IncreaseLeverage::handle_increase(ctx, args, clock.slot, clock.epoch)
+        IncreaseLeverage::handle_increase(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
     }
 
     pub fn decrease_leverage<'info>(
@@ -287,7 +301,7 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        DecreaseLeverage::handle_decrease(ctx, args, clock.slot)
+        DecreaseLeverage::handle_decrease(ctx, args, clock.slot, clock.unix_timestamp)
     }
 
     pub fn add_leverage_margin<'info>(
@@ -305,7 +319,7 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        RemoveLeverageMargin::handle_remove_margin(ctx, args, clock.slot)
+        RemoveLeverageMargin::handle_remove_margin(ctx, args, clock.slot, clock.unix_timestamp)
     }
 
     pub fn liquidate_leverage<'info>(
@@ -314,7 +328,7 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        LiquidateLeverage::handle_liquidate(ctx, args, clock.slot)
+        LiquidateLeverage::handle_liquidate(ctx, args, clock.slot, clock.unix_timestamp)
     }
 
     #[access_control(ctx.accounts.validate(&args))]

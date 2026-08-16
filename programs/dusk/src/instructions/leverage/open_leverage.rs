@@ -212,6 +212,7 @@ impl<'info> OpenLeverage<'info> {
             &mut ctx.accounts.market,
             SwapRequest {
                 current_slot,
+                current_unix_timestamp: unix_timestamp,
                 asset_in: debt_asset,
                 reserve_credit: notional,
             },

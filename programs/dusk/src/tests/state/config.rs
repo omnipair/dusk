@@ -179,3 +179,111 @@ fn market_config_validates_embedded_amm_config() {
         anchor_lang::prelude::error!(ErrorCode::InvalidMarketConfig)
     );
 }
+
+#[test]
+fn launch_fee_schedule_is_bounded_and_reaches_the_normal_fee_exactly() {
+    let mut config = valid_config();
+    config.start_time = 1_000;
+    config.amm.launch_fee_start_bps = 1_000;
+    config.amm.launch_fee_duration_seconds = 100;
+    config.amm.launch_fee_decay_mode = LAUNCH_FEE_DECAY_LINEAR;
+    config.validate().unwrap();
+
+    assert_eq!(config.effective_base_fee_bps_at(999).unwrap(), 1_000);
+    assert_eq!(config.effective_base_fee_bps_at(1_000).unwrap(), 1_000);
+    assert_eq!(config.effective_base_fee_bps_at(1_050).unwrap(), 515);
+    assert_eq!(config.effective_base_fee_bps_at(1_100).unwrap(), 30);
+
+    config.amm.launch_fee_decay_mode = LAUNCH_FEE_DECAY_EXPONENTIAL;
+    assert_eq!(config.effective_base_fee_bps_at(1_050).unwrap(), 34);
+    assert_eq!(config.effective_base_fee_bps_at(1_100).unwrap(), 30);
+}
+
+#[test]
+fn launch_fee_configuration_rejects_partial_or_over_budget_schedules() {
+    let mut config = valid_config();
+    config.amm.launch_fee_start_bps = 1_000;
+    assert!(config.validate().is_err());
+
+    config.amm.launch_fee_duration_seconds = 100;
+    config.amm.launch_fee_decay_mode = LAUNCH_FEE_DECAY_LINEAR;
+    config.amm.launch_fee_start_bps = 1_001;
+    assert_eq!(
+        config.validate().unwrap_err(),
+        anchor_lang::prelude::error!(ErrorCode::InvalidSwapFeeBps)
+    );
+}
+
+#[test]
+fn launch_buy_size_limiter_composes_with_time_scheduler_and_only_charges_buys() {
+    let mut config = valid_config();
+    config.start_time = 1_000;
+    config.divergence_fee_share_cap_bps = 1_500;
+    config.volatility_fee_share_cap_bps = 1_500;
+    config.amm.launch_fee_start_bps = 500;
+    config.amm.launch_fee_duration_seconds = 50;
+    config.amm.launch_fee_decay_mode = LAUNCH_FEE_DECAY_LINEAR;
+    config.amm.launch_rate_limit_asset = LAUNCH_RATE_LIMIT_ASSET_BASE;
+    config.amm.launch_rate_limit_reference_nad = 100 * NAD;
+    config.amm.launch_rate_limit_increment_bps = 100;
+    config.amm.launch_rate_limit_max_fee_bps = 1_000;
+    config.amm.launch_rate_limit_duration_seconds = 100;
+    config.validate().unwrap();
+
+    // Quote input buys the configured launch asset (Base). The first
+    // reference amount pays only the scheduled fee; 250 NAD spans three
+    // reference units and therefore adds two increments.
+    assert_eq!(
+        config
+            .effective_base_fee_bps_for_swap_at(MarketAsset::Quote, 100 * NAD as u128, 1_000)
+            .unwrap(),
+        500
+    );
+    assert_eq!(
+        config
+            .effective_base_fee_bps_for_swap_at(MarketAsset::Quote, 250 * NAD as u128, 1_000)
+            .unwrap(),
+        700
+    );
+
+    // Selling Base is not a buy of the protected launch asset.
+    assert_eq!(
+        config
+            .effective_base_fee_bps_for_swap_at(MarketAsset::Base, 250 * NAD as u128, 1_000)
+            .unwrap(),
+        500
+    );
+
+    // The time premium has ended, while the size limiter remains active.
+    assert_eq!(
+        config
+            .effective_base_fee_bps_for_swap_at(MarketAsset::Quote, 250 * NAD as u128, 1_050)
+            .unwrap(),
+        230
+    );
+    assert_eq!(
+        config
+            .effective_base_fee_bps_for_swap_at(MarketAsset::Quote, 250 * NAD as u128, 1_100)
+            .unwrap(),
+        30
+    );
+}
+
+#[test]
+fn launch_buy_size_limiter_rejects_partial_or_over_budget_configuration() {
+    let mut config = valid_config();
+    config.amm.launch_rate_limit_asset = LAUNCH_RATE_LIMIT_ASSET_BASE;
+    assert!(config.validate().is_err());
+
+    config.amm.launch_rate_limit_reference_nad = NAD;
+    config.amm.launch_rate_limit_increment_bps = 100;
+    config.amm.launch_rate_limit_max_fee_bps = 1_000;
+    config.amm.launch_rate_limit_duration_seconds = 100;
+    config.validate().unwrap();
+
+    config.amm.launch_rate_limit_max_fee_bps = 1_001;
+    assert_eq!(
+        config.validate().unwrap_err(),
+        anchor_lang::prelude::error!(ErrorCode::InvalidSwapFeeBps)
+    );
+}

@@ -49,7 +49,7 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
         insurance: Insurance::default(),
         params_hash: [0u8; 32],
         governance_locked_ylp: 0,
-        parameter_revisions: [0; 5],
+        parameter_revisions: [0; 6],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,

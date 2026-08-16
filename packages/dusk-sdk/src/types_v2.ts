@@ -1780,7 +1780,7 @@ export type Dusk = {
               },
               {
                 "kind": "arg",
-                "path": "args.nonce"
+                "path": "nonce"
               }
             ]
           }
@@ -3974,6 +3974,112 @@ export type Dusk = {
           "type": {
             "defined": {
               "name": "initializeYieldAccountsArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "liquidateExhaustedHlp",
+      "docs": [
+        "Permissionlessly closes an hLP after passive funding has exhausted its",
+        "marked collateral. Insurance reimburses the borrowed-asset shortfall",
+        "first; only the caller-capped remainder is socialized as unpaid funding",
+        "interest. Ordinary swaps retain their existing account list."
+      ],
+      "discriminator": [
+        240,
+        209,
+        152,
+        23,
+        129,
+        28,
+        166,
+        8
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true
+        },
+        {
+          "name": "futarchyAuthority"
+        },
+        {
+          "name": "caller",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "borrowedMint"
+        },
+        {
+          "name": "borrowedReserveVault",
+          "writable": true
+        },
+        {
+          "name": "borrowedInterestVault",
+          "writable": true
+        },
+        {
+          "name": "insuranceVault",
+          "writable": true
+        },
+        {
+          "name": "ylpMint",
+          "writable": true
+        },
+        {
+          "name": "targetHlpYlpVault",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "liquidateExhaustedHlpArgs"
             }
           }
         }
@@ -7949,6 +8055,19 @@ export type Dusk = {
       ]
     },
     {
+      "name": "hlpTerminalLiquidated",
+      "discriminator": [
+        80,
+        186,
+        237,
+        212,
+        75,
+        183,
+        43,
+        173
+      ]
+    },
+    {
       "name": "leverageDelegationUpdated",
       "discriminator": [
         118,
@@ -8923,111 +9042,116 @@ export type Dusk = {
     },
     {
       "code": 6111,
+      "name": "insuranceDrawExceeded",
+      "msg": "Required insurance draw exceeds caller cap"
+    },
+    {
+      "code": 6112,
       "name": "liquidationSocializationExceeded",
       "msg": "Socialized liquidation loss exceeds caller cap"
     },
     {
-      "code": 6112,
+      "code": 6113,
       "name": "invalidClaimMint",
       "msg": "Claim mint must not charge transfer fees"
     },
     {
-      "code": 6113,
+      "code": 6114,
       "name": "unbackedFeeLiability",
       "msg": "Fee liability is not backed by its custody balance"
     },
     {
-      "code": 6114,
+      "code": 6115,
       "name": "invalidMarketFeeAuthority",
       "msg": "Invalid market fee authority"
     },
     {
-      "code": 6115,
+      "code": 6116,
       "name": "marketReduceOnly",
       "msg": "Market is reduce-only"
     },
     {
-      "code": 6116,
+      "code": 6117,
       "name": "marketNotStarted",
       "msg": "Market has not started"
     },
     {
-      "code": 6117,
+      "code": 6118,
       "name": "marketMathOverflow",
       "msg": "Market math overflow"
     },
     {
-      "code": 6118,
+      "code": 6119,
       "name": "dailyLimitExceeded",
       "msg": "Daily liquidity limit exceeded"
     },
     {
-      "code": 6119,
+      "code": 6120,
       "name": "instructionNotLive",
       "msg": "Instruction is intentionally not live yet"
     },
     {
-      "code": 6120,
+      "code": 6121,
       "name": "liquidationRepayTooLarge",
       "msg": "Liquidation repay amount exceeds partial liquidation cap"
     },
     {
-      "code": 6121,
+      "code": 6122,
       "name": "leverageMultiplierTooHigh",
       "msg": "Leverage multiplier exceeds circuit breaker"
     },
     {
-      "code": 6122,
+      "code": 6123,
       "name": "leverageInitialMarginTooLow",
       "msg": "Leverage position does not have enough initial margin"
     },
     {
-      "code": 6123,
+      "code": 6124,
       "name": "leverageUnwindImpactTooHigh",
       "msg": "Leverage unwind impact exceeds limit"
     },
     {
-      "code": 6124,
+      "code": 6125,
       "name": "leveragePositionNotLiquidatable",
       "msg": "Leverage position is not liquidatable"
     },
     {
-      "code": 6125,
+      "code": 6126,
       "name": "invalidSigner",
       "msg": "Invalid signer"
     },
     {
-      "code": 6126,
+      "code": 6127,
       "name": "invalidLeveragePosition",
       "msg": "Invalid leverage position"
     },
     {
-      "code": 6127,
+      "code": 6128,
       "name": "invalidLeverageDelegation",
       "msg": "Invalid leverage delegation"
     },
     {
-      "code": 6128,
+      "code": 6129,
       "name": "invalidReferralInterestShareBps",
       "msg": "Referral interest share exceeds the protocol hard cap"
     },
     {
-      "code": 6129,
+      "code": 6130,
       "name": "invalidReferralPartner",
       "msg": "Invalid referral partner"
     },
     {
-      "code": 6130,
+      "code": 6131,
       "name": "referralPartnerNotActive",
       "msg": "Referral partner is not active"
     },
     {
-      "code": 6131,
+      "code": 6132,
       "name": "invalidReferralAccrual",
       "msg": "Invalid referral accrual account"
     },
     {
-      "code": 6132,
+      "code": 6133,
       "name": "invalidLeverageCollateralMint",
       "msg": "Leverage collateral mint must not have transfer fee configuration"
     }
@@ -9187,11 +9311,53 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "launchFeeStartBps",
+            "docs": [
+              "Optional launch-only base fee. The premium above `swap_fee_bps`",
+              "decays from `start_time` and is zero after the configured duration."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "launchFeeDurationSeconds",
+            "type": "u64"
+          },
+          {
+            "name": "launchFeeDecayMode",
+            "type": "u8"
+          },
+          {
+            "name": "launchRateLimitAsset",
+            "docs": [
+              "Optional launch buy-size limiter. The configured asset is the asset",
+              "being bought, not the input asset. Each full/partial reference amount",
+              "after the first adds `launch_rate_limit_increment_bps`, capped by",
+              "`launch_rate_limit_max_fee_bps`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "launchRateLimitReferenceNad",
+            "type": "u64"
+          },
+          {
+            "name": "launchRateLimitIncrementBps",
+            "type": "u16"
+          },
+          {
+            "name": "launchRateLimitMaxFeeBps",
+            "type": "u16"
+          },
+          {
+            "name": "launchRateLimitDurationSeconds",
+            "type": "u64"
+          },
+          {
             "name": "reserved",
             "type": {
               "array": [
                 "u8",
-                33
+                1
               ]
             }
           }
@@ -9201,8 +9367,8 @@ export type Dusk = {
     {
       "name": "ammState",
       "docs": [
-        "Embedded mutable state for concentration, internal signals, protected",
-        "liquidity, and an active parameter ramp."
+        "Embedded mutable state for the explicit curve, internal signals, and",
+        "protected recenter liquidity."
       ],
       "type": {
         "kind": "struct",
@@ -9212,35 +9378,10 @@ export type Dusk = {
             "type": "bool"
           },
           {
-            "name": "appliedCurveParameters",
-            "docs": [
-              "Parameters already admitted by the protected-profit gate. Time alone",
-              "never changes this field."
-            ],
-            "type": {
-              "defined": {
-                "name": "concentrationParameters"
-              }
-            }
-          },
-          {
-            "name": "concentratedGeometryCache",
-            "docs": [
-              "Authoritative geometry for `applied_curve_parameters`. CPMM stores the",
-              "all-zero cache. Only initialization or an admitted parameter change may",
-              "replace it; center and reserve changes reuse it unchanged."
-            ],
-            "type": {
-              "defined": {
-                "name": "concentratedGeometryCache"
-              }
-            }
-          },
-          {
             "name": "explicitCurveCache",
             "docs": [
-              "Explicit CPMM-tail/band geometry. Nonzero only for layout-v1 explicit",
-              "curve configuration; the legacy cache is removed after caller cutover."
+              "Explicit CPMM-tail/band geometry. CPMM is represented by zero",
+              "concentrated liquidity in this same cache."
             ],
             "type": {
               "defined": {
@@ -9269,27 +9410,8 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "lastConcentrationRampUpdateSlot",
-            "docs": [
-              "Prevents repeated instructions in one slot from advancing a ramp more",
-              "than once."
-            ],
-            "type": "u64"
-          },
-          {
             "name": "volatilityAccumulatorNad",
             "type": "u64"
-          },
-          {
-            "name": "invariantDNad",
-            "type": "u128"
-          },
-          {
-            "name": "curveMathRevision",
-            "docs": [
-              "Curve formula revision represented by `invariant_d_nad`."
-            ],
-            "type": "u8"
           },
           {
             "name": "qPerShareNad",
@@ -9340,14 +9462,6 @@ export type Dusk = {
               "The requested protection target exceeded its principal-budget cap."
             ],
             "type": "bool"
-          },
-          {
-            "name": "concentrationRamp",
-            "type": {
-              "defined": {
-                "name": "concentrationRamp"
-              }
-            }
           },
           {
             "name": "retentionTargetStale",
@@ -9786,116 +9900,6 @@ export type Dusk = {
       }
     },
     {
-      "name": "concentratedGeometryCache",
-      "docs": [
-        "Parameter-bound authoritative geometry persisted by market state.",
-        "",
-        "Q80 derivation is intentionally paid only when the applied shape changes.",
-        "Ordinary quotes reconstruct every Q64/Q48 projection with shifts."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "mathRevision",
-            "type": "u8"
-          },
-          {
-            "name": "peakDepthNad",
-            "type": "u64"
-          },
-          {
-            "name": "fadeScaleNad",
-            "type": "u64"
-          },
-          {
-            "name": "peakQ80",
-            "type": "u128"
-          },
-          {
-            "name": "scaleQ80",
-            "type": "u128"
-          },
-          {
-            "name": "vStartQ80",
-            "type": "u128"
-          },
-          {
-            "name": "vTailQ80",
-            "type": "u128"
-          },
-          {
-            "name": "reserveRatioStartQ80",
-            "type": "u128"
-          },
-          {
-            "name": "reserveRatioTailQ80",
-            "type": "u128"
-          },
-          {
-            "name": "negativeQPrimeStartQ80",
-            "type": "u128"
-          }
-        ]
-      }
-    },
-    {
-      "name": "concentrationParameters",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "peakDepthNad",
-            "type": "u64"
-          },
-          {
-            "name": "fadeScaleNad",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "concentrationRamp",
-      "docs": [
-        "A linear ramp whose governance delay is enforced by a queued parameter",
-        "proposal. The ramp begins in the slot where that proposal executes."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "active",
-            "type": "bool"
-          },
-          {
-            "name": "start",
-            "type": {
-              "defined": {
-                "name": "concentrationParameters"
-              }
-            }
-          },
-          {
-            "name": "target",
-            "type": {
-              "defined": {
-                "name": "concentrationParameters"
-              }
-            }
-          },
-          {
-            "name": "startSlot",
-            "type": "u64"
-          },
-          {
-            "name": "endSlot",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "configureReferralPartnerArgs",
       "type": {
         "kind": "struct",
@@ -10113,21 +10117,13 @@ export type Dusk = {
           {
             "name": "kind",
             "docs": [
-              "0 = none, 1 = parameter ramp, 2 = center move."
+              "0 = none, 2 = center move."
             ],
             "type": "u8"
           },
           {
             "name": "centerPriceNad",
             "type": "u64"
-          },
-          {
-            "name": "parameters",
-            "type": {
-              "defined": {
-                "name": "concentrationParameters"
-              }
-            }
           },
           {
             "name": "requiredNad",
@@ -10304,6 +10300,38 @@ export type Dusk = {
           },
           {
             "name": "volatilityAccumulatorCapNad",
+            "type": "u64"
+          },
+          {
+            "name": "launchFeeStartBps",
+            "type": "u16"
+          },
+          {
+            "name": "launchFeeDurationSeconds",
+            "type": "u64"
+          },
+          {
+            "name": "launchFeeDecayMode",
+            "type": "u8"
+          },
+          {
+            "name": "launchRateLimitAsset",
+            "type": "u8"
+          },
+          {
+            "name": "launchRateLimitReferenceNad",
+            "type": "u64"
+          },
+          {
+            "name": "launchRateLimitIncrementBps",
+            "type": "u16"
+          },
+          {
+            "name": "launchRateLimitMaxFeeBps",
+            "type": "u16"
+          },
+          {
+            "name": "launchRateLimitDurationSeconds",
             "type": "u64"
           }
         ]
@@ -10640,6 +10668,54 @@ export type Dusk = {
           },
           {
             "name": "quoteLiveReserve",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hlpTerminalLiquidated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "caller",
+            "type": "pubkey"
+          },
+          {
+            "name": "targetAsset",
+            "type": "u8"
+          },
+          {
+            "name": "debtClosed",
+            "type": "u64"
+          },
+          {
+            "name": "ylpBurned",
+            "type": "u64"
+          },
+          {
+            "name": "interestPaid",
+            "type": "u64"
+          },
+          {
+            "name": "insuranceDrawn",
+            "type": "u64"
+          },
+          {
+            "name": "socializedLoss",
+            "type": "u64"
+          },
+          {
+            "name": "remainingHlpSupply",
+            "docs": [
+              "Existing holder tokens remain burnable for zero principal while their",
+              "already-checkpointed fee claims remain independently claimable."
+            ],
             "type": "u64"
           }
         ]
@@ -11488,6 +11564,26 @@ export type Dusk = {
       }
     },
     {
+      "name": "liquidateExhaustedHlpArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "targetAsset",
+            "type": "u8"
+          },
+          {
+            "name": "maxInsuranceDraw",
+            "type": "u64"
+          },
+          {
+            "name": "maxSocializedLoss",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "liquidateLeverageArgs",
       "type": {
         "kind": "struct",
@@ -11715,13 +11811,13 @@ export type Dusk = {
           {
             "name": "parameterRevisions",
             "docs": [
-              "Independent monotone revisions for fee, concentration, IRM, EMA, and",
-              "daily-borrow-limit parameter families, in that order."
+              "Independent monotone revisions for fee, concentration, IRM, EMA,",
+              "daily-borrow-limit, and center-controller parameter families."
             ],
             "type": {
               "array": [
                 "u64",
-                5
+                6
               ]
             }
           },
@@ -12294,6 +12390,23 @@ export type Dusk = {
                 "type": "u16"
               }
             ]
+          },
+          {
+            "name": "centerController",
+            "fields": [
+              {
+                "name": "adjustmentThresholdNad",
+                "type": "u64"
+              },
+              {
+                "name": "adjustmentStepNad",
+                "type": "u64"
+              },
+              {
+                "name": "minAdjustmentIntervalSlots",
+                "type": "u64"
+              }
+            ]
           }
         ]
       }
@@ -12487,6 +12600,9 @@ export type Dusk = {
           },
           {
             "name": "dailyBorrowLimit"
+          },
+          {
+            "name": "centerController"
           }
         ]
       }
@@ -12938,10 +13054,6 @@ export type Dusk = {
           {
             "name": "decayedVolatilityNad",
             "type": "u64"
-          },
-          {
-            "name": "invariantDNad",
-            "type": "u128"
           },
           {
             "name": "balancedEquivalentQNad",

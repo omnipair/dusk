@@ -45,6 +45,42 @@ closed-form segments.
 7. Let that observation update EMA/volatility and schedule a possible center
    move for a later swap.
 
+## Launch protection and governance
+
+Ordinary yLP liquidity may be seeded before `start_time`; swaps, lending,
+leverage, and hLP funding remain unavailable until that exact timestamp.
+Markets may configure a bounded launch base fee that decays in O(1) from the
+launch fee to the normal base fee using either a linear schedule or sixteen
+deterministic exponential steps. Distance and volatility charges remain
+additive under the existing total-fee cap.
+
+The launch fee scheduler and buy-size limiter solve different problems and
+may be composed:
+
+- The **time scheduler** protects *when*: every early swap pays the scheduled
+  base fee, in both directions, and that premium decays with wall-clock time.
+- The **buy-size limiter** protects *how much*: during its own bounded window,
+  only swaps buying the configured launch asset pay an additional stepped
+  premium. The first reference amount adds nothing; each full or partial
+  reference amount after it adds the governed increment, capped by the
+  governed maximum fee.
+- The ordinary distance-from-center fee protects *where the path moves* and
+  therefore continues to charge repeated outward flow after launch.
+
+The limiter is stateless per swap: it adds no PDA, account, keeper, or
+inventory gate. Splitting a buy across transactions can reduce the size
+premium, although the sequential swaps still move the curve and incur the
+path-dependent distance fee. Dusk intentionally does not include an Alpha
+Vault or privileged early-order allocation.
+
+The time schedule and size limiter are fields of the existing timelocked fee
+governance family. A market can enable either mechanism, both, or neither.
+
+The sticky-center threshold, step, and minimum adjustment interval form an
+independent timelocked governance family. A governance update invalidates any
+deferred center target so the next real operation evaluates the new policy
+against current reserves. No manager/operator or maintenance crank is used.
+
 The current swap never moves the center used to price itself. Retained
 surcharge is credited after the endpoint into a custody-backed, non-quoteable
 Base/Quote recenter bucket. It is excluded from yLP NAV and withdrawals. A
@@ -87,6 +123,17 @@ uses the ordinary swap account layout, and rejects unless the caller's input
 actually receives a critical hLP-funded recovery tranche. Existing arbitrage
 and liquidation bots can therefore recover idle markets without a dedicated
 keeper.
+
+If passive funding consumes all marked hLP collateral before that recovery
+executes, `liquidate_exhausted_hlp` closes the vault through a terminal
+waterfall. It first retires the vault-owned yLP position, then draws the
+borrowed-asset insurance vault, credits the payable portion of funding interest
+to yLP, and socializes only the caller-capped remainder of that accrued funding
+interest. A loss reaching original debt principal is rejected as a broken
+hedge/accounting invariant. Published hLP fee claims are not seized; the
+remaining hLP tokens are burnable for zero principal after closure. The
+terminal instruction has its own insurance/interest/yLP accounts, so ordinary
+swaps keep their existing account list.
 
 ## Accounting invariants
 

@@ -175,20 +175,6 @@ impl<'info> DepositSingleSided<'info> {
             self.market.advance_amm_clock(current_slot)?;
             self.market.checkpoint_hlp_vaults()?;
             self.market.assert_hlp_entry_available(target_asset)?;
-            if self.market.has_active_hlp()
-                && self.market.amm.concentration_ramp.active
-                && (!self.market.amm.applied_curve_parameters.is_cpmm()
-                    || !self.market.amm.concentration_ramp.target.is_cpmm())
-            {
-                let desired = self
-                    .market
-                    .amm
-                    .desired_curve_parameters(&self.market.config.amm, current_slot);
-                require!(
-                    desired == self.market.amm.applied_curve_parameters,
-                    ErrorCode::HlpSettlementUnavailable
-                );
-            }
             self.market.observe_current_risk(current_slot)?;
         }
         Ok(())

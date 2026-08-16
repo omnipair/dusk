@@ -517,6 +517,21 @@ pub struct HlpClosed {
 }
 
 #[event]
+pub struct HlpTerminalLiquidated {
+    pub market: Pubkey,
+    pub caller: Pubkey,
+    pub target_asset: u8,
+    pub debt_closed: u64,
+    pub ylp_burned: u64,
+    pub interest_paid: u64,
+    pub insurance_drawn: u64,
+    pub socialized_loss: u64,
+    /// Existing holder tokens remain burnable for zero principal while their
+    /// already-checkpointed fee claims remain independently claimable.
+    pub remaining_hlp_supply: u64,
+}
+
+#[event]
 pub struct ParameterProposalCreated {
     pub proposal: Pubkey,
     pub market: Pubkey,

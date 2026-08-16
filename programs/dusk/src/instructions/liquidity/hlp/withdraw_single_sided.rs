@@ -182,7 +182,13 @@ impl<'info> WithdrawSingleSided<'info> {
         let current_slot = Clock::get()?.slot;
         self.market.accrue_interest_to_slot(current_slot)?;
         reconcile_live_hlp_supply(&mut self.market, target_asset, self.target_hlp_mint.supply)?;
-        self.market.update()?;
+        if self.market.hlp_terminally_closed(target_asset) {
+            // A retired zero-principal token must remain burnable even if an
+            // ordinary hLP settlement/controller checkpoint is unavailable.
+            self.market.advance_amm_clock(current_slot)?;
+        } else {
+            self.market.update()?;
+        }
         Ok(())
     }
 
@@ -309,14 +315,16 @@ impl<'info> WithdrawSingleSided<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        token_burn(
-            ctx.accounts.market.to_account_info(),
-            ylp_program,
-            ctx.accounts.ylp_mint.to_account_info(),
-            ctx.accounts.hlp_ylp_account.to_account_info(),
-            receipt.ylp_amount,
-            &[&generate_market_seeds!(ctx.accounts.market)[..]],
-        )?;
+        if receipt.ylp_amount > 0 {
+            token_burn(
+                ctx.accounts.market.to_account_info(),
+                ylp_program,
+                ctx.accounts.ylp_mint.to_account_info(),
+                ctx.accounts.hlp_ylp_account.to_account_info(),
+                receipt.ylp_amount,
+                &[&generate_market_seeds!(ctx.accounts.market)[..]],
+            )?;
+        }
 
         let target_balance_before = ctx.accounts.owner_target_account.amount;
         let (target_reserve_vault, target_mint, target_decimals) = match target_asset {
@@ -339,17 +347,19 @@ impl<'info> WithdrawSingleSided<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        transfer_checked_with_remaining_accounts(
-            ctx.accounts.market.to_account_info(),
-            target_reserve_vault,
-            ctx.accounts.owner_target_account.to_account_info(),
-            target_mint,
-            target_token_program,
-            receipt.target_amount_out,
-            target_decimals,
-            &[&generate_market_seeds!(ctx.accounts.market)[..]],
-            ctx.remaining_accounts,
-        )?;
+        if receipt.target_amount_out > 0 {
+            transfer_checked_with_remaining_accounts(
+                ctx.accounts.market.to_account_info(),
+                target_reserve_vault,
+                ctx.accounts.owner_target_account.to_account_info(),
+                target_mint,
+                target_token_program,
+                receipt.target_amount_out,
+                target_decimals,
+                &[&generate_market_seeds!(ctx.accounts.market)[..]],
+                ctx.remaining_accounts,
+            )?;
+        }
         ctx.accounts.base_reserve_vault.reload()?;
         ctx.accounts.quote_reserve_vault.reload()?;
         ctx.accounts.owner_target_account.reload()?;

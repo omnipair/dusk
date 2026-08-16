@@ -15,6 +15,7 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SwapRequest {
     pub current_slot: u64,
+    pub current_unix_timestamp: i64,
     pub asset_in: MarketAsset,
     pub reserve_credit: u64,
 }
@@ -182,8 +183,13 @@ impl SwapRequest {
         market.config.amm.explicit_curve_parameters()?;
         market.advance_one_amm_controller_target(self.current_slot)?;
         let pre_state = market.dynamic_fee_pre_state(self.current_slot)?;
-        let preliminary =
-            market.preliminary_swap_inputs_for_state(self.reserve_credit, self.current_slot, pre_state)?;
+        let preliminary = market.preliminary_swap_inputs_for_state_at_time(
+            self.asset_in,
+            self.reserve_credit,
+            self.current_slot,
+            self.current_unix_timestamp,
+            pre_state,
+        )?;
         let integrated_start = market.integrated_curve_state_nad()?;
         let mut explicit = market
             .quote_explicit_integrated_with_fee_from_state(

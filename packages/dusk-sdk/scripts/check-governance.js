@@ -19,7 +19,7 @@ import IDL from "../dist/idl_v2.js";
 import { DuskWrite } from "../dist/write.js";
 
 const SOLANA_TRANSACTION_LIMIT = 1_232;
-const EXPECTED_WORST_CASE_CREATE_SIZE = 980;
+const EXPECTED_WORST_CASE_CREATE_SIZE = 1_012;
 const { Program } = anchor;
 
 const keys = Array.from(
@@ -96,6 +96,39 @@ const update = feeParameterUpdate({
   volatilityShockCapNad: 10_000_000_000n,
   volatilityAccumulatorCapNad: 10_000_000_000n,
 });
+const launchUpdate = feeParameterUpdate({
+  baseFeeBps: 30,
+  divergenceFeeShareCapBps: 1_500,
+  volatilityFeeShareCapBps: 1_500,
+  divergenceFeeCoefficientNad: 0,
+  volatilityFeeCoefficientNad: 0,
+  volatilityHalfLifeMs: 60_000,
+  volatilityShockCapNad: 0,
+  volatilityAccumulatorCapNad: 0,
+  launchFeeStartBps: 500,
+  launchFeeDurationSeconds: 3_600,
+  launchFeeDecayMode: 1,
+  launchRateLimitAsset: 1,
+  launchRateLimitReferenceNad: 100_000_000_000n,
+  launchRateLimitIncrementBps: 100,
+  launchRateLimitMaxFeeBps: 2_000,
+  launchRateLimitDurationSeconds: 3_600,
+});
+assert.equal(launchUpdate.profile.launchFeeStartBps, 500);
+assert.equal(launchUpdate.profile.launchRateLimitAsset, 1);
+assert.throws(() =>
+  feeParameterUpdate({
+    baseFeeBps: 30,
+    divergenceFeeShareCapBps: 0,
+    volatilityFeeShareCapBps: 0,
+    divergenceFeeCoefficientNad: 0,
+    volatilityFeeCoefficientNad: 0,
+    volatilityHalfLifeMs: 60_000,
+    volatilityShockCapNad: 0,
+    volatilityAccumulatorCapNad: 0,
+    launchRateLimitAsset: 1,
+  })
+);
 const digestNonce = new anchor.BN(7);
 const familyRevision = new anchor.BN(11);
 const updateBytes = program.coder.types.encode(

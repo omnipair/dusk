@@ -129,6 +129,7 @@ impl<'info> DecreaseLeverage<'info> {
         ctx: Context<'_, '_, '_, 'info, Self>,
         args: DecreaseLeverageArgs,
         current_slot: u64,
+        current_unix_timestamp: i64,
     ) -> Result<()> {
         let h_lp_accounts = {
             let market: &Market = &ctx.accounts.market;
@@ -172,6 +173,7 @@ impl<'info> DecreaseLeverage<'info> {
             &mut ctx.accounts.market,
             SwapRequest {
                 current_slot,
+                current_unix_timestamp,
                 asset_in: collateral_asset,
                 reserve_credit: collateral_reserve_credit,
             },
@@ -195,6 +197,7 @@ impl<'info> DecreaseLeverage<'info> {
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
             current_slot,
+            current_unix_timestamp,
         )?;
         settle_inline_leverage_hlp(
             &mut ctx.accounts.market,

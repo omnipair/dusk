@@ -85,7 +85,8 @@ struct AddLiquidityTransfers {
 impl<'info> AddLiquidity<'info> {
     pub fn validate(&self, args: &AddLiquidityArgs) -> Result<()> {
         validate_ylp_market_pda(&self.market, self.market.key())?;
-        self.market.assert_live_with_futarchy(&self.futarchy_authority)?;
+        self.market
+            .assert_liquidity_seeding_available_with_futarchy(&self.futarchy_authority)?;
         require!(
             args.base_deposit_amount > 0 && args.quote_deposit_amount > 0,
             ErrorCode::AmountZero

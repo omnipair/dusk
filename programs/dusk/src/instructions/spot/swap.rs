@@ -81,7 +81,7 @@ pub struct Swap<'info> {
 }
 
 impl<'info> Swap<'info> {
-    pub(crate) fn validate_and_read_clock(&self, args: &SwapArgs, mode: SwapExecutionMode) -> Result<(u64, u64)> {
+    pub(crate) fn validate_and_read_clock(&self, args: &SwapArgs, mode: SwapExecutionMode) -> Result<(u64, u64, i64)> {
         // Read the sysvar once for the complete swap. In particular, do not
         // call `Market::assert_started`, which would fetch `Clock` a second
         // time before the slot-driven AMM/debt pipeline begins.
@@ -133,7 +133,7 @@ impl<'info> Swap<'info> {
         validate_owner_asset_account(self.trader.key(), &self.asset_out_mint, &self.trader_asset_out_account)?;
         require_supported_asset_mint(&self.asset_in_mint)?;
         require_supported_asset_mint(&self.asset_out_mint)?;
-        Ok((clock.slot, clock.epoch))
+        Ok((clock.slot, clock.epoch, clock.unix_timestamp))
     }
 
     pub(crate) fn handle_swap(
@@ -141,6 +141,7 @@ impl<'info> Swap<'info> {
         args: SwapArgs,
         current_slot: u64,
         current_epoch: u64,
+        current_unix_timestamp: i64,
         mode: SwapExecutionMode,
     ) -> Result<()> {
         // The fixed hLP prefix is checked before transfer-fee, invariant,
@@ -166,6 +167,7 @@ impl<'info> Swap<'info> {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let prepared = SwapRequest {
             current_slot,
+            current_unix_timestamp,
             asset_in,
             reserve_credit,
         }

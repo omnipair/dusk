@@ -1,5 +1,3 @@
-pub mod concentrated;
-pub mod concentrated_risk;
 pub mod cpmm;
 pub mod dynamic_fee;
 pub mod explicit_curve;
@@ -11,8 +9,6 @@ pub mod interest;
 pub mod numerics;
 pub mod risk;
 
-pub(crate) use concentrated::*;
-pub(crate) use concentrated_risk::*;
 pub(crate) use cpmm::*;
 pub(crate) use dynamic_fee::*;
 pub(crate) use explicit_curve::*;

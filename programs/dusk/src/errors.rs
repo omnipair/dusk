@@ -335,6 +335,9 @@ pub enum ErrorCode {
     #[msg("Insurance coverage is insufficient")]
     InsufficientInsurance,
 
+    #[msg("Required insurance draw exceeds caller cap")]
+    InsuranceDrawExceeded,
+
     #[msg("Socialized liquidation loss exceeds caller cap")]
     LiquidationSocializationExceeded,
 
