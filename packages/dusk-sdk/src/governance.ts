@@ -69,6 +69,8 @@ export interface FeeProfileInput {
   volatilityShockCapNad: GovernanceIntegerLike;
   volatilityAccumulatorCapNad: GovernanceIntegerLike;
   swapFeeCollectMode?: number;
+  /** LP-owned swap-fee share compounded into reserve principal, in bps. */
+  compoundingFeeBps?: number;
   launchFeeStartBps?: number;
   launchFeeDurationSeconds?: GovernanceIntegerLike;
   launchFeeDecayMode?: number;
@@ -92,6 +94,7 @@ export interface FeeProfile {
   volatilityShockCapNad: BN;
   volatilityAccumulatorCapNad: BN;
   swapFeeCollectMode: number;
+  compoundingFeeBps: number;
   launchFeeStartBps: number;
   launchFeeDurationSeconds: BN;
   launchFeeDecayMode: number;
@@ -302,6 +305,12 @@ export function feeParameterUpdate(input: FeeProfileInput): ParameterUpdate {
   ) {
     throw new Error("invalid swap fee collection mode");
   }
+  const compoundingFeeBps = input.compoundingFeeBps ?? 0;
+  assertBps(
+    compoundingFeeBps,
+    "compoundingFeeBps",
+    GOVERNANCE_BPS_DENOMINATOR
+  );
 
   const launchFeeStartBps = input.launchFeeStartBps ?? 0;
   const launchFeeDurationSeconds = toU64BigInt(
@@ -428,6 +437,7 @@ export function feeParameterUpdate(input: FeeProfileInput): ParameterUpdate {
       volatilityShockCapNad: toBN(volatilityShockCapNad),
       volatilityAccumulatorCapNad: toBN(volatilityAccumulatorCapNad),
       swapFeeCollectMode,
+      compoundingFeeBps,
       launchFeeStartBps,
       launchFeeDurationSeconds: toBN(launchFeeDurationSeconds),
       launchFeeDecayMode,
@@ -1062,6 +1072,7 @@ function encodeParameterUpdate(update: ParameterUpdate): Uint8Array {
         encodeU64(update.profile.volatilityShockCapNad, "volatilityShockCapNad"),
         encodeU64(update.profile.volatilityAccumulatorCapNad, "volatilityAccumulatorCapNad"),
         Uint8Array.of(update.profile.swapFeeCollectMode),
+        encodeU16(update.profile.compoundingFeeBps),
         encodeU16(update.profile.launchFeeStartBps),
         encodeU64(update.profile.launchFeeDurationSeconds, "launchFeeDurationSeconds"),
         Uint8Array.of(update.profile.launchFeeDecayMode),

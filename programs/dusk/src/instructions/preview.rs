@@ -256,6 +256,9 @@ pub struct SwapPreview {
     pub retained_surcharge: u64,
     pub distributed_surcharge_debit: u64,
     pub claimable_fee_debit: u64,
+    /// LP-owned fee converted into reserve principal at the configured rate.
+    pub compounded_fee_debit: u64,
+    pub compounding_fee_bps: u16,
     pub amount_in_for_quote: u64,
     pub reserve_input_credit: u64,
     pub base_fee_credit: u64,
@@ -565,6 +568,7 @@ impl<'info> PreviewSwap<'info> {
             current_unix_timestamp: clock.unix_timestamp,
             asset_in,
             reserve_credit,
+            protocol_fee_bps: ctx.accounts.futarchy_authority.revenue_share.swap_bps,
         }
         .prepare(quote_market)?;
         debug_log_heap(2);
@@ -630,6 +634,8 @@ impl<'info> PreviewSwap<'info> {
             retained_surcharge: quote.fee.retained_surcharge,
             distributed_surcharge_debit: quote.fee.distributed_surcharge_debit,
             claimable_fee_debit: quote.fee.claimable_fee_debit,
+            compounded_fee_debit: quote.fee.compounded_fee_debit,
+            compounding_fee_bps: market.config.amm.compounding_fee_bps,
             amount_in_for_quote: quote.fee.amount_in_for_quote,
             reserve_input_credit: quote.fee.reserve_input_credit,
             base_fee_credit,

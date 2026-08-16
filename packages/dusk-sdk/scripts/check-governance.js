@@ -20,7 +20,7 @@ import IDL from "../dist/idl_v2.js";
 import { DuskWrite } from "../dist/write.js";
 
 const SOLANA_TRANSACTION_LIMIT = 1_232;
-const EXPECTED_WORST_CASE_CREATE_SIZE = 1_019;
+const EXPECTED_WORST_CASE_CREATE_SIZE = 1_021;
 const { Program } = anchor;
 
 const keys = Array.from(
@@ -97,6 +97,7 @@ const update = feeParameterUpdate({
   volatilityShockCapNad: 10_000_000_000n,
   volatilityAccumulatorCapNad: 10_000_000_000n,
   swapFeeCollectMode: 0,
+  compoundingFeeBps: 4_000,
 });
 const launchUpdate = feeParameterUpdate({
   baseFeeBps: 30,
@@ -108,6 +109,7 @@ const launchUpdate = feeParameterUpdate({
   volatilityShockCapNad: 0,
   volatilityAccumulatorCapNad: 0,
   swapFeeCollectMode: 2,
+  compoundingFeeBps: 4_000,
   launchFeeStartBps: 500,
   launchFeeDurationSeconds: 3_600,
   launchFeeDecayMode: 1,
@@ -122,6 +124,7 @@ const launchUpdate = feeParameterUpdate({
 });
 assert.equal(launchUpdate.profile.launchFeeStartBps, 500);
 assert.equal(launchUpdate.profile.swapFeeCollectMode, 2);
+assert.equal(launchUpdate.profile.compoundingFeeBps, 4_000);
 assert.equal(launchUpdate.profile.launchMarketNumberOfPeriods, 8);
 assert.equal(launchUpdate.profile.launchRateLimitAsset, 1);
 const standardLaunch = standardLaunchFeeParameterUpdate({
@@ -133,6 +136,7 @@ const standardLaunch = standardLaunchFeeParameterUpdate({
   volatilityHalfLifeMs: 60_000,
   volatilityShockCapNad: 0,
   volatilityAccumulatorCapNad: 0,
+  compoundingFeeBps: 0,
   launchFeeStartBps: 500,
   launchFeeDurationSeconds: 3_600,
   launchFeeDecayMode: 1,
@@ -143,6 +147,20 @@ const standardLaunch = standardLaunchFeeParameterUpdate({
 });
 assert.equal(standardLaunch.profile.swapFeeCollectMode, 2);
 assert.equal(standardLaunch.profile.launchRateLimitAsset, 1);
+assert.equal(standardLaunch.profile.compoundingFeeBps, 0);
+assert.throws(() =>
+  feeParameterUpdate({
+    baseFeeBps: 30,
+    divergenceFeeShareCapBps: 0,
+    volatilityFeeShareCapBps: 0,
+    divergenceFeeCoefficientNad: 0,
+    volatilityFeeCoefficientNad: 0,
+    volatilityHalfLifeMs: 60_000,
+    volatilityShockCapNad: 0,
+    volatilityAccumulatorCapNad: 0,
+    compoundingFeeBps: 10_001,
+  })
+);
 assert.throws(() =>
   feeParameterUpdate({
     baseFeeBps: 30,

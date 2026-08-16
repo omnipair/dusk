@@ -218,7 +218,106 @@ pub(crate) fn apply_hlp_recovery_bonus(
     Ok(())
 }
 
-fn current_hlp(state: IntegratedCurveState) -> Result<IntegratedHlpEndpoint> {
+/// Adds one already-priced LP fee to total reserves and attributes its value
+/// to the yLP owners which existed before the swap. Ordinary yLP supply stays
+/// fixed; each hLP's pro-rata fee gain is converted into its target-asset
+/// equity at the final total-reserve ratio, then the canonical one-sided
+/// claims and debts are reconstructed algebraically.
+pub(crate) fn apply_compounded_ylp_fee(
+    start: IntegratedCurveState,
+    quote: &mut IntegratedFrozenFeeQuote,
+    fee_is_base: bool,
+    compounded_fee_nad: u128,
+    eligible_ylp_supply: u64,
+    base_hlp_ylp_shares: u64,
+    quote_hlp_ylp_shares: u64,
+) -> Result<()> {
+    if compounded_fee_nad == 0 {
+        return Ok(());
+    }
+    require!(eligible_ylp_supply > 0, ErrorCode::SupplyUnderflow);
+    require_gte!(
+        eligible_ylp_supply,
+        base_hlp_ylp_shares
+            .checked_add(quote_hlp_ylp_shares)
+            .ok_or(ErrorCode::SupplyOverflow)?,
+        ErrorCode::SupplyUnderflow
+    );
+
+    let base_hlp_fee = mul_div_u128(
+        compounded_fee_nad,
+        base_hlp_ylp_shares as u128,
+        eligible_ylp_supply as u128,
+    )?;
+    let quote_hlp_fee = mul_div_u128(
+        compounded_fee_nad,
+        quote_hlp_ylp_shares as u128,
+        eligible_ylp_supply as u128,
+    )?;
+    let end = &mut quote.executable.end;
+    // Compounding is an internal, endpoint-priced ownership transition. A
+    // fee already denominated in an hLP's target asset grows that equity
+    // directly. The opposite-target hLP exchanges its pro-rata fee against
+    // the ordinary tranche at the frozen trader endpoint: its fee asset stays
+    // in ordinary reserves and the equal target value moves from ordinary
+    // reserves into hLP equity. Thus the only external reserve addition is
+    // exactly `compounded_fee_nad`; the matching hedge debt remains the sole
+    // additional funded reserve movement.
+    if fee_is_base {
+        let quote_equity_gain = mul_div_u128(quote_hlp_fee, end.ordinary_quote, end.ordinary_base)?;
+        end.ordinary_base = end
+            .ordinary_base
+            .checked_add(
+                compounded_fee_nad
+                    .checked_sub(base_hlp_fee)
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+            )
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        end.ordinary_quote = end
+            .ordinary_quote
+            .checked_sub(quote_equity_gain)
+            .ok_or(ErrorCode::InsufficientLiquidity)?;
+        end.base_hlp_equity = end
+            .base_hlp_equity
+            .checked_add(base_hlp_fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        end.quote_hlp_equity = end
+            .quote_hlp_equity
+            .checked_add(quote_equity_gain)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+    } else {
+        let base_equity_gain = mul_div_u128(base_hlp_fee, end.ordinary_base, end.ordinary_quote)?;
+        end.ordinary_quote = end
+            .ordinary_quote
+            .checked_add(
+                compounded_fee_nad
+                    .checked_sub(quote_hlp_fee)
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+            )
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        end.ordinary_base = end
+            .ordinary_base
+            .checked_sub(base_equity_gain)
+            .ok_or(ErrorCode::InsufficientLiquidity)?;
+        end.quote_hlp_equity = end
+            .quote_hlp_equity
+            .checked_add(quote_hlp_fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        end.base_hlp_equity = end
+            .base_hlp_equity
+            .checked_add(base_equity_gain)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+    }
+    let hlp = reconstruct_hlp_endpoint(*end)?;
+    end.base_hlp_quote_debt = hlp.base_hlp_quote_debt;
+    end.quote_hlp_base_debt = hlp.quote_hlp_base_debt;
+    quote.executable.hlp = hlp;
+    quote.executable.base_hlp_quote_debt_delta = signed_delta(hlp.base_hlp_quote_debt, start.base_hlp_quote_debt)?;
+    quote.executable.quote_hlp_base_debt_delta = signed_delta(hlp.quote_hlp_base_debt, start.quote_hlp_base_debt)?;
+    Ok(())
+}
+
+pub(crate) fn materialized_hlp_endpoint(state: IntegratedCurveState) -> Result<IntegratedHlpEndpoint> {
     let total_base = state
         .ordinary_base
         .checked_add(state.base_hlp_equity)
@@ -269,7 +368,7 @@ pub(crate) fn quote_integrated_exact_in(
     let mut end = state;
     end.ordinary_base = curve.end.base_reserve;
     end.ordinary_quote = curve.end.quote_reserve;
-    let start_hlp = current_hlp(state)?;
+    let start_hlp = materialized_hlp_endpoint(state)?;
     let hlp = reconstruct_hlp_endpoint(end)?;
     end.base_hlp_quote_debt = hlp.base_hlp_quote_debt;
     end.quote_hlp_base_debt = hlp.quote_hlp_base_debt;
@@ -310,7 +409,7 @@ pub(crate) fn quote_integrated_exact_out(
     let mut end = state;
     end.ordinary_base = curve.end.base_reserve;
     end.ordinary_quote = curve.end.quote_reserve;
-    let start_hlp = current_hlp(state)?;
+    let start_hlp = materialized_hlp_endpoint(state)?;
     let hlp = reconstruct_hlp_endpoint(end)?;
     end.base_hlp_quote_debt = hlp.base_hlp_quote_debt;
     end.quote_hlp_base_debt = hlp.quote_hlp_base_debt;

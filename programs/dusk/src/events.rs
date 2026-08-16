@@ -273,6 +273,8 @@ pub struct SwapExecuted {
     pub volatility_fee: u64,
     /// Dynamic surcharge retained as executable principal.
     pub retained_fee: u64,
+    /// LP-owned fee compounded into reserve principal.
+    pub compounded_fee: u64,
     /// Extra output funded by deleveraging the stressed hLP.
     pub hlp_recovery_target_asset: u8,
     pub hlp_recovery_funding_gap: u64,
@@ -299,6 +301,7 @@ pub struct LeverageSwapReceipt {
     pub divergence_fee: u64,
     pub volatility_fee: u64,
     pub retained_fee: u64,
+    pub compounded_fee: u64,
     /// Actual reserve-vault credit after any Token-2022 transfer fee.
     pub claimable_fee_credit: u64,
     /// Final executable reserves after retention and inline hLP correction.
@@ -324,6 +327,7 @@ impl LeverageSwapReceipt {
             divergence_fee: quote.fee_breakdown.divergence_surcharge_debit,
             volatility_fee: quote.fee_breakdown.volatility_surcharge_debit,
             retained_fee: quote.fee_breakdown.retained_surcharge,
+            compounded_fee: quote.fee_breakdown.compounded_fee_debit,
             claimable_fee_credit: credit
                 .base
                 .checked_add(credit.distributed_surcharge)

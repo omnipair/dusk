@@ -9,8 +9,10 @@ use crate::{
     errors::ErrorCode,
     events::{LeveragePositionLiquidated, LeverageSwapReceipt, MarketEventMetadata},
     generate_market_seeds,
-    market::liquidity::SwapCashPolicy,
-    state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
+    market::{liquidity::SwapCashPolicy, LeverageLiquidationReceipt, LeverageSwapFeeCredit},
+    state::{
+        FutarchyAuthority, HlpYieldEligibility, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner,
+    },
     token::transfer_checked_with_remaining_accounts,
 };
 
@@ -159,24 +161,17 @@ impl<'info> LiquidateLeverage<'info> {
     }
 
     pub fn handle_liquidate(
-        ctx: Context<'_, '_, '_, 'info, Self>,
+        mut ctx: Context<'_, '_, '_, 'info, Self>,
         args: LiquidateLeverageArgs,
         current_slot: u64,
         current_unix_timestamp: i64,
     ) -> Result<()> {
-        let market_key = ctx.accounts.market.key();
         let h_lp_accounts = {
             let market: &Market = &ctx.accounts.market;
             HlpSwapAccountLayout::try_from((market, ctx.remaining_accounts))?
         };
-        let liquidator_key = ctx.accounts.liquidator.key();
-        let owner_key = ctx.accounts.position_owner.key();
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
         let collateral_asset = debt_asset.opposite();
-        let debt_mint_key = ctx.accounts.debt_mint.key();
-        let collateral_mint_key = ctx.accounts.collateral_mint.key();
-        let position_key = ctx.accounts.leverage_position.key();
-        let expected_referral_partner = ctx.accounts.leverage_position.referral_partner;
         let collateral_sold = ctx.accounts.leverage_position.collateral_amount;
 
         // Return seized collateral to the reserve and measure its net credit.
@@ -212,6 +207,7 @@ impl<'info> LiquidateLeverage<'info> {
                 current_unix_timestamp,
                 asset_in: collateral_asset,
                 reserve_credit: collateral_reserve_credit,
+                protocol_fee_bps: ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             },
             SwapCashPolicy::Liquidate {
                 debt_asset,
@@ -231,124 +227,159 @@ impl<'info> LiquidateLeverage<'info> {
             ctx.accounts.futarchy_authority.protocol_auction_split,
             current_slot,
         )?;
-        settle_inline_leverage_hlp(
-            &mut ctx.accounts.market,
-            &ctx.accounts.futarchy_authority,
+        finish_liquidation(
+            &mut ctx,
             debt_asset,
-            &ctx.accounts.debt_mint,
-            &ctx.accounts.collateral_mint,
-            &ctx.accounts.debt_reserve_vault,
-            &ctx.accounts.collateral_reserve_vault,
-            &ctx.accounts.token_program,
-            &ctx.accounts.token_2022_program,
-            ctx.remaining_accounts,
-            h_lp_accounts,
-            receipt.base_hlp_rebalance,
-            receipt.quote_hlp_rebalance,
+            &receipt,
+            swap_fee_credit,
             interest_eligibility,
-        )?;
-        ctx.accounts.debt_interest_vault.reload()?;
-
-        // Pay the liquidator first, then return any residual to the owner.
-        let debt_token_program = token_program_for_mint(
-            &ctx.accounts.debt_mint,
-            &ctx.accounts.token_program,
-            &ctx.accounts.token_2022_program,
-        )?;
-        let liquidator_balance_before = ctx.accounts.liquidator_debt_account.amount;
-        transfer_checked_with_remaining_accounts(
-            ctx.accounts.market.to_account_info(),
-            ctx.accounts.debt_reserve_vault.to_account_info(),
-            ctx.accounts.liquidator_debt_account.to_account_info(),
-            ctx.accounts.debt_mint.to_account_info(),
-            debt_token_program.clone(),
-            receipt.liquidator_amount,
-            ctx.accounts.debt_mint.decimals,
-            &[&generate_market_seeds!(ctx.accounts.market)[..]],
-            h_lp_accounts.hook_accounts(ctx.remaining_accounts),
-        )?;
-        ctx.accounts.liquidator_debt_account.reload()?;
-        let liquidator_amount = token_account_credit(liquidator_balance_before, &ctx.accounts.liquidator_debt_account)?;
-
-        let owner_balance_before = ctx.accounts.owner_debt_account.amount;
-        transfer_checked_with_remaining_accounts(
-            ctx.accounts.market.to_account_info(),
-            ctx.accounts.debt_reserve_vault.to_account_info(),
-            ctx.accounts.owner_debt_account.to_account_info(),
-            ctx.accounts.debt_mint.to_account_info(),
-            debt_token_program,
-            receipt.owner_residual,
-            ctx.accounts.debt_mint.decimals,
-            &[&generate_market_seeds!(ctx.accounts.market)[..]],
-            h_lp_accounts.hook_accounts(ctx.remaining_accounts),
-        )?;
-        ctx.accounts.owner_debt_account.reload()?;
-        let owner_residual = token_account_credit(owner_balance_before, &ctx.accounts.owner_debt_account)?;
-
-        // Route accrued interest and reconcile physical reserve custody.
-        let referral_receipt = record_leverage_interest(
-            &mut ctx.accounts.market,
-            debt_asset,
-            &ctx.accounts.debt_mint,
-            &mut ctx.accounts.debt_reserve_vault,
-            &mut ctx.accounts.debt_interest_vault,
-            &ctx.accounts.token_program,
-            &ctx.accounts.token_2022_program,
-            &ctx.accounts.futarchy_authority,
-            expected_referral_partner,
-            ctx.accounts.leverage_position.referral_interest_share_bps,
-            ctx.accounts.referral_partner.as_deref(),
-            ctx.accounts.referral_accrual.as_deref_mut(),
-            receipt.interest_paid,
-            interest_eligibility,
-            h_lp_accounts.hook_accounts(ctx.remaining_accounts),
-        )?;
-        ctx.accounts.debt_reserve_vault.reload()?;
-        ctx.accounts.collateral_reserve_vault.reload()?;
-        require_reserve_custody(
-            ctx.accounts.debt_reserve_vault.amount,
-            ctx.accounts.market.side(debt_asset),
-        )?;
-        require_reserve_custody(
-            ctx.accounts.collateral_reserve_vault.amount,
-            ctx.accounts.market.side(collateral_asset),
-        )?;
-
-        if let Some(event) = referral_interest_accrued_event_at_slot(
-            &referral_receipt,
-            market_key,
-            position_key,
-            owner_key,
-            liquidator_key,
-            debt_mint_key,
             current_slot,
-        )? {
-            emit_cpi!(event);
-        }
-
-        // Emit the final liquidation state.
-        emit_cpi!(LeveragePositionLiquidated {
-            market: market_key,
-            position: position_key,
-            owner: owner_key,
-            liquidator: liquidator_key,
-            debt_asset_mint: debt_mint_key,
-            collateral_asset_mint: collateral_mint_key,
-            debt_repaid: receipt.debt_repaid,
-            interest_paid: receipt.interest_paid,
-            principal_written_off: receipt.principal_written_off,
-            collateral_sold: receipt.collateral_sold,
-            closeout_value: receipt.closeout_value,
-            liquidator_amount,
-            owner_residual,
-            swap: LeverageSwapReceipt::new(
-                receipt.swap,
-                swap_fee_credit,
-                ctx.accounts.market.base_side.reserves.live_reserve,
-                ctx.accounts.market.quote_side.reserves.live_reserve,
-            )?,
-            metadata: MarketEventMetadata::at_slot(liquidator_key, market_key, current_slot),
-        });
-        Ok(())
+        )
     }
+}
+
+/// Keeps token settlement and event construction out of the already-large
+/// liquidation quote frame. This is a stack-only SBF refactor; all ordering
+/// and accounting remain identical to the handler path.
+#[inline(never)]
+fn finish_liquidation<'info>(
+    ctx: &mut Context<'_, '_, '_, 'info, LiquidateLeverage<'info>>,
+    debt_asset: MarketAsset,
+    receipt: &LeverageLiquidationReceipt,
+    swap_fee_credit: LeverageSwapFeeCredit,
+    interest_eligibility: HlpYieldEligibility,
+    current_slot: u64,
+) -> Result<()> {
+    let market_key = ctx.accounts.market.key();
+    let liquidator_key = ctx.accounts.liquidator.key();
+    let owner_key = ctx.accounts.position_owner.key();
+    let debt_mint_key = ctx.accounts.debt_mint.key();
+    let collateral_mint_key = ctx.accounts.collateral_mint.key();
+    let position_key = ctx.accounts.leverage_position.key();
+    let expected_referral_partner = ctx.accounts.leverage_position.referral_partner;
+    let collateral_asset = debt_asset.opposite();
+    let h_lp_accounts = {
+        let market: &Market = &ctx.accounts.market;
+        HlpSwapAccountLayout::try_from((market, ctx.remaining_accounts))?
+    };
+
+    settle_inline_leverage_hlp(
+        &mut ctx.accounts.market,
+        &ctx.accounts.futarchy_authority,
+        debt_asset,
+        &ctx.accounts.debt_mint,
+        &ctx.accounts.collateral_mint,
+        &ctx.accounts.debt_reserve_vault,
+        &ctx.accounts.collateral_reserve_vault,
+        &ctx.accounts.token_program,
+        &ctx.accounts.token_2022_program,
+        ctx.remaining_accounts,
+        h_lp_accounts,
+        receipt.base_hlp_rebalance,
+        receipt.quote_hlp_rebalance,
+        interest_eligibility,
+    )?;
+    ctx.accounts.debt_interest_vault.reload()?;
+
+    // Pay the liquidator first, then return any residual to the owner.
+    let debt_token_program = token_program_for_mint(
+        &ctx.accounts.debt_mint,
+        &ctx.accounts.token_program,
+        &ctx.accounts.token_2022_program,
+    )?;
+    let liquidator_balance_before = ctx.accounts.liquidator_debt_account.amount;
+    transfer_checked_with_remaining_accounts(
+        ctx.accounts.market.to_account_info(),
+        ctx.accounts.debt_reserve_vault.to_account_info(),
+        ctx.accounts.liquidator_debt_account.to_account_info(),
+        ctx.accounts.debt_mint.to_account_info(),
+        debt_token_program.clone(),
+        receipt.liquidator_amount,
+        ctx.accounts.debt_mint.decimals,
+        &[&generate_market_seeds!(ctx.accounts.market)[..]],
+        h_lp_accounts.hook_accounts(ctx.remaining_accounts),
+    )?;
+    ctx.accounts.liquidator_debt_account.reload()?;
+    let liquidator_amount = token_account_credit(liquidator_balance_before, &ctx.accounts.liquidator_debt_account)?;
+
+    let owner_balance_before = ctx.accounts.owner_debt_account.amount;
+    transfer_checked_with_remaining_accounts(
+        ctx.accounts.market.to_account_info(),
+        ctx.accounts.debt_reserve_vault.to_account_info(),
+        ctx.accounts.owner_debt_account.to_account_info(),
+        ctx.accounts.debt_mint.to_account_info(),
+        debt_token_program,
+        receipt.owner_residual,
+        ctx.accounts.debt_mint.decimals,
+        &[&generate_market_seeds!(ctx.accounts.market)[..]],
+        h_lp_accounts.hook_accounts(ctx.remaining_accounts),
+    )?;
+    ctx.accounts.owner_debt_account.reload()?;
+    let owner_residual = token_account_credit(owner_balance_before, &ctx.accounts.owner_debt_account)?;
+
+    // Route accrued interest and reconcile physical reserve custody.
+    let referral_receipt = record_leverage_interest(
+        &mut ctx.accounts.market,
+        debt_asset,
+        &ctx.accounts.debt_mint,
+        &mut ctx.accounts.debt_reserve_vault,
+        &mut ctx.accounts.debt_interest_vault,
+        &ctx.accounts.token_program,
+        &ctx.accounts.token_2022_program,
+        &ctx.accounts.futarchy_authority,
+        expected_referral_partner,
+        ctx.accounts.leverage_position.referral_interest_share_bps,
+        ctx.accounts.referral_partner.as_deref(),
+        ctx.accounts.referral_accrual.as_deref_mut(),
+        receipt.interest_paid,
+        interest_eligibility,
+        h_lp_accounts.hook_accounts(ctx.remaining_accounts),
+    )?;
+    ctx.accounts.debt_reserve_vault.reload()?;
+    ctx.accounts.collateral_reserve_vault.reload()?;
+    require_reserve_custody(
+        ctx.accounts.debt_reserve_vault.amount,
+        ctx.accounts.market.side(debt_asset),
+    )?;
+    require_reserve_custody(
+        ctx.accounts.collateral_reserve_vault.amount,
+        ctx.accounts.market.side(collateral_asset),
+    )?;
+
+    if let Some(event) = referral_interest_accrued_event_at_slot(
+        &referral_receipt,
+        market_key,
+        position_key,
+        owner_key,
+        liquidator_key,
+        debt_mint_key,
+        current_slot,
+    )? {
+        emit_cpi!(event);
+    }
+
+    // Emit the final liquidation state.
+    emit_cpi!(LeveragePositionLiquidated {
+        market: market_key,
+        position: position_key,
+        owner: owner_key,
+        liquidator: liquidator_key,
+        debt_asset_mint: debt_mint_key,
+        collateral_asset_mint: collateral_mint_key,
+        debt_repaid: receipt.debt_repaid,
+        interest_paid: receipt.interest_paid,
+        principal_written_off: receipt.principal_written_off,
+        collateral_sold: receipt.collateral_sold,
+        closeout_value: receipt.closeout_value,
+        liquidator_amount,
+        owner_residual,
+        swap: LeverageSwapReceipt::new(
+            receipt.swap,
+            swap_fee_credit,
+            ctx.accounts.market.base_side.reserves.live_reserve,
+            ctx.accounts.market.quote_side.reserves.live_reserve,
+        )?,
+        metadata: MarketEventMetadata::at_slot(liquidator_key, market_key, current_slot),
+    });
+    Ok(())
 }

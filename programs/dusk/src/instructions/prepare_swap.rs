@@ -22,6 +22,9 @@ pub(crate) struct SwapRequest {
     pub current_unix_timestamp: i64,
     pub asset_in: MarketAsset,
     pub reserve_credit: u64,
+    /// Protocol share frozen before the LP-owned remainder is split between
+    /// claimable yield and native reserve compounding.
+    pub protocol_fee_bps: u16,
 }
 
 pub(crate) fn enforce_launch_same_transaction_guard(
@@ -150,8 +153,7 @@ impl PreparedSwap {
     ) -> Result<FinalizedSwapState> {
         let quote = self.quote;
         let fee_asset = MarketAsset::try_from_code(quote.fee.fee_asset)?;
-        let (base_fee_credit, distributed_surcharge_credit) =
-            split_claimable_fee_credit(&quote.fee, quote.fee.claimable_fee_debit)?;
+        require_eq!(quote.fee.protocol_fee_bps, protocol_fee_bps, ErrorCode::BrokenInvariant);
         if fee_asset == quote.asset_in {
             require_eq!(quote.amount_out, quote.gross_amount_out, ErrorCode::BrokenInvariant);
             require_eq!(
@@ -160,6 +162,7 @@ impl PreparedSwap {
                     .fee
                     .amount_in_for_quote
                     .checked_add(quote.fee.retained_surcharge)
+                    .and_then(|value| value.checked_add(quote.fee.compounded_fee_debit))
                     .ok_or(ErrorCode::ReserveOverflow)?,
                 ErrorCode::BrokenInvariant
             );
@@ -180,6 +183,7 @@ impl PreparedSwap {
                     .amount_out
                     .checked_add(quote.fee.claimable_fee_debit)
                     .and_then(|value| value.checked_add(quote.fee.retained_surcharge))
+                    .and_then(|value| value.checked_add(quote.fee.compounded_fee_debit))
                     .ok_or(ErrorCode::MarketMathOverflow)?,
                 quote.gross_amount_out,
                 ErrorCode::BrokenInvariant
@@ -192,15 +196,31 @@ impl PreparedSwap {
                 quote.gross_amount_out,
                 ErrorCode::InsufficientLiquidity
             );
-            side_in.credit_reserve(quote.fee.amount_in_for_quote, true)?;
+            side_in.credit_reserve(
+                quote
+                    .fee
+                    .amount_in_for_quote
+                    .checked_add(if fee_asset == quote.asset_in {
+                        quote.fee.compounded_fee_debit
+                    } else {
+                        0
+                    })
+                    .ok_or(ErrorCode::ReserveOverflow)?,
+                true,
+            )?;
             side_out.debit_reserve(quote.gross_amount_out, true)?;
+            if fee_asset == quote.asset_in.opposite() && quote.fee.compounded_fee_debit > 0 {
+                side_out.credit_reserve(quote.fee.compounded_fee_debit, true)?;
+            }
         }
 
         // Fee ownership is frozen before hLP-owned yLP is reconstructed.
         {
-            market.side_mut(fee_asset).record_claimable_swap_fees(
-                base_fee_credit,
-                distributed_surcharge_credit,
+            market.side_mut(fee_asset).record_swap_fee_allocation(
+                quote.fee.base_fee_debit,
+                quote.fee.distributed_surcharge_debit,
+                quote.fee.compounded_base_fee_debit,
+                quote.fee.compounded_dynamic_surcharge_debit,
                 protocol_fee_bps,
                 protocol_auction_split,
                 self.fee_eligible_ylp_supply,
@@ -213,9 +233,12 @@ impl PreparedSwap {
             market.credit_protected_recenter_reserve(fee_asset, quote.fee.retained_surcharge)?;
         }
         let (base_rebalance, quote_rebalance) = transition.consume(market)?;
+        if quote.fee.compounded_fee_debit > 0 {
+            market.checkpoint_amm_neutral_inventory_raw(current_slot)?;
+        }
         market.finalize_amm_trade_after_inventory_checkpoint(
             quote.start_price_nad,
-            quote.reserve_end_price_nad,
+            quote.end_price_nad,
             current_slot,
         )?;
         let q_nad = market
@@ -285,6 +308,7 @@ impl SwapRequest {
                 self.reserve_credit,
                 preliminary,
                 integrated_start,
+                self.protocol_fee_bps,
             )?
             .ok_or(ErrorCode::BrokenInvariant)?;
         if cash_policy == SwapCashPolicy::Spot {
@@ -337,9 +361,17 @@ pub(crate) fn rebalance_executes_token_changes(receipt: &HlpRebalanceReceipt) ->
 }
 
 pub(crate) fn split_claimable_fee_credit(fee: &SwapFeeBreakdown, total_credit: u64) -> Result<(u64, u64)> {
+    let claimable_base_fee = fee
+        .base_fee_debit
+        .checked_sub(fee.compounded_base_fee_debit)
+        .ok_or(ErrorCode::FeeMathOverflow)?;
+    let claimable_dynamic_surcharge = fee
+        .distributed_surcharge_debit
+        .checked_sub(fee.compounded_dynamic_surcharge_debit)
+        .ok_or(ErrorCode::FeeMathOverflow)?;
     require_eq!(
-        fee.base_fee_debit
-            .checked_add(fee.distributed_surcharge_debit)
+        claimable_base_fee
+            .checked_add(claimable_dynamic_surcharge)
             .ok_or(ErrorCode::FeeMathOverflow)?,
         fee.claimable_fee_debit,
         ErrorCode::BrokenInvariant
@@ -351,7 +383,7 @@ pub(crate) fn split_claimable_fee_credit(fee: &SwapFeeBreakdown, total_credit: u
     }
     let base_credit = u64::try_from(
         (total_credit as u128)
-            .checked_mul(fee.base_fee_debit as u128)
+            .checked_mul(claimable_base_fee as u128)
             .and_then(|value| value.checked_div(fee.claimable_fee_debit as u128))
             .ok_or(ErrorCode::FeeMathOverflow)?,
     )

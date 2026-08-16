@@ -149,6 +149,7 @@ impl<'info> IncreaseLeverage<'info> {
                 current_unix_timestamp,
                 asset_in: debt_asset,
                 reserve_credit: args.debt_amount,
+                protocol_fee_bps: ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             },
             SwapCashPolicy::Borrow {
                 asset: debt_asset,

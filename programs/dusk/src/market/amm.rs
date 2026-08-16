@@ -4,12 +4,12 @@ use crate::{
     constants::{BPS_DENOMINATOR, MIN_LIQUIDITY, NAD},
     errors::ErrorCode,
     math::{
-        asymptotic_scaled_rate_nad, ceil_div, decay_volatility_nad, denormalize_from_nad_floor,
-        effective_rate_floor_nad, gross_fee_budget_floor, gross_path_divergence_fee_raw, hard_total_fee_budget_floor,
-        minimum_executable_input, mul_div_u128, normalize_to_nad, prepare_explicit_cache_at_point,
-        quote_integrated_exact_in_with_frozen_fee, validate_fee_share_caps, volatility_after_success_nad,
-        DynamicFeeConfig, DynamicFeePreState, DynamicFeeQuote, ExplicitCurveGeometry, ExplicitCurvePoint,
-        IntegratedCurveState, IntegratedFrozenFeeQuote, IntegratedSwapDirection,
+        apply_compounded_ylp_fee, asymptotic_scaled_rate_nad, ceil_div, decay_volatility_nad,
+        denormalize_from_nad_floor, effective_rate_floor_nad, gross_fee_budget_floor, gross_path_divergence_fee_raw,
+        hard_total_fee_budget_floor, minimum_executable_input, mul_div_u128, normalize_to_nad,
+        prepare_explicit_cache_at_point, quote_integrated_exact_in_with_frozen_fee, validate_fee_share_caps,
+        volatility_after_success_nad, DynamicFeeConfig, DynamicFeePreState, DynamicFeeQuote, ExplicitCurveGeometry,
+        ExplicitCurvePoint, IntegratedCurveState, IntegratedFrozenFeeQuote, IntegratedSwapDirection,
     },
     state::market::{
         AmmState, Debt, DeferredControllerTarget, Market, MarketAsset, PROTECTED_LIQUIDITY_COVERAGE_BPS,
@@ -791,12 +791,14 @@ impl Market {
         asset_in: MarketAsset,
         reserve_credit: u64,
         preliminary: PreliminarySwapInputs,
+        protocol_fee_bps: u16,
     ) -> Result<Option<ExplicitIntegratedAmmQuote>> {
         self.quote_explicit_integrated_with_fee_from_state(
             asset_in,
             reserve_credit,
             preliminary,
             self.integrated_curve_state_nad()?,
+            protocol_fee_bps,
         )
     }
 
@@ -806,6 +808,7 @@ impl Market {
         reserve_credit: u64,
         preliminary: PreliminarySwapInputs,
         state: IntegratedCurveState,
+        protocol_fee_bps: u16,
     ) -> Result<Option<ExplicitIntegratedAmmQuote>> {
         let Some(geometry) = self.current_explicit_curve_geometry()? else {
             return Ok(None);
@@ -859,7 +862,7 @@ impl Market {
         } else {
             0
         };
-        let integrated = quote_integrated_exact_in_with_frozen_fee(
+        let mut integrated = quote_integrated_exact_in_with_frozen_fee(
             state,
             geometry,
             gross_curve_input_nad,
@@ -927,13 +930,35 @@ impl Market {
         } else {
             reserve_credit
         };
-        let claimable_fee_debit = dynamic
-            .base_fee_amount
-            .checked_add(distributed_surcharge_debit)
+        let fee_allocation = split_compounded_swap_fee(
+            dynamic.base_fee_amount,
+            distributed_surcharge_debit,
+            protocol_fee_bps,
+            self.config.amm.compounding_fee_bps,
+        )?;
+        let claimable_fee_debit = fee_allocation
+            .claimable_base_fee
+            .checked_add(fee_allocation.claimable_dynamic_surcharge)
             .ok_or(ErrorCode::FeeMathOverflow)?;
+        let compounded_fee_debit = fee_allocation
+            .compounded_base_fee
+            .checked_add(fee_allocation.compounded_dynamic_surcharge)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        if compounded_fee_debit > 0 {
+            apply_compounded_ylp_fee(
+                state,
+                &mut integrated,
+                fee_asset == MarketAsset::Base,
+                normalize_to_nad(compounded_fee_debit as u128, self.side(fee_asset).asset_decimals)?,
+                self.side(fee_asset).shares.ylp_supply,
+                self.base_hlp_vault.ylp_shares,
+                self.quote_hlp_vault.ylp_shares,
+            )?;
+        }
         let reserve_input_credit = if fees_on_input {
             amount_in_for_quote
                 .checked_add(retained_surcharge)
+                .and_then(|value| value.checked_add(compounded_fee_debit))
                 .ok_or(ErrorCode::ReserveOverflow)?
         } else {
             reserve_credit
@@ -959,20 +984,38 @@ impl Market {
                 amount_out
                     .checked_add(claimable_fee_debit)
                     .and_then(|value| value.checked_add(retained_surcharge))
+                    .and_then(|value| value.checked_add(compounded_fee_debit))
                     .ok_or(ErrorCode::MarketMathOverflow)?,
                 gross_amount_out,
                 ErrorCode::BrokenInvariant
             );
         }
-        // Retained surcharge is physically present but belongs to the
-        // protected recenter bucket, not to executable reserves. Therefore it
-        // cannot change this swap's endpoint, the next quote, hLP ownership,
-        // or a yLP withdrawal claim. A later funded recenter deploys it once.
-        let reserve_end_price_nad = end_price_nad;
+        // Retained surcharge remains outside executable reserves. Compounded
+        // LP fees are instead ordinary principal, so they rebase the same
+        // tail+band parameters through the post-fee reserve point.
+        let reserve_end_price_nad = if compounded_fee_debit == 0 {
+            end_price_nad
+        } else {
+            let compounded_cache = prepare_explicit_cache_at_point(
+                integrated.executable.end.ordinary_base,
+                integrated.executable.end.ordinary_quote,
+                self.current_curve_center_price_nad()?,
+                self.config.amm.explicit_curve_parameters()?,
+            )?;
+            u64::try_from(
+                compounded_cache
+                    .geometry()?
+                    .spot_price_nad_prevalidated(ExplicitCurvePoint {
+                        base_reserve: integrated.executable.end.ordinary_base,
+                        quote_reserve: integrated.executable.end.ordinary_quote,
+                    })?,
+            )
+            .map_err(|_| ErrorCode::MarketMathOverflow)?
+        };
         let post_success_volatility_nad = volatility_after_success_nad(
             dynamic.decayed_volatility_nad,
             start_price_nad,
-            reserve_end_price_nad,
+            end_price_nad,
             self.config.amm.volatility_shock_cap_nad,
             self.config.amm.volatility_cap_nad,
         )?;
@@ -996,9 +1039,13 @@ impl Market {
                 total_fee_debit: dynamic.total_fee_amount,
                 retained_surcharge,
                 distributed_surcharge_debit,
+                compounded_base_fee_debit: fee_allocation.compounded_base_fee,
+                compounded_dynamic_surcharge_debit: fee_allocation.compounded_dynamic_surcharge,
+                compounded_fee_debit,
                 amount_in_for_quote,
                 reserve_input_credit,
                 claimable_fee_debit,
+                protocol_fee_bps,
                 base_fee_rate_nad: dynamic.base_rate_nad,
                 divergence_fee_rate_nad: dynamic.divergence_rate_nad,
                 volatility_fee_rate_nad: dynamic.volatility_rate_nad,
@@ -1147,13 +1194,63 @@ pub struct SwapFeeBreakdown {
     pub total_fee_debit: u64,
     pub retained_surcharge: u64,
     pub distributed_surcharge_debit: u64,
+    /// LP-owned base-fee atoms converted into ordinary reserve principal.
+    pub compounded_base_fee_debit: u64,
+    /// LP-owned distributed-surcharge atoms converted into principal.
+    pub compounded_dynamic_surcharge_debit: u64,
+    pub compounded_fee_debit: u64,
     pub amount_in_for_quote: u64,
     pub reserve_input_credit: u64,
     pub claimable_fee_debit: u64,
+    /// Global protocol share frozen into this quote before compounding.
+    pub protocol_fee_bps: u16,
     pub base_fee_rate_nad: u64,
     pub divergence_fee_rate_nad: u64,
     pub volatility_fee_rate_nad: u64,
     pub total_fee_rate_nad: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct CompoundedSwapFeeAllocation {
+    claimable_base_fee: u64,
+    claimable_dynamic_surcharge: u64,
+    compounded_base_fee: u64,
+    compounded_dynamic_surcharge: u64,
+}
+
+fn fee_bps_floor(amount: u64, bps: u16) -> Result<u64> {
+    require_gte!(BPS_DENOMINATOR, bps, ErrorCode::InvalidMarketConfig);
+    u64::try_from(
+        (amount as u128)
+            .checked_mul(bps as u128)
+            .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
+            .ok_or(ErrorCode::FeeMathOverflow)?,
+    )
+    .map_err(|_| ErrorCode::FeeMathOverflow.into())
+}
+
+/// Protocol revenue remains claimable. Only the LP-owned remainder of the
+/// base fee and the distributed dynamic surcharge may become pool principal.
+fn split_compounded_swap_fee(
+    base_fee: u64,
+    distributed_dynamic_surcharge: u64,
+    protocol_fee_bps: u16,
+    compounding_fee_bps: u16,
+) -> Result<CompoundedSwapFeeAllocation> {
+    let protocol_fee = fee_bps_floor(base_fee, protocol_fee_bps)?;
+    let base_lp_fee = base_fee.checked_sub(protocol_fee).ok_or(ErrorCode::FeeMathOverflow)?;
+    let compounded_base_fee = fee_bps_floor(base_lp_fee, compounding_fee_bps)?;
+    let compounded_dynamic_surcharge = fee_bps_floor(distributed_dynamic_surcharge, compounding_fee_bps)?;
+    Ok(CompoundedSwapFeeAllocation {
+        claimable_base_fee: base_fee
+            .checked_sub(compounded_base_fee)
+            .ok_or(ErrorCode::FeeMathOverflow)?,
+        claimable_dynamic_surcharge: distributed_dynamic_surcharge
+            .checked_sub(compounded_dynamic_surcharge)
+            .ok_or(ErrorCode::FeeMathOverflow)?,
+        compounded_base_fee,
+        compounded_dynamic_surcharge,
+    })
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

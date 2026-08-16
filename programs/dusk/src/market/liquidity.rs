@@ -5,9 +5,8 @@ use crate::{
     errors::ErrorCode,
     math::{
         apply_hlp_recovery_bonus, denormalize_from_nad_ceil, denormalize_from_nad_floor, hlp_opposite_exposure_nad,
-        mul_div_u128, normalize_to_nad, quote_hlp_recovery, ratio_lte_full_width, reconstruct_hlp_endpoint,
-        reconstruct_hlp_ownership, ExplicitCurveDirection, ExplicitCurvePoint, HlpInventoryValuesNad,
-        IntegratedCurveState,
+        mul_div_u128, normalize_to_nad, quote_hlp_recovery, ratio_lte_full_width, reconstruct_hlp_ownership,
+        ExplicitCurveDirection, ExplicitCurvePoint, HlpInventoryValuesNad, IntegratedCurveState,
     },
     state::{Debt, Market, MarketAsset},
 };
@@ -718,7 +717,7 @@ pub(crate) fn prepare_explicit_hlp_transition_at_current_state(market: &Market) 
 
 fn prepare_explicit_hlp_transition_from_end(
     market: &Market,
-    mut end: IntegratedCurveState,
+    end: IntegratedCurveState,
     preserve_current_ordinary_reserves: bool,
     certify_proportional_claim: bool,
 ) -> Result<ExplicitHlpTransition> {
@@ -742,9 +741,10 @@ fn prepare_explicit_hlp_transition_from_end(
         .checked_sub(market.base_hlp_vault.ylp_shares)
         .and_then(|value| value.checked_sub(market.quote_hlp_vault.ylp_shares))
         .ok_or(ErrorCode::BrokenInvariant)?;
-    let endpoint = reconstruct_hlp_endpoint(end)?;
-    end.base_hlp_quote_debt = endpoint.base_hlp_quote_debt;
-    end.quote_hlp_base_debt = endpoint.quote_hlp_base_debt;
+    // The integrated quote carries its canonical, atom-rounded debts. This is
+    // especially important after fee compounding: recomputing them from the
+    // derived ordinary tranche can lose a few reserve atoms.
+    let endpoint = crate::math::hlp_integrated::materialized_hlp_endpoint(end)?;
     let ownership = reconstruct_hlp_ownership(
         ordinary_supply,
         end.ordinary_base,

@@ -15,6 +15,7 @@ fn indexer_receipts_remain_compact() {
         divergence_fee: 5,
         volatility_fee: 6,
         retained_fee: 7,
+        compounded_fee: 0,
         hlp_recovery_target_asset: 0,
         hlp_recovery_funding_gap: 0,
         hlp_recovery_matched_input: 0,
@@ -35,6 +36,7 @@ fn indexer_receipts_remain_compact() {
         divergence_fee: 5,
         volatility_fee: 6,
         retained_fee: 7,
+        compounded_fee: 0,
         claimable_fee_credit: 8,
         base_live_reserve: 9,
         quote_live_reserve: 10,
@@ -105,8 +107,8 @@ fn indexer_receipts_remain_compact() {
         remaining_debt: 7,
     };
 
-    assert_eq!(SwapExecuted::DISCRIMINATOR.len() + swap.try_to_vec().unwrap().len(), 182);
-    assert_eq!(leverage_swap.try_to_vec().unwrap().len(), 90);
+    assert_eq!(SwapExecuted::DISCRIMINATOR.len() + swap.try_to_vec().unwrap().len(), 190);
+    assert_eq!(leverage_swap.try_to_vec().unwrap().len(), 98);
     assert_eq!(
         LiquidityAdded::DISCRIMINATOR.len() + liquidity_added.try_to_vec().unwrap().len(),
         192

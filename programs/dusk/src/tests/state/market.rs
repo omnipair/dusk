@@ -1101,6 +1101,26 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
 }
 
 #[test]
+fn fee_compounding_rate_is_governed_from_zero_through_one_hundred_percent() {
+    let config = invariant_market(1_000_000, 1_000_000).config;
+    for compounding_fee_bps in [0, 4_000, BPS_DENOMINATOR] {
+        let mut profile = config.fee_profile();
+        profile.compounding_fee_bps = compounding_fee_bps;
+        profile.validate().unwrap();
+        let mut updated = config;
+        updated.apply_fee_profile(profile).unwrap();
+        assert_eq!(updated.amm.compounding_fee_bps, compounding_fee_bps);
+    }
+
+    let mut invalid = config.fee_profile();
+    invalid.compounding_fee_bps = BPS_DENOMINATOR + 1;
+    assert_eq!(
+        invalid.validate().unwrap_err(),
+        anchor_lang::prelude::error!(ErrorCode::InvalidMarketConfig)
+    );
+}
+
+#[test]
 fn concentration_execution_reconstructs_the_selected_explicit_shape() {
     let mut market = invariant_market(1_000_000, 1_000_000);
     market.finalize_amm_transition_and_observe_risk(1).unwrap();

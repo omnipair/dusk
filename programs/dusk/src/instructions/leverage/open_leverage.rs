@@ -226,6 +226,7 @@ impl<'info> OpenLeverage<'info> {
                 current_unix_timestamp: unix_timestamp,
                 asset_in: debt_asset,
                 reserve_credit: notional,
+                protocol_fee_bps: ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             },
             SwapCashPolicy::Borrow {
                 asset: debt_asset,

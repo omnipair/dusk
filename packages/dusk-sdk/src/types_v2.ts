@@ -9525,6 +9525,15 @@ export type Dusk = {
             "type": "u8"
           },
           {
+            "name": "compoundingFeeBps",
+            "docs": [
+              "Share of the LP-owned swap fee which becomes ordinary reserve",
+              "principal instead of a claimable fee liability. Zero disables native",
+              "compounding; `BPS_DENOMINATOR` compounds the complete LP share."
+            ],
+            "type": "u16"
+          },
+          {
             "name": "launchFeeStartBps",
             "docs": [
               "Optional launch-only base fee. The premium above `swap_fee_bps`",
@@ -10552,6 +10561,10 @@ export type Dusk = {
           {
             "name": "swapFeeCollectMode",
             "type": "u8"
+          },
+          {
+            "name": "compoundingFeeBps",
+            "type": "u16"
           },
           {
             "name": "launchFeeStartBps",
@@ -11826,6 +11839,10 @@ export type Dusk = {
           },
           {
             "name": "retainedFee",
+            "type": "u64"
+          },
+          {
+            "name": "compoundedFee",
             "type": "u64"
           },
           {
@@ -14722,6 +14739,13 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "compoundedFee",
+            "docs": [
+              "LP-owned fee compounded into reserve principal."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "hlpRecoveryTargetAsset",
             "docs": [
               "Extra output funded by deleveraging the stressed hLP."
@@ -14853,6 +14877,17 @@ export type Dusk = {
           {
             "name": "claimableFeeDebit",
             "type": "u64"
+          },
+          {
+            "name": "compoundedFeeDebit",
+            "docs": [
+              "LP-owned fee converted into reserve principal at the configured rate."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "compoundingFeeBps",
+            "type": "u16"
           },
           {
             "name": "amountInForQuote",
@@ -15602,7 +15637,7 @@ export type Dusk = {
         "deployment, never for ordinary feature work or product naming."
       ],
       "type": "u8",
-      "value": "2"
+      "value": "3"
     },
     {
       "name": "marketReserveVaultSeedPrefix",

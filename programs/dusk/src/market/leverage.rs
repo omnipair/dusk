@@ -554,9 +554,13 @@ impl LeverageSwapFeeCredit {
             require_eq!(total_credit, 0, ErrorCode::BrokenInvariant);
             return Ok(Self::default());
         }
+        let claimable_base_fee = fee
+            .base_fee_debit
+            .checked_sub(fee.compounded_base_fee_debit)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
         let base = u64::try_from(
             (total_credit as u128)
-                .checked_mul(fee.base_fee_debit as u128)
+                .checked_mul(claimable_base_fee as u128)
                 .and_then(|value| value.checked_div(fee.claimable_fee_debit as u128))
                 .ok_or(ErrorCode::FeeMathOverflow)?,
         )
@@ -764,7 +768,7 @@ impl Market {
             pre_state,
         )?;
         let quote = self
-            .quote_explicit_integrated_with_fee(asset_in, amount_in, preliminary)?
+            .quote_explicit_integrated_with_fee(asset_in, amount_in, preliminary, 0)?
             .ok_or(ErrorCode::BrokenInvariant)?
             .as_swap_quote(asset_in);
         Ok(LeverageSwapQuote::from_amm(quote, current_slot))
@@ -793,6 +797,36 @@ impl Market {
         );
         require_eq!(fee.claimable_fee_debit, quote.fee_credit, ErrorCode::BrokenInvariant);
         require_eq!(fee.gross_amount_out, quote.gross_amount_out, ErrorCode::BrokenInvariant);
+        require_gte!(BPS_DENOMINATOR, fee.protocol_fee_bps, ErrorCode::BrokenInvariant);
+        require_eq!(
+            fee.compounded_base_fee_debit
+                .checked_add(fee.compounded_dynamic_surcharge_debit)
+                .ok_or(ErrorCode::FeeMathOverflow)?,
+            fee.compounded_fee_debit,
+            ErrorCode::BrokenInvariant
+        );
+        require_gte!(
+            fee.base_fee_debit,
+            fee.compounded_base_fee_debit,
+            ErrorCode::BrokenInvariant
+        );
+        require_gte!(
+            fee.distributed_surcharge_debit,
+            fee.compounded_dynamic_surcharge_debit,
+            ErrorCode::BrokenInvariant
+        );
+        require_eq!(
+            fee.base_fee_debit
+                .checked_sub(fee.compounded_base_fee_debit)
+                .and_then(|value| {
+                    fee.distributed_surcharge_debit
+                        .checked_sub(fee.compounded_dynamic_surcharge_debit)
+                        .and_then(|dynamic| value.checked_add(dynamic))
+                })
+                .ok_or(ErrorCode::FeeMathOverflow)?,
+            fee.claimable_fee_debit,
+            ErrorCode::BrokenInvariant
+        );
         require_eq!(
             fee.base_fee_debit
                 .checked_add(fee.dynamic_surcharge_debit)
@@ -848,6 +882,7 @@ impl Market {
                     .amount_out
                     .checked_add(fee.claimable_fee_debit)
                     .and_then(|value| value.checked_add(fee.retained_surcharge))
+                    .and_then(|value| value.checked_add(fee.compounded_fee_debit))
                     .ok_or(ErrorCode::FeeMathOverflow)?,
                 quote.gross_amount_out,
                 ErrorCode::BrokenInvariant
@@ -900,9 +935,12 @@ impl Market {
                 .ok_or(ErrorCode::BrokenInvariant)?
         };
         let (base, quote) = transition.consume(self)?;
+        if prepared_swap.swap.fee_breakdown.compounded_fee_debit > 0 {
+            self.checkpoint_amm_neutral_inventory_raw(current_slot)?;
+        }
         self.finalize_amm_trade_after_inventory_checkpoint(
             prepared_swap.swap.start_price_nad,
-            prepared_swap.swap.reserve_end_price_nad,
+            prepared_swap.swap.end_price_nad,
             current_slot,
         )?;
         let q_nad = self
@@ -1567,24 +1605,44 @@ impl Market {
         current_slot: u64,
         current_unix_timestamp: i64,
     ) -> Result<AmmSwapQuote> {
-        require_eq!(
-            swap.fee_breakdown.reserve_input_credit,
-            swap.fee_breakdown
-                .amount_in_for_quote
-                .checked_add(swap.fee_breakdown.retained_surcharge)
-                .ok_or(ErrorCode::ReserveOverflow)?,
-            ErrorCode::BrokenInvariant
-        );
         require!(swap.explicit_curve, ErrorCode::BrokenInvariant);
         let mut state = self.integrated_curve_state_nad()?;
-        let input_nad = normalize_to_nad(
-            swap.fee_breakdown.reserve_input_credit as u128,
-            self.side(asset_in).asset_decimals,
-        )?;
-        let output_nad = normalize_to_nad(
-            swap.gross_amount_out as u128,
-            self.side(asset_in.opposite()).asset_decimals,
-        )?;
+        let fee_asset = MarketAsset::try_from_code(swap.fee_breakdown.fee_asset)?;
+        if fee_asset == asset_in {
+            require_eq!(
+                swap.fee_breakdown.reserve_input_credit,
+                swap.fee_breakdown
+                    .amount_in_for_quote
+                    .checked_add(swap.fee_breakdown.retained_surcharge)
+                    .and_then(|value| value.checked_add(swap.fee_breakdown.compounded_fee_debit))
+                    .ok_or(ErrorCode::ReserveOverflow)?,
+                ErrorCode::BrokenInvariant
+            );
+        } else {
+            require_eq!(
+                swap.fee_breakdown.reserve_input_credit,
+                swap.fee_breakdown.amount_in_for_quote,
+                ErrorCode::BrokenInvariant
+            );
+        }
+        let input_principal = swap
+            .amount_in_after_fee
+            .checked_add(if fee_asset == asset_in {
+                swap.fee_breakdown.compounded_fee_debit
+            } else {
+                0
+            })
+            .ok_or(ErrorCode::ReserveOverflow)?;
+        let output_principal = swap
+            .gross_amount_out
+            .checked_sub(if fee_asset == asset_in.opposite() {
+                swap.fee_breakdown.compounded_fee_debit
+            } else {
+                0
+            })
+            .ok_or(ErrorCode::ReserveUnderflow)?;
+        let input_nad = normalize_to_nad(input_principal as u128, self.side(asset_in).asset_decimals)?;
+        let output_nad = normalize_to_nad(output_principal as u128, self.side(asset_in.opposite()).asset_decimals)?;
         match asset_in {
             MarketAsset::Base => {
                 state.ordinary_base = state
@@ -1623,7 +1681,13 @@ impl Market {
             pre_state,
         )?;
         let quote = self
-            .quote_explicit_integrated_with_fee_from_state(collateral_asset, collateral_amount, preliminary, state)?
+            .quote_explicit_integrated_with_fee_from_state(
+                collateral_asset,
+                collateral_amount,
+                preliminary,
+                state,
+                swap.fee_breakdown.protocol_fee_bps,
+            )?
             .ok_or(ErrorCode::BrokenInvariant)?;
         Ok(quote.as_swap_quote(collateral_asset))
     }
@@ -1645,6 +1709,7 @@ impl Market {
                 swap.reserve_input_credit,
                 swap.amount_in_after_fee
                     .checked_add(swap.fee_breakdown.retained_surcharge)
+                    .and_then(|value| value.checked_add(swap.fee_breakdown.compounded_fee_debit))
                     .ok_or(ErrorCode::ReserveOverflow)?,
                 ErrorCode::BrokenInvariant
             );
@@ -1657,9 +1722,30 @@ impl Market {
         // retained principal identically for execution and predictive scratch.
         require!(swap.explicit_curve, ErrorCode::BrokenInvariant);
 
-        let fees = self.side_mut(fee_asset).record_claimable_swap_fees(
-            swap_fee_credit.base,
-            swap_fee_credit.distributed_surcharge,
+        if swap.fee_breakdown.compounded_fee_debit > 0 {
+            self.side_mut(fee_asset)
+                .credit_reserve(swap.fee_breakdown.compounded_fee_debit, true)?;
+        }
+
+        let actual_claimable_credit = swap_fee_credit
+            .base
+            .checked_add(swap_fee_credit.distributed_surcharge)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        require_eq!(
+            actual_claimable_credit,
+            swap.fee_breakdown.claimable_fee_debit,
+            ErrorCode::BrokenInvariant
+        );
+        require_eq!(
+            swap.fee_breakdown.protocol_fee_bps,
+            protocol_fee_bps,
+            ErrorCode::BrokenInvariant
+        );
+        let fees = self.side_mut(fee_asset).record_swap_fee_allocation(
+            swap.fee_breakdown.base_fee_debit,
+            swap.fee_breakdown.distributed_surcharge_debit,
+            swap.fee_breakdown.compounded_base_fee_debit,
+            swap.fee_breakdown.compounded_dynamic_surcharge_debit,
             protocol_fee_bps,
             protocol_auction_split,
             fee_eligible_ylp_supply,

@@ -9519,6 +9519,15 @@
             "type": "u8"
           },
           {
+            "name": "compounding_fee_bps",
+            "docs": [
+              "Share of the LP-owned swap fee which becomes ordinary reserve",
+              "principal instead of a claimable fee liability. Zero disables native",
+              "compounding; `BPS_DENOMINATOR` compounds the complete LP share."
+            ],
+            "type": "u16"
+          },
+          {
             "name": "launch_fee_start_bps",
             "docs": [
               "Optional launch-only base fee. The premium above `swap_fee_bps`",
@@ -10546,6 +10555,10 @@
           {
             "name": "swap_fee_collect_mode",
             "type": "u8"
+          },
+          {
+            "name": "compounding_fee_bps",
+            "type": "u16"
           },
           {
             "name": "launch_fee_start_bps",
@@ -11820,6 +11833,10 @@
           },
           {
             "name": "retained_fee",
+            "type": "u64"
+          },
+          {
+            "name": "compounded_fee",
             "type": "u64"
           },
           {
@@ -14716,6 +14733,13 @@
             "type": "u64"
           },
           {
+            "name": "compounded_fee",
+            "docs": [
+              "LP-owned fee compounded into reserve principal."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "hlp_recovery_target_asset",
             "docs": [
               "Extra output funded by deleveraging the stressed hLP."
@@ -14847,6 +14871,17 @@
           {
             "name": "claimable_fee_debit",
             "type": "u64"
+          },
+          {
+            "name": "compounded_fee_debit",
+            "docs": [
+              "LP-owned fee converted into reserve principal at the configured rate."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "compounding_fee_bps",
+            "type": "u16"
           },
           {
             "name": "amount_in_for_quote",
@@ -15596,7 +15631,7 @@
         "deployment, never for ordinary feature work or product naming."
       ],
       "type": "u8",
-      "value": "2"
+      "value": "3"
     },
     {
       "name": "MARKET_RESERVE_VAULT_SEED_PREFIX",

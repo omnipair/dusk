@@ -274,6 +274,7 @@ fn preview_and_execution_use_identical_state_plans() {
         current_unix_timestamp: 0,
         asset_in: MarketAsset::Base,
         reserve_credit: 50_000,
+        protocol_fee_bps: 0,
     };
 
     let preview = context.prepare(&mut preview_market).unwrap();
@@ -300,6 +301,7 @@ fn launch_fee_is_applied_to_the_real_quote_and_decays_to_the_normal_fee() {
         current_unix_timestamp: 1_000,
         asset_in: MarketAsset::Base,
         reserve_credit: 35_000,
+        protocol_fee_bps: 0,
     }
     .prepare(&mut market.clone())
     .unwrap();
@@ -308,6 +310,7 @@ fn launch_fee_is_applied_to_the_real_quote_and_decays_to_the_normal_fee() {
         current_unix_timestamp: 1_100,
         asset_in: MarketAsset::Base,
         reserve_credit: 35_000,
+        protocol_fee_bps: 0,
     }
     .prepare(&mut market)
     .unwrap();
@@ -331,6 +334,7 @@ fn launch_buy_size_limiter_charges_only_the_configured_buy_direction() {
         current_unix_timestamp: 1_000,
         asset_in: MarketAsset::Quote,
         reserve_credit: 35_000,
+        protocol_fee_bps: 0,
     }
     .prepare(&mut market.clone())
     .unwrap();
@@ -339,6 +343,7 @@ fn launch_buy_size_limiter_charges_only_the_configured_buy_direction() {
         current_unix_timestamp: 1_000,
         asset_in: MarketAsset::Base,
         reserve_credit: 35_000,
+        protocol_fee_bps: 0,
     }
     .prepare(&mut market)
     .unwrap();
@@ -380,6 +385,7 @@ fn concentrated_hlp_preview_and_execution_share_the_same_accepted_plan_in_both_d
             current_unix_timestamp: 0,
             asset_in,
             reserve_credit,
+            protocol_fee_bps: 2_500,
         };
         let mut preview_market = market.clone();
         let preview = request.prepare(&mut preview_market).unwrap();
@@ -425,6 +431,7 @@ fn stressed_hlp_recovery_improves_the_matching_swap_and_restores_the_hedge() {
         current_unix_timestamp: 0,
         asset_in: MarketAsset::Quote,
         reserve_credit: 350_000,
+        protocol_fee_bps: 2_500,
     };
     let mut healthy_quote_market = healthy;
     let healthy_prepared = request.prepare(&mut healthy_quote_market).unwrap();
@@ -496,6 +503,7 @@ fn explicit_spot_reconstructs_both_hlps_without_solver_cells() {
         current_unix_timestamp: 0,
         asset_in: MarketAsset::Base,
         reserve_credit: 35_000,
+        protocol_fee_bps: 2_500,
     }
     .prepare(&mut market)
     .unwrap();
@@ -540,6 +548,112 @@ fn explicit_spot_reconstructs_both_hlps_without_solver_cells() {
 }
 
 #[test]
+fn forty_percent_fee_compounding_is_native_to_cpmm_and_concentrated_swaps() {
+    let protocol_split = crate::state::ProtocolAuctionSplit {
+        fee_auction_bps: 6_000,
+        buyback_auction_bps: 4_000,
+    };
+    let curve_parameters = [
+        ExplicitCurveParameters::cpmm(),
+        ExplicitCurveParameters {
+            range_width_nad: 4 * NAD,
+            concentrated_liquidity_share_nad: NAD / 2,
+        },
+    ];
+
+    for parameters in curve_parameters {
+        for fee_mode in [
+            crate::state::SWAP_FEE_COLLECT_INPUT_ASSET,
+            crate::state::SWAP_FEE_COLLECT_QUOTE_ONLY,
+        ] {
+            let mut baseline = active_concentrated_preview_market();
+            baseline.config.amm.set_explicit_curve_parameters(parameters).unwrap();
+            baseline.config.amm.swap_fee_collect_mode = fee_mode;
+            baseline.config.amm.compounding_fee_bps = 0;
+            baseline.amm = crate::state::AmmState::default();
+            baseline.prepare_amm_for_swap(1).unwrap();
+            let mut compounded = baseline.clone();
+            compounded.config.amm.compounding_fee_bps = 4_000;
+            let request = SwapRequest {
+                current_slot: 1,
+                current_unix_timestamp: 0,
+                asset_in: MarketAsset::Base,
+                reserve_credit: 350_000,
+                protocol_fee_bps: 2_500,
+            };
+
+            let baseline_prepared = request.prepare(&mut baseline).unwrap();
+            let compounded_prepared = request.prepare(&mut compounded).unwrap();
+            let baseline_quote = baseline_prepared.quote;
+            let compounded_quote = compounded_prepared.quote;
+            assert_eq!(compounded_quote.amount_out, baseline_quote.amount_out);
+            assert_eq!(compounded_quote.gross_amount_out, baseline_quote.gross_amount_out);
+            assert_eq!(compounded_quote.fee.base_fee_debit, baseline_quote.fee.base_fee_debit);
+            assert_eq!(compounded_quote.fee.dynamic_surcharge_debit, baseline_quote.fee.dynamic_surcharge_debit);
+
+            let protocol_fee = baseline_quote.fee.base_fee_debit as u128 * 2_500 / BPS_DENOMINATOR as u128;
+            let lp_base_fee = baseline_quote.fee.base_fee_debit as u128 - protocol_fee;
+            let expected_compounded_base = lp_base_fee * 4_000 / BPS_DENOMINATOR as u128;
+            let expected_compounded_dynamic =
+                baseline_quote.fee.distributed_surcharge_debit as u128 * 4_000 / BPS_DENOMINATOR as u128;
+            let expected_compounded = u64::try_from(expected_compounded_base + expected_compounded_dynamic).unwrap();
+            assert!(expected_compounded > 0);
+            assert_eq!(compounded_quote.fee.compounded_fee_debit, expected_compounded);
+            assert_eq!(
+                baseline_quote.fee.claimable_fee_debit - compounded_quote.fee.claimable_fee_debit,
+                expected_compounded
+            );
+
+            baseline_prepared
+                .finalize_state(&mut baseline, 1, 2_500, protocol_split)
+                .unwrap();
+            compounded_prepared
+                .finalize_state(&mut compounded, 1, 2_500, protocol_split)
+                .unwrap();
+            let fee_asset = MarketAsset::try_from_code(compounded_quote.fee.fee_asset).unwrap();
+            assert_eq!(
+                baseline.side(fee_asset).fees.total_liability().unwrap()
+                    - compounded.side(fee_asset).fees.total_liability().unwrap(),
+                expected_compounded
+            );
+            assert_eq!(
+                compounded.side(fee_asset).reserves.cash_reserve - baseline.side(fee_asset).reserves.cash_reserve,
+                expected_compounded
+            );
+            assert!(compounded.base_hlp_vault.last_nav_nad > baseline.base_hlp_vault.last_nav_nad);
+            assert!(compounded.quote_hlp_vault.last_nav_nad > baseline.quote_hlp_vault.last_nav_nad);
+            compounded.assert_market_invariants().unwrap();
+
+            let supply = compounded.base_side.shares.ylp_supply as u128;
+            let base_hlp_quote_claim = mul_div_u128(
+                compounded.quote_side.reserves.live_reserve as u128,
+                compounded.base_hlp_vault.ylp_shares as u128,
+                supply,
+            )
+            .unwrap();
+            let quote_hlp_base_claim = mul_div_u128(
+                compounded.base_side.reserves.live_reserve as u128,
+                compounded.quote_hlp_vault.ylp_shares as u128,
+                supply,
+            )
+            .unwrap();
+            let base_hlp_quote_debt = Debt::shares_to_debt(
+                compounded.base_hlp_vault.debt_shares,
+                compounded.debt.quote_borrow_index_nad,
+            )
+            .unwrap();
+            let quote_hlp_base_debt = Debt::shares_to_debt(
+                compounded.quote_hlp_vault.debt_shares,
+                compounded.debt.base_borrow_index_nad,
+            )
+            .unwrap();
+            assert!(base_hlp_quote_claim.abs_diff(base_hlp_quote_debt) <= 1);
+            assert!(quote_hlp_base_claim.abs_diff(quote_hlp_base_debt) <= 1);
+        }
+    }
+}
+
+#[test]
 fn concentrated_swap_preserves_preexisting_fee_and_hlp_yield_state() {
     let mut market = active_concentrated_preview_market();
     let protocol_split = crate::state::ProtocolAuctionSplit {
@@ -571,6 +685,7 @@ fn concentrated_swap_preserves_preexisting_fee_and_hlp_yield_state() {
             current_unix_timestamp: 0,
             asset_in,
             reserve_credit: 350_000,
+            protocol_fee_bps: 2_500,
         };
         let mut terminal_market = market.clone();
         let terminal = request.prepare(&mut terminal_market).unwrap();
@@ -620,6 +735,7 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
         current_unix_timestamp: 0,
         asset_in: MarketAsset::Base,
         reserve_credit: 350_000,
+        protocol_fee_bps: 2_500,
     };
     let protocol_split = crate::state::ProtocolAuctionSplit {
         fee_auction_bps: 6_000,
@@ -683,6 +799,7 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
         current_unix_timestamp: 0,
         asset_in: MarketAsset::Base,
         reserve_credit: 50_000,
+        protocol_fee_bps: 2_500,
     }
     .prepare(&mut retained_market)
     .unwrap();
@@ -696,6 +813,7 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
         current_unix_timestamp: 0,
         asset_in: MarketAsset::Base,
         reserve_credit: 10_000,
+        protocol_fee_bps: 2_500,
     };
     let mut retained_preview_market = retained_market.clone();
     let retained_preview = retained_request.prepare(&mut retained_preview_market).unwrap();

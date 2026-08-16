@@ -107,7 +107,7 @@ fn explicit_curve_initializes_and_quotes_the_integrated_ordinary_tranche() {
         .preliminary_swap_inputs_for_state(MarketAsset::Base, 10_000 * NAD, 10, pre_state)
         .unwrap();
     let fee_quote = market
-        .quote_explicit_integrated_with_fee(MarketAsset::Base, 10_000 * NAD, preliminary)
+        .quote_explicit_integrated_with_fee(MarketAsset::Base, 10_000 * NAD, preliminary, 0)
         .unwrap()
         .unwrap();
     assert_eq!(
@@ -131,7 +131,7 @@ fn quote_only_fee_is_withheld_from_base_sell_output() {
         .preliminary_swap_inputs_for_state(MarketAsset::Base, reserve_credit, 10, pre_state)
         .unwrap();
     let quote = market
-        .quote_explicit_integrated_with_fee(MarketAsset::Base, reserve_credit, preliminary)
+        .quote_explicit_integrated_with_fee(MarketAsset::Base, reserve_credit, preliminary, 0)
         .unwrap()
         .unwrap();
 
@@ -250,4 +250,25 @@ fn explicit_proportional_liquidity_scales_and_restores_both_tranches() {
         .abs_diff(spot_before)
         <= 2);
     market.assert_market_invariants().unwrap();
+}
+
+#[test]
+fn lp_fee_compounding_percentage_excludes_protocol_revenue() {
+    let disabled = split_compounded_swap_fee(1_000, 500, 2_500, 0).unwrap();
+    assert_eq!(disabled.claimable_base_fee, 1_000);
+    assert_eq!(disabled.claimable_dynamic_surcharge, 500);
+    assert_eq!(disabled.compounded_base_fee, 0);
+    assert_eq!(disabled.compounded_dynamic_surcharge, 0);
+
+    let forty_percent = split_compounded_swap_fee(1_000, 500, 2_500, 4_000).unwrap();
+    assert_eq!(forty_percent.claimable_base_fee, 700);
+    assert_eq!(forty_percent.claimable_dynamic_surcharge, 300);
+    assert_eq!(forty_percent.compounded_base_fee, 300);
+    assert_eq!(forty_percent.compounded_dynamic_surcharge, 200);
+
+    let complete = split_compounded_swap_fee(1_000, 500, 2_500, BPS_DENOMINATOR).unwrap();
+    assert_eq!(complete.claimable_base_fee, 250);
+    assert_eq!(complete.claimable_dynamic_surcharge, 0);
+    assert_eq!(complete.compounded_base_fee, 750);
+    assert_eq!(complete.compounded_dynamic_surcharge, 500);
 }

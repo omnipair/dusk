@@ -186,6 +186,7 @@ impl<'info> DecreaseLeverage<'info> {
                 current_unix_timestamp,
                 asset_in: collateral_asset,
                 reserve_credit: collateral_reserve_credit,
+                protocol_fee_bps: ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             },
             SwapCashPolicy::Decrease {
                 debt_asset,

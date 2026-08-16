@@ -95,6 +95,10 @@ pub struct AmmConfig {
     /// are denominated. Lending and hLP funding interest remain in the
     /// borrowed asset and are not affected by this setting.
     pub swap_fee_collect_mode: u8,
+    /// Share of the LP-owned swap fee which becomes ordinary reserve
+    /// principal instead of a claimable fee liability. Zero disables native
+    /// compounding; `BPS_DENOMINATOR` compounds the complete LP share.
+    pub compounding_fee_bps: u16,
     /// Optional launch-only base fee. The premium above `swap_fee_bps`
     /// decays from `start_time` and is zero after the configured duration.
     pub launch_fee_start_bps: u16,
@@ -133,6 +137,7 @@ impl Default for AmmConfig {
             divergence_fee_coefficient_nad: 0,
             volatility_fee_coefficient_nad: 0,
             swap_fee_collect_mode: SWAP_FEE_COLLECT_INPUT_ASSET,
+            compounding_fee_bps: 0,
             launch_fee_start_bps: 0,
             launch_fee_duration_seconds: 0,
             launch_fee_decay_mode: LAUNCH_FEE_DECAY_DISABLED,
@@ -184,6 +189,11 @@ impl AmmConfig {
                 self.swap_fee_collect_mode,
                 SWAP_FEE_COLLECT_INPUT_ASSET | SWAP_FEE_COLLECT_BASE_ONLY | SWAP_FEE_COLLECT_QUOTE_ONLY
             ),
+            ErrorCode::InvalidMarketConfig
+        );
+        require_gte!(
+            BPS_DENOMINATOR,
+            self.compounding_fee_bps,
             ErrorCode::InvalidMarketConfig
         );
         require!(
@@ -651,6 +661,7 @@ pub struct FeeProfile {
     pub volatility_shock_cap_nad: u64,
     pub volatility_accumulator_cap_nad: u64,
     pub swap_fee_collect_mode: u8,
+    pub compounding_fee_bps: u16,
     pub launch_fee_start_bps: u16,
     pub launch_fee_duration_seconds: u64,
     pub launch_fee_decay_mode: u8,
@@ -707,6 +718,11 @@ impl FeeProfile {
                 self.swap_fee_collect_mode,
                 SWAP_FEE_COLLECT_INPUT_ASSET | SWAP_FEE_COLLECT_BASE_ONLY | SWAP_FEE_COLLECT_QUOTE_ONLY
             ),
+            ErrorCode::InvalidMarketConfig
+        );
+        require_gte!(
+            BPS_DENOMINATOR,
+            self.compounding_fee_bps,
             ErrorCode::InvalidMarketConfig
         );
 
@@ -855,6 +871,7 @@ impl MarketConfig {
             volatility_shock_cap_nad: self.amm.volatility_shock_cap_nad,
             volatility_accumulator_cap_nad: self.amm.volatility_cap_nad,
             swap_fee_collect_mode: self.amm.swap_fee_collect_mode,
+            compounding_fee_bps: self.amm.compounding_fee_bps,
             launch_fee_start_bps: self.amm.launch_fee_start_bps,
             launch_fee_duration_seconds: self.amm.launch_fee_duration_seconds,
             launch_fee_decay_mode: self.amm.launch_fee_decay_mode,
@@ -883,6 +900,7 @@ impl MarketConfig {
         next.amm.volatility_shock_cap_nad = profile.volatility_shock_cap_nad;
         next.amm.volatility_cap_nad = profile.volatility_accumulator_cap_nad;
         next.amm.swap_fee_collect_mode = profile.swap_fee_collect_mode;
+        next.amm.compounding_fee_bps = profile.compounding_fee_bps;
         next.amm.launch_fee_start_bps = profile.launch_fee_start_bps;
         next.amm.launch_fee_duration_seconds = profile.launch_fee_duration_seconds;
         next.amm.launch_fee_decay_mode = profile.launch_fee_decay_mode;
@@ -4515,16 +4533,53 @@ impl MarketSide {
         protocol_auction_split: ProtocolAuctionSplit,
         eligible_ylp_supply: u64,
     ) -> Result<FeesReceipt> {
+        self.record_swap_fee_allocation(
+            base_fee_credit,
+            distributed_dynamic_surcharge_credit,
+            0,
+            0,
+            protocol_fee_bps,
+            protocol_auction_split,
+            eligible_ylp_supply,
+        )
+    }
+
+    /// Records the claimable remainder of a swap fee after a separately
+    /// materialized principal-compounding credit. Protocol revenue is always
+    /// split from the full base fee before any LP-owned atoms compound.
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_swap_fee_allocation(
+        &mut self,
+        base_fee_credit: u64,
+        distributed_dynamic_surcharge_credit: u64,
+        compounded_base_fee_credit: u64,
+        compounded_dynamic_surcharge_credit: u64,
+        protocol_fee_bps: u16,
+        protocol_auction_split: ProtocolAuctionSplit,
+        eligible_ylp_supply: u64,
+    ) -> Result<FeesReceipt> {
         if base_fee_credit == 0 && distributed_dynamic_surcharge_credit == 0 {
+            require_eq!(compounded_base_fee_credit, 0, ErrorCode::BrokenInvariant);
+            require_eq!(compounded_dynamic_surcharge_credit, 0, ErrorCode::BrokenInvariant);
             return FeesReceipt::from_side(self);
         }
-        let claimable_fee_credit = base_fee_credit
-            .checked_add(distributed_dynamic_surcharge_credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
         let (protocol_fee, base_lp_fee) = split_revenue(base_fee_credit, protocol_fee_bps)?;
-        let lp_fee = base_lp_fee
-            .checked_add(distributed_dynamic_surcharge_credit)
+        require_gte!(base_lp_fee, compounded_base_fee_credit, ErrorCode::BrokenInvariant);
+        require_gte!(
+            distributed_dynamic_surcharge_credit,
+            compounded_dynamic_surcharge_credit,
+            ErrorCode::BrokenInvariant
+        );
+        let claimable_base_lp_fee = base_lp_fee
+            .checked_sub(compounded_base_fee_credit)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        let claimable_dynamic_surcharge = distributed_dynamic_surcharge_credit
+            .checked_sub(compounded_dynamic_surcharge_credit)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        let lp_fee = claimable_base_lp_fee
+            .checked_add(claimable_dynamic_surcharge)
             .ok_or(ErrorCode::MarketMathOverflow)?;
+        let claimable_fee_credit = protocol_fee.checked_add(lp_fee).ok_or(ErrorCode::MarketMathOverflow)?;
         let (fee_auction_amount, buyback_auction_amount) =
             split_protocol_auction_fee(protocol_fee, &protocol_auction_split)?;
         self.fees.swap_fee_custody_balance = self

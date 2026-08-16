@@ -163,7 +163,7 @@ fn prepared_leverage_swap(
         .preliminary_swap_inputs_for_state(asset_in, swap.amount_in, swap.quoted_slot, pre_state)
         .unwrap();
     let integrated = market
-        .quote_explicit_integrated_with_fee(asset_in, swap.amount_in, preliminary)
+        .quote_explicit_integrated_with_fee(asset_in, swap.amount_in, preliminary, 0)
         .unwrap()
         .unwrap();
     let explicit_transition = prepare_explicit_hlp_transition(market, integrated, asset_in).unwrap();
@@ -742,6 +742,7 @@ fn prepare_leverage_swap_with_policy(
         current_unix_timestamp: 0,
         asset_in,
         reserve_credit,
+        protocol_fee_bps: 0,
     }
     .prepare_with_cash_policy(market, cash_policy)
     .unwrap();
@@ -1397,6 +1398,7 @@ fn leverage_quote_is_the_same_concentrated_and_dynamic_fee_quote_as_spot() {
         current_unix_timestamp: 0,
         asset_in: MarketAsset::Base,
         reserve_credit: 50_000,
+        protocol_fee_bps: 0,
     }
     .prepare(&mut market)
     .unwrap()
@@ -1758,6 +1760,7 @@ fn concentrated_swap_repairs_worsening_stale_hlp_exposure_atomically() {
         current_unix_timestamp: 0,
         asset_in: MarketAsset::Base,
         reserve_credit: 50_000,
+        protocol_fee_bps: 0,
     }
     .prepare(&mut market)
     .unwrap();

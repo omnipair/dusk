@@ -558,6 +558,7 @@ export function defaultAmmConfig() {
     divergenceFeeCoefficientNad: new anchor.BN(duskEnv("AMM_DIVERGENCE_FEE_COEFFICIENT_NAD", "0")),
     volatilityFeeCoefficientNad: new anchor.BN(duskEnv("AMM_VOLATILITY_FEE_COEFFICIENT_NAD", "0")),
     swapFeeCollectMode: Number(duskEnv("AMM_SWAP_FEE_COLLECT_MODE", "0")),
+    compoundingFeeBps: Number(duskEnv("AMM_COMPOUNDING_FEE_BPS", "0")),
     launchFeeStartBps: Number(duskEnv("AMM_LAUNCH_FEE_START_BPS", "0")),
     launchFeeDurationSeconds: new anchor.BN(duskEnv("AMM_LAUNCH_FEE_DURATION_SECONDS", "0")),
     launchFeeDecayMode: Number(duskEnv("AMM_LAUNCH_FEE_DECAY_MODE", "0")),

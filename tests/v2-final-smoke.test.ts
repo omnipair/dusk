@@ -258,6 +258,7 @@ function marketConfig() {
       divergenceFeeCoefficientNad: new BN(0),
       volatilityFeeCoefficientNad: new BN(0),
       swapFeeCollectMode: 0,
+      compoundingFeeBps: 0,
       launchFeeStartBps: 0,
       launchFeeDurationSeconds: new BN(0),
       launchFeeDecayMode: 0,
@@ -3877,7 +3878,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(recentered.curve_revision.gt(recentered.risk_revision)).to.equal(true);
   });
 
-  it("measures O(1) concentrated hLP swap", async function () {
+  it("measures O(1) concentrated hLP swap with fee compounding", async function () {
     this.timeout(120_000);
 
     const config = marketConfig();
@@ -3888,6 +3889,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     config.amm.adjustmentStepNad = new BN("1000000");
     config.amm.minAdjustmentIntervalSlots = new BN(1);
     config.amm.divergenceFeeCoefficientNad = new BN("10000000000");
+    config.amm.compoundingFeeBps = 4_000;
     const fixture = await addBalancedLiquidity(99, config, {
       // Match the locked native six-decimal Spot fixture exactly: 1m/2m
       // ordinary depth, 100k/200k hLP deposits, and a 350k base input.
@@ -3906,7 +3908,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       350_000_000_000,
       1
     );
-    expect(measurement.computeUnits <= 100_000n).to.equal(true);
+    expect(measurement.computeUnits <= 350_000n).to.equal(true);
     trackV2Instruction("swap", this.test?.title);
   });
 

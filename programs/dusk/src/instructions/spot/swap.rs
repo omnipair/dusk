@@ -182,6 +182,7 @@ impl<'info> Swap<'info> {
             current_unix_timestamp,
             asset_in,
             reserve_credit,
+            protocol_fee_bps,
         }
         .prepare(&mut ctx.accounts.market)?;
         if mode == SwapExecutionMode::CriticalHlpLiquidation {
@@ -317,6 +318,7 @@ impl<'info> Swap<'info> {
             divergence_fee: quote.fee.divergence_surcharge_debit,
             volatility_fee: quote.fee.volatility_surcharge_debit,
             retained_fee: quote.fee.retained_surcharge,
+            compounded_fee: quote.fee.compounded_fee_debit,
             hlp_recovery_target_asset: quote.recovery.target_asset,
             hlp_recovery_funding_gap: quote.recovery.funding_gap,
             hlp_recovery_matched_input: quote.recovery.matched_input,

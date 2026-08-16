@@ -131,3 +131,68 @@ fn frozen_gross_coordinate_fee_executes_only_the_net_path() {
     assert_eq!(quote.total_fee, 100);
     assert_eq!(quote.executable.curve.amount_in, 9_900);
 }
+
+#[test]
+fn compounded_fee_reconstructs_perfect_hedges_for_cpmm_and_concentration() {
+    let state = IntegratedCurveState::from_total_reserves(240_000, 27_000_000, 20_000, 2_250_000).unwrap();
+    let concentrated = ExplicitCurveGeometry {
+        inner_liquidity: 4_000_000,
+        inner_base_amplification_offset: 200_000,
+        inner_quote_amplification_offset: 40_000_000,
+        lower_tail_base_inventory: 200_000,
+        upper_tail_quote_inventory: 40_000_000,
+        lower_boundary: ExplicitCurvePoint {
+            base_reserve: 300_000,
+            quote_reserve: 10_000_000,
+        },
+        upper_boundary: ExplicitCurvePoint {
+            base_reserve: 50_000,
+            quote_reserve: 60_000_000,
+        },
+    };
+
+    for geometry in [ExplicitCurveGeometry::cpmm(), concentrated] {
+        let mut quote = quote_integrated_exact_in_with_frozen_fee(
+            state,
+            geometry,
+            10_000,
+            100,
+            IntegratedSwapDirection::BaseToQuote,
+        )
+        .unwrap();
+        let before = reconstruct_hlp_endpoint(quote.executable.end).unwrap();
+        let base_equity_before = quote.executable.end.base_hlp_equity;
+        let quote_equity_before = quote.executable.end.quote_hlp_equity;
+
+        apply_compounded_ylp_fee(state, &mut quote, true, 1_000, 1_000, 200, 300).unwrap();
+
+        assert_eq!(
+            quote.executable.hlp.total_base - quote.executable.hlp.quote_hlp_base_debt,
+            before.total_base - before.quote_hlp_base_debt + 1_000
+        );
+        assert_eq!(
+            quote.executable.hlp.total_quote - quote.executable.hlp.base_hlp_quote_debt,
+            before.total_quote - before.base_hlp_quote_debt
+        );
+        assert_eq!(quote.executable.end.base_hlp_equity, base_equity_before + 200);
+        assert!(quote.executable.end.quote_hlp_equity > quote_equity_before);
+        assert_eq!(
+            quote.executable.hlp.base_hlp_quote_debt,
+            mul_div_u128(
+                quote.executable.end.base_hlp_equity,
+                quote.executable.end.ordinary_quote,
+                quote.executable.end.ordinary_base,
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            quote.executable.hlp.quote_hlp_base_debt,
+            mul_div_u128(
+                quote.executable.end.quote_hlp_equity,
+                quote.executable.end.ordinary_base,
+                quote.executable.end.ordinary_quote,
+            )
+            .unwrap()
+        );
+    }
+}
