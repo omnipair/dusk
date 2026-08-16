@@ -19,7 +19,7 @@ use super::settlement::{
     validate_leverage_collateral_risk_mint, validate_leverage_mints, validate_leverage_reserve_accounts,
 };
 use crate::instructions::accounts::{require_reserve_custody, token_program_for_mint, HlpSwapAccountLayout};
-use crate::instructions::SwapRequest;
+use crate::instructions::{enforce_launch_same_transaction_guard, SwapRequest};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct IncreaseLeverageArgs {
@@ -87,6 +87,10 @@ pub struct IncreaseLeverage<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
 
+    /// CHECK: Canonical Instructions sysvar for the launch split guard.
+    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions_sysvar: UncheckedAccount<'info>,
+
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
 }
@@ -98,6 +102,13 @@ impl<'info> IncreaseLeverage<'info> {
         require_keys_eq!(self.owner.key(), self.position_owner.key(), ErrorCode::InvalidSigner);
         require!(args.debt_amount > 0, ErrorCode::AmountZero);
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
+        enforce_launch_same_transaction_guard(
+            &self.market,
+            self.market.key(),
+            debt_asset,
+            unix_timestamp,
+            &self.instructions_sysvar.to_account_info(),
+        )?;
         validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
         validate_leverage_collateral_risk_mint(&self.collateral_mint)?;
         validate_leverage_reserve_accounts(

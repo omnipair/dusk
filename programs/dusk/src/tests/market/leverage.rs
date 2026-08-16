@@ -51,6 +51,7 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
         risk: Risk::default(),
         insurance: Insurance::default(),
         params_hash: [0u8; 32],
+        initial_liquidity_authority: Pubkey::default(),
         governance_locked_ylp: 0,
         parameter_revisions: [0; 6],
         last_marginal_observation_nad: 0,
@@ -506,7 +507,9 @@ fn assert_lifecycle_plan_matches_reference(
     )
     .unwrap();
     let before_plan = planned.try_to_vec().unwrap();
-    let plan = derive_leverage_lifecycle_plan(&planned, policy, asset_in, amount_in_after_fee, amount_out).unwrap();
+    let plan =
+        derive_leverage_lifecycle_plan(&planned, policy, asset_in, amount_in_after_fee, amount_out, amount_out)
+            .unwrap();
     assert_eq!(planned.try_to_vec().unwrap(), before_plan);
     let planned_transition = apply_leverage_lifecycle_plan(&mut planned, plan).unwrap();
     assert_eq!(planned_transition, reference_transition);
@@ -654,7 +657,9 @@ fn leverage_lifecycle_plan_rejects_stale_and_tampered_inputs_atomically() {
 
     for asset in [MarketAsset::Base, MarketAsset::Quote] {
         for (market, policy, amount_in_after_fee, amount_out) in leverage_lifecycle_cases(asset) {
-            let plan = derive_leverage_lifecycle_plan(&market, policy, asset, amount_in_after_fee, amount_out).unwrap();
+            let plan =
+                derive_leverage_lifecycle_plan(&market, policy, asset, amount_in_after_fee, amount_out, amount_out)
+                    .unwrap();
 
             let mut stale = market.clone();
             stale.base_side.reserves.cash_reserve += 1;
@@ -671,7 +676,14 @@ fn leverage_lifecycle_plan_rejects_stale_and_tampered_inputs_atomically() {
 
         let (borrow_market, borrow_policy, amount_in_after_fee, amount_out) = leverage_lifecycle_cases(asset).remove(1);
         let plan =
-            derive_leverage_lifecycle_plan(&borrow_market, borrow_policy, asset, amount_in_after_fee, amount_out)
+            derive_leverage_lifecycle_plan(
+                &borrow_market,
+                borrow_policy,
+                asset,
+                amount_in_after_fee,
+                amount_out,
+                amount_out,
+            )
                 .unwrap();
         for field in 0..10 {
             let mut stale = borrow_market.clone();
@@ -699,6 +711,7 @@ fn leverage_lifecycle_plan_rejects_stale_and_tampered_inputs_atomically() {
             asset,
             amount_in_after_fee,
             amount_out,
+            amount_out,
         )
         .unwrap();
         let mut hidden_stale = liquidation_market;
@@ -711,7 +724,7 @@ fn leverage_lifecycle_plan_rejects_stale_and_tampered_inputs_atomically() {
         let mut impossible = test_market(100, 100);
         let impossible_before = impossible.try_to_vec().unwrap();
         assert!(impossible
-            .apply_leverage_lifecycle_transition(SwapCashPolicy::Borrow { asset, amount: 101 }, asset, 1, 1,)
+            .apply_leverage_lifecycle_transition(SwapCashPolicy::Borrow { asset, amount: 101 }, asset, 1, 1, 1)
             .is_err());
         assert_eq!(impossible.try_to_vec().unwrap(), impossible_before);
     }
@@ -1804,6 +1817,7 @@ fn distributed_leverage_surcharge_is_all_lp_owned() {
             MarketAsset::Base,
             quote.amount_in_after_fee,
             quote.amount_out,
+            quote.gross_amount_out,
         )
         .unwrap();
     market

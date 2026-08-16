@@ -1256,6 +1256,10 @@ export type Dusk = {
           "signer": true
         },
         {
+          "name": "instructionsSysvar",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
           "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -2113,6 +2117,10 @@ export type Dusk = {
           "signer": true
         },
         {
+          "name": "instructionsSysvar",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
           "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -2313,6 +2321,10 @@ export type Dusk = {
           "name": "authority",
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "instructionsSysvar",
+          "address": "Sysvar1nstructions1111111111111111111111111"
         },
         {
           "name": "tokenProgram",
@@ -2744,6 +2756,163 @@ export type Dusk = {
       "args": []
     },
     {
+      "name": "graduateMarket",
+      "docs": [
+        "Permissionless launch adapters use the same fully-backed seeding path",
+        "as ordinary yLP deposits. The initializer is the one-shot authority;",
+        "after this succeeds, subsequent liquidity is permissionless."
+      ],
+      "discriminator": [
+        202,
+        28,
+        33,
+        115,
+        186,
+        96,
+        1,
+        90
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true
+        },
+        {
+          "name": "futarchyAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "baseMint"
+        },
+        {
+          "name": "quoteMint"
+        },
+        {
+          "name": "ylpMint",
+          "writable": true
+        },
+        {
+          "name": "baseReserveVault",
+          "writable": true
+        },
+        {
+          "name": "quoteReserveVault",
+          "writable": true
+        },
+        {
+          "name": "ownerBaseAccount",
+          "writable": true
+        },
+        {
+          "name": "ownerQuoteAccount",
+          "writable": true
+        },
+        {
+          "name": "ownerYlpAccount",
+          "writable": true
+        },
+        {
+          "name": "baseYieldAccount",
+          "docs": [
+            "any liquidity mutation."
+          ],
+          "writable": true
+        },
+        {
+          "name": "quoteYieldAccount",
+          "docs": [
+            "any liquidity mutation."
+          ],
+          "writable": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "addLiquidityArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "increaseLeverage",
       "discriminator": [
         61,
@@ -2926,6 +3095,10 @@ export type Dusk = {
           "name": "owner",
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "instructionsSysvar",
+          "address": "Sysvar1nstructions1111111111111111111111111"
         },
         {
           "name": "tokenProgram",
@@ -4200,6 +4373,13 @@ export type Dusk = {
           "writable": true
         },
         {
+          "name": "instructionsSysvar",
+          "docs": [
+            "during the configured launch rate-limit window."
+          ],
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
           "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -4324,6 +4504,10 @@ export type Dusk = {
           "signer": true
         },
         {
+          "name": "instructionsSysvar",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
           "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -4436,6 +4620,10 @@ export type Dusk = {
         {
           "name": "referralAccrual",
           "optional": true
+        },
+        {
+          "name": "instructionsSysvar",
+          "address": "Sysvar1nstructions1111111111111111111111111"
         },
         {
           "name": "tokenProgram",
@@ -6529,6 +6717,13 @@ export type Dusk = {
         {
           "name": "traderAssetOutAccount",
           "writable": true
+        },
+        {
+          "name": "instructionsSysvar",
+          "docs": [
+            "during the configured launch rate-limit window."
+          ],
+          "address": "Sysvar1nstructions1111111111111111111111111"
         },
         {
           "name": "tokenProgram",
@@ -9067,91 +9262,101 @@ export type Dusk = {
     },
     {
       "code": 6116,
+      "name": "invalidInitialLiquidityAuthority",
+      "msg": "Invalid initial liquidity authority"
+    },
+    {
+      "code": 6117,
+      "name": "launchRateLimitSplitTransaction",
+      "msg": "Launch rate limiter permits only one top-level market action per transaction"
+    },
+    {
+      "code": 6118,
       "name": "marketReduceOnly",
       "msg": "Market is reduce-only"
     },
     {
-      "code": 6117,
+      "code": 6119,
       "name": "marketNotStarted",
       "msg": "Market has not started"
     },
     {
-      "code": 6118,
+      "code": 6120,
       "name": "marketMathOverflow",
       "msg": "Market math overflow"
     },
     {
-      "code": 6119,
+      "code": 6121,
       "name": "dailyLimitExceeded",
       "msg": "Daily liquidity limit exceeded"
     },
     {
-      "code": 6120,
+      "code": 6122,
       "name": "instructionNotLive",
       "msg": "Instruction is intentionally not live yet"
     },
     {
-      "code": 6121,
+      "code": 6123,
       "name": "liquidationRepayTooLarge",
       "msg": "Liquidation repay amount exceeds partial liquidation cap"
     },
     {
-      "code": 6122,
+      "code": 6124,
       "name": "leverageMultiplierTooHigh",
       "msg": "Leverage multiplier exceeds circuit breaker"
     },
     {
-      "code": 6123,
+      "code": 6125,
       "name": "leverageInitialMarginTooLow",
       "msg": "Leverage position does not have enough initial margin"
     },
     {
-      "code": 6124,
+      "code": 6126,
       "name": "leverageUnwindImpactTooHigh",
       "msg": "Leverage unwind impact exceeds limit"
     },
     {
-      "code": 6125,
+      "code": 6127,
       "name": "leveragePositionNotLiquidatable",
       "msg": "Leverage position is not liquidatable"
     },
     {
-      "code": 6126,
+      "code": 6128,
       "name": "invalidSigner",
       "msg": "Invalid signer"
     },
     {
-      "code": 6127,
+      "code": 6129,
       "name": "invalidLeveragePosition",
       "msg": "Invalid leverage position"
     },
     {
-      "code": 6128,
+      "code": 6130,
       "name": "invalidLeverageDelegation",
       "msg": "Invalid leverage delegation"
     },
     {
-      "code": 6129,
+      "code": 6131,
       "name": "invalidReferralInterestShareBps",
       "msg": "Referral interest share exceeds the protocol hard cap"
     },
     {
-      "code": 6130,
+      "code": 6132,
       "name": "invalidReferralPartner",
       "msg": "Invalid referral partner"
     },
     {
-      "code": 6131,
+      "code": 6133,
       "name": "referralPartnerNotActive",
       "msg": "Referral partner is not active"
     },
     {
-      "code": 6132,
+      "code": 6134,
       "name": "invalidReferralAccrual",
       "msg": "Invalid referral accrual account"
     },
     {
-      "code": 6133,
+      "code": 6135,
       "name": "invalidLeverageCollateralMint",
       "msg": "Leverage collateral mint must not have transfer fee configuration"
     }
@@ -9311,6 +9516,15 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "swapFeeCollectMode",
+            "docs": [
+              "Asset in which swap, toxicity, volatility, and retained-recenter fees",
+              "are denominated. Lending and hLP funding interest remain in the",
+              "borrowed asset and are not affected by this setting."
+            ],
+            "type": "u8"
+          },
+          {
             "name": "launchFeeStartBps",
             "docs": [
               "Optional launch-only base fee. The premium above `swap_fee_bps`",
@@ -9325,6 +9539,23 @@ export type Dusk = {
           {
             "name": "launchFeeDecayMode",
             "type": "u8"
+          },
+          {
+            "name": "launchMarketPriceStepBps",
+            "docs": [
+              "When all three values are zero, the launch fee follows the time",
+              "schedule above. A fully nonzero tuple selects a price-milestone",
+              "scheduler whose reference price is bound by the first liquidity seed."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "launchMarketNumberOfPeriods",
+            "type": "u16"
+          },
+          {
+            "name": "launchMarketReductionFactorBps",
+            "type": "u16"
           },
           {
             "name": "launchRateLimitAsset",
@@ -9357,7 +9588,7 @@ export type Dusk = {
             "type": {
               "array": [
                 "u8",
-                1
+                0
               ]
             }
           }
@@ -9408,6 +9639,22 @@ export type Dusk = {
           {
             "name": "lastAdjustmentSlot",
             "type": "u64"
+          },
+          {
+            "name": "launchReferencePriceNad",
+            "docs": [
+              "Immutable launch price reference bound by the first fully-backed",
+              "liquidity seed. Zero is allowed only before that seed."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "launchFeeProgressOffset",
+            "docs": [
+              "Fee-schedule progress already completed by a bootstrap adapter before",
+              "the market graduates into GAMM."
+            ],
+            "type": "u16"
           },
           {
             "name": "volatilityAccumulatorNad",
@@ -10303,6 +10550,10 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "swapFeeCollectMode",
+            "type": "u8"
+          },
+          {
             "name": "launchFeeStartBps",
             "type": "u16"
           },
@@ -10313,6 +10564,18 @@ export type Dusk = {
           {
             "name": "launchFeeDecayMode",
             "type": "u8"
+          },
+          {
+            "name": "launchMarketPriceStepBps",
+            "type": "u16"
+          },
+          {
+            "name": "launchMarketNumberOfPeriods",
+            "type": "u16"
+          },
+          {
+            "name": "launchMarketReductionFactorBps",
+            "type": "u16"
           },
           {
             "name": "launchRateLimitAsset",
@@ -10992,6 +11255,21 @@ export type Dusk = {
                 32
               ]
             }
+          },
+          {
+            "name": "bootstrapPriceNad",
+            "docs": [
+              "Optional final bootstrap price imported by a permissionless launch",
+              "adapter. Zero binds the reference to the first fully-backed seed."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "launchFeeProgressOffset",
+            "docs": [
+              "Number of price-fee periods already completed before graduation."
+            ],
+            "type": "u16"
           }
         ]
       }
@@ -11515,11 +11793,19 @@ export type Dusk = {
             "type": "u8"
           },
           {
+            "name": "feeAssetSide",
+            "type": "u8"
+          },
+          {
             "name": "amountIn",
             "type": "u64"
           },
           {
             "name": "amountOut",
+            "type": "u64"
+          },
+          {
+            "name": "grossAmountOut",
             "type": "u64"
           },
           {
@@ -11798,6 +12084,14 @@ export type Dusk = {
                 32
               ]
             }
+          },
+          {
+            "name": "initialLiquidityAuthority",
+            "docs": [
+              "One-shot signer allowed to provide the first fully-backed Base/Quote",
+              "seed. It is cleared permanently once yLP supply becomes nonzero."
+            ],
+            "type": "pubkey"
           },
           {
             "name": "governanceLockedYlp",
@@ -12128,6 +12422,18 @@ export type Dusk = {
                 32
               ]
             }
+          },
+          {
+            "name": "initialLiquidityAuthority",
+            "type": "pubkey"
+          },
+          {
+            "name": "launchReferencePriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "launchFeeProgressOffset",
+            "type": "u16"
           },
           {
             "name": "version",
@@ -14376,6 +14682,20 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "grossAmountOut",
+            "docs": [
+              "Curve output before an output-denominated fee and transfer fee."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "feeAssetSide",
+            "docs": [
+              "`0` for Base and `1` for Quote."
+            ],
+            "type": "u8"
+          },
+          {
             "name": "amountInAfterFee",
             "docs": [
               "Input applied to the invariant after all swap fees."
@@ -14479,7 +14799,19 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "feeAsset",
+            "type": {
+              "defined": {
+                "name": "marketAsset"
+              }
+            }
+          },
+          {
             "name": "amountOut",
+            "type": "u64"
+          },
+          {
+            "name": "grossAmountOut",
             "type": "u64"
           },
           {
@@ -15270,7 +15602,7 @@ export type Dusk = {
         "deployment, never for ordinary feature work or product naming."
       ],
       "type": "u8",
-      "value": "1"
+      "value": "2"
     },
     {
       "name": "marketReserveVaultSeedPrefix",

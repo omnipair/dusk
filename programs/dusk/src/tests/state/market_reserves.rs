@@ -17,6 +17,7 @@ fn empty_market() -> Market {
         risk: Risk::default(),
         insurance: Insurance::default(),
         params_hash: [0u8; 32],
+        initial_liquidity_authority: Pubkey::default(),
         governance_locked_ylp: 0,
         parameter_revisions: [0; 6],
         last_marginal_observation_nad: 0,

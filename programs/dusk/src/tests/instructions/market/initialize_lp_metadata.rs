@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    constants::{BPS_DENOMINATOR, MIN_HALF_LIFE_MS},
+    constants::{BPS_DENOMINATOR, MIN_HALF_LIFE_MS, NAD},
     state::{MarketConfig, MarketSide},
 };
 
@@ -63,6 +63,7 @@ fn valid_config() -> MarketConfig {
 
 struct MetadataMarketFixture {
     market: Market,
+    initial_liquidity_authority: Pubkey,
     ylp_mint: Pubkey,
     base_hlp_mint: Pubkey,
     quote_hlp_mint: Pubkey,
@@ -74,6 +75,7 @@ fn metadata_market() -> MetadataMarketFixture {
     let ylp_mint = Pubkey::new_unique();
     let base_hlp_mint = Pubkey::new_unique();
     let quote_hlp_mint = Pubkey::new_unique();
+    let initial_liquidity_authority = Pubkey::new_unique();
     let base_side = MarketSide {
         asset_mint: base_mint,
         asset_decimals: 6,
@@ -98,16 +100,60 @@ fn metadata_market() -> MetadataMarketFixture {
             Pubkey::new_unique(),
             Pubkey::new_unique(),
             [7; 32],
+            initial_liquidity_authority,
+            0,
+            0,
             1,
             255,
         )
         .unwrap();
     MetadataMarketFixture {
         market,
+        initial_liquidity_authority,
         ylp_mint,
         base_hlp_mint,
         quote_hlp_mint,
     }
+}
+
+#[test]
+fn first_liquidity_seed_is_authorized_price_bound_and_then_permissionless() {
+    let mut fixture = metadata_market();
+    assert!(fixture
+        .market
+        .require_initial_liquidity_authority(Pubkey::new_unique())
+        .is_err());
+    fixture
+        .market
+        .require_initial_liquidity_authority(fixture.initial_liquidity_authority)
+        .unwrap();
+
+    fixture.market.amm.launch_reference_price_nad = NAD;
+    let receipt = fixture.market.add_liquidity(1_000_000, 100_000_000).unwrap();
+    assert_eq!(receipt.base_reserve_credit, 1_000_000);
+    assert_eq!(receipt.quote_reserve_credit, 100_000_000);
+    assert_eq!(fixture.market.amm.launch_reference_price_nad, NAD);
+    assert_eq!(fixture.market.initial_liquidity_authority, Pubkey::default());
+    fixture
+        .market
+        .require_initial_liquidity_authority(Pubkey::new_unique())
+        .unwrap();
+}
+
+#[test]
+fn first_liquidity_seed_rejects_a_mismatched_graduation_price_without_mutation() {
+    let mut fixture = metadata_market();
+    fixture.market.amm.launch_reference_price_nad = 2 * NAD;
+    assert!(fixture.market.add_liquidity(1_000_000, 100_000_000).is_err());
+    assert_eq!(fixture.market.base_side.reserves.live_reserve, 0);
+    assert_eq!(fixture.market.base_side.reserves.cash_reserve, 0);
+    assert_eq!(fixture.market.quote_side.reserves.live_reserve, 0);
+    assert_eq!(fixture.market.quote_side.reserves.cash_reserve, 0);
+    assert_eq!(fixture.market.base_side.shares.ylp_supply, 0);
+    assert_eq!(
+        fixture.market.initial_liquidity_authority,
+        fixture.initial_liquidity_authority
+    );
 }
 
 #[test]

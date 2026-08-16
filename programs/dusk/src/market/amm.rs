@@ -8,8 +8,8 @@ use crate::{
         effective_rate_floor_nad, gross_fee_budget_floor, gross_path_divergence_fee_raw, hard_total_fee_budget_floor,
         minimum_executable_input, mul_div_u128, normalize_to_nad, prepare_explicit_cache_at_point,
         quote_integrated_exact_in_with_frozen_fee, validate_fee_share_caps, volatility_after_success_nad,
-        DynamicFeeConfig, DynamicFeePreState, DynamicFeeQuote, ExplicitCurveDirection, ExplicitCurveGeometry,
-        ExplicitCurvePoint, IntegratedCurveState, IntegratedFrozenFeeQuote, IntegratedSwapDirection,
+        DynamicFeeConfig, DynamicFeePreState, DynamicFeeQuote, ExplicitCurveGeometry, ExplicitCurvePoint,
+        IntegratedCurveState, IntegratedFrozenFeeQuote, IntegratedSwapDirection,
     },
     state::market::{
         AmmState, Debt, DeferredControllerTarget, Market, MarketAsset, PROTECTED_LIQUIDITY_COVERAGE_BPS,
@@ -88,7 +88,11 @@ impl Market {
             .checked_add(explicit_curve_cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
         let q_per_share_nad = self.curve_q_per_share_nad(q_nad)?;
+        let launch_reference_price_nad = self.amm.launch_reference_price_nad;
+        let launch_fee_progress_offset = self.amm.launch_fee_progress_offset;
         let mut state = AmmState::initialize(&self.config.amm, center_price_nad, q_per_share_nad, current_slot)?;
+        state.launch_reference_price_nad = launch_reference_price_nad;
+        state.launch_fee_progress_offset = launch_fee_progress_offset;
         state.explicit_curve_cache = explicit_curve_cache;
         state.refresh_retention_target(q_per_share_nad, 0)?;
         self.amm = state;
@@ -806,8 +810,15 @@ impl Market {
         let Some(geometry) = self.current_explicit_curve_geometry()? else {
             return Ok(None);
         };
+        let fee_asset = self.config.swap_fee_asset(asset_in)?;
+        let fees_on_input = fee_asset == asset_in;
         let input_decimals = self.side(asset_in).asset_decimals;
-        let gross_curve_input_nad = normalize_to_nad(preliminary.amount_in_for_quote as u128, input_decimals)?;
+        let curve_input_raw = if fees_on_input {
+            preliminary.amount_in_for_quote
+        } else {
+            reserve_credit
+        };
+        let gross_curve_input_nad = normalize_to_nad(curve_input_raw as u128, input_decimals)?;
         let center = self
             .amm
             .explicit_curve_cache
@@ -820,7 +831,7 @@ impl Market {
         let center_input_raw = denormalize_from_nad_floor(center_input_nad, input_decimals)?;
         require!(center_input_raw > 0, ErrorCode::InvalidMarketConfig);
         let gross_end_input_raw = start_input_raw
-            .checked_add(preliminary.amount_in_for_quote)
+            .checked_add(curve_input_raw)
             .ok_or(ErrorCode::ReserveOverflow)?;
         let config = self.dynamic_fee_config()?;
         let (uncapped_divergence, saturated) = gross_path_divergence_fee_raw(
@@ -842,11 +853,12 @@ impl Market {
                 .min(component_budget)
                 .min(remaining_total_budget)
         };
-        require!(
-            divergence_surcharge < preliminary.amount_in_for_quote,
-            ErrorCode::InvalidSwapFeeBps
-        );
-        let divergence_nad = normalize_to_nad(divergence_surcharge as u128, input_decimals)?;
+        require!(divergence_surcharge < curve_input_raw, ErrorCode::InvalidSwapFeeBps);
+        let divergence_nad = if fees_on_input {
+            normalize_to_nad(divergence_surcharge as u128, input_decimals)?
+        } else {
+            0
+        };
         let integrated = quote_integrated_exact_in_with_frozen_fee(
             state,
             geometry,
@@ -857,11 +869,11 @@ impl Market {
                 MarketAsset::Quote => IntegratedSwapDirection::QuoteToBase,
             },
         )?;
-        let amount_out = denormalize_from_nad_floor(
+        let gross_amount_out = denormalize_from_nad_floor(
             integrated.executable.amount_out,
             self.side(asset_in.opposite()).asset_decimals,
         )?;
-        require!(amount_out > 0, ErrorCode::InsufficientOutputAmount);
+        require!(gross_amount_out > 0, ErrorCode::InsufficientOutputAmount);
         let start_price_nad = u64::try_from(geometry.spot_price_nad_prevalidated(ExplicitCurvePoint {
             base_reserve: state.ordinary_base,
             quote_reserve: state.ordinary_quote,
@@ -874,45 +886,84 @@ impl Market {
             ErrorCode::InvalidSettlementPrice
         );
 
-        let mut dynamic = preliminary.fee;
-        dynamic.divergence_surcharge_amount = divergence_surcharge;
-        dynamic.dynamic_surcharge_amount = dynamic
-            .volatility_surcharge_amount
-            .checked_add(divergence_surcharge)
-            .ok_or(ErrorCode::FeeMathOverflow)?;
-        dynamic.total_fee_amount = dynamic
-            .base_fee_amount
-            .checked_add(dynamic.dynamic_surcharge_amount)
-            .ok_or(ErrorCode::FeeMathOverflow)?;
-        dynamic.divergence_rate_nad = effective_rate_floor_nad(divergence_surcharge, reserve_credit)?;
-        dynamic.total_rate_nad = dynamic
-            .base_rate_nad
-            .checked_add(dynamic.volatility_rate_nad)
-            .and_then(|value| value.checked_add(dynamic.divergence_rate_nad))
-            .ok_or(ErrorCode::FeeMathOverflow)?;
+        let dynamic = if fees_on_input {
+            let mut dynamic = preliminary.fee;
+            dynamic.divergence_surcharge_amount = divergence_surcharge;
+            dynamic.dynamic_surcharge_amount = dynamic
+                .volatility_surcharge_amount
+                .checked_add(divergence_surcharge)
+                .ok_or(ErrorCode::FeeMathOverflow)?;
+            dynamic.total_fee_amount = dynamic
+                .base_fee_amount
+                .checked_add(dynamic.dynamic_surcharge_amount)
+                .ok_or(ErrorCode::FeeMathOverflow)?;
+            dynamic.divergence_rate_nad = effective_rate_floor_nad(divergence_surcharge, reserve_credit)?;
+            dynamic.total_rate_nad = dynamic
+                .base_rate_nad
+                .checked_add(dynamic.volatility_rate_nad)
+                .and_then(|value| value.checked_add(dynamic.divergence_rate_nad))
+                .ok_or(ErrorCode::FeeMathOverflow)?;
+            dynamic
+        } else {
+            output_denominated_dynamic_fee(
+                gross_amount_out,
+                reserve_credit,
+                divergence_surcharge,
+                preliminary.fee.decayed_volatility_nad,
+                preliminary.base_fee_bps,
+                config,
+            )?
+        };
         let (retained_surcharge, distributed_surcharge_debit) = if self.amm.retain_dynamic_surcharge {
             (dynamic.dynamic_surcharge_amount, 0)
         } else {
             (0, dynamic.dynamic_surcharge_amount)
         };
-        let amount_in_for_quote = preliminary
-            .amount_in_for_quote
-            .checked_sub(divergence_surcharge)
-            .ok_or(ErrorCode::FeeMathOverflow)?;
+        let amount_in_for_quote = if fees_on_input {
+            preliminary
+                .amount_in_for_quote
+                .checked_sub(divergence_surcharge)
+                .ok_or(ErrorCode::FeeMathOverflow)?
+        } else {
+            reserve_credit
+        };
         let claimable_fee_debit = dynamic
             .base_fee_amount
             .checked_add(distributed_surcharge_debit)
             .ok_or(ErrorCode::FeeMathOverflow)?;
-        let reserve_input_credit = amount_in_for_quote
-            .checked_add(retained_surcharge)
-            .ok_or(ErrorCode::ReserveOverflow)?;
-        require_eq!(
-            reserve_input_credit
-                .checked_add(claimable_fee_debit)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-            reserve_credit,
-            ErrorCode::BrokenInvariant
-        );
+        let reserve_input_credit = if fees_on_input {
+            amount_in_for_quote
+                .checked_add(retained_surcharge)
+                .ok_or(ErrorCode::ReserveOverflow)?
+        } else {
+            reserve_credit
+        };
+        let amount_out = if fees_on_input {
+            gross_amount_out
+        } else {
+            gross_amount_out
+                .checked_sub(dynamic.total_fee_amount)
+                .ok_or(ErrorCode::FeeMathOverflow)?
+        };
+        require!(amount_out > 0, ErrorCode::InsufficientOutputAmount);
+        if fees_on_input {
+            require_eq!(
+                reserve_input_credit
+                    .checked_add(claimable_fee_debit)
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+                reserve_credit,
+                ErrorCode::BrokenInvariant
+            );
+        } else {
+            require_eq!(
+                amount_out
+                    .checked_add(claimable_fee_debit)
+                    .and_then(|value| value.checked_add(retained_surcharge))
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+                gross_amount_out,
+                ErrorCode::BrokenInvariant
+            );
+        }
         // Retained surcharge is physically present but belongs to the
         // protected recenter bucket, not to executable reserves. Therefore it
         // cannot change this swap's endpoint, the next quote, hLP ownership,
@@ -928,15 +979,18 @@ impl Market {
         Ok(Some(ExplicitIntegratedAmmQuote {
             integrated,
             amount_out,
+            gross_amount_out,
             start_price_nad,
             end_price_nad,
             reserve_end_price_nad,
             decayed_volatility_nad: dynamic.decayed_volatility_nad,
             post_success_volatility_nad,
             fee: SwapFeeBreakdown {
+                fee_asset: fee_asset.code(),
                 reserve_credit,
+                gross_amount_out,
                 base_fee_debit: dynamic.base_fee_amount,
-                divergence_surcharge_debit: divergence_surcharge,
+                divergence_surcharge_debit: dynamic.divergence_surcharge_amount,
                 volatility_surcharge_debit: dynamic.volatility_surcharge_amount,
                 dynamic_surcharge_debit: dynamic.dynamic_surcharge_amount,
                 total_fee_debit: dynamic.total_fee_amount,
@@ -994,9 +1048,98 @@ impl Market {
     }
 }
 
+fn output_denominated_dynamic_fee(
+    gross_amount_out: u64,
+    gross_amount_in: u64,
+    input_divergence_signal: u64,
+    decayed_volatility_nad: u64,
+    base_fee_bps: u16,
+    config: DynamicFeeConfig,
+) -> Result<DynamicFeeQuote> {
+    let hard_total_budget = hard_total_fee_budget_floor(gross_amount_out);
+    let base_fee_amount = gross_fee_budget_floor(gross_amount_out, base_fee_bps)?;
+    let after_base = gross_amount_out
+        .checked_sub(base_fee_amount)
+        .ok_or(ErrorCode::FeeMathOverflow)?;
+    require!(after_base > 0, ErrorCode::InsufficientOutputAmount);
+
+    let volatility_signal_rate_nad =
+        asymptotic_scaled_rate_nad(u128::from(decayed_volatility_nad), config.volatility_coefficient_nad)?;
+    let uncapped_volatility = u64::try_from(
+        u128::from(after_base)
+            .checked_mul(u128::from(volatility_signal_rate_nad))
+            .ok_or(ErrorCode::MarketMathOverflow)?
+            / u128::from(NAD),
+    )
+    .map_err(|_| ErrorCode::MarketMathOverflow)?;
+    let volatility_surcharge_amount = uncapped_volatility
+        .min(gross_fee_budget_floor(
+            gross_amount_out,
+            config.volatility_fee_share_cap_bps,
+        )?)
+        .min(
+            hard_total_budget
+                .checked_sub(base_fee_amount)
+                .ok_or(ErrorCode::FeeMathOverflow)?,
+        );
+    let after_volatility = after_base
+        .checked_sub(volatility_surcharge_amount)
+        .ok_or(ErrorCode::FeeMathOverflow)?;
+    require!(after_volatility > 0, ErrorCode::InsufficientOutputAmount);
+
+    let divergence_signal_rate_nad = effective_rate_floor_nad(input_divergence_signal, gross_amount_in)?;
+    let uncapped_divergence = u64::try_from(
+        u128::from(after_volatility)
+            .checked_mul(u128::from(divergence_signal_rate_nad))
+            .ok_or(ErrorCode::MarketMathOverflow)?
+            / u128::from(NAD),
+    )
+    .map_err(|_| ErrorCode::MarketMathOverflow)?;
+    let divergence_surcharge_amount = uncapped_divergence
+        .min(gross_fee_budget_floor(
+            gross_amount_out,
+            config.divergence_fee_share_cap_bps,
+        )?)
+        .min(
+            hard_total_budget
+                .checked_sub(base_fee_amount)
+                .and_then(|value| value.checked_sub(volatility_surcharge_amount))
+                .ok_or(ErrorCode::FeeMathOverflow)?,
+        );
+    let dynamic_surcharge_amount = volatility_surcharge_amount
+        .checked_add(divergence_surcharge_amount)
+        .ok_or(ErrorCode::FeeMathOverflow)?;
+    let total_fee_amount = base_fee_amount
+        .checked_add(dynamic_surcharge_amount)
+        .ok_or(ErrorCode::FeeMathOverflow)?;
+    require!(total_fee_amount < gross_amount_out, ErrorCode::InvalidSwapFeeBps);
+    let base_rate_nad = effective_rate_floor_nad(base_fee_amount, gross_amount_out)?;
+    let volatility_rate_nad = effective_rate_floor_nad(volatility_surcharge_amount, gross_amount_out)?;
+    let divergence_rate_nad = effective_rate_floor_nad(divergence_surcharge_amount, gross_amount_out)?;
+    let total_rate_nad = base_rate_nad
+        .checked_add(volatility_rate_nad)
+        .and_then(|value| value.checked_add(divergence_rate_nad))
+        .ok_or(ErrorCode::FeeMathOverflow)?;
+    Ok(DynamicFeeQuote {
+        base_rate_nad,
+        divergence_rate_nad,
+        volatility_rate_nad,
+        total_rate_nad,
+        base_fee_amount,
+        divergence_surcharge_amount,
+        volatility_surcharge_amount,
+        dynamic_surcharge_amount,
+        total_fee_amount,
+        decayed_volatility_nad,
+        post_success_volatility_nad: decayed_volatility_nad,
+    })
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SwapFeeBreakdown {
+    pub fee_asset: u8,
     pub reserve_credit: u64,
+    pub gross_amount_out: u64,
     pub base_fee_debit: u64,
     pub divergence_surcharge_debit: u64,
     pub volatility_surcharge_debit: u64,
@@ -1026,7 +1169,10 @@ pub struct HlpRecoveryBreakdown {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AmmSwapQuote {
     pub asset_in: MarketAsset,
+    /// Net output transferred or credited to the trader/position.
     pub amount_out: u64,
+    /// Curve output before an output-denominated fee is withheld.
+    pub gross_amount_out: u64,
     pub start_price_nad: u64,
     /// Marginal price at the invariant-preserving trader endpoint. Retained
     /// surcharge is excluded because it is principal funding, not traded flow.
@@ -1044,6 +1190,7 @@ pub struct AmmSwapQuote {
 pub(crate) struct ExplicitIntegratedAmmQuote {
     pub integrated: IntegratedFrozenFeeQuote,
     pub amount_out: u64,
+    pub gross_amount_out: u64,
     pub start_price_nad: u64,
     pub end_price_nad: u64,
     pub reserve_end_price_nad: u64,
@@ -1058,6 +1205,7 @@ impl ExplicitIntegratedAmmQuote {
         AmmSwapQuote {
             asset_in,
             amount_out: self.amount_out,
+            gross_amount_out: self.gross_amount_out,
             start_price_nad: self.start_price_nad,
             end_price_nad: self.end_price_nad,
             reserve_end_price_nad: self.reserve_end_price_nad,
@@ -1092,6 +1240,7 @@ impl AmmSwapQuote {
         Self {
             asset_in,
             amount_out,
+            gross_amount_out: fee.gross_amount_out,
             start_price_nad,
             end_price_nad,
             reserve_end_price_nad,
@@ -1120,6 +1269,7 @@ impl AmmSwapQuote {
 pub(crate) struct PreliminarySwapInputs {
     pub amount_in_for_quote: u64,
     pub reserve_input_credit: u64,
+    base_fee_bps: u16,
     fee: DynamicFeeQuote,
 }
 
@@ -1167,9 +1317,17 @@ impl Market {
         require!(reserve_credit > 0, ErrorCode::AmountZero);
         let mut config = self.dynamic_fee_config()?;
         let gross_input_nad = normalize_to_nad(reserve_credit as u128, self.side(asset_in).asset_decimals)?;
-        config.base_fee_bps =
-            self.config
-                .effective_base_fee_bps_for_swap_at(asset_in, gross_input_nad, current_unix_timestamp)?;
+        let current_base_price_nad = self
+            .current_explicit_spot_price_nad()?
+            .ok_or(ErrorCode::InsufficientLiquidity)?;
+        config.base_fee_bps = self.config.effective_base_fee_bps_for_swap_at(
+            asset_in,
+            gross_input_nad,
+            current_unix_timestamp,
+            current_base_price_nad,
+            self.amm.launch_reference_price_nad,
+            self.amm.launch_fee_progress_offset,
+        )?;
         validate_fee_share_caps(
             config.base_fee_bps,
             config.divergence_fee_share_cap_bps,
@@ -1270,6 +1428,7 @@ impl Market {
         Ok(PreliminarySwapInputs {
             amount_in_for_quote: amount,
             reserve_input_credit,
+            base_fee_bps: config.base_fee_bps,
             fee: preliminary,
         })
     }

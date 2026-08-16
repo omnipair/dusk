@@ -1,3 +1,4 @@
+use crate::errors::ErrorCode;
 use anchor_lang::prelude::*;
 
 pub mod account;
@@ -163,6 +164,22 @@ pub mod dusk {
         ctx: Context<'_, '_, '_, 'info, AddLiquidity<'info>>,
         args: AddLiquidityArgs,
     ) -> Result<()> {
+        AddLiquidity::handle_add_liquidity(ctx, args)
+    }
+
+    /// Permissionless launch adapters use the same fully-backed seeding path
+    /// as ordinary yLP deposits. The initializer is the one-shot authority;
+    /// after this succeeds, subsequent liquidity is permissionless.
+    #[access_control(ctx.accounts.update_and_validate(&args))]
+    pub fn graduate_market<'info>(
+        ctx: Context<'_, '_, '_, 'info, AddLiquidity<'info>>,
+        args: AddLiquidityArgs,
+    ) -> Result<()> {
+        require_eq!(
+            ctx.accounts.market.base_side.shares.ylp_supply,
+            0,
+            ErrorCode::NonZeroSupply
+        );
         AddLiquidity::handle_add_liquidity(ctx, args)
     }
 

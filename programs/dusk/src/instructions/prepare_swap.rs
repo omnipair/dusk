@@ -1,4 +1,8 @@
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::sysvar::instructions::{
+    load_current_index_checked, load_instruction_at_checked, ID as INSTRUCTIONS_SYSVAR_ID,
+};
+use anchor_lang::Discriminator;
 
 use crate::{
     errors::ErrorCode,
@@ -18,6 +22,66 @@ pub(crate) struct SwapRequest {
     pub current_unix_timestamp: i64,
     pub asset_in: MarketAsset,
     pub reserve_credit: u64,
+}
+
+pub(crate) fn enforce_launch_same_transaction_guard(
+    market: &Market,
+    market_key: Pubkey,
+    asset_in: MarketAsset,
+    unix_timestamp: i64,
+    instructions_sysvar: &AccountInfo<'_>,
+) -> Result<()> {
+    if !market
+        .config
+        .launch_rate_limit_active_for_swap(asset_in, unix_timestamp)
+    {
+        return Ok(());
+    }
+    require_keys_eq!(
+        *instructions_sysvar.key,
+        INSTRUCTIONS_SYSVAR_ID,
+        ErrorCode::LaunchRateLimitSplitTransaction
+    );
+    let current_index = usize::from(
+        load_current_index_checked(instructions_sysvar).map_err(|_| ErrorCode::LaunchRateLimitSplitTransaction)?,
+    );
+    let current = load_instruction_at_checked(current_index, instructions_sysvar)
+        .map_err(|_| ErrorCode::LaunchRateLimitSplitTransaction)?;
+    require!(
+        current.program_id == crate::ID
+            && launch_price_moving_instruction(&current.data)
+            && current.accounts.iter().any(|meta| meta.pubkey == market_key),
+        ErrorCode::LaunchRateLimitSplitTransaction
+    );
+
+    let mut matching_market_actions = 0_u8;
+    let mut index = 0_usize;
+    while let Ok(instruction) = load_instruction_at_checked(index, instructions_sysvar) {
+        if instruction.program_id == crate::ID
+            && launch_price_moving_instruction(&instruction.data)
+            && instruction.accounts.iter().any(|meta| meta.pubkey == market_key)
+        {
+            matching_market_actions = matching_market_actions
+                .checked_add(1)
+                .ok_or(ErrorCode::LaunchRateLimitSplitTransaction)?;
+            require!(matching_market_actions <= 1, ErrorCode::LaunchRateLimitSplitTransaction);
+        }
+        index = index.checked_add(1).ok_or(ErrorCode::LaunchRateLimitSplitTransaction)?;
+    }
+    require_eq!(matching_market_actions, 1, ErrorCode::LaunchRateLimitSplitTransaction);
+    Ok(())
+}
+
+fn launch_price_moving_instruction(data: &[u8]) -> bool {
+    let Some(discriminator) = data.get(..8) else {
+        return false;
+    };
+    discriminator == crate::instruction::Swap::DISCRIMINATOR
+        || discriminator == crate::instruction::OpenLeverage::DISCRIMINATOR
+        || discriminator == crate::instruction::IncreaseLeverage::DISCRIMINATOR
+        || discriminator == crate::instruction::DecreaseLeverage::DISCRIMINATOR
+        || discriminator == crate::instruction::CloseLeverage::DISCRIMINATOR
+        || discriminator == crate::instruction::LiquidateLeverage::DISCRIMINATOR
 }
 
 /// State-only preparation shared by preview and execution. `finalize_state`
@@ -85,44 +149,68 @@ impl PreparedSwap {
         transition: &ExplicitHlpTransition,
     ) -> Result<FinalizedSwapState> {
         let quote = self.quote;
+        let fee_asset = MarketAsset::try_from_code(quote.fee.fee_asset)?;
         let (base_fee_credit, distributed_surcharge_credit) =
             split_claimable_fee_credit(&quote.fee, quote.fee.claimable_fee_debit)?;
-        require_eq!(
-            quote.fee.reserve_input_credit,
-            quote
-                .fee
-                .amount_in_for_quote
-                .checked_add(quote.fee.retained_surcharge)
-                .ok_or(ErrorCode::ReserveOverflow)?,
-            ErrorCode::BrokenInvariant
-        );
+        if fee_asset == quote.asset_in {
+            require_eq!(quote.amount_out, quote.gross_amount_out, ErrorCode::BrokenInvariant);
+            require_eq!(
+                quote.fee.reserve_input_credit,
+                quote
+                    .fee
+                    .amount_in_for_quote
+                    .checked_add(quote.fee.retained_surcharge)
+                    .ok_or(ErrorCode::ReserveOverflow)?,
+                ErrorCode::BrokenInvariant
+            );
+        } else {
+            require!(fee_asset == quote.asset_in.opposite(), ErrorCode::BrokenInvariant);
+            require_eq!(
+                quote.fee.amount_in_for_quote,
+                quote.fee.reserve_credit,
+                ErrorCode::BrokenInvariant
+            );
+            require_eq!(
+                quote.fee.reserve_input_credit,
+                quote.fee.reserve_credit,
+                ErrorCode::BrokenInvariant
+            );
+            require_eq!(
+                quote
+                    .amount_out
+                    .checked_add(quote.fee.claimable_fee_debit)
+                    .and_then(|value| value.checked_add(quote.fee.retained_surcharge))
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+                quote.gross_amount_out,
+                ErrorCode::BrokenInvariant
+            );
+        }
         {
             let (side_in, side_out) = market.swap_sides_mut(quote.asset_in);
             require_gte!(
                 side_out.reserves.cash_reserve,
-                quote.amount_out,
+                quote.gross_amount_out,
                 ErrorCode::InsufficientLiquidity
             );
             side_in.credit_reserve(quote.fee.amount_in_for_quote, true)?;
-            side_out.debit_reserve(quote.amount_out, true)?;
+            side_out.debit_reserve(quote.gross_amount_out, true)?;
         }
 
         // Fee ownership is frozen before hLP-owned yLP is reconstructed.
         {
-            let (side_in, side_out) = market.swap_sides_mut(quote.asset_in);
-            side_in.record_claimable_swap_fees(
+            market.side_mut(fee_asset).record_claimable_swap_fees(
                 base_fee_credit,
                 distributed_surcharge_credit,
                 protocol_fee_bps,
                 protocol_auction_split,
                 self.fee_eligible_ylp_supply,
             )?;
-            side_in.assert_share_backing()?;
-            side_out.assert_share_backing()?;
-            side_in.fees.assert_backed()?;
+            market.base_side.assert_share_backing()?;
+            market.quote_side.assert_share_backing()?;
+            market.side(fee_asset).fees.assert_backed()?;
         }
         if quote.fee.retained_surcharge > 0 {
-            market.credit_protected_recenter_reserve(quote.asset_in, quote.fee.retained_surcharge)?;
+            market.credit_protected_recenter_reserve(fee_asset, quote.fee.retained_surcharge)?;
         }
         let (base_rebalance, quote_rebalance) = transition.consume(market)?;
         market.finalize_amm_trade_after_inventory_checkpoint(
@@ -210,7 +298,7 @@ impl SwapRequest {
         let transition = prepare_explicit_hlp_transition(market, explicit, self.asset_in)?;
         require!(
             transition
-                .interest_cash_floors(self.asset_in, explicit.amount_out)
+                .interest_cash_floors(self.asset_in, explicit.gross_amount_out)
                 .available(market),
             ErrorCode::InsufficientLiquidity
         );
@@ -225,7 +313,10 @@ impl SwapRequest {
                 target_asset: MarketAsset::Quote,
                 ..HlpRebalanceReceipt::default()
             },
-            fee_eligible_ylp_supply: market.side(self.asset_in).shares.ylp_supply,
+            fee_eligible_ylp_supply: market
+                .side(MarketAsset::try_from_code(quote.fee.fee_asset)?)
+                .shares
+                .ylp_supply,
             interest_eligibility,
             cash_policy,
             explicit_transition: Some(Box::new(transition)),
@@ -271,4 +362,90 @@ pub(crate) fn split_claimable_fee_credit(fee: &SwapFeeBreakdown, total_credit: u
             .checked_sub(base_credit)
             .ok_or(ErrorCode::FeeMathOverflow)?,
     ))
+}
+
+#[cfg(test)]
+mod launch_guard_tests {
+    use super::*;
+    use anchor_lang::solana_program::sysvar::{
+        self,
+        instructions::{construct_instructions_data, store_current_index, BorrowedAccountMeta, BorrowedInstruction},
+    };
+
+    fn guarded_market() -> Market {
+        let mut market = Market::default();
+        market.config.start_time = 100;
+        market.config.amm.launch_rate_limit_asset = crate::state::LAUNCH_RATE_LIMIT_ASSET_BASE;
+        market.config.amm.launch_rate_limit_duration_seconds = 100;
+        market
+    }
+
+    fn run_guard(
+        market: &Market,
+        market_key: Pubkey,
+        instructions: &[(Pubkey, Pubkey, &'static [u8])],
+        current_index: u16,
+        unix_timestamp: i64,
+    ) -> Result<()> {
+        let borrowed: Vec<_> = instructions
+            .iter()
+            .map(|(program_id, account_key, data)| BorrowedInstruction {
+                program_id,
+                accounts: vec![BorrowedAccountMeta {
+                    pubkey: account_key,
+                    is_signer: false,
+                    is_writable: true,
+                }],
+                data,
+            })
+            .collect();
+        let mut data = construct_instructions_data(&borrowed);
+        store_current_index(&mut data, current_index);
+        let mut lamports = 0;
+        let key = INSTRUCTIONS_SYSVAR_ID;
+        let owner = sysvar::id();
+        let account = AccountInfo::new(&key, false, false, &mut lamports, &mut data, &owner, false, 0);
+        enforce_launch_same_transaction_guard(market, market_key, MarketAsset::Quote, unix_timestamp, &account)
+    }
+
+    #[test]
+    fn launch_guard_allows_one_market_action_and_rejects_same_transaction_splits() {
+        let market = guarded_market();
+        let market_key = Pubkey::new_unique();
+        let swap = crate::instruction::Swap::DISCRIMINATOR;
+        assert!(run_guard(&market, market_key, &[(crate::ID, market_key, swap)], 0, 100).is_ok());
+        assert!(run_guard(
+            &market,
+            market_key,
+            &[(crate::ID, market_key, &[]), (crate::ID, market_key, swap)],
+            1,
+            100,
+        )
+        .is_ok());
+        assert!(run_guard(
+            &market,
+            market_key,
+            &[(crate::ID, market_key, swap), (crate::ID, market_key, swap)],
+            0,
+            100,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn launch_guard_rejects_aggregator_cpi_but_is_inert_after_expiry() {
+        let market = guarded_market();
+        let market_key = Pubkey::new_unique();
+        let aggregator = Pubkey::new_unique();
+        let swap = crate::instruction::Swap::DISCRIMINATOR;
+        assert!(run_guard(&market, market_key, &[(aggregator, market_key, swap)], 0, 100).is_err());
+        assert!(run_guard(
+            &market,
+            market_key,
+            &[(crate::ID, market_key, swap), (crate::ID, market_key, swap)],
+            0,
+            200,
+        )
+        .is_ok());
+    }
 }

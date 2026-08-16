@@ -24,7 +24,7 @@ use crate::instructions::accounts::{
     require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout,
 };
 use crate::instructions::referral::accounting::validate_referral_binding;
-use crate::instructions::SwapRequest;
+use crate::instructions::{enforce_launch_same_transaction_guard, SwapRequest};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct OpenLeverageArgs {
@@ -70,6 +70,10 @@ pub struct OpenLeverage<'info> {
 
     pub referral_accrual: Option<Box<Account<'info, ReferralAccrual>>>,
 
+    /// CHECK: Canonical Instructions sysvar for the launch split guard.
+    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions_sysvar: UncheckedAccount<'info>,
+
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
@@ -89,6 +93,13 @@ impl<'info> OpenLeverage<'info> {
             ErrorCode::InvalidLeveragePosition
         );
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
+        enforce_launch_same_transaction_guard(
+            &self.market,
+            self.market.key(),
+            debt_asset,
+            unix_timestamp,
+            &self.instructions_sysvar.to_account_info(),
+        )?;
         validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
         validate_leverage_collateral_risk_mint(&self.collateral_mint)?;
         let (expected_collateral_vault, _) =
@@ -221,10 +232,12 @@ impl<'info> OpenLeverage<'info> {
                 amount: debt_amount,
             },
         )?;
-        let swap = prepared_swap.swap;
         let interest_eligibility = prepared_swap.interest_eligibility;
-        let collateral_credit =
-            leverage_collateral_credit(&ctx.accounts.collateral_mint, swap.amount_out, current_epoch)?;
+        let collateral_credit = leverage_collateral_credit(
+            &ctx.accounts.collateral_mint,
+            prepared_swap.swap.amount_out,
+            current_epoch,
+        )?;
         require_gte!(collateral_credit, args.min_collateral_out, ErrorCode::SlippageExceeded);
 
         // Create the position vault and move the purchased collateral into custody.
@@ -248,14 +261,14 @@ impl<'info> OpenLeverage<'info> {
             ],
         )?;
 
-        let swap_fee_credit = leverage_swap_fee_credit(&swap)?;
+        let swap_fee_credit = leverage_swap_fee_credit(&prepared_swap.swap)?;
         transfer_checked_with_remaining_accounts(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.collateral_reserve_vault.to_account_info(),
             ctx.accounts.leverage_collateral_vault.to_account_info(),
             ctx.accounts.collateral_mint.to_account_info(),
             collateral_token_program,
-            swap.amount_out,
+            prepared_swap.swap.amount_out,
             ctx.accounts.collateral_mint.decimals,
             &[&crate::generate_market_seeds!(ctx.accounts.market)[..]],
             h_lp_accounts.hook_accounts(ctx.remaining_accounts),

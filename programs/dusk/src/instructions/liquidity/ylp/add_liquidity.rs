@@ -87,6 +87,7 @@ impl<'info> AddLiquidity<'info> {
         validate_ylp_market_pda(&self.market, self.market.key())?;
         self.market
             .assert_liquidity_seeding_available_with_futarchy(&self.futarchy_authority)?;
+        self.market.require_initial_liquidity_authority(self.owner.key())?;
         require!(
             args.base_deposit_amount > 0 && args.quote_deposit_amount > 0,
             ErrorCode::AmountZero

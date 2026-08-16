@@ -39,6 +39,10 @@ export const LAUNCH_FEE_DECAY_EXPONENTIAL = 2;
 export const LAUNCH_RATE_LIMIT_ASSET_DISABLED = 0;
 export const LAUNCH_RATE_LIMIT_ASSET_BASE = 1;
 export const LAUNCH_RATE_LIMIT_ASSET_QUOTE = 2;
+export const SWAP_FEE_COLLECT_INPUT_ASSET = 0;
+export const SWAP_FEE_COLLECT_BASE_ONLY = 1;
+export const SWAP_FEE_COLLECT_QUOTE_ONLY = 2;
+export const MAX_LAUNCH_MARKET_FEE_PERIODS = 64;
 export const PARAMETER_PROPOSAL_DIGEST_DOMAIN = "DUSK_PARAMETER_PROPOSAL_V1";
 
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
@@ -64,9 +68,13 @@ export interface FeeProfileInput {
   volatilityHalfLifeMs: GovernanceIntegerLike;
   volatilityShockCapNad: GovernanceIntegerLike;
   volatilityAccumulatorCapNad: GovernanceIntegerLike;
+  swapFeeCollectMode?: number;
   launchFeeStartBps?: number;
   launchFeeDurationSeconds?: GovernanceIntegerLike;
   launchFeeDecayMode?: number;
+  launchMarketPriceStepBps?: number;
+  launchMarketNumberOfPeriods?: number;
+  launchMarketReductionFactorBps?: number;
   launchRateLimitAsset?: number;
   launchRateLimitReferenceNad?: GovernanceIntegerLike;
   launchRateLimitIncrementBps?: number;
@@ -83,9 +91,13 @@ export interface FeeProfile {
   volatilityHalfLifeMs: BN;
   volatilityShockCapNad: BN;
   volatilityAccumulatorCapNad: BN;
+  swapFeeCollectMode: number;
   launchFeeStartBps: number;
   launchFeeDurationSeconds: BN;
   launchFeeDecayMode: number;
+  launchMarketPriceStepBps: number;
+  launchMarketNumberOfPeriods: number;
+  launchMarketReductionFactorBps: number;
   launchRateLimitAsset: number;
   launchRateLimitReferenceNad: BN;
   launchRateLimitIncrementBps: number;
@@ -279,16 +291,42 @@ export function feeParameterUpdate(input: FeeProfileInput): ParameterUpdate {
     throw new Error("a nonzero volatility fee coefficient requires an enabled volatility signal");
   }
 
+  const swapFeeCollectMode =
+    input.swapFeeCollectMode ?? SWAP_FEE_COLLECT_INPUT_ASSET;
+  if (
+    ![
+      SWAP_FEE_COLLECT_INPUT_ASSET,
+      SWAP_FEE_COLLECT_BASE_ONLY,
+      SWAP_FEE_COLLECT_QUOTE_ONLY,
+    ].includes(swapFeeCollectMode)
+  ) {
+    throw new Error("invalid swap fee collection mode");
+  }
+
   const launchFeeStartBps = input.launchFeeStartBps ?? 0;
   const launchFeeDurationSeconds = toU64BigInt(
     input.launchFeeDurationSeconds ?? 0,
     "launchFeeDurationSeconds"
   );
   const launchFeeDecayMode = input.launchFeeDecayMode ?? LAUNCH_FEE_DECAY_DISABLED;
+  const launchMarketPriceStepBps = input.launchMarketPriceStepBps ?? 0;
+  const launchMarketNumberOfPeriods = input.launchMarketNumberOfPeriods ?? 0;
+  const launchMarketReductionFactorBps = input.launchMarketReductionFactorBps ?? 0;
+  const marketScheduleDisabled =
+    launchMarketPriceStepBps === 0 &&
+    launchMarketNumberOfPeriods === 0 &&
+    launchMarketReductionFactorBps === 0;
+  const marketScheduleEnabled =
+    launchMarketPriceStepBps > 0 &&
+    launchMarketNumberOfPeriods > 0 &&
+    launchMarketNumberOfPeriods <= MAX_LAUNCH_MARKET_FEE_PERIODS &&
+    launchMarketReductionFactorBps > 0 &&
+    launchMarketReductionFactorBps < GOVERNANCE_BPS_DENOMINATOR;
   const launchFeeDisabled =
     launchFeeStartBps === 0 &&
     launchFeeDurationSeconds === 0n &&
-    launchFeeDecayMode === LAUNCH_FEE_DECAY_DISABLED;
+    launchFeeDecayMode === LAUNCH_FEE_DECAY_DISABLED &&
+    marketScheduleDisabled;
   if (
     !launchFeeDisabled &&
     (launchFeeStartBps <= input.baseFeeBps ||
@@ -300,6 +338,17 @@ export function feeParameterUpdate(input: FeeProfileInput): ParameterUpdate {
       ))
   ) {
     throw new Error("invalid launch fee start, duration, or decay mode");
+  }
+  if (!launchFeeDisabled && !marketScheduleDisabled && !marketScheduleEnabled) {
+    throw new Error("invalid launch market-cap fee schedule");
+  }
+  if (
+    marketScheduleEnabled &&
+    ![SWAP_FEE_COLLECT_BASE_ONLY, SWAP_FEE_COLLECT_QUOTE_ONLY].includes(
+      swapFeeCollectMode
+    )
+  ) {
+    throw new Error("a market-cap fee schedule requires a fixed fee asset");
   }
   if (
     !launchFeeDisabled &&
@@ -378,9 +427,13 @@ export function feeParameterUpdate(input: FeeProfileInput): ParameterUpdate {
       volatilityHalfLifeMs: toBN(volatilityHalfLifeMs),
       volatilityShockCapNad: toBN(volatilityShockCapNad),
       volatilityAccumulatorCapNad: toBN(volatilityAccumulatorCapNad),
+      swapFeeCollectMode,
       launchFeeStartBps,
       launchFeeDurationSeconds: toBN(launchFeeDurationSeconds),
       launchFeeDecayMode,
+      launchMarketPriceStepBps,
+      launchMarketNumberOfPeriods,
+      launchMarketReductionFactorBps,
       launchRateLimitAsset,
       launchRateLimitReferenceNad: toBN(launchRateLimitReferenceNad),
       launchRateLimitIncrementBps,
@@ -388,6 +441,17 @@ export function feeParameterUpdate(input: FeeProfileInput): ParameterUpdate {
       launchRateLimitDurationSeconds: toBN(launchRateLimitDurationSeconds),
     },
   };
+}
+
+/** Standard launch-token fee template: Base is sold and all swap revenue is Quote. */
+export function standardLaunchFeeParameterUpdate(
+  input: Omit<FeeProfileInput, "swapFeeCollectMode" | "launchRateLimitAsset">
+): ParameterUpdate {
+  return feeParameterUpdate({
+    ...input,
+    swapFeeCollectMode: SWAP_FEE_COLLECT_QUOTE_ONLY,
+    launchRateLimitAsset: LAUNCH_RATE_LIMIT_ASSET_BASE,
+  });
 }
 
 /** Build an atomic, protected concentration update. */
@@ -997,9 +1061,13 @@ function encodeParameterUpdate(update: ParameterUpdate): Uint8Array {
         encodeU64(update.profile.volatilityHalfLifeMs, "volatilityHalfLifeMs"),
         encodeU64(update.profile.volatilityShockCapNad, "volatilityShockCapNad"),
         encodeU64(update.profile.volatilityAccumulatorCapNad, "volatilityAccumulatorCapNad"),
+        Uint8Array.of(update.profile.swapFeeCollectMode),
         encodeU16(update.profile.launchFeeStartBps),
         encodeU64(update.profile.launchFeeDurationSeconds, "launchFeeDurationSeconds"),
         Uint8Array.of(update.profile.launchFeeDecayMode),
+        encodeU16(update.profile.launchMarketPriceStepBps),
+        encodeU16(update.profile.launchMarketNumberOfPeriods),
+        encodeU16(update.profile.launchMarketReductionFactorBps),
         Uint8Array.of(update.profile.launchRateLimitAsset),
         encodeU64(update.profile.launchRateLimitReferenceNad, "launchRateLimitReferenceNad"),
         encodeU16(update.profile.launchRateLimitIncrementBps),

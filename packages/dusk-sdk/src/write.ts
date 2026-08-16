@@ -7,6 +7,7 @@ import {
 } from "@solana/spl-token";
 import {
   SystemProgram,
+  SYSVAR_INSTRUCTIONS_PUBKEY,
   Transaction,
   type AccountMeta,
   type PublicKey,
@@ -267,7 +268,10 @@ export class DuskWrite {
       : [];
 
     return this.builder("swap", args, {
-      accounts: options.accounts,
+      accounts: {
+        ...options.accounts,
+        instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
+      },
       // Prefix order is consensus-visible. Hook accounts must remain a tail,
       // including any deliberate duplicate pubkeys required by a hook meta list.
       remainingAccounts: [...prefix, ...(options.remainingAccounts ?? [])],
@@ -789,6 +793,9 @@ export class DuskWrite {
           ...options.accounts,
           referralPartner: referral.referralPartner,
           referralAccrual: referral.referralAccrual,
+          ...(name === "openLeverage"
+            ? { instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY }
+            : {}),
         },
         remainingAccounts: mergeAccountMetas(options.remainingAccounts ?? [], hookAccounts),
       }
@@ -1166,6 +1173,7 @@ export class DuskWrite {
           collateralReserveVault: core.collateralReserveVault,
           leverageCollateralVault: core.leverageCollateralVault,
           owner: core.owner,
+          instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
           tokenProgram: core.tokenProgram,
           token2022Program: TOKEN_2022_PROGRAM_ID,
         },
@@ -1212,6 +1220,7 @@ export class DuskWrite {
           referralPartner: core.referralPartner,
           referralAccrual: core.referralAccrual,
           owner: core.owner,
+          instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
           tokenProgram: core.tokenProgram,
           token2022Program: TOKEN_2022_PROGRAM_ID,
         },
@@ -1343,6 +1352,7 @@ export class DuskWrite {
             ? address(params.delegatedProgram)
             : null,
           authority: address(params.authority ?? params.positionOwner),
+          instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
           tokenProgram: core.tokenProgram,
           token2022Program: TOKEN_2022_PROGRAM_ID,
         },

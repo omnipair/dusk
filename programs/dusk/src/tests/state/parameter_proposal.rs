@@ -312,7 +312,7 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
     };
 
     assert_eq!(proposal.try_to_vec().unwrap().len(), ParameterProposal::INIT_SPACE);
-    assert_eq!(ParameterProposal::INIT_SPACE, 599);
+    assert_eq!(ParameterProposal::INIT_SPACE, 606);
     assert_eq!(support.try_to_vec().unwrap().len(), ProposalSupport::INIT_SPACE);
     assert_eq!(ProposalSupport::INIT_SPACE, 201);
 
@@ -324,7 +324,7 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
         initial_support: u64::MAX,
     };
     let instruction_data = crate::instruction::CreateParameterProposal { args }.data();
-    assert_eq!(instruction_data.len(), 444);
+    assert_eq!(instruction_data.len(), 451);
 
     let account_metas = crate::accounts::CreateParameterProposal {
         proposer,
@@ -356,9 +356,9 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
     assert_eq!(message.header.num_required_signatures, 1);
     assert_eq!(message.account_keys.len(), 14);
     let message_size = bincode::serialize(&message).unwrap().len();
-    assert_eq!(message_size, 947);
+    assert_eq!(message_size, 954);
     // One compact-u16 signature count byte, one signature, and the message.
-    assert_eq!(1 + 64 + message_size, 1_012);
+    assert_eq!(1 + 64 + message_size, 1_019);
 }
 
 #[test]

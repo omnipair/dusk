@@ -36,9 +36,12 @@ pub const MAX_AMM_ADJUSTMENT_INTERVAL_SLOTS: u64 = 216_000;
 /// initialize transaction exceed Solana's 1,232-byte limit. Layout v1 keeps
 /// this wire reserve for future configuration fields. Launch-fee configuration
 /// consumes eleven bytes from the original 33-byte reserve and the launch
-/// buy-size limiter consumes another twenty-one. One reserve byte remains;
-/// because `AmmConfig` is embedded twice, this keeps `Market` from growing.
-pub const AMM_CONFIG_RESERVED_BYTES: usize = 1;
+/// buy-size limiter consumes another twenty-one. The remaining byte is used
+/// by the fee-denomination mode.
+pub const AMM_CONFIG_RESERVED_BYTES: usize = 0;
+pub const SWAP_FEE_COLLECT_INPUT_ASSET: u8 = 0;
+pub const SWAP_FEE_COLLECT_BASE_ONLY: u8 = 1;
+pub const SWAP_FEE_COLLECT_QUOTE_ONLY: u8 = 2;
 pub const LAUNCH_FEE_DECAY_DISABLED: u8 = 0;
 pub const LAUNCH_FEE_DECAY_LINEAR: u8 = 1;
 pub const LAUNCH_FEE_DECAY_EXPONENTIAL: u8 = 2;
@@ -57,14 +60,14 @@ pub const AMM_DEFERRED_CONTROLLER_TARGET_BYTES: usize = core::mem::size_of::<u8>
     + 2 * core::mem::size_of::<u64>()
     + 4 * core::mem::size_of::<u128>()
     + core::mem::size_of::<bool>();
-/// Layout v1 materializes the parameter-bound concentration geometry,
-/// retained-funding marker, and deferred controller target as concrete state.
+/// Layout v2 also binds launch graduation price/progress and the one-shot
+/// initial-liquidity authority alongside the explicit concentration state.
 /// Pessimistic lending shapes are intentionally reconstructed only by
 /// risk-sensitive operations instead of being persisted in every market.
 /// The account-only expansion reserve is fully allocated to keep Anchor's
 /// generated SBF deserializer inside Solana's 4 KiB stack frame.
-/// Future account-only fields require another explicit layout revision; the
-/// remaining `AmmConfig` wire reserve above is available for configuration.
+/// Future account or configuration fields require another explicit layout
+/// revision; all previously reserved bytes are now allocated.
 pub const AMM_STATE_RESERVED_BYTES: usize = 0;
 
 /// Protocol constants for the retained-surcharge safety budget.
@@ -88,11 +91,21 @@ pub struct AmmConfig {
     pub volatility_cap_nad: u64,
     pub divergence_fee_coefficient_nad: u64,
     pub volatility_fee_coefficient_nad: u64,
+    /// Asset in which swap, toxicity, volatility, and retained-recenter fees
+    /// are denominated. Lending and hLP funding interest remain in the
+    /// borrowed asset and are not affected by this setting.
+    pub swap_fee_collect_mode: u8,
     /// Optional launch-only base fee. The premium above `swap_fee_bps`
     /// decays from `start_time` and is zero after the configured duration.
     pub launch_fee_start_bps: u16,
     pub launch_fee_duration_seconds: u64,
     pub launch_fee_decay_mode: u8,
+    /// When all three values are zero, the launch fee follows the time
+    /// schedule above. A fully nonzero tuple selects a price-milestone
+    /// scheduler whose reference price is bound by the first liquidity seed.
+    pub launch_market_price_step_bps: u16,
+    pub launch_market_number_of_periods: u16,
+    pub launch_market_reduction_factor_bps: u16,
     /// Optional launch buy-size limiter. The configured asset is the asset
     /// being bought, not the input asset. Each full/partial reference amount
     /// after the first adds `launch_rate_limit_increment_bps`, capped by
@@ -119,9 +132,13 @@ impl Default for AmmConfig {
             volatility_cap_nad: 0,
             divergence_fee_coefficient_nad: 0,
             volatility_fee_coefficient_nad: 0,
+            swap_fee_collect_mode: SWAP_FEE_COLLECT_INPUT_ASSET,
             launch_fee_start_bps: 0,
             launch_fee_duration_seconds: 0,
             launch_fee_decay_mode: LAUNCH_FEE_DECAY_DISABLED,
+            launch_market_price_step_bps: 0,
+            launch_market_number_of_periods: 0,
+            launch_market_reduction_factor_bps: 0,
             launch_rate_limit_asset: LAUNCH_RATE_LIMIT_ASSET_DISABLED,
             launch_rate_limit_reference_nad: 0,
             launch_rate_limit_increment_bps: 0,
@@ -162,6 +179,13 @@ impl AmmConfig {
 
     pub fn validate(&self) -> Result<()> {
         self.explicit_curve_parameters()?;
+        require!(
+            matches!(
+                self.swap_fee_collect_mode,
+                SWAP_FEE_COLLECT_INPUT_ASSET | SWAP_FEE_COLLECT_BASE_ONLY | SWAP_FEE_COLLECT_QUOTE_ONLY
+            ),
+            ErrorCode::InvalidMarketConfig
+        );
         require!(
             (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(&self.center_ema_half_life_ms)
                 && (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(&self.volatility_half_life_ms),
@@ -247,6 +271,12 @@ pub struct AmmState {
     pub last_trade_price_nad: u64,
     pub last_observation_slot: u64,
     pub last_adjustment_slot: u64,
+    /// Immutable launch price reference bound by the first fully-backed
+    /// liquidity seed. Zero is allowed only before that seed.
+    pub launch_reference_price_nad: u64,
+    /// Fee-schedule progress already completed by a bootstrap adapter before
+    /// the market graduates into GAMM.
+    pub launch_fee_progress_offset: u16,
     pub volatility_accumulator_nad: u64,
     pub q_per_share_nad: u128,
     /// yLP principal floor protected from funded recenter/ramp impairment.
@@ -284,6 +314,8 @@ impl Default for AmmState {
             last_trade_price_nad: 0,
             last_observation_slot: 0,
             last_adjustment_slot: 0,
+            launch_reference_price_nad: 0,
+            launch_fee_progress_offset: 0,
             volatility_accumulator_nad: 0,
             q_per_share_nad: 0,
             protected_floor_per_share_nad: 0,
@@ -316,6 +348,8 @@ impl AmmState {
             last_trade_price_nad: initial_price_nad,
             last_observation_slot: current_slot,
             last_adjustment_slot: current_slot,
+            launch_reference_price_nad: 0,
+            launch_fee_progress_offset: 0,
             volatility_accumulator_nad: 0,
             q_per_share_nad: initial_q_per_share_nad,
             protected_floor_per_share_nad: initial_q_per_share_nad,
@@ -616,9 +650,13 @@ pub struct FeeProfile {
     pub volatility_half_life_ms: u64,
     pub volatility_shock_cap_nad: u64,
     pub volatility_accumulator_cap_nad: u64,
+    pub swap_fee_collect_mode: u8,
     pub launch_fee_start_bps: u16,
     pub launch_fee_duration_seconds: u64,
     pub launch_fee_decay_mode: u8,
+    pub launch_market_price_step_bps: u16,
+    pub launch_market_number_of_periods: u16,
+    pub launch_market_reduction_factor_bps: u16,
     pub launch_rate_limit_asset: u8,
     pub launch_rate_limit_reference_nad: u64,
     pub launch_rate_limit_increment_bps: u16,
@@ -664,10 +702,20 @@ impl FeeProfile {
             self.volatility_fee_coefficient_nad == 0 || volatility_signal_valid,
             ErrorCode::InvalidMarketConfig
         );
+        require!(
+            matches!(
+                self.swap_fee_collect_mode,
+                SWAP_FEE_COLLECT_INPUT_ASSET | SWAP_FEE_COLLECT_BASE_ONLY | SWAP_FEE_COLLECT_QUOTE_ONLY
+            ),
+            ErrorCode::InvalidMarketConfig
+        );
 
         let launch_fee_disabled = self.launch_fee_start_bps == 0
             && self.launch_fee_duration_seconds == 0
-            && self.launch_fee_decay_mode == LAUNCH_FEE_DECAY_DISABLED;
+            && self.launch_fee_decay_mode == LAUNCH_FEE_DECAY_DISABLED
+            && self.launch_market_price_step_bps == 0
+            && self.launch_market_number_of_periods == 0
+            && self.launch_market_reduction_factor_bps == 0;
         if !launch_fee_disabled {
             require!(
                 self.launch_fee_start_bps > self.base_fee_bps
@@ -683,6 +731,27 @@ impl FeeProfile {
                 self.divergence_fee_share_cap_bps,
                 self.volatility_fee_share_cap_bps,
             )?;
+            let market_schedule_disabled = self.launch_market_price_step_bps == 0
+                && self.launch_market_number_of_periods == 0
+                && self.launch_market_reduction_factor_bps == 0;
+            let market_schedule_enabled = self.launch_market_price_step_bps > 0
+                && self.launch_market_number_of_periods > 0
+                && self.launch_market_number_of_periods <= 64
+                && self.launch_market_reduction_factor_bps > 0
+                && self.launch_market_reduction_factor_bps < BPS_DENOMINATOR;
+            require!(
+                market_schedule_disabled || market_schedule_enabled,
+                ErrorCode::InvalidMarketConfig
+            );
+            if market_schedule_enabled {
+                require!(
+                    matches!(
+                        self.swap_fee_collect_mode,
+                        SWAP_FEE_COLLECT_BASE_ONLY | SWAP_FEE_COLLECT_QUOTE_ONLY
+                    ),
+                    ErrorCode::InvalidMarketConfig
+                );
+            }
         }
 
         let rate_limit_disabled = self.launch_rate_limit_asset == LAUNCH_RATE_LIMIT_ASSET_DISABLED
@@ -766,6 +835,15 @@ pub struct MarketConfig {
 }
 
 impl MarketConfig {
+    pub fn swap_fee_asset(&self, asset_in: MarketAsset) -> Result<MarketAsset> {
+        match self.amm.swap_fee_collect_mode {
+            SWAP_FEE_COLLECT_INPUT_ASSET => Ok(asset_in),
+            SWAP_FEE_COLLECT_BASE_ONLY => Ok(MarketAsset::Base),
+            SWAP_FEE_COLLECT_QUOTE_ONLY => Ok(MarketAsset::Quote),
+            _ => err!(ErrorCode::InvalidMarketConfig),
+        }
+    }
+
     pub const fn fee_profile(&self) -> FeeProfile {
         FeeProfile {
             base_fee_bps: self.swap_fee_bps,
@@ -776,9 +854,13 @@ impl MarketConfig {
             volatility_half_life_ms: self.amm.volatility_half_life_ms,
             volatility_shock_cap_nad: self.amm.volatility_shock_cap_nad,
             volatility_accumulator_cap_nad: self.amm.volatility_cap_nad,
+            swap_fee_collect_mode: self.amm.swap_fee_collect_mode,
             launch_fee_start_bps: self.amm.launch_fee_start_bps,
             launch_fee_duration_seconds: self.amm.launch_fee_duration_seconds,
             launch_fee_decay_mode: self.amm.launch_fee_decay_mode,
+            launch_market_price_step_bps: self.amm.launch_market_price_step_bps,
+            launch_market_number_of_periods: self.amm.launch_market_number_of_periods,
+            launch_market_reduction_factor_bps: self.amm.launch_market_reduction_factor_bps,
             launch_rate_limit_asset: self.amm.launch_rate_limit_asset,
             launch_rate_limit_reference_nad: self.amm.launch_rate_limit_reference_nad,
             launch_rate_limit_increment_bps: self.amm.launch_rate_limit_increment_bps,
@@ -800,9 +882,13 @@ impl MarketConfig {
         next.amm.volatility_half_life_ms = profile.volatility_half_life_ms;
         next.amm.volatility_shock_cap_nad = profile.volatility_shock_cap_nad;
         next.amm.volatility_cap_nad = profile.volatility_accumulator_cap_nad;
+        next.amm.swap_fee_collect_mode = profile.swap_fee_collect_mode;
         next.amm.launch_fee_start_bps = profile.launch_fee_start_bps;
         next.amm.launch_fee_duration_seconds = profile.launch_fee_duration_seconds;
         next.amm.launch_fee_decay_mode = profile.launch_fee_decay_mode;
+        next.amm.launch_market_price_step_bps = profile.launch_market_price_step_bps;
+        next.amm.launch_market_number_of_periods = profile.launch_market_number_of_periods;
+        next.amm.launch_market_reduction_factor_bps = profile.launch_market_reduction_factor_bps;
         next.amm.launch_rate_limit_asset = profile.launch_rate_limit_asset;
         next.amm.launch_rate_limit_reference_nad = profile.launch_rate_limit_reference_nad;
         next.amm.launch_rate_limit_increment_bps = profile.launch_rate_limit_increment_bps;
@@ -869,6 +955,81 @@ impl MarketConfig {
         .map_err(|_| ErrorCode::MarketMathOverflow.into())
     }
 
+    fn effective_market_cap_fee_bps_at(
+        &self,
+        unix_timestamp: i64,
+        current_base_price_nad: u64,
+        reference_base_price_nad: u64,
+        progress_offset: u16,
+    ) -> Result<u16> {
+        let amm = self.amm;
+        require!(
+            amm.launch_market_price_step_bps > 0
+                && amm.launch_market_number_of_periods > 0
+                && amm.launch_market_reduction_factor_bps > 0
+                && reference_base_price_nad > 0
+                && current_base_price_nad > 0,
+            ErrorCode::InvalidMarketConfig
+        );
+        let elapsed = unix_timestamp.saturating_sub(self.start_time).max(0) as u64;
+        if elapsed >= amm.launch_fee_duration_seconds {
+            return Ok(self.swap_fee_bps);
+        }
+        let (current, reference) = match amm.swap_fee_collect_mode {
+            // Quote-only fees identify Base as the launch asset. Its price is
+            // already expressed as Quote per Base.
+            SWAP_FEE_COLLECT_QUOTE_ONLY => (u128::from(current_base_price_nad), u128::from(reference_base_price_nad)),
+            // Base-only fees identify Quote as the launch asset, so compare
+            // the reciprocal price without materializing a rounded inverse.
+            SWAP_FEE_COLLECT_BASE_ONLY => (u128::from(reference_base_price_nad), u128::from(current_base_price_nad)),
+            _ => return err!(ErrorCode::InvalidMarketConfig),
+        };
+        let price_steps = if current <= reference {
+            0
+        } else {
+            let numerator = current
+                .checked_sub(reference)
+                .and_then(|value| value.checked_mul(BPS_DENOMINATOR as u128))
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            let denominator = reference
+                .checked_mul(u128::from(amm.launch_market_price_step_bps))
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            numerator
+                .checked_div(denominator)
+                .ok_or(ErrorCode::MarketMathOverflow)?
+        };
+        let periods = u128::from(progress_offset)
+            .checked_add(price_steps)
+            .ok_or(ErrorCode::MarketMathOverflow)?
+            .min(u128::from(amm.launch_market_number_of_periods));
+        let mut fee = u128::from(amm.launch_fee_start_bps);
+        match amm.launch_fee_decay_mode {
+            LAUNCH_FEE_DECAY_LINEAR => {
+                fee = fee.saturating_sub(
+                    periods
+                        .checked_mul(u128::from(amm.launch_market_reduction_factor_bps))
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                );
+            }
+            LAUNCH_FEE_DECAY_EXPONENTIAL => {
+                let remaining_bps = u128::from(
+                    BPS_DENOMINATOR
+                        .checked_sub(amm.launch_market_reduction_factor_bps)
+                        .ok_or(ErrorCode::InvalidMarketConfig)?,
+                );
+                for _ in 0..periods {
+                    fee = fee
+                        .checked_mul(remaining_bps)
+                        .and_then(|value| value.checked_add(BPS_DENOMINATOR as u128 - 1))
+                        .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
+                        .ok_or(ErrorCode::MarketMathOverflow)?;
+                }
+            }
+            _ => return err!(ErrorCode::InvalidMarketConfig),
+        }
+        u16::try_from(fee.max(u128::from(self.swap_fee_bps))).map_err(|_| ErrorCode::MarketMathOverflow.into())
+    }
+
     /// Compose the time scheduler with the launch buy-size limiter. The time
     /// schedule protects *when* a swap executes and applies in both
     /// directions. The rate limiter protects *how much of the configured
@@ -879,9 +1040,22 @@ impl MarketConfig {
         asset_in: MarketAsset,
         gross_input_nad: u128,
         unix_timestamp: i64,
+        current_base_price_nad: u64,
+        launch_reference_price_nad: u64,
+        launch_fee_progress_offset: u16,
     ) -> Result<u16> {
-        let scheduled_fee_bps = self.effective_base_fee_bps_at(unix_timestamp)?;
         let amm = self.amm;
+        let market_cap_schedule = amm.launch_market_price_step_bps > 0;
+        let scheduled_fee_bps = if market_cap_schedule {
+            self.effective_market_cap_fee_bps_at(
+                unix_timestamp,
+                current_base_price_nad,
+                launch_reference_price_nad,
+                launch_fee_progress_offset,
+            )?
+        } else {
+            self.effective_base_fee_bps_at(unix_timestamp)?
+        };
         if amm.launch_rate_limit_asset == LAUNCH_RATE_LIMIT_ASSET_DISABLED {
             return Ok(scheduled_fee_bps);
         }
@@ -914,6 +1088,19 @@ impl MarketConfig {
             .ok_or(ErrorCode::MarketMathOverflow)?
             .min(u128::from(amm.launch_rate_limit_max_fee_bps));
         u16::try_from(effective).map_err(|_| ErrorCode::MarketMathOverflow.into())
+    }
+
+    pub fn launch_rate_limit_active_for_swap(&self, asset_in: MarketAsset, unix_timestamp: i64) -> bool {
+        let protected_asset = match self.amm.launch_rate_limit_asset {
+            LAUNCH_RATE_LIMIT_ASSET_BASE => MarketAsset::Base,
+            LAUNCH_RATE_LIMIT_ASSET_QUOTE => MarketAsset::Quote,
+            _ => return false,
+        };
+        if asset_in.opposite() != protected_asset || unix_timestamp < self.start_time {
+            return false;
+        }
+        let elapsed = unix_timestamp.saturating_sub(self.start_time) as u64;
+        elapsed < self.amm.launch_rate_limit_duration_seconds
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -2333,6 +2520,9 @@ pub struct Market {
     pub risk: Risk,
     pub insurance: Insurance,
     pub params_hash: [u8; 32],
+    /// One-shot signer allowed to provide the first fully-backed Base/Quote
+    /// seed. It is cleared permanently once yLP supply becomes nonzero.
+    pub initial_liquidity_authority: Pubkey,
     /// External yLP burned into active governance support. This is added back
     /// when computing direct-yLP eligibility; internal reserve-share supply is
     /// intentionally unchanged by governance locking.
@@ -2384,10 +2574,17 @@ impl Market {
         base_insurance_vault: Pubkey,
         quote_insurance_vault: Pubkey,
         params_hash: [u8; 32],
+        initial_liquidity_authority: Pubkey,
+        bootstrap_price_nad: u64,
+        launch_fee_progress_offset: u16,
         current_slot: u64,
         bump: u8,
     ) -> Result<()> {
         config.validate()?;
+        require!(
+            launch_fee_progress_offset <= config.amm.launch_market_number_of_periods,
+            ErrorCode::InvalidMarketConfig
+        );
         Self::validate_mint_domain(
             base_side.asset_mint,
             quote_side.asset_mint,
@@ -2403,6 +2600,8 @@ impl Market {
         // Reserves are empty at market creation. The first balanced-liquidity
         // checkpoint initializes center, Q/share, and the applied parameters.
         self.amm = AmmState::default();
+        self.amm.launch_reference_price_nad = bootstrap_price_nad;
+        self.amm.launch_fee_progress_offset = launch_fee_progress_offset;
         self.debt = Debt {
             base_borrow_index_nad: NAD as u128,
             quote_borrow_index_nad: NAD as u128,
@@ -2432,6 +2631,7 @@ impl Market {
             ..Insurance::default()
         };
         self.params_hash = params_hash;
+        self.initial_liquidity_authority = initial_liquidity_authority;
         self.governance_locked_ylp = 0;
         self.parameter_revisions = [0; 6];
         self.last_marginal_observation_nad = 0;
@@ -2440,6 +2640,17 @@ impl Market {
         self.last_update_slot = current_slot;
         self.reduce_only = false;
         self.bump = bump;
+        Ok(())
+    }
+
+    pub(crate) fn require_initial_liquidity_authority(&self, signer: Pubkey) -> Result<()> {
+        if self.base_side.shares.ylp_supply == 0 {
+            require_keys_eq!(
+                signer,
+                self.initial_liquidity_authority,
+                ErrorCode::InvalidInitialLiquidityAuthority
+            );
+        }
         Ok(())
     }
 
@@ -3246,6 +3457,26 @@ impl Market {
             .ylp_supply
             .checked_sub(supply_before)
             .ok_or(ErrorCode::SupplyUnderflow)?;
+        let seeded_price_nad = if supply_before == 0 {
+            let base_nad = normalize_to_nad(u128::from(receipt.base_reserve_credit), self.base_side.asset_decimals)?;
+            let quote_nad = normalize_to_nad(u128::from(receipt.quote_reserve_credit), self.quote_side.asset_decimals)?;
+            let price = quote_nad
+                .checked_mul(u128::from(NAD))
+                .and_then(|value| value.checked_div(base_nad))
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            let price = u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow)?;
+            require!(price > 0, ErrorCode::InvalidSettlementPrice);
+            if self.amm.launch_reference_price_nad > 0 {
+                require_eq!(
+                    price,
+                    self.amm.launch_reference_price_nad,
+                    ErrorCode::InvalidSettlementPrice
+                );
+            }
+            Some(price)
+        } else {
+            None
+        };
 
         self.base_side.credit_reserve(receipt.base_reserve_credit, true)?;
         self.quote_side.credit_reserve(receipt.quote_reserve_credit, true)?;
@@ -3253,6 +3484,13 @@ impl Market {
         self.quote_side.shares.mint(internal_mint_amount)?;
         self.base_side.assert_share_backing()?;
         self.quote_side.assert_share_backing()?;
+
+        if let Some(seeded_price_nad) = seeded_price_nad {
+            if self.amm.launch_reference_price_nad == 0 {
+                self.amm.launch_reference_price_nad = seeded_price_nad;
+            }
+            self.initial_liquidity_authority = Pubkey::default();
+        }
 
         Ok(receipt)
     }

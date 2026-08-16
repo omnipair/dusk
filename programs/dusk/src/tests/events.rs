@@ -8,6 +8,8 @@ fn indexer_receipts_remain_compact() {
         asset_in_side: 0,
         amount_in: 1,
         amount_out: 2,
+        gross_amount_out: 2,
+        fee_asset_side: 0,
         amount_in_after_fee: 3,
         base_fee: 4,
         divergence_fee: 5,
@@ -24,8 +26,10 @@ fn indexer_receipts_remain_compact() {
     };
     let leverage_swap = LeverageSwapReceipt {
         asset_in_side: 0,
+        fee_asset_side: 0,
         amount_in: 1,
         amount_out: 2,
+        gross_amount_out: 2,
         amount_in_after_fee: 3,
         base_fee: 4,
         divergence_fee: 5,
@@ -101,8 +105,8 @@ fn indexer_receipts_remain_compact() {
         remaining_debt: 7,
     };
 
-    assert_eq!(SwapExecuted::DISCRIMINATOR.len() + swap.try_to_vec().unwrap().len(), 173);
-    assert_eq!(leverage_swap.try_to_vec().unwrap().len(), 81);
+    assert_eq!(SwapExecuted::DISCRIMINATOR.len() + swap.try_to_vec().unwrap().len(), 182);
+    assert_eq!(leverage_swap.try_to_vec().unwrap().len(), 90);
     assert_eq!(
         LiquidityAdded::DISCRIMINATOR.len() + liquidity_added.try_to_vec().unwrap().len(),
         192

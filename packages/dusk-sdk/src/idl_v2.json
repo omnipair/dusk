@@ -1250,6 +1250,10 @@
           "signer": true
         },
         {
+          "name": "instructions_sysvar",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -2107,6 +2111,10 @@
           "signer": true
         },
         {
+          "name": "instructions_sysvar",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -2307,6 +2315,10 @@
           "name": "authority",
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "instructions_sysvar",
+          "address": "Sysvar1nstructions1111111111111111111111111"
         },
         {
           "name": "token_program",
@@ -2738,6 +2750,163 @@
       "args": []
     },
     {
+      "name": "graduate_market",
+      "docs": [
+        "Permissionless launch adapters use the same fully-backed seeding path",
+        "as ordinary yLP deposits. The initializer is the one-shot authority;",
+        "after this succeeds, subsequent liquidity is permissionless."
+      ],
+      "discriminator": [
+        202,
+        28,
+        33,
+        115,
+        186,
+        96,
+        1,
+        90
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true
+        },
+        {
+          "name": "futarchy_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "ylp_mint",
+          "writable": true
+        },
+        {
+          "name": "base_reserve_vault",
+          "writable": true
+        },
+        {
+          "name": "quote_reserve_vault",
+          "writable": true
+        },
+        {
+          "name": "owner_base_account",
+          "writable": true
+        },
+        {
+          "name": "owner_quote_account",
+          "writable": true
+        },
+        {
+          "name": "owner_ylp_account",
+          "writable": true
+        },
+        {
+          "name": "base_yield_account",
+          "docs": [
+            "any liquidity mutation."
+          ],
+          "writable": true
+        },
+        {
+          "name": "quote_yield_account",
+          "docs": [
+            "any liquidity mutation."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "AddLiquidityArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "increase_leverage",
       "discriminator": [
         61,
@@ -2920,6 +3089,10 @@
           "name": "owner",
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "instructions_sysvar",
+          "address": "Sysvar1nstructions1111111111111111111111111"
         },
         {
           "name": "token_program",
@@ -4194,6 +4367,13 @@
           "writable": true
         },
         {
+          "name": "instructions_sysvar",
+          "docs": [
+            "during the configured launch rate-limit window."
+          ],
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -4318,6 +4498,10 @@
           "signer": true
         },
         {
+          "name": "instructions_sysvar",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -4430,6 +4614,10 @@
         {
           "name": "referral_accrual",
           "optional": true
+        },
+        {
+          "name": "instructions_sysvar",
+          "address": "Sysvar1nstructions1111111111111111111111111"
         },
         {
           "name": "token_program",
@@ -6523,6 +6711,13 @@
         {
           "name": "trader_asset_out_account",
           "writable": true
+        },
+        {
+          "name": "instructions_sysvar",
+          "docs": [
+            "during the configured launch rate-limit window."
+          ],
+          "address": "Sysvar1nstructions1111111111111111111111111"
         },
         {
           "name": "token_program",
@@ -9061,91 +9256,101 @@
     },
     {
       "code": 6116,
+      "name": "InvalidInitialLiquidityAuthority",
+      "msg": "Invalid initial liquidity authority"
+    },
+    {
+      "code": 6117,
+      "name": "LaunchRateLimitSplitTransaction",
+      "msg": "Launch rate limiter permits only one top-level market action per transaction"
+    },
+    {
+      "code": 6118,
       "name": "MarketReduceOnly",
       "msg": "Market is reduce-only"
     },
     {
-      "code": 6117,
+      "code": 6119,
       "name": "MarketNotStarted",
       "msg": "Market has not started"
     },
     {
-      "code": 6118,
+      "code": 6120,
       "name": "MarketMathOverflow",
       "msg": "Market math overflow"
     },
     {
-      "code": 6119,
+      "code": 6121,
       "name": "DailyLimitExceeded",
       "msg": "Daily liquidity limit exceeded"
     },
     {
-      "code": 6120,
+      "code": 6122,
       "name": "InstructionNotLive",
       "msg": "Instruction is intentionally not live yet"
     },
     {
-      "code": 6121,
+      "code": 6123,
       "name": "LiquidationRepayTooLarge",
       "msg": "Liquidation repay amount exceeds partial liquidation cap"
     },
     {
-      "code": 6122,
+      "code": 6124,
       "name": "LeverageMultiplierTooHigh",
       "msg": "Leverage multiplier exceeds circuit breaker"
     },
     {
-      "code": 6123,
+      "code": 6125,
       "name": "LeverageInitialMarginTooLow",
       "msg": "Leverage position does not have enough initial margin"
     },
     {
-      "code": 6124,
+      "code": 6126,
       "name": "LeverageUnwindImpactTooHigh",
       "msg": "Leverage unwind impact exceeds limit"
     },
     {
-      "code": 6125,
+      "code": 6127,
       "name": "LeveragePositionNotLiquidatable",
       "msg": "Leverage position is not liquidatable"
     },
     {
-      "code": 6126,
+      "code": 6128,
       "name": "InvalidSigner",
       "msg": "Invalid signer"
     },
     {
-      "code": 6127,
+      "code": 6129,
       "name": "InvalidLeveragePosition",
       "msg": "Invalid leverage position"
     },
     {
-      "code": 6128,
+      "code": 6130,
       "name": "InvalidLeverageDelegation",
       "msg": "Invalid leverage delegation"
     },
     {
-      "code": 6129,
+      "code": 6131,
       "name": "InvalidReferralInterestShareBps",
       "msg": "Referral interest share exceeds the protocol hard cap"
     },
     {
-      "code": 6130,
+      "code": 6132,
       "name": "InvalidReferralPartner",
       "msg": "Invalid referral partner"
     },
     {
-      "code": 6131,
+      "code": 6133,
       "name": "ReferralPartnerNotActive",
       "msg": "Referral partner is not active"
     },
     {
-      "code": 6132,
+      "code": 6134,
       "name": "InvalidReferralAccrual",
       "msg": "Invalid referral accrual account"
     },
     {
-      "code": 6133,
+      "code": 6135,
       "name": "InvalidLeverageCollateralMint",
       "msg": "Leverage collateral mint must not have transfer fee configuration"
     }
@@ -9305,6 +9510,15 @@
             "type": "u64"
           },
           {
+            "name": "swap_fee_collect_mode",
+            "docs": [
+              "Asset in which swap, toxicity, volatility, and retained-recenter fees",
+              "are denominated. Lending and hLP funding interest remain in the",
+              "borrowed asset and are not affected by this setting."
+            ],
+            "type": "u8"
+          },
+          {
             "name": "launch_fee_start_bps",
             "docs": [
               "Optional launch-only base fee. The premium above `swap_fee_bps`",
@@ -9319,6 +9533,23 @@
           {
             "name": "launch_fee_decay_mode",
             "type": "u8"
+          },
+          {
+            "name": "launch_market_price_step_bps",
+            "docs": [
+              "When all three values are zero, the launch fee follows the time",
+              "schedule above. A fully nonzero tuple selects a price-milestone",
+              "scheduler whose reference price is bound by the first liquidity seed."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "launch_market_number_of_periods",
+            "type": "u16"
+          },
+          {
+            "name": "launch_market_reduction_factor_bps",
+            "type": "u16"
           },
           {
             "name": "launch_rate_limit_asset",
@@ -9351,7 +9582,7 @@
             "type": {
               "array": [
                 "u8",
-                1
+                0
               ]
             }
           }
@@ -9402,6 +9633,22 @@
           {
             "name": "last_adjustment_slot",
             "type": "u64"
+          },
+          {
+            "name": "launch_reference_price_nad",
+            "docs": [
+              "Immutable launch price reference bound by the first fully-backed",
+              "liquidity seed. Zero is allowed only before that seed."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "launch_fee_progress_offset",
+            "docs": [
+              "Fee-schedule progress already completed by a bootstrap adapter before",
+              "the market graduates into GAMM."
+            ],
+            "type": "u16"
           },
           {
             "name": "volatility_accumulator_nad",
@@ -10297,6 +10544,10 @@
             "type": "u64"
           },
           {
+            "name": "swap_fee_collect_mode",
+            "type": "u8"
+          },
+          {
             "name": "launch_fee_start_bps",
             "type": "u16"
           },
@@ -10307,6 +10558,18 @@
           {
             "name": "launch_fee_decay_mode",
             "type": "u8"
+          },
+          {
+            "name": "launch_market_price_step_bps",
+            "type": "u16"
+          },
+          {
+            "name": "launch_market_number_of_periods",
+            "type": "u16"
+          },
+          {
+            "name": "launch_market_reduction_factor_bps",
+            "type": "u16"
           },
           {
             "name": "launch_rate_limit_asset",
@@ -10986,6 +11249,21 @@
                 32
               ]
             }
+          },
+          {
+            "name": "bootstrap_price_nad",
+            "docs": [
+              "Optional final bootstrap price imported by a permissionless launch",
+              "adapter. Zero binds the reference to the first fully-backed seed."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "launch_fee_progress_offset",
+            "docs": [
+              "Number of price-fee periods already completed before graduation."
+            ],
+            "type": "u16"
           }
         ]
       }
@@ -11509,11 +11787,19 @@
             "type": "u8"
           },
           {
+            "name": "fee_asset_side",
+            "type": "u8"
+          },
+          {
             "name": "amount_in",
             "type": "u64"
           },
           {
             "name": "amount_out",
+            "type": "u64"
+          },
+          {
+            "name": "gross_amount_out",
             "type": "u64"
           },
           {
@@ -11792,6 +12078,14 @@
                 32
               ]
             }
+          },
+          {
+            "name": "initial_liquidity_authority",
+            "docs": [
+              "One-shot signer allowed to provide the first fully-backed Base/Quote",
+              "seed. It is cleared permanently once yLP supply becomes nonzero."
+            ],
+            "type": "pubkey"
           },
           {
             "name": "governance_locked_ylp",
@@ -12122,6 +12416,18 @@
                 32
               ]
             }
+          },
+          {
+            "name": "initial_liquidity_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "launch_reference_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "launch_fee_progress_offset",
+            "type": "u16"
           },
           {
             "name": "version",
@@ -14370,6 +14676,20 @@
             "type": "u64"
           },
           {
+            "name": "gross_amount_out",
+            "docs": [
+              "Curve output before an output-denominated fee and transfer fee."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "fee_asset_side",
+            "docs": [
+              "`0` for Base and `1` for Quote."
+            ],
+            "type": "u8"
+          },
+          {
             "name": "amount_in_after_fee",
             "docs": [
               "Input applied to the invariant after all swap fees."
@@ -14473,7 +14793,19 @@
             "type": "u64"
           },
           {
+            "name": "fee_asset",
+            "type": {
+              "defined": {
+                "name": "MarketAsset"
+              }
+            }
+          },
+          {
             "name": "amount_out",
+            "type": "u64"
+          },
+          {
+            "name": "gross_amount_out",
             "type": "u64"
           },
           {
@@ -15264,7 +15596,7 @@
         "deployment, never for ordinary feature work or product naming."
       ],
       "type": "u8",
-      "value": "1"
+      "value": "2"
     },
     {
       "name": "MARKET_RESERVE_VAULT_SEED_PREFIX",

@@ -839,7 +839,31 @@ function defaultAmmConfig() {
     volatilityFeeCoefficientNad: toBN(
       duskEnv("AMM_VOLATILITY_FEE_COEFFICIENT_NAD") ?? "0"
     ),
-    reserved: Array(33).fill(0),
+    swapFeeCollectMode: Number(duskEnv("AMM_SWAP_FEE_COLLECT_MODE") ?? "0"),
+    launchFeeStartBps: Number(duskEnv("AMM_LAUNCH_FEE_START_BPS") ?? "0"),
+    launchFeeDurationSeconds: toBN(duskEnv("AMM_LAUNCH_FEE_DURATION_SECONDS") ?? "0"),
+    launchFeeDecayMode: Number(duskEnv("AMM_LAUNCH_FEE_DECAY_MODE") ?? "0"),
+    launchMarketPriceStepBps: Number(duskEnv("AMM_LAUNCH_MARKET_PRICE_STEP_BPS") ?? "0"),
+    launchMarketNumberOfPeriods: Number(
+      duskEnv("AMM_LAUNCH_MARKET_NUMBER_OF_PERIODS") ?? "0"
+    ),
+    launchMarketReductionFactorBps: Number(
+      duskEnv("AMM_LAUNCH_MARKET_REDUCTION_FACTOR_BPS") ?? "0"
+    ),
+    launchRateLimitAsset: Number(duskEnv("AMM_LAUNCH_RATE_LIMIT_ASSET") ?? "0"),
+    launchRateLimitReferenceNad: toBN(
+      duskEnv("AMM_LAUNCH_RATE_LIMIT_REFERENCE_NAD") ?? "0"
+    ),
+    launchRateLimitIncrementBps: Number(
+      duskEnv("AMM_LAUNCH_RATE_LIMIT_INCREMENT_BPS") ?? "0"
+    ),
+    launchRateLimitMaxFeeBps: Number(
+      duskEnv("AMM_LAUNCH_RATE_LIMIT_MAX_FEE_BPS") ?? "0"
+    ),
+    launchRateLimitDurationSeconds: toBN(
+      duskEnv("AMM_LAUNCH_RATE_LIMIT_DURATION_SECONDS") ?? "0"
+    ),
+    reserved: [],
   };
 }
 
@@ -1191,6 +1215,8 @@ async function buildInitializeMarketTx(params: {
     .initializeMarket({
       config: params.config,
       paramsHash: Array.from(params.paramsHash),
+      bootstrapPriceNad: toBN(0),
+      launchFeeProgressOffset: 0,
     })
     .accounts({
       payer: payer.publicKey,
@@ -1334,6 +1360,8 @@ async function prepareCreateMarketTx(params: {
     .initializeMarket({
       config,
       paramsHash: Array.from(paramsHash),
+      bootstrapPriceNad: toBN(0),
+      launchFeeProgressOffset: 0,
     })
     .accounts({
       payer: params.owner,
@@ -1572,6 +1600,8 @@ async function bootstrapUncached(): Promise<StoredMarket> {
       .initializeMarket({
         config: defaultMarketConfig(),
         paramsHash: Array.from(paramsHash),
+        bootstrapPriceNad: toBN(0),
+        launchFeeProgressOffset: 0,
       })
       .accounts({
         payer: payer.publicKey,

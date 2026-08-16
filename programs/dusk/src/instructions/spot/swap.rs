@@ -21,7 +21,7 @@ use crate::instructions::accounts::{
     QUOTE_INTEREST_VAULT_INDEX,
 };
 use crate::instructions::liquidity::record_inline_hlp_interest_credit;
-use crate::instructions::{rebalance_executes_token_changes, SwapRequest};
+use crate::instructions::{enforce_launch_same_transaction_guard, rebalance_executes_token_changes, SwapRequest};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct SwapArgs {
@@ -76,6 +76,11 @@ pub struct Swap<'info> {
     #[account(mut)]
     pub trader_asset_out_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
+    /// CHECK: Address-constrained canonical Instructions sysvar used only
+    /// during the configured launch rate-limit window.
+    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions_sysvar: UncheckedAccount<'info>,
+
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
 }
@@ -106,6 +111,13 @@ impl<'info> Swap<'info> {
         let asset_in = self.market.asset_for_mint(self.asset_in_mint.key())?;
         let asset_out = self.market.asset_for_mint(self.asset_out_mint.key())?;
         require!(asset_out == asset_in.opposite(), ErrorCode::InvalidMint);
+        enforce_launch_same_transaction_guard(
+            &self.market,
+            self.market.key(),
+            asset_in,
+            clock.unix_timestamp,
+            &self.instructions_sysvar.to_account_info(),
+        )?;
         let (market_side_in, market_side_out) = self.market.swap_sides(asset_in);
         require_keys_eq!(
             market_side_in.reserve_vault,
@@ -298,6 +310,8 @@ impl<'info> Swap<'info> {
             asset_in_side: asset_in.code(),
             amount_in: args.exact_asset_in,
             amount_out: asset_out_credit,
+            gross_amount_out: quote.gross_amount_out,
+            fee_asset_side: quote.fee.fee_asset,
             amount_in_after_fee: quote.fee.amount_in_for_quote,
             base_fee: quote.fee.base_fee_debit,
             divergence_fee: quote.fee.divergence_surcharge_debit,

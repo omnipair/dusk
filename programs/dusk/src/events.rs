@@ -38,6 +38,9 @@ pub struct MarketCreated {
     pub swap_fee_bps: u16,
     pub config: MarketConfig,
     pub params_hash: [u8; 32],
+    pub initial_liquidity_authority: Pubkey,
+    pub launch_reference_price_nad: u64,
+    pub launch_fee_progress_offset: u16,
     pub version: u8,
     pub metadata: MarketEventMetadata,
 }
@@ -259,6 +262,10 @@ pub struct SwapExecuted {
     pub amount_in: u64,
     /// Amount credited to the trader after any output transfer fee.
     pub amount_out: u64,
+    /// Curve output before an output-denominated fee and transfer fee.
+    pub gross_amount_out: u64,
+    /// `0` for Base and `1` for Quote.
+    pub fee_asset_side: u8,
     /// Input applied to the invariant after all swap fees.
     pub amount_in_after_fee: u64,
     pub base_fee: u64,
@@ -283,8 +290,10 @@ pub struct SwapExecuted {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LeverageSwapReceipt {
     pub asset_in_side: u8,
+    pub fee_asset_side: u8,
     pub amount_in: u64,
     pub amount_out: u64,
+    pub gross_amount_out: u64,
     pub amount_in_after_fee: u64,
     pub base_fee: u64,
     pub divergence_fee: u64,
@@ -306,8 +315,10 @@ impl LeverageSwapReceipt {
     ) -> Result<Self> {
         Ok(Self {
             asset_in_side: quote.asset_in,
+            fee_asset_side: quote.fee_breakdown.fee_asset,
             amount_in: quote.amount_in,
             amount_out: quote.amount_out,
+            gross_amount_out: quote.gross_amount_out,
             amount_in_after_fee: quote.amount_in_after_fee,
             base_fee: quote.fee_breakdown.base_fee_debit,
             divergence_fee: quote.fee_breakdown.divergence_surcharge_debit,

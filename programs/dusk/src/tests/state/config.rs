@@ -187,6 +187,7 @@ fn launch_fee_schedule_is_bounded_and_reaches_the_normal_fee_exactly() {
     config.amm.launch_fee_start_bps = 1_000;
     config.amm.launch_fee_duration_seconds = 100;
     config.amm.launch_fee_decay_mode = LAUNCH_FEE_DECAY_LINEAR;
+    config.amm.swap_fee_collect_mode = SWAP_FEE_COLLECT_QUOTE_ONLY;
     config.validate().unwrap();
 
     assert_eq!(config.effective_base_fee_bps_at(999).unwrap(), 1_000);
@@ -235,13 +236,27 @@ fn launch_buy_size_limiter_composes_with_time_scheduler_and_only_charges_buys() 
     // reference units and therefore adds two increments.
     assert_eq!(
         config
-            .effective_base_fee_bps_for_swap_at(MarketAsset::Quote, 100 * NAD as u128, 1_000)
+            .effective_base_fee_bps_for_swap_at(
+                MarketAsset::Quote,
+                100 * NAD as u128,
+                1_000,
+                NAD,
+                NAD,
+                0,
+            )
             .unwrap(),
         500
     );
     assert_eq!(
         config
-            .effective_base_fee_bps_for_swap_at(MarketAsset::Quote, 250 * NAD as u128, 1_000)
+            .effective_base_fee_bps_for_swap_at(
+                MarketAsset::Quote,
+                250 * NAD as u128,
+                1_000,
+                NAD,
+                NAD,
+                0,
+            )
             .unwrap(),
         700
     );
@@ -249,7 +264,7 @@ fn launch_buy_size_limiter_composes_with_time_scheduler_and_only_charges_buys() 
     // Selling Base is not a buy of the protected launch asset.
     assert_eq!(
         config
-            .effective_base_fee_bps_for_swap_at(MarketAsset::Base, 250 * NAD as u128, 1_000)
+            .effective_base_fee_bps_for_swap_at(MarketAsset::Base, 250 * NAD as u128, 1_000, NAD, NAD, 0)
             .unwrap(),
         500
     );
@@ -257,13 +272,27 @@ fn launch_buy_size_limiter_composes_with_time_scheduler_and_only_charges_buys() 
     // The time premium has ended, while the size limiter remains active.
     assert_eq!(
         config
-            .effective_base_fee_bps_for_swap_at(MarketAsset::Quote, 250 * NAD as u128, 1_050)
+            .effective_base_fee_bps_for_swap_at(
+                MarketAsset::Quote,
+                250 * NAD as u128,
+                1_050,
+                NAD,
+                NAD,
+                0,
+            )
             .unwrap(),
         230
     );
     assert_eq!(
         config
-            .effective_base_fee_bps_for_swap_at(MarketAsset::Quote, 250 * NAD as u128, 1_100)
+            .effective_base_fee_bps_for_swap_at(
+                MarketAsset::Quote,
+                250 * NAD as u128,
+                1_100,
+                NAD,
+                NAD,
+                0,
+            )
             .unwrap(),
         30
     );
@@ -285,5 +314,65 @@ fn launch_buy_size_limiter_rejects_partial_or_over_budget_configuration() {
     assert_eq!(
         config.validate().unwrap_err(),
         anchor_lang::prelude::error!(ErrorCode::InvalidSwapFeeBps)
+    );
+}
+
+#[test]
+fn launch_market_cap_fee_scheduler_uses_bound_price_and_imported_progress() {
+    let mut config = valid_config();
+    config.start_time = 1_000;
+    config.amm.swap_fee_collect_mode = SWAP_FEE_COLLECT_QUOTE_ONLY;
+    config.amm.launch_fee_start_bps = 1_000;
+    config.amm.launch_fee_duration_seconds = 1_000;
+    config.amm.launch_fee_decay_mode = LAUNCH_FEE_DECAY_LINEAR;
+    config.amm.launch_market_price_step_bps = 1_000;
+    config.amm.launch_market_number_of_periods = 4;
+    config.amm.launch_market_reduction_factor_bps = 200;
+    config.validate().unwrap();
+
+    assert_eq!(
+        config
+            .effective_base_fee_bps_for_swap_at(MarketAsset::Base, NAD as u128, 1_000, NAD, NAD, 0)
+            .unwrap(),
+        1_000
+    );
+    assert_eq!(
+        config
+            .effective_base_fee_bps_for_swap_at(
+                MarketAsset::Base,
+                NAD as u128,
+                1_000,
+                NAD + NAD / 10,
+                NAD,
+                0,
+            )
+            .unwrap(),
+        800
+    );
+    assert_eq!(
+        config
+            .effective_base_fee_bps_for_swap_at(
+                MarketAsset::Base,
+                NAD as u128,
+                1_000,
+                NAD + NAD / 10,
+                NAD,
+                2,
+            )
+            .unwrap(),
+        400
+    );
+    assert_eq!(
+        config
+            .effective_base_fee_bps_for_swap_at(
+                MarketAsset::Base,
+                NAD as u128,
+                2_000,
+                NAD + NAD / 10,
+                NAD,
+                2,
+            )
+            .unwrap(),
+        config.swap_fee_bps
     );
 }

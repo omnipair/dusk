@@ -130,6 +130,8 @@ async function main() {
       .initializeMarket({
         config: defaultMarketConfig(),
         paramsHash: [...paramsHash],
+        bootstrapPriceNad: new anchor.BN(duskEnv("BOOTSTRAP_PRICE_NAD", "0")),
+        launchFeeProgressOffset: Number(duskEnv("LAUNCH_FEE_PROGRESS_OFFSET", "0")),
       })
       .accounts({
         payer: payer.publicKey,

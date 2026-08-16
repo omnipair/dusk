@@ -453,6 +453,11 @@ pub(crate) fn apply_explicit_hlp_recovery(
         .amount_out
         .checked_add(bonus_output)
         .ok_or(ErrorCode::ReserveOverflow)?;
+    quote.gross_amount_out = quote
+        .gross_amount_out
+        .checked_add(bonus_output)
+        .ok_or(ErrorCode::ReserveOverflow)?;
+    quote.fee.gross_amount_out = quote.gross_amount_out;
     Ok(())
 }
 

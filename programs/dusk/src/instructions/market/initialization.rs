@@ -33,6 +33,11 @@ use crate::instructions::accounts::{
 pub struct InitializeMarketArgs {
     pub config: MarketConfig,
     pub params_hash: [u8; 32],
+    /// Optional final bootstrap price imported by a permissionless launch
+    /// adapter. Zero binds the reference to the first fully-backed seed.
+    pub bootstrap_price_nad: u64,
+    /// Number of price-fee periods already completed before graduation.
+    pub launch_fee_progress_offset: u16,
 }
 
 #[event_cpi]
@@ -218,7 +223,12 @@ impl<'info> InitializeMarket<'info> {
         require!(self.base_hlp_mint.supply == 0, ErrorCode::NonZeroSupply);
         require!(self.quote_hlp_mint.supply == 0, ErrorCode::NonZeroSupply);
 
-        args.config.validate()
+        args.config.validate()?;
+        require!(
+            args.launch_fee_progress_offset <= args.config.amm.launch_market_number_of_periods,
+            ErrorCode::InvalidMarketConfig
+        );
+        Ok(())
     }
 
     pub fn handle_initialize(ctx: Context<Self>, args: InitializeMarketArgs) -> Result<()> {
@@ -383,6 +393,9 @@ impl<'info> InitializeMarket<'info> {
             base_insurance_vault,
             quote_insurance_vault,
             args.params_hash,
+            payer_key,
+            args.bootstrap_price_nad,
+            args.launch_fee_progress_offset,
             current_slot,
             ctx.bumps.market,
         )?;
@@ -403,6 +416,9 @@ impl<'info> InitializeMarket<'info> {
             swap_fee_bps: args.config.swap_fee_bps,
             config: args.config,
             params_hash: args.params_hash,
+            initial_liquidity_authority: payer_key,
+            launch_reference_price_nad: args.bootstrap_price_nad,
+            launch_fee_progress_offset: args.launch_fee_progress_offset,
             version: MARKET_LAYOUT_VERSION,
             metadata: MarketEventMetadata::new(payer_key, market_key)?,
         });

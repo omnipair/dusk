@@ -257,7 +257,19 @@ function marketConfig() {
       volatilityCapNad: new BN(0),
       divergenceFeeCoefficientNad: new BN(0),
       volatilityFeeCoefficientNad: new BN(0),
-      reserved: Array(33).fill(0),
+      swapFeeCollectMode: 0,
+      launchFeeStartBps: 0,
+      launchFeeDurationSeconds: new BN(0),
+      launchFeeDecayMode: 0,
+      launchMarketPriceStepBps: 0,
+      launchMarketNumberOfPeriods: 0,
+      launchMarketReductionFactorBps: 0,
+      launchRateLimitAsset: 0,
+      launchRateLimitReferenceNad: new BN(0),
+      launchRateLimitIncrementBps: 0,
+      launchRateLimitMaxFeeBps: 0,
+      launchRateLimitDurationSeconds: new BN(0),
+      reserved: [],
     },
     irm: {
       targetUtilizationBps: 7_000,
@@ -805,6 +817,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .initializeMarket({
         config,
         paramsHash: [...paramsHash],
+        bootstrapPriceNad: new anchor.BN(0),
+        launchFeeProgressOffset: 0,
       })
       .accounts({
         payer: payer.publicKey,

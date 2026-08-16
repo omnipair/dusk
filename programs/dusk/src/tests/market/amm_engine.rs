@@ -118,6 +118,38 @@ fn explicit_curve_initializes_and_quotes_the_integrated_ordinary_tranche() {
 }
 
 #[test]
+fn quote_only_fee_is_withheld_from_base_sell_output() {
+    let mut config = concentrated_config();
+    config.swap_fee_collect_mode = crate::state::SWAP_FEE_COLLECT_QUOTE_ONLY;
+    let mut market = market_with_liquidity(config);
+    market.config.swap_fee_bps = 100;
+    market.ensure_amm_initialized(10).unwrap();
+
+    let reserve_credit = 10_000 * NAD;
+    let pre_state = market.dynamic_fee_pre_state(10).unwrap();
+    let preliminary = market
+        .preliminary_swap_inputs_for_state(MarketAsset::Base, reserve_credit, 10, pre_state)
+        .unwrap();
+    let quote = market
+        .quote_explicit_integrated_with_fee(MarketAsset::Base, reserve_credit, preliminary)
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(quote.fee.fee_asset, MarketAsset::Quote.code());
+    assert_eq!(quote.fee.amount_in_for_quote, reserve_credit);
+    assert_eq!(quote.fee.reserve_input_credit, reserve_credit);
+    assert_eq!(quote.fee.retained_surcharge, 0);
+    assert_eq!(
+        quote.amount_out + quote.fee.claimable_fee_debit,
+        quote.gross_amount_out
+    );
+    assert_eq!(
+        quote.gross_amount_out as u128,
+        quote.integrated.executable.amount_out
+    );
+}
+
+#[test]
 fn explicit_center_move_reconstructs_unchanged_reserves_in_closed_form() {
     let mut config = AmmConfig {
         adjustment_threshold_nad: NAD / 100,

@@ -17,6 +17,7 @@ use crate::{
     generate_market_seeds,
     instructions::{
         accounts::{require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout},
+        enforce_launch_same_transaction_guard,
         referral::accounting::{referral_interest_accrued_event_at_slot, validate_referral_binding},
         SwapRequest,
     },
@@ -109,6 +110,9 @@ pub struct CloseLeverage<'info> {
 
     #[account(mut)]
     pub authority: Signer<'info>,
+    /// CHECK: Canonical Instructions sysvar for the launch split guard.
+    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions_sysvar: UncheckedAccount<'info>,
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
 }
@@ -119,6 +123,13 @@ impl<'info> CloseLeverage<'info> {
         validate_leverage_futarchy_pda(self.futarchy_authority.bump, self.futarchy_authority.key())?;
         self.market.assert_started_at(unix_timestamp)?;
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
+        enforce_launch_same_transaction_guard(
+            &self.market,
+            self.market.key(),
+            debt_asset.opposite(),
+            unix_timestamp,
+            &self.instructions_sysvar.to_account_info(),
+        )?;
         validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
         validate_leverage_reserve_accounts(
             &self.market,

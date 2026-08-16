@@ -350,6 +350,12 @@ pub enum ErrorCode {
     #[msg("Invalid market fee authority")]
     InvalidMarketFeeAuthority,
 
+    #[msg("Invalid initial liquidity authority")]
+    InvalidInitialLiquidityAuthority,
+
+    #[msg("Launch rate limiter permits only one top-level market action per transaction")]
+    LaunchRateLimitSplitTransaction,
+
     #[msg("Market is reduce-only")]
     MarketReduceOnly,
 
