@@ -654,13 +654,9 @@ export const LEVERAGE_SCENARIOS: ScenarioDefinition[] = [
         [Buffer.from("leverage_order"), leveragePositionAddress.toBuffer(), owner.toBuffer(), u64Le(orderId)],
         leverageDelegateProgramId
       );
-      const [custodyAuthority] = PublicKey.findProgramAddressSync(
-        [Buffer.from("leverage_delegate_authority"), orderAddress.toBuffer()],
-        leverageDelegateProgramId
-      );
       const custodyTokenAccount = getAssociatedTokenAddressSync(
         new PublicKey(harness.config.quoteMint),
-        custodyAuthority,
+        orderAddress,
         true,
         new PublicKey(harness.config.quoteTokenProgram)
       );

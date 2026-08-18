@@ -10,6 +10,7 @@ use crate::{
     errors::ErrorCode,
     events::{LeveragePositionOpened, LeverageSwapReceipt, MarketEventMetadata, ReferralBound},
     market::{leverage_debt_from_margin, liquidity::SwapCashPolicy},
+    math::{mul_div_ceil_u128, mul_div_u128},
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
     token::{create_token_account, transfer_checked_with_remaining_accounts},
 };
@@ -34,6 +35,13 @@ pub struct OpenLeverageArgs {
     pub multiplier_bps: u64,
     pub min_collateral_out: u64,
     pub referrer: Option<Pubkey>,
+    /// Optional beneficiary for sponsored/delegated opens. The funding signer
+    /// still supplies the margin, while the resulting position belongs to this
+    /// key. `None` preserves the ordinary self-funded path.
+    pub position_owner: Option<Pubkey>,
+    /// All-in average execution limit in Quote-per-Base NAD. Zero disables the
+    /// limit. Long Base requires price <= limit; long Quote requires >= limit.
+    pub limit_price_nad: u64,
 }
 
 #[event_cpi]
@@ -46,6 +54,11 @@ pub struct OpenLeverage<'info> {
 
     #[account(mut)]
     pub owner: Signer<'info>,
+
+    /// Pays account rent. Ordinary opens pass `owner` again; delegated opens
+    /// use the keeper without transferring position ownership to it.
+    #[account(mut)]
+    pub payer: Signer<'info>,
 
     /// CHECK: Canonical PDA, ownership, allocation, and typed state are
     /// validated before any economic mutation.
@@ -86,6 +99,11 @@ impl<'info> OpenLeverage<'info> {
         self.market
             .assert_live_with_futarchy_at(&self.futarchy_authority, unix_timestamp)?;
         require!(args.margin_amount > 0, ErrorCode::AmountZero);
+        require_keys_neq!(
+            args.position_owner.unwrap_or_else(|| self.owner.key()),
+            Pubkey::default(),
+            ErrorCode::InvalidSigner
+        );
         let (expected_position, _) = leverage_position_pda(self.market.key(), args.position_id)?;
         require_keys_eq!(
             self.leverage_position.key(),
@@ -149,7 +167,8 @@ impl<'info> OpenLeverage<'info> {
             let market: &Market = &ctx.accounts.market;
             HlpSwapAccountLayout::try_from((market, ctx.remaining_accounts))?
         };
-        let owner_key = ctx.accounts.owner.key();
+        let funding_authority_key = ctx.accounts.owner.key();
+        let position_owner_key = args.position_owner.unwrap_or(funding_authority_key);
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
         let debt_mint_key = ctx.accounts.debt_mint.key();
         let collateral_mint_key = ctx.accounts.collateral_mint.key();
@@ -167,7 +186,7 @@ impl<'info> OpenLeverage<'info> {
             &position_bump_seed,
         ];
         let initialized = initialize_pda_account_if_needed(
-            ctx.accounts.owner.to_account_info(),
+            ctx.accounts.payer.to_account_info(),
             ctx.accounts.leverage_position.to_account_info(),
             ctx.accounts.system_program.to_account_info(),
             get_size_with_discriminator::<LeveragePosition>(),
@@ -240,6 +259,13 @@ impl<'info> OpenLeverage<'info> {
             current_epoch,
         )?;
         require_gte!(collateral_credit, args.min_collateral_out, ErrorCode::SlippageExceeded);
+        require_leverage_entry_limit(
+            &ctx.accounts.market,
+            debt_asset,
+            notional,
+            collateral_credit,
+            args.limit_price_nad,
+        )?;
 
         // Create the position vault and move the purchased collateral into custody.
         let collateral_token_program = token_program_for_mint(
@@ -249,7 +275,7 @@ impl<'info> OpenLeverage<'info> {
         )?;
         create_token_account(
             &ctx.accounts.market.to_account_info(),
-            &ctx.accounts.owner.to_account_info(),
+            &ctx.accounts.payer.to_account_info(),
             &ctx.accounts.leverage_collateral_vault.to_account_info(),
             &ctx.accounts.collateral_mint.to_account_info(),
             &ctx.accounts.system_program.to_account_info(),
@@ -278,7 +304,7 @@ impl<'info> OpenLeverage<'info> {
         // Commit position accounting and settle the resulting hLP exposure.
         let receipt = ctx.accounts.market.open_leverage(
             &mut leverage_position,
-            owner_key,
+            position_owner_key,
             market_key,
             args.position_id,
             referral.referral_partner.unwrap_or_default(),
@@ -335,7 +361,7 @@ impl<'info> OpenLeverage<'info> {
         emit_cpi!(LeveragePositionOpened {
             market: market_key,
             position: position_key,
-            owner: owner_key,
+            owner: position_owner_key,
             debt_asset_mint: debt_mint_key,
             collateral_asset_mint: collateral_mint_key,
             margin_amount: margin_credit,
@@ -352,20 +378,100 @@ impl<'info> OpenLeverage<'info> {
                 ctx.accounts.market.base_side.reserves.live_reserve,
                 ctx.accounts.market.quote_side.reserves.live_reserve,
             )?,
-            metadata: MarketEventMetadata::at_slot(owner_key, market_key, current_slot),
+            metadata: MarketEventMetadata::at_slot(position_owner_key, market_key, current_slot),
         });
         if let Some(referral_partner) = referral.referral_partner {
             emit_cpi!(ReferralBound {
                 market: market_key,
                 position: position_key,
-                owner: owner_key,
+                owner: position_owner_key,
                 referrer: referral.referrer.ok_or(ErrorCode::InvalidReferralPartner)?,
                 referral_partner,
                 asset_mint: debt_mint_key,
                 interest_share_bps: referral.interest_share_bps,
-                metadata: MarketEventMetadata::at_slot(owner_key, market_key, current_slot),
+                metadata: MarketEventMetadata::at_slot(position_owner_key, market_key, current_slot),
             });
         }
         Ok(())
+    }
+}
+
+/// Conservative all-in Quote-per-Base execution price after swap fees, price
+/// impact, and output transfer effects.
+pub(crate) fn leverage_entry_price_nad(
+    market: &Market,
+    debt_asset: MarketAsset,
+    notional_amount: u64,
+    collateral_amount: u64,
+) -> Result<u64> {
+    require!(notional_amount > 0 && collateral_amount > 0, ErrorCode::AmountZero);
+    let (base_amount, quote_amount) = match debt_asset {
+        MarketAsset::Base => (notional_amount, collateral_amount),
+        MarketAsset::Quote => (collateral_amount, notional_amount),
+    };
+    let base_decimals = market.base_side.asset_decimals;
+    let quote_decimals = market.quote_side.asset_decimals;
+    let (numerator_scale, denominator) = if base_decimals >= quote_decimals {
+        let decimal_scale = 10_u128
+            .checked_pow((base_decimals - quote_decimals) as u32)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        (
+            (NAD as u128)
+                .checked_mul(decimal_scale)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            base_amount as u128,
+        )
+    } else {
+        let decimal_scale = 10_u128
+            .checked_pow((quote_decimals - base_decimals) as u32)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        (
+            NAD as u128,
+            (base_amount as u128)
+                .checked_mul(decimal_scale)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+        )
+    };
+    let price = match debt_asset {
+        // Base is sold for Quote. Floor so an order cannot pass unless the
+        // received Quote-per-Base is at least its lower limit.
+        MarketAsset::Base => mul_div_u128(quote_amount as u128, numerator_scale, denominator)?,
+        // Quote is sold for Base. Ceil so an order cannot pass when its true
+        // Quote-per-Base cost is even one atom above its upper limit.
+        MarketAsset::Quote => mul_div_ceil_u128(quote_amount as u128, numerator_scale, denominator)?,
+    };
+    u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow.into())
+}
+
+fn require_leverage_entry_limit(
+    market: &Market,
+    debt_asset: MarketAsset,
+    notional_amount: u64,
+    collateral_amount: u64,
+    limit_price_nad: u64,
+) -> Result<()> {
+    if limit_price_nad == 0 {
+        return Ok(());
+    }
+    let execution_price_nad = leverage_entry_price_nad(market, debt_asset, notional_amount, collateral_amount)?;
+    require!(
+        leverage_entry_limit_satisfied(debt_asset, execution_price_nad, limit_price_nad),
+        ErrorCode::SlippageExceeded
+    );
+    Ok(())
+}
+
+pub(crate) const fn leverage_entry_limit_satisfied(
+    debt_asset: MarketAsset,
+    execution_price_nad: u64,
+    limit_price_nad: u64,
+) -> bool {
+    match debt_asset {
+        // Selling Base to obtain Quote: require at least the requested Quote
+        // per Base.
+        MarketAsset::Base => execution_price_nad >= limit_price_nad,
+        // Selling Quote to obtain Base: pay no more Quote per Base than the
+        // requested ceiling.
+        MarketAsset::Quote => execution_price_nad <= limit_price_nad,
     }
 }

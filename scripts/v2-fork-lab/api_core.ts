@@ -354,13 +354,6 @@ function deriveLeverageOrder(
   )[0];
 }
 
-function deriveLeverageCustodyAuthority(order: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync(
-    [seed("leverage_delegate_authority"), order.toBuffer()],
-    LEVERAGE_DELEGATE_PROGRAM_ID
-  )[0];
-}
-
 function deriveReferralPartner(authority: PublicKey): PublicKey {
   return pda(seed("referral_partner"), authority.toBuffer());
 }
@@ -3708,11 +3701,14 @@ async function buildOpenLeverageTx(params: {
         multiplierBps: toBN(params.multiplierBps),
         minCollateralOut: toBN(params.minCollateralOut),
         referrer: params.referrer,
+        positionOwner: null,
+        limitPriceNad: new BN(0),
       })
       .accounts({
         market: m.market,
         futarchyAuthority: m.futarchyAuthority,
         owner: params.owner,
+        payer: params.owner,
         leveragePosition,
         debtMint,
         collateralMint,
@@ -4118,12 +4114,11 @@ async function buildDelegatedCloseLeverageTx(params: {
   );
   const leverageDelegation = deriveLeverageDelegation(leveragePosition);
   const order = deriveLeverageOrder(leveragePosition, params.positionOwner, params.orderId);
-  const custodyAuthority = deriveLeverageCustodyAuthority(order);
   const instructions: TransactionInstruction[] = [];
 
   const custodyAccount = await ataInstructionIfMissing({
     payer: params.executor,
-    owner: custodyAuthority,
+    owner: order,
     mint: debtMint,
     tokenProgram: debtTokenProgram,
     allowOwnerOffCurve: true,
@@ -4151,7 +4146,6 @@ async function buildDelegatedCloseLeverageTx(params: {
       market: m.market,
       leveragePosition,
       leverageDelegation,
-      custodyAuthority,
       custodyTokenAccount: custodyAccount.address,
       tokenMint: debtMint,
       executor: params.executor,
@@ -4164,7 +4158,6 @@ async function buildDelegatedCloseLeverageTx(params: {
       owner: params.positionOwner,
       leveragePosition,
       leverageDelegation,
-      custodyAuthority,
       custodyTokenAccount: custodyAccount.address,
       executorTokenAccount: executorAccount.address,
       ownerTokenAccount: ownerAccount.address,
@@ -4217,7 +4210,6 @@ async function buildDelegatedCloseLeverageTx(params: {
     leveragePosition,
     leverageDelegation,
     order,
-    custodyAuthority,
     custodyTokenAccount: custodyAccount.address,
     executorTokenAccount: executorAccount.address,
     ownerTokenAccount: ownerAccount.address,
@@ -5725,7 +5717,6 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
       leveragePosition: built.leveragePosition.toBase58(),
       leverageDelegation: built.leverageDelegation.toBase58(),
       order: built.order.toBase58(),
-      custodyAuthority: built.custodyAuthority.toBase58(),
       custodyTokenAccount: built.custodyTokenAccount.toBase58(),
       executorTokenAccount: built.executorTokenAccount.toBase58(),
       ownerTokenAccount: built.ownerTokenAccount.toBase58(),

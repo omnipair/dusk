@@ -103,7 +103,6 @@ const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
 const LEVERAGE_COLLATERAL_VAULT_SEED = Buffer.from("leverage_collateral");
 const LEVERAGE_DELEGATION_SEED = Buffer.from("leverage_delegation_v2");
 const LEVERAGE_ORDER_SEED = Buffer.from("leverage_order");
-const LEVERAGE_DELEGATE_CUSTODY_AUTHORITY_SEED = Buffer.from("leverage_delegate_authority");
 const LEVERAGE_DELEGATE_CLOSE = 1;
 const ORDER_KIND_TAKE_PROFIT = 1;
 const FEATURE_PROGRAM_ID = new PublicKey(
@@ -211,13 +210,6 @@ function deriveLeverageOrderAddress(
       owner.toBuffer(),
       orderId.toArrayLike(Buffer, "le", 8),
     ],
-    LEVERAGE_DELEGATE_PROGRAM_ID
-  );
-}
-
-function deriveLeverageDelegateCustodyAuthority(order: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [LEVERAGE_DELEGATE_CUSTODY_AUTHORITY_SEED, order.toBuffer()],
     LEVERAGE_DELEGATE_PROGRAM_ID
   );
 }
@@ -1360,11 +1352,14 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         multiplierBps: new BN(20_000),
         minCollateralOut: new BN(1),
         referrer: null,
+        positionOwner: null,
+        limitPriceNad: new BN(0),
       })
       .accounts({
         market: fixture.market,
         futarchyAuthority,
         owner: payer.publicKey,
+        payer: payer.publicKey,
         leveragePosition,
         debtMint: fixture.quoteMint,
         collateralMint: fixture.baseMint,
@@ -5818,11 +5813,14 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         multiplierBps: new BN(20_000),
         minCollateralOut: new BN(1),
         referrer: payer.publicKey,
+        positionOwner: null,
+        limitPriceNad: new BN(0),
       })
       .accounts({
         market: fixture.market,
         futarchyAuthority,
         owner: payer.publicKey,
+        payer: payer.publicKey,
         leveragePosition,
         debtMint: fixture.quoteMint,
         collateralMint: fixture.baseMint,
@@ -6793,12 +6791,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
     const orderId = new BN(1);
     const order = deriveLeverageOrderAddress(leveragePosition, payer.publicKey, orderId)[0];
-    const custodyAuthority = deriveLeverageDelegateCustodyAuthority(order)[0];
     const custodyTokenAccount = await createAccount(
       connection as any,
       payer,
       fixture.quoteMint,
-      custodyAuthority,
+      order,
       Keypair.generate()
     );
     const executor = Keypair.generate();
@@ -6835,7 +6832,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         market: fixture.market,
         leveragePosition,
         leverageDelegation,
-        custodyAuthority,
         custodyTokenAccount,
         collateralMint: fixture.baseMint,
         tokenMint: fixture.quoteMint,
@@ -6849,7 +6845,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         owner: payer.publicKey,
         leveragePosition,
         leverageDelegation,
-        custodyAuthority,
         custodyTokenAccount,
         executorTokenAccount,
         ownerTokenAccount: fixture.ownerQuoteAccount,

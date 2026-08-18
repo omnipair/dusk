@@ -4703,6 +4703,15 @@ export type Dusk = {
           "signer": true
         },
         {
+          "name": "payer",
+          "docs": [
+            "Pays account rent. Ordinary opens pass `owner` again; delegated opens",
+            "use the keeper without transferring position ownership to it."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
           "name": "leveragePosition",
           "docs": [
             "validated before any economic mutation."
@@ -13273,6 +13282,25 @@ export type Dusk = {
             "type": {
               "option": "pubkey"
             }
+          },
+          {
+            "name": "positionOwner",
+            "docs": [
+              "Optional beneficiary for sponsored/delegated opens. The funding signer",
+              "still supplies the margin, while the resulting position belongs to this",
+              "key. `None` preserves the ordinary self-funded path."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "limitPriceNad",
+            "docs": [
+              "All-in average execution limit in Quote-per-Base NAD. Zero disables the",
+              "limit. Long Base requires price <= limit; long Quote requires >= limit."
+            ],
+            "type": "u64"
           }
         ]
       }

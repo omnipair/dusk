@@ -40,6 +40,10 @@ pub const LEVERAGE_DELEGATE_REMOVE_MARGIN: u32 = 1 << 2;
 pub const LEVERAGE_DELEGATE_INCREASE: u32 = 1 << 3;
 pub const LEVERAGE_DELEGATE_DECREASE: u32 = 1 << 4;
 pub const LEVERAGE_DELEGATE_CLOSE_SETTLED: u32 = 1 << 5;
+/// Number of fixed hLP settlement accounts preceding token-hook accounts in
+/// every leverage swap CPI. Periphery programs use this only to forward the
+/// same hook suffix for their own custody transfers.
+pub const LEVERAGE_HLP_ACCOUNT_PREFIX_LEN: usize = HLP_SWAP_ACCOUNT_PREFIX_LEN;
 pub const LEVERAGE_DELEGATION_APPROVAL_MAGIC: [u8; 8] = *b"OMNILVDA";
 /// Serialized approval payload version. Dusk is pre-deployment, so feature
 /// iterations remain version 1. Increment only after a deployed payload format

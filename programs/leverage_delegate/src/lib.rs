@@ -20,20 +20,22 @@ use dusk::{
 };
 use std::cmp::min;
 
+mod entry;
+pub use entry::*;
+
 declare_id!("EPGF9iFrbGnhWgC3To9rC9vxinEYuDHaz4RXgLPvuRkp");
 
 pub const ORDER_SEED_PREFIX: &[u8] = b"leverage_order";
-pub const CUSTODY_AUTHORITY_SEED_PREFIX: &[u8] = b"leverage_delegate_authority";
 pub const EXECUTOR_INCENTIVE_BPS: u64 = 500;
 pub const ORDER_KIND_TAKE_PROFIT: u8 = 1;
 pub const ORDER_KIND_STOP_LOSS: u8 = 2;
 pub const HLP_ORDER_SEED_PREFIX: &[u8] = b"hlp_order";
-pub const HLP_CUSTODY_AUTHORITY_SEED_PREFIX: &[u8] = b"hlp_order_authority";
 pub const HLP_ORDER_KIND_STOP_LOSS: u8 = 1;
 pub const HLP_ORDER_KIND_STOP_RATE: u8 = 2;
 pub const HLP_ORDER_STATUS_ACTIVE: u8 = 0;
 pub const HLP_ORDER_STATUS_CANCELLED: u8 = 1;
 pub const HLP_ORDER_STATUS_EXECUTED: u8 = 2;
+pub const ENTRY_ORDER_SEED_PREFIX: &[u8] = b"leverage_entry_order";
 
 #[program]
 pub mod leverage_delegate {
@@ -76,6 +78,27 @@ pub mod leverage_delegate {
 
     pub fn after_close_order(ctx: Context<AfterCloseOrder>, args: ExecuteOrderArgs) -> Result<()> {
         AfterCloseOrder::handle_after(ctx, args)
+    }
+
+    pub fn create_leverage_entry_order<'info>(
+        ctx: Context<'_, '_, '_, 'info, CreateLeverageEntryOrder<'info>>,
+        args: CreateLeverageEntryOrderArgs,
+    ) -> Result<()> {
+        CreateLeverageEntryOrder::handle_create(ctx, args)
+    }
+
+    pub fn cancel_leverage_entry_order<'info>(
+        ctx: Context<'_, '_, '_, 'info, CancelLeverageEntryOrder<'info>>,
+        args: LeverageEntryOrderIdArgs,
+    ) -> Result<()> {
+        CancelLeverageEntryOrder::handle_cancel(ctx, args)
+    }
+
+    pub fn execute_leverage_entry_order<'info>(
+        ctx: Context<'_, '_, '_, 'info, ExecuteLeverageEntryOrder<'info>>,
+        args: LeverageEntryOrderIdArgs,
+    ) -> Result<()> {
+        ExecuteLeverageEntryOrder::handle_execute(ctx, args)
     }
 
     pub fn create_hlp_order<'info>(
@@ -301,14 +324,8 @@ pub struct BeforeLeverageOrder<'info> {
         constraint = leverage_delegation.delegated_program == crate::ID @ LeverageDelegateError::InvalidOrder,
     )]
     pub leverage_delegation: Box<Account<'info, LeverageDelegation>>,
-    /// CHECK: PDA authority for the custody token account approved as close recipient.
     #[account(
-        seeds = [CUSTODY_AUTHORITY_SEED_PREFIX, order.key().as_ref()],
-        bump
-    )]
-    pub custody_authority: AccountInfo<'info>,
-    #[account(
-        constraint = custody_token_account.owner == custody_authority.key() @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = custody_token_account.owner == order.key() @ LeverageDelegateError::InvalidTokenAccount,
         constraint = custody_token_account.mint == token_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
     )]
     pub custody_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
@@ -351,16 +368,10 @@ pub struct AfterCloseOrder<'info> {
         constraint = leverage_delegation.delegated_program == crate::ID @ LeverageDelegateError::InvalidOrder,
     )]
     pub leverage_delegation: Box<Account<'info, LeverageDelegation>>,
-    /// CHECK: PDA authority for the custody token account.
-    #[account(
-        seeds = [CUSTODY_AUTHORITY_SEED_PREFIX, order.key().as_ref()],
-        bump
-    )]
-    pub custody_authority: AccountInfo<'info>,
     #[account(
         mut,
         constraint = custody_token_account.key() == order.staged_custody_token_account @ LeverageDelegateError::InvalidTokenAccount,
-        constraint = custody_token_account.owner == custody_authority.key() @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = custody_token_account.owner == order.key() @ LeverageDelegateError::InvalidTokenAccount,
         constraint = custody_token_account.mint == token_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
     )]
     pub custody_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
@@ -408,12 +419,6 @@ pub struct CreateHlpOrder<'info> {
         bump
     )]
     pub order: Box<Account<'info, HlpOrder>>,
-    /// CHECK: PDA owns both escrow token accounts and signs Dusk CPIs.
-    #[account(
-        seeds = [HLP_CUSTODY_AUTHORITY_SEED_PREFIX, order.key().as_ref()],
-        bump
-    )]
-    pub custody_authority: AccountInfo<'info>,
     #[account(
         mut,
         constraint = owner_hlp_account.owner == owner.key() @ LeverageDelegateError::InvalidTokenAccount,
@@ -422,7 +427,7 @@ pub struct CreateHlpOrder<'info> {
     pub owner_hlp_account: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(
         mut,
-        constraint = custody_hlp_account.owner == custody_authority.key() @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = custody_hlp_account.owner == order.key() @ LeverageDelegateError::InvalidTokenAccount,
         constraint = custody_hlp_account.mint == target_hlp_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
     )]
     pub custody_hlp_account: Box<InterfaceAccount<'info, TokenAccount>>,
@@ -457,17 +462,11 @@ pub struct CancelHlpOrder<'info> {
         constraint = order.status == HLP_ORDER_STATUS_ACTIVE @ LeverageDelegateError::InvalidOrder,
     )]
     pub order: Box<Account<'info, HlpOrder>>,
-    /// CHECK: PDA owns the escrow token account.
-    #[account(
-        seeds = [HLP_CUSTODY_AUTHORITY_SEED_PREFIX, order.key().as_ref()],
-        bump
-    )]
-    pub custody_authority: AccountInfo<'info>,
     pub target_hlp_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(
         mut,
         address = order.custody_hlp_account,
-        constraint = custody_hlp_account.owner == custody_authority.key() @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = custody_hlp_account.owner == order.key() @ LeverageDelegateError::InvalidTokenAccount,
         constraint = custody_hlp_account.mint == target_hlp_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
     )]
     pub custody_hlp_account: Box<InterfaceAccount<'info, TokenAccount>>,
@@ -501,12 +500,6 @@ pub struct ExecuteHlpOrder<'info> {
     #[account(mut)]
     pub market: Box<Account<'info, Market>>,
     pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
-    /// CHECK: PDA signs the hLP withdrawal and custody transfers.
-    #[account(
-        seeds = [HLP_CUSTODY_AUTHORITY_SEED_PREFIX, order.key().as_ref()],
-        bump
-    )]
-    pub custody_authority: AccountInfo<'info>,
     pub base_mint: Box<InterfaceAccount<'info, Mint>>,
     pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut)]
@@ -521,13 +514,13 @@ pub struct ExecuteHlpOrder<'info> {
     pub borrowed_interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(
         mut,
-        constraint = custody_target_account.owner == custody_authority.key() @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = custody_target_account.owner == order.key() @ LeverageDelegateError::InvalidTokenAccount,
     )]
     pub custody_target_account: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(
         mut,
         address = order.custody_hlp_account,
-        constraint = custody_hlp_account.owner == custody_authority.key() @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = custody_hlp_account.owner == order.key() @ LeverageDelegateError::InvalidTokenAccount,
         constraint = custody_hlp_account.mint == target_hlp_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
     )]
     pub custody_hlp_account: Box<InterfaceAccount<'info, TokenAccount>>,
@@ -576,17 +569,11 @@ pub struct SettleHlpOrderYield<'info> {
     pub order: Box<Account<'info, HlpOrder>>,
     #[account(mut)]
     pub market: Box<Account<'info, Market>>,
-    /// CHECK: PDA owns the emptied hLP account and signs yield claims.
-    #[account(
-        seeds = [HLP_CUSTODY_AUTHORITY_SEED_PREFIX, order.key().as_ref()],
-        bump
-    )]
-    pub custody_authority: AccountInfo<'info>,
     pub target_hlp_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(
         mut,
         address = order.custody_hlp_account,
-        constraint = custody_hlp_account.owner == custody_authority.key() @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = custody_hlp_account.owner == order.key() @ LeverageDelegateError::InvalidTokenAccount,
         constraint = custody_hlp_account.amount == 0 @ LeverageDelegateError::InvalidTokenAccount,
     )]
     pub custody_hlp_account: Box<InterfaceAccount<'info, TokenAccount>>,
@@ -662,38 +649,46 @@ impl<'info> CreateHlpOrder<'info> {
 
         validate_hlp_yield_account(
             &ctx.accounts.base_yield_account,
-            ctx.accounts.custody_authority.key(),
+            ctx.accounts.order.key(),
             ctx.accounts.market.key(),
             ctx.accounts.target_hlp_mint.key(),
             ctx.accounts.base_mint.key(),
         )?;
         validate_hlp_yield_account(
             &ctx.accounts.quote_yield_account,
-            ctx.accounts.custody_authority.key(),
+            ctx.accounts.order.key(),
             ctx.accounts.market.key(),
             ctx.accounts.target_hlp_mint.key(),
             ctx.accounts.quote_mint.key(),
         )?;
 
-        let order = &mut ctx.accounts.order;
-        order.owner = ctx.accounts.owner.key();
-        order.market = ctx.accounts.market.key();
-        order.target_hlp_mint = ctx.accounts.target_hlp_mint.key();
-        order.custody_hlp_account = ctx.accounts.custody_hlp_account.key();
-        order.order_id = args.order_id;
-        order.kind = args.kind;
-        order.status = HLP_ORDER_STATUS_ACTIVE;
-        order.hlp_amount = args.hlp_amount;
-        order.trigger_nad = args.trigger_nad;
-        order.min_target_amount_out = args.min_target_amount_out;
-        order.bump = ctx.bumps.order;
+        {
+            let order = &mut ctx.accounts.order;
+            order.owner = ctx.accounts.owner.key();
+            order.market = ctx.accounts.market.key();
+            order.target_hlp_mint = ctx.accounts.target_hlp_mint.key();
+            order.custody_hlp_account = ctx.accounts.custody_hlp_account.key();
+            order.order_id = args.order_id;
+            order.kind = args.kind;
+            order.status = HLP_ORDER_STATUS_ACTIVE;
+            order.hlp_amount = args.hlp_amount;
+            order.trigger_nad = args.trigger_nad;
+            order.min_target_amount_out = args.min_target_amount_out;
+            order.bump = ctx.bumps.order;
+        }
 
-        let order_key = order.key();
-        let authority_bump = ctx.bumps.custody_authority;
+        let market_key = ctx.accounts.order.market;
+        let owner_key = ctx.accounts.order.owner;
+        let target_hlp_mint_key = ctx.accounts.order.target_hlp_mint;
+        let order_id_bytes = ctx.accounts.order.order_id.to_le_bytes();
+        let bump_seed = [ctx.accounts.order.bump];
         let authority_seeds = &[
-            HLP_CUSTODY_AUTHORITY_SEED_PREFIX,
-            order_key.as_ref(),
-            &[authority_bump],
+            HLP_ORDER_SEED_PREFIX,
+            market_key.as_ref(),
+            owner_key.as_ref(),
+            target_hlp_mint_key.as_ref(),
+            &order_id_bytes,
+            &bump_seed,
         ];
         let signer = &[&authority_seeds[..]];
 
@@ -701,22 +696,22 @@ impl<'info> CreateHlpOrder<'info> {
             ctx.accounts.dusk_program.to_account_info(),
             ctx.accounts.dusk_event_authority.to_account_info(),
             ctx.accounts.market.to_account_info(),
-            ctx.accounts.custody_authority.to_account_info(),
+            ctx.accounts.order.to_account_info(),
             ctx.accounts.target_hlp_mint.to_account_info(),
             ctx.accounts.base_mint.to_account_info(),
             ctx.accounts.base_yield_account.to_account_info(),
-            order.owner,
+            owner_key,
             signer,
         )?;
         set_hlp_yield_recipient(
             ctx.accounts.dusk_program.to_account_info(),
             ctx.accounts.dusk_event_authority.to_account_info(),
             ctx.accounts.market.to_account_info(),
-            ctx.accounts.custody_authority.to_account_info(),
+            ctx.accounts.order.to_account_info(),
             ctx.accounts.target_hlp_mint.to_account_info(),
             ctx.accounts.quote_mint.to_account_info(),
             ctx.accounts.quote_yield_account.to_account_info(),
-            order.owner,
+            owner_key,
             signer,
         )?;
 
@@ -759,12 +754,18 @@ impl<'info> CancelHlpOrder<'info> {
             ctx.accounts.order.hlp_amount,
             LeverageDelegateError::InvalidTokenAccount
         );
-        let order_key = ctx.accounts.order.key();
-        let bump = ctx.bumps.custody_authority;
+        let market_key = ctx.accounts.order.market;
+        let owner_key = ctx.accounts.order.owner;
+        let target_hlp_mint_key = ctx.accounts.order.target_hlp_mint;
+        let order_id_bytes = ctx.accounts.order.order_id.to_le_bytes();
+        let bump_seed = [ctx.accounts.order.bump];
         let authority_seeds = &[
-            HLP_CUSTODY_AUTHORITY_SEED_PREFIX,
-            order_key.as_ref(),
-            &[bump],
+            HLP_ORDER_SEED_PREFIX,
+            market_key.as_ref(),
+            owner_key.as_ref(),
+            target_hlp_mint_key.as_ref(),
+            &order_id_bytes,
+            &bump_seed,
         ];
         token_2022::transfer_checked(
             CpiContext::new_with_signer(
@@ -773,7 +774,7 @@ impl<'info> CancelHlpOrder<'info> {
                     from: ctx.accounts.custody_hlp_account.to_account_info(),
                     mint: ctx.accounts.target_hlp_mint.to_account_info(),
                     to: ctx.accounts.owner_hlp_account.to_account_info(),
-                    authority: ctx.accounts.custody_authority.to_account_info(),
+                    authority: ctx.accounts.order.to_account_info(),
                 },
                 &[&authority_seeds[..]],
             )
@@ -853,11 +854,7 @@ impl<'info> ExecuteHlpOrder<'info> {
             LeverageDelegateError::TriggerNotMet
         );
 
-        withdraw_hlp_order_position(
-            &ctx.accounts,
-            ctx.bumps.custody_authority,
-            ctx.remaining_accounts,
-        )?;
+        withdraw_hlp_order_position(&ctx.accounts, ctx.remaining_accounts)?;
         ctx.accounts.custody_target_account.reload()?;
         let output = ctx.accounts.custody_target_account.amount;
         require_gte!(
@@ -883,12 +880,18 @@ impl<'info> ExecuteHlpOrder<'info> {
             ctx.accounts.order.min_target_amount_out,
             LeverageDelegateError::InvalidOrder
         );
-        let order_key = ctx.accounts.order.key();
-        let bump = ctx.bumps.custody_authority;
+        let market_key = ctx.accounts.order.market;
+        let owner_key = ctx.accounts.order.owner;
+        let target_hlp_mint_key = ctx.accounts.order.target_hlp_mint;
+        let order_id_bytes = ctx.accounts.order.order_id.to_le_bytes();
+        let bump_seed = [ctx.accounts.order.bump];
         let authority_seeds = &[
-            HLP_CUSTODY_AUTHORITY_SEED_PREFIX,
-            order_key.as_ref(),
-            &[bump],
+            HLP_ORDER_SEED_PREFIX,
+            market_key.as_ref(),
+            owner_key.as_ref(),
+            target_hlp_mint_key.as_ref(),
+            &order_id_bytes,
+            &bump_seed,
         ];
         let signer = &[&authority_seeds[..]];
         let target_mint_account = match target_asset {
@@ -909,7 +912,7 @@ impl<'info> ExecuteHlpOrder<'info> {
                 ctx.accounts.custody_target_account.to_account_info(),
                 target_mint_account.clone(),
                 ctx.accounts.executor_target_account.to_account_info(),
-                ctx.accounts.custody_authority.to_account_info(),
+                ctx.accounts.order.to_account_info(),
                 incentive,
                 target_decimals,
                 signer,
@@ -925,7 +928,7 @@ impl<'info> ExecuteHlpOrder<'info> {
                 ctx.accounts.custody_target_account.to_account_info(),
                 target_mint_account,
                 ctx.accounts.owner_target_account.to_account_info(),
-                ctx.accounts.custody_authority.to_account_info(),
+                ctx.accounts.order.to_account_info(),
                 owner_amount,
                 target_decimals,
                 signer,
@@ -943,14 +946,14 @@ impl<'info> SettleHlpOrderYield<'info> {
     ) -> Result<()> {
         validate_hlp_yield_account(
             &ctx.accounts.base_yield_account,
-            ctx.accounts.custody_authority.key(),
+            ctx.accounts.order.key(),
             ctx.accounts.market.key(),
             ctx.accounts.target_hlp_mint.key(),
             ctx.accounts.base_mint.key(),
         )?;
         validate_hlp_yield_account(
             &ctx.accounts.quote_yield_account,
-            ctx.accounts.custody_authority.key(),
+            ctx.accounts.order.key(),
             ctx.accounts.market.key(),
             ctx.accounts.target_hlp_mint.key(),
             ctx.accounts.quote_mint.key(),
@@ -966,12 +969,18 @@ impl<'info> SettleHlpOrderYield<'info> {
             LeverageDelegateError::InvalidOrder
         );
 
-        let order_key = ctx.accounts.order.key();
-        let bump = ctx.bumps.custody_authority;
+        let market_key = ctx.accounts.order.market;
+        let owner_key = ctx.accounts.order.owner;
+        let target_hlp_mint_key = ctx.accounts.order.target_hlp_mint;
+        let order_id_bytes = ctx.accounts.order.order_id.to_le_bytes();
+        let bump_seed = [ctx.accounts.order.bump];
         let authority_seeds = &[
-            HLP_CUSTODY_AUTHORITY_SEED_PREFIX,
-            order_key.as_ref(),
-            &[bump],
+            HLP_ORDER_SEED_PREFIX,
+            market_key.as_ref(),
+            owner_key.as_ref(),
+            target_hlp_mint_key.as_ref(),
+            &order_id_bytes,
+            &bump_seed,
         ];
         let signer = &[&authority_seeds[..]];
 
@@ -981,7 +990,7 @@ impl<'info> SettleHlpOrderYield<'info> {
             ctx.accounts.dusk_program.to_account_info(),
             ctx.accounts.dusk_event_authority.to_account_info(),
             ctx.accounts.market.to_account_info(),
-            ctx.accounts.custody_authority.to_account_info(),
+            ctx.accounts.order.to_account_info(),
             ctx.accounts.base_mint.to_account_info(),
             ctx.accounts.target_hlp_mint.to_account_info(),
             ctx.accounts.custody_hlp_account.to_account_info(),
@@ -1001,7 +1010,7 @@ impl<'info> SettleHlpOrderYield<'info> {
             ctx.accounts.dusk_program.to_account_info(),
             ctx.accounts.dusk_event_authority.to_account_info(),
             ctx.accounts.market.to_account_info(),
-            ctx.accounts.custody_authority.to_account_info(),
+            ctx.accounts.order.to_account_info(),
             ctx.accounts.quote_mint.to_account_info(),
             ctx.accounts.target_hlp_mint.to_account_info(),
             ctx.accounts.custody_hlp_account.to_account_info(),
@@ -1232,10 +1241,11 @@ impl<'info> AfterCloseOrder<'info> {
             LeverageDelegateError::InvalidTokenAccount
         );
 
-        let order_key = ctx.accounts.order.key();
         let order_market = ctx.accounts.order.market;
         let order_owner = ctx.accounts.order.owner;
         let order_position = ctx.accounts.order.position;
+        let order_id_bytes = ctx.accounts.order.order_id.to_le_bytes();
+        let bump_seed = [ctx.accounts.order.bump];
         let staged_margin = ctx.accounts.order.staged_margin;
         let staged_output_amount = ctx.accounts.order.staged_output_amount;
         let custody_token_account_key = ctx.accounts.custody_token_account.key();
@@ -1258,8 +1268,13 @@ impl<'info> AfterCloseOrder<'info> {
             let owner_amount = amount
                 .checked_sub(incentive)
                 .ok_or(LeverageDelegateError::MathOverflow)?;
-            let bump = ctx.bumps.custody_authority;
-            let signer_seeds = &[CUSTODY_AUTHORITY_SEED_PREFIX, order_key.as_ref(), &[bump]];
+            let signer_seeds = &[
+                ORDER_SEED_PREFIX,
+                order_position.as_ref(),
+                order_owner.as_ref(),
+                &order_id_bytes,
+                &bump_seed,
+            ];
             let signer = &[&signer_seeds[..]];
 
             if incentive > 0 {
@@ -1272,7 +1287,7 @@ impl<'info> AfterCloseOrder<'info> {
                     ctx.accounts.custody_token_account.to_account_info(),
                     ctx.accounts.token_mint.to_account_info(),
                     ctx.accounts.executor_token_account.to_account_info(),
-                    ctx.accounts.custody_authority.to_account_info(),
+                    ctx.accounts.order.to_account_info(),
                     incentive,
                     ctx.accounts.token_mint.decimals,
                     signer,
@@ -1288,7 +1303,7 @@ impl<'info> AfterCloseOrder<'info> {
                     ctx.accounts.custody_token_account.to_account_info(),
                     ctx.accounts.token_mint.to_account_info(),
                     ctx.accounts.owner_token_account.to_account_info(),
-                    ctx.accounts.custody_authority.to_account_info(),
+                    ctx.accounts.order.to_account_info(),
                     owner_amount,
                     ctx.accounts.token_mint.decimals,
                     signer,
@@ -1352,14 +1367,20 @@ fn preview_hlp_order_trigger<'info>(
 #[inline(never)]
 fn withdraw_hlp_order_position<'info>(
     accounts: &ExecuteHlpOrder<'info>,
-    authority_bump: u8,
     remaining_accounts: &[AccountInfo<'info>],
 ) -> Result<()> {
-    let order_key = accounts.order.key();
+    let market_key = accounts.order.market;
+    let owner_key = accounts.order.owner;
+    let target_hlp_mint_key = accounts.order.target_hlp_mint;
+    let order_id_bytes = accounts.order.order_id.to_le_bytes();
+    let bump_seed = [accounts.order.bump];
     let authority_seeds = &[
-        HLP_CUSTODY_AUTHORITY_SEED_PREFIX,
-        order_key.as_ref(),
-        &[authority_bump],
+        HLP_ORDER_SEED_PREFIX,
+        market_key.as_ref(),
+        owner_key.as_ref(),
+        target_hlp_mint_key.as_ref(),
+        &order_id_bytes,
+        &bump_seed,
     ];
     dusk::cpi::withdraw_single_sided(
         CpiContext::new_with_signer(
@@ -1367,7 +1388,7 @@ fn withdraw_hlp_order_position<'info>(
             dusk::cpi::accounts::WithdrawSingleSided {
                 market: accounts.market.to_account_info(),
                 futarchy_authority: accounts.futarchy_authority.to_account_info(),
-                owner: accounts.custody_authority.to_account_info(),
+                owner: accounts.order.to_account_info(),
                 base_mint: accounts.base_mint.to_account_info(),
                 quote_mint: accounts.quote_mint.to_account_info(),
                 ylp_mint: accounts.ylp_mint.to_account_info(),
