@@ -65,6 +65,20 @@ pub struct MarketHealthUpdated {
 }
 
 #[event]
+pub struct InsuranceDonated {
+    pub market: Pubkey,
+    pub donor: Pubkey,
+    /// `0` for Base and `1` for Quote.
+    pub asset: u8,
+    /// Gross amount requested from the donor's token account.
+    pub requested_amount: u64,
+    /// Net amount received after any Token-2022 transfer fee.
+    pub credited_amount: u64,
+    pub available_after: u64,
+    pub metadata: MarketEventMetadata,
+}
+
+#[event]
 pub struct LiquidityAdded {
     pub market: Pubkey,
     pub owner: Pubkey,

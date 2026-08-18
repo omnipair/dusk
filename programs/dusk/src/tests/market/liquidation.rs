@@ -73,7 +73,7 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
         params_hash: [9; 32],
         initial_liquidity_authority: Pubkey::default(),
         governance_locked_ylp: 0,
-        parameter_revisions: [0; 6],
+        parameter_revisions: [0; 7],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,
@@ -227,7 +227,7 @@ fn market_with_cash_backed_debt(
         params_hash: [7; 32],
         initial_liquidity_authority: Pubkey::default(),
         governance_locked_ylp: 0,
-        parameter_revisions: [0; 6],
+        parameter_revisions: [0; 7],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,
@@ -482,7 +482,8 @@ fn insurance_credit_liquidation_closes_debt_without_breaking_virtual_reserve_inv
     let debt_before_u64 = u64::try_from(debt_before).unwrap();
     let repay_credit = debt_before_u64 / 2;
     let insurance_credit = debt_before_u64 - repay_credit;
-    market.insurance.quote_available = insurance_credit;
+    // A single liquidation may use at most 20% of available insurance.
+    market.insurance.quote_available = insurance_credit * 5;
     let (live_before, cash_before) = reserve_pair(&market, debt_asset);
     let pricing = LiquidationPricing::ReferencePrice {
         debt_per_collateral_price_nad: NAD as u64,

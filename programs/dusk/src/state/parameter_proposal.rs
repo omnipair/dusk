@@ -22,6 +22,7 @@ pub enum ParameterFamily {
     EmaHalfLives,
     DailyBorrowLimit,
     CenterController,
+    Insurance,
 }
 
 impl ParameterFamily {
@@ -33,6 +34,7 @@ impl ParameterFamily {
             Self::EmaHalfLives => 3,
             Self::DailyBorrowLimit => 4,
             Self::CenterController => 5,
+            Self::Insurance => 6,
         }
     }
 }
@@ -62,6 +64,12 @@ pub enum MarketParameterUpdate {
         adjustment_step_nad: u64,
         min_adjustment_interval_slots: u64,
     },
+    /// Insurance loss-concentration limits. These governed values can only
+    /// select a stricter policy than the protocol-level hard ceilings.
+    InsuranceDrawCaps {
+        per_event_bps: u16,
+        per_day_bps: u16,
+    },
 }
 
 impl MarketParameterUpdate {
@@ -73,6 +81,7 @@ impl MarketParameterUpdate {
             Self::EmaHalfLives { .. } => ParameterFamily::EmaHalfLives,
             Self::DailyBorrowLimit { .. } => ParameterFamily::DailyBorrowLimit,
             Self::CenterController { .. } => ParameterFamily::CenterController,
+            Self::InsuranceDrawCaps { .. } => ParameterFamily::Insurance,
         }
     }
 }

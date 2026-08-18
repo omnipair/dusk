@@ -173,7 +173,9 @@ fn exhausted_hlp_waterfall_draws_insurance_before_socializing_funding_interest()
     let shortfall = actual_debt.saturating_sub(collateral);
     assert!(shortfall > 600);
     assert!(shortfall <= actual_debt.saturating_sub(market.base_hlp_vault.debt_principal));
-    market.insurance.quote_available = 600;
+    // The hard per-event cap is 20%, so 3,000 available admits a maximum
+    // 600-atom draw for this terminal event.
+    market.insurance.quote_available = 3_000;
 
     // The permissionless instruction deliberately advances debt and the AMM
     // clock without invoking ordinary hLP settlement, which must reject an
@@ -182,11 +184,11 @@ fn exhausted_hlp_waterfall_draws_insurance_before_socializing_funding_interest()
 
     let mut insurance_capped = market.clone();
     assert!(insurance_capped
-        .prepare_terminal_hlp_waterfall(target_asset, 599)
+        .prepare_terminal_hlp_waterfall(target_asset, 599, 1)
         .is_err());
 
     let plan = market
-        .prepare_terminal_hlp_waterfall(target_asset, 600)
+        .prepare_terminal_hlp_waterfall(target_asset, 600, 1)
         .unwrap();
     assert_eq!(plan.insurance_request(), 600);
     let before_capped = market.try_to_vec().unwrap();
@@ -200,7 +202,7 @@ fn exhausted_hlp_waterfall_draws_insurance_before_socializing_funding_interest()
     assert_eq!(receipt.socialized_loss, shortfall - 600);
     assert_eq!(receipt.debt_closed, actual_debt);
     assert_eq!(receipt.ylp_burn_amount, vault_shares);
-    assert_eq!(market.insurance.quote_available, 0);
+    assert_eq!(market.insurance.quote_available, 2_400);
     assert_eq!(market.base_hlp_vault.ylp_shares, 0);
     assert_eq!(market.base_hlp_vault.debt_shares, 0);
     assert_eq!(market.base_hlp_vault.debt_principal, 0);

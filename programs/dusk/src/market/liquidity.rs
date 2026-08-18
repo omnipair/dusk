@@ -478,6 +478,7 @@ pub(crate) struct HlpTerminalWaterfallPlan {
     interest_due: u64,
     collateral_value_in_borrowed: u64,
     insurance_request: u64,
+    insurance_draw_slot: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -565,13 +566,9 @@ impl HlpTerminalWaterfallPlan {
         let borrowed_asset = self.target_asset.opposite();
 
         if insurance_spent > 0 {
-            let available = match borrowed_asset {
-                MarketAsset::Base => &mut market.insurance.base_available,
-                MarketAsset::Quote => &mut market.insurance.quote_available,
-            };
-            *available = available
-                .checked_sub(insurance_spent)
-                .ok_or(ErrorCode::InsufficientInsurance)?;
+            market
+                .insurance
+                .consume_draw(borrowed_asset, insurance_spent, self.insurance_draw_slot)?;
         }
         if insurance_credit > 0 {
             market.side_mut(borrowed_asset).credit_reserve(insurance_credit, true)?;
@@ -609,6 +606,8 @@ impl HlpTerminalWaterfallPlan {
         vault.residual_exposure = 0;
         vault.last_nav_nad = 0;
         vault.cached_settlement_price_nad = 0;
+        vault.funding_apr_ema_nad = 0;
+        vault.funding_apr_ema_last_slot = 0;
 
         market.rebase_explicit_curve_after_terminal_hlp_loss()?;
         market.assert_virtual_reserve_invariant(MarketAsset::Base)?;
@@ -642,6 +641,7 @@ impl Market {
         &mut self,
         target_asset: MarketAsset,
         max_insurance_draw: u64,
+        current_slot: u64,
     ) -> Result<HlpTerminalWaterfallPlan> {
         checkpoint_hlp_yield_from_ylp(self, target_asset)?;
         let vault = match target_asset {
@@ -682,10 +682,7 @@ impl Market {
         require!(shortfall > 0, ErrorCode::HlpNotLiquidatable);
         let interest_due = debt.saturating_sub(vault.debt_principal);
         require!(shortfall <= interest_due, ErrorCode::BrokenInvariant);
-        let insurance_available = match borrowed_asset {
-            MarketAsset::Base => self.insurance.base_available,
-            MarketAsset::Quote => self.insurance.quote_available,
-        };
+        let insurance_available = self.insurance.draw_capacity(borrowed_asset, current_slot)?;
         // Insurance is senior to socialization. The caller cap can make the
         // transaction fail under state drift, but it cannot elect to preserve
         // available insurance while pushing the same loss onto yLP.
@@ -704,6 +701,7 @@ impl Market {
             interest_due,
             collateral_value_in_borrowed,
             insurance_request,
+            insurance_draw_slot: current_slot,
         })
     }
 }
@@ -781,14 +779,12 @@ fn prepare_explicit_hlp_transition_from_end(
                 .live_reserve
                 .checked_sub(old_base_hlp_live)
                 .and_then(|value| value.checked_sub(quote_interest_paid))
-                .and_then(|value| value.checked_sub(quote_interest_paid))
                 .ok_or(ErrorCode::ReserveUnderflow)?,
             market
                 .quote_side
                 .reserves
                 .live_reserve
                 .checked_sub(old_quote_hlp_live)
-                .and_then(|value| value.checked_sub(base_interest_paid))
                 .and_then(|value| value.checked_sub(base_interest_paid))
                 .ok_or(ErrorCode::ReserveUnderflow)?,
         )
@@ -803,11 +799,9 @@ fn prepare_explicit_hlp_transition_from_end(
             ordinary_base
                 .checked_add(base_equity)
                 .and_then(|value| value.checked_sub(quote_interest_paid))
-                .and_then(|value| value.checked_sub(quote_interest_paid))
                 .ok_or(ErrorCode::ReserveUnderflow)?,
             ordinary_quote
                 .checked_add(quote_equity)
-                .and_then(|value| value.checked_sub(base_interest_paid))
                 .and_then(|value| value.checked_sub(base_interest_paid))
                 .ok_or(ErrorCode::ReserveUnderflow)?,
         )
@@ -1244,6 +1238,44 @@ impl Market {
             interest_paid: 0,
         })
     }
+    /// Exact principal-only close quote for an hLP tranche. Separately
+    /// claimable swap-fee and lending-interest yield is intentionally excluded
+    /// from Stop Loss semantics and remains owned by the token holder.
+    pub fn quote_hlp_withdrawal(&self, target_asset: MarketAsset, hlp_amount: u64) -> Result<u64> {
+        require!(hlp_amount > 0, ErrorCode::AmountZero);
+        if self.hlp_terminally_closed(target_asset) {
+            return Ok(0);
+        }
+        let vault = match target_asset {
+            MarketAsset::Base => &self.base_hlp_vault,
+            MarketAsset::Quote => &self.quote_hlp_vault,
+        };
+        if vault.residual_exposure == 0 {
+            require_hlp_settlement_available(self, target_asset)?;
+        }
+        require_gte!(vault.hlp_supply, hlp_amount, ErrorCode::InsufficientBalance);
+        let ylp_amount = proportional(vault.ylp_shares, hlp_amount, vault.hlp_supply)?;
+        let target_redeemed = ylp_live_underlying_amount(self, target_asset, ylp_amount)?;
+        let borrowed_asset = target_asset.opposite();
+        let borrowed_redeemed = ylp_live_underlying_amount(self, borrowed_asset, ylp_amount)?;
+        let debt_shares = proportional_u128(vault.debt_shares, hlp_amount, vault.hlp_supply)?;
+        let debt_repaid = Debt::aggregate_debt_reduction_for_shares(
+            vault.debt_shares,
+            debt_shares,
+            self.debt.borrow_index(borrowed_asset),
+        )?;
+        settled_close_target_amount(self, target_asset, target_redeemed, borrowed_redeemed, debt_repaid)
+    }
+
+    /// Withdrawable principal NAV per hLP token in NAD. hLP token decimals
+    /// equal their target asset decimals, so the raw output/share ratio is
+    /// dimensionless before applying the NAD scale.
+    pub fn hlp_principal_nav_per_token_nad(&self, target_asset: MarketAsset, hlp_amount: u64) -> Result<u64> {
+        let output = self.quote_hlp_withdrawal(target_asset, hlp_amount)?;
+        let value = mul_div_u128(output as u128, NAD as u128, hlp_amount as u128)?;
+        u64::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow.into())
+    }
+
     pub fn withdraw_single_sided(
         &mut self,
         target_asset: MarketAsset,

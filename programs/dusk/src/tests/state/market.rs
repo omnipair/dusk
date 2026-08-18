@@ -165,7 +165,7 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
         params_hash: [0u8; 32],
         initial_liquidity_authority: Pubkey::default(),
         governance_locked_ylp: 0,
-        parameter_revisions: [0; 6],
+        parameter_revisions: [0; 7],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,
@@ -1042,7 +1042,7 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
         .unwrap();
     assert_eq!(market.config.fee_profile(), fee);
     assert_eq!(market.config.max_daily_borrow_bps, before_fee.max_daily_borrow_bps);
-    assert_eq!(market.parameter_revisions, [1, 0, 0, 0, 0, 0]);
+    assert_eq!(market.parameter_revisions, [1, 0, 0, 0, 0, 0, 0]);
 
     let irm = IrmConfig {
         target_utilization_bps: 6_500,
@@ -1054,7 +1054,7 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
         .unwrap();
     assert_eq!(market.config.irm, irm);
     assert_eq!(market.config.fee_profile(), fee);
-    assert_eq!(market.parameter_revisions, [1, 0, 1, 0, 0, 0]);
+    assert_eq!(market.parameter_revisions, [1, 0, 1, 0, 0, 0, 0]);
 
     market
         .execute_parameter_update(
@@ -1071,7 +1071,7 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
     assert_eq!(market.config.directional_ema_half_life_ms, 180_000);
     assert_eq!(market.config.q_ema_half_life_ms, 240_000);
     assert_eq!(market.config.amm.center_ema_half_life_ms, 300_000);
-    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 0, 0]);
+    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 0, 0, 0]);
 
     market
         .execute_parameter_update(
@@ -1082,7 +1082,7 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
         )
         .unwrap();
     assert_eq!(market.config.max_daily_borrow_bps, 3_000);
-    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 1, 0]);
+    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 1, 0, 0]);
 
     market
         .execute_parameter_update(
@@ -1097,7 +1097,7 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
     assert_eq!(market.config.amm.adjustment_threshold_nad, NAD / 100);
     assert_eq!(market.config.amm.adjustment_step_nad, NAD / 1_000);
     assert_eq!(market.config.amm.min_adjustment_interval_slots, 100);
-    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 1, 1]);
+    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 1, 1, 0]);
 }
 
 #[test]
@@ -1137,7 +1137,7 @@ fn concentration_execution_reconstructs_the_selected_explicit_shape() {
     assert_eq!(market.config.amm.range_width_nad, 2 * NAD);
     assert_eq!(market.config.amm.concentrated_liquidity_share_nad, 9 * NAD / 10);
     assert_eq!(market.amm.explicit_curve_cache.range_width_nad, 2 * NAD);
-    assert_eq!(market.parameter_revisions, [0, 1, 0, 0, 0, 0]);
+    assert_eq!(market.parameter_revisions, [0, 1, 0, 0, 0, 0, 0]);
 }
 
 #[test]
@@ -1211,4 +1211,79 @@ fn daily_borrow_rate_change_checkpoints_both_buckets_under_the_old_rate() {
     assert_eq!(market.base_side.daily_borrow_bucket.last_decay_slot, half_day_slot);
     assert_eq!(market.quote_side.daily_borrow_bucket.last_decay_slot, half_day_slot);
     assert_eq!(market.config.max_daily_borrow_bps, 3_000);
+}
+
+#[test]
+fn insurance_draws_share_hard_event_and_daily_budgets() {
+    let mut insurance = Insurance {
+        base_available: 1_000,
+        ..Insurance::default()
+    };
+    assert_eq!(insurance.draw_capacity(MarketAsset::Base, 1).unwrap(), 200);
+    insurance.consume_draw(MarketAsset::Base, 200, 1).unwrap();
+    assert_eq!(insurance.draw_capacity(MarketAsset::Base, 2).unwrap(), 160);
+    insurance.consume_draw(MarketAsset::Base, 160, 2).unwrap();
+    assert_eq!(insurance.draw_capacity(MarketAsset::Base, 3).unwrap(), 128);
+    insurance.consume_draw(MarketAsset::Base, 128, 3).unwrap();
+
+    // The event cap would now permit 102, but only 12 remains under the
+    // 50%-of-opening-backing daily ceiling.
+    assert_eq!(insurance.draw_capacity(MarketAsset::Base, 4).unwrap(), 12);
+    insurance.consume_draw(MarketAsset::Base, 12, 4).unwrap();
+    assert_eq!(insurance.draw_capacity(MarketAsset::Base, 5).unwrap(), 0);
+    assert_eq!(insurance.base_available, 500);
+
+    insurance.credit(MarketAsset::Base, 100, 6).unwrap();
+    assert_eq!(insurance.base_available, 600);
+    assert_eq!(insurance.draw_capacity(MarketAsset::Base, 6).unwrap(), 50);
+
+    let next_window = 1 + INSURANCE_DRAW_WINDOW_SLOTS;
+    assert_eq!(insurance.draw_capacity(MarketAsset::Base, next_window).unwrap(), 120);
+}
+
+#[test]
+fn insurance_governance_can_only_tighten_below_protocol_ceilings() {
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    let too_large = MarketParameterUpdate::InsuranceDrawCaps {
+        per_event_bps: MAX_INSURANCE_DRAW_PER_EVENT_BPS + 1,
+        per_day_bps: MAX_INSURANCE_DRAW_PER_DAY_BPS,
+    };
+    assert!(market.validate_parameter_update(&too_large).is_err());
+
+    market
+        .execute_parameter_update(
+            &MarketParameterUpdate::InsuranceDrawCaps {
+                per_event_bps: 1_000,
+                per_day_bps: 3_000,
+            },
+            1,
+        )
+        .unwrap();
+    assert_eq!(market.insurance.per_event_draw_bps, 1_000);
+    assert_eq!(market.insurance.per_day_draw_bps, 3_000);
+    assert_eq!(market.parameter_revisions, [0, 0, 0, 0, 0, 0, 1]);
+}
+
+#[test]
+fn hlp_stop_rate_signal_checkpoints_the_opposite_asset_apr() {
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    market.base_hlp_vault.hlp_supply = 100;
+    market.base_hlp_vault.debt_shares = Debt::debt_to_shares(100_000, market.debt.quote_borrow_index_nad).unwrap();
+    market.base_hlp_vault.debt_principal = 100_000;
+
+    market.accrue_interest_to_slot(100).unwrap();
+    let signal = market.base_hlp_vault.funding_apr_ema_nad;
+    assert!(signal > 0);
+    assert_eq!(market.base_hlp_vault.funding_apr_ema_last_slot, 100);
+    assert_eq!(market.hlp_funding_apr_ema_nad(MarketAsset::Base).unwrap(), signal);
+    assert_eq!(market.quote_hlp_vault.funding_apr_ema_nad, 0);
+
+    // Zero is a genuine observation: it decays the twelve-hour signal rather
+    // than clearing it instantly and making Stop Rate orders spike-sensitive.
+    market.debt.quote_rate_at_target_nad = 0;
+    let half_life_slots = HLP_FUNDING_APR_EMA_HALF_LIFE_MS / TARGET_MS_PER_SLOT;
+    market.accrue_interest_to_slot(100 + half_life_slots).unwrap();
+    let decayed = market.base_hlp_vault.funding_apr_ema_nad;
+    assert!(decayed > 0);
+    assert!(decayed < signal);
 }

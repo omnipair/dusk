@@ -17,18 +17,7 @@ pub(super) fn reconcile_insurance_funding_credit(
     gross_funding: u64,
     actual_credit: u64,
 ) -> Result<()> {
-    require_gte!(gross_funding, actual_credit, ErrorCode::MarketMathOverflow);
-    let transfer_fee = gross_funding
-        .checked_sub(actual_credit)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let available = match debt_asset {
-        MarketAsset::Base => &mut insurance.quote_available,
-        MarketAsset::Quote => &mut insurance.base_available,
-    };
-    *available = available
-        .checked_sub(transfer_fee)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    Ok(())
+    insurance.reconcile_credit(debt_asset.opposite(), gross_funding, actual_credit)
 }
 
 pub(super) fn validate_liquidation_accounts<'info>(

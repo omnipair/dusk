@@ -2018,6 +2018,10 @@ pub struct HlpVault {
     pub unallocated_quote_interest_amount: u64,
     pub last_nav_nad: u128,
     pub cached_settlement_price_nad: u128,
+    /// Smoothed APR of the opposite asset borrowed by this target-asset hLP.
+    /// The fixed twelve-hour half-life gives Stop Rate orders stable semantics.
+    pub funding_apr_ema_nad: u128,
+    pub funding_apr_ema_last_slot: u64,
 }
 
 impl HlpVault {
@@ -2044,6 +2048,8 @@ impl HlpVault {
             // stale fail-closed signal that would keep the next generation of
             // deposits gated after every share and debt claim is gone.
             self.residual_exposure = 0;
+            self.funding_apr_ema_nad = 0;
+            self.funding_apr_ema_last_slot = 0;
         }
         Ok(())
     }
@@ -2488,12 +2494,168 @@ pub struct SwapReceipt {
     pub fees: FeesReceipt,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace, PartialEq, Eq)]
+pub struct InsuranceDrawWindow {
+    /// Slot at which the current 24-hour accounting window began. A zero
+    /// value means no draw window has been opened yet.
+    pub start_slot: u64,
+    /// Available insurance at the start of the window, before any draws.
+    pub opening_available: u64,
+    /// Net token credits received after the window opened.
+    pub credited: u64,
+    /// Gross token amount debited by insurance draws in this window.
+    pub drawn: u64,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace, PartialEq, Eq)]
 pub struct Insurance {
     pub base_vault: Pubkey,
     pub quote_vault: Pubkey,
     pub base_available: u64,
     pub quote_available: u64,
+    pub base_draw_window: InsuranceDrawWindow,
+    pub quote_draw_window: InsuranceDrawWindow,
+    pub per_event_draw_bps: u16,
+    pub per_day_draw_bps: u16,
+}
+
+impl Default for Insurance {
+    fn default() -> Self {
+        Self {
+            base_vault: Pubkey::default(),
+            quote_vault: Pubkey::default(),
+            base_available: 0,
+            quote_available: 0,
+            base_draw_window: InsuranceDrawWindow::default(),
+            quote_draw_window: InsuranceDrawWindow::default(),
+            per_event_draw_bps: crate::constants::MAX_INSURANCE_DRAW_PER_EVENT_BPS,
+            per_day_draw_bps: crate::constants::MAX_INSURANCE_DRAW_PER_DAY_BPS,
+        }
+    }
+}
+
+impl Insurance {
+    pub const fn available(&self, asset: MarketAsset) -> u64 {
+        match asset {
+            MarketAsset::Base => self.base_available,
+            MarketAsset::Quote => self.quote_available,
+        }
+    }
+
+    fn available_mut(&mut self, asset: MarketAsset) -> &mut u64 {
+        match asset {
+            MarketAsset::Base => &mut self.base_available,
+            MarketAsset::Quote => &mut self.quote_available,
+        }
+    }
+
+    fn draw_window(&self, asset: MarketAsset) -> &InsuranceDrawWindow {
+        match asset {
+            MarketAsset::Base => &self.base_draw_window,
+            MarketAsset::Quote => &self.quote_draw_window,
+        }
+    }
+
+    fn draw_window_mut(&mut self, asset: MarketAsset) -> &mut InsuranceDrawWindow {
+        match asset {
+            MarketAsset::Base => &mut self.base_draw_window,
+            MarketAsset::Quote => &mut self.quote_draw_window,
+        }
+    }
+
+    fn checkpoint_draw_window(&mut self, asset: MarketAsset, current_slot: u64) {
+        let available = self.available(asset);
+        let window = self.draw_window_mut(asset);
+        if window.start_slot == 0
+            || current_slot.saturating_sub(window.start_slot) >= crate::constants::INSURANCE_DRAW_WINDOW_SLOTS
+        {
+            *window = InsuranceDrawWindow {
+                start_slot: current_slot.max(1),
+                opening_available: available,
+                credited: 0,
+                drawn: 0,
+            };
+        }
+    }
+
+    pub fn draw_capacity(&mut self, asset: MarketAsset, current_slot: u64) -> Result<u64> {
+        use crate::constants::BPS_DENOMINATOR;
+
+        self.checkpoint_draw_window(asset, current_slot);
+        let available = self.available(asset);
+        let window = *self.draw_window(asset);
+        let daily_basis = window
+            .opening_available
+            .checked_add(window.credited)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let daily_limit = u64::try_from(
+            (daily_basis as u128)
+                .checked_mul(self.per_day_draw_bps as u128)
+                .ok_or(ErrorCode::MarketMathOverflow)?
+                / BPS_DENOMINATOR as u128,
+        )
+        .map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let daily_remaining = daily_limit.saturating_sub(window.drawn);
+        let event_limit = u64::try_from(
+            (available as u128)
+                .checked_mul(self.per_event_draw_bps as u128)
+                .ok_or(ErrorCode::MarketMathOverflow)?
+                / BPS_DENOMINATOR as u128,
+        )
+        .map_err(|_| ErrorCode::MarketMathOverflow)?;
+        Ok(available.min(event_limit).min(daily_remaining))
+    }
+
+    pub fn credit(&mut self, asset: MarketAsset, actual_credit: u64, current_slot: u64) -> Result<()> {
+        require!(actual_credit > 0, ErrorCode::AmountZero);
+        self.checkpoint_draw_window(asset, current_slot);
+        let available = self.available_mut(asset);
+        *available = available
+            .checked_add(actual_credit)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let window = self.draw_window_mut(asset);
+        window.credited = window
+            .credited
+            .checked_add(actual_credit)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        Ok(())
+    }
+
+    pub fn reconcile_credit(&mut self, asset: MarketAsset, gross_credit: u64, actual_credit: u64) -> Result<()> {
+        require_gte!(gross_credit, actual_credit, ErrorCode::MarketMathOverflow);
+        let fee = gross_credit
+            .checked_sub(actual_credit)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        if fee == 0 {
+            return Ok(());
+        }
+        let available = self.available_mut(asset);
+        *available = available.checked_sub(fee).ok_or(ErrorCode::MarketMathOverflow)?;
+        let window = self.draw_window_mut(asset);
+        window.credited = window.credited.checked_sub(fee).ok_or(ErrorCode::MarketMathOverflow)?;
+        Ok(())
+    }
+
+    pub fn consume_draw(&mut self, asset: MarketAsset, amount: u64, current_slot: u64) -> Result<()> {
+        let capacity = self.draw_capacity(asset, current_slot)?;
+        require_gte!(capacity, amount, ErrorCode::InsuranceDrawExceeded);
+        let available = self.available_mut(asset);
+        *available = available.checked_sub(amount).ok_or(ErrorCode::InsufficientInsurance)?;
+        let window = self.draw_window_mut(asset);
+        window.drawn = window.drawn.checked_add(amount).ok_or(ErrorCode::MarketMathOverflow)?;
+        Ok(())
+    }
+}
+
+impl Market {
+    pub fn credit_insurance_donation(
+        &mut self,
+        asset: MarketAsset,
+        actual_credit: u64,
+        current_slot: u64,
+    ) -> Result<()> {
+        self.insurance.credit(asset, actual_credit, current_slot)
+    }
 }
 
 impl DebtReceipt {
@@ -2547,7 +2709,7 @@ pub struct Market {
     pub governance_locked_ylp: u64,
     /// Independent monotone revisions for fee, concentration, IRM, EMA,
     /// daily-borrow-limit, and center-controller parameter families.
-    pub parameter_revisions: [u64; 6],
+    pub parameter_revisions: [u64; 7],
     /// Latest trader-visible marginal price committed by a curve mutation.
     pub last_marginal_observation_nad: u64,
     /// Monotone revision for executable-curve mutations.
@@ -2646,12 +2808,14 @@ impl Market {
         self.insurance = Insurance {
             base_vault: base_insurance_vault,
             quote_vault: quote_insurance_vault,
+            per_event_draw_bps: crate::constants::MAX_INSURANCE_DRAW_PER_EVENT_BPS,
+            per_day_draw_bps: crate::constants::MAX_INSURANCE_DRAW_PER_DAY_BPS,
             ..Insurance::default()
         };
         self.params_hash = params_hash;
         self.initial_liquidity_authority = initial_liquidity_authority;
         self.governance_locked_ylp = 0;
-        self.parameter_revisions = [0; 6];
+        self.parameter_revisions = [0; 7];
         self.last_marginal_observation_nad = 0;
         self.curve_revision = 0;
         self.risk_revision = 0;
@@ -2835,6 +2999,21 @@ impl Market {
                 next.validate()?;
                 require!(next != self.config, ErrorCode::ParameterUpdateNotMeaningful);
             }
+            MarketParameterUpdate::InsuranceDrawCaps {
+                per_event_bps,
+                per_day_bps,
+            } => {
+                require!(
+                    *per_event_bps <= MAX_INSURANCE_DRAW_PER_EVENT_BPS
+                        && *per_day_bps <= MAX_INSURANCE_DRAW_PER_DAY_BPS,
+                    ErrorCode::InvalidParameterUpdate
+                );
+                require!(
+                    self.insurance.per_event_draw_bps != *per_event_bps
+                        || self.insurance.per_day_draw_bps != *per_day_bps,
+                    ErrorCode::ParameterUpdateNotMeaningful
+                );
+            }
         }
         Ok(())
     }
@@ -2851,6 +3030,7 @@ impl Market {
         let previous_amm = self.amm;
         let previous_debt = self.debt;
         let previous_risk = self.risk;
+        let previous_insurance = self.insurance;
         let previous_revisions = self.parameter_revisions;
         let previous_last_marginal_observation_nad = self.last_marginal_observation_nad;
         let previous_curve_revision = self.curve_revision;
@@ -2943,6 +3123,18 @@ impl Market {
                         self.amm.invalidate_deferred_controller_target();
                     }
                 }
+                MarketParameterUpdate::InsuranceDrawCaps {
+                    per_event_bps,
+                    per_day_bps,
+                } => {
+                    // Open/checkpoint the current window under the old policy.
+                    // Lowering a cap can therefore only reduce future capacity;
+                    // it never retroactively restores already-spent allowance.
+                    self.insurance.checkpoint_draw_window(MarketAsset::Base, current_slot);
+                    self.insurance.checkpoint_draw_window(MarketAsset::Quote, current_slot);
+                    self.insurance.per_event_draw_bps = *per_event_bps;
+                    self.insurance.per_day_draw_bps = *per_day_bps;
+                }
             }
 
             self.finalize_amm_transition(current_slot)?;
@@ -2961,6 +3153,7 @@ impl Market {
             self.amm = previous_amm;
             self.debt = previous_debt;
             self.risk = previous_risk;
+            self.insurance = previous_insurance;
             self.parameter_revisions = previous_revisions;
             self.last_marginal_observation_nad = previous_last_marginal_observation_nad;
             self.curve_revision = previous_curve_revision;
@@ -4006,6 +4199,21 @@ fn accrue_side(market: &mut Market, asset: MarketAsset, current_slot: u64) -> Re
     let util = utilization_bps(debt_before, cash)?;
     let error = utilization_error_nad(util, market.config.irm.target_utilization_bps as u64)?;
     let rate = instantaneous_rate_apr_nad(rate_at_target, error, market.config.irm.curve_steepness_nad as u128)?;
+    if hlp_shares > 0 {
+        let vault = match asset {
+            // Quote hLP borrows Base; Base hLP borrows Quote.
+            MarketAsset::Base => &mut market.quote_hlp_vault,
+            MarketAsset::Quote => &mut market.base_hlp_vault,
+        };
+        vault.funding_apr_ema_nad = crate::math::risk::ema_u128_including_zero(
+            vault.funding_apr_ema_nad,
+            rate,
+            vault.funding_apr_ema_last_slot,
+            current_slot,
+            HLP_FUNDING_APR_EMA_HALF_LIFE_MS,
+        );
+        vault.funding_apr_ema_last_slot = current_slot;
+    }
     let next_index = if index == 0 || dt_ms == 0 || rate == 0 {
         index
     } else {
@@ -4072,6 +4280,48 @@ fn accrue_side(market: &mut Market, asset: MarketAsset, current_slot: u64) -> Re
         }
     }
     Ok(())
+}
+
+impl Market {
+    /// Current opposite-asset funding APR for one target-asset hLP vault.
+    pub fn current_hlp_funding_apr_nad(&self, target_asset: MarketAsset) -> Result<u128> {
+        let borrowed_asset = target_asset.opposite();
+        let side = self.side(borrowed_asset);
+        let fixed_debt = match borrowed_asset {
+            MarketAsset::Base => self.debt.fixed_base_debt()?,
+            MarketAsset::Quote => self.debt.fixed_quote_debt()?,
+        };
+        let isolated_debt = self.debt.isolated_debt(borrowed_asset)?;
+        let vault = match target_asset {
+            MarketAsset::Base => &self.base_hlp_vault,
+            MarketAsset::Quote => &self.quote_hlp_vault,
+        };
+        let hlp_debt = Debt::shares_to_debt(vault.debt_shares, self.debt.borrow_index(borrowed_asset))?;
+        let total_debt = fixed_debt
+            .checked_add(isolated_debt)
+            .and_then(|value| value.checked_add(hlp_debt))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let utilization = utilization_bps(total_debt, side.reserves.cash_reserve as u128)?;
+        let error = utilization_error_nad(utilization, self.config.irm.target_utilization_bps as u64)?;
+        let rate_at_target = match borrowed_asset {
+            MarketAsset::Base => self.debt.base_rate_at_target_nad,
+            MarketAsset::Quote => self.debt.quote_rate_at_target_nad,
+        };
+        instantaneous_rate_apr_nad(rate_at_target, error, self.config.irm.curve_steepness_nad as u128)
+    }
+
+    /// Twelve-hour funding APR signal used by hLP Stop Rate orders.
+    pub fn hlp_funding_apr_ema_nad(&self, target_asset: MarketAsset) -> Result<u128> {
+        let vault = match target_asset {
+            MarketAsset::Base => &self.base_hlp_vault,
+            MarketAsset::Quote => &self.quote_hlp_vault,
+        };
+        if vault.funding_apr_ema_last_slot == 0 {
+            self.current_hlp_funding_apr_nad(target_asset)
+        } else {
+            Ok(vault.funding_apr_ema_nad)
+        }
+    }
 }
 
 fn total_cash_backed_borrowed(market: &Market, asset: MarketAsset, index_nad: u128) -> Result<u128> {

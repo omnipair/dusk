@@ -150,7 +150,7 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
         params_hash: [0; 32],
         initial_liquidity_authority: Pubkey::default(),
         governance_locked_ylp: 0,
-        parameter_revisions: [0; 6],
+        parameter_revisions: [0; 7],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,

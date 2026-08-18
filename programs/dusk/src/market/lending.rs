@@ -903,31 +903,16 @@ impl Liquidation {
                 .checked_add(principal_credit)
                 .ok_or(ErrorCode::ReserveOverflow)?;
         }
-        match self.debt_asset {
-            MarketAsset::Base => {
-                market.insurance.base_available = market
-                    .insurance
-                    .base_available
-                    .checked_sub(self.insurance_spent)
-                    .ok_or(ErrorCode::InsufficientInsurance)?;
-                market.insurance.quote_available = market
-                    .insurance
-                    .quote_available
-                    .checked_add(insurance_funded)
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
-            }
-            MarketAsset::Quote => {
-                market.insurance.quote_available = market
-                    .insurance
-                    .quote_available
-                    .checked_sub(self.insurance_spent)
-                    .ok_or(ErrorCode::InsufficientInsurance)?;
-                market.insurance.base_available = market
-                    .insurance
-                    .base_available
-                    .checked_add(insurance_funded)
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
-            }
+        let insurance_slot = market.last_update_slot;
+        if self.insurance_spent > 0 {
+            market
+                .insurance
+                .consume_draw(self.debt_asset, self.insurance_spent, insurance_slot)?;
+        }
+        if insurance_funded > 0 {
+            market
+                .insurance
+                .credit(self.debt_asset.opposite(), insurance_funded, insurance_slot)?;
         }
 
         market.refresh_risk()?;
@@ -1295,7 +1280,7 @@ impl Market {
     }
 
     pub fn insurance_request_for_liquidation_with_terms_and_pricing(
-        &self,
+        &mut self,
         borrow_position: &BorrowPosition,
         debt_asset: MarketAsset,
         repay_credit: u64,
@@ -1325,10 +1310,8 @@ impl Market {
         if collateral_seized < collateral_before || remaining_debt == 0 {
             return Ok(0);
         }
-        let available = match debt_asset {
-            MarketAsset::Base => self.insurance.base_available,
-            MarketAsset::Quote => self.insurance.quote_available,
-        };
+        let insurance_slot = self.last_update_slot;
+        let available = self.insurance.draw_capacity(debt_asset, insurance_slot)?;
         let remaining_debt_cap = u64::try_from(remaining_debt).unwrap_or(u64::MAX);
         let remaining_partial_cap = terms
             .max_repay_amount

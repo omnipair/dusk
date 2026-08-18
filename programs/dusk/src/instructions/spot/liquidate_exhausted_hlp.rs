@@ -139,10 +139,10 @@ impl<'info> LiquidateExhaustedHlp<'info> {
             base_hlp_ylp_shares: ctx.accounts.market.base_hlp_vault.ylp_shares,
             quote_hlp_ylp_shares: ctx.accounts.market.quote_hlp_vault.ylp_shares,
         };
-        let plan = ctx
-            .accounts
-            .market
-            .prepare_terminal_hlp_waterfall(target_asset, args.max_insurance_draw)?;
+        let plan =
+            ctx.accounts
+                .market
+                .prepare_terminal_hlp_waterfall(target_asset, args.max_insurance_draw, current_slot)?;
         require!(plan.target_asset() == target_asset, ErrorCode::BrokenInvariant);
         let insurance_spent = plan.insurance_request();
         let reserve_before = ctx.accounts.borrowed_reserve_vault.amount;

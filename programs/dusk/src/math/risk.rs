@@ -74,6 +74,38 @@ pub(crate) fn ema_u128(last_ema: u128, input: u128, last_slot: u64, current_slot
         .unwrap_or(last_ema)
 }
 
+/// EMA variant for signals where zero is a real observation rather than an
+/// uninitialized sentinel. Initialization is bound to `last_slot`, allowing a
+/// funding-rate signal to decay toward zero over its configured half-life.
+pub(crate) fn ema_u128_including_zero(
+    last_ema: u128,
+    input: u128,
+    last_slot: u64,
+    current_slot: u64,
+    half_life_ms: u64,
+) -> u128 {
+    if last_slot == 0 {
+        return input;
+    }
+    let Some(dt) = slots_to_ms(last_slot, current_slot) else {
+        return last_ema;
+    };
+    if dt == 0 || half_life_ms == 0 {
+        return last_ema;
+    }
+    let x = (dt as u128)
+        .saturating_mul(NATURAL_LOG_OF_TWO_NAD as u128)
+        .checked_div(half_life_ms as u128)
+        .unwrap_or(u128::MAX)
+        .min(i64::MAX as u128) as i64;
+    let alpha = taylor_exp(-x, NAD, TAYLOR_TERMS) as u128;
+    input
+        .saturating_mul((NAD as u128).saturating_sub(alpha))
+        .saturating_add(last_ema.saturating_mul(alpha))
+        .checked_div(NAD as u128)
+        .unwrap_or(last_ema)
+}
+
 pub(crate) fn exponential_price_decay(start_price_nad: u64, elapsed_ms: u64, half_life_ms: u64) -> Result<u64> {
     if half_life_ms == 0 || start_price_nad == 0 {
         return Ok(0); // If half-life is 0, it decays instantly.

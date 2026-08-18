@@ -33,6 +33,14 @@ pub const LIQUIDATION_MAX_INCENTIVE_BPS: u16 = 500;
 pub const LIQUIDATION_INSURANCE_FUNDING_BPS: u16 = 200;
 #[constant]
 pub const LIQUIDATION_PENALTY_BPS: u16 = 300;
+/// Absolute protocol ceilings for insurance-vault loss concentration. Market
+/// governance may lower either limit, including to zero, but may never raise
+/// them above these values.
+#[constant]
+pub const MAX_INSURANCE_DRAW_PER_EVENT_BPS: u16 = 2_000;
+#[constant]
+pub const MAX_INSURANCE_DRAW_PER_DAY_BPS: u16 = 5_000;
+pub const INSURANCE_DRAW_WINDOW_SLOTS: u64 = MS_PER_DAY / TARGET_MS_PER_SLOT;
 #[constant]
 pub const MARKET_CREATION_FEE_LAMPORTS: u64 = 200_000_000; // 0.2 SOL
 #[constant]
@@ -56,6 +64,10 @@ pub const MAX_PROPOSAL_DESCRIPTION_BYTES: u32 = 32_768;
 
 pub const MIN_HALF_LIFE_MS: u64 = 60_000;
 pub const MAX_HALF_LIFE_MS: u64 = 12 * 60 * 60 * 1_000;
+/// Stop-rate orders observe a protocol-defined funding signal rather than an
+/// instantaneous utilization spike. This is deliberately fixed, not governed,
+/// so order semantics cannot change after a user signs an order.
+pub const HLP_FUNDING_APR_EMA_HALF_LIFE_MS: u64 = 12 * 60 * 60 * 1_000;
 pub const TAYLOR_TERMS: u64 = 5;
 pub const NATURAL_LOG_OF_TWO_NAD: u64 = 693_147_180;
 pub const MS_PER_DAY: u64 = 86_400_000;

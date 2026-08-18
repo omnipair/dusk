@@ -129,6 +129,14 @@ pub mod dusk {
         SetMarketReduceOnly::handle_set(ctx, args)
     }
 
+    #[access_control(ctx.accounts.validate(&args))]
+    pub fn donate_insurance<'info>(
+        ctx: Context<'_, '_, '_, 'info, DonateInsurance<'info>>,
+        args: DonateInsuranceArgs,
+    ) -> Result<()> {
+        DonateInsurance::handle_donate(ctx, args)
+    }
+
     // Direct-yLP parameter governance instructions
     pub fn create_parameter_proposal<'info>(
         ctx: Context<'_, '_, '_, 'info, CreateParameterProposal<'info>>,

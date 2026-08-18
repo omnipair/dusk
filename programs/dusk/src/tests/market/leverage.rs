@@ -53,7 +53,7 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
         params_hash: [0u8; 32],
         initial_liquidity_authority: Pubkey::default(),
         governance_locked_ylp: 0,
-        parameter_revisions: [0; 6],
+        parameter_revisions: [0; 7],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,
@@ -926,6 +926,45 @@ fn explicit_hlp_withdrawal_preserves_integrated_hedge_and_reserve_identity() {
     assert!(receipt.target_amount_out > 0);
     market.finalize_amm_transition_and_observe_risk(2).unwrap();
     assert_eq!(market.base_hlp_vault.residual_exposure, 0);
+    market.assert_market_invariants().unwrap();
+}
+
+#[test]
+fn explicit_hlp_transition_consumes_accrued_funding_interest_once() {
+    let mut market = active_explicit_hlp_market_with_decimals(6);
+    market.debt.base_borrow_index_nad = (NAD as u128) * 11 / 10;
+    market.debt.quote_borrow_index_nad = (NAD as u128) * 11 / 10;
+
+    let base_interest = u64::try_from(
+        Debt::shares_to_debt(
+            market.base_hlp_vault.debt_shares,
+            market.debt.quote_borrow_index_nad,
+        )
+        .unwrap(),
+    )
+    .unwrap()
+    .saturating_sub(market.base_hlp_vault.debt_principal);
+    let quote_interest = u64::try_from(
+        Debt::shares_to_debt(
+            market.quote_hlp_vault.debt_shares,
+            market.debt.base_borrow_index_nad,
+        )
+        .unwrap(),
+    )
+    .unwrap()
+    .saturating_sub(market.quote_hlp_vault.debt_principal);
+
+    assert!(base_interest > 3);
+    assert!(quote_interest > 3);
+    market.assert_market_invariants().unwrap();
+
+    let transition = prepare_explicit_hlp_transition_at_current_state(&market).unwrap();
+    let (base_receipt, quote_receipt) = transition.consume(&mut market).unwrap();
+
+    assert_eq!(base_receipt.interest_paid, base_interest);
+    assert_eq!(quote_receipt.interest_paid, quote_interest);
+    assert_eq!(market.base_hlp_vault.residual_exposure, 0);
+    assert_eq!(market.quote_hlp_vault.residual_exposure, 0);
     market.assert_market_invariants().unwrap();
 }
 

@@ -16,6 +16,12 @@ fn token_2022_fee_reconciles_quote_insurance_to_actual_credit() {
     let mut insurance = Insurance {
         // State after liquidation math added 10_000 gross to a prior 40_000.
         quote_available: 50_000,
+        quote_draw_window: crate::state::InsuranceDrawWindow {
+            start_slot: 1,
+            opening_available: 40_000,
+            credited: gross_funding,
+            drawn: 0,
+        },
         ..Insurance::default()
     };
 
@@ -32,6 +38,12 @@ fn token_2022_fee_reconciles_base_insurance_to_actual_credit() {
     let mut insurance = Insurance {
         // State after liquidation math added 10_000 gross to a prior 40_000.
         base_available: 50_000,
+        base_draw_window: crate::state::InsuranceDrawWindow {
+            start_slot: 1,
+            opening_available: 40_000,
+            credited: gross_funding,
+            drawn: 0,
+        },
         ..Insurance::default()
     };
 
