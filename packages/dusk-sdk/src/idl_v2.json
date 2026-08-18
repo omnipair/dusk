@@ -2661,6 +2661,124 @@
       ]
     },
     {
+      "name": "donate_insurance",
+      "discriminator": [
+        24,
+        11,
+        132,
+        174,
+        126,
+        186,
+        208,
+        90
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "donor",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "asset_mint"
+        },
+        {
+          "name": "donor_asset_account",
+          "writable": true
+        },
+        {
+          "name": "insurance_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "DonateInsuranceArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "execute_parameter_proposal",
       "discriminator": [
         46,
@@ -4915,6 +5033,73 @@
       "returns": {
         "defined": {
           "name": "BorrowPositionPreview"
+        }
+      }
+    },
+    {
+      "name": "preview_hlp_order_trigger",
+      "discriminator": [
+        98,
+        114,
+        204,
+        124,
+        206,
+        245,
+        4,
+        57
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "Market"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "PreviewHlpOrderTriggerArgs"
+            }
+          }
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "HlpOrderTriggerPreview"
         }
       }
     },
@@ -8257,6 +8442,19 @@
       ]
     },
     {
+      "name": "InsuranceDonated",
+      "discriminator": [
+        238,
+        155,
+        254,
+        172,
+        251,
+        224,
+        236,
+        18
+      ]
+    },
+    {
       "name": "LeverageDelegationUpdated",
       "discriminator": [
         118,
@@ -10412,6 +10610,14 @@
             "type": "u64"
           },
           {
+            "name": "close_bps",
+            "docs": [
+              "Proportion of the current position to close. `10_000` preserves the",
+              "existing full-close behavior."
+            ],
+            "type": "u16"
+          },
+          {
             "name": "delegated",
             "type": {
               "defined": {
@@ -10469,6 +10675,22 @@
           },
           {
             "name": "min_hlp_amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DonateInsuranceArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset",
+            "type": "u8"
+          },
+          {
+            "name": "amount",
             "type": "u64"
           }
         ]
@@ -10944,6 +11166,22 @@
       }
     },
     {
+      "name": "HlpOrderTriggerPreview",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "principal_nav_per_token_nad",
+            "type": "u64"
+          },
+          {
+            "name": "funding_apr_ema_nad",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
       "name": "HlpTerminalLiquidated",
       "type": {
         "kind": "struct",
@@ -11137,6 +11375,18 @@
           {
             "name": "cached_settlement_price_nad",
             "type": "u128"
+          },
+          {
+            "name": "funding_apr_ema_nad",
+            "docs": [
+              "Smoothed APR of the opposite asset borrowed by this target-asset hLP.",
+              "The fixed twelve-hour half-life gives Stop Rate orders stable semantics."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "funding_apr_ema_last_slot",
+            "type": "u64"
           }
         ]
       }
@@ -11320,6 +11570,116 @@
           },
           {
             "name": "quote_available",
+            "type": "u64"
+          },
+          {
+            "name": "base_draw_window",
+            "type": {
+              "defined": {
+                "name": "InsuranceDrawWindow"
+              }
+            }
+          },
+          {
+            "name": "quote_draw_window",
+            "type": {
+              "defined": {
+                "name": "InsuranceDrawWindow"
+              }
+            }
+          },
+          {
+            "name": "per_event_draw_bps",
+            "type": "u16"
+          },
+          {
+            "name": "per_day_draw_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InsuranceDonated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "donor",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset",
+            "docs": [
+              "`0` for Base and `1` for Quote."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "requested_amount",
+            "docs": [
+              "Gross amount requested from the donor's token account."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "credited_amount",
+            "docs": [
+              "Net amount received after any Token-2022 transfer fee."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "available_after",
+            "type": "u64"
+          },
+          {
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "MarketEventMetadata"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "InsuranceDrawWindow",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "start_slot",
+            "docs": [
+              "Slot at which the current 24-hour accounting window began. A zero",
+              "value means no draw window has been opened yet."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "opening_available",
+            "docs": [
+              "Available insurance at the start of the window, before any draws."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "credited",
+            "docs": [
+              "Net token credits received after the window opened."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "drawn",
+            "docs": [
+              "Gross token amount debited by insurance draws in this window."
+            ],
             "type": "u64"
           }
         ]
@@ -12122,7 +12482,7 @@
             "type": {
               "array": [
                 "u64",
-                6
+                7
               ]
             }
           },
@@ -12724,6 +13084,19 @@
                 "type": "u64"
               }
             ]
+          },
+          {
+            "name": "InsuranceDrawCaps",
+            "fields": [
+              {
+                "name": "per_event_bps",
+                "type": "u16"
+              },
+              {
+                "name": "per_day_bps",
+                "type": "u16"
+              }
+            ]
           }
         ]
       }
@@ -12920,6 +13293,9 @@
           },
           {
             "name": "CenterController"
+          },
+          {
+            "name": "Insurance"
           }
         ]
       }
@@ -13465,6 +13841,22 @@
             "type": {
               "option": "u64"
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PreviewHlpOrderTriggerArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "target_asset",
+            "type": "u8"
+          },
+          {
+            "name": "hlp_amount",
+            "type": "u64"
           }
         ]
       }
@@ -15647,6 +16039,21 @@
       "name": "MAX_COLLATERAL_FACTOR_BPS",
       "type": "u16",
       "value": "8500"
+    },
+    {
+      "name": "MAX_INSURANCE_DRAW_PER_DAY_BPS",
+      "type": "u16",
+      "value": "5000"
+    },
+    {
+      "name": "MAX_INSURANCE_DRAW_PER_EVENT_BPS",
+      "docs": [
+        "Absolute protocol ceilings for insurance-vault loss concentration. Market",
+        "governance may lower either limit, including to zero, but may never raise",
+        "them above these values."
+      ],
+      "type": "u16",
+      "value": "2000"
     },
     {
       "name": "MAX_PARAMETER_FEE_BPS",

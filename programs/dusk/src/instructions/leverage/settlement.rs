@@ -41,7 +41,7 @@ pub const LEVERAGE_DELEGATE_INCREASE: u32 = 1 << 3;
 pub const LEVERAGE_DELEGATE_DECREASE: u32 = 1 << 4;
 pub const LEVERAGE_DELEGATE_CLOSE_SETTLED: u32 = 1 << 5;
 pub const LEVERAGE_DELEGATION_APPROVAL_MAGIC: [u8; 8] = *b"OMNILVDA";
-pub const LEVERAGE_DELEGATION_APPROVAL_VERSION: u8 = 1;
+pub const LEVERAGE_DELEGATION_APPROVAL_VERSION: u8 = 2;
 
 /// Narrows the large AMM quote to the leverage settlement payload before it
 /// returns to an instruction handler. Keeping the two identity-bound curve
@@ -245,6 +245,8 @@ pub struct LeverageDelegationApproval {
     pub debt_asset: u8,
     pub recipient_token_account: Pubkey,
     pub output_mint: Pubkey,
+    /// Exact collateral amount sold by this full or partial close.
+    pub collateral_amount: u64,
     pub output_amount: u64,
 }
 
@@ -258,6 +260,7 @@ impl LeverageDelegationApproval {
         debt_asset: MarketAsset,
         recipient_token_account: Pubkey,
         output_mint: Pubkey,
+        collateral_amount: u64,
         output_amount: u64,
     ) -> Self {
         Self {
@@ -271,6 +274,7 @@ impl LeverageDelegationApproval {
             debt_asset: debt_asset.code(),
             recipient_token_account,
             output_mint,
+            collateral_amount,
             output_amount,
         }
     }
@@ -350,6 +354,7 @@ pub fn invoke_delegated_approval_callback<'info>(
     expected_debt_asset: MarketAsset,
     expected_recipient_token_account: Pubkey,
     expected_output_mint: Pubkey,
+    expected_collateral_amount: u64,
     expected_output_amount: u64,
 ) -> Result<()> {
     invoke_delegated_callback(
@@ -373,6 +378,7 @@ pub fn invoke_delegated_approval_callback<'info>(
         expected_debt_asset,
         expected_recipient_token_account,
         expected_output_mint,
+        expected_collateral_amount,
         expected_output_amount,
     )
 }
@@ -390,6 +396,7 @@ pub fn validate_delegation_approval(
     expected_debt_asset: MarketAsset,
     expected_recipient_token_account: Pubkey,
     expected_output_mint: Pubkey,
+    expected_collateral_amount: u64,
     expected_output_amount: u64,
 ) -> Result<()> {
     require_keys_eq!(program_id, expected_program, ErrorCode::InvalidLeverageDelegation);
@@ -430,6 +437,11 @@ pub fn validate_delegation_approval(
     require_keys_eq!(
         approval.output_mint,
         expected_output_mint,
+        ErrorCode::InvalidLeverageDelegation
+    );
+    require_eq!(
+        approval.collateral_amount,
+        expected_collateral_amount,
         ErrorCode::InvalidLeverageDelegation
     );
     require!(

@@ -50,8 +50,29 @@ pub struct PreviewBorrowCapacityArgs {
     pub projected_borrow_amount: Option<u64>,
 }
 
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PreviewHlpOrderTriggerArgs {
+    pub target_asset: u8,
+    pub hlp_amount: u64,
+}
+
 #[derive(Accounts)]
 pub struct PreviewMarket<'info> {
+    #[account(
+        mut,
+        seeds = [
+            MARKET_V2_SEED_PREFIX,
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
+            market.params_hash.as_ref(),
+        ],
+        bump = market.bump
+    )]
+    pub market: Box<Account<'info, Market>>,
+}
+
+#[derive(Accounts)]
+pub struct PreviewHlpOrderTrigger<'info> {
     #[account(
         mut,
         seeds = [
@@ -182,6 +203,12 @@ pub struct MarketPreview {
     pub liquidity_nad: u128,
     pub health: MarketHealth,
     pub amm: PreviewAmm,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HlpOrderTriggerPreview {
+    pub principal_nav_per_token_nad: u64,
+    pub funding_apr_ema_nad: u128,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -463,6 +490,21 @@ impl<'info> PreviewMarket<'info> {
             )?,
             health: market.market_health()?,
             amm,
+        })
+    }
+}
+
+impl<'info> PreviewHlpOrderTrigger<'info> {
+    pub fn handle_preview(ctx: Context<Self>, args: PreviewHlpOrderTriggerArgs) -> Result<HlpOrderTriggerPreview> {
+        require!(args.hlp_amount > 0, ErrorCode::AmountZero);
+        ctx.accounts.market.update()?;
+        let target_asset = MarketAsset::try_from_code(args.target_asset)?;
+        Ok(HlpOrderTriggerPreview {
+            principal_nav_per_token_nad: ctx
+                .accounts
+                .market
+                .hlp_principal_nav_per_token_nad(target_asset, args.hlp_amount)?,
+            funding_apr_ema_nad: ctx.accounts.market.hlp_funding_apr_ema_nad(target_asset)?,
         })
     }
 }

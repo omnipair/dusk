@@ -390,6 +390,13 @@ pub mod dusk {
         PreviewMarket::handle_preview(ctx)
     }
 
+    pub fn preview_hlp_order_trigger(
+        ctx: Context<PreviewHlpOrderTrigger>,
+        args: PreviewHlpOrderTriggerArgs,
+    ) -> Result<HlpOrderTriggerPreview> {
+        PreviewHlpOrderTrigger::handle_preview(ctx, args)
+    }
+
     pub fn preview_add_liquidity(
         ctx: Context<PreviewAddLiquidity>,
         args: PreviewAddLiquidityArgs,

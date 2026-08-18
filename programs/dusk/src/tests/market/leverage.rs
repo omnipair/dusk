@@ -1221,6 +1221,121 @@ fn close_leverage_clears_isolated_debt_and_residual_cash() {
 }
 
 #[test]
+fn leverage_close_slice_rounds_debt_up_and_preserves_full_close_exactness() {
+    let mut market = test_market(1_000_000, 1_000_000);
+    let position = seeded_position(&mut market, MarketAsset::Base, 3, 7);
+
+    let partial = market.leverage_close_slice(&position, 3_333).unwrap();
+    assert_eq!(partial.collateral_amount, 2);
+    assert_eq!(partial.debt_shares, 1);
+    assert_eq!(partial.debt_principal, 1);
+
+    let full = market.leverage_close_slice(&position, BPS_DENOMINATOR).unwrap();
+    assert_eq!(full.collateral_amount, position.collateral_amount);
+    assert_eq!(full.debt_shares, position.debt_shares);
+    assert_eq!(full.debt_principal, position.debt_principal);
+    assert!(market.leverage_close_slice(&position, 0).is_err());
+}
+
+#[test]
+fn partial_close_leverage_pays_equity_and_keeps_the_remainder_open() {
+    let mut market = test_market(1_000_000, 1_000_000);
+    let mut position = empty_position();
+    let open_quote = market.quote_leverage_swap(MarketAsset::Base, 2_000, 1).unwrap();
+    market
+        .open_leverage(
+            &mut position,
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::default(),
+            0,
+            MarketAsset::Base,
+            1_000,
+            20_000,
+            open_quote.amount_out,
+            prepared_leverage_swap(
+                &market,
+                open_quote,
+                SwapCashPolicy::Borrow {
+                    asset: MarketAsset::Base,
+                    amount: 1_000,
+                },
+            ),
+            full_fee_credit(&open_quote),
+            0,
+            1,
+            255,
+            0,
+            ProtocolAuctionSplit::default(),
+        )
+        .unwrap();
+
+    let position_before = position.clone();
+    let aggregate_shares_before = market.debt.isolated_base_shares;
+    let aggregate_principal_before = market.debt.isolated_base_principal;
+    let slice = market.leverage_close_slice(&position, 5_000).unwrap();
+    let close_quote = market
+        .quote_leverage_swap(MarketAsset::Quote, slice.collateral_amount, 2)
+        .unwrap();
+    let prepared_close = prepared_leverage_swap(
+        &market,
+        close_quote,
+        SwapCashPolicy::Close {
+            debt_asset: MarketAsset::Base,
+            debt_shares: slice.debt_shares,
+            debt_principal: slice.debt_principal,
+        },
+    );
+
+    let receipt = market
+        .partial_close_leverage(
+            &mut position,
+            5_000,
+            0,
+            prepared_close,
+            full_fee_credit(&close_quote),
+            0,
+            ProtocolAuctionSplit::default(),
+            2,
+            0,
+        )
+        .unwrap();
+
+    assert_eq!(receipt.collateral_sold, slice.collateral_amount);
+    assert_eq!(receipt.closeout_value, close_quote.amount_out);
+    assert_eq!(receipt.residual, close_quote.amount_out - receipt.debt_repaid);
+    assert_eq!(
+        position.collateral_amount,
+        position_before.collateral_amount - slice.collateral_amount
+    );
+    assert_eq!(position.debt_shares, position_before.debt_shares - slice.debt_shares);
+    assert_eq!(
+        position.debt_principal,
+        position_before.debt_principal - slice.debt_principal
+    );
+    assert_eq!(receipt.remaining_collateral_amount, position.collateral_amount);
+    assert_eq!(receipt.remaining_debt_shares, position.debt_shares);
+    assert_eq!(
+        receipt.debt_reduced,
+        position_before.debt_amount(&market.debt).unwrap() - receipt.remaining_debt_amount
+    );
+    assert_eq!(
+        market.debt.isolated_base_shares,
+        aggregate_shares_before - slice.debt_shares
+    );
+    assert_eq!(
+        market.debt.isolated_base_principal,
+        aggregate_principal_before - u64::try_from(slice.debt_principal).unwrap()
+    );
+    assert!(receipt.remaining_debt_amount > 0);
+    assert!(receipt.remaining_closeout_value > receipt.remaining_debt_amount);
+    position.require_open().unwrap();
+    market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
+    market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
+}
+
+#[test]
 fn add_margin_never_reduces_more_debt_than_the_cash_repaid() {
     let mut market = test_market(1_000_000, 1_000_000);
     let mut position = seeded_position(&mut market, MarketAsset::Base, 100, 10_000);

@@ -151,6 +151,7 @@ fn delegation_approval_binds_close_context() {
         MarketAsset::Base,
         recipient,
         mint,
+        456,
         123,
     );
     let mut data = Vec::new();
@@ -168,9 +169,26 @@ fn delegation_approval_binds_close_context() {
         MarketAsset::Base,
         recipient,
         mint,
+        456,
         123,
     )
     .is_ok());
+    assert!(validate_delegation_approval(
+        program,
+        &data,
+        program,
+        LEVERAGE_DELEGATE_CLOSE,
+        market,
+        owner,
+        position,
+        delegation,
+        MarketAsset::Base,
+        recipient,
+        mint,
+        455,
+        123,
+    )
+    .is_err());
     assert!(validate_delegation_approval(
         program,
         &data,
@@ -183,6 +201,7 @@ fn delegation_approval_binds_close_context() {
         MarketAsset::Base,
         recipient,
         mint,
+        456,
         123,
     )
     .is_err());

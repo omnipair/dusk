@@ -6816,6 +6816,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         orderId,
         kind: ORDER_KIND_TAKE_PROFIT,
         triggerCloseoutPriceNad: new BN(1),
+        closeBps: 10_000,
       })
       .accounts({
         market: fixture.market,
@@ -6836,6 +6837,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         leverageDelegation,
         custodyAuthority,
         custodyTokenAccount,
+        collateralMint: fixture.baseMint,
         tokenMint: fixture.quoteMint,
         executor: executor.publicKey,
       })
@@ -6864,6 +6866,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .delegatedCloseLeverage({
         debtAsset: 1,
         minAmountOut: new BN(0),
+        closeBps: 10_000,
         delegated: {
           beforeIxData: Buffer.from(beforeIx.data),
           afterIxData: Buffer.from(afterIx.data),

@@ -16,11 +16,11 @@ use crate::{
     },
     errors::ErrorCode,
     math::{
-        denormalize_from_nad_floor, normalize_to_nad, prepare_explicit_cache_at_point, reconstruct_hlp_endpoint,
-        DynamicFeePreState,
+        ceil_div, denormalize_from_nad_floor, normalize_to_nad, prepare_explicit_cache_at_point,
+        realized_interest_split, reconstruct_hlp_endpoint, DynamicFeePreState,
     },
     state::{
-        DebtClearance, DebtWriteoff, FeesReceipt, HlpYieldEligibility, LeveragePosition, Market, MarketAsset,
+        Debt, DebtClearance, DebtWriteoff, FeesReceipt, HlpYieldEligibility, LeveragePosition, Market, MarketAsset,
         ProtocolAuctionSplit,
     },
 };
@@ -617,6 +617,7 @@ pub struct LeverageUpdateReceipt {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LeverageCloseReceipt {
     pub debt_repaid: u64,
+    pub debt_reduced: u64,
     pub interest_paid: u64,
     pub collateral_sold: u64,
     pub closeout_value: u64,
@@ -625,6 +626,20 @@ pub struct LeverageCloseReceipt {
     pub fees: FeesReceipt,
     pub base_hlp_rebalance: HlpRebalanceReceipt,
     pub quote_hlp_rebalance: HlpRebalanceReceipt,
+    pub remaining_debt_amount: u64,
+    pub remaining_debt_shares: u128,
+    pub remaining_collateral_amount: u64,
+    pub remaining_closeout_value: u64,
+}
+
+/// Canonical proportional slice closed by a delegated TP/SL order. Debt shares
+/// round up so a partial close cannot leave the remaining position more
+/// leveraged solely because of share granularity.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LeverageCloseSlice {
+    pub collateral_amount: u64,
+    pub debt_shares: u128,
+    pub debt_principal: u128,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -643,6 +658,56 @@ pub struct LeverageLiquidationReceipt {
 }
 
 impl Market {
+    pub fn leverage_close_slice(&self, position: &LeveragePosition, close_bps: u16) -> Result<LeverageCloseSlice> {
+        position.require_open()?;
+        require!(
+            close_bps > 0 && close_bps <= BPS_DENOMINATOR,
+            ErrorCode::InvalidArgument
+        );
+        if close_bps == BPS_DENOMINATOR {
+            return Ok(LeverageCloseSlice {
+                collateral_amount: position.collateral_amount,
+                debt_shares: position.debt_shares,
+                debt_principal: position.debt_principal,
+            });
+        }
+
+        let collateral_amount = u64::try_from(
+            (position.collateral_amount as u128)
+                .checked_mul(close_bps as u128)
+                .ok_or(ErrorCode::MarketMathOverflow)?
+                / BPS_DENOMINATOR as u128,
+        )
+        .map_err(|_| ErrorCode::MarketMathOverflow)?;
+        require!(
+            collateral_amount > 0 && collateral_amount < position.collateral_amount,
+            ErrorCode::InsufficientAmount
+        );
+        let debt_shares = ceil_div(
+            position
+                .debt_shares
+                .checked_mul(collateral_amount as u128)
+                .ok_or(ErrorCode::DebtShareMathOverflow)?,
+            position.collateral_amount as u128,
+        )
+        .ok_or(ErrorCode::DebtShareMathOverflow)?;
+        require!(
+            debt_shares > 0 && debt_shares < position.debt_shares,
+            ErrorCode::InsufficientDebt
+        );
+        let debt_asset = position.debt_asset()?;
+        let total_debt = Debt::shares_to_debt(position.debt_shares, self.debt.borrow_index(debt_asset))?;
+        let slice_debt = u64::try_from(Debt::shares_to_debt(debt_shares, self.debt.borrow_index(debt_asset))?)
+            .map_err(|_| ErrorCode::DebtMathOverflow)?;
+        let (slice_principal, _) =
+            realized_interest_split(slice_debt, total_debt, position.debt_principal.min(total_debt))?;
+        Ok(LeverageCloseSlice {
+            collateral_amount,
+            debt_shares,
+            debt_principal: slice_principal as u128,
+        })
+    }
+
     pub(crate) fn apply_leverage_lifecycle_transition(
         &mut self,
         policy: SwapCashPolicy,
@@ -1247,23 +1312,89 @@ impl Market {
         &mut self,
         position: &mut LeveragePosition,
         min_residual_out: u64,
-        mut prepared_swap: PreparedLeverageSwap,
+        prepared_swap: PreparedLeverageSwap,
         swap_fee_credit: LeverageSwapFeeCredit,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
         current_slot: u64,
     ) -> Result<Box<LeverageCloseReceipt>> {
+        let slice = self.leverage_close_slice(position, BPS_DENOMINATOR)?;
+        self.close_leverage_slice(
+            position,
+            slice,
+            min_residual_out,
+            prepared_swap,
+            swap_fee_credit,
+            protocol_fee_bps,
+            protocol_auction_split,
+            current_slot,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn partial_close_leverage(
+        &mut self,
+        position: &mut LeveragePosition,
+        close_bps: u16,
+        min_residual_out: u64,
+        prepared_swap: PreparedLeverageSwap,
+        swap_fee_credit: LeverageSwapFeeCredit,
+        protocol_fee_bps: u16,
+        protocol_auction_split: ProtocolAuctionSplit,
+        current_slot: u64,
+        current_unix_timestamp: i64,
+    ) -> Result<Box<LeverageCloseReceipt>> {
+        require!(close_bps < BPS_DENOMINATOR, ErrorCode::InvalidArgument);
+        let slice = self.leverage_close_slice(position, close_bps)?;
+        self.close_leverage_slice(
+            position,
+            slice,
+            min_residual_out,
+            prepared_swap,
+            swap_fee_credit,
+            protocol_fee_bps,
+            protocol_auction_split,
+            current_slot,
+            Some(current_unix_timestamp),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn close_leverage_slice(
+        &mut self,
+        position: &mut LeveragePosition,
+        slice: LeverageCloseSlice,
+        min_residual_out: u64,
+        mut prepared_swap: PreparedLeverageSwap,
+        swap_fee_credit: LeverageSwapFeeCredit,
+        protocol_fee_bps: u16,
+        protocol_auction_split: ProtocolAuctionSplit,
+        current_slot: u64,
+        partial_close_unix_timestamp: Option<i64>,
+    ) -> Result<Box<LeverageCloseReceipt>> {
         let swap = prepared_swap.swap;
         position.require_open()?;
         let debt_asset = position.debt_asset()?;
         let collateral_asset = debt_asset.opposite();
-        let displayed_debt = position.debt_amount(&self.debt)?;
-        require_gt!(displayed_debt, 0, ErrorCode::ZeroDebtAmount);
+        require!(
+            slice.collateral_amount > 0
+                && slice.collateral_amount <= position.collateral_amount
+                && slice.debt_shares > 0
+                && slice.debt_shares <= position.debt_shares
+                && slice.debt_principal <= position.debt_principal,
+            ErrorCode::BrokenInvariant
+        );
+        let is_full_close = slice.collateral_amount == position.collateral_amount;
+        require!(
+            is_full_close == partial_close_unix_timestamp.is_none(),
+            ErrorCode::BrokenInvariant
+        );
         let debt_amount = self
             .debt
-            .isolated_repayment_for_max(debt_asset, position.debt_shares, u64::MAX)?
+            .isolated_repayment_for_max(debt_asset, slice.debt_shares, u64::MAX)?
             .cash_repaid;
-        let collateral_sold = position.collateral_amount;
+        let collateral_sold = slice.collateral_amount;
         self.ensure_amm_initialized(current_slot)?;
         require!(
             swap.amount_in > 0 && swap.amount_in <= collateral_sold,
@@ -1279,8 +1410,8 @@ impl Market {
         require_gte!(residual, min_residual_out, ErrorCode::SlippageExceeded);
         let cash_policy = SwapCashPolicy::Close {
             debt_asset,
-            debt_shares: position.debt_shares,
-            debt_principal: position.debt_principal,
+            debt_shares: slice.debt_shares,
+            debt_principal: slice.debt_principal,
         };
         prepared_swap.require_cash_policy(cash_policy)?;
         let lifecycle = self.apply_leverage_lifecycle_transition(
@@ -1291,8 +1422,16 @@ impl Market {
             swap.gross_amount_out,
         )?;
         let clearance = lifecycle.clearance;
-        position.debt_shares = lifecycle.position_debt_shares;
-        position.debt_principal = lifecycle.position_debt_principal;
+        require_eq!(lifecycle.position_debt_shares, 0, ErrorCode::BrokenInvariant);
+        require_eq!(lifecycle.position_debt_principal, 0, ErrorCode::BrokenInvariant);
+        position.debt_shares = position
+            .debt_shares
+            .checked_sub(slice.debt_shares)
+            .ok_or(ErrorCode::DebtShareMathOverflow)?;
+        position.debt_principal = position
+            .debt_principal
+            .checked_sub(slice.debt_principal)
+            .ok_or(ErrorCode::DebtMathOverflow)?;
         prepared_swap.consume_tracking_unrealized_interest(debt_asset, clearance.interest_paid)?;
         require_eq!(clearance.cash_repaid, debt_amount, ErrorCode::BrokenInvariant);
         require_eq!(clearance.remaining_debt, 0, ErrorCode::BrokenInvariant);
@@ -1305,11 +1444,29 @@ impl Market {
             prepared_swap.fee_eligible_ylp_supply,
             current_slot,
         )?;
-        position.collateral_amount = 0;
+        position.collateral_amount = position
+            .collateral_amount
+            .checked_sub(collateral_sold)
+            .ok_or(ErrorCode::InsufficientAmount)?;
         let (base_hlp_rebalance, quote_hlp_rebalance) =
             self.finalize_leverage_swap_hlp(prepared_swap, current_slot, false)?;
+        let (remaining_debt_amount, remaining_closeout_value) =
+            if let Some(current_unix_timestamp) = partial_close_unix_timestamp {
+                position.require_open()?;
+                let remaining_debt = position.debt_amount(&self.debt)?;
+                let remaining_closeout =
+                    self.leverage_closeout_value_at_time(position, current_slot, current_unix_timestamp)?;
+                require_leverage_not_liquidatable(remaining_closeout, remaining_debt)?;
+                (remaining_debt, remaining_closeout)
+            } else {
+                require_eq!(position.debt_shares, 0, ErrorCode::BrokenInvariant);
+                require_eq!(position.debt_principal, 0, ErrorCode::BrokenInvariant);
+                require_eq!(position.collateral_amount, 0, ErrorCode::BrokenInvariant);
+                (0, 0)
+            };
         Ok(Box::new(LeverageCloseReceipt {
             debt_repaid: clearance.cash_repaid,
+            debt_reduced: clearance.debt_reduced,
             interest_paid: clearance.interest_paid,
             collateral_sold,
             closeout_value: swap.amount_out,
@@ -1318,6 +1475,10 @@ impl Market {
             fees,
             base_hlp_rebalance,
             quote_hlp_rebalance,
+            remaining_debt_amount,
+            remaining_debt_shares: position.debt_shares,
+            remaining_collateral_amount: position.collateral_amount,
+            remaining_closeout_value,
         }))
     }
 

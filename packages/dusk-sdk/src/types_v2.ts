@@ -2667,6 +2667,124 @@ export type Dusk = {
       ]
     },
     {
+      "name": "donateInsurance",
+      "discriminator": [
+        24,
+        11,
+        132,
+        174,
+        126,
+        186,
+        208,
+        90
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "donor",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "assetMint"
+        },
+        {
+          "name": "donorAssetAccount",
+          "writable": true
+        },
+        {
+          "name": "insuranceVault",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "donateInsuranceArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "executeParameterProposal",
       "discriminator": [
         46,
@@ -4921,6 +5039,73 @@ export type Dusk = {
       "returns": {
         "defined": {
           "name": "borrowPositionPreview"
+        }
+      }
+    },
+    {
+      "name": "previewHlpOrderTrigger",
+      "discriminator": [
+        98,
+        114,
+        204,
+        124,
+        206,
+        245,
+        4,
+        57
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "previewHlpOrderTriggerArgs"
+            }
+          }
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "hlpOrderTriggerPreview"
         }
       }
     },
@@ -8263,6 +8448,19 @@ export type Dusk = {
       ]
     },
     {
+      "name": "insuranceDonated",
+      "discriminator": [
+        238,
+        155,
+        254,
+        172,
+        251,
+        224,
+        236,
+        18
+      ]
+    },
+    {
       "name": "leverageDelegationUpdated",
       "discriminator": [
         118,
@@ -10418,6 +10616,14 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "closeBps",
+            "docs": [
+              "Proportion of the current position to close. `10_000` preserves the",
+              "existing full-close behavior."
+            ],
+            "type": "u16"
+          },
+          {
             "name": "delegated",
             "type": {
               "defined": {
@@ -10475,6 +10681,22 @@ export type Dusk = {
           },
           {
             "name": "minHlpAmount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "donateInsuranceArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset",
+            "type": "u8"
+          },
+          {
+            "name": "amount",
             "type": "u64"
           }
         ]
@@ -10950,6 +11172,22 @@ export type Dusk = {
       }
     },
     {
+      "name": "hlpOrderTriggerPreview",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "principalNavPerTokenNad",
+            "type": "u64"
+          },
+          {
+            "name": "fundingAprEmaNad",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
       "name": "hlpTerminalLiquidated",
       "type": {
         "kind": "struct",
@@ -11143,6 +11381,18 @@ export type Dusk = {
           {
             "name": "cachedSettlementPriceNad",
             "type": "u128"
+          },
+          {
+            "name": "fundingAprEmaNad",
+            "docs": [
+              "Smoothed APR of the opposite asset borrowed by this target-asset hLP.",
+              "The fixed twelve-hour half-life gives Stop Rate orders stable semantics."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "fundingAprEmaLastSlot",
+            "type": "u64"
           }
         ]
       }
@@ -11326,6 +11576,116 @@ export type Dusk = {
           },
           {
             "name": "quoteAvailable",
+            "type": "u64"
+          },
+          {
+            "name": "baseDrawWindow",
+            "type": {
+              "defined": {
+                "name": "insuranceDrawWindow"
+              }
+            }
+          },
+          {
+            "name": "quoteDrawWindow",
+            "type": {
+              "defined": {
+                "name": "insuranceDrawWindow"
+              }
+            }
+          },
+          {
+            "name": "perEventDrawBps",
+            "type": "u16"
+          },
+          {
+            "name": "perDayDrawBps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "insuranceDonated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "donor",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset",
+            "docs": [
+              "`0` for Base and `1` for Quote."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "requestedAmount",
+            "docs": [
+              "Gross amount requested from the donor's token account."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "creditedAmount",
+            "docs": [
+              "Net amount received after any Token-2022 transfer fee."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "availableAfter",
+            "type": "u64"
+          },
+          {
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "marketEventMetadata"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "insuranceDrawWindow",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "startSlot",
+            "docs": [
+              "Slot at which the current 24-hour accounting window began. A zero",
+              "value means no draw window has been opened yet."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "openingAvailable",
+            "docs": [
+              "Available insurance at the start of the window, before any draws."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "credited",
+            "docs": [
+              "Net token credits received after the window opened."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "drawn",
+            "docs": [
+              "Gross token amount debited by insurance draws in this window."
+            ],
             "type": "u64"
           }
         ]
@@ -12128,7 +12488,7 @@ export type Dusk = {
             "type": {
               "array": [
                 "u64",
-                6
+                7
               ]
             }
           },
@@ -12730,6 +13090,19 @@ export type Dusk = {
                 "type": "u64"
               }
             ]
+          },
+          {
+            "name": "insuranceDrawCaps",
+            "fields": [
+              {
+                "name": "perEventBps",
+                "type": "u16"
+              },
+              {
+                "name": "perDayBps",
+                "type": "u16"
+              }
+            ]
           }
         ]
       }
@@ -12926,6 +13299,9 @@ export type Dusk = {
           },
           {
             "name": "centerController"
+          },
+          {
+            "name": "insurance"
           }
         ]
       }
@@ -13471,6 +13847,22 @@ export type Dusk = {
             "type": {
               "option": "u64"
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "previewHlpOrderTriggerArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "targetAsset",
+            "type": "u8"
+          },
+          {
+            "name": "hlpAmount",
+            "type": "u64"
           }
         ]
       }
@@ -15653,6 +16045,21 @@ export type Dusk = {
       "name": "maxCollateralFactorBps",
       "type": "u16",
       "value": "8500"
+    },
+    {
+      "name": "maxInsuranceDrawPerDayBps",
+      "type": "u16",
+      "value": "5000"
+    },
+    {
+      "name": "maxInsuranceDrawPerEventBps",
+      "docs": [
+        "Absolute protocol ceilings for insurance-vault loss concentration. Market",
+        "governance may lower either limit, including to zero, but may never raise",
+        "them above these values."
+      ],
+      "type": "u16",
+      "value": "2000"
     },
     {
       "name": "maxParameterFeeBps",

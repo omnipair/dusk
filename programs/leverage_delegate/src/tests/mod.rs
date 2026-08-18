@@ -8,7 +8,12 @@ fn leverage_order() -> LeverageOrder {
         order_id: 1,
         kind: ORDER_KIND_TAKE_PROFIT,
         trigger_closeout_price_nad: NAD,
+        close_bps: BPS_DENOMINATOR,
         staged_margin: 0,
+        staged_collateral_amount: 0,
+        staged_remaining_collateral_amount: 0,
+        staged_remaining_debt_shares: 0,
+        staged_remaining_debt_principal: 0,
         staged_custody_token_account: Pubkey::default(),
         staged_output_mint: Pubkey::default(),
         staged_output_amount: 0,
@@ -128,15 +133,37 @@ fn executor_incentive_is_five_percent_of_margin_capped_by_residual() {
 }
 
 #[test]
+fn partial_order_incentive_is_bounded_by_realized_slice_equity() {
+    let realized_slice_equity = 101;
+    let incentive = ceil_div(
+        realized_slice_equity as u128 * EXECUTOR_INCENTIVE_BPS as u128,
+        BPS_DENOMINATOR as u128,
+    )
+    .unwrap() as u64;
+
+    assert_eq!(incentive, 6);
+    assert!(incentive <= realized_slice_equity);
+    assert_eq!(realized_slice_equity - incentive, 95);
+}
+
+#[test]
 fn reset_staged_settlement_clears_every_binding() {
     let mut order = leverage_order();
     order.staged_margin = 10_000;
+    order.staged_collateral_amount = 50;
+    order.staged_remaining_collateral_amount = 50;
+    order.staged_remaining_debt_shares = 25;
+    order.staged_remaining_debt_principal = 20;
     order.staged_custody_token_account = Pubkey::new_unique();
     order.staged_output_mint = Pubkey::new_unique();
     order.staged_output_amount = 123;
     reset_staged_settlement(&mut order);
 
     assert_eq!(order.staged_margin, 0);
+    assert_eq!(order.staged_collateral_amount, 0);
+    assert_eq!(order.staged_remaining_collateral_amount, 0);
+    assert_eq!(order.staged_remaining_debt_shares, 0);
+    assert_eq!(order.staged_remaining_debt_principal, 0);
     assert_eq!(order.staged_custody_token_account, Pubkey::default());
     assert_eq!(order.staged_output_mint, Pubkey::default());
     assert_eq!(order.staged_output_amount, 0);
@@ -224,6 +251,7 @@ fn approval_payload_binds_close_action_and_delegation() {
         dusk::state::MarketAsset::Base,
         recipient,
         mint,
+        456,
         123,
     );
     let mut data = Vec::new();
@@ -238,5 +266,6 @@ fn approval_payload_binds_close_action_and_delegation() {
     assert_eq!(decoded.debt_asset, dusk::state::MarketAsset::Base.code());
     assert_eq!(decoded.recipient_token_account, recipient);
     assert_eq!(decoded.output_mint, mint);
+    assert_eq!(decoded.collateral_amount, 456);
     assert_eq!(decoded.output_amount, 123);
 }

@@ -13,7 +13,7 @@ use super::settlement::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{LeveragePositionClosed, LeverageSwapReceipt, MarketEventMetadata},
+    events::{LeveragePositionClosed, LeveragePositionUpdated, LeverageSwapReceipt, MarketEventMetadata},
     generate_market_seeds,
     instructions::{
         accounts::{require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout},
@@ -38,6 +38,9 @@ pub struct CloseLeverageArgs {
 pub struct DelegatedCloseLeverageArgs {
     pub debt_asset: u8,
     pub min_amount_out: u64,
+    /// Proportion of the current position to close. `10_000` preserves the
+    /// existing full-close behavior.
+    pub close_bps: u16,
     pub delegated: DelegatedCpiArgs,
 }
 
@@ -61,7 +64,6 @@ pub struct CloseLeverage<'info> {
 
     #[account(
         mut,
-        close = position_owner,
         seeds = [
             LEVERAGE_POSITION_SEED_PREFIX,
             market.key().as_ref(),
@@ -185,6 +187,10 @@ impl<'info> CloseLeverage<'info> {
             },
             unix_timestamp,
         )?;
+        require!(
+            args.close_bps > 0 && args.close_bps <= BPS_DENOMINATOR,
+            ErrorCode::InvalidArgument
+        );
         let delegation = self
             .leverage_delegation
             .as_ref()
@@ -223,6 +229,7 @@ impl<'info> CloseLeverage<'info> {
             args,
             None,
             CloseMode::Owner,
+            BPS_DENOMINATOR,
             current_slot,
             current_epoch,
             current_unix_timestamp,
@@ -244,6 +251,7 @@ impl<'info> CloseLeverage<'info> {
             },
             Some(args.delegated),
             CloseMode::Delegate,
+            args.close_bps,
             current_slot,
             current_epoch,
             current_unix_timestamp,
@@ -255,6 +263,7 @@ impl<'info> CloseLeverage<'info> {
         args: CloseLeverageArgs,
         delegated: Option<DelegatedCpiArgs>,
         mode: CloseMode,
+        close_bps: u16,
         current_slot: u64,
         current_epoch: u64,
         current_unix_timestamp: i64,
@@ -276,15 +285,22 @@ impl<'info> CloseLeverage<'info> {
         let collateral_mint_key = ctx.accounts.collateral_mint.key();
         let position_key = ctx.accounts.leverage_position.key();
         let expected_referral_partner = ctx.accounts.leverage_position.referral_partner;
-        let collateral_sold = ctx.accounts.leverage_position.collateral_amount;
 
-        // Price the full close before an optional delegated approval callback.
+        // Freeze debt indexes before deriving the exact proportional slice so
+        // the delegate callback and committed lifecycle share one basis.
         ctx.accounts.market.accrue_interest_to_slot(current_slot)?;
+        let close_slice = ctx
+            .accounts
+            .market
+            .leverage_close_slice(&ctx.accounts.leverage_position, close_bps)?;
+        let collateral_sold = close_slice.collateral_amount;
+        let is_full_close = close_bps == BPS_DENOMINATOR;
+        // Price the selected close before an optional delegated approval callback.
         let debt_amount = ctx
             .accounts
             .market
             .debt
-            .isolated_repayment_for_max(debt_asset, ctx.accounts.leverage_position.debt_shares, u64::MAX)?
+            .isolated_repayment_for_max(debt_asset, close_slice.debt_shares, u64::MAX)?
             .cash_repaid;
         let expected_collateral_reserve_credit =
             leverage_collateral_credit(&ctx.accounts.collateral_mint, collateral_sold, current_epoch)?;
@@ -358,6 +374,7 @@ impl<'info> CloseLeverage<'info> {
                 debt_asset,
                 ctx.accounts.owner_debt_account.key(),
                 debt_mint_key,
+                collateral_sold,
                 expected_residual_net,
             )?;
         }
@@ -404,8 +421,8 @@ impl<'info> CloseLeverage<'info> {
             },
             SwapCashPolicy::Close {
                 debt_asset,
-                debt_shares: ctx.accounts.leverage_position.debt_shares,
-                debt_principal: ctx.accounts.leverage_position.debt_principal,
+                debt_shares: close_slice.debt_shares,
+                debt_principal: close_slice.debt_principal,
             },
         )?;
         let swap = prepared_swap.swap;
@@ -413,15 +430,29 @@ impl<'info> CloseLeverage<'info> {
         let swap_fee_credit = leverage_swap_fee_credit(&swap)?;
 
         // Commit the close and settle the resulting hLP exposure.
-        let receipt = ctx.accounts.market.close_leverage(
-            &mut ctx.accounts.leverage_position,
-            args.min_amount_out,
-            prepared_swap,
-            swap_fee_credit,
-            ctx.accounts.futarchy_authority.revenue_share.swap_bps,
-            ctx.accounts.futarchy_authority.protocol_auction_split,
-            current_slot,
-        )?;
+        let receipt = if is_full_close {
+            ctx.accounts.market.close_leverage(
+                &mut ctx.accounts.leverage_position,
+                args.min_amount_out,
+                prepared_swap,
+                swap_fee_credit,
+                ctx.accounts.futarchy_authority.revenue_share.swap_bps,
+                ctx.accounts.futarchy_authority.protocol_auction_split,
+                current_slot,
+            )?
+        } else {
+            ctx.accounts.market.partial_close_leverage(
+                &mut ctx.accounts.leverage_position,
+                close_bps,
+                args.min_amount_out,
+                prepared_swap,
+                swap_fee_credit,
+                ctx.accounts.futarchy_authority.revenue_share.swap_bps,
+                ctx.accounts.futarchy_authority.protocol_auction_split,
+                current_slot,
+                current_unix_timestamp,
+            )?
+        };
         settle_inline_leverage_hlp(
             &mut ctx.accounts.market,
             &ctx.accounts.futarchy_authority,
@@ -506,25 +537,46 @@ impl<'info> CloseLeverage<'info> {
             emit_cpi!(event);
         }
 
-        emit_cpi!(LeveragePositionClosed {
-            market: market_key,
-            position: position_key,
-            owner: owner_key,
-            debt_asset_mint: debt_mint_key,
-            collateral_asset_mint: collateral_mint_key,
-            debt_repaid: receipt.debt_repaid,
-            interest_paid: receipt.interest_paid,
-            collateral_sold: receipt.collateral_sold,
-            closeout_value: receipt.closeout_value,
-            residual: residual_credit,
-            swap: LeverageSwapReceipt::new(
-                receipt.swap,
-                swap_fee_credit,
-                ctx.accounts.market.base_side.reserves.live_reserve,
-                ctx.accounts.market.quote_side.reserves.live_reserve,
-            )?,
-            metadata: MarketEventMetadata::at_slot(authority_key, market_key, current_slot),
-        });
+        let swap_event = LeverageSwapReceipt::new(
+            receipt.swap,
+            swap_fee_credit,
+            ctx.accounts.market.base_side.reserves.live_reserve,
+            ctx.accounts.market.quote_side.reserves.live_reserve,
+        )?;
+        if is_full_close {
+            emit_cpi!(LeveragePositionClosed {
+                market: market_key,
+                position: position_key,
+                owner: owner_key,
+                debt_asset_mint: debt_mint_key,
+                collateral_asset_mint: collateral_mint_key,
+                debt_repaid: receipt.debt_repaid,
+                interest_paid: receipt.interest_paid,
+                collateral_sold: receipt.collateral_sold,
+                closeout_value: receipt.closeout_value,
+                residual: residual_credit,
+                swap: swap_event,
+                metadata: MarketEventMetadata::at_slot(authority_key, market_key, current_slot),
+            });
+        } else {
+            emit_cpi!(LeveragePositionUpdated {
+                market: market_key,
+                position: position_key,
+                owner: owner_key,
+                debt_asset_mint: debt_mint_key,
+                collateral_asset_mint: collateral_mint_key,
+                borrowed_amount: 0,
+                debt_delta: -i64::try_from(receipt.debt_reduced).map_err(|_| ErrorCode::Overflow)?,
+                collateral_delta: -i64::try_from(receipt.collateral_sold).map_err(|_| ErrorCode::Overflow)?,
+                debt_amount: receipt.remaining_debt_amount,
+                debt_shares: receipt.remaining_debt_shares,
+                collateral_amount: receipt.remaining_collateral_amount,
+                closeout_value: receipt.remaining_closeout_value,
+                owner_credit: residual_credit,
+                swap: Some(swap_event),
+                metadata: MarketEventMetadata::at_slot(authority_key, market_key, current_slot),
+            });
+        }
 
         if matches!(mode, CloseMode::Delegate) {
             // Notify the delegate only after settlement and protect the owner's payout.
@@ -575,8 +627,14 @@ impl<'info> CloseLeverage<'info> {
                 debt_asset,
                 ctx.accounts.owner_debt_account.key(),
                 debt_mint_key,
+                collateral_sold,
                 residual_credit,
             )?;
+        }
+        if is_full_close {
+            ctx.accounts
+                .leverage_position
+                .close(ctx.accounts.position_owner.to_account_info())?;
         }
         Ok(())
     }
