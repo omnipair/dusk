@@ -183,7 +183,9 @@ pub struct FutarchyAuthority {
 }
 
 impl FutarchyAuthority {
-    pub const CURRENT_VERSION: u8 = 3;
+    /// Serialized account version. Pre-deployment feature iterations remain at
+    /// version 1; increment only for an incompatible post-deployment layout.
+    pub const CURRENT_VERSION: u8 = 1;
 
     pub fn validate(&self) -> Result<()> {
         require_eq!(self.version, Self::CURRENT_VERSION, ErrorCode::InvalidVersion);

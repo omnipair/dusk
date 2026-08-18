@@ -16029,7 +16029,7 @@ export type Dusk = {
         "deployment, never for ordinary feature work or product naming."
       ],
       "type": "u8",
-      "value": "3"
+      "value": "1"
     },
     {
       "name": "marketReserveVaultSeedPrefix",

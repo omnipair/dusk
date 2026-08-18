@@ -50,7 +50,10 @@ impl ExplicitCurveBranch {
     }
 }
 
-pub(crate) const EXPLICIT_CURVE_MATH_REVISION: u8 = 3;
+/// Serialized curve-cache math revision. Pre-deployment iterations remain at
+/// revision 1; increment only when supporting an already-deployed cache whose
+/// mathematical interpretation must remain distinguishable.
+pub(crate) const EXPLICIT_CURVE_MATH_REVISION: u8 = 1;
 
 /// Governance surface for the explicit curve. `range_width_nad` is the
 /// multiplicative upper-price width around the sticky center; the lower bound

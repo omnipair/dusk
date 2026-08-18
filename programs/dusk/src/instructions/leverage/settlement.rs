@@ -41,7 +41,10 @@ pub const LEVERAGE_DELEGATE_INCREASE: u32 = 1 << 3;
 pub const LEVERAGE_DELEGATE_DECREASE: u32 = 1 << 4;
 pub const LEVERAGE_DELEGATE_CLOSE_SETTLED: u32 = 1 << 5;
 pub const LEVERAGE_DELEGATION_APPROVAL_MAGIC: [u8; 8] = *b"OMNILVDA";
-pub const LEVERAGE_DELEGATION_APPROVAL_VERSION: u8 = 2;
+/// Serialized approval payload version. Dusk is pre-deployment, so feature
+/// iterations remain version 1. Increment only after a deployed payload format
+/// must remain distinguishable from a new incompatible format.
+pub const LEVERAGE_DELEGATION_APPROVAL_VERSION: u8 = 1;
 
 /// Narrows the large AMM quote to the leverage settlement payload before it
 /// returns to an instruction handler. Keeping the two identity-bound curve

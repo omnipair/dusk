@@ -16023,7 +16023,7 @@
         "deployment, never for ordinary feature work or product naming."
       ],
       "type": "u8",
-      "value": "3"
+      "value": "1"
     },
     {
       "name": "MARKET_RESERVE_VAULT_SEED_PREFIX",

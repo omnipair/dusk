@@ -382,7 +382,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       params: auctionParams,
     };
     const data = await accountCoder.encode("FutarchyAuthority", {
-      version: 3,
+      version: 1,
       authority: payer.publicKey,
       recipients: {
         futarchy_treasury: payer.publicKey,
