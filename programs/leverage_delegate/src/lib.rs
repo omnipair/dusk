@@ -817,7 +817,7 @@ impl<'info> ExecuteHlpOrder<'info> {
             .market
             .asset_for_hlp_mint(ctx.accounts.target_hlp_mint.key())?;
         let trigger_preview =
-            preview_hlp_order_trigger(&ctx.accounts, target_asset, ctx.accounts.order.hlp_amount)?;
+            preview_hlp_order_trigger(ctx.accounts, target_asset, ctx.accounts.order.hlp_amount)?;
 
         let target_mint = match target_asset {
             MarketAsset::Base => ctx.accounts.base_mint.key(),
@@ -854,7 +854,7 @@ impl<'info> ExecuteHlpOrder<'info> {
             LeverageDelegateError::TriggerNotMet
         );
 
-        withdraw_hlp_order_position(&ctx.accounts, ctx.remaining_accounts)?;
+        withdraw_hlp_order_position(ctx.accounts, ctx.remaining_accounts)?;
         ctx.accounts.custody_target_account.reload()?;
         let output = ctx.accounts.custody_target_account.amount;
         require_gte!(
@@ -1423,9 +1423,7 @@ fn validate_hlp_yield_account(
     lp_mint: Pubkey,
     asset_mint: Pubkey,
 ) -> Result<()> {
-    account
-        .assert_account(owner, market, lp_mint, asset_mint, YieldTokenKind::Hlp)
-        .map_err(Into::into)
+    account.assert_account(owner, market, lp_mint, asset_mint, YieldTokenKind::Hlp)
 }
 
 #[allow(clippy::too_many_arguments)]

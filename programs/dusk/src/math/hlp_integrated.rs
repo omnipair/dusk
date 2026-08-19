@@ -1,4 +1,4 @@
-//! O(1) integrated curve + Yield Basis hLP transition.
+//! O(1) integrated curve + opposite-asset-neutral hLP transition.
 //!
 //! Trader cash moves on the ordinary yLP tranche `(U,V)`. hLP synthetic liquidity is
 //! reconstructed afterward from fixed target-asset equities, which keeps both
@@ -383,6 +383,7 @@ pub(crate) fn quote_integrated_exact_in(
     })
 }
 
+#[cfg(test)]
 pub(crate) fn quote_integrated_exact_out(
     state: IntegratedCurveState,
     geometry: ExplicitCurveGeometry,

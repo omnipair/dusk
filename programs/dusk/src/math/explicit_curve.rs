@@ -98,6 +98,7 @@ impl ExplicitCurveCache {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn center_point(self, center_price_nad: u64) -> Result<ExplicitCurvePoint> {
         self.center_point_with_geometry(center_price_nad, self.geometry()?)
     }
@@ -176,6 +177,7 @@ fn complete_explicit_cache(
 }
 
 impl ExplicitCurveParameters {
+    #[cfg(test)]
     pub(crate) const fn cpmm() -> Self {
         Self {
             range_width_nad: 0,
@@ -211,6 +213,7 @@ impl ExplicitCurveParameters {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn price_bounds_nad(self, center_price_nad: u64) -> Result<Option<(u128, u128)>> {
         require!(center_price_nad > 0, ErrorCode::InvalidSettlementPrice);
         if self.is_cpmm() {
@@ -229,6 +232,7 @@ impl ExplicitCurveParameters {
 /// Builds the initial explicit geometry when the sticky center equals the
 /// current ordinary-reserve spot. This is the positive closed-form solution
 /// for total liquidity; no invariant root or finite-difference cell is used.
+#[cfg(test)]
 pub(crate) fn prepare_centered_explicit_geometry(
     base_reserve: u128,
     quote_reserve: u128,
@@ -242,6 +246,7 @@ pub(crate) fn prepare_centered_explicit_geometry(
     prepare_centered_explicit_cache(base_reserve, quote_reserve, center_price_nad, parameters)?.geometry()
 }
 
+#[cfg(test)]
 pub(crate) fn prepare_centered_explicit_cache(
     base_reserve: u128,
     quote_reserve: u128,
@@ -658,9 +663,7 @@ impl ExplicitCurveGeometry {
     }
 
     pub(crate) fn branch(self, point: ExplicitCurvePoint) -> ExplicitCurveBranch {
-        if self.is_cpmm() {
-            ExplicitCurveBranch::LowerTail
-        } else if point.base_reserve >= self.lower_boundary.base_reserve {
+        if self.is_cpmm() || point.base_reserve >= self.lower_boundary.base_reserve {
             ExplicitCurveBranch::LowerTail
         } else if point.base_reserve <= self.upper_boundary.base_reserve {
             ExplicitCurveBranch::UpperTail
@@ -670,6 +673,7 @@ impl ExplicitCurveGeometry {
     }
 
     /// Marginal Quote-per-Base price of the active explicit segment.
+    #[cfg(test)]
     pub(crate) fn spot_price_nad(self, point: ExplicitCurvePoint) -> Result<u128> {
         self.validate()?;
         self.spot_price_nad_prevalidated(point)

@@ -1304,34 +1304,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     return ((denominator - qNumerator) * 1_000_000_000n) / denominator;
   }
 
-  function concentratedBranch(market: any) {
-    const center = BigInt(market.amm.center_price_nad.toString());
-    const baseNad = BigInt(market.base_side.reserves.live_reserve.toString()) * 1_000n;
-    const quoteNad = BigInt(market.quote_side.reserves.live_reserve.toString()) * 1_000n;
-    const [baseCommon, quoteCommon] = center >= 1_000_000_000n
-      ? [(baseNad * center) / 1_000_000_000n, quoteNad]
-      : [baseNad, (quoteNad * 1_000_000_000n) / center];
-    const low = baseCommon < quoteCommon ? baseCommon : quoteCommon;
-    const high = baseCommon < quoteCommon ? quoteCommon : baseCommon;
-    const tailRatioQ80 = BigInt(
-      market.amm.concentrated_geometry_cache.reserve_ratio_tail_q80.toString()
-    );
-    if (low * (1n << 80n) <= high * tailRatioQ80) return "tail";
-    const startRatioQ80 = BigInt(
-      market.amm.concentrated_geometry_cache.reserve_ratio_start_q80.toString()
-    );
-    return low * (1n << 80n) <= high * startRatioQ80 ? "transition" : "inner";
-  }
-
-  function isInExactConcentratedTail(
-    fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>
-  ) {
-    const account = svm.getAccount(fixture.market);
-    expect(account).to.not.equal(null);
-    const market = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
-    return concentratedBranch(market) === "tail";
-  }
-
   async function openQuoteDebtLeverage(
     fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>,
     marginAmount = 1_000,
@@ -3078,10 +3050,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(ordinary.quote_hlp_vault.hlp_supply.isZero()).to.equal(true);
     expect(ordinary.base_hlp_vault.residual_exposure.isZero()).to.equal(true);
     expect(ordinary.quote_hlp_vault.residual_exposure.isZero()).to.equal(true);
-    expect(ordinary.amm.applied_curve_parameters.peak_depth_nad.isZero()).to.equal(true);
-    expect(ordinary.amm.applied_curve_parameters.fade_scale_nad.isZero()).to.equal(true);
+    expect(ordinary.amm.explicit_curve_cache.range_width_nad.isZero()).to.equal(true);
+    expect(ordinary.amm.explicit_curve_cache.concentrated_liquidity_share_nad.isZero()).to.equal(
+      true
+    );
     expect(ordinary.config.amm.adjustment_step_nad.isZero()).to.equal(true);
-    expect(ordinary.amm.concentration_ramp.active).to.equal(false);
     expect(ordinary.amm.deferred_controller_target.kind).to.equal(0);
     expect(ordinary.amm.last_observation_slot.toString()).to.equal(sameSlot.toString());
 
@@ -3188,7 +3161,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       BigInt(preview.amountOut.toString())
     );
     // Near the initialized center, the concentrated curve must provide tighter execution than
-    // the same reserves' peak_depth=0 output (1,974,316 raw quote units).
+    // the same reserves' zero-concentrated-liquidity CPMM output (1,974,316 raw quote units).
     expect(preview.amountOut.toNumber()).to.be.greaterThan(1_974_316);
 
     const account = svm.getAccount(fixture.market);
@@ -3970,7 +3943,17 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       });
       expect(marketBefore.base_hlp_vault.hlp_supply.toString()).to.equal("10000000");
       expect(marketBefore.quote_hlp_vault.hlp_supply.toString()).to.equal("20000000");
-      expect(concentratedBranch(marketBefore)).to.equal("inner");
+      const marketPreview = decodePreviewMarketReturnData(
+        await simulateReturnData(
+          await program.methods
+            .previewMarket()
+            .accounts({
+              market: fixture.market,
+            })
+            .transaction()
+        )
+      ) as any;
+      expect(marketPreview.amm.explicitCurveBranch).to.equal(1);
 
       const interestCheckpointBefore = [
         marketBefore.base_hlp_vault.base_interest_growth_index_q64,

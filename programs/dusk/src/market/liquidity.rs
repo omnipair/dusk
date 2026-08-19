@@ -34,6 +34,7 @@ impl SwapCashFloors {
         }
     }
 
+    #[cfg(test)]
     fn for_asset(self, asset: MarketAsset) -> u64 {
         match asset {
             MarketAsset::Base => self.base,
@@ -71,6 +72,7 @@ pub(crate) enum SwapCashPolicy {
 }
 
 impl SwapCashPolicy {
+    #[cfg(test)]
     pub(crate) fn floors(self, market: &Market, asset_in: MarketAsset, amount_out: u64) -> Result<SwapCashFloors> {
         let mut floors = SwapCashFloors::default();
         match self {
@@ -134,6 +136,7 @@ impl SwapCashPolicy {
     }
 }
 
+#[cfg(test)]
 fn isolated_repayment_cash_and_interest(
     market: &Market,
     debt_asset: MarketAsset,
@@ -254,11 +257,9 @@ pub(crate) struct ExplicitHlpTransition {
 
 fn signed_u64_delta(end: u64, start: u64) -> Result<i128> {
     if end >= start {
-        i128::try_from(end - start).map_err(|_| ErrorCode::MarketMathOverflow.into())
+        Ok(i128::from(end - start))
     } else {
-        i128::try_from(start - end)
-            .map(|value| -value)
-            .map_err(|_| ErrorCode::MarketMathOverflow.into())
+        Ok(-i128::from(start - end))
     }
 }
 
@@ -371,7 +372,7 @@ pub(crate) fn prepare_explicit_hlp_transition(
     )
 }
 
-/// Adds the Yield-Basis-like recovery tranche to a Spot quote. The complete
+/// Adds the hLP funding-recovery tranche to a Spot quote. The complete
 /// input remains on the ordinary curve; only the incremental price improvement
 /// is paid by the hLP whose borrowed asset matches `asset_in`.
 pub(crate) fn apply_explicit_hlp_recovery(
@@ -764,7 +765,7 @@ fn prepare_explicit_hlp_transition_from_end(
     let base_interest_paid = current_base_debt.saturating_sub(market.base_hlp_vault.debt_principal);
     let quote_interest_paid = current_quote_debt.saturating_sub(market.quote_hlp_vault.debt_principal);
 
-    let (base_non_debt_reserve, quote_non_debt_reserve) = if preserve_current_ordinary_reserves {
+    let (mut base_non_debt_reserve, mut quote_non_debt_reserve) = if preserve_current_ordinary_reserves {
         // Changing hLP ownership/debt around an already materialized reserve
         // point must not create or destroy ordinary curve reserves. Preserve
         // the exact raw identity and change only hLP funding debt.
@@ -806,6 +807,19 @@ fn prepare_explicit_hlp_transition_from_end(
                 .ok_or(ErrorCode::ReserveUnderflow)?,
         )
     };
+    if !preserve_current_ordinary_reserves {
+        // The quoted endpoint includes the trader-funded interest tranche in
+        // the input-side live reserve. `consume` transfers that tranche out of
+        // cash before replacing hLP ownership/debt, so both the proportional
+        // claim certificate and terminal live reserve use the post-payment
+        // ordinary reserve.
+        base_non_debt_reserve = base_non_debt_reserve
+            .checked_sub(quote_interest_paid)
+            .ok_or(ErrorCode::ReserveUnderflow)?;
+        quote_non_debt_reserve = quote_non_debt_reserve
+            .checked_sub(base_interest_paid)
+            .ok_or(ErrorCode::ReserveUnderflow)?;
+    }
     let ((final_base_debt_shares, final_base_debt), (final_quote_debt_shares, final_quote_debt)) =
         if !certify_proportional_claim {
             // The ordinary path starts on the canonical hedge and the direct
@@ -1025,6 +1039,7 @@ impl ExplicitHlpTransition {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg(test)]
 pub(crate) struct HlpTrackingReference {
     pub(crate) principal_nav_nad: i128,
     pub(crate) loss_budget_nad: u128,
@@ -1506,6 +1521,7 @@ fn absolute_difference(first: u128, second: u128) -> u128 {
     first.max(second) - first.min(second)
 }
 
+#[cfg(test)]
 pub(crate) fn checkpoint_pre_solve_fee_eligibility(market: &mut Market, receipt: &HlpRebalanceReceipt) -> Result<()> {
     if receipt.ylp_mint_amount == 0 && receipt.ylp_burn_amount == 0 {
         return Ok(());
@@ -1517,6 +1533,7 @@ pub(crate) fn checkpoint_pre_solve_fee_eligibility(market: &mut Market, receipt:
     )
 }
 
+#[cfg(test)]
 pub(crate) fn combine_hlp_rebalance_receipts(
     pre: HlpRebalanceReceipt,
     post: HlpRebalanceReceipt,
@@ -1572,6 +1589,7 @@ pub(crate) fn combine_hlp_rebalance_receipts(
     })
 }
 
+#[cfg(test)]
 pub(crate) fn empty_hlp_rebalance_receipt(target_asset: MarketAsset) -> HlpRebalanceReceipt {
     HlpRebalanceReceipt {
         target_asset,
@@ -2139,6 +2157,7 @@ pub(crate) fn checkpoint_hlp_yield_from_ylp(market: &mut Market, target_asset: M
 /// base-then-quote sequence carried the same four side accumulators twice;
 /// the first vault checkpoint cannot mutate those side indexes, so the second
 /// carry/snapshot was observationally redundant.
+#[cfg(test)]
 fn checkpoint_hlp_yield_from_ylp_pair(
     market: &mut Market,
     checkpoint_base: bool,
@@ -2293,6 +2312,7 @@ fn hlp_debt_value_nad(market: &Market, target_asset: MarketAsset) -> Result<u128
     asset_value_in_target_nad(market, borrowed_asset, debt_amount, target_asset)
 }
 
+#[cfg(test)]
 fn hlp_debt_amount(market: &Market, target_asset: MarketAsset) -> Result<u64> {
     let debt_amount = match target_asset {
         MarketAsset::Base => {
@@ -2412,6 +2432,7 @@ fn current_hlp_inventory_values_nad_with_prices(
 /// Values both vaults from one immutable reserve/supply snapshot. This keeps
 /// the two numeraires on the same curve state while avoiding four repeated
 /// curve-reserve derivations in the joint lifecycle hot path.
+#[cfg(test)]
 fn current_hlp_inventory_values_pair_nad_with_prices(
     market: &Market,
     prices: HlpCurvePrices,
@@ -2505,6 +2526,7 @@ fn current_hlp_inventory_values_pair_nad_with_prices(
     Ok((base_values, quote_values))
 }
 
+#[cfg(test)]
 fn hlp_interest_claims_for_shares(
     base_unrealized_interest: u64,
     quote_unrealized_interest: u64,
@@ -2533,6 +2555,7 @@ fn hlp_interest_claims_for_shares(
     Ok((base_claim, quote_claim))
 }
 
+#[cfg(test)]
 fn signed_asset_value_in_target_nad_with_prices(
     market: &Market,
     prices: HlpCurvePrices,
@@ -2556,6 +2579,7 @@ fn signed_asset_value_in_target_nad_with_prices(
     }
 }
 
+#[cfg(test)]
 fn hlp_frozen_interest_claim_delta_value_nad(
     market: &Market,
     target_asset: MarketAsset,
@@ -2601,6 +2625,7 @@ fn hlp_frozen_interest_claim_delta_value_nad(
         .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
+#[cfg(test)]
 fn hlp_tracking_deltas_nad(
     market: &Market,
     target_asset: MarketAsset,
@@ -2618,6 +2643,7 @@ fn hlp_tracking_deltas_nad(
     Ok((principal_delta, claim_delta, combined_delta))
 }
 
+#[cfg(test)]
 pub(crate) fn stamp_hlp_tracking_reference(receipt: &mut HlpRebalanceReceipt, tracking: HlpTrackingReference) {
     receipt.tracking_start_nav_nad = tracking.principal_nav_nad;
     receipt.tracking_loss_budget_nad = tracking.loss_budget_nad;
@@ -2644,6 +2670,7 @@ pub(crate) fn consume_hlp_tracking_unrealized_interest(
     Ok(())
 }
 
+#[cfg(test)]
 pub(crate) fn cap_hlp_tracking_unrealized_interest(
     receipt: &mut HlpRebalanceReceipt,
     asset: MarketAsset,
@@ -2773,6 +2800,7 @@ fn require_hlp_borrow_headroom(market: &Market, borrowed_asset: MarketAsset, amo
     Ok(added_shares)
 }
 
+#[cfg(test)]
 fn curve_slot(market: &Market) -> u64 {
     // Curve parameters are explicitly admitted into `applied_curve_parameters`
     // by the instruction update path; merely observing wall-clock time never

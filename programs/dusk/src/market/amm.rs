@@ -764,6 +764,7 @@ impl Market {
         .map_err(|_| ErrorCode::MarketMathOverflow.into())
     }
 
+    #[cfg(test)]
     pub(crate) fn quote_integrated_explicit_exact_in_nad(
         &self,
         gross_amount_in_nad: u128,
@@ -1387,6 +1388,7 @@ impl Market {
         self.preliminary_swap_inputs_for_state(asset_in, reserve_credit, current_slot, pre_state)
     }
 
+    #[cfg(test)]
     pub(crate) fn preliminary_swap_inputs_for_state(
         &self,
         asset_in: MarketAsset,

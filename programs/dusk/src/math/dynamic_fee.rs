@@ -485,6 +485,7 @@ fn uncapped_divergence_state_potential_raw_saturating(
 /// Prepared Huberized divergence state for one input-reserve center. The
 /// threshold is solved once, then every implicit-solver probe is constant-time.
 #[derive(Clone, Copy, Debug)]
+#[cfg(test)]
 pub(crate) struct PreparedDivergenceStatePotential {
     center_input_reserve_raw: u64,
     coefficient_nad: u64,
@@ -494,6 +495,7 @@ pub(crate) struct PreparedDivergenceStatePotential {
     threshold_potential_saturated: bool,
 }
 
+#[cfg(test)]
 impl PreparedDivergenceStatePotential {
     pub(crate) fn new(center_input_reserve_raw: u64, coefficient_nad: u64, marginal_cap_nad: u64) -> Result<Self> {
         require!(center_input_reserve_raw > 0, ErrorCode::InvalidArgument);
@@ -623,6 +625,7 @@ pub(crate) fn gross_path_divergence_fee_raw(
     Ok((end.checked_sub(start).ok_or(ErrorCode::FeeMathOverflow)?, false))
 }
 
+#[cfg(test)]
 fn uncapped_divergence_marginal_rate_raw_nad(
     center_input_reserve_raw: u64,
     outward_coordinate_raw: u64,

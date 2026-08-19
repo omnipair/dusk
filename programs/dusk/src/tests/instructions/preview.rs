@@ -2,11 +2,19 @@ use super::*;
 use crate::state::AmmConfig;
 use crate::{
     instructions::PreparedSwap,
-    market::SwapFeeBreakdown,
+    market::{HlpRebalanceReceipt, SwapFeeBreakdown},
     math::{mul_div_u128, ExplicitCurveParameters},
     state::Debt,
 };
 use proptest::prelude::*;
+
+fn hlp_receipt_mutates_curve_inventory(receipt: &HlpRebalanceReceipt) -> bool {
+    receipt.executed_delta != 0
+        || receipt.ylp_mint_amount != 0
+        || receipt.ylp_burn_amount != 0
+        || receipt.debt_delta != 0
+        || receipt.interest_paid != 0
+}
 
 impl<'a> NewPositionPreviewContext<'a> {
     fn new(market: &'a Market, debt_asset: MarketAsset, collateral_amount: u64, risk: &'a Risk) -> Result<Self> {
@@ -408,8 +416,8 @@ fn concentrated_hlp_preview_and_execution_share_the_same_accepted_plan_in_both_d
             .unwrap();
         assert_eq!(fast, execution_receipt, "receipt mismatch for {asset_in:?}");
         assert!(
-            crate::instructions::hlp_receipt_mutates_curve_inventory(&fast.base_rebalance)
-                || crate::instructions::hlp_receipt_mutates_curve_inventory(&fast.quote_rebalance),
+            hlp_receipt_mutates_curve_inventory(&fast.base_rebalance)
+                || hlp_receipt_mutates_curve_inventory(&fast.quote_rebalance),
             "the integrated endpoint must reconstruct hLP ownership for {asset_in:?}"
         );
         assert_eq!(

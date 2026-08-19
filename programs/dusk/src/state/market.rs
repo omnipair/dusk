@@ -1508,12 +1508,8 @@ impl Debt {
                     .ok_or(ErrorCode::DebtMathOverflow)?,
             ErrorCode::BrokenInvariant
         );
-        let interest_paid = u64::try_from(
-            aggregate_interest_before
-                .checked_sub(aggregate_interest_after)
-                .unwrap_or(0),
-        )
-        .map_err(|_| ErrorCode::DebtMathOverflow)?;
+        let interest_paid = u64::try_from(aggregate_interest_before.saturating_sub(aggregate_interest_after))
+            .map_err(|_| ErrorCode::DebtMathOverflow)?;
         let principal_paid = repayment
             .cash_repaid
             .checked_sub(interest_paid)

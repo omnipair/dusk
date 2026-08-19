@@ -80,6 +80,14 @@ const COMPUTE_SCENARIO_BASELINES: Partial<
     measuredMaximum: 404_326n,
     ceiling: 424_543n,
   },
+  concentrated_hlp_active: {
+    measuredMaximum: 116_019n,
+    ceiling: 121_820n,
+  },
+  concentrated_hlp_funding_interest: {
+    measuredMaximum: 116_019n,
+    ceiling: 121_820n,
+  },
   hlp_active: { measuredMaximum: 106_768n, ceiling: 112_107n },
   token_2022_swap: { measuredMaximum: 66_500n, ceiling: 69_825n },
 };
