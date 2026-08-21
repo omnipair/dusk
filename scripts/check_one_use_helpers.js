@@ -187,6 +187,7 @@ const instructionTestPlacementErrors = [];
 for (const [file, originalSource] of originalSources) {
   const instructionSource =
     file.startsWith("programs/dusk/src/instructions/") ||
+    file.startsWith("programs/leverage_delegate/src/instructions/") ||
     file === "programs/leverage_delegate/src/lib.rs" ||
     file === "programs/faucet/src/lib.rs";
   if (!instructionSource) continue;
@@ -215,7 +216,7 @@ for (const [file, originalSource] of originalSources) {
       close += 1;
     }
     const moduleSource = open >= 0 ? originalSource.slice(open, close) : "";
-    const includeDirectory = file.startsWith("programs/dusk/src/instructions/")
+    const includeDirectory = file.includes("/src/instructions/")
       ? "tests/instructions/"
       : "tests/";
     const bridgePattern = new RegExp(
@@ -478,9 +479,12 @@ const acceptedOneUseHelpers = new Map([
       "isolated_clearance_for_max",
     ]),
   ],
-  ["programs/leverage_delegate/src/entry.rs", new Set(["verify_opened_position", "escrow_margin_after_bounty"])],
   [
-    "programs/leverage_delegate/src/lib.rs",
+    "programs/leverage_delegate/src/instructions/entry/common.rs",
+    new Set(["verify_opened_position", "escrow_margin_after_bounty"]),
+  ],
+  [
+    "programs/leverage_delegate/src/instructions/hlp/common.rs",
     new Set(["withdraw_hlp_order_position", "validate_hlp_order_kind", "hlp_order_trigger_met"]),
   ],
 ]);
