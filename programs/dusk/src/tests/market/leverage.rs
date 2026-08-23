@@ -1432,7 +1432,7 @@ fn solvent_liquidation_closes_position_and_pays_residual_incentive() {
     );
 
     let receipt = market
-        .liquidate_leverage(
+        .liquidate_leverage_position(
             &mut position,
             prepared_liquidation,
             fee_credit,
@@ -1471,7 +1471,7 @@ fn insolvent_liquidation_socializes_unrepaid_principal() {
     );
 
     let receipt = market
-        .liquidate_leverage(
+        .liquidate_leverage_position(
             &mut position,
             prepared_liquidation,
             fee_credit,
@@ -1537,7 +1537,7 @@ fn insolvent_liquidation_does_not_socialize_phantom_unpaid_interest() {
     );
 
     let receipt = market
-        .liquidate_leverage(
+        .liquidate_leverage_position(
             &mut position,
             prepared_liquidation,
             full_fee_credit(&quote),
@@ -1579,7 +1579,7 @@ fn pure_unpaid_interest_writeoff_refreshes_the_stored_curve_checkpoint() {
     );
 
     let receipt = market
-        .liquidate_leverage(
+        .liquidate_leverage_position(
             &mut position,
             prepared_liquidation,
             full_fee_credit(&quote),
@@ -1731,7 +1731,7 @@ fn explicit_leverage_liquidation_uses_the_same_integrated_transition() {
     assert!(prepared.swap.explicit_curve);
     let fee_credit = full_fee_credit(&prepared.swap);
     let receipt = market
-        .liquidate_leverage(
+        .liquidate_leverage_position(
             &mut position,
             prepared,
             fee_credit,
@@ -1766,7 +1766,7 @@ fn explicit_socialized_loss_rebases_curve_then_restores_exact_hlp_hedges() {
     );
     let fee_credit = full_fee_credit(&prepared.swap);
     let receipt = market
-        .liquidate_leverage(
+        .liquidate_leverage_position(
             &mut position,
             prepared,
             fee_credit,

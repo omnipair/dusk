@@ -366,16 +366,16 @@
       ]
     },
     {
-      "name": "bid_liquidation_auction",
+      "name": "fill_liquidation_auction",
       "discriminator": [
-        6,
-        223,
-        30,
-        228,
-        147,
-        197,
-        27,
-        49
+        23,
+        118,
+        124,
+        101,
+        191,
+        2,
+        44,
+        147
       ],
       "accounts": [
         {
@@ -579,7 +579,7 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "BidLiquidationAuctionArgs"
+              "name": "FillLiquidationAuctionArgs"
             }
           }
         }
@@ -967,16 +967,16 @@
       "args": []
     },
     {
-      "name": "claim_yield",
+      "name": "harvest",
       "discriminator": [
-        49,
-        74,
-        111,
-        7,
-        186,
-        22,
-        61,
-        165
+        228,
+        241,
+        31,
+        182,
+        53,
+        169,
+        59,
+        199
       ],
       "accounts": [
         {
@@ -1093,7 +1093,7 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "ClaimYieldArgs"
+              "name": "HarvestArgs"
             }
           }
         }
@@ -2661,16 +2661,16 @@
       ]
     },
     {
-      "name": "donate_insurance",
+      "name": "fortify_market",
       "discriminator": [
-        24,
-        11,
-        132,
-        174,
+        76,
+        16,
         126,
-        186,
-        208,
-        90
+        53,
+        167,
+        6,
+        213,
+        2
       ],
       "accounts": [
         {
@@ -2772,7 +2772,7 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "DonateInsuranceArgs"
+              "name": "FortifyMarketArgs"
             }
           }
         }
@@ -2868,21 +2868,21 @@
       "args": []
     },
     {
-      "name": "graduate_market",
+      "name": "open_liquidity_gates",
       "docs": [
         "Permissionless launch adapters use the same fully-backed seeding path",
         "as ordinary yLP deposits. The initializer is the one-shot authority;",
         "after this succeeds, subsequent liquidity is permissionless."
       ],
       "discriminator": [
-        202,
-        28,
-        33,
-        115,
+        84,
+        83,
+        110,
+        45,
+        185,
+        4,
         186,
-        96,
-        1,
-        90
+        222
       ],
       "accounts": [
         {
@@ -4265,7 +4265,7 @@
       ]
     },
     {
-      "name": "liquidate_exhausted_hlp",
+      "name": "close_insolvent_hlp",
       "docs": [
         "Permissionlessly closes an hLP after passive funding has exhausted its",
         "marked collateral. Insurance reimburses the borrowed-asset shortfall",
@@ -4273,14 +4273,14 @@
         "interest. Ordinary swaps retain their existing account list."
       ],
       "discriminator": [
-        240,
-        209,
-        152,
-        23,
-        129,
-        28,
-        166,
-        8
+        158,
+        172,
+        48,
+        134,
+        121,
+        161,
+        194,
+        168
       ],
       "accounts": [
         {
@@ -4364,14 +4364,14 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "LiquidateExhaustedHlpArgs"
+              "name": "CloseInsolventHlpArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "liquidate_hlp",
+      "name": "rescue_hlp",
       "docs": [
         "Permissionless critical hLP recovery. The caller supplies the hLP's",
         "borrowed asset and receives target collateral through the same exact",
@@ -4380,14 +4380,14 @@
         "the 9/8 funding-stress boundary."
       ],
       "discriminator": [
-        21,
-        45,
-        129,
-        212,
-        235,
-        140,
-        120,
-        17
+        239,
+        94,
+        221,
+        13,
+        146,
+        4,
+        109,
+        34
       ],
       "accounts": [
         {
@@ -4544,16 +4544,16 @@
       ]
     },
     {
-      "name": "liquidate_leverage",
+      "name": "liquidate_leverage_position",
       "discriminator": [
-        188,
-        132,
-        10,
-        83,
-        171,
-        78,
-        116,
-        41
+        216,
+        72,
+        237,
+        223,
+        248,
+        209,
+        157,
+        165
       ],
       "accounts": [
         {
@@ -4665,7 +4665,7 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "LiquidateLeverageArgs"
+              "name": "LiquidateLeveragePositionArgs"
             }
           }
         }
@@ -6243,16 +6243,16 @@
       ]
     },
     {
-      "name": "settle_liquidation_auction_floor",
+      "name": "backstop_liquidation_auction",
       "discriminator": [
-        46,
-        93,
-        87,
-        78,
-        85,
-        49,
-        137,
-        121
+        135,
+        15,
+        50,
+        11,
+        76,
+        252,
+        83,
+        24
       ],
       "accounts": [
         {
@@ -6456,7 +6456,7 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "SettleLiquidationAuctionFloorArgs"
+              "name": "BackstopLiquidationAuctionArgs"
             }
           }
         }
@@ -6966,16 +6966,16 @@
       ]
     },
     {
-      "name": "trigger_liquidation_auction",
+      "name": "start_liquidation_auction",
       "discriminator": [
-        181,
-        172,
-        83,
-        88,
-        101,
-        55,
-        246,
-        111
+        32,
+        210,
+        115,
+        53,
+        58,
+        3,
+        225,
+        120
       ],
       "accounts": [
         {
@@ -9953,7 +9953,7 @@
       }
     },
     {
-      "name": "BidLiquidationAuctionArgs",
+      "name": "FillLiquidationAuctionArgs",
       "type": {
         "kind": "struct",
         "fields": [
@@ -10313,7 +10313,7 @@
       }
     },
     {
-      "name": "ClaimYieldArgs",
+      "name": "HarvestArgs",
       "type": {
         "kind": "struct",
         "fields": [
@@ -10690,7 +10690,7 @@
       }
     },
     {
-      "name": "DonateInsuranceArgs",
+      "name": "FortifyMarketArgs",
       "type": {
         "kind": "struct",
         "fields": [
@@ -12230,7 +12230,7 @@
       }
     },
     {
-      "name": "LiquidateExhaustedHlpArgs",
+      "name": "CloseInsolventHlpArgs",
       "type": {
         "kind": "struct",
         "fields": [
@@ -12250,7 +12250,7 @@
       }
     },
     {
-      "name": "LiquidateLeverageArgs",
+      "name": "LiquidateLeveragePositionArgs",
       "type": {
         "kind": "struct",
         "fields": [
@@ -14995,7 +14995,7 @@
       }
     },
     {
-      "name": "SettleLiquidationAuctionFloorArgs",
+      "name": "BackstopLiquidationAuctionArgs",
       "type": {
         "kind": "struct",
         "fields": [

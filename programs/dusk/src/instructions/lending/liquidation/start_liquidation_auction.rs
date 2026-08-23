@@ -8,7 +8,7 @@ use crate::{
 };
 
 #[derive(Accounts)]
-pub struct TriggerLiquidationAuction<'info> {
+pub struct StartLiquidationAuction<'info> {
     #[account(
         mut,
         seeds = [
@@ -35,7 +35,7 @@ pub struct TriggerLiquidationAuction<'info> {
     pub debt_asset_mint: Box<InterfaceAccount<'info, Mint>>,
 }
 
-impl<'info> TriggerLiquidationAuction<'info> {
+impl<'info> StartLiquidationAuction<'info> {
     pub fn validate(&self) -> Result<()> {
         self.market.assert_started()?;
         require_keys_eq!(
@@ -48,7 +48,7 @@ impl<'info> TriggerLiquidationAuction<'info> {
 
     crate::instructions::accounts::market_update_and_validate!();
 
-    pub fn handle_trigger(ctx: Context<Self>) -> Result<()> {
+    pub fn handle_start(ctx: Context<Self>) -> Result<()> {
         let debt_asset_mint_key = ctx.accounts.debt_asset_mint.key();
         let debt_asset = ctx.accounts.market.asset_for_mint(debt_asset_mint_key)?;
 

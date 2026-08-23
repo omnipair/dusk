@@ -32,7 +32,7 @@ pub struct SwapArgs {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SwapExecutionMode {
     Ordinary,
-    CriticalHlpLiquidation,
+    HlpRecovery,
 }
 
 #[event_cpi]
@@ -185,8 +185,8 @@ impl<'info> Swap<'info> {
             protocol_fee_bps,
         }
         .prepare(&mut ctx.accounts.market)?;
-        if mode == SwapExecutionMode::CriticalHlpLiquidation {
-            require_critical_hlp_liquidation(prepared.quote.recovery, asset_in)?;
+        if mode == SwapExecutionMode::HlpRecovery {
+            require_hlp_recovery_swap(prepared.quote.recovery, asset_in)?;
         }
         let finalized = prepared.finalize_state(
             &mut ctx.accounts.market,
@@ -333,7 +333,7 @@ impl<'info> Swap<'info> {
     }
 }
 
-fn require_critical_hlp_liquidation(recovery: HlpRecoveryBreakdown, asset_in: MarketAsset) -> Result<()> {
+fn require_hlp_recovery_swap(recovery: HlpRecoveryBreakdown, asset_in: MarketAsset) -> Result<()> {
     require!(
         recovery.critical
             && recovery.matched_input > 0

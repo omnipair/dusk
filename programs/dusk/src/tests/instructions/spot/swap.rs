@@ -235,7 +235,7 @@ fn permissionless_hlp_liquidation_requires_a_critical_funded_recovery() {
         discount_bps: 500,
         critical: true,
     };
-    require_critical_hlp_liquidation(eligible, MarketAsset::Base).unwrap();
+    require_hlp_recovery_swap(eligible, MarketAsset::Base).unwrap();
 
     for rejected in [
         HlpRecoveryBreakdown {
@@ -256,7 +256,7 @@ fn permissionless_hlp_liquidation_requires_a_critical_funded_recovery() {
         },
     ] {
         assert_eq!(
-            require_critical_hlp_liquidation(rejected, MarketAsset::Base).unwrap_err(),
+            require_hlp_recovery_swap(rejected, MarketAsset::Base).unwrap_err(),
             error!(ErrorCode::HlpNotLiquidatable)
         );
     }

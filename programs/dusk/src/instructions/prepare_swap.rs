@@ -84,7 +84,7 @@ fn launch_price_moving_instruction(data: &[u8]) -> bool {
         || discriminator == crate::instruction::IncreaseLeverage::DISCRIMINATOR
         || discriminator == crate::instruction::DecreaseLeverage::DISCRIMINATOR
         || discriminator == crate::instruction::CloseLeverage::DISCRIMINATOR
-        || discriminator == crate::instruction::LiquidateLeverage::DISCRIMINATOR
+        || discriminator == crate::instruction::LiquidateLeveragePosition::DISCRIMINATOR
 }
 
 /// State-only preparation shared by preview and execution. `finalize_state`

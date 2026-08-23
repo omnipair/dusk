@@ -16,15 +16,15 @@ use crate::{
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DonateInsuranceArgs {
+pub struct FortifyMarketArgs {
     pub asset: u8,
     pub amount: u64,
 }
 
 #[event_cpi]
 #[derive(Accounts)]
-#[instruction(args: DonateInsuranceArgs)]
-pub struct DonateInsurance<'info> {
+#[instruction(args: FortifyMarketArgs)]
+pub struct FortifyMarket<'info> {
     #[account(
         mut,
         seeds = [
@@ -52,8 +52,8 @@ pub struct DonateInsurance<'info> {
     pub token_2022_program: Program<'info, Token2022>,
 }
 
-impl<'info> DonateInsurance<'info> {
-    pub fn validate(&self, args: &DonateInsuranceArgs) -> Result<()> {
+impl<'info> FortifyMarket<'info> {
+    pub fn validate(&self, args: &FortifyMarketArgs) -> Result<()> {
         self.market.assert_current_version()?;
         require!(args.amount > 0, ErrorCode::AmountZero);
         let asset = MarketAsset::try_from_code(args.asset)?;
@@ -74,7 +74,7 @@ impl<'info> DonateInsurance<'info> {
         require_supported_asset_mint(&self.asset_mint)
     }
 
-    pub fn handle_donate(ctx: Context<'_, '_, '_, 'info, Self>, args: DonateInsuranceArgs) -> Result<()> {
+    pub fn handle_fortify(ctx: Context<'_, '_, '_, 'info, Self>, args: FortifyMarketArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let donor_key = ctx.accounts.donor.key();
         let asset = MarketAsset::try_from_code(args.asset)?;

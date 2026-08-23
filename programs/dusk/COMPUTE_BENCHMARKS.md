@@ -185,11 +185,11 @@ ceiling.
 | `add_liquidity` | 235 | 227,185 | 634,554 | 53.00% |
 | `swap` | 170 | 207,403 | 490,651 | 63.66% |
 | `preview_swap` | 65 | 220,523 | 441,642 | 67.29% |
-| `settle_liquidation_auction_floor` | 5 | 260,654 | 260,654 | 80.70% |
+| `backstop_liquidation_auction` | 5 | 260,654 | 260,654 | 80.70% |
 | `repay` | 30 | 184,347 | 253,241 | 81.25% |
 | `borrow` | 40 | 184,414 | 227,263 | 83.17% |
 | `preview_borrow_capacity` | 10 | 219,631 | 220,324 | 83.68% |
-| `bid_liquidation_auction` | 5 | 218,061 | 218,061 | 83.85% |
+| `fill_liquidation_auction` | 5 | 218,061 | 218,061 | 83.85% |
 | `delegated_close_leverage` | 5 | 201,823 | 203,923 | 84.90% |
 | `preview_borrow_position` | 10 | 161,657 | 187,215 | 86.14% |
 | `open_leverage` | 25 | 132,970 | 169,232 | 87.47% |
@@ -197,12 +197,12 @@ ceiling.
 | `initialize_yield_accounts` | 80 | 46,469 | 167,659 | 87.59% |
 | `add_leverage_margin` | 10 | 121,301 | 164,263 | 87.84% |
 | `initialize_market` | 250 | 130,568 | 163,700 | 87.88% |
-| `trigger_liquidation_auction` | 10 | 128,662 | 128,662 | 90.47% |
+| `start_liquidation_auction` | 10 | 128,662 | 128,662 | 90.47% |
 | `decrease_leverage` | 5 | 120,579 | 124,479 | 90.78% |
 | `increase_leverage` | 10 | 113,244 | 117,595 | 91.29% |
 | `close_leverage` | 5 | 113,082 | 115,182 | 91.47% |
 | `withdraw_single_sided` | 15 | 104,516 | 111,623 | 91.74% |
-| `liquidate_leverage` | 5 | 97,333 | 101,233 | 92.51% |
+| `liquidate_leverage_position` | 5 | 97,333 | 101,233 | 92.51% |
 | `create_parameter_proposal` | 10 | 85,620 | 97,913 | 92.75% |
 | `remove_liquidity` | 10 | 82,896 | 88,893 | 93.42% |
 | `remove_leverage_margin` | 5 | 83,487 | 83,487 | 93.82% |
@@ -214,7 +214,7 @@ ceiling.
 | `withdraw_collateral` | 5 | 55,567 | 55,567 | 95.89% |
 | `withdraw_parameter_support` | 5 | 52,141 | 54,241 | 95.99% |
 | `execute_parameter_proposal` | 5 | 54,093 | 54,093 | 96.00% |
-| `claim_yield` | 5 | 52,000 | 53,200 | 96.06% |
+| `harvest` | 5 | 52,000 | 53,200 | 96.06% |
 | `settle_protocol_auction` | 10 | 51,125 | 51,127 | 96.22% |
 | `preview_add_liquidity` | 15 | 31,067 | 34,372 | 97.46% |
 | `initialize_lp_transfer_hook` | 15 | 22,546 | 30,165 | 97.77% |

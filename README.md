@@ -89,7 +89,7 @@ Normal LPs enter with `add_liquidity`, depositing both assets at the current mar
 asset_claim = user_ylp_shares * live_reserve / total_ylp_supply
 ```
 
-Base swap fees, distributed dynamic surcharge, and borrow interest do not auto-compound into principal reserves. Swap-fee liabilities stay physically in the reserve vault as `swap_fee_custody_balance`, outside executable `cash_reserve`; interest liabilities stay in the side-specific interest vault. Public-borrow interest uses the all-yLP growth lane, while hLP funding interest uses a separate non-hLP denominator and source-specific rounding carry. Both are claimed through `claim_yield`. Dynamic surcharge retained while recenter protection is being funded enters a custody-backed, non-quoteable Base/Quote bucket. A later admitted recenter deploys that bucket; ordinary yLP withdrawals cannot claim it. Once protection is no longer retaining, new surcharge returns to claimable yLP/hLP yield.
+Base swap fees, distributed dynamic surcharge, and borrow interest do not auto-compound into principal reserves. Swap-fee liabilities stay physically in the reserve vault as `swap_fee_custody_balance`, outside executable `cash_reserve`; interest liabilities stay in the side-specific interest vault. Public-borrow interest uses the all-yLP growth lane, while hLP funding interest uses a separate non-hLP denominator and source-specific rounding carry. Both are collected through `harvest`. Dynamic surcharge retained while recenter protection is being funded enters a custody-backed, non-quoteable Base/Quote bucket. A later admitted recenter deploys that bucket; ordinary yLP withdrawals cannot claim it. Once protection is no longer retaining, new surcharge returns to claimable yLP/hLP yield.
 
 ## Isolated Leverage
 
@@ -210,7 +210,7 @@ withdraw_parameter_support
 add_liquidity
 remove_liquidity
 set_yield_recipient
-claim_yield
+harvest
 swap
 deposit_collateral
 withdraw_collateral
@@ -220,9 +220,9 @@ configure_referral_partner
 initialize_referral_accrual
 set_referral_recipient
 claim_referral_interest
-trigger_liquidation_auction
-bid_liquidation_auction
-settle_liquidation_auction_floor
+start_liquidation_auction
+fill_liquidation_auction
+backstop_liquidation_auction
 deposit_single_sided
 withdraw_single_sided
 open_leverage
@@ -232,7 +232,7 @@ increase_leverage
 decrease_leverage
 add_leverage_margin
 remove_leverage_margin
-liquidate_leverage
+liquidate_leverage_position
 create_leverage_delegation
 update_leverage_delegation
 close_leverage_delegation

@@ -29,13 +29,13 @@ use crate::instructions::referral::accounting::{referral_interest_accrued_event_
 use crate::instructions::{enforce_launch_same_transaction_guard, SwapRequest};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct LiquidateLeverageArgs {
+pub struct LiquidateLeveragePositionArgs {
     pub debt_asset: u8,
 }
 
 #[event_cpi]
 #[derive(Accounts)]
-pub struct LiquidateLeverage<'info> {
+pub struct LiquidateLeveragePosition<'info> {
     #[account(mut)]
     pub market: Box<Account<'info, Market>>,
 
@@ -81,8 +81,8 @@ pub struct LiquidateLeverage<'info> {
     pub token_2022_program: Program<'info, Token2022>,
 }
 
-impl<'info> LiquidateLeverage<'info> {
-    pub fn validate_at(&self, args: &LiquidateLeverageArgs, unix_timestamp: i64) -> Result<()> {
+impl<'info> LiquidateLeveragePosition<'info> {
+    pub fn validate_at(&self, args: &LiquidateLeveragePositionArgs, unix_timestamp: i64) -> Result<()> {
         validate_leverage_market_pda(&self.market, self.market.key())?;
         validate_leverage_futarchy_pda(self.futarchy_authority.bump, self.futarchy_authority.key())?;
         self.market.assert_started_at(unix_timestamp)?;
@@ -160,9 +160,9 @@ impl<'info> LiquidateLeverage<'info> {
         Ok(())
     }
 
-    pub fn handle_liquidate(
+    pub fn handle_liquidate_position(
         mut ctx: Context<'_, '_, '_, 'info, Self>,
-        args: LiquidateLeverageArgs,
+        args: LiquidateLeveragePositionArgs,
         current_slot: u64,
         current_unix_timestamp: i64,
     ) -> Result<()> {
@@ -219,7 +219,7 @@ impl<'info> LiquidateLeverage<'info> {
         let swap_fee_credit = leverage_swap_fee_credit(&prepared_swap.swap)?;
 
         // Commit liquidation accounting and settle the resulting hLP exposure.
-        let receipt = ctx.accounts.market.liquidate_leverage(
+        let receipt = ctx.accounts.market.liquidate_leverage_position(
             &mut ctx.accounts.leverage_position,
             prepared_swap,
             swap_fee_credit,
@@ -243,7 +243,7 @@ impl<'info> LiquidateLeverage<'info> {
 /// and accounting remain identical to the handler path.
 #[inline(never)]
 fn finish_liquidation<'info>(
-    ctx: &mut Context<'_, '_, '_, 'info, LiquidateLeverage<'info>>,
+    ctx: &mut Context<'_, '_, '_, 'info, LiquidateLeveragePosition<'info>>,
     debt_asset: MarketAsset,
     receipt: &LeverageLiquidationReceipt,
     swap_fee_credit: LeverageSwapFeeCredit,

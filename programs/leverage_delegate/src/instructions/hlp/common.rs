@@ -155,10 +155,10 @@ pub(super) fn claim_hlp_yield_if_available<'info>(
     if accrued_swap_fee_amount == 0 && accrued_interest_amount == 0 {
         return Ok(());
     }
-    dusk::cpi::claim_yield(
+    dusk::cpi::harvest(
         CpiContext::new_with_signer(
             dusk_program.clone(),
-            dusk::cpi::accounts::ClaimYield {
+            dusk::cpi::accounts::Harvest {
                 market,
                 owner,
                 asset_mint,
@@ -176,7 +176,7 @@ pub(super) fn claim_hlp_yield_if_available<'info>(
             signer,
         )
         .with_remaining_accounts(remaining_accounts.to_vec()),
-        ClaimYieldArgs {
+        HarvestArgs {
             token_kind: YieldTokenKind::Hlp,
         },
     )

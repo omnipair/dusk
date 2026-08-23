@@ -80,7 +80,7 @@ mainnet launch or upgrade.
 - Re-check liquidation accounting for collateral seizure, insurance draw, and
   LP socialization.
 - Confirm the selected external-auction policy documented in
-  `CONCENTRATION.md`: `settle_liquidation_auction_floor` requires an external
+  `CONCENTRATION.md`: `backstop_liquidation_auction` requires an external
   debt-token payer and does not provide an AMM-backed liquidation guarantee.
   Test floor eligibility, external funding, insurance limits, socialization
   limits, and the absence of any AMM conversion.

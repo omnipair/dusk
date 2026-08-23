@@ -1482,7 +1482,7 @@ impl Market {
         }))
     }
 
-    pub fn liquidate_leverage(
+    pub fn liquidate_leverage_position(
         &mut self,
         position: &mut LeveragePosition,
         mut prepared_swap: PreparedLeverageSwap,

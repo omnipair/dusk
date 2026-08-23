@@ -42,7 +42,7 @@ fn leverage_public_paths_validate_runtime_control_pdas_before_mutation() {
     let open = include_str!("../../../instructions/leverage/open_leverage.rs");
     let close = include_str!("../../../instructions/leverage/close_leverage.rs");
     let decrease = include_str!("../../../instructions/leverage/decrease_leverage.rs");
-    let liquidate = include_str!("../../../instructions/leverage/liquidate_leverage.rs");
+    let liquidate = include_str!("../../../instructions/leverage/liquidate_leverage_position.rs");
     let lib = include_str!("../../../lib.rs");
     let boxed_runtime_guard = "validate_leverage_market_pda(&self.market, self.market.key())?;";
     let futarchy_guard =
@@ -51,7 +51,7 @@ fn leverage_public_paths_validate_runtime_control_pdas_before_mutation() {
 
     for (source, validator, handler) in [
         (open, "pub fn validate_at", "pub fn handle_open"),
-        (liquidate, "pub fn validate_at", "pub fn handle_liquidate"),
+        (liquidate, "pub fn validate_at", "pub fn handle_liquidate_position"),
     ] {
         assert!(source.contains(boxed_account));
         let validator_start = source.find(validator).unwrap();
@@ -107,9 +107,9 @@ fn leverage_public_paths_validate_runtime_control_pdas_before_mutation() {
             "DecreaseLeverage::handle_decrease",
         ),
         (
-            "pub fn liquidate_leverage<'info>",
+            "pub fn liquidate_leverage_position<'info>",
             "ctx.accounts.validate_at",
-            "LiquidateLeverage::handle_liquidate",
+            "LiquidateLeveragePosition::handle_liquidate_position",
         ),
     ] {
         let entrypoint_start = lib.find(entrypoint).unwrap();

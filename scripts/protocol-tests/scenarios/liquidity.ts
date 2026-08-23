@@ -272,7 +272,7 @@ export const LIQUIDITY_SCENARIOS: ScenarioDefinition[] = [
     },
   },
   {
-    id: "liquidity.yield-recipient-and-claim",
+    id: "liquidity.yield-recipient-and-harvest",
     async run(harness) {
       const trader = harness.wallet("trader").publicKey.toBase58();
       const bob = harness.wallet("bob").publicKey.toBase58();
@@ -342,7 +342,7 @@ export const LIQUIDITY_SCENARIOS: ScenarioDefinition[] = [
     },
   },
   {
-    id: "liquidity.yield-rounding-and-empty-claim",
+    id: "liquidity.yield-rounding-and-empty-harvest",
     async run(harness) {
       const trader = harness.wallet("trader").publicKey.toBase58();
       const before = await harness.yieldAccount("trader", "base", "ylp");

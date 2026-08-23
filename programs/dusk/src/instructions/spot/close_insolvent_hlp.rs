@@ -21,7 +21,7 @@ use crate::{
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct LiquidateExhaustedHlpArgs {
+pub struct CloseInsolventHlpArgs {
     pub target_asset: u8,
     pub max_insurance_draw: u64,
     pub max_socialized_loss: u64,
@@ -29,7 +29,7 @@ pub struct LiquidateExhaustedHlpArgs {
 
 #[event_cpi]
 #[derive(Accounts)]
-pub struct LiquidateExhaustedHlp<'info> {
+pub struct CloseInsolventHlp<'info> {
     #[account(mut)]
     pub market: Box<Account<'info, Market>>,
     pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
@@ -50,8 +50,8 @@ pub struct LiquidateExhaustedHlp<'info> {
     pub token_2022_program: Program<'info, Token2022>,
 }
 
-impl<'info> LiquidateExhaustedHlp<'info> {
-    pub fn validate(&self, args: &LiquidateExhaustedHlpArgs) -> Result<()> {
+impl<'info> CloseInsolventHlp<'info> {
+    pub fn validate(&self, args: &CloseInsolventHlpArgs) -> Result<()> {
         validate_hlp_authority_pdas(
             &self.market,
             self.market.key(),
@@ -115,7 +115,7 @@ impl<'info> LiquidateExhaustedHlp<'info> {
         validate_lp_mint(&self.ylp_mint, self.market.key(), self.market.base_side.asset_decimals)
     }
 
-    pub fn update_and_validate(&mut self, args: &LiquidateExhaustedHlpArgs) -> Result<u64> {
+    pub fn update_and_validate(&mut self, args: &CloseInsolventHlpArgs) -> Result<u64> {
         self.validate(args)?;
         let current_slot = Clock::get()?.slot;
         self.market.accrue_interest_to_slot(current_slot)?;
@@ -129,7 +129,7 @@ impl<'info> LiquidateExhaustedHlp<'info> {
 
     pub fn handle(
         ctx: Context<'_, '_, '_, 'info, Self>,
-        args: LiquidateExhaustedHlpArgs,
+        args: CloseInsolventHlpArgs,
         current_slot: u64,
     ) -> Result<()> {
         let target_asset = MarketAsset::try_from_code(args.target_asset)?;

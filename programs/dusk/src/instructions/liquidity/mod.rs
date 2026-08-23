@@ -1,11 +1,11 @@
-mod claim_yield;
+mod harvest;
 mod hlp;
 mod initialize_lp_transfer_hook;
 mod initialize_yield_accounts;
 mod set_yield_recipient;
 mod ylp;
 
-pub use claim_yield::*;
+pub use harvest::*;
 pub use hlp::*;
 pub use initialize_lp_transfer_hook::*;
 pub use initialize_yield_accounts::*;

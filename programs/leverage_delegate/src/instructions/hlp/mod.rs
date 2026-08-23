@@ -6,7 +6,7 @@ use anchor_spl::{
 };
 use dusk::{
     constants::{BPS_DENOMINATOR, MARKET_LAYOUT_VERSION},
-    instructions::{ClaimYieldArgs, SetYieldRecipientArgs, WithdrawSingleSidedArgs},
+    instructions::{HarvestArgs, SetYieldRecipientArgs, WithdrawSingleSidedArgs},
     math::numerics::ceil_div,
     program::Dusk,
     state::{FutarchyAuthority, Market, MarketAsset, YieldAccount, YieldTokenKind},

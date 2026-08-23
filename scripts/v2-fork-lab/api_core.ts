@@ -2873,7 +2873,7 @@ async function buildSetYieldRecipientTx(params: {
   return serializeOwnerTransaction(params.owner, [instruction]);
 }
 
-async function buildClaimYieldTx(params: {
+async function buildHarvestTx(params: {
   owner: PublicKey;
   market: StoredMarket;
   asset: MarketAsset;
@@ -2905,7 +2905,7 @@ async function buildClaimYieldTx(params: {
   );
   instructions.push(
     await program.methods
-      .claimYield({ tokenKind: params.tokenKind === "ylp" ? { ylp: {} } : { hlp: {} } })
+      .harvest({ tokenKind: params.tokenKind === "ylp" ? { ylp: {} } : { hlp: {} } })
       .accounts({
         market: m.market,
         owner: params.owner,
@@ -4216,7 +4216,7 @@ async function buildDelegatedCloseLeverageTx(params: {
   };
 }
 
-async function buildLiquidateLeverageTx(params: {
+async function buildLiquidateLeveragePositionTx(params: {
   liquidator: PublicKey;
   positionOwner: PublicKey;
   market: StoredMarket;
@@ -4251,7 +4251,7 @@ async function buildLiquidateLeverageTx(params: {
   );
   instructions.push(
     await program.methods
-      .liquidateLeverage({ debtAsset: debtIsBase ? 0 : 1 })
+      .liquidateLeveragePosition({ debtAsset: debtIsBase ? 0 : 1 })
       .accounts({
         market: m.market,
         futarchyAuthority: m.futarchyAuthority,
@@ -4283,7 +4283,7 @@ async function buildLiquidateLeverageTx(params: {
   };
 }
 
-async function buildTriggerLiquidationAuctionTx(params: {
+async function buildStartLiquidationAuctionTx(params: {
   payer: PublicKey;
   market: StoredMarket;
   positionId: PublicKey;
@@ -4292,7 +4292,7 @@ async function buildTriggerLiquidationAuctionTx(params: {
   const { program } = initializeRuntime();
   const m = marketFromStored(params.market);
   const instruction = await program.methods
-    .triggerLiquidationAuction()
+    .startLiquidationAuction()
     .accounts({
       market: m.market,
       borrowPosition: deriveBorrowPosition(m.market, params.positionId),
@@ -4302,7 +4302,7 @@ async function buildTriggerLiquidationAuctionTx(params: {
   return serializeOwnerTransaction(params.payer, [instruction]);
 }
 
-async function buildBidLiquidationAuctionTx(params: {
+async function buildFillLiquidationAuctionTx(params: {
   liquidator: PublicKey;
   market: StoredMarket;
   positionId: PublicKey;
@@ -4336,7 +4336,7 @@ async function buildBidLiquidationAuctionTx(params: {
   );
   instructions.push(
     await program.methods
-      .bidLiquidationAuction({
+      .fillLiquidationAuction({
         repayAmount: toBN(params.repayAmount),
         minCollateralOut: toBN(params.minCollateralOut),
       })
@@ -4366,7 +4366,7 @@ async function buildBidLiquidationAuctionTx(params: {
   return serializeOwnerTransaction(params.liquidator, instructions);
 }
 
-async function buildSettleLiquidationAuctionFloorTx(params: {
+async function buildBackstopLiquidationAuctionTx(params: {
   liquidator: PublicKey;
   market: StoredMarket;
   positionId: PublicKey;
@@ -4402,7 +4402,7 @@ async function buildSettleLiquidationAuctionFloorTx(params: {
   );
   instructions.push(
     await program.methods
-      .settleLiquidationAuctionFloor({
+      .backstopLiquidationAuction({
         repayAmount: toBN(params.repayAmount),
         minCollateralOut: toBN(params.minCollateralOut),
         maxInsuranceDraw: toBN(params.maxInsuranceDraw),
@@ -5242,7 +5242,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     const asset = assetFromBody(body.asset, "base");
     const tokenKind = yieldTokenKindFromBody(body.tokenKind, "ylp");
     const recipient = new PublicKey(String(body.recipient ?? owner.toBase58()));
-    const transaction = await buildClaimYieldTx({ owner, market: stored, asset, tokenKind, recipient });
+    const transaction = await buildHarvestTx({ owner, market: stored, asset, tokenKind, recipient });
     return txResponse("claim-yield", owner, stored, transaction, {
       asset,
       tokenKind,
@@ -5727,7 +5727,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     const positionId = requiredPositionId(body);
     const positionOwner = new PublicKey(String(body.positionOwner ?? ""));
     const debtAsset = assetFromBody(body.debtAsset ?? body.asset, "quote");
-    const built = await buildLiquidateLeverageTx({
+    const built = await buildLiquidateLeveragePositionTx({
       liquidator: owner,
       positionOwner,
       market: stored,
@@ -5747,7 +5747,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
   if (path === "/api/v2/fork/tx/trigger-liquidation-auction") {
     const positionId = requiredPositionId(body);
     const debtAsset = assetFromBody(body.debtAsset ?? body.asset, "quote");
-    const transaction = await buildTriggerLiquidationAuctionTx({
+    const transaction = await buildStartLiquidationAuctionTx({
       payer: owner,
       market: stored,
       positionId,
@@ -5765,7 +5765,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     const debtAsset = assetFromBody(body.debtAsset ?? body.asset, "quote");
     const debtDecimals = debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
     const collateralDecimals = debtAsset === "base" ? stored.quoteDecimals : stored.baseDecimals;
-    const transaction = await buildBidLiquidationAuctionTx({
+    const transaction = await buildFillLiquidationAuctionTx({
       liquidator: owner,
       market: stored,
       positionId,
@@ -5784,7 +5784,7 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     const debtAsset = assetFromBody(body.debtAsset ?? body.asset, "quote");
     const debtDecimals = debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
     const collateralDecimals = debtAsset === "base" ? stored.quoteDecimals : stored.baseDecimals;
-    const transaction = await buildSettleLiquidationAuctionFloorTx({
+    const transaction = await buildBackstopLiquidationAuctionTx({
       liquidator: owner,
       market: stored,
       positionId,

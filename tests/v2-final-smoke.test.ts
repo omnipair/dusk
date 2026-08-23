@@ -4896,7 +4896,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     await swapBaseForQuote(fixture);
 
     const claimTx = await program.methods
-      .claimYield({
+      .harvest({
         tokenKind: { ylp: {} },
       })
       .accounts({
@@ -4916,7 +4916,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(claimTx, [payer]);
-    trackV2Instruction("claimYield", this.test?.title);
+    trackV2Instruction("harvest", this.test?.title);
 
     const recipientBalance = await getAccount(connection as any, recipientBaseAccount);
     const yieldClaimedEvent = cpiEvent(claimTx, "yieldClaimed");
@@ -5995,7 +5995,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const quoteDebtSharesBefore = BigInt(positionBefore.fixed_quote_shares.toString());
     const ownerBaseBefore = await getAccount(connection as any, fixture.ownerBaseAccount);
     const triggerAuctionTx = await program.methods
-      .triggerLiquidationAuction()
+      .startLiquidationAuction()
       .accounts({
         market: fixture.market,
         borrowPosition,
@@ -6003,10 +6003,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(triggerAuctionTx, [payer]);
-    trackV2Instruction("triggerLiquidationAuction", this.test?.title);
+    trackV2Instruction("startLiquidationAuction", this.test?.title);
 
     const bidTx = await program.methods
-      .bidLiquidationAuction({
+      .fillLiquidationAuction({
         repayAmount: new BN(1_000),
         minCollateralOut: new BN(1),
       })
@@ -6033,7 +6033,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(bidTx, [payer]);
-    trackV2Instruction("bidLiquidationAuction", this.test?.title);
+    trackV2Instruction("fillLiquidationAuction", this.test?.title);
 
     const liquidationEvent = cpiEvent(bidTx, "borrowPositionLiquidated");
     expect(liquidationEvent.market.toString()).to.equal(fixture.market.toString());
@@ -6124,7 +6124,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     svm.setClock(triggerClock);
 
     const triggerTx = await program.methods
-      .triggerLiquidationAuction()
+      .startLiquidationAuction()
       .accounts({
         market: fixture.market,
         borrowPosition,
@@ -6150,7 +6150,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     svm.setClock(expiredClock);
 
     const settleTx = await program.methods
-      .settleLiquidationAuctionFloor({
+      .backstopLiquidationAuction({
         repayAmount: new BN(1_000),
         minCollateralOut: new BN(1),
         maxInsuranceDraw: new BN(0),
@@ -6179,7 +6179,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(settleTx, [payer]);
-    trackV2Instruction("settleLiquidationAuctionFloor", this.test?.title);
+    trackV2Instruction("backstopLiquidationAuction", this.test?.title);
 
     const afterAccount = svm.getAccount(borrowPosition);
     expect(afterAccount).to.not.equal(null);
@@ -6906,7 +6906,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     );
     const liquidatorBefore = await getAccount(connection as any, liquidatorQuoteAccount);
     const liquidateTx = await program.methods
-      .liquidateLeverage({
+      .liquidateLeveragePosition({
         debtAsset: 1,
       })
       .accounts({
@@ -6932,7 +6932,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(liquidateTx, [payer]);
-    trackV2Instruction("liquidateLeverage", this.test?.title);
+    trackV2Instruction("liquidateLeveragePosition", this.test?.title);
 
     const liquidatorAfter = await getAccount(connection as any, liquidatorQuoteAccount);
     expect(liquidatorAfter.amount >= liquidatorBefore.amount).to.equal(true);

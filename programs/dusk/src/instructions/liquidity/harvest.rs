@@ -19,14 +19,14 @@ use crate::instructions::accounts::{
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct ClaimYieldArgs {
+pub struct HarvestArgs {
     pub token_kind: YieldTokenKind,
 }
 
 #[event_cpi]
 #[derive(Accounts)]
-#[instruction(args: ClaimYieldArgs)]
-pub struct ClaimYield<'info> {
+#[instruction(args: HarvestArgs)]
+pub struct Harvest<'info> {
     #[account(
         mut,
         seeds = [
@@ -72,8 +72,8 @@ pub struct ClaimYield<'info> {
     pub token_2022_program: Program<'info, Token2022>,
 }
 
-impl<'info> ClaimYield<'info> {
-    pub fn validate(&self, args: &ClaimYieldArgs) -> Result<()> {
+impl<'info> Harvest<'info> {
+    pub fn validate(&self, args: &HarvestArgs) -> Result<()> {
         // Bind the requested LP kind and asset to this market.
         let market_asset = self.market.asset_for_mint(self.asset_mint.key())?;
         let market_side = self.market.side(market_asset);
@@ -121,9 +121,9 @@ impl<'info> ClaimYield<'info> {
         )
     }
 
-    crate::instructions::accounts::market_update_and_validate!(ClaimYieldArgs);
+    crate::instructions::accounts::market_update_and_validate!(HarvestArgs);
 
-    pub fn handle_claim(ctx: Context<'_, '_, '_, 'info, Self>, args: ClaimYieldArgs) -> Result<()> {
+    pub fn handle_harvest(ctx: Context<'_, '_, '_, 'info, Self>, args: HarvestArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.owner.key();
         let asset_mint_key = ctx.accounts.asset_mint.key();

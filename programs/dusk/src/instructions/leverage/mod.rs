@@ -3,7 +3,7 @@ pub mod close_leverage;
 pub mod decrease_leverage;
 pub mod delegation;
 pub mod increase_leverage;
-pub mod liquidate_leverage;
+pub mod liquidate_leverage_position;
 pub mod open_leverage;
 pub mod remove_leverage_margin;
 mod settlement;
@@ -13,7 +13,7 @@ pub use close_leverage::*;
 pub use decrease_leverage::*;
 pub use delegation::*;
 pub use increase_leverage::*;
-pub use liquidate_leverage::*;
+pub use liquidate_leverage_position::*;
 pub use open_leverage::*;
 pub use remove_leverage_margin::*;
 

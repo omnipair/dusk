@@ -372,16 +372,16 @@ export type Dusk = {
       ]
     },
     {
-      "name": "bidLiquidationAuction",
+      "name": "fillLiquidationAuction",
       "discriminator": [
-        6,
-        223,
-        30,
-        228,
-        147,
-        197,
-        27,
-        49
+        23,
+        118,
+        124,
+        101,
+        191,
+        2,
+        44,
+        147
       ],
       "accounts": [
         {
@@ -585,7 +585,7 @@ export type Dusk = {
           "name": "args",
           "type": {
             "defined": {
-              "name": "bidLiquidationAuctionArgs"
+              "name": "fillLiquidationAuctionArgs"
             }
           }
         }
@@ -973,16 +973,16 @@ export type Dusk = {
       "args": []
     },
     {
-      "name": "claimYield",
+      "name": "harvest",
       "discriminator": [
-        49,
-        74,
-        111,
-        7,
-        186,
-        22,
-        61,
-        165
+        228,
+        241,
+        31,
+        182,
+        53,
+        169,
+        59,
+        199
       ],
       "accounts": [
         {
@@ -1099,7 +1099,7 @@ export type Dusk = {
           "name": "args",
           "type": {
             "defined": {
-              "name": "claimYieldArgs"
+              "name": "harvestArgs"
             }
           }
         }
@@ -2667,16 +2667,16 @@ export type Dusk = {
       ]
     },
     {
-      "name": "donateInsurance",
+      "name": "fortifyMarket",
       "discriminator": [
-        24,
-        11,
-        132,
-        174,
+        76,
+        16,
         126,
-        186,
-        208,
-        90
+        53,
+        167,
+        6,
+        213,
+        2
       ],
       "accounts": [
         {
@@ -2778,7 +2778,7 @@ export type Dusk = {
           "name": "args",
           "type": {
             "defined": {
-              "name": "donateInsuranceArgs"
+              "name": "fortifyMarketArgs"
             }
           }
         }
@@ -2874,7 +2874,7 @@ export type Dusk = {
       "args": []
     },
     {
-      "name": "graduateMarket",
+      "name": "openLiquidityGates",
       "docs": [
         "Permissionless launch adapters use the same fully-backed seeding path",
         "as ordinary yLP deposits. The initializer is the one-shot authority;",
@@ -4271,7 +4271,7 @@ export type Dusk = {
       ]
     },
     {
-      "name": "liquidateExhaustedHlp",
+      "name": "closeInsolventHlp",
       "docs": [
         "Permissionlessly closes an hLP after passive funding has exhausted its",
         "marked collateral. Insurance reimburses the borrowed-asset shortfall",
@@ -4370,14 +4370,14 @@ export type Dusk = {
           "name": "args",
           "type": {
             "defined": {
-              "name": "liquidateExhaustedHlpArgs"
+              "name": "closeInsolventHlpArgs"
             }
           }
         }
       ]
     },
     {
-      "name": "liquidateHlp",
+      "name": "rescueHlp",
       "docs": [
         "Permissionless critical hLP recovery. The caller supplies the hLP's",
         "borrowed asset and receives target collateral through the same exact",
@@ -4550,16 +4550,16 @@ export type Dusk = {
       ]
     },
     {
-      "name": "liquidateLeverage",
+      "name": "liquidateLeveragePosition",
       "discriminator": [
-        188,
-        132,
-        10,
-        83,
-        171,
-        78,
-        116,
-        41
+        216,
+        72,
+        237,
+        223,
+        248,
+        209,
+        157,
+        165
       ],
       "accounts": [
         {
@@ -4671,7 +4671,7 @@ export type Dusk = {
           "name": "args",
           "type": {
             "defined": {
-              "name": "liquidateLeverageArgs"
+              "name": "liquidateLeveragePositionArgs"
             }
           }
         }
@@ -6249,16 +6249,16 @@ export type Dusk = {
       ]
     },
     {
-      "name": "settleLiquidationAuctionFloor",
+      "name": "backstopLiquidationAuction",
       "discriminator": [
-        46,
-        93,
-        87,
-        78,
-        85,
-        49,
-        137,
-        121
+        135,
+        15,
+        50,
+        11,
+        76,
+        252,
+        83,
+        24
       ],
       "accounts": [
         {
@@ -6462,7 +6462,7 @@ export type Dusk = {
           "name": "args",
           "type": {
             "defined": {
-              "name": "settleLiquidationAuctionFloorArgs"
+              "name": "backstopLiquidationAuctionArgs"
             }
           }
         }
@@ -6972,16 +6972,16 @@ export type Dusk = {
       ]
     },
     {
-      "name": "triggerLiquidationAuction",
+      "name": "startLiquidationAuction",
       "discriminator": [
-        181,
-        172,
-        83,
-        88,
-        101,
-        55,
-        246,
-        111
+        32,
+        210,
+        115,
+        53,
+        58,
+        3,
+        225,
+        120
       ],
       "accounts": [
         {
@@ -9959,7 +9959,7 @@ export type Dusk = {
       }
     },
     {
-      "name": "bidLiquidationAuctionArgs",
+      "name": "fillLiquidationAuctionArgs",
       "type": {
         "kind": "struct",
         "fields": [
@@ -10319,7 +10319,7 @@ export type Dusk = {
       }
     },
     {
-      "name": "claimYieldArgs",
+      "name": "harvestArgs",
       "type": {
         "kind": "struct",
         "fields": [
@@ -10696,7 +10696,7 @@ export type Dusk = {
       }
     },
     {
-      "name": "donateInsuranceArgs",
+      "name": "fortifyMarketArgs",
       "type": {
         "kind": "struct",
         "fields": [
@@ -12236,7 +12236,7 @@ export type Dusk = {
       }
     },
     {
-      "name": "liquidateExhaustedHlpArgs",
+      "name": "closeInsolventHlpArgs",
       "type": {
         "kind": "struct",
         "fields": [
@@ -12256,7 +12256,7 @@ export type Dusk = {
       }
     },
     {
-      "name": "liquidateLeverageArgs",
+      "name": "liquidateLeveragePositionArgs",
       "type": {
         "kind": "struct",
         "fields": [
@@ -15001,7 +15001,7 @@ export type Dusk = {
       }
     },
     {
-      "name": "settleLiquidationAuctionFloorArgs",
+      "name": "backstopLiquidationAuctionArgs",
       "type": {
         "kind": "struct",
         "fields": [

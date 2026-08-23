@@ -130,11 +130,11 @@ pub mod dusk {
     }
 
     #[access_control(ctx.accounts.validate(&args))]
-    pub fn donate_insurance<'info>(
-        ctx: Context<'_, '_, '_, 'info, DonateInsurance<'info>>,
-        args: DonateInsuranceArgs,
+    pub fn fortify_market<'info>(
+        ctx: Context<'_, '_, '_, 'info, FortifyMarket<'info>>,
+        args: FortifyMarketArgs,
     ) -> Result<()> {
-        DonateInsurance::handle_donate(ctx, args)
+        FortifyMarket::handle_fortify(ctx, args)
     }
 
     // Direct-yLP parameter governance instructions
@@ -179,7 +179,7 @@ pub mod dusk {
     /// as ordinary yLP deposits. The initializer is the one-shot authority;
     /// after this succeeds, subsequent liquidity is permissionless.
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn graduate_market<'info>(
+    pub fn open_liquidity_gates<'info>(
         ctx: Context<'_, '_, '_, 'info, AddLiquidity<'info>>,
         args: AddLiquidityArgs,
     ) -> Result<()> {
@@ -205,8 +205,8 @@ pub mod dusk {
     }
 
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn claim_yield<'info>(ctx: Context<'_, '_, '_, 'info, ClaimYield<'info>>, args: ClaimYieldArgs) -> Result<()> {
-        ClaimYield::handle_claim(ctx, args)
+    pub fn harvest<'info>(ctx: Context<'_, '_, '_, 'info, Harvest<'info>>, args: HarvestArgs) -> Result<()> {
+        Harvest::handle_harvest(ctx, args)
     }
 
     #[access_control(ctx.accounts.validate(&args))]
@@ -237,8 +237,8 @@ pub mod dusk {
     /// O(1) swap/hedge transition as an ordinary recovery swap. It is live in
     /// reduce-only mode and rejects unless the selected vault is at or beyond
     /// the 9/8 funding-stress boundary.
-    pub fn liquidate_hlp<'info>(ctx: Context<'_, '_, '_, 'info, Swap<'info>>, args: SwapArgs) -> Result<()> {
-        let mode = SwapExecutionMode::CriticalHlpLiquidation;
+    pub fn rescue_hlp<'info>(ctx: Context<'_, '_, '_, 'info, Swap<'info>>, args: SwapArgs) -> Result<()> {
+        let mode = SwapExecutionMode::HlpRecovery;
         let (current_slot, current_epoch, current_unix_timestamp) =
             ctx.accounts.validate_and_read_clock(&args, mode)?;
         Swap::handle_swap(ctx, args, current_slot, current_epoch, current_unix_timestamp, mode)
@@ -248,12 +248,12 @@ pub mod dusk {
     /// marked collateral. Insurance reimburses the borrowed-asset shortfall
     /// first; only the caller-capped remainder is socialized as unpaid funding
     /// interest. Ordinary swaps retain their existing account list.
-    pub fn liquidate_exhausted_hlp<'info>(
-        ctx: Context<'_, '_, '_, 'info, LiquidateExhaustedHlp<'info>>,
-        args: LiquidateExhaustedHlpArgs,
+    pub fn close_insolvent_hlp<'info>(
+        ctx: Context<'_, '_, '_, 'info, CloseInsolventHlp<'info>>,
+        args: CloseInsolventHlpArgs,
     ) -> Result<()> {
         let current_slot = ctx.accounts.update_and_validate(&args)?;
-        LiquidateExhaustedHlp::handle(ctx, args, current_slot)
+        CloseInsolventHlp::handle(ctx, args, current_slot)
     }
 
     // Lending instructions
@@ -347,13 +347,13 @@ pub mod dusk {
         RemoveLeverageMargin::handle_remove_margin(ctx, args, clock.slot, clock.unix_timestamp)
     }
 
-    pub fn liquidate_leverage<'info>(
-        ctx: Context<'_, '_, '_, 'info, LiquidateLeverage<'info>>,
-        args: LiquidateLeverageArgs,
+    pub fn liquidate_leverage_position<'info>(
+        ctx: Context<'_, '_, '_, 'info, LiquidateLeveragePosition<'info>>,
+        args: LiquidateLeveragePositionArgs,
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        LiquidateLeverage::handle_liquidate(ctx, args, clock.slot, clock.unix_timestamp)
+        LiquidateLeveragePosition::handle_liquidate_position(ctx, args, clock.slot, clock.unix_timestamp)
     }
 
     #[access_control(ctx.accounts.validate(&args))]
@@ -379,10 +379,10 @@ pub mod dusk {
         CloseLeverageDelegation::handle_close(ctx, args)
     }
 
-    // Liquidation auction trigger
+    // Liquidation auction start
     #[access_control(ctx.accounts.update_and_validate())]
-    pub fn trigger_liquidation_auction(ctx: Context<TriggerLiquidationAuction>) -> Result<()> {
-        TriggerLiquidationAuction::handle_trigger(ctx)
+    pub fn start_liquidation_auction(ctx: Context<StartLiquidationAuction>) -> Result<()> {
+        StartLiquidationAuction::handle_start(ctx)
     }
 
     // Preview instructions
@@ -419,21 +419,21 @@ pub mod dusk {
         PreviewBorrowPosition::handle_preview(ctx)
     }
 
-    // Liquidation auction bidding and settlement
+    // Liquidation auction fills and backstop execution
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn bid_liquidation_auction<'info>(
-        ctx: Context<'_, '_, '_, 'info, BidLiquidationAuction<'info>>,
-        args: BidLiquidationAuctionArgs,
+    pub fn fill_liquidation_auction<'info>(
+        ctx: Context<'_, '_, '_, 'info, FillLiquidationAuction<'info>>,
+        args: FillLiquidationAuctionArgs,
     ) -> Result<()> {
-        BidLiquidationAuction::handle_bid(ctx, args)
+        FillLiquidationAuction::handle_fill(ctx, args)
     }
 
     #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn settle_liquidation_auction_floor<'info>(
-        ctx: Context<'_, '_, '_, 'info, SettleLiquidationAuctionFloor<'info>>,
-        args: SettleLiquidationAuctionFloorArgs,
+    pub fn backstop_liquidation_auction<'info>(
+        ctx: Context<'_, '_, '_, 'info, BackstopLiquidationAuction<'info>>,
+        args: BackstopLiquidationAuctionArgs,
     ) -> Result<()> {
-        SettleLiquidationAuctionFloor::handle_settle(ctx, args)
+        BackstopLiquidationAuction::handle_backstop(ctx, args)
     }
 
     // HLP instructions

@@ -360,7 +360,7 @@ const actionable = candidates.filter(({ recursive }) => !recursive);
 // gate: new one-use helpers still fail, while removing an accepted helper never
 // blocks a cleanup commit. Placement errors are never baselined.
 const acceptedOneUseHelpers = new Map([
-  ["programs/dusk/src/instructions/leverage/liquidate_leverage.rs", new Set(["finish_liquidation"])],
+  ["programs/dusk/src/instructions/leverage/liquidate_leverage_position.rs", new Set(["finish_liquidation"])],
   [
     "programs/dusk/src/instructions/leverage/open_leverage.rs",
     new Set(["leverage_entry_price_nad", "require_leverage_entry_limit", "leverage_entry_limit_satisfied"]),
@@ -369,7 +369,7 @@ const acceptedOneUseHelpers = new Map([
     "programs/dusk/src/instructions/prepare_swap.rs",
     new Set(["finalize_explicit_state", "rebalance_executes_token_changes", "split_claimable_fee_credit"]),
   ],
-  ["programs/dusk/src/instructions/spot/swap.rs", new Set(["require_critical_hlp_liquidation"])],
+  ["programs/dusk/src/instructions/spot/swap.rs", new Set(["require_hlp_recovery_swap"])],
   [
     "programs/dusk/src/market/amm.rs",
     new Set([
