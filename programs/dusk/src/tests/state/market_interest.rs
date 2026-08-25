@@ -15,17 +15,21 @@ fn slots_for_ms(ms: u64) -> u64 {
 }
 
 fn test_market(base_cash: u64, quote_cash: u64) -> Market {
-    let mut base_side = MarketSide::default();
-    base_side.reserves = Reserves {
-        live_reserve: base_cash,
-        cash_reserve: base_cash,
-        ..Reserves::default()
+    let base_side = MarketSide {
+        reserves: Reserves {
+            live_reserve: base_cash,
+            cash_reserve: base_cash,
+            ..Reserves::default()
+        },
+        ..MarketSide::default()
     };
-    let mut quote_side = MarketSide::default();
-    quote_side.reserves = Reserves {
-        live_reserve: quote_cash,
-        cash_reserve: quote_cash,
-        ..Reserves::default()
+    let quote_side = MarketSide {
+        reserves: Reserves {
+            live_reserve: quote_cash,
+            cash_reserve: quote_cash,
+            ..Reserves::default()
+        },
+        ..MarketSide::default()
     };
     Market {
         version: MARKET_LAYOUT_VERSION,

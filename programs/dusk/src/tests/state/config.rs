@@ -99,14 +99,20 @@ fn irm_defaults_and_inclusive_bounds_validate() {
         config.validate().unwrap();
     }
 
-    let mut invalid = IrmConfig::default();
-    invalid.target_utilization_bps = MIN_IRM_TARGET_UTILIZATION_BPS - 1;
+    let invalid = IrmConfig {
+        target_utilization_bps: MIN_IRM_TARGET_UTILIZATION_BPS - 1,
+        ..IrmConfig::default()
+    };
     assert!(invalid.validate().is_err());
-    invalid = IrmConfig::default();
-    invalid.curve_steepness_nad = MAX_IRM_CURVE_STEEPNESS_NAD + 1;
+    let invalid = IrmConfig {
+        curve_steepness_nad: MAX_IRM_CURVE_STEEPNESS_NAD + 1,
+        ..IrmConfig::default()
+    };
     assert!(invalid.validate().is_err());
-    invalid = IrmConfig::default();
-    invalid.adjustment_speed_per_year = MAX_IRM_ADJUSTMENT_SPEED_PER_YEAR + 1;
+    let invalid = IrmConfig {
+        adjustment_speed_per_year: MAX_IRM_ADJUSTMENT_SPEED_PER_YEAR + 1,
+        ..IrmConfig::default()
+    };
     assert!(invalid.validate().is_err());
 }
 

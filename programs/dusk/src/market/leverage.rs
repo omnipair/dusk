@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 
 #[cfg(test)]
-use super::liquidity::{cap_hlp_tracking_unrealized_interest, prepare_explicit_hlp_transition};
+use super::liquidity::prepare_explicit_hlp_transition;
 use super::liquidity::{
     consume_hlp_tracking_unrealized_interest, current_hlp_signed_navs_with_prices,
     hlp_curve_prices_from_base_price_nad, prepare_explicit_hlp_transition_at_current_state,
@@ -516,12 +516,6 @@ impl PreparedLeverageSwap {
         consume_hlp_tracking_unrealized_interest(&mut self.base_pre_rebalance, asset, amount)?;
         consume_hlp_tracking_unrealized_interest(&mut self.quote_pre_rebalance, asset, amount)
     }
-
-    #[cfg(test)]
-    fn cap_tracking_unrealized_interest(&mut self, asset: MarketAsset, amount: u64) {
-        cap_hlp_tracking_unrealized_interest(&mut self.base_pre_rebalance, asset, amount);
-        cap_hlp_tracking_unrealized_interest(&mut self.quote_pre_rebalance, asset, amount);
-    }
 }
 
 impl LeverageSwapQuote {
@@ -954,20 +948,6 @@ impl Market {
             );
         }
         Ok(())
-    }
-
-    #[cfg(test)]
-    fn leverage_amm_quote(quote: LeverageSwapQuote, asset_in: MarketAsset) -> AmmSwapQuote {
-        AmmSwapQuote::new_without_endpoints(
-            asset_in,
-            quote.amount_out,
-            quote.start_price_nad,
-            quote.end_price_nad,
-            quote.reserve_end_price_nad,
-            quote.decayed_volatility_nad,
-            quote.post_success_volatility_nad,
-            quote.fee_breakdown,
-        )
     }
 
     /// Commits the AMM leg, performs the same exact inline hLP correction used

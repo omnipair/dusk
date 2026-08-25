@@ -4,8 +4,6 @@ import { fileURLToPath } from "url";
 import anchor from "@coral-xyz/anchor";
 import {
   ACCOUNT_SIZE,
-  AccountLayout,
-  AccountState,
   createBurnCheckedInstruction,
   createAccount,
   createAssociatedTokenAccountIdempotentInstruction,
@@ -56,7 +54,6 @@ import {
   deriveYieldTransferHookValidationAddress,
   deriveTokenMetadataAddress,
   TOKEN_METADATA_PROGRAM_ID,
-  TRANSFER_HOOK_EXECUTE_DISCRIMINATOR,
 } from "../packages/dusk-sdk/src/constants.js";
 import {
   decodePreviewAddLiquidityReturnData,
@@ -162,33 +159,6 @@ function deriveLeverageCollateralVaultAddress(
     [LEVERAGE_COLLATERAL_VAULT_SEED, market.toBuffer(), collateralMint.toBuffer()],
     DUSK_PROGRAM_ID
   );
-}
-
-function seedLegacyTokenAccount(svm: LiteSVM, address: PublicKey, mint: PublicKey, owner: PublicKey) {
-  const data = Buffer.alloc(AccountLayout.span);
-  AccountLayout.encode(
-    {
-      mint,
-      owner,
-      amount: 0n,
-      delegateOption: 0,
-      delegate: PublicKey.default,
-      state: AccountState.Initialized,
-      isNativeOption: 0,
-      isNative: 0n,
-      delegatedAmount: 0n,
-      closeAuthorityOption: 0,
-      closeAuthority: PublicKey.default,
-    },
-    data
-  );
-  svm.setAccount(address, {
-    lamports: Number(svm.minimumBalanceForRentExemption(BigInt(data.length))),
-    data: new Uint8Array(data),
-    owner: TOKEN_PROGRAM_ID,
-    executable: false,
-    rentEpoch: 0,
-  });
 }
 
 function deriveLeverageDelegationAddress(position: PublicKey): [PublicKey, number] {

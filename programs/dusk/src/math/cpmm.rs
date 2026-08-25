@@ -14,23 +14,6 @@ use super::{isqrt, mul_div_ceil_u128, mul_div_u128, ratio_lte_full_width};
 #[cfg(test)]
 use super::fixed_point::normalize_to_nad;
 
-#[cfg(test)]
-pub(crate) fn market_spot_price_nad(collateral_side: &MarketSide, debt_side: &MarketSide) -> Result<u64> {
-    let collateral_reserve = normalize_to_nad(
-        collateral_side.reserves.live_reserve as u128,
-        collateral_side.asset_decimals,
-    )?;
-    let debt_reserve = normalize_to_nad(debt_side.reserves.live_reserve as u128, debt_side.asset_decimals)?;
-    if collateral_reserve == 0 {
-        return Ok(0);
-    }
-    let price = debt_reserve
-        .checked_mul(NAD as u128)
-        .and_then(|value| value.checked_div(collateral_reserve))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow.into())
-}
-
 /// Exact `floor(sqrt(x * y))` without requiring `x * y` to fit in `u128`.
 pub(crate) fn geometric_mean_floor(x: u128, y: u128) -> Result<u128> {
     let root = if let Some(product) = x.checked_mul(y) {

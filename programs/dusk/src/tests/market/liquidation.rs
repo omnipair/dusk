@@ -327,7 +327,7 @@ proptest! {
         };
         let (live_before, cash_before) = reserve_pair(&market, debt_asset);
         let pricing = LiquidationPricing::ReferencePrice {
-            debt_per_collateral_price_nad: NAD as u64,
+            debt_per_collateral_price_nad: NAD,
         };
 
         let receipt = Liquidation::new_with_pricing(
@@ -381,7 +381,7 @@ fn partial_liquidation_charges_the_aggregate_delta_without_rounding_writeoff() {
     let aggregate_debt_before = market.debt.fixed_quote_debt().unwrap();
     let (live_before, cash_before) = reserve_pair(&market, debt_asset);
     let pricing = LiquidationPricing::ReferencePrice {
-        debt_per_collateral_price_nad: NAD as u64,
+        debt_per_collateral_price_nad: NAD,
     };
 
     let receipt = Liquidation::new_with_pricing(
@@ -443,7 +443,7 @@ fn partial_liquidation_uses_aggregate_debt_delta_with_multiple_positions() {
         0,
         liquidation_terms_for_debt(debt_before),
         LiquidationPricing::ReferencePrice {
-            debt_per_collateral_price_nad: NAD as u64,
+            debt_per_collateral_price_nad: NAD,
         },
     )
     .apply(&mut market, &mut borrow_position)
@@ -460,7 +460,7 @@ fn partial_liquidation_recalculates_contribution_and_stored_cf() {
     borrow_position.quote_liquidation_cf_bps = 4_000;
     let old_contribution = borrow_position.global_health_base_contribution_for_quote_debt;
     let pricing = LiquidationPricing::ReferencePrice {
-        debt_per_collateral_price_nad: NAD as u64,
+        debt_per_collateral_price_nad: NAD,
     };
 
     let receipt = Liquidation::new_with_pricing(debt_asset, 20, 0, 0, 0, liquidation_terms_for_debt(100), pricing)
@@ -489,7 +489,7 @@ fn insurance_credit_liquidation_closes_debt_without_breaking_virtual_reserve_inv
     market.insurance.quote_available = insurance_credit * 5;
     let (live_before, cash_before) = reserve_pair(&market, debt_asset);
     let pricing = LiquidationPricing::ReferencePrice {
-        debt_per_collateral_price_nad: NAD as u64,
+        debt_per_collateral_price_nad: NAD,
     };
 
     let receipt = Liquidation::new_with_pricing(
@@ -532,7 +532,7 @@ fn collateral_exhausted_liquidation_socializes_loss_without_breaking_virtual_res
     let max_socialized_loss = debt_before_u64 - repay_credit;
     let (live_before, cash_before) = reserve_pair(&market, debt_asset);
     let pricing = LiquidationPricing::ReferencePrice {
-        debt_per_collateral_price_nad: NAD as u64,
+        debt_per_collateral_price_nad: NAD,
     };
 
     let receipt = Liquidation::new_with_pricing(
@@ -788,7 +788,7 @@ fn auction_floor_uses_pessimistic_average_unwind_price() {
         .checked_mul(floor_price_nad as u128)
         .unwrap();
 
-    assert!(floor_price_nad < NAD as u64);
+    assert!(floor_price_nad < NAD);
     assert!(reference_value_nad <= collateral_value_nad);
     assert!(collateral_value_nad - reference_value_nad <= borrow_position.base_collateral as u128);
 }
@@ -796,7 +796,7 @@ fn auction_floor_uses_pessimistic_average_unwind_price() {
 #[test]
 fn liquidation_auction_is_bound_to_one_debt_asset() {
     let (_, mut borrow_position) = liquidatable_quote_debt_position();
-    borrow_position.start_liquidation_auction(MarketAsset::Quote, 1, NAD as u64, NAD as u64);
+    borrow_position.start_liquidation_auction(MarketAsset::Quote, 1, NAD, NAD);
 
     borrow_position.assert_liquidation_auction(MarketAsset::Quote).unwrap();
     assert_eq!(
@@ -840,7 +840,7 @@ fn liquidation_auction_reaches_floor_only_at_explicit_expiry() {
 #[test]
 fn recovered_position_cancels_active_auction_before_settlement() {
     let (market, mut borrow_position) = liquidatable_quote_debt_position();
-    borrow_position.start_liquidation_auction(MarketAsset::Quote, 1, NAD as u64, NAD as u64);
+    borrow_position.start_liquidation_auction(MarketAsset::Quote, 1, NAD, NAD);
     assert!(market
         .is_position_liquidatable(&borrow_position, MarketAsset::Quote)
         .unwrap());
@@ -882,7 +882,7 @@ fn max_repay_caps_liquidation_to_restore_target_health() {
 fn reference_pricing_uses_ema_price_for_collateral_seizure() {
     let (market, _) = liquidatable_quote_debt_position();
     let pricing = LiquidationPricing::ReferencePrice {
-        debt_per_collateral_price_nad: NAD as u64,
+        debt_per_collateral_price_nad: NAD,
     };
 
     let seized = collateral_amount_for_debt_value_with_pricing(&market, MarketAsset::Quote, 100, 300, pricing).unwrap();
@@ -897,7 +897,7 @@ fn reference_pricing_uses_ema_price_for_collateral_seizure() {
 fn direct_liquidation_restore_cap_uses_reference_price() {
     let (market, borrow_position) = liquidatable_quote_debt_position();
     let pricing = LiquidationPricing::ReferencePrice {
-        debt_per_collateral_price_nad: NAD as u64,
+        debt_per_collateral_price_nad: NAD,
     };
     let cap =
         max_repay_to_restore_health_with_pricing(&market, &borrow_position, MarketAsset::Quote, 300, pricing).unwrap();
@@ -912,7 +912,7 @@ fn max_repay_respects_close_factor_for_deep_partial_liquidation() {
     borrow_position.global_health_base_contribution_for_quote_debt = 50;
     market.debt.global_health_base_contribution_for_quote_debt = 50;
     let pricing = LiquidationPricing::ReferencePrice {
-        debt_per_collateral_price_nad: NAD as u64,
+        debt_per_collateral_price_nad: NAD,
     };
     let terms = market
         .liquidation_terms_with_pricing(&borrow_position, MarketAsset::Quote, pricing)
@@ -931,7 +931,7 @@ fn max_repay_full_closes_when_partial_would_leave_dust() {
     borrow_position.base_collateral = 1;
     borrow_position.global_health_base_contribution_for_quote_debt = 1;
     let pricing = LiquidationPricing::ReferencePrice {
-        debt_per_collateral_price_nad: NAD as u64,
+        debt_per_collateral_price_nad: NAD,
     };
     let terms = market
         .liquidation_terms_with_pricing(&borrow_position, MarketAsset::Quote, pricing)

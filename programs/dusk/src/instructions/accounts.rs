@@ -243,11 +243,6 @@ pub fn token_account_info_credit(balance_before: u64, token_account: &AccountInf
         .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
-#[cfg(test)]
-mod tests {
-    include!("../tests/instructions/accounts.rs");
-}
-
 pub fn validate_side_vault_accounts<'info>(
     market: &Account<'info, Market>,
     market_asset: MarketAsset,
@@ -330,4 +325,9 @@ pub fn validate_interest_accounts<'info>(
     require_keys_eq!(interest_vault.mint, asset_mint.key(), ErrorCode::InvalidVault);
     require_keys_eq!(interest_vault.owner, market.key(), ErrorCode::InvalidVault);
     Ok(market_asset)
+}
+
+#[cfg(test)]
+mod tests {
+    include!("../tests/instructions/accounts.rs");
 }

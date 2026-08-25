@@ -684,14 +684,6 @@ pub(crate) struct PreparedOutwardDivergencePotential {
 }
 
 #[cfg(test)]
-impl PreparedOutwardDivergencePotential {
-    #[cfg(test)]
-    pub(crate) const fn start_input_reserve_nad(&self) -> u128 {
-        self.start_input_reserve_nad
-    }
-}
-
-#[cfg(test)]
 pub(crate) fn prepare_outward_divergence_potential(
     center_input_reserve_nad: u128,
     start_input_reserve_nad: u128,

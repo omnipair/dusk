@@ -1,4 +1,4 @@
-import { PublicKey, Keypair, Connection, Commitment, TransactionConfirmationStrategy, RpcResponseAndContext, SignatureResult, Transaction, VersionedTransaction, Signer, SendOptions } from "@solana/web3.js";
+import { PublicKey, Connection, Commitment, TransactionConfirmationStrategy, RpcResponseAndContext, SignatureResult, Transaction, VersionedTransaction, Signer, SendOptions } from "@solana/web3.js";
 import { LiteSVM } from "litesvm";
 import { recordTransactionComputeUnits } from "./instruction-coverage.js";
 
@@ -63,19 +63,13 @@ export class LiteSVMConnection extends Connection {
   async sendTransaction(
     transaction: Transaction | VersionedTransaction,
     signersOrOptions?: Signer[] | SendOptions,
-    maybeOptions?: SendOptions
+    _maybeOptions?: SendOptions
   ): Promise<string> {
     // Handle both overload cases
     let signers: Signer[] | undefined;
-    let options: SendOptions | undefined;
-
     if (Array.isArray(signersOrOptions)) {
       signers = signersOrOptions;
-      options = maybeOptions;
-    } else {
-      options = signersOrOptions;
     }
-
     // Ensure transaction has a recent blockhash
     if (transaction instanceof Transaction) {
       if (!transaction.recentBlockhash) {
@@ -138,7 +132,7 @@ export class LiteSVMConnection extends Connection {
     };
   }
 
-  async sendRawTransaction(raw: Buffer, options?: any): Promise<string> {
+  async sendRawTransaction(raw: Buffer, _options?: any): Promise<string> {
     // Deserialize and send
     try {
       const tx = Transaction.from(raw);
@@ -196,7 +190,7 @@ export class LiteSVMConnection extends Connection {
     recordTransactionComputeUnits(transaction, computeUnits);
   }
 
-  async getLatestBlockhash(commitment?: Commitment): Promise<{ blockhash: string; lastValidBlockHeight: number }> {
+  async getLatestBlockhash(_commitment?: Commitment): Promise<{ blockhash: string; lastValidBlockHeight: number }> {
     return {
       blockhash: this.svm.latestBlockhash(),
       lastValidBlockHeight: 0
@@ -204,8 +198,8 @@ export class LiteSVMConnection extends Connection {
   }
 
   async confirmTransaction(
-    strategy: TransactionConfirmationStrategy | string,
-    commitment?: Commitment
+    _strategy: TransactionConfirmationStrategy | string,
+    _commitment?: Commitment
   ): Promise<RpcResponseAndContext<SignatureResult>> {
     // LiteSVM transactions are immediately confirmed
     return { 
@@ -222,7 +216,7 @@ export class LiteSVMConnection extends Connection {
     return "signature";
   }
 
-  async getAccountInfo(address: PublicKey, commitment?: Commitment): Promise<any> {
+  async getAccountInfo(address: PublicKey, _commitment?: Commitment): Promise<any> {
     const account = this.svm.getAccount(address);
     if (!account) return null;
     
@@ -245,18 +239,18 @@ export class LiteSVMConnection extends Connection {
     };
   }
 
-  async getBalance(address: PublicKey, commitment?: Commitment): Promise<number> {
+  async getBalance(address: PublicKey, _commitment?: Commitment): Promise<number> {
     const balance = this.svm.getBalance(address);
     return balance ? Number(balance) : 0;
   }
 
-  async getMinimumBalanceForRentExemption(dataLength: number, commitment?: Commitment): Promise<number> {
+  async getMinimumBalanceForRentExemption(dataLength: number, _commitment?: Commitment): Promise<number> {
     const minBalance = this.svm.minimumBalanceForRentExemption(BigInt(dataLength));
     return Number(minBalance);
   }
 
   // Override getProgramAccounts to prevent HTTP calls
-  async getProgramAccounts(programId: PublicKey, configOrCommitment?: any): Promise<any> {
+  async getProgramAccounts(_programId: PublicKey, _configOrCommitment?: any): Promise<any> {
     return {
       context: { slot: 0 },
       value: []

@@ -1331,42 +1331,6 @@ impl AmmSwapQuote {
     pub(crate) const fn is_explicit(&self) -> bool {
         true
     }
-
-    /// Leverage receipts intentionally contain only ABI-visible quote fields.
-    /// Reconstructed quotes are valid for reserve-overlay simulations, but may
-    /// never enter an endpoint-reusing execution path.
-    #[allow(clippy::too_many_arguments)]
-    #[cfg(test)]
-    pub(crate) const fn new_without_endpoints(
-        asset_in: MarketAsset,
-        amount_out: u64,
-        start_price_nad: u64,
-        end_price_nad: u64,
-        reserve_end_price_nad: u64,
-        decayed_volatility_nad: u64,
-        post_success_volatility_nad: u64,
-        fee: SwapFeeBreakdown,
-    ) -> Self {
-        Self {
-            asset_in,
-            amount_out,
-            gross_amount_out: fee.gross_amount_out,
-            start_price_nad,
-            end_price_nad,
-            reserve_end_price_nad,
-            decayed_volatility_nad,
-            post_success_volatility_nad,
-            fee,
-            recovery: HlpRecoveryBreakdown {
-                target_asset: 0,
-                funding_gap: 0,
-                matched_input: 0,
-                bonus_output: 0,
-                discount_bps: 0,
-                critical: false,
-            },
-        }
-    }
 }
 
 /// Conservative first-pass coordinates for hLP pre-positioning.
@@ -1384,22 +1348,6 @@ pub(crate) struct PreliminarySwapInputs {
 }
 
 impl Market {
-    /// Net input used by the hLP pre-solver. It includes base and already-known
-    /// volatility fees, but intentionally omits divergence. Because the final
-    /// divergence fee can only reduce input, the pre-solve endpoint is a
-    /// conservative outward path for the second pass.
-    #[cfg(test)]
-    pub(crate) fn preliminary_swap_inputs(
-        &self,
-        asset_in: MarketAsset,
-        reserve_credit: u64,
-        current_slot: u64,
-    ) -> Result<PreliminarySwapInputs> {
-        require!(reserve_credit > 0, ErrorCode::AmountZero);
-        let pre_state = self.dynamic_fee_pre_state(current_slot)?;
-        self.preliminary_swap_inputs_for_state(asset_in, reserve_credit, current_slot, pre_state)
-    }
-
     #[cfg(test)]
     pub(crate) fn preliminary_swap_inputs_for_state(
         &self,

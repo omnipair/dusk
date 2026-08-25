@@ -435,7 +435,7 @@ fn one_atom_quotes_either_preserve_input_or_fail_closed() {
 #[test]
 fn coefficient_signal_and_coordinate_extremes_saturate_or_fail_closed() {
     let capped = outward_divergence_fee_potential_nad(1, 1, u128::MAX, u64::MAX, 5_000).unwrap();
-    assert!(capped <= u128::MAX - 1);
+    assert!(capped < u128::MAX);
     let (saturated_fee, saturated) =
         outward_divergence_fee_raw_saturating(1, u64::MAX as u128 - 1, u64::MAX as u128, 9, u64::MAX, 5_000).unwrap();
     assert!(!saturated);

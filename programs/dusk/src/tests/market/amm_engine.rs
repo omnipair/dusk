@@ -32,7 +32,6 @@ fn market_with_liquidity(config: AmmConfig) -> Market {
             },
             shares: ReserveShares {
                 ylp_supply: reserve,
-                ..ReserveShares::default()
             },
             ..MarketSide::default()
         },
@@ -45,7 +44,6 @@ fn market_with_liquidity(config: AmmConfig) -> Market {
             },
             shares: ReserveShares {
                 ylp_supply: reserve,
-                ..ReserveShares::default()
             },
             ..MarketSide::default()
         },

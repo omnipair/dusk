@@ -42,8 +42,10 @@ impl TestAccount {
 }
 
 fn market_requiring_hlp_swap_accounts() -> Market {
-    let mut market = Market::default();
-    market.ylp_mint = Pubkey::new_unique();
+    let mut market = Market {
+        ylp_mint: Pubkey::new_unique(),
+        ..Market::default()
+    };
     market.base_hlp_vault.ylp_vault = Pubkey::new_unique();
     market.quote_hlp_vault.ylp_vault = Pubkey::new_unique();
     market.base_side.interest_vault = Pubkey::new_unique();
@@ -66,7 +68,7 @@ fn canonical_hlp_swap_accounts(market: &Market) -> Vec<TestAccount> {
 fn inactive_hlp_leaves_every_remaining_account_available_to_transfer_hooks() {
     let market = Market::default();
     let hook_key = Pubkey::new_unique();
-    let mut accounts = vec![TestAccount::new(hook_key, Pubkey::new_unique(), false)];
+    let mut accounts = [TestAccount::new(hook_key, Pubkey::new_unique(), false)];
     let infos: Vec<_> = accounts.iter_mut().map(TestAccount::account_info).collect();
 
     let layout = HlpSwapAccountLayout::try_from((&market, infos.as_slice())).unwrap();

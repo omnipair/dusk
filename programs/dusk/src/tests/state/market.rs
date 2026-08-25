@@ -622,7 +622,7 @@ fn borrowing_uses_only_full_range_tail_of_concentrated_market() {
         .unwrap()
         .amount_out;
     let concentrated = cache.geometry().unwrap();
-    let concentrated_point = cache.center_point(NAD as u64).unwrap();
+    let concentrated_point = cache.center_point(NAD).unwrap();
     let live_trade_value = concentrated
         .quote_exact_in(
             concentrated_point,

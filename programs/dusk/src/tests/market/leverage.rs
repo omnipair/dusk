@@ -11,17 +11,21 @@ use crate::{
 };
 
 fn test_market(base_cash: u64, quote_cash: u64) -> Market {
-    let mut base_side = MarketSide::default();
-    base_side.reserves = Reserves {
-        live_reserve: base_cash,
-        cash_reserve: base_cash,
-        ..Reserves::default()
+    let mut base_side = MarketSide {
+        reserves: Reserves {
+            live_reserve: base_cash,
+            cash_reserve: base_cash,
+            ..Reserves::default()
+        },
+        ..MarketSide::default()
     };
-    let mut quote_side = MarketSide::default();
-    quote_side.reserves = Reserves {
-        live_reserve: quote_cash,
-        cash_reserve: quote_cash,
-        ..Reserves::default()
+    let mut quote_side = MarketSide {
+        reserves: Reserves {
+            live_reserve: quote_cash,
+            cash_reserve: quote_cash,
+            ..Reserves::default()
+        },
+        ..MarketSide::default()
     };
     let ylp_supply = base_cash.min(quote_cash).max(1);
     base_side.shares = ReserveShares { ylp_supply };
@@ -173,32 +177,6 @@ fn seeded_position(
         255,
     );
     position
-}
-
-fn mixed_age_base_positions(market: &mut Market) -> (LeveragePosition, LeveragePosition) {
-    let old = seeded_position(market, MarketAsset::Base, 100_000, 400_000);
-    let debt_before = market.debt.isolated_debt(MarketAsset::Base).unwrap();
-    market.debt.base_borrow_index_nad = (NAD as u128) * 3 / 2;
-    let debt_after = market.debt.isolated_debt(MarketAsset::Base).unwrap();
-    market.base_side.reserves.live_reserve += u64::try_from(debt_after - debt_before).unwrap();
-    let new = seeded_position(market, MarketAsset::Base, 300_000, 400_000);
-    market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
-    (old, new)
-}
-
-fn bind_base_cash_to_floor(market: &mut Market, floor: u64) {
-    let available = market.base_side.reserves.cash_reserve - floor;
-    let shares = (available as u128) * (NAD as u128) / market.debt.base_borrow_index_nad;
-    let debt_increase = market
-        .debt
-        .fixed_debt_increase_for_shares(MarketAsset::Base, shares)
-        .unwrap();
-    market.debt.fixed_base_shares += shares;
-    market.debt.fixed_base_principal += debt_increase;
-    market.base_side.reserves.cash_reserve -= debt_increase;
-    assert!(market.base_side.reserves.cash_reserve >= floor);
-    assert!(market.base_side.reserves.cash_reserve - floor <= 1);
-    market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
 }
 
 fn full_fee_credit(quote: &LeverageSwapQuote) -> LeverageSwapFeeCredit {
@@ -440,34 +418,6 @@ fn apply_leverage_lifecycle_transition_reference(
     Ok(transition)
 }
 
-fn apply_leverage_socialized_loss_reference(
-    market: &mut Market,
-    debt_asset: MarketAsset,
-    transition: LeverageLifecycleTransition,
-    current_slot: u64,
-) -> Result<HlpSocializedLossRebase> {
-    if transition.socialized_principal_loss == 0 {
-        return Ok(HlpSocializedLossRebase::default());
-    }
-    let (base_before, quote_before) = crate::market::liquidity::current_hlp_signed_navs(market)?;
-    market.side_mut(debt_asset).reserves.live_reserve = market
-        .side(debt_asset)
-        .reserves
-        .live_reserve
-        .checked_sub(transition.socialized_principal_loss)
-        .ok_or(ErrorCode::ReserveUnderflow)?;
-    market.checkpoint_amm_socialized_loss_raw(current_slot)?;
-    let (base_after, quote_after) = crate::market::liquidity::current_hlp_signed_navs(market)?;
-    Ok(HlpSocializedLossRebase {
-        base_nav_delta_nad: base_after
-            .checked_sub(base_before)
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-        quote_nav_delta_nad: quote_after
-            .checked_sub(quote_before)
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-    })
-}
-
 fn indexed_position(market: &mut Market, debt_asset: MarketAsset, principal: u64) -> LeveragePosition {
     let position = seeded_position(market, debt_asset, principal, principal.saturating_mul(4));
     let debt_before = market.debt.isolated_debt(debt_asset).unwrap();
@@ -515,7 +465,7 @@ fn leverage_lifecycle_cases(asset_in: MarketAsset) -> Vec<(Market, SwapCashPolic
 
     let mut close_market = test_market(5_000_000, 5_000_000);
     let close_position = indexed_position(&mut close_market, debt_asset, 120_001);
-    let close_debt = u64::try_from(close_position.debt_amount(&close_market.debt).unwrap()).unwrap();
+    let close_debt = close_position.debt_amount(&close_market.debt).unwrap();
     cases.push((
         close_market,
         SwapCashPolicy::Close {
@@ -597,105 +547,6 @@ fn leverage_lifecycle_plan_matches_legacy_for_every_policy_and_asset() {
                 }
             }
         }
-    }
-}
-
-fn socialized_loss_market() -> Market {
-    let mut market = test_market(5_000_000, 5_000_000);
-    market.base_hlp_vault.ylp_shares = 700_001;
-    market.base_hlp_vault.hlp_supply = 700_001;
-    market.quote_hlp_vault.ylp_shares = 400_003;
-    market.quote_hlp_vault.hlp_supply = 400_003;
-    market.checkpoint_amm_neutral_inventory_raw(0).unwrap();
-    market
-}
-
-fn concentrated_socialized_loss_market() -> Market {
-    let mut market = concentrated_market();
-    market.base_hlp_vault.ylp_shares = 140_001;
-    market.base_hlp_vault.hlp_supply = 140_001;
-    market.quote_hlp_vault.ylp_shares = 80_003;
-    market.quote_hlp_vault.hlp_supply = 80_003;
-    market
-}
-
-#[test]
-#[cfg(any())]
-fn leverage_socialized_loss_plan_rejects_stale_and_tampered_inputs_atomically() {
-    for debt_asset in [MarketAsset::Base, MarketAsset::Quote] {
-        let transition = LeverageLifecycleTransition {
-            socialized_principal_loss: 100_003,
-            ..LeverageLifecycleTransition::default()
-        };
-        let mut stale = socialized_loss_market();
-        let plan = derive_leverage_socialized_loss_plan(&mut stale, debt_asset, transition, 0).unwrap();
-        stale.side_mut(debt_asset).reserves.live_reserve += 1;
-        let stale_before = stale.try_to_vec().unwrap();
-        assert!(apply_leverage_socialized_loss_plan(&mut stale, &plan).is_err());
-        assert_eq!(stale.try_to_vec().unwrap(), stale_before);
-
-        let mut stale_hlp = socialized_loss_market();
-        let plan = derive_leverage_socialized_loss_plan(&mut stale_hlp, debt_asset, transition, 0).unwrap();
-        stale_hlp.base_hlp_vault.ylp_shares += 1;
-        let stale_hlp_before = stale_hlp.try_to_vec().unwrap();
-        assert_eq!(
-            apply_leverage_socialized_loss_plan(&mut stale_hlp, &plan).unwrap_err(),
-            error!(ErrorCode::BrokenInvariant)
-        );
-        assert_eq!(stale_hlp.try_to_vec().unwrap(), stale_hlp_before);
-
-        let mut tampered = socialized_loss_market();
-        let mut plan = derive_leverage_socialized_loss_plan(&mut tampered, debt_asset, transition, 0).unwrap();
-        match &mut plan {
-            LeverageSocializedLossPlan::Apply { rebase, .. } => rebase.base_nav_delta_nad += 1,
-            LeverageSocializedLossPlan::Noop { .. } => panic!("expected socialized-loss plan"),
-        }
-        let tampered_before = tampered.try_to_vec().unwrap();
-        assert!(apply_leverage_socialized_loss_plan(&mut tampered, &plan).is_err());
-        assert_eq!(tampered.try_to_vec().unwrap(), tampered_before);
-
-        let mut tampered_post = socialized_loss_market();
-        let mut plan = derive_leverage_socialized_loss_plan(&mut tampered_post, debt_asset, transition, 0).unwrap();
-        match &mut plan {
-            LeverageSocializedLossPlan::Apply { post_live_reserve, .. } => *post_live_reserve += 1,
-            LeverageSocializedLossPlan::Noop { .. } => panic!("expected socialized-loss plan"),
-        }
-        let tampered_post_before = tampered_post.try_to_vec().unwrap();
-        assert_eq!(
-            apply_leverage_socialized_loss_plan(&mut tampered_post, &plan).unwrap_err(),
-            error!(ErrorCode::BrokenInvariant)
-        );
-        assert_eq!(tampered_post.try_to_vec().unwrap(), tampered_post_before);
-
-        let mut substituted_noop = socialized_loss_market();
-        let substituted_noop_before = substituted_noop.try_to_vec().unwrap();
-        let forged_noop = LeverageSocializedLossPlan::Noop {
-            debt_asset,
-            transition,
-            current_slot: 0,
-            start_live_reserve: substituted_noop.side(debt_asset).reserves.live_reserve,
-            start_amm: substituted_noop.amm,
-        };
-        assert_eq!(
-            apply_leverage_socialized_loss_plan(&mut substituted_noop, &forged_noop).unwrap_err(),
-            error!(ErrorCode::BrokenInvariant)
-        );
-        assert_eq!(substituted_noop.try_to_vec().unwrap(), substituted_noop_before);
-
-        let mut impossible = socialized_loss_market();
-        let impossible_before = impossible.try_to_vec().unwrap();
-        let error = impossible
-            .apply_leverage_socialized_loss(
-                debt_asset,
-                LeverageLifecycleTransition {
-                    socialized_principal_loss: u64::MAX,
-                    ..LeverageLifecycleTransition::default()
-                },
-                0,
-            )
-            .unwrap_err();
-        assert_eq!(error, error!(ErrorCode::ReserveUnderflow));
-        assert_eq!(impossible.try_to_vec().unwrap(), impossible_before);
     }
 }
 
@@ -886,41 +737,6 @@ fn active_concentrated_hlp_market_with_decimals(decimals: u8) -> Market {
     assert!(market.quote_hlp_vault.hlp_supply > 0);
     assert!(market.config.amm.peak_amplification_nad > NAD);
     market
-}
-
-fn move_cash_to_fixed_debt(market: &mut Market, asset: MarketAsset, target_cash: u64) {
-    let side = market.side_mut(asset);
-    let principal = side.reserves.cash_reserve - target_cash;
-    side.reserves.cash_reserve = target_cash;
-    match asset {
-        MarketAsset::Base => {
-            market.debt.fixed_base_shares += principal as u128;
-            market.debt.fixed_base_principal += principal;
-        }
-        MarketAsset::Quote => {
-            market.debt.fixed_quote_shares += principal as u128;
-            market.debt.fixed_quote_principal += principal;
-        }
-    }
-    market.assert_virtual_reserve_invariant(asset).unwrap();
-}
-
-fn accrue_public_and_hlp_funding_interest(market: &mut Market, asset: MarketAsset, index_nad: u128) {
-    let unrealized_before = market.unrealized_interest(asset).unwrap();
-    match asset {
-        MarketAsset::Base => market.debt.base_borrow_index_nad = index_nad,
-        MarketAsset::Quote => market.debt.quote_borrow_index_nad = index_nad,
-    }
-    let unrealized_after = market.unrealized_interest(asset).unwrap();
-    market.side_mut(asset).reserves.live_reserve += u64::try_from(unrealized_after - unrealized_before).unwrap();
-
-    assert!(market.unrealized_interest(asset).unwrap() > 0);
-    let funding_principal = match asset {
-        MarketAsset::Base => market.quote_hlp_vault.debt_principal,
-        MarketAsset::Quote => market.base_hlp_vault.debt_principal,
-    };
-    assert!(market.hlp_funding_debt(asset).unwrap() > u128::from(funding_principal));
-    market.assert_virtual_reserve_invariant(asset).unwrap();
 }
 
 fn active_concentrated_hlp_market() -> Market {

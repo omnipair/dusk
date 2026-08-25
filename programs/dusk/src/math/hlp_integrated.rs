@@ -383,47 +383,6 @@ pub(crate) fn quote_integrated_exact_in(
     })
 }
 
-#[cfg(test)]
-pub(crate) fn quote_integrated_exact_out(
-    state: IntegratedCurveState,
-    geometry: ExplicitCurveGeometry,
-    amount_out: u128,
-    direction: IntegratedSwapDirection,
-) -> Result<IntegratedExactInQuote> {
-    require!(amount_out > 0, ErrorCode::AmountZero);
-    require!(
-        state.ordinary_base > 0 && state.ordinary_quote > 0,
-        ErrorCode::InsufficientLiquidity
-    );
-    let curve_direction = match direction {
-        IntegratedSwapDirection::BaseToQuote => ExplicitCurveDirection::BaseToQuote,
-        IntegratedSwapDirection::QuoteToBase => ExplicitCurveDirection::QuoteToBase,
-    };
-    let curve = geometry.quote_exact_out(
-        ExplicitCurvePoint {
-            base_reserve: state.ordinary_base,
-            quote_reserve: state.ordinary_quote,
-        },
-        amount_out,
-        curve_direction,
-    )?;
-    let mut end = state;
-    end.ordinary_base = curve.end.base_reserve;
-    end.ordinary_quote = curve.end.quote_reserve;
-    let start_hlp = materialized_hlp_endpoint(state)?;
-    let hlp = reconstruct_hlp_endpoint(end)?;
-    end.base_hlp_quote_debt = hlp.base_hlp_quote_debt;
-    end.quote_hlp_base_debt = hlp.quote_hlp_base_debt;
-    Ok(IntegratedExactInQuote {
-        amount_out: curve.amount_out,
-        end,
-        hlp,
-        base_hlp_quote_debt_delta: signed_delta(hlp.base_hlp_quote_debt, start_hlp.base_hlp_quote_debt)?,
-        quote_hlp_base_debt_delta: signed_delta(hlp.quote_hlp_base_debt, start_hlp.quote_hlp_base_debt)?,
-        curve,
-    })
-}
-
 /// Executes once using the fee frozen from the gross input-reserve path.
 /// The fee potential depends on the monotone input coordinate
 /// `start_input + gross_input`, so materializing a counterfactual curve quote

@@ -1,6 +1,5 @@
 import * as anchorNamespace from "@coral-xyz/anchor";
 import { type BN } from "@coral-xyz/anchor";
-import { type PublicKey } from "@solana/web3.js";
 
 import { address, type AddressLike } from "./address.js";
 import {

@@ -69,28 +69,6 @@ fn signed_with_direction(magnitude: u128, negative: bool) -> Result<i128> {
     signed_from_magnitude(magnitude, negative)
 }
 
-#[cfg(test)]
-thread_local! {
-    /// Total `mul_div_rem_u128` entries, and the subset that fall through to
-    /// the 128-iteration wide accumulation. Diagnostic only.
-    static MUL_DIV_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    static MUL_DIV_WIDE_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-#[cfg(test)]
-pub(crate) fn reset_mul_div_counters() {
-    MUL_DIV_CALLS.with(|count| count.set(0));
-    MUL_DIV_WIDE_CALLS.with(|count| count.set(0));
-}
-
-#[cfg(test)]
-pub(crate) fn mul_div_counters() -> (usize, usize) {
-    (
-        MUL_DIV_CALLS.with(std::cell::Cell::get),
-        MUL_DIV_WIDE_CALLS.with(std::cell::Cell::get),
-    )
-}
-
 /// Exact `floor(value * numerator / denominator)` with a checked u128 result.
 ///
 /// The ordinary path is one native multiply and divide. If the product is
@@ -99,16 +77,12 @@ pub(crate) fn mul_div_counters() -> (usize, usize) {
 /// longer fits. No software big-integer limbs are used.
 pub(crate) fn mul_div_rem_u128(value: u128, numerator: u128, denominator: u128) -> Result<(u128, u128)> {
     require!(denominator > 0, ErrorCode::DenominatorOverflow);
-    #[cfg(test)]
-    MUL_DIV_CALLS.with(|count| count.set(count.get() + 1));
     if value == 0 || numerator == 0 {
         return Ok((0, 0));
     }
     if let Some(product) = value.checked_mul(numerator) {
         return Ok((product / denominator, product % denominator));
     }
-    #[cfg(test)]
-    MUL_DIV_WIDE_CALLS.with(|count| count.set(count.get() + 1));
 
     let whole = value / denominator;
     let base_quotient = whole.checked_mul(numerator).ok_or(ErrorCode::MarketMathOverflow)?;
