@@ -43,14 +43,15 @@ impl ParameterFamily {
 pub enum MarketParameterUpdate {
     Fee(FeeProfile),
     Concentration {
-        range_width_nad: u64,
-        concentrated_liquidity_share_nad: u64,
+        peak_amplification_nad: u64,
+        core_half_width_bps: u16,
+        fade_width_bps: u16,
     },
     Irm(IrmConfig),
     EmaHalfLives {
         price_ms: u64,
         directional_price_ms: u64,
-        q_ms: u64,
+        curve_depth_ms: u64,
         center_price_ms: u64,
     },
     /// Rolling limit for principal lent out through the public borrow path.

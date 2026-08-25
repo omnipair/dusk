@@ -96,6 +96,7 @@ impl<'info> Borrow<'info> {
         let borrow_asset = self.market.asset_for_mint(self.debt_asset_mint.key())?;
         let debt_side = self.market.side(borrow_asset);
         let collateral_side = self.market.side(borrow_asset.opposite());
+
         validate_debt_reserve_accounts(
             &self.market,
             debt_side,
@@ -104,11 +105,13 @@ impl<'info> Borrow<'info> {
             &self.reserve_vault,
             &self.owner_debt_account,
         )?;
+
         require_keys_eq!(
             collateral_side.asset_mint,
             self.collateral_asset_mint.key(),
             ErrorCode::InvalidMint
         );
+
         require_supported_asset_mint(&self.debt_asset_mint)?;
         self.borrow_position
             .assert_position(self.owner.key(), self.market.key())?;

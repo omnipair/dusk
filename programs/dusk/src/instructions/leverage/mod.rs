@@ -17,6 +17,7 @@ pub use liquidate_leverage_position::*;
 pub use open_leverage::*;
 pub use remove_leverage_margin::*;
 
+pub(crate) use settlement::settle_inline_leverage_hlp;
 pub use settlement::{
     leverage_position_pda, DelegatedCpiArgs, LeverageDelegationApproval, LEVERAGE_DELEGATE_ADD_MARGIN,
     LEVERAGE_DELEGATE_CLOSE, LEVERAGE_DELEGATE_CLOSE_SETTLED, LEVERAGE_DELEGATE_DECREASE, LEVERAGE_DELEGATE_INCREASE,

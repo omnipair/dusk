@@ -23,6 +23,14 @@ pub struct LeverageEntryOrderIdArgs {
     pub order_id: u64,
 }
 
+pub(crate) fn leverage_entry_funding_vault_address(
+    order: Pubkey,
+    debt_mint: Pubkey,
+    token_program: Pubkey,
+) -> Pubkey {
+    get_associated_token_address_with_program_id(&order, &debt_mint, &token_program)
+}
+
 pub(super) fn verify_opened_position(
     position: &UncheckedAccount,
     order: &LeverageEntryOrder,

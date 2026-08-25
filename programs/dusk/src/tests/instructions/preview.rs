@@ -83,7 +83,7 @@ fn preview_test_market(existing_base_debt: u64, aggregate_quote_contribution: u6
         quote_price_ema_nad: NAD,
         directional_base_price_ema_nad: NAD,
         directional_quote_price_ema_nad: NAD,
-        q_ema_nad: 1_000_000_u128 * NAD as u128,
+        curve_depth_ema_nad: 1_000_000_u128 * NAD as u128,
         ..Risk::default()
     };
     market.prepare_amm_for_swap(0).unwrap();
@@ -103,8 +103,9 @@ fn active_concentrated_preview_market() -> Market {
     market.deposit_single_sided(MarketAsset::Base, 100_000, 1).unwrap();
     market.deposit_single_sided(MarketAsset::Quote, 200_000, 1).unwrap();
     market.config.amm = AmmConfig {
-        range_width_nad: 4 * NAD,
-        concentrated_liquidity_share_nad: NAD / 2,
+        peak_amplification_nad: 4 * NAD,
+        core_half_width_bps: 100,
+        fade_width_bps: 400,
         center_ema_half_life_ms: MIN_HALF_LIFE_MS,
         volatility_half_life_ms: MIN_HALF_LIFE_MS,
         volatility_shock_cap_nad: NAD / 10,
@@ -119,14 +120,16 @@ fn active_concentrated_preview_market() -> Market {
 
 fn active_explicit_preview_market() -> Market {
     let mut market = active_concentrated_preview_market();
-    market.config.amm.range_width_nad = 0;
-    market.config.amm.concentrated_liquidity_share_nad = 0;
+    market.config.amm.peak_amplification_nad = NAD;
+    market.config.amm.core_half_width_bps = 0;
+    market.config.amm.fade_width_bps = 0;
     market
         .config
         .amm
         .set_explicit_curve_parameters(ExplicitCurveParameters {
-            range_width_nad: 4 * NAD,
-            concentrated_liquidity_share_nad: NAD / 2,
+            peak_amplification_nad: 4 * NAD,
+            core_half_width_bps: 100,
+            fade_width_bps: 400,
         })
         .unwrap();
     market.amm = crate::state::AmmState::default();
@@ -566,8 +569,9 @@ fn forty_percent_fee_compounding_is_native_to_cpmm_and_concentrated_swaps() {
     let curve_parameters = [
         ExplicitCurveParameters::cpmm(),
         ExplicitCurveParameters {
-            range_width_nad: 4 * NAD,
-            concentrated_liquidity_share_nad: NAD / 2,
+            peak_amplification_nad: 4 * NAD,
+            core_half_width_bps: 100,
+            fade_width_bps: 400,
         },
     ];
 
@@ -781,8 +785,8 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
         execution_market.try_to_vec().unwrap()
     );
     assert!(preview_market.amm.explicit_curve_cache.tail_liquidity > 0);
-    assert!(preview_market.amm.q_per_share_nad > 0);
-    assert!(preview_market.risk.cached_q_nad > 0);
+    assert!(preview_market.amm.curve_depth_per_share_nad > 0);
+    assert!(preview_market.risk.observed_curve_depth_nad > 0);
 
     // Retention is armed by an outward concentrated trade, then the following
     // quote commits the surcharge as protected principal through the same path.
@@ -794,8 +798,9 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
     retained_market.config.swap_fee_bps = 0;
     retained_market.config.divergence_fee_share_cap_bps = 5_000;
     retained_market.config.amm = AmmConfig {
-        range_width_nad: 4 * NAD,
-        concentrated_liquidity_share_nad: NAD / 2,
+        peak_amplification_nad: 4 * NAD,
+        core_half_width_bps: 100,
+        fade_width_bps: 400,
         adjustment_threshold_nad: NAD / 100,
         adjustment_step_nad: NAD / 100,
         min_adjustment_interval_slots: 1,
@@ -833,7 +838,7 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
     assert!(retained_preview.quote.fee.retained_surcharge > 0);
     let protected_before = retained_preview_market.base_side.reserves.protected_recenter_reserve;
     let curve_before = retained_preview_market.amm.explicit_curve_cache;
-    let q_before = retained_preview_market.amm.q_per_share_nad;
+    let depth_before = retained_preview_market.amm.curve_depth_per_share_nad;
     let retained_preview_finalized = retained_preview
         .finalize_state(&mut retained_preview_market, 1, 2_500, protocol_split)
         .unwrap();
@@ -852,7 +857,7 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
     // quote never moves or rebuilds its own curve.
     assert!(retained_preview_market.amm.retention_target_stale);
     assert_eq!(retained_preview_market.amm.explicit_curve_cache, curve_before);
-    assert_eq!(retained_preview_market.amm.q_per_share_nad, q_before);
+    assert_eq!(retained_preview_market.amm.curve_depth_per_share_nad, depth_before);
     assert_eq!(
         retained_preview_market.base_side.reserves.protected_recenter_reserve,
         protected_before + retained_preview.quote.fee.retained_surcharge

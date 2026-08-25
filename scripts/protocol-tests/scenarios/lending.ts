@@ -508,7 +508,7 @@ export const LENDING_SCENARIOS: ScenarioDefinition[] = [
         const limit = integer(side.dailyBorrowLimit);
         const depthRaw = integer(side.conservativeDepthNad) / 10n ** BigInt(9 - (asset === "base" ? harness.config.baseDecimals : harness.config.quoteDecimals));
         const expectedDepthCap = depthRaw * BigInt(Number((await harness.market()).config.maxDailyBorrowBps)) / 10_000n;
-        harness.assertTrue(`${asset} daily limit never exceeds conservative K depth`, limit <= expectedDepthCap, { limit, expectedDepthCap });
+        harness.assertTrue(`${asset} daily limit never exceeds pessimistic depth`, limit <= expectedDepthCap, { limit, expectedDepthCap });
         harness.assertTrue(`${asset} daily remaining never exceeds current cash`, integer(side.dailyBorrowRemaining) <= integer(side.cashReserve));
       }
 

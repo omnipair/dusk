@@ -33,6 +33,15 @@ pub const LIQUIDATION_MAX_INCENTIVE_BPS: u16 = 500;
 pub const LIQUIDATION_INSURANCE_FUNDING_BPS: u16 = 200;
 #[constant]
 pub const LIQUIDATION_PENALTY_BPS: u16 = 300;
+/// V1-style keeper reward paid from collateral consumed by the permissionless
+/// lending-auction floor. This is deliberately independent from the dynamic
+/// incentive used by externally funded auction bids.
+#[constant]
+pub const LIQUIDATION_BACKSTOP_CALLER_BPS: u16 = 50;
+/// External bids have this fixed window before the permissionless internal
+/// unwind becomes executable.
+#[constant]
+pub const LIQUIDATION_AUCTION_DURATION_SECONDS: i64 = 5 * 60;
 /// Absolute protocol ceilings for insurance-vault loss concentration. Market
 /// governance may lower either limit, including to zero, but may never raise
 /// them above these values.

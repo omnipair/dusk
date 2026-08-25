@@ -16,13 +16,26 @@ fn geometry() -> ExplicitCurveGeometry {
             base_reserve: 50,
             quote_reserve: 60_000,
         },
+        ..ExplicitCurveGeometry::cpmm()
     }
 }
-
 #[test]
 fn liquidity_range_constructor_matches_closed_form_geometry() {
     assert_eq!(
-        ExplicitCurveGeometry::from_liquidity_range(1_000, 4_000, 10, 20, 1).unwrap(),
+        ExplicitCurveCache {
+            math_revision: EXPLICIT_CURVE_MATH_REVISION,
+            peak_amplification_nad: 5 * NAD,
+            core_half_width_bps: 1,
+            fade_width_bps: 0,
+            tail_liquidity: 1_000,
+            concentrated_liquidity: 4_000,
+            core_lower_sqrt_price_nad: 10 * NAD as u128,
+            core_upper_sqrt_price_nad: 20 * NAD as u128,
+            outer_lower_sqrt_price_nad: 10 * NAD as u128,
+            outer_upper_sqrt_price_nad: 20 * NAD as u128,
+        }
+        .geometry()
+        .unwrap(),
         geometry()
     );
 }
@@ -30,28 +43,25 @@ fn liquidity_range_constructor_matches_closed_form_geometry() {
 #[test]
 fn parameter_share_uses_existing_amplification_bound() {
     let max_amplification = 2_000 * NAD;
-    let maximum_share = mul_div_u128(
-        max_amplification as u128,
-        NAD as u128,
-        max_amplification as u128 + NAD as u128,
-    )
-    .unwrap() as u64;
     ExplicitCurveParameters {
-        range_width_nad: 2 * NAD,
-        concentrated_liquidity_share_nad: maximum_share,
+        peak_amplification_nad: max_amplification,
+        core_half_width_bps: 1,
+        fade_width_bps: 0,
     }
     .validate(max_amplification)
     .unwrap();
     assert!(ExplicitCurveParameters {
-        range_width_nad: 2 * NAD,
-        concentrated_liquidity_share_nad: maximum_share + 1,
+        peak_amplification_nad: max_amplification + 1,
+        core_half_width_bps: 1,
+        fade_width_bps: 0,
     }
     .validate(max_amplification)
     .is_err());
 
     let bounds = ExplicitCurveParameters {
-        range_width_nad: 2 * NAD,
-        concentrated_liquidity_share_nad: NAD / 2,
+        peak_amplification_nad: 2 * NAD,
+        core_half_width_bps: 10_000,
+        fade_width_bps: 0,
     }
     .price_bounds_nad(200 * NAD)
     .unwrap()
@@ -64,8 +74,9 @@ fn centered_geometry_uses_closed_form_positive_liquidity() {
     let base = 1_000_000_000_000_u128;
     let quote = base * 200;
     let parameters = ExplicitCurveParameters {
-        range_width_nad: 2 * NAD,
-        concentrated_liquidity_share_nad: 800_000_000,
+        peak_amplification_nad: 2 * NAD,
+        core_half_width_bps: 10_000,
+        fade_width_bps: 0,
     };
     let curve = prepare_centered_explicit_geometry(base, quote, 200 * NAD, parameters).unwrap();
     let cache = prepare_centered_explicit_cache(base, quote, 200 * NAD, parameters).unwrap();
@@ -91,8 +102,9 @@ fn centered_geometry_uses_closed_form_positive_liquidity() {
 #[test]
 fn arbitrary_point_cache_reconstructs_each_branch_without_a_root_search() {
     let parameters = ExplicitCurveParameters {
-        range_width_nad: 2 * NAD,
-        concentrated_liquidity_share_nad: 800_000_000,
+        peak_amplification_nad: 2 * NAD,
+        core_half_width_bps: 10_000,
+        fade_width_bps: 0,
     };
     let centered = prepare_centered_explicit_cache(
         1_000_000_000_000,
@@ -166,8 +178,9 @@ fn range_and_spot_prices_are_direct_reserve_ratios() {
 #[test]
 fn reserve_at_price_inverse_covers_band_and_both_tails() {
     let parameters = ExplicitCurveParameters {
-        range_width_nad: 2 * NAD,
-        concentrated_liquidity_share_nad: 800_000_000,
+        peak_amplification_nad: 2 * NAD,
+        core_half_width_bps: 10_000,
+        fade_width_bps: 0,
     };
     let cache = prepare_centered_explicit_cache(
         1_000_000_000_000,
@@ -229,4 +242,83 @@ fn exact_out_replays_with_no_less_than_requested_output() {
         )
         .unwrap();
     assert!(predecessor.amount_out < desired);
+}
+
+#[test]
+fn product_parameters_build_and_reconstruct_the_nested_shoulder() {
+    let parameters = ExplicitCurveParameters {
+        peak_amplification_nad: 20 * NAD,
+        core_half_width_bps: 100,
+        fade_width_bps: 400,
+    };
+    let centered = prepare_centered_explicit_cache(
+        1_000_000_000_000,
+        1_000_000_000_000,
+        NAD,
+        parameters,
+    )
+    .unwrap();
+    let geometry = centered.geometry().unwrap();
+    assert!(geometry.is_nested());
+    assert_eq!(geometry.nested_boundary_count, 4);
+    let center = centered.center_point(NAD).unwrap();
+    assert!(center.base_reserve.abs_diff(1_000_000_000_000) <= 50_000);
+    assert!(center.quote_reserve.abs_diff(1_000_000_000_000) <= 50_000);
+    let peak = centered
+        .tail_liquidity
+        .checked_add(centered.concentrated_liquidity)
+        .unwrap();
+    assert!(peak.abs_diff(20_000_000_000_000) <= 1_000_000);
+
+    for target in [
+        900_000_000_u128,
+        970_000_000,
+        NAD as u128,
+        1_020_000_000,
+        1_100_000_000,
+    ] {
+        let point = geometry.point_at_price_nad(target, centered.tail_liquidity).unwrap();
+        let rebuilt = prepare_explicit_cache_at_point(point.base_reserve, point.quote_reserve, NAD, parameters).unwrap();
+        assert_eq!(rebuilt.geometry().unwrap().branch(point), geometry.branch(point));
+        assert!(
+            rebuilt.tail_liquidity.abs_diff(centered.tail_liquidity) <= 100_000,
+            "target={target} centered={centered:?} rebuilt={rebuilt:?}"
+        );
+    }
+
+    let high = geometry
+        .point_at_price_nad(1_100_000_000, centered.tail_liquidity)
+        .unwrap();
+    let amount_in = geometry.nested_boundaries[3]
+        .base_reserve
+        .checked_sub(high.base_reserve)
+        .unwrap()
+        .checked_add(center.base_reserve / 10)
+        .unwrap();
+    let quote = geometry
+        .quote_exact_in(high, amount_in, ExplicitCurveDirection::BaseToQuote)
+        .unwrap();
+    assert_eq!(quote.boundary_crossings, 4);
+    assert_eq!(quote.end_branch, ExplicitCurveBranch::LowerTail);
+
+    let requested_out = quote.amount_out - 1;
+    let exact_out = geometry
+        .quote_exact_out(high, requested_out, ExplicitCurveDirection::BaseToQuote)
+        .unwrap();
+    assert_eq!(exact_out.boundary_crossings, 4);
+    let replay = geometry
+        .quote_exact_in(high, exact_out.amount_in, ExplicitCurveDirection::BaseToQuote)
+        .unwrap();
+    assert!(replay.amount_out >= requested_out);
+    let predecessor = geometry
+        .quote_exact_in(high, exact_out.amount_in - 1, ExplicitCurveDirection::BaseToQuote)
+        .unwrap();
+    assert!(predecessor.amount_out < requested_out);
+
+    let reverse = geometry
+        .quote_exact_in(quote.end, quote.amount_out, ExplicitCurveDirection::QuoteToBase)
+        .unwrap();
+    assert_eq!(reverse.boundary_crossings, 4);
+    assert_eq!(reverse.end_branch, ExplicitCurveBranch::UpperTail);
+    assert!(reverse.amount_out <= amount_in);
 }

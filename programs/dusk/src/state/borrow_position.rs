@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 
-use crate::errors::ErrorCode;
 use crate::state::market::{Debt, MarketAsset};
+use crate::{constants::LIQUIDATION_AUCTION_DURATION_SECONDS, errors::ErrorCode};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CollateralReceipt {
@@ -151,6 +151,46 @@ impl BorrowPosition {
             ErrorCode::PositionNotLiquidatable
         );
         Ok(())
+    }
+
+    pub fn liquidation_auction_expired(&self, now: i64) -> Result<bool> {
+        require!(
+            self.has_active_liquidation_auction(),
+            ErrorCode::PositionNotLiquidatable
+        );
+        require!(now >= self.auction_start_time, ErrorCode::MarketMathOverflow);
+        Ok(now.saturating_sub(self.auction_start_time) >= LIQUIDATION_AUCTION_DURATION_SECONDS)
+    }
+
+    pub fn liquidation_auction_price_nad(&self, now: i64) -> Result<u64> {
+        require!(
+            self.has_active_liquidation_auction(),
+            ErrorCode::PositionNotLiquidatable
+        );
+        require!(now >= self.auction_start_time, ErrorCode::MarketMathOverflow);
+        require!(
+            self.auction_start_price_nad >= self.auction_floor_price_nad && self.auction_floor_price_nad > 0,
+            ErrorCode::BrokenInvariant
+        );
+        let elapsed = now
+            .saturating_sub(self.auction_start_time)
+            .min(LIQUIDATION_AUCTION_DURATION_SECONDS);
+        let remaining = LIQUIDATION_AUCTION_DURATION_SECONDS
+            .checked_sub(elapsed)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let premium = self
+            .auction_start_price_nad
+            .checked_sub(self.auction_floor_price_nad)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let remaining_premium = (premium as u128)
+            .checked_mul(remaining as u128)
+            .and_then(|value| value.checked_add(LIQUIDATION_AUCTION_DURATION_SECONDS as u128 - 1))
+            .and_then(|value| value.checked_div(LIQUIDATION_AUCTION_DURATION_SECONDS as u128))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let price = (self.auction_floor_price_nad as u128)
+            .checked_add(remaining_premium)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow.into())
     }
 
     pub fn start_liquidation_auction(

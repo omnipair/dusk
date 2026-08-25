@@ -1,4 +1,5 @@
 use super::*;
+use crate::state::Insurance;
 use spl_token_2022::extension::transfer_fee::TransferFee;
 
 fn active_transfer_fee() -> TransferFee {
@@ -25,7 +26,9 @@ fn token_2022_fee_reconciles_quote_insurance_to_actual_credit() {
         ..Insurance::default()
     };
 
-    reconcile_insurance_funding_credit(&mut insurance, MarketAsset::Base, gross_funding, actual_credit).unwrap();
+    insurance
+        .reconcile_credit(MarketAsset::Quote, gross_funding, actual_credit)
+        .unwrap();
 
     assert_eq!(actual_credit, 9_700);
     assert_eq!(insurance.quote_available, 49_700);
@@ -47,7 +50,9 @@ fn token_2022_fee_reconciles_base_insurance_to_actual_credit() {
         ..Insurance::default()
     };
 
-    reconcile_insurance_funding_credit(&mut insurance, MarketAsset::Quote, gross_funding, actual_credit).unwrap();
+    insurance
+        .reconcile_credit(MarketAsset::Base, gross_funding, actual_credit)
+        .unwrap();
 
     assert_eq!(actual_credit, 9_700);
     assert_eq!(insurance.base_available, 49_700);
@@ -60,5 +65,5 @@ fn insurance_credit_cannot_exceed_gross_funding() {
         ..Insurance::default()
     };
 
-    assert!(reconcile_insurance_funding_credit(&mut insurance, MarketAsset::Base, 100, 101).is_err());
+    assert!(insurance.reconcile_credit(MarketAsset::Quote, 100, 101).is_err());
 }

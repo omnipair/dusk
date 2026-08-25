@@ -27,7 +27,7 @@ Dusk keeps that core Omnipair GAMM idea and rebuilds it around a market-native a
 - **Isolated leverage**: traders can open market-local leverage positions that borrow one side, swap through the GAMM, hold the opposite side as collateral, delegate TP/SL close execution, and liquidate through the same reserve accounting.
 - **Permissioned referral revenue sharing**: Futarchy-listed referrers can bind to new borrow or leverage debt and earn a configured share of the DAO's realized interest revenue without changing borrower debt or rates.
 - **Cached risk books**: risk checks roll EMA values from cached observations so settlement does not depend on a same-instruction manipulated spot.
-- **Bounded liquidation waterfall**: liquidations move through borrower collateral, liquidator incentive, insurance, then bounded LP socialization.
+- **Permissionless liquidation waterfall**: external repay-and-seize bids run first; after five minutes, any caller can trigger an internal concentrated unwind with a 0.5% collateral bounty, capped insurance, and automatic residual LP loss absorption.
 
 ## How It Works
 
@@ -177,7 +177,7 @@ Dusk is designed around market-local risk accounting:
 - Lending is isolated by market.
 - Individual health and liquidation use all collateral held by the position and its stored liquidation CF.
 - Debt-capped global-health contributions improve new-borrow underwriting without locking collateral or changing existing terms.
-- Conservative depth uses internal `Q` observations and reconstructs the exact applied CPMM/Dusk Concentrated AMM shape at pessimistic EMA prices; borrowing uses the lower of symmetric and directional price EMAs, while liquidation uses the symmetric EMA.
+- Pessimistic depth is the lower of observed curve depth and its EMA. Public borrowing uses only the full-range CPMM tail at the lower of symmetric and directional price EMAs. Lending liquidatability is linear at the symmetric price EMA, the external-auction floor uses the complete concentrated curve rebuilt at pessimistic depth, and the expired-auction backstop executes on the live concentrated curve.
 - Isolated leverage has its own position state and debt buckets.
 - Price and risk books use cached EMA state to reduce same-transaction spot manipulation.
 - hLP settlement uses cached settlement references and divergence guards.
@@ -361,16 +361,20 @@ Other invariants:
 The core GAMM reserve/lending relationship is preserved, while the swap invariant is now configurable:
 
 - The market is still priced from in-protocol reserves, not external oracles.
-- `concentrated_liquidity_share = 0` is exact V1-style CPMM; positive values add one explicit concentrated band while preserving a nonzero full-range CPMM tail.
-- `range_width` sets the log-symmetric band around the sticky center, and `concentrated_liquidity_share` sets the fraction of curve liquidity assigned to it. Fee, EMA, and recenter controls remain separate.
-- Swaps and conservative lending/liquidation shapes use the same applied curve.
+- One-times `peak_amplification` with zero widths is exact V1-style CPMM; larger values add explicit concentrated depth while preserving a nonzero full-range CPMM tail.
+- `core_half_width` sets the full-depth region around the sticky center and `fade_width` sets the half-depth shoulder before the tail. The tail/concentrated allocation is derived from these widths and `peak_amplification`; fee, EMA, and recenter controls remain separate.
+- Swaps and leverage use the live applied curve. Public borrowing uses a
+  full-range-tail CPMM shadow; lending liquidatability is linear at the
+  symmetric price EMA; the external-auction floor uses the complete
+  depth-capped concentrated curve; expired public-liquidation backstops use a
+  live concentrated full unwind.
 - Normal borrow and repay paths still preserve `R_live = R_cash + D_cash_backed`.
 - Cash constraints still matter: virtual depth can quote, but only cash can leave vaults or settle realized liabilities.
 - LP minting and burning still use the V1-style proportional reserve math with permanently locked minimum liquidity.
 - Base swap fees remain reserve-custodied outside executable cash, while borrow interest remains in the interest vault; both stay outside principal reserves and are distributed through yield accounting.
 - Dynamic surcharge is claimable after the AMM's protected budget is funded; before then it is retained as the only fee-derived recentering principal.
 
-Dusk extends the invariant set where hLP needs curve-aware Yield Basis hedging:
+Dusk extends the invariant set where hLP needs curve-aware one-sided hedging:
 
 - V1 had no hLP component, so `R_hLP_live = 0`.
 - Dusk allows only hLP transitions to mutate `R_hLP_live`.

@@ -9,7 +9,7 @@ use anchor_lang::prelude::*;
 
 use crate::{constants::BPS_DENOMINATOR, errors::ErrorCode};
 
-/// Yield-Basis-like relative stress bands. The canonical opposite claim is
+/// Relative funding-stress bands. The canonical opposite claim is
 /// 1.0; normal recovery reaches its maximum incentive at 17/16 and the
 /// terminal-risk boundary is 9/8.
 pub(crate) const HLP_RECOVERY_SAFE_DENOMINATOR: u128 = 16;

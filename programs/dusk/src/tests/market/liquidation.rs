@@ -1,6 +1,9 @@
 use super::*;
 use crate::{
-    constants::{BPS_DENOMINATOR, MARKET_LAYOUT_VERSION, NAD},
+    constants::{
+        BPS_DENOMINATOR, LIQUIDATION_AUCTION_DURATION_SECONDS, LIQUIDATION_BACKSTOP_CALLER_BPS,
+        MARKET_LAYOUT_VERSION, NAD,
+    },
     state::{Debt, HlpVault, Insurance, MarketConfig, MarketSide, Reserves, Risk},
 };
 use proptest::prelude::*;
@@ -14,7 +17,7 @@ fn valid_config() -> MarketConfig {
         settlement_divergence_bps: 500,
         ema_half_life_ms: 60_000,
         directional_ema_half_life_ms: 60_000,
-        q_ema_half_life_ms: 60_000,
+        curve_depth_ema_half_life_ms: 60_000,
         max_daily_borrow_bps: 2_000,
         global_health_contribution_cap_bps: 15_000,
         borrow_market_health_floor_bps: 11_000,
@@ -557,6 +560,84 @@ fn collateral_exhausted_liquidation_socializes_loss_without_breaking_virtual_res
 }
 
 #[test]
+fn internal_floor_uses_insurance_then_socializes_and_closes_without_caller_cap() {
+    let debt_asset = MarketAsset::Quote;
+    let (mut market, mut borrow_position) =
+        market_with_cash_backed_debt(debt_asset, 2_000_000, 2_000_000, 100_000, 500);
+    let full_repayment = market
+        .fixed_repayment_for_max(&borrow_position, debt_asset, u64::MAX)
+        .unwrap()
+        .cash_repaid;
+    let collateral_consumed = borrow_position.base_collateral;
+    let caller_bounty = u64::try_from(
+        (collateral_consumed as u128) * LIQUIDATION_BACKSTOP_CALLER_BPS as u128
+            / BPS_DENOMINATOR as u128,
+    )
+    .unwrap();
+    let swap_output = full_repayment / 2;
+    let insurance_credit = full_repayment / 10;
+    market.insurance.quote_available = insurance_credit * 5;
+    borrow_position.start_liquidation_auction(MarketAsset::Quote, 1, NAD, NAD);
+
+    let receipt = market
+        .settle_internal_liquidation(
+            &mut borrow_position,
+            debt_asset,
+            swap_output,
+            insurance_credit,
+            insurance_credit,
+            collateral_consumed,
+            caller_bounty,
+        )
+        .unwrap();
+
+    assert_eq!(receipt.liquidation.repaid_amount, swap_output);
+    assert_eq!(receipt.liquidation.insurance_drawn, insurance_credit);
+    assert_eq!(
+        receipt.liquidation.socialized_loss,
+        full_repayment - swap_output - insurance_credit
+    );
+    assert_eq!(receipt.liquidation.collateral_to_liquidator, caller_bounty);
+    assert_eq!(receipt.owner_residual, 0);
+    assert_eq!(borrow_position.base_collateral, 0);
+    assert_eq!(borrow_position.fixed_quote_shares, 0);
+    assert_eq!(market.debt.fixed_quote_shares, 0);
+    assert_eq!(borrow_position.quote_liquidation_cf_bps, 0);
+    assert_eq!(borrow_position.global_health_base_contribution_for_quote_debt, 0);
+    assert!(!borrow_position.has_active_liquidation_auction());
+}
+
+#[test]
+fn internal_floor_returns_solvent_swap_residual_to_owner() {
+    let debt_asset = MarketAsset::Quote;
+    let (mut market, mut borrow_position) =
+        market_with_cash_backed_debt(debt_asset, 2_000_000, 2_000_000, 100_000, 0);
+    let full_repayment = market
+        .fixed_repayment_for_max(&borrow_position, debt_asset, u64::MAX)
+        .unwrap()
+        .cash_repaid;
+    let collateral_consumed = borrow_position.base_collateral;
+
+    let receipt = market
+        .settle_internal_liquidation(
+            &mut borrow_position,
+            debt_asset,
+            full_repayment + 123,
+            0,
+            0,
+            collateral_consumed,
+            0,
+        )
+        .unwrap();
+
+    assert_eq!(receipt.owner_residual, 123);
+    assert_eq!(receipt.liquidation.repaid_amount, full_repayment);
+    assert_eq!(receipt.liquidation.insurance_drawn, 0);
+    assert_eq!(receipt.liquidation.socialized_loss, 0);
+    assert_eq!(receipt.liquidation.remaining_debt, 0);
+}
+
+#[test]
 fn insurance_funding_preserves_room_to_restore_health() {
     assert_eq!(expected_insurance_funding_bps(100, 11_000), 200);
     assert_eq!(expected_insurance_funding_bps(500, 11_000), 200);
@@ -570,7 +651,7 @@ fn liquidation_eligibility_is_inclusive_at_stored_cf_equality() {
     borrow_position.quote_liquidation_cf_bps = 8_500;
     let risk = market.current_risk().unwrap();
     let collateral_value_nad = market
-        .liquidation_collateral_value_nad(MarketAsset::Base, borrow_position.base_collateral, &risk)
+        .linear_liquidation_collateral_value_nad(MarketAsset::Base, borrow_position.base_collateral, &risk)
         .unwrap();
     let threshold_debt_nad = crate::math::ceil_div(
         collateral_value_nad * borrow_position.quote_liquidation_cf_bps as u128,
@@ -594,7 +675,107 @@ fn liquidation_eligibility_is_inclusive_at_stored_cf_equality() {
 }
 
 #[test]
-fn auction_floor_uses_conservative_average_unwind_price() {
+fn liquidation_threshold_is_linear_and_independent_of_curve_depth() {
+    let (mut market, mut borrow_position) = liquidatable_quote_debt_position();
+    borrow_position.base_collateral = 1_000_000_000;
+    market.debt.fixed_quote_shares = 600_000_000;
+    market.debt.fixed_quote_principal = 600_000_000;
+    borrow_position.fixed_quote_shares = 600_000_000;
+
+    let deep_risk = market.current_risk().unwrap();
+    let shallow_risk = Risk {
+        directional_base_price_ema_nad: NAD / 10,
+        observed_curve_depth_nad: deep_risk.observed_curve_depth_nad / 100,
+        curve_depth_ema_nad: deep_risk.curve_depth_ema_nad / 100,
+        ..deep_risk
+    };
+    let unwind_value_nad = market
+        .liquidation_collateral_value_nad(MarketAsset::Base, borrow_position.base_collateral, &deep_risk)
+        .unwrap();
+
+    // A slippage-adjusted trigger would liquidate this position early.
+    assert!(600_000_000_u128 * NAD as u128 * BPS_DENOMINATOR as u128
+        >= unwind_value_nad * borrow_position.quote_liquidation_cf_bps as u128);
+    assert_eq!(
+        market
+            .linear_liquidation_collateral_value_nad(MarketAsset::Base, borrow_position.base_collateral, &deep_risk)
+            .unwrap(),
+        market
+            .linear_liquidation_collateral_value_nad(MarketAsset::Base, borrow_position.base_collateral, &shallow_risk)
+            .unwrap()
+    );
+    assert!(!market
+        .is_position_liquidatable_with_risk(&borrow_position, MarketAsset::Quote, &deep_risk)
+        .unwrap());
+    assert!(!market
+        .is_position_liquidatable_with_risk(&borrow_position, MarketAsset::Quote, &shallow_risk)
+        .unwrap());
+}
+
+#[test]
+fn auction_floor_scales_concentrated_and_tail_depth_together() {
+    let (mut market, mut borrow_position) = liquidatable_quote_debt_position();
+    market.config.amm.peak_amplification_nad = 4 * NAD;
+    market.config.amm.core_half_width_bps = 1_000;
+    market.config.amm.fade_width_bps = 1_000;
+    market.amm = Default::default();
+    market.risk = Risk::default();
+    market.prepare_amm_for_swap(0).unwrap();
+    market.refresh_risk().unwrap();
+    borrow_position.base_collateral = 100_000_000;
+
+    let cache = market.amm.explicit_curve_cache;
+    let current_depth = cache.tail_liquidity + cache.concentrated_liquidity;
+    let target_depth = current_depth / 2;
+    let shallow_risk = Risk {
+        base_price_ema_nad: NAD,
+        quote_price_ema_nad: NAD,
+        directional_base_price_ema_nad: NAD,
+        directional_quote_price_ema_nad: NAD,
+        observed_curve_depth_nad: target_depth,
+        curve_depth_ema_nad: target_depth,
+        ..Risk::default()
+    };
+    let actual = market
+        .liquidation_collateral_value_nad(MarketAsset::Base, borrow_position.base_collateral, &shallow_risk)
+        .unwrap();
+
+    let scaled_tail = crate::math::mul_div_u128(cache.tail_liquidity, target_depth, current_depth).unwrap();
+    let scaled_concentrated =
+        crate::math::mul_div_u128(cache.concentrated_liquidity, target_depth, current_depth).unwrap();
+    let mut scaled_cache = cache;
+    scaled_cache.tail_liquidity = scaled_tail;
+    scaled_cache.concentrated_liquidity = scaled_concentrated;
+    let scaled_geometry = scaled_cache.geometry().unwrap();
+    let scaled_point = scaled_geometry.point_at_price_nad(NAD as u128, scaled_tail).unwrap();
+    let expected = scaled_geometry
+        .quote_exact_in(
+            scaled_point,
+            borrow_position.base_collateral as u128 * NAD as u128,
+            ExplicitCurveDirection::BaseToQuote,
+        )
+        .unwrap()
+        .amount_out;
+
+    // Regression guard: scaling only the tail leaves the old concentrated
+    // tranche in place instead of rebuilding the complete depth-capped curve.
+    let old_geometry = cache.geometry().unwrap();
+    let old_point = old_geometry.point_at_price_nad(NAD as u128, scaled_tail).unwrap();
+    let tail_only_scaled = old_geometry
+        .quote_exact_in(
+            old_point,
+            borrow_position.base_collateral as u128 * NAD as u128,
+            ExplicitCurveDirection::BaseToQuote,
+        )
+        .unwrap()
+        .amount_out;
+
+    assert_eq!(actual, expected);
+    assert_ne!(actual, tail_only_scaled);
+}
+
+#[test]
+fn auction_floor_uses_pessimistic_average_unwind_price() {
     let (market, borrow_position) = liquidatable_quote_debt_position();
     let risk = market.current_risk().unwrap();
     let collateral_value_nad = market
@@ -627,6 +808,33 @@ fn liquidation_auction_is_bound_to_one_debt_asset() {
 
     borrow_position.clear_liquidation_auction();
     assert!(!borrow_position.has_active_liquidation_auction());
+}
+
+#[test]
+fn liquidation_auction_reaches_floor_only_at_explicit_expiry() {
+    let (_, mut borrow_position) = liquidatable_quote_debt_position();
+    let start_time = 10;
+    borrow_position.start_liquidation_auction(MarketAsset::Quote, start_time, 105, 100);
+
+    assert_eq!(borrow_position.liquidation_auction_price_nad(start_time).unwrap(), 105);
+    assert_eq!(
+        borrow_position
+            .liquidation_auction_price_nad(start_time + LIQUIDATION_AUCTION_DURATION_SECONDS - 1)
+            .unwrap(),
+        101
+    );
+    assert!(!borrow_position
+        .liquidation_auction_expired(start_time + LIQUIDATION_AUCTION_DURATION_SECONDS - 1)
+        .unwrap());
+    assert_eq!(
+        borrow_position
+            .liquidation_auction_price_nad(start_time + LIQUIDATION_AUCTION_DURATION_SECONDS)
+            .unwrap(),
+        100
+    );
+    assert!(borrow_position
+        .liquidation_auction_expired(start_time + LIQUIDATION_AUCTION_DURATION_SECONDS)
+        .unwrap());
 }
 
 #[test]

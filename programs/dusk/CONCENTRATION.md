@@ -14,23 +14,31 @@ finite-difference Jacobian, or Broyden correction is used.
 
 ## Curve
 
-Let `X` and `Y` be real ordinary reserves, `Lt > 0` the full-range tail
-liquidity, `Lc` the concentrated liquidity, and `sl`, `su` the lower and upper
-square-root prices. The curve is continuous across three explicit branches:
+Let `X` and `Y` be real ordinary reserves and `Lt > 0` the full-range tail
+liquidity. Dusk adds two nested concentrated ranges around the sticky center:
+a narrow core and one wider shoulder. Each region is a shifted CPMM, with
+active liquidity changing only at four precomputed boundaries:
 
 ```text
-inner:       (X + Lc/su) (Y + Lc*sl) = (Lt + Lc)^2
-lower tail:  (X - Lc*(1/sl - 1/su)) Y = Lt^2
-upper tail:  X (Y - Lc*(su - sl)) = Lt^2
+inner core:      active liquidity = Lt + Lshoulder + Lcore
+either shoulder: active liquidity = Lt + Lshoulder
+either tail:     active liquidity = Lt
 ```
 
-`range_width_nad` places log-symmetric bounds around `center_price_nad`.
-`concentrated_liquidity_share_nad = Lc/(Lt+Lc)` controls concentration. A zero
-share and zero width select exact CPMM. Governance bounds the share through the
-existing maximum-amplification policy, and the tail is always nonzero.
+Governance exposes three product controls:
+
+- `peak_amplification_nad`: center depth relative to a reserve-matched CPMM;
+- `core_half_width_bps`: the log-symmetric half-width of full peak depth;
+- `fade_width_bps`: the additional shoulder width before reaching the tail.
+
+The implementation derives the tail/concentrated allocation from those three
+values and assigns half the excess depth to the core and half to the shoulder.
+One-times amplification with zero widths selects exact CPMM. Governance bounds
+peak amplification through the existing maximum-amplification policy, and the
+tail is always nonzero.
 
 Exact-input and exact-output quotes are conservative integer formulas. A swap
-crosses no more than two precomputed boundaries, so it executes at most three
+crosses no more than four precomputed boundaries, so it executes at most five
 closed-form segments.
 
 ## Swap ordering
@@ -98,7 +106,7 @@ opposite-asset yLP claim - opposite-asset funding debt = 0
 
 At a balanced CPMM point this is the familiar 2x result. On an off-center
 concentrated curve the LP inventory weights differ, so the gross leverage
-needed for the same one-sided Yield Basis exposure changes with the curve.
+needed for the same zero-opposite-exposure hedge changes with the curve.
 
 The implementation reconstructs debt and yLP ownership from final ordinary
 reserves using canonical floor/ceil claim rules. Both active hLPs are checked at
@@ -148,11 +156,31 @@ Only transferable cash may leave a vault. Claimable fees and protected
 recenter reserves remain custodied but outside executable principal until
 their respective ownership/admission rules release them.
 
-Lending and liquidation reserve-at-price projections use the same explicit
-three-branch inverse as swaps. Proportional yLP changes scale both liquidity
-tranches. A protected center change reconstructs the explicit state through
-the same positive closed-form constructor after deploying its locked bucket;
-ordinary withdrawals cannot deploy or redeem that bucket.
+Public borrowing preserves Dusk's debt-capped recognized-collateral system:
+each position contributes collateral to aggregate market health, and healthy
+aggregate contributions reduce the existing-debt load charged to new borrows.
+The contribution remains an underwriting credit only; it neither locks that
+collateral nor changes another position's stored terms. Both the aggregate
+health projection and the position's capacity are now evaluated through a
+shadow CPMM containing only the curve's full-range tail. Its price is the lower
+of the symmetric and directional price EMAs, and its depth is capped by the
+lower of observed total curve depth and its EMA. The lending liquidation
+trigger is instead a linear collateral value at the symmetric price EMA, so
+trade slippage cannot make a position liquidatable early.
+
+The external-liquidation auction snapshots an average full-position unwind on
+the complete concentrated curve rebuilt at the symmetric EMA price and
+pessimistic depth. It decays linearly from a 5% premium to that floor over five
+minutes. Before expiry, fills require external debt-token repayment. At expiry,
+any caller can take a 0.5% collateral bounty and fully unwind the remainder on
+the live concentrated curve. Swap proceeds repay debt, capped insurance is
+drawn automatically, any remainder is socialized, and excess debt-asset output
+is returned to the owner.
+
+Proportional yLP changes scale every liquidity tranche. A protected center
+change reconstructs the explicit state through the same positive closed-form
+constructor after deploying its locked bucket; ordinary withdrawals cannot
+deploy or redeem that bucket.
 
 ## Preview surface
 
@@ -162,11 +190,15 @@ critical flag. Ordinary swap arguments are unchanged.
 
 ## Acceptance
 
-- exact CPMM compatibility when concentrated share is zero;
+- exact CPMM compatibility at one-times amplification with zero widths;
 - no iterative quote or hLP solve in production;
 - conservative exact-input/exact-output replay at branch boundaries;
 - cash solvency and reserve identities after every transition;
 - atom-precise opposite-claim/debt equality for active hLPs;
-- identical curve semantics for Spot, leverage, lending, and liquidation;
+- live concentrated execution for Spot and leverage;
+- full-range-tail CPMM underwriting for public borrowing;
+- linear symmetric-EMA lending liquidation eligibility;
+- complete depth-scaled concentrated pricing for the external-auction floor
+  and live concentrated execution for the permissionless internal backstop;
 - SBF verifier/default heap success and a representative complete swap at or
   below 100,000 CU.

@@ -1,15 +1,15 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{BPS_DENOMINATOR, MAX_PARAMETER_FEE_BPS, NAD, TARGET_MS_PER_SLOT},
+    constants::{
+        BPS_DENOMINATOR, MAX_PARAMETER_FEE_BPS, NAD, NATURAL_LOG_OF_TWO_NAD, TARGET_MS_PER_SLOT, TAYLOR_TERMS,
+    },
     errors::ErrorCode,
-    math::ceil_div,
+    math::{ceil_div, taylor_exp},
 };
 
 #[cfg(test)]
 use crate::constants::NAD_DECIMALS;
-
-use super::exponential_price_decay;
 
 #[cfg(test)]
 #[allow(clippy::assign_op_pattern, clippy::manual_div_ceil)]
@@ -880,7 +880,17 @@ pub(crate) fn decay_volatility_nad(
     let elapsed_ms = elapsed_slots
         .checked_mul(TARGET_MS_PER_SLOT)
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    exponential_price_decay(accumulator_nad, elapsed_ms, half_life_ms)
+    let exponent = (elapsed_ms as u128)
+        .saturating_mul(NATURAL_LOG_OF_TWO_NAD as u128)
+        .checked_div(half_life_ms as u128)
+        .unwrap_or(u128::MAX)
+        .min(i64::MAX as u128) as i64;
+    let alpha_nad = taylor_exp(-exponent, NAD, TAYLOR_TERMS) as u128;
+    let decayed = (accumulator_nad as u128)
+        .checked_mul(alpha_nad)
+        .and_then(|value| value.checked_div(NAD as u128))
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    u64::try_from(decayed).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
 /// Produces the accumulator candidate for a successful price-changing swap.

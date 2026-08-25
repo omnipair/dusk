@@ -30,6 +30,11 @@ pub struct CreateLeverageEntryOrder<'info> {
     pub owner_funding_account: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(
         mut,
+        constraint = funding_vault.key() == leverage_entry_funding_vault_address(
+            order.key(),
+            debt_mint.key(),
+            *debt_mint.to_account_info().owner,
+        ) @ LeverageDelegateError::InvalidTokenAccount,
         constraint = funding_vault.owner == order.key() @ LeverageDelegateError::InvalidTokenAccount,
         constraint = funding_vault.mint == debt_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
     )]
@@ -103,7 +108,6 @@ impl<'info> CreateLeverageEntryOrder<'info> {
         order.market = ctx.accounts.market.key();
         order.position = position;
         order.position_id = args.position_id;
-        order.funding_vault = ctx.accounts.funding_vault.key();
         order.debt_mint = ctx.accounts.debt_mint.key();
         order.collateral_mint = ctx.accounts.collateral_mint.key();
         order.order_id = args.order_id;

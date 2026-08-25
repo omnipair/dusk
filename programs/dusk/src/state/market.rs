@@ -76,12 +76,13 @@ pub const PROTECTED_LIQUIDITY_GUARD_BPS: u16 = 1;
 pub const PROTECTED_LIQUIDITY_CAP_BPS: u16 = 100;
 pub const PROTECTED_LIQUIDITY_HYSTERESIS_BPS: u16 = 1_000;
 
-/// AMM controls. A zero concentrated-liquidity share selects the full-range
-/// CPMM branch of the same explicit implementation.
+/// AMM controls. One-times peak amplification with zero widths selects the
+/// full-range CPMM branch of the same explicit implementation.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
 pub struct AmmConfig {
-    pub range_width_nad: u64,
-    pub concentrated_liquidity_share_nad: u64,
+    pub peak_amplification_nad: u64,
+    pub core_half_width_bps: u16,
+    pub fade_width_bps: u16,
     pub center_ema_half_life_ms: u64,
     pub volatility_half_life_ms: u64,
     pub adjustment_threshold_nad: u64,
@@ -125,8 +126,9 @@ pub struct AmmConfig {
 impl Default for AmmConfig {
     fn default() -> Self {
         Self {
-            range_width_nad: 0,
-            concentrated_liquidity_share_nad: 0,
+            peak_amplification_nad: NAD,
+            core_half_width_bps: 0,
+            fade_width_bps: 0,
             center_ema_half_life_ms: MIN_HALF_LIFE_MS,
             volatility_half_life_ms: MIN_HALF_LIFE_MS,
             adjustment_threshold_nad: 0,
@@ -156,19 +158,20 @@ impl Default for AmmConfig {
 
 impl AmmConfig {
     pub const fn is_cpmm(&self) -> bool {
-        self.concentrated_liquidity_share_nad == 0
+        self.peak_amplification_nad == NAD
     }
 
     /// Typed view of the one production curve configuration. CPMM is the
-    /// explicit curve with zero concentrated liquidity.
+    /// explicit curve at one-times peak amplification with zero widths.
     pub fn explicit_curve_parameters(&self) -> Result<ExplicitCurveParameters> {
         require!(
             self.reserved.iter().all(|byte| *byte == 0),
             ErrorCode::InvalidMarketConfig
         );
         let parameters = ExplicitCurveParameters {
-            range_width_nad: self.range_width_nad,
-            concentrated_liquidity_share_nad: self.concentrated_liquidity_share_nad,
+            peak_amplification_nad: self.peak_amplification_nad,
+            core_half_width_bps: self.core_half_width_bps,
+            fade_width_bps: self.fade_width_bps,
         };
         parameters.validate(MAX_AMM_AMPLIFICATION_NAD)?;
         Ok(parameters)
@@ -176,8 +179,9 @@ impl AmmConfig {
 
     pub fn set_explicit_curve_parameters(&mut self, parameters: ExplicitCurveParameters) -> Result<()> {
         parameters.validate(MAX_AMM_AMPLIFICATION_NAD)?;
-        self.range_width_nad = parameters.range_width_nad;
-        self.concentrated_liquidity_share_nad = parameters.concentrated_liquidity_share_nad;
+        self.peak_amplification_nad = parameters.peak_amplification_nad;
+        self.core_half_width_bps = parameters.core_half_width_bps;
+        self.fade_width_bps = parameters.fade_width_bps;
         self.reserved = [0; AMM_CONFIG_RESERVED_BYTES];
         Ok(())
     }
@@ -288,7 +292,7 @@ pub struct AmmState {
     /// the market graduates into GAMM.
     pub launch_fee_progress_offset: u16,
     pub volatility_accumulator_nad: u64,
-    pub q_per_share_nad: u128,
+    pub curve_depth_per_share_nad: u128,
     /// yLP principal floor protected from funded recenter/ramp impairment.
     pub protected_floor_per_share_nad: u128,
     /// Fresh protected-profit target that arms retained surcharge routing.
@@ -327,7 +331,7 @@ impl Default for AmmState {
             launch_reference_price_nad: 0,
             launch_fee_progress_offset: 0,
             volatility_accumulator_nad: 0,
-            q_per_share_nad: 0,
+            curve_depth_per_share_nad: 0,
             protected_floor_per_share_nad: 0,
             retention_required_nad: 0,
             retention_stop_nad: 0,
@@ -345,7 +349,7 @@ impl AmmState {
     pub fn initialize(
         config: &AmmConfig,
         initial_price_nad: u64,
-        initial_q_per_share_nad: u128,
+        initial_curve_depth_per_share_nad: u128,
         current_slot: u64,
     ) -> Result<Self> {
         config.validate()?;
@@ -361,8 +365,8 @@ impl AmmState {
             launch_reference_price_nad: 0,
             launch_fee_progress_offset: 0,
             volatility_accumulator_nad: 0,
-            q_per_share_nad: initial_q_per_share_nad,
-            protected_floor_per_share_nad: initial_q_per_share_nad,
+            curve_depth_per_share_nad: initial_curve_depth_per_share_nad,
+            protected_floor_per_share_nad: initial_curve_depth_per_share_nad,
             retention_required_nad: 0,
             retention_stop_nad: 0,
             retention_hard_cap_nad: 0,
@@ -470,14 +474,19 @@ impl AmmState {
     }
 
     pub fn spendable_protected_profit_nad(&self) -> u128 {
-        self.q_per_share_nad.saturating_sub(self.protected_floor_per_share_nad)
+        self.curve_depth_per_share_nad
+            .saturating_sub(self.protected_floor_per_share_nad)
     }
 
     /// Retained surcharge is the only mutation allowed to increase spendable
     /// protected profit.
-    pub fn checkpoint_retained_surcharge(&mut self, new_q_per_share_nad: u128) -> Result<()> {
-        require_gte!(new_q_per_share_nad, self.q_per_share_nad, ErrorCode::BrokenInvariant);
-        self.q_per_share_nad = new_q_per_share_nad;
+    pub fn checkpoint_retained_surcharge(&mut self, new_curve_depth_per_share_nad: u128) -> Result<()> {
+        require_gte!(
+            new_curve_depth_per_share_nad,
+            self.curve_depth_per_share_nad,
+            ErrorCode::BrokenInvariant
+        );
+        self.curve_depth_per_share_nad = new_curve_depth_per_share_nad;
         self.mark_retention_target_stale();
         Ok(())
     }
@@ -490,33 +499,33 @@ impl AmmState {
 
     /// Neutral mutations move the floor so the existing spendable budget is
     /// preserved. This includes deposits, withdrawals, interest, and hLP depth.
-    pub fn checkpoint_neutral_liquidity(&mut self, new_q_per_share_nad: u128) {
+    pub fn checkpoint_neutral_liquidity(&mut self, new_curve_depth_per_share_nad: u128) {
         let prior_buffer = self.spendable_protected_profit_nad();
-        self.q_per_share_nad = new_q_per_share_nad;
-        self.protected_floor_per_share_nad = new_q_per_share_nad.saturating_sub(prior_buffer);
+        self.curve_depth_per_share_nad = new_curve_depth_per_share_nad;
+        self.protected_floor_per_share_nad = new_curve_depth_per_share_nad.saturating_sub(prior_buffer);
         self.sync_stale_retention_cap();
         self.refresh_retention_gate();
     }
 
     /// Recenter cost or socialized principal loss consumes buffer on a decrease.
     /// An improvement raises the floor equally and cannot manufacture buffer.
-    pub fn checkpoint_recenter_or_loss(&mut self, new_q_per_share_nad: u128) {
-        if new_q_per_share_nad > self.q_per_share_nad {
+    pub fn checkpoint_recenter_or_loss(&mut self, new_curve_depth_per_share_nad: u128) {
+        if new_curve_depth_per_share_nad > self.curve_depth_per_share_nad {
             self.protected_floor_per_share_nad = self
                 .protected_floor_per_share_nad
-                .saturating_add(new_q_per_share_nad - self.q_per_share_nad);
+                .saturating_add(new_curve_depth_per_share_nad - self.curve_depth_per_share_nad);
         }
-        self.q_per_share_nad = new_q_per_share_nad;
+        self.curve_depth_per_share_nad = new_curve_depth_per_share_nad;
         self.sync_stale_retention_cap();
         self.refresh_retention_gate();
     }
 
     pub fn refresh_retention_target(
         &mut self,
-        q_per_share_nad: u128,
+        curve_depth_per_share_nad: u128,
         worst_next_step_impairment_nad: u128,
     ) -> Result<RetentionTarget> {
-        let target = retention_target(q_per_share_nad, worst_next_step_impairment_nad)?;
+        let target = retention_target(curve_depth_per_share_nad, worst_next_step_impairment_nad)?;
         self.retention_required_nad = target.required_nad;
         self.retention_stop_nad = target.stop_nad;
         self.retention_hard_cap_nad = target.hard_cap_nad;
@@ -537,8 +546,8 @@ impl AmmState {
         }
         let denominator = BPS_DENOMINATOR as u128;
         let cap_bps = PROTECTED_LIQUIDITY_CAP_BPS as u128;
-        let hard_cap_nad = (self.q_per_share_nad / denominator) * cap_bps
-            + ((self.q_per_share_nad % denominator) * cap_bps).div_ceil(denominator);
+        let hard_cap_nad = (self.curve_depth_per_share_nad / denominator) * cap_bps
+            + ((self.curve_depth_per_share_nad % denominator) * cap_bps).div_ceil(denominator);
         if self.retention_required_nad > hard_cap_nad {
             self.retention_required_nad = hard_cap_nad;
             self.retention_target_saturated = true;
@@ -552,7 +561,7 @@ impl AmmState {
         config: &AmmConfig,
         new_center_price_nad: u64,
         new_cache: ExplicitCurveCache,
-        new_q_per_share_nad: u128,
+        new_curve_depth_per_share_nad: u128,
         covered_actual_impairment_nad: u128,
         current_slot: u64,
     ) -> Result<()> {
@@ -563,7 +572,9 @@ impl AmmState {
             self.recenter_is_funded(covered_actual_impairment_nad),
             ErrorCode::BrokenInvariant
         );
-        let actual_impairment_nad = self.q_per_share_nad.saturating_sub(new_q_per_share_nad);
+        let actual_impairment_nad = self
+            .curve_depth_per_share_nad
+            .saturating_sub(new_curve_depth_per_share_nad);
         require_gte!(
             covered_actual_impairment_nad,
             actual_impairment_nad,
@@ -577,7 +588,7 @@ impl AmmState {
         self.center_price_nad = new_center_price_nad;
         self.explicit_curve_cache = new_cache;
         self.last_adjustment_slot = current_slot;
-        self.checkpoint_recenter_or_loss(new_q_per_share_nad);
+        self.checkpoint_recenter_or_loss(new_curve_depth_per_share_nad);
         Ok(())
     }
 
@@ -601,9 +612,12 @@ impl AmmState {
     }
 }
 
-pub fn retention_target(q_per_share_nad: u128, worst_next_step_impairment_nad: u128) -> Result<RetentionTarget> {
-    let hard_cap_nad = mul_bps_ceil(q_per_share_nad, PROTECTED_LIQUIDITY_CAP_BPS)?;
-    if q_per_share_nad == 0 || worst_next_step_impairment_nad == 0 {
+pub fn retention_target(
+    curve_depth_per_share_nad: u128,
+    worst_next_step_impairment_nad: u128,
+) -> Result<RetentionTarget> {
+    let hard_cap_nad = mul_bps_ceil(curve_depth_per_share_nad, PROTECTED_LIQUIDITY_CAP_BPS)?;
+    if curve_depth_per_share_nad == 0 || worst_next_step_impairment_nad == 0 {
         return Ok(RetentionTarget {
             hard_cap_nad,
             ..RetentionTarget::default()
@@ -611,7 +625,7 @@ pub fn retention_target(q_per_share_nad: u128, worst_next_step_impairment_nad: u
     }
 
     let covered_impairment = mul_bps_ceil(worst_next_step_impairment_nad, PROTECTED_LIQUIDITY_COVERAGE_BPS)?;
-    let guard_nad = mul_bps_ceil(q_per_share_nad, PROTECTED_LIQUIDITY_GUARD_BPS)?;
+    let guard_nad = mul_bps_ceil(curve_depth_per_share_nad, PROTECTED_LIQUIDITY_GUARD_BPS)?;
     let raw_required_nad = covered_impairment
         .checked_add(guard_nad)
         .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -841,7 +855,7 @@ pub struct MarketConfig {
     pub settlement_divergence_bps: u16,
     pub ema_half_life_ms: u64,
     pub directional_ema_half_life_ms: u64,
-    pub q_ema_half_life_ms: u64,
+    pub curve_depth_ema_half_life_ms: u64,
     pub max_daily_borrow_bps: u16,
     pub global_health_contribution_cap_bps: u16,
     pub borrow_market_health_floor_bps: u16,
@@ -1135,7 +1149,7 @@ impl MarketConfig {
         require!(
             half_life_in_bounds(self.ema_half_life_ms)
                 && half_life_in_bounds(self.directional_ema_half_life_ms)
-                && half_life_in_bounds(self.q_ema_half_life_ms),
+                && half_life_in_bounds(self.curve_depth_ema_half_life_ms),
             ErrorCode::InvalidMarketConfig
         );
         require!(
@@ -2774,7 +2788,7 @@ impl Market {
         self.quote_side = quote_side;
         self.config = config;
         // Reserves are empty at market creation. The first balanced-liquidity
-        // checkpoint initializes center, Q/share, and the applied parameters.
+        // checkpoint initializes center, depth/share, and the applied parameters.
         self.amm = AmmState::default();
         self.amm.launch_reference_price_nad = bootstrap_price_nad;
         self.amm.launch_fee_progress_offset = launch_fee_progress_offset;
@@ -2935,12 +2949,14 @@ impl Market {
                 );
             }
             MarketParameterUpdate::Concentration {
-                range_width_nad,
-                concentrated_liquidity_share_nad,
+                peak_amplification_nad,
+                core_half_width_bps,
+                fade_width_bps,
             } => {
                 let target = ExplicitCurveParameters {
-                    range_width_nad: *range_width_nad,
-                    concentrated_liquidity_share_nad: *concentrated_liquidity_share_nad,
+                    peak_amplification_nad: *peak_amplification_nad,
+                    core_half_width_bps: *core_half_width_bps,
+                    fade_width_bps: *fade_width_bps,
                 };
                 target.validate(MAX_AMM_AMPLIFICATION_NAD)?;
                 require!(
@@ -2955,20 +2971,20 @@ impl Market {
             MarketParameterUpdate::EmaHalfLives {
                 price_ms,
                 directional_price_ms,
-                q_ms,
+                curve_depth_ms,
                 center_price_ms,
             } => {
                 require!(
                     (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(price_ms)
                         && (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(directional_price_ms)
-                        && (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(q_ms)
+                        && (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(curve_depth_ms)
                         && (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(center_price_ms),
                     ErrorCode::InvalidHalfLife
                 );
                 require!(
                     self.config.ema_half_life_ms != *price_ms
                         || self.config.directional_ema_half_life_ms != *directional_price_ms
-                        || self.config.q_ema_half_life_ms != *q_ms
+                        || self.config.curve_depth_ema_half_life_ms != *curve_depth_ms
                         || self.config.amm.center_ema_half_life_ms != *center_price_ms,
                     ErrorCode::ParameterUpdateNotMeaningful
                 );
@@ -3053,13 +3069,15 @@ impl Market {
                     }
                 }
                 MarketParameterUpdate::Concentration {
-                    range_width_nad,
-                    concentrated_liquidity_share_nad,
+                    peak_amplification_nad,
+                    core_half_width_bps,
+                    fade_width_bps,
                 } => {
                     let mut next = self.config;
                     next.amm.set_explicit_curve_parameters(ExplicitCurveParameters {
-                        range_width_nad: *range_width_nad,
-                        concentrated_liquidity_share_nad: *concentrated_liquidity_share_nad,
+                        peak_amplification_nad: *peak_amplification_nad,
+                        core_half_width_bps: *core_half_width_bps,
+                        fade_width_bps: *fade_width_bps,
                     })?;
                     next.validate()?;
                     self.config = next;
@@ -3076,13 +3094,13 @@ impl Market {
                 MarketParameterUpdate::EmaHalfLives {
                     price_ms,
                     directional_price_ms,
-                    q_ms,
+                    curve_depth_ms,
                     center_price_ms,
                 } => {
                     let mut next = self.config;
                     next.ema_half_life_ms = *price_ms;
                     next.directional_ema_half_life_ms = *directional_price_ms;
-                    next.q_ema_half_life_ms = *q_ms;
+                    next.curve_depth_ema_half_life_ms = *curve_depth_ms;
                     next.amm.center_ema_half_life_ms = *center_price_ms;
                     next.validate()?;
                     self.config = next;
@@ -3329,7 +3347,7 @@ impl Market {
     ) -> Result<DebtReceipt> {
         require!(borrow_amount > 0, ErrorCode::AmountZero);
         let debt_delta = i64::try_from(borrow_amount).map_err(|_| ErrorCode::Overflow)?;
-        if self.risk.q_ema_nad == 0 {
+        if self.risk.curve_depth_ema_nad == 0 {
             self.refresh_risk_at_slot(current_slot)?;
         }
         let risk = self.risk;
@@ -4394,11 +4412,10 @@ pub struct Risk {
     pub directional_quote_price_ema_nad: u64,
     pub cached_spot_base_price_nad: u64,
     pub cached_spot_quote_price_nad: u64,
-    /// Last observed balanced-equivalent CONCENTRATED depth.
-    pub cached_q_nad: u128,
-    /// EMA of balanced-equivalent CONCENTRATED depth. This replaces the CPMM `K` EMA
-    /// while retaining the same serialized width.
-    pub q_ema_nad: u128,
+    /// Last observed total active curve depth (full-range plus concentrated).
+    pub observed_curve_depth_nad: u128,
+    /// EMA of total active curve depth.
+    pub curve_depth_ema_nad: u128,
     pub last_snapshot_slot: u64,
 }
 
@@ -4413,15 +4430,15 @@ pub struct MarketHealth {
 }
 
 impl Risk {
-    pub const fn conservative_q_nad(&self) -> u128 {
-        if self.q_ema_nad == 0 {
-            self.cached_q_nad
-        } else if self.cached_q_nad == 0 {
-            self.q_ema_nad
-        } else if self.cached_q_nad < self.q_ema_nad {
-            self.cached_q_nad
+    pub const fn pessimistic_depth_nad(&self) -> u128 {
+        if self.curve_depth_ema_nad == 0 {
+            self.observed_curve_depth_nad
+        } else if self.observed_curve_depth_nad == 0 {
+            self.curve_depth_ema_nad
+        } else if self.observed_curve_depth_nad < self.curve_depth_ema_nad {
+            self.observed_curve_depth_nad
         } else {
-            self.q_ema_nad
+            self.curve_depth_ema_nad
         }
     }
 
@@ -4429,12 +4446,12 @@ impl Risk {
         &self,
         current_base_price_nad: u64,
         current_quote_price_nad: u64,
-        current_q_nad: u128,
+        current_curve_depth_nad: u128,
         config: &MarketConfig,
         current_slot: u64,
     ) -> Result<Self> {
         require!(
-            current_base_price_nad > 0 && current_quote_price_nad > 0 && current_q_nad > 0,
+            current_base_price_nad > 0 && current_quote_price_nad > 0 && current_curve_depth_nad > 0,
             ErrorCode::InsufficientLiquidity
         );
 
@@ -4442,10 +4459,10 @@ impl Risk {
             observed_or_current_u64(self.cached_spot_base_price_nad, current_base_price_nad);
         let cached_spot_quote_price_nad =
             observed_or_current_u64(self.cached_spot_quote_price_nad, current_quote_price_nad);
-        let cached_q_nad = if self.cached_q_nad == 0 {
-            current_q_nad
+        let observed_curve_depth_nad = if self.observed_curve_depth_nad == 0 {
+            current_curve_depth_nad
         } else {
-            self.cached_q_nad
+            self.observed_curve_depth_nad
         };
 
         let base_price_ema_nad = ema_u64(
@@ -4476,12 +4493,12 @@ impl Risk {
             current_slot,
             config.directional_ema_half_life_ms,
         );
-        let q_ema_nad = ema_u128(
-            self.q_ema_nad,
-            cached_q_nad,
+        let curve_depth_ema_nad = ema_u128(
+            self.curve_depth_ema_nad,
+            observed_curve_depth_nad,
             self.last_snapshot_slot,
             current_slot,
-            config.q_ema_half_life_ms,
+            config.curve_depth_ema_half_life_ms,
         );
 
         Ok(Self {
@@ -4491,8 +4508,8 @@ impl Risk {
             directional_quote_price_ema_nad,
             cached_spot_base_price_nad: current_base_price_nad,
             cached_spot_quote_price_nad: current_quote_price_nad,
-            cached_q_nad: current_q_nad,
-            q_ema_nad,
+            observed_curve_depth_nad: current_curve_depth_nad,
+            curve_depth_ema_nad,
             last_snapshot_slot: current_slot,
         })
     }

@@ -833,8 +833,9 @@ fn concentrated_market() -> Market {
     market.config.divergence_fee_share_cap_bps = 2_000;
     market.config.volatility_fee_share_cap_bps = 2_000;
     market.config.amm = AmmConfig {
-        range_width_nad: 4 * NAD,
-        concentrated_liquidity_share_nad: NAD / 2,
+        peak_amplification_nad: 4 * NAD,
+        core_half_width_bps: 100,
+        fade_width_bps: 400,
         center_ema_half_life_ms: MIN_HALF_LIFE_MS,
         volatility_half_life_ms: MIN_HALF_LIFE_MS,
         volatility_shock_cap_nad: NAD / 10,
@@ -868,8 +869,9 @@ fn active_concentrated_hlp_market_with_decimals(decimals: u8) -> Market {
     market.config.divergence_fee_share_cap_bps = 2_000;
     market.config.volatility_fee_share_cap_bps = 2_000;
     market.config.amm = AmmConfig {
-        range_width_nad: 4 * NAD,
-        concentrated_liquidity_share_nad: NAD / 2,
+        peak_amplification_nad: 4 * NAD,
+        core_half_width_bps: 100,
+        fade_width_bps: 400,
         center_ema_half_life_ms: MIN_HALF_LIFE_MS,
         volatility_half_life_ms: MIN_HALF_LIFE_MS,
         volatility_shock_cap_nad: NAD / 10,
@@ -882,7 +884,7 @@ fn active_concentrated_hlp_market_with_decimals(decimals: u8) -> Market {
     market.prepare_amm_for_swap(1).unwrap();
     assert!(market.base_hlp_vault.hlp_supply > 0);
     assert!(market.quote_hlp_vault.hlp_supply > 0);
-    assert!(market.config.amm.concentrated_liquidity_share_nad > 0);
+    assert!(market.config.amm.peak_amplification_nad > NAD);
     market
 }
 
@@ -927,14 +929,16 @@ fn active_concentrated_hlp_market() -> Market {
 
 fn active_explicit_hlp_market_with_decimals(decimals: u8) -> Market {
     let mut market = active_concentrated_hlp_market_with_decimals(decimals);
-    market.config.amm.range_width_nad = 0;
-    market.config.amm.concentrated_liquidity_share_nad = 0;
+    market.config.amm.peak_amplification_nad = NAD;
+    market.config.amm.core_half_width_bps = 0;
+    market.config.amm.fade_width_bps = 0;
     market
         .config
         .amm
         .set_explicit_curve_parameters(ExplicitCurveParameters {
-            range_width_nad: 4 * NAD,
-            concentrated_liquidity_share_nad: NAD / 2,
+            peak_amplification_nad: 4 * NAD,
+            core_half_width_bps: 100,
+            fade_width_bps: 400,
         })
         .unwrap();
     market.amm = AmmState::default();
@@ -949,14 +953,16 @@ fn explicit_hlp_deposit_rebases_curve_without_legacy_solver() {
     market.base_side.asset_decimals = 6;
     market.quote_side.asset_decimals = 6;
     market.config.settlement_divergence_bps = 10_000;
-    market.config.amm.range_width_nad = 0;
-    market.config.amm.concentrated_liquidity_share_nad = 0;
+    market.config.amm.peak_amplification_nad = NAD;
+    market.config.amm.core_half_width_bps = 0;
+    market.config.amm.fade_width_bps = 0;
     market
         .config
         .amm
         .set_explicit_curve_parameters(ExplicitCurveParameters {
-            range_width_nad: 4 * NAD,
-            concentrated_liquidity_share_nad: NAD / 2,
+            peak_amplification_nad: 4 * NAD,
+            core_half_width_bps: 100,
+            fade_width_bps: 400,
         })
         .unwrap();
     market.amm = AmmState::default();
@@ -1902,7 +1908,7 @@ fn next_risk_refresh_integrates_the_post_leverage_mark() {
     let mut market = concentrated_market();
     market.config.ema_half_life_ms = MIN_HALF_LIFE_MS;
     market.config.directional_ema_half_life_ms = MIN_HALF_LIFE_MS;
-    market.config.q_ema_half_life_ms = MIN_HALF_LIFE_MS;
+    market.config.curve_depth_ema_half_life_ms = MIN_HALF_LIFE_MS;
     market.observe_current_risk(1).unwrap();
     let risk_before_leverage = market.risk;
     let mut position = empty_position();

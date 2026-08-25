@@ -124,15 +124,16 @@ export type ParameterUpdate =
   | { kind: "fee"; profile: FeeProfile }
   | {
       kind: "concentration";
-      rangeWidthNad: BN;
-      concentratedLiquidityShareNad: BN;
+      peakAmplificationNad: BN;
+      coreHalfWidthBps: number;
+      fadeWidthBps: number;
     }
   | { kind: "irm"; config: IrmConfig }
   | {
       kind: "emaHalfLives";
       priceMs: BN;
       directionalPriceMs: BN;
-      qMs: BN;
+      curveDepthMs: BN;
       centerPriceMs: BN;
     }
   | { kind: "dailyBorrowLimit"; maxDailyBorrowBps: number }
@@ -466,38 +467,34 @@ export function standardLaunchFeeParameterUpdate(
 
 /** Build an atomic, protected concentration update. */
 export function concentrationParameterUpdate(input: {
-  rangeWidthNad: GovernanceIntegerLike;
-  concentratedLiquidityShareNad: GovernanceIntegerLike;
+  peakAmplificationNad: GovernanceIntegerLike;
+  coreHalfWidthBps: number;
+  fadeWidthBps: number;
 }): ParameterUpdate {
-  const rangeWidthNad = toU64BigInt(input.rangeWidthNad, "rangeWidthNad");
-  const concentratedLiquidityShareNad = toU64BigInt(
-    input.concentratedLiquidityShareNad,
-    "concentratedLiquidityShareNad"
-  );
-  if (concentratedLiquidityShareNad === 0n) {
-    if (rangeWidthNad !== 0n) {
-      throw new Error("CPMM concentration must use rangeWidthNad = 0");
+  const peakAmplificationNad = toU64BigInt(input.peakAmplificationNad, "peakAmplificationNad");
+  assertBps(input.coreHalfWidthBps, "coreHalfWidthBps", 0xffff);
+  assertBps(input.fadeWidthBps, "fadeWidthBps", 0xffff);
+  if (input.coreHalfWidthBps + input.fadeWidthBps > 0xffff) {
+    throw new Error("coreHalfWidthBps + fadeWidthBps must fit in u16");
+  }
+  if (peakAmplificationNad === NAD) {
+    if (input.coreHalfWidthBps !== 0 || input.fadeWidthBps !== 0) {
+      throw new Error("CPMM concentration must use zero core and fade widths");
     }
   } else {
-    if (rangeWidthNad <= NAD) {
-      throw new Error("rangeWidthNad must be greater than 1 NAD");
+    if (peakAmplificationNad <= NAD || peakAmplificationNad > MAX_CONCENTRATION_AMPLIFICATION_NAD) {
+      throw new Error("peakAmplificationNad is outside the amplification policy");
     }
-    if (concentratedLiquidityShareNad >= NAD) {
-      throw new Error("concentratedLiquidityShareNad must be less than 1 NAD");
-    }
-    const tailShareNad = NAD - concentratedLiquidityShareNad;
-    if (
-      concentratedLiquidityShareNad * NAD >
-      MAX_CONCENTRATION_AMPLIFICATION_NAD * tailShareNad
-    ) {
-      throw new Error("concentrated liquidity exceeds the maximum amplification policy");
+    if (input.coreHalfWidthBps === 0) {
+      throw new Error("concentrated curves require a nonzero coreHalfWidthBps");
     }
   }
 
   return {
     kind: "concentration",
-    rangeWidthNad: toBN(rangeWidthNad),
-    concentratedLiquidityShareNad: toBN(concentratedLiquidityShareNad),
+    peakAmplificationNad: toBN(peakAmplificationNad),
+    coreHalfWidthBps: input.coreHalfWidthBps,
+    fadeWidthBps: input.fadeWidthBps,
   };
 }
 
@@ -533,7 +530,7 @@ export function irmParameterUpdate(input: IrmConfigInput): ParameterUpdate {
 export function emaHalfLivesParameterUpdate(input: {
   priceMs: GovernanceIntegerLike;
   directionalPriceMs: GovernanceIntegerLike;
-  qMs: GovernanceIntegerLike;
+  curveDepthMs: GovernanceIntegerLike;
   centerPriceMs: GovernanceIntegerLike;
 }): ParameterUpdate {
   const normalize = (value: GovernanceIntegerLike, label: string) =>
@@ -549,7 +546,7 @@ export function emaHalfLivesParameterUpdate(input: {
     kind: "emaHalfLives",
     priceMs: normalize(input.priceMs, "priceMs"),
     directionalPriceMs: normalize(input.directionalPriceMs, "directionalPriceMs"),
-    qMs: normalize(input.qMs, "qMs"),
+    curveDepthMs: normalize(input.curveDepthMs, "curveDepthMs"),
     centerPriceMs: normalize(input.centerPriceMs, "centerPriceMs"),
   };
 }
@@ -650,8 +647,9 @@ export function anchorParameterUpdate(update: ParameterUpdate): Record<string, u
     case "concentration":
       return {
         concentration: {
-          rangeWidthNad: update.rangeWidthNad,
-          concentratedLiquidityShareNad: update.concentratedLiquidityShareNad,
+          peakAmplificationNad: update.peakAmplificationNad,
+          coreHalfWidthBps: update.coreHalfWidthBps,
+          fadeWidthBps: update.fadeWidthBps,
         },
       };
     case "irm":
@@ -661,7 +659,7 @@ export function anchorParameterUpdate(update: ParameterUpdate): Record<string, u
         emaHalfLives: {
           priceMs: update.priceMs,
           directionalPriceMs: update.directionalPriceMs,
-          qMs: update.qMs,
+          curveDepthMs: update.curveDepthMs,
           centerPriceMs: update.centerPriceMs,
         },
       };
@@ -688,8 +686,9 @@ export function parameterUpdateFromAnchor(value: unknown): ParameterUpdate {
   if (update.concentration !== undefined) {
     const fields = objectValue(update.concentration, "concentration update");
     return concentrationParameterUpdate({
-      rangeWidthNad: integerField(fields, "rangeWidthNad"),
-      concentratedLiquidityShareNad: integerField(fields, "concentratedLiquidityShareNad"),
+      peakAmplificationNad: integerField(fields, "peakAmplificationNad"),
+      coreHalfWidthBps: numberField(fields, "coreHalfWidthBps"),
+      fadeWidthBps: numberField(fields, "fadeWidthBps"),
     });
   }
   if (update.irm !== undefined) {
@@ -705,7 +704,7 @@ export function parameterUpdateFromAnchor(value: unknown): ParameterUpdate {
     return emaHalfLivesParameterUpdate({
       priceMs: integerField(fields, "priceMs"),
       directionalPriceMs: integerField(fields, "directionalPriceMs"),
-      qMs: integerField(fields, "qMs"),
+      curveDepthMs: integerField(fields, "curveDepthMs"),
       centerPriceMs: integerField(fields, "centerPriceMs"),
     });
   }
@@ -1091,8 +1090,9 @@ function encodeParameterUpdate(update: ParameterUpdate): Uint8Array {
     case "concentration":
       return concatBytes(
         Uint8Array.of(1),
-        encodeU64(update.rangeWidthNad, "rangeWidthNad"),
-        encodeU64(update.concentratedLiquidityShareNad, "concentratedLiquidityShareNad")
+        encodeU64(update.peakAmplificationNad, "peakAmplificationNad"),
+        encodeU16(update.coreHalfWidthBps),
+        encodeU16(update.fadeWidthBps)
       );
     case "irm":
       return concatBytes(
@@ -1106,7 +1106,7 @@ function encodeParameterUpdate(update: ParameterUpdate): Uint8Array {
         Uint8Array.of(3),
         encodeU64(update.priceMs, "priceMs"),
         encodeU64(update.directionalPriceMs, "directionalPriceMs"),
-        encodeU64(update.qMs, "qMs"),
+        encodeU64(update.curveDepthMs, "curveDepthMs"),
         encodeU64(update.centerPriceMs, "centerPriceMs")
       );
     case "dailyBorrowLimit":

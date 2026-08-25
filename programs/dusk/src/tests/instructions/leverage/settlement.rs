@@ -51,7 +51,11 @@ fn leverage_public_paths_validate_runtime_control_pdas_before_mutation() {
 
     for (source, validator, handler) in [
         (open, "pub fn validate_at", "pub fn handle_open"),
-        (liquidate, "pub fn validate_at", "pub fn handle_liquidate_position"),
+        (
+            liquidate,
+            "pub fn validate_at",
+            "pub fn handle_liquidate_position",
+        ),
     ] {
         assert!(source.contains(boxed_account));
         let validator_start = source.find(validator).unwrap();

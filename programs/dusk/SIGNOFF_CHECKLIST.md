@@ -31,7 +31,7 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
   recentering, protected-surcharge accounting, and the no-oracle limitations.
 - Review the cached-spot EMA flow and pre-action risk snapshots for swap and
   liquidity-add paths.
-- Review conservative `Q`, exact CPMM/Dusk Concentrated AMM reconstructed risk
+- Review pessimistic curve depth, tail-only CPMM borrowing, and concentrated auction-floor risk
   shapes, and each debt side's shared 24-hour leaky/token bucket. Confirm
   checkpoint-frequency-independent refill at a fixed absolute limit, the
   conservative-depth resizing rule, no repayment/exit refund, and enforcement

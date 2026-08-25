@@ -1,9 +1,8 @@
-//! Explicit CPMM-tail plus one-band concentrated curve.
+//! Explicit CPMM-tail plus nested core-and-shoulder concentrated curve.
 //!
-//! A prepared curve is a continuous three-segment reserve path:
-//! lower full-range CPMM tail, one shifted-CPMM concentrated band, and upper
-//! full-range CPMM tail. Quotes cross at most two precomputed boundaries and
-//! never solve an invariant root.
+//! A prepared curve is a continuous five-segment reserve path: lower tail,
+//! lower shoulder, full-depth core, upper shoulder, and upper tail. Quotes
+//! cross at most four precomputed boundaries and never solve an invariant root.
 
 use anchor_lang::prelude::*;
 
@@ -36,7 +35,9 @@ pub(crate) enum ExplicitCurveDirection {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ExplicitCurveBranch {
     LowerTail,
+    LowerShoulder,
     Inner,
+    UpperShoulder,
     UpperTail,
 }
 
@@ -44,9 +45,31 @@ impl ExplicitCurveBranch {
     pub(crate) const fn code(self) -> u8 {
         match self {
             Self::LowerTail => 0,
-            Self::Inner => 1,
-            Self::UpperTail => 2,
+            Self::LowerShoulder => 1,
+            Self::Inner => 2,
+            Self::UpperShoulder => 3,
+            Self::UpperTail => 4,
         }
+    }
+}
+
+fn nested_branch_from_region(region: usize) -> ExplicitCurveBranch {
+    match region {
+        0 => ExplicitCurveBranch::UpperTail,
+        1 => ExplicitCurveBranch::UpperShoulder,
+        2 => ExplicitCurveBranch::Inner,
+        3 => ExplicitCurveBranch::LowerShoulder,
+        _ => ExplicitCurveBranch::LowerTail,
+    }
+}
+
+fn nested_region_from_branch(branch: ExplicitCurveBranch) -> usize {
+    match branch {
+        ExplicitCurveBranch::UpperTail => 0,
+        ExplicitCurveBranch::UpperShoulder => 1,
+        ExplicitCurveBranch::Inner => 2,
+        ExplicitCurveBranch::LowerShoulder => 3,
+        ExplicitCurveBranch::LowerTail => 4,
     }
 }
 
@@ -55,24 +78,32 @@ impl ExplicitCurveBranch {
 /// mathematical interpretation must remain distinguishable.
 pub(crate) const EXPLICIT_CURVE_MATH_REVISION: u8 = 1;
 
-/// Governance surface for the explicit curve. `range_width_nad` is the
-/// multiplicative upper-price width around the sticky center; the lower bound
-/// is its reciprocal. A zero concentrated share is the exact CPMM mode.
+/// Product-facing governance surface for the explicit curve.
+///
+/// `peak_amplification_nad` is center liquidity depth relative to a CPMM with
+/// the same center reserves. `core_half_width_bps` keeps that complete depth
+/// active around the sticky center. `fade_width_bps` adds one deterministic
+/// half-depth shoulder before the nonzero full-range CPMM tail. One-times
+/// amplification with zero widths is exact CPMM.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ExplicitCurveParameters {
-    pub range_width_nad: u64,
-    pub concentrated_liquidity_share_nad: u64,
+    pub peak_amplification_nad: u64,
+    pub core_half_width_bps: u16,
+    pub fade_width_bps: u16,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct ExplicitCurveCache {
     pub math_revision: u8,
-    pub range_width_nad: u64,
-    pub concentrated_liquidity_share_nad: u64,
+    pub peak_amplification_nad: u64,
+    pub core_half_width_bps: u16,
+    pub fade_width_bps: u16,
     pub tail_liquidity: u128,
     pub concentrated_liquidity: u128,
-    pub lower_sqrt_price_nad: u128,
-    pub upper_sqrt_price_nad: u128,
+    pub core_lower_sqrt_price_nad: u128,
+    pub core_upper_sqrt_price_nad: u128,
+    pub outer_lower_sqrt_price_nad: u128,
+    pub outer_upper_sqrt_price_nad: u128,
 }
 
 impl ExplicitCurveCache {
@@ -82,19 +113,154 @@ impl ExplicitCurveCache {
             EXPLICIT_CURVE_MATH_REVISION,
             ErrorCode::BrokenInvariant
         );
-        ExplicitCurveGeometry::from_liquidity_range(
-            self.tail_liquidity,
-            self.concentrated_liquidity,
-            self.lower_sqrt_price_nad,
-            self.upper_sqrt_price_nad,
-            NAD as u128,
-        )
+        let sqrt_price_scale = NAD as u128;
+        if self.fade_width_bps == 0 {
+            if self.concentrated_liquidity == 0 {
+                require!(self.tail_liquidity > 0, ErrorCode::InsufficientLiquidity);
+                return Ok(ExplicitCurveGeometry::cpmm());
+            }
+            require!(
+                self.tail_liquidity > 0
+                    && self.core_lower_sqrt_price_nad > 0
+                    && self.core_lower_sqrt_price_nad < self.core_upper_sqrt_price_nad,
+                ErrorCode::InvalidMarketConfig
+            );
+            let inner_base_amplification_offset = mul_div_u128(
+                self.concentrated_liquidity,
+                sqrt_price_scale,
+                self.core_upper_sqrt_price_nad,
+            )?;
+            let inner_quote_amplification_offset = mul_div_u128(
+                self.concentrated_liquidity,
+                self.core_lower_sqrt_price_nad,
+                sqrt_price_scale,
+            )?;
+            let lower_tail_base_inventory = mul_div_u128(
+                self.concentrated_liquidity,
+                sqrt_price_scale,
+                self.core_lower_sqrt_price_nad,
+            )?
+            .checked_sub(inner_base_amplification_offset)
+            .ok_or(ErrorCode::BrokenInvariant)?;
+            let lower_boundary = ExplicitCurvePoint {
+                base_reserve: mul_div_u128(self.tail_liquidity, sqrt_price_scale, self.core_lower_sqrt_price_nad)?
+                    .checked_add(lower_tail_base_inventory)
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+                quote_reserve: mul_div_u128(self.tail_liquidity, self.core_lower_sqrt_price_nad, sqrt_price_scale)?,
+            };
+            let upper_base_reserve =
+                mul_div_u128(self.tail_liquidity, sqrt_price_scale, self.core_upper_sqrt_price_nad)?;
+            let lower_inner_base = lower_boundary
+                .base_reserve
+                .checked_add(inner_base_amplification_offset)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            let lower_inner_quote = lower_boundary
+                .quote_reserve
+                .checked_add(inner_quote_amplification_offset)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            let upper_inner_base = upper_base_reserve
+                .checked_add(inner_base_amplification_offset)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            let upper_inner_quote = mul_div_u128(lower_inner_base, lower_inner_quote, upper_inner_base)?;
+            let upper_quote_reserve = upper_inner_quote
+                .checked_sub(inner_quote_amplification_offset)
+                .ok_or(ErrorCode::BrokenInvariant)?;
+            let lower_tail_base = lower_boundary
+                .base_reserve
+                .checked_sub(lower_tail_base_inventory)
+                .ok_or(ErrorCode::BrokenInvariant)?;
+            let upper_tail_quote = mul_div_u128(lower_tail_base, lower_boundary.quote_reserve, upper_base_reserve)?;
+            let upper_tail_quote_inventory = upper_quote_reserve
+                .checked_sub(upper_tail_quote)
+                .ok_or(ErrorCode::BrokenInvariant)?;
+            let geometry = ExplicitCurveGeometry {
+                inner_liquidity: self.concentrated_liquidity,
+                inner_base_amplification_offset,
+                inner_quote_amplification_offset,
+                lower_tail_base_inventory,
+                upper_tail_quote_inventory,
+                lower_boundary,
+                upper_boundary: ExplicitCurvePoint {
+                    base_reserve: upper_base_reserve,
+                    quote_reserve: upper_quote_reserve,
+                },
+                ..ExplicitCurveGeometry::cpmm()
+            };
+            geometry.validate()?;
+            Ok(geometry)
+        } else {
+            require!(
+                self.tail_liquidity > 0
+                    && self.concentrated_liquidity >= 2
+                    && self.outer_lower_sqrt_price_nad < self.core_lower_sqrt_price_nad
+                    && self.core_lower_sqrt_price_nad < self.core_upper_sqrt_price_nad
+                    && self.core_upper_sqrt_price_nad < self.outer_upper_sqrt_price_nad,
+                ErrorCode::InvalidMarketConfig
+            );
+            let core_liquidity = self.concentrated_liquidity.div_ceil(2);
+            let shoulder_liquidity = self
+                .concentrated_liquidity
+                .checked_sub(core_liquidity)
+                .ok_or(ErrorCode::BrokenInvariant)?;
+            let layers = [
+                ExplicitCurveLayer {
+                    liquidity: core_liquidity,
+                    lower_sqrt_price: self.core_lower_sqrt_price_nad,
+                    upper_sqrt_price: self.core_upper_sqrt_price_nad,
+                },
+                ExplicitCurveLayer {
+                    liquidity: shoulder_liquidity,
+                    lower_sqrt_price: self.outer_lower_sqrt_price_nad,
+                    upper_sqrt_price: self.outer_upper_sqrt_price_nad,
+                },
+            ];
+            let mut geometry = ExplicitCurveGeometry {
+                inner_liquidity: self.concentrated_liquidity,
+                shoulder_liquidity,
+                nested_boundary_count: 4,
+                ..ExplicitCurveGeometry::cpmm()
+            };
+            geometry.nested_boundaries = [
+                nested_point_at_sqrt_price(
+                    self.tail_liquidity,
+                    layers,
+                    self.outer_upper_sqrt_price_nad,
+                    sqrt_price_scale,
+                )?,
+                nested_point_at_sqrt_price(
+                    self.tail_liquidity,
+                    layers,
+                    self.core_upper_sqrt_price_nad,
+                    sqrt_price_scale,
+                )?,
+                nested_point_at_sqrt_price(
+                    self.tail_liquidity,
+                    layers,
+                    self.core_lower_sqrt_price_nad,
+                    sqrt_price_scale,
+                )?,
+                nested_point_at_sqrt_price(
+                    self.tail_liquidity,
+                    layers,
+                    self.outer_lower_sqrt_price_nad,
+                    sqrt_price_scale,
+                )?,
+            ];
+            for region in 0..5 {
+                let (base, quote) = nested_region_constants(layers, region, sqrt_price_scale)?;
+                geometry.nested_base_constants[region] = base;
+                geometry.nested_quote_constants[region] = quote;
+            }
+            geometry.validate()?;
+            Ok(geometry)
+        }
     }
 
     pub(crate) const fn parameters(self) -> ExplicitCurveParameters {
         ExplicitCurveParameters {
-            range_width_nad: self.range_width_nad,
-            concentrated_liquidity_share_nad: self.concentrated_liquidity_share_nad,
+            peak_amplification_nad: self.peak_amplification_nad,
+            core_half_width_bps: self.core_half_width_bps,
+            fade_width_bps: self.fade_width_bps,
         }
     }
 
@@ -114,19 +280,7 @@ impl ExplicitCurveCache {
             self.concentrated_liquidity,
             ErrorCode::BrokenInvariant
         );
-        let sqrt_center_nad = sqrt_ratio_nad(center_price_nad as u128)?;
-        let total_liquidity = self
-            .tail_liquidity
-            .checked_add(self.concentrated_liquidity)
-            .ok_or(ErrorCode::InvariantOverflow)?;
-        let center_point = ExplicitCurvePoint {
-            base_reserve: mul_div_u128(total_liquidity, NAD as u128, sqrt_center_nad)?
-                .checked_sub(geometry.inner_base_amplification_offset)
-                .ok_or(ErrorCode::BrokenInvariant)?,
-            quote_reserve: mul_div_u128(total_liquidity, sqrt_center_nad, NAD as u128)?
-                .checked_sub(geometry.inner_quote_amplification_offset)
-                .ok_or(ErrorCode::BrokenInvariant)?,
-        };
+        let center_point = geometry.point_at_price_nad(center_price_nad as u128, self.tail_liquidity)?;
         require!(
             center_point.base_reserve > 0 && center_point.quote_reserve > 0,
             ErrorCode::BrokenInvariant
@@ -139,78 +293,112 @@ fn complete_explicit_cache(
     parameters: ExplicitCurveParameters,
     tail_liquidity: u128,
     concentrated_liquidity: u128,
-    lower_sqrt_price_nad: u128,
-    upper_sqrt_price_nad: u128,
-    sqrt_center_nad: u128,
+    core_lower_sqrt_price_nad: u128,
+    core_upper_sqrt_price_nad: u128,
+    outer_lower_sqrt_price_nad: u128,
+    outer_upper_sqrt_price_nad: u128,
+    _sqrt_center_nad: u128,
 ) -> Result<ExplicitCurveCache> {
-    let geometry = ExplicitCurveGeometry::from_liquidity_range(
-        tail_liquidity,
-        concentrated_liquidity,
-        lower_sqrt_price_nad,
-        upper_sqrt_price_nad,
-        NAD as u128,
-    )?;
-    let total_liquidity = tail_liquidity
-        .checked_add(concentrated_liquidity)
-        .ok_or(ErrorCode::InvariantOverflow)?;
-    let center_point = ExplicitCurvePoint {
-        base_reserve: mul_div_u128(total_liquidity, NAD as u128, sqrt_center_nad)?
-            .checked_sub(geometry.inner_base_amplification_offset)
-            .ok_or(ErrorCode::BrokenInvariant)?,
-        quote_reserve: mul_div_u128(total_liquidity, sqrt_center_nad, NAD as u128)?
-            .checked_sub(geometry.inner_quote_amplification_offset)
-            .ok_or(ErrorCode::BrokenInvariant)?,
-    };
-    require!(
-        center_point.base_reserve > 0 && center_point.quote_reserve > 0,
-        ErrorCode::BrokenInvariant
-    );
-    Ok(ExplicitCurveCache {
+    let cache = ExplicitCurveCache {
         math_revision: EXPLICIT_CURVE_MATH_REVISION,
-        range_width_nad: parameters.range_width_nad,
-        concentrated_liquidity_share_nad: parameters.concentrated_liquidity_share_nad,
+        peak_amplification_nad: parameters.peak_amplification_nad,
+        core_half_width_bps: parameters.core_half_width_bps,
+        fade_width_bps: parameters.fade_width_bps,
         tail_liquidity,
         concentrated_liquidity,
-        lower_sqrt_price_nad,
-        upper_sqrt_price_nad,
-    })
+        core_lower_sqrt_price_nad,
+        core_upper_sqrt_price_nad,
+        outer_lower_sqrt_price_nad,
+        outer_upper_sqrt_price_nad,
+    };
+    cache.geometry()?;
+    Ok(cache)
 }
 
 impl ExplicitCurveParameters {
     #[cfg(test)]
     pub(crate) const fn cpmm() -> Self {
         Self {
-            range_width_nad: 0,
-            concentrated_liquidity_share_nad: 0,
+            peak_amplification_nad: NAD,
+            core_half_width_bps: 0,
+            fade_width_bps: 0,
         }
     }
 
     pub(crate) const fn is_cpmm(self) -> bool {
-        self.concentrated_liquidity_share_nad == 0
+        self.peak_amplification_nad == NAD
     }
 
-    /// Preserves the existing maximum-amplification policy. For
-    /// `rho=Lc/(Lt+Lc)`, amplification is `rho/(1-rho)`.
     pub(crate) fn validate(self, max_amplification_nad: u64) -> Result<()> {
         if self.is_cpmm() {
-            require_eq!(self.range_width_nad, 0, ErrorCode::InvalidMarketConfig);
+            require!(
+                self.core_half_width_bps == 0 && self.fade_width_bps == 0,
+                ErrorCode::InvalidMarketConfig
+            );
             return Ok(());
         }
         require!(
-            self.range_width_nad > NAD && self.concentrated_liquidity_share_nad < NAD && max_amplification_nad > 0,
+            self.peak_amplification_nad > NAD
+                && self.peak_amplification_nad <= max_amplification_nad
+                && self.core_half_width_bps > 0,
             ErrorCode::InvalidMarketConfig
         );
-        let denominator = (NAD - self.concentrated_liquidity_share_nad) as u128;
         require!(
-            ratio_lte_full_width(
-                self.concentrated_liquidity_share_nad as u128,
-                denominator,
-                max_amplification_nad as u128,
-                NAD as u128,
-            )?,
+            u32::from(self.core_half_width_bps) + u32::from(self.fade_width_bps) <= u16::MAX as u32,
             ErrorCode::InvalidMarketConfig
         );
+        let shares = self.liquidity_shares_nad()?;
+        require!(shares.0 > 0 && shares.1 > 0, ErrorCode::InvalidMarketConfig);
+        if self.fade_width_bps > 0 {
+            require!(shares.1 >= 2, ErrorCode::InvalidMarketConfig);
+        }
         Ok(())
+    }
+
+    fn width_ratio_nad(width_bps: u32) -> Result<u128> {
+        (NAD as u128)
+            .checked_add(mul_div_u128(NAD as u128, width_bps as u128, 10_000)?)
+            .ok_or_else(|| ErrorCode::InvariantOverflow.into())
+    }
+
+    fn sqrt_widths_nad(self) -> Result<(u128, u128)> {
+        let core = Self::width_ratio_nad(u32::from(self.core_half_width_bps))?;
+        let outer = Self::width_ratio_nad(
+            u32::from(self.core_half_width_bps)
+                .checked_add(u32::from(self.fade_width_bps))
+                .ok_or(ErrorCode::InvalidMarketConfig)?,
+        )?;
+        Ok((sqrt_ratio_nad(core)?, sqrt_ratio_nad(outer)?))
+    }
+
+    /// Returns `(tail, concentrated)` shares of peak active liquidity. The
+    /// concentrated share is derived so the configured peak amplification is
+    /// exact at the centered reserve point; it is never a governance input.
+    pub(crate) fn liquidity_shares_nad(self) -> Result<(u128, u128)> {
+        if self.is_cpmm() {
+            return Ok((NAD as u128, 0));
+        }
+        let (core_sqrt_width, outer_sqrt_width) = self.sqrt_widths_nad()?;
+        let core_inverse = mul_div_u128(NAD as u128, NAD as u128, core_sqrt_width)?;
+        let average_inverse = if self.fade_width_bps == 0 {
+            core_inverse
+        } else {
+            let outer_inverse = mul_div_u128(NAD as u128, NAD as u128, outer_sqrt_width)?;
+            core_inverse
+                .checked_add(outer_inverse)
+                .ok_or(ErrorCode::InvariantOverflow)?
+                / 2
+        };
+        let inverse_amplification = mul_div_u128(NAD as u128, NAD as u128, self.peak_amplification_nad as u128)?;
+        let concentrated_share = mul_div_u128(
+            (NAD as u128)
+                .checked_sub(inverse_amplification)
+                .ok_or(ErrorCode::InvalidMarketConfig)?,
+            NAD as u128,
+            average_inverse,
+        )?;
+        require!(concentrated_share < NAD as u128, ErrorCode::InvalidMarketConfig);
+        Ok((NAD as u128 - concentrated_share, concentrated_share))
     }
 
     #[cfg(test)]
@@ -219,8 +407,9 @@ impl ExplicitCurveParameters {
         if self.is_cpmm() {
             return Ok(None);
         }
-        let lower = mul_div_u128(center_price_nad as u128, NAD as u128, self.range_width_nad as u128)?;
-        let upper = mul_div_u128(center_price_nad as u128, self.range_width_nad as u128, NAD as u128)?;
+        let outer_width = Self::width_ratio_nad(u32::from(self.core_half_width_bps) + u32::from(self.fade_width_bps))?;
+        let lower = mul_div_u128(center_price_nad as u128, NAD as u128, outer_width)?;
+        let upper = mul_div_u128(center_price_nad as u128, outer_width, NAD as u128)?;
         require!(
             lower > 0 && lower < center_price_nad as u128 && upper > center_price_nad as u128,
             ErrorCode::InvalidMarketConfig
@@ -265,16 +454,25 @@ pub(crate) fn prepare_centered_explicit_cache(
     );
 
     let sqrt_center_nad = sqrt_ratio_nad(center_price_nad as u128)?;
-    let sqrt_width_nad = sqrt_ratio_nad(parameters.range_width_nad as u128)?;
-    let lower_sqrt_price_nad = mul_div_u128(sqrt_center_nad, NAD as u128, sqrt_width_nad)?;
-    let upper_sqrt_price_nad = mul_div_u128(sqrt_center_nad, sqrt_width_nad, NAD as u128)?;
-    let rho_over_sqrt_width = mul_div_u128(
-        parameters.concentrated_liquidity_share_nad as u128,
-        NAD as u128,
-        sqrt_width_nad,
-    )?;
+    let (core_sqrt_width, outer_sqrt_width) = parameters.sqrt_widths_nad()?;
+    let core_lower_sqrt_price_nad = mul_div_u128(sqrt_center_nad, NAD as u128, core_sqrt_width)?;
+    let core_upper_sqrt_price_nad = mul_div_u128(sqrt_center_nad, core_sqrt_width, NAD as u128)?;
+    let outer_lower_sqrt_price_nad = mul_div_u128(sqrt_center_nad, NAD as u128, outer_sqrt_width)?;
+    let outer_upper_sqrt_price_nad = mul_div_u128(sqrt_center_nad, outer_sqrt_width, NAD as u128)?;
+    let (_, concentrated_share) = parameters.liquidity_shares_nad()?;
+    let core_share = if parameters.fade_width_bps == 0 {
+        concentrated_share
+    } else {
+        concentrated_share.div_ceil(2)
+    };
+    let shoulder_share = concentrated_share
+        .checked_sub(core_share)
+        .ok_or(ErrorCode::BrokenInvariant)?;
+    let core_over_sqrt_width = mul_div_u128(core_share, NAD as u128, core_sqrt_width)?;
+    let shoulder_over_sqrt_width = mul_div_u128(shoulder_share, NAD as u128, outer_sqrt_width)?;
     let effective_share_denominator = (NAD as u128)
-        .checked_sub(rho_over_sqrt_width)
+        .checked_sub(core_over_sqrt_width)
+        .and_then(|value| value.checked_sub(shoulder_over_sqrt_width))
         .ok_or(ErrorCode::InvalidMarketConfig)?;
     require!(effective_share_denominator > 0, ErrorCode::InvalidMarketConfig);
     let total_liquidity = mul_div_u128(
@@ -282,11 +480,7 @@ pub(crate) fn prepare_centered_explicit_cache(
         NAD as u128,
         effective_share_denominator,
     )?;
-    let concentrated_liquidity = mul_div_u128(
-        total_liquidity,
-        parameters.concentrated_liquidity_share_nad as u128,
-        NAD as u128,
-    )?;
+    let concentrated_liquidity = mul_div_u128(total_liquidity, concentrated_share, NAD as u128)?;
     let tail_liquidity = total_liquidity
         .checked_sub(concentrated_liquidity)
         .ok_or(ErrorCode::BrokenInvariant)?;
@@ -294,8 +488,10 @@ pub(crate) fn prepare_centered_explicit_cache(
         parameters,
         tail_liquidity,
         concentrated_liquidity,
-        lower_sqrt_price_nad,
-        upper_sqrt_price_nad,
+        core_lower_sqrt_price_nad,
+        core_upper_sqrt_price_nad,
+        outer_lower_sqrt_price_nad,
+        outer_upper_sqrt_price_nad,
         sqrt_center_nad,
     )
 }
@@ -318,13 +514,16 @@ pub(crate) fn prepare_explicit_cache_at_point(
         let tail_liquidity = geometric_mean_floor(base_reserve, quote_reserve)?;
         require!(tail_liquidity > 0, ErrorCode::InsufficientLiquidity);
         let sqrt_center_nad = sqrt_ratio_nad(center_price_nad as u128)?;
-        return complete_explicit_cache(parameters, tail_liquidity, 0, 0, 0, sqrt_center_nad);
+        return complete_explicit_cache(parameters, tail_liquidity, 0, 0, 0, 0, 0, sqrt_center_nad);
     }
 
     let sqrt_center_nad = sqrt_ratio_nad(center_price_nad as u128)?;
-    let sqrt_width_nad = sqrt_ratio_nad(parameters.range_width_nad as u128)?;
-    let lower_sqrt_price_nad = mul_div_u128(sqrt_center_nad, NAD as u128, sqrt_width_nad)?;
-    let upper_sqrt_price_nad = mul_div_u128(sqrt_center_nad, sqrt_width_nad, NAD as u128)?;
+    let (core_sqrt_width, outer_sqrt_width) = parameters.sqrt_widths_nad()?;
+    let core_lower_sqrt_price_nad = mul_div_u128(sqrt_center_nad, NAD as u128, core_sqrt_width)?;
+    let core_upper_sqrt_price_nad = mul_div_u128(sqrt_center_nad, core_sqrt_width, NAD as u128)?;
+    let outer_lower_sqrt_price_nad = mul_div_u128(sqrt_center_nad, NAD as u128, outer_sqrt_width)?;
+    let outer_upper_sqrt_price_nad = mul_div_u128(sqrt_center_nad, outer_sqrt_width, NAD as u128)?;
+    let (_, concentrated_share) = parameters.liquidity_shares_nad()?;
     let point = ExplicitCurvePoint {
         base_reserve,
         quote_reserve,
@@ -332,24 +531,149 @@ pub(crate) fn prepare_explicit_cache_at_point(
 
     for branch in [
         ExplicitCurveBranch::Inner,
+        ExplicitCurveBranch::UpperShoulder,
+        ExplicitCurveBranch::LowerShoulder,
         ExplicitCurveBranch::LowerTail,
         ExplicitCurveBranch::UpperTail,
     ] {
-        let total_liquidity = explicit_total_liquidity_root(
-            point,
-            parameters.concentrated_liquidity_share_nad as u128,
-            lower_sqrt_price_nad,
-            upper_sqrt_price_nad,
-            branch,
-        )?;
+        if parameters.fade_width_bps == 0
+            && matches!(
+                branch,
+                ExplicitCurveBranch::UpperShoulder | ExplicitCurveBranch::LowerShoulder
+            )
+        {
+            continue;
+        }
+        let total_liquidity = if parameters.fade_width_bps == 0 {
+            explicit_total_liquidity_root(
+                point,
+                concentrated_share,
+                core_lower_sqrt_price_nad,
+                core_upper_sqrt_price_nad,
+                branch,
+            )?
+        } else {
+            let region = nested_region_from_branch(branch);
+            require!(region <= 4, ErrorCode::InvalidMarketConfig);
+            let (tail_share_nad, concentrated_share_nad) = parameters.liquidity_shares_nad()?;
+            let core_share_nad = concentrated_share_nad.div_ceil(2);
+            let shoulder_share_nad = concentrated_share_nad
+                .checked_sub(core_share_nad)
+                .ok_or(ErrorCode::BrokenInvariant)?;
+            let core_liquidity = mul_div_u128(NESTED_SHAPE_SCALE, core_share_nad, NAD as u128)?;
+            let shoulder_liquidity = mul_div_u128(NESTED_SHAPE_SCALE, shoulder_share_nad, NAD as u128)?;
+            let tail_liquidity = NESTED_SHAPE_SCALE
+                .checked_sub(core_liquidity)
+                .and_then(|value| value.checked_sub(shoulder_liquidity))
+                .ok_or(ErrorCode::BrokenInvariant)?;
+            let expected_tail = mul_div_u128(NESTED_SHAPE_SCALE, tail_share_nad, NAD as u128)?;
+            require!(tail_liquidity.abs_diff(expected_tail) <= 2, ErrorCode::BrokenInvariant);
+            let layers = [
+                ExplicitCurveLayer {
+                    liquidity: core_liquidity,
+                    lower_sqrt_price: core_lower_sqrt_price_nad,
+                    upper_sqrt_price: core_upper_sqrt_price_nad,
+                },
+                ExplicitCurveLayer {
+                    liquidity: shoulder_liquidity,
+                    lower_sqrt_price: outer_lower_sqrt_price_nad,
+                    upper_sqrt_price: outer_upper_sqrt_price_nad,
+                },
+            ];
+            let (base_constant, quote_constant) = nested_region_constants(layers, region, NAD as u128)?;
+            let active_liquidity = match region {
+                0 | 4 => tail_liquidity,
+                1 | 3 => tail_liquidity
+                    .checked_add(shoulder_liquidity)
+                    .ok_or(ErrorCode::InvariantOverflow)?,
+                2 => NESTED_SHAPE_SCALE,
+                _ => unreachable!(),
+            };
+            let active_squared = U512::from(active_liquidity)
+                .checked_mul(U512::from(active_liquidity))
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            let constant_product = U512::from(base_constant.magnitude)
+                .checked_mul(U512::from(quote_constant.magnitude))
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            let constants_negative = base_constant.negative ^ quote_constant.negative;
+            let quadratic = if constants_negative {
+                active_squared
+                    .checked_add(constant_product)
+                    .ok_or(ErrorCode::InvariantOverflow)?
+            } else {
+                active_squared
+                    .checked_sub(constant_product)
+                    .ok_or(ErrorCode::InvalidMarketConfig)?
+            };
+            require!(!quadratic.is_zero(), ErrorCode::InvalidMarketConfig);
+
+            let lhs = SignedWide::from_product(quote_constant.negative, point.base_reserve, quote_constant.magnitude)?;
+            let rhs = SignedWide::from_product(base_constant.negative, point.quote_reserve, base_constant.magnitude)?;
+            let linear = if lhs.negative == rhs.negative {
+                let magnitude = lhs
+                    .magnitude
+                    .checked_add(rhs.magnitude)
+                    .ok_or(ErrorCode::InvariantOverflow)?;
+                SignedWide {
+                    negative: lhs.negative && !magnitude.is_zero(),
+                    magnitude,
+                }
+            } else if lhs.magnitude >= rhs.magnitude {
+                let magnitude = lhs
+                    .magnitude
+                    .checked_sub(rhs.magnitude)
+                    .ok_or(ErrorCode::BrokenInvariant)?;
+                SignedWide {
+                    negative: lhs.negative && !magnitude.is_zero(),
+                    magnitude,
+                }
+            } else {
+                let magnitude = rhs
+                    .magnitude
+                    .checked_sub(lhs.magnitude)
+                    .ok_or(ErrorCode::BrokenInvariant)?;
+                SignedWide {
+                    negative: rhs.negative && !magnitude.is_zero(),
+                    magnitude,
+                }
+            };
+            let scaled_linear = linear
+                .magnitude
+                .checked_mul(U512::from(NESTED_SHAPE_SCALE))
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            let scale_squared = U512::from(NESTED_SHAPE_SCALE)
+                .checked_mul(U512::from(NESTED_SHAPE_SCALE))
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            let constant = U512::from(point.base_reserve)
+                .checked_mul(U512::from(point.quote_reserve))
+                .and_then(|value| value.checked_mul(scale_squared))
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            let discriminant = scaled_linear
+                .checked_mul(scaled_linear)
+                .and_then(|value| {
+                    quadratic
+                        .checked_mul(constant)?
+                        .checked_mul(U512::from(4_u8))?
+                        .checked_add(value)
+                })
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            let root = sqrt_floor_u512(discriminant)?;
+            let numerator = if linear.negative {
+                root.checked_add(scaled_linear).ok_or(ErrorCode::InvariantOverflow)?
+            } else {
+                root.checked_sub(scaled_linear).ok_or(ErrorCode::BrokenInvariant)?
+            };
+            let denominator = quadratic
+                .checked_mul(U512::from(2_u8))
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            let liquidity = numerator / denominator;
+            require!(liquidity <= U512::from(u128::MAX), ErrorCode::InvariantOverflow);
+            liquidity.as_u128()
+        };
         if total_liquidity == 0 {
             continue;
         }
-        let concentrated_liquidity = mul_div_u128(
-            total_liquidity,
-            parameters.concentrated_liquidity_share_nad as u128,
-            NAD as u128,
-        )?;
+        let concentrated_liquidity = mul_div_u128(total_liquidity, concentrated_share, NAD as u128)?;
         let tail_liquidity = total_liquidity
             .checked_sub(concentrated_liquidity)
             .ok_or(ErrorCode::BrokenInvariant)?;
@@ -360,8 +684,10 @@ pub(crate) fn prepare_explicit_cache_at_point(
             parameters,
             tail_liquidity,
             concentrated_liquidity,
-            lower_sqrt_price_nad,
-            upper_sqrt_price_nad,
+            core_lower_sqrt_price_nad,
+            core_upper_sqrt_price_nad,
+            outer_lower_sqrt_price_nad,
+            outer_upper_sqrt_price_nad,
             sqrt_center_nad,
         )?;
         let geometry = cache.geometry()?;
@@ -441,6 +767,9 @@ fn explicit_total_liquidity_root(
                 .ok_or(ErrorCode::InvariantOverflow)?;
             (a, b, c, false)
         }
+        ExplicitCurveBranch::LowerShoulder | ExplicitCurveBranch::UpperShoulder => {
+            return err!(ErrorCode::InvalidMarketConfig)
+        }
     };
     require!(!a.is_zero(), ErrorCode::InvalidMarketConfig);
     let discriminant = b
@@ -457,6 +786,26 @@ fn explicit_total_liquidity_root(
     let liquidity = numerator / denominator;
     require!(liquidity <= U512::from(u128::MAX), ErrorCode::InvariantOverflow);
     Ok(liquidity.as_u128())
+}
+
+const NESTED_SHAPE_SCALE: u128 = 1_000_000_000_000_000_000;
+
+#[derive(Clone, Debug)]
+struct SignedWide {
+    negative: bool,
+    magnitude: U512,
+}
+
+impl SignedWide {
+    fn from_product(negative: bool, lhs: u128, rhs: u128) -> Result<Self> {
+        let magnitude = U512::from(lhs)
+            .checked_mul(U512::from(rhs))
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        Ok(Self {
+            negative: negative && !magnitude.is_zero(),
+            magnitude,
+        })
+    }
 }
 
 fn sqrt_floor_u512(value: U512) -> Result<U512> {
@@ -483,9 +832,68 @@ pub struct ExplicitCurvePoint {
 /// Precomputed geometry for one full-range CPMM tail plus one concentrated
 /// band. Offsets are reserve coordinates, not transferable balances.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
+pub struct ExplicitSignedReserve {
+    pub negative: bool,
+    pub magnitude: u128,
+}
+
+impl ExplicitSignedReserve {
+    fn add_positive(&mut self, value: u128) -> Result<()> {
+        if self.negative {
+            if value >= self.magnitude {
+                self.magnitude = value.checked_sub(self.magnitude).ok_or(ErrorCode::BrokenInvariant)?;
+                self.negative = false;
+            } else {
+                self.magnitude = self.magnitude.checked_sub(value).ok_or(ErrorCode::BrokenInvariant)?;
+            }
+        } else {
+            self.magnitude = self.magnitude.checked_add(value).ok_or(ErrorCode::InvariantOverflow)?;
+        }
+        Ok(())
+    }
+
+    fn subtract_positive(&mut self, value: u128) -> Result<()> {
+        if self.negative {
+            self.magnitude = self.magnitude.checked_add(value).ok_or(ErrorCode::InvariantOverflow)?;
+        } else if self.magnitude >= value {
+            self.magnitude = self.magnitude.checked_sub(value).ok_or(ErrorCode::BrokenInvariant)?;
+        } else {
+            self.magnitude = value.checked_sub(self.magnitude).ok_or(ErrorCode::BrokenInvariant)?;
+            self.negative = true;
+        }
+        Ok(())
+    }
+
+    fn subtract_from(self, value: u128) -> Result<u128> {
+        if self.negative {
+            value
+                .checked_add(self.magnitude)
+                .ok_or_else(|| ErrorCode::InvariantOverflow.into())
+        } else {
+            value
+                .checked_sub(self.magnitude)
+                .ok_or_else(|| ErrorCode::BrokenInvariant.into())
+        }
+    }
+
+    fn add_to(self, value: u128) -> Result<u128> {
+        if self.negative {
+            value
+                .checked_sub(self.magnitude)
+                .ok_or_else(|| ErrorCode::BrokenInvariant.into())
+        } else {
+            value
+                .checked_add(self.magnitude)
+                .ok_or_else(|| ErrorCode::InvariantOverflow.into())
+        }
+    }
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct ExplicitCurveGeometry {
     /// Zero selects exact CPMM and requires every other geometry field to be
-    /// zero. Nonzero selects the three-segment concentrated curve.
+    /// zero. Nonzero supplies the compact three-segment base representation;
+    /// a nonzero shoulder below extends it to the five-segment product curve.
     pub inner_liquidity: u128,
     /// Positive offsets used by the shifted constant product inside the band.
     pub inner_base_amplification_offset: u128,
@@ -495,6 +903,14 @@ pub struct ExplicitCurveGeometry {
     pub upper_tail_quote_inventory: u128,
     pub lower_boundary: ExplicitCurvePoint,
     pub upper_boundary: ExplicitCurvePoint,
+    /// A nonzero shoulder selects the five-segment nested curve. The original
+    /// one-band fields above remain the compact representation when this is
+    /// zero.
+    pub shoulder_liquidity: u128,
+    pub nested_boundary_count: u8,
+    pub nested_boundaries: [ExplicitCurvePoint; 4],
+    pub nested_base_constants: [ExplicitSignedReserve; 5],
+    pub nested_quote_constants: [ExplicitSignedReserve; 5],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -504,6 +920,106 @@ pub(crate) struct ExplicitCurveQuote {
     pub end: ExplicitCurvePoint,
     pub end_branch: ExplicitCurveBranch,
     pub boundary_crossings: u8,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct ExplicitCurveLayer {
+    liquidity: u128,
+    lower_sqrt_price: u128,
+    upper_sqrt_price: u128,
+}
+
+fn nested_point_at_sqrt_price(
+    tail_liquidity: u128,
+    layers: [ExplicitCurveLayer; 2],
+    sqrt_price: u128,
+    sqrt_price_scale: u128,
+) -> Result<ExplicitCurvePoint> {
+    require!(sqrt_price > 0, ErrorCode::InvalidSettlementPrice);
+    let mut base_reserve = mul_div_u128(tail_liquidity, sqrt_price_scale, sqrt_price)?;
+    let mut quote_reserve = mul_div_u128(tail_liquidity, sqrt_price, sqrt_price_scale)?;
+    for layer in layers {
+        let base_at_lower = mul_div_u128(layer.liquidity, sqrt_price_scale, layer.lower_sqrt_price)?;
+        let base_at_upper = mul_div_u128(layer.liquidity, sqrt_price_scale, layer.upper_sqrt_price)?;
+        let quote_at_lower = mul_div_u128(layer.liquidity, layer.lower_sqrt_price, sqrt_price_scale)?;
+        let quote_at_upper = mul_div_u128(layer.liquidity, layer.upper_sqrt_price, sqrt_price_scale)?;
+        let (base_claim, quote_claim) = if sqrt_price <= layer.lower_sqrt_price {
+            (
+                base_at_lower
+                    .checked_sub(base_at_upper)
+                    .ok_or(ErrorCode::BrokenInvariant)?,
+                0,
+            )
+        } else if sqrt_price >= layer.upper_sqrt_price {
+            (
+                0,
+                quote_at_upper
+                    .checked_sub(quote_at_lower)
+                    .ok_or(ErrorCode::BrokenInvariant)?,
+            )
+        } else {
+            (
+                mul_div_u128(layer.liquidity, sqrt_price_scale, sqrt_price)?
+                    .checked_sub(base_at_upper)
+                    .ok_or(ErrorCode::BrokenInvariant)?,
+                mul_div_u128(layer.liquidity, sqrt_price, sqrt_price_scale)?
+                    .checked_sub(quote_at_lower)
+                    .ok_or(ErrorCode::BrokenInvariant)?,
+            )
+        };
+        base_reserve = base_reserve
+            .checked_add(base_claim)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        quote_reserve = quote_reserve
+            .checked_add(quote_claim)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+    }
+    Ok(ExplicitCurvePoint {
+        base_reserve,
+        quote_reserve,
+    })
+}
+
+fn nested_region_constants(
+    layers: [ExplicitCurveLayer; 2],
+    region: usize,
+    sqrt_price_scale: u128,
+) -> Result<(ExplicitSignedReserve, ExplicitSignedReserve)> {
+    require!(region <= 4, ErrorCode::BrokenInvariant);
+    let states = match region {
+        0 => [2_u8, 2_u8],
+        1 => [2, 1],
+        2 => [1, 1],
+        3 => [0, 1],
+        4 => [0, 0],
+        _ => unreachable!(),
+    };
+    let mut base = ExplicitSignedReserve::default();
+    let mut quote = ExplicitSignedReserve::default();
+    for (layer, state) in layers.into_iter().zip(states) {
+        let base_at_lower = mul_div_u128(layer.liquidity, sqrt_price_scale, layer.lower_sqrt_price)?;
+        let base_at_upper = mul_div_u128(layer.liquidity, sqrt_price_scale, layer.upper_sqrt_price)?;
+        let quote_at_lower = mul_div_u128(layer.liquidity, layer.lower_sqrt_price, sqrt_price_scale)?;
+        let quote_at_upper = mul_div_u128(layer.liquidity, layer.upper_sqrt_price, sqrt_price_scale)?;
+        match state {
+            0 => base.add_positive(
+                base_at_lower
+                    .checked_sub(base_at_upper)
+                    .ok_or(ErrorCode::BrokenInvariant)?,
+            )?,
+            1 => {
+                base.subtract_positive(base_at_upper)?;
+                quote.subtract_positive(quote_at_lower)?;
+            }
+            2 => quote.add_positive(
+                quote_at_upper
+                    .checked_sub(quote_at_lower)
+                    .ok_or(ErrorCode::BrokenInvariant)?,
+            )?,
+            _ => unreachable!(),
+        }
+    }
+    Ok((base, quote))
 }
 
 impl ExplicitCurveGeometry {
@@ -522,6 +1038,20 @@ impl ExplicitCurveGeometry {
                 base_reserve: 0,
                 quote_reserve: 0,
             },
+            shoulder_liquidity: 0,
+            nested_boundary_count: 0,
+            nested_boundaries: [ExplicitCurvePoint {
+                base_reserve: 0,
+                quote_reserve: 0,
+            }; 4],
+            nested_base_constants: [ExplicitSignedReserve {
+                negative: false,
+                magnitude: 0,
+            }; 5],
+            nested_quote_constants: [ExplicitSignedReserve {
+                negative: false,
+                magnitude: 0,
+            }; 5],
         }
     }
 
@@ -529,78 +1059,42 @@ impl ExplicitCurveGeometry {
         self.inner_liquidity == 0
     }
 
-    /// Constructs reserve-coordinate offsets and boundaries directly from
-    /// tail liquidity, concentrated liquidity, and two square-root prices.
-    pub(crate) fn from_liquidity_range(
-        tail_liquidity: u128,
-        concentrated_liquidity: u128,
-        lower_sqrt_price: u128,
-        upper_sqrt_price: u128,
-        sqrt_price_scale: u128,
-    ) -> Result<Self> {
-        if concentrated_liquidity == 0 {
-            require!(tail_liquidity > 0, ErrorCode::InsufficientLiquidity);
-            return Ok(Self::cpmm());
-        }
-        require!(
-            tail_liquidity > 0 && lower_sqrt_price > 0 && lower_sqrt_price < upper_sqrt_price && sqrt_price_scale > 0,
-            ErrorCode::InvalidMarketConfig
-        );
-        let inner_base_amplification_offset = mul_div_u128(concentrated_liquidity, sqrt_price_scale, upper_sqrt_price)?;
-        let inner_quote_amplification_offset =
-            mul_div_u128(concentrated_liquidity, lower_sqrt_price, sqrt_price_scale)?;
-        let lower_tail_base_inventory = mul_div_u128(concentrated_liquidity, sqrt_price_scale, lower_sqrt_price)?
-            .checked_sub(inner_base_amplification_offset)
-            .ok_or(ErrorCode::BrokenInvariant)?;
-        let lower_boundary = ExplicitCurvePoint {
-            base_reserve: mul_div_u128(tail_liquidity, sqrt_price_scale, lower_sqrt_price)?
-                .checked_add(lower_tail_base_inventory)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-            quote_reserve: mul_div_u128(tail_liquidity, lower_sqrt_price, sqrt_price_scale)?,
-        };
-        let upper_base_reserve = mul_div_u128(tail_liquidity, sqrt_price_scale, upper_sqrt_price)?;
-        let lower_inner_base = lower_boundary
-            .base_reserve
-            .checked_add(inner_base_amplification_offset)
-            .ok_or(ErrorCode::InvariantOverflow)?;
-        let lower_inner_quote = lower_boundary
-            .quote_reserve
-            .checked_add(inner_quote_amplification_offset)
-            .ok_or(ErrorCode::InvariantOverflow)?;
-        let upper_inner_base = upper_base_reserve
-            .checked_add(inner_base_amplification_offset)
-            .ok_or(ErrorCode::InvariantOverflow)?;
-        let upper_inner_quote = mul_div_u128(lower_inner_base, lower_inner_quote, upper_inner_base)?;
-        let upper_quote_reserve = upper_inner_quote
-            .checked_sub(inner_quote_amplification_offset)
-            .ok_or(ErrorCode::BrokenInvariant)?;
-        let lower_tail_base = lower_boundary
-            .base_reserve
-            .checked_sub(lower_tail_base_inventory)
-            .ok_or(ErrorCode::BrokenInvariant)?;
-        let upper_tail_quote = mul_div_u128(lower_tail_base, lower_boundary.quote_reserve, upper_base_reserve)?;
-        let upper_tail_quote_inventory = upper_quote_reserve
-            .checked_sub(upper_tail_quote)
-            .ok_or(ErrorCode::BrokenInvariant)?;
-        let geometry = Self {
-            inner_liquidity: concentrated_liquidity,
-            inner_base_amplification_offset,
-            inner_quote_amplification_offset,
-            lower_tail_base_inventory,
-            upper_tail_quote_inventory,
-            lower_boundary,
-            upper_boundary: ExplicitCurvePoint {
-                base_reserve: upper_base_reserve,
-                quote_reserve: upper_quote_reserve,
-            },
-        };
-        geometry.validate()?;
-        Ok(geometry)
+    pub(crate) const fn is_nested(self) -> bool {
+        self.shoulder_liquidity > 0
     }
 
     pub(crate) fn validate(self) -> Result<()> {
         if self.is_cpmm() {
             require!(self == Self::cpmm(), ErrorCode::InvalidMarketConfig);
+            return Ok(());
+        }
+
+        if self.is_nested() {
+            require_eq!(self.nested_boundary_count, 4, ErrorCode::InvalidMarketConfig);
+            require!(
+                self.inner_liquidity > self.shoulder_liquidity
+                    && self.inner_base_amplification_offset == 0
+                    && self.inner_quote_amplification_offset == 0
+                    && self.lower_tail_base_inventory == 0
+                    && self.upper_tail_quote_inventory == 0
+                    && self.lower_boundary == ExplicitCurvePoint::default()
+                    && self.upper_boundary == ExplicitCurvePoint::default(),
+                ErrorCode::InvalidMarketConfig
+            );
+            require!(
+                self.nested_boundaries
+                    .windows(2)
+                    .all(|window| window[0].base_reserve < window[1].base_reserve
+                        && window[0].quote_reserve > window[1].quote_reserve),
+                ErrorCode::InvalidMarketConfig
+            );
+            for (region, boundary) in self.nested_boundaries.into_iter().enumerate() {
+                let left = self.nested_effective_reserves(boundary, region)?;
+                let right = self.nested_effective_reserves(boundary, region + 1)?;
+                let left_price = mul_div_u128(left.1, NAD as u128, left.0)?;
+                let right_price = mul_div_u128(right.1, NAD as u128, right.0)?;
+                require!(left_price.abs_diff(right_price) <= 2, ErrorCode::InvalidMarketConfig);
+            }
             return Ok(());
         }
 
@@ -663,6 +1157,15 @@ impl ExplicitCurveGeometry {
     }
 
     pub(crate) fn branch(self, point: ExplicitCurvePoint) -> ExplicitCurveBranch {
+        if self.is_nested() {
+            let region = self
+                .nested_boundaries
+                .iter()
+                .take(self.nested_boundary_count as usize)
+                .position(|boundary| point.base_reserve <= boundary.base_reserve)
+                .unwrap_or(self.nested_boundary_count as usize);
+            return nested_branch_from_region(region);
+        }
         if self.is_cpmm() || point.base_reserve >= self.lower_boundary.base_reserve {
             ExplicitCurveBranch::LowerTail
         } else if point.base_reserve <= self.upper_boundary.base_reserve {
@@ -670,6 +1173,17 @@ impl ExplicitCurveGeometry {
         } else {
             ExplicitCurveBranch::Inner
         }
+    }
+
+    fn nested_effective_reserves(self, point: ExplicitCurvePoint, region: usize) -> Result<(u128, u128)> {
+        require!(
+            region <= self.nested_boundary_count as usize,
+            ErrorCode::BrokenInvariant
+        );
+        let base = self.nested_base_constants[region].subtract_from(point.base_reserve)?;
+        let quote = self.nested_quote_constants[region].subtract_from(point.quote_reserve)?;
+        require!(base > 0 && quote > 0, ErrorCode::InsufficientLiquidity);
+        Ok((base, quote))
     }
 
     /// Marginal Quote-per-Base price of the active explicit segment.
@@ -692,6 +1206,16 @@ impl ExplicitCurveGeometry {
         if self.is_cpmm() {
             return Ok(None);
         }
+        if self.is_nested() {
+            let upper_boundary = self.nested_boundaries[0];
+            let lower_boundary = self.nested_boundaries[3];
+            let (upper_base, upper_quote) = self.nested_effective_reserves(upper_boundary, 0)?;
+            let (lower_base, lower_quote) = self.nested_effective_reserves(lower_boundary, 4)?;
+            return Ok(Some((
+                mul_div_u128(lower_quote, NAD as u128, lower_base)?,
+                mul_div_u128(upper_quote, NAD as u128, upper_base)?,
+            )));
+        }
         let (lower_base, lower_quote) = self.effective_reserves(self.lower_boundary, ExplicitCurveBranch::Inner)?;
         let (upper_base, upper_quote) = self.effective_reserves(self.upper_boundary, ExplicitCurveBranch::Inner)?;
         Ok(Some((
@@ -708,6 +1232,40 @@ impl ExplicitCurveGeometry {
         require!(price_nad > 0 && tail_liquidity > 0, ErrorCode::InvalidSettlementPrice);
         let sqrt_price_nad = sqrt_ratio_nad(price_nad)?;
         require!(sqrt_price_nad > 0, ErrorCode::InvalidSettlementPrice);
+        if self.is_nested() {
+            let mut region = self.nested_boundary_count as usize;
+            for index in 0..self.nested_boundary_count as usize {
+                let boundary = self.nested_boundaries[index];
+                let (base, quote) = self.nested_effective_reserves(boundary, index)?;
+                let boundary_price = mul_div_u128(quote, NAD as u128, base)?;
+                if price_nad >= boundary_price {
+                    region = index;
+                    break;
+                }
+            }
+            let core_liquidity = self
+                .inner_liquidity
+                .checked_sub(self.shoulder_liquidity)
+                .ok_or(ErrorCode::BrokenInvariant)?;
+            let active_concentrated = match region {
+                0 | 4 => 0,
+                1 | 3 => self.shoulder_liquidity,
+                2 => self
+                    .shoulder_liquidity
+                    .checked_add(core_liquidity)
+                    .ok_or(ErrorCode::InvariantOverflow)?,
+                _ => return err!(ErrorCode::BrokenInvariant),
+            };
+            let liquidity = tail_liquidity
+                .checked_add(active_concentrated)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            let effective_base = mul_div_u128(liquidity, NAD as u128, sqrt_price_nad)?;
+            let effective_quote = mul_div_u128(liquidity, sqrt_price_nad, NAD as u128)?;
+            return Ok(ExplicitCurvePoint {
+                base_reserve: self.nested_base_constants[region].add_to(effective_base)?,
+                quote_reserve: self.nested_quote_constants[region].add_to(effective_quote)?,
+            });
+        }
         let branch = if self.is_cpmm() {
             ExplicitCurveBranch::LowerTail
         } else {
@@ -725,6 +1283,9 @@ impl ExplicitCurveGeometry {
                 .checked_add(self.inner_liquidity)
                 .ok_or(ErrorCode::InvariantOverflow)?,
             ExplicitCurveBranch::LowerTail | ExplicitCurveBranch::UpperTail => tail_liquidity,
+            ExplicitCurveBranch::LowerShoulder | ExplicitCurveBranch::UpperShoulder => {
+                return err!(ErrorCode::BrokenInvariant)
+            }
         };
         let (effective_base, effective_quote) = (
             mul_div_u128(liquidity, NAD as u128, sqrt_price_nad)?,
@@ -751,10 +1312,30 @@ impl ExplicitCurveGeometry {
                     .checked_add(self.upper_tail_quote_inventory)
                     .ok_or(ErrorCode::InvariantOverflow)?,
             }),
+            ExplicitCurveBranch::LowerShoulder | ExplicitCurveBranch::UpperShoulder => {
+                err!(ErrorCode::BrokenInvariant)
+            }
         }
     }
 
     fn branch_for_direction(self, point: ExplicitCurvePoint, direction: ExplicitCurveDirection) -> ExplicitCurveBranch {
+        if self.is_nested() {
+            let region = match direction {
+                ExplicitCurveDirection::BaseToQuote => self
+                    .nested_boundaries
+                    .iter()
+                    .take(self.nested_boundary_count as usize)
+                    .position(|boundary| point.base_reserve < boundary.base_reserve)
+                    .unwrap_or(self.nested_boundary_count as usize),
+                ExplicitCurveDirection::QuoteToBase => self
+                    .nested_boundaries
+                    .iter()
+                    .take(self.nested_boundary_count as usize)
+                    .position(|boundary| point.quote_reserve >= boundary.quote_reserve)
+                    .unwrap_or(self.nested_boundary_count as usize),
+            };
+            return nested_branch_from_region(region);
+        }
         if self.is_cpmm() {
             return ExplicitCurveBranch::LowerTail;
         }
@@ -784,6 +1365,9 @@ impl ExplicitCurveGeometry {
     }
 
     fn effective_reserves(self, point: ExplicitCurvePoint, branch: ExplicitCurveBranch) -> Result<(u128, u128)> {
+        if self.is_nested() {
+            return self.nested_effective_reserves(point, nested_region_from_branch(branch));
+        }
         let pair = match branch {
             ExplicitCurveBranch::LowerTail => (
                 point
@@ -809,6 +1393,9 @@ impl ExplicitCurveGeometry {
                     .checked_sub(self.upper_tail_quote_inventory)
                     .ok_or(ErrorCode::BrokenInvariant)?,
             ),
+            ExplicitCurveBranch::LowerShoulder | ExplicitCurveBranch::UpperShoulder => {
+                return err!(ErrorCode::BrokenInvariant)
+            }
         };
         require!(pair.0 > 0 && pair.1 > 0, ErrorCode::InsufficientLiquidity);
         Ok(pair)
@@ -820,6 +1407,25 @@ impl ExplicitCurveGeometry {
         branch: ExplicitCurveBranch,
         direction: ExplicitCurveDirection,
     ) -> Option<ExplicitCurvePoint> {
+        if self.is_nested() {
+            let region = nested_region_from_branch(branch);
+            return match direction {
+                ExplicitCurveDirection::BaseToQuote => {
+                    if region < self.nested_boundary_count as usize {
+                        Some(self.nested_boundaries[region])
+                    } else {
+                        None
+                    }
+                }
+                ExplicitCurveDirection::QuoteToBase => {
+                    if region > 0 {
+                        Some(self.nested_boundaries[region - 1])
+                    } else {
+                        None
+                    }
+                }
+            };
+        }
         if self.is_cpmm() {
             return None;
         }
@@ -828,6 +1434,7 @@ impl ExplicitCurveGeometry {
             (ExplicitCurveDirection::BaseToQuote, ExplicitCurveBranch::Inner) => Some(self.lower_boundary),
             (ExplicitCurveDirection::QuoteToBase, ExplicitCurveBranch::LowerTail) => Some(self.lower_boundary),
             (ExplicitCurveDirection::QuoteToBase, ExplicitCurveBranch::Inner) => Some(self.upper_boundary),
+            (_, ExplicitCurveBranch::LowerShoulder | ExplicitCurveBranch::UpperShoulder) => None,
             _ => {
                 let _ = point;
                 None
@@ -863,7 +1470,7 @@ impl ExplicitCurveGeometry {
         let mut total_out = 0_u128;
         let mut crossings = 0_u8;
 
-        for _ in 0..3 {
+        for _ in 0..5 {
             let branch = self.branch_for_direction(point, direction);
             let boundary = self.next_boundary(point, branch, direction);
             let input_to_boundary = boundary.map(|target| match direction {
@@ -980,7 +1587,7 @@ impl ExplicitCurveGeometry {
         let mut total_in = 0_u128;
         let mut crossings = 0_u8;
 
-        for _ in 0..3 {
+        for _ in 0..5 {
             let branch = self.branch_for_direction(point, direction);
             let boundary = self.next_boundary(point, branch, direction);
             let boundary_segment = if let Some(target) = boundary {

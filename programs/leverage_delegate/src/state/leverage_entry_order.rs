@@ -7,7 +7,6 @@ pub struct LeverageEntryOrder {
     pub market: Pubkey,
     pub position: Pubkey,
     pub position_id: Pubkey,
-    pub funding_vault: Pubkey,
     pub debt_mint: Pubkey,
     pub collateral_mint: Pubkey,
     pub order_id: u64,

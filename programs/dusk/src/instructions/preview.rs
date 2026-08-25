@@ -223,8 +223,8 @@ pub struct PreviewAmm {
     pub last_adjustment_slot: u64,
     pub volatility_accumulator_nad: u64,
     pub decayed_volatility_nad: u64,
-    pub balanced_equivalent_q_nad: u128,
-    pub q_per_share_nad: u128,
+    pub curve_depth_nad: u128,
+    pub curve_depth_per_share_nad: u128,
     pub protected_floor_per_share_nad: u128,
     pub protected_profit_per_share_nad: u128,
     pub retention_required_nad: u128,
@@ -235,8 +235,9 @@ pub struct PreviewAmm {
     pub retention_target_stale: bool,
     pub protected_recenter_base_reserve: u64,
     pub protected_recenter_quote_reserve: u64,
-    pub range_width_nad: u64,
-    pub concentrated_liquidity_share_nad: u64,
+    pub peak_amplification_nad: u64,
+    pub core_half_width_bps: u16,
+    pub fade_width_bps: u16,
     pub lower_range_price_nad: u64,
     pub upper_range_price_nad: u64,
     pub explicit_curve_branch: u8,
@@ -325,7 +326,7 @@ pub struct SwapPreview {
     pub final_spot_price_nad: u64,
     pub base_hlp_quote_debt_delta: i128,
     pub quote_hlp_base_debt_delta: i128,
-    /// Yield-Basis-like recovery funded exclusively by the stressed hLP.
+    /// Funding recovery funded exclusively by the stressed hLP.
     pub hlp_recovery_target_asset: u8,
     pub hlp_recovery_funding_gap: u64,
     pub hlp_recovery_matched_input: u64,
@@ -404,8 +405,8 @@ impl<'info> PreviewMarket<'info> {
         let amm = {
             let state = &market.amm;
             let explicit_parameters = market.config.amm.explicit_curve_parameters()?;
-            let (executable_base_reserve, executable_quote_reserve, balanced_equivalent_q_nad) = if state.initialized {
-                let q_nad = state
+            let (executable_base_reserve, executable_quote_reserve, curve_depth_nad) = if state.initialized {
+                let curve_depth_nad = state
                     .explicit_curve_cache
                     .tail_liquidity
                     .checked_add(state.explicit_curve_cache.concentrated_liquidity)
@@ -413,7 +414,7 @@ impl<'info> PreviewMarket<'info> {
                 (
                     market.curve_reserve(MarketAsset::Base)?,
                     market.curve_reserve(MarketAsset::Quote)?,
-                    q_nad,
+                    curve_depth_nad,
                 )
             } else {
                 (0, 0, 0)
@@ -453,8 +454,8 @@ impl<'info> PreviewMarket<'info> {
                 } else {
                     0
                 },
-                balanced_equivalent_q_nad,
-                q_per_share_nad: state.q_per_share_nad,
+                curve_depth_nad,
+                curve_depth_per_share_nad: state.curve_depth_per_share_nad,
                 protected_floor_per_share_nad: state.protected_floor_per_share_nad,
                 protected_profit_per_share_nad: state.spendable_protected_profit_nad(),
                 retention_required_nad: state.retention_required_nad,
@@ -465,8 +466,9 @@ impl<'info> PreviewMarket<'info> {
                 retention_target_stale: state.retention_target_stale,
                 protected_recenter_base_reserve: market.base_side.reserves.protected_recenter_reserve,
                 protected_recenter_quote_reserve: market.quote_side.reserves.protected_recenter_reserve,
-                range_width_nad: explicit_parameters.range_width_nad,
-                concentrated_liquidity_share_nad: explicit_parameters.concentrated_liquidity_share_nad,
+                peak_amplification_nad: explicit_parameters.peak_amplification_nad,
+                core_half_width_bps: explicit_parameters.core_half_width_bps,
+                fade_width_bps: explicit_parameters.fade_width_bps,
                 lower_range_price_nad: explicit_metadata.0,
                 upper_range_price_nad: explicit_metadata.1,
                 explicit_curve_branch: explicit_metadata.2,
@@ -865,7 +867,7 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
             market.risk.directional_quote_price_ema_nad,
         ),
     };
-    let (base_depth, quote_depth) = market.conservative_risk_reserve_depths(&market.risk)?;
+    let (base_depth, quote_depth) = market.pessimistic_borrow_reserve_depths(&market.risk)?;
     let conservative_depth_nad = match asset {
         MarketAsset::Base => normalize_to_nad(base_depth as u128, side.asset_decimals)?,
         MarketAsset::Quote => normalize_to_nad(quote_depth as u128, side.asset_decimals)?,

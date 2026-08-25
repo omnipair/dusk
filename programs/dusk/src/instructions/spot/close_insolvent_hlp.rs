@@ -127,11 +127,7 @@ impl<'info> CloseInsolventHlp<'info> {
         Ok(current_slot)
     }
 
-    pub fn handle(
-        ctx: Context<'_, '_, '_, 'info, Self>,
-        args: CloseInsolventHlpArgs,
-        current_slot: u64,
-    ) -> Result<()> {
+    pub fn handle(ctx: Context<'_, '_, '_, 'info, Self>, args: CloseInsolventHlpArgs, current_slot: u64) -> Result<()> {
         let target_asset = MarketAsset::try_from_code(args.target_asset)?;
         let borrowed_asset = target_asset.opposite();
         let eligibility = HlpYieldEligibility {

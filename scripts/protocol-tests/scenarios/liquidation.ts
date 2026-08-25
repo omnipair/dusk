@@ -11,80 +11,7 @@ import type { TransactionEvidence } from "../types.js";
 const bidPositionId = Keypair.generate().publicKey;
 const floorPositionId = Keypair.generate().publicKey;
 const badDebtPositionId = Keypair.generate().publicKey;
-const NAD = 1_000_000_000n;
 const BPS_DENOMINATOR = 10_000n;
-
-function ceilDiv(value: bigint, denominator: bigint): bigint {
-  return (value + denominator - 1n) / denominator;
-}
-
-function normalizeToNad(amount: bigint, decimals: number): bigint {
-  if (decimals === 9) return amount;
-  if (decimals < 9) return amount * 10n ** BigInt(9 - decimals);
-  return amount / 10n ** BigInt(decimals - 9);
-}
-
-function denormalizeFromNadCeil(amount: bigint, decimals: number): bigint {
-  if (decimals === 9) return amount;
-  if (decimals < 9) return ceilDiv(amount, 10n ** BigInt(9 - decimals));
-  return amount * 10n ** BigInt(decimals - 9);
-}
-
-function collateralForRepay(
-  repayAmount: bigint,
-  debtDecimals: number,
-  collateralDecimals: number,
-  totalPenaltyBps: number,
-  debtPerCollateralPriceNad: bigint
-): bigint {
-  const debtWithPenalty = ceilDiv(
-    repayAmount * (BPS_DENOMINATOR + BigInt(totalPenaltyBps)),
-    BPS_DENOMINATOR
-  );
-  const debtValueNad = normalizeToNad(debtWithPenalty, debtDecimals);
-  const collateralAmountNad = ceilDiv(debtValueNad * NAD, debtPerCollateralPriceNad);
-  return denormalizeFromNadCeil(collateralAmountNad, collateralDecimals);
-}
-
-function minimumRepayToExhaustCollateral(
-  maxRepayAmount: bigint,
-  collateralAmount: bigint,
-  debtDecimals: number,
-  collateralDecimals: number,
-  totalPenaltyBps: number,
-  debtPerCollateralPriceNad: bigint
-): bigint | null {
-  if (
-    collateralForRepay(
-      maxRepayAmount,
-      debtDecimals,
-      collateralDecimals,
-      totalPenaltyBps,
-      debtPerCollateralPriceNad
-    ) < collateralAmount
-  ) {
-    return null;
-  }
-  let low = 1n;
-  let high = maxRepayAmount;
-  while (low < high) {
-    const mid = (low + high) / 2n;
-    if (
-      collateralForRepay(
-        mid,
-        debtDecimals,
-        collateralDecimals,
-        totalPenaltyBps,
-        debtPerCollateralPriceNad
-      ) >= collateralAmount
-    ) {
-      high = mid;
-    } else {
-      low = mid + 1n;
-    }
-  }
-  return low;
-}
 
 function eventAmount(data: Record<string, { toString(): string }>, key: string): bigint {
   const value = data[key];
@@ -145,130 +72,6 @@ async function maximumExternalBid(
     }
   }
   return low;
-}
-
-async function maximumFloorSettlement(
-  harness: ProtocolTestHarness,
-  positionId: PublicKey,
-  debtUpperBound: bigint
-): Promise<bigint> {
-  const body = (amount: bigint) => ({
-    positionId: positionId.toBase58(),
-    debtAsset: "quote",
-    repayAmount: formatUnits(amount, harness.config.quoteDecimals),
-    minCollateralOut: "0",
-    maxInsuranceDraw: "0",
-    maxSocializedLoss: "0",
-  });
-  let low = 0n;
-  let high = debtUpperBound + 1n;
-  while (low + 1n < high) {
-    const middle = (low + high) / 2n;
-    if ((await harness.probe("liquidator", "/api/v2/fork/tx/settle-liquidation-auction-floor", body(middle))).succeeds) {
-      low = middle;
-    } else {
-      high = middle;
-    }
-  }
-  return low;
-}
-
-async function settleAuctionToHealthy(
-  harness: ProtocolTestHarness,
-  liquidatorWallet: string,
-  ownerWallet: string,
-  positionId: PublicKey
-): Promise<bigint> {
-  for (let attempt = 1; attempt <= 6; attempt += 1) {
-    const positions = await harness.positions(ownerWallet, positionId);
-    const position = positions.find((entry) => entry.eventType === "borrow_position");
-    if (!position) throw new Error(`Borrow position ${positionId.toBase58()} was not found`);
-    if (BigInt(position.payload.auctionStartTime) === 0n) {
-      const preview = await previewPosition(
-        harness,
-        liquidatorWallet,
-        positionId,
-        "preview floor-settled residual healthy debt"
-      );
-      return BigInt(preview.fixedQuoteDebt.toString());
-    }
-
-    const preview = await previewPosition(
-      harness,
-      liquidatorWallet,
-      positionId,
-      `preview floor-settlement cap ${attempt}`
-    );
-    const debt = BigInt(preview.fixedQuoteDebt.toString());
-    const maxRepayAmount = await maximumFloorSettlement(harness, positionId, debt);
-    harness.assertTrue("active floor settlement exposes a positive repay cap", maxRepayAmount > 0n, {
-      debt: preview.fixedQuoteDebt,
-      referencePriceMaxRepayAmount: preview.quoteDebt.maxRepayAmount,
-      auctionFloorMaxRepayAmount: maxRepayAmount,
-    });
-    await harness.execute({
-      wallet: liquidatorWallet,
-      endpoint: "/api/v2/fork/tx/settle-liquidation-auction-floor",
-      label: `externally funded floor settlement attempt ${attempt}`,
-      body: {
-        positionId: positionId.toBase58(),
-        debtAsset: "quote",
-        repayAmount: formatUnits(maxRepayAmount, harness.config.quoteDecimals),
-        minCollateralOut: "0",
-        maxInsuranceDraw: "0",
-        maxSocializedLoss: "0",
-      },
-    });
-  }
-  const positions = await harness.positions(ownerWallet, positionId);
-  const position = positions.find((entry) => entry.eventType === "borrow_position");
-  harness.assertEqual("floor settlement closes after restoring position health", BigInt(position.payload.auctionStartTime), 0n);
-  throw new Error("Floor settlement did not close within the settlement bound");
-}
-
-async function repayResidualDebt(
-  harness: ProtocolTestHarness,
-  ownerWallet: string,
-  positionId: PublicKey,
-  residualDebt: bigint
-): Promise<void> {
-  harness.assertTrue("close-factor liquidation preserves residual healthy debt", residualDebt > 0n, residualDebt);
-  await harness.execute({
-    wallet: ownerWallet,
-    endpoint: "/api/v2/fork/tx/repay",
-    label: `repay ${ownerWallet} residual healthy debt after auction`,
-    body: {
-      positionId: positionId.toBase58(),
-      repayAsset: "quote",
-      repayAmount: formatUnits(residualDebt, harness.config.quoteDecimals),
-    },
-  });
-  const preview = await previewPosition(harness, ownerWallet, positionId, `preview ${ownerWallet} repaid loan`);
-  harness.assertEqual("borrower can fully repay residual auction debt", BigInt(preview.fixedQuoteDebt.toString()), 0n);
-}
-
-async function withdrawRemainingCollateral(
-  harness: ProtocolTestHarness,
-  wallet: string,
-  positionId: PublicKey
-): Promise<void> {
-  const positions = await harness.positions(wallet, positionId);
-  const position = positions.find((entry) => entry.eventType === "borrow_position");
-  if (!position) throw new Error(`Borrow position ${positionId.toBase58()} was not found`);
-  const remainingCollateral = BigInt(position.payload.baseCollateral);
-  if (remainingCollateral === 0n) return;
-  await harness.execute({
-    wallet,
-    endpoint: "/api/v2/fork/tx/withdraw-collateral",
-    label: `withdraw ${wallet} collateral left after auction`,
-    body: {
-      positionId: positionId.toBase58(),
-      marketAsset: "base",
-      withdrawAmount: formatUnits(remainingCollateral, harness.config.baseDecimals),
-      minAssetAmountOut: "0",
-      minLiquidationCfBps: 0,
-    },
-  });
 }
 
 export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
@@ -418,15 +221,12 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
       await harness.execute({
         wallet: "liquidator",
         endpoint: "/api/v2/fork/tx/settle-liquidation-auction-floor",
-        label: "reject external settlement before Dutch auction floor",
+        label: "reject internal backstop before the external-bid window expires",
         expected: "failure",
         body: {
           positionId: floorPositionId.toBase58(),
           debtAsset: "quote",
-          repayAmount: "10",
-          minCollateralOut: "0",
-          maxInsuranceDraw: "0",
-          maxSocializedLoss: "0",
+          minCallerBountyOut: "0",
         },
       });
 
@@ -481,19 +281,21 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
           minCollateralOut: "0",
         },
       });
-      await harness.timeTravel(30, 100);
-      const bidResidualDebt = await settleAuctionToHealthy(
-        harness,
-        "liquidator",
-        "alice",
-        bidPositionId
-      );
+      await harness.timeTravel(301, 1_000);
+      await harness.execute({
+        wallet: "liquidator",
+        endpoint: "/api/v2/fork/tx/settle-liquidation-auction-floor",
+        label: "internally unwind the partial-bid residual at expiry",
+        body: {
+          positionId: bidPositionId.toBase58(),
+          debtAsset: "quote",
+          minCallerBountyOut: "0",
+        },
+      });
       const bidPositions = await harness.positions("alice", bidPositionId);
       const bidPosition = bidPositions.find((entry) => entry.eventType === "borrow_position");
-      harness.assertEqual("healthy partial bid clears auction timestamp", BigInt(bidPosition.payload.auctionStartTime), 0n);
-      harness.assertEqual("healthy partial bid clears auction debt asset", bidPosition.payload.auctionDebtAsset, null);
-      await repayResidualDebt(harness, "alice", bidPositionId, bidResidualDebt);
-      await withdrawRemainingCollateral(harness, "alice", bidPositionId);
+      harness.assertEqual("internal backstop clears auction timestamp", BigInt(bidPosition.payload.auctionStartTime), 0n);
+      harness.assertEqual("internal backstop clears auction debt asset", bidPosition.payload.auctionDebtAsset, null);
 
       const liquidatorBaseBefore = await harness.tokenBalance(
         "liquidator",
@@ -503,28 +305,20 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
       await harness.execute({
         wallet: "liquidator",
         endpoint: "/api/v2/fork/tx/settle-liquidation-auction-floor",
-        label: "settle partial loan with external capital at the floor",
+        label: "permissionlessly unwind the untouched loan at the floor",
         body: {
           positionId: floorPositionId.toBase58(),
           debtAsset: "quote",
-          repayAmount: "10",
-          minCollateralOut: "0",
-          maxInsuranceDraw: "0",
-          maxSocializedLoss: "0",
+          minCallerBountyOut: "0",
         },
       });
       harness.assertTrue(
-        "floor settlement transfers collateral to the external liquidator",
+        "floor settlement pays the caller bounty",
         await harness.tokenBalance("liquidator", harness.config.baseMint, harness.config.baseTokenProgram) > liquidatorBaseBefore
       );
-      const floorResidualDebt = await settleAuctionToHealthy(
-        harness,
-        "liquidator",
-        "bob",
-        floorPositionId
-      );
-      await repayResidualDebt(harness, "bob", floorPositionId, floorResidualDebt);
-      await withdrawRemainingCollateral(harness, "bob", floorPositionId);
+      const floorClosed = await previewPosition(harness, "bob", floorPositionId, "preview internally closed floor loan");
+      harness.assertEqual("floor backstop clears all quote debt", BigInt(floorClosed.fixedQuoteDebt.toString()), 0n);
+      harness.assertEqual("floor backstop consumes all base collateral", BigInt(floorClosed.baseCollateral.toString()), 0n);
 
       await harness.execute({
         wallet: "trader",
@@ -634,7 +428,6 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
       });
 
       let liquidationPreview: Awaited<ReturnType<typeof previewPosition>> | null = null;
-      let repayAmount: bigint | null = null;
       for (let attempt = 1; attempt <= 5; attempt += 1) {
         liquidationPreview = await previewPosition(
           harness,
@@ -644,40 +437,13 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
         );
         const debt = BigInt(liquidationPreview.fixedBaseDebt.toString());
         const collateral = BigInt(liquidationPreview.quoteCollateral.toString());
-        const maxRepay = BigInt(liquidationPreview.baseDebt.maxRepayAmount.toString());
-        const referencePrice = BigInt(
-          liquidationPreview.baseDebt.liquidationReferencePriceNad.toString()
-        );
-        const candidate = referencePrice > 0n && maxRepay > 0n
-          ? minimumRepayToExhaustCollateral(
-              maxRepay,
-              collateral,
-              harness.config.baseDecimals,
-              harness.config.quoteDecimals,
-              liquidationPreview.baseDebt.totalPenaltyBps,
-              referencePrice
-            )
-          : null;
         harness.observe(`bad-debt eligibility attempt ${attempt}`, {
           debt,
           collateral,
-          maxRepay,
-          referencePrice,
-          totalPenaltyBps: liquidationPreview.baseDebt.totalPenaltyBps,
           isLiquidatable: liquidationPreview.baseDebt.isLiquidatable,
-          minimumRepayToExhaustCollateral: candidate,
           insuranceAvailable,
         });
-        if (
-          liquidationPreview.baseDebt.isLiquidatable &&
-          candidate !== null &&
-          maxRepay > candidate &&
-          maxRepay - candidate >= insuranceAvailable &&
-          debt > candidate + insuranceAvailable
-        ) {
-          repayAmount = candidate;
-          break;
-        }
+        if (liquidationPreview.baseDebt.isLiquidatable) break;
         await harness.timeTravel(1, 1_000);
         await harness.execute({
           wallet: "trader",
@@ -686,29 +452,16 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
           body: { assetIn: "quote", exactAssetIn: "0.001", minAssetOut: "0" },
         });
       }
-      if (!liquidationPreview || repayAmount === null) {
-        throw new Error("Deeply insolvent position did not expose an insurance-exhausting settlement");
+      if (!liquidationPreview?.baseDebt.isLiquidatable) {
+        throw new Error("Deeply insolvent position did not become liquidatable");
       }
 
       const debtBeforeSettlement = BigInt(liquidationPreview.fixedBaseDebt.toString());
-      const maxRepayAmount = BigInt(liquidationPreview.baseDebt.maxRepayAmount.toString());
-      const expectedInsuranceDraw = insuranceAvailable;
-      const expectedSocializedLoss = debtBeforeSettlement - repayAmount - expectedInsuranceDraw;
-      harness.assertTrue(
-        "chosen repay exhausts collateral within the liquidation close factor",
-        repayAmount <= maxRepayAmount,
-        { repayAmount, maxRepayAmount }
-      );
-      harness.assertTrue(
-        "close-factor headroom can draw every available insurance token",
-        maxRepayAmount - repayAmount >= expectedInsuranceDraw,
-        { repayAmount, maxRepayAmount, expectedInsuranceDraw }
-      );
-      harness.assertTrue(
-        "insurance exhaustion still leaves debt to socialize",
-        expectedSocializedLoss > 0n,
-        expectedSocializedLoss
-      );
+      const collateralBeforeSettlement = BigInt(liquidationPreview.quoteCollateral.toString());
+      harness.assertTrue("bad-debt fixture has debt beyond available insurance", debtBeforeSettlement > insuranceAvailable, {
+        debtBeforeSettlement,
+        insuranceAvailable,
+      });
 
       await harness.execute({
         wallet: "liquidator",
@@ -716,26 +469,7 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
         label: "trigger deeply insolvent base-debt auction",
         body: { positionId: badDebtPositionId.toBase58(), debtAsset: "base" },
       });
-      await harness.timeTravel(30, 100);
-      const cappedFailure = await harness.execute({
-        wallet: "liquidator",
-        endpoint: "/api/v2/fork/tx/settle-liquidation-auction-floor",
-        label: "reject bad-debt settlement without socialized-loss consent",
-        expected: "failure",
-        body: {
-          positionId: badDebtPositionId.toBase58(),
-          debtAsset: "base",
-          repayAmount: formatUnits(repayAmount, harness.config.baseDecimals),
-          minCollateralOut: "0",
-          maxInsuranceDraw: formatUnits(expectedInsuranceDraw, harness.config.baseDecimals),
-          maxSocializedLoss: "0",
-        },
-      });
-      harness.assertEqual(
-        "socialized-loss caller cap protects settlement",
-        cappedFailure.errorCode,
-        "LiquidationSocializationExceeded"
-      );
+      await harness.timeTravel(301, 1_000);
 
       const marketBeforeSettlement = await harness.market();
       const baseInsuranceVaultBefore = await harness.tokenAccountBalance(
@@ -766,14 +500,11 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
       const settlement = await harness.execute({
         wallet: "liquidator",
         endpoint: "/api/v2/fork/tx/settle-liquidation-auction-floor",
-        label: "settle bad debt with exhausted insurance and bounded socialization",
+        label: "permissionlessly unwind bad debt with automatic insurance and socialization",
         body: {
           positionId: badDebtPositionId.toBase58(),
           debtAsset: "base",
-          repayAmount: formatUnits(repayAmount, harness.config.baseDecimals),
-          minCollateralOut: "0",
-          maxInsuranceDraw: formatUnits(expectedInsuranceDraw, harness.config.baseDecimals),
-          maxSocializedLoss: formatUnits(expectedSocializedLoss, harness.config.baseDecimals),
+          minCallerBountyOut: "0",
         },
       });
 
@@ -783,17 +514,24 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
       const repaid = eventAmount(receipt, "repaid_amount");
       const collateralSeized = eventAmount(receipt, "collateral_seized");
       const collateralToLiquidator = eventAmount(receipt, "collateral_to_liquidator");
-      const insuranceFunded = collateralSeized - collateralToLiquidator;
       const insuranceDrawn = eventAmount(receipt, "insurance_drawn");
       const socializedLoss = eventAmount(receipt, "socialized_loss");
-      harness.assertEqual("receipt records exact liquidator repayment", repaid, repayAmount);
-      harness.assertEqual("receipt exhausts available base insurance", insuranceDrawn, expectedInsuranceDraw);
-      harness.assertEqual("receipt records exact bounded socialized loss", socializedLoss, expectedSocializedLoss);
+      harness.assertTrue("internal concentrated unwind repays part of the debt", repaid > 0n, repaid);
+      harness.assertTrue("automatic insurance draw stays within available insurance", insuranceDrawn <= insuranceAvailable, {
+        insuranceDrawn,
+        insuranceAvailable,
+      });
+      harness.assertTrue("insolvent internal unwind automatically socializes the remainder", socializedLoss > 0n, socializedLoss);
       harness.assertEqual("receipt closes all position debt", eventAmount(receipt, "remaining_debt"), 0n);
       harness.assertEqual(
-        "liquidator and collateral-insurance credits conserve seized collateral",
-        collateralToLiquidator + insuranceFunded,
-        collateralSeized
+        "receipt consumes the complete collateral position",
+        collateralSeized,
+        collateralBeforeSettlement
+      );
+      harness.assertEqual(
+        "floor caller bounty is 0.5% of seized collateral",
+        collateralToLiquidator,
+        collateralSeized * 50n / BPS_DENOMINATOR
       );
 
       const marketAfterSettlement = await harness.market();
@@ -829,18 +567,16 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
         baseInsuranceVaultBefore - baseInsuranceVaultAfter,
         insuranceDrawn
       );
-      harness.assertEqual("base insurance accounting is exhausted", stateValue(marketAfterSettlement, "baseInsuranceAvailable"), 0n);
-      harness.assertEqual("base insurance token vault is exhausted", baseInsuranceVaultAfter, 0n);
       harness.assertEqual(
-        "quote insurance token-vault credit matches receipt",
-        quoteInsuranceVaultAfter - quoteInsuranceVaultBefore,
-        insuranceFunded
+        "base insurance accounting debit matches receipt",
+        stateValue(marketBeforeSettlement, "baseInsuranceAvailable") -
+          stateValue(marketAfterSettlement, "baseInsuranceAvailable"),
+        insuranceDrawn
       );
       harness.assertEqual(
-        "quote insurance state credit matches receipt",
-        stateValue(marketAfterSettlement, "quoteInsuranceAvailable") -
-          stateValue(marketBeforeSettlement, "quoteInsuranceAvailable"),
-        insuranceFunded
+        "internal backstop does not fund collateral-side insurance",
+        quoteInsuranceVaultAfter - quoteInsuranceVaultBefore,
+        0n
       );
       harness.assertEqual(
         "collateral vault debit matches seized collateral",
@@ -853,21 +589,9 @@ export const LIQUIDATION_SCENARIOS: ScenarioDefinition[] = [
         collateralToLiquidator
       );
       harness.assertEqual(
-        "debt-side vault credits conserve repayment and insurance draw",
+        "debt-side vault movement contains only insurance credit and realized interest",
         reserveCredit + interestPaid,
-        repaid + insuranceDrawn
-      );
-      harness.assertEqual(
-        "cash-reserve credit matches the reserve token vault",
-        stateValue(marketAfterSettlement, "baseCashReserve") -
-          stateValue(marketBeforeSettlement, "baseCashReserve"),
-        reserveCredit
-      );
-      harness.assertEqual(
-        "virtual-reserve write-down equals socialized loss plus realized interest",
-        stateValue(marketBeforeSettlement, "baseLiveReserve") -
-          stateValue(marketAfterSettlement, "baseLiveReserve"),
-        socializedLoss + interestPaid
+        insuranceDrawn
       );
       harness.assertEqual("bad-debt position clears aggregate base debt", stateValue(marketAfterSettlement, "fixedBaseDebt"), 0n);
       harness.assertEqual("bad-debt position clears aggregate base principal", stateValue(marketAfterSettlement, "fixedBasePrincipal"), 0n);

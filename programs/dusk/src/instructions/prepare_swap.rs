@@ -85,6 +85,7 @@ fn launch_price_moving_instruction(data: &[u8]) -> bool {
         || discriminator == crate::instruction::DecreaseLeverage::DISCRIMINATOR
         || discriminator == crate::instruction::CloseLeverage::DISCRIMINATOR
         || discriminator == crate::instruction::LiquidateLeveragePosition::DISCRIMINATOR
+        || discriminator == crate::instruction::BackstopLiquidationAuction::DISCRIMINATOR
 }
 
 /// State-only preparation shared by preview and execution. `finalize_state`
@@ -133,6 +134,37 @@ impl PreparedSwap {
         protocol_auction_split: ProtocolAuctionSplit,
     ) -> Result<FinalizedSwapState> {
         require!(self.cash_policy == SwapCashPolicy::Spot, ErrorCode::BrokenInvariant);
+        let explicit_transition = self.explicit_transition.as_deref().ok_or(ErrorCode::BrokenInvariant)?;
+        self.finalize_explicit_state(
+            market,
+            current_slot,
+            protocol_fee_bps,
+            protocol_auction_split,
+            explicit_transition,
+        )
+    }
+
+    /// Commits only the AMM leg of a lending-auction floor unwind. Fixed-debt
+    /// clearance follows in the lending module, so this path intentionally
+    /// carries no isolated leverage debt through `SwapCashPolicy`.
+    pub(crate) fn finalize_lending_liquidation_state(
+        &self,
+        market: &mut Market,
+        current_slot: u64,
+        protocol_fee_bps: u16,
+        protocol_auction_split: ProtocolAuctionSplit,
+    ) -> Result<FinalizedSwapState> {
+        require!(
+            matches!(
+                self.cash_policy,
+                SwapCashPolicy::Liquidate {
+                    debt_shares: 0,
+                    debt_principal: 0,
+                    ..
+                }
+            ),
+            ErrorCode::BrokenInvariant
+        );
         let explicit_transition = self.explicit_transition.as_deref().ok_or(ErrorCode::BrokenInvariant)?;
         self.finalize_explicit_state(
             market,
@@ -241,7 +273,7 @@ impl PreparedSwap {
             quote.end_price_nad,
             current_slot,
         )?;
-        let q_nad = market
+        let curve_depth_nad = market
             .amm
             .explicit_curve_cache
             .tail_liquidity
@@ -253,7 +285,7 @@ impl PreparedSwap {
         // and revalidating the curve here would be redundant.
         let final_price_nad = quote.reserve_end_price_nad;
         require!(final_price_nad > 0, ErrorCode::InvalidSettlementPrice);
-        market.observe_risk_from_explicit_curve(final_price_nad, q_nad, current_slot)?;
+        market.observe_risk_from_explicit_curve(final_price_nad, curve_depth_nad, current_slot)?;
         market.assert_market_invariants()?;
         Ok(FinalizedSwapState {
             base_rebalance,

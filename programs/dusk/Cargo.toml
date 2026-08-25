@@ -23,6 +23,10 @@ custom-heap = []
 custom-panic = []
 production = []
 development = []
+# Off-chain-only access to deterministic native state transitions used by
+# historical replay and economic benchmarking. Enabling it also removes the
+# program entrypoint from the consumer binary.
+benchmark = ["no-entrypoint"]
 
 [dependencies]
 anchor-lang = { version = "0.31.1", features = ["init-if-needed", "event-cpi", "derive"] }

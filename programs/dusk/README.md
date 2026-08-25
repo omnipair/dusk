@@ -243,7 +243,7 @@ decimals from zero through nine, and initialization rejects finer assets.
 Routers and user slippage bounds decide whether the resulting market quote is
 acceptable.
 
-`concentrated_liquidity_share = 0` is exact CPMM. A positive share combines a nonzero full-range CPMM tail with one explicit concentrated band whose log-symmetric bounds are set by `range_width`. Quotes use at most three closed-form segments and two precomputed boundary crossings. Fees, EMA half-life, adjustment threshold, and recenter cadence remain separate controller settings. A trade is hedged and committed at its quoted endpoint before its observation can schedule a later, protected center move. Dusk never consults an external oracle.
+One-times `peak_amplification` with zero widths is exact CPMM. Concentrated markets expose three product controls: peak amplification, core half-width, and fade width. Dusk derives a nonzero full-range CPMM tail plus a nested core and shoulder from those values. Quotes use at most five closed-form segments and four precomputed boundary crossings. Fees, EMA half-life, adjustment threshold, and recenter cadence remain separate controller settings. A trade is hedged and committed at its quoted endpoint before its observation can schedule a later, protected center move. Dusk never consults an external oracle.
 
 hLP checkpointing computes endpoint NAV and reconstructs yLP ownership and funding debt algebraically so each vault's opposite-asset claim equals its debt to the canonical atom. The quote therefore prices the hedge through ordinary reserves; hLP leverage is not advertised as free trader-visible depth. There is no finite-difference, Jacobian, or Broyden solve in the swap path. A live-basis yLP burn still realizes accrued-but-unpaid interest, and positive funding transitions remain cash-capped. This is admission-only and never reserves cash from ordinary exits, repayment, liquidation, or deleveraging. Terminal insolvency recovery remains open.
 
@@ -324,10 +324,10 @@ different.
 - A physical reserve vault must contain at least executable `cash_reserve + swap_fee_custody_balance + base_hlp_backing_inventory + quote_hlp_backing_inventory + protected_recenter_reserve`; protocol transitions conserve that accounted total exactly, while unsolicited token donations are tolerated but remain non-executable. Interest liabilities must be backed by the interest vault.
 - Base fees and lending interest never fund concentration recentering.
 - A normal trade checkpoints the current curve as economically neutral; retained dynamic surcharge is the only swap path that creates protected recentering budget.
-- Recenter and parameter-ramp points are admitted only when their Dusk Concentrated AMM `Q` impairment is funded.
-- CPMM and Dusk Concentrated AMM swaps, previews, lending risk, liquidation
-  risk, leverage, and predictive hLP positioning use one applied curve
-  definition.
+- Recenter and parameter-ramp points are admitted only when their curve-depth-per-share impairment is funded.
+- Swaps, previews, leverage, and predictive hLP positioning use the live
+  applied curve. Public borrowing deliberately uses a stricter full-range-tail
+  CPMM shadow curve.
 - Every hLP funding increase leaves projected aggregate indexed funding debt no greater than current borrowed-asset cash; the cap never blocks debt-reducing paths and does not provide bounded loss or terminal insolvency recovery.
 - hLP debt shares stay matched to aggregate hLP vault debt.
 - hLP operations never use yLP-denominated debt.
@@ -336,11 +336,11 @@ different.
 - Delegated close must validate both the delegate's close approval and settlement approval return data.
 - Individual borrower health uses all position collateral and the position's stored liquidation CF.
 - Global-health contributions are debt-capped underwriting signals and never prevent collateral withdrawal or change another position's stored terms.
-- Conservative risk depth uses the lower internally observed `Q` state and reconstructs pessimistic reserve shapes on the exact applied CPMM/Dusk Concentrated AMM curve; there is no external-oracle or hidden CPMM fallback for concentrated markets.
+- Pessimistic risk depth uses the lower of observed curve depth and its EMA. Public borrowing uses only full-range CPMM tail liquidity; the lending liquidation trigger is linear at the symmetric price EMA; the external-auction floor reconstructs the complete concentrated curve, while the expired-auction backstop executes on the live concentrated curve.
 - Referral binding never changes requested principal, debt, interest, health, or liquidation terms; accruals are carved only from realized protocol interest revenue.
 - Referral-interest claims are bounded by realized protocol revenue and pay only the partner's current designated recipient.
 - Risk books update EMA values from cached pre-transition observations and store current observations for the next refresh.
-- Liquidation follows the waterfall: borrower collateral, liquidator incentive, insurance, then bounded LP socialization.
+- External liquidation bids run for five minutes. The expired-auction backstop pays a 0.5% collateral bounty, internally swaps the remainder, draws capped insurance, and automatically socializes any residual debt.
 
 ## Verification
 

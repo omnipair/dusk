@@ -263,7 +263,7 @@ impl<'info> DepositSingleSided<'info> {
             .deposit_single_sided(target_asset, deposit_credit, args.min_hlp_amount)?;
         // Validation verified that no due concentrated controller
         // state would price this entry against a stale NAV. One final curve
-        // evaluation now supplies D/Q accounting and the exact risk observation
+        // evaluation now supplies curve-depth accounting and the exact risk observation
         // for the immutable post-deposit state.
         ctx.accounts
             .market

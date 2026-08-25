@@ -25,6 +25,7 @@ fn virtual_concentration_and_continuous_hlp_hedge_are_one_pass() {
             base_reserve: 50 * scale,
             quote_reserve: 60_000 * scale,
         },
+        ..ExplicitCurveGeometry::cpmm()
     };
     let amount_in = scale;
 
@@ -149,6 +150,7 @@ fn compounded_fee_reconstructs_perfect_hedges_for_cpmm_and_concentration() {
             base_reserve: 50_000,
             quote_reserve: 60_000_000,
         },
+        ..ExplicitCurveGeometry::cpmm()
     };
 
     for geometry in [ExplicitCurveGeometry::cpmm(), concentrated] {

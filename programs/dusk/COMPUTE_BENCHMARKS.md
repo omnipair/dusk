@@ -8,13 +8,17 @@ cannot substitute for a named-path measurement.
 
 ## O(1) explicit concentrated+hLP acceptance (2026-08-15)
 
-The representative complete swap uses the explicit three-branch curve,
+The representative complete swap uses the original explicit one-band curve,
 gross-path toxicity and volatility fees, two active hLP vaults, algebraic
 zero-opposite-exposure reconstruction, retained-principal handling, and the
 normal token/account commit path. On LiteSVM's default 32 KiB heap it consumed
 **97,457 CU** and completed successfully, below the **100,000 CU** product
 ceiling. The measured SBF artifact SHA-256 is
 `7839cac7aa799552369782e04b770df6e56877b66069f4c0178e78645e9858a2`.
+
+This measurement predates the nested core-and-shoulder curve. It remains a
+historical baseline and must not be cited as the current nested-curve cost
+until the final LiteSVM acceptance pass is rerun.
 
 Retained toxicity surcharge is now credited to a custody-backed,
 non-quoteable reserve bucket. Ordinary swaps only credit that bucket; they do

@@ -382,7 +382,7 @@ impl<'info> AddLiquidity<'info> {
         require_gte!(receipt.ylp_amount, args.min_ylp_amount, ErrorCode::SlippageExceeded);
         let current_slot = Clock::get()?.slot;
         // Adding depth cannot consume an underwriting shape in this
-        // instruction. One canonical curve evaluation finalizes D/Q and the
+        // instruction. One canonical curve evaluation finalizes curve depth and the
         // exact observation; pessimistic lending shapes remain lazy.
         ctx.accounts
             .market

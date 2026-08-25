@@ -10,7 +10,7 @@ fn valid_config() -> MarketConfig {
         settlement_divergence_bps: 500,
         ema_half_life_ms: 60_000,
         directional_ema_half_life_ms: 60_000,
-        q_ema_half_life_ms: 60_000,
+        curve_depth_ema_half_life_ms: 60_000,
         max_daily_borrow_bps: 2_000,
         global_health_contribution_cap_bps: 15_000,
         borrow_market_health_floor_bps: 11_000,
@@ -138,7 +138,7 @@ fn market_config_rejects_inert_ema_half_lives() {
     );
 
     let mut config = valid_config();
-    config.q_ema_half_life_ms = MAX_HALF_LIFE_MS + 1;
+    config.curve_depth_ema_half_life_ms = MAX_HALF_LIFE_MS + 1;
     assert_eq!(
         config.validate().unwrap_err(),
         anchor_lang::prelude::error!(ErrorCode::InvalidMarketConfig)
@@ -171,8 +171,8 @@ fn market_config_caps_daily_borrow_at_3000_bps() {
 #[test]
 fn market_config_validates_embedded_amm_config() {
     let mut config = valid_config();
-    config.amm.range_width_nad = NAD;
-    config.amm.concentrated_liquidity_share_nad = NAD / 2;
+    config.amm.peak_amplification_nad = 2 * NAD;
+    config.amm.core_half_width_bps = 0;
 
     assert_eq!(
         config.validate().unwrap_err(),

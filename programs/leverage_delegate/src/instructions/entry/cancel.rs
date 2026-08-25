@@ -19,7 +19,11 @@ pub struct CancelLeverageEntryOrder<'info> {
     pub debt_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(
         mut,
-        address = order.funding_vault,
+        constraint = funding_vault.key() == leverage_entry_funding_vault_address(
+            order.key(),
+            debt_mint.key(),
+            *debt_mint.to_account_info().owner,
+        ) @ LeverageDelegateError::InvalidTokenAccount,
         constraint = funding_vault.owner == order.key() @ LeverageDelegateError::InvalidTokenAccount,
         constraint = funding_vault.mint == debt_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
     )]

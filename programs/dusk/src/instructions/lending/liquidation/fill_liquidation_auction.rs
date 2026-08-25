@@ -10,12 +10,11 @@ use crate::{
     events::BorrowPositionLiquidated,
     generate_market_seeds,
     market::LiquidationPricing,
-    math::risk::exponential_price_decay,
     state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
     token::{get_transfer_fee, get_transfer_inverse_fee, transfer_checked_with_remaining_accounts},
 };
 
-use super::settlement::{reconcile_insurance_funding_credit, validate_liquidation_accounts};
+use super::settlement::validate_liquidation_accounts;
 use crate::instructions::accounts::{
     require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
     validate_interest_accounts,
@@ -104,16 +103,50 @@ impl<'info> FillLiquidationAuction<'info> {
         );
         let debt_asset = validate_liquidation_accounts(
             &self.market,
-            self.liquidator.key(),
             &self.debt_asset_mint,
             &self.collateral_asset_mint,
             &self.reserve_vault,
             &self.collateral_vault,
             &self.insurance_vault,
-            &self.collateral_insurance_vault,
-            &self.liquidator_debt_account,
-            &self.liquidator_collateral_account,
         )?;
+        require_keys_eq!(
+            self.collateral_insurance_vault.key(),
+            match debt_asset {
+                crate::state::MarketAsset::Base => self.market.insurance.quote_vault,
+                crate::state::MarketAsset::Quote => self.market.insurance.base_vault,
+            },
+            ErrorCode::InvalidVault
+        );
+        require_keys_eq!(
+            self.collateral_insurance_vault.mint,
+            self.collateral_asset_mint.key(),
+            ErrorCode::InvalidVault
+        );
+        require_keys_eq!(
+            self.collateral_insurance_vault.owner,
+            self.market.key(),
+            ErrorCode::InvalidVault
+        );
+        require_keys_eq!(
+            self.liquidator_debt_account.mint,
+            self.debt_asset_mint.key(),
+            ErrorCode::InvalidTokenAccount
+        );
+        require_keys_eq!(
+            self.liquidator_debt_account.owner,
+            self.liquidator.key(),
+            ErrorCode::InvalidTokenAccount
+        );
+        require_keys_eq!(
+            self.liquidator_collateral_account.mint,
+            self.collateral_asset_mint.key(),
+            ErrorCode::InvalidTokenAccount
+        );
+        require_keys_eq!(
+            self.liquidator_collateral_account.owner,
+            self.liquidator.key(),
+            ErrorCode::InvalidTokenAccount
+        );
         let interest_asset = validate_interest_accounts(&self.market, &self.debt_asset_mint, &self.interest_vault)?;
         require!(interest_asset == debt_asset, ErrorCode::InvalidVault);
         require_supported_asset_mint(&self.debt_asset_mint)?;
@@ -152,25 +185,20 @@ impl<'info> FillLiquidationAuction<'info> {
         // `market_update_and_validate` materializes current risk immediately
         // before this handler. Cancel a recovered auction before reading its
         // stored price or moving bidder tokens.
+        ctx.accounts.borrow_position.assert_liquidation_auction(debt_asset)?;
         ctx.accounts
             .market
             .reconcile_liquidation_auction(&mut ctx.accounts.borrow_position)?;
-        ctx.accounts.borrow_position.assert_liquidation_auction(debt_asset)?;
+        if !ctx.accounts.borrow_position.has_active_liquidation_auction() {
+            return Ok(());
+        }
 
         let now = Clock::get()?.unix_timestamp;
-        let elapsed_s = now.saturating_sub(ctx.accounts.borrow_position.auction_start_time);
-        require!(elapsed_s >= 0, ErrorCode::MarketMathOverflow);
-        let elapsed_ms = (elapsed_s as u64).saturating_mul(1000);
-
-        let decayed_price = exponential_price_decay(
-            ctx.accounts.borrow_position.auction_start_price_nad,
-            elapsed_ms,
-            300_000, // 5 minute half life
-        )?;
-
-        let floor_price = ctx.accounts.borrow_position.auction_floor_price_nad;
-
-        let mut final_price = decayed_price.max(floor_price);
+        require!(
+            !ctx.accounts.borrow_position.liquidation_auction_expired(now)?,
+            ErrorCode::PositionNotLiquidatable
+        );
+        let mut final_price = ctx.accounts.borrow_position.liquidation_auction_price_nad(now)?;
 
         // Liquidator pays LP fee (e.g. 0.20%) to beat the floor
         let reservation_fee = final_price
@@ -238,7 +266,8 @@ impl<'info> FillLiquidationAuction<'info> {
             ErrorCode::BrokenInvariant
         );
 
-        // For bids, there is no insurance draw or socialized loss since it's fully external.
+        // For ordinary auction fills, there is no insurance draw or socialized
+        // loss because repayment is fully external.
         let liquidation_receipt = ctx.accounts.market.settle_liquidation(
             &mut ctx.accounts.borrow_position,
             debt_asset,
@@ -350,9 +379,8 @@ impl<'info> FillLiquidationAuction<'info> {
                 collateral_insurance_balance_before,
                 &ctx.accounts.collateral_insurance_vault,
             )?;
-            reconcile_insurance_funding_credit(
-                &mut ctx.accounts.market.insurance,
-                debt_asset,
+            ctx.accounts.market.insurance.reconcile_credit(
+                debt_asset.opposite(),
                 liquidation_receipt.insurance_funded,
                 insurance_credit,
             )?;

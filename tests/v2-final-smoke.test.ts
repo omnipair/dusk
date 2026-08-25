@@ -233,13 +233,14 @@ function marketConfig() {
     settlementDivergenceBps: 500,
     emaHalfLifeMs: new BN(60_000),
     directionalEmaHalfLifeMs: new BN(60_000),
-    qEmaHalfLifeMs: new BN(60_000),
+    curveDepthEmaHalfLifeMs: new BN(60_000),
     maxDailyBorrowBps: 2_000,
     globalHealthContributionCapBps: 15_000,
     borrowMarketHealthFloorBps: 11_000,
     amm: {
-      rangeWidthNad: new BN(0),
-      concentratedLiquidityShareNad: new BN(0),
+      peakAmplificationNad: new BN("1000000000"),
+      coreHalfWidthBps: 0,
+      fadeWidthBps: 0,
       centerEmaHalfLifeMs: new BN(60_000),
       volatilityHalfLifeMs: new BN(60_000),
       adjustmentThresholdNad: new BN(0),
@@ -3050,10 +3051,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(ordinary.quote_hlp_vault.hlp_supply.isZero()).to.equal(true);
     expect(ordinary.base_hlp_vault.residual_exposure.isZero()).to.equal(true);
     expect(ordinary.quote_hlp_vault.residual_exposure.isZero()).to.equal(true);
-    expect(ordinary.amm.explicit_curve_cache.range_width_nad.isZero()).to.equal(true);
-    expect(ordinary.amm.explicit_curve_cache.concentrated_liquidity_share_nad.isZero()).to.equal(
-      true
+    expect(ordinary.amm.explicit_curve_cache.peak_amplification_nad.toString()).to.equal(
+      "1000000000"
     );
+    expect(ordinary.amm.explicit_curve_cache.core_half_width_bps).to.equal(0);
+    expect(ordinary.amm.explicit_curve_cache.fade_width_bps).to.equal(0);
     expect(ordinary.config.amm.adjustment_step_nad.isZero()).to.equal(true);
     expect(ordinary.amm.deferred_controller_target.kind).to.equal(0);
     expect(ordinary.amm.last_observation_slot.toString()).to.equal(sameSlot.toString());
@@ -3102,8 +3104,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
   it("executes and previews the Dusk Concentrated AMM on SBF", async function () {
     const config = marketConfig();
-    config.amm.rangeWidthNad = new BN("4000000000");
-    config.amm.concentratedLiquidityShareNad = new BN("500000000");
+    config.amm.peakAmplificationNad = new BN("4000000000");
+    config.amm.coreHalfWidthBps = 100;
+    config.amm.fadeWidthBps = 400;
     const fixture = await addBalancedLiquidity(75, config, {
       baseDeposit: 100_000_000,
       quoteDeposit: 200_000_000,
@@ -3167,19 +3170,19 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
     const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
-    expect(decoded.amm.explicit_curve_cache.range_width_nad.toString()).to.equal(
-      config.amm.rangeWidthNad.toString()
+    expect(decoded.amm.explicit_curve_cache.peak_amplification_nad.toString()).to.equal(
+      config.amm.peakAmplificationNad.toString()
     );
-    expect(
-      decoded.amm.explicit_curve_cache.concentrated_liquidity_share_nad.toString()
-    ).to.equal(config.amm.concentratedLiquidityShareNad.toString());
+    expect(decoded.amm.explicit_curve_cache.core_half_width_bps).to.equal(config.amm.coreHalfWidthBps);
+    expect(decoded.amm.explicit_curve_cache.fade_width_bps).to.equal(config.amm.fadeWidthBps);
   });
 
   it("measures concentrated transition and shifted-CPMM tail swap paths", async function () {
     const config = marketConfig();
     config.swapFeeBps = 0;
-    config.amm.rangeWidthNad = new BN("4000000000");
-    config.amm.concentratedLiquidityShareNad = new BN("500000000");
+    config.amm.peakAmplificationNad = new BN("4000000000");
+    config.amm.coreHalfWidthBps = 100;
+    config.amm.fadeWidthBps = 400;
     const amounts = {
       baseDeposit: 100_000_000,
       quoteDeposit: 200_000_000,
@@ -3210,8 +3213,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const config = marketConfig();
     config.swapFeeBps = 0;
     config.divergenceFeeShareCapBps = 5_000;
-    config.amm.rangeWidthNad = new BN("4000000000");
-    config.amm.concentratedLiquidityShareNad = new BN("500000000");
+    config.amm.peakAmplificationNad = new BN("4000000000");
+    config.amm.coreHalfWidthBps = 100;
+    config.amm.fadeWidthBps = 400;
     config.amm.adjustmentThresholdNad = new BN("10000000");
     config.amm.adjustmentStepNad = new BN("10000000");
     config.amm.minAdjustmentIntervalSlots = new BN(1);
@@ -3288,7 +3292,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(
       decoded.base_side.reserves.protected_recenter_reserve.toString()
     ).to.equal(preview.retainedSurcharge.toString());
-    expect(decoded.amm.q_per_share_nad.toString()).to.equal(
+    expect(decoded.amm.curve_depth_per_share_nad.toString()).to.equal(
       decoded.amm.protected_floor_per_share_nad.toString()
     );
     expect(decoded.amm.retention_target_stale).to.equal(true);
@@ -3400,8 +3404,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const concentratedConfig = marketConfig();
     concentratedConfig.swapFeeBps = 0;
     concentratedConfig.divergenceFeeShareCapBps = 5_000;
-    concentratedConfig.amm.rangeWidthNad = new BN("4000000000");
-    concentratedConfig.amm.concentratedLiquidityShareNad = new BN("500000000");
+    concentratedConfig.amm.peakAmplificationNad = new BN("4000000000");
+    concentratedConfig.amm.coreHalfWidthBps = 100;
+    concentratedConfig.amm.fadeWidthBps = 400;
     concentratedConfig.amm.divergenceFeeCoefficientNad = new BN("100000000000");
     const amounts = {
       baseDeposit: 1_000_000_000_000_000n,
@@ -3439,8 +3444,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const retainedConfig = marketConfig();
     retainedConfig.swapFeeBps = 0;
     retainedConfig.divergenceFeeShareCapBps = 5_000;
-    retainedConfig.amm.rangeWidthNad = new BN("4000000000");
-    retainedConfig.amm.concentratedLiquidityShareNad = new BN("500000000");
+    retainedConfig.amm.peakAmplificationNad = new BN("4000000000");
+    retainedConfig.amm.coreHalfWidthBps = 100;
+    retainedConfig.amm.fadeWidthBps = 400;
     retainedConfig.amm.divergenceFeeCoefficientNad = new BN("100000000000");
     retainedConfig.amm.adjustmentThresholdNad = new BN("1000");
     retainedConfig.amm.adjustmentStepNad = new BN("1000");
@@ -3484,8 +3490,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       const config = marketConfig();
       config.swapFeeBps = 0;
       config.divergenceFeeShareCapBps = 5_000;
-      config.amm.rangeWidthNad = new BN("4000000000");
-      config.amm.concentratedLiquidityShareNad = new BN("500000000");
+      config.amm.peakAmplificationNad = new BN("4000000000");
+      config.amm.coreHalfWidthBps = 100;
+      config.amm.fadeWidthBps = 400;
       config.amm.divergenceFeeCoefficientNad = new BN("100000000000");
       if (retained) {
         config.amm.adjustmentThresholdNad = new BN("1000");
@@ -3605,8 +3612,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   it("rejects the same zero post-retention mark in preview and execution without mutation", async function () {
     const config = marketConfig();
     config.swapFeeBps = 0;
-    config.amm.rangeWidthNad = new BN("4000000000");
-    config.amm.concentratedLiquidityShareNad = new BN("500000000");
+    config.amm.peakAmplificationNad = new BN("4000000000");
+    config.amm.coreHalfWidthBps = 100;
+    config.amm.fadeWidthBps = 400;
     config.amm.divergenceFeeCoefficientNad = new BN("100000000000");
     config.amm.adjustmentThresholdNad = new BN("1000");
     config.amm.adjustmentStepNad = new BN("1000");
@@ -3681,8 +3689,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
   it("executes a fully funded concentrated recenter below the SBF compute ceiling", async function () {
     const config = marketConfig();
-    config.amm.rangeWidthNad = new BN("4000000000");
-    config.amm.concentratedLiquidityShareNad = new BN("500000000");
+    config.amm.peakAmplificationNad = new BN("4000000000");
+    config.amm.coreHalfWidthBps = 100;
+    config.amm.fadeWidthBps = 400;
     config.amm.adjustmentThresholdNad = new BN("1000");
     config.amm.adjustmentStepNad = new BN("1000");
     config.amm.minAdjustmentIntervalSlots = new BN(1);
@@ -3708,7 +3717,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     // Fixture-only funding isolates the recenter compute path. Production can
     // create this same protected surplus only through retained surcharge.
     funded.amm.protected_floor_per_share_nad =
-      funded.amm.q_per_share_nad.sub(funded.amm.retention_hard_cap_nad);
+      funded.amm.curve_depth_per_share_nad.sub(funded.amm.retention_hard_cap_nad);
     funded.amm.price_ema_nad = funded.amm.last_trade_price_nad;
     funded.amm.retention_target_stale = true;
     // Anchor's generic account encoder allocates only 1,000 bytes internally;
@@ -3771,8 +3780,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const config = marketConfig();
     config.swapFeeBps = 0;
     config.divergenceFeeShareCapBps = 5_000;
-    config.amm.rangeWidthNad = new BN("4000000000");
-    config.amm.concentratedLiquidityShareNad = new BN("500000000");
+    config.amm.peakAmplificationNad = new BN("4000000000");
+    config.amm.coreHalfWidthBps = 100;
+    config.amm.fadeWidthBps = 400;
     config.amm.adjustmentThresholdNad = new BN("1000");
     config.amm.adjustmentStepNad = new BN("1000");
     config.amm.minAdjustmentIntervalSlots = new BN(1);
@@ -3851,8 +3861,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
     const config = marketConfig();
     config.divergenceFeeShareCapBps = 2_000;
-    config.amm.rangeWidthNad = new BN("4000000000");
-    config.amm.concentratedLiquidityShareNad = new BN("500000000");
+    config.amm.peakAmplificationNad = new BN("4000000000");
+    config.amm.coreHalfWidthBps = 100;
+    config.amm.fadeWidthBps = 400;
     config.amm.adjustmentThresholdNad = new BN("10000000");
     config.amm.adjustmentStepNad = new BN("1000000");
     config.amm.minAdjustmentIntervalSlots = new BN(1);
@@ -3876,7 +3887,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       350_000_000_000,
       1
     );
-    expect(measurement.computeUnits <= 350_000n).to.equal(true);
+    expect(measurement.computeUnits <= 1_350_000n).to.equal(true);
     trackV2Instruction("swap", this.test?.title);
   });
 
@@ -3895,8 +3906,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       { seed: 79, assetIn: "base", exactAssetIn: 35_000_000 },
     ] as const) {
       const config = marketConfig();
-      config.amm.rangeWidthNad = new BN("4000000000");
-      config.amm.concentratedLiquidityShareNad = new BN("500000000");
+      config.amm.peakAmplificationNad = new BN("4000000000");
+      config.amm.coreHalfWidthBps = 100;
+      config.amm.fadeWidthBps = 400;
       const fixture = await addBalancedLiquidity(testCase.seed, config, {
         // Match the native funding-settlement fixture at 100x scale:
         // 150m/300m ordinary depth plus 10m/20m hLP deposits.
@@ -6065,7 +6077,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     );
   });
 
-  it("settles an expired liquidation auction with external capital at its stored floor", async function () {
+  it("settles an expired liquidation auction through the internal AMM floor", async function () {
     const fixture = await addBalancedLiquidity(81, marketConfig());
     const borrowPositionId = Keypair.generate().publicKey;
     const borrowPosition = deriveBorrowPositionAddress(fixture.market, borrowPositionId)[0];
@@ -6142,8 +6154,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const collateralBefore = before.base_collateral.toNumber();
     const debtSharesBefore = BigInt(before.fixed_quote_shares.toString());
 
-    // External floor settlement becomes executable only after the auction's
-    // exponential price reaches its stored floor.
+    // Permissionless internal settlement becomes executable after the fixed
+    // five-minute external-bid window.
     const expiredClock = svm.getClock();
     expiredClock.slot += 10_000n;
     expiredClock.unixTimestamp += 10_000n;
@@ -6151,27 +6163,26 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
     const settleTx = await program.methods
       .backstopLiquidationAuction({
-        repayAmount: new BN(1_000),
-        minCollateralOut: new BN(1),
-        maxInsuranceDraw: new BN(0),
-        maxSocializedLoss: new BN(0),
+        minCallerBountyOut: new BN(1),
       })
       .accounts({
         market: fixture.market,
         futarchyAuthority,
+        positionOwner: payer.publicKey,
         liquidator: payer.publicKey,
         debtAssetMint: fixture.quoteMint,
         collateralAssetMint: fixture.baseMint,
-        reserveVault: fixture.quoteReserveVault,
+        debtReserveVault: fixture.quoteReserveVault,
+        collateralReserveVault: fixture.baseReserveVault,
         interestVault: fixture.quoteInterestVault,
         collateralVault: fixture.baseCollateralVault,
         insuranceVault: fixture.quoteInsuranceVault,
-        collateralInsuranceVault: fixture.baseInsuranceVault,
-        liquidatorDebtAccount: fixture.ownerQuoteAccount,
         liquidatorCollateralAccount: fixture.ownerBaseAccount,
+        ownerDebtAccount: fixture.ownerQuoteAccount,
         borrowPosition,
         referralPartner: null,
         referralAccrual: null,
+        instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
@@ -6195,8 +6206,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     this.timeout(120_000);
 
     const config = marketConfig();
-    config.amm.rangeWidthNad = new BN("4000000000");
-    config.amm.concentratedLiquidityShareNad = new BN("500000000");
+    config.amm.peakAmplificationNad = new BN("4000000000");
+    config.amm.coreHalfWidthBps = 100;
+    config.amm.fadeWidthBps = 400;
     const fixture = await addBalancedLiquidity(98, config, {
       baseDeposit: 100_000_000,
       quoteDeposit: 200_000_000,

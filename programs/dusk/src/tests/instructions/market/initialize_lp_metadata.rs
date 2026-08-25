@@ -51,7 +51,7 @@ fn valid_config() -> MarketConfig {
         settlement_divergence_bps: 500,
         ema_half_life_ms: MIN_HALF_LIFE_MS,
         directional_ema_half_life_ms: MIN_HALF_LIFE_MS,
-        q_ema_half_life_ms: MIN_HALF_LIFE_MS,
+        curve_depth_ema_half_life_ms: MIN_HALF_LIFE_MS,
         max_daily_borrow_bps: 2_000,
         global_health_contribution_cap_bps: 15_000,
         borrow_market_health_floor_bps: 11_000,

@@ -736,18 +736,18 @@ impl Market {
             self.current_curve_center_price_nad()?,
             parameters,
         )?;
-        let q_nad = self
+        let curve_depth_nad = self
             .amm
             .explicit_curve_cache
             .tail_liquidity
             .checked_add(self.amm.explicit_curve_cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
-        self.curve_q_per_share_nad(q_nad)
+        self.curve_depth_per_share_nad(curve_depth_nad)
     }
 
     pub(crate) fn rebase_explicit_curve_after_terminal_hlp_loss(&mut self) -> Result<()> {
-        let q_per_share_nad = self.rebase_explicit_curve_at_current_ordinary_point()?;
-        self.amm.checkpoint_recenter_or_loss(q_per_share_nad);
+        let curve_depth_per_share_nad = self.rebase_explicit_curve_at_current_ordinary_point()?;
+        self.amm.checkpoint_recenter_or_loss(curve_depth_per_share_nad);
         self.defer_amm_retention_target()?;
         self.advance_curve_revision()
     }
@@ -781,8 +781,8 @@ impl Market {
         // or concentration policy. Reconstruct the unique positive explicit
         // curve through that point in O(1); the following algebraic hLP
         // transition then restores zero opposite-asset exposure.
-        let q_per_share_nad = self.rebase_explicit_curve_at_current_ordinary_point()?;
-        self.amm.checkpoint_recenter_or_loss(q_per_share_nad);
+        let curve_depth_per_share_nad = self.rebase_explicit_curve_at_current_ordinary_point()?;
+        self.amm.checkpoint_recenter_or_loss(curve_depth_per_share_nad);
         self.defer_amm_retention_target()?;
         self.advance_curve_revision()?;
 
@@ -1008,7 +1008,7 @@ impl Market {
             prepared_swap.swap.end_price_nad,
             current_slot,
         )?;
-        let q_nad = self
+        let curve_depth_nad = self
             .amm
             .explicit_curve_cache
             .tail_liquidity
@@ -1020,7 +1020,7 @@ impl Market {
         } else {
             prepared_swap.swap.reserve_end_price_nad
         };
-        self.observe_risk_from_explicit_curve(final_price_nad, q_nad, current_slot)?;
+        self.observe_risk_from_explicit_curve(final_price_nad, curve_depth_nad, current_slot)?;
         require_eq!(
             self.risk.cached_spot_base_price_nad,
             final_price_nad,

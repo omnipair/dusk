@@ -11,7 +11,7 @@ fn valid_config() -> MarketConfig {
         settlement_divergence_bps: BPS_DENOMINATOR,
         ema_half_life_ms: MIN_HALF_LIFE_MS,
         directional_ema_half_life_ms: MIN_HALF_LIFE_MS,
-        q_ema_half_life_ms: MIN_HALF_LIFE_MS,
+        curve_depth_ema_half_life_ms: MIN_HALF_LIFE_MS,
         max_daily_borrow_bps: DEFAULT_DAILY_BORROW_BPS,
         global_health_contribution_cap_bps: 15_000,
         borrow_market_health_floor_bps: BPS_DENOMINATOR,
@@ -552,14 +552,14 @@ fn virtual_reserve_sums_fixed_and_isolated_debt_ledgers_separately() {
 }
 
 #[test]
-fn borrower_risk_valuation_uses_q_ema_depth_cap() {
+fn borrower_risk_valuation_uses_curve_depth_ema_cap() {
     let mut market = invariant_market(1_000_000, 1_000_000);
     market.risk = Risk {
         base_price_ema_nad: NAD,
         quote_price_ema_nad: NAD,
         directional_base_price_ema_nad: NAD,
         directional_quote_price_ema_nad: NAD,
-        q_ema_nad: 100_000_u128 * NAD as u128,
+        curve_depth_ema_nad: 100_000_u128 * NAD as u128,
         ..Risk::default()
     };
 
@@ -580,25 +580,76 @@ fn borrower_risk_valuation_uses_q_ema_depth_cap() {
     .unwrap();
 
     assert!(value > 0);
-    // The explicit inverse is intentionally pessimistic and need not equal
-    // the old synthetic-CPMM Q reconstruction.
+    assert_eq!(value, expected);
     assert!(value < live_depth_value);
 }
 
 #[test]
-fn reconstructed_risk_curve_caps_q_by_sudden_current_drawdown() {
-    let q_ema_nad = 1_000_000_u128 * NAD as u128;
+fn borrowing_uses_only_full_range_tail_of_concentrated_market() {
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    market.config.amm.peak_amplification_nad = 4 * NAD;
+    market.config.amm.core_half_width_bps = 1_000;
+    market.config.amm.fade_width_bps = 1_000;
+    market.amm = AmmState::default();
+    market.risk = Risk::default();
+    market.prepare_amm_for_swap(0).unwrap();
+    market.refresh_risk().unwrap();
+
+    let collateral_amount = 100_000;
+    let collateral_amount_nad = collateral_amount as u128 * NAD as u128;
+    let cache = market.amm.explicit_curve_cache;
+    let current_depth = cache.tail_liquidity + cache.concentrated_liquidity;
+    let risk = Risk {
+        base_price_ema_nad: NAD,
+        quote_price_ema_nad: NAD,
+        directional_base_price_ema_nad: NAD,
+        directional_quote_price_ema_nad: NAD,
+        observed_curve_depth_nad: current_depth,
+        curve_depth_ema_nad: current_depth,
+        ..Risk::default()
+    };
+    let borrow_value = market
+        .collateral_value_nad(MarketAsset::Base, collateral_amount, &risk)
+        .unwrap();
+    let cpmm = ExplicitCurveGeometry::cpmm();
+    let cpmm_point = cpmm.point_at_price_nad(NAD as u128, cache.tail_liquidity).unwrap();
+    let tail_only_value = cpmm
+        .quote_exact_in(
+            cpmm_point,
+            collateral_amount_nad,
+            ExplicitCurveDirection::BaseToQuote,
+        )
+        .unwrap()
+        .amount_out;
+    let concentrated = cache.geometry().unwrap();
+    let concentrated_point = cache.center_point(NAD as u64).unwrap();
+    let live_trade_value = concentrated
+        .quote_exact_in(
+            concentrated_point,
+            collateral_amount_nad,
+            ExplicitCurveDirection::BaseToQuote,
+        )
+        .unwrap()
+        .amount_out;
+
+    assert_eq!(borrow_value, tail_only_value);
+    assert!(borrow_value < live_trade_value);
+}
+
+#[test]
+fn reconstructed_risk_curve_caps_depth_by_sudden_current_drawdown() {
+    let curve_depth_ema_nad = 1_000_000_u128 * NAD as u128;
     let high_risk = Risk {
         base_price_ema_nad: NAD,
         quote_price_ema_nad: NAD,
         directional_base_price_ema_nad: NAD,
         directional_quote_price_ema_nad: NAD,
-        cached_q_nad: q_ema_nad,
-        q_ema_nad,
+        observed_curve_depth_nad: curve_depth_ema_nad,
+        curve_depth_ema_nad,
         ..Risk::default()
     };
     let low_risk = Risk {
-        cached_q_nad: q_ema_nad / 10,
+        observed_curve_depth_nad: curve_depth_ema_nad / 10,
         ..high_risk
     };
     let market = invariant_market(1_000_000, 1_000_000);
@@ -613,11 +664,11 @@ fn reconstructed_risk_curve_caps_q_by_sudden_current_drawdown() {
 }
 
 #[test]
-fn daily_borrow_bucket_use_conservative_q_at_current_spot_ratio() {
+fn daily_borrow_bucket_uses_pessimistic_depth_at_current_spot_ratio() {
     let mut market = invariant_market(4_000_000, 1_000_000);
-    market.risk.q_ema_nad = 1_000_000_u128 * NAD as u128;
+    market.risk.curve_depth_ema_nad = 1_000_000_u128 * NAD as u128;
 
-    let (base_depth, quote_depth) = market.conservative_risk_reserve_depths(&market.risk).unwrap();
+    let (base_depth, quote_depth) = market.pessimistic_borrow_reserve_depths(&market.risk).unwrap();
     assert_eq!(market.daily_limit_for_side(MarketAsset::Base, 2_000).unwrap(), base_depth / 5);
     assert_eq!(market.daily_limit_for_side(MarketAsset::Quote, 2_000).unwrap(), quote_depth / 5);
 }
@@ -625,7 +676,7 @@ fn daily_borrow_bucket_use_conservative_q_at_current_spot_ratio() {
 #[test]
 fn daily_borrow_bucket_track_post_swap_reserve_ratio() {
     let mut market = invariant_market(1_000_000, 1_000_000);
-    market.risk.q_ema_nad = 1_000_000_u128 * NAD as u128;
+    market.risk.curve_depth_ema_nad = 1_000_000_u128 * NAD as u128;
     let amount_in = 250_000;
     let amount_out = crate::math::cpmm_amount_out(1_000_000, 1_000_000, amount_in).unwrap();
     market.base_side.reserves.live_reserve += amount_in;
@@ -633,27 +684,27 @@ fn daily_borrow_bucket_track_post_swap_reserve_ratio() {
 
     assert_eq!(market.base_side.reserves.live_reserve, 1_250_000);
     assert_eq!(market.quote_side.reserves.live_reserve, 800_000);
-    let (base_depth, quote_depth) = market.conservative_risk_reserve_depths(&market.risk).unwrap();
+    let (base_depth, quote_depth) = market.pessimistic_borrow_reserve_depths(&market.risk).unwrap();
     assert_eq!(market.daily_limit_for_side(MarketAsset::Base, 1_000).unwrap(), base_depth / 10);
     assert_eq!(market.daily_limit_for_side(MarketAsset::Quote, 1_000).unwrap(), quote_depth / 10);
 }
 
 #[test]
-fn daily_borrow_bucket_use_live_depth_when_q_ema_is_empty_or_above_spot() {
+fn daily_borrow_bucket_uses_live_depth_when_depth_ema_is_empty_or_above_spot() {
     let mut market = invariant_market(800_000, 1_200_000);
 
     assert_eq!(market.daily_limit_for_side(MarketAsset::Base, 2_500).unwrap(), 200_000);
     assert!(market.daily_limit_for_side(MarketAsset::Quote, 2_500).unwrap().abs_diff(300_000) <= 1);
 
-    market.risk.q_ema_nad = 2_000_000_u128 * NAD as u128;
+    market.risk.curve_depth_ema_nad = 2_000_000_u128 * NAD as u128;
     assert_eq!(market.daily_limit_for_side(MarketAsset::Base, 2_500).unwrap(), 200_000);
     assert!(market.daily_limit_for_side(MarketAsset::Quote, 2_500).unwrap().abs_diff(300_000) <= 1);
 }
 
 #[test]
-fn daily_borrow_bucket_follow_q_drawdown_growth_and_proportional_liquidity() {
+fn daily_borrow_bucket_follows_depth_drawdown_growth_and_proportional_liquidity() {
     let mut market = invariant_market(2_000_000, 2_000_000);
-    market.risk.q_ema_nad = 1_000_000_u128 * NAD as u128;
+    market.risk.curve_depth_ema_nad = 1_000_000_u128 * NAD as u128;
 
     let initial = market.daily_limit_for_side(MarketAsset::Base, 1_000).unwrap();
     assert!(initial > 0);
@@ -727,7 +778,7 @@ fn global_health_cap_remains_bounded_after_collateral_appreciates() {
         quote_price_ema_nad: NAD * 2,
         directional_base_price_ema_nad: NAD / 2,
         directional_quote_price_ema_nad: NAD * 2,
-        q_ema_nad: 1_000_000_u128 * NAD as u128,
+        curve_depth_ema_nad: 1_000_000_u128 * NAD as u128,
         ..Risk::default()
     };
 
@@ -735,6 +786,43 @@ fn global_health_cap_remains_bounded_after_collateral_appreciates() {
 
     assert!(health.base_debt_health_bps <= 15_000);
     assert!(health.effective_base_debt_nad > 0);
+}
+
+#[test]
+fn recognized_aggregate_collateral_reduces_effective_existing_debt_on_shadow_cpmm() {
+    let market = invariant_market(1_000_000, 1_000_000);
+    let nad = NAD as u128;
+    let existing_debt_nad = 50_000 * nad;
+    let projected_debt_nad = 100_000 * nad;
+    let reserve_nad = 1_000_000 * nad;
+
+    let (without_recognition, health_without) = market
+        .global_side_health_with_virtual_reserves(
+            MarketAsset::Base,
+            existing_debt_nad,
+            projected_debt_nad,
+            0,
+            &market.risk,
+            reserve_nad,
+            reserve_nad,
+        )
+        .unwrap();
+    let (with_recognition, health_with) = market
+        .global_side_health_with_virtual_reserves(
+            MarketAsset::Base,
+            existing_debt_nad,
+            projected_debt_nad,
+            150_000,
+            &market.risk,
+            reserve_nad,
+            reserve_nad,
+        )
+        .unwrap();
+
+    assert_eq!(without_recognition, existing_debt_nad);
+    assert_eq!(health_without, 0);
+    assert!(with_recognition < without_recognition);
+    assert!(health_with >= market.config.borrow_market_health_floor_bps as u64);
 }
 
 #[test]
@@ -914,10 +1002,10 @@ proptest! {
     }
 
     #[test]
-    fn conservative_q_depth_and_daily_limit_never_exceed_live_inventory(
+    fn pessimistic_depth_and_daily_limit_never_exceed_live_inventory(
         base in 1_000_u64..1_000_000_000,
         quote in 1_000_u64..1_000_000_000,
-        q_scale_bps in 1_u128..20_001,
+        depth_scale_bps in 1_u128..20_001,
         limit_bps in 0_u16..=BPS_DENOMINATOR,
     ) {
         let mut market = invariant_market(base, quote);
@@ -927,12 +1015,12 @@ proptest! {
             .tail_liquidity
             .checked_add(market.amm.explicit_curve_cache.concentrated_liquidity)
             .unwrap();
-        market.risk.q_ema_nad = (spot_q / BPS_DENOMINATOR as u128)
-            .checked_mul(q_scale_bps)
+        market.risk.curve_depth_ema_nad = (spot_q / BPS_DENOMINATOR as u128)
+            .checked_mul(depth_scale_bps)
             .unwrap();
 
         let (base_depth, quote_depth) = market
-            .conservative_risk_reserve_depths(&market.risk)
+            .pessimistic_borrow_reserve_depths(&market.risk)
             .unwrap();
         prop_assert!(base_depth <= base);
         prop_assert!(quote_depth <= quote);
@@ -1061,7 +1149,7 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
             &MarketParameterUpdate::EmaHalfLives {
                 price_ms: 120_000,
                 directional_price_ms: 180_000,
-                q_ms: 240_000,
+                curve_depth_ms: 240_000,
                 center_price_ms: 300_000,
             },
             3,
@@ -1069,7 +1157,7 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
         .unwrap();
     assert_eq!(market.config.ema_half_life_ms, 120_000);
     assert_eq!(market.config.directional_ema_half_life_ms, 180_000);
-    assert_eq!(market.config.q_ema_half_life_ms, 240_000);
+    assert_eq!(market.config.curve_depth_ema_half_life_ms, 240_000);
     assert_eq!(market.config.amm.center_ema_half_life_ms, 300_000);
     assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 0, 0, 0]);
 
@@ -1127,24 +1215,27 @@ fn concentration_execution_reconstructs_the_selected_explicit_shape() {
     market
         .execute_parameter_update(
             &MarketParameterUpdate::Concentration {
-                range_width_nad: 2 * NAD,
-                concentrated_liquidity_share_nad: 9 * NAD / 10,
+                peak_amplification_nad: 4 * NAD,
+                core_half_width_bps: 100,
+                fade_width_bps: 400,
             },
             2,
         )
         .unwrap();
 
-    assert_eq!(market.config.amm.range_width_nad, 2 * NAD);
-    assert_eq!(market.config.amm.concentrated_liquidity_share_nad, 9 * NAD / 10);
-    assert_eq!(market.amm.explicit_curve_cache.range_width_nad, 2 * NAD);
+    assert_eq!(market.config.amm.peak_amplification_nad, 4 * NAD);
+    assert_eq!(market.config.amm.core_half_width_bps, 100);
+    assert_eq!(market.config.amm.fade_width_bps, 400);
+    assert_eq!(market.amm.explicit_curve_cache.peak_amplification_nad, 4 * NAD);
     assert_eq!(market.parameter_revisions, [0, 1, 0, 0, 0, 0, 0]);
 }
 
 #[test]
 fn active_or_residual_hlp_allows_an_atomic_concentration_update() {
     let update = MarketParameterUpdate::Concentration {
-        range_width_nad: 2 * NAD,
-        concentrated_liquidity_share_nad: 9 * NAD / 10,
+        peak_amplification_nad: 4 * NAD,
+        core_half_width_bps: 100,
+        fade_width_bps: 400,
     };
 
     for mut market in [
@@ -1162,7 +1253,7 @@ fn active_or_residual_hlp_allows_an_atomic_concentration_update() {
         },
     ] {
         market.execute_parameter_update(&update, 1).unwrap();
-        assert_eq!(market.amm.explicit_curve_cache.range_width_nad, 2 * NAD);
+        assert_eq!(market.amm.explicit_curve_cache.peak_amplification_nad, 4 * NAD);
     }
 }
 

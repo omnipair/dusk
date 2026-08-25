@@ -787,9 +787,7 @@ function defaultMarketConfig() {
     directionalEmaHalfLifeMs: toBN(
       duskEnv("DIRECTIONAL_EMA_HALF_LIFE_MS") ?? "60000"
     ),
-    qEmaHalfLifeMs: toBN(
-      duskEnv("Q_EMA_HALF_LIFE_MS") ?? duskEnv("K_EMA_HALF_LIFE_MS") ?? "60000"
-    ),
+    curveDepthEmaHalfLifeMs: toBN(duskEnv("CURVE_DEPTH_EMA_HALF_LIFE_MS") ?? "60000"),
     maxDailyBorrowBps: Number(duskEnv("MAX_DAILY_BORROW_BPS") ?? "2000"),
     globalHealthContributionCapBps: Number(
       duskEnv("GLOBAL_HEALTH_CONTRIBUTION_CAP_BPS") ?? "15000"
@@ -815,10 +813,9 @@ function defaultMarketConfig() {
 
 function defaultAmmConfig() {
   return {
-    rangeWidthNad: toBN(duskEnv("AMM_RANGE_WIDTH_NAD") ?? "0"),
-    concentratedLiquidityShareNad: toBN(
-      duskEnv("AMM_CONCENTRATED_LIQUIDITY_SHARE_NAD") ?? "0"
-    ),
+    peakAmplificationNad: toBN(duskEnv("AMM_PEAK_AMPLIFICATION_NAD") ?? "1000000000"),
+    coreHalfWidthBps: Number(duskEnv("AMM_CORE_HALF_WIDTH_BPS") ?? "0"),
+    fadeWidthBps: Number(duskEnv("AMM_FADE_WIDTH_BPS") ?? "0"),
     centerEmaHalfLifeMs: toBN(duskEnv("AMM_CENTER_EMA_HALF_LIFE_MS") ?? "60000"),
     volatilityHalfLifeMs: toBN(duskEnv("AMM_VOLATILITY_HALF_LIFE_MS") ?? "60000"),
     adjustmentThresholdNad: toBN(duskEnv("AMM_ADJUSTMENT_THRESHOLD_NAD") ?? "0"),
@@ -1752,7 +1749,9 @@ function marketConfigPayload(marketAccount: any) {
     directionalEmaHalfLifeMs: stringValue(
       field(config, "directionalEmaHalfLifeMs", "directional_ema_half_life_ms")
     ),
-    qEmaHalfLifeMs: stringValue(field(config, "qEmaHalfLifeMs", "q_ema_half_life_ms")),
+    curveDepthEmaHalfLifeMs: stringValue(
+      field(config, "curveDepthEmaHalfLifeMs", "curve_depth_ema_half_life_ms")
+    ),
     maxDailyBorrowBps: Number(field(config, "maxDailyBorrowBps", "max_daily_borrow_bps") ?? 0),
     globalHealthContributionCapBps: Number(
       field(config, "globalHealthContributionCapBps", "global_health_contribution_cap_bps") ?? 0
@@ -1761,10 +1760,11 @@ function marketConfigPayload(marketAccount: any) {
       field(config, "borrowMarketHealthFloorBps", "borrow_market_health_floor_bps") ?? 0
     ),
     amm: {
-      rangeWidthNad: stringValue(field(amm, "rangeWidthNad", "range_width_nad")),
-      concentratedLiquidityShareNad: stringValue(
-        field(amm, "concentratedLiquidityShareNad", "concentrated_liquidity_share_nad")
+      peakAmplificationNad: stringValue(
+        field(amm, "peakAmplificationNad", "peak_amplification_nad")
       ),
+      coreHalfWidthBps: Number(field(amm, "coreHalfWidthBps", "core_half_width_bps") ?? 0),
+      fadeWidthBps: Number(field(amm, "fadeWidthBps", "fade_width_bps") ?? 0),
       centerEmaHalfLifeMs: stringValue(field(amm, "centerEmaHalfLifeMs", "center_ema_half_life_ms")),
       volatilityHalfLifeMs: stringValue(
         field(amm, "volatilityHalfLifeMs", "volatility_half_life_ms")
@@ -2141,6 +2141,26 @@ function marketFromStored(stored: StoredMarket) {
   };
 }
 
+async function activeHlpSwapAccounts(m: ReturnType<typeof marketFromStored>) {
+  const { program } = initializeRuntime();
+  const market = await program.account.market.fetch(m.market);
+  const baseHlpVault = field(market, "baseHlpVault", "base_hlp_vault");
+  const quoteHlpVault = field(market, "quoteHlpVault", "quote_hlp_vault");
+  const active =
+    toBigInt(field(baseHlpVault, "hlpSupply", "hlp_supply")) > 0n ||
+    toBigInt(field(quoteHlpVault, "hlpSupply", "hlp_supply")) > 0n ||
+    toBigInt(field(baseHlpVault, "residualExposure", "residual_exposure")) !== 0n ||
+    toBigInt(field(quoteHlpVault, "residualExposure", "residual_exposure")) !== 0n;
+  if (!active) return [];
+  return [
+    { pubkey: m.ylpMint, isWritable: true, isSigner: false },
+    { pubkey: m.baseHlpYlpVault, isWritable: true, isSigner: false },
+    { pubkey: m.quoteHlpYlpVault, isWritable: true, isSigner: false },
+    { pubkey: m.baseInterestVault, isWritable: true, isSigner: false },
+    { pubkey: m.quoteInterestVault, isWritable: true, isSigner: false },
+  ];
+}
+
 async function resolveStoredMarket(marketAddress: string, fallback: StoredMarket): Promise<StoredMarket> {
   if (!marketAddress || marketAddress === fallback.market) return fallback;
   const state = readState();
@@ -2511,25 +2531,7 @@ async function buildSwapTx(params: {
       program: PROGRAM_ID,
     });
 
-  const refreshedMarket = await program.account.market.fetch(m.market);
-  const baseHlpVault = field(refreshedMarket, "baseHlpVault", "base_hlp_vault");
-  const quoteHlpVault = field(refreshedMarket, "quoteHlpVault", "quote_hlp_vault");
-  const baseHlpSupply = toBigInt(field(baseHlpVault, "hlpSupply", "hlp_supply"));
-  const quoteHlpSupply = toBigInt(
-    field(quoteHlpVault, "hlpSupply", "hlp_supply")
-  );
-  const baseResidualExposure = toBigInt(field(baseHlpVault, "residualExposure", "residual_exposure"));
-  const quoteResidualExposure = toBigInt(field(quoteHlpVault, "residualExposure", "residual_exposure"));
-  const remainingAccounts = [];
-  if (baseHlpSupply > 0n || quoteHlpSupply > 0n || baseResidualExposure !== 0n || quoteResidualExposure !== 0n) {
-    remainingAccounts.push(
-      { pubkey: m.ylpMint, isWritable: true, isSigner: false },
-      { pubkey: m.baseHlpYlpVault, isWritable: true, isSigner: false },
-      { pubkey: m.quoteHlpYlpVault, isWritable: true, isSigner: false },
-      { pubkey: m.baseInterestVault, isWritable: true, isSigner: false },
-      { pubkey: m.quoteInterestVault, isWritable: true, isSigner: false }
-    );
-  }
+  const remainingAccounts = await activeHlpSwapAccounts(m);
   if (remainingAccounts.length > 0) builder = builder.remainingAccounts(remainingAccounts);
   instructions.push(await builder.instruction());
   return serializeOwnerTransaction(params.owner, instructions);
@@ -2568,6 +2570,52 @@ async function buildDepositCollateralTx(params: {
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
+        eventAuthority: m.eventAuthority,
+        program: program.programId,
+      })
+      .instruction()
+  );
+  return serializeOwnerTransaction(params.owner, instructions);
+}
+
+/**
+ * Donate into a market's insurance fund.
+ *
+ * `fortify_market` credits the vault for one side and is permissionless — the
+ * donor is any signer, not the market authority — so the only accounts beyond
+ * the transfer pair are the market and the side's insurance vault. The
+ * instruction is `#[event_cpi]`, hence the event authority.
+ */
+async function buildFortifyMarketTx(params: {
+  owner: PublicKey;
+  market: StoredMarket;
+  marketAsset: MarketAsset;
+  amount: bigint;
+}) {
+  const { program } = initializeRuntime();
+  const m = marketFromStored(params.market);
+  const isBase = params.marketAsset === "base";
+  const instructions: TransactionInstruction[] = [];
+  const donorAsset = await maybeAddAta(
+    instructions,
+    params.owner,
+    isBase ? m.baseMint : m.quoteMint,
+    isBase ? m.baseTokenProgram : m.quoteTokenProgram
+  );
+  instructions.push(
+    await program.methods
+      .fortifyMarket({
+        asset: isBase ? 0 : 1,
+        amount: toBN(params.amount),
+      })
+      .accounts({
+        market: m.market,
+        donor: params.owner,
+        assetMint: isBase ? m.baseMint : m.quoteMint,
+        donorAssetAccount: donorAsset,
+        insuranceVault: isBase ? m.baseInsuranceVault : m.quoteInsuranceVault,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: m.eventAuthority,
         program: program.programId,
       })
@@ -2960,10 +3008,9 @@ function parameterUpdateFromBody(update: Record<string, unknown>) {
     const concentration = update.concentration as Record<string, unknown>;
     return {
       concentration: {
-        rangeWidthNad: toBN(String(concentration.rangeWidthNad)),
-        concentratedLiquidityShareNad: toBN(
-          String(concentration.concentratedLiquidityShareNad)
-        ),
+        peakAmplificationNad: toBN(String(concentration.peakAmplificationNad)),
+        coreHalfWidthBps: Number(concentration.coreHalfWidthBps),
+        fadeWidthBps: Number(concentration.fadeWidthBps),
       },
     };
   }
@@ -2985,7 +3032,7 @@ function parameterUpdateFromBody(update: Record<string, unknown>) {
       emaHalfLives: {
         priceMs: toBN(String(ema.priceMs)),
         directionalPriceMs: toBN(String(ema.directionalPriceMs)),
-        qMs: toBN(String(ema.qMs)),
+        curveDepthMs: toBN(String(ema.curveDepthMs)),
         centerPriceMs: toBN(String(ema.centerPriceMs)),
       },
     };
@@ -3577,13 +3624,14 @@ function marketConfigFromBody(config: Record<string, unknown>) {
     settlementDivergenceBps: Number(config.settlementDivergenceBps),
     emaHalfLifeMs: toBN(String(config.emaHalfLifeMs)),
     directionalEmaHalfLifeMs: toBN(String(config.directionalEmaHalfLifeMs)),
-    qEmaHalfLifeMs: toBN(String(config.qEmaHalfLifeMs)),
+    curveDepthEmaHalfLifeMs: toBN(String(config.curveDepthEmaHalfLifeMs)),
     maxDailyBorrowBps: Number(config.maxDailyBorrowBps),
     globalHealthContributionCapBps: Number(config.globalHealthContributionCapBps),
     borrowMarketHealthFloorBps: Number(config.borrowMarketHealthFloorBps),
     amm: {
-      rangeWidthNad: toBN(String(amm.rangeWidthNad)),
-      concentratedLiquidityShareNad: toBN(String(amm.concentratedLiquidityShareNad)),
+      peakAmplificationNad: toBN(String(amm.peakAmplificationNad)),
+      coreHalfWidthBps: Number(amm.coreHalfWidthBps),
+      fadeWidthBps: Number(amm.fadeWidthBps),
       centerEmaHalfLifeMs: toBN(String(amm.centerEmaHalfLifeMs)),
       volatilityHalfLifeMs: toBN(String(amm.volatilityHalfLifeMs)),
       adjustmentThresholdNad: toBN(String(amm.adjustmentThresholdNad)),
@@ -4371,16 +4419,16 @@ async function buildBackstopLiquidationAuctionTx(params: {
   market: StoredMarket;
   positionId: PublicKey;
   debtAsset: MarketAsset;
-  repayAmount: bigint;
-  minCollateralOut: bigint;
-  maxInsuranceDraw: bigint;
-  maxSocializedLoss: bigint;
+  minCallerBountyOut: bigint;
 }) {
   const { program } = initializeRuntime();
   const m = marketFromStored(params.market);
   const debtIsBase = params.debtAsset === "base";
   const debtMint = debtIsBase ? m.baseMint : m.quoteMint;
   const collateralMint = debtIsBase ? m.quoteMint : m.baseMint;
+  const borrowPosition = deriveBorrowPosition(m.market, params.positionId);
+  const position = await program.account.borrowPosition.fetch(borrowPosition);
+  const positionOwner = field<PublicKey>(position, "owner");
   const referral = await borrowPositionReferralAccounts(
     m.market,
     params.positionId,
@@ -4388,49 +4436,47 @@ async function buildBackstopLiquidationAuctionTx(params: {
     debtMint
   );
   const instructions: TransactionInstruction[] = [];
-  const liquidatorDebtAccount = await maybeAddAta(
-    instructions,
-    params.liquidator,
-    debtMint,
-    debtIsBase ? m.baseTokenProgram : m.quoteTokenProgram
-  );
   const liquidatorCollateralAccount = await maybeAddAta(
     instructions,
     params.liquidator,
     collateralMint,
     debtIsBase ? m.quoteTokenProgram : m.baseTokenProgram
   );
-  instructions.push(
-    await program.methods
-      .backstopLiquidationAuction({
-        repayAmount: toBN(params.repayAmount),
-        minCollateralOut: toBN(params.minCollateralOut),
-        maxInsuranceDraw: toBN(params.maxInsuranceDraw),
-        maxSocializedLoss: toBN(params.maxSocializedLoss),
-      })
+  const ownerDebtAta = await ataInstructionIfMissing({
+    payer: params.liquidator,
+    owner: positionOwner,
+    mint: debtMint,
+    tokenProgram: debtIsBase ? m.baseTokenProgram : m.quoteTokenProgram,
+  });
+  if (ownerDebtAta.instruction) instructions.push(ownerDebtAta.instruction);
+  let builder = program.methods
+      .backstopLiquidationAuction({ minCallerBountyOut: toBN(params.minCallerBountyOut) })
       .accounts({
         market: m.market,
         futarchyAuthority: m.futarchyAuthority,
+        positionOwner,
         liquidator: params.liquidator,
         debtAssetMint: debtMint,
         collateralAssetMint: collateralMint,
-        reserveVault: debtIsBase ? m.baseReserveVault : m.quoteReserveVault,
+        debtReserveVault: debtIsBase ? m.baseReserveVault : m.quoteReserveVault,
+        collateralReserveVault: debtIsBase ? m.quoteReserveVault : m.baseReserveVault,
         interestVault: debtIsBase ? m.baseInterestVault : m.quoteInterestVault,
         collateralVault: debtIsBase ? m.quoteCollateralVault : m.baseCollateralVault,
         insuranceVault: debtIsBase ? m.baseInsuranceVault : m.quoteInsuranceVault,
-        collateralInsuranceVault: debtIsBase ? m.quoteInsuranceVault : m.baseInsuranceVault,
-        liquidatorDebtAccount,
         liquidatorCollateralAccount,
-        borrowPosition: deriveBorrowPosition(m.market, params.positionId),
+        ownerDebtAccount: ownerDebtAta.address,
+        borrowPosition,
         referralPartner: referral.referralPartner,
         referralAccrual: referral.referralAccrual,
+        instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: m.eventAuthority,
         program: PROGRAM_ID,
-      })
-      .instruction()
-  );
+      });
+  const remainingAccounts = await activeHlpSwapAccounts(m);
+  if (remainingAccounts.length > 0) builder = builder.remainingAccounts(remainingAccounts);
+  instructions.push(await builder.instruction());
   return serializeOwnerTransaction(params.liquidator, instructions);
 }
 
@@ -5411,6 +5457,26 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
     });
   }
 
+  if (path === "/api/v2/fork/tx/fortify-market") {
+    const marketAsset = assetFromBody(body.marketAsset ?? body.asset, "quote");
+    const transaction = await buildFortifyMarketTx({
+      owner,
+      market: stored,
+      marketAsset,
+      amount: rawAmount(
+        body,
+        ["amount", "donateAmount"],
+        marketAsset === "base" ? stored.baseDecimals : stored.quoteDecimals,
+        "1"
+      ),
+    });
+    return txResponse("fortify-market", owner, stored, transaction, {
+      marketAsset,
+      insuranceVault:
+        marketAsset === "base" ? stored.baseInsuranceVault : stored.quoteInsuranceVault,
+    });
+  }
+
   if (path === "/api/v2/fork/tx/withdraw-collateral") {
     const marketAsset = assetFromBody(body.marketAsset ?? body.asset, "base");
     const positionId = requiredPositionId(body);
@@ -5782,17 +5848,18 @@ export async function route(req: http.IncomingMessage, body: Record<string, unkn
   if (path === "/api/v2/fork/tx/settle-liquidation-auction-floor") {
     const positionId = requiredPositionId(body);
     const debtAsset = assetFromBody(body.debtAsset ?? body.asset, "quote");
-    const debtDecimals = debtAsset === "base" ? stored.baseDecimals : stored.quoteDecimals;
     const collateralDecimals = debtAsset === "base" ? stored.quoteDecimals : stored.baseDecimals;
     const transaction = await buildBackstopLiquidationAuctionTx({
       liquidator: owner,
       market: stored,
       positionId,
       debtAsset,
-      repayAmount: rawAmount(body, ["repayAmount", "amount"], debtDecimals, "1"),
-      minCollateralOut: rawAmount(body, ["minCollateralOut", "minAmountOut"], collateralDecimals, "0"),
-      maxInsuranceDraw: rawAmount(body, ["maxInsuranceDraw"], debtDecimals, "0"),
-      maxSocializedLoss: rawAmount(body, ["maxSocializedLoss"], debtDecimals, "0"),
+      minCallerBountyOut: rawAmount(
+        body,
+        ["minCallerBountyOut", "minCollateralOut", "minAmountOut"],
+        collateralDecimals,
+        "0"
+      ),
     });
     return txResponse("settle-liquidation-auction-floor", owner, stored, transaction, {
       positionId: positionId.toBase58(),

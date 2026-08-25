@@ -2,6 +2,8 @@ use crate::errors::ErrorCode;
 use anchor_lang::prelude::*;
 
 pub mod account;
+#[cfg(feature = "benchmark")]
+pub mod benchmark_api;
 pub mod constants;
 pub mod errors;
 pub mod events;

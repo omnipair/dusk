@@ -39,7 +39,7 @@ mainnet launch or upgrade.
   `programs/dusk/CONCENTRATION.md`.
 - Re-check the cached-spot EMA flow for same-slot manipulation resistance.
 - Re-check the per-debt-side shared 24-hour leaky/token bucket against
-  conservative `Q` and the exact applied CPMM/Dusk Concentrated AMM risk
+  pessimistic curve depth and the exact applied CPMM/Dusk Concentrated AMM risk
   shapes. Confirm checkpoint-frequency-independent refill at a fixed absolute
   limit, conservative-depth resizing, no repayment/exit refund, and enforcement
   only for public lending `borrow`. Isolated leverage and direct or automatic
@@ -59,8 +59,11 @@ mainnet launch or upgrade.
   source-scoped hLP backing inventories. Re-run the exact 25,631-atom CPMM and
   37,886-atom concentrated conservation regressions and the indexed
   debt-share aggregate-funding boundary tests.
-- Re-check borrower and liquidation valuation reconstruct the same applied
-  curve used by swaps at their respective pessimistic internal EMA prices.
+- Re-check public borrowing preserves debt-capped recognized aggregate
+  collateral while valuing both aggregate health and position capacity on the
+  pessimistic full-range-tail CPMM. Re-check lending liquidatability remains a
+  linear symmetric-EMA test and floor execution uses the live concentrated
+  curve.
 - Re-check the lower/upper Dusk Concentrated AMM invariant bounds, exact-in/out reserve bounds,
   marginal-price proof, and low-notional fail-closed behavior.
 - Re-check funded parameter ramps and center adjustments cannot consume more
@@ -79,11 +82,11 @@ mainnet launch or upgrade.
   user slippage bounds, pro-rata burn math, and reserve/share invariants.
 - Re-check liquidation accounting for collateral seizure, insurance draw, and
   LP socialization.
-- Confirm the selected external-auction policy documented in
-  `CONCENTRATION.md`: `backstop_liquidation_auction` requires an external
-  debt-token payer and does not provide an AMM-backed liquidation guarantee.
-  Test floor eligibility, external funding, insurance limits, socialization
-  limits, and the absence of any AMM conversion.
+- Confirm the liquidation policy documented in `CONCENTRATION.md`: external
+  repay-and-seize bids run for five minutes, then
+  `backstop_liquidation_auction` fully unwinds through the live concentrated
+  curve with a 0.5% caller bounty. Test recovery cancellation, floor timing,
+  AMM execution, automatic insurance limits, and automatic socialization.
 - Re-check fee liabilities: yLP, hLP, protocol, and unallocated carry-forward
   buckets. Swap-fee liabilities must remain reserve-custodied
   outside executable cash; interest liabilities must remain interest-vault-custodied.

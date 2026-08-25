@@ -7,8 +7,9 @@ use crate::{
 
 fn concentrated_config() -> AmmConfig {
     AmmConfig {
-        range_width_nad: 4 * NAD,
-        concentrated_liquidity_share_nad: NAD / 2,
+        peak_amplification_nad: 4 * NAD,
+        core_half_width_bps: 100,
+        fade_width_bps: 400,
         center_ema_half_life_ms: MIN_HALF_LIFE_MS,
         volatility_half_life_ms: MIN_HALF_LIFE_MS,
         adjustment_threshold_nad: NAD / 100,
@@ -83,8 +84,9 @@ fn explicit_curve_initializes_and_quotes_the_integrated_ordinary_tranche() {
     let mut config = AmmConfig::default();
     config
         .set_explicit_curve_parameters(ExplicitCurveParameters {
-            range_width_nad: 2 * NAD,
-            concentrated_liquidity_share_nad: NAD / 2,
+            peak_amplification_nad: 4 * NAD,
+            core_half_width_bps: 100,
+            fade_width_bps: 400,
         })
         .unwrap();
     let mut market = market_with_liquidity(config);
@@ -159,8 +161,9 @@ fn explicit_center_move_reconstructs_unchanged_reserves_in_closed_form() {
     };
     config
         .set_explicit_curve_parameters(ExplicitCurveParameters {
-            range_width_nad: 2 * NAD,
-            concentrated_liquidity_share_nad: NAD / 2,
+            peak_amplification_nad: 4 * NAD,
+            core_half_width_bps: 100,
+            fade_width_bps: 400,
         })
         .unwrap();
     let mut market = market_with_liquidity(config);
@@ -188,14 +191,15 @@ fn explicit_center_move_deploys_locked_bucket_only_when_it_preserves_ylp_princip
     };
     config
         .set_explicit_curve_parameters(ExplicitCurveParameters {
-            range_width_nad: 2 * NAD,
-            concentrated_liquidity_share_nad: NAD / 2,
+            peak_amplification_nad: 4 * NAD,
+            core_half_width_bps: 100,
+            fade_width_bps: 400,
         })
         .unwrap();
     let mut market = market_with_liquidity(config);
     market.ensure_amm_initialized(10).unwrap();
     market.amm.price_ema_nad = 2 * NAD;
-    let q_before = market.amm.q_per_share_nad;
+    let depth_before = market.amm.curve_depth_per_share_nad;
     let base_live_before = market.base_side.reserves.live_reserve;
     let quote_live_before = market.quote_side.reserves.live_reserve;
     let protected = 100_000 * NAD;
@@ -214,7 +218,7 @@ fn explicit_center_move_deploys_locked_bucket_only_when_it_preserves_ylp_princip
     assert_eq!(market.quote_side.reserves.protected_recenter_reserve, 0);
     assert_eq!(market.base_side.reserves.live_reserve, base_live_before + protected);
     assert_eq!(market.quote_side.reserves.live_reserve, quote_live_before + protected);
-    assert!(market.amm.q_per_share_nad >= q_before);
+    assert!(market.amm.curve_depth_per_share_nad >= depth_before);
     assert_eq!(market.amm.center_price_nad, NAD + NAD / 100);
     market.assert_market_invariants().unwrap();
 }
@@ -224,8 +228,9 @@ fn explicit_proportional_liquidity_scales_and_restores_both_tranches() {
     let mut config = AmmConfig::default();
     config
         .set_explicit_curve_parameters(ExplicitCurveParameters {
-            range_width_nad: 2 * NAD,
-            concentrated_liquidity_share_nad: NAD / 2,
+            peak_amplification_nad: 4 * NAD,
+            core_half_width_bps: 100,
+            fade_width_bps: 400,
         })
         .unwrap();
     let mut market = market_with_liquidity(config);

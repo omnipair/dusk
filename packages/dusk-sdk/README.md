@@ -104,14 +104,15 @@ import {
 } from "@omnipair/dusk-sdk";
 
 const update = concentrationParameterUpdate({
-  // A 2x log-symmetric range around the sticky EMA center.
-  rangeWidthNad: 2n * 1_000_000_000n,
-  // 80% of curve liquidity is concentrated; 20% remains full-range.
-  concentratedLiquidityShareNad: 800_000_000n,
+  // 20x center depth versus the reserve-matched CPMM.
+  peakAmplificationNad: 20n * 1_000_000_000n,
+  // Full peak depth inside ±100 bps, then one 400-bps shoulder.
+  coreHalfWidthBps: 100,
+  fadeWidthBps: 400,
 });
 
 const metadata = await uploadProposalMetadata({
-  title: "Increase the concentrated-liquidity share",
+  title: "Update the concentration shape",
   markdown: markdownSource, // string or exact UTF-8 Uint8Array
   upload: async (exactBytes, { contentType }) => {
     // Pin to IPFS, upload to Arweave, or use durable HTTPS storage.

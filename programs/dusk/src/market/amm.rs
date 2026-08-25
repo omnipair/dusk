@@ -53,7 +53,8 @@ impl Market {
         if !parameters.is_cpmm() && self.config.amm.adjustment_step_nad > 0 {
             self.amm.mark_retention_target_stale();
         } else {
-            self.amm.refresh_retention_target(self.amm.q_per_share_nad, 0)?;
+            self.amm
+                .refresh_retention_target(self.amm.curve_depth_per_share_nad, 0)?;
         }
         Ok(())
     }
@@ -83,18 +84,23 @@ impl Market {
             center_price_nad,
             parameters,
         )?;
-        let q_nad = explicit_curve_cache
+        let curve_depth_nad = explicit_curve_cache
             .tail_liquidity
             .checked_add(explicit_curve_cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
-        let q_per_share_nad = self.curve_q_per_share_nad(q_nad)?;
+        let curve_depth_per_share_nad = self.curve_depth_per_share_nad(curve_depth_nad)?;
         let launch_reference_price_nad = self.amm.launch_reference_price_nad;
         let launch_fee_progress_offset = self.amm.launch_fee_progress_offset;
-        let mut state = AmmState::initialize(&self.config.amm, center_price_nad, q_per_share_nad, current_slot)?;
+        let mut state = AmmState::initialize(
+            &self.config.amm,
+            center_price_nad,
+            curve_depth_per_share_nad,
+            current_slot,
+        )?;
         state.launch_reference_price_nad = launch_reference_price_nad;
         state.launch_fee_progress_offset = launch_fee_progress_offset;
         state.explicit_curve_cache = explicit_curve_cache;
-        state.refresh_retention_target(q_per_share_nad, 0)?;
+        state.refresh_retention_target(curve_depth_per_share_nad, 0)?;
         self.amm = state;
         Ok(true)
     }
@@ -109,21 +115,21 @@ impl Market {
             self.current_curve_center_price_nad()?,
             self.config.amm.explicit_curve_parameters()?,
         )?;
-        let q_nad = cache
+        let curve_depth_nad = cache
             .tail_liquidity
             .checked_add(cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
-        let q_per_share_nad = self.curve_q_per_share_nad(q_nad)?;
+        let curve_depth_per_share_nad = self.curve_depth_per_share_nad(curve_depth_nad)?;
         self.amm.explicit_curve_cache = cache;
         if loss {
-            self.amm.checkpoint_recenter_or_loss(q_per_share_nad);
+            self.amm.checkpoint_recenter_or_loss(curve_depth_per_share_nad);
         } else {
-            self.amm.checkpoint_neutral_liquidity(q_per_share_nad);
+            self.amm.checkpoint_neutral_liquidity(curve_depth_per_share_nad);
         }
         let price_nad = self
             .current_explicit_spot_price_nad()?
             .ok_or(ErrorCode::BrokenInvariant)?;
-        Ok((price_nad, q_nad))
+        Ok((price_nad, curve_depth_nad))
     }
 
     /// Same accounting checkpoint without recomputing the forward protection
@@ -153,10 +159,10 @@ impl Market {
         if self.base_side.shares.ylp_supply == MIN_LIQUIDITY {
             return self.finalize_amm_transition_and_observe_risk(current_slot);
         }
-        let (price_nad, q_nad) = self.checkpoint_amm_socialized_loss_raw(current_slot)?;
+        let (price_nad, curve_depth_nad) = self.checkpoint_amm_socialized_loss_raw(current_slot)?;
         self.defer_amm_retention_target()?;
         self.advance_curve_revision()?;
-        self.observe_risk_from_explicit_curve(price_nad, q_nad, current_slot)?;
+        self.observe_risk_from_explicit_curve(price_nad, curve_depth_nad, current_slot)?;
         self.risk_revision = self.curve_revision;
         Ok(())
     }
@@ -201,7 +207,7 @@ impl Market {
                 ErrorCode::InsufficientLiquidity
             );
             self.amm.explicit_curve_cache = Default::default();
-            self.amm.q_per_share_nad = 0;
+            self.amm.curve_depth_per_share_nad = 0;
             self.amm.protected_floor_per_share_nad = 0;
             self.amm.retention_required_nad = 0;
             self.amm.retention_stop_nad = 0;
@@ -233,7 +239,7 @@ impl Market {
             self.defer_amm_retention_target()?;
         }
         self.advance_curve_revision()?;
-        let q_nad = self
+        let curve_depth_nad = self
             .amm
             .explicit_curve_cache
             .tail_liquidity
@@ -242,7 +248,7 @@ impl Market {
         let price_nad = self
             .current_explicit_spot_price_nad()?
             .ok_or(ErrorCode::BrokenInvariant)?;
-        self.observe_risk_from_explicit_curve(price_nad, q_nad, current_slot)?;
+        self.observe_risk_from_explicit_curve(price_nad, curve_depth_nad, current_slot)?;
         self.risk_revision = self.curve_revision;
         Ok(())
     }
@@ -287,7 +293,8 @@ impl Market {
     ) -> Result<bool> {
         if parameters.is_cpmm() || self.config.amm.adjustment_step_nad == 0 {
             self.amm.deferred_controller_target.clear();
-            self.amm.refresh_retention_target(self.amm.q_per_share_nad, 0)?;
+            self.amm
+                .refresh_retention_target(self.amm.curve_depth_per_share_nad, 0)?;
             return Ok(false);
         }
 
@@ -313,7 +320,8 @@ impl Market {
             };
             if distance < self.config.amm.adjustment_threshold_nad as u128 || !reachable {
                 self.amm.deferred_controller_target.clear();
-                self.amm.refresh_retention_target(self.amm.q_per_share_nad, 0)?;
+                self.amm
+                    .refresh_retention_target(self.amm.curve_depth_per_share_nad, 0)?;
                 pending.clear();
             } else if pending.saturated
                 && self.base_side.reserves.protected_recenter_reserve == 0
@@ -388,17 +396,18 @@ impl Market {
             candidate_center,
             parameters,
         )?;
-        let candidate_q = candidate_cache
+        let candidate_curve_depth = candidate_cache
             .tail_liquidity
             .checked_add(candidate_cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
-        let candidate_q_per_share = self.curve_q_per_share_nad(candidate_q)?;
-        let covered = covered_impairment_nad(self.amm.q_per_share_nad, candidate_q_per_share)?;
+        let candidate_curve_depth_per_share = self.curve_depth_per_share_nad(candidate_curve_depth)?;
+        let covered = covered_impairment_nad(self.amm.curve_depth_per_share_nad, candidate_curve_depth_per_share)?;
         // A protected bucket is sufficient only when deploying every locked
         // atom leaves yLP curve principal no lower than before the center
         // move. This avoids assigning a fungible token-value conversion to
-        // the curve's Q metric and makes the funding proof exact.
-        let protected_funds_move = deploying_protected && candidate_q_per_share >= self.amm.q_per_share_nad;
+        // the curve-depth metric and makes the funding proof exact.
+        let protected_funds_move =
+            deploying_protected && candidate_curve_depth_per_share >= self.amm.curve_depth_per_share_nad;
         if protected_funds_move || self.amm.recenter_is_funded(covered) {
             // Validate the fallible commit domain before making the physical
             // bucket executable. On-chain rollback is still the outer atomic
@@ -448,7 +457,7 @@ impl Market {
                 &self.config.amm,
                 candidate_center,
                 candidate_cache,
-                candidate_q_per_share,
+                candidate_curve_depth_per_share,
                 if protected_funds_move { 0 } else { covered },
                 current_slot,
             )?;
@@ -456,10 +465,13 @@ impl Market {
             return Ok(true);
         }
 
-        let impairment = self.amm.q_per_share_nad.saturating_sub(candidate_q_per_share);
+        let impairment = self
+            .amm
+            .curve_depth_per_share_nad
+            .saturating_sub(candidate_curve_depth_per_share);
         let target = self
             .amm
-            .refresh_retention_target(self.amm.q_per_share_nad, impairment)?;
+            .refresh_retention_target(self.amm.curve_depth_per_share_nad, impairment)?;
         self.amm.deferred_controller_target = DeferredControllerTarget {
             kind: DeferredControllerTarget::RECENTER,
             center_price_nad: candidate_center,
@@ -484,23 +496,23 @@ impl Market {
             self.amm.center_price_nad,
             parameters,
         )?;
-        let q_nad = cache
+        let curve_depth_nad = cache
             .tail_liquidity
             .checked_add(cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
-        let q_per_share_nad = self.curve_q_per_share_nad(q_nad)?;
-        let covered = covered_impairment_nad(self.amm.q_per_share_nad, q_per_share_nad)?;
+        let curve_depth_per_share_nad = self.curve_depth_per_share_nad(curve_depth_nad)?;
+        let covered = covered_impairment_nad(self.amm.curve_depth_per_share_nad, curve_depth_per_share_nad)?;
         require!(self.amm.recenter_is_funded(covered), ErrorCode::BrokenInvariant);
 
         self.amm.explicit_curve_cache = cache;
-        self.amm.checkpoint_recenter_or_loss(q_per_share_nad);
+        self.amm.checkpoint_recenter_or_loss(curve_depth_per_share_nad);
         self.amm.deferred_controller_target.clear();
         self.defer_amm_retention_target()?;
         self.advance_curve_revision()?;
         let price_nad = self
             .current_explicit_spot_price_nad()?
             .ok_or(ErrorCode::BrokenInvariant)?;
-        self.observe_risk_from_explicit_curve(price_nad, q_nad, current_slot)?;
+        self.observe_risk_from_explicit_curve(price_nad, curve_depth_nad, current_slot)?;
         self.risk_revision = self.curve_revision;
         Ok(())
     }
@@ -529,7 +541,7 @@ impl Market {
     /// Spot reserve application and `apply_leverage_swap` checkpoint first the
     /// invariant-preserving trade and then any retained surcharge. Their
     /// remaining fee-liability writes do not change curve reserves or yLP
-    /// supply, so recomputing the same D/Q here would be redundant and
+    /// supply, so recomputing the same curve-depth ratio here would be redundant and
     /// prohibitively expensive on the concentrated path.
     pub(crate) fn finalize_amm_trade_after_inventory_checkpoint(
         &mut self,
@@ -551,14 +563,14 @@ impl Market {
     }
 }
 
-fn covered_impairment_nad(current_q: u128, candidate_q: u128) -> Result<u128> {
-    let impairment = current_q.saturating_sub(candidate_q);
+fn covered_impairment_nad(current_depth: u128, candidate_depth: u128) -> Result<u128> {
+    let impairment = current_depth.saturating_sub(candidate_depth);
     if impairment == 0 {
         return Ok(0);
     }
     let covered = mul_bps_ceil(impairment, PROTECTED_LIQUIDITY_COVERAGE_BPS)?;
     covered
-        .checked_add(mul_bps_ceil(current_q, PROTECTED_LIQUIDITY_GUARD_BPS)?)
+        .checked_add(mul_bps_ceil(current_depth, PROTECTED_LIQUIDITY_GUARD_BPS)?)
         .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
@@ -1084,12 +1096,12 @@ impl Market {
         u64::try_from(center).map_err(|_| ErrorCode::MarketMathOverflow.into())
     }
 
-    pub(crate) fn curve_q_per_share_nad(&self, balanced_equivalent_q_nad: u128) -> Result<u128> {
+    pub(crate) fn curve_depth_per_share_nad(&self, curve_depth_nad: u128) -> Result<u128> {
         let supply = self.base_side.shares.ylp_supply;
         require_eq!(supply, self.quote_side.shares.ylp_supply, ErrorCode::BrokenInvariant);
         require!(supply > 0, ErrorCode::SupplyUnderflow);
         let supply_nad = normalize_to_nad(supply as u128, self.base_side.asset_decimals)?;
-        balanced_equivalent_q_nad
+        curve_depth_nad
             .checked_mul(NAD as u128)
             .and_then(|value| value.checked_div(supply_nad))
             .ok_or_else(|| ErrorCode::MarketMathOverflow.into())

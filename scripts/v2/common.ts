@@ -516,9 +516,7 @@ export function defaultMarketConfig() {
     settlementDivergenceBps: Number(duskEnv("SETTLEMENT_DIVERGENCE_BPS", "500")),
     emaHalfLifeMs: new anchor.BN(duskEnv("EMA_HALF_LIFE_MS", "60000")),
     directionalEmaHalfLifeMs: new anchor.BN(duskEnv("DIRECTIONAL_EMA_HALF_LIFE_MS", "60000")),
-    qEmaHalfLifeMs: new anchor.BN(
-      duskEnv("Q_EMA_HALF_LIFE_MS", duskEnv("K_EMA_HALF_LIFE_MS", "60000"))
-    ),
+    curveDepthEmaHalfLifeMs: new anchor.BN(duskEnv("CURVE_DEPTH_EMA_HALF_LIFE_MS", "60000")),
     maxDailyBorrowBps: Number(duskEnv("MAX_DAILY_BORROW_BPS", "2000")),
     globalHealthContributionCapBps: Number(
       duskEnv("GLOBAL_HEALTH_CONTRIBUTION_CAP_BPS", "15000")
@@ -544,10 +542,9 @@ export function defaultMarketConfig() {
 
 export function defaultAmmConfig() {
   return {
-    rangeWidthNad: new anchor.BN(duskEnv("AMM_RANGE_WIDTH_NAD", "0")),
-    concentratedLiquidityShareNad: new anchor.BN(
-      duskEnv("AMM_CONCENTRATED_LIQUIDITY_SHARE_NAD", "0")
-    ),
+    peakAmplificationNad: new anchor.BN(duskEnv("AMM_PEAK_AMPLIFICATION_NAD", "1000000000")),
+    coreHalfWidthBps: Number(duskEnv("AMM_CORE_HALF_WIDTH_BPS", "0")),
+    fadeWidthBps: Number(duskEnv("AMM_FADE_WIDTH_BPS", "0")),
     centerEmaHalfLifeMs: new anchor.BN(duskEnv("AMM_CENTER_EMA_HALF_LIFE_MS", "60000")),
     volatilityHalfLifeMs: new anchor.BN(duskEnv("AMM_VOLATILITY_HALF_LIFE_MS", "60000")),
     adjustmentThresholdNad: new anchor.BN(duskEnv("AMM_ADJUSTMENT_THRESHOLD_NAD", "0")),
