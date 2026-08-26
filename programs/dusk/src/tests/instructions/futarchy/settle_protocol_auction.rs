@@ -1,4 +1,5 @@
 use super::*;
+use crate::math::{denormalize_from_nad_ceil, normalize_to_nad};
 use crate::state::{ProtocolAuctionConfig, ProtocolAuctionParams, ProtocolAuctionRecipients};
 
 fn decayed_auction_price_nad(

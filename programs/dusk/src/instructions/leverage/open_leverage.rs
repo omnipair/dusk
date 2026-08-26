@@ -9,10 +9,9 @@ use crate::{
     constants::*,
     errors::ErrorCode,
     events::{LeveragePositionOpened, LeverageSwapReceipt, MarketEventMetadata, ReferralBound},
-    market::{leverage_debt_from_margin, liquidity::SwapCashPolicy},
-    math::{mul_div_ceil_u128, mul_div_u128},
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
     token::{create_token_account, transfer_checked_with_remaining_accounts},
+    transitions::{leverage_debt_from_margin, liquidity::SwapCashPolicy, require_leverage_entry_limit},
 };
 
 use super::settlement::{
@@ -393,85 +392,5 @@ impl<'info> OpenLeverage<'info> {
             });
         }
         Ok(())
-    }
-}
-
-/// Conservative all-in Quote-per-Base execution price after swap fees, price
-/// impact, and output transfer effects.
-pub(crate) fn leverage_entry_price_nad(
-    market: &Market,
-    debt_asset: MarketAsset,
-    notional_amount: u64,
-    collateral_amount: u64,
-) -> Result<u64> {
-    require!(notional_amount > 0 && collateral_amount > 0, ErrorCode::AmountZero);
-    let (base_amount, quote_amount) = match debt_asset {
-        MarketAsset::Base => (notional_amount, collateral_amount),
-        MarketAsset::Quote => (collateral_amount, notional_amount),
-    };
-    let base_decimals = market.base_side.asset_decimals;
-    let quote_decimals = market.quote_side.asset_decimals;
-    let (numerator_scale, denominator) = if base_decimals >= quote_decimals {
-        let decimal_scale = 10_u128
-            .checked_pow((base_decimals - quote_decimals) as u32)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        (
-            (NAD as u128)
-                .checked_mul(decimal_scale)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-            base_amount as u128,
-        )
-    } else {
-        let decimal_scale = 10_u128
-            .checked_pow((quote_decimals - base_decimals) as u32)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        (
-            NAD as u128,
-            (base_amount as u128)
-                .checked_mul(decimal_scale)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-        )
-    };
-    let price = match debt_asset {
-        // Base is sold for Quote. Floor so an order cannot pass unless the
-        // received Quote-per-Base is at least its lower limit.
-        MarketAsset::Base => mul_div_u128(quote_amount as u128, numerator_scale, denominator)?,
-        // Quote is sold for Base. Ceil so an order cannot pass when its true
-        // Quote-per-Base cost is even one atom above its upper limit.
-        MarketAsset::Quote => mul_div_ceil_u128(quote_amount as u128, numerator_scale, denominator)?,
-    };
-    u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow.into())
-}
-
-fn require_leverage_entry_limit(
-    market: &Market,
-    debt_asset: MarketAsset,
-    notional_amount: u64,
-    collateral_amount: u64,
-    limit_price_nad: u64,
-) -> Result<()> {
-    if limit_price_nad == 0 {
-        return Ok(());
-    }
-    let execution_price_nad = leverage_entry_price_nad(market, debt_asset, notional_amount, collateral_amount)?;
-    require!(
-        leverage_entry_limit_satisfied(debt_asset, execution_price_nad, limit_price_nad),
-        ErrorCode::SlippageExceeded
-    );
-    Ok(())
-}
-
-pub(crate) const fn leverage_entry_limit_satisfied(
-    debt_asset: MarketAsset,
-    execution_price_nad: u64,
-    limit_price_nad: u64,
-) -> bool {
-    match debt_asset {
-        // Selling Base to obtain Quote: require at least the requested Quote
-        // per Base.
-        MarketAsset::Base => execution_price_nad >= limit_price_nad,
-        // Selling Quote to obtain Base: pay no more Quote per Base than the
-        // requested ceiling.
-        MarketAsset::Quote => execution_price_nad <= limit_price_nad,
     }
 }

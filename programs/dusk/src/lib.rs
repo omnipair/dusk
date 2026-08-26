@@ -8,10 +8,10 @@ pub mod constants;
 pub mod errors;
 pub mod events;
 pub mod instructions;
-pub mod market;
 pub mod math;
 pub mod state;
 pub mod token;
+pub mod transitions;
 
 pub use instructions::*;
 pub use state::*;

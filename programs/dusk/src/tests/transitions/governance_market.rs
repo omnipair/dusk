@@ -1,5 +1,6 @@
 use super::*;
 use crate::state::{FeeProfile, IrmConfig, DEFAULT_DAILY_BORROW_BPS};
+use crate::transitions::lending::total_cash_backed_borrowed;
 use proptest::prelude::*;
 
 fn valid_config() -> MarketConfig {
@@ -566,13 +567,13 @@ fn borrower_risk_valuation_uses_curve_depth_ema_cap() {
     let value = market
         .collateral_value_nad(MarketAsset::Base, 50_000, &market.risk)
         .unwrap();
-    let expected = crate::math::cpmm_amount_out_nad(
+    let expected = crate::transitions::amm::cpmm_amount_out_nad(
         100_000_u128 * NAD as u128,
         100_000_u128 * NAD as u128,
         50_000_u128 * NAD as u128,
     )
     .unwrap();
-    let live_depth_value = crate::math::cpmm_amount_out_nad(
+    let live_depth_value = crate::transitions::amm::cpmm_amount_out_nad(
         1_000_000_u128 * NAD as u128,
         1_000_000_u128 * NAD as u128,
         50_000_u128 * NAD as u128,
@@ -678,7 +679,7 @@ fn daily_borrow_bucket_track_post_swap_reserve_ratio() {
     let mut market = invariant_market(1_000_000, 1_000_000);
     market.risk.curve_depth_ema_nad = 1_000_000_u128 * NAD as u128;
     let amount_in = 250_000;
-    let amount_out = crate::math::cpmm_amount_out(1_000_000, 1_000_000, amount_in).unwrap();
+    let amount_out = crate::transitions::amm::cpmm_amount_out(1_000_000, 1_000_000, amount_in).unwrap();
     market.base_side.reserves.live_reserve += amount_in;
     market.quote_side.reserves.live_reserve -= amount_out;
 

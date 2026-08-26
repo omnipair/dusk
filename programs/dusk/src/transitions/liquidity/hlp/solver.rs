@@ -15,8 +15,11 @@
 
 use anchor_lang::prelude::*;
 
+#[cfg(test)]
 use crate::constants::NAD;
 use crate::errors::ErrorCode;
+#[cfg(test)]
+use crate::math::{isqrt, mul_div_u128, ratio_lte_full_width, sqrt_ratio_nad};
 
 /// The hLP's yLP inventory and opposite-asset debt, all valued in the target
 /// asset's NAD numeraire at the AMM curve's actual marginal price.
@@ -67,120 +70,6 @@ fn signed_from_magnitude(magnitude: u128, negative: bool) -> Result<i128> {
 #[cfg(test)]
 fn signed_with_direction(magnitude: u128, negative: bool) -> Result<i128> {
     signed_from_magnitude(magnitude, negative)
-}
-
-/// Exact `floor(value * numerator / denominator)` with a checked u128 result.
-///
-/// The ordinary path is one native multiply and divide. If the product is
-/// wider than u128, binary quotient/remainder accumulation keeps only a
-/// denominator-bounded remainder and fails as soon as the quotient itself no
-/// longer fits. No software big-integer limbs are used.
-pub(crate) fn mul_div_rem_u128(value: u128, numerator: u128, denominator: u128) -> Result<(u128, u128)> {
-    require!(denominator > 0, ErrorCode::DenominatorOverflow);
-    if value == 0 || numerator == 0 {
-        return Ok((0, 0));
-    }
-    if let Some(product) = value.checked_mul(numerator) {
-        return Ok((product / denominator, product % denominator));
-    }
-
-    let whole = value / denominator;
-    let base_quotient = whole.checked_mul(numerator).ok_or(ErrorCode::MarketMathOverflow)?;
-    let addend = value % denominator;
-    let mut quotient = 0_u128;
-    let mut remainder = 0_u128;
-
-    for bit in (0..128).rev() {
-        let carry = if remainder >= denominator - remainder {
-            remainder -= denominator - remainder;
-            1_u128
-        } else {
-            remainder += remainder;
-            0_u128
-        };
-        quotient = quotient
-            .checked_mul(2)
-            .and_then(|result| result.checked_add(carry))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-
-        if (numerator >> bit) & 1 == 1 {
-            let carry = if remainder >= denominator - addend {
-                remainder -= denominator - addend;
-                1_u128
-            } else {
-                remainder += addend;
-                0_u128
-            };
-            quotient = quotient.checked_add(carry).ok_or(ErrorCode::MarketMathOverflow)?;
-        }
-    }
-    let quotient = base_quotient
-        .checked_add(quotient)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    Ok((quotient, remainder))
-}
-
-pub(crate) fn mul_div_u128(value: u128, numerator: u128, denominator: u128) -> Result<u128> {
-    Ok(mul_div_rem_u128(value, numerator, denominator)?.0)
-}
-
-pub(crate) fn mul_div_ceil_u128(value: u128, numerator: u128, denominator: u128) -> Result<u128> {
-    let (quotient, remainder) = mul_div_rem_u128(value, numerator, denominator)?;
-    quotient
-        .checked_add(u128::from(remainder != 0))
-        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
-}
-
-/// Compare two unsigned ratios without overflowing their u128 cross-products.
-/// hLP admission uses this to ensure a granularity-limited top-up cannot
-/// increase residual exposure per share or per unit of NAV.
-pub(crate) fn ratio_lte_full_width(
-    left_numerator: u128,
-    left_denominator: u128,
-    right_numerator: u128,
-    right_denominator: u128,
-) -> Result<bool> {
-    require!(
-        left_denominator > 0 && right_denominator > 0,
-        ErrorCode::DenominatorOverflow
-    );
-    if let (Some(left), Some(right)) = (
-        left_numerator.checked_mul(right_denominator),
-        right_numerator.checked_mul(left_denominator),
-    ) {
-        return Ok(left <= right);
-    }
-
-    // Continued fractions compare the exact ratios without cross-products.
-    // Each reciprocal step strictly reduces a denominator, so this is bounded
-    // by the Euclidean algorithm rather than an open-ended numeric search.
-    let (mut left_n, mut left_d) = (left_numerator, left_denominator);
-    let (mut right_n, mut right_d) = (right_numerator, right_denominator);
-    let mut reversed = false;
-    loop {
-        let left_whole = left_n / left_d;
-        let right_whole = right_n / right_d;
-        if left_whole != right_whole {
-            return Ok(if reversed {
-                left_whole > right_whole
-            } else {
-                left_whole < right_whole
-            });
-        }
-
-        let left_remainder = left_n % left_d;
-        let right_remainder = right_n % right_d;
-        match (left_remainder == 0, right_remainder == 0) {
-            (true, true) => return Ok(true),
-            (true, false) => return Ok(!reversed),
-            (false, true) => return Ok(reversed),
-            (false, false) => {
-                (left_n, left_d) = (left_d, left_remainder);
-                (right_n, right_d) = (right_d, right_remainder);
-                reversed = !reversed;
-            }
-        }
-    }
 }
 
 /// Local hLP exposure to the opposite asset, in target-value NAD:
@@ -272,29 +161,6 @@ pub fn ideal_hlp_rebalance_nad(values: HlpInventoryValuesNad) -> Result<HlpPropo
     })
 }
 
-/// Integer square root (floor), Newton's method on u128.
-pub fn isqrt(value: u128) -> u128 {
-    if value < 2 {
-        return value;
-    }
-    // Initial guess: 2^(ceil(bits/2)).
-    let mut x = 1u128 << ((128 - value.leading_zeros()).div_ceil(2));
-    loop {
-        let next = (x + value / x) / 2;
-        if next >= x {
-            return x;
-        }
-        x = next;
-    }
-}
-
-/// `sqrt(r)` in NAD, where `r_nad = r * NAD`. Returns `sqrt(r) * NAD`.
-pub fn sqrt_ratio_nad(r_nad: u128) -> Result<u128> {
-    // sqrt(r) * NAD = sqrt(r_nad * NAD).
-    let scaled = r_nad.checked_mul(NAD as u128).ok_or(ErrorCode::MarketMathOverflow)?;
-    Ok(isqrt(scaled))
-}
-
 /// Discrete within-swap tracking loss `E0 * abs(sqrt(r) - 1)^2`, in NAD.
 #[cfg(test)]
 pub fn tracking_loss_nad(equity_nad: u128, r_nad: u128) -> Result<u128> {
@@ -316,6 +182,7 @@ pub fn tracking_loss_nad(equity_nad: u128, r_nad: u128) -> Result<u128> {
 /// whether it is a lever-up (`r > 1`) or a deleverage (`r < 1`). This is an
 /// analytic CPMM counterfactual retained for theorem and regression tests; the
 /// applied-curve predictor does not use it as a production seed.
+#[cfg(test)]
 pub fn closed_form_pre_adjustment_nad(equity_nad: u128, r_nad: u128) -> Result<(u128, bool)> {
     let s = sqrt_ratio_nad(r_nad)?;
     let nad = NAD as u128;
@@ -338,5 +205,5 @@ pub fn closed_form_pre_adjustment_nad(equity_nad: u128, r_nad: u128) -> Result<(
 
 #[cfg(test)]
 mod tests {
-    include!("../../tests/math/hlp_solver.rs");
+    include!("../../../tests/transitions/liquidity_hlp_solver.rs");
 }

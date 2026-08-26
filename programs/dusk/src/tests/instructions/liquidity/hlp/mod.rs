@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     constants::{MIN_LIQUIDITY, YIELD_GROWTH_SCALE_Q64},
-    state::{accrue_fee_liability_with_remainder, distribute_growth_q64},
+    math::{accrue_fee_liability_with_remainder, distribute_growth_q64},
 };
 use spl_token_2022::extension::transfer_fee::TransferFee;
 

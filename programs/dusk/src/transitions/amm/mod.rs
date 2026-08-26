@@ -1,21 +1,80 @@
+pub(crate) mod curve;
+pub(crate) mod fees;
+
+pub(crate) use curve::*;
+pub(crate) use fees::*;
+
 use anchor_lang::prelude::*;
 
-use crate::{
-    constants::{BPS_DENOMINATOR, MIN_LIQUIDITY, NAD},
-    errors::ErrorCode,
-    math::{
-        apply_compounded_ylp_fee, asymptotic_scaled_rate_nad, ceil_div, decay_volatility_nad,
-        denormalize_from_nad_floor, effective_rate_floor_nad, gross_fee_budget_floor, gross_path_divergence_fee_raw,
-        hard_total_fee_budget_floor, minimum_executable_input, mul_div_u128, normalize_to_nad,
-        prepare_concentrated_cache_at_point, quote_integrated_exact_in_with_frozen_fee, validate_fee_share_caps,
-        volatility_after_success_nad, ConcentratedCurveGeometry, ConcentratedCurvePoint, DynamicFeeConfig,
-        DynamicFeePreState, DynamicFeeQuote, IntegratedCurveState, IntegratedFrozenFeeQuote, IntegratedSwapDirection,
-    },
-    state::market::{
-        AmmState, Debt, DeferredControllerTarget, Market, MarketAsset, PROTECTED_LIQUIDITY_COVERAGE_BPS,
-        PROTECTED_LIQUIDITY_GUARD_BPS,
-    },
+use crate::{constants::*, errors::ErrorCode, math::*, state::*};
+
+use super::liquidity::{
+    apply_compounded_ylp_fee, quote_integrated_exact_in_with_frozen_fee, IntegratedCurveState,
+    IntegratedFrozenFeeQuote, IntegratedSwapDirection,
 };
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct AmmPreviewMetrics {
+    pub executable_base_reserve: u64,
+    pub executable_quote_reserve: u64,
+    pub curve_depth_nad: u128,
+    pub lower_range_price_nad: u64,
+    pub upper_range_price_nad: u64,
+    pub concentrated_curve_branch: u8,
+    pub ordinary_base_reserve_nad: u128,
+    pub ordinary_quote_reserve_nad: u128,
+    pub final_spot_price_nad: u64,
+}
+
+impl Market {
+    pub(crate) fn amm_preview_metrics(&self, fallback_final_spot_price_nad: u64) -> Result<AmmPreviewMetrics> {
+        if !self.amm.initialized {
+            return Ok(AmmPreviewMetrics {
+                final_spot_price_nad: fallback_final_spot_price_nad,
+                ..Default::default()
+            });
+        }
+        let geometry = self.amm.concentrated_curve_cache.geometry()?;
+        let ordinary = self.integrated_curve_state_nad()?;
+        let (lower, upper) = geometry.range_prices_nad()?.unwrap_or((0, 0));
+        Ok(AmmPreviewMetrics {
+            executable_base_reserve: self.curve_reserve(MarketAsset::Base)?,
+            executable_quote_reserve: self.curve_reserve(MarketAsset::Quote)?,
+            curve_depth_nad: self
+                .amm
+                .concentrated_curve_cache
+                .tail_liquidity
+                .checked_add(self.amm.concentrated_curve_cache.concentrated_liquidity)
+                .ok_or(ErrorCode::InvariantOverflow)?,
+            lower_range_price_nad: u64::try_from(lower).map_err(|_| ErrorCode::MarketMathOverflow)?,
+            upper_range_price_nad: u64::try_from(upper).map_err(|_| ErrorCode::MarketMathOverflow)?,
+            concentrated_curve_branch: geometry
+                .branch(ConcentratedCurvePoint {
+                    base_reserve: ordinary.ordinary_base,
+                    quote_reserve: ordinary.ordinary_quote,
+                })
+                .code(),
+            ordinary_base_reserve_nad: ordinary.ordinary_base,
+            ordinary_quote_reserve_nad: ordinary.ordinary_quote,
+            final_spot_price_nad: self
+                .current_concentrated_spot_price_nad()?
+                .unwrap_or(fallback_final_spot_price_nad),
+        })
+    }
+
+    pub(crate) fn liquidity_nad(&self) -> Result<u128> {
+        geometric_mean_floor(
+            normalize_to_nad(
+                self.base_side.reserves.live_reserve as u128,
+                self.base_side.asset_decimals,
+            )?,
+            normalize_to_nad(
+                self.quote_side.reserves.live_reserve as u128,
+                self.quote_side.asset_decimals,
+            )?,
+        )
+    }
+}
 
 impl Market {
     /// Locks retained toxicity surcharge outside executable/yLP inventory.
@@ -289,7 +348,7 @@ impl Market {
     fn advance_one_concentrated_controller_target(
         &mut self,
         current_slot: u64,
-        parameters: crate::math::ConcentratedCurveParameters,
+        parameters: ConcentratedCurveParameters,
     ) -> Result<bool> {
         if parameters.is_cpmm() || self.config.amm.adjustment_step_nad == 0 {
             self.amm.deferred_controller_target.clear();
@@ -593,7 +652,7 @@ fn symmetric_distance_nad(first: u64, second: u64) -> Result<u128> {
 
 #[cfg(test)]
 mod amm_engine_tests {
-    include!("../tests/market/amm_engine.rs");
+    include!("../../tests/transitions/amm.rs");
 }
 
 /// Executable AMM inventory. Unlike `live_reserve`, these coordinates exclude
@@ -1515,4 +1574,512 @@ impl Market {
             },
         })
     }
+}
+
+impl AmmConfig {
+    pub const fn is_cpmm(&self) -> bool {
+        self.peak_amplification_nad == NAD
+    }
+
+    /// Typed view of the one production curve configuration. CPMM is the
+    /// concentrated curve at one-times peak amplification with zero widths.
+    pub fn concentrated_curve_parameters(&self) -> Result<ConcentratedCurveParameters> {
+        require!(
+            self.reserved.iter().all(|byte| *byte == 0),
+            ErrorCode::InvalidMarketConfig
+        );
+        let parameters = ConcentratedCurveParameters {
+            peak_amplification_nad: self.peak_amplification_nad,
+            core_half_width_bps: self.core_half_width_bps,
+            fade_width_bps: self.fade_width_bps,
+        };
+        parameters.validate(MAX_AMM_AMPLIFICATION_NAD)?;
+        Ok(parameters)
+    }
+
+    pub fn set_concentrated_curve_parameters(&mut self, parameters: ConcentratedCurveParameters) -> Result<()> {
+        parameters.validate(MAX_AMM_AMPLIFICATION_NAD)?;
+        self.peak_amplification_nad = parameters.peak_amplification_nad;
+        self.core_half_width_bps = parameters.core_half_width_bps;
+        self.fade_width_bps = parameters.fade_width_bps;
+        self.reserved = [0; AMM_CONFIG_RESERVED_BYTES];
+        Ok(())
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        self.concentrated_curve_parameters()?;
+        require!(
+            matches!(
+                self.swap_fee_collect_mode,
+                SWAP_FEE_COLLECT_INPUT_ASSET | SWAP_FEE_COLLECT_BASE_ONLY | SWAP_FEE_COLLECT_QUOTE_ONLY
+            ),
+            ErrorCode::InvalidMarketConfig
+        );
+        require_gte!(
+            BPS_DENOMINATOR,
+            self.compounding_fee_bps,
+            ErrorCode::InvalidMarketConfig
+        );
+        require!(
+            (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(&self.center_ema_half_life_ms)
+                && (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(&self.volatility_half_life_ms),
+            ErrorCode::InvalidHalfLife
+        );
+
+        let adjustment_disabled = self.adjustment_threshold_nad == 0
+            && self.adjustment_step_nad == 0
+            && self.min_adjustment_interval_slots == 0;
+        if !adjustment_disabled {
+            require!(
+                (MIN_AMM_ADJUSTMENT_NAD..=MAX_AMM_ADJUSTMENT_NAD).contains(&self.adjustment_step_nad)
+                    && (self.adjustment_step_nad..=MAX_AMM_ADJUSTMENT_NAD).contains(&self.adjustment_threshold_nad)
+                    && (1..=MAX_AMM_ADJUSTMENT_INTERVAL_SLOTS).contains(&self.min_adjustment_interval_slots),
+                ErrorCode::InvalidMarketConfig
+            );
+        }
+
+        let volatility_signal_disabled = self.volatility_shock_cap_nad == 0 && self.volatility_cap_nad == 0;
+        let volatility_signal_valid = self.volatility_shock_cap_nad > 0
+            && self.volatility_shock_cap_nad <= self.volatility_cap_nad
+            && self.volatility_cap_nad <= MAX_AMM_VOLATILITY_NAD;
+        require!(
+            volatility_signal_disabled || volatility_signal_valid,
+            ErrorCode::InvalidMarketConfig
+        );
+        require!(
+            self.volatility_fee_coefficient_nad == 0 || volatility_signal_valid,
+            ErrorCode::InvalidMarketConfig
+        );
+        require!(
+            self.divergence_fee_coefficient_nad <= MAX_AMM_FEE_COEFFICIENT_NAD
+                && self.volatility_fee_coefficient_nad <= MAX_AMM_FEE_COEFFICIENT_NAD,
+            ErrorCode::InvalidMarketConfig
+        );
+        Ok(())
+    }
+}
+
+impl DeferredControllerTarget {
+    pub const NONE: u8 = 0;
+    pub const RECENTER: u8 = 2;
+
+    pub const fn is_active(self) -> bool {
+        self.kind != Self::NONE
+    }
+
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+}
+
+impl AmmState {
+    pub fn initialize(
+        config: &AmmConfig,
+        initial_price_nad: u64,
+        initial_curve_depth_per_share_nad: u128,
+        current_slot: u64,
+    ) -> Result<Self> {
+        config.validate()?;
+        require!(initial_price_nad > 0, ErrorCode::InvalidSettlementPrice);
+        Ok(Self {
+            initialized: true,
+            concentrated_curve_cache: ConcentratedCurveCache::default(),
+            center_price_nad: initial_price_nad,
+            price_ema_nad: initial_price_nad,
+            last_trade_price_nad: initial_price_nad,
+            last_observation_slot: current_slot,
+            last_adjustment_slot: current_slot,
+            launch_reference_price_nad: 0,
+            launch_fee_progress_offset: 0,
+            volatility_accumulator_nad: 0,
+            curve_depth_per_share_nad: initial_curve_depth_per_share_nad,
+            protected_floor_per_share_nad: initial_curve_depth_per_share_nad,
+            retention_required_nad: 0,
+            retention_stop_nad: 0,
+            retention_hard_cap_nad: 0,
+            retain_dynamic_surcharge: false,
+            retention_target_saturated: false,
+            retention_target_stale: false,
+            deferred_controller_target: DeferredControllerTarget::default(),
+            _reserved: [0; AMM_STATE_RESERVED_BYTES],
+        })
+    }
+
+    /// Governance changed the controller request, so a cost cached for the
+    /// preceding request is no longer admissible. The next genuine operation
+    /// evaluates one fresh target against current reserves.
+    pub(crate) fn invalidate_deferred_controller_target(&mut self) {
+        self.deferred_controller_target.clear();
+        self.retention_target_saturated = false;
+        self.mark_retention_target_stale();
+    }
+
+    /// Advances clock-driven signals without fabricating an external trade.
+    ///
+    /// The last successful trade remains the EMA input until another trade
+    /// replaces it. This lets the next genuine operation decay the EMA and
+    /// volatility after a trade followed by silence.
+    pub fn observe_clock(&mut self, config: &AmmConfig, current_slot: u64) -> Result<()> {
+        config.validate()?;
+        self.observe_clock_from_validated_config(config, current_slot)
+    }
+
+    /// Market config is validated on admission and initialization. Hot paths
+    /// use this entry point to avoid repeating the full config validation both
+    /// before and after one swap.
+    pub(crate) fn observe_clock_from_validated_config(&mut self, config: &AmmConfig, current_slot: u64) -> Result<()> {
+        require!(self.initialized, ErrorCode::InvalidMarketConfig);
+        require_gte!(current_slot, self.last_observation_slot, ErrorCode::InvalidArgument);
+
+        if current_slot == self.last_observation_slot {
+            return Ok(());
+        }
+
+        let price_ema_nad = ema_u64(
+            self.price_ema_nad,
+            self.last_trade_price_nad,
+            self.last_observation_slot,
+            current_slot,
+            config.center_ema_half_life_ms,
+        );
+        let volatility_accumulator_nad = decay_volatility_nad(
+            self.volatility_accumulator_nad,
+            self.last_observation_slot,
+            current_slot,
+            config.volatility_half_life_ms,
+        )?;
+        self.price_ema_nad = price_ema_nad;
+        self.volatility_accumulator_nad = volatility_accumulator_nad;
+        self.last_observation_slot = current_slot;
+        Ok(())
+    }
+
+    /// Commits one successful external AMM flow path.
+    ///
+    /// Volatility measures only the executable path quoted to the trader
+    /// (`start_price_nad -> end_price_nad`). Gaps caused by hLP settlement,
+    /// parameter ramps, or recentering are deliberately excluded. The next
+    /// trade supplies its own rebased start price, while `last_trade_price_nad`
+    /// remains the prior successful trade signal observed by the EMA.
+    ///
+    /// On a new slot, the EMA observes only the prior slot's final trade.
+    /// Same-slot swaps leave the EMA unchanged but still add their own bounded
+    /// path movement.
+    pub fn checkpoint_trade(
+        &mut self,
+        config: &AmmConfig,
+        start_price_nad: u64,
+        end_price_nad: u64,
+        current_slot: u64,
+    ) -> Result<()> {
+        config.validate()?;
+        require!(
+            self.initialized && start_price_nad > 0 && end_price_nad > 0,
+            ErrorCode::InvalidSettlementPrice
+        );
+        self.observe_clock_from_validated_config(config, current_slot)?;
+
+        self.volatility_accumulator_nad = volatility_after_success_nad(
+            self.volatility_accumulator_nad,
+            start_price_nad,
+            end_price_nad,
+            config.volatility_shock_cap_nad,
+            config.volatility_cap_nad,
+        )?;
+        self.last_trade_price_nad = end_price_nad;
+        Ok(())
+    }
+
+    pub fn decayed_volatility(&self, config: &AmmConfig, current_slot: u64) -> Result<u64> {
+        require_gte!(current_slot, self.last_observation_slot, ErrorCode::InvalidArgument);
+        decay_volatility_nad(
+            self.volatility_accumulator_nad,
+            self.last_observation_slot,
+            current_slot,
+            config.volatility_half_life_ms,
+        )
+    }
+
+    pub fn spendable_protected_profit_nad(&self) -> u128 {
+        self.curve_depth_per_share_nad
+            .saturating_sub(self.protected_floor_per_share_nad)
+    }
+
+    /// Retained surcharge is the only mutation allowed to increase spendable
+    /// protected profit.
+    pub fn checkpoint_retained_surcharge(&mut self, new_curve_depth_per_share_nad: u128) -> Result<()> {
+        require_gte!(
+            new_curve_depth_per_share_nad,
+            self.curve_depth_per_share_nad,
+            ErrorCode::BrokenInvariant
+        );
+        self.curve_depth_per_share_nad = new_curve_depth_per_share_nad;
+        self.mark_retention_target_stale();
+        Ok(())
+    }
+
+    pub(crate) fn mark_retention_target_stale(&mut self) {
+        self.retention_target_stale = true;
+        self.sync_stale_retention_cap();
+        self.refresh_retention_gate();
+    }
+
+    /// Neutral mutations move the floor so the existing spendable budget is
+    /// preserved. This includes deposits, withdrawals, interest, and hLP depth.
+    pub fn checkpoint_neutral_liquidity(&mut self, new_curve_depth_per_share_nad: u128) {
+        let prior_buffer = self.spendable_protected_profit_nad();
+        self.curve_depth_per_share_nad = new_curve_depth_per_share_nad;
+        self.protected_floor_per_share_nad = new_curve_depth_per_share_nad.saturating_sub(prior_buffer);
+        self.sync_stale_retention_cap();
+        self.refresh_retention_gate();
+    }
+
+    /// Recenter cost or socialized principal loss consumes buffer on a decrease.
+    /// An improvement raises the floor equally and cannot manufacture buffer.
+    pub fn checkpoint_recenter_or_loss(&mut self, new_curve_depth_per_share_nad: u128) {
+        if new_curve_depth_per_share_nad > self.curve_depth_per_share_nad {
+            self.protected_floor_per_share_nad = self
+                .protected_floor_per_share_nad
+                .saturating_add(new_curve_depth_per_share_nad - self.curve_depth_per_share_nad);
+        }
+        self.curve_depth_per_share_nad = new_curve_depth_per_share_nad;
+        self.sync_stale_retention_cap();
+        self.refresh_retention_gate();
+    }
+
+    pub fn refresh_retention_target(
+        &mut self,
+        curve_depth_per_share_nad: u128,
+        worst_next_step_impairment_nad: u128,
+    ) -> Result<RetentionTarget> {
+        let target = retention_target(curve_depth_per_share_nad, worst_next_step_impairment_nad)?;
+        self.retention_required_nad = target.required_nad;
+        self.retention_stop_nad = target.stop_nad;
+        self.retention_hard_cap_nad = target.hard_cap_nad;
+        self.retention_target_saturated = target.saturated;
+        self.retention_target_stale = false;
+        self.refresh_retention_gate();
+        Ok(target)
+    }
+
+    pub fn recenter_is_funded(&self, covered_actual_impairment_nad: u128) -> bool {
+        covered_actual_impairment_nad <= self.retention_hard_cap_nad
+            && covered_actual_impairment_nad <= self.spendable_protected_profit_nad()
+    }
+
+    fn sync_stale_retention_cap(&mut self) {
+        if !self.retention_target_stale {
+            return;
+        }
+        let denominator = BPS_DENOMINATOR as u128;
+        let cap_bps = PROTECTED_LIQUIDITY_CAP_BPS as u128;
+        let hard_cap_nad = (self.curve_depth_per_share_nad / denominator) * cap_bps
+            + ((self.curve_depth_per_share_nad % denominator) * cap_bps).div_ceil(denominator);
+        if self.retention_required_nad > hard_cap_nad {
+            self.retention_required_nad = hard_cap_nad;
+            self.retention_target_saturated = true;
+        }
+        self.retention_stop_nad = self.retention_stop_nad.min(hard_cap_nad);
+        self.retention_hard_cap_nad = hard_cap_nad;
+    }
+
+    pub(crate) fn commit_concentrated_recenter(
+        &mut self,
+        config: &AmmConfig,
+        new_center_price_nad: u64,
+        new_cache: ConcentratedCurveCache,
+        new_curve_depth_per_share_nad: u128,
+        covered_actual_impairment_nad: u128,
+        current_slot: u64,
+    ) -> Result<()> {
+        config.validate()?;
+        require!(new_center_price_nad > 0, ErrorCode::InvalidSettlementPrice);
+        new_cache.geometry()?;
+        require!(
+            self.recenter_is_funded(covered_actual_impairment_nad),
+            ErrorCode::BrokenInvariant
+        );
+        let actual_impairment_nad = self
+            .curve_depth_per_share_nad
+            .saturating_sub(new_curve_depth_per_share_nad);
+        require_gte!(
+            covered_actual_impairment_nad,
+            actual_impairment_nad,
+            ErrorCode::BrokenInvariant
+        );
+        let earliest_adjustment_slot = self
+            .last_adjustment_slot
+            .checked_add(config.min_adjustment_interval_slots)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        require_gte!(current_slot, earliest_adjustment_slot, ErrorCode::InvalidArgument);
+        self.center_price_nad = new_center_price_nad;
+        self.concentrated_curve_cache = new_cache;
+        self.last_adjustment_slot = current_slot;
+        self.checkpoint_recenter_or_loss(new_curve_depth_per_share_nad);
+        Ok(())
+    }
+
+    fn refresh_retention_gate(&mut self) {
+        if self.retention_target_stale {
+            self.retain_dynamic_surcharge = true;
+            return;
+        }
+        if self.retention_required_nad == 0 {
+            self.retain_dynamic_surcharge = false;
+            return;
+        }
+        let buffer = self.spendable_protected_profit_nad();
+        if self.retain_dynamic_surcharge {
+            if buffer >= self.retention_stop_nad {
+                self.retain_dynamic_surcharge = false;
+            }
+        } else if buffer < self.retention_required_nad {
+            self.retain_dynamic_surcharge = true;
+        }
+    }
+}
+
+pub fn retention_target(
+    curve_depth_per_share_nad: u128,
+    worst_next_step_impairment_nad: u128,
+) -> Result<RetentionTarget> {
+    let hard_cap_nad = mul_bps_ceil(curve_depth_per_share_nad, PROTECTED_LIQUIDITY_CAP_BPS)?;
+    if curve_depth_per_share_nad == 0 || worst_next_step_impairment_nad == 0 {
+        return Ok(RetentionTarget {
+            hard_cap_nad,
+            ..RetentionTarget::default()
+        });
+    }
+
+    let covered_impairment = mul_bps_ceil(worst_next_step_impairment_nad, PROTECTED_LIQUIDITY_COVERAGE_BPS)?;
+    let guard_nad = mul_bps_ceil(curve_depth_per_share_nad, PROTECTED_LIQUIDITY_GUARD_BPS)?;
+    let raw_required_nad = covered_impairment
+        .checked_add(guard_nad)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let required_nad = raw_required_nad.min(hard_cap_nad);
+    let hysteresis_nad = mul_bps_ceil(required_nad, PROTECTED_LIQUIDITY_HYSTERESIS_BPS)?.max(guard_nad);
+    let stop_nad = required_nad.saturating_add(hysteresis_nad).min(hard_cap_nad);
+
+    Ok(RetentionTarget {
+        required_nad,
+        stop_nad,
+        hard_cap_nad,
+        saturated: raw_required_nad > hard_cap_nad,
+    })
+}
+
+impl Risk {
+    pub const fn pessimistic_depth_nad(&self) -> u128 {
+        if self.curve_depth_ema_nad == 0 {
+            self.observed_curve_depth_nad
+        } else if self.observed_curve_depth_nad == 0 {
+            self.curve_depth_ema_nad
+        } else if self.observed_curve_depth_nad < self.curve_depth_ema_nad {
+            self.observed_curve_depth_nad
+        } else {
+            self.curve_depth_ema_nad
+        }
+    }
+
+    pub fn refreshed(
+        &self,
+        current_base_price_nad: u64,
+        current_quote_price_nad: u64,
+        current_curve_depth_nad: u128,
+        config: &MarketConfig,
+        current_slot: u64,
+    ) -> Result<Self> {
+        require!(
+            current_base_price_nad > 0 && current_quote_price_nad > 0 && current_curve_depth_nad > 0,
+            ErrorCode::InsufficientLiquidity
+        );
+
+        let cached_spot_base_price_nad =
+            observed_or_current_u64(self.cached_spot_base_price_nad, current_base_price_nad);
+        let cached_spot_quote_price_nad =
+            observed_or_current_u64(self.cached_spot_quote_price_nad, current_quote_price_nad);
+        let observed_curve_depth_nad = if self.observed_curve_depth_nad == 0 {
+            current_curve_depth_nad
+        } else {
+            self.observed_curve_depth_nad
+        };
+
+        let base_price_ema_nad = ema_u64(
+            self.base_price_ema_nad,
+            cached_spot_base_price_nad,
+            self.last_snapshot_slot,
+            current_slot,
+            config.ema_half_life_ms,
+        );
+        let quote_price_ema_nad = ema_u64(
+            self.quote_price_ema_nad,
+            cached_spot_quote_price_nad,
+            self.last_snapshot_slot,
+            current_slot,
+            config.ema_half_life_ms,
+        );
+        let directional_base_price_ema_nad = directional_ema_u64(
+            self.directional_base_price_ema_nad,
+            cached_spot_base_price_nad,
+            self.last_snapshot_slot,
+            current_slot,
+            config.directional_ema_half_life_ms,
+        );
+        let directional_quote_price_ema_nad = directional_ema_u64(
+            self.directional_quote_price_ema_nad,
+            cached_spot_quote_price_nad,
+            self.last_snapshot_slot,
+            current_slot,
+            config.directional_ema_half_life_ms,
+        );
+        let curve_depth_ema_nad = ema_u128(
+            self.curve_depth_ema_nad,
+            observed_curve_depth_nad,
+            self.last_snapshot_slot,
+            current_slot,
+            config.curve_depth_ema_half_life_ms,
+        );
+
+        Ok(Self {
+            base_price_ema_nad,
+            quote_price_ema_nad,
+            directional_base_price_ema_nad,
+            directional_quote_price_ema_nad,
+            cached_spot_base_price_nad: current_base_price_nad,
+            cached_spot_quote_price_nad: current_quote_price_nad,
+            observed_curve_depth_nad: current_curve_depth_nad,
+            curve_depth_ema_nad,
+            last_snapshot_slot: current_slot,
+        })
+    }
+}
+
+impl Market {
+    pub fn spot_value_in_opposite(&self, asset: MarketAsset, amount: u64) -> Result<u64> {
+        require!(amount > 0, ErrorCode::AmountZero);
+        let (from_reserve, to_reserve) = match asset {
+            MarketAsset::Base => (
+                self.base_side.reserves.live_reserve,
+                self.quote_side.reserves.live_reserve,
+            ),
+            MarketAsset::Quote => (
+                self.quote_side.reserves.live_reserve,
+                self.base_side.reserves.live_reserve,
+            ),
+        };
+        require!(from_reserve > 0 && to_reserve > 0, ErrorCode::InsufficientLiquidity);
+        let value = (amount as u128)
+            .checked_mul(to_reserve as u128)
+            .and_then(|value| value.checked_div(from_reserve as u128))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        u64::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow.into())
+    }
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
+pub struct RetentionTarget {
+    pub required_nad: u128,
+    pub stop_nad: u128,
+    pub hard_cap_nad: u128,
+    pub saturated: bool,
 }

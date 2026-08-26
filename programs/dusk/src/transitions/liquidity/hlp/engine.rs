@@ -1,65 +1,4 @@
-use crate::{
-    constants::NAD,
-    errors::ErrorCode,
-    math::{
-        apply_hlp_recovery_bonus, denormalize_from_nad_ceil, denormalize_from_nad_floor, hlp_opposite_exposure_nad,
-        mul_div_u128, normalize_to_nad, quote_hlp_recovery, ratio_lte_full_width, reconstruct_hlp_ownership,
-        ConcentratedCurveDirection, ConcentratedCurvePoint, HlpInventoryValuesNad, IntegratedCurveState,
-    },
-    state::{Debt, Market, MarketAsset},
-};
-use anchor_lang::prelude::*;
-
-use super::{amm::ConcentratedIntegratedAmmQuote, HlpRecoveryBreakdown};
-
-/// Post-transition exposure is protocol dust only when it is no more than
-/// 0.00001 target tokens and no more than one part per million of current hLP
-/// NAV. Coarse assets and small vaults therefore fail closed rather than hide
-/// a meaningful constrained gap.
-const HLP_REBALANCE_DUST_MAX_NAD: u128 = 10_000;
-const HLP_REBALANCE_DUST_NAV_DENOMINATOR: u128 = 1_000_000;
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct SwapCashFloors {
-    base: u64,
-    quote: u64,
-}
-
-impl SwapCashFloors {
-    fn set(&mut self, asset: MarketAsset, amount: u64) {
-        match asset {
-            MarketAsset::Base => self.base = amount,
-            MarketAsset::Quote => self.quote = amount,
-        }
-    }
-
-    pub(crate) fn available(self, market: &Market) -> bool {
-        market.base_side.reserves.cash_reserve >= self.base && market.quote_side.reserves.cash_reserve >= self.quote
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SwapCashPolicy {
-    Spot,
-    Borrow {
-        asset: MarketAsset,
-        amount: u64,
-    },
-    Decrease {
-        debt_asset: MarketAsset,
-        debt_shares: u128,
-        debt_principal: u128,
-    },
-    Close {
-        debt_asset: MarketAsset,
-        debt_shares: u128,
-        debt_principal: u128,
-    },
-    Liquidate {
-        debt_asset: MarketAsset,
-        debt_shares: u128,
-        debt_principal: u128,
-    },
-}
+use super::*;
 
 fn recognized_hlp_residual_exposure(actual_residual_nad: i128, nav_nad: u128) -> i128 {
     let tolerance_nad = HLP_REBALANCE_DUST_MAX_NAD.min(nav_nad / HLP_REBALANCE_DUST_NAV_DENOMINATOR);
@@ -653,7 +592,7 @@ fn prepare_concentrated_hlp_transition_from_end(
     // The integrated quote carries its canonical, atom-rounded debts. This is
     // especially important after fee compounding: recomputing them from the
     // derived ordinary tranche can lose a few reserve atoms.
-    let endpoint = crate::math::hlp::integrated::materialized_hlp_endpoint(end)?;
+    let endpoint = integrated::materialized_hlp_endpoint(end)?;
     let ownership = reconstruct_hlp_ownership(
         ordinary_supply,
         end.ordinary_base,

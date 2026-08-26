@@ -1,7 +1,6 @@
 use anchor_lang::prelude::*;
 
-use super::accrue_fee_liability_with_remainder;
-use crate::{constants::YIELD_GROWTH_FRACTION_MASK_Q64, errors::ErrorCode};
+use crate::{constants::YIELD_GROWTH_FRACTION_MASK_Q64, errors::ErrorCode, math::accrue_fee_liability_with_remainder};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum YieldTokenKind {

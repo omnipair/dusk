@@ -9,9 +9,9 @@ use crate::{
     errors::ErrorCode,
     events::SwapExecuted,
     generate_market_seeds,
-    market::{HlpRebalanceReceipt, HlpRecoveryBreakdown},
     state::{FutarchyAuthority, Market, MarketAsset},
     token::{get_transfer_fee_for_epoch, token_burn, token_mint_to, transfer_checked_with_remaining_accounts},
+    transitions::{HlpRebalanceReceipt, HlpRecoveryBreakdown},
 };
 
 use crate::instructions::accounts::{
@@ -350,7 +350,7 @@ fn apply_single_hlp_rebalance_token_changes<'info>(
     ylp_vault_index: usize,
     interest_vault_index: usize,
     accounts: HlpSwapAccountLayout,
-    interest_eligibility: crate::state::HlpYieldEligibility,
+    interest_eligibility: crate::transitions::HlpYieldEligibility,
 ) -> Result<()> {
     if !rebalance_executes_token_changes(receipt) {
         return Ok(());

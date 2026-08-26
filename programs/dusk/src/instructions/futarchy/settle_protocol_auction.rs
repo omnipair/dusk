@@ -9,9 +9,9 @@ use crate::{
     errors::ErrorCode,
     events::{MarketEventMetadata, ProtocolAuctionSettled},
     generate_market_seeds,
-    math::{denormalize_from_nad_ceil, normalize_to_nad},
     state::{FutarchyAuthority, Market, ProtocolAuctionLane, ProtocolRevenueSource},
     token::{is_fee_free_mint, transfer_checked_with_remaining_accounts},
+    transitions::revenue::quote_protocol_auction_settlement,
 };
 
 use crate::instructions::accounts::{
@@ -204,32 +204,19 @@ impl<'info> SettleProtocolAuction<'info> {
         };
         require!(reference_price_nad > 0, ErrorCode::InvalidSettlementPrice);
 
-        // Decay linearly from the configured start multiplier to its floor.
-        let start_price = (reference_price_nad as u128)
-            .checked_mul(start_multiplier_bps as u128)
-            .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let floor_price = (reference_price_nad as u128)
-            .checked_mul(floor_multiplier_bps as u128)
-            .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let elapsed_slots = current_slot
-            .saturating_sub(auction_epoch.start_slot)
-            .min(duration_slots);
-        let decay = start_price
-            .checked_sub(floor_price)
-            .ok_or(ErrorCode::MarketMathOverflow)?
-            .checked_mul(elapsed_slots as u128)
-            .and_then(|value| value.checked_div(duration_slots as u128))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let auction_price_nad = u64::try_from(start_price.checked_sub(decay).ok_or(ErrorCode::MarketMathOverflow)?)
-            .map_err(|_| ErrorCode::MarketMathOverflow)?;
-        let sold_nad = normalize_to_nad(args.sold_amount as u128, ctx.accounts.sold_mint.decimals)?;
-        let payment_nad = sold_nad
-            .checked_mul(auction_price_nad as u128)
-            .and_then(|value| value.checked_div(NAD as u128))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let payment_amount = denormalize_from_nad_ceil(payment_nad, ctx.accounts.accepted_mint.decimals)?;
+        let quote = quote_protocol_auction_settlement(
+            args.sold_amount,
+            ctx.accounts.sold_mint.decimals,
+            ctx.accounts.accepted_mint.decimals,
+            reference_price_nad,
+            start_multiplier_bps,
+            floor_multiplier_bps,
+            current_slot.saturating_sub(auction_epoch.start_slot),
+            duration_slots,
+            staking_vault_bps,
+        )?;
+        let auction_price_nad = quote.auction_price_nad;
+        let payment_amount = quote.payment_amount;
         require!(
             payment_amount <= args.max_payment_amount,
             ErrorCode::InsufficientAuctionPayment
@@ -240,18 +227,8 @@ impl<'info> SettleProtocolAuction<'info> {
             ErrorCode::InsufficientBalance
         );
 
-        // Split the accepted payment between treasury and staking recipients.
-        require_gte!(BPS_DENOMINATOR, staking_vault_bps, ErrorCode::InvalidDistribution);
-        let staking_vault_amount = u64::try_from(
-            (payment_amount as u128)
-                .checked_mul(staking_vault_bps as u128)
-                .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-        )
-        .map_err(|_| ErrorCode::MarketMathOverflow)?;
-        let treasury_amount = payment_amount
-            .checked_sub(staking_vault_amount)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let staking_vault_amount = quote.staking_vault_amount;
+        let treasury_amount = quote.treasury_amount;
 
         // Collect both payment shares from the bidder.
         let accepted_token_program = token_program_for_mint(

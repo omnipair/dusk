@@ -16,8 +16,9 @@ use crate::{
         },
         record_hlp_interest_credit, validate_hlp_authority_pdas,
     },
-    state::{FutarchyAuthority, HlpYieldEligibility, Market, MarketAsset},
+    state::{FutarchyAuthority, Market, MarketAsset},
     token::{token_burn, transfer_checked_with_remaining_accounts},
+    transitions::HlpYieldEligibility,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]

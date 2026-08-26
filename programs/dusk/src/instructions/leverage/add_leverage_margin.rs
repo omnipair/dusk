@@ -8,10 +8,9 @@ use crate::{
     constants::*,
     errors::ErrorCode,
     events::{LeveragePositionUpdated, MarketEventMetadata},
-    state::{
-        FutarchyAuthority, HlpYieldEligibility, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner,
-    },
+    state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
     token::{get_transfer_fee_for_epoch, get_transfer_inverse_fee_for_epoch, transfer_checked_with_remaining_accounts},
+    transitions::HlpYieldEligibility,
 };
 
 use super::settlement::{record_leverage_interest, validate_leverage_interest_account, validate_owner_debt_account};

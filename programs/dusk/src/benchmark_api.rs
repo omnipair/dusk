@@ -15,25 +15,24 @@ use crate::{
     },
     errors::ErrorCode,
     instructions::{
-        leverage_entry_limit_satisfied, leverage_entry_price_nad, leverage_position_pda,
-        rebalance_executes_token_changes, reconcile_live_hlp_supply, record_hlp_interest_credit,
+        leverage_position_pda, rebalance_executes_token_changes, reconcile_live_hlp_supply, record_hlp_interest_credit,
         record_inline_hlp_interest_credit, BorrowCapacityPreview, PreparedSwap, SwapRequest,
-    },
-    market::{
-        leverage_debt_from_margin,
-        liquidity::{SingleSidedLiquidityReceipt, SwapCashPolicy},
-        AmmSwapQuote, DynamicBorrowTerms, HlpRebalanceReceipt, LeverageCloseReceipt, LeverageOpenReceipt,
-        LeverageSwapFeeCredit, LeverageSwapQuote, PreparedLeverageSwap,
     },
     math::{ceil_div, denormalize_from_nad_floor, health_bps, normalize_to_nad},
     state::{
-        BorrowPosition, CollateralReceipt, Debt, DebtReceipt, HlpYieldEligibility, LeveragePosition, Market,
-        MarketAsset, MarketConfig, MarketSide, ProtocolAuctionSplit, ReferralAccrual, ReferralInterestQuote,
-        ReferralPartner, Risk, YieldAccount, YieldTokenKind,
+        BorrowPosition, CollateralReceipt, Debt, LeveragePosition, Market, MarketAsset, MarketConfig, MarketSide,
+        ProtocolAuctionSplit, ReferralAccrual, ReferralInterestQuote, ReferralPartner, Risk, YieldAccount,
+        YieldTokenKind,
+    },
+    transitions::{
+        leverage_debt_from_margin, leverage_entry_limit_satisfied, leverage_entry_price_nad,
+        liquidity::{SingleSidedLiquidityReceipt, SwapCashPolicy},
+        AmmSwapQuote, DebtReceipt, DynamicBorrowTerms, HlpRebalanceReceipt, HlpYieldEligibility, LeverageCloseReceipt,
+        LeverageOpenReceipt, LeverageSwapFeeCredit, LeverageSwapQuote, PreparedLeverageSwap,
     },
 };
 
-use crate::market::{LiquidationPricing, LiquidationReceipt, LiquidationTerms};
+use crate::transitions::{LiquidationPricing, LiquidationReceipt, LiquidationTerms};
 
 /// Canonical clock inputs frozen for one replay operation.
 ///

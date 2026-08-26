@@ -215,11 +215,11 @@ fn delegation_approval_binds_close_context() {
 fn token_2022_claimable_credit_is_split_proportionally() {
     let quote = LeverageSwapQuote {
         fee_credit: 100,
-        fee_breakdown: crate::market::SwapFeeBreakdown {
+        fee_breakdown: crate::transitions::SwapFeeBreakdown {
             base_fee_debit: 60,
             distributed_surcharge_debit: 40,
             claimable_fee_debit: 100,
-            ..crate::market::SwapFeeBreakdown::default()
+            ..crate::transitions::SwapFeeBreakdown::default()
         },
         ..LeverageSwapQuote::default()
     };
@@ -234,13 +234,13 @@ fn token_2022_claimable_credit_is_split_proportionally() {
 fn retained_surcharge_never_enters_claimable_fee_credit() {
     let quote = LeverageSwapQuote {
         fee_credit: 30,
-        fee_breakdown: crate::market::SwapFeeBreakdown {
+        fee_breakdown: crate::transitions::SwapFeeBreakdown {
             base_fee_debit: 30,
             dynamic_surcharge_debit: 70,
             retained_surcharge: 70,
             distributed_surcharge_debit: 0,
             claimable_fee_debit: 30,
-            ..crate::market::SwapFeeBreakdown::default()
+            ..crate::transitions::SwapFeeBreakdown::default()
         },
         ..LeverageSwapQuote::default()
     };

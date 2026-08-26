@@ -21,11 +21,11 @@ use crate::{
         referral::accounting::{referral_interest_accrued_event_at_slot, validate_referral_binding},
         SwapRequest,
     },
-    market::liquidity::SwapCashPolicy,
     state::{
         FutarchyAuthority, LeverageDelegation, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner,
     },
     token::{get_transfer_fee_for_epoch, transfer_checked_with_remaining_accounts},
+    transitions::liquidity::SwapCashPolicy,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]

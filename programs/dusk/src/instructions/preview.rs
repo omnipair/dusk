@@ -6,13 +6,9 @@ use crate::instructions::{split_claimable_fee_credit, SwapRequest};
 use crate::{
     constants::*,
     errors::ErrorCode,
-    market::{max_cf_bps_from_liquidation_cf, DynamicBorrowTerms, LiquidationPricing},
-    math::{
-        ceil_div, geometric_mean_floor, health_bps, instantaneous_rate_apr_nad, normalize_to_nad, utilization_bps,
-        utilization_error_nad,
-    },
-    state::{BorrowPosition, FutarchyAuthority, Market, MarketAsset, MarketHealth, Risk},
+    state::{BorrowPosition, FutarchyAuthority, Market, MarketAsset},
     token::{get_transfer_fee, get_transfer_inverse_fee},
+    transitions::MarketHealth,
 };
 
 #[cfg(target_os = "solana")]
@@ -405,44 +401,12 @@ impl<'info> PreviewMarket<'info> {
         let amm = {
             let state = &market.amm;
             let concentrated_parameters = market.config.amm.concentrated_curve_parameters()?;
-            let (executable_base_reserve, executable_quote_reserve, curve_depth_nad) = if state.initialized {
-                let curve_depth_nad = state
-                    .concentrated_curve_cache
-                    .tail_liquidity
-                    .checked_add(state.concentrated_curve_cache.concentrated_liquidity)
-                    .ok_or(ErrorCode::InvariantOverflow)?;
-                (
-                    market.curve_reserve(MarketAsset::Base)?,
-                    market.curve_reserve(MarketAsset::Quote)?,
-                    curve_depth_nad,
-                )
-            } else {
-                (0, 0, 0)
-            };
-            let concentrated_metadata = if state.initialized {
-                let geometry = state.concentrated_curve_cache.geometry()?;
-                let ordinary = market.integrated_curve_state_nad()?;
-                let (lower, upper) = geometry.range_prices_nad()?.unwrap_or((0, 0));
-                (
-                    u64::try_from(lower).map_err(|_| ErrorCode::MarketMathOverflow)?,
-                    u64::try_from(upper).map_err(|_| ErrorCode::MarketMathOverflow)?,
-                    geometry
-                        .branch(crate::math::ConcentratedCurvePoint {
-                            base_reserve: ordinary.ordinary_base,
-                            quote_reserve: ordinary.ordinary_quote,
-                        })
-                        .code(),
-                    ordinary.ordinary_base,
-                    ordinary.ordinary_quote,
-                )
-            } else {
-                (0, 0, 0, 0, 0)
-            };
+            let metrics = market.amm_preview_metrics(0)?;
 
             PreviewAmm {
                 initialized: state.initialized,
-                executable_base_reserve,
-                executable_quote_reserve,
+                executable_base_reserve: metrics.executable_base_reserve,
+                executable_quote_reserve: metrics.executable_quote_reserve,
                 center_price_nad: state.center_price_nad,
                 price_ema_nad: state.price_ema_nad,
                 last_trade_price_nad: state.last_trade_price_nad,
@@ -454,7 +418,7 @@ impl<'info> PreviewMarket<'info> {
                 } else {
                     0
                 },
-                curve_depth_nad,
+                curve_depth_nad: metrics.curve_depth_nad,
                 curve_depth_per_share_nad: state.curve_depth_per_share_nad,
                 protected_floor_per_share_nad: state.protected_floor_per_share_nad,
                 protected_profit_per_share_nad: state.spendable_protected_profit_nad(),
@@ -469,27 +433,18 @@ impl<'info> PreviewMarket<'info> {
                 peak_amplification_nad: concentrated_parameters.peak_amplification_nad,
                 core_half_width_bps: concentrated_parameters.core_half_width_bps,
                 fade_width_bps: concentrated_parameters.fade_width_bps,
-                lower_range_price_nad: concentrated_metadata.0,
-                upper_range_price_nad: concentrated_metadata.1,
-                concentrated_curve_branch: concentrated_metadata.2,
-                ordinary_base_reserve_nad: concentrated_metadata.3,
-                ordinary_quote_reserve_nad: concentrated_metadata.4,
+                lower_range_price_nad: metrics.lower_range_price_nad,
+                upper_range_price_nad: metrics.upper_range_price_nad,
+                concentrated_curve_branch: metrics.concentrated_curve_branch,
+                ordinary_base_reserve_nad: metrics.ordinary_base_reserve_nad,
+                ordinary_quote_reserve_nad: metrics.ordinary_quote_reserve_nad,
             }
         };
         Ok(MarketPreview {
             slot,
             base: preview_side(market, MarketAsset::Base, slot)?,
             quote: preview_side(market, MarketAsset::Quote, slot)?,
-            liquidity_nad: geometric_mean_floor(
-                normalize_to_nad(
-                    market.base_side.reserves.live_reserve as u128,
-                    market.base_side.asset_decimals,
-                )?,
-                normalize_to_nad(
-                    market.quote_side.reserves.live_reserve as u128,
-                    market.quote_side.asset_decimals,
-                )?,
-            )?,
+            liquidity_nad: market.liquidity_nad()?,
             health: market.market_health()?,
             amm,
         })
@@ -637,27 +592,7 @@ impl<'info> PreviewSwap<'info> {
         debug_log_heap(3);
         let projected_protected_profit_per_share_nad = quote_market.amm.spendable_protected_profit_nad();
         let market: &Market = quote_market;
-        let concentrated_metadata = if let Some(geometry) = market.current_concentrated_curve_geometry()? {
-            let ordinary = market.integrated_curve_state_nad()?;
-            let (lower, upper) = geometry.range_prices_nad()?.unwrap_or((0, 0));
-            (
-                u64::try_from(lower).map_err(|_| ErrorCode::MarketMathOverflow)?,
-                u64::try_from(upper).map_err(|_| ErrorCode::MarketMathOverflow)?,
-                geometry
-                    .branch(crate::math::ConcentratedCurvePoint {
-                        base_reserve: ordinary.ordinary_base,
-                        quote_reserve: ordinary.ordinary_quote,
-                    })
-                    .code(),
-                ordinary.ordinary_base,
-                ordinary.ordinary_quote,
-                market
-                    .current_concentrated_spot_price_nad()?
-                    .ok_or(ErrorCode::BrokenInvariant)?,
-            )
-        } else {
-            (0, 0, 0, 0, 0, quote.reserve_end_price_nad)
-        };
+        let concentrated_metadata = market.amm_preview_metrics(quote.reserve_end_price_nad)?;
         let (market_side_in, market_side_out) = market.swap_sides(asset_in);
         Ok(SwapPreview {
             asset_in,
@@ -705,12 +640,12 @@ impl<'info> PreviewSwap<'info> {
             retention_required_nad: market.amm.retention_required_nad,
             retention_stop_nad: market.amm.retention_stop_nad,
             retention_hard_cap_nad: market.amm.retention_hard_cap_nad,
-            lower_range_price_nad: concentrated_metadata.0,
-            upper_range_price_nad: concentrated_metadata.1,
-            concentrated_curve_branch: concentrated_metadata.2,
-            ordinary_base_reserve_nad: concentrated_metadata.3,
-            ordinary_quote_reserve_nad: concentrated_metadata.4,
-            final_spot_price_nad: concentrated_metadata.5,
+            lower_range_price_nad: concentrated_metadata.lower_range_price_nad,
+            upper_range_price_nad: concentrated_metadata.upper_range_price_nad,
+            concentrated_curve_branch: concentrated_metadata.concentrated_curve_branch,
+            ordinary_base_reserve_nad: concentrated_metadata.ordinary_base_reserve_nad,
+            ordinary_quote_reserve_nad: concentrated_metadata.ordinary_quote_reserve_nad,
+            final_spot_price_nad: concentrated_metadata.final_spot_price_nad,
             base_hlp_quote_debt_delta: concentrated_debt_deltas.0,
             quote_hlp_base_debt_delta: concentrated_debt_deltas.1,
             hlp_recovery_target_asset: quote.recovery.target_asset,
@@ -733,98 +668,35 @@ impl<'info> PreviewBorrowCapacity<'info> {
         let collateral_asset = market.asset_for_mint(ctx.accounts.collateral_asset_mint.key())?;
         let debt_asset = market.asset_for_mint(ctx.accounts.debt_asset_mint.key())?;
         require!(debt_asset == collateral_asset.opposite(), ErrorCode::InvalidMint);
-
-        let collateral_side = market.side(collateral_asset);
-        let debt_side = market.side(debt_asset);
-        let risk = market.current_risk()?;
-        let collateral_value_nad = market.collateral_value_nad(collateral_asset, args.collateral_amount, &risk)?;
-        let max_debt_by_cash = debt_side.reserves.cash_reserve;
         let slot = Clock::get()?.slot;
-        let max_debt_by_daily_limit = daily_borrow_remaining(market, debt_asset, slot)?;
-        let preview_context = NewPositionPreviewContext {
-            market,
-            debt_asset,
-            collateral_amount: args.collateral_amount,
-            risk: &risk,
-            existing_total_debt_nad: market.total_fixed_debt_nad(debt_asset)?,
-            current_aggregate_contribution: match debt_asset {
-                MarketAsset::Base => market.debt.global_health_quote_contribution_for_base_debt,
-                MarketAsset::Quote => market.debt.global_health_base_contribution_for_quote_debt,
-            },
-        };
-        let max_debt_by_health = {
-            let current_health = market.market_health_from_risk(&risk)?;
-            if market.assert_market_health_snapshot(&current_health).is_err() {
-                0
-            } else {
-                let mut low = 0_u64;
-                let mut high = debt_side.reserves.live_reserve;
-                while low < high {
-                    let midpoint = low + (high - low) / 2 + 1;
-                    let (terms, _) = preview_context.terms(midpoint)?;
-                    let accepted = terms.max_debt >= midpoint
-                        && terms.projected_market_health_bps >= market.config.borrow_market_health_floor_bps as u64;
-                    if accepted {
-                        low = midpoint;
-                    } else {
-                        high = midpoint - 1;
-                    }
-                }
-                low
-            }
-        };
-        let max_debt = max_debt_by_health.min(max_debt_by_cash).min(max_debt_by_daily_limit);
-        let max_borrow_amount = max_debt;
-        let projected_borrow_amount = args.projected_borrow_amount.unwrap_or(max_borrow_amount);
-        let projected_debt_amount = projected_borrow_amount;
-        let (projected_terms, projected_global_health_contribution) = preview_context.terms(projected_debt_amount)?;
-        let projected_debt_nad = normalize_to_nad(projected_debt_amount as u128, debt_side.asset_decimals)?;
-        let projected_health_bps = if projected_debt_nad == 0 {
-            u64::MAX
-        } else {
-            health_bps(collateral_value_nad, projected_debt_nad)?
-        };
+        let quote = market.borrow_capacity_quote(
+            collateral_asset,
+            args.collateral_amount,
+            args.projected_borrow_amount,
+            slot,
+        )?;
 
         Ok(BorrowCapacityPreview {
             collateral_asset,
             debt_asset,
             collateral_amount: args.collateral_amount,
-            collateral_value_nad,
-            max_debt_by_health,
-            max_debt_by_cash,
-            max_debt_by_daily_limit,
-            max_debt,
-            max_borrow_amount,
+            collateral_value_nad: quote.collateral_value_nad,
+            max_debt_by_health: quote.max_debt_by_health,
+            max_debt_by_cash: quote.max_debt_by_cash,
+            max_debt_by_daily_limit: quote.max_debt_by_daily_limit,
+            max_debt: quote.max_debt,
+            max_borrow_amount: quote.max_debt,
             borrow_market_health_floor_bps: market.config.borrow_market_health_floor_bps,
             global_health_contribution_cap_bps: market.config.global_health_contribution_cap_bps,
-            projected_borrow_amount,
-            projected_debt_amount,
-            projected_health_bps,
-            projected_global_market_health_bps: projected_terms.projected_market_health_bps,
-            projected_global_health_contribution,
-            projected_effective_existing_debt_nad: projected_terms.effective_existing_debt_nad,
-            max_cf_bps: projected_terms.max_cf_bps,
-            liquidation_cf_bps: projected_terms.liquidation_cf_bps,
-            liquidation_debt_per_collateral_price_nad: if args.collateral_amount == 0
-                || projected_debt_amount == 0
-                || projected_terms.liquidation_cf_bps == 0
-            {
-                0
-            } else {
-                let collateral_nad = normalize_to_nad(args.collateral_amount as u128, collateral_side.asset_decimals)?;
-                let debt_nad = normalize_to_nad(projected_debt_amount as u128, debt_side.asset_decimals)?;
-                let price = ceil_div(
-                    debt_nad
-                        .checked_mul(BPS_DENOMINATOR as u128)
-                        .and_then(|value| value.checked_mul(NAD as u128))
-                        .ok_or(ErrorCode::MarketMathOverflow)?,
-                    collateral_nad
-                        .checked_mul(projected_terms.liquidation_cf_bps as u128)
-                        .ok_or(ErrorCode::MarketMathOverflow)?,
-                )
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-                u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow)?
-            },
+            projected_borrow_amount: quote.projected_debt_amount,
+            projected_debt_amount: quote.projected_debt_amount,
+            projected_health_bps: quote.projected_health_bps,
+            projected_global_market_health_bps: quote.projected_terms.projected_market_health_bps,
+            projected_global_health_contribution: quote.projected_global_health_contribution,
+            projected_effective_existing_debt_nad: quote.projected_terms.effective_existing_debt_nad,
+            max_cf_bps: quote.projected_terms.max_cf_bps,
+            liquidation_cf_bps: quote.projected_terms.liquidation_cf_bps,
+            liquidation_debt_per_collateral_price_nad: quote.liquidation_debt_per_collateral_price_nad,
         })
     }
 }
@@ -867,40 +739,7 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
             market.risk.directional_quote_price_ema_nad,
         ),
     };
-    let (base_depth, quote_depth) = market.pessimistic_borrow_reserve_depths(&market.risk)?;
-    let conservative_depth_nad = match asset {
-        MarketAsset::Base => normalize_to_nad(base_depth as u128, side.asset_decimals)?,
-        MarketAsset::Quote => normalize_to_nad(quote_depth as u128, side.asset_decimals)?,
-    };
-    let borrow_index_nad = market.debt.borrow_index(asset);
-    let rate_at_target_nad = match asset {
-        MarketAsset::Base => market.debt.base_rate_at_target_nad,
-        MarketAsset::Quote => market.debt.quote_rate_at_target_nad,
-    };
-    let fixed_debt = match asset {
-        MarketAsset::Base => market.debt.fixed_base_debt()?,
-        MarketAsset::Quote => market.debt.fixed_quote_debt()?,
-    };
-    let isolated_debt = market.debt.isolated_debt(asset)?;
-    let (hlp_debt_shares, hlp_borrow_index_nad) = match asset {
-        MarketAsset::Base => (market.quote_hlp_vault.debt_shares, market.debt.base_borrow_index_nad),
-        MarketAsset::Quote => (market.base_hlp_vault.debt_shares, market.debt.quote_borrow_index_nad),
-    };
-    let hlp_funding_debt = crate::state::Debt::shares_to_debt(hlp_debt_shares, hlp_borrow_index_nad)?;
-    let total_debt = fixed_debt
-        .checked_add(isolated_debt)
-        .and_then(|value| value.checked_add(hlp_funding_debt))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let utilization_bps = utilization_bps(total_debt, side.reserves.cash_reserve as u128)?;
-    let utilization_error_nad =
-        utilization_error_nad(utilization_bps, market.config.irm.target_utilization_bps as u64)?;
-    let borrow_apr_nad = instantaneous_rate_apr_nad(
-        rate_at_target_nad,
-        utilization_error_nad,
-        market.config.irm.curve_steepness_nad as u128,
-    )?;
-    let daily_borrow_limit = market.daily_limit_for_side(asset, market.config.max_daily_borrow_bps)?;
-    let daily_borrow_remaining = daily_borrow_remaining(market, asset, slot)?;
+    let lending = market.lending_side_preview(asset, slot)?;
 
     Ok(PreviewSide {
         live_reserve: side.reserves.live_reserve,
@@ -909,80 +748,21 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
         quote_hlp_backing_inventory: side.reserves.quote_hlp_backing_inventory,
         ylp_supply: side.shares.ylp_supply,
         ylp_exchange_rate_nad: side.ylp_exchange_rate_nad()?,
-        spot_price_nad: {
-            let base_price = market
-                .current_concentrated_spot_price_nad()?
-                .ok_or(ErrorCode::BrokenInvariant)?;
-            match asset {
-                MarketAsset::Base => base_price,
-                MarketAsset::Quote => {
-                    require!(base_price > 0, ErrorCode::InvalidSettlementPrice);
-                    let inverse = (NAD as u128)
-                        .checked_mul(NAD as u128)
-                        .and_then(|value| value.checked_div(base_price as u128))
-                        .ok_or(ErrorCode::MarketMathOverflow)?;
-                    u64::try_from(inverse).map_err(|_| ErrorCode::MarketMathOverflow)?
-                }
-            }
-        },
+        spot_price_nad: lending.spot_price_nad,
         price_ema_nad,
         directional_price_ema_nad,
-        conservative_depth_nad,
-        borrow_index_nad,
-        rate_at_target_nad,
-        borrow_apr_nad,
-        utilization_bps,
-        fixed_debt,
-        isolated_debt,
-        hlp_funding_debt,
-        total_debt,
-        daily_borrow_limit,
-        daily_borrow_remaining,
+        conservative_depth_nad: lending.conservative_depth_nad,
+        borrow_index_nad: lending.borrow_index_nad,
+        rate_at_target_nad: lending.rate_at_target_nad,
+        borrow_apr_nad: lending.borrow_apr_nad,
+        utilization_bps: lending.utilization_bps,
+        fixed_debt: lending.fixed_debt,
+        isolated_debt: lending.isolated_debt,
+        hlp_funding_debt: lending.hlp_funding_debt,
+        total_debt: lending.total_debt,
+        daily_borrow_limit: lending.daily_borrow_limit,
+        daily_borrow_remaining: lending.daily_borrow_remaining,
     })
-}
-
-fn daily_borrow_remaining(market: &Market, asset: MarketAsset, slot: u64) -> Result<u64> {
-    let limit = market.daily_limit_for_side(asset, market.config.max_daily_borrow_bps)?;
-    market.side(asset).daily_borrow_bucket.remaining(limit, slot)
-}
-
-struct NewPositionPreviewContext<'a> {
-    market: &'a Market,
-    debt_asset: MarketAsset,
-    collateral_amount: u64,
-    risk: &'a Risk,
-    existing_total_debt_nad: u128,
-    current_aggregate_contribution: u64,
-}
-
-impl<'a> NewPositionPreviewContext<'a> {
-    fn terms(&self, projected_debt_amount: u64) -> Result<(DynamicBorrowTerms, u64)> {
-        let debt_decimals = self.market.side(self.debt_asset).asset_decimals;
-        let projected_debt_nad = normalize_to_nad(projected_debt_amount as u128, debt_decimals)?;
-        let projected_total_debt_nad = self
-            .existing_total_debt_nad
-            .checked_add(projected_debt_nad)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let contribution = self.market.debt_capped_global_health_contribution(
-            self.debt_asset,
-            projected_debt_amount as u128,
-            self.collateral_amount,
-            self.risk,
-        )?;
-        let projected_aggregate = self
-            .current_aggregate_contribution
-            .checked_add(contribution)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let terms = self.market.dynamic_borrow_terms(
-            self.debt_asset,
-            self.collateral_amount,
-            self.existing_total_debt_nad,
-            projected_total_debt_nad,
-            projected_aggregate,
-            self.risk,
-        )?;
-        Ok((terms, contribution))
-    }
 }
 
 fn preview_position_debt_side(
@@ -990,58 +770,25 @@ fn preview_position_debt_side(
     borrow_position: &BorrowPosition,
     debt_asset: MarketAsset,
 ) -> Result<PositionDebtSidePreview> {
-    let collateral_asset = debt_asset.opposite();
-    let debt = match debt_asset {
-        MarketAsset::Base => borrow_position.fixed_base_debt(&market.debt)?,
-        MarketAsset::Quote => borrow_position.fixed_quote_debt(&market.debt)?,
-    };
-    let collateral_amount = borrow_position.collateral(collateral_asset);
-    let global_health_contribution = borrow_position.global_health_contribution(debt_asset);
-    let liquidation_cf_bps = borrow_position.liquidation_cf_bps(debt_asset);
-    let risk = market.current_risk()?;
-    let collateral_value_nad = market.collateral_value_nad(collateral_asset, collateral_amount, &risk)?;
-    let health_bps = if debt == 0 {
-        u64::MAX
-    } else {
-        let debt_side = market.side(debt_asset);
-        health_bps(collateral_value_nad, normalize_to_nad(debt, debt_side.asset_decimals)?)?
-    };
-    let liquidation_reference_price_nad = if debt == 0 {
-        0
-    } else {
-        market.liquidation_reference_price_nad(borrow_position, debt_asset)?
-    };
-    let pricing = LiquidationPricing::ReferencePrice {
-        debt_per_collateral_price_nad: liquidation_reference_price_nad,
-    };
-    let liquidation_health_bps = if debt == 0 {
-        u64::MAX
-    } else {
-        market.liquidation_health_bps_with_pricing(borrow_position, debt_asset, pricing)?
-    };
-    let terms = if debt == 0 {
-        Default::default()
-    } else {
-        market.liquidation_terms_with_pricing(borrow_position, debt_asset, pricing)?
-    };
+    let quote = market.position_debt_side_quote(borrow_position, debt_asset)?;
 
     Ok(PositionDebtSidePreview {
-        debt_asset,
-        collateral_asset,
-        fixed_debt: debt,
-        collateral_amount,
-        global_health_contribution,
-        collateral_value_nad,
-        health_bps,
-        max_cf_bps: max_cf_bps_from_liquidation_cf(liquidation_cf_bps),
-        liquidation_cf_bps,
-        liquidation_reference_price_nad,
-        liquidation_health_bps,
-        is_liquidatable: market.is_position_liquidatable_with_risk(borrow_position, debt_asset, &risk)?,
-        liquidation_incentive_bps: terms.liquidation_incentive_bps,
-        insurance_funding_bps: terms.insurance_funding_bps,
-        total_penalty_bps: terms.total_penalty_bps,
-        max_repay_amount: terms.max_repay_amount,
+        debt_asset: quote.debt_asset,
+        collateral_asset: quote.collateral_asset,
+        fixed_debt: quote.fixed_debt,
+        collateral_amount: quote.collateral_amount,
+        global_health_contribution: quote.global_health_contribution,
+        collateral_value_nad: quote.collateral_value_nad,
+        health_bps: quote.health_bps,
+        max_cf_bps: quote.max_cf_bps,
+        liquidation_cf_bps: quote.liquidation_cf_bps,
+        liquidation_reference_price_nad: quote.liquidation_reference_price_nad,
+        liquidation_health_bps: quote.liquidation_health_bps,
+        is_liquidatable: quote.is_liquidatable,
+        liquidation_incentive_bps: quote.liquidation_incentive_bps,
+        insurance_funding_bps: quote.insurance_funding_bps,
+        total_penalty_bps: quote.total_penalty_bps,
+        max_repay_amount: quote.max_repay_amount,
     })
 }
 

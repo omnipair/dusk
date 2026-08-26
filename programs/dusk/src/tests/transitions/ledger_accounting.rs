@@ -1,5 +1,8 @@
 use super::*;
-use crate::{accrue_fee_liability, accrue_fee_liability_with_remainder, constants::YIELD_GROWTH_SCALE_Q64};
+use crate::{
+    constants::YIELD_GROWTH_SCALE_Q64,
+    math::{accrue_fee_liability, accrue_fee_liability_with_remainder},
+};
 
 // MarketSide accounting invariants exercised through its public domain API.
 

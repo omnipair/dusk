@@ -9,9 +9,9 @@ use crate::{
     errors::ErrorCode,
     events::{LeveragePositionUpdated, LeverageSwapReceipt, MarketEventMetadata},
     generate_market_seeds,
-    market::liquidity::SwapCashPolicy,
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
     token::transfer_checked_with_remaining_accounts,
+    transitions::liquidity::SwapCashPolicy,
 };
 
 use super::settlement::{

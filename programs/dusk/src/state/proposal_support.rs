@@ -1,8 +1,8 @@
 use anchor_lang::prelude::*;
 
-use crate::errors::ErrorCode;
+use crate::{errors::ErrorCode, math::accrue_fee_liability_with_remainder};
 
-use super::{accrue_fee_liability_with_remainder, YieldAccount};
+use super::YieldAccount;
 
 /// A yield ledger for yLP burned into one support position. Its checkpoints
 /// isolate each proposal lock while the user's ordinary YieldAccounts continue

@@ -21,9 +21,9 @@ use crate::{
         },
         settle_inline_leverage_hlp, SwapRequest,
     },
-    market::liquidity::SwapCashPolicy,
     state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
     token::transfer_checked_with_remaining_accounts,
+    transitions::liquidity::SwapCashPolicy,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]

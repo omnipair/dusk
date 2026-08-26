@@ -9,8 +9,9 @@ use crate::{
     errors::ErrorCode,
     events::HlpClosed,
     generate_market_seeds,
-    state::{FutarchyAuthority, HlpYieldEligibility, Market, MarketAsset, YieldAccount, YieldTokenKind},
+    state::{FutarchyAuthority, Market, MarketAsset, YieldAccount, YieldTokenKind},
     token::{token_burn, transfer_checked_with_remaining_accounts},
+    transitions::HlpYieldEligibility,
 };
 
 use crate::instructions::accounts::{

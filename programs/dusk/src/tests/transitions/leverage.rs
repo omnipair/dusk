@@ -1,9 +1,11 @@
 use super::*;
 use crate::{
     constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, MARKET_LAYOUT_VERSION, MIN_HALF_LIFE_MS, NAD},
-    instructions::{leverage_entry_limit_satisfied, leverage_entry_price_nad, SwapRequest},
-    market::liquidity::SwapCashPolicy,
-    math::ConcentratedCurveParameters,
+    instructions::SwapRequest,
+    transitions::{
+        amm::ConcentratedCurveParameters, leverage_entry_limit_satisfied, leverage_entry_price_nad,
+        liquidity::SwapCashPolicy,
+    },
     state::{
         AmmConfig, AmmState, Debt, HlpVault, Insurance, MarketConfig, MarketSide, ProtocolAuctionSplit, ReserveShares,
         Reserves, Risk,
@@ -666,14 +668,14 @@ fn assert_hlp_combined_tracking_budget(
     base_final: HlpRebalanceReceipt,
     quote_final: HlpRebalanceReceipt,
 ) {
-    let prices = crate::market::liquidity::current_hlp_curve_prices(market).unwrap();
+    let prices = crate::transitions::liquidity::current_hlp_curve_prices(market).unwrap();
     for receipt in [base_final, quote_final] {
         if receipt.tracking_loss_budget_nad == 0 {
             assert_eq!(receipt.residual_exposure, 0);
             continue;
         }
         assert!(receipt.tracking_loss_budget_nad > 0);
-        let combined_delta = crate::market::liquidity::hlp_end_to_end_tracking_delta(market, receipt, prices).unwrap();
+        let combined_delta = crate::transitions::liquidity::hlp_end_to_end_tracking_delta(market, receipt, prices).unwrap();
         assert!(combined_delta.unsigned_abs() <= receipt.tracking_loss_budget_nad);
     }
 }

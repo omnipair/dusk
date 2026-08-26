@@ -8,8 +8,11 @@ use anchor_lang::prelude::*;
 
 use crate::errors::ErrorCode;
 
-use crate::math::{
-    mul_div_u128, ConcentratedCurveDirection, ConcentratedCurveGeometry, ConcentratedCurvePoint, ConcentratedCurveQuote,
+use crate::{
+    math::mul_div_u128,
+    transitions::amm::{
+        ConcentratedCurveDirection, ConcentratedCurveGeometry, ConcentratedCurvePoint, ConcentratedCurveQuote,
+    },
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -412,5 +415,5 @@ pub(crate) fn quote_integrated_exact_in_with_frozen_fee(
 
 #[cfg(test)]
 mod tests {
-    include!("../../tests/math/hlp_integrated.rs");
+    include!("../../../tests/transitions/liquidity_hlp_integrated.rs");
 }

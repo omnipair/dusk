@@ -9,8 +9,9 @@ use crate::{
     errors::ErrorCode,
     events::{MarketEventMetadata, YieldClaimed},
     generate_market_seeds,
-    state::{Market, YieldAccount, YieldClaimReceipt, YieldTokenKind},
+    state::{Market, YieldAccount, YieldTokenKind},
     token::transfer_checked_with_remaining_accounts,
+    transitions::YieldClaimReceipt,
 };
 
 use crate::instructions::accounts::{

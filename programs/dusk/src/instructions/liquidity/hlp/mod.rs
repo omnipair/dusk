@@ -6,7 +6,8 @@ use anchor_lang::prelude::*;
 use crate::{
     constants::{FUTARCHY_AUTHORITY_SEED_PREFIX, MARKET_V2_SEED_PREFIX, YIELD_ACCOUNT_SEED_PREFIX},
     errors::ErrorCode,
-    state::{FutarchyAuthority, HlpYieldEligibility, Market, MarketAsset, ProtocolAuctionSplit, YieldTokenKind},
+    state::{FutarchyAuthority, Market, MarketAsset, ProtocolAuctionSplit, YieldTokenKind},
+    transitions::HlpYieldEligibility,
 };
 
 pub use deposit_single_sided::*;

@@ -2,11 +2,17 @@ use super::*;
 use crate::state::AmmConfig;
 use crate::{
     instructions::PreparedSwap,
-    market::{HlpRebalanceReceipt, SwapFeeBreakdown},
-    math::{mul_div_u128, ConcentratedCurveParameters},
-    state::Debt,
+    math::{mul_div_u128, normalize_to_nad},
+    state::{Debt, Risk},
+    transitions::{
+        amm::ConcentratedCurveParameters, lending::NewPositionPreviewContext, HlpRebalanceReceipt, SwapFeeBreakdown,
+    },
 };
 use proptest::prelude::*;
+
+fn daily_borrow_remaining(market: &Market, asset: MarketAsset, slot: u64) -> Result<u64> {
+    Ok(market.lending_side_preview(asset, slot)?.daily_borrow_remaining)
+}
 
 fn hlp_receipt_mutates_curve_inventory(receipt: &HlpRebalanceReceipt) -> bool {
     receipt.executed_delta != 0

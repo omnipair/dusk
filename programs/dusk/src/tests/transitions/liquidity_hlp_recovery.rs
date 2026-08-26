@@ -1,4 +1,4 @@
-use crate::math::{quote_hlp_recovery, HLP_RECOVERY_MAX_DISCOUNT_BPS};
+use super::*;
 
 #[test]
 fn balanced_or_revenue_covered_hlp_has_no_recovery_quote() {

@@ -1,8 +1,8 @@
 use super::*;
 use crate::{
     constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, MARKET_LAYOUT_VERSION, MIN_HALF_LIFE_MS},
-    math::ConcentratedCurveParameters,
     state::{AmmConfig, Debt, MarketAsset, MarketConfig, MarketSide, ReserveShares, Reserves},
+    transitions::amm::ConcentratedCurveParameters,
 };
 
 fn concentrated_config() -> AmmConfig {

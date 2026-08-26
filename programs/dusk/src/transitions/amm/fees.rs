@@ -1126,5 +1126,5 @@ pub(crate) fn asymptotic_scaled_rate_nad(signal_nad: u128, coefficient_nad: u64)
 
 #[cfg(test)]
 mod tests {
-    include!("../../tests/math/dynamic_fee.rs");
+    include!("../../tests/transitions/amm_fees.rs");
 }

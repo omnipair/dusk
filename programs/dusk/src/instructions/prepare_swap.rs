@@ -6,11 +6,11 @@ use anchor_lang::Discriminator;
 
 use crate::{
     errors::ErrorCode,
-    market::{
+    state::{Market, MarketAsset, ProtocolAuctionSplit},
+    transitions::{
         liquidity::{prepare_concentrated_hlp_transition, ConcentratedHlpTransition, SwapCashPolicy},
-        AmmSwapQuote, HlpRebalanceReceipt, SwapFeeBreakdown,
+        AmmSwapQuote, HlpRebalanceReceipt, HlpYieldEligibility, SwapFeeBreakdown,
     },
-    state::{HlpYieldEligibility, Market, MarketAsset, ProtocolAuctionSplit},
 };
 
 /// All state-derived inputs frozen for one swap quote. Execution and preview
@@ -350,7 +350,7 @@ impl SwapRequest {
             )?
             .ok_or(ErrorCode::BrokenInvariant)?;
         if cash_policy == SwapCashPolicy::Spot {
-            crate::market::liquidity::apply_concentrated_hlp_recovery(
+            crate::transitions::liquidity::apply_concentrated_hlp_recovery(
                 market,
                 self.asset_in,
                 integrated_start,

@@ -1,9 +1,64 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{NAD_DECIMALS, TARGET_MS_PER_SLOT},
+    constants::{NAD, NAD_DECIMALS, TARGET_MS_PER_SLOT, YIELD_GROWTH_FRACTION_MASK_Q64, YIELD_GROWTH_SCALE_Q64},
     errors::ErrorCode,
 };
+
+/// Converts backed token atoms and prior carry into Q64 per-share growth while
+/// preserving `amount * 2^64 + prior = delta * supply + remainder` exactly.
+pub(crate) fn distribute_growth_q64(amount: u64, supply: u64, prior_remainder_scaled: u64) -> Result<(u128, u64)> {
+    require!(supply > 0, ErrorCode::SupplyUnderflow);
+    // Maximum numerator is `(2^64 - 1) * 2^64 + (2^64 - 1)`, exactly
+    // `u128::MAX`. No wider production integer is required.
+    let scaled = (amount as u128)
+        .checked_mul(YIELD_GROWTH_SCALE_Q64)
+        .and_then(|value| value.checked_add(prior_remainder_scaled as u128))
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let remainder = u64::try_from(scaled % supply as u128).map_err(|_| ErrorCode::MarketMathOverflow)?;
+    Ok((scaled / supply as u128, remainder))
+}
+
+#[cfg(test)]
+pub fn accrue_fee_liability(shares: u64, fee_growth_index_q64: u128, fee_growth_checkpoint_q64: u128) -> Result<u64> {
+    accrue_fee_liability_with_remainder(shares, fee_growth_index_q64, fee_growth_checkpoint_q64, 0)
+        .map(|(amount, _)| amount)
+}
+
+pub fn accrue_fee_liability_with_remainder(
+    shares: u64,
+    fee_growth_index_q64: u128,
+    fee_growth_checkpoint_q64: u128,
+    prior_remainder_q64: u64,
+) -> Result<(u64, u64)> {
+    if shares == 0 || fee_growth_index_q64 <= fee_growth_checkpoint_q64 {
+        return Ok((0, prior_remainder_q64));
+    }
+    let delta = fee_growth_index_q64
+        .checked_sub(fee_growth_checkpoint_q64)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    // Never multiply a u64 balance by the accumulated u128 index directly.
+    // Split the delta into whole and fractional Q64 limbs. Each product is at
+    // most `(2^64 - 1)^2`; the fractional product plus its prior remainder is
+    // at most `u128::MAX`.
+    let whole_per_share = u64::try_from(delta >> 64).map_err(|_| ErrorCode::MarketMathOverflow)?;
+    let whole_accrual = (shares as u128)
+        .checked_mul(whole_per_share as u128)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let fractional_scaled = (shares as u128)
+        .checked_mul(delta & YIELD_GROWTH_FRACTION_MASK_Q64)
+        .and_then(|value| value.checked_add(prior_remainder_q64 as u128))
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let accrued = whole_accrual
+        .checked_add(fractional_scaled >> 64)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let remainder =
+        u64::try_from(fractional_scaled & YIELD_GROWTH_FRACTION_MASK_Q64).map_err(|_| ErrorCode::MarketMathOverflow)?;
+    Ok((
+        u64::try_from(accrued).map_err(|_| ErrorCode::MarketMathOverflow)?,
+        remainder,
+    ))
+}
 
 pub(crate) fn normalize_to_nad(amount: u128, decimals: u8) -> Result<u128> {
     match decimals.cmp(&NAD_DECIMALS) {
@@ -73,6 +128,131 @@ pub(crate) fn observed_or_current_u64(cached_observation: u64, current_observati
     } else {
         cached_observation
     }
+}
+
+/// Exact `floor(value * numerator / denominator)` with a checked u128 result.
+pub(crate) fn mul_div_rem_u128(value: u128, numerator: u128, denominator: u128) -> Result<(u128, u128)> {
+    require!(denominator > 0, ErrorCode::DenominatorOverflow);
+    if value == 0 || numerator == 0 {
+        return Ok((0, 0));
+    }
+    if let Some(product) = value.checked_mul(numerator) {
+        return Ok((product / denominator, product % denominator));
+    }
+
+    let whole = value / denominator;
+    let base_quotient = whole.checked_mul(numerator).ok_or(ErrorCode::MarketMathOverflow)?;
+    let addend = value % denominator;
+    let mut quotient = 0_u128;
+    let mut remainder = 0_u128;
+
+    for bit in (0..128).rev() {
+        let carry = if remainder >= denominator - remainder {
+            remainder -= denominator - remainder;
+            1_u128
+        } else {
+            remainder += remainder;
+            0_u128
+        };
+        quotient = quotient
+            .checked_mul(2)
+            .and_then(|result| result.checked_add(carry))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+
+        if (numerator >> bit) & 1 == 1 {
+            let carry = if remainder >= denominator - addend {
+                remainder -= denominator - addend;
+                1_u128
+            } else {
+                remainder += addend;
+                0_u128
+            };
+            quotient = quotient.checked_add(carry).ok_or(ErrorCode::MarketMathOverflow)?;
+        }
+    }
+    let quotient = base_quotient
+        .checked_add(quotient)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    Ok((quotient, remainder))
+}
+
+pub(crate) fn mul_div_u128(value: u128, numerator: u128, denominator: u128) -> Result<u128> {
+    Ok(mul_div_rem_u128(value, numerator, denominator)?.0)
+}
+
+pub(crate) fn mul_div_ceil_u128(value: u128, numerator: u128, denominator: u128) -> Result<u128> {
+    let (quotient, remainder) = mul_div_rem_u128(value, numerator, denominator)?;
+    quotient
+        .checked_add(u128::from(remainder != 0))
+        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+}
+
+/// Compare two unsigned ratios without overflowing their u128 cross-products.
+pub(crate) fn ratio_lte_full_width(
+    left_numerator: u128,
+    left_denominator: u128,
+    right_numerator: u128,
+    right_denominator: u128,
+) -> Result<bool> {
+    require!(
+        left_denominator > 0 && right_denominator > 0,
+        ErrorCode::DenominatorOverflow
+    );
+    if let (Some(left), Some(right)) = (
+        left_numerator.checked_mul(right_denominator),
+        right_numerator.checked_mul(left_denominator),
+    ) {
+        return Ok(left <= right);
+    }
+
+    let (mut left_n, mut left_d) = (left_numerator, left_denominator);
+    let (mut right_n, mut right_d) = (right_numerator, right_denominator);
+    let mut reversed = false;
+    loop {
+        let left_whole = left_n / left_d;
+        let right_whole = right_n / right_d;
+        if left_whole != right_whole {
+            return Ok(if reversed {
+                left_whole > right_whole
+            } else {
+                left_whole < right_whole
+            });
+        }
+
+        let left_remainder = left_n % left_d;
+        let right_remainder = right_n % right_d;
+        match (left_remainder == 0, right_remainder == 0) {
+            (true, true) => return Ok(true),
+            (true, false) => return Ok(!reversed),
+            (false, true) => return Ok(reversed),
+            (false, false) => {
+                (left_n, left_d) = (left_d, left_remainder);
+                (right_n, right_d) = (right_d, right_remainder);
+                reversed = !reversed;
+            }
+        }
+    }
+}
+
+/// Integer square root (floor), Newton's method on u128.
+pub fn isqrt(value: u128) -> u128 {
+    if value < 2 {
+        return value;
+    }
+    let mut x = 1u128 << ((128 - value.leading_zeros()).div_ceil(2));
+    loop {
+        let next = (x + value / x) / 2;
+        if next >= x {
+            return x;
+        }
+        x = next;
+    }
+}
+
+/// `sqrt(r)` in NAD, where `r_nad = r * NAD`. Returns `sqrt(r) * NAD`.
+pub fn sqrt_ratio_nad(r_nad: u128) -> Result<u128> {
+    let scaled = r_nad.checked_mul(NAD as u128).ok_or(ErrorCode::MarketMathOverflow)?;
+    Ok(isqrt(scaled))
 }
 
 /// Approximates the elapsed time in milliseconds between two slots.
