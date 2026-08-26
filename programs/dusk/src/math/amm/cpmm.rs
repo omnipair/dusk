@@ -9,10 +9,10 @@ use crate::{
     state::MarketSide,
 };
 
-use super::{isqrt, mul_div_ceil_u128, mul_div_u128, ratio_lte_full_width};
+use crate::math::{isqrt, mul_div_ceil_u128, mul_div_u128, ratio_lte_full_width};
 
 #[cfg(test)]
-use super::fixed_point::normalize_to_nad;
+use crate::math::arithmetic::normalize_to_nad;
 
 /// Exact `floor(sqrt(x * y))` without requiring `x * y` to fit in `u128`.
 pub(crate) fn geometric_mean_floor(x: u128, y: u128) -> Result<u128> {
@@ -180,5 +180,5 @@ pub(crate) fn cpmm_amount_in_nad(x: u128, y: u128, dy: u128) -> Result<u128> {
 
 #[cfg(test)]
 mod tests {
-    include!("../tests/math/cpmm.rs");
+    include!("../../tests/math/cpmm.rs");
 }

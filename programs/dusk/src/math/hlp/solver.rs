@@ -338,5 +338,5 @@ pub fn closed_form_pre_adjustment_nad(equity_nad: u128, r_nad: u128) -> Result<(
 
 #[cfg(test)]
 mod tests {
-    include!("../tests/math/hlp_solver.rs");
+    include!("../../tests/math/hlp_solver.rs");
 }

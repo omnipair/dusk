@@ -651,7 +651,7 @@ fn prepare_explicit_hlp_transition_from_end(
     // The integrated quote carries its canonical, atom-rounded debts. This is
     // especially important after fee compounding: recomputing them from the
     // derived ordinary tranche can lose a few reserve atoms.
-    let endpoint = crate::math::hlp_integrated::materialized_hlp_endpoint(end)?;
+    let endpoint = crate::math::hlp::integrated::materialized_hlp_endpoint(end)?;
     let ownership = reconstruct_hlp_ownership(
         ordinary_supply,
         end.ordinary_base,

@@ -9,7 +9,7 @@ use dusk::{
     instructions::{
         LeverageDelegationApproval, LEVERAGE_DELEGATE_CLOSE, LEVERAGE_DELEGATE_CLOSE_SETTLED,
     },
-    math::numerics::ceil_div,
+    math::arithmetic::ceil_div,
     state::{LeverageDelegation, LeveragePosition, Market},
     token::get_transfer_fee,
 };

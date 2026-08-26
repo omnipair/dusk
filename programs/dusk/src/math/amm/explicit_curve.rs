@@ -8,10 +8,10 @@ use anchor_lang::prelude::*;
 
 use crate::errors::ErrorCode;
 
-use super::{
+use crate::constants::NAD;
+use crate::math::{
     cpmm_amount_in_nad, cpmm_amount_out_nad, geometric_mean_floor, mul_div_u128, ratio_lte_full_width, sqrt_ratio_nad,
 };
-use crate::constants::NAD;
 
 #[allow(clippy::assign_op_pattern, clippy::manual_div_ceil)]
 mod wide {
@@ -1698,5 +1698,5 @@ fn products_rounding_compatible(a: u128, b: u128, c: u128, d: u128) -> Result<bo
 
 #[cfg(test)]
 mod tests {
-    include!("../tests/math/explicit_curve.rs");
+    include!("../../tests/math/explicit_curve.rs");
 }

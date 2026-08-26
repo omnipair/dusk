@@ -132,5 +132,5 @@ pub(crate) fn quote_hlp_recovery(
 
 #[cfg(test)]
 mod tests {
-    include!("../tests/math/hlp_recovery.rs");
+    include!("../../tests/math/hlp_recovery.rs");
 }

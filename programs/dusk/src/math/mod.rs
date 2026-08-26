@@ -1,21 +1,9 @@
-pub mod cpmm;
-pub mod dynamic_fee;
-pub mod explicit_curve;
-pub mod fixed_point;
-pub mod hlp_integrated;
-pub mod hlp_recovery;
-pub mod hlp_solver;
-pub mod interest;
-pub mod numerics;
+pub mod amm;
+pub mod arithmetic;
+pub mod hlp;
 pub mod risk;
 
-pub(crate) use cpmm::*;
-pub(crate) use dynamic_fee::*;
-pub(crate) use explicit_curve::*;
-pub(crate) use fixed_point::*;
-pub(crate) use hlp_integrated::*;
-pub(crate) use hlp_recovery::*;
-pub(crate) use hlp_solver::*;
-pub(crate) use interest::*;
-pub(crate) use numerics::*;
+pub(crate) use amm::*;
+pub(crate) use arithmetic::*;
+pub(crate) use hlp::*;
 pub(crate) use risk::*;

@@ -430,7 +430,7 @@ const acceptedOneUseHelpers = new Map([
     ]),
   ],
   [
-    "programs/dusk/src/math/dynamic_fee.rs",
+    "programs/dusk/src/math/amm/dynamic_fee.rs",
     new Set([
       "minimum_executable_input",
       "fee_share_cap_to_marginal_rate_nad",
@@ -440,7 +440,7 @@ const acceptedOneUseHelpers = new Map([
     ]),
   ],
   [
-    "programs/dusk/src/math/explicit_curve.rs",
+    "programs/dusk/src/math/amm/explicit_curve.rs",
     new Set([
       "parameters",
       "center_point",
@@ -455,7 +455,7 @@ const acceptedOneUseHelpers = new Map([
     ]),
   ],
   [
-    "programs/dusk/src/math/hlp_integrated.rs",
+    "programs/dusk/src/math/hlp/integrated.rs",
     new Set([
       "from_total_reserves",
       "reconstruct_hlp_ownership",
@@ -466,7 +466,7 @@ const acceptedOneUseHelpers = new Map([
       "quote_integrated_exact_in_with_frozen_fee",
     ]),
   ],
-  ["programs/dusk/src/math/hlp_recovery.rs", new Set(["quote_hlp_recovery"])],
+  ["programs/dusk/src/math/hlp/recovery.rs", new Set(["quote_hlp_recovery"])],
   ["programs/dusk/src/math/risk.rs", new Set(["ema_u128_including_zero"])],
   [
     "programs/dusk/src/state/market.rs",

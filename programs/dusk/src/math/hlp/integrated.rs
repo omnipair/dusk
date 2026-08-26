@@ -8,7 +8,9 @@ use anchor_lang::prelude::*;
 
 use crate::errors::ErrorCode;
 
-use super::{mul_div_u128, ExplicitCurveDirection, ExplicitCurveGeometry, ExplicitCurvePoint, ExplicitCurveQuote};
+use crate::math::{
+    mul_div_u128, ExplicitCurveDirection, ExplicitCurveGeometry, ExplicitCurvePoint, ExplicitCurveQuote,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum IntegratedSwapDirection {
@@ -410,5 +412,5 @@ pub(crate) fn quote_integrated_exact_in_with_frozen_fee(
 
 #[cfg(test)]
 mod tests {
-    include!("../tests/math/hlp_integrated.rs");
+    include!("../../tests/math/hlp_integrated.rs");
 }
