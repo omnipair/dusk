@@ -9,7 +9,7 @@ use anchor_lang::prelude::*;
 use crate::errors::ErrorCode;
 
 use crate::math::{
-    mul_div_u128, ExplicitCurveDirection, ExplicitCurveGeometry, ExplicitCurvePoint, ExplicitCurveQuote,
+    mul_div_u128, ConcentratedCurveDirection, ConcentratedCurveGeometry, ConcentratedCurvePoint, ConcentratedCurveQuote,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -132,7 +132,7 @@ pub(crate) struct IntegratedExactInQuote {
     pub hlp: IntegratedHlpEndpoint,
     pub base_hlp_quote_debt_delta: i128,
     pub quote_hlp_base_debt_delta: i128,
-    pub curve: ExplicitCurveQuote,
+    pub curve: ConcentratedCurveQuote,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -344,7 +344,7 @@ pub(crate) fn materialized_hlp_endpoint(state: IntegratedCurveState) -> Result<I
 /// fee back into its own curve state.
 pub(crate) fn quote_integrated_exact_in(
     state: IntegratedCurveState,
-    geometry: ExplicitCurveGeometry,
+    geometry: ConcentratedCurveGeometry,
     amount_in: u128,
     direction: IntegratedSwapDirection,
 ) -> Result<IntegratedExactInQuote> {
@@ -355,11 +355,11 @@ pub(crate) fn quote_integrated_exact_in(
     );
 
     let curve_direction = match direction {
-        IntegratedSwapDirection::BaseToQuote => ExplicitCurveDirection::BaseToQuote,
-        IntegratedSwapDirection::QuoteToBase => ExplicitCurveDirection::QuoteToBase,
+        IntegratedSwapDirection::BaseToQuote => ConcentratedCurveDirection::BaseToQuote,
+        IntegratedSwapDirection::QuoteToBase => ConcentratedCurveDirection::QuoteToBase,
     };
     let curve = geometry.quote_exact_in_prevalidated(
-        ExplicitCurvePoint {
+        ConcentratedCurvePoint {
             base_reserve: state.ordinary_base,
             quote_reserve: state.ordinary_quote,
         },
@@ -393,7 +393,7 @@ pub(crate) fn quote_integrated_exact_in(
 /// after the executable endpoint.
 pub(crate) fn quote_integrated_exact_in_with_frozen_fee(
     state: IntegratedCurveState,
-    geometry: ExplicitCurveGeometry,
+    geometry: ConcentratedCurveGeometry,
     gross_amount_in: u128,
     frozen_total_fee: u128,
     direction: IntegratedSwapDirection,

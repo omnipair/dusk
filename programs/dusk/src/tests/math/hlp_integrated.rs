@@ -11,27 +11,27 @@ fn virtual_concentration_and_continuous_hlp_hedge_are_one_pass() {
         base_hlp_quote_debt: 2_250 * scale,
         quote_hlp_base_debt: 20 * scale,
     };
-    let concentrated = ExplicitCurveGeometry {
+    let concentrated = ConcentratedCurveGeometry {
         inner_liquidity: 4_000 * scale,
         inner_base_amplification_offset: 200 * scale,
         inner_quote_amplification_offset: 40_000 * scale,
         lower_tail_base_inventory: 200 * scale,
         upper_tail_quote_inventory: 40_000 * scale,
-        lower_boundary: ExplicitCurvePoint {
+        lower_boundary: ConcentratedCurvePoint {
             base_reserve: 300 * scale,
             quote_reserve: 10_000 * scale,
         },
-        upper_boundary: ExplicitCurvePoint {
+        upper_boundary: ConcentratedCurvePoint {
             base_reserve: 50 * scale,
             quote_reserve: 60_000 * scale,
         },
-        ..ExplicitCurveGeometry::cpmm()
+        ..ConcentratedCurveGeometry::cpmm()
     };
     let amount_in = scale;
 
     let plain = quote_integrated_exact_in(
         state,
-        ExplicitCurveGeometry::cpmm(),
+        ConcentratedCurveGeometry::cpmm(),
         amount_in,
         IntegratedSwapDirection::BaseToQuote,
     )
@@ -105,7 +105,7 @@ fn total_reserves_decompose_without_counting_hlp_debt_twice() {
 
     let quote = quote_integrated_exact_in(
         state,
-        ExplicitCurveGeometry::cpmm(),
+        ConcentratedCurveGeometry::cpmm(),
         scale,
         IntegratedSwapDirection::BaseToQuote,
     )
@@ -121,7 +121,7 @@ fn frozen_gross_coordinate_fee_executes_only_the_net_path() {
     let state = IntegratedCurveState::from_total_reserves(240_000, 27_000_000, 20_000, 2_250_000).unwrap();
     let quote = quote_integrated_exact_in_with_frozen_fee(
         state,
-        ExplicitCurveGeometry::cpmm(),
+        ConcentratedCurveGeometry::cpmm(),
         10_000,
         100,
         IntegratedSwapDirection::BaseToQuote,
@@ -136,24 +136,24 @@ fn frozen_gross_coordinate_fee_executes_only_the_net_path() {
 #[test]
 fn compounded_fee_reconstructs_perfect_hedges_for_cpmm_and_concentration() {
     let state = IntegratedCurveState::from_total_reserves(240_000, 27_000_000, 20_000, 2_250_000).unwrap();
-    let concentrated = ExplicitCurveGeometry {
+    let concentrated = ConcentratedCurveGeometry {
         inner_liquidity: 4_000_000,
         inner_base_amplification_offset: 200_000,
         inner_quote_amplification_offset: 40_000_000,
         lower_tail_base_inventory: 200_000,
         upper_tail_quote_inventory: 40_000_000,
-        lower_boundary: ExplicitCurvePoint {
+        lower_boundary: ConcentratedCurvePoint {
             base_reserve: 300_000,
             quote_reserve: 10_000_000,
         },
-        upper_boundary: ExplicitCurvePoint {
+        upper_boundary: ConcentratedCurvePoint {
             base_reserve: 50_000,
             quote_reserve: 60_000_000,
         },
-        ..ExplicitCurveGeometry::cpmm()
+        ..ConcentratedCurveGeometry::cpmm()
     };
 
-    for geometry in [ExplicitCurveGeometry::cpmm(), concentrated] {
+    for geometry in [ConcentratedCurveGeometry::cpmm(), concentrated] {
         let mut quote = quote_integrated_exact_in_with_frozen_fee(
             state,
             geometry,

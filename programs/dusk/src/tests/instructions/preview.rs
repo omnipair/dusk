@@ -3,7 +3,7 @@ use crate::state::AmmConfig;
 use crate::{
     instructions::PreparedSwap,
     market::{HlpRebalanceReceipt, SwapFeeBreakdown},
-    math::{mul_div_u128, ExplicitCurveParameters},
+    math::{mul_div_u128, ConcentratedCurveParameters},
     state::Debt,
 };
 use proptest::prelude::*;
@@ -68,7 +68,7 @@ fn preview_test_market(existing_base_debt: u64, aggregate_quote_contribution: u6
     market.base_side.reserves.cash_reserve = 1_000_000;
     market.quote_side.reserves.live_reserve = 1_000_000;
     market.quote_side.reserves.cash_reserve = 1_000_000;
-    // Every tradable market has a nonzero ordinary yLP supply. The explicit
+    // Every tradable market has a nonzero ordinary yLP supply. The concentrated
     // curve derives ordinary versus hLP ownership from this canonical supply.
     market.base_side.shares.ylp_supply = 1_000_000;
     market.quote_side.shares.ylp_supply = 1_000_000;
@@ -118,7 +118,7 @@ fn active_concentrated_preview_market() -> Market {
     market
 }
 
-fn active_explicit_preview_market() -> Market {
+fn active_reconfigured_concentrated_preview_market() -> Market {
     let mut market = active_concentrated_preview_market();
     market.config.amm.peak_amplification_nad = NAD;
     market.config.amm.core_half_width_bps = 0;
@@ -126,7 +126,7 @@ fn active_explicit_preview_market() -> Market {
     market
         .config
         .amm
-        .set_explicit_curve_parameters(ExplicitCurveParameters {
+        .set_concentrated_curve_parameters(ConcentratedCurveParameters {
             peak_amplification_nad: 4 * NAD,
             core_half_width_bps: 100,
             fade_width_bps: 400,
@@ -302,7 +302,7 @@ fn preview_and_execution_use_identical_state_plans() {
 
 #[test]
 fn launch_fee_is_applied_to_the_real_quote_and_decays_to_the_normal_fee() {
-    let mut market = active_explicit_preview_market();
+    let mut market = active_reconfigured_concentrated_preview_market();
     market.config.start_time = 1_000;
     market.config.swap_fee_bps = 30;
     market.config.amm.launch_fee_start_bps = 1_000;
@@ -334,7 +334,7 @@ fn launch_fee_is_applied_to_the_real_quote_and_decays_to_the_normal_fee() {
 
 #[test]
 fn launch_buy_size_limiter_charges_only_the_configured_buy_direction() {
-    let mut market = active_explicit_preview_market();
+    let mut market = active_reconfigured_concentrated_preview_market();
     market.config.start_time = 1_000;
     market.config.amm.launch_rate_limit_asset = crate::state::LAUNCH_RATE_LIMIT_ASSET_BASE;
     market.config.amm.launch_rate_limit_reference_nad = 10_000_000;
@@ -509,8 +509,8 @@ fn stressed_hlp_recovery_improves_the_matching_swap_and_restores_the_hedge() {
 }
 
 #[test]
-fn explicit_spot_reconstructs_both_hlps_without_solver_cells() {
-    let mut market = active_explicit_preview_market();
+fn concentrated_spot_reconstructs_both_hlps_without_solver_cells() {
+    let mut market = active_reconfigured_concentrated_preview_market();
     let prepared = SwapRequest {
         current_slot: 1,
         current_unix_timestamp: 0,
@@ -567,8 +567,8 @@ fn forty_percent_fee_compounding_is_native_to_cpmm_and_concentrated_swaps() {
         buyback_auction_bps: 4_000,
     };
     let curve_parameters = [
-        ExplicitCurveParameters::cpmm(),
-        ExplicitCurveParameters {
+        ConcentratedCurveParameters::cpmm(),
+        ConcentratedCurveParameters {
             peak_amplification_nad: 4 * NAD,
             core_half_width_bps: 100,
             fade_width_bps: 400,
@@ -581,7 +581,7 @@ fn forty_percent_fee_compounding_is_native_to_cpmm_and_concentrated_swaps() {
             crate::state::SWAP_FEE_COLLECT_QUOTE_ONLY,
         ] {
             let mut baseline = active_concentrated_preview_market();
-            baseline.config.amm.set_explicit_curve_parameters(parameters).unwrap();
+            baseline.config.amm.set_concentrated_curve_parameters(parameters).unwrap();
             baseline.config.amm.swap_fee_collect_mode = fee_mode;
             baseline.config.amm.compounding_fee_bps = 0;
             baseline.amm = crate::state::AmmState::default();
@@ -784,7 +784,7 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
         preview_market.try_to_vec().unwrap(),
         execution_market.try_to_vec().unwrap()
     );
-    assert!(preview_market.amm.explicit_curve_cache.tail_liquidity > 0);
+    assert!(preview_market.amm.concentrated_curve_cache.tail_liquidity > 0);
     assert!(preview_market.amm.curve_depth_per_share_nad > 0);
     assert!(preview_market.risk.observed_curve_depth_nad > 0);
 
@@ -837,7 +837,7 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
     assert_prepared_swaps_equal(&retained_preview, &retained_execution);
     assert!(retained_preview.quote.fee.retained_surcharge > 0);
     let protected_before = retained_preview_market.base_side.reserves.protected_recenter_reserve;
-    let curve_before = retained_preview_market.amm.explicit_curve_cache;
+    let curve_before = retained_preview_market.amm.concentrated_curve_cache;
     let depth_before = retained_preview_market.amm.curve_depth_per_share_nad;
     let retained_preview_finalized = retained_preview
         .finalize_state(&mut retained_preview_market, 1, 2_500, protocol_split)
@@ -856,7 +856,7 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
     // outside executable reserves, yLP NAV, and withdrawal claims. The current
     // quote never moves or rebuilds its own curve.
     assert!(retained_preview_market.amm.retention_target_stale);
-    assert_eq!(retained_preview_market.amm.explicit_curve_cache, curve_before);
+    assert_eq!(retained_preview_market.amm.concentrated_curve_cache, curve_before);
     assert_eq!(retained_preview_market.amm.curve_depth_per_share_nad, depth_before);
     assert_eq!(
         retained_preview_market.base_side.reserves.protected_recenter_reserve,

@@ -19,7 +19,7 @@ use rebalance::{
     current_hlp_entry_state_with_prices,
 };
 
-/// Maximum center amplification admitted by governance. The explicit curve
+/// Maximum center amplification admitted by governance. The concentrated curve
 /// enforces this through the nonzero full-range tail share.
 pub const MAX_AMM_AMPLIFICATION_NAD: u64 = 2_000 * NAD;
 pub const MIN_AMM_ADJUSTMENT_NAD: u64 = NAD / 1_000_000;
@@ -61,7 +61,7 @@ pub const AMM_DEFERRED_CONTROLLER_TARGET_BYTES: usize = core::mem::size_of::<u8>
     + 4 * core::mem::size_of::<u128>()
     + core::mem::size_of::<bool>();
 /// Layout v2 also binds launch graduation price/progress and the one-shot
-/// initial-liquidity authority alongside the explicit concentration state.
+/// initial-liquidity authority alongside the concentrated-curve state.
 /// Pessimistic lending shapes are intentionally reconstructed only by
 /// risk-sensitive operations instead of being persisted in every market.
 /// The account-only expansion reserve is fully allocated to keep Anchor's
@@ -77,7 +77,7 @@ pub const PROTECTED_LIQUIDITY_CAP_BPS: u16 = 100;
 pub const PROTECTED_LIQUIDITY_HYSTERESIS_BPS: u16 = 1_000;
 
 /// AMM controls. One-times peak amplification with zero widths selects the
-/// full-range CPMM branch of the same explicit implementation.
+/// full-range CPMM branch of the same concentrated implementation.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
 pub struct AmmConfig {
     pub peak_amplification_nad: u64,
@@ -162,13 +162,13 @@ impl AmmConfig {
     }
 
     /// Typed view of the one production curve configuration. CPMM is the
-    /// explicit curve at one-times peak amplification with zero widths.
-    pub fn explicit_curve_parameters(&self) -> Result<ExplicitCurveParameters> {
+    /// concentrated curve at one-times peak amplification with zero widths.
+    pub fn concentrated_curve_parameters(&self) -> Result<ConcentratedCurveParameters> {
         require!(
             self.reserved.iter().all(|byte| *byte == 0),
             ErrorCode::InvalidMarketConfig
         );
-        let parameters = ExplicitCurveParameters {
+        let parameters = ConcentratedCurveParameters {
             peak_amplification_nad: self.peak_amplification_nad,
             core_half_width_bps: self.core_half_width_bps,
             fade_width_bps: self.fade_width_bps,
@@ -177,7 +177,7 @@ impl AmmConfig {
         Ok(parameters)
     }
 
-    pub fn set_explicit_curve_parameters(&mut self, parameters: ExplicitCurveParameters) -> Result<()> {
+    pub fn set_concentrated_curve_parameters(&mut self, parameters: ConcentratedCurveParameters) -> Result<()> {
         parameters.validate(MAX_AMM_AMPLIFICATION_NAD)?;
         self.peak_amplification_nad = parameters.peak_amplification_nad;
         self.core_half_width_bps = parameters.core_half_width_bps;
@@ -187,7 +187,7 @@ impl AmmConfig {
     }
 
     pub fn validate(&self) -> Result<()> {
-        self.explicit_curve_parameters()?;
+        self.concentrated_curve_parameters()?;
         require!(
             matches!(
                 self.swap_fee_collect_mode,
@@ -272,14 +272,14 @@ impl DeferredControllerTarget {
     }
 }
 
-/// Embedded mutable state for the explicit curve, internal signals, and
+/// Embedded mutable state for the concentrated curve, internal signals, and
 /// protected recenter liquidity.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
 pub struct AmmState {
     pub initialized: bool,
-    /// Explicit CPMM-tail/band geometry. CPMM is represented by zero
+    /// Concentrated CPMM-tail/band geometry. CPMM is represented by zero
     /// concentrated liquidity in this same cache.
-    pub explicit_curve_cache: ExplicitCurveCache,
+    pub concentrated_curve_cache: ConcentratedCurveCache,
     pub center_price_nad: u64,
     pub price_ema_nad: u64,
     pub last_trade_price_nad: u64,
@@ -322,7 +322,7 @@ impl Default for AmmState {
     fn default() -> Self {
         Self {
             initialized: false,
-            explicit_curve_cache: ExplicitCurveCache::default(),
+            concentrated_curve_cache: ConcentratedCurveCache::default(),
             center_price_nad: 0,
             price_ema_nad: 0,
             last_trade_price_nad: 0,
@@ -356,7 +356,7 @@ impl AmmState {
         require!(initial_price_nad > 0, ErrorCode::InvalidSettlementPrice);
         Ok(Self {
             initialized: true,
-            explicit_curve_cache: ExplicitCurveCache::default(),
+            concentrated_curve_cache: ConcentratedCurveCache::default(),
             center_price_nad: initial_price_nad,
             price_ema_nad: initial_price_nad,
             last_trade_price_nad: initial_price_nad,
@@ -556,11 +556,11 @@ impl AmmState {
         self.retention_hard_cap_nad = hard_cap_nad;
     }
 
-    pub(crate) fn commit_explicit_recenter(
+    pub(crate) fn commit_concentrated_recenter(
         &mut self,
         config: &AmmConfig,
         new_center_price_nad: u64,
-        new_cache: ExplicitCurveCache,
+        new_cache: ConcentratedCurveCache,
         new_curve_depth_per_share_nad: u128,
         covered_actual_impairment_nad: u128,
         current_slot: u64,
@@ -586,7 +586,7 @@ impl AmmState {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require_gte!(current_slot, earliest_adjustment_slot, ErrorCode::InvalidArgument);
         self.center_price_nad = new_center_price_nad;
-        self.explicit_curve_cache = new_cache;
+        self.concentrated_curve_cache = new_cache;
         self.last_adjustment_slot = current_slot;
         self.checkpoint_recenter_or_loss(new_curve_depth_per_share_nad);
         Ok(())
@@ -2953,14 +2953,14 @@ impl Market {
                 core_half_width_bps,
                 fade_width_bps,
             } => {
-                let target = ExplicitCurveParameters {
+                let target = ConcentratedCurveParameters {
                     peak_amplification_nad: *peak_amplification_nad,
                     core_half_width_bps: *core_half_width_bps,
                     fade_width_bps: *fade_width_bps,
                 };
                 target.validate(MAX_AMM_AMPLIFICATION_NAD)?;
                 require!(
-                    self.config.amm.explicit_curve_parameters()? != target,
+                    self.config.amm.concentrated_curve_parameters()? != target,
                     ErrorCode::ParameterUpdateNotMeaningful
                 );
             }
@@ -3074,15 +3074,16 @@ impl Market {
                     fade_width_bps,
                 } => {
                     let mut next = self.config;
-                    next.amm.set_explicit_curve_parameters(ExplicitCurveParameters {
-                        peak_amplification_nad: *peak_amplification_nad,
-                        core_half_width_bps: *core_half_width_bps,
-                        fade_width_bps: *fade_width_bps,
-                    })?;
+                    next.amm
+                        .set_concentrated_curve_parameters(ConcentratedCurveParameters {
+                            peak_amplification_nad: *peak_amplification_nad,
+                            core_half_width_bps: *core_half_width_bps,
+                            fade_width_bps: *fade_width_bps,
+                        })?;
                     next.validate()?;
                     self.config = next;
                     if self.amm.initialized {
-                        self.apply_explicit_curve_parameter_update(current_slot)?;
+                        self.apply_concentrated_curve_parameter_update(current_slot)?;
                     }
                 }
                 MarketParameterUpdate::Irm(irm) => {

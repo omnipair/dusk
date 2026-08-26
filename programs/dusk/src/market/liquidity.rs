@@ -4,13 +4,13 @@ use crate::{
     math::{
         apply_hlp_recovery_bonus, denormalize_from_nad_ceil, denormalize_from_nad_floor, hlp_opposite_exposure_nad,
         mul_div_u128, normalize_to_nad, quote_hlp_recovery, ratio_lte_full_width, reconstruct_hlp_ownership,
-        ExplicitCurveDirection, ExplicitCurvePoint, HlpInventoryValuesNad, IntegratedCurveState,
+        ConcentratedCurveDirection, ConcentratedCurvePoint, HlpInventoryValuesNad, IntegratedCurveState,
     },
     state::{Debt, Market, MarketAsset},
 };
 use anchor_lang::prelude::*;
 
-use super::{amm::ExplicitIntegratedAmmQuote, HlpRecoveryBreakdown};
+use super::{amm::ConcentratedIntegratedAmmQuote, HlpRecoveryBreakdown};
 
 /// Post-transition exposure is protocol dust only when it is no more than
 /// 0.00001 target tokens and no more than one part per million of current hLP
@@ -134,12 +134,12 @@ impl Default for HlpRebalanceReceipt {
     }
 }
 
-/// Identity-bound O(1) hLP ownership/debt reconstruction for the explicit
+/// Identity-bound O(1) hLP ownership/debt reconstruction for the concentrated
 /// curve. The quote fixes the ordinary tranche; this plan only realizes
 /// accrued hLP funding interest and refinances both vaults to the quoted
 /// zero-opposite-exposure endpoint.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ExplicitHlpTransition {
+pub(crate) struct ConcentratedHlpTransition {
     expected_curve_revision: u64,
     expected_ylp_supply: u64,
     expected_base_ylp_shares: u64,
@@ -171,7 +171,7 @@ fn signed_u64_delta(end: u64, start: u64) -> Result<i128> {
     }
 }
 
-fn explicit_hlp_receipt(
+fn concentrated_hlp_receipt(
     target_asset: MarketAsset,
     start_ylp_shares: u64,
     end_ylp_shares: u64,
@@ -266,13 +266,13 @@ fn canonical_debt_for_proportional_claim(
     Ok((debt_shares, debt))
 }
 
-pub(crate) fn prepare_explicit_hlp_transition(
+pub(crate) fn prepare_concentrated_hlp_transition(
     market: &Market,
-    quote: ExplicitIntegratedAmmQuote,
+    quote: ConcentratedIntegratedAmmQuote,
     asset_in: MarketAsset,
-) -> Result<ExplicitHlpTransition> {
+) -> Result<ConcentratedHlpTransition> {
     let _ = asset_in;
-    prepare_explicit_hlp_transition_from_end(
+    prepare_concentrated_hlp_transition_from_end(
         market,
         quote.integrated.executable.end,
         false,
@@ -283,11 +283,11 @@ pub(crate) fn prepare_explicit_hlp_transition(
 /// Adds the hLP funding-recovery tranche to a Spot quote. The complete
 /// input remains on the ordinary curve; only the incremental price improvement
 /// is paid by the hLP whose borrowed asset matches `asset_in`.
-pub(crate) fn apply_explicit_hlp_recovery(
+pub(crate) fn apply_concentrated_hlp_recovery(
     market: &Market,
     asset_in: MarketAsset,
     start: IntegratedCurveState,
-    quote: &mut ExplicitIntegratedAmmQuote,
+    quote: &mut ConcentratedIntegratedAmmQuote,
 ) -> Result<()> {
     let target_asset = asset_in.opposite();
     let vault = match target_asset {
@@ -518,7 +518,7 @@ impl HlpTerminalWaterfallPlan {
         vault.funding_apr_ema_nad = 0;
         vault.funding_apr_ema_last_slot = 0;
 
-        market.rebase_explicit_curve_after_terminal_hlp_loss()?;
+        market.rebase_concentrated_curve_after_terminal_hlp_loss()?;
         market.assert_virtual_reserve_invariant(MarketAsset::Base)?;
         market.assert_virtual_reserve_invariant(MarketAsset::Quote)?;
         Ok(HlpTerminalWaterfallReceipt {
@@ -618,16 +618,18 @@ impl Market {
 /// Rebuilds the exact one-sided hLP endpoint around an already materialized
 /// ordinary reserve point. Liquidation uses this after a socialized reserve
 /// haircut so the loss cannot be overwritten by the pre-loss swap plan.
-pub(crate) fn prepare_explicit_hlp_transition_at_current_state(market: &Market) -> Result<ExplicitHlpTransition> {
-    prepare_explicit_hlp_transition_from_end(market, market.integrated_curve_state_nad()?, true, false)
+pub(crate) fn prepare_concentrated_hlp_transition_at_current_state(
+    market: &Market,
+) -> Result<ConcentratedHlpTransition> {
+    prepare_concentrated_hlp_transition_from_end(market, market.integrated_curve_state_nad()?, true, false)
 }
 
-fn prepare_explicit_hlp_transition_from_end(
+fn prepare_concentrated_hlp_transition_from_end(
     market: &Market,
     end: IntegratedCurveState,
     preserve_current_ordinary_reserves: bool,
     certify_proportional_claim: bool,
-) -> Result<ExplicitHlpTransition> {
+) -> Result<ConcentratedHlpTransition> {
     require_eq!(
         market.base_side.shares.ylp_supply,
         market.quote_side.shares.ylp_supply,
@@ -780,7 +782,7 @@ fn prepare_explicit_hlp_transition_from_end(
         .checked_add(final_base_debt)
         .ok_or(ErrorCode::ReserveOverflow)?;
 
-    let base_receipt = explicit_hlp_receipt(
+    let base_receipt = concentrated_hlp_receipt(
         MarketAsset::Base,
         market.base_hlp_vault.ylp_shares,
         ownership.base_hlp_ylp_shares,
@@ -790,7 +792,7 @@ fn prepare_explicit_hlp_transition_from_end(
         end.base_hlp_equity,
         start_supply,
     )?;
-    let quote_receipt = explicit_hlp_receipt(
+    let quote_receipt = concentrated_hlp_receipt(
         MarketAsset::Quote,
         market.quote_hlp_vault.ylp_shares,
         ownership.quote_hlp_ylp_shares,
@@ -801,7 +803,7 @@ fn prepare_explicit_hlp_transition_from_end(
         start_supply,
     )?;
 
-    Ok(ExplicitHlpTransition {
+    Ok(ConcentratedHlpTransition {
         expected_curve_revision: market.curve_revision,
         expected_ylp_supply: start_supply,
         expected_base_ylp_shares: market.base_hlp_vault.ylp_shares,
@@ -826,7 +828,7 @@ fn prepare_explicit_hlp_transition_from_end(
     })
 }
 
-impl ExplicitHlpTransition {
+impl ConcentratedHlpTransition {
     pub(crate) fn debt_deltas(&self) -> (i128, i128) {
         (self.base_receipt.debt_delta, self.quote_receipt.debt_delta)
     }
@@ -913,11 +915,11 @@ impl ExplicitHlpTransition {
         // opposite debt are independently floored to raw atoms. Their summed
         // reserve identity can therefore differ from the raw cash transition
         // by at most three atoms, without leaving any debt/claim mismatch.
-        const MAX_EXPLICIT_HLP_LIVE_DUST_ATOMS: u128 = 3;
+        const MAX_CONCENTRATED_HLP_LIVE_DUST_ATOMS: u128 = 3;
         require!(
-            identity_base_live.abs_diff(self.final_base_live_reserve as u128) <= MAX_EXPLICIT_HLP_LIVE_DUST_ATOMS
+            identity_base_live.abs_diff(self.final_base_live_reserve as u128) <= MAX_CONCENTRATED_HLP_LIVE_DUST_ATOMS
                 && identity_quote_live.abs_diff(self.final_quote_live_reserve as u128)
-                    <= MAX_EXPLICIT_HLP_LIVE_DUST_ATOMS,
+                    <= MAX_CONCENTRATED_HLP_LIVE_DUST_ATOMS,
             ErrorCode::BrokenInvariant
         );
         market.base_side.shares.ylp_supply = self.final_ylp_supply;
@@ -1497,9 +1499,9 @@ fn settled_close_target_amount(
 
     let state = market.integrated_curve_state_nad()?;
     let geometry = market
-        .current_explicit_curve_geometry()?
+        .current_concentrated_curve_geometry()?
         .ok_or(ErrorCode::BrokenInvariant)?;
-    let start = ExplicitCurvePoint {
+    let start = ConcentratedCurvePoint {
         base_reserve: state.ordinary_base,
         quote_reserve: state.ordinary_quote,
     };
@@ -1510,8 +1512,8 @@ fn settled_close_target_amount(
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let surplus_nad = normalize_to_nad(surplus_borrowed as u128, market.side(borrowed_asset).asset_decimals)?;
         let direction = match borrowed_asset {
-            MarketAsset::Base => ExplicitCurveDirection::BaseToQuote,
-            MarketAsset::Quote => ExplicitCurveDirection::QuoteToBase,
+            MarketAsset::Base => ConcentratedCurveDirection::BaseToQuote,
+            MarketAsset::Quote => ConcentratedCurveDirection::QuoteToBase,
         };
         let quote = geometry.quote_exact_in(start, surplus_nad, direction)?;
         let target_from_surplus =
@@ -1526,8 +1528,8 @@ fn settled_close_target_amount(
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let shortfall_nad = normalize_to_nad(borrowed_shortfall as u128, market.side(borrowed_asset).asset_decimals)?;
     let direction = match target_asset {
-        MarketAsset::Base => ExplicitCurveDirection::BaseToQuote,
-        MarketAsset::Quote => ExplicitCurveDirection::QuoteToBase,
+        MarketAsset::Base => ConcentratedCurveDirection::BaseToQuote,
+        MarketAsset::Quote => ConcentratedCurveDirection::QuoteToBase,
     };
     let quote = geometry.quote_exact_out(start, shortfall_nad, direction)?;
     let target_retained = denormalize_from_nad_ceil(quote.amount_in, market.side(target_asset).asset_decimals)?;
@@ -1940,7 +1942,7 @@ fn require_hlp_settlement_available(market: &Market, target_asset: MarketAsset) 
 /// exhausts Solana's non-freeing 32 KiB program heap on composite swaps.
 pub(crate) fn current_hlp_curve_prices(market: &Market) -> Result<HlpCurvePrices> {
     let price_nad = market
-        .current_explicit_spot_price_nad()?
+        .current_concentrated_spot_price_nad()?
         .ok_or(ErrorCode::BrokenInvariant)?;
     hlp_curve_prices_from_base_price_nad(price_nad as u128)
 }

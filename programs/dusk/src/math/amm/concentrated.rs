@@ -1,4 +1,4 @@
-//! Explicit CPMM-tail plus nested core-and-shoulder concentrated curve.
+//! Concentrated CPMM-tail plus nested core-and-shoulder concentrated curve.
 //!
 //! A prepared curve is a continuous five-segment reserve path: lower tail,
 //! lower shoulder, full-depth core, upper shoulder, and upper tail. Quotes
@@ -24,16 +24,16 @@ mod wide {
 
 use wide::U512;
 
-const EXPLICIT_SQRT_MAX_ITERS: usize = 16;
+const CONCENTRATED_SQRT_MAX_ITERS: usize = 16;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ExplicitCurveDirection {
+pub(crate) enum ConcentratedCurveDirection {
     BaseToQuote,
     QuoteToBase,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ExplicitCurveBranch {
+pub(crate) enum ConcentratedCurveBranch {
     LowerTail,
     LowerShoulder,
     Inner,
@@ -41,7 +41,7 @@ pub(crate) enum ExplicitCurveBranch {
     UpperTail,
 }
 
-impl ExplicitCurveBranch {
+impl ConcentratedCurveBranch {
     pub(crate) const fn code(self) -> u8 {
         match self {
             Self::LowerTail => 0,
@@ -53,32 +53,32 @@ impl ExplicitCurveBranch {
     }
 }
 
-fn nested_branch_from_region(region: usize) -> ExplicitCurveBranch {
+fn nested_branch_from_region(region: usize) -> ConcentratedCurveBranch {
     match region {
-        0 => ExplicitCurveBranch::UpperTail,
-        1 => ExplicitCurveBranch::UpperShoulder,
-        2 => ExplicitCurveBranch::Inner,
-        3 => ExplicitCurveBranch::LowerShoulder,
-        _ => ExplicitCurveBranch::LowerTail,
+        0 => ConcentratedCurveBranch::UpperTail,
+        1 => ConcentratedCurveBranch::UpperShoulder,
+        2 => ConcentratedCurveBranch::Inner,
+        3 => ConcentratedCurveBranch::LowerShoulder,
+        _ => ConcentratedCurveBranch::LowerTail,
     }
 }
 
-fn nested_region_from_branch(branch: ExplicitCurveBranch) -> usize {
+fn nested_region_from_branch(branch: ConcentratedCurveBranch) -> usize {
     match branch {
-        ExplicitCurveBranch::UpperTail => 0,
-        ExplicitCurveBranch::UpperShoulder => 1,
-        ExplicitCurveBranch::Inner => 2,
-        ExplicitCurveBranch::LowerShoulder => 3,
-        ExplicitCurveBranch::LowerTail => 4,
+        ConcentratedCurveBranch::UpperTail => 0,
+        ConcentratedCurveBranch::UpperShoulder => 1,
+        ConcentratedCurveBranch::Inner => 2,
+        ConcentratedCurveBranch::LowerShoulder => 3,
+        ConcentratedCurveBranch::LowerTail => 4,
     }
 }
 
 /// Serialized curve-cache math revision. Pre-deployment iterations remain at
 /// revision 1; increment only when supporting an already-deployed cache whose
 /// mathematical interpretation must remain distinguishable.
-pub(crate) const EXPLICIT_CURVE_MATH_REVISION: u8 = 1;
+pub(crate) const CONCENTRATED_CURVE_MATH_REVISION: u8 = 1;
 
-/// Product-facing governance surface for the explicit curve.
+/// Product-facing governance surface for the concentrated curve.
 ///
 /// `peak_amplification_nad` is center liquidity depth relative to a CPMM with
 /// the same center reserves. `core_half_width_bps` keeps that complete depth
@@ -86,14 +86,14 @@ pub(crate) const EXPLICIT_CURVE_MATH_REVISION: u8 = 1;
 /// half-depth shoulder before the nonzero full-range CPMM tail. One-times
 /// amplification with zero widths is exact CPMM.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct ExplicitCurveParameters {
+pub struct ConcentratedCurveParameters {
     pub peak_amplification_nad: u64,
     pub core_half_width_bps: u16,
     pub fade_width_bps: u16,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
-pub struct ExplicitCurveCache {
+pub struct ConcentratedCurveCache {
     pub math_revision: u8,
     pub peak_amplification_nad: u64,
     pub core_half_width_bps: u16,
@@ -106,18 +106,18 @@ pub struct ExplicitCurveCache {
     pub outer_upper_sqrt_price_nad: u128,
 }
 
-impl ExplicitCurveCache {
-    pub(crate) fn geometry(self) -> Result<ExplicitCurveGeometry> {
+impl ConcentratedCurveCache {
+    pub(crate) fn geometry(self) -> Result<ConcentratedCurveGeometry> {
         require_eq!(
             self.math_revision,
-            EXPLICIT_CURVE_MATH_REVISION,
+            CONCENTRATED_CURVE_MATH_REVISION,
             ErrorCode::BrokenInvariant
         );
         let sqrt_price_scale = NAD as u128;
         if self.fade_width_bps == 0 {
             if self.concentrated_liquidity == 0 {
                 require!(self.tail_liquidity > 0, ErrorCode::InsufficientLiquidity);
-                return Ok(ExplicitCurveGeometry::cpmm());
+                return Ok(ConcentratedCurveGeometry::cpmm());
             }
             require!(
                 self.tail_liquidity > 0
@@ -142,7 +142,7 @@ impl ExplicitCurveCache {
             )?
             .checked_sub(inner_base_amplification_offset)
             .ok_or(ErrorCode::BrokenInvariant)?;
-            let lower_boundary = ExplicitCurvePoint {
+            let lower_boundary = ConcentratedCurvePoint {
                 base_reserve: mul_div_u128(self.tail_liquidity, sqrt_price_scale, self.core_lower_sqrt_price_nad)?
                     .checked_add(lower_tail_base_inventory)
                     .ok_or(ErrorCode::MarketMathOverflow)?,
@@ -173,18 +173,18 @@ impl ExplicitCurveCache {
             let upper_tail_quote_inventory = upper_quote_reserve
                 .checked_sub(upper_tail_quote)
                 .ok_or(ErrorCode::BrokenInvariant)?;
-            let geometry = ExplicitCurveGeometry {
+            let geometry = ConcentratedCurveGeometry {
                 inner_liquidity: self.concentrated_liquidity,
                 inner_base_amplification_offset,
                 inner_quote_amplification_offset,
                 lower_tail_base_inventory,
                 upper_tail_quote_inventory,
                 lower_boundary,
-                upper_boundary: ExplicitCurvePoint {
+                upper_boundary: ConcentratedCurvePoint {
                     base_reserve: upper_base_reserve,
                     quote_reserve: upper_quote_reserve,
                 },
-                ..ExplicitCurveGeometry::cpmm()
+                ..ConcentratedCurveGeometry::cpmm()
             };
             geometry.validate()?;
             Ok(geometry)
@@ -203,22 +203,22 @@ impl ExplicitCurveCache {
                 .checked_sub(core_liquidity)
                 .ok_or(ErrorCode::BrokenInvariant)?;
             let layers = [
-                ExplicitCurveLayer {
+                ConcentratedCurveLayer {
                     liquidity: core_liquidity,
                     lower_sqrt_price: self.core_lower_sqrt_price_nad,
                     upper_sqrt_price: self.core_upper_sqrt_price_nad,
                 },
-                ExplicitCurveLayer {
+                ConcentratedCurveLayer {
                     liquidity: shoulder_liquidity,
                     lower_sqrt_price: self.outer_lower_sqrt_price_nad,
                     upper_sqrt_price: self.outer_upper_sqrt_price_nad,
                 },
             ];
-            let mut geometry = ExplicitCurveGeometry {
+            let mut geometry = ConcentratedCurveGeometry {
                 inner_liquidity: self.concentrated_liquidity,
                 shoulder_liquidity,
                 nested_boundary_count: 4,
-                ..ExplicitCurveGeometry::cpmm()
+                ..ConcentratedCurveGeometry::cpmm()
             };
             geometry.nested_boundaries = [
                 nested_point_at_sqrt_price(
@@ -256,8 +256,8 @@ impl ExplicitCurveCache {
         }
     }
 
-    pub(crate) const fn parameters(self) -> ExplicitCurveParameters {
-        ExplicitCurveParameters {
+    pub(crate) const fn parameters(self) -> ConcentratedCurveParameters {
+        ConcentratedCurveParameters {
             peak_amplification_nad: self.peak_amplification_nad,
             core_half_width_bps: self.core_half_width_bps,
             fade_width_bps: self.fade_width_bps,
@@ -265,15 +265,15 @@ impl ExplicitCurveCache {
     }
 
     #[cfg(test)]
-    pub(crate) fn center_point(self, center_price_nad: u64) -> Result<ExplicitCurvePoint> {
+    pub(crate) fn center_point(self, center_price_nad: u64) -> Result<ConcentratedCurvePoint> {
         self.center_point_with_geometry(center_price_nad, self.geometry()?)
     }
 
     pub(crate) fn center_point_with_geometry(
         self,
         center_price_nad: u64,
-        geometry: ExplicitCurveGeometry,
-    ) -> Result<ExplicitCurvePoint> {
+        geometry: ConcentratedCurveGeometry,
+    ) -> Result<ConcentratedCurvePoint> {
         require!(center_price_nad > 0, ErrorCode::InvalidSettlementPrice);
         require_eq!(
             geometry.inner_liquidity,
@@ -289,8 +289,8 @@ impl ExplicitCurveCache {
     }
 }
 
-fn complete_explicit_cache(
-    parameters: ExplicitCurveParameters,
+fn complete_concentrated_cache(
+    parameters: ConcentratedCurveParameters,
     tail_liquidity: u128,
     concentrated_liquidity: u128,
     core_lower_sqrt_price_nad: u128,
@@ -298,9 +298,9 @@ fn complete_explicit_cache(
     outer_lower_sqrt_price_nad: u128,
     outer_upper_sqrt_price_nad: u128,
     _sqrt_center_nad: u128,
-) -> Result<ExplicitCurveCache> {
-    let cache = ExplicitCurveCache {
-        math_revision: EXPLICIT_CURVE_MATH_REVISION,
+) -> Result<ConcentratedCurveCache> {
+    let cache = ConcentratedCurveCache {
+        math_revision: CONCENTRATED_CURVE_MATH_REVISION,
         peak_amplification_nad: parameters.peak_amplification_nad,
         core_half_width_bps: parameters.core_half_width_bps,
         fade_width_bps: parameters.fade_width_bps,
@@ -315,7 +315,7 @@ fn complete_explicit_cache(
     Ok(cache)
 }
 
-impl ExplicitCurveParameters {
+impl ConcentratedCurveParameters {
     #[cfg(test)]
     pub(crate) const fn cpmm() -> Self {
         Self {
@@ -418,30 +418,30 @@ impl ExplicitCurveParameters {
     }
 }
 
-/// Builds the initial explicit geometry when the sticky center equals the
+/// Builds the initial concentrated geometry when the sticky center equals the
 /// current ordinary-reserve spot. This is the positive closed-form solution
 /// for total liquidity; no invariant root or finite-difference cell is used.
 #[cfg(test)]
-pub(crate) fn prepare_centered_explicit_geometry(
+pub(crate) fn prepare_centered_concentrated_geometry(
     base_reserve: u128,
     quote_reserve: u128,
     center_price_nad: u64,
-    parameters: ExplicitCurveParameters,
-) -> Result<ExplicitCurveGeometry> {
+    parameters: ConcentratedCurveParameters,
+) -> Result<ConcentratedCurveGeometry> {
     if parameters.is_cpmm() {
         parameters.validate(u64::MAX)?;
-        return Ok(ExplicitCurveGeometry::cpmm());
+        return Ok(ConcentratedCurveGeometry::cpmm());
     }
-    prepare_centered_explicit_cache(base_reserve, quote_reserve, center_price_nad, parameters)?.geometry()
+    prepare_centered_concentrated_cache(base_reserve, quote_reserve, center_price_nad, parameters)?.geometry()
 }
 
 #[cfg(test)]
-pub(crate) fn prepare_centered_explicit_cache(
+pub(crate) fn prepare_centered_concentrated_cache(
     base_reserve: u128,
     quote_reserve: u128,
     center_price_nad: u64,
-    parameters: ExplicitCurveParameters,
-) -> Result<ExplicitCurveCache> {
+    parameters: ConcentratedCurveParameters,
+) -> Result<ConcentratedCurveCache> {
     parameters.validate(u64::MAX)?;
     if parameters.is_cpmm() {
         return err!(ErrorCode::InvalidMarketConfig);
@@ -484,7 +484,7 @@ pub(crate) fn prepare_centered_explicit_cache(
     let tail_liquidity = total_liquidity
         .checked_sub(concentrated_liquidity)
         .ok_or(ErrorCode::BrokenInvariant)?;
-    complete_explicit_cache(
+    complete_concentrated_cache(
         parameters,
         tail_liquidity,
         concentrated_liquidity,
@@ -501,12 +501,12 @@ pub(crate) fn prepare_centered_explicit_cache(
 /// possible branches has one quadratic positive root; we evaluate those
 /// closed forms and accept the unique root whose geometry classifies the
 /// supplied point into the same branch. No invariant search is performed.
-pub(crate) fn prepare_explicit_cache_at_point(
+pub(crate) fn prepare_concentrated_cache_at_point(
     base_reserve: u128,
     quote_reserve: u128,
     center_price_nad: u64,
-    parameters: ExplicitCurveParameters,
-) -> Result<ExplicitCurveCache> {
+    parameters: ConcentratedCurveParameters,
+) -> Result<ConcentratedCurveCache> {
     parameters.validate(u64::MAX)?;
     require!(base_reserve > 0 && quote_reserve > 0, ErrorCode::InsufficientLiquidity);
 
@@ -514,7 +514,7 @@ pub(crate) fn prepare_explicit_cache_at_point(
         let tail_liquidity = geometric_mean_floor(base_reserve, quote_reserve)?;
         require!(tail_liquidity > 0, ErrorCode::InsufficientLiquidity);
         let sqrt_center_nad = sqrt_ratio_nad(center_price_nad as u128)?;
-        return complete_explicit_cache(parameters, tail_liquidity, 0, 0, 0, 0, 0, sqrt_center_nad);
+        return complete_concentrated_cache(parameters, tail_liquidity, 0, 0, 0, 0, 0, sqrt_center_nad);
     }
 
     let sqrt_center_nad = sqrt_ratio_nad(center_price_nad as u128)?;
@@ -524,28 +524,28 @@ pub(crate) fn prepare_explicit_cache_at_point(
     let outer_lower_sqrt_price_nad = mul_div_u128(sqrt_center_nad, NAD as u128, outer_sqrt_width)?;
     let outer_upper_sqrt_price_nad = mul_div_u128(sqrt_center_nad, outer_sqrt_width, NAD as u128)?;
     let (_, concentrated_share) = parameters.liquidity_shares_nad()?;
-    let point = ExplicitCurvePoint {
+    let point = ConcentratedCurvePoint {
         base_reserve,
         quote_reserve,
     };
 
     for branch in [
-        ExplicitCurveBranch::Inner,
-        ExplicitCurveBranch::UpperShoulder,
-        ExplicitCurveBranch::LowerShoulder,
-        ExplicitCurveBranch::LowerTail,
-        ExplicitCurveBranch::UpperTail,
+        ConcentratedCurveBranch::Inner,
+        ConcentratedCurveBranch::UpperShoulder,
+        ConcentratedCurveBranch::LowerShoulder,
+        ConcentratedCurveBranch::LowerTail,
+        ConcentratedCurveBranch::UpperTail,
     ] {
         if parameters.fade_width_bps == 0
             && matches!(
                 branch,
-                ExplicitCurveBranch::UpperShoulder | ExplicitCurveBranch::LowerShoulder
+                ConcentratedCurveBranch::UpperShoulder | ConcentratedCurveBranch::LowerShoulder
             )
         {
             continue;
         }
         let total_liquidity = if parameters.fade_width_bps == 0 {
-            explicit_total_liquidity_root(
+            concentrated_total_liquidity_root(
                 point,
                 concentrated_share,
                 core_lower_sqrt_price_nad,
@@ -569,12 +569,12 @@ pub(crate) fn prepare_explicit_cache_at_point(
             let expected_tail = mul_div_u128(NESTED_SHAPE_SCALE, tail_share_nad, NAD as u128)?;
             require!(tail_liquidity.abs_diff(expected_tail) <= 2, ErrorCode::BrokenInvariant);
             let layers = [
-                ExplicitCurveLayer {
+                ConcentratedCurveLayer {
                     liquidity: core_liquidity,
                     lower_sqrt_price: core_lower_sqrt_price_nad,
                     upper_sqrt_price: core_upper_sqrt_price_nad,
                 },
-                ExplicitCurveLayer {
+                ConcentratedCurveLayer {
                     liquidity: shoulder_liquidity,
                     lower_sqrt_price: outer_lower_sqrt_price_nad,
                     upper_sqrt_price: outer_upper_sqrt_price_nad,
@@ -680,7 +680,7 @@ pub(crate) fn prepare_explicit_cache_at_point(
         if tail_liquidity == 0 || concentrated_liquidity == 0 {
             continue;
         }
-        let cache = complete_explicit_cache(
+        let cache = complete_concentrated_cache(
             parameters,
             tail_liquidity,
             concentrated_liquidity,
@@ -698,12 +698,12 @@ pub(crate) fn prepare_explicit_cache_at_point(
     err!(ErrorCode::BrokenInvariant)
 }
 
-fn explicit_total_liquidity_root(
-    point: ExplicitCurvePoint,
+fn concentrated_total_liquidity_root(
+    point: ConcentratedCurvePoint,
     share_nad: u128,
     lower_sqrt_price_nad: u128,
     upper_sqrt_price_nad: u128,
-    branch: ExplicitCurveBranch,
+    branch: ConcentratedCurveBranch,
 ) -> Result<u128> {
     let scale = NAD as u128;
     let scale_squared = U512::from(scale)
@@ -718,7 +718,7 @@ fn explicit_total_liquidity_root(
     let width = upper.checked_sub(lower).ok_or(ErrorCode::InvalidMarketConfig)?;
 
     let (a, b, c, negative_linear) = match branch {
-        ExplicitCurveBranch::Inner => {
+        ConcentratedCurveBranch::Inner => {
             let a = upper
                 .checked_mul(scale_squared)
                 .and_then(|value| value.checked_sub(rho.checked_mul(rho)?.checked_mul(lower)?))
@@ -736,7 +736,7 @@ fn explicit_total_liquidity_root(
                 .ok_or(ErrorCode::InvariantOverflow)?;
             (a, b, c, true)
         }
-        ExplicitCurveBranch::LowerTail => {
+        ConcentratedCurveBranch::LowerTail => {
             let a = tail_share
                 .checked_mul(tail_share)
                 .and_then(|value| value.checked_mul(lower))
@@ -755,7 +755,7 @@ fn explicit_total_liquidity_root(
                 .ok_or(ErrorCode::InvariantOverflow)?;
             (a, b, c, false)
         }
-        ExplicitCurveBranch::UpperTail => {
+        ConcentratedCurveBranch::UpperTail => {
             let a = tail_share.checked_mul(tail_share).ok_or(ErrorCode::InvariantOverflow)?;
             let b = x
                 .checked_mul(rho)
@@ -767,7 +767,7 @@ fn explicit_total_liquidity_root(
                 .ok_or(ErrorCode::InvariantOverflow)?;
             (a, b, c, false)
         }
-        ExplicitCurveBranch::LowerShoulder | ExplicitCurveBranch::UpperShoulder => {
+        ConcentratedCurveBranch::LowerShoulder | ConcentratedCurveBranch::UpperShoulder => {
             return err!(ErrorCode::InvalidMarketConfig)
         }
     };
@@ -813,7 +813,7 @@ fn sqrt_floor_u512(value: U512) -> Result<U512> {
         return Ok(U512::zero());
     }
     let mut root = U512::one() << value.bits().div_ceil(2);
-    for _ in 0..EXPLICIT_SQRT_MAX_ITERS {
+    for _ in 0..CONCENTRATED_SQRT_MAX_ITERS {
         let next = root.checked_add(value / root).ok_or(ErrorCode::InvariantOverflow)? >> 1;
         if next >= root {
             return Ok(root);
@@ -824,7 +824,7 @@ fn sqrt_floor_u512(value: U512) -> Result<U512> {
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
-pub struct ExplicitCurvePoint {
+pub struct ConcentratedCurvePoint {
     pub base_reserve: u128,
     pub quote_reserve: u128,
 }
@@ -832,12 +832,12 @@ pub struct ExplicitCurvePoint {
 /// Precomputed geometry for one full-range CPMM tail plus one concentrated
 /// band. Offsets are reserve coordinates, not transferable balances.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
-pub struct ExplicitSignedReserve {
+pub struct ConcentratedSignedReserve {
     pub negative: bool,
     pub magnitude: u128,
 }
 
-impl ExplicitSignedReserve {
+impl ConcentratedSignedReserve {
     fn add_positive(&mut self, value: u128) -> Result<()> {
         if self.negative {
             if value >= self.magnitude {
@@ -890,7 +890,7 @@ impl ExplicitSignedReserve {
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
-pub struct ExplicitCurveGeometry {
+pub struct ConcentratedCurveGeometry {
     /// Zero selects exact CPMM and requires every other geometry field to be
     /// zero. Nonzero supplies the compact three-segment base representation;
     /// a nonzero shoulder below extends it to the five-segment product curve.
@@ -901,29 +901,29 @@ pub struct ExplicitCurveGeometry {
     /// Fixed concentrated inventory left behind in the corresponding tail.
     pub lower_tail_base_inventory: u128,
     pub upper_tail_quote_inventory: u128,
-    pub lower_boundary: ExplicitCurvePoint,
-    pub upper_boundary: ExplicitCurvePoint,
+    pub lower_boundary: ConcentratedCurvePoint,
+    pub upper_boundary: ConcentratedCurvePoint,
     /// A nonzero shoulder selects the five-segment nested curve. The original
     /// one-band fields above remain the compact representation when this is
     /// zero.
     pub shoulder_liquidity: u128,
     pub nested_boundary_count: u8,
-    pub nested_boundaries: [ExplicitCurvePoint; 4],
-    pub nested_base_constants: [ExplicitSignedReserve; 5],
-    pub nested_quote_constants: [ExplicitSignedReserve; 5],
+    pub nested_boundaries: [ConcentratedCurvePoint; 4],
+    pub nested_base_constants: [ConcentratedSignedReserve; 5],
+    pub nested_quote_constants: [ConcentratedSignedReserve; 5],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ExplicitCurveQuote {
+pub(crate) struct ConcentratedCurveQuote {
     pub amount_in: u128,
     pub amount_out: u128,
-    pub end: ExplicitCurvePoint,
-    pub end_branch: ExplicitCurveBranch,
+    pub end: ConcentratedCurvePoint,
+    pub end_branch: ConcentratedCurveBranch,
     pub boundary_crossings: u8,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct ExplicitCurveLayer {
+struct ConcentratedCurveLayer {
     liquidity: u128,
     lower_sqrt_price: u128,
     upper_sqrt_price: u128,
@@ -931,10 +931,10 @@ struct ExplicitCurveLayer {
 
 fn nested_point_at_sqrt_price(
     tail_liquidity: u128,
-    layers: [ExplicitCurveLayer; 2],
+    layers: [ConcentratedCurveLayer; 2],
     sqrt_price: u128,
     sqrt_price_scale: u128,
-) -> Result<ExplicitCurvePoint> {
+) -> Result<ConcentratedCurvePoint> {
     require!(sqrt_price > 0, ErrorCode::InvalidSettlementPrice);
     let mut base_reserve = mul_div_u128(tail_liquidity, sqrt_price_scale, sqrt_price)?;
     let mut quote_reserve = mul_div_u128(tail_liquidity, sqrt_price, sqrt_price_scale)?;
@@ -974,17 +974,17 @@ fn nested_point_at_sqrt_price(
             .checked_add(quote_claim)
             .ok_or(ErrorCode::MarketMathOverflow)?;
     }
-    Ok(ExplicitCurvePoint {
+    Ok(ConcentratedCurvePoint {
         base_reserve,
         quote_reserve,
     })
 }
 
 fn nested_region_constants(
-    layers: [ExplicitCurveLayer; 2],
+    layers: [ConcentratedCurveLayer; 2],
     region: usize,
     sqrt_price_scale: u128,
-) -> Result<(ExplicitSignedReserve, ExplicitSignedReserve)> {
+) -> Result<(ConcentratedSignedReserve, ConcentratedSignedReserve)> {
     require!(region <= 4, ErrorCode::BrokenInvariant);
     let states = match region {
         0 => [2_u8, 2_u8],
@@ -994,8 +994,8 @@ fn nested_region_constants(
         4 => [0, 0],
         _ => unreachable!(),
     };
-    let mut base = ExplicitSignedReserve::default();
-    let mut quote = ExplicitSignedReserve::default();
+    let mut base = ConcentratedSignedReserve::default();
+    let mut quote = ConcentratedSignedReserve::default();
     for (layer, state) in layers.into_iter().zip(states) {
         let base_at_lower = mul_div_u128(layer.liquidity, sqrt_price_scale, layer.lower_sqrt_price)?;
         let base_at_upper = mul_div_u128(layer.liquidity, sqrt_price_scale, layer.upper_sqrt_price)?;
@@ -1022,7 +1022,7 @@ fn nested_region_constants(
     Ok((base, quote))
 }
 
-impl ExplicitCurveGeometry {
+impl ConcentratedCurveGeometry {
     pub(crate) const fn cpmm() -> Self {
         Self {
             inner_liquidity: 0,
@@ -1030,25 +1030,25 @@ impl ExplicitCurveGeometry {
             inner_quote_amplification_offset: 0,
             lower_tail_base_inventory: 0,
             upper_tail_quote_inventory: 0,
-            lower_boundary: ExplicitCurvePoint {
+            lower_boundary: ConcentratedCurvePoint {
                 base_reserve: 0,
                 quote_reserve: 0,
             },
-            upper_boundary: ExplicitCurvePoint {
+            upper_boundary: ConcentratedCurvePoint {
                 base_reserve: 0,
                 quote_reserve: 0,
             },
             shoulder_liquidity: 0,
             nested_boundary_count: 0,
-            nested_boundaries: [ExplicitCurvePoint {
+            nested_boundaries: [ConcentratedCurvePoint {
                 base_reserve: 0,
                 quote_reserve: 0,
             }; 4],
-            nested_base_constants: [ExplicitSignedReserve {
+            nested_base_constants: [ConcentratedSignedReserve {
                 negative: false,
                 magnitude: 0,
             }; 5],
-            nested_quote_constants: [ExplicitSignedReserve {
+            nested_quote_constants: [ConcentratedSignedReserve {
                 negative: false,
                 magnitude: 0,
             }; 5],
@@ -1077,8 +1077,8 @@ impl ExplicitCurveGeometry {
                     && self.inner_quote_amplification_offset == 0
                     && self.lower_tail_base_inventory == 0
                     && self.upper_tail_quote_inventory == 0
-                    && self.lower_boundary == ExplicitCurvePoint::default()
-                    && self.upper_boundary == ExplicitCurvePoint::default(),
+                    && self.lower_boundary == ConcentratedCurvePoint::default()
+                    && self.upper_boundary == ConcentratedCurvePoint::default(),
                 ErrorCode::InvalidMarketConfig
             );
             require!(
@@ -1156,7 +1156,7 @@ impl ExplicitCurveGeometry {
         Ok(())
     }
 
-    pub(crate) fn branch(self, point: ExplicitCurvePoint) -> ExplicitCurveBranch {
+    pub(crate) fn branch(self, point: ConcentratedCurvePoint) -> ConcentratedCurveBranch {
         if self.is_nested() {
             let region = self
                 .nested_boundaries
@@ -1167,15 +1167,15 @@ impl ExplicitCurveGeometry {
             return nested_branch_from_region(region);
         }
         if self.is_cpmm() || point.base_reserve >= self.lower_boundary.base_reserve {
-            ExplicitCurveBranch::LowerTail
+            ConcentratedCurveBranch::LowerTail
         } else if point.base_reserve <= self.upper_boundary.base_reserve {
-            ExplicitCurveBranch::UpperTail
+            ConcentratedCurveBranch::UpperTail
         } else {
-            ExplicitCurveBranch::Inner
+            ConcentratedCurveBranch::Inner
         }
     }
 
-    fn nested_effective_reserves(self, point: ExplicitCurvePoint, region: usize) -> Result<(u128, u128)> {
+    fn nested_effective_reserves(self, point: ConcentratedCurvePoint, region: usize) -> Result<(u128, u128)> {
         require!(
             region <= self.nested_boundary_count as usize,
             ErrorCode::BrokenInvariant
@@ -1186,16 +1186,16 @@ impl ExplicitCurveGeometry {
         Ok((base, quote))
     }
 
-    /// Marginal Quote-per-Base price of the active explicit segment.
+    /// Marginal Quote-per-Base price of the active concentrated segment.
     #[cfg(test)]
-    pub(crate) fn spot_price_nad(self, point: ExplicitCurvePoint) -> Result<u128> {
+    pub(crate) fn spot_price_nad(self, point: ConcentratedCurvePoint) -> Result<u128> {
         self.validate()?;
         self.spot_price_nad_prevalidated(point)
     }
 
-    /// Hot-path variant for geometry loaded from `ExplicitCurveCache`, whose
+    /// Hot-path variant for geometry loaded from `ConcentratedCurveCache`, whose
     /// constructor already performed the complete geometry validation.
-    pub(crate) fn spot_price_nad_prevalidated(self, point: ExplicitCurvePoint) -> Result<u128> {
+    pub(crate) fn spot_price_nad_prevalidated(self, point: ConcentratedCurvePoint) -> Result<u128> {
         let branch = self.branch(point);
         let (base_curve_reserve, quote_curve_reserve) = self.effective_reserves(point, branch)?;
         mul_div_u128(quote_curve_reserve, NAD as u128, base_curve_reserve)
@@ -1216,8 +1216,8 @@ impl ExplicitCurveGeometry {
                 mul_div_u128(upper_quote, NAD as u128, upper_base)?,
             )));
         }
-        let (lower_base, lower_quote) = self.effective_reserves(self.lower_boundary, ExplicitCurveBranch::Inner)?;
-        let (upper_base, upper_quote) = self.effective_reserves(self.upper_boundary, ExplicitCurveBranch::Inner)?;
+        let (lower_base, lower_quote) = self.effective_reserves(self.lower_boundary, ConcentratedCurveBranch::Inner)?;
+        let (upper_base, upper_quote) = self.effective_reserves(self.upper_boundary, ConcentratedCurveBranch::Inner)?;
         Ok(Some((
             mul_div_u128(lower_quote, NAD as u128, lower_base)?,
             mul_div_u128(upper_quote, NAD as u128, upper_base)?,
@@ -1227,7 +1227,7 @@ impl ExplicitCurveGeometry {
     /// Closed-form reserve point at a requested marginal price. Lending and
     /// liquidation use this inverse to materialize a pessimistic executable
     /// shape without an invariant root solve.
-    pub(crate) fn point_at_price_nad(self, price_nad: u128, tail_liquidity: u128) -> Result<ExplicitCurvePoint> {
+    pub(crate) fn point_at_price_nad(self, price_nad: u128, tail_liquidity: u128) -> Result<ConcentratedCurvePoint> {
         self.validate()?;
         require!(price_nad > 0 && tail_liquidity > 0, ErrorCode::InvalidSettlementPrice);
         let sqrt_price_nad = sqrt_ratio_nad(price_nad)?;
@@ -1261,29 +1261,29 @@ impl ExplicitCurveGeometry {
                 .ok_or(ErrorCode::InvariantOverflow)?;
             let effective_base = mul_div_u128(liquidity, NAD as u128, sqrt_price_nad)?;
             let effective_quote = mul_div_u128(liquidity, sqrt_price_nad, NAD as u128)?;
-            return Ok(ExplicitCurvePoint {
+            return Ok(ConcentratedCurvePoint {
                 base_reserve: self.nested_base_constants[region].add_to(effective_base)?,
                 quote_reserve: self.nested_quote_constants[region].add_to(effective_quote)?,
             });
         }
         let branch = if self.is_cpmm() {
-            ExplicitCurveBranch::LowerTail
+            ConcentratedCurveBranch::LowerTail
         } else {
             let (lower_price, upper_price) = self.range_prices_nad()?.ok_or(ErrorCode::BrokenInvariant)?;
             if price_nad <= lower_price {
-                ExplicitCurveBranch::LowerTail
+                ConcentratedCurveBranch::LowerTail
             } else if price_nad >= upper_price {
-                ExplicitCurveBranch::UpperTail
+                ConcentratedCurveBranch::UpperTail
             } else {
-                ExplicitCurveBranch::Inner
+                ConcentratedCurveBranch::Inner
             }
         };
         let liquidity = match branch {
-            ExplicitCurveBranch::Inner => tail_liquidity
+            ConcentratedCurveBranch::Inner => tail_liquidity
                 .checked_add(self.inner_liquidity)
                 .ok_or(ErrorCode::InvariantOverflow)?,
-            ExplicitCurveBranch::LowerTail | ExplicitCurveBranch::UpperTail => tail_liquidity,
-            ExplicitCurveBranch::LowerShoulder | ExplicitCurveBranch::UpperShoulder => {
+            ConcentratedCurveBranch::LowerTail | ConcentratedCurveBranch::UpperTail => tail_liquidity,
+            ConcentratedCurveBranch::LowerShoulder | ConcentratedCurveBranch::UpperShoulder => {
                 return err!(ErrorCode::BrokenInvariant)
             }
         };
@@ -1292,13 +1292,13 @@ impl ExplicitCurveGeometry {
             mul_div_u128(liquidity, sqrt_price_nad, NAD as u128)?,
         );
         match branch {
-            ExplicitCurveBranch::LowerTail => Ok(ExplicitCurvePoint {
+            ConcentratedCurveBranch::LowerTail => Ok(ConcentratedCurvePoint {
                 base_reserve: effective_base
                     .checked_add(self.lower_tail_base_inventory)
                     .ok_or(ErrorCode::InvariantOverflow)?,
                 quote_reserve: effective_quote,
             }),
-            ExplicitCurveBranch::Inner => Ok(ExplicitCurvePoint {
+            ConcentratedCurveBranch::Inner => Ok(ConcentratedCurvePoint {
                 base_reserve: effective_base
                     .checked_sub(self.inner_base_amplification_offset)
                     .ok_or(ErrorCode::InsufficientLiquidity)?,
@@ -1306,28 +1306,32 @@ impl ExplicitCurveGeometry {
                     .checked_sub(self.inner_quote_amplification_offset)
                     .ok_or(ErrorCode::InsufficientLiquidity)?,
             }),
-            ExplicitCurveBranch::UpperTail => Ok(ExplicitCurvePoint {
+            ConcentratedCurveBranch::UpperTail => Ok(ConcentratedCurvePoint {
                 base_reserve: effective_base,
                 quote_reserve: effective_quote
                     .checked_add(self.upper_tail_quote_inventory)
                     .ok_or(ErrorCode::InvariantOverflow)?,
             }),
-            ExplicitCurveBranch::LowerShoulder | ExplicitCurveBranch::UpperShoulder => {
+            ConcentratedCurveBranch::LowerShoulder | ConcentratedCurveBranch::UpperShoulder => {
                 err!(ErrorCode::BrokenInvariant)
             }
         }
     }
 
-    fn branch_for_direction(self, point: ExplicitCurvePoint, direction: ExplicitCurveDirection) -> ExplicitCurveBranch {
+    fn branch_for_direction(
+        self,
+        point: ConcentratedCurvePoint,
+        direction: ConcentratedCurveDirection,
+    ) -> ConcentratedCurveBranch {
         if self.is_nested() {
             let region = match direction {
-                ExplicitCurveDirection::BaseToQuote => self
+                ConcentratedCurveDirection::BaseToQuote => self
                     .nested_boundaries
                     .iter()
                     .take(self.nested_boundary_count as usize)
                     .position(|boundary| point.base_reserve < boundary.base_reserve)
                     .unwrap_or(self.nested_boundary_count as usize),
-                ExplicitCurveDirection::QuoteToBase => self
+                ConcentratedCurveDirection::QuoteToBase => self
                     .nested_boundaries
                     .iter()
                     .take(self.nested_boundary_count as usize)
@@ -1337,46 +1341,50 @@ impl ExplicitCurveGeometry {
             return nested_branch_from_region(region);
         }
         if self.is_cpmm() {
-            return ExplicitCurveBranch::LowerTail;
+            return ConcentratedCurveBranch::LowerTail;
         }
         match direction {
             // Input reserve is the canonical branch coordinate. The opposite
             // reserve may differ from its continuous boundary reference by an
             // atom after conservative output rounding.
-            ExplicitCurveDirection::BaseToQuote => {
+            ConcentratedCurveDirection::BaseToQuote => {
                 if point.base_reserve >= self.lower_boundary.base_reserve {
-                    ExplicitCurveBranch::LowerTail
+                    ConcentratedCurveBranch::LowerTail
                 } else if point.base_reserve < self.upper_boundary.base_reserve {
-                    ExplicitCurveBranch::UpperTail
+                    ConcentratedCurveBranch::UpperTail
                 } else {
-                    ExplicitCurveBranch::Inner
+                    ConcentratedCurveBranch::Inner
                 }
             }
-            ExplicitCurveDirection::QuoteToBase => {
+            ConcentratedCurveDirection::QuoteToBase => {
                 if point.quote_reserve < self.lower_boundary.quote_reserve {
-                    ExplicitCurveBranch::LowerTail
+                    ConcentratedCurveBranch::LowerTail
                 } else if point.quote_reserve >= self.upper_boundary.quote_reserve {
-                    ExplicitCurveBranch::UpperTail
+                    ConcentratedCurveBranch::UpperTail
                 } else {
-                    ExplicitCurveBranch::Inner
+                    ConcentratedCurveBranch::Inner
                 }
             }
         }
     }
 
-    fn effective_reserves(self, point: ExplicitCurvePoint, branch: ExplicitCurveBranch) -> Result<(u128, u128)> {
+    fn effective_reserves(
+        self,
+        point: ConcentratedCurvePoint,
+        branch: ConcentratedCurveBranch,
+    ) -> Result<(u128, u128)> {
         if self.is_nested() {
             return self.nested_effective_reserves(point, nested_region_from_branch(branch));
         }
         let pair = match branch {
-            ExplicitCurveBranch::LowerTail => (
+            ConcentratedCurveBranch::LowerTail => (
                 point
                     .base_reserve
                     .checked_sub(self.lower_tail_base_inventory)
                     .ok_or(ErrorCode::BrokenInvariant)?,
                 point.quote_reserve,
             ),
-            ExplicitCurveBranch::Inner => (
+            ConcentratedCurveBranch::Inner => (
                 point
                     .base_reserve
                     .checked_add(self.inner_base_amplification_offset)
@@ -1386,14 +1394,14 @@ impl ExplicitCurveGeometry {
                     .checked_add(self.inner_quote_amplification_offset)
                     .ok_or(ErrorCode::InvariantOverflow)?,
             ),
-            ExplicitCurveBranch::UpperTail => (
+            ConcentratedCurveBranch::UpperTail => (
                 point.base_reserve,
                 point
                     .quote_reserve
                     .checked_sub(self.upper_tail_quote_inventory)
                     .ok_or(ErrorCode::BrokenInvariant)?,
             ),
-            ExplicitCurveBranch::LowerShoulder | ExplicitCurveBranch::UpperShoulder => {
+            ConcentratedCurveBranch::LowerShoulder | ConcentratedCurveBranch::UpperShoulder => {
                 return err!(ErrorCode::BrokenInvariant)
             }
         };
@@ -1403,21 +1411,21 @@ impl ExplicitCurveGeometry {
 
     fn next_boundary(
         self,
-        point: ExplicitCurvePoint,
-        branch: ExplicitCurveBranch,
-        direction: ExplicitCurveDirection,
-    ) -> Option<ExplicitCurvePoint> {
+        point: ConcentratedCurvePoint,
+        branch: ConcentratedCurveBranch,
+        direction: ConcentratedCurveDirection,
+    ) -> Option<ConcentratedCurvePoint> {
         if self.is_nested() {
             let region = nested_region_from_branch(branch);
             return match direction {
-                ExplicitCurveDirection::BaseToQuote => {
+                ConcentratedCurveDirection::BaseToQuote => {
                     if region < self.nested_boundary_count as usize {
                         Some(self.nested_boundaries[region])
                     } else {
                         None
                     }
                 }
-                ExplicitCurveDirection::QuoteToBase => {
+                ConcentratedCurveDirection::QuoteToBase => {
                     if region > 0 {
                         Some(self.nested_boundaries[region - 1])
                     } else {
@@ -1430,11 +1438,11 @@ impl ExplicitCurveGeometry {
             return None;
         }
         match (direction, branch) {
-            (ExplicitCurveDirection::BaseToQuote, ExplicitCurveBranch::UpperTail) => Some(self.upper_boundary),
-            (ExplicitCurveDirection::BaseToQuote, ExplicitCurveBranch::Inner) => Some(self.lower_boundary),
-            (ExplicitCurveDirection::QuoteToBase, ExplicitCurveBranch::LowerTail) => Some(self.lower_boundary),
-            (ExplicitCurveDirection::QuoteToBase, ExplicitCurveBranch::Inner) => Some(self.upper_boundary),
-            (_, ExplicitCurveBranch::LowerShoulder | ExplicitCurveBranch::UpperShoulder) => None,
+            (ConcentratedCurveDirection::BaseToQuote, ConcentratedCurveBranch::UpperTail) => Some(self.upper_boundary),
+            (ConcentratedCurveDirection::BaseToQuote, ConcentratedCurveBranch::Inner) => Some(self.lower_boundary),
+            (ConcentratedCurveDirection::QuoteToBase, ConcentratedCurveBranch::LowerTail) => Some(self.lower_boundary),
+            (ConcentratedCurveDirection::QuoteToBase, ConcentratedCurveBranch::Inner) => Some(self.upper_boundary),
+            (_, ConcentratedCurveBranch::LowerShoulder | ConcentratedCurveBranch::UpperShoulder) => None,
             _ => {
                 let _ = point;
                 None
@@ -1444,21 +1452,21 @@ impl ExplicitCurveGeometry {
 
     pub(crate) fn quote_exact_in(
         self,
-        start: ExplicitCurvePoint,
+        start: ConcentratedCurvePoint,
         amount_in: u128,
-        direction: ExplicitCurveDirection,
-    ) -> Result<ExplicitCurveQuote> {
+        direction: ConcentratedCurveDirection,
+    ) -> Result<ConcentratedCurveQuote> {
         self.validate()?;
         self.quote_exact_in_prevalidated(start, amount_in, direction)
     }
 
-    /// Hot-path variant for geometry loaded from `ExplicitCurveCache`.
+    /// Hot-path variant for geometry loaded from `ConcentratedCurveCache`.
     pub(crate) fn quote_exact_in_prevalidated(
         self,
-        start: ExplicitCurvePoint,
+        start: ConcentratedCurvePoint,
         amount_in: u128,
-        direction: ExplicitCurveDirection,
-    ) -> Result<ExplicitCurveQuote> {
+        direction: ConcentratedCurveDirection,
+    ) -> Result<ConcentratedCurveQuote> {
         require!(
             start.base_reserve > 0 && start.quote_reserve > 0,
             ErrorCode::InsufficientLiquidity
@@ -1474,8 +1482,8 @@ impl ExplicitCurveGeometry {
             let branch = self.branch_for_direction(point, direction);
             let boundary = self.next_boundary(point, branch, direction);
             let input_to_boundary = boundary.map(|target| match direction {
-                ExplicitCurveDirection::BaseToQuote => target.base_reserve.saturating_sub(point.base_reserve),
-                ExplicitCurveDirection::QuoteToBase => target.quote_reserve.saturating_sub(point.quote_reserve),
+                ConcentratedCurveDirection::BaseToQuote => target.base_reserve.saturating_sub(point.base_reserve),
+                ConcentratedCurveDirection::QuoteToBase => target.quote_reserve.saturating_sub(point.quote_reserve),
             });
 
             if let (Some(target), Some(to_boundary)) = (boundary, input_to_boundary) {
@@ -1488,22 +1496,22 @@ impl ExplicitCurveGeometry {
                     // silently give that dust away.
                     let (effective_base, effective_quote) = self.effective_reserves(point, branch)?;
                     let boundary_out = match direction {
-                        ExplicitCurveDirection::BaseToQuote => {
+                        ConcentratedCurveDirection::BaseToQuote => {
                             cpmm_amount_out_nad(effective_base, effective_quote, to_boundary)?
                         }
-                        ExplicitCurveDirection::QuoteToBase => {
+                        ConcentratedCurveDirection::QuoteToBase => {
                             cpmm_amount_out_nad(effective_quote, effective_base, to_boundary)?
                         }
                     };
                     match direction {
-                        ExplicitCurveDirection::BaseToQuote => {
+                        ConcentratedCurveDirection::BaseToQuote => {
                             point.base_reserve = target.base_reserve;
                             point.quote_reserve = point
                                 .quote_reserve
                                 .checked_sub(boundary_out)
                                 .ok_or(ErrorCode::InsufficientLiquidity)?;
                         }
-                        ExplicitCurveDirection::QuoteToBase => {
+                        ConcentratedCurveDirection::QuoteToBase => {
                             point.quote_reserve = target.quote_reserve;
                             point.base_reserve = point
                                 .base_reserve
@@ -1517,7 +1525,7 @@ impl ExplicitCurveGeometry {
                         .ok_or(ErrorCode::OutputAmountOverflow)?;
                     crossings = crossings.checked_add(1).ok_or(ErrorCode::BrokenInvariant)?;
                     if remaining == 0 {
-                        return Ok(ExplicitCurveQuote {
+                        return Ok(ConcentratedCurveQuote {
                             amount_in,
                             amount_out: total_out,
                             end: point,
@@ -1531,12 +1539,16 @@ impl ExplicitCurveGeometry {
 
             let (effective_base, effective_quote) = self.effective_reserves(point, branch)?;
             let output = match direction {
-                ExplicitCurveDirection::BaseToQuote => cpmm_amount_out_nad(effective_base, effective_quote, remaining)?,
-                ExplicitCurveDirection::QuoteToBase => cpmm_amount_out_nad(effective_quote, effective_base, remaining)?,
+                ConcentratedCurveDirection::BaseToQuote => {
+                    cpmm_amount_out_nad(effective_base, effective_quote, remaining)?
+                }
+                ConcentratedCurveDirection::QuoteToBase => {
+                    cpmm_amount_out_nad(effective_quote, effective_base, remaining)?
+                }
             };
             require!(output > 0, ErrorCode::InsufficientOutputAmount);
             match direction {
-                ExplicitCurveDirection::BaseToQuote => {
+                ConcentratedCurveDirection::BaseToQuote => {
                     point.base_reserve = point
                         .base_reserve
                         .checked_add(remaining)
@@ -1546,7 +1558,7 @@ impl ExplicitCurveGeometry {
                         .checked_sub(output)
                         .ok_or(ErrorCode::InsufficientLiquidity)?;
                 }
-                ExplicitCurveDirection::QuoteToBase => {
+                ConcentratedCurveDirection::QuoteToBase => {
                     point.quote_reserve = point
                         .quote_reserve
                         .checked_add(remaining)
@@ -1558,7 +1570,7 @@ impl ExplicitCurveGeometry {
                 }
             }
             total_out = total_out.checked_add(output).ok_or(ErrorCode::OutputAmountOverflow)?;
-            return Ok(ExplicitCurveQuote {
+            return Ok(ConcentratedCurveQuote {
                 amount_in,
                 amount_out: total_out,
                 end: point,
@@ -1571,10 +1583,10 @@ impl ExplicitCurveGeometry {
 
     pub(crate) fn quote_exact_out(
         self,
-        start: ExplicitCurvePoint,
+        start: ConcentratedCurvePoint,
         amount_out: u128,
-        direction: ExplicitCurveDirection,
-    ) -> Result<ExplicitCurveQuote> {
+        direction: ConcentratedCurveDirection,
+    ) -> Result<ConcentratedCurveQuote> {
         self.validate()?;
         require!(
             start.base_reserve > 0 && start.quote_reserve > 0,
@@ -1592,18 +1604,18 @@ impl ExplicitCurveGeometry {
             let boundary = self.next_boundary(point, branch, direction);
             let boundary_segment = if let Some(target) = boundary {
                 let input = match direction {
-                    ExplicitCurveDirection::BaseToQuote => target.base_reserve.saturating_sub(point.base_reserve),
-                    ExplicitCurveDirection::QuoteToBase => target.quote_reserve.saturating_sub(point.quote_reserve),
+                    ConcentratedCurveDirection::BaseToQuote => target.base_reserve.saturating_sub(point.base_reserve),
+                    ConcentratedCurveDirection::QuoteToBase => target.quote_reserve.saturating_sub(point.quote_reserve),
                 };
                 if input == 0 {
                     None
                 } else {
                     let (effective_base, effective_quote) = self.effective_reserves(point, branch)?;
                     let output = match direction {
-                        ExplicitCurveDirection::BaseToQuote => {
+                        ConcentratedCurveDirection::BaseToQuote => {
                             cpmm_amount_out_nad(effective_base, effective_quote, input)?
                         }
-                        ExplicitCurveDirection::QuoteToBase => {
+                        ConcentratedCurveDirection::QuoteToBase => {
                             cpmm_amount_out_nad(effective_quote, effective_base, input)?
                         }
                     };
@@ -1616,14 +1628,14 @@ impl ExplicitCurveGeometry {
             if let Some((target, boundary_in, boundary_out)) = boundary_segment {
                 if remaining >= boundary_out {
                     match direction {
-                        ExplicitCurveDirection::BaseToQuote => {
+                        ConcentratedCurveDirection::BaseToQuote => {
                             point.base_reserve = target.base_reserve;
                             point.quote_reserve = point
                                 .quote_reserve
                                 .checked_sub(boundary_out)
                                 .ok_or(ErrorCode::InsufficientLiquidity)?;
                         }
-                        ExplicitCurveDirection::QuoteToBase => {
+                        ConcentratedCurveDirection::QuoteToBase => {
                             point.quote_reserve = target.quote_reserve;
                             point.base_reserve = point
                                 .base_reserve
@@ -1637,7 +1649,7 @@ impl ExplicitCurveGeometry {
                         .ok_or(ErrorCode::OutputAmountOverflow)?;
                     crossings = crossings.checked_add(1).ok_or(ErrorCode::BrokenInvariant)?;
                     if remaining == 0 {
-                        return Ok(ExplicitCurveQuote {
+                        return Ok(ConcentratedCurveQuote {
                             amount_in: total_in,
                             amount_out,
                             end: point,
@@ -1651,12 +1663,16 @@ impl ExplicitCurveGeometry {
 
             let (effective_base, effective_quote) = self.effective_reserves(point, branch)?;
             let input = match direction {
-                ExplicitCurveDirection::BaseToQuote => cpmm_amount_in_nad(effective_base, effective_quote, remaining)?,
-                ExplicitCurveDirection::QuoteToBase => cpmm_amount_in_nad(effective_quote, effective_base, remaining)?,
+                ConcentratedCurveDirection::BaseToQuote => {
+                    cpmm_amount_in_nad(effective_base, effective_quote, remaining)?
+                }
+                ConcentratedCurveDirection::QuoteToBase => {
+                    cpmm_amount_in_nad(effective_quote, effective_base, remaining)?
+                }
             };
             require!(input > 0, ErrorCode::InsufficientOutputAmount);
             match direction {
-                ExplicitCurveDirection::BaseToQuote => {
+                ConcentratedCurveDirection::BaseToQuote => {
                     point.base_reserve = point
                         .base_reserve
                         .checked_add(input)
@@ -1666,7 +1682,7 @@ impl ExplicitCurveGeometry {
                         .checked_sub(remaining)
                         .ok_or(ErrorCode::InsufficientLiquidity)?;
                 }
-                ExplicitCurveDirection::QuoteToBase => {
+                ConcentratedCurveDirection::QuoteToBase => {
                     point.quote_reserve = point
                         .quote_reserve
                         .checked_add(input)
@@ -1678,7 +1694,7 @@ impl ExplicitCurveGeometry {
                 }
             }
             total_in = total_in.checked_add(input).ok_or(ErrorCode::OutputAmountOverflow)?;
-            return Ok(ExplicitCurveQuote {
+            return Ok(ConcentratedCurveQuote {
                 amount_in: total_in,
                 amount_out,
                 end: point,
@@ -1698,5 +1714,5 @@ fn products_rounding_compatible(a: u128, b: u128, c: u128, d: u128) -> Result<bo
 
 #[cfg(test)]
 mod tests {
-    include!("../../tests/math/explicit_curve.rs");
+    include!("../../tests/math/concentrated.rs");
 }

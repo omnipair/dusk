@@ -240,7 +240,7 @@ pub struct PreviewAmm {
     pub fade_width_bps: u16,
     pub lower_range_price_nad: u64,
     pub upper_range_price_nad: u64,
-    pub explicit_curve_branch: u8,
+    pub concentrated_curve_branch: u8,
     pub ordinary_base_reserve_nad: u128,
     pub ordinary_quote_reserve_nad: u128,
 }
@@ -315,12 +315,12 @@ pub struct SwapPreview {
     pub retention_required_nad: u128,
     pub retention_stop_nad: u128,
     pub retention_hard_cap_nad: u128,
-    /// Explicit range metadata. Zeroes denote the legacy curve during the
+    /// Concentrated range metadata. Zeroes denote the legacy curve during the
     /// temporary caller migration.
     pub lower_range_price_nad: u64,
     pub upper_range_price_nad: u64,
     /// 0=lower tail, 1=concentrated band, 2=upper tail.
-    pub explicit_curve_branch: u8,
+    pub concentrated_curve_branch: u8,
     pub ordinary_base_reserve_nad: u128,
     pub ordinary_quote_reserve_nad: u128,
     pub final_spot_price_nad: u64,
@@ -404,12 +404,12 @@ impl<'info> PreviewMarket<'info> {
         let slot = clock.slot;
         let amm = {
             let state = &market.amm;
-            let explicit_parameters = market.config.amm.explicit_curve_parameters()?;
+            let concentrated_parameters = market.config.amm.concentrated_curve_parameters()?;
             let (executable_base_reserve, executable_quote_reserve, curve_depth_nad) = if state.initialized {
                 let curve_depth_nad = state
-                    .explicit_curve_cache
+                    .concentrated_curve_cache
                     .tail_liquidity
-                    .checked_add(state.explicit_curve_cache.concentrated_liquidity)
+                    .checked_add(state.concentrated_curve_cache.concentrated_liquidity)
                     .ok_or(ErrorCode::InvariantOverflow)?;
                 (
                     market.curve_reserve(MarketAsset::Base)?,
@@ -419,15 +419,15 @@ impl<'info> PreviewMarket<'info> {
             } else {
                 (0, 0, 0)
             };
-            let explicit_metadata = if state.initialized {
-                let geometry = state.explicit_curve_cache.geometry()?;
+            let concentrated_metadata = if state.initialized {
+                let geometry = state.concentrated_curve_cache.geometry()?;
                 let ordinary = market.integrated_curve_state_nad()?;
                 let (lower, upper) = geometry.range_prices_nad()?.unwrap_or((0, 0));
                 (
                     u64::try_from(lower).map_err(|_| ErrorCode::MarketMathOverflow)?,
                     u64::try_from(upper).map_err(|_| ErrorCode::MarketMathOverflow)?,
                     geometry
-                        .branch(crate::math::ExplicitCurvePoint {
+                        .branch(crate::math::ConcentratedCurvePoint {
                             base_reserve: ordinary.ordinary_base,
                             quote_reserve: ordinary.ordinary_quote,
                         })
@@ -466,14 +466,14 @@ impl<'info> PreviewMarket<'info> {
                 retention_target_stale: state.retention_target_stale,
                 protected_recenter_base_reserve: market.base_side.reserves.protected_recenter_reserve,
                 protected_recenter_quote_reserve: market.quote_side.reserves.protected_recenter_reserve,
-                peak_amplification_nad: explicit_parameters.peak_amplification_nad,
-                core_half_width_bps: explicit_parameters.core_half_width_bps,
-                fade_width_bps: explicit_parameters.fade_width_bps,
-                lower_range_price_nad: explicit_metadata.0,
-                upper_range_price_nad: explicit_metadata.1,
-                explicit_curve_branch: explicit_metadata.2,
-                ordinary_base_reserve_nad: explicit_metadata.3,
-                ordinary_quote_reserve_nad: explicit_metadata.4,
+                peak_amplification_nad: concentrated_parameters.peak_amplification_nad,
+                core_half_width_bps: concentrated_parameters.core_half_width_bps,
+                fade_width_bps: concentrated_parameters.fade_width_bps,
+                lower_range_price_nad: concentrated_metadata.0,
+                upper_range_price_nad: concentrated_metadata.1,
+                concentrated_curve_branch: concentrated_metadata.2,
+                ordinary_base_reserve_nad: concentrated_metadata.3,
+                ordinary_quote_reserve_nad: concentrated_metadata.4,
             }
         };
         Ok(MarketPreview {
@@ -617,8 +617,8 @@ impl<'info> PreviewSwap<'info> {
         .prepare(quote_market)?;
         debug_log_heap(2);
         let quote = prepared.quote;
-        let explicit_debt_deltas = prepared
-            .explicit_transition
+        let concentrated_debt_deltas = prepared
+            .concentrated_transition
             .as_deref()
             .map(|transition| transition.debt_deltas())
             .unwrap_or((0, 0));
@@ -637,14 +637,14 @@ impl<'info> PreviewSwap<'info> {
         debug_log_heap(3);
         let projected_protected_profit_per_share_nad = quote_market.amm.spendable_protected_profit_nad();
         let market: &Market = quote_market;
-        let explicit_metadata = if let Some(geometry) = market.current_explicit_curve_geometry()? {
+        let concentrated_metadata = if let Some(geometry) = market.current_concentrated_curve_geometry()? {
             let ordinary = market.integrated_curve_state_nad()?;
             let (lower, upper) = geometry.range_prices_nad()?.unwrap_or((0, 0));
             (
                 u64::try_from(lower).map_err(|_| ErrorCode::MarketMathOverflow)?,
                 u64::try_from(upper).map_err(|_| ErrorCode::MarketMathOverflow)?,
                 geometry
-                    .branch(crate::math::ExplicitCurvePoint {
+                    .branch(crate::math::ConcentratedCurvePoint {
                         base_reserve: ordinary.ordinary_base,
                         quote_reserve: ordinary.ordinary_quote,
                     })
@@ -652,7 +652,7 @@ impl<'info> PreviewSwap<'info> {
                 ordinary.ordinary_base,
                 ordinary.ordinary_quote,
                 market
-                    .current_explicit_spot_price_nad()?
+                    .current_concentrated_spot_price_nad()?
                     .ok_or(ErrorCode::BrokenInvariant)?,
             )
         } else {
@@ -705,14 +705,14 @@ impl<'info> PreviewSwap<'info> {
             retention_required_nad: market.amm.retention_required_nad,
             retention_stop_nad: market.amm.retention_stop_nad,
             retention_hard_cap_nad: market.amm.retention_hard_cap_nad,
-            lower_range_price_nad: explicit_metadata.0,
-            upper_range_price_nad: explicit_metadata.1,
-            explicit_curve_branch: explicit_metadata.2,
-            ordinary_base_reserve_nad: explicit_metadata.3,
-            ordinary_quote_reserve_nad: explicit_metadata.4,
-            final_spot_price_nad: explicit_metadata.5,
-            base_hlp_quote_debt_delta: explicit_debt_deltas.0,
-            quote_hlp_base_debt_delta: explicit_debt_deltas.1,
+            lower_range_price_nad: concentrated_metadata.0,
+            upper_range_price_nad: concentrated_metadata.1,
+            concentrated_curve_branch: concentrated_metadata.2,
+            ordinary_base_reserve_nad: concentrated_metadata.3,
+            ordinary_quote_reserve_nad: concentrated_metadata.4,
+            final_spot_price_nad: concentrated_metadata.5,
+            base_hlp_quote_debt_delta: concentrated_debt_deltas.0,
+            quote_hlp_base_debt_delta: concentrated_debt_deltas.1,
             hlp_recovery_target_asset: quote.recovery.target_asset,
             hlp_recovery_funding_gap: quote.recovery.funding_gap,
             hlp_recovery_matched_input: quote.recovery.matched_input,
@@ -911,7 +911,7 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
         ylp_exchange_rate_nad: side.ylp_exchange_rate_nad()?,
         spot_price_nad: {
             let base_price = market
-                .current_explicit_spot_price_nad()?
+                .current_concentrated_spot_price_nad()?
                 .ok_or(ErrorCode::BrokenInvariant)?;
             match asset {
                 MarketAsset::Base => base_price,

@@ -597,7 +597,7 @@ fn borrowing_uses_only_full_range_tail_of_concentrated_market() {
 
     let collateral_amount = 100_000;
     let collateral_amount_nad = collateral_amount as u128 * NAD as u128;
-    let cache = market.amm.explicit_curve_cache;
+    let cache = market.amm.concentrated_curve_cache;
     let current_depth = cache.tail_liquidity + cache.concentrated_liquidity;
     let risk = Risk {
         base_price_ema_nad: NAD,
@@ -611,13 +611,13 @@ fn borrowing_uses_only_full_range_tail_of_concentrated_market() {
     let borrow_value = market
         .collateral_value_nad(MarketAsset::Base, collateral_amount, &risk)
         .unwrap();
-    let cpmm = ExplicitCurveGeometry::cpmm();
+    let cpmm = ConcentratedCurveGeometry::cpmm();
     let cpmm_point = cpmm.point_at_price_nad(NAD as u128, cache.tail_liquidity).unwrap();
     let tail_only_value = cpmm
         .quote_exact_in(
             cpmm_point,
             collateral_amount_nad,
-            ExplicitCurveDirection::BaseToQuote,
+            ConcentratedCurveDirection::BaseToQuote,
         )
         .unwrap()
         .amount_out;
@@ -627,7 +627,7 @@ fn borrowing_uses_only_full_range_tail_of_concentrated_market() {
         .quote_exact_in(
             concentrated_point,
             collateral_amount_nad,
-            ExplicitCurveDirection::BaseToQuote,
+            ConcentratedCurveDirection::BaseToQuote,
         )
         .unwrap()
         .amount_out;
@@ -1011,9 +1011,9 @@ proptest! {
         let mut market = invariant_market(base, quote);
         let spot_q = market
             .amm
-            .explicit_curve_cache
+            .concentrated_curve_cache
             .tail_liquidity
-            .checked_add(market.amm.explicit_curve_cache.concentrated_liquidity)
+            .checked_add(market.amm.concentrated_curve_cache.concentrated_liquidity)
             .unwrap();
         market.risk.curve_depth_ema_nad = (spot_q / BPS_DENOMINATOR as u128)
             .checked_mul(depth_scale_bps)
@@ -1209,7 +1209,7 @@ fn fee_compounding_rate_is_governed_from_zero_through_one_hundred_percent() {
 }
 
 #[test]
-fn concentration_execution_reconstructs_the_selected_explicit_shape() {
+fn concentration_execution_reconstructs_the_selected_shape() {
     let mut market = invariant_market(1_000_000, 1_000_000);
     market.finalize_amm_transition_and_observe_risk(1).unwrap();
     market
@@ -1226,7 +1226,7 @@ fn concentration_execution_reconstructs_the_selected_explicit_shape() {
     assert_eq!(market.config.amm.peak_amplification_nad, 4 * NAD);
     assert_eq!(market.config.amm.core_half_width_bps, 100);
     assert_eq!(market.config.amm.fade_width_bps, 400);
-    assert_eq!(market.amm.explicit_curve_cache.peak_amplification_nad, 4 * NAD);
+    assert_eq!(market.amm.concentrated_curve_cache.peak_amplification_nad, 4 * NAD);
     assert_eq!(market.parameter_revisions, [0, 1, 0, 0, 0, 0, 0]);
 }
 
@@ -1253,7 +1253,7 @@ fn active_or_residual_hlp_allows_an_atomic_concentration_update() {
         },
     ] {
         market.execute_parameter_update(&update, 1).unwrap();
-        assert_eq!(market.amm.explicit_curve_cache.peak_amplification_nad, 4 * NAD);
+        assert_eq!(market.amm.concentrated_curve_cache.peak_amplification_nad, 4 * NAD);
     }
 }
 

@@ -1,4 +1,4 @@
-# Explicit Concentrated AMM
+# Concentrated AMM
 
 ## Product contract
 
@@ -46,7 +46,7 @@ closed-form segments.
 1. Advance any previously deferred, protected center target.
 2. Preview the gross closed-form path only to measure toxicity.
 3. Freeze base, volatility, and distance fees.
-4. Quote the net input once on the explicit curve.
+4. Quote the net input once on the concentrated curve.
 5. Reconstruct both hLP positions algebraically at the quoted endpoint.
 6. Commit cash, live reserves, yLP shares, debt, fee/yield checkpoints, and the
    trade observation once.
@@ -178,7 +178,7 @@ drawn automatically, any remainder is socialized, and excess debt-asset output
 is returned to the owner.
 
 Proportional yLP changes scale every liquidity tranche. A protected center
-change reconstructs the explicit state through the same positive closed-form
+change reconstructs the concentrated state through the same positive closed-form
 constructor after deploying its locked bucket; ordinary withdrawals cannot
 deploy or redeem that bucket.
 

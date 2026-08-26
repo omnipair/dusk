@@ -724,7 +724,7 @@ fn auction_floor_scales_concentrated_and_tail_depth_together() {
     market.refresh_risk().unwrap();
     borrow_position.base_collateral = 100_000_000;
 
-    let cache = market.amm.explicit_curve_cache;
+    let cache = market.amm.concentrated_curve_cache;
     let current_depth = cache.tail_liquidity + cache.concentrated_liquidity;
     let target_depth = current_depth / 2;
     let shallow_risk = Risk {
@@ -752,7 +752,7 @@ fn auction_floor_scales_concentrated_and_tail_depth_together() {
         .quote_exact_in(
             scaled_point,
             borrow_position.base_collateral as u128 * NAD as u128,
-            ExplicitCurveDirection::BaseToQuote,
+            ConcentratedCurveDirection::BaseToQuote,
         )
         .unwrap()
         .amount_out;
@@ -765,7 +765,7 @@ fn auction_floor_scales_concentrated_and_tail_depth_together() {
         .quote_exact_in(
             old_point,
             borrow_position.base_collateral as u128 * NAD as u128,
-            ExplicitCurveDirection::BaseToQuote,
+            ConcentratedCurveDirection::BaseToQuote,
         )
         .unwrap()
         .amount_out;

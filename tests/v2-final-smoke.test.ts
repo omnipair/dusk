@@ -3021,11 +3021,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(ordinary.quote_hlp_vault.hlp_supply.isZero()).to.equal(true);
     expect(ordinary.base_hlp_vault.residual_exposure.isZero()).to.equal(true);
     expect(ordinary.quote_hlp_vault.residual_exposure.isZero()).to.equal(true);
-    expect(ordinary.amm.explicit_curve_cache.peak_amplification_nad.toString()).to.equal(
+    expect(ordinary.amm.concentrated_curve_cache.peak_amplification_nad.toString()).to.equal(
       "1000000000"
     );
-    expect(ordinary.amm.explicit_curve_cache.core_half_width_bps).to.equal(0);
-    expect(ordinary.amm.explicit_curve_cache.fade_width_bps).to.equal(0);
+    expect(ordinary.amm.concentrated_curve_cache.core_half_width_bps).to.equal(0);
+    expect(ordinary.amm.concentrated_curve_cache.fade_width_bps).to.equal(0);
     expect(ordinary.config.amm.adjustment_step_nad.isZero()).to.equal(true);
     expect(ordinary.amm.deferred_controller_target.kind).to.equal(0);
     expect(ordinary.amm.last_observation_slot.toString()).to.equal(sameSlot.toString());
@@ -3140,11 +3140,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
     const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
-    expect(decoded.amm.explicit_curve_cache.peak_amplification_nad.toString()).to.equal(
+    expect(decoded.amm.concentrated_curve_cache.peak_amplification_nad.toString()).to.equal(
       config.amm.peakAmplificationNad.toString()
     );
-    expect(decoded.amm.explicit_curve_cache.core_half_width_bps).to.equal(config.amm.coreHalfWidthBps);
-    expect(decoded.amm.explicit_curve_cache.fade_width_bps).to.equal(config.amm.fadeWidthBps);
+    expect(decoded.amm.concentrated_curve_cache.core_half_width_bps).to.equal(config.amm.coreHalfWidthBps);
+    expect(decoded.amm.concentrated_curve_cache.fade_width_bps).to.equal(config.amm.fadeWidthBps);
   });
 
   it("measures concentrated transition and shifted-CPMM tail swap paths", async function () {
@@ -3389,7 +3389,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const retainedGrossInput = grossInput - 1n;
 
     // Nine-decimal mints keep each normalized common-coordinate reserve
-    // inside the explicit u64/Q48 concentrated domain while the reserve
+    // inside the bounded u64/Q48 concentrated domain while the reserve
     // product still exceeds u128, exercising the intended wide-product path.
     const distributed = await addBalancedLiquidity(81, concentratedConfig, amounts, 9);
     const distributedPreview = decodePreviewSwapReturnData(
@@ -3935,7 +3935,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
             .transaction()
         )
       ) as any;
-      expect(marketPreview.amm.explicitCurveBranch).to.equal(1);
+      expect(marketPreview.amm.concentratedCurveBranch).to.equal(1);
 
       const interestCheckpointBefore = [
         marketBefore.base_hlp_vault.base_interest_growth_index_q64,

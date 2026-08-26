@@ -9679,7 +9679,7 @@ export type Dusk = {
       "name": "ammConfig",
       "docs": [
         "AMM controls. One-times peak amplification with zero widths selects the",
-        "full-range CPMM branch of the same explicit implementation."
+        "full-range CPMM branch of the same concentrated implementation."
       ],
       "type": {
         "kind": "struct",
@@ -9824,7 +9824,7 @@ export type Dusk = {
     {
       "name": "ammState",
       "docs": [
-        "Embedded mutable state for the explicit curve, internal signals, and",
+        "Embedded mutable state for the concentrated curve, internal signals, and",
         "protected recenter liquidity."
       ],
       "type": {
@@ -9835,14 +9835,14 @@ export type Dusk = {
             "type": "bool"
           },
           {
-            "name": "explicitCurveCache",
+            "name": "concentratedCurveCache",
             "docs": [
-              "Explicit CPMM-tail/band geometry. CPMM is represented by zero",
+              "Concentrated CPMM-tail/band geometry. CPMM is represented by zero",
               "concentrated liquidity in this same cache."
             ],
             "type": {
               "defined": {
-                "name": "explicitCurveCache"
+                "name": "concentratedCurveCache"
               }
             }
           },
@@ -10377,6 +10377,54 @@ export type Dusk = {
       }
     },
     {
+      "name": "concentratedCurveCache",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mathRevision",
+            "type": "u8"
+          },
+          {
+            "name": "peakAmplificationNad",
+            "type": "u64"
+          },
+          {
+            "name": "coreHalfWidthBps",
+            "type": "u16"
+          },
+          {
+            "name": "fadeWidthBps",
+            "type": "u16"
+          },
+          {
+            "name": "tailLiquidity",
+            "type": "u128"
+          },
+          {
+            "name": "concentratedLiquidity",
+            "type": "u128"
+          },
+          {
+            "name": "coreLowerSqrtPriceNad",
+            "type": "u128"
+          },
+          {
+            "name": "coreUpperSqrtPriceNad",
+            "type": "u128"
+          },
+          {
+            "name": "outerLowerSqrtPriceNad",
+            "type": "u128"
+          },
+          {
+            "name": "outerUpperSqrtPriceNad",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
       "name": "configureReferralPartnerArgs",
       "type": {
         "kind": "struct",
@@ -10705,54 +10753,6 @@ export type Dusk = {
           {
             "name": "minHlpAmount",
             "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "explicitCurveCache",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "mathRevision",
-            "type": "u8"
-          },
-          {
-            "name": "peakAmplificationNad",
-            "type": "u64"
-          },
-          {
-            "name": "coreHalfWidthBps",
-            "type": "u16"
-          },
-          {
-            "name": "fadeWidthBps",
-            "type": "u16"
-          },
-          {
-            "name": "tailLiquidity",
-            "type": "u128"
-          },
-          {
-            "name": "concentratedLiquidity",
-            "type": "u128"
-          },
-          {
-            "name": "coreLowerSqrtPriceNad",
-            "type": "u128"
-          },
-          {
-            "name": "coreUpperSqrtPriceNad",
-            "type": "u128"
-          },
-          {
-            "name": "outerLowerSqrtPriceNad",
-            "type": "u128"
-          },
-          {
-            "name": "outerUpperSqrtPriceNad",
-            "type": "u128"
           }
         ]
       }
@@ -13893,7 +13893,7 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "explicitCurveBranch",
+            "name": "concentratedCurveBranch",
             "type": "u8"
           },
           {
@@ -15440,7 +15440,7 @@ export type Dusk = {
           {
             "name": "lowerRangePriceNad",
             "docs": [
-              "Explicit range metadata. Zeroes denote the legacy curve during the",
+              "Concentrated range metadata. Zeroes denote the legacy curve during the",
               "temporary caller migration."
             ],
             "type": "u64"
@@ -15450,7 +15450,7 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "explicitCurveBranch",
+            "name": "concentratedCurveBranch",
             "docs": [
               "0=lower tail, 1=concentrated band, 2=upper tail."
             ],

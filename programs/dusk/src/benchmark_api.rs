@@ -1837,9 +1837,9 @@ impl BenchmarkMarket {
     pub fn curve_snapshot(&self) -> Result<BenchmarkCurveSnapshot> {
         let spot_price_nad = self
             .market
-            .current_explicit_spot_price_nad()?
+            .current_concentrated_spot_price_nad()?
             .ok_or(ErrorCode::InsufficientLiquidity)?;
-        let cache = self.market.amm.explicit_curve_cache;
+        let cache = self.market.amm.concentrated_curve_cache;
         Ok(BenchmarkCurveSnapshot {
             base_curve_reserve: self.market.curve_reserve(MarketAsset::Base)?,
             quote_curve_reserve: self.market.curve_reserve(MarketAsset::Quote)?,
@@ -4386,7 +4386,7 @@ fn prepare_benchmark_leverage_swap(
         fee_eligible_ylp_supply,
         interest_eligibility,
         cash_policy,
-        explicit_transition,
+        concentrated_transition,
     } = request.prepare_with_cash_policy(market, cash_policy)?;
     market.observe_current_risk(current_slot)?;
     Ok(PreparedLeverageSwap {
@@ -4396,7 +4396,7 @@ fn prepare_benchmark_leverage_swap(
         fee_eligible_ylp_supply,
         interest_eligibility,
         cash_policy,
-        explicit_transition,
+        concentrated_transition,
     })
 }
 

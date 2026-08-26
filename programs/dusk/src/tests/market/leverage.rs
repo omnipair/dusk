@@ -3,7 +3,7 @@ use crate::{
     constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, MARKET_LAYOUT_VERSION, MIN_HALF_LIFE_MS, NAD},
     instructions::{leverage_entry_limit_satisfied, leverage_entry_price_nad, SwapRequest},
     market::liquidity::SwapCashPolicy,
-    math::ExplicitCurveParameters,
+    math::ConcentratedCurveParameters,
     state::{
         AmmConfig, AmmState, Debt, HlpVault, Insurance, MarketConfig, MarketSide, ProtocolAuctionSplit, ReserveShares,
         Reserves, Risk,
@@ -194,12 +194,12 @@ fn prepared_leverage_swap(
         .preliminary_swap_inputs_for_state(asset_in, swap.amount_in, swap.quoted_slot, pre_state)
         .unwrap();
     let integrated = market
-        .quote_explicit_integrated_with_fee(asset_in, swap.amount_in, preliminary, 0)
+        .quote_concentrated_integrated_with_fee(asset_in, swap.amount_in, preliminary, 0)
         .unwrap()
         .unwrap();
-    let explicit_transition = prepare_explicit_hlp_transition(market, integrated, asset_in).unwrap();
+    let concentrated_transition = prepare_concentrated_hlp_transition(market, integrated, asset_in).unwrap();
     PreparedLeverageSwap {
-        explicit_transition: Some(Box::new(explicit_transition)),
+        concentrated_transition: Some(Box::new(concentrated_transition)),
         swap,
         base_pre_rebalance: HlpRebalanceReceipt::default(),
         quote_pre_rebalance: HlpRebalanceReceipt {
@@ -651,7 +651,7 @@ fn prepare_leverage_swap_with_policy(
     .prepare_with_cash_policy(market, cash_policy)
     .unwrap();
     PreparedLeverageSwap {
-        explicit_transition: prepared.explicit_transition,
+        concentrated_transition: prepared.concentrated_transition,
         swap: LeverageSwapQuote::from_amm(prepared.quote, current_slot),
         base_pre_rebalance: prepared.base_pre_rebalance,
         quote_pre_rebalance: prepared.quote_pre_rebalance,
@@ -743,7 +743,7 @@ fn active_concentrated_hlp_market() -> Market {
     active_concentrated_hlp_market_with_decimals(0)
 }
 
-fn active_explicit_hlp_market_with_decimals(decimals: u8) -> Market {
+fn active_reconfigured_concentrated_hlp_market_with_decimals(decimals: u8) -> Market {
     let mut market = active_concentrated_hlp_market_with_decimals(decimals);
     market.config.amm.peak_amplification_nad = NAD;
     market.config.amm.core_half_width_bps = 0;
@@ -751,7 +751,7 @@ fn active_explicit_hlp_market_with_decimals(decimals: u8) -> Market {
     market
         .config
         .amm
-        .set_explicit_curve_parameters(ExplicitCurveParameters {
+        .set_concentrated_curve_parameters(ConcentratedCurveParameters {
             peak_amplification_nad: 4 * NAD,
             core_half_width_bps: 100,
             fade_width_bps: 400,
@@ -763,7 +763,7 @@ fn active_explicit_hlp_market_with_decimals(decimals: u8) -> Market {
 }
 
 #[test]
-fn explicit_hlp_deposit_rebases_curve_without_legacy_solver() {
+fn concentrated_hlp_deposit_rebases_curve_without_legacy_solver() {
     let scale = 1_000_000;
     let mut market = test_market(1_000_000 * scale, 1_000_000 * scale);
     market.base_side.asset_decimals = 6;
@@ -775,7 +775,7 @@ fn explicit_hlp_deposit_rebases_curve_without_legacy_solver() {
     market
         .config
         .amm
-        .set_explicit_curve_parameters(ExplicitCurveParameters {
+        .set_concentrated_curve_parameters(ConcentratedCurveParameters {
             peak_amplification_nad: 4 * NAD,
             core_half_width_bps: 100,
             fade_width_bps: 400,
@@ -783,19 +783,19 @@ fn explicit_hlp_deposit_rebases_curve_without_legacy_solver() {
         .unwrap();
     market.amm = AmmState::default();
     market.prepare_amm_for_swap(1).unwrap();
-    let before = market.amm.explicit_curve_cache;
+    let before = market.amm.concentrated_curve_cache;
     market
         .deposit_single_sided(MarketAsset::Base, 100_000 * scale, 1)
         .unwrap();
     market.finalize_amm_transition_and_observe_risk(2).unwrap();
-    assert_eq!(market.amm.explicit_curve_cache, before);
+    assert_eq!(market.amm.concentrated_curve_cache, before);
     assert_eq!(market.base_hlp_vault.residual_exposure, 0);
     market.assert_market_invariants().unwrap();
 }
 
 #[test]
-fn explicit_hlp_withdrawal_preserves_integrated_hedge_and_reserve_identity() {
-    let mut market = active_explicit_hlp_market_with_decimals(6);
+fn concentrated_hlp_withdrawal_preserves_integrated_hedge_and_reserve_identity() {
+    let mut market = active_reconfigured_concentrated_hlp_market_with_decimals(6);
     let amount = market.base_hlp_vault.hlp_supply / 10;
     let receipt = market.withdraw_single_sided(MarketAsset::Base, amount).unwrap();
     assert!(receipt.target_amount_out > 0);
@@ -805,8 +805,8 @@ fn explicit_hlp_withdrawal_preserves_integrated_hedge_and_reserve_identity() {
 }
 
 #[test]
-fn explicit_hlp_transition_consumes_accrued_funding_interest_once() {
-    let mut market = active_explicit_hlp_market_with_decimals(6);
+fn concentrated_hlp_transition_consumes_accrued_funding_interest_once() {
+    let mut market = active_reconfigured_concentrated_hlp_market_with_decimals(6);
     market.debt.base_borrow_index_nad = (NAD as u128) * 11 / 10;
     market.debt.quote_borrow_index_nad = (NAD as u128) * 11 / 10;
 
@@ -833,7 +833,7 @@ fn explicit_hlp_transition_consumes_accrued_funding_interest_once() {
     assert!(quote_interest > 3);
     market.assert_market_invariants().unwrap();
 
-    let transition = prepare_explicit_hlp_transition_at_current_state(&market).unwrap();
+    let transition = prepare_concentrated_hlp_transition_at_current_state(&market).unwrap();
     let (base_receipt, quote_receipt) = transition.consume(&mut market).unwrap();
 
     assert_eq!(base_receipt.interest_paid, base_interest);
@@ -849,14 +849,14 @@ fn assert_exact_concentrated_hlp_residual_exposure(market: &Market) {
 }
 
 fn assert_final_leverage_risk_observation(market: &Market, current_slot: u64, revision_before: u64) {
-    let final_price_nad = market.current_explicit_spot_price_nad().unwrap().unwrap();
+    let final_price_nad = market.current_concentrated_spot_price_nad().unwrap().unwrap();
 
     assert_eq!(market.curve_revision, revision_before + 1);
     assert_eq!(market.risk_revision, revision_before);
     assert_eq!(market.risk.last_snapshot_slot, current_slot);
     assert_eq!(market.risk.cached_spot_base_price_nad, final_price_nad);
     assert_eq!(market.last_marginal_observation_nad, final_price_nad);
-    assert!(market.amm.explicit_curve_cache.tail_liquidity > 0);
+    assert!(market.amm.concentrated_curve_cache.tail_liquidity > 0);
 }
 
 #[test]
@@ -1412,8 +1412,8 @@ fn pure_unpaid_interest_writeoff_refreshes_the_stored_curve_checkpoint() {
         .unwrap();
     assert_eq!(receipt.principal_written_off, 0);
     assert!(receipt.interest_paid > 0 && receipt.debt_repaid < 1_000);
-    assert!(market.amm.explicit_curve_cache.tail_liquidity > 0);
-    assert!(market.current_explicit_spot_price_nad().unwrap().is_some());
+    assert!(market.amm.concentrated_curve_cache.tail_liquidity > 0);
+    assert!(market.current_concentrated_spot_price_nad().unwrap().is_some());
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
 }
@@ -1488,9 +1488,9 @@ fn concentrated_open_leverage_checkpoints_active_hlp_exposure() {
 }
 
 #[test]
-fn explicit_open_leverage_uses_integrated_hlp_transition() {
+fn concentrated_open_leverage_uses_integrated_hlp_transition() {
     let scale = 1_000_000;
-    let mut market = active_explicit_hlp_market_with_decimals(6);
+    let mut market = active_reconfigured_concentrated_hlp_market_with_decimals(6);
     let mut position = empty_position();
     let prepared = prepare_leverage_swap_with_policy(
         &mut market,
@@ -1503,7 +1503,6 @@ fn explicit_open_leverage_uses_integrated_hlp_transition() {
         },
     );
     let quote = prepared.swap;
-    assert!(quote.explicit_curve);
     let receipt = market
         .open_leverage(
             &mut position,
@@ -1530,14 +1529,14 @@ fn explicit_open_leverage_uses_integrated_hlp_transition() {
     market.assert_market_invariants().unwrap();
     assert_eq!(
         market.risk.cached_spot_base_price_nad,
-        market.current_explicit_spot_price_nad().unwrap().unwrap()
+        market.current_concentrated_spot_price_nad().unwrap().unwrap()
     );
 }
 
 #[test]
-fn explicit_leverage_liquidation_uses_the_same_integrated_transition() {
+fn concentrated_leverage_liquidation_uses_the_same_integrated_transition() {
     let scale = 1_000_000;
-    let mut market = active_explicit_hlp_market_with_decimals(6);
+    let mut market = active_reconfigured_concentrated_hlp_market_with_decimals(6);
     let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000 * scale, 1_010 * scale);
     let prepared = prepare_leverage_swap_with_policy(
         &mut market,
@@ -1550,7 +1549,6 @@ fn explicit_leverage_liquidation_uses_the_same_integrated_transition() {
             debt_principal: position.debt_principal,
         },
     );
-    assert!(prepared.swap.explicit_curve);
     let fee_credit = full_fee_credit(&prepared.swap);
     let receipt = market
         .liquidate_leverage_position(
@@ -1570,9 +1568,9 @@ fn explicit_leverage_liquidation_uses_the_same_integrated_transition() {
 }
 
 #[test]
-fn explicit_socialized_loss_rebases_curve_then_restores_exact_hlp_hedges() {
+fn concentrated_socialized_loss_rebases_curve_then_restores_exact_hlp_hedges() {
     let scale = 1_000_000;
-    let mut market = active_explicit_hlp_market_with_decimals(6);
+    let mut market = active_reconfigured_concentrated_hlp_market_with_decimals(6);
     let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000 * scale, 100 * scale);
     let revision_before = market.curve_revision;
     let prepared = prepare_leverage_swap_with_policy(
@@ -1604,7 +1602,7 @@ fn explicit_socialized_loss_rebases_curve_then_restores_exact_hlp_hedges() {
     assert_eq!(receipt.quote_hlp_rebalance.residual_exposure, 0);
     assert_eq!(market.base_hlp_vault.residual_exposure, 0);
     assert_eq!(market.quote_hlp_vault.residual_exposure, 0);
-    assert!(market.current_explicit_spot_price_nad().unwrap().is_some());
+    assert!(market.current_concentrated_spot_price_nad().unwrap().is_some());
     market.assert_market_invariants().unwrap();
 }
 
@@ -1892,7 +1890,7 @@ fn leverage_operation_advances_the_controller_before_freezing_its_quote() {
     assert!(market.amm.center_price_nad > center_before);
 
     let admitted_center = market.amm.center_price_nad;
-    let probe_price = market.current_explicit_spot_price_nad().unwrap().unwrap();
+    let probe_price = market.current_concentrated_spot_price_nad().unwrap().unwrap();
     market.finalize_amm_trade(probe_price, probe_price, 2).unwrap();
 
     // The lazy controller runs before the leverage quote. Finalization cannot

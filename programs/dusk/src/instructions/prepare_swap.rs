@@ -7,7 +7,7 @@ use anchor_lang::Discriminator;
 use crate::{
     errors::ErrorCode,
     market::{
-        liquidity::{prepare_explicit_hlp_transition, ExplicitHlpTransition, SwapCashPolicy},
+        liquidity::{prepare_concentrated_hlp_transition, ConcentratedHlpTransition, SwapCashPolicy},
         AmmSwapQuote, HlpRebalanceReceipt, SwapFeeBreakdown,
     },
     state::{HlpYieldEligibility, Market, MarketAsset, ProtocolAuctionSplit},
@@ -98,7 +98,7 @@ pub(crate) struct PreparedSwap {
     pub fee_eligible_ylp_supply: u64,
     pub interest_eligibility: HlpYieldEligibility,
     pub cash_policy: SwapCashPolicy,
-    pub(crate) explicit_transition: Option<Box<ExplicitHlpTransition>>,
+    pub(crate) concentrated_transition: Option<Box<ConcentratedHlpTransition>>,
 }
 
 impl core::fmt::Debug for PreparedSwap {
@@ -111,7 +111,7 @@ impl core::fmt::Debug for PreparedSwap {
             .field("fee_eligible_ylp_supply", &self.fee_eligible_ylp_supply)
             .field("interest_eligibility", &self.interest_eligibility)
             .field("cash_policy", &self.cash_policy)
-            .field("has_explicit_transition", &self.explicit_transition.is_some())
+            .field("has_concentrated_transition", &self.concentrated_transition.is_some())
             .finish()
     }
 }
@@ -134,13 +134,16 @@ impl PreparedSwap {
         protocol_auction_split: ProtocolAuctionSplit,
     ) -> Result<FinalizedSwapState> {
         require!(self.cash_policy == SwapCashPolicy::Spot, ErrorCode::BrokenInvariant);
-        let explicit_transition = self.explicit_transition.as_deref().ok_or(ErrorCode::BrokenInvariant)?;
-        self.finalize_explicit_state(
+        let concentrated_transition = self
+            .concentrated_transition
+            .as_deref()
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        self.finalize_concentrated_state(
             market,
             current_slot,
             protocol_fee_bps,
             protocol_auction_split,
-            explicit_transition,
+            concentrated_transition,
         )
     }
 
@@ -165,23 +168,26 @@ impl PreparedSwap {
             ),
             ErrorCode::BrokenInvariant
         );
-        let explicit_transition = self.explicit_transition.as_deref().ok_or(ErrorCode::BrokenInvariant)?;
-        self.finalize_explicit_state(
+        let concentrated_transition = self
+            .concentrated_transition
+            .as_deref()
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        self.finalize_concentrated_state(
             market,
             current_slot,
             protocol_fee_bps,
             protocol_auction_split,
-            explicit_transition,
+            concentrated_transition,
         )
     }
 
-    fn finalize_explicit_state(
+    fn finalize_concentrated_state(
         &self,
         market: &mut Market,
         current_slot: u64,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
-        transition: &ExplicitHlpTransition,
+        transition: &ConcentratedHlpTransition,
     ) -> Result<FinalizedSwapState> {
         let quote = self.quote;
         let fee_asset = MarketAsset::try_from_code(quote.fee.fee_asset)?;
@@ -275,9 +281,9 @@ impl PreparedSwap {
         )?;
         let curve_depth_nad = market
             .amm
-            .explicit_curve_cache
+            .concentrated_curve_cache
             .tail_liquidity
-            .checked_add(market.amm.explicit_curve_cache.concentrated_liquidity)
+            .checked_add(market.amm.concentrated_curve_cache.concentrated_liquidity)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         // The quote already computed this price from the retained-principal
         // endpoint. The algebraic hLP transition changes only ownership and
@@ -285,7 +291,7 @@ impl PreparedSwap {
         // and revalidating the curve here would be redundant.
         let final_price_nad = quote.reserve_end_price_nad;
         require!(final_price_nad > 0, ErrorCode::InvalidSettlementPrice);
-        market.observe_risk_from_explicit_curve(final_price_nad, curve_depth_nad, current_slot)?;
+        market.observe_risk_from_concentrated_curve(final_price_nad, curve_depth_nad, current_slot)?;
         market.assert_market_invariants()?;
         Ok(FinalizedSwapState {
             base_rebalance,
@@ -319,11 +325,11 @@ impl SwapRequest {
             market.prepare_amm_for_swap(self.current_slot)?;
         }
 
-        // Explicit tail+band markets quote and hedge in one algebraic path.
+        // Concentrated tail+band markets quote and hedge in one algebraic path.
         // Apply at most one center target derived from an earlier observation
         // before freezing this swap's fee/curve state. The observation made by
         // this swap can only schedule a target for a later operation.
-        market.config.amm.explicit_curve_parameters()?;
+        market.config.amm.concentrated_curve_parameters()?;
         market.advance_one_amm_controller_target(self.current_slot)?;
         let pre_state = market.dynamic_fee_pre_state(self.current_slot)?;
         let preliminary = market.preliminary_swap_inputs_for_state_at_time(
@@ -334,8 +340,8 @@ impl SwapRequest {
             pre_state,
         )?;
         let integrated_start = market.integrated_curve_state_nad()?;
-        let mut explicit = market
-            .quote_explicit_integrated_with_fee_from_state(
+        let mut concentrated = market
+            .quote_concentrated_integrated_with_fee_from_state(
                 self.asset_in,
                 self.reserve_credit,
                 preliminary,
@@ -344,21 +350,21 @@ impl SwapRequest {
             )?
             .ok_or(ErrorCode::BrokenInvariant)?;
         if cash_policy == SwapCashPolicy::Spot {
-            crate::market::liquidity::apply_explicit_hlp_recovery(
+            crate::market::liquidity::apply_concentrated_hlp_recovery(
                 market,
                 self.asset_in,
                 integrated_start,
-                &mut explicit,
+                &mut concentrated,
             )?;
         }
-        let transition = prepare_explicit_hlp_transition(market, explicit, self.asset_in)?;
+        let transition = prepare_concentrated_hlp_transition(market, concentrated, self.asset_in)?;
         require!(
             transition
-                .interest_cash_floors(self.asset_in, explicit.gross_amount_out)
+                .interest_cash_floors(self.asset_in, concentrated.gross_amount_out)
                 .available(market),
             ErrorCode::InsufficientLiquidity
         );
-        let quote = explicit.as_swap_quote(self.asset_in);
+        let quote = concentrated.as_swap_quote(self.asset_in);
         Ok(PreparedSwap {
             quote,
             base_pre_rebalance: HlpRebalanceReceipt {
@@ -375,7 +381,7 @@ impl SwapRequest {
                 .ylp_supply,
             interest_eligibility,
             cash_policy,
-            explicit_transition: Some(Box::new(transition)),
+            concentrated_transition: Some(Box::new(transition)),
         })
     }
 }

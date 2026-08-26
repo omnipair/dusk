@@ -1,11 +1,11 @@
 use anchor_lang::prelude::*;
 
 #[cfg(test)]
-use super::liquidity::prepare_explicit_hlp_transition;
+use super::liquidity::prepare_concentrated_hlp_transition;
 use super::liquidity::{
     consume_hlp_tracking_unrealized_interest, current_hlp_signed_navs_with_prices,
-    hlp_curve_prices_from_base_price_nad, prepare_explicit_hlp_transition_at_current_state,
-    rebase_hlp_tracking_for_socialized_loss, ExplicitHlpTransition, SwapCashPolicy,
+    hlp_curve_prices_from_base_price_nad, prepare_concentrated_hlp_transition_at_current_state,
+    rebase_hlp_tracking_for_socialized_loss, ConcentratedHlpTransition, SwapCashPolicy,
 };
 use super::{AmmSwapQuote, HlpRebalanceReceipt, SwapFeeBreakdown};
 use crate::{
@@ -15,7 +15,7 @@ use crate::{
     },
     errors::ErrorCode,
     math::{
-        ceil_div, denormalize_from_nad_floor, normalize_to_nad, prepare_explicit_cache_at_point,
+        ceil_div, denormalize_from_nad_floor, normalize_to_nad, prepare_concentrated_cache_at_point,
         realized_interest_split, reconstruct_hlp_endpoint, DynamicFeePreState,
     },
     state::{
@@ -26,7 +26,6 @@ use crate::{
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LeverageSwapQuote {
-    pub explicit_curve: bool,
     pub asset_in: u8,
     pub quoted_slot: u64,
     pub amount_in: u64,
@@ -64,7 +63,7 @@ pub struct PreparedLeverageSwap {
     pub fee_eligible_ylp_supply: u64,
     pub interest_eligibility: HlpYieldEligibility,
     pub(crate) cash_policy: SwapCashPolicy,
-    pub(crate) explicit_transition: Option<Box<ExplicitHlpTransition>>,
+    pub(crate) concentrated_transition: Option<Box<ConcentratedHlpTransition>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -521,7 +520,6 @@ impl PreparedLeverageSwap {
 impl LeverageSwapQuote {
     pub(crate) fn from_amm(quote: AmmSwapQuote, current_slot: u64) -> Self {
         Self {
-            explicit_curve: quote.is_explicit(),
             asset_in: quote.asset_in.code(),
             quoted_slot: current_slot,
             amount_in: quote.fee.reserve_credit,
@@ -721,10 +719,10 @@ impl Market {
         apply_leverage_lifecycle_plan(self, plan)
     }
 
-    fn rebase_explicit_curve_at_current_ordinary_point(&mut self) -> Result<u128> {
+    fn rebase_concentrated_curve_at_current_ordinary_point(&mut self) -> Result<u128> {
         let ordinary = self.integrated_curve_state_nad()?;
-        let parameters = self.config.amm.explicit_curve_parameters()?;
-        self.amm.explicit_curve_cache = prepare_explicit_cache_at_point(
+        let parameters = self.config.amm.concentrated_curve_parameters()?;
+        self.amm.concentrated_curve_cache = prepare_concentrated_cache_at_point(
             ordinary.ordinary_base,
             ordinary.ordinary_quote,
             self.current_curve_center_price_nad()?,
@@ -732,15 +730,15 @@ impl Market {
         )?;
         let curve_depth_nad = self
             .amm
-            .explicit_curve_cache
+            .concentrated_curve_cache
             .tail_liquidity
-            .checked_add(self.amm.explicit_curve_cache.concentrated_liquidity)
+            .checked_add(self.amm.concentrated_curve_cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
         self.curve_depth_per_share_nad(curve_depth_nad)
     }
 
-    pub(crate) fn rebase_explicit_curve_after_terminal_hlp_loss(&mut self) -> Result<()> {
-        let curve_depth_per_share_nad = self.rebase_explicit_curve_at_current_ordinary_point()?;
+    pub(crate) fn rebase_concentrated_curve_after_terminal_hlp_loss(&mut self) -> Result<()> {
+        let curve_depth_per_share_nad = self.rebase_concentrated_curve_at_current_ordinary_point()?;
         self.amm.checkpoint_recenter_or_loss(curve_depth_per_share_nad);
         self.defer_amm_retention_target()?;
         self.advance_curve_revision()
@@ -758,7 +756,7 @@ impl Market {
         }
         require!(self.amm.initialized, ErrorCode::BrokenInvariant);
         let start_price = self
-            .current_explicit_spot_price_nad()?
+            .current_concentrated_spot_price_nad()?
             .ok_or(ErrorCode::BrokenInvariant)?;
         let start_prices = hlp_curve_prices_from_base_price_nad(start_price as u128)?;
         let (base_before, quote_before) = current_hlp_signed_navs_with_prices(self, start_prices)?;
@@ -772,16 +770,16 @@ impl Market {
         self.side_mut(debt_asset).reserves.live_reserve = post_loss_live_reserve;
 
         // A socialized loss changes the reserve point, not the sticky center
-        // or concentration policy. Reconstruct the unique positive explicit
+        // or concentration policy. Reconstruct the unique positive concentrated
         // curve through that point in O(1); the following algebraic hLP
         // transition then restores zero opposite-asset exposure.
-        let curve_depth_per_share_nad = self.rebase_explicit_curve_at_current_ordinary_point()?;
+        let curve_depth_per_share_nad = self.rebase_concentrated_curve_at_current_ordinary_point()?;
         self.amm.checkpoint_recenter_or_loss(curve_depth_per_share_nad);
         self.defer_amm_retention_target()?;
         self.advance_curve_revision()?;
 
         let end_price = self
-            .current_explicit_spot_price_nad()?
+            .current_concentrated_spot_price_nad()?
             .ok_or(ErrorCode::BrokenInvariant)?;
         let end_prices = hlp_curve_prices_from_base_price_nad(end_price as u128)?;
         let (base_after, quote_after) = current_hlp_signed_navs_with_prices(self, end_prices)?;
@@ -827,7 +825,7 @@ impl Market {
             pre_state,
         )?;
         let quote = self
-            .quote_explicit_integrated_with_fee(asset_in, amount_in, preliminary, 0)?
+            .quote_concentrated_integrated_with_fee(asset_in, amount_in, preliminary, 0)?
             .ok_or(ErrorCode::BrokenInvariant)?
             .as_swap_quote(asset_in);
         Ok(LeverageSwapQuote::from_amm(quote, current_slot))
@@ -971,11 +969,11 @@ impl Market {
         }
         let fresh_transition;
         let transition = if socialized_loss_applied {
-            fresh_transition = prepare_explicit_hlp_transition_at_current_state(self)?;
+            fresh_transition = prepare_concentrated_hlp_transition_at_current_state(self)?;
             &fresh_transition
         } else {
             prepared_swap
-                .explicit_transition
+                .concentrated_transition
                 .as_deref()
                 .ok_or(ErrorCode::BrokenInvariant)?
         };
@@ -990,17 +988,17 @@ impl Market {
         )?;
         let curve_depth_nad = self
             .amm
-            .explicit_curve_cache
+            .concentrated_curve_cache
             .tail_liquidity
-            .checked_add(self.amm.explicit_curve_cache.concentrated_liquidity)
+            .checked_add(self.amm.concentrated_curve_cache.concentrated_liquidity)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let final_price_nad = if socialized_loss_applied {
-            self.current_explicit_spot_price_nad()?
+            self.current_concentrated_spot_price_nad()?
                 .ok_or(ErrorCode::BrokenInvariant)?
         } else {
             prepared_swap.swap.reserve_end_price_nad
         };
-        self.observe_risk_from_explicit_curve(final_price_nad, curve_depth_nad, current_slot)?;
+        self.observe_risk_from_concentrated_curve(final_price_nad, curve_depth_nad, current_slot)?;
         require_eq!(
             self.risk.cached_spot_base_price_nad,
             final_price_nad,
@@ -1746,7 +1744,6 @@ impl Market {
         current_slot: u64,
         current_unix_timestamp: i64,
     ) -> Result<AmmSwapQuote> {
-        require!(swap.explicit_curve, ErrorCode::BrokenInvariant);
         let mut state = self.integrated_curve_state_nad()?;
         let fee_asset = MarketAsset::try_from_code(swap.fee_breakdown.fee_asset)?;
         if fee_asset == asset_in {
@@ -1822,7 +1819,7 @@ impl Market {
             pre_state,
         )?;
         let quote = self
-            .quote_explicit_integrated_with_fee_from_state(
+            .quote_concentrated_integrated_with_fee_from_state(
                 collateral_asset,
                 collateral_amount,
                 preliminary,
@@ -1861,8 +1858,6 @@ impl Market {
         // The shared lifecycle transition already committed executable
         // reserves and debt. Checkpoint that exact curve state, then route the
         // retained principal identically for execution and predictive scratch.
-        require!(swap.explicit_curve, ErrorCode::BrokenInvariant);
-
         if swap.fee_breakdown.compounded_fee_debit > 0 {
             self.side_mut(fee_asset)
                 .credit_reserve(swap.fee_breakdown.compounded_fee_debit, true)?;

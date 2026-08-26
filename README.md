@@ -361,7 +361,7 @@ Other invariants:
 The core GAMM reserve/lending relationship is preserved, while the swap invariant is now configurable:
 
 - The market is still priced from in-protocol reserves, not external oracles.
-- One-times `peak_amplification` with zero widths is exact V1-style CPMM; larger values add explicit concentrated depth while preserving a nonzero full-range CPMM tail.
+- One-times `peak_amplification` with zero widths is exact V1-style CPMM; larger values add concentrated depth while preserving a nonzero full-range CPMM tail.
 - `core_half_width` sets the full-depth region around the sticky center and `fade_width` sets the half-depth shoulder before the tail. The tail/concentrated allocation is derived from these widths and `peak_amplification`; fee, EMA, and recenter controls remain separate.
 - Swaps and leverage use the live applied curve. Public borrowing uses a
   full-range-tail CPMM shadow; lending liquidatability is linear at the

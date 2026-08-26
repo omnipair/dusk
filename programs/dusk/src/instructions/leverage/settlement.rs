@@ -68,7 +68,7 @@ pub(super) fn prepare_leverage_swap(
         fee_eligible_ylp_supply,
         interest_eligibility,
         cash_policy,
-        explicit_transition,
+        concentrated_transition,
         ..
     } = request.prepare_with_cash_policy(market, cash_policy)?;
     market.observe_current_risk(current_slot)?;
@@ -79,7 +79,7 @@ pub(super) fn prepare_leverage_swap(
         fee_eligible_ylp_supply,
         interest_eligibility,
         cash_policy,
-        explicit_transition,
+        concentrated_transition,
     })
 }
 

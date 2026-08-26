@@ -610,7 +610,7 @@ pub(crate) fn gross_path_divergence_fee_raw(
     if end_outward <= start_outward {
         return Ok((0, false));
     }
-    // The explicit curve freezes toxicity from the provisional gross path and
+    // The concentrated curve freezes toxicity from the provisional gross path and
     // caps the resulting component once against gross input. It therefore
     // does not need the legacy Huber-threshold search: evaluate the analytic
     // potential at both endpoints directly and let the caller apply the

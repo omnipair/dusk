@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, MARKET_LAYOUT_VERSION, MIN_HALF_LIFE_MS},
-    math::ExplicitCurveParameters,
+    math::ConcentratedCurveParameters,
     state::{AmmConfig, Debt, MarketAsset, MarketConfig, MarketSide, ReserveShares, Reserves},
 };
 
@@ -71,17 +71,17 @@ fn first_liquidity_initializes_center_without_an_oracle() {
     assert_eq!(market.amm.center_price_nad, NAD);
     assert_eq!(market.amm.price_ema_nad, NAD);
     assert_eq!(
-        market.amm.explicit_curve_cache.parameters(),
-        market.config.amm.explicit_curve_parameters().unwrap()
+        market.amm.concentrated_curve_cache.parameters(),
+        market.config.amm.concentrated_curve_parameters().unwrap()
     );
     assert_eq!(market.amm.spendable_protected_profit_nad(), 0);
 }
 
 #[test]
-fn explicit_curve_initializes_and_quotes_the_integrated_ordinary_tranche() {
+fn concentrated_curve_initializes_and_quotes_the_integrated_ordinary_tranche() {
     let mut config = AmmConfig::default();
     config
-        .set_explicit_curve_parameters(ExplicitCurveParameters {
+        .set_concentrated_curve_parameters(ConcentratedCurveParameters {
             peak_amplification_nad: 4 * NAD,
             core_half_width_bps: 100,
             fade_width_bps: 400,
@@ -90,12 +90,12 @@ fn explicit_curve_initializes_and_quotes_the_integrated_ordinary_tranche() {
     let mut market = market_with_liquidity(config);
     market.ensure_amm_initialized(10).unwrap();
     assert_eq!(
-        market.amm.explicit_curve_cache.parameters(),
-        market.config.amm.explicit_curve_parameters().unwrap()
+        market.amm.concentrated_curve_cache.parameters(),
+        market.config.amm.concentrated_curve_parameters().unwrap()
     );
 
     let quote = market
-        .quote_integrated_explicit_exact_in_nad(10_000 * NAD as u128, 100 * NAD as u128, MarketAsset::Base)
+        .quote_integrated_concentrated_exact_in_nad(10_000 * NAD as u128, 100 * NAD as u128, MarketAsset::Base)
         .unwrap()
         .unwrap();
     assert_eq!(quote.amount_in_after_fee, 9_900 * NAD as u128);
@@ -107,7 +107,7 @@ fn explicit_curve_initializes_and_quotes_the_integrated_ordinary_tranche() {
         .preliminary_swap_inputs_for_state(MarketAsset::Base, 10_000 * NAD, 10, pre_state)
         .unwrap();
     let fee_quote = market
-        .quote_explicit_integrated_with_fee(MarketAsset::Base, 10_000 * NAD, preliminary, 0)
+        .quote_concentrated_integrated_with_fee(MarketAsset::Base, 10_000 * NAD, preliminary, 0)
         .unwrap()
         .unwrap();
     assert_eq!(
@@ -131,7 +131,7 @@ fn quote_only_fee_is_withheld_from_base_sell_output() {
         .preliminary_swap_inputs_for_state(MarketAsset::Base, reserve_credit, 10, pre_state)
         .unwrap();
     let quote = market
-        .quote_explicit_integrated_with_fee(MarketAsset::Base, reserve_credit, preliminary, 0)
+        .quote_concentrated_integrated_with_fee(MarketAsset::Base, reserve_credit, preliminary, 0)
         .unwrap()
         .unwrap();
 
@@ -150,7 +150,7 @@ fn quote_only_fee_is_withheld_from_base_sell_output() {
 }
 
 #[test]
-fn explicit_center_move_reconstructs_unchanged_reserves_in_closed_form() {
+fn concentrated_center_move_reconstructs_unchanged_reserves_in_closed_form() {
     let mut config = AmmConfig {
         adjustment_threshold_nad: NAD / 100,
         adjustment_step_nad: NAD / 100,
@@ -158,7 +158,7 @@ fn explicit_center_move_reconstructs_unchanged_reserves_in_closed_form() {
         ..AmmConfig::default()
     };
     config
-        .set_explicit_curve_parameters(ExplicitCurveParameters {
+        .set_concentrated_curve_parameters(ConcentratedCurveParameters {
             peak_amplification_nad: 4 * NAD,
             core_half_width_bps: 100,
             fade_width_bps: 400,
@@ -167,20 +167,20 @@ fn explicit_center_move_reconstructs_unchanged_reserves_in_closed_form() {
     let mut market = market_with_liquidity(config);
     market.ensure_amm_initialized(10).unwrap();
     let ordinary_before = market.integrated_curve_state_nad().unwrap();
-    let cache_before = market.amm.explicit_curve_cache;
+    let cache_before = market.amm.concentrated_curve_cache;
     market.amm.price_ema_nad = 2 * NAD;
     market.amm.protected_floor_per_share_nad = 0;
 
     assert!(market.advance_one_amm_controller_target(11).unwrap());
     assert_eq!(market.integrated_curve_state_nad().unwrap(), ordinary_before);
-    assert_ne!(market.amm.explicit_curve_cache, cache_before);
+    assert_ne!(market.amm.concentrated_curve_cache, cache_before);
     assert_eq!(market.amm.center_price_nad, NAD + NAD / 100);
     assert_eq!(market.amm.last_adjustment_slot, 11);
-    assert!(market.current_explicit_spot_price_nad().unwrap().unwrap() > 0);
+    assert!(market.current_concentrated_spot_price_nad().unwrap().unwrap() > 0);
 }
 
 #[test]
-fn explicit_center_move_deploys_locked_bucket_only_when_it_preserves_ylp_principal() {
+fn concentrated_center_move_deploys_locked_bucket_only_when_it_preserves_ylp_principal() {
     let mut config = AmmConfig {
         adjustment_threshold_nad: NAD / 100,
         adjustment_step_nad: NAD / 100,
@@ -188,7 +188,7 @@ fn explicit_center_move_deploys_locked_bucket_only_when_it_preserves_ylp_princip
         ..AmmConfig::default()
     };
     config
-        .set_explicit_curve_parameters(ExplicitCurveParameters {
+        .set_concentrated_curve_parameters(ConcentratedCurveParameters {
             peak_amplification_nad: 4 * NAD,
             core_half_width_bps: 100,
             fade_width_bps: 400,
@@ -222,10 +222,10 @@ fn explicit_center_move_deploys_locked_bucket_only_when_it_preserves_ylp_princip
 }
 
 #[test]
-fn explicit_proportional_liquidity_scales_and_restores_both_tranches() {
+fn concentrated_proportional_liquidity_scales_and_restores_both_tranches() {
     let mut config = AmmConfig::default();
     config
-        .set_explicit_curve_parameters(ExplicitCurveParameters {
+        .set_concentrated_curve_parameters(ConcentratedCurveParameters {
             peak_amplification_nad: 4 * NAD,
             core_half_width_bps: 100,
             fade_width_bps: 400,
@@ -233,21 +233,21 @@ fn explicit_proportional_liquidity_scales_and_restores_both_tranches() {
         .unwrap();
     let mut market = market_with_liquidity(config);
     market.ensure_amm_initialized(10).unwrap();
-    let cache_before = market.amm.explicit_curve_cache;
-    let spot_before = market.current_explicit_spot_price_nad().unwrap().unwrap();
+    let cache_before = market.amm.concentrated_curve_cache;
+    let spot_before = market.current_concentrated_spot_price_nad().unwrap().unwrap();
     let credit = 100_000 * NAD;
     let added = market.add_liquidity(credit, credit).unwrap();
     market.finalize_amm_transition_and_observe_risk(11).unwrap();
-    assert!(market.amm.explicit_curve_cache.tail_liquidity > cache_before.tail_liquidity);
+    assert!(market.amm.concentrated_curve_cache.tail_liquidity > cache_before.tail_liquidity);
     assert!(
-        market.amm.explicit_curve_cache.concentrated_liquidity > cache_before.concentrated_liquidity
+        market.amm.concentrated_curve_cache.concentrated_liquidity > cache_before.concentrated_liquidity
     );
 
     market.remove_liquidity(added.ylp_amount).unwrap();
     market.finalize_amm_transition_and_observe_risk(12).unwrap();
-    assert_eq!(market.amm.explicit_curve_cache.parameters(), cache_before.parameters());
+    assert_eq!(market.amm.concentrated_curve_cache.parameters(), cache_before.parameters());
     assert!(market
-        .current_explicit_spot_price_nad()
+        .current_concentrated_spot_price_nad()
         .unwrap()
         .unwrap()
         .abs_diff(spot_before)

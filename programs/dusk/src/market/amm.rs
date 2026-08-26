@@ -7,9 +7,9 @@ use crate::{
         apply_compounded_ylp_fee, asymptotic_scaled_rate_nad, ceil_div, decay_volatility_nad,
         denormalize_from_nad_floor, effective_rate_floor_nad, gross_fee_budget_floor, gross_path_divergence_fee_raw,
         hard_total_fee_budget_floor, minimum_executable_input, mul_div_u128, normalize_to_nad,
-        prepare_explicit_cache_at_point, quote_integrated_exact_in_with_frozen_fee, validate_fee_share_caps,
-        volatility_after_success_nad, DynamicFeeConfig, DynamicFeePreState, DynamicFeeQuote, ExplicitCurveGeometry,
-        ExplicitCurvePoint, IntegratedCurveState, IntegratedFrozenFeeQuote, IntegratedSwapDirection,
+        prepare_concentrated_cache_at_point, quote_integrated_exact_in_with_frozen_fee, validate_fee_share_caps,
+        volatility_after_success_nad, ConcentratedCurveGeometry, ConcentratedCurvePoint, DynamicFeeConfig,
+        DynamicFeePreState, DynamicFeeQuote, IntegratedCurveState, IntegratedFrozenFeeQuote, IntegratedSwapDirection,
     },
     state::market::{
         AmmState, Debt, DeferredControllerTarget, Market, MarketAsset, PROTECTED_LIQUIDITY_COVERAGE_BPS,
@@ -49,7 +49,7 @@ impl Market {
         if !self.amm.initialized {
             return Ok(());
         }
-        let parameters = self.config.amm.explicit_curve_parameters()?;
+        let parameters = self.config.amm.concentrated_curve_parameters()?;
         if !parameters.is_cpmm() && self.config.amm.adjustment_step_nad > 0 {
             self.amm.mark_retention_target_stale();
         } else {
@@ -76,17 +76,17 @@ impl Market {
         require!(self.base_side.shares.ylp_supply > 0, ErrorCode::SupplyUnderflow);
 
         let center_price_nad = self.current_curve_center_price_nad()?;
-        let parameters = self.config.amm.explicit_curve_parameters()?;
+        let parameters = self.config.amm.concentrated_curve_parameters()?;
         let ordinary = self.integrated_curve_state_nad()?;
-        let explicit_curve_cache = prepare_explicit_cache_at_point(
+        let concentrated_curve_cache = prepare_concentrated_cache_at_point(
             ordinary.ordinary_base,
             ordinary.ordinary_quote,
             center_price_nad,
             parameters,
         )?;
-        let curve_depth_nad = explicit_curve_cache
+        let curve_depth_nad = concentrated_curve_cache
             .tail_liquidity
-            .checked_add(explicit_curve_cache.concentrated_liquidity)
+            .checked_add(concentrated_curve_cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
         let curve_depth_per_share_nad = self.curve_depth_per_share_nad(curve_depth_nad)?;
         let launch_reference_price_nad = self.amm.launch_reference_price_nad;
@@ -99,35 +99,35 @@ impl Market {
         )?;
         state.launch_reference_price_nad = launch_reference_price_nad;
         state.launch_fee_progress_offset = launch_fee_progress_offset;
-        state.explicit_curve_cache = explicit_curve_cache;
+        state.concentrated_curve_cache = concentrated_curve_cache;
         state.refresh_retention_target(curve_depth_per_share_nad, 0)?;
         self.amm = state;
         Ok(true)
     }
 
-    fn refresh_explicit_curve_cache(&mut self, current_slot: u64, loss: bool) -> Result<(u64, u128)> {
+    fn refresh_concentrated_curve_cache(&mut self, current_slot: u64, loss: bool) -> Result<(u64, u128)> {
         self.ensure_amm_initialized(current_slot)?;
         require!(self.amm.initialized, ErrorCode::BrokenInvariant);
         let ordinary = self.integrated_curve_state_nad()?;
-        let cache = prepare_explicit_cache_at_point(
+        let cache = prepare_concentrated_cache_at_point(
             ordinary.ordinary_base,
             ordinary.ordinary_quote,
             self.current_curve_center_price_nad()?,
-            self.config.amm.explicit_curve_parameters()?,
+            self.config.amm.concentrated_curve_parameters()?,
         )?;
         let curve_depth_nad = cache
             .tail_liquidity
             .checked_add(cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
         let curve_depth_per_share_nad = self.curve_depth_per_share_nad(curve_depth_nad)?;
-        self.amm.explicit_curve_cache = cache;
+        self.amm.concentrated_curve_cache = cache;
         if loss {
             self.amm.checkpoint_recenter_or_loss(curve_depth_per_share_nad);
         } else {
             self.amm.checkpoint_neutral_liquidity(curve_depth_per_share_nad);
         }
         let price_nad = self
-            .current_explicit_spot_price_nad()?
+            .current_concentrated_spot_price_nad()?
             .ok_or(ErrorCode::BrokenInvariant)?;
         Ok((price_nad, curve_depth_nad))
     }
@@ -140,15 +140,15 @@ impl Market {
         if !self.amm.initialized {
             return Ok(());
         }
-        self.refresh_explicit_curve_cache(current_slot, false)?;
+        self.refresh_concentrated_curve_cache(current_slot, false)?;
         Ok(())
     }
 
-    /// Explicit socialized-loss checkpoint. Accrued unpaid interest has already
+    /// Socialized-loss checkpoint for concentrated curve state. Accrued unpaid interest has already
     /// been removed from curve reserves, so only actual executable-liquidity
     /// loss consumes protected profit.
     pub(crate) fn checkpoint_amm_socialized_loss_raw(&mut self, current_slot: u64) -> Result<(u64, u128)> {
-        self.refresh_explicit_curve_cache(current_slot, true)
+        self.refresh_concentrated_curve_cache(current_slot, true)
     }
 
     /// Finalize an atomic share/reserve haircut. Unlike the raw checkpoint
@@ -162,7 +162,7 @@ impl Market {
         let (price_nad, curve_depth_nad) = self.checkpoint_amm_socialized_loss_raw(current_slot)?;
         self.defer_amm_retention_target()?;
         self.advance_curve_revision()?;
-        self.observe_risk_from_explicit_curve(price_nad, curve_depth_nad, current_slot)?;
+        self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, current_slot)?;
         self.risk_revision = self.curve_revision;
         Ok(())
     }
@@ -206,7 +206,7 @@ impl Market {
                     && !self.has_active_hlp(),
                 ErrorCode::InsufficientLiquidity
             );
-            self.amm.explicit_curve_cache = Default::default();
+            self.amm.concentrated_curve_cache = Default::default();
             self.amm.curve_depth_per_share_nad = 0;
             self.amm.protected_floor_per_share_nad = 0;
             self.amm.retention_required_nad = 0;
@@ -235,20 +235,20 @@ impl Market {
         if !self.amm.initialized {
             self.ensure_amm_initialized(current_slot)?;
         } else {
-            self.refresh_explicit_curve_cache(current_slot, false)?;
+            self.refresh_concentrated_curve_cache(current_slot, false)?;
             self.defer_amm_retention_target()?;
         }
         self.advance_curve_revision()?;
         let curve_depth_nad = self
             .amm
-            .explicit_curve_cache
+            .concentrated_curve_cache
             .tail_liquidity
-            .checked_add(self.amm.explicit_curve_cache.concentrated_liquidity)
+            .checked_add(self.amm.concentrated_curve_cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
         let price_nad = self
-            .current_explicit_spot_price_nad()?
+            .current_concentrated_spot_price_nad()?
             .ok_or(ErrorCode::BrokenInvariant)?;
-        self.observe_risk_from_explicit_curve(price_nad, curve_depth_nad, current_slot)?;
+        self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, current_slot)?;
         self.risk_revision = self.curve_revision;
         Ok(())
     }
@@ -278,18 +278,18 @@ impl Market {
         if !self.amm.initialized {
             return Ok(false);
         }
-        let parameters = self.config.amm.explicit_curve_parameters()?;
-        self.advance_one_explicit_controller_target(current_slot, parameters)
+        let parameters = self.config.amm.concentrated_curve_parameters()?;
+        self.advance_one_concentrated_controller_target(current_slot, parameters)
     }
 
-    /// Applies at most one sticky-center move for the explicit curve. The
+    /// Applies at most one sticky-center move for the concentrated curve. The
     /// candidate geometry is reconstructed from unchanged ordinary reserves
     /// by a closed-form branch quadratic, then admitted through the existing
     /// protected-profit budget. It affects only later swaps.
-    fn advance_one_explicit_controller_target(
+    fn advance_one_concentrated_controller_target(
         &mut self,
         current_slot: u64,
-        parameters: crate::math::ExplicitCurveParameters,
+        parameters: crate::math::ConcentratedCurveParameters,
     ) -> Result<bool> {
         if parameters.is_cpmm() || self.config.amm.adjustment_step_nad == 0 {
             self.amm.deferred_controller_target.clear();
@@ -390,7 +390,7 @@ impl Market {
                 )?)
                 .ok_or(ErrorCode::ReserveOverflow)?;
         }
-        let candidate_cache = prepare_explicit_cache_at_point(
+        let candidate_cache = prepare_concentrated_cache_at_point(
             candidate_point.ordinary_base,
             candidate_point.ordinary_quote,
             candidate_center,
@@ -453,7 +453,7 @@ impl Market {
                 self.quote_side.reserves.protected_recenter_reserve = 0;
             }
             self.amm.deferred_controller_target.clear();
-            self.amm.commit_explicit_recenter(
+            self.amm.commit_concentrated_recenter(
                 &self.config.amm,
                 candidate_center,
                 candidate_cache,
@@ -484,13 +484,13 @@ impl Market {
         Ok(false)
     }
 
-    /// Reconstructs a governance-selected explicit shape from unchanged
+    /// Reconstructs a governance-selected concentrated shape from unchanged
     /// ordinary reserves. Parameter changes are admitted only when the
     /// existing protected-profit budget covers any principal impairment.
-    pub(crate) fn apply_explicit_curve_parameter_update(&mut self, current_slot: u64) -> Result<()> {
-        let parameters = self.config.amm.explicit_curve_parameters()?;
+    pub(crate) fn apply_concentrated_curve_parameter_update(&mut self, current_slot: u64) -> Result<()> {
+        let parameters = self.config.amm.concentrated_curve_parameters()?;
         let ordinary = self.integrated_curve_state_nad()?;
-        let cache = prepare_explicit_cache_at_point(
+        let cache = prepare_concentrated_cache_at_point(
             ordinary.ordinary_base,
             ordinary.ordinary_quote,
             self.amm.center_price_nad,
@@ -504,15 +504,15 @@ impl Market {
         let covered = covered_impairment_nad(self.amm.curve_depth_per_share_nad, curve_depth_per_share_nad)?;
         require!(self.amm.recenter_is_funded(covered), ErrorCode::BrokenInvariant);
 
-        self.amm.explicit_curve_cache = cache;
+        self.amm.concentrated_curve_cache = cache;
         self.amm.checkpoint_recenter_or_loss(curve_depth_per_share_nad);
         self.amm.deferred_controller_target.clear();
         self.defer_amm_retention_target()?;
         self.advance_curve_revision()?;
         let price_nad = self
-            .current_explicit_spot_price_nad()?
+            .current_concentrated_spot_price_nad()?
             .ok_or(ErrorCode::BrokenInvariant)?;
-        self.observe_risk_from_explicit_curve(price_nad, curve_depth_nad, current_slot)?;
+        self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, current_slot)?;
         self.risk_revision = self.curve_revision;
         Ok(())
     }
@@ -744,11 +744,11 @@ impl Market {
         )
     }
 
-    pub(crate) fn current_explicit_curve_geometry(&self) -> Result<Option<ExplicitCurveGeometry>> {
-        let parameters = self.config.amm.explicit_curve_parameters()?;
+    pub(crate) fn current_concentrated_curve_geometry(&self) -> Result<Option<ConcentratedCurveGeometry>> {
+        let parameters = self.config.amm.concentrated_curve_parameters()?;
         if !self.amm.initialized {
             let ordinary = self.integrated_curve_state_nad()?;
-            let cache = prepare_explicit_cache_at_point(
+            let cache = prepare_concentrated_cache_at_point(
                 ordinary.ordinary_base,
                 ordinary.ordinary_quote,
                 self.current_curve_center_price_nad()?,
@@ -757,18 +757,18 @@ impl Market {
             return Ok(Some(cache.geometry()?));
         }
         require!(
-            self.amm.explicit_curve_cache.parameters() == parameters,
+            self.amm.concentrated_curve_cache.parameters() == parameters,
             ErrorCode::BrokenInvariant
         );
-        Ok(Some(self.amm.explicit_curve_cache.geometry()?))
+        Ok(Some(self.amm.concentrated_curve_cache.geometry()?))
     }
 
-    pub(crate) fn current_explicit_spot_price_nad(&self) -> Result<Option<u64>> {
-        let Some(geometry) = self.current_explicit_curve_geometry()? else {
+    pub(crate) fn current_concentrated_spot_price_nad(&self) -> Result<Option<u64>> {
+        let Some(geometry) = self.current_concentrated_curve_geometry()? else {
             return Ok(None);
         };
         let state = self.integrated_curve_state_nad()?;
-        u64::try_from(geometry.spot_price_nad_prevalidated(ExplicitCurvePoint {
+        u64::try_from(geometry.spot_price_nad_prevalidated(ConcentratedCurvePoint {
             base_reserve: state.ordinary_base,
             quote_reserve: state.ordinary_quote,
         })?)
@@ -777,13 +777,13 @@ impl Market {
     }
 
     #[cfg(test)]
-    pub(crate) fn quote_integrated_explicit_exact_in_nad(
+    pub(crate) fn quote_integrated_concentrated_exact_in_nad(
         &self,
         gross_amount_in_nad: u128,
         frozen_total_fee_nad: u128,
         asset_in: MarketAsset,
     ) -> Result<Option<IntegratedFrozenFeeQuote>> {
-        let Some(geometry) = self.current_explicit_curve_geometry()? else {
+        let Some(geometry) = self.current_concentrated_curve_geometry()? else {
             return Ok(None);
         };
         quote_integrated_exact_in_with_frozen_fee(
@@ -799,14 +799,14 @@ impl Market {
         .map(Some)
     }
 
-    pub(crate) fn quote_explicit_integrated_with_fee(
+    pub(crate) fn quote_concentrated_integrated_with_fee(
         &self,
         asset_in: MarketAsset,
         reserve_credit: u64,
         preliminary: PreliminarySwapInputs,
         protocol_fee_bps: u16,
-    ) -> Result<Option<ExplicitIntegratedAmmQuote>> {
-        self.quote_explicit_integrated_with_fee_from_state(
+    ) -> Result<Option<ConcentratedIntegratedAmmQuote>> {
+        self.quote_concentrated_integrated_with_fee_from_state(
             asset_in,
             reserve_credit,
             preliminary,
@@ -815,15 +815,15 @@ impl Market {
         )
     }
 
-    pub(crate) fn quote_explicit_integrated_with_fee_from_state(
+    pub(crate) fn quote_concentrated_integrated_with_fee_from_state(
         &self,
         asset_in: MarketAsset,
         reserve_credit: u64,
         preliminary: PreliminarySwapInputs,
         state: IntegratedCurveState,
         protocol_fee_bps: u16,
-    ) -> Result<Option<ExplicitIntegratedAmmQuote>> {
-        let Some(geometry) = self.current_explicit_curve_geometry()? else {
+    ) -> Result<Option<ConcentratedIntegratedAmmQuote>> {
+        let Some(geometry) = self.current_concentrated_curve_geometry()? else {
             return Ok(None);
         };
         let fee_asset = self.config.swap_fee_asset(asset_in)?;
@@ -837,7 +837,7 @@ impl Market {
         let gross_curve_input_nad = normalize_to_nad(curve_input_raw as u128, input_decimals)?;
         let center = self
             .amm
-            .explicit_curve_cache
+            .concentrated_curve_cache
             .center_point_with_geometry(self.current_curve_center_price_nad()?, geometry)?;
         let (start_input_nad, center_input_nad) = match asset_in {
             MarketAsset::Base => (state.ordinary_base, center.base_reserve),
@@ -890,7 +890,7 @@ impl Market {
             self.side(asset_in.opposite()).asset_decimals,
         )?;
         require!(gross_amount_out > 0, ErrorCode::InsufficientOutputAmount);
-        let start_price_nad = u64::try_from(geometry.spot_price_nad_prevalidated(ExplicitCurvePoint {
+        let start_price_nad = u64::try_from(geometry.spot_price_nad_prevalidated(ConcentratedCurvePoint {
             base_reserve: state.ordinary_base,
             quote_reserve: state.ordinary_quote,
         })?)
@@ -1009,16 +1009,16 @@ impl Market {
         let reserve_end_price_nad = if compounded_fee_debit == 0 {
             end_price_nad
         } else {
-            let compounded_cache = prepare_explicit_cache_at_point(
+            let compounded_cache = prepare_concentrated_cache_at_point(
                 integrated.executable.end.ordinary_base,
                 integrated.executable.end.ordinary_quote,
                 self.current_curve_center_price_nad()?,
-                self.config.amm.explicit_curve_parameters()?,
+                self.config.amm.concentrated_curve_parameters()?,
             )?;
             u64::try_from(
                 compounded_cache
                     .geometry()?
-                    .spot_price_nad_prevalidated(ExplicitCurvePoint {
+                    .spot_price_nad_prevalidated(ConcentratedCurvePoint {
                         base_reserve: integrated.executable.end.ordinary_base,
                         quote_reserve: integrated.executable.end.ordinary_quote,
                     })?,
@@ -1032,7 +1032,7 @@ impl Market {
             self.config.amm.volatility_shock_cap_nad,
             self.config.amm.volatility_cap_nad,
         )?;
-        Ok(Some(ExplicitIntegratedAmmQuote {
+        Ok(Some(ConcentratedIntegratedAmmQuote {
             integrated,
             amount_out,
             gross_amount_out,
@@ -1297,7 +1297,7 @@ pub struct AmmSwapQuote {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ExplicitIntegratedAmmQuote {
+pub(crate) struct ConcentratedIntegratedAmmQuote {
     pub integrated: IntegratedFrozenFeeQuote,
     pub amount_out: u64,
     pub gross_amount_out: u64,
@@ -1310,7 +1310,7 @@ pub(crate) struct ExplicitIntegratedAmmQuote {
     pub recovery: HlpRecoveryBreakdown,
 }
 
-impl ExplicitIntegratedAmmQuote {
+impl ConcentratedIntegratedAmmQuote {
     pub(crate) fn as_swap_quote(self, asset_in: MarketAsset) -> AmmSwapQuote {
         AmmSwapQuote {
             asset_in,
@@ -1324,12 +1324,6 @@ impl ExplicitIntegratedAmmQuote {
             fee: self.fee,
             recovery: self.recovery,
         }
-    }
-}
-
-impl AmmSwapQuote {
-    pub(crate) const fn is_explicit(&self) -> bool {
-        true
     }
 }
 
@@ -1377,7 +1371,7 @@ impl Market {
         let mut config = self.dynamic_fee_config()?;
         let gross_input_nad = normalize_to_nad(reserve_credit as u128, self.side(asset_in).asset_decimals)?;
         let current_base_price_nad = self
-            .current_explicit_spot_price_nad()?
+            .current_concentrated_spot_price_nad()?
             .ok_or(ErrorCode::InsufficientLiquidity)?;
         config.base_fee_bps = self.config.effective_base_fee_bps_for_swap_at(
             asset_in,

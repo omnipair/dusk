@@ -56,13 +56,13 @@ impl Market {
     pub fn current_risk(&self) -> Result<Risk> {
         let current_slot = Clock::get().map(|clock| clock.slot).unwrap_or(self.last_update_slot);
         let price_nad = self
-            .current_explicit_spot_price_nad()?
+            .current_concentrated_spot_price_nad()?
             .ok_or(ErrorCode::BrokenInvariant)?;
         let curve_depth_nad = self
             .amm
-            .explicit_curve_cache
+            .concentrated_curve_cache
             .tail_liquidity
-            .checked_add(self.amm.explicit_curve_cache.concentrated_liquidity)
+            .checked_add(self.amm.concentrated_curve_cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
         let quote_price_nad = u64::try_from(
             (NAD as u128)
@@ -75,10 +75,10 @@ impl Market {
             .refreshed(price_nad, quote_price_nad, curve_depth_nad, &self.config, current_slot)
     }
 
-    /// O(1) risk observation for the explicit tail+band curve. The quote has
-    /// already evaluated the exact final marginal price; total explicit
+    /// O(1) risk observation for the concentrated tail+band curve. The quote has
+    /// already evaluated the exact final marginal price; total concentrated
     /// liquidity replaces the legacy balanced-equivalent root.
-    pub(crate) fn observe_risk_from_explicit_curve(
+    pub(crate) fn observe_risk_from_concentrated_curve(
         &mut self,
         current_base_price_nad: u64,
         current_curve_depth_nad: u128,
@@ -110,15 +110,15 @@ impl Market {
     /// scalar snapshot and the current curve parameters.
     pub(crate) fn observe_current_risk(&mut self, current_slot: u64) -> Result<()> {
         let price_nad = self
-            .current_explicit_spot_price_nad()?
+            .current_concentrated_spot_price_nad()?
             .ok_or(ErrorCode::BrokenInvariant)?;
         let curve_depth_nad = self
             .amm
-            .explicit_curve_cache
+            .concentrated_curve_cache
             .tail_liquidity
-            .checked_add(self.amm.explicit_curve_cache.concentrated_liquidity)
+            .checked_add(self.amm.concentrated_curve_cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
-        self.observe_risk_from_explicit_curve(price_nad, curve_depth_nad, current_slot)?;
+        self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, current_slot)?;
         self.risk_revision = self.curve_revision;
         Ok(())
     }
@@ -140,7 +140,7 @@ impl Market {
             );
             self.risk.observed_curve_depth_nad = 0;
             self.risk.last_snapshot_slot = current_slot;
-            self.amm.explicit_curve_cache = Default::default();
+            self.amm.concentrated_curve_cache = Default::default();
             self.last_marginal_observation_nad = 0;
             self.risk_revision = self.curve_revision;
             self.last_update_slot = current_slot;
@@ -148,15 +148,15 @@ impl Market {
         }
 
         let price_nad = self
-            .current_explicit_spot_price_nad()?
+            .current_concentrated_spot_price_nad()?
             .ok_or(ErrorCode::BrokenInvariant)?;
         let curve_depth_nad = self
             .amm
-            .explicit_curve_cache
+            .concentrated_curve_cache
             .tail_liquidity
-            .checked_add(self.amm.explicit_curve_cache.concentrated_liquidity)
+            .checked_add(self.amm.concentrated_curve_cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
-        self.observe_risk_from_explicit_curve(price_nad, curve_depth_nad, current_slot)?;
+        self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, current_slot)?;
         self.risk_revision = self.curve_revision;
         Ok(())
     }
@@ -166,7 +166,7 @@ impl Market {
         collateral_asset: MarketAsset,
         risk: &Risk,
         include_directional_ema: bool,
-    ) -> Result<(u128, ExplicitCurveDirection)> {
+    ) -> Result<(u128, ConcentratedCurveDirection)> {
         let collateral_price_nad =
             self.pessimistic_collateral_price_nad(collateral_asset, risk, include_directional_ema);
         require!(collateral_price_nad > 0, ErrorCode::InvalidSettlementPrice);
@@ -181,8 +181,8 @@ impl Market {
             .ok_or(ErrorCode::MarketMathOverflow)?,
         };
         let direction = match collateral_asset {
-            MarketAsset::Base => ExplicitCurveDirection::BaseToQuote,
-            MarketAsset::Quote => ExplicitCurveDirection::QuoteToBase,
+            MarketAsset::Base => ConcentratedCurveDirection::BaseToQuote,
+            MarketAsset::Quote => ConcentratedCurveDirection::QuoteToBase,
         };
         Ok((base_price_nad, direction))
     }
@@ -194,10 +194,16 @@ impl Market {
         collateral_asset: MarketAsset,
         risk: &Risk,
         include_directional_ema: bool,
-    ) -> Result<Option<(ExplicitCurveGeometry, ExplicitCurvePoint, ExplicitCurveDirection)>> {
+    ) -> Result<
+        Option<(
+            ConcentratedCurveGeometry,
+            ConcentratedCurvePoint,
+            ConcentratedCurveDirection,
+        )>,
+    > {
         let (base_price_nad, direction) =
             self.pessimistic_curve_price_and_direction(collateral_asset, risk, include_directional_ema)?;
-        let mut cache = self.amm.explicit_curve_cache;
+        let mut cache = self.amm.concentrated_curve_cache;
         let current_total_liquidity = cache
             .tail_liquidity
             .checked_add(cache.concentrated_liquidity)
@@ -216,7 +222,7 @@ impl Market {
             current_total_liquidity,
         )?;
         require!(cache.tail_liquidity > 0, ErrorCode::InsufficientLiquidity);
-        if self.amm.explicit_curve_cache.concentrated_liquidity > 0 {
+        if self.amm.concentrated_curve_cache.concentrated_liquidity > 0 {
             require!(cache.concentrated_liquidity > 0, ErrorCode::InsufficientLiquidity);
         }
         if cache.fade_width_bps > 0 {
@@ -234,10 +240,16 @@ impl Market {
         collateral_asset: MarketAsset,
         risk: &Risk,
         include_directional_ema: bool,
-    ) -> Result<Option<(ExplicitCurveGeometry, ExplicitCurvePoint, ExplicitCurveDirection)>> {
+    ) -> Result<
+        Option<(
+            ConcentratedCurveGeometry,
+            ConcentratedCurvePoint,
+            ConcentratedCurveDirection,
+        )>,
+    > {
         let (base_price_nad, direction) =
             self.pessimistic_curve_price_and_direction(collateral_asset, risk, include_directional_ema)?;
-        let cache = self.amm.explicit_curve_cache;
+        let cache = self.amm.concentrated_curve_cache;
         let current_total_liquidity = cache
             .tail_liquidity
             .checked_add(cache.concentrated_liquidity)
@@ -252,7 +264,7 @@ impl Market {
         let target_tail_liquidity =
             mul_div_u128(cache.tail_liquidity, target_total_liquidity, current_total_liquidity)?;
         require!(target_tail_liquidity > 0, ErrorCode::InsufficientLiquidity);
-        let geometry = ExplicitCurveGeometry::cpmm();
+        let geometry = ConcentratedCurveGeometry::cpmm();
         let point = geometry.point_at_price_nad(base_price_nad, target_tail_liquidity)?;
         Ok(Some((geometry, point, direction)))
     }
@@ -559,21 +571,21 @@ impl Market {
         if projected_total_debt_nad >= debt_reserve_nad {
             return Ok((existing_total_debt_nad, 0));
         }
-        let geometry = ExplicitCurveGeometry::cpmm();
+        let geometry = ConcentratedCurveGeometry::cpmm();
         let (point, direction) = match collateral_asset {
             MarketAsset::Base => (
-                ExplicitCurvePoint {
+                ConcentratedCurvePoint {
                     base_reserve: collateral_reserve_nad,
                     quote_reserve: debt_reserve_nad,
                 },
-                ExplicitCurveDirection::BaseToQuote,
+                ConcentratedCurveDirection::BaseToQuote,
             ),
             MarketAsset::Quote => (
-                ExplicitCurvePoint {
+                ConcentratedCurvePoint {
                     base_reserve: debt_reserve_nad,
                     quote_reserve: collateral_reserve_nad,
                 },
-                ExplicitCurveDirection::QuoteToBase,
+                ConcentratedCurveDirection::QuoteToBase,
             ),
         };
         let required_collateral_nad = geometry

@@ -6,9 +6,9 @@ authoritative swap guards come from deterministic LiteSVM scenarios in
 transaction telemetry for every public instruction; it is diagnostic and
 cannot substitute for a named-path measurement.
 
-## O(1) explicit concentrated+hLP acceptance (2026-08-15)
+## O(1) concentrated+hLP acceptance (2026-08-15)
 
-The representative complete swap uses the original explicit one-band curve,
+The representative complete swap uses the former one-band concentrated curve,
 gross-path toxicity and volatility fees, two active hLP vaults, algebraic
 zero-opposite-exposure reconstruction, retained-principal handling, and the
 normal token/account commit path. On LiteSVM's default 32 KiB heap it consumed
@@ -51,7 +51,7 @@ funded recenter.
 The ordinary path is a legacy-SPL, no-debt, inactive-hLP, same-slot CPMM swap.
 It must consume **strictly less than 100,000 CU**.
 
-hLP entry is live. The explicit path reconstructs hLP ownership and indexed
+hLP entry is live. The concentrated path reconstructs hLP ownership and indexed
 debt algebraically so each active vault ends with zero opposite-asset exposure
 at canonical atom precision. Passive funding-debt insolvency and its terminal
 recovery waterfall remain a separate economic design risk.
@@ -109,7 +109,7 @@ hook), not an isolated hook-program measurement. The `token_2022_swap`
 scenario measures Dusk's Token-2022 transfer path without pretending that
 every third-party hook has the same cost.
 
-## Historical pre-explicit finished-binary measurements
+## Historical pre-nested-curve finished-binary measurements
 
 The following deterministic maxima were captured on 2026-08-10 across five
 fully successful no-build runs of one finished SBF binary. The artifact was
