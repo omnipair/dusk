@@ -193,13 +193,38 @@ impl Market {
 
     /// Same accounting checkpoint without recomputing the forward protection
     /// target. Composite transitions use this between internal legs and
-    /// refresh once after their final reserve state is known.
-    pub(crate) fn checkpoint_amm_neutral_inventory_raw(&mut self, current_slot: u64) -> Result<()> {
+    /// refresh once after their final reserve state is known. A swap may pass
+    /// the exact cache already prepared from its compounded-fee endpoint.
+    pub(crate) fn checkpoint_amm_neutral_inventory_raw(
+        &mut self,
+        current_slot: u64,
+        prepared_cache: Option<ConcentratedCurveCache>,
+    ) -> Result<()> {
         self.ensure_amm_initialized(current_slot)?;
         if !self.amm.initialized {
+            require!(prepared_cache.is_none(), ErrorCode::BrokenInvariant);
             return Ok(());
         }
-        self.refresh_concentrated_curve_cache(current_slot, false)?;
+        if let Some(cache) = prepared_cache {
+            require!(
+                cache.parameters() == self.config.amm.concentrated_curve_parameters()?,
+                ErrorCode::BrokenInvariant
+            );
+            require_eq!(
+                cache.math_revision,
+                CONCENTRATED_CURVE_MATH_REVISION,
+                ErrorCode::BrokenInvariant
+            );
+            let curve_depth_nad = cache
+                .tail_liquidity
+                .checked_add(cache.concentrated_liquidity)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            let curve_depth_per_share_nad = self.curve_depth_per_share_nad(curve_depth_nad)?;
+            self.amm.concentrated_curve_cache = cache;
+            self.amm.checkpoint_neutral_liquidity(curve_depth_per_share_nad);
+        } else {
+            self.refresh_concentrated_curve_cache(current_slot, false)?;
+        }
         Ok(())
     }
 
@@ -236,7 +261,7 @@ impl Market {
         if !self.amm.initialized {
             return Ok(());
         }
-        self.checkpoint_amm_neutral_inventory_raw(current_slot)?;
+        self.checkpoint_amm_neutral_inventory_raw(current_slot, None)?;
         self.defer_amm_retention_target()?;
         self.advance_curve_revision()
     }
@@ -589,7 +614,7 @@ impl Market {
         trade_end_price_nad: u64,
         current_slot: u64,
     ) -> Result<()> {
-        self.checkpoint_amm_neutral_inventory_raw(current_slot)?;
+        self.checkpoint_amm_neutral_inventory_raw(current_slot, None)?;
         self.finalize_amm_trade_after_inventory_checkpoint(trade_start_price_nad, trade_end_price_nad, current_slot)?;
         Ok(())
     }
@@ -1065,8 +1090,8 @@ impl Market {
         // Retained surcharge remains outside executable reserves. Compounded
         // LP fees are instead ordinary principal, so they rebase the same
         // tail+band parameters through the post-fee reserve point.
-        let reserve_end_price_nad = if compounded_fee_debit == 0 {
-            end_price_nad
+        let (reserve_end_price_nad, post_fee_curve_cache) = if compounded_fee_debit == 0 {
+            (end_price_nad, None)
         } else {
             let compounded_cache = prepare_concentrated_cache_at_point(
                 integrated.executable.end.ordinary_base,
@@ -1074,15 +1099,14 @@ impl Market {
                 self.current_curve_center_price_nad()?,
                 self.config.amm.concentrated_curve_parameters()?,
             )?;
-            u64::try_from(
-                compounded_cache
-                    .geometry()?
-                    .spot_price_nad_prevalidated(ConcentratedCurvePoint {
-                        base_reserve: integrated.executable.end.ordinary_base,
-                        quote_reserve: integrated.executable.end.ordinary_quote,
-                    })?,
-            )
-            .map_err(|_| ErrorCode::MarketMathOverflow)?
+            let reserve_end_price_nad = u64::try_from(compounded_cache.geometry()?.spot_price_nad_prevalidated(
+                ConcentratedCurvePoint {
+                    base_reserve: integrated.executable.end.ordinary_base,
+                    quote_reserve: integrated.executable.end.ordinary_quote,
+                },
+            )?)
+            .map_err(|_| ErrorCode::MarketMathOverflow)?;
+            (reserve_end_price_nad, Some(compounded_cache))
         };
         let post_success_volatility_nad = volatility_after_success_nad(
             dynamic.decayed_volatility_nad,
@@ -1098,6 +1122,7 @@ impl Market {
             start_price_nad,
             end_price_nad,
             reserve_end_price_nad,
+            post_fee_curve_cache,
             decayed_volatility_nad: dynamic.decayed_volatility_nad,
             post_success_volatility_nad,
             fee: SwapFeeBreakdown {
@@ -1363,6 +1388,9 @@ pub(crate) struct ConcentratedIntegratedAmmQuote {
     pub start_price_nad: u64,
     pub end_price_nad: u64,
     pub reserve_end_price_nad: u64,
+    /// Exact cache rebased through the compounded-fee endpoint. Preparation
+    /// carries this to finalization so the same root is never solved twice.
+    pub post_fee_curve_cache: Option<ConcentratedCurveCache>,
     pub decayed_volatility_nad: u64,
     pub post_success_volatility_nad: u64,
     pub fee: SwapFeeBreakdown,

@@ -249,6 +249,7 @@ fn assert_prepared_swaps_equal(preview: &PreparedSwap, execution: &PreparedSwap)
     assert_eq!(preview.quote_pre_rebalance, execution.quote_pre_rebalance);
     assert_eq!(preview.fee_eligible_ylp_supply, execution.fee_eligible_ylp_supply);
     assert_eq!(preview.interest_eligibility, execution.interest_eligibility);
+    assert_eq!(preview.post_fee_curve_cache, execution.post_fee_curve_cache);
 }
 
 #[test]
@@ -604,6 +605,8 @@ fn forty_percent_fee_compounding_is_native_to_cpmm_and_concentrated_swaps() {
 
             let baseline_prepared = request.prepare(&mut baseline).unwrap();
             let compounded_prepared = request.prepare(&mut compounded).unwrap();
+            assert!(baseline_prepared.post_fee_curve_cache.is_none());
+            let prepared_compounded_cache = *compounded_prepared.post_fee_curve_cache.as_deref().unwrap();
             let baseline_quote = baseline_prepared.quote;
             let compounded_quote = compounded_prepared.quote;
             assert_eq!(compounded_quote.amount_out, baseline_quote.amount_out);
@@ -630,6 +633,7 @@ fn forty_percent_fee_compounding_is_native_to_cpmm_and_concentrated_swaps() {
             compounded_prepared
                 .finalize_state(&mut compounded, 1, 2_500, protocol_split)
                 .unwrap();
+            assert_eq!(compounded.amm.concentrated_curve_cache, prepared_compounded_cache);
             let fee_asset = MarketAsset::try_from_code(compounded_quote.fee.fee_asset).unwrap();
             assert_eq!(
                 baseline.side(fee_asset).fees.total_liability().unwrap()
@@ -749,7 +753,7 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
     market.deposit_single_sided(MarketAsset::Quote, 200_000, 1).unwrap();
     market.config.divergence_fee_share_cap_bps = 2_000;
     market.config.amm.divergence_fee_coefficient_nad = 10 * NAD;
-    market.checkpoint_amm_neutral_inventory_raw(1).unwrap();
+    market.checkpoint_amm_neutral_inventory_raw(1, None).unwrap();
     let request = SwapRequest {
         current_slot: 1,
         current_unix_timestamp: 0,

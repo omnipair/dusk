@@ -18,7 +18,7 @@ use crate::{
         ceil_div, denormalize_from_nad_floor, mul_div_ceil_u128, mul_div_u128, normalize_to_nad,
         realized_interest_split,
     },
-    state::{Debt, LeveragePosition, Market, MarketAsset, ProtocolAuctionSplit},
+    state::{ConcentratedCurveCache, Debt, LeveragePosition, Market, MarketAsset, ProtocolAuctionSplit},
 };
 
 /// Conservative all-in Quote-per-Base execution price after swap fees, price
@@ -146,6 +146,7 @@ pub struct PreparedLeverageSwap {
     pub fee_eligible_ylp_supply: u64,
     pub interest_eligibility: HlpYieldEligibility,
     pub(crate) cash_policy: SwapCashPolicy,
+    pub(crate) post_fee_curve_cache: Option<Box<ConcentratedCurveCache>>,
     pub(crate) concentrated_transition: Option<Box<ConcentratedHlpTransition>>,
 }
 
@@ -1062,7 +1063,19 @@ impl Market {
         };
         let (base, quote) = transition.consume(self)?;
         if prepared_swap.swap.fee_breakdown.compounded_fee_debit > 0 {
-            self.checkpoint_amm_neutral_inventory_raw(current_slot)?;
+            let prepared_cache = if socialized_loss_applied {
+                None
+            } else {
+                Some(
+                    *prepared_swap
+                        .post_fee_curve_cache
+                        .as_deref()
+                        .ok_or(ErrorCode::BrokenInvariant)?,
+                )
+            };
+            self.checkpoint_amm_neutral_inventory_raw(current_slot, prepared_cache)?;
+        } else {
+            require!(prepared_swap.post_fee_curve_cache.is_none(), ErrorCode::BrokenInvariant);
         }
         self.finalize_amm_trade_after_inventory_checkpoint(
             prepared_swap.swap.start_price_nad,

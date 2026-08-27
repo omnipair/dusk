@@ -6,7 +6,34 @@ authoritative swap guards come from deterministic LiteSVM scenarios in
 transaction telemetry for every public instruction; it is diagnostic and
 cannot substitute for a named-path measurement.
 
-## O(1) concentrated+hLP acceptance (2026-08-15)
+## Nested concentrated+hLP fee-compounding acceptance (2026-08-27)
+
+The representative nested core-and-shoulder swap uses two active hLP vaults,
+native single-sided yLP fee compounding, algebraic zero-opposite-exposure
+reconstruction, and the normal token/account commit path. On LiteSVM's default
+32 KiB heap it consumed **511,700 CU**, below the repository's **1,350,000 CU**
+guard and Solana's **1,400,000 CU** transaction maximum. The measured SBF
+artifact SHA-256 is
+`659563289a80c0d5e1e2919b85ce734bfbd7827aea8c0b016470fb558e466d3c`.
+
+The curve quote still crosses only precomputed piecewise-CPMM boundaries. The
+single-sided compounded fee requires one exact closed-form scale rebase. Its
+region is selected first from homothetic reserve ratios, and the resulting
+cache is carried into spot, liquidation-floor, and leverage finalization
+instead of being reconstructed a second time.
+
+Reproduction command:
+
+```sh
+yarn test-litesvm:no-build --grep "measures O\\(1\\) concentrated hLP swap with fee compounding"
+```
+
+The complete no-build suite recorded **50/51 passing tests** and **53/53 public
+instructions exercised**. The one remaining branch-label assertion fails
+identically on the preceding `0937c8f` binary and is not caused by this compute
+change, so it remains outside this targeted acceptance result.
+
+## Historical one-band concentrated+hLP acceptance (2026-08-15)
 
 The representative complete swap uses the former one-band concentrated curve,
 gross-path toxicity and volatility fees, two active hLP vaults, algebraic
@@ -35,8 +62,8 @@ Reproduction command:
 npm run test-litesvm:no-build -- --grep "measures O\\(1\\) concentrated hLP swap"
 ```
 
-The production swap path contains no finite-difference, Jacobian, Broyden, or
-iterative invariant solve. Legacy solver entry points are test-only
+The measured one-band path contained no finite-difference, Jacobian, Broyden,
+or iterative invariant solve. Legacy solver entry points were test-only
 differential references with no production caller or state authority.
 
 The final no-build validation passed **51/51 LiteSVM tests**, exercised

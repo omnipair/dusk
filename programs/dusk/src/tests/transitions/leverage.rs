@@ -199,9 +199,11 @@ fn prepared_leverage_swap(
         .quote_concentrated_integrated_with_fee(asset_in, swap.amount_in, preliminary, 0)
         .unwrap()
         .unwrap();
+    let post_fee_curve_cache = integrated.post_fee_curve_cache.map(Box::new);
     let concentrated_transition = prepare_concentrated_hlp_transition(market, integrated, asset_in).unwrap();
     PreparedLeverageSwap {
         concentrated_transition: Some(Box::new(concentrated_transition)),
+        post_fee_curve_cache,
         swap,
         base_pre_rebalance: HlpRebalanceReceipt::default(),
         quote_pre_rebalance: HlpRebalanceReceipt {
@@ -654,6 +656,7 @@ fn prepare_leverage_swap_with_policy(
     .unwrap();
     PreparedLeverageSwap {
         concentrated_transition: prepared.concentrated_transition,
+        post_fee_curve_cache: prepared.post_fee_curve_cache,
         swap: LeverageSwapQuote::from_amm(prepared.quote, current_slot),
         base_pre_rebalance: prepared.base_pre_rebalance,
         quote_pre_rebalance: prepared.quote_pre_rebalance,

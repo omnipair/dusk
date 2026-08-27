@@ -486,11 +486,16 @@ pub(crate) fn prepare_centered_concentrated_cache(
     )
 }
 
+fn reserve_ratio_cmp(point: ConcentratedCurvePoint, boundary: ConcentratedCurvePoint) -> core::cmp::Ordering {
+    (U512::from(point.quote_reserve) * U512::from(boundary.base_reserve))
+        .cmp(&(U512::from(boundary.quote_reserve) * U512::from(point.base_reserve)))
+}
+
 /// Reconstructs the unique positive curve scale through an arbitrary reserve
-/// point for a sticky center and concentration policy. Each of the three
-/// possible branches has one quadratic positive root; we evaluate those
-/// closed forms and accept the unique root whose geometry classifies the
-/// supplied point into the same branch. No invariant search is performed.
+/// point for a sticky center and concentration policy. Homothetic boundary
+/// ratios select the expected branch first, so the normal path evaluates one
+/// quadratic positive root. Remaining branches are rounding-boundary
+/// fallbacks, not an invariant search.
 pub(crate) fn prepare_concentrated_cache_at_point(
     base_reserve: u128,
     quote_reserve: u128,
@@ -519,13 +524,81 @@ pub(crate) fn prepare_concentrated_cache_at_point(
         quote_reserve,
     };
 
-    for branch in [
-        ConcentratedCurveBranch::Inner,
-        ConcentratedCurveBranch::UpperShoulder,
-        ConcentratedCurveBranch::LowerShoulder,
-        ConcentratedCurveBranch::LowerTail,
-        ConcentratedCurveBranch::UpperTail,
-    ] {
+    let shape_concentrated_liquidity = mul_div_u128(NESTED_SHAPE_SCALE, concentrated_share, NAD as u128)?;
+    let shape_tail_liquidity = NESTED_SHAPE_SCALE
+        .checked_sub(shape_concentrated_liquidity)
+        .ok_or(ErrorCode::BrokenInvariant)?;
+    let shape = ConcentratedCurveCache {
+        math_revision: CONCENTRATED_CURVE_MATH_REVISION,
+        peak_amplification_nad: parameters.peak_amplification_nad,
+        core_half_width_bps: parameters.core_half_width_bps,
+        fade_width_bps: parameters.fade_width_bps,
+        tail_liquidity: shape_tail_liquidity,
+        concentrated_liquidity: shape_concentrated_liquidity,
+        core_lower_sqrt_price_nad,
+        core_upper_sqrt_price_nad,
+        outer_lower_sqrt_price_nad,
+        outer_upper_sqrt_price_nad,
+    }
+    .geometry()?;
+
+    // Curve geometry is homothetic: changing total liquidity scales every
+    // boundary coordinate by the same amount. Reserve-ratio comparisons can
+    // therefore select the branch before the scale is known.
+    let preferred_branch = if shape.is_nested() {
+        let region = shape
+            .nested_boundaries
+            .iter()
+            .take(shape.nested_boundary_count as usize)
+            .position(|boundary| reserve_ratio_cmp(point, *boundary) != core::cmp::Ordering::Less)
+            .unwrap_or(shape.nested_boundary_count as usize);
+        nested_branch_from_region(region)
+    } else if reserve_ratio_cmp(point, shape.upper_boundary) != core::cmp::Ordering::Less {
+        ConcentratedCurveBranch::UpperTail
+    } else if reserve_ratio_cmp(point, shape.lower_boundary) == core::cmp::Ordering::Greater {
+        ConcentratedCurveBranch::Inner
+    } else {
+        ConcentratedCurveBranch::LowerTail
+    };
+    let branch_candidates = match preferred_branch {
+        ConcentratedCurveBranch::UpperTail => [
+            ConcentratedCurveBranch::UpperTail,
+            ConcentratedCurveBranch::UpperShoulder,
+            ConcentratedCurveBranch::Inner,
+            ConcentratedCurveBranch::LowerShoulder,
+            ConcentratedCurveBranch::LowerTail,
+        ],
+        ConcentratedCurveBranch::UpperShoulder => [
+            ConcentratedCurveBranch::UpperShoulder,
+            ConcentratedCurveBranch::UpperTail,
+            ConcentratedCurveBranch::Inner,
+            ConcentratedCurveBranch::LowerShoulder,
+            ConcentratedCurveBranch::LowerTail,
+        ],
+        ConcentratedCurveBranch::Inner => [
+            ConcentratedCurveBranch::Inner,
+            ConcentratedCurveBranch::UpperShoulder,
+            ConcentratedCurveBranch::LowerShoulder,
+            ConcentratedCurveBranch::UpperTail,
+            ConcentratedCurveBranch::LowerTail,
+        ],
+        ConcentratedCurveBranch::LowerShoulder => [
+            ConcentratedCurveBranch::LowerShoulder,
+            ConcentratedCurveBranch::Inner,
+            ConcentratedCurveBranch::LowerTail,
+            ConcentratedCurveBranch::UpperShoulder,
+            ConcentratedCurveBranch::UpperTail,
+        ],
+        ConcentratedCurveBranch::LowerTail => [
+            ConcentratedCurveBranch::LowerTail,
+            ConcentratedCurveBranch::LowerShoulder,
+            ConcentratedCurveBranch::Inner,
+            ConcentratedCurveBranch::UpperShoulder,
+            ConcentratedCurveBranch::UpperTail,
+        ],
+    };
+
+    for branch in branch_candidates {
         if parameters.fade_width_bps == 0
             && matches!(
                 branch,

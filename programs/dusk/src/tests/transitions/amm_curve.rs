@@ -140,6 +140,77 @@ fn arbitrary_point_cache_reconstructs_each_branch_without_a_root_search() {
 }
 
 #[test]
+fn reserve_ratio_selects_the_exact_rebase_branch_before_solving() {
+    for parameters in [
+        ConcentratedCurveParameters {
+            peak_amplification_nad: 4 * NAD,
+            core_half_width_bps: 100,
+            fade_width_bps: 0,
+        },
+        ConcentratedCurveParameters {
+            peak_amplification_nad: 20 * NAD,
+            core_half_width_bps: 100,
+            fade_width_bps: 400,
+        },
+    ] {
+        let centered = prepare_centered_concentrated_cache(
+            1_000_000_000_000,
+            1_000_000_000_000,
+            NAD,
+            parameters,
+        )
+        .unwrap();
+        let shape = centered.geometry().unwrap();
+        for target in [
+            800_000_000_u128,
+            950_000_000,
+            990_000_000,
+            NAD as u128,
+            1_008_000_000,
+            1_048_000_000,
+            1_250_000_000,
+        ] {
+            let curve_point = shape.point_at_price_nad(target, centered.tail_liquidity).unwrap();
+            for (base_fee, quote_fee) in [(1_u128, 0_u128), (0, 1), (100_000_000, 0), (0, 100_000_000)] {
+                let point = ConcentratedCurvePoint {
+                    base_reserve: curve_point.base_reserve.checked_add(base_fee).unwrap(),
+                    quote_reserve: curve_point.quote_reserve.checked_add(quote_fee).unwrap(),
+                };
+                let selected = if shape.is_nested() {
+                    let region = shape
+                        .nested_boundaries
+                        .iter()
+                        .take(shape.nested_boundary_count as usize)
+                        .position(|boundary| {
+                            reserve_ratio_cmp(point, *boundary) != core::cmp::Ordering::Less
+                        })
+                        .unwrap_or(shape.nested_boundary_count as usize);
+                    nested_branch_from_region(region)
+                } else if reserve_ratio_cmp(point, shape.upper_boundary) != core::cmp::Ordering::Less {
+                    ConcentratedCurveBranch::UpperTail
+                } else if reserve_ratio_cmp(point, shape.lower_boundary) == core::cmp::Ordering::Greater {
+                    ConcentratedCurveBranch::Inner
+                } else {
+                    ConcentratedCurveBranch::LowerTail
+                };
+                let rebuilt = prepare_concentrated_cache_at_point(
+                    point.base_reserve,
+                    point.quote_reserve,
+                    NAD,
+                    parameters,
+                )
+                .unwrap();
+                assert_eq!(
+                    rebuilt.geometry().unwrap().branch(point),
+                    selected,
+                    "parameters={parameters:?} target={target} base_fee={base_fee} quote_fee={quote_fee}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn cpmm_mode_matches_cpmm_helpers_exactly() {
     let start = ConcentratedCurvePoint {
         base_reserve: 1_000_000,

@@ -6,7 +6,7 @@ use anchor_lang::Discriminator;
 
 use crate::{
     errors::ErrorCode,
-    state::{Market, MarketAsset, ProtocolAuctionSplit},
+    state::{ConcentratedCurveCache, Market, MarketAsset, ProtocolAuctionSplit},
     transitions::{
         liquidity::{prepare_concentrated_hlp_transition, ConcentratedHlpTransition, SwapCashPolicy},
         AmmSwapQuote, HlpRebalanceReceipt, HlpYieldEligibility, SwapFeeBreakdown,
@@ -98,6 +98,7 @@ pub(crate) struct PreparedSwap {
     pub fee_eligible_ylp_supply: u64,
     pub interest_eligibility: HlpYieldEligibility,
     pub cash_policy: SwapCashPolicy,
+    pub(crate) post_fee_curve_cache: Option<Box<ConcentratedCurveCache>>,
     pub(crate) concentrated_transition: Option<Box<ConcentratedHlpTransition>>,
 }
 
@@ -111,6 +112,7 @@ impl core::fmt::Debug for PreparedSwap {
             .field("fee_eligible_ylp_supply", &self.fee_eligible_ylp_supply)
             .field("interest_eligibility", &self.interest_eligibility)
             .field("cash_policy", &self.cash_policy)
+            .field("has_post_fee_curve_cache", &self.post_fee_curve_cache.is_some())
             .field("has_concentrated_transition", &self.concentrated_transition.is_some())
             .finish()
     }
@@ -272,7 +274,12 @@ impl PreparedSwap {
         }
         let (base_rebalance, quote_rebalance) = transition.consume(market)?;
         if quote.fee.compounded_fee_debit > 0 {
-            market.checkpoint_amm_neutral_inventory_raw(current_slot)?;
+            market.checkpoint_amm_neutral_inventory_raw(
+                current_slot,
+                Some(*self.post_fee_curve_cache.as_deref().ok_or(ErrorCode::BrokenInvariant)?),
+            )?;
+        } else {
+            require!(self.post_fee_curve_cache.is_none(), ErrorCode::BrokenInvariant);
         }
         market.finalize_amm_trade_after_inventory_checkpoint(
             quote.start_price_nad,
@@ -364,6 +371,7 @@ impl SwapRequest {
                 .available(market),
             ErrorCode::InsufficientLiquidity
         );
+        let post_fee_curve_cache = concentrated.post_fee_curve_cache.map(Box::new);
         let quote = concentrated.as_swap_quote(self.asset_in);
         Ok(PreparedSwap {
             quote,
@@ -381,6 +389,7 @@ impl SwapRequest {
                 .ylp_supply,
             interest_eligibility,
             cash_policy,
+            post_fee_curve_cache,
             concentrated_transition: Some(Box::new(transition)),
         })
     }
