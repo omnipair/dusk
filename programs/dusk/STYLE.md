@@ -5,13 +5,14 @@ keeping Dusk's stricter safety, testing, and code-shape rules.
 
 ## Architecture
 
-Dusk uses three direct layers:
+Dusk uses four direct layers:
 
 1. instruction adapters own Anchor accounts, validation, token CPIs, custody
    reconciliation, and events;
-2. account methods and the small `market/` domain modules own checked state
-   mutation and return receipts only when another phase needs the result;
-3. pure math owns stateless fixed-point algorithms and quotes.
+2. domain-specific `transitions/` modules own checked state mutation and return
+   receipts only when another phase needs the result;
+3. account methods own account-local invariants and serialization-shaped state;
+4. pure math owns stateless fixed-point algorithms and quotes.
 
 `state/` is account-shaped: every production state file defines exactly one
 `#[account]` type. Serialized child values stay beside their owning account;
@@ -20,9 +21,9 @@ rule: a state file represents an on-chain account, not an architectural noun.
 
 Use an explicit state machine only for state that persists across transactions,
 such as proposal, auction, or ramp lifecycles. A swap, borrow, repayment, or LP
-change is an atomic domain operation, not a separate state-machine framework.
-The `market/` directory exists only for the few large behaviors shared by
-multiple instructions: AMM, liquidity, lending, and leverage.
+change is an atomic domain operation. Shared checked mutations live in the
+matching domain below `transitions/`; the directory is organizational and does
+not imply a generic transition trait or framework.
 
 ## Instruction files
 
@@ -83,8 +84,8 @@ Token-2022 correctness.
   algorithm requires a boundary.
 - Every `state/*.rs` file except `mod.rs` owns exactly one `#[account]`; do not
   create nested production modules under `state/`.
-- Do not add a generic `transitions` module or `Transition` trait. Place checked
-  mutations with the domain that owns their invariants.
+- Keep `transitions/` domain-specific. Do not add a generic `Transition` trait;
+  place checked mutations with the domain that owns their invariants.
 - Keep complex money-moving entrypoints separate. Group only short related
   administrative entrypoints whose account and mutation stories remain clear.
 

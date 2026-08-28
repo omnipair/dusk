@@ -1,6 +1,6 @@
 # Dusk Internal Audit Status
 
-**Current through:** 2026-08-16
+**Current through:** 2026-08-29 (`8aa97e1`)
 
 This is the authoritative current disposition of Dusk's known internal
 findings. Dated reports under the ignored `.audit/findings/` directory are
@@ -23,7 +23,7 @@ admission fixes:
 
 | Critical | High | Medium | Low |
 | ---: | ---: | ---: | ---: |
-| 0 | 1 | 0 | 0 |
+| 0 | 0 | 0 | 0 |
 
 Independent external audit, owner signoff, and target-cluster release checks
 remain pending release gates. They are not classified as internal defects in
@@ -34,7 +34,7 @@ this matrix.
 | Area | Historical finding aliases | Highest former severity | Current resolution and evidence |
 | --- | --- | ---: | --- |
 | Concentrated curve continuity, exact tails, maximal quotes, and split resistance | concentrated-AMM `FF-001`–`FF-007`; core `CORE-F01` | High | Replaced the discontinuous haircut and approximate boundaries with the shared exact curve and adjacent-atom maximality checks. See [`CONCENTRATION.md`](./CONCENTRATION.md) and `src/tests/math/concentrated.rs`. |
-| Controller, hLP, leverage, and final-risk ordering | `CORE-F02`–`CORE-F05`; `SI-001`; older product/state hLP and stale-risk findings | High | Spot and all leverage swap families use the concentrated O(1) tail+band curve, algebraic zero-opposite-exposure hLP transition, protected recenter admission, and final risk observation. See `src/market/amm.rs`, `src/math/amm/concentrated.rs`, `src/math/hlp/integrated.rs`, and their tests. |
+| Controller, hLP, leverage, and final-risk ordering | `CORE-F02`–`CORE-F05`; `SI-001`; older product/state hLP and stale-risk findings | High | Spot and all leverage swap families use the concentrated O(1) tail+band curve, algebraic zero-opposite-exposure hLP transition, protected recenter admission, and final risk observation. See `src/transitions/amm/mod.rs`, `src/transitions/amm/curve.rs`, `src/transitions/liquidity/hlp/integrated.rs`, and their tests. |
 | Controller/config history, launch protection, and deferred work | `SI-002`; `CORE-F04`; older no-crank/config findings | Medium | Elapsed state is checkpointed under the old parameters before activation; saturated or invalidated work has explicit semantics and no maintenance instruction is required. Ordinary yLP can seed before `start_time`, trading activates at the exact timestamp, the launch fee decays from the clock in O(1), and a stateless launch-asset buy-size premium composes under the same hard fee cap. Both are governed through the fee family; no Alpha Vault, extra PDA, or launch keeper exists. Center-controller parameters use their own timelocked governance revision. |
 | Bounded divergence computation | `CORE-F06` | Medium | Full-width fee math has bounded fallbacks and finished-SBF measurements. See [`COMPUTE_BENCHMARKS.md`](./COMPUTE_BENCHMARKS.md). |
 | CPMM preview reserve-product overflow | `CORE-F07` | Low–Medium | Removed the unrepresentable raw `x * y` preview field. Preview now returns exact `floor(sqrt(x * y))` through full-width geometric-mean math; `preview_liquidity_supports_the_full_valid_reserve_domain` covers two maximum valid zero-decimal reserves. |

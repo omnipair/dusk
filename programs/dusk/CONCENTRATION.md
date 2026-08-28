@@ -135,9 +135,10 @@ keeper.
 If passive funding consumes all marked hLP collateral before that recovery
 executes, `close_insolvent_hlp` closes the vault through a terminal
 waterfall. It first retires the vault-owned yLP position, then draws the
-borrowed-asset insurance vault, credits the payable portion of funding interest
-to yLP, and socializes only the caller-capped remainder of that accrued funding
-interest. A loss reaching original debt principal is rejected as a broken
+borrowed-asset insurance vault. A bounded caller bounty is paid from recovered
+funding interest, the remaining payable interest is credited to ordinary yLP,
+and only the caller-capped remainder of accrued funding interest is socialized.
+A loss reaching original debt principal is rejected as a broken
 hedge/accounting invariant. Published hLP fee claims are not seized; the
 remaining hLP tokens are burnable for zero principal after closure. The
 terminal instruction has its own insurance/interest/yLP accounts, so ordinary
@@ -200,5 +201,7 @@ critical flag. Ordinary swap arguments are unchanged.
 - linear symmetric-EMA lending liquidation eligibility;
 - complete depth-scaled concentrated pricing for the external-auction floor
   and live concentrated execution for the permissionless internal backstop;
-- SBF verifier/default heap success and a representative complete swap at or
-  below 100,000 CU.
+- SBF verifier/default heap success; the ordinary legacy-SPL, no-debt,
+  inactive-hLP, same-slot CPMM path remains strictly below 100,000 CU, while
+  nested concentrated+hLP paths remain below the repository's 1,350,000-CU
+  release guard with commit-bound measurements in `COMPUTE_BENCHMARKS.md`.

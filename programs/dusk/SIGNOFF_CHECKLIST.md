@@ -95,8 +95,10 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 - Confirm Dusk IDL and generated TypeScript copies match `target/idl` and
   `target/types` artifacts from the release build.
 - Confirm consumer examples use Dusk `Market` accounts.
-- Confirm proposal/support PDA helpers and all five parameter-governance
-  builders round-trip the generated IDL types.
+- Confirm proposal/support PDA helpers and all five proposal-lifecycle builders
+  round-trip the generated IDL types. Confirm typed update helpers cover all
+  seven parameter families; the handwritten SDK currently lacks the Insurance
+  draw-cap variant and must be completed before approval.
 
 ## Indexing And Analytics
 

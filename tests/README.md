@@ -31,7 +31,8 @@ yarn test-litesvm:no-build --grep "initializes a final yLP/hLP market"
 
 - Market initialization with Token-2022 yLP and hLP mints.
 - Balanced liquidity add/remove with floating yLP shares.
-- Non-compounding yLP fee accrual, yield recipient routing, and claiming.
+- Governed yLP fee compounding, non-compounded fee accrual, yield-recipient
+  routing, and claiming.
 - Swaps, including the canonical active-hLP remaining-account prefix:
   `[yLP mint, base hLP yLP vault, quote hLP yLP vault, base interest vault,
   quote interest vault]`, with transfer-hook extras appended afterward.
@@ -40,6 +41,8 @@ yarn test-litesvm:no-build --grep "initializes a final yLP/hLP market"
 - hLP single-sided deposit/withdraw with aggregate vault-owned yLP, funding debt
   settlement, reserve-backing conservation, and predictive CPMM/concentrated
   swap settlement.
+- The 58-instruction coverage registry includes liquidity-gate opening, hLP
+  rescue and terminal close, insurance funding, and hLP order-trigger previews.
 
 The smoke coverage report is maintained in
 `tests/utils/instruction-coverage.ts`. It tracks whether each Dusk instruction

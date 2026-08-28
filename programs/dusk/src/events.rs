@@ -285,7 +285,8 @@ pub struct SwapExecuted {
     pub base_fee: u64,
     pub divergence_fee: u64,
     pub volatility_fee: u64,
-    /// Dynamic surcharge retained as executable principal.
+    /// Dynamic surcharge retained outside executable/yLP inventory until an
+    /// admitted center move deploys it.
     pub retained_fee: u64,
     /// LP-owned fee compounded into reserve principal.
     pub compounded_fee: u64,

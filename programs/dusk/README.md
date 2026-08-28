@@ -2,9 +2,9 @@
 
 Dusk is the standalone market program for Omnipair V2. It uses market terminology, floating yield LP shares, aggregate hedged LP vault accounting, isolated spot-margin leverage, direct-yLP parameter governance, and an optional oracle-less Dusk Concentrated AMM. See [`CONCENTRATION.md`](./CONCENTRATION.md) for the curve, recentering, fee, and protected-liquidity specification.
 
-See [`COMPUTE_BENCHMARKS.md`](./COMPUTE_BENCHMARKS.md) for the complete
-53-instruction LiteSVM CU table, including sample counts, averages, observed
-maxima, headroom, and deterministic swap-path regression ceilings.
+See [`COMPUTE_BENCHMARKS.md`](./COMPUTE_BENCHMARKS.md) for current named-path
+regression ceilings and explicitly dated, commit-bound full-instruction
+snapshots. The current public IDL contains 58 instructions.
 
 See [`AUDIT_STATUS.md`](./AUDIT_STATUS.md) for the authoritative disposition of
 known internal findings. Dated files under the ignored `.audit/` directory are
@@ -16,36 +16,35 @@ Rust source follows the V1-inspired conventions in [`STYLE.md`](./STYLE.md).
 
 - `instructions/`: Anchor account validation, token CPIs, custody reconciliation, slippage checks, and events. Small administrative entrypoints are grouped by domain; complex money paths remain separate.
 - `state/`: one file per serialized Anchor account. Embedded values live with their owning account instead of becoming pseudo-state modules.
-- `market/`: the four shared Market behaviors: AMM, liquidity, lending, and leverage. Operations are written directly without a generic transition or wrapper layer.
+- `transitions/`: checked AMM, liquidity, lending, leverage, governance, ledger, and revenue state transitions shared by instruction and preview paths.
 - `math/`: pure fixed-point concentrated-AMM/CPMM, dynamic-fee, EMA, valuation, and interest algorithms.
-- `shared/`: reusable account, token, and arithmetic adapters that do not own protocol state transitions.
 
 Instruction modules are split by domain: `market`, `governance`, `liquidity`, `spot`, `lending`, `leverage`, `referral`, and `futarchy`.
 
 | Flow | Anchor adapter | Domain owner |
 | --- | --- | --- |
-| Swap and preview | `instructions/spot`, `instructions/prepare_swap`, `instructions/preview` | `state/market.rs`, `market/amm.rs` |
-| yLP and hLP | `instructions/liquidity` | `state/market.rs`, `market/liquidity.rs` |
-| Borrow and liquidation | `instructions/lending` | `state/borrow_position.rs`, `state/market.rs`, `market/lending.rs` |
-| Isolated leverage | `instructions/leverage` | `state/leverage_position.rs`, `state/leverage_delegation.rs`, `market/leverage.rs` |
-| Parameter governance | `instructions/governance` | `state/parameter_proposal.rs`, `state/proposal_support.rs`, `state/market.rs` |
+| Swap and preview | `instructions/spot`, `instructions/prepare_swap`, `instructions/preview` | `transitions/amm`, `transitions/liquidity/hlp` |
+| yLP and hLP | `instructions/liquidity` | `transitions/liquidity`, `transitions/ledger.rs` |
+| Borrow and liquidation | `instructions/lending` | `transitions/lending`, `state/borrow_position.rs` |
+| Isolated leverage | `instructions/leverage` | `transitions/leverage.rs`, `state/leverage_position.rs` |
+| Parameter governance | `instructions/governance` | `transitions/governance.rs`, `state/parameter_proposal.rs` |
 
 ## Public Instructions
 
 Dusk exposes the current market instruction set:
 
-- `initialize_market`, `initialize_lp_metadata`, `initialize_yield_accounts`, `initialize_lp_transfer_hook`, `set_market_reduce_only`
+- `initialize_market`, `initialize_lp_metadata`, `initialize_yield_accounts`, `initialize_lp_transfer_hook`, `set_market_reduce_only`, `fortify_market`
 - `create_parameter_proposal`, `support_parameter_proposal`, `queue_parameter_proposal`, `execute_parameter_proposal`, `withdraw_parameter_support`
-- `add_liquidity`, `remove_liquidity`
+- `add_liquidity`, `open_liquidity_gates`, `remove_liquidity`
 - `set_yield_recipient`, `harvest`
-- `swap`
+- `swap`, `rescue_hlp`, `close_insolvent_hlp`
 - `deposit_collateral`, `withdraw_collateral`, `borrow`, `repay`
 - `configure_referral_partner`, `initialize_referral_accrual`, `set_referral_recipient`, `claim_referral_interest`
 - `start_liquidation_auction`, `fill_liquidation_auction`, `backstop_liquidation_auction`
 - `deposit_single_sided`, `withdraw_single_sided`
 - `open_leverage`, `close_leverage`, `delegated_close_leverage`, `increase_leverage`, `decrease_leverage`, `add_leverage_margin`, `remove_leverage_margin`, `liquidate_leverage_position`
 - `create_leverage_delegation`, `update_leverage_delegation`, `close_leverage_delegation`
-- `preview_market`, `preview_add_liquidity`, `preview_swap`, `preview_borrow_capacity`, `preview_borrow_position`
+- `preview_market`, `preview_hlp_order_trigger`, `preview_add_liquidity`, `preview_swap`, `preview_borrow_capacity`, `preview_borrow_position`
 - Futarchy and revenue administration: `init_futarchy_authority`, `update_futarchy_authority`, `update_protocol_revenue`, `update_revenue_recipients`, `update_protocol_auction_config`, `update_protocol_auction_recipients`, `update_protocol_auction_route`, `set_global_reduce_only`, `settle_protocol_auction`
 
 `settle_protocol_auction` requires an explicit revenue `source` in addition to
@@ -76,9 +75,10 @@ withdrawn; after execution, expiry, staleness, or cancellation,
 `withdraw_parameter_support` remints the exact locked amount and merges its
 yield into the holder's normal `YieldAccount`s.
 
-Each proposal changes exactly one family: the complete fee profile,
+Each proposal changes exactly one of seven families: the complete fee profile,
 concentration shape plus its 216,000–1,512,000-slot ramp duration, IRM, the four
-EMA half-lives, or the daily borrow limit. Independent family revisions make
+EMA half-lives, the daily borrow limit, the center controller, or insurance
+draw caps. Independent family revisions make
 competing proposals stale instead of silently combining them. Execution first
 checkpoints old interest/EMA/risk state and rejects at 80% utilization.
 
@@ -121,7 +121,7 @@ quote_claim = user_ylp_shares * quote_live_reserve / total_ylp_supply
 
 There is no fixed 1:1 protected-principal LP or separate public fee-eligibility step. `remove_liquidity` burns yLP and returns pro-rata base and quote executable principal reserves subject to cash availability and user slippage bounds; it cannot redeem the protocol-owned protected recenter buckets.
 
-Base swap fees, distributed dynamic surcharge, and borrow interest are non-compounding liabilities. Swap-fee liabilities stay physically in the reserve vault as `swap_fee_custody_balance`, outside executable `cash_reserve`; interest liabilities stay in the side-specific interest vault. Public-borrow interest uses the all-yLP Q64 lane and public carry. hLP funding interest publishes into ordinary yLP's existing interest-growth index using the operation-frozen total-yLP-minus-both-hLP denominator and a dedicated source carry. Both hLP checkpoints advance across that delta with zero eligible shares, and the source carry is cleared when only `MIN_LIQUIDITY` remains outside the hLP vaults. While recenter protection is being funded, retained dynamic surcharge accumulates in side-specific, non-quoteable protected reserves. A funded recenter deploys those atoms once; ordinary yLP withdrawals cannot claim them. `YieldAccount` stores its LP mint, owner checkpoints, Q64 remainders, accrued revenue, and an optional external revenue recipient for treasury or protocol-owned liquidity flows.
+A governed share of the LP-owned base fee and non-retained dynamic surcharge may compound into ordinary reserve principal. The remainder becomes a non-compounding swap-fee liability held in reserve-vault custody outside executable `cash_reserve`; interest liabilities stay in the side-specific interest vault. Public-borrow interest uses the all-yLP Q64 lane and public carry. hLP funding interest publishes into ordinary yLP's existing interest-growth index using the operation-frozen total-yLP-minus-both-hLP denominator and a dedicated source carry. Both hLP checkpoints advance across that delta with zero eligible shares, and the source carry is cleared when only `MIN_LIQUIDITY` remains outside the hLP vaults. While recenter protection is being funded, retained dynamic surcharge accumulates in side-specific, non-quoteable protected reserves. A funded recenter deploys those atoms once; ordinary yLP withdrawals cannot claim them. `YieldAccount` stores its LP mint, owner checkpoints, Q64 remainders, accrued revenue, and an optional external revenue recipient for treasury or protocol-owned liquidity flows.
 
 Token-2022 does not invoke transfer hooks for arbitrary `Burn`. An untracked
 direct yLP burn is therefore an intentional, irreversible donation: Dusk's
@@ -141,10 +141,10 @@ LP custody must also preserve an authority that can sign Dusk's claim and recipi
 and use the same behavior in development and prospective release builds.
 
 Active hLP uses the exact applied CPMM or Dusk Concentrated AMM. On every
-active-hLP swap or swap-like leverage operation, both hLP numeraires are
-planned jointly from one frozen state. Dusk applies the canonical base-then-
-quote yLP/debt adjustments first, checkpoints the resulting executable curve
-state, and only then runs the ordinary applied-curve quote and fee engine.
+active-hLP swap or swap-like leverage operation, Dusk freezes the ordinary
+trader-facing curve, computes the accepted quote and fee endpoint, then
+reconstructs both hLP numeraires' yLP ownership and indexed funding debt
+algebraically around that same endpoint.
 
 Each market has two aggregate hLP vault records embedded in the `Market` account:
 
@@ -233,7 +233,7 @@ The runtime cap is governed through `update_protocol_revenue` and applies when a
 
 ## Swaps And Rebalancing
 
-`swap` is the Dusk swap entry. It transfers inventory, applies the market's exact CPMM or Dusk Concentrated AMM reserve curve, charges the configured base plus divergence/volatility fees, records claimable fees as reserve-custodied liabilities excluded from executable liquidity, and checkpoints both aggregate hLP vaults in O(1).
+`swap` is the Dusk swap entry. It transfers inventory, applies the market's exact CPMM or Dusk Concentrated AMM reserve curve, charges the configured base plus divergence/volatility fees, splits LP-owned fees between governed ordinary-principal compounding and reserve-custodied claimable liabilities, and checkpoints both aggregate hLP vaults in O(1).
 
 The divergence potential is Huber-capped at the configured marginal share, and
 both divergence and volatility receive explicit gross-input budgets. Together
@@ -276,13 +276,13 @@ Referral accruals are market-specific liabilities. Their backing remains in the 
 
 Indexers should consume Dusk events from the standalone Dusk IDL:
 
-- `MarketCreated`, `MarketReduceOnlyUpdated`, `MarketHealthUpdated`
+- `MarketCreated`, `MarketReduceOnlyUpdated`, `MarketHealthUpdated`, `InsuranceDonated`
 - `LiquidityAdded`, `LiquidityRemoved`
 - `YieldRecipientUpdated`, `YieldClaimed`
 - `SwapExecuted`
 - `MarketCollateralDeposited`, `MarketCollateralWithdrawn`, `MarketDebtUpdated`
 - `BorrowPositionLiquidated`
-- `HlpOpened`, `HlpClosed`
+- `HlpOpened`, `HlpClosed`, `HlpTerminalLiquidated`
 - `LeveragePositionOpened`, `LeveragePositionClosed`, `LeveragePositionUpdated`, `LeveragePositionLiquidated`
 - `LeverageDelegationUpdated`
 - `ProtocolAuctionConfigUpdated`, `ProtocolAuctionRecipientsUpdated`, `ProtocolAuctionRouteUpdated`, `ProtocolAuctionSettled`
@@ -302,8 +302,9 @@ reports the trader's exact debit and net output credit, separates the three
 fee components and retained surcharge, and records the final live reserves
 after every inline state change. Derived prices, fee totals, controller
 telemetry, and hLP residuals remain in previews or account state instead of the
-event. The total swap fee is the sum of the three fee components; the claimable
-portion is that total minus `retained_fee`. Swap, hLP, and lending-liquidation
+event. The total swap fee is the sum of the three fee components; the nominal
+claimable portion is that total minus `retained_fee` and `compounded_fee`.
+Swap, hLP, and lending-liquidation
 receipts use the same CPI-event mechanism as every other Dusk event, so
 indexers recover all protocol events reliably from inner instructions.
 Leverage position events expose the same compact fee and amount receipt as

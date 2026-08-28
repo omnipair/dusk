@@ -87,7 +87,9 @@ same generic path for every Dusk instruction in the IDL.
 
 ### Direct-yLP Parameter Governance
 
-Market layout v1 has no market manager. A direct yLP holder burn-locks at least
+Market layout v1 has no market manager. The program exposes seven independent
+parameter families: Fee, Concentration, IRM, EMA Half-Lives, Daily Borrow
+Limit, Center Controller, and Insurance. A direct yLP holder burn-locks at least
 1% of eligible direct yLP to create a typed proposal. Strictly more than 50%
 support queues it for a 7-day timelock and a 7-day execution window. Execution
 is permissionless and succeeds only while both lending sides are below 80%
@@ -148,10 +150,17 @@ unverified replacement document. Rationale availability never controls
 execution. `verifyDecodedParameterProposalDigest(...)` additionally reproduces
 the program's canonical Borsh/SHA-256 digest for a fetched proposal account.
 
-The other update constructors are `feeParameterUpdate(...)`,
-`irmParameterUpdate(...)`, `emaHalfLivesParameterUpdate(...)`, and
-`dailyBorrowLimitParameterUpdate(...)`. Only concentration ramps; its duration
+The other typed update constructors currently implemented by the handwritten
+SDK are `feeParameterUpdate(...)`, `irmParameterUpdate(...)`,
+`emaHalfLivesParameterUpdate(...)`, `dailyBorrowLimitParameterUpdate(...)`, and
+`centerControllerParameterUpdate(...)`. Only concentration ramps; its duration
 must be 216,000–1,512,000 slots (approximately 24 hours–7 days).
+
+The generated IDL includes the seventh `insuranceDrawCaps` variant, but the
+handwritten `ParameterUpdate` union and constructor layer do not yet expose it.
+Treat Insurance proposal construction as an SDK release blocker; do not encode
+that variant by copying a discriminator or handwritten byte layout into an
+application.
 
 Support and lifecycle builders derive the proposal/support PDAs and all market
 governance accounts:

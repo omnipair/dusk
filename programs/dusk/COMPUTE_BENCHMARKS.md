@@ -6,6 +6,11 @@ authoritative swap guards come from deterministic LiteSVM scenarios in
 transaction telemetry for every public instruction; it is diagnostic and
 cannot substitute for a named-path measurement.
 
+Coverage totals and full-instruction tables below are commit-bound snapshots,
+not claims about the current ABI. The current IDL contains 58 public
+instructions; the checked-in instruction registry is authoritative for the
+current required set.
+
 ## Nested concentrated+hLP fee-compounding acceptance (2026-08-27)
 
 The representative nested core-and-shoulder swap uses two active hLP vaults,
@@ -28,8 +33,8 @@ Reproduction command:
 yarn test-litesvm:no-build --grep "measures O\\(1\\) concentrated hLP swap with fee compounding"
 ```
 
-The complete no-build suite recorded **50/51 passing tests** and **53/53 public
-instructions exercised**. The one remaining branch-label assertion fails
+For that artifact, the complete no-build suite recorded **50/51 passing tests**
+and **53/53 public instructions exercised**. The one remaining branch-label assertion fails
 identically on the preceding `0937c8f` binary and is not caused by this compute
 change, so it remains outside this targeted acceptance result.
 
@@ -80,8 +85,9 @@ It must consume **strictly less than 100,000 CU**.
 
 hLP entry is live. The concentrated path reconstructs hLP ownership and indexed
 debt algebraically so each active vault ends with zero opposite-asset exposure
-at canonical atom precision. Passive funding-debt insolvency and its terminal
-recovery waterfall remain a separate economic design risk.
+at canonical atom precision. If passive funding debt exhausts a vault,
+`close_insolvent_hlp` applies caller-bounded insurance and socialization and
+pays its bounded caller bounty only from recovered funding interest.
 
 The benchmark keeps LiteSVM's default 32 KiB transaction heap. A larger heap
 may be requested only by the specific scenario that proves it is necessary;
@@ -128,6 +134,28 @@ The required named scenarios are:
 | Lazy controller | due funded recenter |
 | hLP | active integrated hedge; funding-interest settlement |
 | Token behavior | Token-2022 asset swap |
+
+### Current checked-in named-path baselines (2026-08-28)
+
+These values are the release guards in `tests/utils/instruction-coverage.ts`.
+They are not a replacement for the dated full-instruction telemetry table.
+
+| Scenario | Measured maximum | CI ceiling |
+|---|---:|---:|
+| CPMM, same slot | 60,849 CU | 63,892 CU |
+| CPMM, advanced slot | 93,944 CU | 98,642 CU |
+| CPMM, active debt | 101,206 CU | 106,267 CU |
+| Concentrated, centered | 184,156 CU | 193,364 CU |
+| Concentrated transition | 185,458 CU | 194,731 CU |
+| Concentrated tail | 183,175 CU | 192,334 CU |
+| Divergence-fee stress | 191,527 CU | 201,104 CU |
+| Volatility-fee stress | 105,117 CU | 110,373 CU |
+| Retained surcharge | 189,983 CU | 199,483 CU |
+| Due funded recenter | 537,056 CU | 563,909 CU |
+| Active concentrated hLP | 226,854 CU | 238,197 CU |
+| Concentrated hLP funding interest | 226,854 CU | 238,197 CU |
+| Active hLP | 75,578 CU | 79,357 CU |
+| Token-2022 asset swap | 70,082 CU | 73,587 CU |
 
 External transfer-hook overhead is recorded as a separate direct Token-2022
 transfer transaction because hook implementation and extra-account count are
@@ -191,7 +219,7 @@ end-to-end cost of making the receipt recoverable from inner instructions; it
 is not curve or fee math. The ordinary path remains 42,733 CU below its 100k
 acceptance limit.
 
-## Full instruction snapshot
+## Historical 53-instruction full snapshot (2026-08-10)
 
 The five finished-binary runs recorded 4,730 successful transaction or
 simulation samples: 46,946 CU weighted average and 634,554 CU observed maximum.

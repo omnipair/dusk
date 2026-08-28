@@ -7,7 +7,7 @@ Local state and generated keypairs live in `~/.config/omnipair/dusk-devnet` by d
 ```bash
 export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com
 export ANCHOR_WALLET=~/.config/solana/id.json
-export DUSK_PROGRAM_ID=oMNi2XGwWxDbEvhS2pWRQ6dtw8GkNBV42hfLZD6WmMF
+export DUSK_PROGRAM_ID=358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv
 export DUSK_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/dusk-program-keypair.json
 
 yarn v2:build-devnet
@@ -18,9 +18,11 @@ yarn v2:bootstrap-market
 yarn v2:smoke-devnet
 ```
 
-Devnet currently has SBPFv3 deployment active and rejects SBPF v0/v1/v2
-program deployments. Use `yarn v2:build-devnet` before deploying so the
-artifact is built with `--arch v3`.
+The devnet helper deliberately builds the `development` profile as SBPF v3.
+Cluster feature state can change, so re-check the target cluster before a
+deployment instead of treating this note as a permanent network guarantee.
+Use `yarn v2:build-devnet` so the artifact is built with both
+`--features development` and `--arch v3`.
 
 `yarn v2:deploy-devnet` needs the deployer wallet to hold enough devnet SOL for
 program rent. The generated vanity program keypair stays outside git at

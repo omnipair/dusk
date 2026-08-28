@@ -23,7 +23,7 @@ Dusk keeps that core Omnipair GAMM idea and rebuilds it around a market-native a
 - **Unified liquidity and lending**: LP inventory backs both swaps and borrow demand, letting capital serve multiple protocol flows.
 - **Standalone Dusk program**: Dusk has its own program ID, IDL, account model, event surface, and SDK helpers.
 - **Yield-bearing LP shares**: `yLP` represents a two-sided liquidity claim while reserve-side yield is checkpointed through base and quote growth indexes.
-- **Leveraged LP vaults**: base and quote `hLP` mints are aggregate 2x LP vault shares that target one-sided market exposure through explicit hLP live-reserve accounting.
+- **Leveraged LP vaults**: base and quote `hLP` mints are aggregate hedged LP vault shares that target one-sided market exposure while their yLP ownership and funding debt are reconstructed at the trader's quoted endpoint.
 - **Isolated leverage**: traders can open market-local leverage positions that borrow one side, swap through the GAMM, hold the opposite side as collateral, delegate TP/SL close execution, and liquidate through the same reserve accounting.
 - **Permissioned referral revenue sharing**: Futarchy-listed referrers can bind to new borrow or leverage debt and earn a configured share of the DAO's realized interest revenue without changing borrower debt or rates.
 - **Cached risk books**: risk checks roll EMA values from cached observations so settlement does not depend on a same-instruction manipulated spot.
@@ -41,7 +41,7 @@ Liquidity providers
 
 Traders
   swap base <-> quote
-  accrue claimable fees as non-executable reserve liabilities
+  split LP-owned fees between governed reserve compounding and claimable yield
   trigger O(1) hLP vault checkpoints when needed
 
 Borrowers
@@ -89,7 +89,7 @@ Normal LPs enter with `add_liquidity`, depositing both assets at the current mar
 asset_claim = user_ylp_shares * live_reserve / total_ylp_supply
 ```
 
-Base swap fees, distributed dynamic surcharge, and borrow interest do not auto-compound into principal reserves. Swap-fee liabilities stay physically in the reserve vault as `swap_fee_custody_balance`, outside executable `cash_reserve`; interest liabilities stay in the side-specific interest vault. Public-borrow interest uses the all-yLP growth lane, while hLP funding interest uses a separate non-hLP denominator and source-specific rounding carry. Both are collected through `harvest`. Dynamic surcharge retained while recenter protection is being funded enters a custody-backed, non-quoteable Base/Quote bucket. A later admitted recenter deploys that bucket; ordinary yLP withdrawals cannot claim it. Once protection is no longer retaining, new surcharge returns to claimable yLP/hLP yield.
+A governed share of the LP-owned base fee and non-retained dynamic surcharge may compound into ordinary reserve principal. The remainder is claimable yield: swap-fee liabilities stay physically in the reserve vault as `swap_fee_custody_balance`, outside executable `cash_reserve`, while interest liabilities stay in the side-specific interest vault. Public-borrow interest uses the all-yLP growth lane, while hLP funding interest uses a separate non-hLP denominator and source-specific rounding carry. Claimable amounts are collected through `harvest`. Dynamic surcharge retained while recenter protection is being funded enters a custody-backed, non-quoteable Base/Quote bucket; a later admitted recenter deploys that bucket, and ordinary yLP withdrawals cannot claim it.
 
 ## Isolated Leverage
 
@@ -104,7 +104,7 @@ user margin + isolated borrow
 
 Users can increase or decrease exposure, add or remove margin, close the position, or be liquidated if the closeout value falls below maintenance requirements. Isolated debt contributes to utilization and interest accrual, but it is kept separate from normal borrower debt and hLP vault debt.
 
-Owners can also approve a leverage delegate program for a position. The delegate flow uses a before-hook approval and after-hook settlement approval, so keepers can execute take-profit or stop-loss closes into a custody PDA without receiving unchecked control over the position.
+Owners can also approve a leverage delegate program for a position. The delegate flow uses a before-hook approval and after-hook settlement approval, so keepers can execute bounded partial or full take-profit and stop-loss closes into a custody PDA without receiving unchecked control over the position.
 
 ## Permissioned Referral Revenue Sharing
 
@@ -152,21 +152,23 @@ payment-time ownership: ordinary yLP present at the operation snapshot
 participates, while ordinary yLP that exits beforehand does not. Public-borrow
 interest and swap fees retain their ordinary all-yLP eligibility rules.
 
-Active hLP uses the market's exact applied CPMM or concentrated curve. Before
-any active-hLP swap or swap-like leverage operation, Dusk jointly pre-positions
-both hLP vaults, checkpoints the resulting executable curve state, and quotes
-the trader with the ordinary applied curve and fee engine. A live-basis yLP burn also realizes the
-burned shares' accrued-but-unpaid interest entitlement; when that interest is
-asymmetric across the two assets, the authoritative quote starts from the
-resulting repriced curve, matching CPMM and ordinary yLP redemption semantics.
+Active hLP uses the market's exact applied CPMM or concentrated curve. For an
+active-hLP swap or swap-like leverage operation, Dusk freezes the ordinary
+trader-facing reserves, quotes the trade and fees on that curve, then
+reconstructs both hLP vaults' yLP ownership and indexed funding debt
+algebraically at the accepted endpoint. A live-basis yLP burn also realizes the
+burned shares' accrued-but-unpaid interest entitlement inside that integrated
+endpoint calculation.
 The accepted path bounds each vault's deposited-asset principal plus frozen
 public-interest claim to the larger of one raw target atom and one part per
 million of its operation-start economic NAV. hLP funding interest is excluded
 because neither hLP is eligible for that source. A material unconverged or cap-bound
 worsening swap fails closed. Every positive funding transition also keeps
-aggregate indexed hLP debt within the borrowed asset's current cash. Passive
-interest-driven insolvency and terminal loss recovery remain an open design and
-audit finding.
+aggregate indexed hLP debt within the borrowed asset's current cash. If passive
+funding growth exhausts the vault, `close_insolvent_hlp` retires its yLP,
+applies caller-bounded insurance and socialization, and pays a bounded caller
+bounty from recovered funding interest before crediting the remaining interest
+to ordinary yLP.
 
 Direct Token-2022 burns bypass transfer hooks. Dusk lazily reconciles a partial hLP burn before the next hLP deposit or withdrawal: existing nested yield is checkpointed against the old supply, the smaller nonzero live supply becomes the pricing denominator, and the burned principal benefits remaining holders. Burning the entire live hLP supply is unrecoverable and leaves that hLP side fail-closed; there is intentionally no asynchronous recovery instruction or governance sweep. Clients should always exit through Dusk's withdrawal instruction.
 
@@ -202,16 +204,20 @@ initialize_lp_metadata
 initialize_yield_accounts
 initialize_lp_transfer_hook
 set_market_reduce_only
+fortify_market
 create_parameter_proposal
 support_parameter_proposal
 queue_parameter_proposal
 execute_parameter_proposal
 withdraw_parameter_support
 add_liquidity
+open_liquidity_gates
 remove_liquidity
 set_yield_recipient
 harvest
 swap
+rescue_hlp
+close_insolvent_hlp
 deposit_collateral
 withdraw_collateral
 borrow
@@ -237,6 +243,7 @@ create_leverage_delegation
 update_leverage_delegation
 close_leverage_delegation
 preview_market
+preview_hlp_order_trigger
 preview_add_liquidity
 preview_swap
 preview_borrow_capacity
@@ -257,9 +264,9 @@ set_global_reduce_only
 settle_protocol_auction
 ```
 
-Market parameters are deliberately split into five typed proposal families:
-fees, concentration shape and ramp duration, IRM, EMA half-lives, and the daily
-borrow limit. A proposal snapshots that family's revision, so execution becomes
+Market parameters are deliberately split into seven typed proposal families:
+fees, concentration shape and ramp duration, IRM, EMA half-lives, the daily
+borrow limit, the center controller, and insurance draw caps. A proposal snapshots that family's revision, so execution becomes
 stale if another proposal changes the same family first. Execution is blocked
 at 80% utilization, while repayments, liquidations, collateral additions, and
 cash-available LP exits remain live. Fee parameters are bounded to a combined
@@ -346,7 +353,7 @@ Other invariants:
 - yLP principal reserves exclude reserve-custodied swap-fee liabilities and interest-vault balances.
 - Physical reserve custody is at least `cash_reserve + swap_fee_custody_balance + base_hlp_backing_inventory + quote_hlp_backing_inventory`. Protocol transitions conserve the accounted amount exactly; unsolicited donations remain non-executable. Interest liabilities are separately backed by the interest vault.
 - Synthetic hLP live reserve is not directly withdrawable cash; swaps, withdrawals, debt repayment, and interest realization are still constrained by cash reserves.
-- Every hLP funding increase must keep aggregate indexed funding debt within current borrowed-asset cash. This is an admission bound, not a bounded-loss or terminal insolvency-recovery mechanism; that mechanism remains open.
+- Every hLP funding increase must keep aggregate indexed funding debt within current borrowed-asset cash. Terminal exhausted-vault recovery is separate and permissionless through `close_insolvent_hlp`, with caller-supplied insurance and socialized-loss bounds.
 - Dusk does not enforce `R_hLP_live[i] <= D_hLP_funding[i]` per asset; hLP live depth is a balanced GAMM coordinate, not a standalone per-asset liability.
 - hLP debt shares stay matched to aggregate hLP vault funding debt.
 - hLP operations never use yLP-denominated debt.
@@ -371,15 +378,15 @@ The core GAMM reserve/lending relationship is preserved, while the swap invarian
 - Normal borrow and repay paths still preserve `R_live = R_cash + D_cash_backed`.
 - Cash constraints still matter: virtual depth can quote, but only cash can leave vaults or settle realized liabilities.
 - LP minting and burning still use the V1-style proportional reserve math with permanently locked minimum liquidity.
-- Base swap fees remain reserve-custodied outside executable cash, while borrow interest remains in the interest vault; both stay outside principal reserves and are distributed through yield accounting.
-- Dynamic surcharge is claimable after the AMM's protected budget is funded; before then it is retained as the only fee-derived recentering principal.
+- The governed compounded share of LP-owned base and distributed dynamic fees enters ordinary principal. The remaining claimable swap fees stay reserve-custodied outside executable cash, while borrow interest stays in the interest vault.
+- Dynamic surcharge may be retained for protected recentering, compounded under the fee profile, or distributed as claimable yield; those buckets are accounted separately.
 
 Dusk extends the invariant set where hLP needs curve-aware one-sided hedging:
 
 - V1 had no hLP component, so `R_hLP_live = 0`.
 - Dusk allows only hLP transitions to mutate `R_hLP_live`.
 - hLP leverage-up/deleverage uses the same live-basis share accounting as yLP redemption. It changes only depth when unpaid-interest loads are proportional, and otherwise also reprices the executable curve before the authoritative quote.
-- hLP funding debt affects utilization and funding cost, and aggregate cash admission constrains new funding. Bounded-loss and terminal insolvency recovery remain open.
+- hLP funding debt affects utilization and funding cost, aggregate cash admission constrains new funding, and `close_insolvent_hlp` handles a terminal exhausted-vault waterfall without allowing loss to reach original principal.
 - Cash-constrained hLP leverage-up does not block swaps; unexecuted rebalance is carried as `residual_exposure`.
 
 ## Program ID

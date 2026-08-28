@@ -31,11 +31,20 @@ FORK_ADMIN_TOKEN=<shared-secret>
 
 The fork API accepts `FORK_LAB_PAYER_KEYPAIR_JSON`, `FORK_LAB_PAYER_KEYPAIR_BASE64`, `FORK_LAB_PAYER_KEYPAIR`, or `ANCHOR_WALLET`. If none are set it creates a local `.v2-fork-lab/payer.json`.
 
-## API Endpoints
+## Common API Endpoints
+
+This is a quick-start subset, not the complete router contract. The `route`
+function in [`api_core.ts`](./api_core.ts) is the source of truth for all GET
+and POST paths, including protocol-test evidence, bootstrap, governance,
+referral, preview, transfer, leverage, liquidation, and administrative flows.
 
 - `GET /health`
 - `GET /api/v2/fork/config`
+- `GET /api/v2/fork/test-catalog`
+- `GET /api/v2/fork/test-runs/latest`
 - `POST /api/v2/fork/fund-wallet`
+- `POST /api/v2/fork/tx/create-market`
+- `POST /api/v2/fork/tx/finalize-market`
 - `POST /api/v2/fork/tx/add-liquidity`
 - `POST /api/v2/fork/tx/swap`
 - `POST /api/v2/fork/tx/deposit-collateral`
@@ -45,6 +54,7 @@ The fork API accepts `FORK_LAB_PAYER_KEYPAIR_JSON`, `FORK_LAB_PAYER_KEYPAIR_BASE
 - `POST /api/v2/fork/tx/withdraw-single-sided`
 - `POST /api/v2/fork/tx/update-protocol-auction-config`
 - `POST /api/v2/fork/tx/update-protocol-auction-recipients`
+- `POST /api/v2/fork/tx/update-protocol-auction-route`
 - `POST /api/v2/fork/tx/settle-protocol-auction`
 - `GET /api/v2/markets`
 - `GET /api/v2/markets/:marketAddress`

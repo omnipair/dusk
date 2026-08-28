@@ -68,13 +68,14 @@ mainnet launch or upgrade.
   marginal-price proof, and low-notional fail-closed behavior.
 - Re-check funded parameter ramps and center adjustments cannot consume more
   protected liquidity than admitted.
-- Re-check base fees and lending interest remain claimable/non-compounding and
+- Re-check the governed LP-owned compounded fee share enters ordinary principal,
+  the remainder stays claimable, lending interest remains non-compounding, and
   only retained dynamic surcharge can create protected recentering budget.
 - Re-check divergence fees are restorative-direction aware and split-resistant,
   and volatility is charged from the decayed pre-trade accumulator.
 - Re-check the Huber-capped divergence marginal toll remains monotonic, its
-  state potential telescopes, and its implicit gross-input solve embeds the
-  component budget. Separately re-check the volatility component budget and
+  state potential telescopes, and its one-shot gross-path charge enforces the
+  component budget without the legacy implicit fee solve. Separately re-check the volatility component budget and
   the aggregate 50% fee cap at odd/even raw-token boundaries.
 - Confirm market initialization accepts only asset decimals `0..=9`, and all
   fee/quote matrix tests use that same launch domain.
@@ -153,7 +154,7 @@ typecheck gates.
 - Confirm yLP and hLP Token-2022 mint constraints remain represented in both
   code and IDL-visible account flows, including live hLP entry and withdrawal.
 - Confirm the generated interface contains `initialize_yield_accounts`,
-  `initialize_lp_transfer_hook`, and all five parameter-proposal instructions;
+  `initialize_lp_transfer_hook`, and all five proposal-lifecycle instructions;
   `YieldAccount` contains `lp_mint`,
   `swap_fee_remainder_q64`, and `interest_remainder_q64`; and both
   `YieldClaimed` and `YieldRecipientUpdated` expose `lp_mint`. Regenerate with
@@ -205,7 +206,9 @@ target/idl/dusk.json
 target/types/dusk.ts
 ```
 
-- Deploy the upgrade buffer through the documented workflow with `program=v2`.
+- Deploy the upgrade buffer through the **Manual Dusk Buffer Deploy** workflow,
+  selecting the documented `network`, `source`, release/artifact, fee, and
+  Squads-transfer inputs. The workflow has no `program` input.
 - Transfer upgrade buffer authority to the configured Squads vault.
 - Create and approve the Squads upgrade proposal for the Dusk program ID.
 
