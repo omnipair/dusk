@@ -1326,50 +1326,6 @@ impl Market {
     }
 }
 
-pub(crate) fn require_residual_hlp_swap_safe(
-    market: &Market,
-    target_asset: MarketAsset,
-    start_prices: HlpCurvePrices,
-    end_prices: HlpCurvePrices,
-    residual_on_entry: bool,
-) -> Result<()> {
-    let vault = match target_asset {
-        MarketAsset::Base => &market.base_hlp_vault,
-        MarketAsset::Quote => &market.quote_hlp_vault,
-    };
-    // The settlement band is a recovery guard for an already-actionable
-    // residual, not a pre-emptive trade-size limit on a settled hLP. A settled
-    // vault is corrected from the actual post-trade state below. If that
-    // maximum-safe correction leaves a residual, this unchanged settlement
-    // reference then prevents later outward flow from compounding it.
-    if vault.hlp_supply == 0
-        || vault.cached_settlement_price_nad == 0
-        || !residual_on_entry
-        || vault.residual_exposure == 0
-    {
-        return Ok(());
-    }
-    let reference = vault.cached_settlement_price_nad;
-    let start_divergence = absolute_difference(start_prices.for_asset(target_asset), reference);
-    let end_divergence = absolute_difference(end_prices.for_asset(target_asset), reference);
-    let max_divergence = reference
-        .checked_mul(market.config.settlement_divergence_bps as u128)
-        .and_then(|value| value.checked_div(crate::constants::BPS_DENOMINATOR as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    // Once outside the normal band, only a strictly restoring trade remains
-    // executable. This avoids bricking recovery while preventing repeated
-    // same-direction flow from accumulating unbounded stale hLP exposure.
-    require!(
-        end_divergence <= max_divergence || end_divergence < start_divergence,
-        ErrorCode::HlpSettlementUnavailable
-    );
-    Ok(())
-}
-
-fn absolute_difference(first: u128, second: u128) -> u128 {
-    first.max(second) - first.min(second)
-}
-
 fn debit_cash_for_hlp_interest(borrowed_side: &mut crate::state::MarketSide, interest_paid: u64) -> Result<()> {
     if interest_paid == 0 {
         return Ok(());

@@ -5,17 +5,18 @@ use anchor_spl::{
 };
 
 use crate::{
-    constants::MARKET_V2_SEED_PREFIX,
+    constants::{BPS_DENOMINATOR, HLP_TERMINAL_CALLER_BPS, MARKET_V2_SEED_PREFIX},
     errors::ErrorCode,
     events::HlpTerminalLiquidated,
     generate_market_seeds,
     instructions::{
         accounts::{
             require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
-            validate_lp_mint,
+            validate_lp_mint, validate_owner_asset_account,
         },
         record_hlp_interest_credit, validate_hlp_authority_pdas,
     },
+    math::arithmetic::ceil_div,
     state::{FutarchyAuthority, Market, MarketAsset},
     token::{token_burn, transfer_checked_with_remaining_accounts},
     transitions::HlpYieldEligibility,
@@ -26,6 +27,7 @@ pub struct CloseInsolventHlpArgs {
     pub target_asset: u8,
     pub max_insurance_draw: u64,
     pub max_socialized_loss: u64,
+    pub min_caller_bounty_out: u64,
 }
 
 #[event_cpi]
@@ -43,6 +45,8 @@ pub struct CloseInsolventHlp<'info> {
     pub borrowed_interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
     pub insurance_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(mut)]
+    pub caller_bounty_account: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
     pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut)]
@@ -102,6 +106,7 @@ impl<'info> CloseInsolventHlp<'info> {
             require_keys_eq!(account.mint, self.borrowed_mint.key(), ErrorCode::InvalidVault);
             require_keys_eq!(account.owner, self.market.key(), ErrorCode::InvalidVault);
         }
+        validate_owner_asset_account(self.caller.key(), &self.borrowed_mint, &self.caller_bounty_account)?;
         require_keys_eq!(
             self.target_hlp_ylp_vault.mint,
             self.ylp_mint.key(),
@@ -181,22 +186,64 @@ impl<'info> CloseInsolventHlp<'info> {
                 &[&generate_market_seeds!(ctx.accounts.market)[..]],
             )?;
         }
+        let caller_bounty = if receipt.interest_paid == 0 {
+            0
+        } else {
+            u64::try_from(
+                ceil_div(
+                    (receipt.interest_paid as u128)
+                        .checked_mul(HLP_TERMINAL_CALLER_BPS as u128)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                    BPS_DENOMINATOR as u128,
+                )
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            )
+            .map_err(|_| ErrorCode::MarketMathOverflow)?
+        };
+        let interest_for_yield = receipt
+            .interest_paid
+            .checked_sub(caller_bounty)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let caller_bounty_before = ctx.accounts.caller_bounty_account.amount;
+        if caller_bounty > 0 {
+            transfer_checked_with_remaining_accounts(
+                ctx.accounts.market.to_account_info(),
+                ctx.accounts.borrowed_reserve_vault.to_account_info(),
+                ctx.accounts.caller_bounty_account.to_account_info(),
+                ctx.accounts.borrowed_mint.to_account_info(),
+                borrowed_token_program.clone(),
+                caller_bounty,
+                ctx.accounts.borrowed_mint.decimals,
+                &[&generate_market_seeds!(ctx.accounts.market)[..]],
+                ctx.remaining_accounts,
+            )?;
+            ctx.accounts.caller_bounty_account.reload()?;
+            ctx.accounts.borrowed_reserve_vault.reload()?;
+        }
+        let caller_bounty_credit = token_account_credit(caller_bounty_before, &ctx.accounts.caller_bounty_account)?;
+        require_gte!(
+            caller_bounty_credit,
+            args.min_caller_bounty_out,
+            ErrorCode::SlippageExceeded
+        );
+
         let interest_before = ctx.accounts.borrowed_interest_vault.amount;
-        if receipt.interest_paid > 0 {
+        let mut actual_interest_credit = 0;
+        if interest_for_yield > 0 {
             transfer_checked_with_remaining_accounts(
                 ctx.accounts.market.to_account_info(),
                 ctx.accounts.borrowed_reserve_vault.to_account_info(),
                 ctx.accounts.borrowed_interest_vault.to_account_info(),
                 ctx.accounts.borrowed_mint.to_account_info(),
                 borrowed_token_program,
-                receipt.interest_paid,
+                interest_for_yield,
                 ctx.accounts.borrowed_mint.decimals,
                 &[&generate_market_seeds!(ctx.accounts.market)[..]],
                 ctx.remaining_accounts,
             )?;
             ctx.accounts.borrowed_interest_vault.reload()?;
             ctx.accounts.borrowed_reserve_vault.reload()?;
-            let actual_interest_credit = token_account_credit(interest_before, &ctx.accounts.borrowed_interest_vault)?;
+            actual_interest_credit = token_account_credit(interest_before, &ctx.accounts.borrowed_interest_vault)?;
             record_hlp_interest_credit(
                 &mut ctx.accounts.market,
                 borrowed_asset,
@@ -220,7 +267,8 @@ impl<'info> CloseInsolventHlp<'info> {
             target_asset: target_asset.code(),
             debt_closed: receipt.debt_closed,
             ylp_burned: receipt.ylp_burn_amount,
-            interest_paid: receipt.interest_paid,
+            interest_paid: actual_interest_credit,
+            caller_bounty: caller_bounty_credit,
             insurance_drawn: receipt.insurance_drawn,
             socialized_loss: receipt.socialized_loss,
             remaining_hlp_supply: receipt.remaining_hlp_supply,

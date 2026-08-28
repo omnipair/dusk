@@ -78,10 +78,7 @@ impl<'info> CreateHlpOrder<'info> {
             args.hlp_amount,
             LeverageDelegateError::InvalidTokenAccount
         );
-        require!(
-            ctx.accounts.custody_hlp_account.amount == 0,
-            LeverageDelegateError::InvalidTokenAccount
-        );
+        let custody_balance_before = ctx.accounts.custody_hlp_account.amount;
 
         validate_hlp_yield_account(
             &ctx.accounts.base_yield_account,
@@ -151,23 +148,35 @@ impl<'info> CreateHlpOrder<'info> {
             signer,
         )?;
 
-        token_2022::transfer_checked(
-            CpiContext::new(
-                ctx.accounts.token_2022_program.to_account_info(),
-                token_2022::TransferChecked {
-                    from: ctx.accounts.owner_hlp_account.to_account_info(),
-                    mint: ctx.accounts.target_hlp_mint.to_account_info(),
-                    to: ctx.accounts.custody_hlp_account.to_account_info(),
-                    authority: ctx.accounts.owner.to_account_info(),
-                },
-            )
-            .with_remaining_accounts(ctx.remaining_accounts.to_vec()),
+        let mut hook_accounts = vec![
+            ctx.accounts.market.to_account_info(),
+            ctx.accounts.base_mint.to_account_info(),
+            ctx.accounts.quote_mint.to_account_info(),
+            ctx.accounts.base_yield_account.to_account_info(),
+            ctx.accounts.quote_yield_account.to_account_info(),
+            ctx.accounts.dusk_program.to_account_info(),
+        ];
+        hook_accounts.extend_from_slice(ctx.remaining_accounts);
+        transfer_checked(
+            ctx.accounts.token_2022_program.to_account_info(),
+            ctx.accounts.owner_hlp_account.to_account_info(),
+            ctx.accounts.target_hlp_mint.to_account_info(),
+            ctx.accounts.custody_hlp_account.to_account_info(),
+            ctx.accounts.owner.to_account_info(),
             args.hlp_amount,
             ctx.accounts.target_hlp_mint.decimals,
+            &[],
+            &hook_accounts,
         )?;
         ctx.accounts.custody_hlp_account.reload()?;
+        let custody_credit = ctx
+            .accounts
+            .custody_hlp_account
+            .amount
+            .checked_sub(custody_balance_before)
+            .ok_or(LeverageDelegateError::MathOverflow)?;
         require_eq!(
-            ctx.accounts.custody_hlp_account.amount,
+            custody_credit,
             args.hlp_amount,
             LeverageDelegateError::InvalidTokenAccount
         );

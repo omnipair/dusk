@@ -193,9 +193,10 @@ admissible.
 Every funding increase keeps total indexed hLP funding debt in the borrowed
 asset within that asset's current cash. This prevents repeated deposits or
 automatic rebalances from reusing the same cash headroom, but it is only an
-admission bound. Dusk still does not implement terminal hLP insolvency recovery,
-permissionless recapitalization, or a residual-loss waterfall for passive debt
-growth; that remains an open High audit finding.
+admission bound. If passive funding growth exhausts an hLP vault anyway,
+`close_insolvent_hlp` is the permissionless terminal close: the caller supplies
+insurance and socialized-loss limits, recovered funding interest pays a bounded
+caller bounty first, and the transaction reverts if those limits are exceeded.
 
 ## Isolated Leverage
 
@@ -245,7 +246,7 @@ acceptable.
 
 One-times `peak_amplification` with zero widths is exact CPMM. Concentrated markets expose three product controls: peak amplification, core half-width, and fade width. Dusk derives a nonzero full-range CPMM tail plus a nested core and shoulder from those values. Quotes use at most five closed-form segments and four precomputed boundary crossings. Fees, EMA half-life, adjustment threshold, and recenter cadence remain separate controller settings. A trade is hedged and committed at its quoted endpoint before its observation can schedule a later, protected center move. Dusk never consults an external oracle.
 
-hLP checkpointing computes endpoint NAV and reconstructs yLP ownership and funding debt algebraically so each vault's opposite-asset claim equals its debt to the canonical atom. The quote therefore prices the hedge through ordinary reserves; hLP leverage is not advertised as free trader-visible depth. There is no finite-difference, Jacobian, or Broyden solve in the swap path. A live-basis yLP burn still realizes accrued-but-unpaid interest, and positive funding transitions remain cash-capped. This is admission-only and never reserves cash from ordinary exits, repayment, liquidation, or deleveraging. Terminal insolvency recovery remains open.
+hLP checkpointing computes endpoint NAV and reconstructs yLP ownership and funding debt algebraically so each vault's opposite-asset claim equals its debt to the canonical atom. The quote therefore prices the hedge through ordinary reserves; hLP leverage is not advertised as free trader-visible depth. There is no finite-difference, Jacobian, or Broyden solve in the swap path. A live-basis yLP burn still realizes accrued-but-unpaid interest, and positive funding transitions remain cash-capped. This is admission-only and never reserves cash from ordinary exits, repayment, liquidation, or deleveraging. Terminal exhausted-hLP recovery is handled separately by `close_insolvent_hlp` with caller-supplied insurance and socialized-loss bounds.
 
 ## PDA Map
 
@@ -328,7 +329,7 @@ different.
 - Swaps, previews, leverage, and predictive hLP positioning use the live
   applied curve. Public borrowing deliberately uses a stricter full-range-tail
   CPMM shadow curve.
-- Every hLP funding increase leaves projected aggregate indexed funding debt no greater than current borrowed-asset cash; the cap never blocks debt-reducing paths and does not provide bounded loss or terminal insolvency recovery.
+- Every hLP funding increase leaves projected aggregate indexed funding debt no greater than current borrowed-asset cash; the cap never blocks debt-reducing paths, and terminal recovery is handled separately by `close_insolvent_hlp`.
 - hLP debt shares stay matched to aggregate hLP vault debt.
 - hLP operations never use yLP-denominated debt.
 - Isolated leverage debt contributes to utilization without entering normal borrower health.

@@ -52,7 +52,10 @@ pub mod leverage_delegate {
         BeforeLeverageOrder::handle_before(ctx, args, ORDER_KIND_STOP_LOSS)
     }
 
-    pub fn after_close_order(ctx: Context<AfterCloseOrder>, args: ExecuteOrderArgs) -> Result<()> {
+    pub fn after_close_order<'info>(
+        ctx: Context<'_, '_, '_, 'info, AfterCloseOrder<'info>>,
+        args: ExecuteOrderArgs,
+    ) -> Result<()> {
         AfterCloseOrder::handle_after(ctx, args)
     }
 

@@ -44,9 +44,9 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
   exact trader curve/fee endpoint. Confirm both hLPs are excluded from funding
   yield and the payer's burn legs, including exact target-side shortfall
   conversion, bear the cost without an additional shared-live debit.
-- Treat passive interest-driven hLP insolvency and terminal loss recovery as an
-  open High finding. Do not sign off until the design is resolved or the risk
-  is explicitly accepted.
+- Re-check passive interest-driven hLP insolvency and terminal loss recovery:
+  `close_insolvent_hlp` must honor caller-supplied insurance/socialized-loss
+  bounds and pay only the bounded caller bounty from recovered funding interest.
 - Review reserve conservation across executable cash, swap-fee custody, and
   both source-scoped hLP backing inventories. Confirm projected aggregate
   indexed hLP debt is capped in debt-share space for every positive funding

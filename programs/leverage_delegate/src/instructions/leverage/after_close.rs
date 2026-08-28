@@ -60,7 +60,10 @@ pub struct AfterCloseOrder<'info> {
 }
 
 impl<'info> AfterCloseOrder<'info> {
-    pub fn handle_after(ctx: Context<Self>, _args: ExecuteOrderArgs) -> Result<()> {
+    pub fn handle_after(
+        ctx: Context<'_, '_, '_, 'info, Self>,
+        _args: ExecuteOrderArgs,
+    ) -> Result<()> {
         require_eq!(
             ctx.accounts.leverage_position.debt_shares,
             ctx.accounts.order.staged_remaining_debt_shares,
@@ -128,7 +131,7 @@ impl<'info> AfterCloseOrder<'info> {
             let signer = &[&signer_seeds[..]];
 
             if incentive > 0 {
-                transfer_checked_with_signer(
+                transfer_checked(
                     token_program_for_mint(
                         &ctx.accounts.token_mint.to_account_info(),
                         &ctx.accounts.token_program.to_account_info(),
@@ -141,10 +144,11 @@ impl<'info> AfterCloseOrder<'info> {
                     incentive,
                     ctx.accounts.token_mint.decimals,
                     signer,
+                    ctx.remaining_accounts,
                 )?;
             }
             if owner_amount > 0 {
-                transfer_checked_with_signer(
+                transfer_checked(
                     token_program_for_mint(
                         &ctx.accounts.token_mint.to_account_info(),
                         &ctx.accounts.token_program.to_account_info(),
@@ -157,8 +161,15 @@ impl<'info> AfterCloseOrder<'info> {
                     owner_amount,
                     ctx.accounts.token_mint.decimals,
                     signer,
+                    ctx.remaining_accounts,
                 )?;
             }
+            ctx.accounts.custody_token_account.reload()?;
+            require_eq!(
+                ctx.accounts.custody_token_account.amount,
+                0,
+                LeverageDelegateError::InvalidTokenAccount
+            );
         }
 
         let approval = LeverageDelegationApproval::new(

@@ -175,15 +175,6 @@ impl Reserves {
             .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
     }
 
-    pub fn credit_hlp_backing_inventory(&mut self, target_asset: MarketAsset, amount: u64) -> Result<()> {
-        let inventory = match target_asset {
-            MarketAsset::Base => &mut self.base_hlp_backing_inventory,
-            MarketAsset::Quote => &mut self.quote_hlp_backing_inventory,
-        };
-        *inventory = inventory.checked_add(amount).ok_or(ErrorCode::MarketMathOverflow)?;
-        Ok(())
-    }
-
     pub fn debit_hlp_backing_inventory(&mut self, target_asset: MarketAsset, amount: u64) -> Result<()> {
         let inventory = match target_asset {
             MarketAsset::Base => &mut self.base_hlp_backing_inventory,
@@ -692,91 +683,6 @@ impl Market {
 }
 
 impl Market {
-    pub fn swap_reserves(
-        &mut self,
-        asset_in: MarketAsset,
-        amount_in_after_fee: u64,
-        amount_out: u64,
-        fee_credit: u64,
-        protocol_fee_bps: u16,
-        protocol_auction_split: ProtocolAuctionSplit,
-    ) -> Result<SwapReceipt> {
-        self.swap_reserves_with_fee_supply(
-            asset_in,
-            amount_in_after_fee,
-            amount_out,
-            fee_credit,
-            protocol_fee_bps,
-            protocol_auction_split,
-            None,
-        )
-    }
-
-    pub fn swap_reserves_with_fee_supply(
-        &mut self,
-        asset_in: MarketAsset,
-        amount_in_after_fee: u64,
-        amount_out: u64,
-        fee_credit: u64,
-        protocol_fee_bps: u16,
-        protocol_auction_split: ProtocolAuctionSplit,
-        fee_eligible_ylp_supply: Option<u64>,
-    ) -> Result<SwapReceipt> {
-        let (market_side_in, market_side_out) = self.swap_sides_mut(asset_in);
-        require_gte!(
-            market_side_out.reserves.cash_reserve,
-            amount_out,
-            ErrorCode::InsufficientLiquidity
-        );
-
-        market_side_in.reserves.live_reserve = market_side_in
-            .reserves
-            .live_reserve
-            .checked_add(amount_in_after_fee)
-            .ok_or(ErrorCode::ReserveOverflow)?;
-        market_side_in.reserves.cash_reserve = market_side_in
-            .reserves
-            .cash_reserve
-            .checked_add(amount_in_after_fee)
-            .ok_or(ErrorCode::ReserveOverflow)?;
-        market_side_out.reserves.live_reserve = market_side_out
-            .reserves
-            .live_reserve
-            .checked_sub(amount_out)
-            .ok_or(ErrorCode::ReserveUnderflow)?;
-        market_side_out.reserves.cash_reserve = market_side_out
-            .reserves
-            .cash_reserve
-            .checked_sub(amount_out)
-            .ok_or(ErrorCode::CashReserveUnderflow)?;
-
-        let fees = match fee_eligible_ylp_supply {
-            Some(supply) => market_side_in.record_swap_fee_credit_with_supply(
-                fee_credit,
-                protocol_fee_bps,
-                protocol_auction_split,
-                supply,
-            )?,
-            None => market_side_in.record_swap_fee_credit(fee_credit, protocol_fee_bps, protocol_auction_split)?,
-        };
-        market_side_in.assert_share_backing()?;
-        market_side_out.assert_share_backing()?;
-        market_side_in.fees.assert_backed()?;
-
-        Ok(SwapReceipt {
-            amount_in_after_fee,
-            reserve_input_credit: amount_in_after_fee,
-            amount_out,
-            fee_credit,
-            base_fee_credit: fee_credit,
-            distributed_surcharge_credit: 0,
-            fee_breakdown: SwapFeeBreakdown::default(),
-            reserve_in_live_reserve: market_side_in.reserves.live_reserve,
-            reserve_out_live_reserve: market_side_out.reserves.live_reserve,
-            fees,
-        })
-    }
-
     pub fn assert_market_invariants(&self) -> Result<()> {
         self.base_side.assert_share_backing()?;
         self.quote_side.assert_share_backing()?;

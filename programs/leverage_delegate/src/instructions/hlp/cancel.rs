@@ -45,7 +45,7 @@ impl<'info> CancelHlpOrder<'info> {
             ctx.accounts.order.target_hlp_mint,
             LeverageDelegateError::InvalidTokenAccount
         );
-        require_eq!(
+        require_gte!(
             ctx.accounts.custody_hlp_account.amount,
             ctx.accounts.order.hlp_amount,
             LeverageDelegateError::InvalidTokenAccount
@@ -63,20 +63,16 @@ impl<'info> CancelHlpOrder<'info> {
             &order_id_bytes,
             &bump_seed,
         ];
-        token_2022::transfer_checked(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_2022_program.to_account_info(),
-                token_2022::TransferChecked {
-                    from: ctx.accounts.custody_hlp_account.to_account_info(),
-                    mint: ctx.accounts.target_hlp_mint.to_account_info(),
-                    to: ctx.accounts.owner_hlp_account.to_account_info(),
-                    authority: ctx.accounts.order.to_account_info(),
-                },
-                &[&authority_seeds[..]],
-            )
-            .with_remaining_accounts(ctx.remaining_accounts.to_vec()),
-            ctx.accounts.order.hlp_amount,
+        transfer_checked(
+            ctx.accounts.token_2022_program.to_account_info(),
+            ctx.accounts.custody_hlp_account.to_account_info(),
+            ctx.accounts.target_hlp_mint.to_account_info(),
+            ctx.accounts.owner_hlp_account.to_account_info(),
+            ctx.accounts.order.to_account_info(),
+            ctx.accounts.custody_hlp_account.amount,
             ctx.accounts.target_hlp_mint.decimals,
+            &[&authority_seeds[..]],
+            ctx.remaining_accounts,
         )?;
         ctx.accounts.custody_hlp_account.reload()?;
         require_eq!(

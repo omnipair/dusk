@@ -78,7 +78,7 @@ impl<'info> ExecuteHlpOrder<'info> {
             ctx.accounts.market.version == MARKET_LAYOUT_VERSION,
             LeverageDelegateError::InvalidMarketVersion
         );
-        require_eq!(
+        require_gte!(
             ctx.accounts.custody_hlp_account.amount,
             ctx.accounts.order.hlp_amount,
             LeverageDelegateError::InvalidTokenAccount
@@ -179,7 +179,7 @@ impl<'info> ExecuteHlpOrder<'info> {
             MarketAsset::Quote => ctx.accounts.quote_mint.decimals,
         };
         if incentive > 0 {
-            transfer_checked_with_signer(
+            transfer_checked(
                 token_program_for_mint(
                     &target_mint_account,
                     &ctx.accounts.token_program.to_account_info(),
@@ -192,10 +192,12 @@ impl<'info> ExecuteHlpOrder<'info> {
                 incentive,
                 target_decimals,
                 signer,
+                ctx.remaining_accounts,
             )?;
         }
+        let owner_balance_before = ctx.accounts.owner_target_account.amount;
         if owner_amount > 0 {
-            transfer_checked_with_signer(
+            transfer_checked(
                 token_program_for_mint(
                     &target_mint_account,
                     &ctx.accounts.token_program.to_account_info(),
@@ -208,8 +210,21 @@ impl<'info> ExecuteHlpOrder<'info> {
                 owner_amount,
                 target_decimals,
                 signer,
+                ctx.remaining_accounts,
             )?;
         }
+        ctx.accounts.owner_target_account.reload()?;
+        let owner_credit = ctx
+            .accounts
+            .owner_target_account
+            .amount
+            .checked_sub(owner_balance_before)
+            .ok_or(LeverageDelegateError::MathOverflow)?;
+        require_gte!(
+            owner_credit,
+            ctx.accounts.order.min_target_amount_out,
+            LeverageDelegateError::InvalidOrder
+        );
         ctx.accounts.order.status = HLP_ORDER_STATUS_EXECUTED;
         Ok(())
     }

@@ -127,14 +127,14 @@ impl Liquidation {
             ErrorCode::LiquidationRepayTooLarge
         );
         let collateral_before = position_collateral(borrow_position, self.debt_asset);
-        let collateral_seized = collateral_to_seize(
+        let collateral_seized = collateral_amount_for_debt_value_with_pricing(
             market,
             self.debt_asset,
             self.repay_credit,
-            collateral_before,
             self.terms.total_penalty_bps,
             self.pricing,
-        )?;
+        )?
+        .min(collateral_before);
         let collateral_to_liquidator = collateral_amount_for_debt_value_with_pricing(
             market,
             self.debt_asset,
@@ -366,19 +366,6 @@ fn position_collateral(borrow_position: &BorrowPosition, debt_asset: MarketAsset
         MarketAsset::Base => borrow_position.quote_collateral,
         MarketAsset::Quote => borrow_position.base_collateral,
     }
-}
-
-fn collateral_to_seize(
-    market: &Market,
-    debt_asset: MarketAsset,
-    repay_credit: u64,
-    collateral_before: u64,
-    total_penalty_bps: u16,
-    pricing: LiquidationPricing,
-) -> Result<u64> {
-    let seizure =
-        collateral_amount_for_debt_value_with_pricing(market, debt_asset, repay_credit, total_penalty_bps, pricing)?;
-    Ok(seizure.min(collateral_before))
 }
 
 pub(crate) fn liquidation_health_bps_with_pricing(
@@ -671,50 +658,6 @@ impl Market {
             total_penalty_bps,
             max_repay_amount,
         })
-    }
-
-    pub fn insurance_request_for_liquidation_with_terms_and_pricing(
-        &mut self,
-        borrow_position: &BorrowPosition,
-        debt_asset: MarketAsset,
-        repay_credit: u64,
-        max_insurance_draw: u64,
-        terms: LiquidationTerms,
-        pricing: LiquidationPricing,
-    ) -> Result<u64> {
-        let debt_before = position_debt(self, borrow_position, debt_asset)?;
-        require_gte!(debt_before, repay_credit as u128, ErrorCode::InsufficientDebt);
-        require_gte!(
-            terms.max_repay_amount,
-            repay_credit,
-            ErrorCode::LiquidationRepayTooLarge
-        );
-        let collateral_before = position_collateral(borrow_position, debt_asset);
-        let collateral_seized = collateral_to_seize(
-            self,
-            debt_asset,
-            repay_credit,
-            collateral_before,
-            terms.total_penalty_bps,
-            pricing,
-        )?;
-        let remaining_debt = debt_before
-            .checked_sub(repay_credit as u128)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        if collateral_seized < collateral_before || remaining_debt == 0 {
-            return Ok(0);
-        }
-        let insurance_slot = self.last_update_slot;
-        let available = self.insurance.draw_capacity(debt_asset, insurance_slot)?;
-        let remaining_debt_cap = u64::try_from(remaining_debt).unwrap_or(u64::MAX);
-        let remaining_partial_cap = terms
-            .max_repay_amount
-            .checked_sub(repay_credit)
-            .ok_or(ErrorCode::LiquidationRepayTooLarge)?;
-        Ok(remaining_debt_cap
-            .min(available)
-            .min(max_insurance_draw)
-            .min(remaining_partial_cap))
     }
 
     pub fn settle_liquidation(

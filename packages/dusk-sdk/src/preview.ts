@@ -12,6 +12,7 @@ export type AddLiquidityPreview = DuskPreviewTypes["addLiquidityPreview"];
 export type SwapPreview = DuskPreviewTypes["swapPreview"];
 export type BorrowCapacityPreview = DuskPreviewTypes["borrowCapacityPreview"];
 export type BorrowPositionPreview = DuskPreviewTypes["borrowPositionPreview"];
+export type HlpOrderTriggerPreview = DuskPreviewTypes["hlpOrderTriggerPreview"];
 
 export const PREVIEW_RETURN_TYPES = {
   previewMarket: "MarketPreview",
@@ -19,6 +20,7 @@ export const PREVIEW_RETURN_TYPES = {
   previewSwap: "SwapPreview",
   previewBorrowCapacity: "BorrowCapacityPreview",
   previewBorrowPosition: "BorrowPositionPreview",
+  previewHlpOrderTrigger: "HlpOrderTriggerPreview",
 } as const;
 
 export type PreviewInstructionName = keyof typeof PREVIEW_RETURN_TYPES;
@@ -30,6 +32,7 @@ type PreviewReturnByIdlType = {
   SwapPreview: SwapPreview;
   BorrowCapacityPreview: BorrowCapacityPreview;
   BorrowPositionPreview: BorrowPositionPreview;
+  HlpOrderTriggerPreview: HlpOrderTriggerPreview;
 };
 
 export type PreviewReturnForType<T extends PreviewReturnTypeName> = PreviewReturnByIdlType[T];
@@ -79,6 +82,12 @@ export function decodePreviewAddLiquidityReturnData(
 
 export function decodePreviewSwapReturnData(returnData: PreviewReturnData): SwapPreview {
   return decodePreviewReturnData("SwapPreview", returnData);
+}
+
+export function decodePreviewHlpOrderTriggerReturnData(
+  returnData: PreviewReturnData
+): HlpOrderTriggerPreview {
+  return decodePreviewReturnData("HlpOrderTriggerPreview", returnData);
 }
 
 export function decodePreviewBorrowCapacityReturnData(

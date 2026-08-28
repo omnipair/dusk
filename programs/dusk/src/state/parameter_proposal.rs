@@ -150,13 +150,6 @@ pub enum ParameterProposalStatus {
 }
 
 impl ParameterProposalStatus {
-    pub fn is_terminal(self) -> bool {
-        match self {
-            Self::Executed | Self::Cancelled | Self::Expired | Self::Stale => true,
-            Self::Collecting | Self::Queued => false,
-        }
-    }
-
     pub fn code(self) -> u8 {
         match self {
             Self::Collecting => 0,

@@ -1742,16 +1742,6 @@ impl AmmState {
         self.mark_retention_target_stale();
     }
 
-    /// Advances clock-driven signals without fabricating an external trade.
-    ///
-    /// The last successful trade remains the EMA input until another trade
-    /// replaces it. This lets the next genuine operation decay the EMA and
-    /// volatility after a trade followed by silence.
-    pub fn observe_clock(&mut self, config: &AmmConfig, current_slot: u64) -> Result<()> {
-        config.validate()?;
-        self.observe_clock_from_validated_config(config, current_slot)
-    }
-
     /// Market config is validated on admission and initialization. Hot paths
     /// use this entry point to avoid repeating the full config validation both
     /// before and after one swap.
@@ -1831,19 +1821,6 @@ impl AmmState {
     pub fn spendable_protected_profit_nad(&self) -> u128 {
         self.curve_depth_per_share_nad
             .saturating_sub(self.protected_floor_per_share_nad)
-    }
-
-    /// Retained surcharge is the only mutation allowed to increase spendable
-    /// protected profit.
-    pub fn checkpoint_retained_surcharge(&mut self, new_curve_depth_per_share_nad: u128) -> Result<()> {
-        require_gte!(
-            new_curve_depth_per_share_nad,
-            self.curve_depth_per_share_nad,
-            ErrorCode::BrokenInvariant
-        );
-        self.curve_depth_per_share_nad = new_curve_depth_per_share_nad;
-        self.mark_retention_target_stale();
-        Ok(())
     }
 
     pub(crate) fn mark_retention_target_stale(&mut self) {
@@ -2079,28 +2056,6 @@ impl Risk {
             curve_depth_ema_nad,
             last_snapshot_slot: current_slot,
         })
-    }
-}
-
-impl Market {
-    pub fn spot_value_in_opposite(&self, asset: MarketAsset, amount: u64) -> Result<u64> {
-        require!(amount > 0, ErrorCode::AmountZero);
-        let (from_reserve, to_reserve) = match asset {
-            MarketAsset::Base => (
-                self.base_side.reserves.live_reserve,
-                self.quote_side.reserves.live_reserve,
-            ),
-            MarketAsset::Quote => (
-                self.quote_side.reserves.live_reserve,
-                self.base_side.reserves.live_reserve,
-            ),
-        };
-        require!(from_reserve > 0 && to_reserve > 0, ErrorCode::InsufficientLiquidity);
-        let value = (amount as u128)
-            .checked_mul(to_reserve as u128)
-            .and_then(|value| value.checked_div(from_reserve as u128))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        u64::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow.into())
     }
 }
 

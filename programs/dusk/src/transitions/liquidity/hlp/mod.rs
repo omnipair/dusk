@@ -348,31 +348,6 @@ impl Market {
         Ok(())
     }
 
-    pub fn require_residual_hlp_swap_safety(
-        &self,
-        start_base_price_nad: u128,
-        end_base_price_nad: u128,
-        base_residual_on_entry: bool,
-        quote_residual_on_entry: bool,
-    ) -> Result<()> {
-        let start_prices = hlp_curve_prices_from_base_price_nad(start_base_price_nad)?;
-        let end_prices = hlp_curve_prices_from_base_price_nad(end_base_price_nad)?;
-        require_residual_hlp_swap_safe(
-            self,
-            MarketAsset::Base,
-            start_prices,
-            end_prices,
-            base_residual_on_entry,
-        )?;
-        require_residual_hlp_swap_safe(
-            self,
-            MarketAsset::Quote,
-            start_prices,
-            end_prices,
-            quote_residual_on_entry,
-        )
-    }
-
     pub fn checkpoint_hlp_vaults(&mut self) -> Result<(i128, i128)> {
         let prices = current_hlp_curve_prices(self)?;
         checkpoint_hlp_yield_from_ylp(self, MarketAsset::Base)?;

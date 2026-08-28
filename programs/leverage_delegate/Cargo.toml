@@ -28,3 +28,4 @@ development = []
 anchor-lang = { version = "0.31.1", features = ["init-if-needed", "derive"] }
 anchor-spl = { version = "0.31.1", features = ["metadata"] }
 dusk = { path = "../dusk", features = ["cpi"] }
+spl-transfer-hook-interface = "0.9.0"

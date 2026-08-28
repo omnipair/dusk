@@ -248,8 +248,9 @@ pub mod dusk {
 
     /// Permissionlessly closes an hLP after passive funding has exhausted its
     /// marked collateral. Insurance reimburses the borrowed-asset shortfall
-    /// first; only the caller-capped remainder is socialized as unpaid funding
-    /// interest. Ordinary swaps retain their existing account list.
+    /// first. The caller receives a bounded reward from recovered funding
+    /// interest, and only the caller-capped remainder is socialized as unpaid
+    /// funding interest. Ordinary swaps retain their existing account list.
     pub fn close_insolvent_hlp<'info>(
         ctx: Context<'_, '_, '_, 'info, CloseInsolventHlp<'info>>,
         args: CloseInsolventHlpArgs,

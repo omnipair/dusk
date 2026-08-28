@@ -552,7 +552,11 @@ pub struct HlpTerminalLiquidated {
     pub target_asset: u8,
     pub debt_closed: u64,
     pub ylp_burned: u64,
+    /// Borrowed-asset funding interest credited to yLP after caller bounty and
+    /// transfer fees.
     pub interest_paid: u64,
+    /// Borrowed-asset amount credited to the caller after transfer fees.
+    pub caller_bounty: u64,
     pub insurance_drawn: u64,
     pub socialized_loss: u64,
     /// Existing holder tokens remain burnable for zero principal while their

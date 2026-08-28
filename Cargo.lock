@@ -890,6 +890,7 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "dusk",
+ "spl-transfer-hook-interface",
 ]
 
 [[package]]

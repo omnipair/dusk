@@ -38,6 +38,10 @@ pub const LIQUIDATION_PENALTY_BPS: u16 = 300;
 /// incentive used by externally funded auction bids.
 #[constant]
 pub const LIQUIDATION_BACKSTOP_CALLER_BPS: u16 = 50;
+/// Caller reward for closing a terminal hLP vault, paid from recovered funding
+/// interest so it cannot increase the bad-debt waterfall.
+#[constant]
+pub const HLP_TERMINAL_CALLER_BPS: u16 = LIQUIDATION_BACKSTOP_CALLER_BPS;
 /// External bids have this fixed window before the permissionless internal
 /// unwind becomes executable.
 #[constant]

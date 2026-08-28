@@ -11,19 +11,6 @@ use crate::{
     transitions::MarketHealth,
 };
 
-#[cfg(target_os = "solana")]
-#[inline(always)]
-fn debug_log_heap(tag: u64) {
-    let cursor = unsafe { *(0x300000000 as *const u64) };
-    let used = if cursor == 0 { 0 } else { 0x300008000_u64 - cursor };
-    solana_program::log::sol_log_64(tag, cursor, used, 0, 0);
-    solana_program::log::sol_log_compute_units();
-}
-
-#[cfg(not(target_os = "solana"))]
-#[inline(always)]
-fn debug_log_heap(_tag: u64) {}
-
 // Most preview instructions update and return serialized market state. Swap
 // preview is deliberately pure: all clock/ramp/hLP simulation runs on a clone
 // so submitting a preview cannot alter fee routing or create a curve/Risk
@@ -552,7 +539,6 @@ impl<'info> PreviewSwap<'info> {
         // the in-memory simulation. Reusing its already-deserialized storage
         // avoids allocating a second full Market solely for preview.
         let quote_market: &mut Market = &mut ctx.accounts.market;
-        debug_log_heap(1);
         let asset_in = quote_market.asset_for_mint(ctx.accounts.asset_in_mint.key())?;
         let asset_out = quote_market.asset_for_mint(ctx.accounts.asset_out_mint.key())?;
         require!(asset_out == asset_in.opposite(), ErrorCode::InvalidMint);
@@ -570,7 +556,6 @@ impl<'info> PreviewSwap<'info> {
             protocol_fee_bps: ctx.accounts.futarchy_authority.revenue_share.swap_bps,
         }
         .prepare(quote_market)?;
-        debug_log_heap(2);
         let quote = prepared.quote;
         let concentrated_debt_deltas = prepared
             .concentrated_transition
@@ -589,7 +574,6 @@ impl<'info> PreviewSwap<'info> {
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
         )?;
-        debug_log_heap(3);
         let projected_protected_profit_per_share_nad = quote_market.amm.spendable_protected_profit_nad();
         let market: &Market = quote_market;
         let concentrated_metadata = market.amm_preview_metrics(quote.reserve_end_price_nad)?;

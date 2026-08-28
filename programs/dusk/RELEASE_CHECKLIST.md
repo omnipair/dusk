@@ -52,9 +52,9 @@ mainnet launch or upgrade.
   claims, is sourced from the payer's burn legs (including exact target-side
   shortfall conversion), and cannot become an additional shared-live debit.
   Include retained surcharge and cap/fail-closed paths.
-- Treat passive interest-driven hLP insolvency and terminal loss recovery as an
-  open High finding. Do not sign off until the design is resolved or the risk
-  is explicitly accepted.
+- Re-check passive interest-driven hLP insolvency and terminal loss recovery:
+  `close_insolvent_hlp` must honor caller-supplied insurance/socialized-loss
+  bounds and pay only the bounded caller bounty from recovered funding interest.
 - Reconcile reserve custody as executable cash + swap-fee custody + both
   source-scoped hLP backing inventories. Re-run the exact 25,631-atom CPMM and
   37,886-atom concentrated conservation regressions and the indexed

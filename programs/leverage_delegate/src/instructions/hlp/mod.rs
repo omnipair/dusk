@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     token::Token,
-    token_2022::{self, Token2022},
+    token_2022::Token2022,
     token_interface::{Mint, TokenAccount},
 };
 use dusk::{

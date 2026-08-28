@@ -20,14 +20,21 @@ pub struct SettleHlpOrderYield<'info> {
     pub order: Box<Account<'info, HlpOrder>>,
     #[account(mut)]
     pub market: Box<Account<'info, Market>>,
+    #[account(address = order.target_hlp_mint)]
     pub target_hlp_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(
         mut,
         address = order.custody_hlp_account,
         constraint = custody_hlp_account.owner == order.key() @ LeverageDelegateError::InvalidTokenAccount,
-        constraint = custody_hlp_account.amount == 0 @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = custody_hlp_account.mint == target_hlp_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
     )]
     pub custody_hlp_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(
+        mut,
+        constraint = owner_hlp_account.owner == order.owner @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = owner_hlp_account.mint == target_hlp_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
+    )]
+    pub owner_hlp_account: Box<InterfaceAccount<'info, TokenAccount>>,
     pub base_mint: Box<InterfaceAccount<'info, Mint>>,
     pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut)]
@@ -109,6 +116,28 @@ impl<'info> SettleHlpOrderYield<'info> {
             &bump_seed,
         ];
         let signer = &[&authority_seeds[..]];
+
+        if ctx.accounts.custody_hlp_account.amount > 0 {
+            transfer_checked(
+                ctx.accounts.token_2022_program.to_account_info(),
+                ctx.accounts.custody_hlp_account.to_account_info(),
+                ctx.accounts.target_hlp_mint.to_account_info(),
+                ctx.accounts.owner_hlp_account.to_account_info(),
+                ctx.accounts.order.to_account_info(),
+                ctx.accounts.custody_hlp_account.amount,
+                ctx.accounts.target_hlp_mint.decimals,
+                signer,
+                ctx.remaining_accounts,
+            )?;
+            ctx.accounts.custody_hlp_account.reload()?;
+            require_eq!(
+                ctx.accounts.custody_hlp_account.amount,
+                0,
+                LeverageDelegateError::InvalidTokenAccount
+            );
+            ctx.accounts.base_yield_account.reload()?;
+            ctx.accounts.quote_yield_account.reload()?;
+        }
 
         claim_hlp_yield_if_available(
             ctx.accounts.base_yield_account.accrued_swap_fee_amount,

@@ -983,8 +983,9 @@ export type Dusk = {
       "docs": [
         "Permissionlessly closes an hLP after passive funding has exhausted its",
         "marked collateral. Insurance reimburses the borrowed-asset shortfall",
-        "first; only the caller-capped remainder is socialized as unpaid funding",
-        "interest. Ordinary swaps retain their existing account list."
+        "first. The caller receives a bounded reward from recovered funding",
+        "interest, and only the caller-capped remainder is socialized as unpaid",
+        "funding interest. Ordinary swaps retain their existing account list."
       ],
       "discriminator": [
         158,
@@ -1022,6 +1023,10 @@ export type Dusk = {
         },
         {
           "name": "insuranceVault",
+          "writable": true
+        },
+        {
+          "name": "callerBountyAccount",
           "writable": true
         },
         {
@@ -10344,6 +10349,10 @@ export type Dusk = {
           {
             "name": "maxSocializedLoss",
             "type": "u64"
+          },
+          {
+            "name": "minCallerBountyOut",
+            "type": "u64"
           }
         ]
       }
@@ -11281,6 +11290,17 @@ export type Dusk = {
           },
           {
             "name": "interestPaid",
+            "docs": [
+              "Borrowed-asset funding interest credited to yLP after caller bounty and",
+              "transfer fees."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "callerBounty",
+            "docs": [
+              "Borrowed-asset amount credited to the caller after transfer fees."
+            ],
             "type": "u64"
           },
           {
@@ -15977,6 +15997,15 @@ export type Dusk = {
       "name": "futarchyAuthoritySeedPrefix",
       "type": "bytes",
       "value": "[102, 117, 116, 97, 114, 99, 104, 121, 95, 97, 117, 116, 104, 111, 114, 105, 116, 121]"
+    },
+    {
+      "name": "hlpTerminalCallerBps",
+      "docs": [
+        "Caller reward for closing a terminal hLP vault, paid from recovered funding",
+        "interest so it cannot increase the bad-debt waterfall."
+      ],
+      "type": "u16",
+      "value": "50"
     },
     {
       "name": "hlpYlpVaultSeedPrefix",
