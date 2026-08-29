@@ -52,7 +52,9 @@ import {
 import { SCENARIO_CATALOG } from "../protocol-tests/catalog.js";
 
 const DEFAULT_PROGRAM_ID = "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv";
-const LEVERAGE_DELEGATE_PROGRAM_ID = new PublicKey("EPGF9iFrbGnhWgC3To9rC9vxinEYuDHaz4RXgLPvuRkp");
+const LEVERAGE_DELEGATE_PROGRAM_ID = new PublicKey(
+  duskEnv("LEVERAGE_DELEGATE_PROGRAM_ID", "EPGF9iFrbGnhWgC3To9rC9vxinEYuDHaz4RXgLPvuRkp"),
+);
 const DEFAULT_META_MINT = "METAwkXcqyXKy1AtsSgJ8JiUHwGCafnZL38n3vYmeta";
 const DEFAULT_USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const BPF_LOADER_UPGRADEABLE_ID = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -87,6 +89,10 @@ const HAS_EXPLICIT_PUBLIC_RPC_URL = Boolean(
     process.env.SURFPOOL_RPC_PROXY_URL?.trim(),
 );
 const PROGRAM_ID = new PublicKey(duskEnv("PROGRAM_ID", DEFAULT_PROGRAM_ID));
+// Which network identity this API serves. The envelope's consumers pin it
+// exactly, so a devnet API must say "devnet" — everything else (genesis,
+// fork generation, program data) is observed from the configured RPC.
+const API_NETWORK = duskEnv("API_NETWORK", "surfpool");
 const DEFAULT_SOL_FUNDING = Number(process.env.FORK_DEFAULT_SOL_FUNDING ?? "10");
 const DEFAULT_TOKEN_FUNDING_UI = process.env.FORK_DEFAULT_TOKEN_FUNDING ?? "10000";
 const MAX_SOL_FUNDING = Number(process.env.FORK_MAX_SOL_FUNDING ?? "100");
@@ -1986,7 +1992,9 @@ function deriveForkGenerationId(
   programId: string,
   markerData: Buffer,
 ): string {
-  return `surfpool-${sha256(
+  // The prefix names the runtime the generation belongs to; a devnet identity
+  // labelled "surfpool-…" would misname itself in every env file that pins it.
+  return `${API_NETWORK}-${sha256(
     `${namespace}:${genesisHash}:${programId}:${markerData.toString("hex")}`,
   )}`;
 }
@@ -2011,6 +2019,27 @@ async function observeForkGeneration(
   minimumContextSlot: number,
 ): Promise<ForkGenerationObservation> {
   const { connection } = initializeRuntime();
+  if (API_NETWORK !== "surfpool") {
+    // The marker exists to detect surfpool fork resets, and it is planted with
+    // surfnet_setAccount — a program-owned account conjured from nothing,
+    // which no real cluster allows. A real cluster also never resets
+    // underneath its clients: the deployment itself is the generation. Derive
+    // a stable 32-byte marker from the cluster genesis and the program id, so
+    // the resulting forkId survives API restarts and only the deployment
+    // identity (not this process) defines it.
+    const [genesis, slot] = await Promise.all([
+      connection.getGenesisHash(),
+      connection.getSlot(DEPLOYMENT_COMMITMENT),
+    ]);
+    const markerData = createHash("sha256")
+      .update(`dusk-static-generation:${genesis}:${PROGRAM_ID.toBase58()}`)
+      .digest();
+    return {
+      markerData,
+      markerHex: markerData.toString("hex"),
+      sourceSlot: Math.max(slot, minimumContextSlot),
+    };
+  }
   const marker = forkGenerationMarkerAddress();
   let observation = await connection.getAccountInfoAndContext(marker, {
     commitment: DEPLOYMENT_COMMITMENT,
@@ -2237,7 +2266,35 @@ async function observeUpgradeableProgram(
   };
 }
 
+type CachedEnvelope = {
+  value: Awaited<ReturnType<typeof deploymentEnvelopeUncached>>;
+  observedAtMs: number;
+};
+let staticEnvelopeCache: CachedEnvelope | null = null;
+const STATIC_ENVELOPE_TTL_MS = 5_000;
+
 export async function deploymentEnvelope(minimumSourceSlot = 0) {
+  // Surfpool recomputes every time because the fork can reset underneath the
+  // API and the envelope is how clients notice. A real cluster cannot reset,
+  // and every request wraps its response in an envelope — recomputing burns a
+  // dozen RPC calls per request and rate-limits the API off its own upstream.
+  if (API_NETWORK === "surfpool") {
+    return deploymentEnvelopeUncached(minimumSourceSlot);
+  }
+  const cached = staticEnvelopeCache;
+  if (
+    cached &&
+    Date.now() - cached.observedAtMs < STATIC_ENVELOPE_TTL_MS &&
+    cached.value.sourceSlot >= minimumSourceSlot
+  ) {
+    return cached.value;
+  }
+  const value = await deploymentEnvelopeUncached(minimumSourceSlot);
+  staticEnvelopeCache = { value, observedAtMs: Date.now() };
+  return value;
+}
+
+async function deploymentEnvelopeUncached(minimumSourceSlot = 0) {
   if (!Number.isSafeInteger(minimumSourceSlot) || minimumSourceSlot < 0) {
     throw new Error(
       "Deployment envelope minimum source slot must be a nonnegative safe integer",
@@ -2252,7 +2309,7 @@ export async function deploymentEnvelope(minimumSourceSlot = 0) {
       await observeForkGeneration(forkGeneration.sourceSlot)
     ).markerHex,
   );
-  const namespace = process.env.DUSK_FORK_NAMESPACE ?? "dusk-surfpool";
+  const namespace = process.env.DUSK_FORK_NAMESPACE ?? `dusk-${API_NETWORK}`;
   const forkId = deriveForkGenerationId(
     namespace,
     genesisHash,
@@ -2285,8 +2342,10 @@ export async function deploymentEnvelope(minimumSourceSlot = 0) {
   );
   const envelope = {
     schemaVersion: DEPLOYMENT_SCHEMA_VERSION,
-    network: "surfpool",
-    forkSourceNetwork: process.env.SURFPOOL_NETWORK ?? "mainnet",
+    network: API_NETWORK,
+    forkSourceNetwork:
+      process.env.SURFPOOL_NETWORK ??
+      (API_NETWORK === "surfpool" ? "mainnet" : API_NETWORK),
     genesisHash,
     forkId,
     programId: PROGRAM_ID.toBase58(),
@@ -3398,9 +3457,11 @@ async function bootstrapMarkets(
       );
     }
     const markets =
-      process.env.DUSK_REQUIRE_PREBOOTSTRAPPED_MARKETS === "true"
-        ? await verifyPrebootstrappedMarkets()
-        : await bootstrapUncached(deploymentFingerprint);
+      API_NETWORK !== "surfpool"
+        ? await loadManifestMarkets()
+        : process.env.DUSK_REQUIRE_PREBOOTSTRAPPED_MARKETS === "true"
+          ? await verifyPrebootstrappedMarkets()
+          : await bootstrapUncached(deploymentFingerprint);
     const after = await deploymentEnvelope();
     if (deploymentIdentityFingerprint(after) !== deploymentFingerprint) {
       throw new DeploymentIdentityChangedError(
@@ -4078,6 +4139,34 @@ async function verifyPrebootstrappedMarket(
     quoteHlpMint,
     seededLiquidity: true,
   });
+}
+
+/**
+ * On a real cluster there is nothing to bootstrap and no fork controller to
+ * verify: markets are deployed by hand and recorded in the state manifest.
+ * Serve that manifest, confirming once per deployment identity that every
+ * listed market account actually exists on the configured cluster.
+ */
+async function loadManifestMarkets(): Promise<StoredMarket[]> {
+  const { program } = initializeRuntime();
+  const state = readState();
+  const markets = Object.values(state.markets);
+  if (markets.length === 0) {
+    throw new Error(
+      `A ${API_NETWORK} API serves preexisting markets; none are recorded in ${statePath()}`,
+    );
+  }
+  for (const stored of markets) {
+    const account = await program.account.market.fetchNullable(
+      new PublicKey(stored.market),
+    );
+    if (!account) {
+      throw new Error(
+        `Market ${stored.market} (${stored.label}) does not exist on ${API_NETWORK}`,
+      );
+    }
+  }
+  return markets;
 }
 
 async function verifyPrebootstrappedMarkets(): Promise<StoredMarket[]> {
