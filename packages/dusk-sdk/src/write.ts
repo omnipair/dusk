@@ -290,6 +290,92 @@ export class DuskWrite {
     return (await this.swapBuilder(args, options)).rpc();
   }
 
+  /**
+   * Swap, with accounts resolved from the market and the two mints.
+   *
+   * `swapInstruction` takes a prepared account map, which makes callers
+   * responsible for reconstructing the program's account set. This resolves it
+   * instead: reserve vaults derive from the market and mint, trader accounts
+   * default to the associated token account for the correct token program, and
+   * the hLP remaining-account prefix is still assembled by `swapBuilder`,
+   * whose ordering is consensus-visible.
+   */
+  async buildSwapInstruction(
+    params: SwapParams
+  ): Promise<TransactionInstruction> {
+    return (await this.buildSwapBuilder(params)).instruction();
+  }
+
+  async buildSwapTransaction(params: SwapParams): Promise<Transaction> {
+    return (await this.buildSwapBuilder(params)).transaction();
+  }
+
+  private async buildSwapBuilder(params: SwapParams) {
+    const market = address(params.market);
+    const trader = address(params.trader);
+    const assetInMint = address(params.assetInMint);
+    const assetOutMint = address(params.assetOutMint);
+
+    if (assetInMint.equals(assetOutMint)) {
+      throw new Error("Swap input and output mints must differ");
+    }
+
+    const connection = this.program.provider.connection;
+    const [assetInProgram, assetOutProgram] = await Promise.all([
+      tokenProgramForMint(connection, assetInMint),
+      tokenProgramForMint(connection, assetOutMint),
+    ]);
+
+    return this.swapBuilder(
+      // A single positional SwapArgs struct: the generic builder spreads a
+      // non-array into one argument, so wrapping it in an outer object would
+      // serialize a struct of zeros and the program would reject the amount.
+      {
+        exactAssetIn: governanceIntegerBN(params.exactAssetIn, "exactAssetIn"),
+        minAssetOut: governanceIntegerBN(params.minAssetOut, "minAssetOut"),
+      },
+      {
+        market,
+        accounts: {
+          market,
+          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
+          trader,
+          assetInMint,
+          assetOutMint,
+          reserveInVault: address(
+            params.reserveInVault ??
+              deriveMarketReserveVaultAddress(market, assetInMint)[0]
+          ),
+          reserveOutVault: address(
+            params.reserveOutVault ??
+              deriveMarketReserveVaultAddress(market, assetOutMint)[0]
+          ),
+          traderAssetInAccount: address(
+            params.traderAssetInAccount ??
+              getAssociatedTokenAddressSync(
+                assetInMint,
+                trader,
+                true,
+                assetInProgram
+              )
+          ),
+          traderAssetOutAccount: address(
+            params.traderAssetOutAccount ??
+              getAssociatedTokenAddressSync(
+                assetOutMint,
+                trader,
+                true,
+                assetOutProgram
+              )
+          ),
+          tokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+        },
+        remainingAccounts: params.remainingAccounts,
+      }
+    );
+  }
+
   async initializeYieldAccountsInstruction(params: {
     payer: AddressLike;
     owner: AddressLike;
@@ -1583,6 +1669,22 @@ interface YlpLiquidityAccounts {
   quoteReserveVault?: AddressLike;
   baseYieldAccount?: AddressLike;
   quoteYieldAccount?: AddressLike;
+  remainingAccounts?: AccountMeta[];
+}
+
+/** A swap described by its market and mints rather than by an account map. */
+export interface SwapParams {
+  market: AddressLike;
+  trader: AddressLike;
+  assetInMint: AddressLike;
+  assetOutMint: AddressLike;
+  exactAssetIn: RawAmount;
+  /** Slippage floor; the program rejects a fill below it. */
+  minAssetOut: RawAmount;
+  traderAssetInAccount?: AddressLike;
+  traderAssetOutAccount?: AddressLike;
+  reserveInVault?: AddressLike;
+  reserveOutVault?: AddressLike;
   remainingAccounts?: AccountMeta[];
 }
 
