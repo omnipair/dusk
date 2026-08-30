@@ -310,6 +310,80 @@ export class DuskWrite {
     return (await this.buildSwapBuilder(params)).transaction();
   }
 
+  /**
+   * Borrow against a position, with accounts resolved from the market and the
+   * two mints.
+   *
+   * The referral accounts are optional on chain and are omitted here: a borrow
+   * with no referrer should not have to name accounts it does not use. Use
+   * `referredBorrow` when a referrer is present.
+   */
+  async buildBorrowInstruction(
+    params: BorrowParams
+  ): Promise<TransactionInstruction> {
+    const market = address(params.market);
+    const owner = address(params.owner);
+    const debtAssetMint = address(params.debtAssetMint);
+    const collateralAssetMint = address(params.collateralAssetMint);
+
+    if (debtAssetMint.equals(collateralAssetMint)) {
+      throw new Error("Borrow debt and collateral mints must differ");
+    }
+
+    const debtTokenProgram = await tokenProgramForMint(
+      this.program.provider.connection,
+      debtAssetMint
+    );
+
+    return this.instruction(
+      "borrow" as DuskInstructionName,
+      {
+        borrowAmount: governanceIntegerBN(params.borrowAmount, "borrowAmount"),
+        minDebtAmountOut: governanceIntegerBN(
+          params.minDebtAmountOut,
+          "minDebtAmountOut"
+        ),
+        minLiquidationCfBps: Number(params.minLiquidationCfBps ?? 0),
+        referrer: null,
+      },
+      {
+        accounts: {
+          market,
+          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
+          owner,
+          debtAssetMint,
+          collateralAssetMint,
+          reserveVault: address(
+            params.reserveVault ??
+              deriveMarketReserveVaultAddress(market, debtAssetMint)[0]
+          ),
+          ownerDebtAccount: address(
+            params.ownerDebtAccount ??
+              getAssociatedTokenAddressSync(
+                debtAssetMint,
+                owner,
+                true,
+                debtTokenProgram
+              )
+          ),
+          borrowPosition: address(
+            params.borrowPosition ??
+              deriveBorrowPositionAddress(market, address(params.positionId))[0]
+          ),
+          referralPartner: null,
+          referralAccrual: null,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+        },
+        remainingAccounts: params.remainingAccounts,
+      }
+    );
+  }
+
+  async buildBorrowTransaction(params: BorrowParams): Promise<Transaction> {
+    return new Transaction().add(await this.buildBorrowInstruction(params));
+  }
+
   private async buildSwapBuilder(params: SwapParams) {
     const market = address(params.market);
     const trader = address(params.trader);
@@ -1669,6 +1743,24 @@ interface YlpLiquidityAccounts {
   quoteReserveVault?: AddressLike;
   baseYieldAccount?: AddressLike;
   quoteYieldAccount?: AddressLike;
+  remainingAccounts?: AccountMeta[];
+}
+
+/** A borrow described by its market, position and mints. */
+export interface BorrowParams {
+  market: AddressLike;
+  owner: AddressLike;
+  /** Position discriminator; the borrow position PDA derives from it. */
+  positionId: AddressLike;
+  debtAssetMint: AddressLike;
+  collateralAssetMint: AddressLike;
+  borrowAmount: RawAmount;
+  /** Slippage floor on the debt actually opened. */
+  minDebtAmountOut: RawAmount;
+  minLiquidationCfBps?: number;
+  ownerDebtAccount?: AddressLike;
+  reserveVault?: AddressLike;
+  borrowPosition?: AddressLike;
   remainingAccounts?: AccountMeta[];
 }
 
