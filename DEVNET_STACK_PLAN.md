@@ -370,8 +370,8 @@ independent untracked fixes per repository.
 | 4 | SDK completion for product flows (section 6) | **Done for the app's actions** — typed builders added for swap, borrow, openLeverage and leverage delegation, plus a leverage-delegate client for conditional orders |
 | 5 | Webapp writes through the SDK; fork lab ported and deleted | **Done** — all 9 actions build through the SDK, and no `fork` path or name remains in the app or the API; the lab in the `dusk` repo is unused and can be deleted |
 | 6 | Rust keepers live on devnet | **Lending trigger and bidder live** — both have sent confirmed transactions on devnet: the trigger opened an auction on a genuinely underwater position, the bidder repaid 150 quote for 265.56 base. Settler, leverage, auction arbitrageur and lifecycle still have no loop |
-| 7 | Public-service operations (section 9) | **Mostly done** — rate limiting, `/status` and a self-refreshing status page, six runbooks, backups with a tested restore, and retention. Metrics and traces are still absent, and the faucet has no abuse limit (see below) |
-| 8 | Full live matrix and sustained unattended operation | **Matrix runs; 7 of 11 flows pass** — `scripts/devnet/live_flow_matrix.ts` signs and sends every product flow. Faucet, add and remove liquidity, deposit, borrow, repay and withdraw all confirm. Swap and open leverage are blocked by the hLP defect, and the two leverage follow-ups cascade from it. Sustained unattended operation has not been attempted |
+| 7 | Public-service operations (section 9) | **Done** — rate limiting, `/status`, a self-refreshing status page, `/metrics` and `/provenance`, structured request logs, six runbooks, backups with a tested restore, and 90-day retention. The faucet limit is written but not deployed (see below) |
+| 8 | Full live matrix and sustained unattended operation | **Matrix runs, soak runs; 7 of 11 flows pass** — `live_flow_matrix.ts` signs and sends every product flow: faucet, add and remove liquidity, deposit, borrow, repay and withdraw all confirm. Swap and open leverage are blocked by the hLP defect and the two leverage follow-ups cascade from it. `soak.sh` samples the deployment unattended and is what caught the monitoring flaw below |
 
 ### Deployment
 
@@ -405,6 +405,26 @@ real accounts, assemble their instructions, and are refused by the program for
 reasons that name a business condition rather than a malformed transaction. A
 wrong account fails differently from an empty lane, which is what makes the
 refusals evidence rather than silence.
+
+### The first monitoring was measuring the wrong thing
+
+`/status` originally flagged on slot lag. Slot lag measures how recently
+somebody traded, not whether the daemon is alive, so on a quiet devnet it grows
+without bound while ingestion is perfectly healthy — the endpoint would have
+declared a working deployment degraded and taught whoever read it to ignore the
+alarm. The runbook warned against judging this by `latestEventAt` for exactly
+that reason, and then the endpoint judged it by the newest event slot, which
+has the same flaw.
+
+The soak caught it: lag climbing steadily, event count flat, daemon logging
+nothing. That reads as a stall and was an idle market.
+
+The daemon now touches its cursor on every poll whether or not it found
+anything, so the cursor's age is a liveness signal rather than a measure of
+trading activity, and that age is what decides degradation. Measured live: age
+holding at 3-15 seconds while lag passed 7,000. Slot lag is still reported —
+it is the right number for how stale the history is, just not for whether
+ingestion works.
 
 ### The lending liquidation path is proven end to end
 
@@ -490,7 +510,18 @@ a quarter of the time on an idle market, all but stops under ordinary
 borrowing, and takes the bad-debt backstop down with it. It needs a protocol
 fix, and no amount of keeper work routes around it.
 
-### Faucet abuse is an open protocol gap
+### Faucet abuse: written, not deployed
+
+`faucet_mint` now takes a per-request ceiling and an hourly per-recipient
+cooldown, recorded in a claim account keyed by recipient and mint — not by
+payer, since a payer-keyed limit is sidestepped by paying from a fresh wallet,
+which costs nothing on devnet. The webapp passes the new account.
+
+Not deployed. It changes `faucet_mint`'s account list, so the program upgrade
+and the app must land together, and upgrading a deployed program is a decision
+for whoever holds the upgrade authority.
+
+### The original gap, for reference
 
 The faucet mints straight from the browser to the program, so no server sits in
 the path and no amount of API rate limiting constrains it. `faucet_mint` checks
