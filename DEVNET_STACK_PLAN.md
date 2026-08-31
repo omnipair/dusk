@@ -370,8 +370,22 @@ independent untracked fixes per repository.
 | 4 | SDK completion for product flows (section 6) | **Done for the app's actions** — typed builders added for swap, borrow, openLeverage and leverage delegation, plus a leverage-delegate client for conditional orders |
 | 5 | Webapp writes through the SDK; fork lab ported and deleted | **Done** — all 9 actions build through the SDK, and no `fork` path or name remains in the app or the API; the lab in the `dusk` repo is unused and can be deleted |
 | 6 | Rust keepers live on devnet | **Lending trigger and bidder live** — both have sent confirmed transactions on devnet: the trigger opened an auction on a genuinely underwater position, the bidder repaid 150 quote for 265.56 base. Settler, leverage, auction arbitrageur and lifecycle still have no loop |
-| 7 | Public-service operations (section 9) | **Partly** — the API rate-limits every route and now serves `/api/dusk/v1/status` reporting slot lag and named degradation; no runbooks or backups, and the faucet has no abuse limit (see below) |
+| 7 | Public-service operations (section 9) | **Mostly done** — rate limiting, `/status` and a self-refreshing status page, six runbooks, backups with a tested restore, and retention. Metrics and traces are still absent, and the faucet has no abuse limit (see below) |
 | 8 | Full live matrix and sustained unattended operation | **Not started** |
+
+### Deployment
+
+All seven keeper services exist in the `dusk-devnet` Railway project, one per
+job and wallet role as section 7 requires. They run in **shadow mode with no
+signing keys**: each discovers, simulates and reports, and none can send.
+
+Promoting a profile to live needs two things this plan deliberately does not
+do on its own — a hot wallet generated and stored as that service's
+`KEEPER_SIGNER_KEY`, and `KEEPER_MODE=live`. Creating signing keys inside the
+deployment and letting a service spend from them unattended is a decision for
+whoever owns the wallets, not a step to be inferred from a checklist. The
+trigger and bidder have both been proven live from a local run against the
+same devnet, so what remains is authorisation rather than unknown behaviour.
 
 ### Keeper status by profile
 
