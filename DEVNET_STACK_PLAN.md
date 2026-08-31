@@ -446,6 +446,27 @@ Widening the constant would not fix it. The drift is unbounded in principal and
 elapsed time, so every constant is eventually too small — the identity has to
 account for accrual rather than tolerate it.
 
+**Where it is, and one fix that does not work.** The check sits at the end of
+`prepare_explicit_hlp_transition_from_end`. It compares a reconstructed
+`final_*_live_reserve` against an identity recomputed from
+`market.*_side.reserves.live_reserve`, which `debit_cash_for_hlp_interest` has
+already reduced by the accrued interest.
+
+On the materialized path (`preserve_current_ordinary_reserves == true`) the
+interest is subtracted once, and the two sides agree exactly. On the quoted
+swap path the `else` branch subtracts it, and a block added later in `e077db6`
+(2026-08-20) subtracts it a second time — so the swap path subtracts twice
+where the other subtracts once, and the gap is precisely the accrued interest.
+That matches every measurement: zero inside one transaction where nothing has
+accrued, a few atoms at rest, and far past the tolerance once real debt exists.
+
+Removing the later block is **not** the fix. It makes
+`stressed_hlp_recovery_improves_the_matching_swap_and_restores_the_hedge` fail
+with the same 6047, so the second subtraction is load-bearing on at least one
+path and the asymmetry is not simply a duplicate. Reconciling the two paths is
+a question about what the quoted endpoint is defined to contain, which belongs
+with whoever owns that math rather than with whoever can make the suite green.
+
 Leverage debt does the same thing. With one leverage position open the at-rest
 rate measured 100%; closing it returned the market to 25%. Any outstanding
 debt, of either kind, moves the failure from intermittent to constant.
