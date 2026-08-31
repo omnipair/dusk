@@ -43,7 +43,7 @@ export const BASELINE_SCENARIOS: ScenarioDefinition[] = [
     async run(harness) {
       const market = await harness.market();
       harness.observe("fork config", harness.config);
-      harness.assertEqual("program id matches market config", harness.config.programId, "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv");
+      harness.assertEqual("program id matches market config", harness.config.programId, "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X");
       harness.assertEqual("market address matches config", market.marketAddress, harness.config.market);
       if (harness.config.fixtureMode === "token2022-fees") {
         harness.assertTrue("transfer-fee fixture starts with positive base reserve", stateValue(market, "baseLiveReserve") > 0n);

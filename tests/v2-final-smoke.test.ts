@@ -78,9 +78,9 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { AnchorProvider, BN, Program, Wallet } = anchor;
-const DUSK_PROGRAM_ID = new PublicKey("358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv");
+const DUSK_PROGRAM_ID = new PublicKey("JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X");
 const LEVERAGE_DELEGATE_PROGRAM_ID = new PublicKey(
-  "EPGF9iFrbGnhWgC3To9rC9vxinEYuDHaz4RXgLPvuRkp"
+  "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv"
 );
 const REFERRAL_TRANSFER_HOOK_PROGRAM_ID = new PublicKey(
   "noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV"
@@ -2724,6 +2724,37 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         TOKEN_2022_PROGRAM_ID
       )).amount
     ).to.equal(0n);
+
+    const settleTx = await leverageDelegateProgram.methods
+      .settleHlpOrderYield({ orderId })
+      .accounts({
+        order,
+        market: fixture.market,
+        targetHlpMint: fixture.baseHlpMint,
+        custodyHlpAccount,
+        ownerHlpAccount: hedge.ownerBaseHlpAccount,
+        baseMint: fixture.baseMint,
+        quoteMint: fixture.quoteMint,
+        baseReserveVault: fixture.baseReserveVault,
+        quoteReserveVault: fixture.quoteReserveVault,
+        baseInterestVault: fixture.baseInterestVault,
+        quoteInterestVault: fixture.quoteInterestVault,
+        baseYieldAccount: orderYield.baseYieldAccount,
+        quoteYieldAccount: orderYield.quoteYieldAccount,
+        ownerBaseAccount: fixture.ownerBaseAccount,
+        ownerQuoteAccount: fixture.ownerQuoteAccount,
+        owner: payer.publicKey,
+        duskEventAuthority: eventAuthority(),
+        duskProgram: DUSK_PROGRAM_ID,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(settleTx, [payer]);
+    trackV2Instruction("settleHlpOrderYield", this.test?.title);
+
+    expect(svm.getAccount(order)).to.equal(null);
+    expect(svm.getAccount(custodyHlpAccount)).to.equal(null);
   });
 
   it("SDK hLP builder repairs prefunded System-owned yield and yLP vault PDAs in the action transaction", async function () {
@@ -5718,11 +5749,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     );
 
     positionAccount = svm.getAccount(borrowPosition);
-    expect(positionAccount).to.not.equal(null);
-    position = accountCoder.decode("BorrowPosition", Buffer.from(positionAccount!.data)) as any;
-    expect(position.base_collateral.toNumber()).to.equal(0);
-    expect(position.fixed_quote_shares.toNumber()).to.equal(0);
-    expect(position.global_health_base_contribution_for_quote_debt.toNumber()).to.equal(0);
+    expect(positionAccount).to.equal(null);
 
     const decoded = accountCoder.decode(
       "Market",
@@ -6397,6 +6424,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .accounts({
         market: fixture.market,
         futarchyAuthority,
+        positionOwner: payer.publicKey,
         liquidator: payer.publicKey,
         debtAssetMint: fixture.quoteMint,
         collateralAssetMint: fixture.baseMint,
@@ -6519,12 +6547,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
     const beforeAccount = svm.getAccount(borrowPosition);
     expect(beforeAccount).to.not.equal(null);
-    const before = accountCoder.decode(
-      "BorrowPosition",
-      Buffer.from(beforeAccount!.data)
-    ) as any;
-    const collateralBefore = before.base_collateral.toNumber();
-    const debtSharesBefore = BigInt(before.fixed_quote_shares.toString());
 
     // Permissionless internal settlement becomes executable after the fixed
     // five-minute external-bid window.
@@ -6565,13 +6587,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     trackV2Instruction("backstopLiquidationAuction", this.test?.title);
 
     const afterAccount = svm.getAccount(borrowPosition);
-    expect(afterAccount).to.not.equal(null);
-    const after = accountCoder.decode(
-      "BorrowPosition",
-      Buffer.from(afterAccount!.data)
-    ) as any;
-    expect(after.base_collateral.toNumber()).to.be.lessThan(collateralBefore);
-    expect(BigInt(after.fixed_quote_shares.toString()) < debtSharesBefore).to.equal(true);
+    expect(afterAccount).to.equal(null);
   });
 
   it("opens leverage through active concentrated hLP preparation", async function () {

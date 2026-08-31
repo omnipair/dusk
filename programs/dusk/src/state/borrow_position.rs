@@ -16,7 +16,7 @@ pub struct CollateralReceipt {
 }
 
 #[account]
-#[derive(InitSpace)]
+#[derive(InitSpace, Default)]
 pub struct BorrowPosition {
     pub owner: Pubkey,
     pub market: Pubkey,
@@ -57,6 +57,29 @@ impl BorrowPosition {
 
     pub fn is_initialized(&self) -> bool {
         self.owner != Pubkey::default() && self.market != Pubkey::default()
+    }
+
+    /// Returns true only after every user balance, debt share, cached risk
+    /// contribution, referral binding, and liquidation-auction field has been
+    /// cleared. Terminal instructions may use this to refund the position's
+    /// rent without turning account closure into a separate privileged path.
+    pub fn is_empty(&self) -> bool {
+        self.base_collateral == 0
+            && self.quote_collateral == 0
+            && self.global_health_base_contribution_for_quote_debt == 0
+            && self.global_health_quote_contribution_for_base_debt == 0
+            && self.base_liquidation_cf_bps == 0
+            && self.quote_liquidation_cf_bps == 0
+            && self.base_referral_partner == Pubkey::default()
+            && self.quote_referral_partner == Pubkey::default()
+            && self.base_referral_interest_share_bps == 0
+            && self.quote_referral_interest_share_bps == 0
+            && self.fixed_base_shares == 0
+            && self.fixed_quote_shares == 0
+            && !self.has_active_liquidation_auction()
+            && self.auction_start_time == 0
+            && self.auction_start_price_nad == 0
+            && self.auction_floor_price_nad == 0
     }
 
     pub fn assert_position(&self, owner: Pubkey, market: Pubkey) -> Result<()> {
@@ -211,5 +234,35 @@ impl BorrowPosition {
         self.auction_start_time = 0;
         self.auction_start_price_nad = 0;
         self.auction_floor_price_nad = 0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_position_requires_every_terminal_field_to_be_clear() {
+        let mut position = BorrowPosition::default();
+        position.initialize(Pubkey::new_unique(), Pubkey::new_unique(), Pubkey::new_unique(), 1);
+        assert!(position.is_empty());
+
+        position.base_collateral = 1;
+        assert!(!position.is_empty());
+        position.base_collateral = 0;
+
+        position.fixed_quote_shares = 1;
+        assert!(!position.is_empty());
+        position.fixed_quote_shares = 0;
+
+        position.set_referral_binding(MarketAsset::Quote, Pubkey::new_unique(), 1);
+        assert!(!position.is_empty());
+        position.clear_referral_binding(MarketAsset::Quote);
+
+        position.start_liquidation_auction(MarketAsset::Quote, 1, 2, 1);
+        assert!(!position.is_empty());
+        position.clear_liquidation_auction();
+
+        assert!(position.is_empty());
     }
 }

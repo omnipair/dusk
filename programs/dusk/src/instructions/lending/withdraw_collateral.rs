@@ -190,6 +190,12 @@ impl<'info> WithdrawCollateral<'info> {
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
 
+        if ctx.accounts.borrow_position.is_empty() {
+            ctx.accounts
+                .borrow_position
+                .close(ctx.accounts.owner.to_account_info())?;
+        }
+
         Ok(())
     }
 }

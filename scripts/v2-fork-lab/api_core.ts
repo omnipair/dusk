@@ -34,8 +34,8 @@ import {
 } from "@solana/web3.js";
 import { SCENARIO_CATALOG } from "../protocol-tests/catalog.js";
 
-const DEFAULT_PROGRAM_ID = "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv";
-const LEVERAGE_DELEGATE_PROGRAM_ID = new PublicKey("EPGF9iFrbGnhWgC3To9rC9vxinEYuDHaz4RXgLPvuRkp");
+const DEFAULT_PROGRAM_ID = "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X";
+const LEVERAGE_DELEGATE_PROGRAM_ID = new PublicKey("AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv");
 const DEFAULT_META_MINT = "METAwkXcqyXKy1AtsSgJ8JiUHwGCafnZL38n3vYmeta";
 const DEFAULT_USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const BPF_LOADER_UPGRADEABLE_ID = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -4363,6 +4363,9 @@ async function buildFillLiquidationAuctionTx(params: {
   const debtIsBase = params.debtAsset === "base";
   const debtMint = debtIsBase ? m.baseMint : m.quoteMint;
   const collateralMint = debtIsBase ? m.quoteMint : m.baseMint;
+  const borrowPosition = deriveBorrowPosition(m.market, params.positionId);
+  const position = await program.account.borrowPosition.fetch(borrowPosition);
+  const positionOwner = field<PublicKey>(position, "owner");
   const referral = await borrowPositionReferralAccounts(
     m.market,
     params.positionId,
@@ -4391,6 +4394,7 @@ async function buildFillLiquidationAuctionTx(params: {
       .accounts({
         market: m.market,
         futarchyAuthority: m.futarchyAuthority,
+        positionOwner,
         liquidator: params.liquidator,
         debtAssetMint: debtMint,
         collateralAssetMint: collateralMint,
@@ -4401,7 +4405,7 @@ async function buildFillLiquidationAuctionTx(params: {
         collateralInsuranceVault: debtIsBase ? m.quoteInsuranceVault : m.baseInsuranceVault,
         liquidatorDebtAccount,
         liquidatorCollateralAccount,
-        borrowPosition: deriveBorrowPosition(m.market, params.positionId),
+        borrowPosition,
         referralPartner: referral.referralPartner,
         referralAccrual: referral.referralAccrual,
         tokenProgram: TOKEN_PROGRAM_ID,

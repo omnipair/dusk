@@ -20,7 +20,7 @@ const increaseBoundaryPositionIds = {
   base: Keypair.generate().publicKey,
   quote: Keypair.generate().publicKey,
 };
-const leverageDelegateProgramId = new PublicKey("EPGF9iFrbGnhWgC3To9rC9vxinEYuDHaz4RXgLPvuRkp");
+const leverageDelegateProgramId = new PublicKey("AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv");
 
 function raw(uiAmount: number, decimals: number): bigint {
   return BigInt(uiAmount) * 10n ** BigInt(decimals);

@@ -56,7 +56,7 @@ pub struct BackstopLiquidationAuction<'info> {
     pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
 
     /// CHECK: Owner identity used to validate the residual token account.
-    #[account(address = borrow_position.owner)]
+    #[account(mut, address = borrow_position.owner)]
     pub position_owner: AccountInfo<'info>,
 
     pub liquidator: Signer<'info>,
@@ -478,6 +478,11 @@ impl<'info> BackstopLiquidationAuction<'info> {
             clock.slot,
         )? {
             emit_cpi!(event);
+        }
+        if ctx.accounts.borrow_position.is_empty() {
+            ctx.accounts
+                .borrow_position
+                .close(ctx.accounts.position_owner.to_account_info())?;
         }
         Ok(())
     }

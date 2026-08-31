@@ -9,6 +9,7 @@ import {
 } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  AuthorityType,
   ExtensionType,
   NATIVE_MINT,
   TOKEN_2022_PROGRAM_ID,
@@ -20,7 +21,7 @@ import {
   getAccount,
   getMint,
   getOrCreateAssociatedTokenAccount,
-  mintTo,
+  setAuthority,
 } from "@solana/spl-token";
 import * as crypto from "crypto";
 import * as fs from "fs";
@@ -34,6 +35,9 @@ export const TOKEN_PROGRAMS = {
 } as const;
 export const TOKEN_METADATA_PROGRAM_ID = new PublicKey(
   "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+);
+export const DEFAULT_FAUCET_PROGRAM_ID = new PublicKey(
+  "EMmV9HKeQndxFd4duqp65rUSjikVWCPakBH1UjJJ32dz"
 );
 
 export function duskEnv(name: string): string | undefined;
@@ -50,6 +54,12 @@ export type StoredMint = {
   tokenProgram: string;
   keypairPath: string;
   mintAuthority: string;
+  metadata?: {
+    address: string;
+    name: string;
+    symbol: string;
+    uri: string;
+  };
 };
 
 export type StoredMarket = {
@@ -81,6 +91,17 @@ export type StoredMarket = {
 
 export type DevnetState = {
   network: string;
+  programs?: Record<
+    string,
+    {
+      programId: string;
+      upgradeAuthority: string;
+    }
+  >;
+  faucet?: {
+    programId: string;
+    mintAuthority: string;
+  };
   mockMints: Record<string, StoredMint>;
   markets: Record<string, StoredMarket>;
 };
@@ -193,6 +214,14 @@ export async function createMintIfMissing(params: {
     );
   }
 
+  await ensureMintAuthority({
+    connection: params.connection,
+    payer: params.payer,
+    mint: keypair.publicKey,
+    mintAuthority: params.mintAuthority,
+    tokenProgram,
+  });
+
   return {
     label: params.label,
     mint: keypair.publicKey.toBase58(),
@@ -201,6 +230,53 @@ export async function createMintIfMissing(params: {
     keypairPath: mintKeypairPath,
     mintAuthority: params.mintAuthority.toBase58(),
   };
+}
+
+export async function ensureMintAuthority(params: {
+  connection: Connection;
+  payer: Keypair;
+  mint: PublicKey;
+  mintAuthority: PublicKey;
+  tokenProgram: PublicKey;
+}): Promise<void> {
+  let mintAccount;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      mintAccount = await getMint(
+        params.connection,
+        params.mint,
+        "confirmed",
+        params.tokenProgram
+      );
+      break;
+    } catch (error) {
+      lastError = error;
+      if (!isTokenAccountConfirmationLag(error) || attempt === 7) throw error;
+      await sleep(500 * (attempt + 1));
+    }
+  }
+  if (!mintAccount) throw lastError;
+  if (mintAccount.mintAuthority?.equals(params.mintAuthority)) return;
+  if (!mintAccount.mintAuthority?.equals(params.payer.publicKey)) {
+    throw new Error(
+      `Cannot assign ${params.mint.toBase58()} to the Dusk faucet: current mint authority is ` +
+        `${mintAccount.mintAuthority?.toBase58() ?? "disabled"}. Use new mock-mint labels or a new ` +
+        "DUSK_DEVNET_CONFIG_DIR."
+    );
+  }
+
+  await setAuthority(
+    params.connection,
+    params.payer,
+    params.mint,
+    params.payer,
+    AuthorityType.MintTokens,
+    params.mintAuthority,
+    [],
+    undefined,
+    params.tokenProgram
+  );
 }
 
 export async function createHookedLpMintIfMissing(params: {
@@ -244,6 +320,14 @@ export async function createHookedLpMintIfMissing(params: {
       keypair,
     ]);
   }
+
+  await ensureMintAuthority({
+    connection: params.connection,
+    payer: params.payer,
+    mint: keypair.publicKey,
+    mintAuthority: params.mintAuthority,
+    tokenProgram: TOKEN_2022_PROGRAM_ID,
+  });
 
   return {
     label: params.label,
@@ -312,18 +396,21 @@ export async function mintMockTokens(params: {
     recipientAccount.address,
     tokenProgram
   );
-
-  const signature = await mintTo(
-    params.connection,
-    params.payer,
-    params.mint,
-    recipientAccount.address,
-    params.payer,
-    params.amount,
-    [],
-    undefined,
-    tokenProgram
-  );
+  const faucet = faucetProgram(params.connection, params.payer);
+  const faucetAuthority = deriveFaucetAuthorityAddress(faucet.programId);
+  const signature = await faucet.methods
+    .faucetMint(new anchor.BN(params.amount.toString()))
+    .accounts({
+      payer: params.payer.publicKey,
+      recipient: params.recipient,
+      faucetAuthority,
+      recipientTokenAccount: recipientAccount.address,
+      mint: params.mint,
+      systemProgram: SystemProgram.programId,
+      tokenProgram,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+    })
+    .rpc();
   await waitForTokenBalanceAtLeast(
     params.connection,
     recipientAccount.address,
@@ -332,6 +419,34 @@ export async function mintMockTokens(params: {
   );
 
   return { associatedTokenAccount: recipientAccount.address, signature };
+}
+
+export function faucetProgramId(): PublicKey {
+  return new PublicKey(
+    duskEnv("FAUCET_PROGRAM_ID", DEFAULT_FAUCET_PROGRAM_ID.toBase58())
+  );
+}
+
+export function deriveFaucetAuthorityAddress(programId = faucetProgramId()): PublicKey {
+  return derivePda(programId, Buffer.from("faucet_authority"), programId.toBuffer());
+}
+
+export function faucetProgram(connection: Connection, payer: Keypair): any {
+  const idlPath = path.join(process.cwd(), "target", "idl", "faucet.json");
+  if (!fs.existsSync(idlPath)) {
+    throw new Error("Faucet IDL not found. Run yarn v2:build-faucet-devnet first.");
+  }
+  const idl = JSON.parse(fs.readFileSync(idlPath, "utf8"));
+  const programId = faucetProgramId();
+  const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(payer), {
+    commitment: "confirmed",
+    preflightCommitment: "confirmed",
+    skipPreflight: false,
+  });
+  return new anchor.Program(
+    { ...idl, address: programId.toBase58() } as any,
+    provider as any
+  );
 }
 
 function isTokenAccountConfirmationLag(error: unknown): boolean {
@@ -607,6 +722,19 @@ export function defaultLpMetadata(kind: "ylp" | "baseHlp" | "quoteHlp") {
     name: duskEnv(`${suffix}_NAME`, defaults.name),
     symbol: duskEnv(`${suffix}_SYMBOL`, defaults.symbol),
     uri: duskEnv(`${suffix}_URI`, defaults.uri),
+  };
+}
+
+export function defaultMockMetadata(kind: "base" | "quote") {
+  const defaults =
+    kind === "base"
+      ? { name: "MetaDAO", symbol: "META", uri: "" }
+      : { name: "USD Coin", symbol: "USDC", uri: "" };
+  const prefix = kind === "base" ? "MOCK_BASE" : "MOCK_QUOTE";
+  return {
+    name: duskEnv(`${prefix}_NAME`, defaults.name),
+    symbol: duskEnv(`${prefix}_SYMBOL`, defaults.symbol),
+    uri: duskEnv(`${prefix}_URI`, defaults.uri),
   };
 }
 

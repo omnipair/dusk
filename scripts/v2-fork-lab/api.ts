@@ -55,7 +55,7 @@ function healthPayload() {
     ok: true,
     rpcUrl: SURFPOOL_RPC_URL,
     publicRpcUrl: PUBLIC_RPC_URL,
-    programId: process.env.DUSK_PROGRAM_ID ?? "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv",
+    programId: process.env.DUSK_PROGRAM_ID ?? "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
   };
 }
 

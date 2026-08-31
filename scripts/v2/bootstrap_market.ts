@@ -222,6 +222,20 @@ async function main() {
         ? state.markets[marketLabel]?.seededLiquidity ?? false
         : false,
   };
+  state.programs = {
+    ...state.programs,
+    dusk: {
+      programId: program.programId.toBase58(),
+      upgradeAuthority: payer.publicKey.toBase58(),
+    },
+    leverageDelegate: {
+      programId: duskEnv(
+        "LEVERAGE_DELEGATE_PROGRAM_ID",
+        "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv"
+      ),
+      upgradeAuthority: payer.publicKey.toBase58(),
+    },
+  };
   state.markets[marketLabel] = storedMarket;
   writeState(state);
 

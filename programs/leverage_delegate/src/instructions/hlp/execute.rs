@@ -61,6 +61,9 @@ pub struct ExecuteHlpOrder<'info> {
     )]
     pub executor_target_account: Box<InterfaceAccount<'info, TokenAccount>>,
     pub executor: Signer<'info>,
+    /// CHECK: Order owner receives custody-account rent.
+    #[account(mut, address = order.owner)]
+    pub order_owner: AccountInfo<'info>,
     /// CHECK: Canonical Dusk CPI-event authority.
     #[account(seeds = [b"__event_authority"], bump, seeds::program = dusk::ID)]
     pub dusk_event_authority: AccountInfo<'info>,
@@ -225,6 +228,26 @@ impl<'info> ExecuteHlpOrder<'info> {
             ctx.accounts.order.min_target_amount_out,
             LeverageDelegateError::InvalidOrder
         );
+        ctx.accounts.custody_target_account.reload()?;
+        require_eq!(
+            ctx.accounts.custody_target_account.amount,
+            0,
+            LeverageDelegateError::InvalidTokenAccount
+        );
+        close_token_account(
+            token_program_for_mint(
+                &match target_asset {
+                    MarketAsset::Base => ctx.accounts.base_mint.to_account_info(),
+                    MarketAsset::Quote => ctx.accounts.quote_mint.to_account_info(),
+                },
+                &ctx.accounts.token_program.to_account_info(),
+                &ctx.accounts.token_2022_program.to_account_info(),
+            ),
+            ctx.accounts.custody_target_account.to_account_info(),
+            ctx.accounts.order_owner.to_account_info(),
+            ctx.accounts.order.to_account_info(),
+            signer,
+        )?;
         ctx.accounts.order.status = HLP_ORDER_STATUS_EXECUTED;
         Ok(())
     }

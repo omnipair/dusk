@@ -19,7 +19,7 @@ RELEASE_TAG=<RELEASE_TAG>
 solana-verify verify-from-repo \
   --skip-prompt \
   --base-image solanafoundation/anchor:v0.31.1 \
-  --program-id 358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv \
+  --program-id JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X \
   https://github.com/omnipair/dusk \
   --commit-hash "$COMMIT_SHA" \
   --library-name dusk \

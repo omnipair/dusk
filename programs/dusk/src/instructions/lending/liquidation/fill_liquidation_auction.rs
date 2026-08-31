@@ -51,6 +51,10 @@ pub struct FillLiquidationAuction<'info> {
     )]
     pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
 
+    /// CHECK: Receives the borrow-position rent after terminal liquidation.
+    #[account(mut, address = borrow_position.owner)]
+    pub position_owner: AccountInfo<'info>,
+
     #[account(mut)]
     pub liquidator: Signer<'info>,
 
@@ -415,6 +419,11 @@ impl<'info> FillLiquidationAuction<'info> {
             current_slot,
         )? {
             emit_cpi!(event);
+        }
+        if ctx.accounts.borrow_position.is_empty() {
+            ctx.accounts
+                .borrow_position
+                .close(ctx.accounts.position_owner.to_account_info())?;
         }
         Ok(())
     }

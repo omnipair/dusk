@@ -178,6 +178,19 @@ impl<'info> SettleHlpOrderYield<'info> {
             signer,
             ctx.remaining_accounts,
         )?;
+        ctx.accounts.custody_hlp_account.reload()?;
+        require_eq!(
+            ctx.accounts.custody_hlp_account.amount,
+            0,
+            LeverageDelegateError::InvalidTokenAccount
+        );
+        close_token_account(
+            ctx.accounts.token_2022_program.to_account_info(),
+            ctx.accounts.custody_hlp_account.to_account_info(),
+            ctx.accounts.owner.to_account_info(),
+            ctx.accounts.order.to_account_info(),
+            signer,
+        )?;
         Ok(())
     }
 }
