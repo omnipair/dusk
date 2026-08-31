@@ -368,7 +368,7 @@ independent untracked fixes per repository.
 | 2 | Webapp reads devnet through the deployment envelope | **Done** — markets, market state and history render from the hosted API |
 | 3 | Network selection and faucet | **Done** — per-network env resolution, picker appears when a second network is configured; faucet page live on devnet |
 | 4 | SDK completion for product flows (section 6) | **Done for the app's actions** — typed builders added for swap, borrow, openLeverage and leverage delegation, plus a leverage-delegate client for conditional orders |
-| 5 | Webapp writes through the SDK; fork lab ported and deleted | **App side done** — all 9 actions build through the SDK and no `fork/tx` path remains; the hosted alias and the lab itself are still to retire |
+| 5 | Webapp writes through the SDK; fork lab ported and deleted | **Done** — all 9 actions build through the SDK, and no `fork` path or name remains in the app or the API; the lab in the `dusk` repo is unused and can be deleted |
 | 6 | Rust keepers live on devnet | **Sentinel done** — repo re-pinned to `devnet-1`, discovery loop reads the chain, deployed; the six signing profiles have no execution loop yet |
 | 7 | Public-service operations (section 9) | **Partly** — the API rate-limits every route; no status page, runbooks or backups, and the faucet has no abuse limit (see below) |
 | 8 | Full live matrix and sustained unattended operation | **Not started** |
