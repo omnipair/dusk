@@ -371,7 +371,7 @@ independent untracked fixes per repository.
 | 5 | Webapp writes through the SDK; fork lab ported and deleted | **Done** — all 9 actions build through the SDK, and no `fork` path or name remains in the app or the API; the lab in the `dusk` repo is unused and can be deleted |
 | 6 | Rust keepers live on devnet | **Lending trigger and bidder live** — both have sent confirmed transactions on devnet: the trigger opened an auction on a genuinely underwater position, the bidder repaid 150 quote for 265.56 base. Settler, leverage, auction arbitrageur and lifecycle still have no loop |
 | 7 | Public-service operations (section 9) | **Mostly done** — rate limiting, `/status` and a self-refreshing status page, six runbooks, backups with a tested restore, and retention. Metrics and traces are still absent, and the faucet has no abuse limit (see below) |
-| 8 | Full live matrix and sustained unattended operation | **Not started** |
+| 8 | Full live matrix and sustained unattended operation | **Matrix runs; 7 of 11 flows pass** — `scripts/devnet/live_flow_matrix.ts` signs and sends every product flow. Faucet, add and remove liquidity, deposit, borrow, repay and withdraw all confirm. Swap and open leverage are blocked by the hLP defect, and the two leverage follow-ups cascade from it. Sustained unattended operation has not been attempted |
 
 ### Deployment
 
@@ -446,8 +446,14 @@ Widening the constant would not fix it. The drift is unbounded in principal and
 elapsed time, so every constant is eventually too small — the identity has to
 account for accrual rather than tolerate it.
 
+Leverage debt does the same thing. With one leverage position open the at-rest
+rate measured 100%; closing it returned the market to 25%. Any outstanding
+debt, of either kind, moves the failure from intermittent to constant.
+
 Reproduce with `scripts/devnet/repro_swap_reverts_intermittently.ts`, which
 measures both rates and repays what it borrows.
+`scripts/devnet/restore_market.ts` clears both kinds of debt and returns the
+pool to parity.
 
 **It is not only swaps.** Any instruction that settles hLP goes through the
 same check. The lending backstop — `backstop_liquidation_auction`, the
