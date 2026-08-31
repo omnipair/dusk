@@ -373,6 +373,35 @@ independent untracked fixes per repository.
 | 7 | Public-service operations (section 9) | **Partly** — the API rate-limits every route and now serves `/api/dusk/v1/status` reporting slot lag and named degradation; no runbooks or backups, and the faucet has no abuse limit (see below) |
 | 8 | Full live matrix and sustained unattended operation | **Not started** |
 
+### An outstanding borrow disables every swap (blocking)
+
+Borrow a few hundred quote against collateral and the market keeps working for
+a slot or two. About fifteen seconds later **every swap reverts** — any size,
+any direction, any trader — with `BrokenInvariant` (6047) at the hLP
+reserve-identity check in `transitions/liquidity/hlp/engine.rs`, and keeps
+reverting until the debt is repaid. Repaying restores it immediately.
+
+The check tolerates three atoms of drift, which is the right bound for what
+its comment describes: three independently floored quantities, each off by at
+most one. It is not a bound on interest, which accrues against principal and
+passes three atoms quickly once the principal is more than trivial. That is
+why the failure looks size-dependent from outside and is really
+time-dependent: five quote of debt stays under the tolerance for a long time,
+four hundred crosses it in about fifteen seconds.
+
+The decisive evidence that accrual is the cause rather than the borrow itself
+is that `borrow` and `swap` in the *same transaction* succeed at every size
+the market will lend. No time passes between them, so nothing accrues.
+
+Reproduce with `scripts/devnet/repro_swap_bricked_by_debt.ts`, which repays
+what it borrows and leaves the market as it found it.
+
+This is a denial of service on the core product reachable by any user
+borrowing normally, and it needs a protocol fix rather than an operational
+one. It also blocks the liquidation work: a position is made unhealthy by
+moving the price, and the price cannot be moved while any meaningful debt is
+outstanding.
+
 ### Faucet abuse is an open protocol gap
 
 The faucet mints straight from the browser to the program, so no server sits in
