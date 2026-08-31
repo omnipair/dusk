@@ -439,6 +439,58 @@ fn concentrated_hlp_preview_and_execution_share_the_same_accepted_plan_in_both_d
 }
 
 #[test]
+/// A plain swap must survive accrued hLP interest.
+///
+/// The recovery test above bumps the borrow index and swaps the side that
+/// triggers hLP recovery, so the proportional claim is certified. This covers
+/// the same accrued interest on the side that does *not* recover — the
+/// ordinary path, which nothing else exercised with interest outstanding.
+///
+/// Written while chasing the devnet `BrokenInvariant` and kept because it
+/// **disproved** the hypothesis it was written to confirm. Removing the
+/// second interest subtraction, or guarding it on claim certification, makes
+/// this case drift by a whole interest tranche: the second subtraction is
+/// load-bearing on the ordinary path too. Whatever is wrong on devnet is not
+/// that, and this test is the cheapest way to rule it out again.
+#[test]
+fn a_plain_swap_survives_accrued_hlp_interest() {
+    let mut market = active_concentrated_preview_market();
+    // Accrue interest on the Base hLP's borrowed asset, exactly as the
+    // recovery test does.
+    market.debt.quote_borrow_index_nad =
+        mul_div_u128(market.debt.quote_borrow_index_nad, 17, 16).unwrap();
+
+    // Base input does not supply the asset the Base hLP borrowed, so this
+    // swap takes the ordinary path and certifies no proportional claim.
+    let request = SwapRequest {
+        current_slot: 1,
+        current_unix_timestamp: 0,
+        asset_in: MarketAsset::Base,
+        reserve_credit: 350_000,
+        protocol_fee_bps: 2_500,
+    };
+
+    let prepared = request.prepare(&mut market).unwrap();
+    assert_eq!(
+        prepared.quote.recovery.bonus_output, 0,
+        "this case exists to cover the uncertified path; recovery would defeat it",
+    );
+
+    // The assertion is simply that it completes.
+    prepared
+        .finalize_state(
+            &mut market,
+            request.current_slot,
+            2_500,
+            crate::state::ProtocolAuctionSplit {
+                fee_auction_bps: 6_000,
+                buyback_auction_bps: 4_000,
+            },
+        )
+        .unwrap();
+    market.assert_market_invariants().unwrap();
+}
+
 fn stressed_hlp_recovery_improves_the_matching_swap_and_restores_the_hedge() {
     let healthy = active_concentrated_preview_market();
     let mut stressed = healthy.clone();
