@@ -23,6 +23,17 @@ custom-heap = []
 custom-panic = []
 production = []
 development = []
+# Logs the hLP reserve-identity drift instead of only rejecting on it.
+#
+# The identity fails about a third of devnet swaps and the failure has resisted
+# every off-chain reproduction: the deployed binary, the state captured at a
+# failing instant, and every clock offset across two failure periods all pass
+# in LiteSVM. Reading the actual drift is the remaining way to learn anything,
+# and that means a build that prints it.
+#
+# Never enable this for a real deployment: it turns a silent bound into a log
+# line on the hot path and says nothing about whether the bound is right.
+debug-hlp-drift = []
 # Off-chain-only access to deterministic native state transitions used by
 # historical replay and economic benchmarking. Enabling it also removes the
 # program entrypoint from the consumer binary.

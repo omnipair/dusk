@@ -137,6 +137,24 @@ every time.
 Devnet's epoch state (`epoch` 1136, `epochStartTimestamp` 1788149045) makes no
 difference either.
 
+## The instrumented build
+
+The remaining way to learn anything is to read the drift on chain, and the
+build that prints it is ready behind a feature flag:
+
+```bash
+anchor build -p dusk -- --features debug-hlp-drift
+# deploy, then simulate a swap and read the logs for "hlp-drift"
+```
+
+It logs `base`, `quote`, both interest tranches and both final debts at the
+identity check, then decides exactly as before. Off by default, and it changes
+nothing when off — the full suite passes identically with and without it.
+
+It is a diagnostic, not a fix. It says what the drift is; it does not say
+whether three atoms is the right bound. Do not ship it enabled: it puts a log
+line on the hot path of every swap.
+
 **A warning for the next attempt.** `FeatureSet.allEnabled()` looks like the
 obvious next thing to vary, and it reports a 401/401 reproduction. It is not
 one: it fails to build the SBF VM at all — `Invalid memory region at index 4` —

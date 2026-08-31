@@ -855,6 +855,22 @@ impl ConcentratedHlpTransition {
         // reserve identity can therefore differ from the raw cash transition
         // by at most three atoms, without leaving any debt/claim mismatch.
         const MAX_CONCENTRATED_HLP_LIVE_DUST_ATOMS: u128 = 3;
+        // Under `debug-hlp-drift`, report the distance before deciding on it.
+        // The tolerance is three atoms and the open question is what the drift
+        // actually is when it exceeds them — a number no off-chain replay has
+        // been able to produce.
+        #[cfg(feature = "debug-hlp-drift")]
+        {
+            msg!(
+                "hlp-drift base={} quote={} base_interest={} quote_interest={} final_base_debt={} final_quote_debt={}",
+                identity_base_live as i128 - self.final_base_live_reserve as i128,
+                identity_quote_live as i128 - self.final_quote_live_reserve as i128,
+                self.base_interest_paid,
+                self.quote_interest_paid,
+                self.final_base_debt,
+                self.final_quote_debt,
+            );
+        }
         require!(
             identity_base_live.abs_diff(self.final_base_live_reserve as u128) <= MAX_CONCENTRATED_HLP_LIVE_DUST_ATOMS
                 && identity_quote_live.abs_diff(self.final_quote_live_reserve as u128)
