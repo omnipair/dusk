@@ -18,10 +18,12 @@
 // the state at all.
 import { execFileSync } from "child_process";
 import { readFileSync, writeFileSync } from "fs";
+import { dirname, resolve } from "path";
+import { fileURLToPath } from "url";
 import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { AnchorProvider, Wallet } from "@coral-xyz/anchor";
 
-const DUSK = "/Users/User/Desktop/Repos/Omnipair/dusk";
+const DUSK = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const FIX = `${DUSK}/programs/dusk/src/tests/fixtures/devnet-replay`;
 const { Dusk } = await import(`${DUSK}/packages/dusk-sdk/dist/index.js`);
 
