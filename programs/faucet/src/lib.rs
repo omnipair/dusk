@@ -22,6 +22,25 @@ pub mod faucet {
 
     pub fn faucet_mint(ctx: Context<FaucetMint>, amount: u64) -> Result<()> {
         require_gt!(amount, 0, FaucetError::InvalidAmount);
+        require_gte!(MAX_MINT_PER_REQUEST, amount, FaucetError::AmountTooLarge);
+
+        // A public faucet with no ceiling is a supply tap: one wallet can mint
+        // unbounded balances and distort every market priced against them.
+        // Rate limiting the API does not help, because the browser talks to
+        // this program directly.
+        //
+        // The limit is per recipient rather than per payer, since paying for
+        // someone else's mint is the obvious way around a payer-keyed one.
+        let now = Clock::get()?.unix_timestamp;
+        let claim = &mut ctx.accounts.faucet_claim;
+        if claim.recipient == Pubkey::default() {
+            claim.recipient = ctx.accounts.recipient.key();
+            claim.bump = ctx.bumps.faucet_claim;
+        }
+        let elapsed = now.saturating_sub(claim.last_mint_unix);
+        require_gte!(elapsed, MINT_COOLDOWN_SECONDS, FaucetError::CooldownActive);
+        claim.last_mint_unix = now;
+        claim.total_minted = claim.total_minted.saturating_add(amount);
 
         let seeds = &[
             b"faucet_authority",
@@ -118,6 +137,33 @@ pub struct InitializeMintMetadataArgs {
     pub uri: String,
 }
 
+/// Most one request may mint, in raw atoms.
+///
+/// Generous for testing a six-decimal token and still far below what would
+/// move a seeded market on its own.
+pub const MAX_MINT_PER_REQUEST: u64 = 10_000_000_000;
+
+/// How long a recipient must wait between mints.
+pub const MINT_COOLDOWN_SECONDS: i64 = 60 * 60;
+
+/// One per recipient and mint, recording when they last drew and how much
+/// they have taken in total.
+///
+/// Keyed by recipient rather than payer: a payer-keyed limit is sidestepped by
+/// paying from a fresh wallet, which costs nothing on devnet.
+#[account]
+#[derive(Default)]
+pub struct FaucetClaim {
+    pub recipient: Pubkey,
+    pub last_mint_unix: i64,
+    pub total_minted: u64,
+    pub bump: u8,
+}
+
+impl FaucetClaim {
+    pub const LEN: usize = 8 + 32 + 8 + 8 + 1;
+}
+
 #[derive(Accounts)]
 pub struct FaucetMint<'info> {
     #[account(mut)]
@@ -138,6 +184,15 @@ pub struct FaucetMint<'info> {
         associated_token::token_program = token_program,
     )]
     pub recipient_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
+
+    #[account(
+        init_if_needed,
+        payer = payer,
+        space = FaucetClaim::LEN,
+        seeds = [b"faucet_claim", recipient.key().as_ref(), mint.key().as_ref()],
+        bump,
+    )]
+    pub faucet_claim: Box<Account<'info, FaucetClaim>>,
 
     #[account(
         mut,
@@ -194,6 +249,10 @@ pub struct InitializeMintMetadata<'info> {
 pub enum FaucetError {
     #[msg("Mint amount must be greater than zero")]
     InvalidAmount,
+    #[msg("Mint amount exceeds the per-request ceiling")]
+    AmountTooLarge,
+    #[msg("This recipient minted too recently; wait for the cooldown to elapse")]
+    CooldownActive,
     #[msg("Only the configured faucet admin may initialize mock mint metadata")]
     UnauthorizedMetadataAdmin,
     #[msg("Mock mint metadata name must be 1-32 ASCII characters")]
