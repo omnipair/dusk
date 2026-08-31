@@ -1,0 +1,47 @@
+{
+  "capturedAtSlot": 490765532,
+  "accounts": {
+    "market": {
+      "address": "7Rjrf8i81hZihsuFdPfzTaP6SiQ3JEmQs7Hfg7YNjkNm",
+      "owner": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+      "lamports": 21193200,
+      "bytes": 2917
+    },
+    "base_mint": {
+      "address": "2G78R5YwVopkAxnDMmvNany3RdL98eAM2jcr3UafvL7W",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "lamports": 1461600,
+      "bytes": 82
+    },
+    "quote_mint": {
+      "address": "G8XEiNtP7TZ2cZRbUdtcPoc3C19T2GgYxTJqBpWz5ZDV",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "lamports": 1461600,
+      "bytes": 82
+    },
+    "ylp_mint": {
+      "address": "JBxhpnrdADegPpmB5jHagcPkRR5Nkqsgpc2pPmPAsjRg",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "lamports": 2519520,
+      "bytes": 234
+    },
+    "base_hlp_mint": {
+      "address": "DzH431M9FMitSsWYMCkkvx24BxVqWZo8MteiB5HemRzT",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "lamports": 2519520,
+      "bytes": 234
+    },
+    "quote_hlp_mint": {
+      "address": "HaHJtXoacXNVuG2Q9NCsZu1rvhDwqBhDH6M5jSXz7Q5p",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "lamports": 2519520,
+      "bytes": 234
+    }
+  },
+  "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+  "failingCapture": {
+    "slot": 490764832,
+    "blockTimeUnix": 1788151172,
+    "file": "market_failing.bin"
+  }
+}
