@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/dusk.json`.
  */
 export type Dusk = {
-  "address": "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv",
+  "address": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
   "metadata": {
     "name": "dusk",
     "version": "2.0.0",
@@ -452,7 +452,8 @@ export type Dusk = {
           }
         },
         {
-          "name": "positionOwner"
+          "name": "positionOwner",
+          "writable": true
         },
         {
           "name": "liquidator",
@@ -2820,6 +2821,10 @@ export type Dusk = {
           }
         },
         {
+          "name": "positionOwner",
+          "writable": true
+        },
+        {
           "name": "liquidator",
           "writable": true,
           "signer": true
@@ -3506,38 +3511,38 @@ export type Dusk = {
               {
                 "kind": "const",
                 "value": [
-                  30,
-                  198,
-                  73,
-                  255,
-                  177,
-                  239,
-                  53,
-                  26,
-                  189,
+                  254,
+                  237,
+                  118,
+                  109,
+                  5,
+                  146,
                   245,
-                  158,
-                  226,
-                  167,
-                  183,
-                  246,
-                  221,
-                  30,
-                  28,
-                  81,
-                  246,
-                  125,
-                  59,
-                  35,
-                  168,
+                  249,
+                  66,
                   135,
+                  243,
+                  124,
+                  36,
+                  53,
+                  12,
+                  19,
+                  89,
+                  72,
+                  84,
+                  7,
+                  236,
+                  95,
+                  227,
+                  238,
+                  53,
+                  42,
                   79,
-                  228,
-                  164,
-                  248,
-                  149,
-                  245,
-                  53
+                  224,
+                  225,
+                  53,
+                  141,
+                  56
                 ]
               }
             ],
@@ -15195,7 +15200,8 @@ export type Dusk = {
           {
             "name": "retainedFee",
             "docs": [
-              "Dynamic surcharge retained as executable principal."
+              "Dynamic surcharge retained outside executable/yLP inventory until an",
+              "admitted center move deploys it."
             ],
             "type": "u64"
           },

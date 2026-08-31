@@ -1051,7 +1051,7 @@ function toU64BigInt(value: GovernanceIntegerLike, label: string): bigint {
   return normalized;
 }
 
-function toBN(value: bigint): BN {
+export function toBN(value: bigint): BN {
   return new AnchorBN(value.toString());
 }
 

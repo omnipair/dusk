@@ -23,6 +23,18 @@ const files = [
     dest: resolve(rootDir, "src/types_v2.ts"),
     prepare: (contents) => contents,
   },
+  // The delegate program owns conditional orders. Vendored alongside dusk so
+  // both clients are generated from the same build.
+  {
+    src: resolve(repoRoot, "target/idl/leverage_delegate.json"),
+    dest: resolve(rootDir, "src/idl_delegate.json"),
+    prepare: (contents) => contents,
+  },
+  {
+    src: resolve(repoRoot, "target/types/leverage_delegate.ts"),
+    dest: resolve(rootDir, "src/types_delegate.ts"),
+    prepare: (contents) => contents,
+  },
 ];
 
 console.log("Preparing @omnipair/dusk-sdk...\n");
