@@ -503,17 +503,22 @@ runs: captured accounts loaded as they stood, clock set to the observed slot,
 one swap through the real runtime. **The swap succeeds** — the failure does
 not reproduce.
 
-One difference remains, and it is the binary. LiteSVM refuses the deployed
-artifact, so the replay runs a local build. The deployed one hashes to the
-lock's attested value, the local one is 166KB larger, and that gap is the build
-environment rather than the source — releases build inside
-`solanafoundation/anchor:v0.31.1` with `--features production`, which gates
-only vanity-suffix checks at market initialization, nothing on the swap path.
+One difference remains and it is decisive: LiteSVM refuses the deployed
+artifact because it is **SBFv3** (`e_machine` 247, `e_flags` 3) while the local
+toolchain emits a different target (`e_machine` 263, `e_flags` 0). No loader or
+feature set changes that. The dump is authentic — it hashes to the lock's
+attested value.
 
-Closing this needs the deployed build reproduced through `solana-verify` and
-its Docker image so the exact artifact can be loaded, or the program
-instrumented and redeployed to print the drift. Docker is not installed here,
-and the redeploy is not a call to make on anyone's behalf.
+That has a consequence past this bug: **the deterministic test layer compiles
+the program to a different SBF target than devnet runs**, so LiteSVM suites
+exercise a different artifact from the deployed one. Worth closing on its own
+before an audit, independent of anything hLP.
+
+Closing the hLP diagnosis needs the deployed build reproduced through
+`solana-verify` and its `solanafoundation/anchor:v0.31.1` image so the SBFv3
+artifact can be loaded, or the program instrumented and redeployed to print the
+drift. Docker is not installed here, and the redeploy is not a call to make on
+anyone's behalf.
 
 Ruled out with measurements: the interest subtraction (both subtractions are
 load-bearing), elapsed slots, the wall clock, and the `production` feature.
