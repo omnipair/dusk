@@ -533,11 +533,16 @@ state passed every offset locally.
 
 So the trigger is not in the program, the state, the accounts, or the clock. It
 is in the execution environment, and the replay has run out of environment it
-can vary: `FeatureSet.allEnabled()` does not start the SBF VM at all. Closing
-this needs the identity instrumented on chain — a redeploy, and therefore a
-decision for whoever holds the upgrade authority. The fixtures README carries
-the full record, including the false positive that briefly looked like an
-answer.
+can vary: `FeatureSet.allEnabled()` does not start the SBF VM at all.
+
+**The instrumented build is ready.** `anchor build -p dusk -- --features
+debug-hlp-drift` logs the drift at the identity check and then decides exactly
+as before. It is off by default and the suite passes identically either way, so
+what stands between here and the answer is a deploy — a decision for whoever
+holds the upgrade authority, not a piece of work outstanding.
+
+The fixtures README carries the full record, including the false positive that
+briefly looked like an answer.
 
 Separately: the deterministic test layer compiles to a different SBF target
 than devnet runs (`e_machine` 263 locally against 247 deployed), so the LiteSVM
