@@ -1,33 +1,34 @@
 /**
- * Reproduction: an outstanding borrow disables every swap within seconds.
+ * Reproduction: swaps fail intermittently, and an outstanding borrow makes it
+ * constant.
  *
- * Borrow a few hundred quote against collateral and the market keeps working
- * for one slot or two. Roughly fifteen seconds later every swap — any size,
- * any direction, any trader — reverts with `BrokenInvariant` (6047) at the
- * hLP reserve-identity check, and keeps reverting until the debt is repaid.
+ * On a market with **no user debt at all**, roughly a third of swap attempts
+ * revert with `BrokenInvariant` (6047) at the hLP reserve-identity check in
+ * `transitions/liquidity/hlp/engine.rs`. Borrow a few hundred quote and the
+ * same check fails on essentially every attempt until the debt is repaid.
  *
  * The check tolerates three atoms of drift:
  *
  *   const MAX_CONCENTRATED_HLP_LIVE_DUST_ATOMS: u128 = 3;
  *   require!(identity_base_live.abs_diff(final_base_live_reserve) <= 3 && ...)
  *
- * Three atoms is the right bound for what its comment describes: three
+ * Three is the right bound for what its comment describes — three
  * independently floored quantities, each off by at most one. It is not a bound
- * on interest, which accrues against principal and passes three atoms quickly
- * once the principal is more than trivial. That is why the failure looks
- * size-dependent from the outside and is really time-dependent: five quote of
- * debt stays under the tolerance for a long time, four hundred crosses it in
- * about fifteen seconds.
+ * on accrued interest, which grows with principal and elapsed slots and is not
+ * carried by the identity being checked. The hLP vault holds debt of its own,
+ * so this accrues whether or not anybody has borrowed; a user borrow simply
+ * adds principal and pushes the drift past three atoms continuously instead of
+ * intermittently.
  *
- * The decisive evidence that this is accrual rather than the borrow itself:
- * `borrow` and `swap` submitted in the *same* transaction succeed at every
- * size tried, up to and including the largest the market will lend. No time
- * passes between them, so nothing accrues.
+ * Widening the constant would not fix it. The drift is unbounded in principal
+ * and elapsed time, so every constant is eventually too small — the identity
+ * has to account for accrual rather than tolerate it.
+ *
+ * Two measurements are taken: the failure rate at rest, and the failure rate
+ * while a borrow stands. The borrow is repaid before exiting, so the market is
+ * left as it was found.
  *
  *   node --experimental-strip-types scripts/devnet/repro_swap_bricked_by_debt.ts
- *
- * The script repays what it borrows before exiting, so the market is left as
- * it was found.
  */
 
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
@@ -48,10 +49,10 @@ import { Dusk } from "../../packages/dusk-sdk/dist/index.js";
 const API =
   process.env.DUSK_API_URL ?? "https://dusk-api-production-291f.up.railway.app";
 const RPC = process.env.DUSK_RPC_URL ?? "https://api.devnet.solana.com";
-/** Large enough that accrued interest passes three atoms in seconds. */
+/** Large enough that accrued interest passes three atoms continuously. */
 const BORROW = 400n;
-const PROBE_INTERVAL_MS = 15_000;
-const PROBES = 8;
+const PROBE_INTERVAL_MS = 5_000;
+const PROBES = 12;
 
 function loadKeypair(): Keypair {
   const path =
@@ -117,9 +118,24 @@ async function main() {
     ).replace("Program log: AnchorError thrown in programs/dusk/src/", "");
   };
 
-  const positionId = Keypair.generate().publicKey;
-  console.log(`swap before borrowing: ${(await swapError()) ?? "ok"}`);
+  /** Sample the swap path repeatedly and report how often it reverts. */
+  const failureRate = async (label: string): Promise<number> => {
+    let failures = 0;
+    for (let probe = 0; probe < PROBES; probe += 1) {
+      const error = await swapError();
+      if (error) failures += 1;
+      process.stdout.write(error ? "x" : ".");
+      await new Promise((resolve) => setTimeout(resolve, PROBE_INTERVAL_MS));
+    }
+    const rate = (failures / PROBES) * 100;
+    console.log(`  ${label}: ${failures}/${PROBES} reverted (${rate.toFixed(0)}%)`);
+    return rate;
+  };
 
+  console.log("sampling the swap path with no borrow outstanding");
+  const atRest = await failureRate("at rest");
+
+  const positionId = Keypair.generate().publicKey;
   await send([
     await dusk.write.depositCollateralInstruction({
       assetMint: baseMint,
@@ -145,20 +161,8 @@ async function main() {
       positionId,
     }),
   ]);
-  console.log(`borrowed ${BORROW} quote against 1000 base\n`);
-
-  const started = Date.now();
-  let broke = false;
-  for (let probe = 0; probe < PROBES; probe += 1) {
-    const error = await swapError();
-    const elapsed = Math.round((Date.now() - started) / 1000);
-    console.log(`  +${String(elapsed).padStart(3)}s  swap -> ${error ?? "ok"}`);
-    if (error) {
-      broke = true;
-      break;
-    }
-    await new Promise((resolve) => setTimeout(resolve, PROBE_INTERVAL_MS));
-  }
+  console.log(`\nborrowed ${BORROW} quote against 1000 base`);
+  const withDebt = await failureRate("with debt");
 
   for (const amount of [BORROW + 50n, BORROW + 10n, BORROW, 100n, 10n]) {
     try {
@@ -181,8 +185,12 @@ async function main() {
       // More than is outstanding; try less.
     }
   }
-  console.log(`swap after repaying: ${(await swapError()) ?? "ok"}`);
-  process.exit(broke ? 0 : 1);
+
+  console.log(
+    `\nat rest ${atRest.toFixed(0)}% of swaps revert; with a ${BORROW} quote borrow, ${withDebt.toFixed(0)}%`,
+  );
+  // A market that swaps every time is the only passing result.
+  process.exit(atRest === 0 && withDebt === 0 ? 0 : 1);
 }
 
 main().catch((error) => {

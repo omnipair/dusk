@@ -26,6 +26,7 @@ import {
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 import {
+  ComputeBudgetProgram,
   Connection,
   Keypair,
   PublicKey,
@@ -53,10 +54,10 @@ const FAUCET_PROGRAM_ID =
 
 /** Collateral for the test position, in whole base tokens. */
 const COLLATERAL = 1_000n;
-/** Base sold per step while walking the price down. */
-const PRICE_STEP = 2_000n;
-/** Give up rather than keep selling into a market that will not move. */
-const MAX_STEPS = 12;
+/** Base sold to push the collateral's price down, in one transaction. */
+const PRICE_CRASH = 40_000n;
+const PROBE_INTERVAL_MS = 20_000;
+const PROBES = 15;
 
 function discriminator(name: string): Buffer {
   return createHash("sha256").update(`global:${name}`).digest().subarray(0, 8);
@@ -188,8 +189,9 @@ async function main() {
   console.log(`wallet ${keypair.publicKey.toBase58()}`);
   console.log(`market ${market.toBase58()}\n`);
 
-  // Enough to collateralize the position and to move the price afterwards.
-  const needed = COLLATERAL + PRICE_STEP * BigInt(MAX_STEPS) + 1_000n;
+  // Enough to collateralize the position and to fund the largest sale the
+  // search may need.
+  const needed = COLLATERAL + PRICE_CRASH + 1_000n;
   await send(connection, keypair, [
     faucetMint(keypair.publicKey, baseMint, needed * baseUnit),
     faucetMint(keypair.publicKey, quoteMint, 10_000n * quoteUnit),
@@ -214,14 +216,20 @@ async function main() {
   ]);
   console.log(`position ${position.toBase58()} collateralized with ${COLLATERAL} base`);
 
-  // Borrow as much as the program will allow. The ceiling depends on the
-  // curve rather than on a constant, so it is found by asking rather than
-  // computed: each refusal is information, and the largest accepted amount is
-  // the one that leaves the thinnest margin to liquidation.
+  // Borrow to the limit and move the price in the same transaction.
+  //
+  // One transaction, and not for convenience: an outstanding borrow disables
+  // every swap in the market within about fifteen seconds (see
+  // scripts/devnet/repro_swap_bricked_by_debt.ts). Bundled, no time passes
+  // between the borrow and the sale, so the sale still goes through. Split in
+  // two, the second reverts — which is how that bug was found.
+  const probe = startLiquidationAuction(programId, market, position, quoteMint);
+
   let borrowed = 0n;
-  for (const attempt of [850n, 820n, 800n, 780n, 750n, 700n, 600n, 500n]) {
+  for (const attempt of [780n, 700n, 600n, 500n]) {
     try {
       await send(connection, keypair, [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }),
         await dusk.write.buildBorrowInstruction({
           borrowAmount: (attempt * quoteUnit).toString(),
           collateralAssetMint: baseMint,
@@ -232,47 +240,50 @@ async function main() {
           owner: keypair.publicKey,
           positionId,
         }),
+        await dusk.write.buildSwapInstruction({
+          assetInMint: baseMint,
+          assetOutMint: quoteMint,
+          exactAssetIn: (PRICE_CRASH * baseUnit).toString(),
+          market,
+          minAssetOut: "0",
+          trader: keypair.publicKey,
+        }),
       ]);
       borrowed = attempt;
-      console.log(`borrowed ${attempt} quote against ${COLLATERAL} base`);
+      console.log(`borrowed ${attempt} quote and sold ${PRICE_CRASH} base in one transaction`);
       break;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.log(`  ${attempt} quote refused (${message.slice(0, 60)})`);
+      console.log(`  ${attempt} quote refused (${message.slice(0, 50)})`);
     }
   }
   if (borrowed === 0n) throw new Error("no borrow amount was accepted");
 
-  const probe = startLiquidationAuction(programId, market, position, quoteMint);
-  let state = await isLiquidatable(connection, keypair, probe);
-  console.log(`\nafter borrowing: ${state.liquidatable ? "LIQUIDATABLE" : state.detail}`);
-
-  // Walk the collateral's price down until the program agrees. Small steps,
-  // because the aim is the smallest move that crosses the threshold — this is
-  // a shared market and an oversized sale is harder to undo than to avoid.
-  let sold = 0n;
-  for (let step = 0; step < MAX_STEPS && !state.liquidatable; step += 1) {
-    await send(connection, keypair, [
-      await dusk.write.buildSwapInstruction({
-        assetInMint: baseMint,
-        assetOutMint: quoteMint,
-        exactAssetIn: (PRICE_STEP * baseUnit).toString(),
-        market,
-        minAssetOut: "0",
-        trader: keypair.publicKey,
-      }),
-    ]);
-    sold += PRICE_STEP;
+  // Solvency is judged against a price EMA, not the spot price, and the EMA
+  // cannot move inside the transaction that moved the price: its elapsed time
+  // is zero, so the crash carries no weight at all. It takes hold over the
+  // following slots, with a half life of at least a minute, which is why this
+  // waits rather than checking once and concluding the crash did nothing.
+  const started = Date.now();
+  let state = { detail: "", liquidatable: false };
+  for (let probeIndex = 0; probeIndex < PROBES; probeIndex += 1) {
     state = await isLiquidatable(connection, keypair, probe);
+    const elapsed = Math.round((Date.now() - started) / 1000);
     console.log(
-      `  sold ${sold} base -> ${state.liquidatable ? "LIQUIDATABLE" : state.detail.slice(0, 70)}`,
+      `  +${String(elapsed).padStart(3)}s  ${state.liquidatable ? "LIQUIDATABLE" : state.detail.slice(0, 72)}`,
     );
+    if (state.liquidatable) break;
+    await new Promise((resolve) => setTimeout(resolve, PROBE_INTERVAL_MS));
   }
 
   console.log(
     state.liquidatable
-      ? `\nposition ${position.toBase58()} is liquidatable after selling ${sold} base`
-      : `\nposition ${position.toBase58()} is still healthy after selling ${sold} base`,
+      ? `\nposition ${position.toBase58()} is liquidatable`
+      : `\nposition ${position.toBase58()} did not become liquidatable`,
+  );
+  console.log(
+    "the market cannot be swapped in while this debt stands; repay it or let a\n" +
+      "liquidation clear it when the run is finished",
   );
   if (!state.liquidatable) process.exit(1);
 }
