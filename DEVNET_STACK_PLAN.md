@@ -369,9 +369,24 @@ independent untracked fixes per repository.
 | 3 | Network selection and faucet | **Done** — per-network env resolution, picker appears when a second network is configured; faucet page live on devnet |
 | 4 | SDK completion for product flows (section 6) | **Done for the app's actions** — typed builders added for swap, borrow, openLeverage and leverage delegation, plus a leverage-delegate client for conditional orders |
 | 5 | Webapp writes through the SDK; fork lab ported and deleted | **App side done** — all 9 actions build through the SDK and no `fork/tx` path remains; the hosted alias and the lab itself are still to retire |
-| 6 | Rust keepers live on devnet | **Not started** — repository scaffolded, not wired to the devnet revision |
-| 7 | Public-service operations (section 9) | **Not started** — no rate limiting, status page, runbooks, or backups |
+| 6 | Rust keepers live on devnet | **Sentinel done** — repo re-pinned to `devnet-1`, discovery loop reads the chain, deployed; the six signing profiles have no execution loop yet |
+| 7 | Public-service operations (section 9) | **Partly** — the API rate-limits every route; no status page, runbooks or backups, and the faucet has no abuse limit (see below) |
 | 8 | Full live matrix and sustained unattended operation | **Not started** |
+
+### Faucet abuse is an open protocol gap
+
+The faucet mints straight from the browser to the program, so no server sits in
+the path and no amount of API rate limiting constrains it. `faucet_mint` checks
+only that the amount is above zero — there is no per-wallet cap, no cooldown,
+and no supply ceiling. On a public devnet one actor can mint unbounded balances
+and distort every market with them.
+
+Closing this needs a program change and a redeploy, which is a protocol
+decision rather than an operational one. The options are a per-wallet cooldown
+account, a per-mint supply ceiling, or moving the faucet behind a server that
+holds the authority. Until one is chosen the faucet is safe only because devnet
+tokens are worthless — which is a reason not to promote this program shape to
+mainnet unchanged.
 
 Honest summary: reads are finished, and every write the app can request is now
 built through the SDK. Swap and openLeverage are verified simulating against
