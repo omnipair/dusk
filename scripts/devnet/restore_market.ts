@@ -225,8 +225,9 @@ async function rebalance(
       const message = error instanceof Error ? error.message : String(error);
       // Swaps revert intermittently by themselves; retrying is the whole
       // remedy available until that is fixed.
+      const anchor = message.match(/Error Code: (\w+)/)?.[1];
       console.log(
-        `  step ${step} failed (${/6047|BrokenInvariant/.test(message) ? "BrokenInvariant 6047" : message.slice(0, 40)})`,
+        `  step ${step} failed (${anchor ?? message.replace(/\s+/g, " ").slice(0, 70)})`,
       );
     }
   }
