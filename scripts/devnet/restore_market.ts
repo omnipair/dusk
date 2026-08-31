@@ -146,6 +146,90 @@ async function main() {
       ? "no position owned by this wallet carries debt"
       : `${repaid}/${indebted} indebted positions repaid`,
   );
+
+  // Making a position unhealthy means selling collateral into the market, and
+  // that sale outlives the test: the next run finds collateral worth less and
+  // a market that will not lend against it. The pool was seeded at parity, so
+  // buying back toward parity is what restores it.
+  await rebalance(connection, keypair, dusk, market, baseMint, quoteMint, unit);
+}
+
+async function reserves(
+  connection: Connection,
+  market: PublicKey,
+): Promise<{ base: bigint; quote: bigint } | null> {
+  const account = await connection.getAccountInfo(market, "confirmed");
+  if (!account) return null;
+  // Offsets from protocol/keeper-account-layout.v1.json in dusk-keepers,
+  // which generates them from the pinned IDL. Guessing them by counting from
+  // a neighbouring field is how this first read seventeen trillion tokens.
+  return {
+    base: account.data.readBigUInt64LE(202),
+    quote: account.data.readBigUInt64LE(707),
+  };
+}
+
+async function rebalance(
+  connection: Connection,
+  keypair: Keypair,
+  dusk: Dusk,
+  market: PublicKey,
+  baseMint: PublicKey,
+  quoteMint: PublicKey,
+  unit: bigint,
+): Promise<void> {
+  const send = async (instruction: TransactionInstruction) => {
+    const transaction = new Transaction().add(instruction);
+    const blockhash = await connection.getLatestBlockhash("confirmed");
+    transaction.recentBlockhash = blockhash.blockhash;
+    transaction.feePayer = keypair.publicKey;
+    transaction.sign(keypair);
+    const signature = await connection.sendRawTransaction(
+      transaction.serialize(),
+      { preflightCommitment: "confirmed" },
+    );
+    const result = await connection.confirmTransaction(
+      { ...blockhash, signature },
+      "confirmed",
+    );
+    if (result.value.err) throw new Error(JSON.stringify(result.value.err));
+  };
+
+  for (let step = 0; step < 14; step += 1) {
+    const held = await reserves(connection, market);
+    if (!held) return;
+    const excess = held.base - held.quote;
+    // Within a percent of parity is close enough; chasing further just pays
+    // more fees to the pool.
+    if (excess <= held.quote / 100n) {
+      console.log(
+        `reserves within a percent of parity (${held.base / unit} base, ${held.quote / unit} quote)`,
+      );
+      return;
+    }
+    const size = excess / 4n / unit;
+    if (size === 0n) return;
+    try {
+      await send(
+        await dusk.write.buildSwapInstruction({
+          assetInMint: quoteMint,
+          assetOutMint: baseMint,
+          exactAssetIn: (size * unit).toString(),
+          market,
+          minAssetOut: "0",
+          trader: keypair.publicKey,
+        }),
+      );
+      console.log(`  bought base with ${size} quote`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // Swaps revert intermittently by themselves; retrying is the whole
+      // remedy available until that is fixed.
+      console.log(
+        `  step ${step} failed (${/6047|BrokenInvariant/.test(message) ? "BrokenInvariant 6047" : message.slice(0, 40)})`,
+      );
+    }
+  }
 }
 
 main().catch((error) => {
