@@ -466,26 +466,28 @@ Widening the constant would not fix it. The drift is unbounded in principal and
 elapsed time, so every constant is eventually too small — the identity has to
 account for accrual rather than tolerate it.
 
-**Where it is, and one fix that does not work.** The check sits at the end of
-`prepare_explicit_hlp_transition_from_end`. It compares a reconstructed
+**Where it is, and two fixes that do not work.** The check sits at the end of
+`prepare_concentrated_hlp_transition_from_end`, comparing a reconstructed
 `final_*_live_reserve` against an identity recomputed from
 `market.*_side.reserves.live_reserve`, which `debit_cash_for_hlp_interest` has
 already reduced by the accrued interest.
 
-On the materialized path (`preserve_current_ordinary_reserves == true`) the
-interest is subtracted once, and the two sides agree exactly. On the quoted
-swap path the `else` branch subtracts it, and a block added later in `e077db6`
-(2026-08-20) subtracts it a second time — so the swap path subtracts twice
-where the other subtracts once, and the gap is precisely the accrued interest.
-That matches every measurement: zero inside one transaction where nothing has
-accrued, a few atoms at rest, and far past the tolerance once real debt exists.
+The materialized path subtracts that interest once; the quoted swap path
+subtracts it in its branch and again in a block added later (`e077db6`). That
+asymmetry looks like the bug and is not. Removing the second subtraction makes
+`stressed_hlp_recovery` fail; guarding it on claim certification makes a plain
+swap drift by a whole interest tranche — 12,499 atoms against 12,500 accrued,
+measured. Both subtractions are load-bearing.
+`a_plain_swap_survives_accrued_hlp_interest` covers the ordinary path with
+interest outstanding and rules this out cheaply if anyone tries it again.
 
-Removing the later block is **not** the fix. It makes
-`stressed_hlp_recovery_improves_the_matching_swap_and_restores_the_hedge` fail
-with the same 6047, so the second subtraction is load-bearing on at least one
-path and the asymmetry is not simply a duplicate. Reconciling the two paths is
-a question about what the quoted endpoint is defined to contain, which belongs
-with whoever owns that math rather than with whoever can make the suite green.
+So the devnet drift is **not** a missing or duplicated term. A whole interest
+tranche would fail every swap; devnet fails about a quarter on an idle market.
+That is the signature of a drift hovering at three or four atoms against a
+three-atom tolerance — a rounding question about how many independently floored
+quantities actually feed the identity, not a missing subtraction. Confirming it
+needs the deployed program instrumented to print the drift, which is a redeploy
+and therefore a decision for whoever holds the upgrade authority.
 
 Leverage debt does the same thing. With one leverage position open the at-rest
 rate measured 100%; closing it returned the market to 25%. Any outstanding
