@@ -498,10 +498,25 @@ is unavailable in a unit test — so the replay starts from a market the runtime
 would never have produced, and accrual and the EMA refresh both happen in the
 step being skipped.
 
-The remaining work is a LiteSVM replay, which supplies a `Clock`. The recipe is
-in that directory's README: dump the deployed binary, load the captured
-accounts, set the clock to slot 490764832, send one swap, expect 6047, then
-instrument the identity and read the drift.
+The LiteSVM replay is written (`scripts/devnet/replay_hlp_invariant.ts`) and
+runs: captured accounts loaded as they stood, clock set to the observed slot,
+one swap through the real runtime. **The swap succeeds** — the failure does
+not reproduce.
+
+One difference remains, and it is the binary. LiteSVM refuses the deployed
+artifact, so the replay runs a local build. The deployed one hashes to the
+lock's attested value, the local one is 166KB larger, and that gap is the build
+environment rather than the source — releases build inside
+`solanafoundation/anchor:v0.31.1` with `--features production`, which gates
+only vanity-suffix checks at market initialization, nothing on the swap path.
+
+Closing this needs the deployed build reproduced through `solana-verify` and
+its Docker image so the exact artifact can be loaded, or the program
+instrumented and redeployed to print the drift. Docker is not installed here,
+and the redeploy is not a call to make on anyone's behalf.
+
+Ruled out with measurements: the interest subtraction (both subtractions are
+load-bearing), elapsed slots, the wall clock, and the `production` feature.
 
 Leverage debt does the same thing. With one leverage position open the at-rest
 rate measured 100%; closing it returned the market to 25%. Any outstanding
