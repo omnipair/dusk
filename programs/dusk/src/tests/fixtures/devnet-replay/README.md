@@ -60,12 +60,16 @@ the program to a different SBF target than devnet runs, so LiteSVM suites
 exercise a different artifact from the deployed one. That is a gap in what the
 tests can attest to, independent of anything hLP.
 
-Closing the hLP diagnosis therefore needs one of:
+**litesvm 1.x loads SBFv3.** The pinned 0.8.0 does not, but 1.4.1 does, so the
+replay now runs the deployed artifact itself — no Docker, no rebuild.
+`scripts/devnet/replay_hlp_invariant.mjs` does exactly that and documents its
+own setup, since upgrading the project's litesvm would also move the smoke
+suite and is a separate question.
 
-1. **Reproduce the deployed build** with `solana-verify` and its
-   `solanafoundation/anchor:v0.31.1` base image, so the binary loaded here is
-   the SBFv3 artifact. Needs Docker.
-2. **Instrument and redeploy**, printing the drift at the identity check.
+**And it still succeeds.** Deployed binary, captured failing state, real clock,
+and a sweep of accrual from zero to two hundred thousand slots: every point
+passes. Binary, state and clock are all faithful, so none of them is the
+trigger.
 
 The `--features production` difference is not a factor: it gates only
 vanity-suffix checks on LP mint keys at market initialization, nothing on the
@@ -76,10 +80,31 @@ swap path.
 - The interest subtraction. Removing the second makes `stressed_hlp_recovery`
   fail; guarding it on claim certification drifts a plain swap by 12,499 atoms
   against 12,500 accrued. Both are load-bearing.
-- Elapsed slots. Sweeping zero to ten thousand slots past the capture changes
-  nothing.
+- Elapsed slots. Sweeping zero to two hundred thousand slots past the capture
+  changes nothing.
 - The wall clock. Replaying at the captured block time changes nothing.
 - The `production` feature. It touches market initialization only.
+- **The binary.** The deployed SBFv3 artifact runs the same swap successfully.
+
+## What that leaves
+
+The replay differs from the chain in three remaining ways, in rough order of
+how likely each is to matter:
+
+1. **The trader's token accounts are synthesized**, not captured. They are
+   written as a plain 165-byte SPL layout with a balance; devnet's were real
+   accounts with their own history.
+2. **Sysvars other than the clock** are LiteSVM defaults — rent, epoch
+   schedule, slot hashes, stake history.
+3. **The captured market may not be the state that failed.** It was read with
+   `getAccountInfo` immediately after the reverting simulation rather than
+   pinned to that simulation's slot, and RPC cannot read an account at a past
+   slot without an archive node. `last_update_slot` in the capture is
+   490754400 against a failure at 490764832, so nothing touched the market in
+   between — which argues the capture is right, but does not prove it.
+
+The cheapest next experiment is (1): capture the real trader token accounts
+alongside the market and replay with those.
 
 The drift magnitude remains the open question. A missing term would fail every
 swap; devnet fails about a quarter on an idle market, which is the signature of
