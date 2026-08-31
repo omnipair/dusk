@@ -240,6 +240,16 @@ export class DuskWrite {
    * consensus-visible, so both take them from here rather than each assembling
    * its own list.
    */
+  /**
+   * The hLP settlement prefix an instruction must carry when the market has
+   * active hLP.
+   *
+   * Required by every leverage instruction that settles the market —
+   * open, close, increase and decrease — not only by open. Omitting it fails
+   * with `NotEnoughAccounts` at the point the program tries to read the
+   * prefix, which names neither leverage nor hLP and reads as a malformed
+   * call.
+   */
   private async hlpRemainingAccounts(
     marketAddress: AddressLike
   ): Promise<AccountMeta[]> {
@@ -1525,7 +1535,10 @@ export class DuskWrite {
           tokenProgram: core.tokenProgram,
           token2022Program: TOKEN_2022_PROGRAM_ID,
         },
-        remainingAccounts: params.remainingAccounts,
+        remainingAccounts: [
+          ...(await this.hlpRemainingAccounts(core.market)),
+          ...(params.remainingAccounts ?? []),
+        ],
       }
     );
   }
@@ -1572,7 +1585,10 @@ export class DuskWrite {
           tokenProgram: core.tokenProgram,
           token2022Program: TOKEN_2022_PROGRAM_ID,
         },
-        remainingAccounts: params.remainingAccounts,
+        remainingAccounts: [
+          ...(await this.hlpRemainingAccounts(core.market)),
+          ...(params.remainingAccounts ?? []),
+        ],
       }
     );
   }
@@ -1704,7 +1720,10 @@ export class DuskWrite {
           tokenProgram: core.tokenProgram,
           token2022Program: TOKEN_2022_PROGRAM_ID,
         },
-        remainingAccounts: params.remainingAccounts,
+        remainingAccounts: [
+          ...(await this.hlpRemainingAccounts(core.market)),
+          ...(params.remainingAccounts ?? []),
+        ],
       }
     );
   }

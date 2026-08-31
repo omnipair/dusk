@@ -143,8 +143,59 @@ async function main() {
 
   console.log(
     indebted === 0
-      ? "no position owned by this wallet carries debt"
-      : `${repaid}/${indebted} indebted positions repaid`,
+      ? "no borrow position owned by this wallet carries debt"
+      : `${repaid}/${indebted} indebted borrow positions repaid`,
+  );
+
+  // Leverage debt has the same effect on the market as borrow debt, and a
+  // restore that leaves it standing leaves swaps failing. This was found the
+  // hard way: the at-rest failure rate read 100% until an open leverage
+  // position from an earlier run was closed.
+  const leverage = await connection.getProgramAccounts(programId, {
+    commitment: "confirmed",
+    filters: [
+      { memcmp: { bytes: base58(accountDiscriminator("LeveragePosition")), offset: 0 } },
+    ],
+  });
+  let closed = 0;
+  let open = 0;
+  for (const { account, pubkey } of leverage) {
+    const positionOwner = new PublicKey(account.data.subarray(8, 40));
+    if (!positionOwner.equals(keypair.publicKey)) continue;
+    open += 1;
+    const positionId = new PublicKey(account.data.subarray(72, 104));
+    // Offset from the generated layout in dusk-keepers; zero is base.
+    const debtIsBase = account.data[138] === 0;
+    try {
+      const signature = await send([
+        await dusk.write.closeLeverageInstruction({
+          collateralMint: debtIsBase ? quoteMint : baseMint,
+          debtAsset: debtIsBase ? "base" : "quote",
+          debtMint: debtIsBase ? baseMint : quoteMint,
+          market,
+          minAmountOut: "0",
+          ownerDebtAccount: getAssociatedTokenAddressSync(
+            debtIsBase ? baseMint : quoteMint,
+            keypair.publicKey,
+          ),
+          positionId,
+          positionOwner: keypair.publicKey,
+        }),
+      ]);
+      console.log(`  ${pubkey.toBase58().slice(0, 10)}: leverage closed  ${signature.slice(0, 12)}`);
+      closed += 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const anchor = message.match(/Error Code: (\w+)/)?.[1];
+      console.log(
+        `  ${pubkey.toBase58().slice(0, 10)}: leverage not closed (${anchor ?? message.slice(0, 50)})`,
+      );
+    }
+  }
+  console.log(
+    open === 0
+      ? "no leverage position owned by this wallet is open"
+      : `${closed}/${open} leverage positions closed`,
   );
 
   // Making a position unhealthy means selling collateral into the market, and
