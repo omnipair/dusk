@@ -367,15 +367,18 @@ independent untracked fixes per repository.
 | 1 | Indexer ingestion and public read API | **Done** — daemon ingesting to Timescale; v1-contract API serving markets, activity, stats, positions, derived valuation |
 | 2 | Webapp reads devnet through the deployment envelope | **Done** — markets, market state and history render from the hosted API |
 | 3 | Network selection and faucet | **Done** — per-network env resolution, picker appears when a second network is configured; faucet page live on devnet |
-| 4 | SDK completion for product flows (section 6) | **Not started** — 17 typed write actions exist; no flow is wired through them |
-| 5 | Webapp writes through the SDK; fork lab ported and deleted | **Not started** — the app's 9 actions all POST to `/api/v2/fork/tx/*`, which returns 404 |
+| 4 | SDK completion for product flows (section 6) | **Done for the app's actions** — typed builders added for swap, borrow, openLeverage and leverage delegation, plus a leverage-delegate client for conditional orders |
+| 5 | Webapp writes through the SDK; fork lab ported and deleted | **App side done** — all 9 actions build through the SDK and no `fork/tx` path remains; the hosted alias and the lab itself are still to retire |
 | 6 | Rust keepers live on devnet | **Not started** — repository scaffolded, not wired to the devnet revision |
 | 7 | Public-service operations (section 9) | **Not started** — no rate limiting, status page, runbooks, or backups |
 | 8 | Full live matrix and sustained unattended operation | **Not started** |
 
-Honest summary: reads are finished and the app is usable read-only. **Nothing
-can be transacted.** Phases 4 and 5 are the critical path; everything else
-depends on them.
+Honest summary: reads are finished, and every write the app can request is now
+built through the SDK. Swap and openLeverage are verified simulating against
+the live devnet market; borrow resolves its accounts and fails only on a
+position that does not exist yet. **No write has been signed and sent by a
+real wallet**, which is the next thing to prove. Phases 6 and 7 are the
+remaining critical path.
 
 ## 14. Definition of done
 
