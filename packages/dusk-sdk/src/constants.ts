@@ -1,6 +1,6 @@
 import { AccountMeta, PublicKey } from "@solana/web3.js";
 
-const DEFAULT_PROGRAM_ID = "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv";
+const DEFAULT_PROGRAM_ID = "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X";
 const MPL_TOKEN_METADATA_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
 
 function getProgramIdFromEnv(fallback: string): string {
@@ -43,6 +43,7 @@ export const SEEDS = {
   BORROW_POSITION: Buffer.from("borrow_position_v2"),
   LEVERAGE_POSITION: Buffer.from("leverage_position_v2"),
   LEVERAGE_COLLATERAL_VAULT: Buffer.from("leverage_collateral"),
+  LEVERAGE_DELEGATION: Buffer.from("leverage_delegation_v2"),
   YIELD_ACCOUNT: Buffer.from("yield"),
   HLP_YLP_VAULT: Buffer.from("hlp_ylp_vault"),
   INSURANCE: Buffer.from("insurance"),
@@ -242,6 +243,16 @@ export function deriveBorrowPositionAddress(
 /**
  * Derive leverage position PDA address
  */
+/** Delegation is keyed by the position it delegates, not by the owner. */
+export function deriveLeverageDelegationAddress(
+  leveragePosition: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [SEEDS.LEVERAGE_DELEGATION, leveragePosition.toBuffer()],
+    DUSK_PROGRAM_ID
+  );
+}
+
 export function deriveLeveragePositionAddress(
   market: PublicKey,
   positionId: PublicKey

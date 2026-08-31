@@ -20,6 +20,7 @@ import {
   deriveEventAuthorityAddress,
   deriveFutarchyAuthorityAddress,
   deriveLeverageCollateralVaultAddress,
+  deriveLeverageDelegationAddress,
   deriveLeveragePositionAddress,
   deriveMarketCollateralVaultAddress,
   deriveMarketInterestVaultAddress,
@@ -232,6 +233,47 @@ export class DuskWrite {
     return this.builder(name, args, options).rpc();
   }
 
+  /**
+   * The hLP accounts an instruction must carry when hedged liquidity is live.
+   *
+   * Swap and openLeverage both require them, and their order is
+   * consensus-visible, so both take them from here rather than each assembling
+   * its own list.
+   */
+  private async hlpRemainingAccounts(
+    marketAddress: AddressLike
+  ): Promise<AccountMeta[]> {
+    const market = address(marketAddress);
+    const state = (await this.program.account.market.fetch(market)) as unknown as {
+      ylpMint: AccountMeta["pubkey"];
+      baseSide: { interestVault: AccountMeta["pubkey"] };
+      quoteSide: { interestVault: AccountMeta["pubkey"] };
+      baseHlpVault: {
+        hlpSupply: { toString(): string };
+        residualExposure: { toString(): string };
+        ylpVault: AccountMeta["pubkey"];
+      };
+      quoteHlpVault: {
+        hlpSupply: { toString(): string };
+        residualExposure: { toString(): string };
+        ylpVault: AccountMeta["pubkey"];
+      };
+    };
+    const hlpActive =
+      BigInt(state.baseHlpVault.hlpSupply.toString()) !== 0n ||
+      BigInt(state.quoteHlpVault.hlpSupply.toString()) !== 0n ||
+      BigInt(state.baseHlpVault.residualExposure.toString()) !== 0n ||
+      BigInt(state.quoteHlpVault.residualExposure.toString()) !== 0n;
+    if (!hlpActive) return [];
+    return [
+      { pubkey: state.ylpMint, isSigner: false, isWritable: true },
+      { pubkey: state.baseHlpVault.ylpVault, isSigner: false, isWritable: true },
+      { pubkey: state.quoteHlpVault.ylpVault, isSigner: false, isWritable: true },
+      { pubkey: state.baseSide.interestVault, isSigner: false, isWritable: true },
+      { pubkey: state.quoteSide.interestVault, isSigner: false, isWritable: true },
+    ];
+  }
+
   async swapBuilder(
     args: Record<string, unknown>,
     options: SwapBuildOptions
@@ -382,6 +424,152 @@ export class DuskWrite {
 
   async buildBorrowTransaction(params: BorrowParams): Promise<Transaction> {
     return new Transaction().add(await this.buildBorrowInstruction(params));
+  }
+
+  /**
+   * Open a leverage position, with accounts resolved from the market, the
+   * position id and the two mints.
+   *
+   * Referral accounts are optional on chain and omitted here; use
+   * `referredOpenLeverage` when a referrer is present.
+   */
+  async buildOpenLeverageInstruction(
+    params: OpenLeverageParams
+  ): Promise<TransactionInstruction> {
+    const market = address(params.market);
+    const owner = address(params.owner);
+    const debtMint = address(params.debtMint);
+    const collateralMint = address(params.collateralMint);
+
+    if (debtMint.equals(collateralMint)) {
+      throw new Error("Leverage debt and collateral mints must differ");
+    }
+
+    const positionId = address(params.positionId);
+    const debtTokenProgram = await tokenProgramForMint(
+      this.program.provider.connection,
+      debtMint
+    );
+
+    return this.instruction(
+      "openLeverage" as DuskInstructionName,
+      {
+        positionId,
+        debtAsset: params.debtAsset === "quote" ? 1 : 0,
+        marginAmount: governanceIntegerBN(params.marginAmount, "marginAmount"),
+        multiplierBps: governanceIntegerBN(
+          params.multiplierBps,
+          "multiplierBps"
+        ),
+        minCollateralOut: governanceIntegerBN(
+          params.minCollateralOut,
+          "minCollateralOut"
+        ),
+        referrer: null,
+        positionOwner: null,
+        limitPriceNad: governanceIntegerBN(
+          params.limitPriceNad ?? 0,
+          "limitPriceNad"
+        ),
+      },
+      {
+        accounts: {
+          market,
+          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
+          owner,
+          payer: address(params.payer ?? owner),
+          leveragePosition: address(
+            params.leveragePosition ??
+              deriveLeveragePositionAddress(market, positionId)[0]
+          ),
+          debtMint,
+          collateralMint,
+          debtReserveVault: address(
+            params.debtReserveVault ??
+              deriveMarketReserveVaultAddress(market, debtMint)[0]
+          ),
+          collateralReserveVault: address(
+            params.collateralReserveVault ??
+              deriveMarketReserveVaultAddress(market, collateralMint)[0]
+          ),
+          leverageCollateralVault: address(
+            params.leverageCollateralVault ??
+              deriveLeverageCollateralVaultAddress(market, collateralMint)[0]
+          ),
+          ownerDebtAccount: address(
+            params.ownerDebtAccount ??
+              getAssociatedTokenAddressSync(
+                debtMint,
+                owner,
+                true,
+                debtTokenProgram
+              )
+          ),
+          referralPartner: null,
+          referralAccrual: null,
+          instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        },
+        remainingAccounts: [
+          ...(await this.hlpRemainingAccounts(market)),
+          ...(params.remainingAccounts ?? []),
+        ],
+      }
+    );
+  }
+
+  async buildOpenLeverageTransaction(
+    params: OpenLeverageParams
+  ): Promise<Transaction> {
+    return new Transaction().add(
+      await this.buildOpenLeverageInstruction(params)
+    );
+  }
+
+  /**
+   * Delegate a leverage position to a program that may act on it, which is how
+   * conditional orders (take-profit, stop-loss) are authorised.
+   */
+  async buildCreateLeverageDelegationInstruction(
+    params: CreateLeverageDelegationParams
+  ): Promise<TransactionInstruction> {
+    const market = address(params.market);
+    const leveragePosition = address(
+      params.leveragePosition ??
+        deriveLeveragePositionAddress(market, address(params.positionId))[0]
+    );
+
+    return this.instruction(
+      "createLeverageDelegation" as DuskInstructionName,
+      {
+        debtAsset: params.debtAsset === "quote" ? 1 : 0,
+        delegatedProgram: address(params.delegatedProgram),
+        approvedActions: Number(params.approvedActions),
+      },
+      {
+        accounts: {
+          market,
+          leveragePosition,
+          leverageDelegation: address(
+            params.leverageDelegation ??
+              deriveLeverageDelegationAddress(leveragePosition)[0]
+          ),
+          owner: address(params.owner),
+          systemProgram: SystemProgram.programId,
+        },
+        remainingAccounts: params.remainingAccounts,
+      }
+    );
+  }
+
+  async buildCreateLeverageDelegationTransaction(
+    params: CreateLeverageDelegationParams
+  ): Promise<Transaction> {
+    return new Transaction().add(
+      await this.buildCreateLeverageDelegationInstruction(params)
+    );
   }
 
   private async buildSwapBuilder(params: SwapParams) {
@@ -1743,6 +1931,46 @@ interface YlpLiquidityAccounts {
   quoteReserveVault?: AddressLike;
   baseYieldAccount?: AddressLike;
   quoteYieldAccount?: AddressLike;
+  remainingAccounts?: AccountMeta[];
+}
+
+/** Which side of the market a leverage position borrows. */
+export type LeverageDebtAsset = "base" | "quote";
+
+/** Opening leverage, described by the market, position and mints. */
+export interface OpenLeverageParams {
+  market: AddressLike;
+  owner: AddressLike;
+  positionId: AddressLike;
+  debtAsset: LeverageDebtAsset;
+  debtMint: AddressLike;
+  collateralMint: AddressLike;
+  marginAmount: RawAmount;
+  /** Leverage multiplier in basis points; 20000 is two times. */
+  multiplierBps: RawAmount;
+  minCollateralOut: RawAmount;
+  /** Zero means no limit price. */
+  limitPriceNad?: RawAmount;
+  payer?: AddressLike;
+  ownerDebtAccount?: AddressLike;
+  leveragePosition?: AddressLike;
+  debtReserveVault?: AddressLike;
+  collateralReserveVault?: AddressLike;
+  leverageCollateralVault?: AddressLike;
+  remainingAccounts?: AccountMeta[];
+}
+
+/** Authorising a program to act on a leverage position. */
+export interface CreateLeverageDelegationParams {
+  market: AddressLike;
+  owner: AddressLike;
+  positionId: AddressLike;
+  debtAsset: LeverageDebtAsset;
+  delegatedProgram: AddressLike;
+  /** Bit flags for the actions the delegate may perform. */
+  approvedActions: number;
+  leveragePosition?: AddressLike;
+  leverageDelegation?: AddressLike;
   remainingAccounts?: AccountMeta[];
 }
 
