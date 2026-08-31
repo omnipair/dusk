@@ -485,9 +485,23 @@ So the devnet drift is **not** a missing or duplicated term. A whole interest
 tranche would fail every swap; devnet fails about a quarter on an idle market.
 That is the signature of a drift hovering at three or four atoms against a
 three-atom tolerance — a rounding question about how many independently floored
-quantities actually feed the identity, not a missing subtraction. Confirming it
-needs the deployed program instrumented to print the drift, which is a redeploy
-and therefore a decision for whoever holds the upgrade authority.
+quantities actually feed the identity, not a missing subtraction.
+
+**Confirming it no longer needs a redeploy.** The market account was captured
+at the exact moment a swap simulation reverted, alongside a healthy control and
+the other accounts a swap touches, in
+`programs/dusk/src/tests/fixtures/devnet-replay/`. Replaying either capture
+through `prepare` and `finalize_state` at the real slot and block time does
+*not* reproduce the failure, which localizes it further: the instruction runs
+`market.update()` before the handler, `update()` calls `Clock::get()`, and that
+is unavailable in a unit test — so the replay starts from a market the runtime
+would never have produced, and accrual and the EMA refresh both happen in the
+step being skipped.
+
+The remaining work is a LiteSVM replay, which supplies a `Clock`. The recipe is
+in that directory's README: dump the deployed binary, load the captured
+accounts, set the clock to slot 490764832, send one swap, expect 6047, then
+instrument the identity and read the drift.
 
 Leverage debt does the same thing. With one leverage position open the at-rest
 rate measured 100%; closing it returned the market to 25%. Any outstanding
