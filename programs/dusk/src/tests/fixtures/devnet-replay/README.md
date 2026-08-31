@@ -88,23 +88,32 @@ swap path.
 
 ## What that leaves
 
-The replay differs from the chain in three remaining ways, in rough order of
-how likely each is to matter:
+The trader's token accounts are now captured too, and signed for by the real
+trader — the replay still passes. So that is ruled out as well.
 
-1. **The trader's token accounts are synthesized**, not captured. They are
-   written as a plain 165-byte SPL layout with a balance; devnet's were real
-   accounts with their own history.
-2. **Sysvars other than the clock** are LiteSVM defaults — rent, epoch
-   schedule, slot hashes, stake history.
-3. **The captured market may not be the state that failed.** It was read with
-   `getAccountInfo` immediately after the reverting simulation rather than
-   pinned to that simulation's slot, and RPC cannot read an account at a past
-   slot without an archive node. `last_update_slot` in the capture is
-   490754400 against a failure at 490764832, so nothing touched the market in
-   between — which argues the capture is right, but does not prove it.
+The market capture is the state that failed: `last_update_slot` in it is
+490754400 against a failure observed at 490764832, and the field only moves
+when a transaction touches the market, so nothing altered it in between.
 
-The cheapest next experiment is (1): capture the real trader token accounts
-alongside the market and replay with those.
+The market does carry hLP debt for interest to accrue on
+(`base_hlp_vault.debt_shares` = 9,935,967), and the clock sweep is effective —
+`setClock` demonstrably moves what the program reads. So the sweep really is
+sampling accrual, across roughly a day of it, and none of it fails.
+
+**Same program, same state, same clock, same accounts, accrual swept from zero
+to two hundred thousand slots: passes every time locally, fails a third of the
+time on devnet.** That is the finding. It puts the trigger outside program
+logic and state, in the interaction with the live validator — the remaining
+candidates being sysvars other than the clock (rent, epoch schedule, slot
+hashes, stake history, all LiteSVM defaults here), or something about how
+simulation against a live bank differs from LiteSVM's.
+
+Worth checking before anything deeper: devnet reads go through a
+load-balanced RPC, so consecutive simulations may be answered by nodes at
+different slots. A node that is further behind sees a larger gap between
+`last_update_slot` and its current slot. That would make the intermittency an
+artifact of which node answered rather than a property of any single state —
+and it is cheap to test by pinning to one node and re-measuring the rate.
 
 The drift magnitude remains the open question. A missing term would fail every
 swap; devnet fails about a quarter on an idle market, which is the signature of

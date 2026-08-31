@@ -30,7 +30,7 @@ import {
   address,
   appendTransactionMessageInstruction,
   compileTransaction,
-  generateKeyPairSigner,
+  createKeyPairSignerFromBytes,
   createTransactionMessage,
   getProgramDerivedAddress,
   pipe,
@@ -72,7 +72,13 @@ clock.slot = BigInt(manifest.failingCapture.slot);
 clock.unixTimestamp = BigInt(manifest.failingCapture.blockTimeUnix);
 svm.setClock(clock);
 
-const signer = await generateKeyPairSigner();
+// The real trader, not a generated one: their token accounts are captured
+// rather than synthesized, so the signer has to be the owner those accounts
+// name or the token program rejects the transfer.
+const secret = JSON.parse(
+  readFileSync(process.env.DUSK_KEYPAIR ?? `${process.env.HOME}/.config/solana/id.json`, "utf8"),
+);
+const signer = await createKeyPairSignerFromBytes(new Uint8Array(secret));
 svm.airdrop(signer.address, 10_000_000_000n);
 
 function discriminator(name) {
@@ -140,8 +146,11 @@ function bytesOf(addr) {
 
 const baseMint = address(manifest.accounts.base_mint.address);
 const quoteMint = address(manifest.accounts.quote_mint.address);
-const traderBase = await fundedTokenAccount(baseMint, signer.address, 1_000_000_000n);
-const traderQuote = await fundedTokenAccount(quoteMint, signer.address, 1_000_000_000n);
+// Captured, not synthesized. A hand-written SPL layout carries a balance and
+// nothing else; the real accounts carry whatever history devnet gave them,
+// and that difference was the top of the list of remaining variables.
+const traderBase = address(manifest.accounts.trader_base.address);
+const traderQuote = address(manifest.accounts.trader_quote.address);
 
 const args = Buffer.alloc(16);
 args.writeBigUInt64LE(5_000_000n, 0);

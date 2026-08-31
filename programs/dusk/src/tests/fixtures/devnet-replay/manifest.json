@@ -72,6 +72,18 @@
       "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
       "lamports": 2081040,
       "bytes": 171
+    },
+    "trader_base": {
+      "address": "7YfgmEHamDPh463v8XXBDrcTsJ3Dy6aKbbNEbbqUDUws",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "lamports": 2039280,
+      "bytes": 165
+    },
+    "trader_quote": {
+      "address": "BQXpVfL86X9cxRfWm2FJiZBufowedf8b8TE2GQFaZcTN",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "lamports": 2039280,
+      "bytes": 165
     }
   },
   "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
@@ -79,5 +91,6 @@
     "slot": 490764832,
     "blockTimeUnix": 1788151172,
     "file": "market_failing.bin"
-  }
+  },
+  "trader": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ"
 }
