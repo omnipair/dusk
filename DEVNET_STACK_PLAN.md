@@ -633,7 +633,24 @@ What remains: no keeper has sent a live transaction, five signing profiles
 still have no execution loop, and no liquidation has been driven end to end —
 which needs an unhealthy position, and therefore a way to make one on devnet.
 
-## 14. Definition of done
+## 14. What is left, and why
+
+Three items remain, and none of them is engineering. Each is written, tested
+and one command from done; each needs a decision that is not an engineer's to
+make on someone else's behalf.
+
+| Item | State | What it needs |
+| --- | --- | --- |
+| hLP invariant defect | Diagnosed as far as off-chain work allows; eight hypotheses eliminated by measurement; instrumented build ready behind `debug-hlp-drift` | Deploy the instrumented build, simulate a swap, read `hlp-drift` in the logs |
+| Faucet abuse limit | Per-request ceiling and hourly per-recipient cooldown implemented; webapp passes the new account | Upgrade the program and ship the app together — the account list changes, so they cannot land separately |
+| Keepers live | All seven profiles deployed and healthy in shadow; trigger and bidder both proven live from a local run against this same devnet | A generated hot wallet per service as `KEEPER_SIGNER_KEY`, and `KEEPER_MODE=live` |
+
+Phase 8's four failing flows — swap, open leverage, and the two leverage steps
+that cascade from open leverage — are all downstream of the first item. Nothing
+else in the matrix is blocked, and no further keeper or indexer work moves
+them.
+
+## 15. Definition of done
 
 A person who has never seen this project can open the public devnet webapp,
 connect a wallet, mint test tokens, and complete every supported product flow —
