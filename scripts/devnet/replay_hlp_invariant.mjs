@@ -46,6 +46,10 @@ const manifest = JSON.parse(readFileSync(join(FIXTURES, "manifest.json"), "utf8"
 const programId = address(manifest.programId);
 const soPath = process.env.DUSK_PROGRAM_SO;
 
+// FeatureSet.allEnabled() is deliberately NOT used: it fails to build the SBF
+// VM at all ("Invalid memory region at index 4"), so every attempt "fails"
+// without the program ever running. That reported as a 401/401 reproduction
+// until the logs were read.
 const svm = new LiteSVM().withSigverify(false).withBlockhashCheck(false);
 svm.addProgram(programId, new Uint8Array(readFileSync(soPath)));
 
@@ -193,8 +197,20 @@ async function attempt(clockSlot) {
   const signed = await signTransactionMessageWithSigners(message);
   const result = svm.sendTransaction(signed);
   const text = String(result);
+  // Only the hLP invariant counts as a reproduction. Any other failure — a VM
+  // that will not start, a missing account — is a broken harness wearing the
+  // bug's clothes, and counting it produces a confident wrong answer.
+  const logs = (() => {
+    try { return result.meta?.().logs() ?? result.logs?.() ?? []; } catch { return []; }
+  })();
+  const joined = logs.join(" ");
+  const reproduced = joined.includes("BrokenInvariant") || joined.includes("6047");
   const failed = text.includes("FailedTransactionMetadata");
-  return { failed, text };
+  if (failed && !reproduced) {
+    const why = logs.find((l) => /fail|Error/i.test(l)) ?? text.slice(0, 120);
+    return { failed: false, other: why, text };
+  }
+  return { failed: reproduced, text };
 }
 
 // Sweep accrual. The devnet failure is intermittent at about a quarter of
@@ -207,16 +223,34 @@ const base = Number(manifest.failingCapture.slot);
 const sweep = [];
 for (let i = 0; i <= 400; i += 1) sweep.push(i);
 for (const elapsed of sweep) {
+  // Reload every captured account first. A swap that succeeds *commits*, so
+  // without this the second iteration onward runs against post-swap state —
+  // and worse, against a market whose last_update_slot is now current, which
+  // erases the accrual the sweep exists to vary.
+  load("market", manifest.failingCapture.file);
+  for (const name of Object.keys(manifest.accounts)) if (name !== "market") load(name);
+
   const clock = svm.getClock();
   clock.slot = BigInt(base + elapsed);
   clock.unixTimestamp = BigInt(manifest.failingCapture.blockTimeUnix + Math.round(elapsed * 0.4));
+  // Devnet's real epoch state at the failing slot. Left at LiteSVM defaults
+  // the program sees epoch 0 starting at time 0, and anything deriving a rate
+  // or a window from the epoch would behave differently than on chain.
+  clock.epoch = 1136n;
+  clock.leaderScheduleEpoch = 1137n;
+  clock.epochStartTimestamp = 1788149045n;
   svm.setClock(clock);
   svm.expireBlockhash();
-  const { failed, text } = await attempt(base + elapsed);
+  const { failed, other, text } = await attempt(base + elapsed);
+  if (other && elapsed === sweep[0]) console.log(`  harness problem, not the bug: ${String(other).slice(0, 110)}`);
   if (failed) {
     failures += 1;
     const code = text.match(/Custom\((\d+)\)/)?.[1] ?? "?";
-    if (failures <= 5) console.log(`  +${elapsed} slots -> FAILED (custom ${code})`);
+    if (failures <= 2) {
+      const logLine = text.split("\\n").find((l) => l.includes("Error Code")) ?? "";
+      console.log(`  +${elapsed} slots -> FAILED`);
+      console.log(`     ${text.slice(text.indexOf("logs:"), text.indexOf("logs:") + 900).replace(/\\s+/g, " ").slice(0, 700)}`);
+    }
   }
 }
 console.log(failures > 0 ? `\n${failures} of ${sweep.length} sweep points reproduced the failure` : `\nnone of ${sweep.length} sweep points reproduced it`);

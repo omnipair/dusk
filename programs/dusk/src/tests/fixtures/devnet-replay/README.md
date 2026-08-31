@@ -128,11 +128,21 @@ simulation against a live bank differs from LiteSVM's.
 RPC load balancing is ruled out: Helius and `api.devnet.solana.com` both
 report 33%, and the periodicity is too regular for node divergence.
 
-So the trigger correlates with slot on chain but is not the clock value the
-program reads — the replay varies that across two full periods without
-failing. The next thing to vary is the rest of the execution environment:
-`Clock.epoch` and `epochStartTimestamp`, which are left at LiteSVM defaults
-here, and the sysvars that change every slot (SlotHashes above all).
+`catch_hlp_failure.mjs` closes the last doubt about the capture. It simulates
+against devnet until a swap reverts, captures **every** account at that
+instant, and replays immediately. Devnet failed at slot 490776326; the same
+state, replayed against the deployed binary across 401 clock offsets, passed
+every time.
+
+Devnet's epoch state (`epoch` 1136, `epochStartTimestamp` 1788149045) makes no
+difference either.
+
+**A warning for the next attempt.** `FeatureSet.allEnabled()` looks like the
+obvious next thing to vary, and it reports a 401/401 reproduction. It is not
+one: it fails to build the SBF VM at all — `Invalid memory region at index 4` —
+so the program never runs. The replay now requires the logs to name
+`BrokenInvariant` before counting an attempt as reproduced, because a harness
+that cannot start the program otherwise reports the bug it was looking for.
 
 The drift magnitude remains the open question. A missing term would fail every
 swap; devnet fails about a quarter on an idle market, which is the signature of
