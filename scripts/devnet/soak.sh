@@ -41,6 +41,7 @@ try:
         'at': stamp,
         'reachable': True,
         'slotLag': data.get('slotLag'),
+        'cursorAge': data.get('cursorAgeSeconds'),
         'events': data.get('indexedEvents'),
         'degraded': data.get('degraded', []),
     }))
@@ -58,6 +59,7 @@ import json, sys
 rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
 reachable = [row for row in rows if row.get('reachable')]
 lags = [row['slotLag'] for row in reachable if isinstance(row.get('slotLag'), int)]
+ages = [row['cursorAge'] for row in reachable if isinstance(row.get('cursorAge'), int)]
 degraded = [row for row in reachable if row.get('degraded')]
 
 print(f"samples          {len(rows)}")
@@ -66,12 +68,18 @@ print(f"degraded         {len(degraded)}")
 if lags:
     ordered = sorted(lags)
     print(f"slot lag         min {ordered[0]}  median {ordered[len(ordered)//2]}  max {ordered[-1]}")
+if ages:
+    ordered = sorted(ages)
+    # Cursor age is the liveness number. Slot lag only says how recently
+    # somebody traded, which on a quiet market grows regardless.
+    print(f"cursor age       min {ordered[0]}s  median {ordered[len(ordered)//2]}s  max {ordered[-1]}s")
 if reachable:
     first, last = reachable[0].get('events'), reachable[-1].get('events')
     print(f"events ingested  {first} -> {last}")
-# Stable is not the same as healthy: an indexer that never advances is
-# perfectly stable and completely broken.
-if lags and lags[-1] > 15_000:
-    print("ENDED DEGRADED: slot lag is past the threshold")
+# Stable is not the same as healthy: an indexer that stopped polling is
+# perfectly stable and completely broken. Judged on cursor age, because a
+# quiet market drives slot lag up on its own.
+if ages and max(ages) > 300:
+    print("ENDED DEGRADED: the ingestion cursor went stale")
     sys.exit(1)
 PY
