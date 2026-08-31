@@ -503,25 +503,23 @@ runs: captured accounts loaded as they stood, clock set to the observed slot,
 one swap through the real runtime. **The swap succeeds** — the failure does
 not reproduce.
 
-One difference remains and it is decisive: LiteSVM refuses the deployed
-artifact because it is **SBFv3** (`e_machine` 247, `e_flags` 3) while the local
-toolchain emits a different target (`e_machine` 263, `e_flags` 0). No loader or
-feature set changes that. The dump is authentic — it hashes to the lock's
-attested value.
-
-That has a consequence past this bug: **the deterministic test layer compiles
-the program to a different SBF target than devnet runs**, so LiteSVM suites
-exercise a different artifact from the deployed one. Worth closing on its own
-before an audit, independent of anything hLP.
-
-Closing the hLP diagnosis needs the deployed build reproduced through
-`solana-verify` and its `solanafoundation/anchor:v0.31.1` image so the SBFv3
-artifact can be loaded, or the program instrumented and redeployed to print the
-drift. Docker is not installed here, and the redeploy is not a call to make on
-anyone's behalf.
+The replay now runs the **deployed** binary. It is SBFv3 (`e_machine` 247,
+`e_flags` 3), which the pinned litesvm 0.8.0 refuses and litesvm 1.x accepts —
+so no Docker and no rebuild were needed after all. And the swap still
+succeeds, at every accrual point from zero to two hundred thousand slots.
 
 Ruled out with measurements: the interest subtraction (both subtractions are
-load-bearing), elapsed slots, the wall clock, and the `production` feature.
+load-bearing), elapsed slots, the wall clock, the `production` feature, and now
+the binary itself. What remains is environmental — the trader token accounts
+are synthesized rather than captured, the non-clock sysvars are LiteSVM
+defaults, and the market capture is taken immediately after the reverting
+simulation rather than pinned to its slot. The fixtures README ranks them; the
+token accounts are cheapest to test.
+
+Separately: the deterministic test layer compiles to a different SBF target
+than devnet runs (`e_machine` 263 locally against 247 deployed), so the LiteSVM
+suites exercise a differently-compiled artifact from the deployed one. That
+limits what they attest to and is worth closing before an audit on its own.
 
 Leverage debt does the same thing. With one leverage position open the at-rest
 rate measured 100%; closing it returned the market to 25%. Any outstanding
