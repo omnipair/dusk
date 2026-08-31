@@ -59,6 +59,15 @@ const PRICE_CRASH = 40_000n;
 const PROBE_INTERVAL_MS = 20_000;
 const PROBES = 15;
 
+interface DeploymentConfig {
+  baseDecimals: number;
+  baseMint: string;
+  primaryMarket: string;
+  programId: string;
+  quoteDecimals: number;
+  quoteMint: string;
+}
+
 function discriminator(name: string): Buffer {
   return createHash("sha256").update(`global:${name}`).digest().subarray(0, 8);
 }
