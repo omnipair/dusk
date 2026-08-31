@@ -41,22 +41,35 @@ sets every account here as captured, sets the clock to slot 490764832 and unix
 1788151172, and sends one swap. It works — and the swap **succeeds**, so the
 failure does not reproduce.
 
-That leaves one difference, and it is the important one. The replay runs a
-locally built binary, because **LiteSVM refuses the deployed one**
-(`invalid account data for instruction`). The deployed artifact hashes to
-`8191b4cf…`, exactly the lock's attested value, so the dump is authentic; the
-local build hashes to `194a1a19…` and is 166KB larger. That gap is the build
-environment, not the source: the release process builds inside
-`solanafoundation/anchor:v0.31.1` with `--features production`, and that
-feature gates only vanity-suffix checks on LP mint keys at market
-initialization — nothing on the swap path.
+That leaves one difference, and it is decisive. The replay runs a locally
+built binary because **LiteSVM refuses the deployed one**, and the ELF headers
+say why:
 
-So the replay exercises the same source compiled differently, and the failure
-does not appear. Closing this needs one of:
+| | `e_machine` | `e_flags` |
+| --- | --- | --- |
+| deployed | 247 (`EM_BPF`) | 3 — **SBF version 3** |
+| local `cargo-build-sbf` (platform-tools v1.54) | 263 | 0 |
 
-1. **Reproduce the deployed build** with `solana-verify` and its Docker base
-   image, then load *that* binary here. Needs Docker.
+Two different compilation targets. LiteSVM's bundled runtime does not accept
+SBFv3, and no loader or feature set changes that — `addProgramWithLoader` with
+either loader and `withFeatureSet(allEnabled())` all fail identically. The
+dump is authentic: it hashes to `8191b4cf…`, exactly the lock's attested value.
+
+**This is worth knowing beyond the bug.** The deterministic test layer compiles
+the program to a different SBF target than devnet runs, so LiteSVM suites
+exercise a different artifact from the deployed one. That is a gap in what the
+tests can attest to, independent of anything hLP.
+
+Closing the hLP diagnosis therefore needs one of:
+
+1. **Reproduce the deployed build** with `solana-verify` and its
+   `solanafoundation/anchor:v0.31.1` base image, so the binary loaded here is
+   the SBFv3 artifact. Needs Docker.
 2. **Instrument and redeploy**, printing the drift at the identity check.
+
+The `--features production` difference is not a factor: it gates only
+vanity-suffix checks on LP mint keys at market initialization, nothing on the
+swap path.
 
 ## Ruled out, with measurements
 
