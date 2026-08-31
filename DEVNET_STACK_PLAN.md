@@ -523,10 +523,21 @@ load-bearing), the wall clock, the `production` feature, the binary itself, the
 trader's token accounts, and elapsed slots — the replay now sweeps 401
 consecutive offsets, more than two full cycles, and every one passes.
 
-So the trigger correlates with slot on chain but is not the clock value the
-program reads. What is left is the rest of the execution environment:
-`Clock.epoch` and `epochStartTimestamp`, and the sysvars that change every slot.
-The fixtures README carries the detail.
+Ruled out with measurements: the interest subtraction (both are load-bearing),
+the wall clock, the `production` feature, the binary itself, the trader's token
+accounts, elapsed slots across 401 consecutive offsets, devnet's real epoch
+state, and RPC load balancing. `catch_hlp_failure.mjs` closes the last doubt
+about the capture — it catches a live revert, captures every account at that
+instant, and replays immediately; devnet failed at slot 490776326 and the same
+state passed every offset locally.
+
+So the trigger is not in the program, the state, the accounts, or the clock. It
+is in the execution environment, and the replay has run out of environment it
+can vary: `FeatureSet.allEnabled()` does not start the SBF VM at all. Closing
+this needs the identity instrumented on chain — a redeploy, and therefore a
+decision for whoever holds the upgrade authority. The fixtures README carries
+the full record, including the false positive that briefly looked like an
+answer.
 
 Separately: the deterministic test layer compiles to a different SBF target
 than devnet runs (`e_machine` 263 locally against 247 deployed), so the LiteSVM
