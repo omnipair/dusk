@@ -369,9 +369,29 @@ independent untracked fixes per repository.
 | 3 | Network selection and faucet | **Done** — per-network env resolution, picker appears when a second network is configured; faucet page live on devnet |
 | 4 | SDK completion for product flows (section 6) | **Done for the app's actions** — typed builders added for swap, borrow, openLeverage and leverage delegation, plus a leverage-delegate client for conditional orders |
 | 5 | Webapp writes through the SDK; fork lab ported and deleted | **Done** — all 9 actions build through the SDK, and no `fork` path or name remains in the app or the API; the lab in the `dusk` repo is unused and can be deleted |
-| 6 | Rust keepers live on devnet | **Trigger done in shadow** — signer, transaction assembly and an execution loop exist; the lending trigger simulates correctly against a real devnet position. Not yet sent live, and the other five signing profiles have no loop |
+| 6 | Rust keepers live on devnet | **Lending trigger and bidder live** — both have sent confirmed transactions on devnet: the trigger opened an auction on a genuinely underwater position, the bidder repaid 150 quote for 265.56 base. Settler, leverage, auction arbitrageur and lifecycle still have no loop |
 | 7 | Public-service operations (section 9) | **Partly** — the API rate-limits every route and now serves `/api/dusk/v1/status` reporting slot lag and named degradation; no runbooks or backups, and the faucet has no abuse limit (see below) |
 | 8 | Full live matrix and sustained unattended operation | **Not started** |
+
+### The lending liquidation path is proven end to end
+
+A position was made underwater on purpose, the trigger opened its auction, and
+the bidder filled it — all on live devnet, all confirmed. Three healthy
+positions were declined in the same pass, so the discrimination is real and
+not an artifact of there being nothing else to look at.
+
+Two design choices carried the work, and both are the same choice: **the
+program is the oracle, not the keeper.** The bidder does not recompute the
+auction's decaying price; it simulates with no floor, reads the collateral
+that actually arrives, and binds the sent transaction to what it measured. It
+does not recompute the partial-liquidation cap either; it searches for the
+largest repayment the program will accept. Either formula reimplemented in the
+keeper would be free to drift from the protocol it is pricing against.
+
+Measuring is also the only way to tell a fill from a no-op:
+`fill_liquidation_auction` returns `Ok` without moving anything once an
+auction has recovered, so a bidder trusting the return code would pay a fee,
+change nothing, and record a successful liquidation.
 
 ### Swaps revert intermittently, and a borrow makes it constant (blocking)
 
