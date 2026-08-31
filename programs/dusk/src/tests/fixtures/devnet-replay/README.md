@@ -34,15 +34,41 @@ starts from a market the runtime would never hand the handler: accrual and the
 EMA refresh both happen in that step, and it is the most likely place the drift
 is introduced.
 
-## The next step
+## The LiteSVM replay, and where it stops
 
-Replay in LiteSVM, which supplies a `Clock`. The harness in
-`tests/utils/litesvm-connection.ts` already runs the program; this needs the
-deployed binary (`solana program dump <PROGRAM_ID> dusk.so -u devnet`), these
-accounts loaded with `setAccount`, the clock set to slot 490764832 and unix
-1788151172, and one swap sent. Expect 6047; then instrument the identity and
-read the drift.
+`scripts/devnet/replay_hlp_invariant.ts` does the replay: it loads a program,
+sets every account here as captured, sets the clock to slot 490764832 and unix
+1788151172, and sends one swap. It works — and the swap **succeeds**, so the
+failure does not reproduce.
 
-The drift magnitude is the open question. A missing term would fail every
+That leaves one difference, and it is the important one. The replay runs a
+locally built binary, because **LiteSVM refuses the deployed one**
+(`invalid account data for instruction`). The deployed artifact hashes to
+`8191b4cf…`, exactly the lock's attested value, so the dump is authentic; the
+local build hashes to `194a1a19…` and is 166KB larger. That gap is the build
+environment, not the source: the release process builds inside
+`solanafoundation/anchor:v0.31.1` with `--features production`, and that
+feature gates only vanity-suffix checks on LP mint keys at market
+initialization — nothing on the swap path.
+
+So the replay exercises the same source compiled differently, and the failure
+does not appear. Closing this needs one of:
+
+1. **Reproduce the deployed build** with `solana-verify` and its Docker base
+   image, then load *that* binary here. Needs Docker.
+2. **Instrument and redeploy**, printing the drift at the identity check.
+
+## Ruled out, with measurements
+
+- The interest subtraction. Removing the second makes `stressed_hlp_recovery`
+  fail; guarding it on claim certification drifts a plain swap by 12,499 atoms
+  against 12,500 accrued. Both are load-bearing.
+- Elapsed slots. Sweeping zero to ten thousand slots past the capture changes
+  nothing.
+- The wall clock. Replaying at the captured block time changes nothing.
+- The `production` feature. It touches market initialization only.
+
+The drift magnitude remains the open question. A missing term would fail every
 swap; devnet fails about a quarter on an idle market, which is the signature of
-a value hovering at three or four atoms against `MAX_CONCENTRATED_HLP_LIVE_DUST_ATOMS = 3`.
+a value hovering at three or four atoms against
+`MAX_CONCENTRATED_HLP_LIVE_DUST_ATOMS = 3`.

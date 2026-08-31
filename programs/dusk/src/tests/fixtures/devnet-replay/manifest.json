@@ -36,6 +36,42 @@
       "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
       "lamports": 2519520,
       "bytes": 234
+    },
+    "base_reserve_vault": {
+      "address": "8RBbxBPHuecXXcHFdzowbhjLbR9VpTtX9Yuu2XgUfs8N",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "lamports": 2039280,
+      "bytes": 165
+    },
+    "quote_reserve_vault": {
+      "address": "8AuwR6EiQzg1sHDwpjf4gSizVG78xiw8bnnLqP4YwjGi",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "lamports": 2039280,
+      "bytes": 165
+    },
+    "base_interest_vault": {
+      "address": "63tFqjbauvpU9ijBKFGwXZ5ksjzSAyCBdyyuczYXbEAv",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "lamports": 2039280,
+      "bytes": 165
+    },
+    "quote_interest_vault": {
+      "address": "7qzeSRWQAKsBhsPciGzR2DiW3BxTfKLrDmK2UjnR3Fcn",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "lamports": 2039280,
+      "bytes": 165
+    },
+    "futarchy_authority": {
+      "address": "6ahW8Jmw4F1kzDxzA9vps9qrxMdjtQBCw3itSqYn9NZY",
+      "owner": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+      "lamports": 3640080,
+      "bytes": 395
+    },
+    "base_hlp_ylp_vault": {
+      "address": "EHbQTVJHWEoxX48m6M3bSY1hGbNbdC1tRgrwDum8L7Wh",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "lamports": 2081040,
+      "bytes": 171
     }
   },
   "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
