@@ -508,13 +508,25 @@ The replay now runs the **deployed** binary. It is SBFv3 (`e_machine` 247,
 so no Docker and no rebuild were needed after all. And the swap still
 succeeds, at every accrual point from zero to two hundred thousand slots.
 
+**The failure is periodic**, which is the most useful thing known about it.
+Sampling every 1.5 seconds gives `........xxxx........xxxx........xxxx` —
+clusters 187 to 190 slots apart, about a third of each cycle failing. That duty
+cycle is the 25-33% rate seen from every sampling method, and Helius and
+`api.devnet.solana.com` agree, so RPC load balancing is not the cause. A period
+is what a rounding bug looks like from outside: something accrues linearly, a
+floored quantity ticks over, the drift crosses the three-atom tolerance for
+part of each cycle and falls back for the rest. About 188 slots is roughly 75
+seconds, the time for one more atom of interest to accrue on this market.
+
 Ruled out with measurements: the interest subtraction (both subtractions are
-load-bearing), elapsed slots, the wall clock, the `production` feature, and now
-the binary itself. What remains is environmental — the trader token accounts
-are synthesized rather than captured, the non-clock sysvars are LiteSVM
-defaults, and the market capture is taken immediately after the reverting
-simulation rather than pinned to its slot. The fixtures README ranks them; the
-token accounts are cheapest to test.
+load-bearing), the wall clock, the `production` feature, the binary itself, the
+trader's token accounts, and elapsed slots — the replay now sweeps 401
+consecutive offsets, more than two full cycles, and every one passes.
+
+So the trigger correlates with slot on chain but is not the clock value the
+program reads. What is left is the rest of the execution environment:
+`Clock.epoch` and `epochStartTimestamp`, and the sysvars that change every slot.
+The fixtures README carries the detail.
 
 Separately: the deterministic test layer compiles to a different SBF target
 than devnet runs (`e_machine` 263 locally against 247 deployed), so the LiteSVM
