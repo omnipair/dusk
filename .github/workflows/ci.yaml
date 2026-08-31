@@ -63,6 +63,9 @@ jobs:
       - name: Test leverage delegate
         run: cargo test -p leverage_delegate
 
+      - name: Test mock-token faucet
+        run: cargo test -p faucet
+
       - name: Typecheck test harness
         run: yarn typecheck
 
@@ -86,10 +89,12 @@ jobs:
           path: |
             target/deploy/dusk.so
             target/deploy/leverage_delegate.so
+            target/deploy/faucet.so
             target/deploy/referral_transfer_hook.so
             target/deploy/token_metadata_fixture.so
             target/idl/dusk.json
             target/idl/leverage_delegate.json
+            target/idl/faucet.json
 
       - name: Check Dusk SDK package
         run: npm run check:dusk-sdk

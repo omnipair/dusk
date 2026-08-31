@@ -23,6 +23,16 @@ const pairs = [
     committed: resolve(packageRoot, "src/types_v2.ts"),
     normalize: (contents) => contents,
   },
+  {
+    generated: resolve(repoRoot, "target/idl/leverage_delegate.json"),
+    committed: resolve(packageRoot, "src/idl_delegate.json"),
+    normalize: (contents) => contents,
+  },
+  {
+    generated: resolve(repoRoot, "target/types/leverage_delegate.ts"),
+    committed: resolve(packageRoot, "src/types_delegate.ts"),
+    normalize: (contents) => contents,
+  },
 ];
 
 let failed = false;
@@ -55,7 +65,8 @@ for (const { generated, committed, normalize } of pairs) {
 
 if (failed) {
   console.error(
-    "\nRun `anchor build -p dusk` and `npm run prepare-idl --prefix packages/dusk-sdk`, then commit the updated interface files."
+    "\nRun `anchor build -p dusk`, `anchor build -p leverage_delegate`, and " +
+      "`npm run prepare-idl --prefix packages/dusk-sdk`, then commit the updated interface files."
   );
   process.exit(1);
 }
