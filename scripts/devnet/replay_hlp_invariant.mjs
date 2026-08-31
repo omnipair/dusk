@@ -202,7 +202,11 @@ async function attempt(clockSlot) {
 // between one attempt and the next, so this samples that axis directly.
 let failures = 0;
 const base = Number(manifest.failingCapture.slot);
-for (const elapsed of [0, 1, 5, 25, 100, 500, 2_000, 10_000, 50_000, 200_000]) {
+// Fine sweep: devnet failures recur every ~188 slots with a ~34% duty
+// cycle, so exponentially spaced samples walk straight past the window.
+const sweep = [];
+for (let i = 0; i <= 400; i += 1) sweep.push(i);
+for (const elapsed of sweep) {
   const clock = svm.getClock();
   clock.slot = BigInt(base + elapsed);
   clock.unixTimestamp = BigInt(manifest.failingCapture.blockTimeUnix + Math.round(elapsed * 0.4));
@@ -212,9 +216,7 @@ for (const elapsed of [0, 1, 5, 25, 100, 500, 2_000, 10_000, 50_000, 200_000]) {
   if (failed) {
     failures += 1;
     const code = text.match(/Custom\((\d+)\)/)?.[1] ?? "?";
-    console.log(`  +${elapsed} slots -> FAILED (custom ${code})`);
-  } else {
-    console.log(`  +${elapsed} slots -> ok`);
+    if (failures <= 5) console.log(`  +${elapsed} slots -> FAILED (custom ${code})`);
   }
 }
-console.log(failures > 0 ? `\n${failures} of 10 reproduced the failure` : "\nno sweep point reproduced it");
+console.log(failures > 0 ? `\n${failures} of ${sweep.length} sweep points reproduced the failure` : `\nnone of ${sweep.length} sweep points reproduced it`);

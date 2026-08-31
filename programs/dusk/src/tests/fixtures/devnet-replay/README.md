@@ -100,20 +100,39 @@ The market does carry hLP debt for interest to accrue on
 `setClock` demonstrably moves what the program reads. So the sweep really is
 sampling accrual, across roughly a day of it, and none of it fails.
 
-**Same program, same state, same clock, same accounts, accrual swept from zero
-to two hundred thousand slots: passes every time locally, fails a third of the
-time on devnet.** That is the finding. It puts the trigger outside program
+**The devnet failure is periodic.** Sampling every 1.5 seconds for a minute
+gives `........xxxx........xxxx........xxxx....` — failure clusters beginning
+at slots 490774145, 490774335 and 490774522, so a cycle of **187-190 slots**
+with roughly a third of it failing. That duty cycle is the 25-33% rate seen
+from every sampling method and every RPC provider, so it is a property of the
+chain state rather than of which node answered.
+
+A period is what a rounding bug looks like from outside: something accrues
+linearly, a floored quantity ticks over, the drift crosses the three-atom
+tolerance for part of each cycle and falls back inside it for the rest. At
+roughly 400ms a slot, ~188 slots is ~75 seconds — the time it takes one more
+atom of interest to accrue on this market's hLP debt.
+
+**And it still does not reproduce.** The sweep now walks 401 consecutive
+elapsed slots — more than two full cycles — against the deployed binary and
+the captured state. Every one passes.
+
+Same program, same state, same accounts, every clock offset across two full
+periods: passes every time locally, fails a third of the time on devnet. That
+is the finding. It puts the trigger outside program
 logic and state, in the interaction with the live validator — the remaining
 candidates being sysvars other than the clock (rent, epoch schedule, slot
 hashes, stake history, all LiteSVM defaults here), or something about how
 simulation against a live bank differs from LiteSVM's.
 
-Worth checking before anything deeper: devnet reads go through a
-load-balanced RPC, so consecutive simulations may be answered by nodes at
-different slots. A node that is further behind sees a larger gap between
-`last_update_slot` and its current slot. That would make the intermittency an
-artifact of which node answered rather than a property of any single state —
-and it is cheap to test by pinning to one node and re-measuring the rate.
+RPC load balancing is ruled out: Helius and `api.devnet.solana.com` both
+report 33%, and the periodicity is too regular for node divergence.
+
+So the trigger correlates with slot on chain but is not the clock value the
+program reads — the replay varies that across two full periods without
+failing. The next thing to vary is the rest of the execution environment:
+`Clock.epoch` and `epochStartTimestamp`, which are left at LiteSVM defaults
+here, and the sysvars that change every slot (SlotHashes above all).
 
 The drift magnitude remains the open question. A missing term would fail every
 swap; devnet fails about a quarter on an idle market, which is the signature of
