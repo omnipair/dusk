@@ -396,9 +396,19 @@ account for accrual rather than tolerate it.
 Reproduce with `scripts/devnet/repro_swap_reverts_intermittently.ts`, which
 measures both rates and repays what it borrows.
 
-This is the most serious open issue in the stack: the core trading path fails a
-quarter of the time today, on an idle market, and all but stops under ordinary
-borrowing. It needs a protocol fix.
+**It is not only swaps.** Any instruction that settles hLP goes through the
+same check. The lending backstop — `backstop_liquidation_auction`, the
+mechanism that resolves a position when nobody fills its auction — was tried
+five times in a row against an expired auction and blocked every time by the
+same 6047. That is worse than the swap failure: it is a last-resort path that
+cannot run in exactly the circumstance it exists for, because a position under
+auction is by definition a position with debt outstanding, which is the regime
+where the failure is constant rather than intermittent.
+
+This is the most serious open issue in the stack: the core trading path fails
+a quarter of the time on an idle market, all but stops under ordinary
+borrowing, and takes the bad-debt backstop down with it. It needs a protocol
+fix, and no amount of keeper work routes around it.
 
 ### Faucet abuse is an open protocol gap
 
