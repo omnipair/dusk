@@ -369,8 +369,8 @@ independent untracked fixes per repository.
 | 3 | Network selection and faucet | **Done** — per-network env resolution, picker appears when a second network is configured; faucet page live on devnet |
 | 4 | SDK completion for product flows (section 6) | **Done for the app's actions** — typed builders added for swap, borrow, openLeverage and leverage delegation, plus a leverage-delegate client for conditional orders |
 | 5 | Webapp writes through the SDK; fork lab ported and deleted | **Done** — all 9 actions build through the SDK, and no `fork` path or name remains in the app or the API; the lab in the `dusk` repo is unused and can be deleted |
-| 6 | Rust keepers live on devnet | **Sentinel done** — repo re-pinned to `devnet-1`, discovery loop reads the chain, deployed; the six signing profiles have no execution loop yet |
-| 7 | Public-service operations (section 9) | **Partly** — the API rate-limits every route; no status page, runbooks or backups, and the faucet has no abuse limit (see below) |
+| 6 | Rust keepers live on devnet | **Trigger done in shadow** — signer, transaction assembly and an execution loop exist; the lending trigger simulates correctly against a real devnet position. Not yet sent live, and the other five signing profiles have no loop |
+| 7 | Public-service operations (section 9) | **Partly** — the API rate-limits every route and now serves `/api/dusk/v1/status` reporting slot lag and named degradation; no runbooks or backups, and the faucet has no abuse limit (see below) |
 | 8 | Full live matrix and sustained unattended operation | **Not started** |
 
 ### Faucet abuse is an open protocol gap
@@ -388,12 +388,40 @@ holds the authority. Until one is chosen the faucet is safe only because devnet
 tokens are worthless — which is a reason not to promote this program shape to
 mainnet unchanged.
 
-Honest summary: reads are finished, and every write the app can request is now
-built through the SDK. Swap and openLeverage are verified simulating against
-the live devnet market; borrow resolves its accounts and fails only on a
-position that does not exist yet. **No write has been signed and sent by a
-real wallet**, which is the next thing to prove. Phases 6 and 7 are the
-remaining critical path.
+### The keeper contract had drifted from the deployed program
+
+Four of the eleven instructions the keepers were pinned to did not exist in the
+deployed program: `trigger_liquidation_auction`, `bid_liquidation_auction`,
+`settle_liquidation_auction_floor` and `liquidate_leverage` had become
+`start_liquidation_auction`, `fill_liquidation_auction`,
+`backstop_liquidation_auction` and `liquidate_leverage_position`. Every keeper
+built on them would have been dispatched to the transfer-hook fallback.
+
+The conformance suite could not catch it. It checked that each discriminator
+matched the Anchor hash of the manifest's own instruction name, which is true
+of any name at all, including one the program has never heard of. The
+generator did check against the pinned IDL — it had simply not been re-run
+since the lock moved to `devnet-1`.
+
+The drift went past names: the backstop takes one argument rather than four,
+three account lists had gained accounts, and `delegated_close_leverage` had
+gained a `close_bps` field. The lock was also frozen without a source
+fingerprint, so `assert_live_ready` would have refused every live start.
+
+All of it is corrected and regenerated from the IDL, and the tests that
+asserted the pin rather than the rule now demote a lock in the test instead of
+depending on nothing being deployed.
+
+Honest summary: reads are finished, every write the app can request is built
+through the SDK, and **four writes have now been signed and confirmed on
+devnet** — faucet, swap, deposit collateral, borrow — leaving a real borrow
+position at `Hnqf2sonacYGJdLHESagBWovSsHirkRyBXzqLvRwuZSz` for the keepers to
+watch. The lending trigger evaluates that position correctly in shadow mode
+and declines to act on it, which is the right answer for a healthy position.
+
+What remains: no keeper has sent a live transaction, five signing profiles
+still have no execution loop, and no liquidation has been driven end to end —
+which needs an unhealthy position, and therefore a way to make one on devnet.
 
 ## 14. Definition of done
 
