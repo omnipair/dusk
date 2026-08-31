@@ -373,6 +373,25 @@ independent untracked fixes per repository.
 | 7 | Public-service operations (section 9) | **Partly** — the API rate-limits every route and now serves `/api/dusk/v1/status` reporting slot lag and named degradation; no runbooks or backups, and the faucet has no abuse limit (see below) |
 | 8 | Full live matrix and sustained unattended operation | **Not started** |
 
+### Keeper status by profile
+
+| Profile | State |
+| --- | --- |
+| `dusk-sentinel` | Deployed, no wallet, reading the chain |
+| `dusk-lending-trigger` | **Sent live** — opened an auction on a real underwater position |
+| `dusk-lending-bidder` | **Sent live** — repaid 150 quote for 265.56 base |
+| `dusk-lending-settler` | Complete; every settlement refused by the hLP defect |
+| `dusk-leverage-keeper` | Evaluates a real 3x position and declines it correctly |
+| `dusk-auction-arbitrageur` | Offers all eight lane/source/side combinations; all refused for want of revenue |
+| `dusk-lifecycle-keeper` | Runs; no parameter proposals exist on this deployment yet |
+
+Only the trigger and bidder have been proven by sending. The other three
+signing profiles are proven as far as this deployment allows: they discover
+real accounts, assemble their instructions, and are refused by the program for
+reasons that name a business condition rather than a malformed transaction. A
+wrong account fails differently from an empty lane, which is what makes the
+refusals evidence rather than silence.
+
 ### The lending liquidation path is proven end to end
 
 A position was made underwater on purpose, the trigger opened its auction, and
