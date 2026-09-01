@@ -112,8 +112,16 @@ async function main() {
     transaction.feePayer = keypair.publicKey;
     const simulation = await connection.simulateTransaction(transaction);
     if (!simulation.value.err) return null;
+    // Only a program revert counts. `BlockhashNotFound` is the RPC declining
+    // to simulate at all — the program never ran — and counting it as a swap
+    // failure inflates every rate this script reports. That mistake is why
+    // this repository once recorded "a quarter of swaps revert on an idle
+    // market": the pattern was the RPC's blockhash cycle, not the protocol.
+    const logs = simulation.value.logs ?? [];
+    const reverted = logs.some((line) => line.includes("Error Code"));
+    if (!reverted) return null;
     return (
-      (simulation.value.logs ?? []).find((line) => line.includes("Error Code")) ??
+      logs.find((line) => line.includes("Error Code")) ??
       JSON.stringify(simulation.value.err)
     ).replace("Program log: AnchorError thrown in programs/dusk/src/", "");
   };

@@ -448,12 +448,18 @@ Measuring is also the only way to tell a fill from a no-op:
 auction has recovered, so a bidder trusting the return code would pay a fee,
 change nothing, and record a successful liquidation.
 
-### Swaps revert: diagnosed, not yet fixed (blocking)
+### Swaps revert while debt is outstanding (blocking)
 
-Swaps on the devnet market revert with `BrokenInvariant` (6047) at the hLP
-reserve-identity check in `transitions/liquidity/hlp/engine.rs`. Rate varies
-with market state: a quarter on an idle market at one point, all of them at
-another.
+Measured with RPC transients excluded, which matters — see the correction
+below:
+
+- **idle market, no debt: 0 of 12 swaps revert**
+- **with 400 quote borrowed: 7 of 12 revert (58%)**
+
+Failure is `BrokenInvariant` (6047) at the hLP reserve-identity check in
+`transitions/liquidity/hlp/engine.rs`. It also blocks
+`backstop_liquidation_auction`, so the lending settler cannot run, and it
+blocks `open_leverage`.
 
 **The cause is measured.** An instrumented build was deployed briefly, its logs
 read, and the attested binary restored:
@@ -463,11 +469,11 @@ hlp-drift base=1 quote=25 base_interest=0 quote_interest=0 final_base_debt=14826
 ```
 
 The quote-side drift is 24-26 atoms against a three-atom tolerance, and **both
-interest tranches are zero**. Every explanation built around accrued interest
-was wrong — the double-subtraction theory, the "debt makes it constant"
-reading, and the periodicity attributed to interest ticking over.
+interest tranches are zero**. So debt is what brings the failure on, but *not*
+through accrued interest — the double-subtraction theory and everything else
+built on accrual was wrong.
 
-`final_base_debt` cancels across the comparison, so what disagrees is the
+`final_base_debt` cancels across the comparison. What disagrees is the
 materialized reserves against the quoted endpoint rebuilt through
 `denormalize_from_nad_floor`:
 
@@ -476,15 +482,23 @@ materialized reserves against the quoted endpoint rebuilt through
 ```
 
 The tolerance's premise — three independently floored quantities, each off by
-at most one — does not describe an error of that size. The remaining clue is
-the asymmetry: base drifts by 1 and quote by 25, and only the base hLP vault
+at most one — does not describe an error of that size. The clue left standing
+is the asymmetry: base drifts by 1 and quote by 25, and only the base hLP vault
 carries debt, so the side *without* debt is the side that drifts.
 
-Widening the constant is still the wrong fix: the error is a reconstruction
-disagreement scaling with market magnitudes, not a fixed rounding budget.
-Deciding what the quoted endpoint should reconstruct is a protocol design
-question. `programs/dusk/src/tests/fixtures/devnet-replay/README.md` holds the
-full record, including everything ruled out on the way.
+Widening the constant is the wrong fix: the error scales with market
+magnitudes rather than sitting inside a fixed rounding budget. Deciding what
+the quoted endpoint should reconstruct is a protocol design question.
+
+**A correction to earlier numbers in this document.** This defect was recorded
+for most of its investigation as "a quarter of swaps revert on an idle market,
+92% with debt", with a striking ~188-slot periodicity. That was wrong. The
+measuring script counted any simulation error as a revert, and `BlockhashNotFound`
+— the RPC declining to simulate, with the program never running — is common and
+periodic. Sixty consecutive samples on an idle market produced zero program
+reverts and a regular pattern of pure RPC transients. The script now requires a
+program error in the logs before counting a failure, and every rate above was
+re-measured with that fix.
 
 ### Faucet abuse: written, not deployed
 

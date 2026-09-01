@@ -27,6 +27,14 @@ against a three-atom tolerance, with no accrued interest anywhere in the
 transition. Every explanation built around accrual — including the one this
 file argued at length — was wrong.
 
+**And the rates quoted throughout this file were wrong too.** They counted any
+simulation error as a revert, and `BlockhashNotFound` — the RPC declining to
+simulate, with the program never running — is both common and periodic. That
+is where the "quarter of swaps on an idle market" and the ~188-slot cycle came
+from. Re-measured with program reverts only: **0 of 12 on an idle market, 7 of
+12 with 400 quote borrowed.** Debt brings the failure on; an idle market is
+fine.
+
 `final_base_debt` appears on both sides of the comparison and cancels, so what
 is actually disagreeing is:
 
