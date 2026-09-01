@@ -450,11 +450,20 @@ change nothing, and record a successful liquidation.
 
 ### Swaps revert while debt is outstanding (blocking)
 
-Measured with RPC transients excluded, which matters — see the correction
-below:
+Tallied by error type over 14 swaps each way, which is the only measurement
+that held up — see the correction below:
 
-- **idle market, no debt: 0 of 12 swaps revert**
-- **with 400 quote borrowed: 7 of 12 revert (58%)**
+| market state | outcome |
+| --- | --- |
+| debt outstanding | 10 `BrokenInvariant`, 4 RPC transients, **0 ok** |
+| debt repaid | **9 ok**, 5 RPC transients, **0 `BrokenInvariant`** |
+
+So it is not a rate at all: **outstanding debt breaks swaps, repaying it
+restores them**, and the percentages this document previously carried were
+noise from mixing RPC transients into the count. Note that roughly a third of
+all simulations return `BlockhashNotFound` regardless — the RPC declining to
+run the program — so any measurement here has to tally by error type rather
+than count failures.
 
 Failure is `BrokenInvariant` (6047) at the hLP reserve-identity check in
 `transitions/liquidity/hlp/engine.rs`. It also blocks

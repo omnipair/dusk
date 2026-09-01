@@ -31,9 +31,12 @@ file argued at length — was wrong.
 simulation error as a revert, and `BlockhashNotFound` — the RPC declining to
 simulate, with the program never running — is both common and periodic. That
 is where the "quarter of swaps on an idle market" and the ~188-slot cycle came
-from. Re-measured with program reverts only: **0 of 12 on an idle market, 7 of
-12 with 400 quote borrowed.** Debt brings the failure on; an idle market is
-fine.
+from. Tallied by error type, 14 swaps each way, which is the measurement that held
+up: **with debt outstanding, 10 BrokenInvariant / 4 RPC / 0 ok; after repaying,
+9 ok / 5 RPC / 0 BrokenInvariant.** It is not a rate — outstanding debt breaks
+swaps and repaying restores them. About a third of all simulations return
+`BlockhashNotFound` regardless, so counting failures rather than tallying them
+by type produces whatever number the RPC felt like that minute.
 
 **The three-atom tolerance is arithmetically correct, and that is the point.**
 `NAD_DECIMALS` is 9 and the assets carry 6 decimals, so

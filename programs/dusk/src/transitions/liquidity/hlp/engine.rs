@@ -714,6 +714,20 @@ fn prepare_concentrated_hlp_transition_from_end(
                 )?,
             )
         };
+    // Under the debug flag, print the reconstruction's own inputs. The
+    // identity's two sides disagree in the ordinary (non-debt) portion, and
+    // separating the quoted ordinary reserve from the quoted hLP equity says
+    // which of them carries the gap — and whether it tracks trade size, which
+    // would make it solver error, or hLP debt, which would make it accounting.
+    #[cfg(feature = "debug-hlp-drift")]
+    msg!(
+        "hlp-recon base_non_debt={} quote_non_debt={} preserve={} certify={}",
+        base_non_debt_reserve,
+        quote_non_debt_reserve,
+        preserve_current_ordinary_reserves,
+        certify_proportional_claim,
+    );
+
     let final_base_live_reserve = base_non_debt_reserve
         .checked_add(final_quote_debt)
         .ok_or(ErrorCode::ReserveOverflow)?;
