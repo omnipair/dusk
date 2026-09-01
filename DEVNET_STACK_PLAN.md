@@ -448,131 +448,43 @@ Measuring is also the only way to tell a fill from a no-op:
 auction has recovered, so a bidder trusting the return code would pay a fee,
 change nothing, and record a successful liquidation.
 
-### Swaps revert intermittently, and a borrow makes it constant (blocking)
+### Swaps revert: diagnosed, not yet fixed (blocking)
 
-On the devnet market with **no user debt at all**, about a quarter of swap
-attempts revert with `BrokenInvariant` (6047) at the hLP reserve-identity check
-in `transitions/liquidity/hlp/engine.rs`. Borrow four hundred quote and the
-same check fails on nine attempts in ten until the debt is repaid. Measured,
-not estimated: 3/12 at rest, 11/12 with the borrow standing.
+Swaps on the devnet market revert with `BrokenInvariant` (6047) at the hLP
+reserve-identity check in `transitions/liquidity/hlp/engine.rs`. Rate varies
+with market state: a quarter on an idle market at one point, all of them at
+another.
 
-The check tolerates three atoms of drift, which is the right bound for what its
-comment describes — three independently floored quantities, each off by at most
-one. It is not a bound on accrued interest, which grows with principal and
-elapsed slots and is not carried by the identity being checked. The hLP vault
-holds debt of its own, so this accrues whether or not anybody has borrowed; a
-user borrow adds principal and pushes the drift past three atoms continuously
-rather than intermittently.
+**The cause is measured.** An instrumented build was deployed briefly, its logs
+read, and the attested binary restored:
 
-Widening the constant would not fix it. The drift is unbounded in principal and
-elapsed time, so every constant is eventually too small — the identity has to
-account for accrual rather than tolerate it.
+```
+hlp-drift base=1 quote=25 base_interest=0 quote_interest=0 final_base_debt=1482619 final_quote_debt=0
+```
 
-**Where it is, and two fixes that do not work.** The check sits at the end of
-`prepare_concentrated_hlp_transition_from_end`, comparing a reconstructed
-`final_*_live_reserve` against an identity recomputed from
-`market.*_side.reserves.live_reserve`, which `debit_cash_for_hlp_interest` has
-already reduced by the accrued interest.
+The quote-side drift is 24-26 atoms against a three-atom tolerance, and **both
+interest tranches are zero**. Every explanation built around accrued interest
+was wrong — the double-subtraction theory, the "debt makes it constant"
+reading, and the periodicity attributed to interest ticking over.
 
-The materialized path subtracts that interest once; the quoted swap path
-subtracts it in its branch and again in a block added later (`e077db6`). That
-asymmetry looks like the bug and is not. Removing the second subtraction makes
-`stressed_hlp_recovery` fail; guarding it on claim certification makes a plain
-swap drift by a whole interest tranche — 12,499 atoms against 12,500 accrued,
-measured. Both subtractions are load-bearing.
-`a_plain_swap_survives_accrued_hlp_interest` covers the ordinary path with
-interest outstanding and rules this out cheaply if anyone tries it again.
+`final_base_debt` cancels across the comparison, so what disagrees is the
+materialized reserves against the quoted endpoint rebuilt through
+`denormalize_from_nad_floor`:
 
-So the devnet drift is **not** a missing or duplicated term. A whole interest
-tranche would fail every swap; devnet fails about a quarter on an idle market.
-That is the signature of a drift hovering at three or four atoms against a
-three-atom tolerance — a rounding question about how many independently floored
-quantities actually feed the identity, not a missing subtraction.
+```
+(quote_live_reserve - old_quote_hlp_live)   vs   (ordinary_quote + quote_equity)
+```
 
-**Confirming it no longer needs a redeploy.** The market account was captured
-at the exact moment a swap simulation reverted, alongside a healthy control and
-the other accounts a swap touches, in
-`programs/dusk/src/tests/fixtures/devnet-replay/`. Replaying either capture
-through `prepare` and `finalize_state` at the real slot and block time does
-*not* reproduce the failure, which localizes it further: the instruction runs
-`market.update()` before the handler, `update()` calls `Clock::get()`, and that
-is unavailable in a unit test — so the replay starts from a market the runtime
-would never have produced, and accrual and the EMA refresh both happen in the
-step being skipped.
+The tolerance's premise — three independently floored quantities, each off by
+at most one — does not describe an error of that size. The remaining clue is
+the asymmetry: base drifts by 1 and quote by 25, and only the base hLP vault
+carries debt, so the side *without* debt is the side that drifts.
 
-The LiteSVM replay is written (`scripts/devnet/replay_hlp_invariant.ts`) and
-runs: captured accounts loaded as they stood, clock set to the observed slot,
-one swap through the real runtime. **The swap succeeds** — the failure does
-not reproduce.
-
-The replay now runs the **deployed** binary. It is SBFv3 (`e_machine` 247,
-`e_flags` 3), which the pinned litesvm 0.8.0 refuses and litesvm 1.x accepts —
-so no Docker and no rebuild were needed after all. And the swap still
-succeeds, at every accrual point from zero to two hundred thousand slots.
-
-**The failure is periodic**, which is the most useful thing known about it.
-Sampling every 1.5 seconds gives `........xxxx........xxxx........xxxx` —
-clusters 187 to 190 slots apart, about a third of each cycle failing. That duty
-cycle is the 25-33% rate seen from every sampling method, and Helius and
-`api.devnet.solana.com` agree, so RPC load balancing is not the cause. A period
-is what a rounding bug looks like from outside: something accrues linearly, a
-floored quantity ticks over, the drift crosses the three-atom tolerance for
-part of each cycle and falls back for the rest. About 188 slots is roughly 75
-seconds, the time for one more atom of interest to accrue on this market.
-
-Ruled out with measurements: the interest subtraction (both subtractions are
-load-bearing), the wall clock, the `production` feature, the binary itself, the
-trader's token accounts, and elapsed slots — the replay now sweeps 401
-consecutive offsets, more than two full cycles, and every one passes.
-
-Ruled out with measurements: the interest subtraction (both are load-bearing),
-the wall clock, the `production` feature, the binary itself, the trader's token
-accounts, elapsed slots across 401 consecutive offsets, devnet's real epoch
-state, and RPC load balancing. `catch_hlp_failure.mjs` closes the last doubt
-about the capture — it catches a live revert, captures every account at that
-instant, and replays immediately; devnet failed at slot 490776326 and the same
-state passed every offset locally.
-
-So the trigger is not in the program, the state, the accounts, or the clock. It
-is in the execution environment, and the replay has run out of environment it
-can vary: `FeatureSet.allEnabled()` does not start the SBF VM at all.
-
-**The instrumented build is ready.** `anchor build -p dusk -- --features
-debug-hlp-drift` logs the drift at the identity check and then decides exactly
-as before. It is off by default and the suite passes identically either way, so
-what stands between here and the answer is a deploy — a decision for whoever
-holds the upgrade authority, not a piece of work outstanding.
-
-The fixtures README carries the full record, including the false positive that
-briefly looked like an answer.
-
-Separately: the deterministic test layer compiles to a different SBF target
-than devnet runs (`e_machine` 263 locally against 247 deployed), so the LiteSVM
-suites exercise a differently-compiled artifact from the deployed one. That
-limits what they attest to and is worth closing before an audit on its own.
-
-Leverage debt does the same thing. With one leverage position open the at-rest
-rate measured 100%; closing it returned the market to 25%. Any outstanding
-debt, of either kind, moves the failure from intermittent to constant.
-
-Reproduce with `scripts/devnet/repro_swap_reverts_intermittently.ts`, which
-measures both rates and repays what it borrows.
-`scripts/devnet/restore_market.ts` clears both kinds of debt and returns the
-pool to parity.
-
-**It is not only swaps.** Any instruction that settles hLP goes through the
-same check. The lending backstop — `backstop_liquidation_auction`, the
-mechanism that resolves a position when nobody fills its auction — was tried
-five times in a row against an expired auction and blocked every time by the
-same 6047. That is worse than the swap failure: it is a last-resort path that
-cannot run in exactly the circumstance it exists for, because a position under
-auction is by definition a position with debt outstanding, which is the regime
-where the failure is constant rather than intermittent.
-
-This is the most serious open issue in the stack: the core trading path fails
-a quarter of the time on an idle market, all but stops under ordinary
-borrowing, and takes the bad-debt backstop down with it. It needs a protocol
-fix, and no amount of keeper work routes around it.
+Widening the constant is still the wrong fix: the error is a reconstruction
+disagreement scaling with market magnitudes, not a fixed rounding budget.
+Deciding what the quoted endpoint should reconstruct is a protocol design
+question. `programs/dusk/src/tests/fixtures/devnet-replay/README.md` holds the
+full record, including everything ruled out on the way.
 
 ### Faucet abuse: written, not deployed
 
