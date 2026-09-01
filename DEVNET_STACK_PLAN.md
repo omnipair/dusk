@@ -481,14 +481,21 @@ materialized reserves against the quoted endpoint rebuilt through
 (quote_live_reserve - old_quote_hlp_live)   vs   (ordinary_quote + quote_equity)
 ```
 
-The tolerance's premise — three independently floored quantities, each off by
-at most one — does not describe an error of that size. The clue left standing
-is the asymmetry: base drifts by 1 and quote by 25, and only the base hLP vault
-carries debt, so the side *without* debt is the side that drifts.
+**The three-atom tolerance is arithmetically correct.** `NAD_DECIMALS` is 9 and
+the assets carry 6 decimals, so `denormalize_from_nad_floor` divides by 1000
+and discards under one atom per call; three floors genuinely cannot exceed
+three atoms. A passing swap reconciles to exactly one.
 
-Widening the constant is the wrong fix: the error scales with market
-magnitudes rather than sitting inside a fixed rounding budget. Deciding what
-the quoted endpoint should reconstruct is a protocol design question.
+So this is **not a rounding problem and the constant is not too tight** — the
+quoted endpoint's model of the post-swap state and the materialized reserves
+disagree by real value once hLP debt is outstanding, and the identity is doing
+its job by rejecting. Widening it would suppress a genuine discrepancy.
+
+The clue left standing is the asymmetry: base drifts by 1 and quote by 25, and
+only the base hLP vault carries debt, so the side *without* debt is the side
+that drifts. Why the two models disagree is a question about the AMM's
+accounting rather than about tolerances, and it is the one thing standing
+between this deployment and a working swap under load.
 
 **A correction to earlier numbers in this document.** This defect was recorded
 for most of its investigation as "a quarter of swaps revert on an idle market,
