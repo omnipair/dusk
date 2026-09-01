@@ -35,8 +35,15 @@ from. Re-measured with program reverts only: **0 of 12 on an idle market, 7 of
 12 with 400 quote borrowed.** Debt brings the failure on; an idle market is
 fine.
 
-`final_base_debt` appears on both sides of the comparison and cancels, so what
-is actually disagreeing is:
+**The three-atom tolerance is arithmetically correct, and that is the point.**
+`NAD_DECIMALS` is 9 and the assets carry 6 decimals, so
+`denormalize_from_nad_floor` divides by 1000 and discards at most 999 NAD —
+under one atom per call. Three floored quantities therefore genuinely cannot
+exceed three atoms, exactly as the comment claims.
+
+So a 25-atom drift is **not a rounding problem and the constant is not too
+tight**. The two sides disagree about real value. What is actually disagreeing
+is:
 
 ```
 (quote_live_reserve - old_quote_hlp_live)      // the materialized reserves
@@ -45,19 +52,31 @@ vs
 ```
 
 Both `ordinary_quote` and `quote_equity` come from
-`denormalize_from_nad_floor` on the quoted endpoint. The stored
-`quote_hlp_live_reserve` is a raw atom count maintained incrementally. So the
-question is why rebuilding the hLP equity from NAD disagrees with the running
-total by ~25 atoms, and the tolerance's premise — "three independently floored
-quantities, each off by at most one" — does not describe that error.
+`denormalize_from_nad_floor` on the quoted endpoint; the stored
+`quote_hlp_live_reserve` is a raw atom count maintained incrementally. Twenty
+five atoms is far outside what those floors can produce, so the quoted
+endpoint's model of the post-swap state and the materialized state differ by
+real value — an accounting disagreement, not a precision one.
+
+A confirming reading from a *passing* swap, where the model checks out exactly:
+
+```
+hlp-terms base_live=25148093165 quote_live=24947210813 old_base_hlp=0
+          old_quote_hlp=9922204 final_base_live=25148093164 final_quote_live=24947206876
+```
+
+`24947210813 - 9922204 + 9918268 = 24947206877` against a final of
+`24947206876` — one atom, which is what the floors should cost.
 
 The asymmetry is the strongest clue left: base drifts by 1 and quote by 25,
 and only the base hLP vault carries debt (`final_base_debt` 1,482,619,
 `final_quote_debt` 0). The side *without* debt is the side that drifts.
 
-Widening the constant is still the wrong fix. The error is a reconstruction
-disagreement whose size depends on market magnitudes, not a fixed rounding
-budget.
+Widening the constant would not be a fix, it would be suppressing a real
+discrepancy: the identity is doing its job by rejecting. What needs deciding is
+why the quoted endpoint and the materialized reserves disagree about value once
+hLP debt is outstanding, which is a question about the AMM's accounting model
+rather than about tolerances.
 
 ## What was ruled out along the way
 
