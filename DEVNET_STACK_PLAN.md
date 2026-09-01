@@ -375,17 +375,19 @@ independent untracked fixes per repository.
 
 ### Deployment
 
-All seven keeper services exist in the `dusk-devnet` Railway project, one per
-job and wallet role as section 7 requires. They run in **shadow mode with no
-signing keys**: each discovers, simulates and reports, and none can send.
+All seven keeper services run in the `dusk-devnet` Railway project in **live
+mode**, one per job and wallet role as section 7 requires. Each signing profile
+has its own hot wallet, generated on authorisation and kept in
+`~/.config/omnipair/dusk-devnet/keeper-<profile>.json`, funded with 1 SOL and —
+for the four that spend — 5,000 of each asset as inventory.
 
-Promoting a profile to live needs two things this plan deliberately does not
-do on its own — a hot wallet generated and stored as that service's
-`KEEPER_SIGNER_KEY`, and `KEEPER_MODE=live`. Creating signing keys inside the
-deployment and letting a service spend from them unattended is a decision for
-whoever owns the wallets, not a step to be inferred from a checklist. The
-trigger and bidder have both been proven live from a local run against the
-same devnet, so what remains is authorisation rather than unknown behaviour.
+The rollout was staged as section 7 asks: the lending trio first, verified
+live, then leverage, the arbitrageur and lifecycle.
+
+**Proven unattended.** A position was made underwater; the deployed trigger
+discovered it and opened the auction on its own, and the deployed bidder filled
+it from its own wallet a discovery cycle later — 6.25 quote paid for 14.40
+base, confirmed on chain. Neither was prompted.
 
 ### Keeper status by profile
 
