@@ -870,6 +870,19 @@ impl ConcentratedHlpTransition {
                 self.final_base_debt,
                 self.final_quote_debt,
             );
+            // The individual terms, so the drift can be attributed rather than
+            // only observed. The identity is built from the stored reserves
+            // and the transition's reconstruction from the quoted endpoint;
+            // printing both sides says which one moved.
+            msg!(
+                "hlp-terms base_live={} quote_live={} old_base_hlp={} old_quote_hlp={} final_base_live={} final_quote_live={}",
+                market.base_side.reserves.live_reserve,
+                market.quote_side.reserves.live_reserve,
+                old_base_hlp_live,
+                old_quote_hlp_live,
+                self.final_base_live_reserve,
+                self.final_quote_live_reserve,
+            );
         }
         require!(
             identity_base_live.abs_diff(self.final_base_live_reserve as u128) <= MAX_CONCENTRATED_HLP_LIVE_DUST_ATOMS
