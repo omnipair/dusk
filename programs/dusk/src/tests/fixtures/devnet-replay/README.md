@@ -12,7 +12,46 @@ off chain, so nobody has to instrument a deployed program to make progress.
 | `market.bin`, `*_mint.bin` | The other accounts a swap touches |
 | `manifest.json` | Addresses, owners and lamports for each |
 
-## What has already been ruled out
+## CLOSED — the drift is 24-26 atoms, and interest has nothing to do with it
+
+Measured on chain 2026-08-31 by deploying a build with `--features
+debug-hlp-drift`, reading the logs, and restoring the attested binary
+immediately afterwards. Twenty-five consecutive swaps, every one reverting:
+
+```
+hlp-drift base=1 quote=25 base_interest=0 quote_interest=0 final_base_debt=1482619 final_quote_debt=0
+```
+
+**Both interest tranches are zero.** The quote-side drift is 24-26 atoms
+against a three-atom tolerance, with no accrued interest anywhere in the
+transition. Every explanation built around accrual — including the one this
+file argued at length — was wrong.
+
+`final_base_debt` appears on both sides of the comparison and cancels, so what
+is actually disagreeing is:
+
+```
+(quote_live_reserve - old_quote_hlp_live)      // the materialized reserves
+vs
+(ordinary_quote + quote_equity)                 // the quoted endpoint, rebuilt
+```
+
+Both `ordinary_quote` and `quote_equity` come from
+`denormalize_from_nad_floor` on the quoted endpoint. The stored
+`quote_hlp_live_reserve` is a raw atom count maintained incrementally. So the
+question is why rebuilding the hLP equity from NAD disagrees with the running
+total by ~25 atoms, and the tolerance's premise — "three independently floored
+quantities, each off by at most one" — does not describe that error.
+
+The asymmetry is the strongest clue left: base drifts by 1 and quote by 25,
+and only the base hLP vault carries debt (`final_base_debt` 1,482,619,
+`final_quote_debt` 0). The side *without* debt is the side that drifts.
+
+Widening the constant is still the wrong fix. The error is a reconstruction
+disagreement whose size depends on market magnitudes, not a fixed rounding
+budget.
+
+## What was ruled out along the way
 
 **The interest subtraction is not the cause.** The quoted swap path subtracts
 the accrued interest tranche twice where the materialized path subtracts once,
