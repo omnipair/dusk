@@ -18,6 +18,10 @@ mainnet launch or upgrade.
   after the buffer address and Squads authority transfer are recorded.
 - Confirm the emergency reduce-only authority is the intended signer and can
   reach `set_market_reduce_only` for incident response.
+- Confirm the last-resort fail-closed policy in `emergency-halt/README.md`, the
+  Squads signer roster, the prepared halt buffer, and the restoration buffer
+  are current. Reduce-only remains the first response whenever it can safely
+  contain the incident.
 - Confirm owners, dashboards, paging, and reduce-only procedures are current
   for the release.
 - Confirm soft borrow and soft liquidation remain disabled unless a separate
@@ -117,6 +121,7 @@ npm run check-idl-current --prefix packages/dusk-sdk
 npm run build --prefix packages/dusk-sdk
 yarn test-litesvm
 yarn test-litesvm:release
+yarn check:emergency-halt
 anchor build -p dusk -- --features production
 DUSK_EXPECT_PRODUCTION_MINT_SUFFIXES=1 yarn test-litesvm:no-build --grep "supports the hLP launch profile"
 ```
@@ -136,6 +141,10 @@ typecheck gates.
 - Confirm `target/deploy/leverage_delegate.so` and
   `target/idl/leverage_delegate.json` exist before running the delegated close
   LiteSVM smoke path.
+- Confirm `target/deploy/dusk_emergency_halt.so` is exactly 352 bytes, matches
+  SHA-256 `08672b4c1d665c79b007d72e19d98d07a6d522232410d39d82f33e2670d53800`,
+  returns `Custom(1)` in the LiteSVM check, and was rebuilt with pinned Solana
+  platform-tools `v1.54`.
 - Confirm `target/types/dusk.ts` exists and matches the same build.
 - Confirm `initialize_lp_metadata` passes the deterministic LiteSVM
   CreateV1-compatible CPI fixture and has also been exercised against the real
@@ -182,6 +191,9 @@ typecheck gates.
   for the approved release window before publishing release artifacts.
 - Confirm repository variable `DUSK_MAINNET_BUFFER_DEPLOYS_ENABLED=true` is
   intentionally set before running the mainnet buffer deploy workflow.
+- Keep `DUSK_EMERGENCY_HALT_BUFFERS_ENABLED` unset or `false` during normal
+  operation. Set it to `true` only for an approved preparation of a
+  Squads-controlled halt buffer, then restore it to `false` immediately.
 - For mainnet buffer deploys, use `source=release`, provide an explicit
   `release_tag`, keep `transfer_to_squads=true`, and confirm
   `SQUADS_VAULT_ADDRESS` is configured.
@@ -211,6 +223,10 @@ target/types/dusk.ts
   Squads-transfer inputs. The workflow has no `program` input.
 - Transfer upgrade buffer authority to the configured Squads vault.
 - Create and approve the Squads upgrade proposal for the Dusk program ID.
+- Before launch, run **Prepare Dusk Emergency Halt Buffer** from `main`, record
+  its commit, buffer address, and artifact hash, and confirm the workflow did
+  not upgrade the program. Keep a reviewed restoration buffer available under
+  the same Squads authority.
 
 ## 7. Post-Deploy Verification
 

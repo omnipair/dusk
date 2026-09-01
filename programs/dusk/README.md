@@ -10,6 +10,10 @@ See [`AUDIT_STATUS.md`](./AUDIT_STATUS.md) for the authoritative disposition of
 known internal findings. Dated files under the ignored `.audit/` directory are
 historical work products and do not independently describe the current tree.
 
+See [`../../emergency-halt/README.md`](../../emergency-halt/README.md) for the
+last-resort fail-closed upgrade policy used only when continued execution is
+unsafe and reduce-only cannot contain the incident.
+
 ## Source Boundaries
 
 Rust source follows the V1-inspired conventions in [`STYLE.md`](./STYLE.md).
@@ -358,6 +362,7 @@ anchor build -p leverage_delegate
 npm run check-idl-current --prefix packages/dusk-sdk
 npm run build --prefix packages/dusk-sdk
 yarn test-litesvm
+yarn check:emergency-halt
 ```
 
 Run dusk-sdk builds whenever public IDL, account, event, seed, or instruction shapes change. `check-idl-current` must pass after `anchor build -p dusk` so committed client files match generated build artifacts.

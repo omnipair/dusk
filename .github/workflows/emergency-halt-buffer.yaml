@@ -1,0 +1,158 @@
+name: Prepare Dusk Emergency Halt Buffer
+
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: "Network"
+        required: true
+        type: choice
+        options:
+          - mainnet-beta
+          - devnet
+        default: mainnet-beta
+      confirmation:
+        description: "Type PREPARE DUSK EMERGENCY HALT BUFFER"
+        required: true
+      priority_fee:
+        description: "Priority fee in micro-lamports"
+        required: true
+        default: "50000"
+
+permissions:
+  contents: read
+
+env:
+  SOLANA_VERSION: "4.1.0"
+  EXPECTED_HALT_SHA256: "08672b4c1d665c79b007d72e19d98d07a6d522232410d39d82f33e2670d53800"
+
+jobs:
+  prepare-buffer:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Guard emergency preparation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          NETWORK: ${{ inputs.network }}
+          PRIORITY_FEE: ${{ inputs.priority_fee }}
+          EMERGENCY_BUFFERS_ENABLED: ${{ vars.DUSK_EMERGENCY_HALT_BUFFERS_ENABLED }}
+          SQUADS_VAULT_ADDRESS: ${{ vars.SQUADS_VAULT_ADDRESS }}
+        run: |
+          if [ "$CONFIRMATION" != "PREPARE DUSK EMERGENCY HALT BUFFER" ]; then
+            echo "Exact emergency confirmation phrase is required."
+            exit 1
+          fi
+          case "$PRIORITY_FEE" in
+            ''|*[!0-9]*) echo "Priority fee must be a non-negative integer."; exit 1 ;;
+          esac
+          if [ "$NETWORK" = "mainnet-beta" ]; then
+            if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+              echo "Mainnet emergency buffers must be prepared from main."
+              exit 1
+            fi
+            if [ "$EMERGENCY_BUFFERS_ENABLED" != "true" ]; then
+              echo "Set DUSK_EMERGENCY_HALT_BUFFERS_ENABLED=true only for an approved preparation window."
+              exit 1
+            fi
+            if [ -z "$SQUADS_VAULT_ADDRESS" ]; then
+              echo "SQUADS_VAULT_ADDRESS must be configured."
+              exit 1
+            fi
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: yarn
+
+      - name: Install JavaScript dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v${{ env.SOLANA_VERSION }}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Install pinned Solana platform tools
+        run: cargo build-sbf --install-only --tools-version v1.54
+
+      - name: Build and verify emergency halt artifact
+        run: yarn check:emergency-halt
+
+      - name: Verify recorded artifact hash
+        run: echo "${{ env.EXPECTED_HALT_SHA256 }}  target/deploy/dusk_emergency_halt.so" | sha256sum --check
+
+      - name: Extract Dusk program ID
+        run: |
+          PROGRAM_ID=$(grep 'declare_id!' programs/dusk/src/lib.rs | sed 's/declare_id!("//;s/");$//')
+          echo "PROGRAM_ID=$PROGRAM_ID" >> "$GITHUB_ENV"
+
+      - name: Determine RPC URL
+        id: rpc
+        env:
+          NETWORK: ${{ inputs.network }}
+          MAINNET_RPC_URL: ${{ vars.MAINNET_RPC_URL }}
+        run: |
+          if [ "$NETWORK" = "mainnet-beta" ]; then
+            RPC="$MAINNET_RPC_URL"
+            if [ -z "$RPC" ]; then
+              RPC="https://api.mainnet-beta.solana.com"
+            fi
+          else
+            RPC="https://api.devnet.solana.com"
+          fi
+          echo "url=$RPC" >> "$GITHUB_OUTPUT"
+
+      - name: Setup deployer keypair
+        run: |
+          echo "${{ secrets.DEPLOYER_KEYPAIR }}" > deployer-keypair.json
+          chmod 600 deployer-keypair.json
+
+      - name: Generate buffer keypair
+        run: solana-keygen new -s -o buffer-keypair.json --no-bip39-passphrase
+
+      - name: Write verified halt buffer
+        id: buffer
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 5
+          shell: bash
+          command: |
+            solana program write-buffer \
+              --keypair deployer-keypair.json \
+              --buffer buffer-keypair.json \
+              --max-sign-attempts 50 \
+              --with-compute-unit-price ${{ inputs.priority_fee }} \
+              --use-rpc \
+              target/deploy/dusk_emergency_halt.so \
+              -u ${{ steps.rpc.outputs.url }}
+            echo "address=$(solana-keygen pubkey buffer-keypair.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Transfer mainnet buffer authority to Squads
+        if: inputs.network == 'mainnet-beta'
+        run: |
+          solana program set-buffer-authority \
+            "$(solana-keygen pubkey buffer-keypair.json)" \
+            --new-buffer-authority "${{ vars.SQUADS_VAULT_ADDRESS }}" \
+            --keypair deployer-keypair.json \
+            -u ${{ steps.rpc.outputs.url }}
+
+      - name: Record preparation summary
+        env:
+          NETWORK: ${{ inputs.network }}
+        run: |
+          {
+            echo "### Dusk emergency halt buffer prepared"
+            echo ""
+            echo "- Commit: $GITHUB_SHA"
+            echo "- Network: $NETWORK"
+            echo "- Dusk program: $PROGRAM_ID"
+            echo "- Buffer: $(solana-keygen pubkey buffer-keypair.json)"
+            echo "- SHA-256: $EXPECTED_HALT_SHA256"
+            echo "- Program upgraded: no"
+          } >> "$GITHUB_STEP_SUMMARY"

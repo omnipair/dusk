@@ -411,6 +411,7 @@ cargo test -p leverage_delegate
 npm run check-idl-current --prefix packages/dusk-sdk
 npm run build --prefix packages/dusk-sdk
 yarn test-litesvm
+yarn check:emergency-halt
 ```
 
 Run the dusk-sdk build whenever public IDL, account, event, seed, or instruction shapes change. `check-idl-current` must pass after `anchor build -p dusk` so committed client files match the generated build artifacts.
@@ -422,3 +423,8 @@ Dusk is the standalone market program for Omnipair V2.
 Before Dusk is treated as production-ready, it should complete final security
 review, release artifact verification, and owner signoff for app, SDK, indexing,
 analytics, aggregators, and deployment.
+
+The fail-closed program upgrade is governed by the
+[`emergency-halt` policy](./emergency-halt/README.md). It is a last resort for a
+critical defect that makes continued Dusk execution unsafe, including a bypass
+of reduce-only mode; it is not a replacement for reduce-only incident response.

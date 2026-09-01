@@ -90,6 +90,7 @@ jobs:
             target/deploy/dusk.so
             target/deploy/leverage_delegate.so
             target/deploy/faucet.so
+            target/deploy/dusk_emergency_halt.so
             target/deploy/referral_transfer_hook.so
             target/deploy/token_metadata_fixture.so
             target/idl/dusk.json
