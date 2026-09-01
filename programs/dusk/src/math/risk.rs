@@ -1,103 +1,27 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{BPS_DENOMINATOR, MS_PER_DAY, NAD, NATURAL_LOG_OF_TWO_NAD, TAYLOR_TERMS},
+    constants::{BPS_DENOMINATOR, MAX_INTEREST_ACCRUAL_MS, MS_PER_YEAR, NAD, NATURAL_LOG_OF_TWO_NAD, TAYLOR_TERMS},
     errors::ErrorCode,
-    shared::math::{slots_to_ms, taylor_exp},
+    math::{slots_to_ms, taylor_exp},
 };
 
-use super::{
-    fixed_point::{denormalize_from_nad_ceil, denormalize_from_nad_floor, normalize_to_nad},
-    gamm::{
-        calculate_normalized_amount_in, calculate_normalized_amount_in_floor, calculate_normalized_amount_out,
-        construct_normalized_virtual_reserves_at_pessimistic_price,
-    },
-};
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct DynamicCollateralTerms {
+    pub max_debt_nad: u128,
+    pub max_cf_bps: u16,
+    pub liquidation_cf_bps: u16,
+}
 
-pub(crate) fn health_bps(recognized_collateral_value_nad: u128, effective_debt_nad: u128) -> Result<u64> {
+pub(crate) fn health_bps(utilized_collateral_value_nad: u128, effective_debt_nad: u128) -> Result<u64> {
     if effective_debt_nad == 0 {
         return Ok(u64::MAX);
     }
-    let health = recognized_collateral_value_nad
+    let health = utilized_collateral_value_nad
         .checked_mul(BPS_DENOMINATOR as u128)
         .and_then(|value| value.checked_div(effective_debt_nad))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     u64::try_from(health).map_err(|_| ErrorCode::MarketMathOverflow.into())
-}
-
-pub(crate) fn collateral_value_from_pessimistic_reserves_nad(
-    collateral_reserve_amount: u64,
-    collateral_decimals: u8,
-    debt_reserve_amount: u64,
-    debt_decimals: u8,
-    collateral_amount: u64,
-    price_ema_nad: u64,
-    directional_price_ema_nad: u64,
-) -> Result<u128> {
-    if collateral_amount == 0 {
-        return Ok(0);
-    }
-    let collateral_reserve = normalize_to_nad(collateral_reserve_amount as u128, collateral_decimals)?;
-    let debt_reserve = normalize_to_nad(debt_reserve_amount as u128, debt_decimals)?;
-    let collateral_amount = normalize_to_nad(collateral_amount as u128, collateral_decimals)?;
-    let (collateral_virtual_reserve, debt_virtual_reserve) =
-        construct_normalized_virtual_reserves_at_pessimistic_price(
-            collateral_reserve,
-            debt_reserve,
-            price_ema_nad,
-            directional_price_ema_nad,
-        )?;
-    calculate_normalized_amount_out(collateral_virtual_reserve, debt_virtual_reserve, collateral_amount)
-}
-
-pub(crate) fn collateral_amount_for_debt_amount_ceil(
-    collateral_reserve_amount: u64,
-    collateral_decimals: u8,
-    debt_reserve_amount: u64,
-    debt_decimals: u8,
-    debt_amount: u128,
-    price_ema_nad: u64,
-    directional_price_ema_nad: u64,
-) -> Result<u64> {
-    let collateral_reserve = normalize_to_nad(collateral_reserve_amount as u128, collateral_decimals)?;
-    let debt_reserve = normalize_to_nad(debt_reserve_amount as u128, debt_decimals)?;
-    let debt_amount_nad = normalize_to_nad(debt_amount, debt_decimals)?;
-    let (collateral_virtual_reserve, debt_virtual_reserve) =
-        construct_normalized_virtual_reserves_at_pessimistic_price(
-            collateral_reserve,
-            debt_reserve,
-            price_ema_nad,
-            directional_price_ema_nad,
-        )?;
-    let collateral_amount_nad =
-        calculate_normalized_amount_in(collateral_virtual_reserve, debt_virtual_reserve, debt_amount_nad)?;
-    denormalize_from_nad_ceil(collateral_amount_nad, collateral_decimals)
-}
-
-pub(crate) fn collateral_amount_for_debt_value_floor(
-    collateral_reserve_amount: u64,
-    collateral_decimals: u8,
-    debt_reserve_amount: u64,
-    debt_decimals: u8,
-    debt_value_nad: u128,
-    price_ema_nad: u64,
-    directional_price_ema_nad: u64,
-) -> Result<u64> {
-    if debt_value_nad == 0 {
-        return Ok(0);
-    }
-    let collateral_reserve = normalize_to_nad(collateral_reserve_amount as u128, collateral_decimals)?;
-    let debt_reserve = normalize_to_nad(debt_reserve_amount as u128, debt_decimals)?;
-    let (collateral_virtual_reserve, debt_virtual_reserve) =
-        construct_normalized_virtual_reserves_at_pessimistic_price(
-            collateral_reserve,
-            debt_reserve,
-            price_ema_nad,
-            directional_price_ema_nad,
-        )?;
-    let collateral_amount_nad =
-        calculate_normalized_amount_in_floor(collateral_virtual_reserve, debt_virtual_reserve, debt_value_nad)?;
-    denormalize_from_nad_floor(collateral_amount_nad, collateral_decimals)
 }
 
 pub(crate) fn ema_u64(last_ema: u64, input: u64, last_slot: u64, current_slot: u64, half_life_ms: u64) -> u64 {
@@ -150,85 +74,216 @@ pub(crate) fn ema_u128(last_ema: u128, input: u128, last_slot: u64, current_slot
         .unwrap_or(last_ema)
 }
 
-pub(crate) fn decayed_daily_bucket(bucket: u64, last_slot: u64, current_slot: u64) -> Result<u64> {
-    if bucket == 0 {
-        return Ok(0);
+/// EMA variant for signals where zero is a real observation rather than an
+/// uninitialized sentinel. Initialization is bound to `last_slot`, allowing a
+/// funding-rate signal to decay toward zero over its configured half-life.
+pub(crate) fn ema_u128_including_zero(
+    last_ema: u128,
+    input: u128,
+    last_slot: u64,
+    current_slot: u64,
+    half_life_ms: u64,
+) -> u128 {
+    if last_slot == 0 {
+        return input;
     }
-    let Some(elapsed_ms) = slots_to_ms(last_slot, current_slot) else {
-        return Ok(bucket);
+    let Some(dt) = slots_to_ms(last_slot, current_slot) else {
+        return last_ema;
     };
-    if elapsed_ms >= MS_PER_DAY {
-        return Ok(0);
+    if dt == 0 || half_life_ms == 0 {
+        return last_ema;
     }
-    let remaining_ms = (MS_PER_DAY - elapsed_ms) as u128;
-    let decayed = (bucket as u128)
-        .checked_mul(remaining_ms)
-        .and_then(|value| value.checked_div(MS_PER_DAY as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    u64::try_from(decayed).map_err(|_| ErrorCode::MarketMathOverflow.into())
-}
-
-pub(crate) fn daily_limit_from_liquidity_ema(liquidity_ema: u128, asset_decimals: u8, limit_bps: u16) -> Result<u64> {
-    require!(liquidity_ema > 0, ErrorCode::InsufficientLiquidity);
-    let limit_nad = liquidity_ema
-        .checked_mul(limit_bps as u128)
-        .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    denormalize_from_nad_floor(limit_nad, asset_decimals)
-}
-
-pub(crate) fn assert_price_divergence(spot_price_nad: u64, ema_price_nad: u64, max_divergence_bps: u16) -> Result<()> {
-    require!(
-        spot_price_nad > 0 && ema_price_nad > 0,
-        ErrorCode::InsufficientLiquidity
-    );
-    let diff = spot_price_nad.abs_diff(ema_price_nad);
-    let divergence_bps = (diff as u128)
-        .checked_mul(BPS_DENOMINATOR as u128)
-        .and_then(|value| value.checked_div(ema_price_nad as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    require!(
-        divergence_bps <= max_divergence_bps as u128,
-        ErrorCode::MarketRiskCircuitBreaker
-    );
-    Ok(())
-}
-
-pub(crate) fn assert_k_drawdown(current_k_nad: u128, k_ema_nad: u128, max_drawdown_bps: u16) -> Result<()> {
-    if current_k_nad >= k_ema_nad {
-        return Ok(());
-    }
-    require!(k_ema_nad > 0, ErrorCode::InsufficientLiquidity);
-    let drawdown_bps = k_ema_nad
-        .checked_sub(current_k_nad)
-        .and_then(|value| value.checked_mul(BPS_DENOMINATOR as u128))
-        .and_then(|value| value.checked_div(k_ema_nad))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    require!(
-        drawdown_bps <= max_drawdown_bps as u128,
-        ErrorCode::MarketRiskCircuitBreaker
-    );
-    Ok(())
-}
-
-pub(crate) fn exponential_price_decay(start_price_nad: u64, elapsed_ms: u64, half_life_ms: u64) -> Result<u64> {
-    if half_life_ms == 0 || start_price_nad == 0 {
-        return Ok(0); // If half-life is 0, it decays instantly.
-    }
-    let x = (elapsed_ms as u128)
+    let x = (dt as u128)
         .saturating_mul(NATURAL_LOG_OF_TWO_NAD as u128)
         .checked_div(half_life_ms as u128)
         .unwrap_or(u128::MAX)
         .min(i64::MAX as u128) as i64;
     let alpha = taylor_exp(-x, NAD, TAYLOR_TERMS) as u128;
-    let result = (start_price_nad as u128)
-        .checked_mul(alpha)
+    input
+        .saturating_mul((NAD as u128).saturating_sub(alpha))
+        .saturating_add(last_ema.saturating_mul(alpha))
+        .checked_div(NAD as u128)
+        .unwrap_or(last_ema)
+}
+
+// Adaptive-curve borrow interest rate model and borrow-index accrual.
+//
+// The instantaneous borrow APR is a fixed-shape curve anchored at the target
+// utilization and scaled by a per-market `rate_at_target`:
+//
+// ```text
+// rate(u) = rate_at_target * curve(error(u))
+// error(u) = (u - u*)/u*           for u <= u*   (in [-1, 0])
+//          = (u - u*)/(1 - u*)      for u >  u*   (in (0, 1])
+// curve(e) = 1 + (k-1)*e            for e >= 0    (-> k at e=1)
+//          = 1 - (1 - 1/k)*|e|      for e <  0    (-> 1/k at e=-1)
+// ```
+//
+// The curve gives an immediate, graded response to utilization. The anchor
+// `rate_at_target` then drifts over time toward whatever level holds util at
+// target — `rate_at_target *= e^(speed * error * dt/year)` — so the *level* is
+// market-driven rather than hardcoded. Both the index (`shares * index` debt)
+// and the anchor are stored state, so the model is fully reproducible.
+//
+// All rates/ratios are NAD fixed point (`NAD == 1.0`, i.e. 100% APR == NAD).
+
+/// Utilization of a side, in bps, as `borrowed / (borrowed + idle_cash)`.
+/// Returns 0 when nothing is supplied, clamped to `BPS_DENOMINATOR`.
+pub fn utilization_bps(borrowed: u128, idle_cash: u128) -> Result<u64> {
+    let supplied = borrowed.checked_add(idle_cash).ok_or(ErrorCode::MarketMathOverflow)?;
+    if supplied == 0 {
+        return Ok(0);
+    }
+    let util = borrowed
+        .checked_mul(BPS_DENOMINATOR as u128)
+        .and_then(|value| value.checked_div(supplied))
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    Ok(u64::try_from(util.min(BPS_DENOMINATOR as u128)).unwrap_or(BPS_DENOMINATOR as u64))
+}
+
+/// Normalized utilization error in NAD, in `[-NAD, NAD]` (0 at target).
+pub fn utilization_error_nad(utilization_bps: u64, target_bps: u64) -> Result<i128> {
+    let bps = BPS_DENOMINATOR as i128;
+    let t = target_bps as i128;
+    require!(t > 0 && t < bps, ErrorCode::InvalidMarketConfig);
+    let u = (utilization_bps.min(BPS_DENOMINATOR as u64)) as i128;
+    let nad = NAD as i128;
+    let err = if u <= t {
+        (u - t)
+            .checked_mul(nad)
+            .and_then(|value| value.checked_div(t))
+            .ok_or(ErrorCode::MarketMathOverflow)?
+    } else {
+        (u - t)
+            .checked_mul(nad)
+            .and_then(|value| value.checked_div(bps - t))
+            .ok_or(ErrorCode::MarketMathOverflow)?
+    };
+    Ok(err)
+}
+
+/// Instantaneous borrow APR (NAD) = `rate_at_target * curve(error)`.
+pub fn instantaneous_rate_apr_nad(rate_at_target_nad: u128, error_nad: i128, steepness_nad: u128) -> Result<u128> {
+    let nad = NAD as i128;
+    let steep = i128::try_from(steepness_nad).map_err(|_| ErrorCode::MarketMathOverflow)?;
+    require!(steep >= nad, ErrorCode::InvalidMarketConfig);
+    let mult = if error_nad >= 0 {
+        // NAD + (steepness - NAD) * error / NAD
+        nad.checked_add(
+            (steep - nad)
+                .checked_mul(error_nad)
+                .and_then(|value| value.checked_div(nad))
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+        )
+        .ok_or(ErrorCode::MarketMathOverflow)?
+    } else {
+        // NAD - (NAD - NAD^2/steepness) * |error| / NAD
+        let inv_steep = nad
+            .checked_mul(nad)
+            .and_then(|value| value.checked_div(steep))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let drop = (nad - inv_steep)
+            .checked_mul(-error_nad)
+            .and_then(|value| value.checked_div(nad))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        nad.checked_sub(drop).ok_or(ErrorCode::MarketMathOverflow)?
+    };
+    require!(mult > 0, ErrorCode::MarketMathOverflow);
+    rate_at_target_nad
+        .checked_mul(mult as u128)
+        .and_then(|value| value.checked_div(NAD as u128))
+        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+}
+
+/// Drift the anchor: `rate_at_target *= e^(speed * error * dt/year)`, using a
+/// bounded linear approximation `(1 + exponent)` of the exponential and clamped
+/// to `[min, max]`. Above target (error > 0) the anchor rises; below, it falls.
+#[allow(clippy::too_many_arguments)]
+pub fn adapt_rate_at_target_nad(
+    rate_at_target_nad: u128,
+    error_nad: i128,
+    dt_ms: u64,
+    speed_per_year: u128,
+    min_nad: u128,
+    max_nad: u128,
+    max_step_nad: i128,
+) -> Result<u128> {
+    if dt_ms == 0 || error_nad == 0 {
+        return Ok(rate_at_target_nad.clamp(min_nad, max_nad));
+    }
+    let dt = dt_ms.min(MAX_INTEREST_ACCRUAL_MS) as i128;
+    // exponent (NAD) = speed * error * dt / year
+    let exponent = (speed_per_year as i128)
+        .checked_mul(error_nad)
+        .and_then(|value| value.checked_mul(dt))
+        .and_then(|value| value.checked_div(MS_PER_YEAR as i128))
+        .ok_or(ErrorCode::MarketMathOverflow)?
+        .clamp(-max_step_nad, max_step_nad);
+    // factor = max(0, NAD + exponent); linear approximation of e^exponent.
+    let factor = (NAD as i128 + exponent).max(0) as u128;
+    let next = rate_at_target_nad
+        .checked_mul(factor)
         .and_then(|value| value.checked_div(NAD as u128))
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    u64::try_from(result).map_err(|_| ErrorCode::MarketMathOverflow.into())
+    Ok(next.clamp(min_nad, max_nad))
+}
+
+/// Advance a borrow index by `dt_ms` at the given instantaneous APR (NAD):
+/// `index *= 1 + apr * dt / year`. Elapsed time is capped per call.
+#[cfg(test)]
+pub fn accrued_index_nad(index_nad: u128, rate_apr_nad: u128, dt_ms: u64) -> Result<u128> {
+    if index_nad == 0 || dt_ms == 0 || rate_apr_nad == 0 {
+        return Ok(index_nad);
+    }
+    let dt = dt_ms.min(MAX_INTEREST_ACCRUAL_MS) as u128;
+    let growth_nad = rate_apr_nad
+        .checked_mul(dt)
+        .and_then(|value| value.checked_div(MS_PER_YEAR as u128))
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    if growth_nad == 0 {
+        return Ok(index_nad);
+    }
+    let delta = index_nad
+        .checked_mul(growth_nad)
+        .and_then(|value| value.checked_div(NAD as u128))
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    index_nad
+        .checked_add(delta)
+        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+}
+
+/// Split a debt repayment into the principal returned to the reserve and the
+/// interest owed to suppliers, proportional to the outstanding debt.
+///
+/// `total_debt = shares * index >= principal`, `repaid <= total_debt`. The
+/// reusable primitive for non-compounding interest routing: the interest
+/// portion is what a repay/close/liquidate path should move into the interest
+/// vault instead of leaving in the reserve. Principal is rounded **down** (so
+/// interest rounds up), ensuring the interest vault is never under-funded.
+pub fn realized_interest_split(repaid: u64, total_debt: u128, principal: u128) -> Result<(u64, u64)> {
+    require!(total_debt >= principal, ErrorCode::MarketMathOverflow);
+    let repaid_u = repaid as u128;
+    require!(repaid_u <= total_debt, ErrorCode::InsufficientDebt);
+    if repaid_u == 0 {
+        return Ok((0, 0));
+    }
+    let principal_paid = if repaid_u == total_debt {
+        principal
+    } else {
+        principal
+            .checked_mul(repaid_u)
+            .and_then(|value| value.checked_div(total_debt))
+            .ok_or(ErrorCode::MarketMathOverflow)?
+    };
+    let interest_paid = repaid_u
+        .checked_sub(principal_paid)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let principal_paid = u64::try_from(principal_paid).map_err(|_| ErrorCode::MarketMathOverflow)?;
+    let interest_paid = u64::try_from(interest_paid).map_err(|_| ErrorCode::MarketMathOverflow)?;
+    Ok((principal_paid, interest_paid))
 }
 
 #[cfg(test)]
 mod tests {
-    include!("../tests/math/risk.rs");
+    include!("../tests/math/interest.rs");
 }

@@ -1,7 +1,7 @@
 [package]
 name = "leverage_delegate"
 version = "2.0.0"
-description = "Permissionless leverage delegation strategies for Omnipair Dusk (v2)"
+description = "Permissionless leverage delegation strategies for Omnipair V2 (Dusk)"
 edition = "2021"
 resolver = "2"
 
@@ -27,4 +27,5 @@ development = []
 [dependencies]
 anchor-lang = { version = "0.31.1", features = ["init-if-needed", "derive"] }
 anchor-spl = { version = "0.31.1", features = ["metadata"] }
-dusk = { path = "../dusk", features = ["no-entrypoint"] }
+dusk = { path = "../dusk", features = ["cpi"] }
+spl-transfer-hook-interface = "0.9.0"

@@ -32,6 +32,15 @@ function sendJson(res: http.ServerResponse, status: number, value: unknown) {
   res.end(JSON.stringify(value, replacer));
 }
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  try {
+    return String(error);
+  } catch {
+    return "Unknown fork API error";
+  }
+}
+
 async function readBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) {
@@ -46,7 +55,7 @@ function healthPayload() {
     ok: true,
     rpcUrl: SURFPOOL_RPC_URL,
     publicRpcUrl: PUBLIC_RPC_URL,
-    programId: process.env.DUSK_PROGRAM_ID ?? "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv",
+    programId: process.env.DUSK_PROGRAM_ID ?? "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
   };
 }
 
@@ -70,7 +79,7 @@ const server = http.createServer(async (req, res) => {
   } catch (error) {
     sendJson(res, 400, {
       success: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
     });
   }
 });

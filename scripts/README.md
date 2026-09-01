@@ -1,6 +1,6 @@
-# Omnipair Dusk (v2) Scripts
+# Omnipair V2 (Dusk) Scripts
 
-This directory contains Omnipair Dusk (v2) development and fork-lab scripts.
+This directory contains Omnipair V2 (Dusk) development and fork-lab scripts.
 
 ## Devnet
 

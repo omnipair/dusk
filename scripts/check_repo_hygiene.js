@@ -50,6 +50,17 @@ const secretLiteralPatterns = [
   /Bearer\s+[A-Za-z0-9._~+/=-]{20,}/,
 ];
 
+const unreliableDuskEventPatterns = [
+  {
+    label: "plain Anchor event logging; use emit_cpi! so indexers can recover the event from inner instructions",
+    pattern: /\bemit!\s*\(/,
+  },
+  {
+    label: "raw Solana data logging; use a typed emit_cpi! event instead",
+    pattern: /\bsol_log_data\b/,
+  },
+];
+
 const failures = [];
 
 for (const file of trackedFiles) {
@@ -79,6 +90,15 @@ for (const file of trackedFiles) {
     if (pattern.test(text)) {
       failures.push(`${file}: contains high-confidence secret literal matching ${pattern}`);
       break;
+    }
+  }
+
+  if (normalized.startsWith("programs/dusk/src/") && normalized.endsWith(".rs")) {
+    for (const { label, pattern } of unreliableDuskEventPatterns) {
+      if (pattern.test(text)) {
+        failures.push(`${file}: contains ${label}`);
+        break;
+      }
     }
   }
 }

@@ -1,7 +1,7 @@
 {
   "name": "@omnipair/dusk-sdk",
-  "version": "2.0.0",
-  "description": "Omnipair Dusk (v2) SDK for program writes, RPC reads, previews, and indexer data",
+  "version": "2.2.0",
+  "description": "Dusk SDK for Omnipair V2 program writes, RPC reads, parameter governance, previews, and indexer data",
   "license": "MIT",
   "author": "Omnipair <security@omnipair.fi>",
   "repository": {
@@ -56,11 +56,13 @@
     "check-idl-current": "node scripts/check-idl-current.js",
     "build": "npm run prepare-idl && tsc",
     "typecheck": "tsc --noEmit",
+    "test:governance": "npm run build && node scripts/check-governance.js",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {
     "@coral-xyz/anchor": ">=0.30.0",
+    "@solana/spl-token": "^0.4.0",
     "@solana/web3.js": "^1.95.0"
   },
   "devDependencies": {

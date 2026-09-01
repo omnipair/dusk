@@ -1,0 +1,303 @@
+/**
+ * Return the devnet market to a usable state.
+ *
+ * Testing liquidation means deliberately leaving debt and open auctions
+ * behind, and both make the market worse for everyone else: while any
+ * meaningful debt stands, most swaps revert (see
+ * `repro_swap_reverts_intermittently.ts`). This repays every position the
+ * running wallet owns, which also resolves any auction against them.
+ *
+ * Positions are read from the chain rather than from the API, because the
+ * API's market state is cached and a stale debt figure is exactly the thing
+ * that makes a restored market look broken.
+ *
+ *   node --experimental-strip-types scripts/devnet/restore_market.ts
+ */
+
+import { getAssociatedTokenAddressSync } from "@solana/spl-token";
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  Transaction,
+  TransactionInstruction,
+} from "@solana/web3.js";
+import { AnchorProvider, Wallet } from "@coral-xyz/anchor";
+import { createHash } from "crypto";
+import { readFileSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
+
+import { Dusk } from "../../packages/dusk-sdk/dist/index.js";
+
+const API =
+  process.env.DUSK_API_URL ?? "https://dusk-api-production-291f.up.railway.app";
+const RPC = process.env.DUSK_RPC_URL ?? "https://api.devnet.solana.com";
+
+/** Repayments tried per position, largest first; the first accepted wins. */
+const LADDER = [5_000n, 2_000n, 1_000n, 500n, 200n, 100n, 50n, 20n, 10n, 5n, 1n];
+
+function loadKeypair(): Keypair {
+  const path =
+    process.env.DUSK_KEYPAIR ?? join(homedir(), ".config/solana/id.json");
+  return Keypair.fromSecretKey(
+    Uint8Array.from(JSON.parse(readFileSync(path, "utf8"))),
+  );
+}
+
+function accountDiscriminator(name: string): Buffer {
+  return createHash("sha256").update(`account:${name}`).digest().subarray(0, 8);
+}
+
+function base58(bytes: Buffer): string {
+  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  let value = BigInt(`0x${bytes.toString("hex") || "0"}`);
+  let encoded = "";
+  while (value > 0n) {
+    encoded = alphabet[Number(value % 58n)] + encoded;
+    value /= 58n;
+  }
+  return encoded;
+}
+
+async function main() {
+  const keypair = loadKeypair();
+  const connection = new Connection(RPC, "confirmed");
+  // The config endpoint previews the market on chain, so it fails whenever the
+  // RPC behind it does. Retried rather than treated as fatal: a transient
+  // blockhash miss should not read as a broken deployment, and this script is
+  // most needed exactly when things are unsettled.
+  const config = await (async () => {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const response = await fetch(`${API}/api/dusk/v1/config`);
+      const body = (await response.json()) as { data?: any; error?: string };
+      if (body.data) return body.data;
+      console.log(`  config unavailable (${body.error ?? response.status}), retrying`);
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+    }
+    throw new Error("deployment config never became available");
+  })();
+  const programId = new PublicKey(config.programId);
+  const market = new PublicKey(config.primaryMarket);
+  const quoteMint = new PublicKey(config.quoteMint);
+  const baseMint = new PublicKey(config.baseMint);
+  const unit = 10n ** BigInt(config.quoteDecimals);
+
+  const dusk = new Dusk({
+    programId,
+    provider: new AnchorProvider(connection, new Wallet(keypair), {
+      commitment: "confirmed",
+    }),
+  });
+
+  const accounts = await connection.getProgramAccounts(programId, {
+    commitment: "confirmed",
+    filters: [
+      { memcmp: { bytes: base58(accountDiscriminator("BorrowPosition")), offset: 0 } },
+    ],
+  });
+
+  const send = async (instructions: TransactionInstruction[]) => {
+    const transaction = new Transaction().add(...instructions);
+    const blockhash = await connection.getLatestBlockhash("confirmed");
+    transaction.recentBlockhash = blockhash.blockhash;
+    transaction.feePayer = keypair.publicKey;
+    transaction.sign(keypair);
+    const signature = await connection.sendRawTransaction(
+      transaction.serialize(),
+      { preflightCommitment: "confirmed" },
+    );
+    const result = await connection.confirmTransaction(
+      { ...blockhash, signature },
+      "confirmed",
+    );
+    if (result.value.err) throw new Error(JSON.stringify(result.value.err));
+    return signature;
+  };
+
+  let repaid = 0;
+  let indebted = 0;
+  for (const { account, pubkey } of accounts) {
+    const data = account.data;
+    const owner = new PublicKey(data.subarray(8, 40));
+    if (!owner.equals(keypair.publicKey)) continue;
+    const quoteShares = data.readBigUInt64LE(224);
+    const baseShares = data.readBigUInt64LE(208);
+    if (quoteShares === 0n && baseShares === 0n) continue;
+    indebted += 1;
+
+    const positionId = new PublicKey(data.subarray(72, 104));
+    const debtIsBase = baseShares > 0n;
+    for (const amount of LADDER) {
+      try {
+        const signature = await send([
+          await dusk.write.repayInstruction({
+            debtAssetMint: debtIsBase ? baseMint : quoteMint,
+            market,
+            owner: keypair.publicKey,
+            ownerDebtAccount: getAssociatedTokenAddressSync(
+              debtIsBase ? baseMint : quoteMint,
+              keypair.publicKey,
+            ),
+            positionId,
+            repayAmount: (amount * unit).toString(),
+          }),
+        ]);
+        console.log(
+          `  ${pubkey.toBase58().slice(0, 10)}: repaid ${amount} ${debtIsBase ? "base" : "quote"}  ${signature.slice(0, 12)}`,
+        );
+        repaid += 1;
+        break;
+      } catch {
+        // More than is outstanding, or the market refused; try less.
+      }
+    }
+  }
+
+  console.log(
+    indebted === 0
+      ? "no borrow position owned by this wallet carries debt"
+      : `${repaid}/${indebted} indebted borrow positions repaid`,
+  );
+
+  // Leverage debt has the same effect on the market as borrow debt, and a
+  // restore that leaves it standing leaves swaps failing. This was found the
+  // hard way: the at-rest failure rate read 100% until an open leverage
+  // position from an earlier run was closed.
+  const leverage = await connection.getProgramAccounts(programId, {
+    commitment: "confirmed",
+    filters: [
+      { memcmp: { bytes: base58(accountDiscriminator("LeveragePosition")), offset: 0 } },
+    ],
+  });
+  let closed = 0;
+  let open = 0;
+  for (const { account, pubkey } of leverage) {
+    const positionOwner = new PublicKey(account.data.subarray(8, 40));
+    if (!positionOwner.equals(keypair.publicKey)) continue;
+    open += 1;
+    const positionId = new PublicKey(account.data.subarray(72, 104));
+    // Offset from the generated layout in dusk-keepers; zero is base.
+    const debtIsBase = account.data[138] === 0;
+    try {
+      const signature = await send([
+        await dusk.write.closeLeverageInstruction({
+          collateralMint: debtIsBase ? quoteMint : baseMint,
+          debtAsset: debtIsBase ? "base" : "quote",
+          debtMint: debtIsBase ? baseMint : quoteMint,
+          market,
+          minAmountOut: "0",
+          ownerDebtAccount: getAssociatedTokenAddressSync(
+            debtIsBase ? baseMint : quoteMint,
+            keypair.publicKey,
+          ),
+          positionId,
+          positionOwner: keypair.publicKey,
+        }),
+      ]);
+      console.log(`  ${pubkey.toBase58().slice(0, 10)}: leverage closed  ${signature.slice(0, 12)}`);
+      closed += 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const anchor = message.match(/Error Code: (\w+)/)?.[1];
+      console.log(
+        `  ${pubkey.toBase58().slice(0, 10)}: leverage not closed (${anchor ?? message.slice(0, 50)})`,
+      );
+    }
+  }
+  console.log(
+    open === 0
+      ? "no leverage position owned by this wallet is open"
+      : `${closed}/${open} leverage positions closed`,
+  );
+
+  // Making a position unhealthy means selling collateral into the market, and
+  // that sale outlives the test: the next run finds collateral worth less and
+  // a market that will not lend against it. The pool was seeded at parity, so
+  // buying back toward parity is what restores it.
+  await rebalance(connection, keypair, dusk, market, baseMint, quoteMint, unit);
+}
+
+async function reserves(
+  connection: Connection,
+  market: PublicKey,
+): Promise<{ base: bigint; quote: bigint } | null> {
+  const account = await connection.getAccountInfo(market, "confirmed");
+  if (!account) return null;
+  // Offsets from protocol/keeper-account-layout.v1.json in dusk-keepers,
+  // which generates them from the pinned IDL. Guessing them by counting from
+  // a neighbouring field is how this first read seventeen trillion tokens.
+  return {
+    base: account.data.readBigUInt64LE(202),
+    quote: account.data.readBigUInt64LE(707),
+  };
+}
+
+async function rebalance(
+  connection: Connection,
+  keypair: Keypair,
+  dusk: Dusk,
+  market: PublicKey,
+  baseMint: PublicKey,
+  quoteMint: PublicKey,
+  unit: bigint,
+): Promise<void> {
+  const send = async (instruction: TransactionInstruction) => {
+    const transaction = new Transaction().add(instruction);
+    const blockhash = await connection.getLatestBlockhash("confirmed");
+    transaction.recentBlockhash = blockhash.blockhash;
+    transaction.feePayer = keypair.publicKey;
+    transaction.sign(keypair);
+    const signature = await connection.sendRawTransaction(
+      transaction.serialize(),
+      { preflightCommitment: "confirmed" },
+    );
+    const result = await connection.confirmTransaction(
+      { ...blockhash, signature },
+      "confirmed",
+    );
+    if (result.value.err) throw new Error(JSON.stringify(result.value.err));
+  };
+
+  for (let step = 0; step < 14; step += 1) {
+    const held = await reserves(connection, market);
+    if (!held) return;
+    const excess = held.base - held.quote;
+    // Within a percent of parity is close enough; chasing further just pays
+    // more fees to the pool.
+    if (excess <= held.quote / 100n) {
+      console.log(
+        `reserves within a percent of parity (${held.base / unit} base, ${held.quote / unit} quote)`,
+      );
+      return;
+    }
+    const size = excess / 4n / unit;
+    if (size === 0n) return;
+    try {
+      await send(
+        await dusk.write.buildSwapInstruction({
+          assetInMint: quoteMint,
+          assetOutMint: baseMint,
+          exactAssetIn: (size * unit).toString(),
+          market,
+          minAssetOut: "0",
+          trader: keypair.publicKey,
+        }),
+      );
+      console.log(`  bought base with ${size} quote`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // Swaps revert intermittently by themselves; retrying is the whole
+      // remedy available until that is fixed.
+      const anchor = message.match(/Error Code: (\w+)/)?.[1];
+      console.log(
+        `  step ${step} failed (${anchor ?? message.replace(/\s+/g, " ").slice(0, 70)})`,
+      );
+    }
+  }
+}
+
+main().catch((error) => {
+  console.error(`FAILED: ${error instanceof Error ? error.message : error}`);
+  process.exit(1);
+});

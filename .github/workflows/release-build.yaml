@@ -25,11 +25,11 @@ on:
 
 env:
   ANCHOR_VERSION: "0.31.1"
-  NODE_VERSION: "24"
   SOLANA_VERSION: "4.1.0"
   PROGRAM_CRATE: dusk
   PROGRAM_LIBRARY: dusk
   PROGRAM_SO: dusk.so
+  LEVERAGE_DELEGATE_SO: leverage_delegate.so
   PROGRAM_IDL: dusk.json
   PROGRAM_TYPES: dusk.ts
   INITIAL_RELEASE_VERSION: "2.0.0"
@@ -212,7 +212,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: yarn
 
       - name: Install JavaScript dependencies
@@ -225,11 +225,13 @@ jobs:
             -e GIT_REV=${{ steps.bump.outputs.sha }} \
             -e GIT_RELEASE=${{ needs.prepare-release.outputs.tag }} \
             -- --features production
+          anchor build --verifiable -p leverage_delegate -- --features production
 
       - name: Verify required artifacts
         run: |
           for artifact in \
             "target/verifiable/${{ env.PROGRAM_SO }}" \
+            "target/verifiable/${{ env.LEVERAGE_DELEGATE_SO }}" \
             "target/idl/${{ env.PROGRAM_IDL }}" \
             "target/types/${{ env.PROGRAM_TYPES }}"
           do
@@ -252,6 +254,7 @@ jobs:
           name: dusk-build-${{ needs.prepare-release.outputs.tag }}
           path: |
             target/verifiable/${{ env.PROGRAM_SO }}
+            target/verifiable/${{ env.LEVERAGE_DELEGATE_SO }}
             target/idl/${{ env.PROGRAM_IDL }}
             target/types/${{ env.PROGRAM_TYPES }}
           if-no-files-found: error
@@ -281,6 +284,7 @@ jobs:
             ```
           files: |
             target/verifiable/${{ env.PROGRAM_SO }}
+            target/verifiable/${{ env.LEVERAGE_DELEGATE_SO }}
             target/idl/${{ env.PROGRAM_IDL }}
             target/types/${{ env.PROGRAM_TYPES }}
           generate_release_notes: true
@@ -304,14 +308,16 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: yarn
 
       - name: Install JavaScript dependencies
         run: yarn install --frozen-lockfile
 
       - name: Build Dusk
-        run: anchor build -p "${{ env.PROGRAM_CRATE }}" -- --features production
+        run: |
+          anchor build -p "${{ env.PROGRAM_CRATE }}" -- --features production
+          anchor build -p leverage_delegate -- --features production
 
       - name: Verify program interface matches build artifacts
         run: npm run check-idl-current --prefix packages/dusk-sdk

@@ -7,17 +7,23 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{LeveragePositionUpdated, MarketEventMetadata},
+    events::{LeveragePositionUpdated, LeverageSwapReceipt, MarketEventMetadata},
     generate_market_seeds,
-    shared::token::transfer_from_vault_to_vault,
-    state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset},
+    state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
+    token::transfer_checked_with_remaining_accounts,
+    transitions::liquidity::SwapCashPolicy,
 };
 
-use super::common::{
-    move_leverage_swap_fee, record_leverage_interest, validate_leverage_fee_account,
-    validate_leverage_interest_account, validate_leverage_mints, validate_leverage_reserve_accounts,
+use super::settlement::{
+    leverage_swap_fee_credit, prepare_leverage_swap, record_leverage_interest, settle_inline_leverage_hlp,
+    validate_leverage_futarchy_pda, validate_leverage_interest_account, validate_leverage_market_pda,
+    validate_leverage_mints, validate_leverage_reserve_accounts,
 };
-use crate::instructions::common::token_program_for_mint;
+use crate::instructions::accounts::{
+    require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout,
+};
+use crate::instructions::referral::accounting::{referral_interest_accrued_event_at_slot, validate_referral_binding};
+use crate::instructions::{enforce_launch_same_transaction_guard, SwapRequest};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct DecreaseLeverageArgs {
@@ -30,19 +36,9 @@ pub struct DecreaseLeverageArgs {
 #[derive(Accounts)]
 #[instruction(args: DecreaseLeverageArgs)]
 pub struct DecreaseLeverage<'info> {
-    #[account(
-        mut,
-        seeds = [
-            MARKET_V2_SEED_PREFIX,
-            market.base_mint.as_ref(),
-            market.quote_mint.as_ref(),
-            market.params_hash.as_ref(),
-        ],
-        bump = market.bump
-    )]
+    #[account(mut)]
     pub market: Box<Account<'info, Market>>,
 
-    #[account(seeds = [FUTARCHY_AUTHORITY_SEED_PREFIX], bump = futarchy_authority.bump)]
     pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
 
     #[account(address = leverage_position.owner)]
@@ -70,8 +66,6 @@ pub struct DecreaseLeverage<'info> {
     #[account(mut)]
     pub collateral_reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
-    pub collateral_fee_vault: Box<InterfaceAccount<'info, TokenAccount>>,
-    #[account(mut)]
     pub debt_interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
@@ -87,18 +81,35 @@ pub struct DecreaseLeverage<'info> {
     )]
     pub leverage_collateral_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
+    pub referral_partner: Option<Box<Account<'info, ReferralPartner>>>,
+
+    #[account(mut)]
+    pub referral_accrual: Option<Box<Account<'info, ReferralAccrual>>>,
+
     #[account(mut)]
     pub owner: Signer<'info>,
+    /// CHECK: Canonical Instructions sysvar for the launch split guard.
+    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions_sysvar: UncheckedAccount<'info>,
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
 }
 
 impl<'info> DecreaseLeverage<'info> {
-    pub fn validate(&self, args: &DecreaseLeverageArgs) -> Result<()> {
-        self.market.assert_started()?;
+    pub fn validate_at(&self, args: &DecreaseLeverageArgs, unix_timestamp: i64) -> Result<()> {
+        validate_leverage_market_pda(&self.market, self.market.key())?;
+        validate_leverage_futarchy_pda(self.futarchy_authority.bump, self.futarchy_authority.key())?;
+        self.market.assert_started_at(unix_timestamp)?;
         require_keys_eq!(self.owner.key(), self.position_owner.key(), ErrorCode::InvalidSigner);
         require!(args.collateral_amount > 0, ErrorCode::AmountZero);
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
+        enforce_launch_same_transaction_guard(
+            &self.market,
+            self.market.key(),
+            debt_asset.opposite(),
+            unix_timestamp,
+            &self.instructions_sysvar.to_account_info(),
+        )?;
         validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
         validate_leverage_reserve_accounts(
             &self.market,
@@ -108,20 +119,32 @@ impl<'info> DecreaseLeverage<'info> {
             &self.debt_reserve_vault,
             &self.collateral_reserve_vault,
         )?;
-        validate_leverage_fee_account(
-            &self.market,
-            &self.collateral_mint,
-            &self.collateral_fee_vault,
-            debt_asset.opposite(),
-        )?;
         validate_leverage_interest_account(&self.market, &self.debt_mint, &self.debt_interest_vault, debt_asset)?;
         self.leverage_position.require_open()?;
+        validate_referral_binding(
+            None,
+            self.leverage_position.referral_partner,
+            self.leverage_position.referral_interest_share_bps,
+            true,
+            &self.futarchy_authority,
+            self.referral_partner.as_deref(),
+            self.referral_accrual.as_deref(),
+            self.market.key(),
+            &self.debt_mint,
+        )?;
         Ok(())
     }
 
-    crate::instructions::common::market_update_and_validate!(DecreaseLeverageArgs);
-
-    pub fn handle_decrease(ctx: Context<'_, '_, '_, 'info, Self>, args: DecreaseLeverageArgs) -> Result<()> {
+    pub fn handle_decrease(
+        ctx: Context<'_, '_, '_, 'info, Self>,
+        args: DecreaseLeverageArgs,
+        current_slot: u64,
+        current_unix_timestamp: i64,
+    ) -> Result<()> {
+        let h_lp_accounts = {
+            let market: &Market = &ctx.accounts.market;
+            HlpSwapAccountLayout::try_from((market, ctx.remaining_accounts))?
+        };
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.owner.key();
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
@@ -130,12 +153,14 @@ impl<'info> DecreaseLeverage<'info> {
         let collateral_mint_key = ctx.accounts.collateral_mint.key();
         let position_key = ctx.accounts.leverage_position.key();
 
+        // Return position collateral to the reserve and measure its net credit.
         let collateral_token_program = token_program_for_mint(
             &ctx.accounts.collateral_mint,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        transfer_from_vault_to_vault(
+        let collateral_reserve_balance_before = ctx.accounts.collateral_reserve_vault.amount;
+        transfer_checked_with_remaining_accounts(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.leverage_collateral_vault.to_account_info(),
             ctx.accounts.collateral_reserve_vault.to_account_info(),
@@ -144,31 +169,65 @@ impl<'info> DecreaseLeverage<'info> {
             args.collateral_amount,
             ctx.accounts.collateral_mint.decimals,
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
+            h_lp_accounts.hook_accounts(ctx.remaining_accounts),
         )?;
-        let swap = ctx
-            .accounts
-            .market
-            .quote_leverage_swap(collateral_asset, args.collateral_amount)?;
-        move_leverage_swap_fee(
-            &ctx.accounts.market,
-            &ctx.accounts.collateral_mint,
-            &mut ctx.accounts.collateral_reserve_vault,
-            &mut ctx.accounts.collateral_fee_vault,
-            &ctx.accounts.token_program,
-            &ctx.accounts.token_2022_program,
-            swap.fee_credit,
+        ctx.accounts.collateral_reserve_vault.reload()?;
+        let collateral_reserve_credit = token_account_credit(
+            collateral_reserve_balance_before,
+            &ctx.accounts.collateral_reserve_vault,
         )?;
+        require!(collateral_reserve_credit > 0, ErrorCode::AmountZero);
 
-        let manager_fee_bps = ctx.accounts.market.config.manager_fee_bps;
+        // Quote the credited collateral as a debt repayment.
+        let prepared_swap = prepare_leverage_swap(
+            &mut ctx.accounts.market,
+            SwapRequest {
+                current_slot,
+                current_unix_timestamp,
+                asset_in: collateral_asset,
+                reserve_credit: collateral_reserve_credit,
+                protocol_fee_bps: ctx.accounts.futarchy_authority.revenue_share.swap_bps,
+            },
+            SwapCashPolicy::Decrease {
+                debt_asset,
+                debt_shares: ctx.accounts.leverage_position.debt_shares,
+                debt_principal: ctx.accounts.leverage_position.debt_principal,
+            },
+        )?;
+        let swap = prepared_swap.swap;
+        let interest_eligibility = prepared_swap.interest_eligibility;
+        let swap_fee_credit = leverage_swap_fee_credit(&swap)?;
+
+        // Commit position accounting and settle hLP exposure and interest.
         let receipt = ctx.accounts.market.decrease_leverage(
             &mut ctx.accounts.leverage_position,
             args.collateral_amount,
             args.min_repay_out,
-            manager_fee_bps,
+            prepared_swap,
+            swap_fee_credit,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
+            current_slot,
+            current_unix_timestamp,
         )?;
-        record_leverage_interest(
+        settle_inline_leverage_hlp(
+            &mut ctx.accounts.market,
+            &ctx.accounts.futarchy_authority,
+            debt_asset,
+            &ctx.accounts.debt_mint,
+            &ctx.accounts.collateral_mint,
+            &ctx.accounts.debt_reserve_vault,
+            &ctx.accounts.collateral_reserve_vault,
+            &ctx.accounts.token_program,
+            &ctx.accounts.token_2022_program,
+            ctx.remaining_accounts,
+            h_lp_accounts,
+            receipt.base_hlp_rebalance,
+            receipt.quote_hlp_rebalance,
+            interest_eligibility,
+        )?;
+        ctx.accounts.debt_interest_vault.reload()?;
+        let referral_receipt = record_leverage_interest(
             &mut ctx.accounts.market,
             debt_asset,
             &ctx.accounts.debt_mint,
@@ -176,25 +235,62 @@ impl<'info> DecreaseLeverage<'info> {
             &mut ctx.accounts.debt_interest_vault,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
-            manager_fee_bps,
-            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
-            ctx.accounts.futarchy_authority.protocol_auction_split,
+            &ctx.accounts.futarchy_authority,
+            ctx.accounts.leverage_position.referral_partner,
+            ctx.accounts.leverage_position.referral_interest_share_bps,
+            ctx.accounts.referral_partner.as_deref(),
+            ctx.accounts.referral_accrual.as_deref_mut(),
             receipt.interest_paid,
+            interest_eligibility,
+            h_lp_accounts.hook_accounts(ctx.remaining_accounts),
         )?;
 
+        // Reconcile physical reserve custody after inline settlement.
+        ctx.accounts.debt_reserve_vault.reload()?;
+        ctx.accounts.collateral_reserve_vault.reload()?;
+        require_reserve_custody(
+            ctx.accounts.debt_reserve_vault.amount,
+            ctx.accounts.market.side(debt_asset),
+        )?;
+        require_reserve_custody(
+            ctx.accounts.collateral_reserve_vault.amount,
+            ctx.accounts.market.side(collateral_asset),
+        )?;
+
+        if let Some(event) = referral_interest_accrued_event_at_slot(
+            &referral_receipt,
+            market_key,
+            position_key,
+            owner_key,
+            owner_key,
+            debt_mint_key,
+            current_slot,
+        )? {
+            emit_cpi!(event);
+        }
+
+        // Emit the final position state.
         emit_cpi!(LeveragePositionUpdated {
             market: market_key,
             position: position_key,
             owner: owner_key,
             debt_asset_mint: debt_mint_key,
             collateral_asset_mint: collateral_mint_key,
+            borrowed_amount: receipt.borrowed_amount,
             debt_delta: receipt.debt_delta,
             collateral_delta: receipt.collateral_delta,
             debt_amount: receipt.debt_amount,
             debt_shares: receipt.debt_shares,
             collateral_amount: receipt.collateral_amount,
             closeout_value: receipt.closeout_value,
-            metadata: MarketEventMetadata::new(owner_key, market_key)?,
+            owner_credit: 0,
+            swap: Some(LeverageSwapReceipt::new(
+                swap,
+                swap_fee_credit,
+                ctx.accounts.market.base_side.reserves.live_reserve,
+                ctx.accounts.market.quote_side.reserves.live_reserve,
+            )?),
+            metadata: MarketEventMetadata::at_slot(owner_key, market_key, current_slot),
         });
         Ok(())
     }

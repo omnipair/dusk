@@ -3,12 +3,124 @@
  * Tracks which program instructions are exercised at least once.
  */
 
+import { createHash } from "crypto";
+import { PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
+
 type InstructionId = string;
+
+const DUSK_PROGRAM_ID = new PublicKey(
+  "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X"
+);
+
+export const REQUIRED_SWAP_COMPUTE_SCENARIOS = [
+  "cpmm_same_slot",
+  "cpmm_advanced_slot",
+  "cpmm_active_debt",
+  "concentrated_centered",
+  "concentrated_transition",
+  "concentrated_tail",
+  "dynamic_fee_divergence_stress",
+  "dynamic_fee_volatility_stress",
+  "retained_surcharge",
+  "controller_due_recenter",
+  "concentrated_hlp_active",
+  "concentrated_hlp_funding_interest",
+  "hlp_active",
+  "token_2022_swap",
+] as const;
+
+export type SwapComputeScenario = (typeof REQUIRED_SWAP_COMPUTE_SCENARIOS)[number];
+
+type ComputeScenarioBaseline = {
+  measuredMaximum: bigint;
+  ceiling: bigint;
+};
+
+type ComputeScenarioDetail = {
+  count: number;
+  total: bigint;
+  max: bigint;
+};
+
+type MeasuredSwapTransaction = {
+  transaction: Transaction | VersionedTransaction;
+  computeUnits: bigint;
+};
+
+/**
+ * The ordinary legacy-SPL path is an architectural acceptance rule, not a
+ * measured-regression allowance. It must remain strictly below 100k CU.
+ *
+ * The remaining baselines are populated only from a clean, fully successful
+ * deterministic LiteSVM run of the finished SBF binary. Their ceilings are
+ * exactly ceil(measured maximum * 1.05). Keeping the values together makes a
+ * baseline update reviewable instead of silently blessing the current run.
+ */
+export const ORDINARY_SWAP_COMPUTE_UNIT_LIMIT = 100_000n;
+
+const COMPUTE_SCENARIO_BASELINES: Partial<
+  Record<SwapComputeScenario, ComputeScenarioBaseline>
+> = {
+  cpmm_same_slot: { measuredMaximum: 60_849n, ceiling: 63_892n },
+  cpmm_advanced_slot: { measuredMaximum: 93_944n, ceiling: 98_642n },
+  cpmm_active_debt: { measuredMaximum: 101_206n, ceiling: 106_267n },
+  concentrated_centered: { measuredMaximum: 184_156n, ceiling: 193_364n },
+  concentrated_transition: { measuredMaximum: 185_458n, ceiling: 194_731n },
+  concentrated_tail: { measuredMaximum: 183_175n, ceiling: 192_334n },
+  dynamic_fee_divergence_stress: {
+    measuredMaximum: 191_527n,
+    ceiling: 201_104n,
+  },
+  dynamic_fee_volatility_stress: {
+    measuredMaximum: 105_117n,
+    ceiling: 110_373n,
+  },
+  retained_surcharge: { measuredMaximum: 189_983n, ceiling: 199_483n },
+  controller_due_recenter: {
+    measuredMaximum: 537_056n,
+    ceiling: 563_909n,
+  },
+  concentrated_hlp_active: {
+    measuredMaximum: 226_854n,
+    ceiling: 238_197n,
+  },
+  concentrated_hlp_funding_interest: {
+    measuredMaximum: 226_854n,
+    ceiling: 238_197n,
+  },
+  hlp_active: { measuredMaximum: 75_578n, ceiling: 79_357n },
+  token_2022_swap: { measuredMaximum: 70_082n, ceiling: 73_587n },
+};
+
+Object.entries(COMPUTE_SCENARIO_BASELINES).forEach(([scenario, baseline]) => {
+  const exactFivePercentCeiling =
+    (baseline.measuredMaximum * 105n + 99n) / 100n;
+  if (baseline.ceiling !== exactFivePercentCeiling) {
+    throw new Error(
+      `${scenario} CU ceiling must equal ceil(measured maximum * 1.05): expected ${exactFivePercentCeiling}, got ${baseline.ceiling}`
+    );
+  }
+});
 
 const testedInstructions = new Set<InstructionId>();
 const instructionDetails = new Map<InstructionId, { count: number; tests: string[] }>();
-const skippedInstructions = new Map<InstructionId, string>();
+const computeUnitDetails = new Map<
+  InstructionId,
+  { count: number; total: bigint; max: bigint }
+>();
+const computeScenarioDetails = new Map<SwapComputeScenario, ComputeScenarioDetail>();
+let externalTransferHookCompute: ComputeScenarioDetail | undefined;
+let measuredTransactionCount = 0;
+let measuredTransactionTotal = 0n;
+let measuredTransactionMax = 0n;
 let lastPrintedReportSignature: string | undefined;
+
+export const LITESVM_COMPUTE_UNIT_LIMIT = BigInt(
+  // Keep a 50k-CU repository release guard below Solana's 1.4M transaction
+  // ceiling. The exact retained-surcharge concentrated path is the measured
+  // high-water mark; bounded wide-domain u128 fee paths are gated separately.
+  process.env.DUSK_TEST_COMPUTE_UNIT_LIMIT ?? "1350000"
+);
 
 const DUSK_INSTRUCTIONS = [
   "initFutarchyAuthority",
@@ -17,20 +129,32 @@ const DUSK_INSTRUCTIONS = [
   "updateRevenueRecipients",
   "updateProtocolAuctionConfig",
   "updateProtocolAuctionRecipients",
+  "updateProtocolAuctionRoute",
   "setGlobalReduceOnly",
+  "fortifyMarket",
+  "configureReferralPartner",
+  "initializeReferralAccrual",
+  "setReferralRecipient",
+  "claimReferralInterest",
   "settleProtocolAuction",
-  "initialize",
+  "initializeMarket",
   "initializeLpMetadata",
-  "updateConfig",
-  "setReduceOnly",
-  "setOperator",
-  "setManager",
-  "claimManagerFees",
+  "initializeYieldAccounts",
+  "initializeLpTransferHook",
+  "setMarketReduceOnly",
+  "createParameterProposal",
+  "supportParameterProposal",
+  "queueParameterProposal",
+  "executeParameterProposal",
+  "withdrawParameterSupport",
   "addLiquidity",
+  "openLiquidityGates",
   "removeLiquidity",
   "setYieldRecipient",
-  "claimYield",
+  "harvest",
   "swap",
+  "rescueHlp",
+  "closeInsolventHlp",
   "depositCollateral",
   "withdrawCollateral",
   "borrow",
@@ -42,14 +166,15 @@ const DUSK_INSTRUCTIONS = [
   "decreaseLeverage",
   "addLeverageMargin",
   "removeLeverageMargin",
-  "liquidateLeverage",
+  "liquidateLeveragePosition",
   "createLeverageDelegation",
   "updateLeverageDelegation",
   "closeLeverageDelegation",
-  "triggerLiquidationAuction",
-  "bidLiquidationAuction",
-  "settleLiquidationAuctionAmm",
+  "startLiquidationAuction",
+  "fillLiquidationAuction",
+  "backstopLiquidationAuction",
   "previewMarket",
+  "previewHlpOrderTrigger",
   "previewAddLiquidity",
   "previewSwap",
   "previewBorrowCapacity",
@@ -59,6 +184,25 @@ const DUSK_INSTRUCTIONS = [
 ];
 
 const ALL_INSTRUCTIONS = DUSK_INSTRUCTIONS;
+
+function anchorInstructionDiscriminator(instructionName: string): string {
+  const snakeCase = instructionName.replace(
+    /[A-Z]/g,
+    (letter) => `_${letter.toLowerCase()}`
+  );
+  return createHash("sha256")
+    .update(`global:${snakeCase}`)
+    .digest()
+    .subarray(0, 8)
+    .toString("hex");
+}
+
+const INSTRUCTION_BY_DISCRIMINATOR = new Map(
+  ALL_INSTRUCTIONS.map((instructionName) => [
+    anchorInstructionDiscriminator(instructionName),
+    instructionName,
+  ])
+);
 
 function instructionLabel(id: InstructionId): string {
   return id;
@@ -95,20 +239,12 @@ function coverageDataFor(instructions: InstructionId[]) {
 }
 
 function reportSignature(): string {
-  const tested = Array.from(testedInstructions).sort().join("|");
-  const skipped = Array.from(skippedInstructions.entries())
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([instruction, reason]) => `${instruction}:${reason}`)
-    .join("|");
-  return `${tested}::${skipped}`;
+  return Array.from(testedInstructions).sort().join("|");
 }
 
 function printCoverageSection(title: string, instructions: InstructionId[]) {
   const data = coverageDataFor(instructions);
-  const skippedUntested = data.untestedInstructions.filter((ix) => skippedInstructions.has(ix));
-  const untestedInstructions = data.untestedInstructions.filter(
-    (ix) => !skippedInstructions.has(ix)
-  );
+  const untestedInstructions = data.untestedInstructions;
 
   console.log(`\n${title}`);
   console.log(
@@ -133,12 +269,6 @@ function printCoverageSection(title: string, instructions: InstructionId[]) {
     });
   }
 
-  if (skippedUntested.length > 0) {
-    console.log(`\nKnown Skips: ${skippedUntested.length}/${data.total}\n`);
-    skippedUntested.forEach((ix) => {
-      console.log(`  - ${instructionLabel(ix)}: ${skippedInstructions.get(ix)}`);
-    });
-  }
 }
 
 /**
@@ -158,10 +288,239 @@ export function trackV2Instruction(instructionName: string, testName?: string) {
 }
 
 /**
- * Record an intentionally skipped Dusk instruction smoke path.
+ * Attribute LiteSVM's measured transaction cost to every top-level Dusk
+ * instruction in the transaction. The suite's configured runtime limit
+ * remains the hard assertion; this telemetry makes actual headroom visible.
  */
-export function skipV2Instruction(instructionName: string, reason: string) {
-  skippedInstructions.set(instructionName, reason);
+export function recordTransactionComputeUnits(
+  transaction: Transaction | VersionedTransaction,
+  computeUnits: bigint
+) {
+  measuredTransactionCount++;
+  measuredTransactionTotal += computeUnits;
+  measuredTransactionMax =
+    computeUnits > measuredTransactionMax ? computeUnits : measuredTransactionMax;
+
+  const matched = new Set(topLevelDuskInstructions(transaction));
+
+  matched.forEach((instructionName) => {
+    const detail = computeUnitDetails.get(instructionName) || {
+      count: 0,
+      total: 0n,
+      max: 0n,
+    };
+    detail.count++;
+    detail.total += computeUnits;
+    detail.max = computeUnits > detail.max ? computeUnits : detail.max;
+    computeUnitDetails.set(instructionName, detail);
+  });
+}
+
+/**
+ * Attribute one explicitly returned successful LiteSVM transaction to a
+ * deterministic swap-path scenario and enforce its checked-in CI guard in
+ * release mode. Development runs emit candidates without blessing or being
+ * blocked by the previous finished-binary baseline.
+ */
+export function recordSwapComputeScenario(
+  scenario: SwapComputeScenario,
+  measurement: MeasuredSwapTransaction
+) {
+  const duskInstructions = topLevelDuskInstructions(measurement.transaction);
+  if (duskInstructions.length !== 1 || duskInstructions[0] !== "swap") {
+    throw new Error(
+      `${scenario} must measure exactly one top-level Dusk swap; found ${duskInstructions.join(", ") || "none"}`
+    );
+  }
+  const { computeUnits } = measurement;
+
+  const detail = computeScenarioDetails.get(scenario) ?? {
+    count: 0,
+    total: 0n,
+    max: 0n,
+  };
+  detail.count++;
+  detail.total += computeUnits;
+  detail.max = computeUnits > detail.max ? computeUnits : detail.max;
+  computeScenarioDetails.set(scenario, detail);
+
+  if (
+    scenario === "cpmm_same_slot" &&
+    computeUnits >= ORDINARY_SWAP_COMPUTE_UNIT_LIMIT
+  ) {
+    throw new Error(
+      `${scenario} consumed ${computeUnits.toLocaleString()} CU; ordinary legacy-SPL swaps must remain below ${ORDINARY_SWAP_COMPUTE_UNIT_LIMIT.toLocaleString()} CU`
+    );
+  }
+
+  const baseline = COMPUTE_SCENARIO_BASELINES[scenario];
+  if (
+    process.env.DUSK_REQUIRE_COMPLETE_CU_BASELINE === "1" &&
+    baseline &&
+    computeUnits > baseline.ceiling
+  ) {
+    throw new Error(
+      `${scenario} consumed ${computeUnits.toLocaleString()} CU; checked-in ceiling is ${baseline.ceiling.toLocaleString()} CU (measured maximum ${baseline.measuredMaximum.toLocaleString()} CU + 5%)`
+    );
+  }
+}
+
+function topLevelDuskInstructions(
+  transaction: Transaction | VersionedTransaction
+): InstructionId[] {
+  const instructionData = transaction instanceof Transaction
+    ? transaction.instructions
+        .filter((instruction) => instruction.programId.equals(DUSK_PROGRAM_ID))
+        .map((instruction) => instruction.data)
+    : transaction.message.compiledInstructions.flatMap((instruction) => {
+        const programId = transaction.message.staticAccountKeys[instruction.programIdIndex];
+        return programId?.equals(DUSK_PROGRAM_ID) ? [instruction.data] : [];
+      });
+  return instructionData.flatMap((data) => {
+    if (data.length < 8) {
+      return [];
+    }
+    const discriminator = Buffer.from(data).subarray(0, 8).toString("hex");
+    const instructionName = INSTRUCTION_BY_DISCRIMINATOR.get(discriminator);
+    return instructionName ? [instructionName] : [];
+  });
+}
+
+/** Record the full Token-2022 + hook transaction separately from swap CU. */
+export function recordExternalTransferHookComputeUnits(computeUnits: bigint | undefined) {
+  if (computeUnits === undefined) {
+    throw new Error("LiteSVM did not expose compute units for the transfer-hook transaction");
+  }
+  const detail = externalTransferHookCompute ?? { count: 0, total: 0n, max: 0n };
+  detail.count++;
+  detail.total += computeUnits;
+  detail.max = computeUnits > detail.max ? computeUnits : detail.max;
+  externalTransferHookCompute = detail;
+}
+
+export function assertRequiredSwapComputeScenarios() {
+  const unmeasuredInstructions = ALL_INSTRUCTIONS.filter(
+    (instruction) => !computeUnitDetails.has(instruction)
+  );
+  if (unmeasuredInstructions.length > 0) {
+    throw new Error(
+      `Missing successful CU measurements for Dusk instructions: ${unmeasuredInstructions.join(", ")}`
+    );
+  }
+
+  const missing = REQUIRED_SWAP_COMPUTE_SCENARIOS.filter(
+    (scenario) => !computeScenarioDetails.has(scenario)
+  );
+  if (missing.length > 0) {
+    throw new Error(`Missing deterministic swap CU scenarios: ${missing.join(", ")}`);
+  }
+
+  const missingBaselines = REQUIRED_SWAP_COMPUTE_SCENARIOS.filter(
+    (scenario) => COMPUTE_SCENARIO_BASELINES[scenario] === undefined
+  );
+  if (
+    process.env.DUSK_REQUIRE_COMPLETE_CU_BASELINE === "1" &&
+    missingBaselines.length > 0
+  ) {
+    throw new Error(
+      `Missing finished-binary CU baselines: ${missingBaselines.join(", ")}. Populate only from a fully successful deterministic LiteSVM run.`
+    );
+  }
+  if (!externalTransferHookCompute) {
+    throw new Error(
+      "Missing external Token-2022 transfer-hook transaction CU measurement"
+    );
+  }
+}
+
+function printComputeScenarioReport() {
+  console.log("\nDeterministic Swap-Path Compute Scenarios");
+  REQUIRED_SWAP_COMPUTE_SCENARIOS.forEach((scenario) => {
+    const detail = computeScenarioDetails.get(scenario);
+    const baseline = COMPUTE_SCENARIO_BASELINES[scenario];
+    if (!detail) {
+      console.log(`  ✗ ${scenario.padEnd(32)} not measured`);
+      return;
+    }
+    const average = detail.total / BigInt(detail.count);
+    const guard =
+      scenario === "cpmm_same_slot"
+        ? `< ${ORDINARY_SWAP_COMPUTE_UNIT_LIMIT.toLocaleString()}`
+        : process.env.DUSK_REQUIRE_COMPLETE_CU_BASELINE === "1" && baseline
+          ? `≤ ${baseline.ceiling.toLocaleString()}`
+          : "candidate mode; prior ceiling not enforced";
+    console.log(
+      `  ✓ ${scenario.padEnd(32)} max ${detail.max
+        .toLocaleString()
+        .padStart(9)} | avg ${average
+        .toLocaleString()
+        .padStart(9)} | n=${detail.count.toString().padStart(2)} | guard ${guard}`
+    );
+  });
+
+  if (
+    REQUIRED_SWAP_COMPUTE_SCENARIOS.every((scenario) =>
+      computeScenarioDetails.has(scenario)
+    )
+  ) {
+    console.log("\nFinished-binary baseline candidates (accept only if the full suite passed):");
+    REQUIRED_SWAP_COMPUTE_SCENARIOS.forEach((scenario) => {
+      const measuredMaximum = computeScenarioDetails.get(scenario)!.max;
+      const ceiling = (measuredMaximum * 105n + 99n) / 100n;
+      console.log(
+        `  ${scenario}: { measuredMaximum: ${measuredMaximum}n, ceiling: ${ceiling}n },`
+      );
+    });
+  }
+
+  if (externalTransferHookCompute) {
+    const average =
+      externalTransferHookCompute.total / BigInt(externalTransferHookCompute.count);
+    console.log(
+      `\nExternal Token-2022 transfer-hook transaction: max ${externalTransferHookCompute.max.toLocaleString()} CU | avg ${average.toLocaleString()} CU | n=${externalTransferHookCompute.count}`
+    );
+  } else {
+    console.log("\nExternal Token-2022 transfer-hook transaction: not measured");
+  }
+}
+
+function printComputeUnitReport() {
+  if (measuredTransactionCount === 0) {
+    console.log("\nLiteSVM Compute Units: no successful transaction metadata recorded");
+    return;
+  }
+
+  const average = measuredTransactionTotal / BigInt(measuredTransactionCount);
+  console.log("\nLiteSVM Compute-Unit Report");
+  console.log(
+    `Successful transactions: ${measuredTransactionCount} | average: ${average.toLocaleString()} CU | maximum: ${measuredTransactionMax.toLocaleString()} CU`
+  );
+  console.log(
+    `Top-level Dusk instruction maxima (${LITESVM_COMPUTE_UNIT_LIMIT.toLocaleString()}-CU test limit):`
+  );
+
+  Array.from(computeUnitDetails.entries())
+    .sort((left, right) =>
+      left[1].max === right[1].max
+        ? left[0].localeCompare(right[0])
+        : left[1].max > right[1].max
+          ? -1
+          : 1
+    )
+    .forEach(([instructionName, detail]) => {
+      const averageForInstruction = detail.total / BigInt(detail.count);
+      const headroomBps =
+        10_000n - (detail.max * 10_000n) / LITESVM_COMPUTE_UNIT_LIMIT;
+      console.log(
+        `  ${instructionLabel(instructionName).padEnd(28)} max ${detail.max
+          .toLocaleString()
+          .padStart(7)} | avg ${averageForInstruction
+          .toLocaleString()
+          .padStart(7)} | n=${detail.count
+          .toString()
+          .padStart(2)} | headroom ${(Number(headroomBps) / 100).toFixed(2)}%`
+      );
+    });
 }
 
 /**
@@ -193,6 +552,8 @@ export function getCoverageReport() {
   );
 
   printCoverageSection("Dusk Instruction Smoke Coverage", ALL_INSTRUCTIONS);
+  printComputeUnitReport();
+  printComputeScenarioReport();
   
   console.log("\n" + "═".repeat(70));
   console.log(
@@ -215,7 +576,12 @@ export function getCoverageReport() {
 export function resetCoverage() {
   testedInstructions.clear();
   instructionDetails.clear();
-  skippedInstructions.clear();
+  computeUnitDetails.clear();
+  computeScenarioDetails.clear();
+  externalTransferHookCompute = undefined;
+  measuredTransactionCount = 0;
+  measuredTransactionTotal = 0n;
+  measuredTransactionMax = 0n;
   lastPrintedReportSignature = undefined;
 }
 

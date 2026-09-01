@@ -1,0 +1,430 @@
+use anchor_lang::prelude::*;
+use anchor_spl::{
+    token::Token,
+    token_interface::{Mint, Token2022, TokenAccount},
+};
+
+use crate::{
+    constants::*,
+    errors::ErrorCode,
+    events::BorrowPositionLiquidated,
+    generate_market_seeds,
+    state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
+    token::{get_transfer_fee, get_transfer_inverse_fee, transfer_checked_with_remaining_accounts},
+    transitions::LiquidationPricing,
+};
+
+use super::settlement::validate_liquidation_accounts;
+use crate::instructions::accounts::{
+    require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
+    validate_interest_accounts,
+};
+use crate::instructions::referral::accounting::{
+    accrue_referral_interest, referral_interest_accrued_event_at_slot, validate_referral_binding,
+};
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct FillLiquidationAuctionArgs {
+    pub repay_amount: u64,
+    pub min_collateral_out: u64,
+}
+
+#[event_cpi]
+#[derive(Accounts)]
+#[instruction(args: FillLiquidationAuctionArgs)]
+pub struct FillLiquidationAuction<'info> {
+    #[account(
+        mut,
+        seeds = [
+            MARKET_V2_SEED_PREFIX,
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
+            market.params_hash.as_ref(),
+        ],
+        bump = market.bump
+    )]
+    pub market: Box<Account<'info, Market>>,
+
+    #[account(
+        seeds = [FUTARCHY_AUTHORITY_SEED_PREFIX],
+        bump = futarchy_authority.bump
+    )]
+    pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
+
+    /// CHECK: Receives the borrow-position rent after terminal liquidation.
+    #[account(mut, address = borrow_position.owner)]
+    pub position_owner: AccountInfo<'info>,
+
+    #[account(mut)]
+    pub liquidator: Signer<'info>,
+
+    pub debt_asset_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub collateral_asset_mint: Box<InterfaceAccount<'info, Mint>>,
+
+    #[account(mut)]
+    pub reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(mut)]
+    pub interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(mut)]
+    pub collateral_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(mut)]
+    pub insurance_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(mut)]
+    pub collateral_insurance_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(mut)]
+    pub liquidator_debt_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(mut)]
+    pub liquidator_collateral_account: Box<InterfaceAccount<'info, TokenAccount>>,
+
+    #[account(
+        mut,
+        seeds = [
+            BORROW_POSITION_SEED_PREFIX,
+            market.key().as_ref(),
+            borrow_position.position_id.as_ref(),
+        ],
+        bump = borrow_position.bump
+    )]
+    pub borrow_position: Box<Account<'info, BorrowPosition>>,
+
+    pub referral_partner: Option<Box<Account<'info, ReferralPartner>>>,
+
+    #[account(mut)]
+    pub referral_accrual: Option<Box<Account<'info, ReferralAccrual>>>,
+
+    pub token_program: Program<'info, Token>,
+    pub token_2022_program: Program<'info, Token2022>,
+}
+
+impl<'info> FillLiquidationAuction<'info> {
+    pub fn validate(&self, args: &FillLiquidationAuctionArgs) -> Result<()> {
+        self.market.assert_started()?;
+        require!(args.repay_amount > 0, ErrorCode::AmountZero);
+        require_gte!(
+            self.liquidator_debt_account.amount,
+            args.repay_amount,
+            ErrorCode::InsufficientBalance
+        );
+        let debt_asset = validate_liquidation_accounts(
+            &self.market,
+            &self.debt_asset_mint,
+            &self.collateral_asset_mint,
+            &self.reserve_vault,
+            &self.collateral_vault,
+            &self.insurance_vault,
+        )?;
+        require_keys_eq!(
+            self.collateral_insurance_vault.key(),
+            match debt_asset {
+                crate::state::MarketAsset::Base => self.market.insurance.quote_vault,
+                crate::state::MarketAsset::Quote => self.market.insurance.base_vault,
+            },
+            ErrorCode::InvalidVault
+        );
+        require_keys_eq!(
+            self.collateral_insurance_vault.mint,
+            self.collateral_asset_mint.key(),
+            ErrorCode::InvalidVault
+        );
+        require_keys_eq!(
+            self.collateral_insurance_vault.owner,
+            self.market.key(),
+            ErrorCode::InvalidVault
+        );
+        require_keys_eq!(
+            self.liquidator_debt_account.mint,
+            self.debt_asset_mint.key(),
+            ErrorCode::InvalidTokenAccount
+        );
+        require_keys_eq!(
+            self.liquidator_debt_account.owner,
+            self.liquidator.key(),
+            ErrorCode::InvalidTokenAccount
+        );
+        require_keys_eq!(
+            self.liquidator_collateral_account.mint,
+            self.collateral_asset_mint.key(),
+            ErrorCode::InvalidTokenAccount
+        );
+        require_keys_eq!(
+            self.liquidator_collateral_account.owner,
+            self.liquidator.key(),
+            ErrorCode::InvalidTokenAccount
+        );
+        let interest_asset = validate_interest_accounts(&self.market, &self.debt_asset_mint, &self.interest_vault)?;
+        require!(interest_asset == debt_asset, ErrorCode::InvalidVault);
+        require_supported_asset_mint(&self.debt_asset_mint)?;
+        require_supported_asset_mint(&self.collateral_asset_mint)?;
+        require_keys_eq!(
+            self.borrow_position.market,
+            self.market.key(),
+            ErrorCode::InvalidBorrowPosition
+        );
+        validate_referral_binding(
+            None,
+            self.borrow_position.referral_partner(debt_asset),
+            self.borrow_position.referral_interest_share_bps(debt_asset),
+            true,
+            &self.futarchy_authority,
+            self.referral_partner.as_deref(),
+            self.referral_accrual.as_deref(),
+            self.market.key(),
+            &self.debt_asset_mint,
+        )?;
+        Ok(())
+    }
+
+    crate::instructions::accounts::market_update_and_validate!(FillLiquidationAuctionArgs);
+
+    pub fn handle_fill(ctx: Context<'_, '_, '_, 'info, Self>, args: FillLiquidationAuctionArgs) -> Result<()> {
+        let market_key = ctx.accounts.market.key();
+        let borrow_position_key = ctx.accounts.borrow_position.key();
+        let borrower_key = ctx.accounts.borrow_position.owner;
+        let liquidator_key = ctx.accounts.liquidator.key();
+        let debt_asset_mint_key = ctx.accounts.debt_asset_mint.key();
+        let debt_asset = ctx.accounts.market.asset_for_mint(debt_asset_mint_key)?;
+        let expected_referral_partner = ctx.accounts.borrow_position.referral_partner(debt_asset);
+        let referral_interest_share_bps = ctx.accounts.borrow_position.referral_interest_share_bps(debt_asset);
+
+        // `market_update_and_validate` materializes current risk immediately
+        // before this handler. Cancel a recovered auction before reading its
+        // stored price or moving bidder tokens.
+        ctx.accounts.borrow_position.assert_liquidation_auction(debt_asset)?;
+        ctx.accounts
+            .market
+            .reconcile_liquidation_auction(&mut ctx.accounts.borrow_position)?;
+        if !ctx.accounts.borrow_position.has_active_liquidation_auction() {
+            return Ok(());
+        }
+
+        let now = Clock::get()?.unix_timestamp;
+        require!(
+            !ctx.accounts.borrow_position.liquidation_auction_expired(now)?,
+            ErrorCode::PositionNotLiquidatable
+        );
+        let mut final_price = ctx.accounts.borrow_position.liquidation_auction_price_nad(now)?;
+
+        // Liquidator pays LP fee (e.g. 0.20%) to beat the floor
+        let reservation_fee = final_price
+            .checked_mul(20)
+            .and_then(|v| v.checked_div(10000))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        final_price = final_price
+            .checked_add(reservation_fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+
+        let liquidation_pricing = LiquidationPricing::ReferencePrice {
+            debt_per_collateral_price_nad: final_price,
+        };
+
+        let liquidation_terms = ctx.accounts.market.liquidation_terms_with_pricing(
+            &ctx.accounts.borrow_position,
+            debt_asset,
+            liquidation_pricing,
+        )?;
+        let debt_token_program = token_program_for_mint(
+            &ctx.accounts.debt_asset_mint,
+            &ctx.accounts.token_program,
+            &ctx.accounts.token_2022_program,
+        )?;
+        let max_repay_credit = args
+            .repay_amount
+            .checked_sub(get_transfer_fee(
+                &ctx.accounts.debt_asset_mint.to_account_info(),
+                args.repay_amount,
+            )?)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let repay_credit = ctx
+            .accounts
+            .market
+            .fixed_repayment_for_max(&ctx.accounts.borrow_position, debt_asset, max_repay_credit)?
+            .cash_repaid;
+        require_gte!(
+            liquidation_terms.max_repay_amount,
+            repay_credit,
+            ErrorCode::LiquidationRepayTooLarge
+        );
+        let repay_gross = repay_credit
+            .checked_add(get_transfer_inverse_fee(
+                &ctx.accounts.debt_asset_mint.to_account_info(),
+                repay_credit,
+            )?)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        require_gte!(args.repay_amount, repay_gross, ErrorCode::BrokenInvariant);
+        let reserve_balance_before = ctx.accounts.reserve_vault.amount;
+        transfer_checked_with_remaining_accounts(
+            ctx.accounts.liquidator.to_account_info(),
+            ctx.accounts.liquidator_debt_account.to_account_info(),
+            ctx.accounts.reserve_vault.to_account_info(),
+            ctx.accounts.debt_asset_mint.to_account_info(),
+            debt_token_program.clone(),
+            repay_gross,
+            ctx.accounts.debt_asset_mint.decimals,
+            &[],
+            ctx.remaining_accounts,
+        )?;
+        ctx.accounts.reserve_vault.reload()?;
+        require_eq!(
+            token_account_credit(reserve_balance_before, &ctx.accounts.reserve_vault)?,
+            repay_credit,
+            ErrorCode::BrokenInvariant
+        );
+
+        // For ordinary auction fills, there is no insurance draw or socialized
+        // loss because repayment is fully external.
+        let liquidation_receipt = ctx.accounts.market.settle_liquidation(
+            &mut ctx.accounts.borrow_position,
+            debt_asset,
+            repay_credit,
+            0,
+            0,
+            0,
+            liquidation_terms,
+            liquidation_pricing,
+        )?;
+
+        let referral_receipt = if liquidation_receipt.interest_paid > 0 {
+            let interest_vault_balance_before = ctx.accounts.interest_vault.amount;
+            transfer_checked_with_remaining_accounts(
+                ctx.accounts.market.to_account_info(),
+                ctx.accounts.reserve_vault.to_account_info(),
+                ctx.accounts.interest_vault.to_account_info(),
+                ctx.accounts.debt_asset_mint.to_account_info(),
+                debt_token_program,
+                liquidation_receipt.interest_paid,
+                ctx.accounts.debt_asset_mint.decimals,
+                &[&generate_market_seeds!(ctx.accounts.market)[..]],
+                ctx.remaining_accounts,
+            )?;
+            ctx.accounts.reserve_vault.reload()?;
+            ctx.accounts.interest_vault.reload()?;
+            let interest_vault_credit =
+                token_account_credit(interest_vault_balance_before, &ctx.accounts.interest_vault)?;
+            let referral_receipt = accrue_referral_interest(
+                expected_referral_partner,
+                referral_interest_share_bps,
+                &ctx.accounts.futarchy_authority,
+                ctx.accounts.referral_partner.as_deref(),
+                ctx.accounts.referral_accrual.as_deref_mut(),
+                market_key,
+                &ctx.accounts.debt_asset_mint,
+                liquidation_receipt.interest_paid,
+                interest_vault_credit,
+                ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+            )?;
+            ctx.accounts.market.side_mut(debt_asset).record_interest_credit(
+                interest_vault_credit,
+                ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+                ctx.accounts.futarchy_authority.protocol_auction_split,
+                referral_receipt.quote.referral_amount,
+            )?;
+            referral_receipt
+        } else {
+            accrue_referral_interest(
+                expected_referral_partner,
+                referral_interest_share_bps,
+                &ctx.accounts.futarchy_authority,
+                ctx.accounts.referral_partner.as_deref(),
+                ctx.accounts.referral_accrual.as_deref_mut(),
+                market_key,
+                &ctx.accounts.debt_asset_mint,
+                0,
+                0,
+                ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+            )?
+        };
+
+        let collateral_token_program = token_program_for_mint(
+            &ctx.accounts.collateral_asset_mint,
+            &ctx.accounts.token_program,
+            &ctx.accounts.token_2022_program,
+        )?;
+        let collateral_credit = if liquidation_receipt.collateral_to_liquidator > 0 {
+            let transfer_fee = get_transfer_fee(
+                &ctx.accounts.collateral_asset_mint.to_account_info(),
+                liquidation_receipt.collateral_to_liquidator,
+            )?;
+            let collateral_credit = liquidation_receipt
+                .collateral_to_liquidator
+                .checked_sub(transfer_fee)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            require_gte!(collateral_credit, args.min_collateral_out, ErrorCode::SlippageExceeded);
+            transfer_checked_with_remaining_accounts(
+                ctx.accounts.market.to_account_info(),
+                ctx.accounts.collateral_vault.to_account_info(),
+                ctx.accounts.liquidator_collateral_account.to_account_info(),
+                ctx.accounts.collateral_asset_mint.to_account_info(),
+                collateral_token_program.clone(),
+                liquidation_receipt.collateral_to_liquidator,
+                ctx.accounts.collateral_asset_mint.decimals,
+                &[&generate_market_seeds!(ctx.accounts.market)[..]],
+                ctx.remaining_accounts,
+            )?;
+            collateral_credit
+        } else {
+            0
+        };
+        require_gte!(collateral_credit, args.min_collateral_out, ErrorCode::SlippageExceeded);
+        if liquidation_receipt.insurance_funded > 0 {
+            let collateral_insurance_balance_before = ctx.accounts.collateral_insurance_vault.amount;
+            transfer_checked_with_remaining_accounts(
+                ctx.accounts.market.to_account_info(),
+                ctx.accounts.collateral_vault.to_account_info(),
+                ctx.accounts.collateral_insurance_vault.to_account_info(),
+                ctx.accounts.collateral_asset_mint.to_account_info(),
+                collateral_token_program,
+                liquidation_receipt.insurance_funded,
+                ctx.accounts.collateral_asset_mint.decimals,
+                &[&generate_market_seeds!(ctx.accounts.market)[..]],
+                ctx.remaining_accounts,
+            )?;
+            ctx.accounts.collateral_insurance_vault.reload()?;
+            let insurance_credit = crate::instructions::accounts::token_account_credit(
+                collateral_insurance_balance_before,
+                &ctx.accounts.collateral_insurance_vault,
+            )?;
+            ctx.accounts.market.insurance.reconcile_credit(
+                debt_asset.opposite(),
+                liquidation_receipt.insurance_funded,
+                insurance_credit,
+            )?;
+        }
+
+        let current_slot = Clock::get()?.slot;
+        ctx.accounts.market.finalize_amm_transition(current_slot)?;
+        ctx.accounts.market.refresh_risk()?;
+        require_reserve_custody(ctx.accounts.reserve_vault.amount, ctx.accounts.market.side(debt_asset))?;
+
+        emit_cpi!(BorrowPositionLiquidated {
+            market: market_key,
+            borrow_position: borrow_position_key,
+            borrower: borrower_key,
+            liquidator: liquidator_key,
+            debt_asset_side: debt_asset.code(),
+            repaid_amount: liquidation_receipt.repaid_amount,
+            collateral_seized: liquidation_receipt.collateral_seized,
+            collateral_to_liquidator: liquidation_receipt.collateral_to_liquidator,
+            collateral_credit,
+            insurance_drawn: liquidation_receipt.insurance_drawn,
+            socialized_loss: liquidation_receipt.socialized_loss,
+            remaining_debt: liquidation_receipt.remaining_debt,
+        });
+        if let Some(event) = referral_interest_accrued_event_at_slot(
+            &referral_receipt,
+            market_key,
+            borrow_position_key,
+            borrower_key,
+            liquidator_key,
+            debt_asset_mint_key,
+            current_slot,
+        )? {
+            emit_cpi!(event);
+        }
+        if ctx.accounts.borrow_position.is_empty() {
+            ctx.accounts
+                .borrow_position
+                .close(ctx.accounts.position_owner.to_account_info())?;
+        }
+        Ok(())
+    }
+}

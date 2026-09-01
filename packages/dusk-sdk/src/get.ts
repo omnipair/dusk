@@ -14,12 +14,16 @@ import {
   deriveLeveragePositionAddress,
   deriveMarketAddress,
   deriveMarketCollateralVaultAddress,
-  deriveMarketFeeVaultAddress,
   deriveMarketInterestVaultAddress,
   deriveMarketReserveVaultAddress,
+  deriveParameterProposalAddress,
+  deriveProposalSupportAddress,
+  deriveReferralAccrualAddress,
+  deriveReferralPartnerAddress,
   deriveTokenMetadataAddress,
   deriveYieldAccountAddress,
   deriveYieldTransferHookValidationAddress,
+  type U64SeedLike,
 } from "./constants.js";
 import { address, DEFAULT_READONLY_PUBLIC_KEY, normalizeAccountKeys, type AddressLike } from "./address.js";
 import {
@@ -41,6 +45,10 @@ import type {
   LeverageDelegation,
   LeveragePosition,
   Market,
+  ParameterProposal,
+  ProposalSupport,
+  ReferralAccrual,
+  ReferralPartner,
   YieldAccount,
 } from "./type-aliases.js";
 import type { Dusk } from "./types_v2.js";
@@ -51,7 +59,6 @@ export const pda = {
   tokenMetadata: deriveTokenMetadataAddress,
   marketReserveVault: deriveMarketReserveVaultAddress,
   marketCollateralVault: deriveMarketCollateralVaultAddress,
-  marketFeeVault: deriveMarketFeeVaultAddress,
   marketInterestVault: deriveMarketInterestVaultAddress,
   borrowPosition: deriveBorrowPositionAddress,
   leveragePosition: deriveLeveragePositionAddress,
@@ -59,6 +66,10 @@ export const pda = {
   yieldTransferHookValidation: deriveYieldTransferHookValidationAddress,
   hlpYlpVault: deriveHlpYlpVaultAddress,
   insurance: deriveInsuranceAddress,
+  referralPartner: deriveReferralPartnerAddress,
+  referralAccrual: deriveReferralAccrualAddress,
+  parameterProposal: deriveParameterProposalAddress,
+  proposalSupport: deriveProposalSupportAddress,
 } as const;
 
 export interface SimulateOptions {
@@ -68,6 +79,7 @@ export interface SimulateOptions {
 
 export interface PreviewSwapParams extends SimulateOptions {
   market: AddressLike;
+  futarchyAuthority?: AddressLike;
   assetInMint: AddressLike;
   assetOutMint: AddressLike;
   exactAssetIn: BN;
@@ -86,7 +98,11 @@ export interface PreviewBorrowCapacityParams extends SimulateOptions {
   collateralAssetMint: AddressLike;
   debtAssetMint: AddressLike;
   collateralAmount: BN;
-  projectedDebtAmount?: BN | null;
+  /**
+   * Candidate debt amount used for the returned CF and health fields. When
+   * omitted, the program quotes at maximum borrow capacity.
+   */
+  projectedBorrowAmount?: BN | null;
 }
 
 export interface PreviewBorrowPositionParams extends SimulateOptions {
@@ -150,6 +166,48 @@ export class DuskGet {
     return this.program.account.futarchyAuthority.fetch(address(account));
   }
 
+  referralPartner(account: AddressLike): Promise<ReferralPartner> {
+    return this.program.account.referralPartner.fetch(address(account));
+  }
+
+  referralAccrual(account: AddressLike): Promise<ReferralAccrual> {
+    return this.program.account.referralAccrual.fetch(address(account));
+  }
+
+  parameterProposal(account: AddressLike): Promise<ParameterProposal> {
+    return this.program.account.parameterProposal.fetch(address(account));
+  }
+
+  proposalSupport(account: AddressLike): Promise<ProposalSupport> {
+    return this.program.account.proposalSupport.fetch(address(account));
+  }
+
+  parameterProposalFor(
+    market: AddressLike,
+    proposer: AddressLike,
+    nonce: U64SeedLike
+  ): Promise<ParameterProposal> {
+    const [proposal] = deriveParameterProposalAddress(
+      address(market),
+      address(proposer),
+      nonce,
+      this.program.programId
+    );
+    return this.parameterProposal(proposal);
+  }
+
+  proposalSupportFor(
+    proposal: AddressLike,
+    supporter: AddressLike
+  ): Promise<ProposalSupport> {
+    const [support] = deriveProposalSupportAddress(
+      address(proposal),
+      address(supporter),
+      this.program.programId
+    );
+    return this.proposalSupport(support);
+  }
+
   allMarkets() {
     return this.program.account.market.all();
   }
@@ -160,6 +218,22 @@ export class DuskGet {
 
   allLeveragePositions() {
     return this.program.account.leveragePosition.all();
+  }
+
+  allReferralPartners() {
+    return this.program.account.referralPartner.all();
+  }
+
+  allReferralAccruals() {
+    return this.program.account.referralAccrual.all();
+  }
+
+  allParameterProposals() {
+    return this.program.account.parameterProposal.all();
+  }
+
+  allProposalSupports() {
+    return this.program.account.proposalSupport.all();
   }
 
   async previewMarket(market: AddressLike, options: SimulateOptions = {}): Promise<MarketPreview> {
@@ -199,6 +273,8 @@ export class DuskGet {
       .accounts(
         normalizeAccountKeys({
           market: params.market,
+          futarchyAuthority:
+            params.futarchyAuthority ?? deriveFutarchyAuthorityAddress()[0],
           assetInMint: params.assetInMint,
           assetOutMint: params.assetOutMint,
         })
@@ -214,7 +290,7 @@ export class DuskGet {
     const instruction = await this.program.methods
       .previewBorrowCapacity({
         collateralAmount: params.collateralAmount,
-        projectedDebtAmount: params.projectedDebtAmount ?? null,
+        projectedBorrowAmount: params.projectedBorrowAmount ?? null,
       })
       .accounts(
         normalizeAccountKeys({

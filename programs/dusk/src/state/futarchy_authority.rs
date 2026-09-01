@@ -24,6 +24,22 @@ impl ProtocolAuctionLane {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, InitSpace)]
+pub enum ProtocolRevenueSource {
+    #[default]
+    Swap,
+    Interest,
+}
+
+impl ProtocolRevenueSource {
+    pub fn code(self) -> u8 {
+        match self {
+            Self::Swap => 0,
+            Self::Interest => 1,
+        }
+    }
+}
+
 /// Revenue recipient wallet addresses. Recipient token accounts are derived or
 /// validated against these owners when protocol fees are claimed.
 #[derive(Clone, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, InitSpace)]
@@ -130,25 +146,16 @@ pub struct ProtocolAuctionConfig {
     pub accepted_mint: Pubkey,
     pub recipients: ProtocolAuctionRecipients,
     pub params: ProtocolAuctionParams,
-    pub last_settlement_slot: u64,
-    pub last_settlement_price_nad: u64,
 }
 
 impl ProtocolAuctionConfig {
-    pub fn initialize(
-        accepted_mint: Pubkey,
-        treasury: Pubkey,
-        staking_vault: Pubkey,
-        current_slot: u64,
-    ) -> Result<Self> {
+    pub fn initialize(accepted_mint: Pubkey, treasury: Pubkey, staking_vault: Pubkey) -> Result<Self> {
         let params = ProtocolAuctionParams::default_epoch();
         params.validate()?;
         Ok(Self {
             accepted_mint,
             recipients: ProtocolAuctionRecipients::treasury_only(treasury, staking_vault),
             params,
-            last_settlement_slot: current_slot,
-            last_settlement_price_nad: 0,
         })
     }
 
@@ -166,6 +173,7 @@ pub struct FutarchyAuthority {
     pub authority: Pubkey,
     pub recipients: RevenueRecipients,
     pub revenue_share: RevenueShare,
+    pub max_referral_interest_share_bps: u16,
     pub revenue_distribution: RevenueDistribution,
     pub protocol_auction_split: ProtocolAuctionSplit,
     pub fee_auction: ProtocolAuctionConfig,
@@ -175,13 +183,26 @@ pub struct FutarchyAuthority {
 }
 
 impl FutarchyAuthority {
+    /// Serialized account version. Pre-deployment feature iterations remain at
+    /// version 1; increment only for an incompatible post-deployment layout.
     pub const CURRENT_VERSION: u8 = 1;
 
     pub fn validate(&self) -> Result<()> {
+        require_eq!(self.version, Self::CURRENT_VERSION, ErrorCode::InvalidVersion);
+        self.validate_referral_interest_share_cap()?;
         require!(self.revenue_distribution.is_valid(), ErrorCode::InvalidDistribution);
         require!(self.protocol_auction_split.is_valid(), ErrorCode::InvalidDistribution);
         self.fee_auction.validate()?;
         self.buyback_auction.validate()?;
+        Ok(())
+    }
+
+    pub fn validate_referral_interest_share_cap(&self) -> Result<()> {
+        require_gte!(
+            MAX_REFERRAL_INTEREST_SHARE_BPS,
+            self.max_referral_interest_share_bps,
+            ErrorCode::InvalidReferralInterestShareBps
+        );
         Ok(())
     }
 
@@ -194,6 +215,7 @@ impl FutarchyAuthority {
         authority: Pubkey,
         swap_bps: u16,
         interest_bps: u16,
+        max_referral_interest_share_bps: u16,
         futarchy_treasury: Pubkey,
         buybacks_vault: Pubkey,
         team_treasury: Pubkey,
@@ -203,7 +225,6 @@ impl FutarchyAuthority {
         futarchy_treasury_bps: u16,
         buybacks_vault_bps: u16,
         team_treasury_bps: u16,
-        current_slot: u64,
         bump: u8,
     ) -> Result<Self> {
         let revenue_distribution = RevenueDistribution {
@@ -212,6 +233,11 @@ impl FutarchyAuthority {
             team_treasury_bps,
         };
         require!(revenue_distribution.is_valid(), ErrorCode::InvalidDistribution);
+        require_gte!(
+            MAX_REFERRAL_INTEREST_SHARE_BPS,
+            max_referral_interest_share_bps,
+            ErrorCode::InvalidReferralInterestShareBps
+        );
 
         Ok(Self {
             version: Self::CURRENT_VERSION,
@@ -222,19 +248,18 @@ impl FutarchyAuthority {
                 team_treasury,
             },
             revenue_share: RevenueShare { swap_bps, interest_bps },
+            max_referral_interest_share_bps,
             revenue_distribution,
             protocol_auction_split: ProtocolAuctionSplit::default(),
             fee_auction: ProtocolAuctionConfig::initialize(
                 fee_auction_accepted_mint,
                 futarchy_treasury,
                 staking_vault,
-                current_slot,
             )?,
             buyback_auction: ProtocolAuctionConfig::initialize(
                 buyback_auction_accepted_mint,
                 futarchy_treasury,
                 staking_vault,
-                current_slot,
             )?,
             global_reduce_only: false,
             bump,

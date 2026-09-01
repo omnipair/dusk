@@ -1,7 +1,9 @@
 import {
   TOKEN_PROGRAMS,
   createMintIfMissing,
+  deriveFaucetAuthorityAddress,
   duskEnv,
+  faucetProgramId,
   providerFromEnv,
   payerFromProvider,
   readState,
@@ -19,13 +21,21 @@ async function main() {
   const decimals = Number(duskEnv("MOCK_DECIMALS") ?? "6");
   const baseLabel = duskEnv("MOCK_BASE_LABEL") ?? "base";
   const quoteLabel = duskEnv("MOCK_QUOTE_LABEL") ?? "quote";
+  const faucetId = faucetProgramId();
+  const faucetAccount = await provider.connection.getAccountInfo(faucetId, "confirmed");
+  if (!faucetAccount?.executable) {
+    throw new Error(
+      `Dusk faucet ${faucetId.toBase58()} is not deployed. Run yarn v2:deploy-faucet-devnet first.`
+    );
+  }
+  const faucetAuthority = deriveFaucetAuthorityAddress(faucetId);
 
   const baseMint = await createMintIfMissing({
     connection: provider.connection,
     payer,
     label: baseLabel,
     decimals,
-    mintAuthority: payer.publicKey,
+    mintAuthority: faucetAuthority,
     tokenProgram,
   });
   const quoteMint = await createMintIfMissing({
@@ -33,10 +43,14 @@ async function main() {
     payer,
     label: quoteLabel,
     decimals,
-    mintAuthority: payer.publicKey,
+    mintAuthority: faucetAuthority,
     tokenProgram,
   });
 
+  state.faucet = {
+    programId: faucetId.toBase58(),
+    mintAuthority: faucetAuthority.toBase58(),
+  };
   state.mockMints[baseLabel] = baseMint;
   state.mockMints[quoteLabel] = quoteMint;
   writeState(state);
@@ -46,6 +60,8 @@ async function main() {
   console.log(`${baseLabel}: ${baseMint.mint}`);
   console.log(`${quoteLabel}: ${quoteMint.mint}`);
   console.log(`Token program: ${tokenProgram.toBase58()}`);
+  console.log(`Faucet: ${faucetId.toBase58()}`);
+  console.log(`Mint authority: ${faucetAuthority.toBase58()}`);
 }
 
 main().catch((error) => {

@@ -1,8 +1,17 @@
-import { PublicKey, Keypair, Connection, Commitment, TransactionConfirmationStrategy, RpcResponseAndContext, SignatureResult, Transaction, VersionedTransaction, Signer, SendOptions } from "@solana/web3.js";
+import { PublicKey, Connection, Commitment, TransactionConfirmationStrategy, RpcResponseAndContext, SignatureResult, Transaction, VersionedTransaction, Signer, SendOptions } from "@solana/web3.js";
 import { LiteSVM } from "litesvm";
+import { recordTransactionComputeUnits } from "./instruction-coverage.js";
+
+export type MeasuredTransaction = {
+  signature: string;
+  transaction: Transaction;
+  computeUnits: bigint;
+};
 
 // Create a Connection wrapper for LiteSVM that intercepts all calls
 export class LiteSVMConnection extends Connection {
+  private computeUnitSamples: bigint[] = [];
+
   constructor(private svm: LiteSVM) {
     // Use a dummy URL - we'll override all methods anyway
     super("http://localhost:8899", "confirmed");
@@ -54,19 +63,13 @@ export class LiteSVMConnection extends Connection {
   async sendTransaction(
     transaction: Transaction | VersionedTransaction,
     signersOrOptions?: Signer[] | SendOptions,
-    maybeOptions?: SendOptions
+    _maybeOptions?: SendOptions
   ): Promise<string> {
     // Handle both overload cases
     let signers: Signer[] | undefined;
-    let options: SendOptions | undefined;
-
     if (Array.isArray(signersOrOptions)) {
       signers = signersOrOptions;
-      options = maybeOptions;
-    } else {
-      options = signersOrOptions;
     }
-
     // Ensure transaction has a recent blockhash
     if (transaction instanceof Transaction) {
       if (!transaction.recentBlockhash) {
@@ -80,7 +83,7 @@ export class LiteSVMConnection extends Connection {
     }
     
     const result = this.svm.sendTransaction(transaction as any);
-    
+
     // Check if result has err method (FailedTransactionMetadata)
     if (result && typeof (result as any).err === 'function') {
       const err = (result as any).err();
@@ -102,6 +105,8 @@ export class LiteSVMConnection extends Connection {
       const errMsg = typeof result.err === 'string' ? result.err : JSON.stringify(result.err);
       throw new Error(`Transaction failed: ${errMsg}`);
     }
+
+    this.recordComputeUnits(transaction, result);
     
     // Return a dummy signature - we'll use the transaction signature if available
     if (transaction instanceof Transaction && transaction.signature) {
@@ -110,7 +115,24 @@ export class LiteSVMConnection extends Connection {
     return "signature";
   }
 
-  async sendRawTransaction(raw: Buffer, options?: any): Promise<string> {
+  async sendTransactionMeasured(
+    transaction: Transaction,
+    signers: Signer[],
+    options?: SendOptions
+  ): Promise<MeasuredTransaction> {
+    const sampleCountBefore = this.computeUnitSamples.length;
+    const signature = await this.sendTransaction(transaction, signers, options);
+    if (this.computeUnitSamples.length !== sampleCountBefore + 1) {
+      throw new Error("LiteSVM did not record exactly one compute sample for the submitted transaction");
+    }
+    return {
+      signature,
+      transaction,
+      computeUnits: this.computeUnitSamples[sampleCountBefore],
+    };
+  }
+
+  async sendRawTransaction(raw: Buffer, _options?: any): Promise<string> {
     // Deserialize and send
     try {
       const tx = Transaction.from(raw);
@@ -140,6 +162,8 @@ export class LiteSVMConnection extends Connection {
         const errMsg = typeof result.err === 'string' ? result.err : JSON.stringify(result.err);
         throw new Error(`Transaction failed: ${errMsg}`);
       }
+
+      this.recordComputeUnits(tx, result);
       
       // Check if result has signature method (success case)
       if (result && typeof (result as any).signature === 'function') {
@@ -151,7 +175,22 @@ export class LiteSVMConnection extends Connection {
     }
   }
 
-  async getLatestBlockhash(commitment?: Commitment): Promise<{ blockhash: string; lastValidBlockHeight: number }> {
+  private recordComputeUnits(
+    transaction: Transaction | VersionedTransaction,
+    result: unknown
+  ) {
+    const computeUnits =
+      result && typeof (result as any).computeUnitsConsumed === "function"
+        ? BigInt((result as any).computeUnitsConsumed())
+        : undefined;
+    if (computeUnits === undefined) {
+      return;
+    }
+    this.computeUnitSamples.push(computeUnits);
+    recordTransactionComputeUnits(transaction, computeUnits);
+  }
+
+  async getLatestBlockhash(_commitment?: Commitment): Promise<{ blockhash: string; lastValidBlockHeight: number }> {
     return {
       blockhash: this.svm.latestBlockhash(),
       lastValidBlockHeight: 0
@@ -159,8 +198,8 @@ export class LiteSVMConnection extends Connection {
   }
 
   async confirmTransaction(
-    strategy: TransactionConfirmationStrategy | string,
-    commitment?: Commitment
+    _strategy: TransactionConfirmationStrategy | string,
+    _commitment?: Commitment
   ): Promise<RpcResponseAndContext<SignatureResult>> {
     // LiteSVM transactions are immediately confirmed
     return { 
@@ -177,7 +216,7 @@ export class LiteSVMConnection extends Connection {
     return "signature";
   }
 
-  async getAccountInfo(address: PublicKey, commitment?: Commitment): Promise<any> {
+  async getAccountInfo(address: PublicKey, _commitment?: Commitment): Promise<any> {
     const account = this.svm.getAccount(address);
     if (!account) return null;
     
@@ -200,18 +239,18 @@ export class LiteSVMConnection extends Connection {
     };
   }
 
-  async getBalance(address: PublicKey, commitment?: Commitment): Promise<number> {
+  async getBalance(address: PublicKey, _commitment?: Commitment): Promise<number> {
     const balance = this.svm.getBalance(address);
     return balance ? Number(balance) : 0;
   }
 
-  async getMinimumBalanceForRentExemption(dataLength: number, commitment?: Commitment): Promise<number> {
+  async getMinimumBalanceForRentExemption(dataLength: number, _commitment?: Commitment): Promise<number> {
     const minBalance = this.svm.minimumBalanceForRentExemption(BigInt(dataLength));
     return Number(minBalance);
   }
 
   // Override getProgramAccounts to prevent HTTP calls
-  async getProgramAccounts(programId: PublicKey, configOrCommitment?: any): Promise<any> {
+  async getProgramAccounts(_programId: PublicKey, _configOrCommitment?: any): Promise<any> {
     return {
       context: { slot: 0 },
       value: []
@@ -223,5 +262,3 @@ export class LiteSVMConnection extends Connection {
     return { value: { err: null } };
   }
 }
-
-

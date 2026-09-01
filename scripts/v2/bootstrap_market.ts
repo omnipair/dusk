@@ -127,11 +127,11 @@ async function main() {
   if (!marketAccount) {
     console.log(`Initializing Dusk yLP/hLP market ${market.toBase58()}`);
     const signature = await program.methods
-      .initialize({
-        operator: payer.publicKey,
-        manager: futarchy.authority,
+      .initializeMarket({
         config: defaultMarketConfig(),
         paramsHash: [...paramsHash],
+        bootstrapPriceNad: new anchor.BN(duskEnv("BOOTSTRAP_PRICE_NAD", "0")),
+        launchFeeProgressOffset: Number(duskEnv("LAUNCH_FEE_PROGRESS_OFFSET", "0")),
       })
       .accounts({
         payer: payer.publicKey,
@@ -148,8 +148,6 @@ async function main() {
         quoteCollateralVault: addresses.quoteCollateralVault,
         baseInsuranceVault: addresses.baseInsuranceVault,
         quoteInsuranceVault: addresses.quoteInsuranceVault,
-        baseFeeVault: addresses.baseFeeVault,
-        quoteFeeVault: addresses.quoteFeeVault,
         baseInterestVault: addresses.baseInterestVault,
         quoteInterestVault: addresses.quoteInterestVault,
         teamTreasury,
@@ -214,8 +212,6 @@ async function main() {
     quoteCollateralVault: addresses.quoteCollateralVault.toBase58(),
     baseInsuranceVault: addresses.baseInsuranceVault.toBase58(),
     quoteInsuranceVault: addresses.quoteInsuranceVault.toBase58(),
-    baseFeeVault: addresses.baseFeeVault.toBase58(),
-    quoteFeeVault: addresses.quoteFeeVault.toBase58(),
     baseInterestVault: addresses.baseInterestVault.toBase58(),
     quoteInterestVault: addresses.quoteInterestVault.toBase58(),
     baseHlpYlpVault: baseHlpYlpVault.toBase58(),
@@ -225,6 +221,20 @@ async function main() {
       state.markets[marketLabel]?.market === market.toBase58()
         ? state.markets[marketLabel]?.seededLiquidity ?? false
         : false,
+  };
+  state.programs = {
+    ...state.programs,
+    dusk: {
+      programId: program.programId.toBase58(),
+      upgradeAuthority: payer.publicKey.toBase58(),
+    },
+    leverageDelegate: {
+      programId: duskEnv(
+        "LEVERAGE_DELEGATE_PROGRAM_ID",
+        "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv"
+      ),
+      upgradeAuthority: payer.publicKey.toBase58(),
+    },
   };
   state.markets[marketLabel] = storedMarket;
   writeState(state);
@@ -287,12 +297,16 @@ async function ensureFutarchyAuthority(params: {
       authority: params.payer,
       swapBps: Number(duskEnv("PROTOCOL_SWAP_BPS") ?? "0"),
       interestBps: Number(duskEnv("PROTOCOL_INTEREST_BPS") ?? "0"),
+      maxReferralInterestShareBps: Number(duskEnv("MAX_REFERRAL_INTEREST_SHARE_BPS") ?? "5000"),
       futarchyTreasury: params.payer,
       futarchyTreasuryBps: 0,
       buybacksVault: params.payer,
       buybacksVaultBps: 0,
       teamTreasury: params.payer,
       teamTreasuryBps: 10_000,
+      stakingVault: params.payer,
+      feeAuctionAcceptedMint: NATIVE_MINT,
+      buybackAuctionAcceptedMint: NATIVE_MINT,
     })
     .accounts({
       deployer: params.payer,
@@ -414,6 +428,7 @@ async function seedBalancedLiquidity(params: {
         params.program.programId,
         params.market,
         params.payer.publicKey,
+        params.ylpMint,
         params.baseMint,
         "ylp"
       ),
@@ -421,6 +436,7 @@ async function seedBalancedLiquidity(params: {
         params.program.programId,
         params.market,
         params.payer.publicKey,
+        params.ylpMint,
         params.quoteMint,
         "ylp"
       ),

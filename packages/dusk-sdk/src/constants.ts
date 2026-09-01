@@ -1,6 +1,6 @@
 import { AccountMeta, PublicKey } from "@solana/web3.js";
 
-const DEFAULT_PROGRAM_ID = "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv";
+const DEFAULT_PROGRAM_ID = "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X";
 const MPL_TOKEN_METADATA_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
 
 function getProgramIdFromEnv(fallback: string): string {
@@ -9,13 +9,28 @@ function getProgramIdFromEnv(fallback: string): string {
 }
 
 /**
- * Omnipair Dusk (v2) program ID.
+ * Omnipair Dusk program ID.
  * Reads from env DUSK_PROGRAM_ID.
  */
 export const DUSK_PROGRAM_ID = new PublicKey(getProgramIdFromEnv(DEFAULT_PROGRAM_ID));
 
 export const PROGRAM_ID = DUSK_PROGRAM_ID;
 export const TOKEN_METADATA_PROGRAM_ID = new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID);
+
+/** Direct-yLP parameter-governance constants. These values are immutable for Dusk market layout v1. */
+export const GOVERNANCE_BPS_DENOMINATOR = 10_000;
+export const PARAMETER_PROPOSAL_SPONSOR_BPS = 100;
+export const PARAMETER_PROPOSAL_SUPPORT_BPS = 5_000;
+export const PARAMETER_PROPOSAL_TIMELOCK_SECONDS = 7 * 24 * 60 * 60;
+export const PARAMETER_PROPOSAL_EXECUTION_WINDOW_SECONDS = 7 * 24 * 60 * 60;
+export const PARAMETER_EXECUTION_MAX_UTILIZATION_BPS = 8_000;
+export const PROPOSAL_METADATA_VERSION = 1;
+export const MAX_PROPOSAL_TITLE_BYTES = 96;
+export const MAX_PROPOSAL_DESCRIPTION_URI_BYTES = 200;
+export const MAX_PROPOSAL_DESCRIPTION_BYTES = 32_768;
+export const DEFAULT_CONCENTRATION_RAMP_DURATION_SLOTS = 216_000;
+export const MIN_CONCENTRATION_RAMP_DURATION_SLOTS = 216_000;
+export const MAX_CONCENTRATION_RAMP_DURATION_SLOTS = 1_512_000;
 
 /**
  * PDA seeds used by the program
@@ -24,16 +39,29 @@ export const SEEDS = {
   MARKET_V2: Buffer.from("market_v2"),
   MARKET_RESERVE_VAULT: Buffer.from("market_reserve"),
   MARKET_COLLATERAL_VAULT: Buffer.from("market_collateral"),
-  MARKET_FEE_VAULT: Buffer.from("market_fee"),
   MARKET_INTEREST_VAULT: Buffer.from("market_interest"),
   BORROW_POSITION: Buffer.from("borrow_position_v2"),
   LEVERAGE_POSITION: Buffer.from("leverage_position_v2"),
+  LEVERAGE_COLLATERAL_VAULT: Buffer.from("leverage_collateral"),
+  LEVERAGE_DELEGATION: Buffer.from("leverage_delegation_v2"),
   YIELD_ACCOUNT: Buffer.from("yield"),
   HLP_YLP_VAULT: Buffer.from("hlp_ylp_vault"),
   INSURANCE: Buffer.from("insurance"),
+  EVENT_AUTHORITY: Buffer.from("__event_authority"),
   FUTARCHY_AUTHORITY: Buffer.from("futarchy_authority"),
+  REFERRAL_PARTNER: Buffer.from("referral_partner"),
+  REFERRAL_ACCRUAL: Buffer.from("referral_accrual"),
+  PARAMETER_PROPOSAL: Buffer.from("parameter_proposal"),
+  PROPOSAL_SUPPORT: Buffer.from("proposal_support"),
   METADATA: Buffer.from("metadata"),
 } as const;
+
+/** Derive the canonical Anchor event-CPI authority for a Dusk program. */
+export function deriveEventAuthorityAddress(
+  programId: PublicKey = DUSK_PROGRAM_ID
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([SEEDS.EVENT_AUTHORITY], programId);
+}
 
 function normalizeParamsHash(paramsHash: Uint8Array | Buffer | number[]): Buffer {
   const hash = Buffer.from(paramsHash);
@@ -48,6 +76,76 @@ function normalizeParamsHash(paramsHash: Uint8Array | Buffer | number[]): Buffer
  */
 export function deriveFutarchyAuthorityAddress(): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([SEEDS.FUTARCHY_AUTHORITY], DUSK_PROGRAM_ID);
+}
+
+/** Derive the protocol-wide referral partner for a referrer authority. */
+export function deriveReferralPartnerAddress(authority: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [SEEDS.REFERRAL_PARTNER, authority.toBuffer()],
+    DUSK_PROGRAM_ID
+  );
+}
+
+/** Derive claimable referral interest for one partner, market, and debt mint. */
+export function deriveReferralAccrualAddress(
+  referralPartner: PublicKey,
+  market: PublicKey,
+  assetMint: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [
+      SEEDS.REFERRAL_ACCRUAL,
+      referralPartner.toBuffer(),
+      market.toBuffer(),
+      assetMint.toBuffer(),
+    ],
+    DUSK_PROGRAM_ID
+  );
+}
+
+export type U64SeedLike = bigint | number | string | { toString(): string };
+
+function u64Seed(value: U64SeedLike, label: string): Buffer {
+  if (typeof value === "number" && !Number.isSafeInteger(value)) {
+    throw new Error(`${label} must be a safe integer when supplied as a number`);
+  }
+  let normalized: bigint;
+  try {
+    normalized = BigInt(value.toString());
+  } catch {
+    throw new Error(`${label} must be an unsigned 64-bit integer`);
+  }
+  if (normalized < 0n || normalized > 0xffff_ffff_ffff_ffffn) {
+    throw new Error(`${label} must be an unsigned 64-bit integer`);
+  }
+  const encoded = Buffer.alloc(8);
+  encoded.writeBigUInt64LE(normalized);
+  return encoded;
+}
+
+/** Derive one immutable typed parameter proposal. The nonce is Borsh u64 LE. */
+export function deriveParameterProposalAddress(
+  market: PublicKey,
+  proposer: PublicKey,
+  nonce: U64SeedLike,
+  programId: PublicKey = DUSK_PROGRAM_ID
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [SEEDS.PARAMETER_PROPOSAL, market.toBuffer(), proposer.toBuffer(), u64Seed(nonce, "nonce")],
+    programId
+  );
+}
+
+/** Derive one support position. Locked yLP cannot be shared across proposals. */
+export function deriveProposalSupportAddress(
+  proposal: PublicKey,
+  supporter: PublicKey,
+  programId: PublicKey = DUSK_PROGRAM_ID
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [SEEDS.PROPOSAL_SUPPORT, proposal.toBuffer(), supporter.toBuffer()],
+    programId
+  );
 }
 
 /**
@@ -95,25 +193,23 @@ export function deriveMarketReserveVaultAddress(
 /**
  * Derive market collateral vault PDA address
  */
+/** Per-market collateral custody for leverage positions. */
+export function deriveLeverageCollateralVaultAddress(
+  market: PublicKey,
+  collateralMint: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [SEEDS.LEVERAGE_COLLATERAL_VAULT, market.toBuffer(), collateralMint.toBuffer()],
+    DUSK_PROGRAM_ID
+  );
+}
+
 export function deriveMarketCollateralVaultAddress(
   market: PublicKey,
   collateralMint: PublicKey
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.MARKET_COLLATERAL_VAULT, market.toBuffer(), collateralMint.toBuffer()],
-    DUSK_PROGRAM_ID
-  );
-}
-
-/**
- * Derive market fee vault PDA address
- */
-export function deriveMarketFeeVaultAddress(
-  market: PublicKey,
-  feeMint: PublicKey
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [SEEDS.MARKET_FEE_VAULT, market.toBuffer(), feeMint.toBuffer()],
     DUSK_PROGRAM_ID
   );
 }
@@ -147,6 +243,16 @@ export function deriveBorrowPositionAddress(
 /**
  * Derive leverage position PDA address
  */
+/** Delegation is keyed by the position it delegates, not by the owner. */
+export function deriveLeverageDelegationAddress(
+  leveragePosition: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [SEEDS.LEVERAGE_DELEGATION, leveragePosition.toBuffer()],
+    DUSK_PROGRAM_ID
+  );
+}
+
 export function deriveLeveragePositionAddress(
   market: PublicKey,
   positionId: PublicKey
@@ -171,18 +277,21 @@ function yieldTokenKindCode(tokenKind: YieldTokenKind): number {
 export function deriveYieldAccountAddress(
   market: PublicKey,
   owner: PublicKey,
+  lpMint: PublicKey,
   assetMint: PublicKey,
-  tokenKind: YieldTokenKind
+  tokenKind: YieldTokenKind,
+  programId: PublicKey = DUSK_PROGRAM_ID
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [
       SEEDS.YIELD_ACCOUNT,
       market.toBuffer(),
       owner.toBuffer(),
+      lpMint.toBuffer(),
       assetMint.toBuffer(),
       Buffer.from([yieldTokenKindCode(tokenKind)]),
     ],
-    DUSK_PROGRAM_ID
+    programId
   );
 }
 
@@ -191,8 +300,10 @@ export interface YieldTransferHookAccountsArgs {
   market: PublicKey;
   sourceOwner: PublicKey;
   destinationOwner: PublicKey;
-  assetMint: PublicKey;
+  baseMint: PublicKey;
+  quoteMint: PublicKey;
   tokenKind: YieldTokenKind;
+  programId?: PublicKey;
 }
 
 export const TRANSFER_HOOK_EXECUTE_DISCRIMINATOR = Buffer.from([
@@ -220,25 +331,23 @@ interface TransferHookValidationMeta {
   isWritable: boolean;
 }
 
-export interface YieldTransferHookValidationArgs {
-  market: PublicKey;
-  assetMint: PublicKey;
-  tokenKind: YieldTokenKind;
-}
-
-export interface YlpTransferHookValidationArgs {
+export interface LpTransferHookValidationArgs {
   market: PublicKey;
   baseMint: PublicKey;
   quoteMint: PublicKey;
+  tokenKind: YieldTokenKind;
 }
 
 /**
  * Derive the standard Token-2022 transfer-hook validation PDA for a Dusk LP mint.
  */
-export function deriveYieldTransferHookValidationAddress(lpMint: PublicKey): [PublicKey, number] {
+export function deriveYieldTransferHookValidationAddress(
+  lpMint: PublicKey,
+  programId: PublicKey = DUSK_PROGRAM_ID
+): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [Buffer.from("extra-account-metas"), lpMint.toBuffer()],
-    DUSK_PROGRAM_ID
+    programId
   );
 }
 
@@ -330,6 +439,7 @@ function yieldAccountTransferHookSeeds(
       dataIndex: TRANSFER_HOOK_TOKEN_ACCOUNT_OWNER_OFFSET,
       length: 32,
     },
+    { kind: "accountKey", index: 1 },
     { kind: "accountKey", index: assetMintAccountIndex },
     { kind: "literal", bytes: [yieldTokenKindCode(tokenKind)] },
   ];
@@ -374,14 +484,16 @@ export function buildYieldTransferHookValidationAccountData(extraMetas: AccountM
  * source/destination YieldAccount PDAs from the source and destination token
  * account owners observed by Token-2022 during Execute.
  */
-export function buildYieldTransferHookYieldValidationAccountData({
+export function buildLpTransferHookValidationAccountData({
   market,
-  assetMint,
+  baseMint,
+  quoteMint,
   tokenKind,
-}: YieldTransferHookValidationArgs): Buffer {
+}: LpTransferHookValidationArgs): Buffer {
   return encodeTransferHookValidationAccountData([
-    staticTransferHookMeta({ pubkey: market, isSigner: false, isWritable: false }),
-    staticTransferHookMeta({ pubkey: assetMint, isSigner: false, isWritable: false }),
+    staticTransferHookMeta({ pubkey: market, isSigner: false, isWritable: true }),
+    staticTransferHookMeta({ pubkey: baseMint, isSigner: false, isWritable: false }),
+    staticTransferHookMeta({ pubkey: quoteMint, isSigner: false, isWritable: false }),
     pdaTransferHookMeta(
       yieldAccountTransferHookSeeds(TRANSFER_HOOK_SOURCE_ACCOUNT_INDEX, tokenKind),
       true
@@ -390,30 +502,10 @@ export function buildYieldTransferHookYieldValidationAccountData({
       yieldAccountTransferHookSeeds(TRANSFER_HOOK_DESTINATION_ACCOUNT_INDEX, tokenKind),
       true
     ),
-  ]);
-}
-
-export function buildYlpTransferHookValidationAccountData({
-  market,
-  baseMint,
-  quoteMint,
-}: YlpTransferHookValidationArgs): Buffer {
-  return encodeTransferHookValidationAccountData([
-    staticTransferHookMeta({ pubkey: market, isSigner: false, isWritable: false }),
-    staticTransferHookMeta({ pubkey: baseMint, isSigner: false, isWritable: false }),
-    staticTransferHookMeta({ pubkey: quoteMint, isSigner: false, isWritable: false }),
-    pdaTransferHookMeta(
-      yieldAccountTransferHookSeeds(TRANSFER_HOOK_SOURCE_ACCOUNT_INDEX, "ylp"),
-      true
-    ),
-    pdaTransferHookMeta(
-      yieldAccountTransferHookSeeds(TRANSFER_HOOK_DESTINATION_ACCOUNT_INDEX, "ylp"),
-      true
-    ),
     pdaTransferHookMeta(
       yieldAccountTransferHookSeeds(
         TRANSFER_HOOK_SOURCE_ACCOUNT_INDEX,
-        "ylp",
+        tokenKind,
         TRANSFER_HOOK_QUOTE_ASSET_MINT_ACCOUNT_INDEX
       ),
       true
@@ -421,7 +513,7 @@ export function buildYlpTransferHookValidationAccountData({
     pdaTransferHookMeta(
       yieldAccountTransferHookSeeds(
         TRANSFER_HOOK_DESTINATION_ACCOUNT_INDEX,
-        "ylp",
+        tokenKind,
         TRANSFER_HOOK_QUOTE_ASSET_MINT_ACCOUNT_INDEX
       ),
       true
@@ -433,89 +525,64 @@ export function buildYlpTransferHookValidationAccountData({
  * Build Dusk yLP/hLP transfer-hook extra account metas.
  *
  * Token-2022 passes the source token account, LP mint, destination token
- * account, and transfer authority as the base hook accounts. Omnipair Dusk (v2) needs
+ * account, and transfer authority as the base hook accounts. Omnipair Dusk needs
  * the market, underlying asset mint, canonical source/destination yield
  * accounts, hook program, and standard validation PDA as extra metas so the
  * hook can checkpoint revenue before the balance move is finalized.
  */
-export function buildYieldTransferHookAccountMetas({
-  lpMint,
-  market,
-  sourceOwner,
-  destinationOwner,
-  assetMint,
-  tokenKind,
-}: YieldTransferHookAccountsArgs): AccountMeta[] {
-  const sourceYieldAccount = deriveYieldAccountAddress(
-    market,
-    sourceOwner,
-    assetMint,
-    tokenKind
-  )[0];
-  const destinationYieldAccount = deriveYieldAccountAddress(
-    market,
-    destinationOwner,
-    assetMint,
-    tokenKind
-  )[0];
-  const validationAccount = deriveYieldTransferHookValidationAddress(lpMint)[0];
-
-  return [
-    { pubkey: market, isSigner: false, isWritable: false },
-    { pubkey: assetMint, isSigner: false, isWritable: false },
-    { pubkey: sourceYieldAccount, isSigner: false, isWritable: true },
-    { pubkey: destinationYieldAccount, isSigner: false, isWritable: true },
-    { pubkey: DUSK_PROGRAM_ID, isSigner: false, isWritable: false },
-    { pubkey: validationAccount, isSigner: false, isWritable: false },
-  ];
-}
-
-export function buildYlpTransferHookAccountMetas({
+export function buildLpTransferHookAccountMetas({
   lpMint,
   market,
   sourceOwner,
   destinationOwner,
   baseMint,
   quoteMint,
-}: Omit<YieldTransferHookAccountsArgs, "assetMint" | "tokenKind"> & {
-  baseMint: PublicKey;
-  quoteMint: PublicKey;
-}): AccountMeta[] {
+  tokenKind,
+  programId = DUSK_PROGRAM_ID,
+}: YieldTransferHookAccountsArgs): AccountMeta[] {
   const sourceBaseYieldAccount = deriveYieldAccountAddress(
     market,
     sourceOwner,
+    lpMint,
     baseMint,
-    "ylp"
+    tokenKind,
+    programId
   )[0];
   const destinationBaseYieldAccount = deriveYieldAccountAddress(
     market,
     destinationOwner,
+    lpMint,
     baseMint,
-    "ylp"
+    tokenKind,
+    programId
   )[0];
   const sourceQuoteYieldAccount = deriveYieldAccountAddress(
     market,
     sourceOwner,
+    lpMint,
     quoteMint,
-    "ylp"
+    tokenKind,
+    programId
   )[0];
   const destinationQuoteYieldAccount = deriveYieldAccountAddress(
     market,
     destinationOwner,
+    lpMint,
     quoteMint,
-    "ylp"
+    tokenKind,
+    programId
   )[0];
-  const validationAccount = deriveYieldTransferHookValidationAddress(lpMint)[0];
+  const validationAccount = deriveYieldTransferHookValidationAddress(lpMint, programId)[0];
 
   return [
-    { pubkey: market, isSigner: false, isWritable: false },
+    { pubkey: market, isSigner: false, isWritable: true },
     { pubkey: baseMint, isSigner: false, isWritable: false },
     { pubkey: quoteMint, isSigner: false, isWritable: false },
     { pubkey: sourceBaseYieldAccount, isSigner: false, isWritable: true },
     { pubkey: destinationBaseYieldAccount, isSigner: false, isWritable: true },
     { pubkey: sourceQuoteYieldAccount, isSigner: false, isWritable: true },
     { pubkey: destinationQuoteYieldAccount, isSigner: false, isWritable: true },
-    { pubkey: DUSK_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: programId, isSigner: false, isWritable: false },
     { pubkey: validationAccount, isSigner: false, isWritable: false },
   ];
 }

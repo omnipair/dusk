@@ -23,14 +23,53 @@ pub enum ErrorCode {
     #[msg("Invalid reduce-only authority")]
     InvalidReduceOnlyAuthority,
 
-    #[msg("Invalid market manager")]
-    InvalidMarketManager,
+    #[msg("Invalid parameter proposal metadata")]
+    InvalidProposalMetadata,
 
-    #[msg("Invalid market config authority")]
-    InvalidMarketConfigAuthority,
+    #[msg("Invalid parameter proposal description URI")]
+    InvalidProposalUri,
 
-    #[msg("Market governance timelock is not ready")]
-    GovernanceTimelockNotReady,
+    #[msg("Parameter proposal digest does not match its immutable contents")]
+    InvalidProposalDigest,
+
+    #[msg("Invalid parameter proposal account")]
+    InvalidParameterProposal,
+
+    #[msg("Invalid parameter proposal support account")]
+    InvalidProposalSupport,
+
+    #[msg("Parameter proposal is not collecting support")]
+    ProposalNotCollecting,
+
+    #[msg("Parameter proposal is not queued")]
+    ProposalNotQueued,
+
+    #[msg("Queued proposal support is frozen")]
+    ProposalSupportFrozen,
+
+    #[msg("Proposal support is below the sponsorship floor")]
+    ProposalSponsorshipTooLow,
+
+    #[msg("Proposal does not have a strict majority of eligible yLP")]
+    ProposalSupportInsufficient,
+
+    #[msg("Parameter proposal timelock is not ready")]
+    ProposalTimelockNotReady,
+
+    #[msg("Parameter proposal execution window has expired")]
+    ProposalExecutionWindowExpired,
+
+    #[msg("Parameter proposal was invalidated by a same-family update")]
+    ProposalStale,
+
+    #[msg("Parameter update would not change the active market parameters")]
+    ParameterUpdateNotMeaningful,
+
+    #[msg("Invalid parameter update")]
+    InvalidParameterUpdate,
+
+    #[msg("Parameter execution is blocked while either lending side is at or above 80% utilization")]
+    UtilizationGuardExceeded,
 
     #[msg("Invalid argument")]
     InvalidArgument,
@@ -203,6 +242,9 @@ pub enum ErrorCode {
     #[msg("Wrong LP decimals")]
     WrongLpDecimals,
 
+    #[msg("Asset mint decimals exceed Dusk's 9-decimal AMM precision")]
+    UnsupportedAssetDecimals,
+
     #[msg("Invalid vault - token_in_vault and token_out_vault must be different")]
     InvalidVaultSameAccount,
 
@@ -236,12 +278,6 @@ pub enum ErrorCode {
     #[msg("Cannot remove collateral in reduce-only mode while debt exists")]
     ReduceOnlyHasDebt,
 
-    #[msg("Operation blocked: same-transaction liquidity delta detected")]
-    LiquidityDeltaCircuitBreaker,
-
-    #[msg("Operation blocked: liquidity delta instruction must be top-level")]
-    LiquidityDeltaCircuitBreakerCpi,
-
     #[msg("Invalid instructions sysvar")]
     InvalidInstructionsSysvar,
 
@@ -272,11 +308,17 @@ pub enum ErrorCode {
     #[msg("Invalid hLP vault")]
     InvalidHlpVault,
 
+    #[msg("Live hLP mint supply is inconsistent with stored vault supply")]
+    InvalidHlpMintSupply,
+
     #[msg("Not enough remaining accounts")]
     NotEnoughAccounts,
 
     #[msg("hLP settlement is unavailable")]
     HlpSettlementUnavailable,
+
+    #[msg("hLP funding position is not eligible for permissionless liquidation")]
+    HlpNotLiquidatable,
 
     #[msg("Borrow headroom is insufficient")]
     InsufficientBorrowHeadroom,
@@ -287,14 +329,14 @@ pub enum ErrorCode {
     #[msg("Invalid borrow position")]
     InvalidBorrowPosition,
 
-    #[msg("Recognized collateral is insufficient")]
-    InsufficientRecognizedCollateral,
-
     #[msg("Position is not liquidatable")]
     PositionNotLiquidatable,
 
     #[msg("Insurance coverage is insufficient")]
     InsufficientInsurance,
+
+    #[msg("Required insurance draw exceeds caller cap")]
+    InsuranceDrawExceeded,
 
     #[msg("Socialized liquidation loss exceeds caller cap")]
     LiquidationSocializationExceeded,
@@ -302,11 +344,17 @@ pub enum ErrorCode {
     #[msg("Claim mint must not charge transfer fees")]
     InvalidClaimMint,
 
-    #[msg("Fee liability is not backed by fee vault balance")]
+    #[msg("Fee liability is not backed by its custody balance")]
     UnbackedFeeLiability,
 
     #[msg("Invalid market fee authority")]
     InvalidMarketFeeAuthority,
+
+    #[msg("Invalid initial liquidity authority")]
+    InvalidInitialLiquidityAuthority,
+
+    #[msg("Launch rate limiter permits only one top-level market action per transaction")]
+    LaunchRateLimitSplitTransaction,
 
     #[msg("Market is reduce-only")]
     MarketReduceOnly,
@@ -319,9 +367,6 @@ pub enum ErrorCode {
 
     #[msg("Daily liquidity limit exceeded")]
     DailyLimitExceeded,
-
-    #[msg("Market risk circuit breaker triggered")]
-    MarketRiskCircuitBreaker,
 
     #[msg("Instruction is intentionally not live yet")]
     InstructionNotLive,
@@ -349,4 +394,19 @@ pub enum ErrorCode {
 
     #[msg("Invalid leverage delegation")]
     InvalidLeverageDelegation,
+
+    #[msg("Referral interest share exceeds the protocol hard cap")]
+    InvalidReferralInterestShareBps,
+
+    #[msg("Invalid referral partner")]
+    InvalidReferralPartner,
+
+    #[msg("Referral partner is not active")]
+    ReferralPartnerNotActive,
+
+    #[msg("Invalid referral accrual account")]
+    InvalidReferralAccrual,
+
+    #[msg("Leverage collateral mint must not have transfer fee configuration")]
+    InvalidLeverageCollateralMint,
 }

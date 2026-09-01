@@ -1,7 +1,7 @@
-# Omnipair Dusk (v2) Owner Signoff Checklist
+# Omnipair V2 (Dusk) Owner Signoff Checklist
 
 Use this checklist with `RELEASE_CHECKLIST.md` before declaring the standalone
-Omnipair Dusk (v2) market program production-ready. The local program gates can be completed by
+Dusk market program for Omnipair V2 production-ready. The local program gates can be completed by
 engineering; the signoffs below require the relevant owners to review the final
 branch, deployed artifacts, or target-cluster behavior.
 
@@ -24,17 +24,50 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 
 - Confirm the reviewed source is the final standalone `programs/dusk`
   tree.
+- Review `programs/dusk/AUDIT_STATUS.md` and reconcile every new finding there;
+  dated reports under the ignored `.audit/` directory are historical evidence.
 - Review the core invariants listed in `programs/dusk/README.md`.
+- Review `programs/dusk/CONCENTRATION.md`, including Dusk Concentrated AMM bounds, funded
+  recentering, protected-surcharge accounting, and the no-oracle limitations.
 - Review the cached-spot EMA flow and pre-action risk snapshots for swap and
   liquidity-add paths.
-- Review liquidity-EMA daily limits and spot/K circuit breakers.
+- Review pessimistic curve depth, tail-only CPMM borrowing, and concentrated auction-floor risk
+  shapes, and each debt side's shared 24-hour leaky/token bucket. Confirm
+  checkpoint-frequency-independent refill at a fixed absolute limit, the
+  conservative-depth resizing rule, no repayment/exit refund, and enforcement
+  only for public lending `borrow`. Isolated leverage and direct or automatic
+  hLP funding do not consume the bucket because they do not lend cash out; do
+  not review it as an exact trailing-window sum.
+- Verify the joint CPMM/concentrated hLP predictor and correction share one
+  `max(one raw target atom, 1 ppm operation-start economic NAV)` budget for
+  deposited-asset principal plus the frozen public-interest claim, and use the
+  exact trader curve/fee endpoint. Confirm both hLPs are excluded from funding
+  yield and the payer's burn legs, including exact target-side shortfall
+  conversion, bear the cost without an additional shared-live debit.
+- Re-check passive interest-driven hLP insolvency and terminal loss recovery:
+  `close_insolvent_hlp` must honor caller-supplied insurance/socialized-loss
+  bounds and pay only the bounded caller bounty from recovered funding interest.
+- Review reserve conservation across executable cash, swap-fee custody, and
+  both source-scoped hLP backing inventories. Confirm projected aggregate
+  indexed hLP debt is capped in debt-share space for every positive funding
+  transition without blocking withdrawal or deleveraging.
 - Review floating yLP liquidity, matched yLP redemption, and Token-2022
   transfer checkpointing.
-- Review fee liabilities and settlement paths for yLP, hLP, operator,
-  protocol, and unallocated buckets.
-- Review fixed debt, recognized collateral, normalized valuation, and
-  liquidation/insurance/socialization accounting.
+- Review fee liabilities and settlement paths for yLP, hLP, protocol, and
+  unallocated buckets. Verify reserve-custodied swap-fee
+  liabilities separately from interest-vault-custodied liabilities.
+- Review every dynamic-fee component budget, the 50% aggregate hard cap,
+  Huber-capped divergence potential, split-path resistance, and exact
+  odd/even raw-token rounding.
+- Review direct-yLP parameter governance: 1% sponsorship, strict `>50%`
+  support, hLP-vault exclusion, virtual-yield accounting, seven-day timelock
+  and execution window, family revisions, terminal remint, and the 80%
+  utilization execution guard.
+- Review fixed debt, bounded global-health contributions, stored liquidation
+  CFs, normalized valuation, and liquidation/insurance/socialization accounting.
 - Review Token-2022 constraints and measured inventory-credit settlement.
+- Review concentrated-path SBF compute reports and minimum useful token
+  precision/depth tests.
 - Confirm soft borrow and soft liquidation remain disabled unless a separate
   reviewed spec has been merged.
 - Confirm LLAMMA-style liquidation, Jupiter/external aggregator conversion
@@ -52,6 +85,8 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 - Display hLP as aggregate hedged LP vault shares with underlying borrowed
   debt, not as wrapped yLP.
 - Surface reduce-only behavior and emergency reduce-only expectations.
+- Surface proposal metadata/digests, direct-yLP support at risk, the frozen
+  queued period, execution deadline, and terminal unlock state.
 
 ## SDK / Package Interface
 
@@ -60,23 +95,30 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 - Confirm Dusk IDL and generated TypeScript copies match `target/idl` and
   `target/types` artifacts from the release build.
 - Confirm consumer examples use Dusk `Market` accounts.
+- Confirm proposal/support PDA helpers and all five proposal-lifecycle builders
+  round-trip the generated IDL types. Confirm typed update helpers cover all
+  seven parameter families; the handwritten SDK currently lacks the Insurance
+  draw-cap variant and must be completed before approval.
 
 ## Indexing And Analytics
 
 - Subscribe to the standalone Dusk program ID and Dusk IDL events.
 - Use `MarketEventMetadata.market` as the Dusk market key.
-- Track yLP supply, hLP vault-owned yLP, hLP supply, hLP debt, recognized
-  collateral, insurance, fee liabilities, and market health as separate Dusk
-  metrics.
+- Track yLP supply, hLP vault-owned yLP, hLP supply, hLP debt, global-health
+  contributions, stored liquidation CFs, insurance, fee liabilities, and
+  market health as separate Dusk metrics.
 - Decode `LiquidityAdded`, `LiquidityRemoved`, `SwapExecuted`,
-  `MarketDebtUpdated`, `PositionLiquidated`, yield, protocol-fee, hedge, and
+  `MarketDebtUpdated`, `BorrowPositionLiquidated`, yield, protocol-fee, hedge, and
   insurance events from the Dusk IDL.
 - Confirm analytics labels use Dusk market terminology.
 
 ## Aggregators And Routers
 
 - Treat Dusk `swap` as its own venue/source.
-- Always pass `min_asset_out` and quote with the Dusk reserve floor in mind.
+- Always pass `min_asset_out`; consume the official preview because a Dusk
+  market may be exact CPMM or Dusk Concentrated AMM and may charge dynamic surcharge.
+- Surface base, divergence, volatility, retained, and distributed fee
+  components separately.
 - Do not assume Dusk yLP behaves like a fixed-principal protected LP token.
 - Respect reduce-only mode and risk/circuit-breaker failures.
 - Confirm Token-2022 transfer-fee assets are quoted against measured inventory
@@ -84,6 +126,8 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 
 ## Deployment And Verification
 
+- Dusk is pre-deployment. Confirm the reviewed artifact creates fresh layout-v1
+  markets; migration/import behavior is outside this release.
 - Confirm `programs/dusk/src/lib.rs` declares the intended program ID.
 - Build the verifiable binary with production features and embedded
   `GIT_REV`/`GIT_RELEASE` metadata.
@@ -108,3 +152,4 @@ Record target-cluster transaction signatures for:
 - insurance-backed liquidation path;
 - deposit single-sided liquidity and withdraw single-sided liquidity;
 - reduce-only mode rejection for risk-increasing paths.
+- create, support, queue, execute, and withdraw a direct-yLP parameter proposal.

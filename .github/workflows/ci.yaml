@@ -28,7 +28,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "24"
+          node-version-file: .nvmrc
           cache: yarn
 
       - name: Setup Rust
@@ -45,6 +45,9 @@ jobs:
       - name: Check repository hygiene
         run: yarn check:hygiene
 
+      - name: Check production helper shape
+        run: yarn check:code-shape
+
       - name: Check actionable Clippy warnings
         run: yarn check:clippy
 
@@ -60,6 +63,9 @@ jobs:
       - name: Test leverage delegate
         run: cargo test -p leverage_delegate
 
+      - name: Test mock-token faucet
+        run: cargo test -p faucet
+
       - name: Typecheck test harness
         run: yarn typecheck
 
@@ -71,8 +77,55 @@ jobs:
       - name: Install Anchor CLI
         run: cargo install --git https://github.com/coral-xyz/anchor --tag v${{ env.ANCHOR_VERSION }} anchor-cli --locked
 
-      - name: Test LiteSVM smoke suite
-        run: yarn test-litesvm
+      - name: Build LiteSVM artifacts
+        run: yarn build:litesvm
+
+      - name: Upload LiteSVM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: litesvm-sbf
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            target/deploy/dusk.so
+            target/deploy/leverage_delegate.so
+            target/deploy/faucet.so
+            target/deploy/referral_transfer_hook.so
+            target/deploy/token_metadata_fixture.so
+            target/idl/dusk.json
+            target/idl/leverage_delegate.json
+            target/idl/faucet.json
 
       - name: Check Dusk SDK package
         run: npm run check:dusk-sdk
+
+  litesvm:
+    needs: test
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Require ARM64 interpreter runner
+        run: test "$(uname -m)" = "arm64"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: yarn
+
+      - name: Install JavaScript dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Download LiteSVM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: litesvm-sbf
+          path: target
+
+      - name: Test LiteSVM smoke suite
+        run: yarn test-litesvm:no-build --forbid-pending
+        env:
+          DUSK_REQUIRE_COMPLETE_CU_BASELINE: "1"

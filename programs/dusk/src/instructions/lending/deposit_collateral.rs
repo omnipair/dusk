@@ -5,16 +5,17 @@ use anchor_spl::{
 };
 
 use crate::{
+    account::get_size_with_discriminator,
     constants::*,
     errors::ErrorCode,
     events::{MarketCollateralDeposited, MarketEventMetadata},
-    shared::{account::get_size_with_discriminator, token::transfer_from_user_to_vault},
     state::{BorrowPosition, Market},
+    token::transfer_checked_with_remaining_accounts,
 };
 
-use crate::instructions::common::{require_supported_asset_mint, token_program_for_mint};
+use crate::instructions::accounts::{require_supported_asset_mint, token_program_for_mint};
 
-use super::common::validate_collateral_accounts;
+use super::accounts::validate_collateral_accounts;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct DepositCollateralArgs {
@@ -30,8 +31,8 @@ pub struct DepositCollateral<'info> {
         mut,
         seeds = [
             MARKET_V2_SEED_PREFIX,
-            market.base_mint.as_ref(),
-            market.quote_mint.as_ref(),
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
             market.params_hash.as_ref(),
         ],
         bump = market.bump
@@ -91,10 +92,11 @@ impl<'info> DepositCollateral<'info> {
         Ok(())
     }
 
-    crate::instructions::common::market_update_and_validate!(DepositCollateralArgs);
+    crate::instructions::accounts::market_update_and_validate!(DepositCollateralArgs);
 
-    pub fn handle_deposit(mut ctx: Context<Self>, args: DepositCollateralArgs) -> Result<()> {
+    pub fn handle_deposit(mut ctx: Context<'_, '_, '_, 'info, Self>, args: DepositCollateralArgs) -> Result<()> {
         let borrow_position_bump = ctx.bumps.borrow_position;
+        let remaining_accounts = ctx.remaining_accounts;
         let (market_key, owner_key, asset_mint_key, collateral_receipt) = {
             let accounts = &mut ctx.accounts;
             let market_key = accounts.market.key();
@@ -102,6 +104,7 @@ impl<'info> DepositCollateral<'info> {
             let asset_mint_key = accounts.asset_mint.key();
             let market_asset = accounts.market.asset_for_mint(asset_mint_key)?;
 
+            // Initialize the position before its first collateral credit.
             if !accounts.borrow_position.is_initialized() {
                 accounts
                     .borrow_position
@@ -109,13 +112,14 @@ impl<'info> DepositCollateral<'info> {
             }
             accounts.borrow_position.assert_position(owner_key, market_key)?;
 
+            // Transfer collateral and measure the amount the vault received.
             let collateral_balance_before = accounts.collateral_vault.amount;
             let asset_token_program = token_program_for_mint(
                 &accounts.asset_mint,
                 &accounts.token_program,
                 &accounts.token_2022_program,
             )?;
-            transfer_from_user_to_vault(
+            transfer_checked_with_remaining_accounts(
                 accounts.owner.to_account_info(),
                 accounts.owner_asset_account.to_account_info(),
                 accounts.collateral_vault.to_account_info(),
@@ -123,6 +127,8 @@ impl<'info> DepositCollateral<'info> {
                 asset_token_program,
                 args.deposit_amount,
                 accounts.asset_mint.decimals,
+                &[],
+                remaining_accounts,
             )?;
             accounts.collateral_vault.reload()?;
             let collateral_credit = accounts
@@ -132,9 +138,11 @@ impl<'info> DepositCollateral<'info> {
                 .ok_or(ErrorCode::MarketMathOverflow)?;
             require!(collateral_credit > 0, ErrorCode::AmountZero);
 
-            let collateral_receipt = accounts
-                .borrow_position
-                .deposit_collateral(market_asset, collateral_credit)?;
+            // Apply the measured credit to market and position accounting.
+            let collateral_receipt =
+                accounts
+                    .market
+                    .deposit_collateral(&mut accounts.borrow_position, market_asset, collateral_credit)?;
             (market_key, owner_key, asset_mint_key, collateral_receipt)
         };
 
@@ -145,6 +153,12 @@ impl<'info> DepositCollateral<'info> {
             collateral_credit: collateral_receipt.collateral_credit,
             base_collateral: collateral_receipt.base_collateral,
             quote_collateral: collateral_receipt.quote_collateral,
+            global_health_base_contribution_for_quote_debt: collateral_receipt
+                .global_health_base_contribution_for_quote_debt,
+            global_health_quote_contribution_for_base_debt: collateral_receipt
+                .global_health_quote_contribution_for_base_debt,
+            base_liquidation_cf_bps: collateral_receipt.base_liquidation_cf_bps,
+            quote_liquidation_cf_bps: collateral_receipt.quote_liquidation_cf_bps,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
 

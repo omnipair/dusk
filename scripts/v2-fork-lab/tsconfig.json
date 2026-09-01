@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["es2022", "dom"],
+    "types": ["node"],
+    "noEmit": true,
+    "strict": false
+  },
+  "include": ["./**/*.ts", "../protocol-tests/catalog.ts", "../protocol-tests/types.ts"]
+}

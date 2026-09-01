@@ -7,6 +7,10 @@ import { DuskIndexerClient, type FetchLike } from "./indexer.js";
 import { createDuskProgram } from "./program.js";
 import type { Dusk as DuskIdl } from "./types_v2.js";
 import { DuskWrite } from "./write.js";
+import {
+  createLeverageDelegateProgram,
+  DuskLeverageOrders,
+} from "./delegate.js";
 
 export interface DuskOptions {
   program?: Program<DuskIdl>;
@@ -16,6 +20,7 @@ export interface DuskOptions {
   feePayer?: AddressLike;
   indexerBaseUrl?: string;
   fetch?: FetchLike;
+  leverageDelegateProgramId?: AddressLike;
 }
 
 export class Dusk {
@@ -23,6 +28,8 @@ export class Dusk {
   readonly get: DuskGet;
   readonly write: DuskWrite;
   readonly fetch: DuskIndexerClient;
+  /** Conditional orders, which live in the delegate program. */
+  readonly orders: DuskLeverageOrders;
 
   constructor(options: DuskOptions = {}) {
     this.program =
@@ -39,5 +46,11 @@ export class Dusk {
       baseUrl: options.indexerBaseUrl,
       fetch: options.fetch,
     });
+    this.orders = new DuskLeverageOrders(
+      createLeverageDelegateProgram({
+        provider: this.program.provider as AnchorProvider,
+        programId: options.leverageDelegateProgramId,
+      })
+    );
   }
 }

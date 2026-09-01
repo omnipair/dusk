@@ -9,6 +9,7 @@ import {
 } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  AuthorityType,
   ExtensionType,
   NATIVE_MINT,
   TOKEN_2022_PROGRAM_ID,
@@ -20,7 +21,7 @@ import {
   getAccount,
   getMint,
   getOrCreateAssociatedTokenAccount,
-  mintTo,
+  setAuthority,
 } from "@solana/spl-token";
 import * as crypto from "crypto";
 import * as fs from "fs";
@@ -34,6 +35,9 @@ export const TOKEN_PROGRAMS = {
 } as const;
 export const TOKEN_METADATA_PROGRAM_ID = new PublicKey(
   "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+);
+export const DEFAULT_FAUCET_PROGRAM_ID = new PublicKey(
+  "EMmV9HKeQndxFd4duqp65rUSjikVWCPakBH1UjJJ32dz"
 );
 
 export function duskEnv(name: string): string | undefined;
@@ -50,6 +54,12 @@ export type StoredMint = {
   tokenProgram: string;
   keypairPath: string;
   mintAuthority: string;
+  metadata?: {
+    address: string;
+    name: string;
+    symbol: string;
+    uri: string;
+  };
 };
 
 export type StoredMarket = {
@@ -71,8 +81,6 @@ export type StoredMarket = {
   quoteCollateralVault: string;
   baseInsuranceVault: string;
   quoteInsuranceVault: string;
-  baseFeeVault: string;
-  quoteFeeVault: string;
   baseInterestVault: string;
   quoteInterestVault: string;
   baseHlpYlpVault: string;
@@ -83,6 +91,17 @@ export type StoredMarket = {
 
 export type DevnetState = {
   network: string;
+  programs?: Record<
+    string,
+    {
+      programId: string;
+      upgradeAuthority: string;
+    }
+  >;
+  faucet?: {
+    programId: string;
+    mintAuthority: string;
+  };
   mockMints: Record<string, StoredMint>;
   markets: Record<string, StoredMarket>;
 };
@@ -195,6 +214,14 @@ export async function createMintIfMissing(params: {
     );
   }
 
+  await ensureMintAuthority({
+    connection: params.connection,
+    payer: params.payer,
+    mint: keypair.publicKey,
+    mintAuthority: params.mintAuthority,
+    tokenProgram,
+  });
+
   return {
     label: params.label,
     mint: keypair.publicKey.toBase58(),
@@ -203,6 +230,53 @@ export async function createMintIfMissing(params: {
     keypairPath: mintKeypairPath,
     mintAuthority: params.mintAuthority.toBase58(),
   };
+}
+
+export async function ensureMintAuthority(params: {
+  connection: Connection;
+  payer: Keypair;
+  mint: PublicKey;
+  mintAuthority: PublicKey;
+  tokenProgram: PublicKey;
+}): Promise<void> {
+  let mintAccount;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      mintAccount = await getMint(
+        params.connection,
+        params.mint,
+        "confirmed",
+        params.tokenProgram
+      );
+      break;
+    } catch (error) {
+      lastError = error;
+      if (!isTokenAccountConfirmationLag(error) || attempt === 7) throw error;
+      await sleep(500 * (attempt + 1));
+    }
+  }
+  if (!mintAccount) throw lastError;
+  if (mintAccount.mintAuthority?.equals(params.mintAuthority)) return;
+  if (!mintAccount.mintAuthority?.equals(params.payer.publicKey)) {
+    throw new Error(
+      `Cannot assign ${params.mint.toBase58()} to the Dusk faucet: current mint authority is ` +
+        `${mintAccount.mintAuthority?.toBase58() ?? "disabled"}. Use new mock-mint labels or a new ` +
+        "DUSK_DEVNET_CONFIG_DIR."
+    );
+  }
+
+  await setAuthority(
+    params.connection,
+    params.payer,
+    params.mint,
+    params.payer,
+    AuthorityType.MintTokens,
+    params.mintAuthority,
+    [],
+    undefined,
+    params.tokenProgram
+  );
 }
 
 export async function createHookedLpMintIfMissing(params: {
@@ -229,7 +303,7 @@ export async function createHookedLpMintIfMissing(params: {
       }),
       createInitializeTransferHookInstruction(
         keypair.publicKey,
-        params.payer.publicKey,
+        PublicKey.default,
         params.transferHookProgramId,
         TOKEN_2022_PROGRAM_ID
       ),
@@ -246,6 +320,14 @@ export async function createHookedLpMintIfMissing(params: {
       keypair,
     ]);
   }
+
+  await ensureMintAuthority({
+    connection: params.connection,
+    payer: params.payer,
+    mint: keypair.publicKey,
+    mintAuthority: params.mintAuthority,
+    tokenProgram: TOKEN_2022_PROGRAM_ID,
+  });
 
   return {
     label: params.label,
@@ -314,18 +396,21 @@ export async function mintMockTokens(params: {
     recipientAccount.address,
     tokenProgram
   );
-
-  const signature = await mintTo(
-    params.connection,
-    params.payer,
-    params.mint,
-    recipientAccount.address,
-    params.payer,
-    params.amount,
-    [],
-    undefined,
-    tokenProgram
-  );
+  const faucet = faucetProgram(params.connection, params.payer);
+  const faucetAuthority = deriveFaucetAuthorityAddress(faucet.programId);
+  const signature = await faucet.methods
+    .faucetMint(new anchor.BN(params.amount.toString()))
+    .accounts({
+      payer: params.payer.publicKey,
+      recipient: params.recipient,
+      faucetAuthority,
+      recipientTokenAccount: recipientAccount.address,
+      mint: params.mint,
+      systemProgram: SystemProgram.programId,
+      tokenProgram,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+    })
+    .rpc();
   await waitForTokenBalanceAtLeast(
     params.connection,
     recipientAccount.address,
@@ -334,6 +419,34 @@ export async function mintMockTokens(params: {
   );
 
   return { associatedTokenAccount: recipientAccount.address, signature };
+}
+
+export function faucetProgramId(): PublicKey {
+  return new PublicKey(
+    duskEnv("FAUCET_PROGRAM_ID", DEFAULT_FAUCET_PROGRAM_ID.toBase58())
+  );
+}
+
+export function deriveFaucetAuthorityAddress(programId = faucetProgramId()): PublicKey {
+  return derivePda(programId, Buffer.from("faucet_authority"), programId.toBuffer());
+}
+
+export function faucetProgram(connection: Connection, payer: Keypair): any {
+  const idlPath = path.join(process.cwd(), "target", "idl", "faucet.json");
+  if (!fs.existsSync(idlPath)) {
+    throw new Error("Faucet IDL not found. Run yarn v2:build-faucet-devnet first.");
+  }
+  const idl = JSON.parse(fs.readFileSync(idlPath, "utf8"));
+  const programId = faucetProgramId();
+  const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(payer), {
+    commitment: "confirmed",
+    preflightCommitment: "confirmed",
+    skipPreflight: false,
+  });
+  return new anchor.Program(
+    { ...idl, address: programId.toBase58() } as any,
+    provider as any
+  );
 }
 
 function isTokenAccountConfirmationLag(error: unknown): boolean {
@@ -454,8 +567,6 @@ export function deriveMarketAddresses(params: {
     quoteCollateralVault: derivePda(params.programId, Buffer.from("market_collateral"), market.toBuffer(), params.quoteMint.toBuffer()),
     baseInsuranceVault: derivePda(params.programId, Buffer.from("insurance"), market.toBuffer(), params.baseMint.toBuffer()),
     quoteInsuranceVault: derivePda(params.programId, Buffer.from("insurance"), market.toBuffer(), params.quoteMint.toBuffer()),
-    baseFeeVault: derivePda(params.programId, Buffer.from("market_fee"), market.toBuffer(), params.baseMint.toBuffer()),
-    quoteFeeVault: derivePda(params.programId, Buffer.from("market_fee"), market.toBuffer(), params.quoteMint.toBuffer()),
     baseInterestVault: derivePda(params.programId, Buffer.from("market_interest"), market.toBuffer(), params.baseMint.toBuffer()),
     quoteInterestVault: derivePda(params.programId, Buffer.from("market_interest"), market.toBuffer(), params.quoteMint.toBuffer()),
   };
@@ -476,6 +587,7 @@ export function deriveYieldAccountAddress(
   programId: PublicKey,
   market: PublicKey,
   owner: PublicKey,
+  lpMint: PublicKey,
   assetMint: PublicKey,
   tokenKind: "ylp" | "hlp"
 ): PublicKey {
@@ -484,6 +596,7 @@ export function deriveYieldAccountAddress(
     Buffer.from("yield"),
     market.toBuffer(),
     owner.toBuffer(),
+    lpMint.toBuffer(),
     assetMint.toBuffer(),
     Buffer.from([tokenKind === "ylp" ? 0 : 1])
   );
@@ -508,20 +621,76 @@ export function defaultMarketConfig() {
   const startTime = duskEnv("MARKET_START_TIME", "0");
   return {
     swapFeeBps: Number(duskEnv("SWAP_FEE_BPS", "30")),
-    operatorFeeBps: Number(duskEnv("OPERATOR_FEE_BPS", "0")),
-    protocolFeeBps: Number(duskEnv("PROTOCOL_FEE_BPS", "0")),
+    divergenceFeeShareCapBps: Number(
+      duskEnv("DIVERGENCE_FEE_SHARE_CAP_BPS", "0")
+    ),
+    volatilityFeeShareCapBps: Number(
+      duskEnv("VOLATILITY_FEE_SHARE_CAP_BPS", "0")
+    ),
     targetHlpLeverageBps: Number(duskEnv("TARGET_HLP_LEVERAGE_BPS", "20000")),
     settlementDivergenceBps: Number(duskEnv("SETTLEMENT_DIVERGENCE_BPS", "500")),
-    emergencyExitHaircutBps: Number(duskEnv("EMERGENCY_EXIT_HAIRCUT_BPS", "250")),
     emaHalfLifeMs: new anchor.BN(duskEnv("EMA_HALF_LIFE_MS", "60000")),
     directionalEmaHalfLifeMs: new anchor.BN(duskEnv("DIRECTIONAL_EMA_HALF_LIFE_MS", "60000")),
-    kEmaHalfLifeMs: new anchor.BN(duskEnv("K_EMA_HALF_LIFE_MS", "60000")),
+    curveDepthEmaHalfLifeMs: new anchor.BN(duskEnv("CURVE_DEPTH_EMA_HALF_LIFE_MS", "60000")),
     maxDailyBorrowBps: Number(duskEnv("MAX_DAILY_BORROW_BPS", "2000")),
-    spotEmaDivergenceBps: Number(duskEnv("SPOT_EMA_DIVERGENCE_BPS", "1000")),
-    kEmaDrawdownBps: Number(duskEnv("K_EMA_DRAWDOWN_BPS", "1000")),
-    recognizedCollateralCapBps: Number(duskEnv("RECOGNIZED_COLLATERAL_CAP_BPS", "15000")),
-    marketHealthMinBps: Number(duskEnv("MARKET_HEALTH_MIN_BPS", "11000")),
+    globalHealthContributionCapBps: Number(
+      duskEnv("GLOBAL_HEALTH_CONTRIBUTION_CAP_BPS", "15000")
+    ),
+    borrowMarketHealthFloorBps: Number(
+      duskEnv("BORROW_MARKET_HEALTH_FLOOR_BPS", "11000")
+    ),
+    amm: defaultAmmConfig(),
+    irm: {
+      targetUtilizationBps: Number(
+        duskEnv("IRM_TARGET_UTILIZATION_BPS", "7000")
+      ),
+      curveSteepnessNad: new anchor.BN(
+        duskEnv("IRM_CURVE_STEEPNESS_NAD", "4000000000")
+      ),
+      adjustmentSpeedPerYear: new anchor.BN(
+        duskEnv("IRM_ADJUSTMENT_SPEED_PER_YEAR", "20")
+      ),
+    },
     startTime: new anchor.BN(startTime),
+  };
+}
+
+export function defaultAmmConfig() {
+  return {
+    peakAmplificationNad: new anchor.BN(duskEnv("AMM_PEAK_AMPLIFICATION_NAD", "1000000000")),
+    coreHalfWidthBps: Number(duskEnv("AMM_CORE_HALF_WIDTH_BPS", "0")),
+    fadeWidthBps: Number(duskEnv("AMM_FADE_WIDTH_BPS", "0")),
+    centerEmaHalfLifeMs: new anchor.BN(duskEnv("AMM_CENTER_EMA_HALF_LIFE_MS", "60000")),
+    volatilityHalfLifeMs: new anchor.BN(duskEnv("AMM_VOLATILITY_HALF_LIFE_MS", "60000")),
+    adjustmentThresholdNad: new anchor.BN(duskEnv("AMM_ADJUSTMENT_THRESHOLD_NAD", "0")),
+    adjustmentStepNad: new anchor.BN(duskEnv("AMM_ADJUSTMENT_STEP_NAD", "0")),
+    minAdjustmentIntervalSlots: new anchor.BN(duskEnv("AMM_MIN_ADJUSTMENT_INTERVAL_SLOTS", "0")),
+    volatilityShockCapNad: new anchor.BN(duskEnv("AMM_VOLATILITY_SHOCK_CAP_NAD", "0")),
+    volatilityCapNad: new anchor.BN(duskEnv("AMM_VOLATILITY_CAP_NAD", "0")),
+    divergenceFeeCoefficientNad: new anchor.BN(duskEnv("AMM_DIVERGENCE_FEE_COEFFICIENT_NAD", "0")),
+    volatilityFeeCoefficientNad: new anchor.BN(duskEnv("AMM_VOLATILITY_FEE_COEFFICIENT_NAD", "0")),
+    swapFeeCollectMode: Number(duskEnv("AMM_SWAP_FEE_COLLECT_MODE", "0")),
+    compoundingFeeBps: Number(duskEnv("AMM_COMPOUNDING_FEE_BPS", "0")),
+    launchFeeStartBps: Number(duskEnv("AMM_LAUNCH_FEE_START_BPS", "0")),
+    launchFeeDurationSeconds: new anchor.BN(duskEnv("AMM_LAUNCH_FEE_DURATION_SECONDS", "0")),
+    launchFeeDecayMode: Number(duskEnv("AMM_LAUNCH_FEE_DECAY_MODE", "0")),
+    launchMarketPriceStepBps: Number(duskEnv("AMM_LAUNCH_MARKET_PRICE_STEP_BPS", "0")),
+    launchMarketNumberOfPeriods: Number(duskEnv("AMM_LAUNCH_MARKET_NUMBER_OF_PERIODS", "0")),
+    launchMarketReductionFactorBps: Number(
+      duskEnv("AMM_LAUNCH_MARKET_REDUCTION_FACTOR_BPS", "0")
+    ),
+    launchRateLimitAsset: Number(duskEnv("AMM_LAUNCH_RATE_LIMIT_ASSET", "0")),
+    launchRateLimitReferenceNad: new anchor.BN(
+      duskEnv("AMM_LAUNCH_RATE_LIMIT_REFERENCE_NAD", "0")
+    ),
+    launchRateLimitIncrementBps: Number(
+      duskEnv("AMM_LAUNCH_RATE_LIMIT_INCREMENT_BPS", "0")
+    ),
+    launchRateLimitMaxFeeBps: Number(duskEnv("AMM_LAUNCH_RATE_LIMIT_MAX_FEE_BPS", "0")),
+    launchRateLimitDurationSeconds: new anchor.BN(
+      duskEnv("AMM_LAUNCH_RATE_LIMIT_DURATION_SECONDS", "0")
+    ),
+    reserved: [],
   };
 }
 
@@ -534,17 +703,17 @@ export function defaultLpMetadata(kind: "ylp" | "baseHlp" | "quoteHlp") {
         : "QUOTE_HLP";
   const defaults = {
     ylp: {
-      name: "Omnipair Dusk (v2) yLP",
+      name: "Omnipair V2 (Dusk) yLP",
       symbol: "yLP",
       uri: "https://omnipair.fi/metadata/dusk/ylp.json",
     },
     baseHlp: {
-      name: "Omnipair Dusk (v2) Base hLP",
+      name: "Omnipair V2 (Dusk) Base hLP",
       symbol: "hLP",
       uri: "https://omnipair.fi/metadata/dusk/base-hlp.json",
     },
     quoteHlp: {
-      name: "Omnipair Dusk (v2) Quote hLP",
+      name: "Omnipair V2 (Dusk) Quote hLP",
       symbol: "hLP",
       uri: "https://omnipair.fi/metadata/dusk/quote-hlp.json",
     },
@@ -553,6 +722,19 @@ export function defaultLpMetadata(kind: "ylp" | "baseHlp" | "quoteHlp") {
     name: duskEnv(`${suffix}_NAME`, defaults.name),
     symbol: duskEnv(`${suffix}_SYMBOL`, defaults.symbol),
     uri: duskEnv(`${suffix}_URI`, defaults.uri),
+  };
+}
+
+export function defaultMockMetadata(kind: "base" | "quote") {
+  const defaults =
+    kind === "base"
+      ? { name: "MetaDAO", symbol: "META", uri: "" }
+      : { name: "USD Coin", symbol: "USDC", uri: "" };
+  const prefix = kind === "base" ? "MOCK_BASE" : "MOCK_QUOTE";
+  return {
+    name: duskEnv(`${prefix}_NAME`, defaults.name),
+    symbol: duskEnv(`${prefix}_SYMBOL`, defaults.symbol),
+    uri: duskEnv(`${prefix}_URI`, defaults.uri),
   };
 }
 

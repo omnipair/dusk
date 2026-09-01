@@ -1,4 +1,4 @@
-# Omnipair Dusk (v2) Surfpool Mainnet-Fork Lab
+# Omnipair V2 (Dusk) Surfpool Mainnet-Fork Lab
 
 This stack runs `dusk` against a private Surfpool mainnet fork and exposes a small fork API for the Dusk webapp. It is intentionally separate from the Helius-backed indexer path because private Surfpool transactions are not visible to Helius Atlas.
 
@@ -23,7 +23,7 @@ npm run surfpool-v2-e2e
 ```sh
 SURFPOOL_RPC_URL=http://127.0.0.1:8899
 PUBLIC_SURFPOOL_RPC_URL=http://127.0.0.1:8898
-DUSK_PROGRAM_ID=358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv
+DUSK_PROGRAM_ID=JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X
 DUSK_BASE_MINT=METAwkXcqyXKy1AtsSgJ8JiUHwGCafnZL38n3vYmeta
 DUSK_QUOTE_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
 FORK_ADMIN_TOKEN=<shared-secret>
@@ -31,11 +31,20 @@ FORK_ADMIN_TOKEN=<shared-secret>
 
 The fork API accepts `FORK_LAB_PAYER_KEYPAIR_JSON`, `FORK_LAB_PAYER_KEYPAIR_BASE64`, `FORK_LAB_PAYER_KEYPAIR`, or `ANCHOR_WALLET`. If none are set it creates a local `.v2-fork-lab/payer.json`.
 
-## API Endpoints
+## Common API Endpoints
+
+This is a quick-start subset, not the complete router contract. The `route`
+function in [`api_core.ts`](./api_core.ts) is the source of truth for all GET
+and POST paths, including protocol-test evidence, bootstrap, governance,
+referral, preview, transfer, leverage, liquidation, and administrative flows.
 
 - `GET /health`
 - `GET /api/v2/fork/config`
+- `GET /api/v2/fork/test-catalog`
+- `GET /api/v2/fork/test-runs/latest`
 - `POST /api/v2/fork/fund-wallet`
+- `POST /api/v2/fork/tx/create-market`
+- `POST /api/v2/fork/tx/finalize-market`
 - `POST /api/v2/fork/tx/add-liquidity`
 - `POST /api/v2/fork/tx/swap`
 - `POST /api/v2/fork/tx/deposit-collateral`
@@ -43,6 +52,10 @@ The fork API accepts `FORK_LAB_PAYER_KEYPAIR_JSON`, `FORK_LAB_PAYER_KEYPAIR_BASE
 - `POST /api/v2/fork/tx/repay`
 - `POST /api/v2/fork/tx/deposit-single-sided`
 - `POST /api/v2/fork/tx/withdraw-single-sided`
+- `POST /api/v2/fork/tx/update-protocol-auction-config`
+- `POST /api/v2/fork/tx/update-protocol-auction-recipients`
+- `POST /api/v2/fork/tx/update-protocol-auction-route`
+- `POST /api/v2/fork/tx/settle-protocol-auction`
 - `GET /api/v2/markets`
 - `GET /api/v2/markets/:marketAddress`
 - `GET /api/v2/markets/:marketAddress/swaps`
@@ -50,3 +63,9 @@ The fork API accepts `FORK_LAB_PAYER_KEYPAIR_JSON`, `FORK_LAB_PAYER_KEYPAIR_BASE
 - `GET /api/v2/users/:wallet/activity`
 
 Transaction endpoints return an unsigned base64 legacy transaction in `data.transaction`. The browser wallet signs and submits it to `data.rpcUrl`, which should be the public RPC proxy.
+
+Protocol-auction settlement requires `lane: "fee" | "buyback"` and an explicit
+`source: "swap" | "interest"`. The API never defaults the source. Swap revenue
+is sold from the matching reserve vault and interest revenue from the matching
+interest vault, so the selected physical custody always matches the liability
+that settlement debits.
