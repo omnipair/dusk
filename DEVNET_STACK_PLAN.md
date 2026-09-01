@@ -371,7 +371,7 @@ independent untracked fixes per repository.
 | 5 | Webapp writes through the SDK; fork lab ported and deleted | **Done** — all 9 actions build through the SDK, and no `fork` path or name remains in the app or the API; the lab in the `dusk` repo is unused and can be deleted |
 | 6 | Rust keepers live on devnet | **Lending trigger and bidder live** — both have sent confirmed transactions on devnet: the trigger opened an auction on a genuinely underwater position, the bidder repaid 150 quote for 265.56 base. Settler, leverage, auction arbitrageur and lifecycle still have no loop |
 | 7 | Public-service operations (section 9) | **Done** — rate limiting, `/status`, a self-refreshing status page, `/metrics` and `/provenance`, structured request logs, six runbooks, backups with a tested restore, and 90-day retention. The faucet limit is written but not deployed (see below) |
-| 8 | Full live matrix and sustained unattended operation | **Matrix runs, soak runs; 7 of 11 flows pass** — `live_flow_matrix.ts` signs and sends every product flow: faucet, add and remove liquidity, deposit, borrow, repay and withdraw all confirm. Swap and open leverage are blocked by the hLP defect and the two leverage follow-ups cascade from it. `soak.sh` samples the deployment unattended and is what caught the monitoring flaw below |
+| 8 | Full live matrix and sustained unattended operation | **11 of 11 flows pass** — `live_flow_matrix.ts` signs and sends every product flow and all eleven confirm: faucet, swap, add and remove liquidity, deposit, borrow, repay, withdraw, open leverage, add margin, close leverage. Passes on a market carrying no debt; the hLP defect below still breaks swaps once debt is outstanding, so this is not the defect being fixed. `soak.sh` samples the deployment unattended and is what caught the monitoring flaw below |
 
 ### Deployment
 
@@ -573,10 +573,10 @@ make on someone else's behalf.
 | Faucet abuse limit | Per-request ceiling and hourly per-recipient cooldown implemented; webapp passes the new account | Upgrade the program and ship the app together — the account list changes, so they cannot land separately |
 | Keepers live | All seven profiles deployed and healthy in shadow; trigger and bidder both proven live from a local run against this same devnet | A generated hot wallet per service as `KEEPER_SIGNER_KEY`, and `KEEPER_MODE=live` |
 
-Phase 8's four failing flows — swap, open leverage, and the two leverage steps
-that cascade from open leverage — are all downstream of the first item. Nothing
-else in the matrix is blocked, and no further keeper or indexer work moves
-them.
+All eleven product flows now sign and confirm on a market carrying no debt, so
+the matrix itself is complete. The hLP defect still breaks swaps once debt is
+outstanding — 7 of 12 with 400 quote borrowed — so a green matrix is not the
+defect being fixed, and fixing it is the first item above.
 
 ## 15. Definition of done
 
