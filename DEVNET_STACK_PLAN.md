@@ -470,41 +470,32 @@ Failure is `BrokenInvariant` (6047) at the hLP reserve-identity check in
 `backstop_liquidation_auction`, so the lending settler cannot run, and it
 blocks `open_leverage`.
 
-**The cause is measured.** An instrumented build was deployed briefly, its logs
-read, and the attested binary restored:
+**The cause is measured.** An instrumented build was deployed, its logs read,
+and every component of the identity printed:
 
 ```
-hlp-drift base=1 quote=25 base_interest=0 quote_interest=0 final_base_debt=1482619 final_quote_debt=0
+hlp-drift base=1 quote=4 base_interest=402 quote_interest=0 final_base_debt=9916764
+hlp-parts ord_quote=12492753235 eq_quote=0 ...
+hlp-recon quote_non_debt=12492752431
 ```
 
-The quote-side drift is 24-26 atoms against a three-atom tolerance, and **both
-interest tranches are zero**. So debt is what brings the failure on, but *not*
-through accrued interest — the double-subtraction theory and everything else
-built on accrual was wrong.
+`ord_quote + eq_quote − quote_non_debt = 804`, which is **exactly twice**
+`base_interest_paid`. So the interest tranche really is subtracted twice on the
+quoted-swap path — once in the `else` branch and again in the block added by
+`e077db6`.
 
-`final_base_debt` cancels across the comparison. What disagrees is the
-materialized reserves against the quoted endpoint rebuilt through
-`denormalize_from_nad_floor`:
-
-```
-(quote_live_reserve - old_quote_hlp_live)   vs   (ordinary_quote + quote_equity)
-```
+**But removing one does not fix it.** Subtracting once would put the drift at
+−398 instead of +4, and it makes `stressed_hlp_recovery` fail. The double
+subtraction is load-bearing and approximately right; what remains is a small
+residual — 4 atoms here, 25 in an earlier reading where *both* interest
+tranches were zero. The residual is therefore unrelated to interest, and no
+candidate fix tested so far accounts for it.
 
 **The three-atom tolerance is arithmetically correct.** `NAD_DECIMALS` is 9 and
-the assets carry 6 decimals, so `denormalize_from_nad_floor` divides by 1000
-and discards under one atom per call; three floors genuinely cannot exceed
-three atoms. A passing swap reconciles to exactly one.
-
-So this is **not a rounding problem and the constant is not too tight** — the
-quoted endpoint's model of the post-swap state and the materialized reserves
-disagree by real value once hLP debt is outstanding, and the identity is doing
-its job by rejecting. Widening it would suppress a genuine discrepancy.
-
-The clue left standing is the asymmetry: base drifts by 1 and quote by 25, and
-only the base hLP vault carries debt, so the side *without* debt is the side
-that drifts. Why the two models disagree is a question about the AMM's
-accounting rather than about tolerances, and it is the one thing standing
-between this deployment and a working swap under load.
+the assets carry 6 decimals, so `denormalize_from_nad_floor` discards under one
+atom per call. A passing swap reconciles to exactly one. So this is a real
+disagreement about value that the identity is right to reject, not a tolerance
+that is too tight — widening it would suppress the discrepancy.
 
 **A correction to earlier numbers in this document.** This defect was recorded
 for most of its investigation as "a quarter of swaps revert on an idle market,
