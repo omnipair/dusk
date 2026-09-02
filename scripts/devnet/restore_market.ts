@@ -16,6 +16,7 @@
 
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import {
+  ComputeBudgetProgram,
   Connection,
   Keypair,
   PublicKey,
@@ -98,7 +99,15 @@ async function main() {
   });
 
   const send = async (instructions: TransactionInstruction[]) => {
-    const transaction = new Transaction().add(...instructions);
+    // Repay settles hLP as part of its market update and exhausts the default
+    // 200k budget, failing as ProgramFailedToComplete — which reads as the
+    // repayment being refused rather than as running out of room. That left a
+    // position indebted and every swap reverting, with the script reporting
+    // "0/1 repaid" and no reason.
+    const transaction = new Transaction().add(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 }),
+      ...instructions,
+    );
     const blockhash = await connection.getLatestBlockhash("confirmed");
     transaction.recentBlockhash = blockhash.blockhash;
     transaction.feePayer = keypair.publicKey;
