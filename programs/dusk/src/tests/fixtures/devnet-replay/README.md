@@ -12,7 +12,37 @@ off chain, so nobody has to instrument a deployed program to make progress.
 | `market.bin`, `*_mint.bin` | The other accounts a swap touches |
 | `manifest.json` | Addresses, owners and lamports for each |
 
-## CLOSED — the drift is 24-26 atoms, and interest has nothing to do with it
+## RESOLVED — the drift is public unrealized lending interest
+
+The two sides of the reserve check were expressed in different accounting
+domains. `identity_*_live` starts from raw `live_reserve`, which includes
+unrealized fixed and isolated lending interest. The quoted
+`IntegratedCurveState` starts from `curve_reserve`, which deliberately subtracts
+that interest because claimable yield is not executable AMM principal.
+
+The on-chain `base_interest` and `quote_interest` diagnostics reported only hLP
+funding interest. Therefore the zero-interest reading did not rule out public
+lending interest: the missing Quote term was the public Quote borrow's 25 atoms
+of unrealized interest. This also explains every observed asymmetry: borrowing
+Quote makes Quote drift while the Base-target hLP is the vault that borrows
+Quote.
+
+`ConcentratedHlpTransition::consume` now subtracts the current
+`Market::unrealized_interest` from each raw live-reserve identity before
+comparison. Because this is read after the surrounding leverage or liquidation
+debt lifecycle, any interest already realized by that lifecycle is naturally
+absent. The raw live reserve written afterward is unchanged, so unrealized
+interest remains claimable and outside executable reserves.
+
+The three-atom floor tolerance remains unchanged. Regression coverage models a
+400-atom public borrow with exactly 25 atoms of accrued interest across fixed
+and isolated debt on both assets; all four swaps reconcile and preserve the
+25-atom live-versus-curve separation.
+
+## Superseded investigation history
+
+The notes below record how the defect was isolated. Conclusions that call the
+residual unexplained predate the public-interest accounting fix above.
 
 Measured on chain 2026-08-31 by deploying a build with `--features
 debug-hlp-drift`, reading the logs, and restoring the attested binary
@@ -212,7 +242,7 @@ The remaining way to learn anything is to read the drift on chain, and the
 build that prints it is ready behind a feature flag:
 
 ```bash
-anchor build -p dusk -- --features debug-hlp-drift
+CARGO_PROFILE_RELEASE_OPT_LEVEL=z anchor build -p dusk -- --features debug-hlp-drift
 # deploy, then simulate a swap and read the logs for "hlp-drift"
 ```
 

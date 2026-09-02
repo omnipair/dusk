@@ -14,6 +14,9 @@ lto = "fat"
 codegen-units = 1
 opt-level = "z"
 
+[profile.release.package.dusk]
+opt-level = "s"
+
 [profile.release.build-override]
 opt-level = 3
 incremental = false

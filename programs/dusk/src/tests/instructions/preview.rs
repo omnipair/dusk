@@ -452,7 +452,6 @@ fn concentrated_hlp_preview_and_execution_share_the_same_accepted_plan_in_both_d
 /// this case drift by a whole interest tranche: the second subtraction is
 /// load-bearing on the ordinary path too. Whatever is wrong on devnet is not
 /// that, and this test is the cheapest way to rule it out again.
-#[test]
 fn a_plain_swap_survives_accrued_hlp_interest() {
     let mut market = active_concentrated_preview_market();
     // Accrue interest on the Base hLP's borrowed asset, exactly as the
@@ -491,6 +490,79 @@ fn a_plain_swap_survives_accrued_hlp_interest() {
     market.assert_market_invariants().unwrap();
 }
 
+#[test]
+fn swaps_preserve_cash_backed_unrealized_interest_outside_the_hlp_endpoint() {
+    for (debt_asset, isolated) in [
+        (MarketAsset::Base, false),
+        (MarketAsset::Base, true),
+        (MarketAsset::Quote, false),
+        (MarketAsset::Quote, true),
+    ] {
+        let mut market = active_concentrated_preview_market();
+        // Model a 400-atom public borrow which has accrued 25 atoms of
+        // unrealized interest. Public interest is part of `live_reserve`, but
+        // is deliberately excluded from the executable curve and hLP equity.
+        match (debt_asset, isolated) {
+            (MarketAsset::Base, false) => {
+                market.debt.fixed_base_shares = 400;
+                market.debt.fixed_base_principal = 400;
+                market.debt.base_borrow_index_nad = mul_div_u128(NAD as u128, 17, 16).unwrap();
+                market.debt.base_last_accrual_slot = 1;
+            }
+            (MarketAsset::Base, true) => {
+                market.debt.isolated_base_shares = 400;
+                market.debt.isolated_base_principal = 400;
+                market.debt.base_borrow_index_nad = mul_div_u128(NAD as u128, 17, 16).unwrap();
+                market.debt.base_last_accrual_slot = 1;
+            }
+            (MarketAsset::Quote, false) => {
+                market.debt.fixed_quote_shares = 400;
+                market.debt.fixed_quote_principal = 400;
+                market.debt.quote_borrow_index_nad = mul_div_u128(NAD as u128, 17, 16).unwrap();
+                market.debt.quote_last_accrual_slot = 1;
+            }
+            (MarketAsset::Quote, true) => {
+                market.debt.isolated_quote_shares = 400;
+                market.debt.isolated_quote_principal = 400;
+                market.debt.quote_borrow_index_nad = mul_div_u128(NAD as u128, 17, 16).unwrap();
+                market.debt.quote_last_accrual_slot = 1;
+            }
+        }
+        market.side_mut(debt_asset).reserves.cash_reserve -= 400;
+        market.side_mut(debt_asset).reserves.live_reserve += 25;
+        assert_eq!(market.unrealized_interest(debt_asset).unwrap(), 25);
+        market.assert_virtual_reserve_invariant(debt_asset).unwrap();
+
+        let request = SwapRequest {
+            current_slot: 1,
+            current_unix_timestamp: 0,
+            asset_in: debt_asset.opposite(),
+            reserve_credit: 350_000,
+            protocol_fee_bps: 2_500,
+        };
+        let prepared = request.prepare(&mut market).unwrap();
+        prepared
+            .finalize_state(
+                &mut market,
+                request.current_slot,
+                2_500,
+                crate::state::ProtocolAuctionSplit {
+                    fee_auction_bps: 6_000,
+                    buyback_auction_bps: 4_000,
+                },
+            )
+            .unwrap();
+
+        assert_eq!(market.unrealized_interest(debt_asset).unwrap(), 25);
+        assert_eq!(
+            market.side(debt_asset).reserves.live_reserve - market.curve_reserve(debt_asset).unwrap(),
+            25,
+        );
+        market.assert_market_invariants().unwrap();
+    }
+}
+
+#[test]
 fn stressed_hlp_recovery_improves_the_matching_swap_and_restores_the_hedge() {
     let healthy = active_concentrated_preview_market();
     let mut stressed = healthy.clone();
