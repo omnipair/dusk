@@ -453,17 +453,22 @@ change nothing, and record a successful liquidation.
 Tallied by error type over 14 swaps each way, which is the only measurement
 that held up — see the correction below:
 
-| market state | outcome |
+| market state | program reverts |
 | --- | --- |
-| debt outstanding | 10 `BrokenInvariant`, 4 RPC transients, **0 ok** |
-| debt repaid | **9 ok**, 5 RPC transients, **0 `BrokenInvariant`** |
+| no debt | **0 of 12** |
+| 400 quote borrowed | **7 of 12 (58%)** |
 
-So it is not a rate at all: **outstanding debt breaks swaps, repaying it
-restores them**, and the percentages this document previously carried were
-noise from mixing RPC transients into the count. Note that roughly a third of
-all simulations return `BlockhashNotFound` regardless — the RPC declining to
-run the program — so any measurement here has to tally by error type rather
-than count failures.
+Confirmed on a pool restored to ~51k a side, so pool depth is not the cause —
+an earlier reading on a pool my own testing had drained to 3% gave the same
+answer. **Outstanding debt breaks swaps; repaying restores them.**
+
+Two measurement traps to avoid repeating. Roughly a third of simulations return
+`BlockhashNotFound` — the RPC declining to run the program at all — so a
+measurement must tally by error type rather than count failures; doing that
+wrong produced 25%, 67% and 75% for the same behaviour. And borrow and repay
+both exceed the default 200k compute budget, failing as
+`ProgramFailedToComplete`, which reads as a refusal rather than as running out
+of room.
 
 Failure is `BrokenInvariant` (6047) at the hLP reserve-identity check in
 `transitions/liquidity/hlp/engine.rs`. It also blocks

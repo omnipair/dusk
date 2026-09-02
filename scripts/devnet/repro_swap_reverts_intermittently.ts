@@ -33,6 +33,7 @@
 
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import {
+  ComputeBudgetProgram,
   Connection,
   Keypair,
   PublicKey,
@@ -79,7 +80,13 @@ async function main() {
   const unit = 10n ** BigInt(config.quoteDecimals);
 
   const send = async (instructions: TransactionInstruction[]) => {
-    const transaction = new Transaction().add(...instructions);
+    // Borrow and repay both settle hLP as part of their market update and
+    // exceed the default 200k budget. Without this they fail as a compute
+    // error that looks nothing like the defect being measured.
+    const transaction = new Transaction().add(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 }),
+      ...instructions,
+    );
     const blockhash = await connection.getLatestBlockhash("confirmed");
     transaction.recentBlockhash = blockhash.blockhash;
     transaction.feePayer = keypair.publicKey;
