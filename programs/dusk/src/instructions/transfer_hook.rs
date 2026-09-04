@@ -143,8 +143,17 @@ where
 {
     let mut data = account_info.try_borrow_mut_data()?;
     let mut cursor: &[u8] = &data;
-    let mut account = Box::new(T::try_deserialize(&mut cursor).map_err(|_| error!(invalid_account))?);
-    let output = mutate(&mut account)?;
+    let mut decoded = unsafe {
+        // Keep the large `T` return place off the fixed 4 KiB SBF stack.
+        let mut destination = Box::<Result<T>>::new_uninit();
+        destination.as_mut_ptr().write(T::try_deserialize(&mut cursor));
+        destination.assume_init()
+    };
+    let account = match decoded.as_mut() {
+        Ok(account) => account,
+        Err(_) => return Err(error!(invalid_account)),
+    };
+    let output = mutate(account)?;
     let mut write_cursor = &mut data[..];
     account
         .try_serialize(&mut write_cursor)

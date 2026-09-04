@@ -1653,7 +1653,7 @@ fn concentrated_decrease_leverage_checkpoints_active_hlp_exposure() {
     let scale = 1_000_000;
     let mut market = active_concentrated_hlp_market_with_decimals(6);
     let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000 * scale, 10_000 * scale);
-    let prepared = prepare_leverage_swap_with_policy(
+    let mut prepared = prepare_leverage_swap_with_policy(
         &mut market,
         MarketAsset::Quote,
         100 * scale,
@@ -1672,7 +1672,7 @@ fn concentrated_decrease_leverage_checkpoints_active_hlp_exposure() {
             &mut position,
             100 * scale,
             0,
-            prepared,
+            &mut prepared,
             full_fee_credit(&quote),
             0,
             ProtocolAuctionSplit::default(),

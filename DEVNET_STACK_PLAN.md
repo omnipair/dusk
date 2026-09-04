@@ -448,7 +448,7 @@ Measuring is also the only way to tell a fill from a no-op:
 auction has recovered, so a bidder trusting the return code would pay a fee,
 change nothing, and record a successful liquidation.
 
-### Swaps revert while debt is outstanding (blocking)
+### Swaps reverted while debt was outstanding (fixed in code; deploy pending)
 
 Tallied by error type over 14 swaps each way, which is the only measurement
 that held up — see the correction below:
@@ -470,37 +470,28 @@ both exceed the default 200k compute budget, failing as
 `ProgramFailedToComplete`, which reads as a refusal rather than as running out
 of room.
 
-Failure is `BrokenInvariant` (6047) at the hLP reserve-identity check in
-`transitions/liquidity/hlp/engine.rs`. It also blocks
-`backstop_liquidation_auction`, so the lending settler cannot run, and it
-blocks `open_leverage`.
+Failure was `BrokenInvariant` (6047) at the hLP reserve-identity check in
+`transitions/liquidity/hlp/engine.rs`. It also blocked
+`backstop_liquidation_auction`, so the lending settler could not run, and it
+blocked `open_leverage`.
 
-**The cause is measured.** An instrumented build was deployed, its logs read,
-and every component of the identity printed:
+**The accounting mismatch is now identified and fixed in code.** The raw
+`live_reserve` side of the identity includes unrealized fixed and isolated
+lending interest. The quoted `IntegratedCurveState` side starts from
+`curve_reserve`, which deliberately excludes that claimable yield from
+executable AMM principal. The on-chain `base_interest` and `quote_interest`
+diagnostics measured hLP funding interest only, so the zero-interest reading did
+not rule out the missing public-interest term. The 25-atom Quote drift was the
+400-Quote public borrow's unrealized interest.
 
-```
-hlp-drift base=1 quote=4 base_interest=402 quote_interest=0 final_base_debt=9916764
-hlp-parts ord_quote=12492753235 eq_quote=0 ...
-hlp-recon quote_non_debt=12492752431
-```
-
-`ord_quote + eq_quote − quote_non_debt = 804`, which is **exactly twice**
-`base_interest_paid`. So the interest tranche really is subtracted twice on the
-quoted-swap path — once in the `else` branch and again in the block added by
-`e077db6`.
-
-**But removing one does not fix it.** Subtracting once would put the drift at
-−398 instead of +4, and it makes `stressed_hlp_recovery` fail. The double
-subtraction is load-bearing and approximately right; what remains is a small
-residual — 4 atoms here, 25 in an earlier reading where *both* interest
-tranches were zero. The residual is therefore unrelated to interest, and no
-candidate fix tested so far accounts for it.
-
-**The three-atom tolerance is arithmetically correct.** `NAD_DECIMALS` is 9 and
-the assets carry 6 decimals, so `denormalize_from_nad_floor` discards under one
-atom per call. A passing swap reconciles to exactly one. So this is a real
-disagreement about value that the identity is right to reject, not a tolerance
-that is too tight — widening it would suppress the discrepancy.
+`ConcentratedHlpTransition::consume` now removes the current public unrealized
+interest from the raw live identity before comparing it with the reconstructed
+curve endpoint. Reading it after the surrounding leverage lifecycle naturally
+accounts for any interest that lifecycle realized. The transition still writes
+the raw live identity, preserving unrealized interest as claimable yield outside
+the curve. The three-atom rounding tolerance is unchanged. A regression models
+exactly 25 atoms of accrued fixed or isolated debt interest on either asset and
+proves swaps preserve the same 25-atom live-versus-curve separation.
 
 **A correction to earlier numbers in this document.** This defect was recorded
 for most of its investigation as "a quarter of swaps revert on an idle market,
