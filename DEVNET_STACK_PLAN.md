@@ -448,7 +448,7 @@ Measuring is also the only way to tell a fill from a no-op:
 auction has recovered, so a bidder trusting the return code would pay a fee,
 change nothing, and record a successful liquidation.
 
-### Swaps reverted while debt was outstanding (fixed in code; deploy pending)
+### Swaps reverted while debt was outstanding (fixed, deployed, verified on devnet)
 
 Tallied by error type over 14 swaps each way, which is the only measurement
 that held up — see the correction below:
@@ -492,6 +492,24 @@ the raw live identity, preserving unrealized interest as claimable yield outside
 the curve. The three-atom rounding tolerance is unchanged. A regression models
 exactly 25 atoms of accrued fixed or isolated debt interest on either asset and
 proves swaps preserve the same 25-atom live-versus-curve separation.
+
+**Verified on devnet 2026-09-05.** Deployed as programdata sha256 `91c3ee46…`
+(signature `4KwkFLmvobcWYjMmxF5M3oziPK6ER81gj8hEL6qXHz4moZNZUAi9deULqf6MUaUbbKXsG6G7vnVixgTRk6BmcV9Q`),
+`protocol.lock.json` re-pinned, API healthy with `deploymentError: null`.
+
+| measurement | before | after |
+| --- | --- | --- |
+| swaps reverting, no debt | 0 of 12 | 0 of 12 |
+| swaps reverting, 400 quote borrowed | **7 of 12** | **0 of 12** |
+| flow matrix, clean market | 11 of 11 | 11 of 11 |
+| flow matrix, debt outstanding | not runnable | **11 of 11** |
+
+The debt-outstanding matrix ran with 65-66 atoms of unrealized quote interest
+standing — more than twenty times the three-atom tolerance, and the exact
+condition that used to revert. Note that interest accrues only when the market
+is touched: borrowing and then waiting accrues nothing, so the run was preceded
+by swaps to drive the index and `unrealized_interest` was confirmed non-zero
+before the matrix started.
 
 **A correction to earlier numbers in this document.** This defect was recorded
 for most of its investigation as "a quarter of swaps revert on an idle market,
