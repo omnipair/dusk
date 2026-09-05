@@ -802,6 +802,80 @@ fn forty_percent_fee_compounding_is_native_to_cpmm_and_concentrated_swaps() {
 }
 
 #[test]
+fn compounded_swap_observes_final_reserves_for_volatility_and_next_slot_ema() {
+    use crate::math::ema_u64;
+    use crate::transitions::amm::volatility_after_success_nad;
+
+    for parameters in [
+        ConcentratedCurveParameters::cpmm(),
+        ConcentratedCurveParameters {
+            peak_amplification_nad: 4 * NAD,
+            core_half_width_bps: 100,
+            fade_width_bps: 400,
+        },
+    ] {
+        for fee_mode in [
+            crate::state::SWAP_FEE_COLLECT_INPUT_ASSET,
+            crate::state::SWAP_FEE_COLLECT_QUOTE_ONLY,
+        ] {
+            for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
+                let mut market = preview_test_market(0, 0);
+                market.config.swap_fee_bps = 1_000;
+                market.config.volatility_fee_share_cap_bps = 2_000;
+                market.config.amm = AmmConfig {
+                    swap_fee_collect_mode: fee_mode,
+                    compounding_fee_bps: 10_000,
+                    center_ema_half_life_ms: MIN_HALF_LIFE_MS,
+                    volatility_half_life_ms: MIN_HALF_LIFE_MS,
+                    volatility_shock_cap_nad: NAD,
+                    volatility_cap_nad: NAD,
+                    volatility_fee_coefficient_nad: NAD,
+                    ..AmmConfig::default()
+                };
+                market.config.amm.set_concentrated_curve_parameters(parameters).unwrap();
+                market.amm = crate::state::AmmState::default();
+                market.prepare_amm_for_swap(1).unwrap();
+                let ema_before = market.amm.price_ema_nad;
+                let request = SwapRequest {
+                    current_slot: 1,
+                    current_unix_timestamp: 0,
+                    asset_in,
+                    reserve_credit: 100_000,
+                    protocol_fee_bps: 0,
+                };
+                let prepared = request.prepare(&mut market).unwrap();
+                let quote = prepared.quote;
+                assert_ne!(quote.end_price_nad, quote.reserve_end_price_nad);
+                let expected_volatility = volatility_after_success_nad(
+                    quote.decayed_volatility_nad,
+                    quote.start_price_nad,
+                    quote.reserve_end_price_nad,
+                    NAD,
+                    NAD,
+                )
+                .unwrap();
+                prepared
+                    .finalize_state(&mut market, 1, 0, crate::state::ProtocolAuctionSplit::default())
+                    .unwrap();
+                assert_eq!(market.amm.last_trade_price_nad, quote.reserve_end_price_nad);
+                assert_eq!(market.amm.volatility_accumulator_nad, expected_volatility);
+                assert_eq!(quote.post_success_volatility_nad, expected_volatility);
+                assert_eq!(market.risk.cached_spot_base_price_nad, quote.reserve_end_price_nad);
+                assert_eq!(market.amm.price_ema_nad, ema_before);
+
+                let next_slot = 1 + MIN_HALF_LIFE_MS / crate::constants::TARGET_MS_PER_SLOT;
+                let expected_ema = ema_u64(ema_before, quote.reserve_end_price_nad, 1, next_slot, MIN_HALF_LIFE_MS);
+                let expected_decay = market.amm.decayed_volatility(&market.config.amm, next_slot).unwrap();
+                let next = SwapRequest { current_slot: next_slot, ..request }.prepare(&mut market).unwrap();
+                assert_eq!(market.amm.price_ema_nad, expected_ema);
+                assert_eq!(next.quote.decayed_volatility_nad, expected_decay);
+                assert!(next.quote.fee.volatility_surcharge_debit > 0);
+            }
+        }
+    }
+}
+
+#[test]
 fn concentrated_swap_preserves_preexisting_fee_and_hlp_yield_state() {
     let mut market = active_concentrated_preview_market();
     let protocol_split = crate::state::ProtocolAuctionSplit {

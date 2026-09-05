@@ -1077,9 +1077,15 @@ impl Market {
         } else {
             require!(prepared_swap.post_fee_curve_cache.is_none(), ErrorCode::BrokenInvariant);
         }
+        let final_price_nad = if socialized_loss_applied {
+            self.current_concentrated_spot_price_nad()?
+                .ok_or(ErrorCode::BrokenInvariant)?
+        } else {
+            prepared_swap.swap.reserve_end_price_nad
+        };
         self.finalize_amm_trade_after_inventory_checkpoint(
             prepared_swap.swap.start_price_nad,
-            prepared_swap.swap.end_price_nad,
+            final_price_nad,
             current_slot,
         )?;
         let curve_depth_nad = self
@@ -1088,12 +1094,6 @@ impl Market {
             .tail_liquidity
             .checked_add(self.amm.concentrated_curve_cache.concentrated_liquidity)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let final_price_nad = if socialized_loss_applied {
-            self.current_concentrated_spot_price_nad()?
-                .ok_or(ErrorCode::BrokenInvariant)?
-        } else {
-            prepared_swap.swap.reserve_end_price_nad
-        };
         self.observe_risk_from_concentrated_curve(final_price_nad, curve_depth_nad, current_slot)?;
         require_eq!(
             self.risk.cached_spot_base_price_nad,
