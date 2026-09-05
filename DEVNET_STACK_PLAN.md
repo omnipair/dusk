@@ -448,54 +448,68 @@ Measuring is also the only way to tell a fill from a no-op:
 auction has recovered, so a bidder trusting the return code would pay a fee,
 change nothing, and record a successful liquidation.
 
-### Swaps revert while debt is outstanding (blocking)
+### Swaps reverted while debt was outstanding (fixed, deployed, verified on devnet)
 
-Measured with RPC transients excluded, which matters — see the correction
-below:
+Tallied by error type over 14 swaps each way, which is the only measurement
+that held up — see the correction below:
 
-- **idle market, no debt: 0 of 12 swaps revert**
-- **with 400 quote borrowed: 7 of 12 revert (58%)**
+| market state | program reverts |
+| --- | --- |
+| no debt | **0 of 12** |
+| 400 quote borrowed | **7 of 12 (58%)** |
 
-Failure is `BrokenInvariant` (6047) at the hLP reserve-identity check in
-`transitions/liquidity/hlp/engine.rs`. It also blocks
-`backstop_liquidation_auction`, so the lending settler cannot run, and it
-blocks `open_leverage`.
+Confirmed on a pool restored to ~51k a side, so pool depth is not the cause —
+an earlier reading on a pool my own testing had drained to 3% gave the same
+answer. **Outstanding debt breaks swaps; repaying restores them.**
 
-**The cause is measured.** An instrumented build was deployed briefly, its logs
-read, and the attested binary restored:
+Two measurement traps to avoid repeating. Roughly a third of simulations return
+`BlockhashNotFound` — the RPC declining to run the program at all — so a
+measurement must tally by error type rather than count failures; doing that
+wrong produced 25%, 67% and 75% for the same behaviour. And borrow and repay
+both exceed the default 200k compute budget, failing as
+`ProgramFailedToComplete`, which reads as a refusal rather than as running out
+of room.
 
-```
-hlp-drift base=1 quote=25 base_interest=0 quote_interest=0 final_base_debt=1482619 final_quote_debt=0
-```
+Failure was `BrokenInvariant` (6047) at the hLP reserve-identity check in
+`transitions/liquidity/hlp/engine.rs`. It also blocked
+`backstop_liquidation_auction`, so the lending settler could not run, and it
+blocked `open_leverage`.
 
-The quote-side drift is 24-26 atoms against a three-atom tolerance, and **both
-interest tranches are zero**. So debt is what brings the failure on, but *not*
-through accrued interest — the double-subtraction theory and everything else
-built on accrual was wrong.
+**The accounting mismatch is now identified and fixed in code.** The raw
+`live_reserve` side of the identity includes unrealized fixed and isolated
+lending interest. The quoted `IntegratedCurveState` side starts from
+`curve_reserve`, which deliberately excludes that claimable yield from
+executable AMM principal. The on-chain `base_interest` and `quote_interest`
+diagnostics measured hLP funding interest only, so the zero-interest reading did
+not rule out the missing public-interest term. The 25-atom Quote drift was the
+400-Quote public borrow's unrealized interest.
 
-`final_base_debt` cancels across the comparison. What disagrees is the
-materialized reserves against the quoted endpoint rebuilt through
-`denormalize_from_nad_floor`:
+`ConcentratedHlpTransition::consume` now removes the current public unrealized
+interest from the raw live identity before comparing it with the reconstructed
+curve endpoint. Reading it after the surrounding leverage lifecycle naturally
+accounts for any interest that lifecycle realized. The transition still writes
+the raw live identity, preserving unrealized interest as claimable yield outside
+the curve. The three-atom rounding tolerance is unchanged. A regression models
+exactly 25 atoms of accrued fixed or isolated debt interest on either asset and
+proves swaps preserve the same 25-atom live-versus-curve separation.
 
-```
-(quote_live_reserve - old_quote_hlp_live)   vs   (ordinary_quote + quote_equity)
-```
+**Verified on devnet 2026-09-05.** Deployed as programdata sha256 `91c3ee46…`
+(signature `4KwkFLmvobcWYjMmxF5M3oziPK6ER81gj8hEL6qXHz4moZNZUAi9deULqf6MUaUbbKXsG6G7vnVixgTRk6BmcV9Q`),
+`protocol.lock.json` re-pinned, API healthy with `deploymentError: null`.
 
-**The three-atom tolerance is arithmetically correct.** `NAD_DECIMALS` is 9 and
-the assets carry 6 decimals, so `denormalize_from_nad_floor` divides by 1000
-and discards under one atom per call; three floors genuinely cannot exceed
-three atoms. A passing swap reconciles to exactly one.
+| measurement | before | after |
+| --- | --- | --- |
+| swaps reverting, no debt | 0 of 12 | 0 of 12 |
+| swaps reverting, 400 quote borrowed | **7 of 12** | **0 of 12** |
+| flow matrix, clean market | 11 of 11 | 11 of 11 |
+| flow matrix, debt outstanding | not runnable | **11 of 11** |
 
-So this is **not a rounding problem and the constant is not too tight** — the
-quoted endpoint's model of the post-swap state and the materialized reserves
-disagree by real value once hLP debt is outstanding, and the identity is doing
-its job by rejecting. Widening it would suppress a genuine discrepancy.
-
-The clue left standing is the asymmetry: base drifts by 1 and quote by 25, and
-only the base hLP vault carries debt, so the side *without* debt is the side
-that drifts. Why the two models disagree is a question about the AMM's
-accounting rather than about tolerances, and it is the one thing standing
-between this deployment and a working swap under load.
+The debt-outstanding matrix ran with 65-66 atoms of unrealized quote interest
+standing — more than twenty times the three-atom tolerance, and the exact
+condition that used to revert. Note that interest accrues only when the market
+is touched: borrowing and then waiting accrues nothing, so the run was preceded
+by swaps to drive the index and `unrealized_interest` was confirmed non-zero
+before the matrix started.
 
 **A correction to earlier numbers in this document.** This defect was recorded
 for most of its investigation as "a quarter of swaps revert on an idle market,

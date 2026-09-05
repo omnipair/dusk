@@ -4142,6 +4142,12 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       1
     );
     expect(measurement.computeUnits <= 1_350_000n).to.equal(true);
+    const settledAccount = svm.getAccount(fixture.market);
+    expect(settledAccount).to.not.equal(null);
+    const settled = accountCoder.decode("Market", Buffer.from(settledAccount!.data)) as any;
+    expect(settled.amm.last_trade_price_nad.toString()).to.equal(
+      settled.risk.cached_spot_base_price_nad.toString()
+    );
     trackV2Instruction("swap", this.test?.title);
   });
 

@@ -94,8 +94,8 @@ pub(crate) struct ConcentratedHlpTransition {
     final_quote_debt_shares: u128,
     final_base_debt: u64,
     final_quote_debt: u64,
-    final_base_live_reserve: u64,
-    final_quote_live_reserve: u64,
+    final_base_curve_reserve: u64,
+    final_quote_curve_reserve: u64,
     base_interest_paid: u64,
     quote_interest_paid: u64,
     base_receipt: HlpRebalanceReceipt,
@@ -616,24 +616,21 @@ fn prepare_concentrated_hlp_transition_from_end(
 
     let (mut base_non_debt_reserve, mut quote_non_debt_reserve) = if preserve_current_ordinary_reserves {
         // Changing hLP ownership/debt around an already materialized reserve
-        // point must not create or destroy ordinary curve reserves. Preserve
-        // the exact raw identity and change only hLP funding debt.
+        // point must not create or destroy ordinary curve reserves. Remove
+        // public lending interest from the raw live identity just as
+        // `integrated_curve_state_nad` does, then change only hLP funding debt.
         let old_base_hlp_live =
             u64::try_from(market.hlp_live_reserve(MarketAsset::Base)?).map_err(|_| ErrorCode::ReserveOverflow)?;
         let old_quote_hlp_live =
             u64::try_from(market.hlp_live_reserve(MarketAsset::Quote)?).map_err(|_| ErrorCode::ReserveOverflow)?;
         (
             market
-                .base_side
-                .reserves
-                .live_reserve
+                .curve_reserve(MarketAsset::Base)?
                 .checked_sub(old_base_hlp_live)
                 .and_then(|value| value.checked_sub(quote_interest_paid))
                 .ok_or(ErrorCode::ReserveUnderflow)?,
             market
-                .quote_side
-                .reserves
-                .live_reserve
+                .curve_reserve(MarketAsset::Quote)?
                 .checked_sub(old_quote_hlp_live)
                 .and_then(|value| value.checked_sub(base_interest_paid))
                 .ok_or(ErrorCode::ReserveUnderflow)?,
@@ -714,10 +711,24 @@ fn prepare_concentrated_hlp_transition_from_end(
                 )?,
             )
         };
-    let final_base_live_reserve = base_non_debt_reserve
+    // Under the debug flag, print the reconstruction's own inputs. The
+    // identity's two sides disagree in the ordinary (non-debt) portion, and
+    // separating the quoted ordinary reserve from the quoted hLP equity says
+    // which of them carries the gap — and whether it tracks trade size, which
+    // would make it solver error, or hLP debt, which would make it accounting.
+    #[cfg(feature = "debug-hlp-drift")]
+    msg!(
+        "hlp-recon base_non_debt={} quote_non_debt={} preserve={} certify={}",
+        base_non_debt_reserve,
+        quote_non_debt_reserve,
+        preserve_current_ordinary_reserves,
+        certify_proportional_claim,
+    );
+
+    let final_base_curve_reserve = base_non_debt_reserve
         .checked_add(final_quote_debt)
         .ok_or(ErrorCode::ReserveOverflow)?;
-    let final_quote_live_reserve = quote_non_debt_reserve
+    let final_quote_curve_reserve = quote_non_debt_reserve
         .checked_add(final_base_debt)
         .ok_or(ErrorCode::ReserveOverflow)?;
 
@@ -758,8 +769,8 @@ fn prepare_concentrated_hlp_transition_from_end(
         final_quote_debt_shares,
         final_base_debt,
         final_quote_debt,
-        final_base_live_reserve,
-        final_quote_live_reserve,
+        final_base_curve_reserve,
+        final_quote_curve_reserve,
         base_interest_paid,
         quote_interest_paid,
         base_receipt,
@@ -850,21 +861,35 @@ impl ConcentratedHlpTransition {
             .checked_sub(old_quote_hlp_live)
             .and_then(|value| value.checked_add(self.final_base_debt as u128))
             .ok_or(ErrorCode::MarketMathOverflow)?;
+        // `IntegratedCurveState` deliberately excludes unrealized fixed and
+        // isolated lending interest: it is claimable yield, not executable AMM
+        // principal. The raw live-reserve identity includes that interest, so
+        // remove the current amount before comparing it with the quoted curve
+        // endpoint. Leverage may realize interest between quote and consume,
+        // so this reads the same post-lifecycle debt state as the raw identity.
+        let base_unrealized_interest = market.unrealized_interest(MarketAsset::Base)?;
+        let quote_unrealized_interest = market.unrealized_interest(MarketAsset::Quote)?;
+        let identity_base_curve_reserve = identity_base_live
+            .checked_sub(base_unrealized_interest)
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        let identity_quote_curve_reserve = identity_quote_live
+            .checked_sub(quote_unrealized_interest)
+            .ok_or(ErrorCode::BrokenInvariant)?;
         // The quoted ordinary output, each target equity, and the reconstructed
         // opposite debt are independently floored to raw atoms. Their summed
-        // reserve identity can therefore differ from the raw cash transition
-        // by at most three atoms, without leaving any debt/claim mismatch.
+        // curve-reserve identity can therefore differ from the raw cash
+        // transition by at most three atoms, without leaving any debt/claim
+        // mismatch.
         const MAX_CONCENTRATED_HLP_LIVE_DUST_ATOMS: u128 = 3;
-        // Under `debug-hlp-drift`, report the distance before deciding on it.
-        // The tolerance is three atoms and the open question is what the drift
-        // actually is when it exceeds them — a number no off-chain replay has
-        // been able to produce.
+        // Under `debug-hlp-drift`, report the curve-domain distance before
+        // deciding on it, alongside the public-interest terms removed from the
+        // raw live reserves.
         #[cfg(feature = "debug-hlp-drift")]
         {
             msg!(
                 "hlp-drift base={} quote={} base_interest={} quote_interest={} final_base_debt={} final_quote_debt={}",
-                identity_base_live as i128 - self.final_base_live_reserve as i128,
-                identity_quote_live as i128 - self.final_quote_live_reserve as i128,
+                identity_base_curve_reserve as i128 - self.final_base_curve_reserve as i128,
+                identity_quote_curve_reserve as i128 - self.final_quote_curve_reserve as i128,
                 self.base_interest_paid,
                 self.quote_interest_paid,
                 self.final_base_debt,
@@ -875,18 +900,21 @@ impl ConcentratedHlpTransition {
             // and the transition's reconstruction from the quoted endpoint;
             // printing both sides says which one moved.
             msg!(
-                "hlp-terms base_live={} quote_live={} old_base_hlp={} old_quote_hlp={} final_base_live={} final_quote_live={}",
+                "hlp-terms base_live={} quote_live={} old_base_hlp={} old_quote_hlp={} base_public_interest={} quote_public_interest={} final_base_curve={} final_quote_curve={}",
                 market.base_side.reserves.live_reserve,
                 market.quote_side.reserves.live_reserve,
                 old_base_hlp_live,
                 old_quote_hlp_live,
-                self.final_base_live_reserve,
-                self.final_quote_live_reserve,
+                base_unrealized_interest,
+                quote_unrealized_interest,
+                self.final_base_curve_reserve,
+                self.final_quote_curve_reserve,
             );
         }
         require!(
-            identity_base_live.abs_diff(self.final_base_live_reserve as u128) <= MAX_CONCENTRATED_HLP_LIVE_DUST_ATOMS
-                && identity_quote_live.abs_diff(self.final_quote_live_reserve as u128)
+            identity_base_curve_reserve.abs_diff(self.final_base_curve_reserve as u128)
+                <= MAX_CONCENTRATED_HLP_LIVE_DUST_ATOMS
+                && identity_quote_curve_reserve.abs_diff(self.final_quote_curve_reserve as u128)
                     <= MAX_CONCENTRATED_HLP_LIVE_DUST_ATOMS,
             ErrorCode::BrokenInvariant
         );

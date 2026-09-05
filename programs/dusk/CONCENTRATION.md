@@ -49,7 +49,9 @@ closed-form segments.
 4. Quote the net input once on the concentrated curve.
 5. Reconstruct both hLP positions algebraically at the quoted endpoint.
 6. Commit cash, live reserves, yLP shares, debt, fee/yield checkpoints, and the
-   trade observation once.
+   trade observation once. Volatility and the EMA anchor use the final
+   executable price after compounding and hLP settlement, matching risk and
+   the next quote.
 7. Let that observation update EMA/volatility and schedule a possible center
    move for a later swap.
 

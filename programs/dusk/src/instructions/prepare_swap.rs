@@ -282,23 +282,17 @@ impl PreparedSwap {
         } else {
             require!(self.post_fee_curve_cache.is_none(), ErrorCode::BrokenInvariant);
         }
-        market.finalize_amm_trade_after_inventory_checkpoint(
-            quote.start_price_nad,
-            quote.end_price_nad,
-            current_slot,
-        )?;
+        let final_price_nad = quote.reserve_end_price_nad;
+        require!(final_price_nad > 0, ErrorCode::InvalidSettlementPrice);
+        market.finalize_amm_trade_after_inventory_checkpoint(quote.start_price_nad, final_price_nad, current_slot)?;
         let curve_depth_nad = market
             .amm
             .concentrated_curve_cache
             .tail_liquidity
             .checked_add(market.amm.concentrated_curve_cache.concentrated_liquidity)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        // The quote already computed this price from the retained-principal
-        // endpoint. The algebraic hLP transition changes only ownership and
-        // matching debt around that same ordinary reserve point, so rebuilding
-        // and revalidating the curve here would be redundant.
-        let final_price_nad = quote.reserve_end_price_nad;
-        require!(final_price_nad > 0, ErrorCode::InvalidSettlementPrice);
+        // Risk and trade observations share the final compounded-reserve
+        // endpoint already priced during preparation.
         market.observe_risk_from_concentrated_curve(final_price_nad, curve_depth_nad, current_slot)?;
         market.assert_market_invariants()?;
         Ok(FinalizedSwapState {
