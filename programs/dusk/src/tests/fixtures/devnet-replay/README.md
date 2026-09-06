@@ -12,7 +12,37 @@ off chain, so nobody has to instrument a deployed program to make progress.
 | `market.bin`, `*_mint.bin` | The other accounts a swap touches |
 | `manifest.json` | Addresses, owners and lamports for each |
 
-## CLOSED — the drift is 24-26 atoms, and interest has nothing to do with it
+## RESOLVED — the drift is public unrealized lending interest
+
+The two sides of the reserve check were expressed in different accounting
+domains. `identity_*_live` starts from raw `live_reserve`, which includes
+unrealized fixed and isolated lending interest. The quoted
+`IntegratedCurveState` starts from `curve_reserve`, which deliberately subtracts
+that interest because claimable yield is not executable AMM principal.
+
+The on-chain `base_interest` and `quote_interest` diagnostics reported only hLP
+funding interest. Therefore the zero-interest reading did not rule out public
+lending interest: the missing Quote term was the public Quote borrow's 25 atoms
+of unrealized interest. This also explains every observed asymmetry: borrowing
+Quote makes Quote drift while the Base-target hLP is the vault that borrows
+Quote.
+
+`ConcentratedHlpTransition::consume` now subtracts the current
+`Market::unrealized_interest` from each raw live-reserve identity before
+comparison. Because this is read after the surrounding leverage or liquidation
+debt lifecycle, any interest already realized by that lifecycle is naturally
+absent. The raw live reserve written afterward is unchanged, so unrealized
+interest remains claimable and outside executable reserves.
+
+The three-atom floor tolerance remains unchanged. Regression coverage models a
+400-atom public borrow with exactly 25 atoms of accrued interest across fixed
+and isolated debt on both assets; all four swaps reconcile and preserve the
+25-atom live-versus-curve separation.
+
+## Superseded investigation history
+
+The notes below record how the defect was isolated. Conclusions that call the
+residual unexplained predate the public-interest accounting fix above.
 
 Measured on chain 2026-08-31 by deploying a build with `--features
 debug-hlp-drift`, reading the logs, and restoring the attested binary
@@ -31,9 +61,12 @@ file argued at length — was wrong.
 simulation error as a revert, and `BlockhashNotFound` — the RPC declining to
 simulate, with the program never running — is both common and periodic. That
 is where the "quarter of swaps on an idle market" and the ~188-slot cycle came
-from. Re-measured with program reverts only: **0 of 12 on an idle market, 7 of
-12 with 400 quote borrowed.** Debt brings the failure on; an idle market is
-fine.
+from. Tallied by error type, 14 swaps each way, which is the measurement that held
+up: **with debt outstanding, 10 BrokenInvariant / 4 RPC / 0 ok; after repaying,
+9 ok / 5 RPC / 0 BrokenInvariant.** It is not a rate — outstanding debt breaks
+swaps and repaying restores them. About a third of all simulations return
+`BlockhashNotFound` regardless, so counting failures rather than tallying them
+by type produces whatever number the RPC felt like that minute.
 
 **The three-atom tolerance is arithmetically correct, and that is the point.**
 `NAD_DECIMALS` is 9 and the assets carry 6 decimals, so
@@ -209,7 +242,7 @@ The remaining way to learn anything is to read the drift on chain, and the
 build that prints it is ready behind a feature flag:
 
 ```bash
-anchor build -p dusk -- --features debug-hlp-drift
+CARGO_PROFILE_RELEASE_OPT_LEVEL=z anchor build -p dusk -- --features debug-hlp-drift
 # deploy, then simulate a swap and read the logs for "hlp-drift"
 ```
 

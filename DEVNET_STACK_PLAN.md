@@ -284,8 +284,8 @@ Because anyone can use this deployment:
 
 - **Rate limiting** per IP and per wallet on the API, with limits that a normal
   session never hits and a script does.
-- **Abuse handling**: faucet limits per wallet and per window; a documented way
-  to cut off a specific abuser without taking the service down.
+- **Abuse handling**: a documented way to cut off a specific abuser without
+  taking the service down. Faucet minting is deliberately unlimited on devnet.
 - **Status page** reporting API, indexer lag, RPC health, and keeper liveness,
   updated automatically rather than by hand.
 - **`/live`** checks process survival. **`/ready`** fails closed on RPC lag,
@@ -370,7 +370,7 @@ independent untracked fixes per repository.
 | 4 | SDK completion for product flows (section 6) | **Done for the app's actions** — typed builders added for swap, borrow, openLeverage and leverage delegation, plus a leverage-delegate client for conditional orders |
 | 5 | Webapp writes through the SDK; fork lab ported and deleted | **Done** — all 9 actions build through the SDK, and no `fork` path or name remains in the app or the API; the lab in the `dusk` repo is unused and can be deleted |
 | 6 | Rust keepers live on devnet | **Lending trigger and bidder live** — both have sent confirmed transactions on devnet: the trigger opened an auction on a genuinely underwater position, the bidder repaid 150 quote for 265.56 base. Settler, leverage, auction arbitrageur and lifecycle still have no loop |
-| 7 | Public-service operations (section 9) | **Done** — rate limiting, `/status`, a self-refreshing status page, `/metrics` and `/provenance`, structured request logs, six runbooks, backups with a tested restore, and 90-day retention. The faucet limit is written but not deployed (see below) |
+| 7 | Public-service operations (section 9) | **Done** — rate limiting, `/status`, a self-refreshing status page, `/metrics` and `/provenance`, structured request logs, six runbooks, backups with a tested restore, and 90-day retention. |
 | 8 | Full live matrix and sustained unattended operation | **11 of 11 flows pass** — `live_flow_matrix.ts` signs and sends every product flow and all eleven confirm: faucet, swap, add and remove liquidity, deposit, borrow, repay, withdraw, open leverage, add margin, close leverage. Passes on a market carrying no debt; the hLP defect below still breaks swaps once debt is outstanding, so this is not the defect being fixed. `soak.sh` samples the deployment unattended and is what caught the monitoring flaw below |
 
 ### Deployment
@@ -448,54 +448,68 @@ Measuring is also the only way to tell a fill from a no-op:
 auction has recovered, so a bidder trusting the return code would pay a fee,
 change nothing, and record a successful liquidation.
 
-### Swaps revert while debt is outstanding (blocking)
+### Swaps reverted while debt was outstanding (fixed, deployed, verified on devnet)
 
-Measured with RPC transients excluded, which matters — see the correction
-below:
+Tallied by error type over 14 swaps each way, which is the only measurement
+that held up — see the correction below:
 
-- **idle market, no debt: 0 of 12 swaps revert**
-- **with 400 quote borrowed: 7 of 12 revert (58%)**
+| market state | program reverts |
+| --- | --- |
+| no debt | **0 of 12** |
+| 400 quote borrowed | **7 of 12 (58%)** |
 
-Failure is `BrokenInvariant` (6047) at the hLP reserve-identity check in
-`transitions/liquidity/hlp/engine.rs`. It also blocks
-`backstop_liquidation_auction`, so the lending settler cannot run, and it
-blocks `open_leverage`.
+Confirmed on a pool restored to ~51k a side, so pool depth is not the cause —
+an earlier reading on a pool my own testing had drained to 3% gave the same
+answer. **Outstanding debt breaks swaps; repaying restores them.**
 
-**The cause is measured.** An instrumented build was deployed briefly, its logs
-read, and the attested binary restored:
+Two measurement traps to avoid repeating. Roughly a third of simulations return
+`BlockhashNotFound` — the RPC declining to run the program at all — so a
+measurement must tally by error type rather than count failures; doing that
+wrong produced 25%, 67% and 75% for the same behaviour. And borrow and repay
+both exceed the default 200k compute budget, failing as
+`ProgramFailedToComplete`, which reads as a refusal rather than as running out
+of room.
 
-```
-hlp-drift base=1 quote=25 base_interest=0 quote_interest=0 final_base_debt=1482619 final_quote_debt=0
-```
+Failure was `BrokenInvariant` (6047) at the hLP reserve-identity check in
+`transitions/liquidity/hlp/engine.rs`. It also blocked
+`backstop_liquidation_auction`, so the lending settler could not run, and it
+blocked `open_leverage`.
 
-The quote-side drift is 24-26 atoms against a three-atom tolerance, and **both
-interest tranches are zero**. So debt is what brings the failure on, but *not*
-through accrued interest — the double-subtraction theory and everything else
-built on accrual was wrong.
+**The accounting mismatch is now identified and fixed in code.** The raw
+`live_reserve` side of the identity includes unrealized fixed and isolated
+lending interest. The quoted `IntegratedCurveState` side starts from
+`curve_reserve`, which deliberately excludes that claimable yield from
+executable AMM principal. The on-chain `base_interest` and `quote_interest`
+diagnostics measured hLP funding interest only, so the zero-interest reading did
+not rule out the missing public-interest term. The 25-atom Quote drift was the
+400-Quote public borrow's unrealized interest.
 
-`final_base_debt` cancels across the comparison. What disagrees is the
-materialized reserves against the quoted endpoint rebuilt through
-`denormalize_from_nad_floor`:
+`ConcentratedHlpTransition::consume` now removes the current public unrealized
+interest from the raw live identity before comparing it with the reconstructed
+curve endpoint. Reading it after the surrounding leverage lifecycle naturally
+accounts for any interest that lifecycle realized. The transition still writes
+the raw live identity, preserving unrealized interest as claimable yield outside
+the curve. The three-atom rounding tolerance is unchanged. A regression models
+exactly 25 atoms of accrued fixed or isolated debt interest on either asset and
+proves swaps preserve the same 25-atom live-versus-curve separation.
 
-```
-(quote_live_reserve - old_quote_hlp_live)   vs   (ordinary_quote + quote_equity)
-```
+**Verified on devnet 2026-09-05.** Deployed as programdata sha256 `91c3ee46…`
+(signature `4KwkFLmvobcWYjMmxF5M3oziPK6ER81gj8hEL6qXHz4moZNZUAi9deULqf6MUaUbbKXsG6G7vnVixgTRk6BmcV9Q`),
+`protocol.lock.json` re-pinned, API healthy with `deploymentError: null`.
 
-**The three-atom tolerance is arithmetically correct.** `NAD_DECIMALS` is 9 and
-the assets carry 6 decimals, so `denormalize_from_nad_floor` divides by 1000
-and discards under one atom per call; three floors genuinely cannot exceed
-three atoms. A passing swap reconciles to exactly one.
+| measurement | before | after |
+| --- | --- | --- |
+| swaps reverting, no debt | 0 of 12 | 0 of 12 |
+| swaps reverting, 400 quote borrowed | **7 of 12** | **0 of 12** |
+| flow matrix, clean market | 11 of 11 | 11 of 11 |
+| flow matrix, debt outstanding | not runnable | **11 of 11** |
 
-So this is **not a rounding problem and the constant is not too tight** — the
-quoted endpoint's model of the post-swap state and the materialized reserves
-disagree by real value once hLP debt is outstanding, and the identity is doing
-its job by rejecting. Widening it would suppress a genuine discrepancy.
-
-The clue left standing is the asymmetry: base drifts by 1 and quote by 25, and
-only the base hLP vault carries debt, so the side *without* debt is the side
-that drifts. Why the two models disagree is a question about the AMM's
-accounting rather than about tolerances, and it is the one thing standing
-between this deployment and a working swap under load.
+The debt-outstanding matrix ran with 65-66 atoms of unrealized quote interest
+standing — more than twenty times the three-atom tolerance, and the exact
+condition that used to revert. Note that interest accrues only when the market
+is touched: borrowing and then waiting accrues nothing, so the run was preceded
+by swaps to drive the index and `unrealized_interest` was confirmed non-zero
+before the matrix started.
 
 **A correction to earlier numbers in this document.** This defect was recorded
 for most of its investigation as "a quarter of swaps revert on an idle market,
@@ -507,31 +521,20 @@ reverts and a regular pattern of pure RPC transients. The script now requires a
 program error in the logs before counting a failure, and every rate above was
 re-measured with that fix.
 
-### Faucet abuse: written, not deployed
+### Faucet minting is unlimited, by decision
 
-`faucet_mint` now takes a per-request ceiling and an hourly per-recipient
-cooldown, recorded in a claim account keyed by recipient and mint — not by
-payer, since a payer-keyed limit is sidestepped by paying from a fresh wallet,
-which costs nothing on devnet. The webapp passes the new account.
+`faucet_mint` checks only that the amount is above zero. There is no per-wallet
+cap, no cooldown and no supply ceiling, so one actor can mint unbounded
+balances.
 
-Not deployed. It changes `faucet_mint`'s account list, so the program upgrade
-and the app must land together, and upgrading a deployed program is a decision
-for whoever holds the upgrade authority.
+This is accepted on devnet and will not be fixed here: the tokens are
+worthless, and a limit costs a program upgrade plus a coordinated app release
+for no benefit. A per-request ceiling and hourly per-recipient cooldown were
+implemented before this call and remain in the tree, unshipped, if the decision
+is ever revisited.
 
-### The original gap, for reference
-
-The faucet mints straight from the browser to the program, so no server sits in
-the path and no amount of API rate limiting constrains it. `faucet_mint` checks
-only that the amount is above zero — there is no per-wallet cap, no cooldown,
-and no supply ceiling. On a public devnet one actor can mint unbounded balances
-and distort every market with them.
-
-Closing this needs a program change and a redeploy, which is a protocol
-decision rather than an operational one. The options are a per-wallet cooldown
-account, a per-mint supply ceiling, or moving the faucet behind a server that
-holds the authority. Until one is chosen the faucet is safe only because devnet
-tokens are worthless — which is a reason not to promote this program shape to
-mainnet unchanged.
+**This does not carry to mainnet.** A public faucet with no cap is a reason not
+to promote this program shape unchanged — see the promotion gates in section 11.
 
 ### The keeper contract had drifted from the deployed program
 
@@ -570,20 +573,23 @@ which needs an unhealthy position, and therefore a way to make one on devnet.
 
 ## 14. What is left, and why
 
-Three items remain, and none of them is engineering. Each is written, tested
-and one command from done; each needs a decision that is not an engineer's to
-make on someone else's behalf.
+The hLP invariant defect is fixed, deployed and verified on devnet, and all
+seven keepers run live. What remains is three product flows the acceptance
+matrix has never exercised, plus one process step.
 
 | Item | State | What it needs |
 | --- | --- | --- |
-| hLP invariant defect | Diagnosed as far as off-chain work allows; eight hypotheses eliminated by measurement; instrumented build ready behind `debug-hlp-drift` | Deploy the instrumented build, simulate a swap, read `hlp-drift` in the logs |
-| Faucet abuse limit | Per-request ceiling and hourly per-recipient cooldown implemented; webapp passes the new account | Upgrade the program and ship the app together — the account list changes, so they cannot land separately |
-| Keepers live | All seven profiles deployed and healthy in shadow; trigger and bidder both proven live from a local run against this same devnet | A generated hot wallet per service as `KEEPER_SIGNER_KEY`, and `KEEPER_MODE=live` |
+| Conditional orders | SDK has a leverage-delegate client; no flow signs a place or a cancel on devnet | Add place and cancel to `live_flow_matrix.ts` and confirm both on chain |
+| Market creation | Never exercised on devnet; the deployment has exactly one market | Create a second market through the SDK and confirm the indexer picks it up |
+| Parameter proposal through timelock | `dusk-lifecycle-keeper` runs but has never had a proposal to act on | Raise a proposal, let the timelock elapse, and have the keeper execute it |
+| PR #19 to `main` | Open, all four checks green, review required | A human approval, after which work stems from `main` |
 
-All eleven product flows now sign and confirm on a market carrying no debt, so
-the matrix itself is complete. The hLP defect still breaks swaps once debt is
-outstanding — 7 of 12 with 400 quote borrowed — so a green matrix is not the
-defect being fixed, and fixing it is the first item above.
+Section 15 names all three flows, so the matrix is not complete until they sign
+and confirm. Everything else in the definition of done is met.
+
+One operational note: repeated matrix runs drain the shared pool. It stands at
+roughly a quarter of its seeded depth, which is functional but thin, and shallow
+reserves distort any measurement taken against them.
 
 ## 15. Definition of done
 

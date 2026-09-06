@@ -179,7 +179,7 @@ impl<'info> DecreaseLeverage<'info> {
         require!(collateral_reserve_credit > 0, ErrorCode::AmountZero);
 
         // Quote the credited collateral as a debt repayment.
-        let prepared_swap = prepare_leverage_swap(
+        let mut prepared_swap = prepare_leverage_swap(
             &mut ctx.accounts.market,
             SwapRequest {
                 current_slot,
@@ -203,7 +203,7 @@ impl<'info> DecreaseLeverage<'info> {
             &mut ctx.accounts.leverage_position,
             args.collateral_amount,
             args.min_repay_out,
-            prepared_swap,
+            &mut prepared_swap,
             swap_fee_credit,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,

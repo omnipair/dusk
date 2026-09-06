@@ -119,7 +119,19 @@ async function main() {
     ),
   );
   const connection = new Connection(RPC, "confirmed");
-  const config = (await (await fetch(`${API}/api/dusk/v1/config`)).json()).data;
+  // The config endpoint previews the market on chain and fails whenever the
+  // RPC behind it does, which is often enough to have derailed every script
+  // here at least once. Retried rather than treated as fatal.
+  const config = await (async () => {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const response = await fetch(`${API}/api/dusk/v1/config`);
+      const body = (await response.json()) as { data?: any; error?: string };
+      if (body.data) return body.data;
+      console.log(`  config unavailable (${body.error ?? response.status}), retrying`);
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+    }
+    throw new Error("deployment config never became available");
+  })();
 
   const dusk = new Dusk({
     programId: new PublicKey(config.programId),

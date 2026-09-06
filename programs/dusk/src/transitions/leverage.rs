@@ -1038,7 +1038,7 @@ impl Market {
     /// side; no maintenance call can be required later.
     fn finalize_leverage_swap_hlp(
         &mut self,
-        prepared_swap: PreparedLeverageSwap,
+        prepared_swap: &PreparedLeverageSwap,
         current_slot: u64,
         socialized_loss_applied: bool,
     ) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
@@ -1077,9 +1077,15 @@ impl Market {
         } else {
             require!(prepared_swap.post_fee_curve_cache.is_none(), ErrorCode::BrokenInvariant);
         }
+        let final_price_nad = if socialized_loss_applied {
+            self.current_concentrated_spot_price_nad()?
+                .ok_or(ErrorCode::BrokenInvariant)?
+        } else {
+            prepared_swap.swap.reserve_end_price_nad
+        };
         self.finalize_amm_trade_after_inventory_checkpoint(
             prepared_swap.swap.start_price_nad,
-            prepared_swap.swap.end_price_nad,
+            final_price_nad,
             current_slot,
         )?;
         let curve_depth_nad = self
@@ -1088,12 +1094,6 @@ impl Market {
             .tail_liquidity
             .checked_add(self.amm.concentrated_curve_cache.concentrated_liquidity)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let final_price_nad = if socialized_loss_applied {
-            self.current_concentrated_spot_price_nad()?
-                .ok_or(ErrorCode::BrokenInvariant)?
-        } else {
-            prepared_swap.swap.reserve_end_price_nad
-        };
         self.observe_risk_from_concentrated_curve(final_price_nad, curve_depth_nad, current_slot)?;
         require_eq!(
             self.risk.cached_spot_base_price_nad,
@@ -1183,7 +1183,7 @@ impl Market {
             bump,
         );
         let (base_hlp_rebalance, quote_hlp_rebalance) =
-            self.finalize_leverage_swap_hlp(prepared_swap, opened_slot, false)?;
+            self.finalize_leverage_swap_hlp(&prepared_swap, opened_slot, false)?;
         let closeout_value = self.require_position_initial_leverage_health(position, opened_slot, opened_at)?;
         let equity = closeout_value
             .checked_sub(borrowed_amount)
@@ -1258,7 +1258,7 @@ impl Market {
             .ok_or(ErrorCode::DebtMathOverflow)?;
         position.credit_collateral(collateral_credit)?;
         let (base_hlp_rebalance, quote_hlp_rebalance) =
-            self.finalize_leverage_swap_hlp(prepared_swap, current_slot, false)?;
+            self.finalize_leverage_swap_hlp(&prepared_swap, current_slot, false)?;
         let closeout_value =
             self.require_position_initial_leverage_health(position, current_slot, current_unix_timestamp)?;
         Ok(LeverageUpdateReceipt {
@@ -1281,7 +1281,7 @@ impl Market {
         position: &mut LeveragePosition,
         collateral_debit: u64,
         min_repay_out: u64,
-        mut prepared_swap: PreparedLeverageSwap,
+        prepared_swap: &mut PreparedLeverageSwap,
         swap_fee_credit: LeverageSwapFeeCredit,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
@@ -1523,7 +1523,7 @@ impl Market {
             .checked_sub(collateral_sold)
             .ok_or(ErrorCode::InsufficientAmount)?;
         let (base_hlp_rebalance, quote_hlp_rebalance) =
-            self.finalize_leverage_swap_hlp(prepared_swap, current_slot, false)?;
+            self.finalize_leverage_swap_hlp(&prepared_swap, current_slot, false)?;
         let (remaining_debt_amount, remaining_closeout_value) =
             if let Some(current_unix_timestamp) = partial_close_unix_timestamp {
                 position.require_open()?;
@@ -1641,7 +1641,7 @@ impl Market {
         }
         position.collateral_amount = 0;
         let (base_hlp_rebalance, quote_hlp_rebalance) =
-            self.finalize_leverage_swap_hlp(prepared_swap, current_slot, lifecycle.socialized_principal_loss > 0)?;
+            self.finalize_leverage_swap_hlp(&prepared_swap, current_slot, lifecycle.socialized_principal_loss > 0)?;
         Ok(LeverageLiquidationReceipt {
             debt_repaid: clearance.cash_repaid,
             interest_paid: clearance.interest_paid,

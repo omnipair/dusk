@@ -601,47 +601,37 @@ impl Market {
         Ok(())
     }
 
-    /// Finalizes internal observations after the whole
-    /// hLP-pre-solve → swap → hLP-post-solve lifecycle is complete.
-    ///
-    /// Only the frozen trader-visible AMM path contributes volatility.
-    /// Internal hLP settlement, ramp admission, and recentering may change the
-    /// pool's next marginal price, but those changes are not external flow.
+    /// Finalizes observations after the complete swap and hLP settlement.
+    /// The caller supplies the final executable price, including compounding.
     #[cfg(test)]
     pub(crate) fn finalize_amm_trade(
         &mut self,
         trade_start_price_nad: u64,
-        trade_end_price_nad: u64,
+        final_price_nad: u64,
         current_slot: u64,
     ) -> Result<()> {
         self.checkpoint_amm_neutral_inventory_raw(current_slot, None)?;
-        self.finalize_amm_trade_after_inventory_checkpoint(trade_start_price_nad, trade_end_price_nad, current_slot)?;
+        self.finalize_amm_trade_after_inventory_checkpoint(trade_start_price_nad, final_price_nad, current_slot)?;
         Ok(())
     }
 
     /// Finalizes a trade whose complete post-trade executable inventory was
     /// already checkpointed by the immediately preceding reserve mutation.
     ///
-    /// Spot reserve application and `apply_leverage_swap` checkpoint first the
-    /// invariant-preserving trade and then any retained surcharge. Their
-    /// remaining fee-liability writes do not change curve reserves or yLP
-    /// supply, so recomputing the same curve-depth ratio here would be redundant and
-    /// prohibitively expensive on the concentrated path.
+    /// Observations use the final executable price after fee compounding and
+    /// hLP settlement, shared with risk and the next quote. The caller reuses
+    /// its prepared price unless a subsequent loss changed the reserve point.
     pub(crate) fn finalize_amm_trade_after_inventory_checkpoint(
         &mut self,
         trade_start_price_nad: u64,
-        trade_end_price_nad: u64,
+        final_price_nad: u64,
         current_slot: u64,
     ) -> Result<()> {
         if !self.amm.initialized {
             return Ok(());
         }
-        self.amm.checkpoint_trade(
-            &self.config.amm,
-            trade_start_price_nad,
-            trade_end_price_nad,
-            current_slot,
-        )?;
+        self.amm
+            .checkpoint_trade(&self.config.amm, trade_start_price_nad, final_price_nad, current_slot)?;
         self.defer_amm_retention_target()?;
         self.advance_curve_revision()
     }
@@ -1111,7 +1101,7 @@ impl Market {
         let post_success_volatility_nad = volatility_after_success_nad(
             dynamic.decayed_volatility_nad,
             start_price_nad,
-            end_price_nad,
+            reserve_end_price_nad,
             self.config.amm.volatility_shock_cap_nad,
             self.config.amm.volatility_cap_nad,
         )?;
@@ -1368,11 +1358,12 @@ pub struct AmmSwapQuote {
     /// Curve output before an output-denominated fee is withheld.
     pub gross_amount_out: u64,
     pub start_price_nad: u64,
-    /// Marginal price at the invariant-preserving trader endpoint. Retained
-    /// surcharge is excluded because it is principal funding, not traded flow.
+    /// Marginal price at the invariant-preserving trader endpoint, before
+    /// compounded fees change executable inventory.
     pub end_price_nad: u64,
-    /// Marginal price after retained surcharge, if any, has been added to the
-    /// executable reserve. This is the state used by the next quote and risk.
+    /// Final executable marginal price after fee compounding. This endpoint
+    /// drives trade observations, risk, and the next quote. Protected retained
+    /// surcharge remains outside executable inventory.
     pub reserve_end_price_nad: u64,
     pub decayed_volatility_nad: u64,
     pub post_success_volatility_nad: u64,
@@ -1772,15 +1763,14 @@ impl AmmState {
         Ok(())
     }
 
-    /// Commits one successful external AMM flow path.
+    /// Commits the price movement of one fully settled AMM swap.
     ///
-    /// Volatility measures only the executable path quoted to the trader
-    /// (`start_price_nad -> end_price_nad`). Gaps caused by hLP settlement,
-    /// parameter ramps, or recentering are deliberately excluded. The next
-    /// trade supplies its own rebased start price, while `last_trade_price_nad`
-    /// remains the prior successful trade signal observed by the EMA.
+    /// `end_price_nad` is the final executable price after fee compounding and
+    /// hLP settlement. Volatility and the EMA anchor use that same endpoint
+    /// as risk and the next quote. The start price is frozen after any earlier
+    /// controller move, so that prior move is not charged again as swap movement.
     ///
-    /// On a new slot, the EMA observes only the prior slot's final trade.
+    /// On a new slot, the EMA observes the prior slot's last settled price.
     /// Same-slot swaps leave the EMA unchanged but still add their own bounded
     /// path movement.
     pub fn checkpoint_trade(

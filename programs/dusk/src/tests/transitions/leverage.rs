@@ -861,7 +861,50 @@ fn assert_final_leverage_risk_observation(market: &Market, current_slot: u64, re
     assert_eq!(market.risk.last_snapshot_slot, current_slot);
     assert_eq!(market.risk.cached_spot_base_price_nad, final_price_nad);
     assert_eq!(market.last_marginal_observation_nad, final_price_nad);
+    assert_eq!(market.amm.last_trade_price_nad, final_price_nad);
     assert!(market.amm.concentrated_curve_cache.tail_liquidity > 0);
+}
+
+#[test]
+fn compounded_leverage_observes_final_reserve_price() {
+    for asset in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut market = concentrated_market();
+        market.config.amm.compounding_fee_bps = 10_000;
+        let mut position = empty_position();
+        let prepared = prepare_leverage_swap_with_policy(
+            &mut market,
+            asset,
+            20_000,
+            1,
+            SwapCashPolicy::Borrow { asset, amount: 10_000 },
+        );
+        let quote = prepared.swap;
+        assert_ne!(quote.end_price_nad, quote.reserve_end_price_nad);
+        market
+            .open_leverage(
+                &mut position,
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+                Pubkey::default(),
+                0,
+                asset,
+                10_000,
+                20_000,
+                quote.amount_out,
+                prepared,
+                full_fee_credit(&quote),
+                0,
+                1,
+                255,
+                0,
+                ProtocolAuctionSplit::default(),
+            )
+            .unwrap();
+        assert_eq!(market.amm.last_trade_price_nad, quote.reserve_end_price_nad);
+        assert_eq!(market.risk.cached_spot_base_price_nad, quote.reserve_end_price_nad);
+        assert_eq!(market.amm.volatility_accumulator_nad, quote.post_success_volatility_nad);
+    }
 }
 
 #[test]
@@ -1653,7 +1696,7 @@ fn concentrated_decrease_leverage_checkpoints_active_hlp_exposure() {
     let scale = 1_000_000;
     let mut market = active_concentrated_hlp_market_with_decimals(6);
     let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000 * scale, 10_000 * scale);
-    let prepared = prepare_leverage_swap_with_policy(
+    let mut prepared = prepare_leverage_swap_with_policy(
         &mut market,
         MarketAsset::Quote,
         100 * scale,
@@ -1672,7 +1715,7 @@ fn concentrated_decrease_leverage_checkpoints_active_hlp_exposure() {
             &mut position,
             100 * scale,
             0,
-            prepared,
+            &mut prepared,
             full_fee_credit(&quote),
             0,
             ProtocolAuctionSplit::default(),
