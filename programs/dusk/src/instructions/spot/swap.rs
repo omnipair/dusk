@@ -1,3 +1,4 @@
+use crate::transitions::amm::SwapRequest;
 use anchor_lang::prelude::*;
 use anchor_spl::{
     token::Token,
@@ -21,7 +22,7 @@ use crate::instructions::accounts::{
     QUOTE_INTEREST_VAULT_INDEX,
 };
 use crate::instructions::liquidity::record_inline_hlp_interest_credit;
-use crate::instructions::{enforce_launch_same_transaction_guard, rebalance_executes_token_changes, SwapRequest};
+use crate::instructions::{enforce_launch_same_transaction_guard, rebalance_executes_token_changes};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct SwapArgs {
@@ -177,7 +178,7 @@ impl<'info> Swap<'info> {
                 current_epoch,
             )?)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let prepared = SwapRequest {
+        let mut prepared = SwapRequest {
             current_slot,
             current_unix_timestamp,
             asset_in,

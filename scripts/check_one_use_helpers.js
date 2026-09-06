@@ -363,7 +363,7 @@ const acceptedOneUseHelpers = new Map([
   ["programs/dusk/src/instructions/leverage/liquidate_leverage_position.rs", new Set(["finish_liquidation"])],
   [
     "programs/dusk/src/instructions/prepare_swap.rs",
-    new Set(["finalize_concentrated_state", "rebalance_executes_token_changes", "split_claimable_fee_credit"]),
+    new Set(["rebalance_executes_token_changes"]),
   ],
   ["programs/dusk/src/instructions/spot/swap.rs", new Set(["require_hlp_recovery_swap"])],
   [
@@ -377,6 +377,9 @@ const acceptedOneUseHelpers = new Map([
   [
     "programs/dusk/src/transitions/amm/mod.rs",
     new Set([
+      // Complete swaps now have one caller for these AMM-owned ledger/observation kernels.
+      "credit_protected_recenter_reserve",
+      "finalize_amm_trade_after_inventory_checkpoint",
       "liquidity_nad",
       "checkpoint_amm_socialized_loss_raw",
       "advance_one_concentrated_controller_target",
@@ -405,6 +408,9 @@ const acceptedOneUseHelpers = new Map([
   [
     "programs/dusk/src/transitions/leverage.rs",
     new Set([
+      // The shared AMM transition is the sole caller of the debt and quote kernels.
+      "apply_leverage_lifecycle_transition",
+      "validate_leverage_swap_quote",
       "require_leverage_entry_limit",
       "set_debt",
       "commit_leverage_lifecycle_state",

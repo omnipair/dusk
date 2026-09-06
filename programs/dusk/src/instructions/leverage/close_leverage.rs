@@ -1,3 +1,4 @@
+use crate::transitions::amm::SwapRequest;
 use anchor_lang::prelude::*;
 use anchor_spl::{
     token::Token,
@@ -19,7 +20,6 @@ use crate::{
         accounts::{require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout},
         enforce_launch_same_transaction_guard,
         referral::accounting::{referral_interest_accrued_event_at_slot, validate_referral_binding},
-        SwapRequest,
     },
     state::{
         FutarchyAuthority, LeverageDelegation, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner,
@@ -425,7 +425,7 @@ impl<'info> CloseLeverage<'info> {
                 debt_principal: close_slice.debt_principal,
             },
         )?;
-        let swap = prepared_swap.swap;
+        let swap = prepared_swap.leverage_quote();
         let interest_eligibility = prepared_swap.interest_eligibility;
         let swap_fee_credit = leverage_swap_fee_credit(&swap)?;
 
