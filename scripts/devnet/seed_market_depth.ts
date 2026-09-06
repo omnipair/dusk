@@ -66,15 +66,32 @@ async function main() {
   const keypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(
     process.env.DUSK_KEYPAIR ?? join(homedir(), ".config/solana/id.json"), "utf8"))));
   const connection = new Connection(RPC, "confirmed");
-  const config = (await (await fetch(`${API}/api/dusk/v1/config`)).json()).data;
+  // The API previews every market and fails as a whole when any one of them
+  // cannot be previewed — which is exactly the state a freshly created,
+  // unseeded market puts it in. So allow every value to come from the
+  // environment, or this script cannot fix the thing that broke the API.
+  const config = process.env.PROGRAM_ID
+    ? {
+        programId: process.env.PROGRAM_ID,
+        primaryMarket: process.env.MARKET,
+        baseMint: process.env.BASE_MINT,
+        quoteMint: process.env.QUOTE_MINT,
+        ylpMint: process.env.YLP_MINT,
+        baseDecimals: Number(process.env.BASE_DECIMALS ?? "6"),
+      }
+    : (await (await fetch(`${API}/api/dusk/v1/config`)).json()).data;
+  if (!config) throw new Error("no deployment config: the API is down and PROGRAM_ID was not set");
   const provider = new AnchorProvider(connection, new Wallet(keypair), { commitment: "confirmed" });
   const dusk = new Dusk({ programId: new PublicKey(config.programId), provider });
 
   const owner = keypair.publicKey;
-  const market = new PublicKey(config.primaryMarket);
+  // Defaults to the deployment's primary market. MARKET and YLP_MINT together
+  // point it at any other market on the same program — the API's config
+  // endpoint only describes the primary one.
+  const market = new PublicKey(process.env.MARKET ?? config.primaryMarket);
   const baseMint = new PublicKey(config.baseMint);
   const quoteMint = new PublicKey(config.quoteMint);
-  const ylpMint = new PublicKey(config.ylpMint);
+  const ylpMint = new PublicKey(process.env.YLP_MINT ?? config.ylpMint);
   const unit = 10n ** BigInt(config.baseDecimals);
   const ata = (mint: PublicKey) =>
     getAssociatedTokenAddressSync(mint, owner, false,
