@@ -37,7 +37,14 @@ import { readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
-import { Dusk } from "../../packages/dusk-sdk/dist/index.js";
+import {
+  Dusk,
+  DuskLeverageOrders,
+  LEVERAGE_DELEGATE_PROGRAM_ID,
+  createLeverageDelegateProgram,
+  deriveLeverageOrderAddress,
+  deriveLeveragePositionAddress,
+} from "../../packages/dusk-sdk/dist/index.js";
 
 const API =
   process.env.DUSK_API_URL ?? "https://dusk-api-production-291f.up.railway.app";
@@ -133,11 +140,12 @@ async function main() {
     throw new Error("deployment config never became available");
   })();
 
+  const provider = new AnchorProvider(connection, new Wallet(keypair), {
+    commitment: "confirmed",
+  });
   const dusk = new Dusk({
     programId: new PublicKey(config.programId),
-    provider: new AnchorProvider(connection, new Wallet(keypair), {
-      commitment: "confirmed",
-    }),
+    provider,
   });
   const owner = keypair.publicKey;
   const market = new PublicKey(config.primaryMarket);
@@ -264,6 +272,10 @@ async function main() {
     ylpMint,
   };
 
+  // Measure the stake before depositing, so the removal below can give back
+  // exactly what this run added.
+  const ylpBeforeAdd = await balance(ylpMint);
+
   await flow("add liquidity", async () =>
     send([
       createAssociatedTokenAccountIdempotentInstruction(
@@ -282,14 +294,18 @@ async function main() {
     ]),
   );
 
-  const ylpHeld = await balance(ylpMint);
+  // Remove only the shares this run minted. Removing a fraction of the total
+  // balance instead withdraws liquidity seeded by earlier runs, which halved
+  // market depth on every pass and eventually put `open leverage` past the
+  // two-percent unwind-impact cap.
+  const ylpMinted = (await balance(ylpMint)) - ylpBeforeAdd;
   await flow("remove liquidity", async () =>
     send([
       await dusk.write.removeLiquidityInstruction({
         ...liquidityAccounts,
         minBaseAmountOut: "0",
         minQuoteAmountOut: "0",
-        ylpAmount: (ylpHeld / 2n).toString(),
+        ylpAmount: ylpMinted.toString(),
       }),
     ]),
   );
@@ -386,6 +402,71 @@ async function main() {
       }),
     ]),
   );
+
+  // Conditional orders live in the delegate program, and it can only act on a
+  // position that has delegated to it. CLOSE plus CLOSE_SETTLED is the minimum
+  // a take-profit needs; granting more would not make the test stronger.
+  const LEVERAGE_DELEGATE_CLOSE = 1 << 0;
+  const LEVERAGE_DELEGATE_CLOSE_SETTLED = 1 << 5;
+
+  await flow("delegate leverage position", async () =>
+    send([
+      await dusk.write.buildCreateLeverageDelegationInstruction({
+        approvedActions:
+          LEVERAGE_DELEGATE_CLOSE | LEVERAGE_DELEGATE_CLOSE_SETTLED,
+        debtAsset: "quote",
+        delegatedProgram: LEVERAGE_DELEGATE_PROGRAM_ID,
+        market,
+        owner,
+        positionId: leverageId,
+      }),
+    ]),
+  );
+
+  const orders = new DuskLeverageOrders(
+    createLeverageDelegateProgram({ provider }),
+  );
+  const orderId = BigInt(Date.now());
+  const [orderAddress] = deriveLeverageOrderAddress(
+    deriveLeveragePositionAddress(market, leverageId)[0],
+    owner,
+    orderId,
+  );
+  // A confirmed signature only says the runtime accepted the transaction. The
+  // order account existing afterwards, and being gone after the cancel, is
+  // what actually distinguishes these two flows from no-ops.
+  const orderExists = async () =>
+    (await connection.getAccountInfo(orderAddress)) !== null;
+
+  await flow("place conditional order", async () => {
+    const signature = await send([
+      await orders.createOrderInstruction({
+        closeBps: 10_000,
+        kind: "takeProfit",
+        market,
+        orderId,
+        owner,
+        positionId: leverageId,
+        // Far above any price this market will reach during the run, so the
+        // order cannot fire before the cancel measures it.
+        triggerCloseoutPriceNad: (100_000n * 10n ** 9n).toString(),
+      }),
+    ]);
+    if (!(await orderExists())) {
+      throw new Error(`order account ${orderAddress.toBase58()} was not created`);
+    }
+    return signature;
+  });
+
+  await flow("cancel conditional order", async () => {
+    const signature = await send([
+      await orders.cancelOrderInstruction({ order: orderAddress, orderId, owner }),
+    ]);
+    if (await orderExists()) {
+      throw new Error(`order account ${orderAddress.toBase58()} survived the cancel`);
+    }
+    return signature;
+  });
 
   await flow("close leverage", async () =>
     send([

@@ -573,23 +573,35 @@ which needs an unhealthy position, and therefore a way to make one on devnet.
 
 ## 14. What is left, and why
 
-The hLP invariant defect is fixed, deployed and verified on devnet, and all
-seven keepers run live. What remains is three product flows the acceptance
-matrix has never exercised, plus one process step.
+One item remains, and it is a wait rather than work.
 
 | Item | State | What it needs |
 | --- | --- | --- |
-| Conditional orders | SDK has a leverage-delegate client; no flow signs a place or a cancel on devnet | Add place and cancel to `live_flow_matrix.ts` and confirm both on chain |
-| Market creation | Never exercised on devnet; the deployment has exactly one market | Create a second market through the SDK and confirm the indexer picks it up |
-| Parameter proposal through timelock | `dusk-lifecycle-keeper` runs but has never had a proposal to act on | Raise a proposal, let the timelock elapse, and have the keeper execute it |
-| PR #19 to `main` | Open, all four checks green, review required | A human approval, after which work stems from `main` |
+| Parameter proposal execution | Proposal `HzgwUjLS` stands queued on the primary market with strict-majority support | The seven-day timelock to elapse on **2026-09-13**, then execution — which is permissionless, and is what `dusk-lifecycle-keeper` exists to do |
 
-Section 15 names all three flows, so the matrix is not complete until they sign
-and confirm. Everything else in the definition of done is met.
+`PARAMETER_PROPOSAL_TIMELOCK_SECONDS` is seven days and a real cluster has no
+clock to advance, so this cannot be closed in a sitting. The execution window is
+a further seven days, so it must be taken by 2026-09-20 or the proposal expires
+and a new one has to be raised.
 
-One operational note: repeated matrix runs drain the shared pool. It stands at
-roughly a quarter of its seeded depth, which is functional but thin, and shallow
-reserves distort any measurement taken against them.
+Everything else in the definition of done is met. The acceptance matrix now
+signs fourteen flows, adding delegation, placing a conditional order and
+cancelling it; a second market exists and both the indexer and API report it.
+
+### Two things worth knowing
+
+**One unpreviewable market takes the whole API down.** `/api/dusk/v1/config`
+previews every market and fails as a unit, so creating a market and seeding it
+in two steps leaves the deployment dark in between — and any recovery script
+that reads its own configuration from that endpoint cannot run. Seed in the same
+operation that creates, or give the endpoint a per-market failure mode.
+
+**The unshipped faucet limit breaks Anchor-built faucet calls.** `faucet_mint`
+in this tree takes a `faucet_claim` account that the deployed program does not,
+so the generated IDL puts `mint` one position late and the program rejects the
+call as `AccountNotInitialized`. Anything hand-building the deployed eight
+account layout still works, which is why the acceptance matrix never noticed.
+Reverting the unshipped change would remove the divergence.
 
 ## 15. Definition of done
 

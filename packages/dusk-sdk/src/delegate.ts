@@ -89,6 +89,18 @@ export interface CreateLeverageOrderParams {
   remainingAccounts?: AccountMeta[];
 }
 
+export interface CancelLeverageOrderParams {
+  owner: AddressLike;
+  orderId: bigint | number | string;
+  /** Identifies the leverage position the order acts on. */
+  positionId?: AddressLike;
+  /** Required when `positionId` is not given. */
+  market?: AddressLike;
+  leveragePosition?: AddressLike;
+  /** Supply the order address directly to skip derivation entirely. */
+  order?: AddressLike;
+}
+
 /**
  * Conditional orders on leverage positions.
  *
@@ -148,5 +160,54 @@ export class DuskLeverageOrders {
     params: CreateLeverageOrderParams
   ): Promise<Transaction> {
     return new Transaction().add(await this.createOrderInstruction(params));
+  }
+
+  /**
+   * Cancel a conditional order and return its rent to the owner.
+   *
+   * The program resolves the order's position from the account itself, so
+   * cancelling needs neither the market nor the position — but the address
+   * still has to be derived from them unless `order` is supplied.
+   */
+  async cancelOrderInstruction(
+    params: CancelLeverageOrderParams
+  ): Promise<TransactionInstruction> {
+    const owner = address(params.owner);
+    const order = address(params.order ?? this.resolveOrderAddress(params));
+
+    return this.program.methods
+      .cancelLeverageOrder({
+        orderId: toBN(BigInt(params.orderId.toString())),
+      } as never)
+      .accounts({ order, owner } as never)
+      .instruction();
+  }
+
+  async cancelOrderTransaction(
+    params: CancelLeverageOrderParams
+  ): Promise<Transaction> {
+    return new Transaction().add(await this.cancelOrderInstruction(params));
+  }
+
+  private resolveOrderAddress(params: CancelLeverageOrderParams): PublicKey {
+    const leveragePosition = params.leveragePosition
+      ? address(params.leveragePosition)
+      : (() => {
+          if (!params.market || !params.positionId) {
+            throw new Error(
+              "Cancelling an order needs `order`, or `leveragePosition`, or both `market` and `positionId`"
+            );
+          }
+          return deriveLeveragePositionAddress(
+            address(params.market),
+            address(params.positionId)
+          )[0];
+        })();
+    return deriveLeverageOrderAddress(
+      leveragePosition,
+      address(params.owner),
+      params.orderId,
+      this.program.programId
+    )[0];
   }
 }
