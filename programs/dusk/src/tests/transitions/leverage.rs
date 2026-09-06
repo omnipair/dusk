@@ -1,14 +1,16 @@
 use super::*;
+use crate::transitions::amm::SwapRequest;
+use crate::transitions::liquidity::prepare_concentrated_hlp_transition_at_current_state;
+use crate::transitions::HlpYieldEligibility;
 use crate::{
     constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, MARKET_LAYOUT_VERSION, MIN_HALF_LIFE_MS, NAD},
-    instructions::SwapRequest,
-    transitions::{
-        amm::ConcentratedCurveParameters, leverage_entry_limit_satisfied, leverage_entry_price_nad,
-        liquidity::SwapCashPolicy,
-    },
     state::{
         AmmConfig, AmmState, Debt, HlpVault, Insurance, MarketConfig, MarketSide, ProtocolAuctionSplit, ReserveShares,
         Reserves, Risk,
+    },
+    transitions::{
+        amm::ConcentratedCurveParameters, leverage_entry_limit_satisfied, leverage_entry_price_nad,
+        liquidity::SwapCashPolicy,
     },
 };
 
@@ -201,10 +203,22 @@ fn prepared_leverage_swap(
         .unwrap();
     let post_fee_curve_cache = integrated.post_fee_curve_cache.map(Box::new);
     let concentrated_transition = prepare_concentrated_hlp_transition(market, integrated, asset_in).unwrap();
-    PreparedLeverageSwap {
+    Box::new(crate::transitions::amm::PreparedSwap {
         concentrated_transition: Some(Box::new(concentrated_transition)),
         post_fee_curve_cache,
-        swap,
+        quoted_slot: swap.quoted_slot,
+        quote: AmmSwapQuote {
+            asset_in,
+            amount_out: swap.amount_out,
+            gross_amount_out: swap.gross_amount_out,
+            start_price_nad: swap.start_price_nad,
+            end_price_nad: swap.end_price_nad,
+            reserve_end_price_nad: swap.reserve_end_price_nad,
+            decayed_volatility_nad: swap.decayed_volatility_nad,
+            post_success_volatility_nad: swap.post_success_volatility_nad,
+            fee: swap.fee_breakdown,
+            recovery: Default::default(),
+        },
         base_pre_rebalance: HlpRebalanceReceipt::default(),
         quote_pre_rebalance: HlpRebalanceReceipt {
             target_asset: MarketAsset::Quote,
@@ -220,7 +234,7 @@ fn prepared_leverage_swap(
             quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares,
         },
         cash_policy,
-    }
+    })
 }
 
 /// Independent mutation oracle copied from the pre-plan lifecycle. Keep this
@@ -514,9 +528,8 @@ fn assert_lifecycle_plan_matches_reference(
     )
     .unwrap();
     let before_plan = planned.try_to_vec().unwrap();
-    let plan =
-        derive_leverage_lifecycle_plan(&planned, policy, asset_in, amount_in_after_fee, amount_out, amount_out)
-            .unwrap();
+    let plan = derive_leverage_lifecycle_plan(&planned, policy, asset_in, amount_in_after_fee, amount_out, amount_out)
+        .unwrap();
     assert_eq!(planned.try_to_vec().unwrap(), before_plan);
     let planned_transition = apply_leverage_lifecycle_plan(&mut planned, plan).unwrap();
     assert_eq!(planned_transition, reference_transition);
@@ -583,16 +596,15 @@ fn leverage_lifecycle_plan_rejects_stale_and_tampered_inputs_atomically() {
         }
 
         let (borrow_market, borrow_policy, amount_in_after_fee, amount_out) = leverage_lifecycle_cases(asset).remove(1);
-        let plan =
-            derive_leverage_lifecycle_plan(
-                &borrow_market,
-                borrow_policy,
-                asset,
-                amount_in_after_fee,
-                amount_out,
-                amount_out,
-            )
-                .unwrap();
+        let plan = derive_leverage_lifecycle_plan(
+            &borrow_market,
+            borrow_policy,
+            asset,
+            amount_in_after_fee,
+            amount_out,
+            amount_out,
+        )
+        .unwrap();
         for field in 0..10 {
             let mut stale = borrow_market.clone();
             match field {
@@ -654,16 +666,7 @@ fn prepare_leverage_swap_with_policy(
     }
     .prepare_with_cash_policy(market, cash_policy)
     .unwrap();
-    PreparedLeverageSwap {
-        concentrated_transition: prepared.concentrated_transition,
-        post_fee_curve_cache: prepared.post_fee_curve_cache,
-        swap: LeverageSwapQuote::from_amm(prepared.quote, current_slot),
-        base_pre_rebalance: prepared.base_pre_rebalance,
-        quote_pre_rebalance: prepared.quote_pre_rebalance,
-        fee_eligible_ylp_supply: prepared.fee_eligible_ylp_supply,
-        interest_eligibility: prepared.interest_eligibility,
-        cash_policy: prepared.cash_policy,
-    }
+    prepared
 }
 
 fn assert_hlp_combined_tracking_budget(
@@ -678,7 +681,8 @@ fn assert_hlp_combined_tracking_budget(
             continue;
         }
         assert!(receipt.tracking_loss_budget_nad > 0);
-        let combined_delta = crate::transitions::liquidity::hlp_end_to_end_tracking_delta(market, receipt, prices).unwrap();
+        let combined_delta =
+            crate::transitions::liquidity::hlp_end_to_end_tracking_delta(market, receipt, prices).unwrap();
         assert!(combined_delta.unsigned_abs() <= receipt.tracking_loss_budget_nad);
     }
 }
@@ -816,20 +820,12 @@ fn concentrated_hlp_transition_consumes_accrued_funding_interest_once() {
     market.debt.quote_borrow_index_nad = (NAD as u128) * 11 / 10;
 
     let base_interest = u64::try_from(
-        Debt::shares_to_debt(
-            market.base_hlp_vault.debt_shares,
-            market.debt.quote_borrow_index_nad,
-        )
-        .unwrap(),
+        Debt::shares_to_debt(market.base_hlp_vault.debt_shares, market.debt.quote_borrow_index_nad).unwrap(),
     )
     .unwrap()
     .saturating_sub(market.base_hlp_vault.debt_principal);
     let quote_interest = u64::try_from(
-        Debt::shares_to_debt(
-            market.quote_hlp_vault.debt_shares,
-            market.debt.base_borrow_index_nad,
-        )
-        .unwrap(),
+        Debt::shares_to_debt(market.quote_hlp_vault.debt_shares, market.debt.base_borrow_index_nad).unwrap(),
     )
     .unwrap()
     .saturating_sub(market.quote_hlp_vault.debt_principal);
@@ -878,7 +874,7 @@ fn compounded_leverage_observes_final_reserve_price() {
             1,
             SwapCashPolicy::Borrow { asset, amount: 10_000 },
         );
-        let quote = prepared.swap;
+        let quote = prepared.leverage_quote();
         assert_ne!(quote.end_price_nad, quote.reserve_end_price_nad);
         market
             .open_leverage(
@@ -1505,7 +1501,7 @@ fn concentrated_open_leverage_checkpoints_active_hlp_exposure() {
             amount: 1_000 * scale,
         },
     );
-    let quote = prepared.swap;
+    let quote = prepared.leverage_quote();
     let revision_before = market.curve_revision;
 
     let receipt = market
@@ -1550,7 +1546,7 @@ fn concentrated_open_leverage_uses_integrated_hlp_transition() {
             amount: 1_000 * scale,
         },
     );
-    let quote = prepared.swap;
+    let quote = prepared.leverage_quote();
     let receipt = market
         .open_leverage(
             &mut position,
@@ -1597,7 +1593,7 @@ fn concentrated_leverage_liquidation_uses_the_same_integrated_transition() {
             debt_principal: position.debt_principal,
         },
     );
-    let fee_credit = full_fee_credit(&prepared.swap);
+    let fee_credit = full_fee_credit(&prepared.leverage_quote());
     let receipt = market
         .liquidate_leverage_position(
             &mut position,
@@ -1632,7 +1628,7 @@ fn concentrated_socialized_loss_rebases_curve_then_restores_exact_hlp_hedges() {
             debt_principal: position.debt_principal,
         },
     );
-    let fee_credit = full_fee_credit(&prepared.swap);
+    let fee_credit = full_fee_credit(&prepared.leverage_quote());
     let receipt = market
         .liquidate_leverage_position(
             &mut position,
@@ -1669,7 +1665,7 @@ fn concentrated_increase_leverage_checkpoints_active_hlp_exposure() {
             amount: 100 * scale,
         },
     );
-    let quote = prepared.swap;
+    let quote = prepared.leverage_quote();
     let revision_before = market.curve_revision;
 
     let receipt = market
@@ -1707,7 +1703,7 @@ fn concentrated_decrease_leverage_checkpoints_active_hlp_exposure() {
             debt_principal: position.debt_principal,
         },
     );
-    let quote = prepared.swap;
+    let quote = prepared.leverage_quote();
     let revision_before = market.curve_revision;
 
     let receipt = market
@@ -1745,7 +1741,7 @@ fn concentrated_close_leverage_checkpoints_active_hlp_exposure() {
             debt_principal: position.debt_principal,
         },
     );
-    let quote = prepared.swap;
+    let quote = prepared.leverage_quote();
     let revision_before = market.curve_revision;
 
     let receipt = market
@@ -1830,7 +1826,7 @@ fn next_risk_refresh_integrates_the_post_leverage_mark() {
 fn concentrated_swap_repairs_worsening_stale_hlp_exposure_atomically() {
     let mut market = active_concentrated_hlp_market();
     market.base_hlp_vault.residual_exposure = 1;
-    let prepared = SwapRequest {
+    let mut prepared = SwapRequest {
         current_slot: 1,
         current_unix_timestamp: 0,
         asset_in: MarketAsset::Base,
@@ -1840,12 +1836,7 @@ fn concentrated_swap_repairs_worsening_stale_hlp_exposure_atomically() {
     .prepare(&mut market)
     .unwrap();
     prepared
-        .finalize_state(
-            &mut market,
-            1,
-            0,
-            ProtocolAuctionSplit::default(),
-        )
+        .finalize_state(&mut market, 1, 0, ProtocolAuctionSplit::default())
         .unwrap();
     assert_eq!(market.base_hlp_vault.residual_exposure, 0);
     assert_eq!(market.quote_hlp_vault.residual_exposure, 0);
@@ -1887,26 +1878,16 @@ fn distributed_leverage_surcharge_is_all_lp_owned() {
     market.amm.retain_dynamic_surcharge = false;
     let quote = market.quote_leverage_swap(MarketAsset::Base, 50_000, 1).unwrap();
     let fee_credit = full_fee_credit(&quote);
-    let fee_eligible_ylp_supply = market.base_side.shares.ylp_supply;
-
-    market
-        .apply_leverage_lifecycle_transition(
+    let mut prepared = prepared_leverage_swap(&market, quote, SwapCashPolicy::Spot);
+    prepared
+        .apply(
+            &mut market,
             SwapCashPolicy::Spot,
-            MarketAsset::Base,
-            quote.amount_in_after_fee,
-            quote.amount_out,
-            quote.gross_amount_out,
-        )
-        .unwrap();
-    market
-        .apply_leverage_swap(
-            MarketAsset::Base,
-            quote,
             fee_credit,
+            1,
             0,
             ProtocolAuctionSplit::default(),
-            fee_eligible_ylp_supply,
-            1,
+            None,
         )
         .unwrap();
 
@@ -1945,4 +1926,116 @@ fn leverage_operation_advances_the_controller_before_freezing_its_quote() {
     // move the curve again inside the same operation.
     assert_eq!(market.amm.center_price_nad, admitted_center);
     assert!(market.amm.retention_target_stale);
+}
+
+#[test]
+fn shared_swap_matches_spot_with_the_same_borrow_cash_and_debt() {
+    let bytes = |market: &Market| {
+        let mut data = Vec::new();
+        market.try_serialize(&mut data).unwrap();
+        data
+    };
+    for concentrated in [false, true] {
+        for asset in [MarketAsset::Base, MarketAsset::Quote] {
+            for fee_mode in [
+                crate::state::SWAP_FEE_COLLECT_INPUT_ASSET,
+                crate::state::SWAP_FEE_COLLECT_QUOTE_ONLY,
+            ] {
+                let mut financed = if concentrated {
+                    concentrated_market()
+                } else {
+                    test_market(1_000_000, 1_000_000)
+                };
+                financed.config.swap_fee_bps = 100;
+                financed.config.amm.compounding_fee_bps = 4_000;
+                financed.config.amm.swap_fee_collect_mode = fee_mode;
+                financed.debt.base_last_accrual_slot = 1;
+                financed.debt.quote_last_accrual_slot = 1;
+                let mut spot = financed.clone();
+                // Apply the same borrowing before the spot entry point. At this
+                // slot it changes cash and debt, but not executable principal.
+                spot.debit_leverage_cash(asset, 1_000).unwrap();
+                spot.add_isolated_borrow_debt(asset, 1_000).unwrap();
+                let request = SwapRequest {
+                    current_slot: 1,
+                    current_unix_timestamp: 0,
+                    asset_in: asset,
+                    reserve_credit: 20_000,
+                    protocol_fee_bps: 0,
+                };
+                let policy = SwapCashPolicy::Borrow { asset, amount: 1_000 };
+                let mut financed_plan = request.prepare_with_cash_policy(&mut financed, policy).unwrap();
+                let mut spot_plan = request.prepare(&mut spot).unwrap();
+                assert_eq!(financed_plan.quote, spot_plan.quote);
+                let credit = full_fee_credit(&financed_plan.leverage_quote());
+                let financed_receipt = financed_plan
+                    .apply(
+                        &mut financed,
+                        policy,
+                        credit,
+                        1,
+                        0,
+                        ProtocolAuctionSplit::default(),
+                        None,
+                    )
+                    .unwrap();
+                let spot_receipt = spot_plan
+                    .finalize_state(&mut spot, 1, 0, ProtocolAuctionSplit::default())
+                    .unwrap();
+                assert_eq!(bytes(&financed), bytes(&spot));
+                assert_eq!(financed_receipt.fees, spot_receipt.fees);
+                assert_eq!(financed_receipt.base_rebalance, spot_receipt.base_rebalance);
+                assert_eq!(financed_receipt.quote_rebalance, spot_receipt.quote_rebalance);
+            }
+        }
+    }
+}
+
+#[test]
+fn shared_swap_rejects_wrong_context_and_cannot_be_applied_twice() {
+    let bytes = |market: &Market| {
+        let mut data = Vec::new();
+        market.try_serialize(&mut data).unwrap();
+        data
+    };
+    let mut market = concentrated_market();
+    let mut prepared = SwapRequest {
+        current_slot: 1,
+        current_unix_timestamp: 0,
+        asset_in: MarketAsset::Base,
+        reserve_credit: 20_000,
+        protocol_fee_bps: 0,
+    }
+    .prepare(&mut market)
+    .unwrap();
+    let credit = full_fee_credit(&prepared.leverage_quote());
+    let before = bytes(&market);
+    assert!(prepared
+        .apply(
+            &mut market,
+            SwapCashPolicy::Borrow {
+                asset: MarketAsset::Base,
+                amount: 1
+            },
+            credit,
+            1,
+            0,
+            ProtocolAuctionSplit::default(),
+            None
+        )
+        .is_err());
+    assert_eq!(bytes(&market), before);
+    assert!(prepared
+        .finalize_state(&mut market, 2, 0, ProtocolAuctionSplit::default())
+        .is_err());
+    assert_eq!(bytes(&market), before);
+    prepared
+        .finalize_state(&mut market, 1, 0, ProtocolAuctionSplit::default())
+        .unwrap();
+    assert_eq!(market.amm.last_trade_price_nad, market.risk.cached_spot_base_price_nad);
+    let settled = bytes(&market);
+    assert!(prepared
+        .finalize_state(&mut market, 1, 0, ProtocolAuctionSplit::default())
+        .is_err());
+    assert_eq!(bytes(&market), settled);
 }

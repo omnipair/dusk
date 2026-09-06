@@ -1,7 +1,7 @@
 use super::*;
 use crate::state::AmmConfig;
+use crate::transitions::amm::PreparedSwap;
 use crate::{
-    instructions::PreparedSwap,
     math::{mul_div_u128, normalize_to_nad},
     state::{Debt, Risk},
     transitions::{
@@ -151,40 +151,24 @@ fn exhausted_hlp_waterfall_draws_insurance_before_socializing_funding_interest()
     let vault_shares = market.base_hlp_vault.ylp_shares;
     let ylp_supply_before = market.base_side.shares.ylp_supply;
     let target_claim = u64::try_from(
-        (market.base_side.reserves.live_reserve as u128) * (vault_shares as u128)
-            / (ylp_supply_before as u128),
+        (market.base_side.reserves.live_reserve as u128) * (vault_shares as u128) / (ylp_supply_before as u128),
     )
     .unwrap();
     let borrowed_claim = u64::try_from(
-        (market.quote_side.reserves.live_reserve as u128) * (vault_shares as u128)
-            / (ylp_supply_before as u128),
+        (market.quote_side.reserves.live_reserve as u128) * (vault_shares as u128) / (ylp_supply_before as u128),
     )
     .unwrap();
     let target_curve = market.curve_reserve(target_asset).unwrap();
     let borrowed_curve = market.curve_reserve(borrowed_asset).unwrap();
-    let target_value = u64::try_from(
-        mul_div_u128(
-            target_claim as u128,
-            borrowed_curve as u128,
-            target_curve as u128,
-        )
-        .unwrap(),
-    )
-    .unwrap();
+    let target_value =
+        u64::try_from(mul_div_u128(target_claim as u128, borrowed_curve as u128, target_curve as u128).unwrap())
+            .unwrap();
     let collateral = borrowed_claim.checked_add(target_value).unwrap();
     let desired_debt = collateral.checked_add(1_000).unwrap();
-    market.debt.quote_borrow_index_nad = crate::math::mul_div_ceil_u128(
-        desired_debt as u128,
-        NAD as u128,
-        market.base_hlp_vault.debt_shares,
-    )
-    .unwrap();
+    market.debt.quote_borrow_index_nad =
+        crate::math::mul_div_ceil_u128(desired_debt as u128, NAD as u128, market.base_hlp_vault.debt_shares).unwrap();
     let actual_debt = u64::try_from(
-        Debt::shares_to_debt(
-            market.base_hlp_vault.debt_shares,
-            market.debt.quote_borrow_index_nad,
-        )
-        .unwrap(),
+        Debt::shares_to_debt(market.base_hlp_vault.debt_shares, market.debt.quote_borrow_index_nad).unwrap(),
     )
     .unwrap();
     let shortfall = actual_debt.saturating_sub(collateral);
@@ -204,17 +188,13 @@ fn exhausted_hlp_waterfall_draws_insurance_before_socializing_funding_interest()
         .prepare_terminal_hlp_waterfall(target_asset, 599, 1)
         .is_err());
 
-    let plan = market
-        .prepare_terminal_hlp_waterfall(target_asset, 600, 1)
-        .unwrap();
+    let plan = market.prepare_terminal_hlp_waterfall(target_asset, 600, 1).unwrap();
     assert_eq!(plan.insurance_request(), 600);
     let before_capped = market.try_to_vec().unwrap();
     assert!(plan.consume(&mut market, 600, 600, shortfall - 601).is_err());
     assert_eq!(market.try_to_vec().unwrap(), before_capped);
 
-    let receipt = plan
-        .consume(&mut market, 600, 600, shortfall - 600)
-        .unwrap();
+    let receipt = plan.consume(&mut market, 600, 600, shortfall - 600).unwrap();
     assert_eq!(receipt.insurance_drawn, 600);
     assert_eq!(receipt.socialized_loss, shortfall - 600);
     assert_eq!(receipt.debt_closed, actual_debt);
@@ -230,15 +210,11 @@ fn exhausted_hlp_waterfall_draws_insurance_before_socializing_funding_interest()
 
     let closed_supply = market.base_hlp_vault.hlp_supply;
     let first_burn = closed_supply / 2;
-    let first = market
-        .withdraw_single_sided(target_asset, first_burn)
-        .unwrap();
+    let first = market.withdraw_single_sided(target_asset, first_burn).unwrap();
     assert_eq!(first.target_amount_out, 0);
     assert_eq!(first.ylp_amount, 0);
     assert_eq!(first.hlp_supply, closed_supply - first_burn);
-    let final_receipt = market
-        .withdraw_single_sided(target_asset, first.hlp_supply)
-        .unwrap();
+    let final_receipt = market.withdraw_single_sided(target_asset, first.hlp_supply).unwrap();
     assert_eq!(final_receipt.target_amount_out, 0);
     assert_eq!(final_receipt.hlp_supply, 0);
 }
@@ -408,9 +384,9 @@ fn concentrated_hlp_preview_and_execution_share_the_same_accepted_plan_in_both_d
             protocol_fee_bps: 2_500,
         };
         let mut preview_market = market.clone();
-        let preview = request.prepare(&mut preview_market).unwrap();
+        let mut preview = request.prepare(&mut preview_market).unwrap();
         let mut execution_market = market.clone();
-        let execution = request.prepare(&mut execution_market).unwrap();
+        let mut execution = request.prepare(&mut execution_market).unwrap();
 
         assert_prepared_swaps_equal(&preview, &execution);
         assert_eq!(
@@ -456,8 +432,7 @@ fn a_plain_swap_survives_accrued_hlp_interest() {
     let mut market = active_concentrated_preview_market();
     // Accrue interest on the Base hLP's borrowed asset, exactly as the
     // recovery test does.
-    market.debt.quote_borrow_index_nad =
-        mul_div_u128(market.debt.quote_borrow_index_nad, 17, 16).unwrap();
+    market.debt.quote_borrow_index_nad = mul_div_u128(market.debt.quote_borrow_index_nad, 17, 16).unwrap();
 
     // Base input does not supply the asset the Base hLP borrowed, so this
     // swap takes the ordinary path and certifies no proportional claim.
@@ -469,7 +444,7 @@ fn a_plain_swap_survives_accrued_hlp_interest() {
         protocol_fee_bps: 2_500,
     };
 
-    let prepared = request.prepare(&mut market).unwrap();
+    let mut prepared = request.prepare(&mut market).unwrap();
     assert_eq!(
         prepared.quote.recovery.bonus_output, 0,
         "this case exists to cover the uncertified path; recovery would defeat it",
@@ -540,7 +515,7 @@ fn swaps_preserve_cash_backed_unrealized_interest_outside_the_hlp_endpoint() {
             reserve_credit: 350_000,
             protocol_fee_bps: 2_500,
         };
-        let prepared = request.prepare(&mut market).unwrap();
+        let mut prepared = request.prepare(&mut market).unwrap();
         prepared
             .finalize_state(
                 &mut market,
@@ -588,7 +563,7 @@ fn stressed_hlp_recovery_improves_the_matching_swap_and_restores_the_hedge() {
         .unwrap()
         .checked_sub(stressed.quote_hlp_vault.ylp_shares)
         .unwrap();
-    let prepared = request.prepare(&mut stressed).unwrap();
+    let mut prepared = request.prepare(&mut stressed).unwrap();
     assert_eq!(prepared.quote.recovery.target_asset, MarketAsset::Base.code());
     assert!(prepared.quote.recovery.funding_gap > 0);
     assert!(prepared.quote.recovery.matched_input > 0);
@@ -612,13 +587,13 @@ fn stressed_hlp_recovery_improves_the_matching_swap_and_restores_the_hedge() {
 
     let supply = stressed.base_side.shares.ylp_supply as u128;
     let curve_reserves = stressed.curve_reserves_nad().unwrap();
-    let opposite_claim = mul_div_u128(
-        curve_reserves.quote,
-        stressed.base_hlp_vault.ylp_shares as u128,
-        supply,
+    let opposite_claim =
+        mul_div_u128(curve_reserves.quote, stressed.base_hlp_vault.ylp_shares as u128, supply).unwrap();
+    let debt = Debt::shares_to_debt(
+        stressed.base_hlp_vault.debt_shares,
+        stressed.debt.quote_borrow_index_nad,
     )
     .unwrap();
-    let debt = Debt::shares_to_debt(stressed.base_hlp_vault.debt_shares, stressed.debt.quote_borrow_index_nad).unwrap();
     let debt_nad = debt.checked_mul(NAD as u128).unwrap();
     assert!(
         opposite_claim.abs_diff(debt_nad) <= NAD as u128,
@@ -642,7 +617,7 @@ fn stressed_hlp_recovery_improves_the_matching_swap_and_restores_the_hedge() {
 #[test]
 fn concentrated_spot_reconstructs_both_hlps_without_solver_cells() {
     let mut market = active_reconfigured_concentrated_preview_market();
-    let prepared = SwapRequest {
+    let mut prepared = SwapRequest {
         current_slot: 1,
         current_unix_timestamp: 0,
         asset_in: MarketAsset::Base,
@@ -662,12 +637,8 @@ fn concentrated_spot_reconstructs_both_hlps_without_solver_cells() {
             },
         )
         .unwrap();
-    assert!(
-        finalized.base_rebalance.ylp_mint_amount > 0 || finalized.base_rebalance.ylp_burn_amount > 0
-    );
-    assert!(
-        finalized.quote_rebalance.ylp_mint_amount > 0 || finalized.quote_rebalance.ylp_burn_amount > 0
-    );
+    assert!(finalized.base_rebalance.ylp_mint_amount > 0 || finalized.base_rebalance.ylp_burn_amount > 0);
+    assert!(finalized.quote_rebalance.ylp_mint_amount > 0 || finalized.quote_rebalance.ylp_burn_amount > 0);
     market.assert_market_invariants().unwrap();
 
     let supply = market.base_side.shares.ylp_supply as u128;
@@ -712,7 +683,11 @@ fn forty_percent_fee_compounding_is_native_to_cpmm_and_concentrated_swaps() {
             crate::state::SWAP_FEE_COLLECT_QUOTE_ONLY,
         ] {
             let mut baseline = active_concentrated_preview_market();
-            baseline.config.amm.set_concentrated_curve_parameters(parameters).unwrap();
+            baseline
+                .config
+                .amm
+                .set_concentrated_curve_parameters(parameters)
+                .unwrap();
             baseline.config.amm.swap_fee_collect_mode = fee_mode;
             baseline.config.amm.compounding_fee_bps = 0;
             baseline.amm = crate::state::AmmState::default();
@@ -727,8 +702,8 @@ fn forty_percent_fee_compounding_is_native_to_cpmm_and_concentrated_swaps() {
                 protocol_fee_bps: 2_500,
             };
 
-            let baseline_prepared = request.prepare(&mut baseline).unwrap();
-            let compounded_prepared = request.prepare(&mut compounded).unwrap();
+            let mut baseline_prepared = request.prepare(&mut baseline).unwrap();
+            let mut compounded_prepared = request.prepare(&mut compounded).unwrap();
             assert!(baseline_prepared.post_fee_curve_cache.is_none());
             let prepared_compounded_cache = *compounded_prepared.post_fee_curve_cache.as_deref().unwrap();
             let baseline_quote = baseline_prepared.quote;
@@ -736,7 +711,10 @@ fn forty_percent_fee_compounding_is_native_to_cpmm_and_concentrated_swaps() {
             assert_eq!(compounded_quote.amount_out, baseline_quote.amount_out);
             assert_eq!(compounded_quote.gross_amount_out, baseline_quote.gross_amount_out);
             assert_eq!(compounded_quote.fee.base_fee_debit, baseline_quote.fee.base_fee_debit);
-            assert_eq!(compounded_quote.fee.dynamic_surcharge_debit, baseline_quote.fee.dynamic_surcharge_debit);
+            assert_eq!(
+                compounded_quote.fee.dynamic_surcharge_debit,
+                baseline_quote.fee.dynamic_surcharge_debit
+            );
 
             let protocol_fee = baseline_quote.fee.base_fee_debit as u128 * 2_500 / BPS_DENOMINATOR as u128;
             let lp_base_fee = baseline_quote.fee.base_fee_debit as u128 - protocol_fee;
@@ -843,7 +821,7 @@ fn compounded_swap_observes_final_reserves_for_volatility_and_next_slot_ema() {
                     reserve_credit: 100_000,
                     protocol_fee_bps: 0,
                 };
-                let prepared = request.prepare(&mut market).unwrap();
+                let mut prepared = request.prepare(&mut market).unwrap();
                 let quote = prepared.quote;
                 assert_ne!(quote.end_price_nad, quote.reserve_end_price_nad);
                 let expected_volatility = volatility_after_success_nad(
@@ -866,7 +844,12 @@ fn compounded_swap_observes_final_reserves_for_volatility_and_next_slot_ema() {
                 let next_slot = 1 + MIN_HALF_LIFE_MS / crate::constants::TARGET_MS_PER_SLOT;
                 let expected_ema = ema_u64(ema_before, quote.reserve_end_price_nad, 1, next_slot, MIN_HALF_LIFE_MS);
                 let expected_decay = market.amm.decayed_volatility(&market.config.amm, next_slot).unwrap();
-                let next = SwapRequest { current_slot: next_slot, ..request }.prepare(&mut market).unwrap();
+                let next = SwapRequest {
+                    current_slot: next_slot,
+                    ..request
+                }
+                .prepare(&mut market)
+                .unwrap();
                 assert_eq!(market.amm.price_ema_nad, expected_ema);
                 assert_eq!(next.quote.decayed_volatility_nad, expected_decay);
                 assert!(next.quote.fee.volatility_surcharge_debit > 0);
@@ -910,9 +893,9 @@ fn concentrated_swap_preserves_preexisting_fee_and_hlp_yield_state() {
             protocol_fee_bps: 2_500,
         };
         let mut terminal_market = market.clone();
-        let terminal = request.prepare(&mut terminal_market).unwrap();
+        let mut terminal = request.prepare(&mut terminal_market).unwrap();
         let mut replay_market = market.clone();
-        let replay = request.prepare(&mut replay_market).unwrap();
+        let mut replay = request.prepare(&mut replay_market).unwrap();
 
         let terminal_receipt = terminal
             .finalize_state(&mut terminal_market, request.current_slot, 2_500, protocol_split)
@@ -930,9 +913,7 @@ fn concentrated_swap_preserves_preexisting_fee_and_hlp_yield_state() {
         assert!(terminal_market.base_side.fees.swap_fee_growth_index_q64 >= seeded_base_swap_index);
         assert!(terminal_market.quote_side.fees.interest_growth_index_q64 >= seeded_quote_interest_index);
         assert!(terminal_market.base_hlp_vault.base_swap_fee_checkpoint_q64 >= seeded_base_hlp_swap_checkpoint);
-        assert!(
-            terminal_market.quote_hlp_vault.quote_interest_checkpoint_q64 >= seeded_quote_hlp_interest_checkpoint
-        );
+        assert!(terminal_market.quote_hlp_vault.quote_interest_checkpoint_q64 >= seeded_quote_hlp_interest_checkpoint);
     }
 }
 
@@ -965,9 +946,9 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
     };
 
     let mut preview_market = market.clone();
-    let preview = request.prepare(&mut preview_market).unwrap();
+    let mut preview = request.prepare(&mut preview_market).unwrap();
     let mut execution_market = market;
-    let execution = request.prepare(&mut execution_market).unwrap();
+    let mut execution = request.prepare(&mut execution_market).unwrap();
     assert_prepared_swaps_equal(&preview, &execution);
 
     let preview_finalized = preview
@@ -1017,7 +998,7 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
     };
     retained_market.amm = crate::state::AmmState::default();
     retained_market.prepare_amm_for_swap(1).unwrap();
-    let first = SwapRequest {
+    let mut first = SwapRequest {
         current_slot: 1,
         current_unix_timestamp: 0,
         asset_in: MarketAsset::Base,
@@ -1039,9 +1020,9 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
         protocol_fee_bps: 2_500,
     };
     let mut retained_preview_market = retained_market.clone();
-    let retained_preview = retained_request.prepare(&mut retained_preview_market).unwrap();
+    let mut retained_preview = retained_request.prepare(&mut retained_preview_market).unwrap();
     let mut retained_execution_market = retained_market;
-    let retained_execution = retained_request.prepare(&mut retained_execution_market).unwrap();
+    let mut retained_execution = retained_request.prepare(&mut retained_execution_market).unwrap();
     assert_prepared_swaps_equal(&retained_preview, &retained_execution);
     assert!(retained_preview.quote.fee.retained_surcharge > 0);
     let protected_before = retained_preview_market.base_side.reserves.protected_recenter_reserve;
@@ -1070,7 +1051,10 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
         retained_preview_market.base_side.reserves.protected_recenter_reserve,
         protected_before + retained_preview.quote.fee.retained_surcharge
     );
-    assert_eq!(retained_preview_market.quote_side.reserves.protected_recenter_reserve, 0);
+    assert_eq!(
+        retained_preview_market.quote_side.reserves.protected_recenter_reserve,
+        0
+    );
 
     let protected_after = retained_preview_market.base_side.reserves.protected_recenter_reserve;
     let live_before_withdraw = retained_preview_market.base_side.reserves.live_reserve;

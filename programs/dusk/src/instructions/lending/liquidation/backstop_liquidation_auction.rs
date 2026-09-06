@@ -1,3 +1,4 @@
+use crate::transitions::amm::SwapRequest;
 use anchor_lang::prelude::*;
 use anchor_spl::{
     token::Token,
@@ -19,7 +20,7 @@ use crate::{
         referral::accounting::{
             accrue_referral_interest, referral_interest_accrued_event_at_slot, validate_referral_binding,
         },
-        settle_inline_leverage_hlp, SwapRequest,
+        settle_inline_leverage_hlp,
     },
     state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
     token::transfer_checked_with_remaining_accounts,
@@ -273,7 +274,7 @@ impl<'info> BackstopLiquidationAuction<'info> {
 
         let protocol_fee_bps = ctx.accounts.futarchy_authority.revenue_share.swap_bps;
         let protocol_auction_split = ctx.accounts.futarchy_authority.protocol_auction_split;
-        let prepared = if collateral_reserve_credit > 0 {
+        let mut prepared = if collateral_reserve_credit > 0 {
             Some(
                 SwapRequest {
                     current_slot: clock.slot,
@@ -345,34 +346,21 @@ impl<'info> BackstopLiquidationAuction<'info> {
             (0, 0)
         };
 
-        let finalized = if let Some(prepared) = &prepared {
-            Some(prepared.finalize_lending_liquidation_state(
-                &mut ctx.accounts.market,
-                clock.slot,
-                protocol_fee_bps,
-                protocol_auction_split,
-            )?)
-        } else {
-            None
-        };
-        let liquidation = ctx.accounts.market.settle_internal_liquidation(
-            &mut ctx.accounts.borrow_position,
-            debt_asset,
-            swap_output,
-            insurance_spent,
-            insurance_credit,
-            collateral_consumed,
-            caller_bounty,
+        let (finalized, liquidation) = ctx.accounts.market.settle_backstop_swap(
+            prepared.as_deref_mut(),
+            crate::transitions::amm::LendingSwapSettlement {
+                position: &mut ctx.accounts.borrow_position,
+                debt_asset,
+                insurance_spent,
+                insurance_credit,
+                collateral_consumed,
+                caller_bounty,
+            },
+            clock.slot,
+            protocol_fee_bps,
+            protocol_auction_split,
         )?;
         let liquidation_receipt = liquidation.liquidation;
-        if liquidation_receipt.socialized_loss > 0 {
-            ctx.accounts
-                .market
-                .finalize_amm_socialized_loss_and_observe_risk(clock.slot)?;
-        } else {
-            ctx.accounts.market.finalize_amm_transition(clock.slot)?;
-            ctx.accounts.market.refresh_risk()?;
-        }
 
         if let (Some(prepared), Some(finalized)) = (&prepared, finalized) {
             settle_inline_leverage_hlp(

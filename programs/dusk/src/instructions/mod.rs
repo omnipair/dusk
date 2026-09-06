@@ -12,10 +12,7 @@ mod spot;
 pub mod transfer_hook;
 
 pub(crate) use leverage::settle_inline_leverage_hlp;
-pub(crate) use prepare_swap::{
-    enforce_launch_same_transaction_guard, rebalance_executes_token_changes, split_claimable_fee_credit, PreparedSwap,
-    SwapRequest,
-};
+pub(crate) use prepare_swap::{enforce_launch_same_transaction_guard, rebalance_executes_token_changes};
 
 pub use futarchy::*;
 pub use governance::*;

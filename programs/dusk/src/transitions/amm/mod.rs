@@ -1,3 +1,7 @@
+mod swap;
+pub use swap::PreparedSwap;
+pub(crate) use swap::{split_claimable_fee_credit, LendingSwapSettlement, SwapRequest};
+
 pub(crate) mod curve;
 pub(crate) mod fees;
 

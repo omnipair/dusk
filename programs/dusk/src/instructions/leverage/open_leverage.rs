@@ -1,3 +1,4 @@
+use crate::transitions::amm::SwapRequest;
 use anchor_lang::prelude::*;
 use anchor_spl::{
     token::Token,
@@ -23,8 +24,8 @@ use super::settlement::{
 use crate::instructions::accounts::{
     require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout,
 };
+use crate::instructions::enforce_launch_same_transaction_guard;
 use crate::instructions::referral::accounting::validate_referral_binding;
-use crate::instructions::{enforce_launch_same_transaction_guard, SwapRequest};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct OpenLeverageArgs {
@@ -254,7 +255,7 @@ impl<'info> OpenLeverage<'info> {
         let interest_eligibility = prepared_swap.interest_eligibility;
         let collateral_credit = leverage_collateral_credit(
             &ctx.accounts.collateral_mint,
-            prepared_swap.swap.amount_out,
+            prepared_swap.leverage_quote().amount_out,
             current_epoch,
         )?;
         require_gte!(collateral_credit, args.min_collateral_out, ErrorCode::SlippageExceeded);
@@ -287,14 +288,14 @@ impl<'info> OpenLeverage<'info> {
             ],
         )?;
 
-        let swap_fee_credit = leverage_swap_fee_credit(&prepared_swap.swap)?;
+        let swap_fee_credit = leverage_swap_fee_credit(&prepared_swap.leverage_quote())?;
         transfer_checked_with_remaining_accounts(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.collateral_reserve_vault.to_account_info(),
             ctx.accounts.leverage_collateral_vault.to_account_info(),
             ctx.accounts.collateral_mint.to_account_info(),
             collateral_token_program,
-            prepared_swap.swap.amount_out,
+            prepared_swap.leverage_quote().amount_out,
             ctx.accounts.collateral_mint.decimals,
             &[&crate::generate_market_seeds!(ctx.accounts.market)[..]],
             h_lp_accounts.hook_accounts(ctx.remaining_accounts),

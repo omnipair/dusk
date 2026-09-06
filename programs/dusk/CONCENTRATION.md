@@ -55,6 +55,19 @@ closed-form segments.
 7. Let that observation update EMA/volatility and schedule a possible center
    move for a later swap.
 
+The state-only owner is `transitions/amm/swap.rs`. Spot, leverage, floor
+liquidation, and predictive execution share `PreparedSwap::apply`; instructions
+validate accounts and settle the returned token/share receipts. The prepared
+plan is boxed to preserve SBF stack headroom and consumed once when applied.
+Borrow/repay/writeoff rules remain in the lending/leverage kernels, composed
+inside the shared swap before its final price observation. Floor liquidation
+also clears fixed debt and insurance before that observation; insurance uses
+an explicit slot rather than depending on an intermediate risk update.
+
+The existing lazy risk-refresh revision after spot/leverage swaps is preserved.
+Transaction failure still rolls back account writes; off-chain owned-state
+adapters retain their corresponding rollback boundary.
+
 ## Launch protection and governance
 
 Ordinary yLP liquidity may be seeded before `start_time`; swaps, lending,

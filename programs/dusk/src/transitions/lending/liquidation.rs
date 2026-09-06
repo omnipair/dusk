@@ -686,7 +686,8 @@ impl Market {
     /// Closes a lending position after its external auction expires. The AMM
     /// leg has already debited `swap_output` from executable reserves; this
     /// step applies that output to fixed debt, consumes protocol insurance,
-    /// and writes off any remaining debt without a caller-selected veto.
+    /// and writes off any remaining debt without a caller-selected veto. The
+    /// explicit slot keeps insurance accounting independent of risk observations.
     pub fn settle_internal_liquidation(
         &mut self,
         borrow_position: &mut BorrowPosition,
@@ -696,6 +697,7 @@ impl Market {
         insurance_credit: u64,
         collateral_consumed: u64,
         caller_bounty: u64,
+        current_slot: u64,
     ) -> Result<InternalLiquidationReceipt> {
         require_gte!(insurance_spent, insurance_credit, ErrorCode::BrokenInvariant);
         let collateral_before = position_collateral(borrow_position, debt_asset);
@@ -782,8 +784,7 @@ impl Market {
             .ok_or(ErrorCode::ReserveOverflow)?;
 
         if insurance_spent > 0 {
-            self.insurance
-                .consume_draw(debt_asset, insurance_spent, self.last_update_slot)?;
+            self.insurance.consume_draw(debt_asset, insurance_spent, current_slot)?;
         }
         borrow_position.set_liquidation_cf_bps(debt_asset, 0);
         borrow_position.clear_referral_binding(debt_asset);

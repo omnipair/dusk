@@ -4,6 +4,7 @@
 //! It deliberately wraps the same integer state machines used by instruction
 //! preview and execution; it does not provide an alternate economic model.
 
+use crate::transitions::amm::{PreparedSwap, SwapRequest};
 use anchor_lang::{prelude::*, AccountDeserialize, AccountSerialize};
 
 use crate::{
@@ -16,7 +17,7 @@ use crate::{
     errors::ErrorCode,
     instructions::{
         leverage_position_pda, rebalance_executes_token_changes, reconcile_live_hlp_supply, record_hlp_interest_credit,
-        record_inline_hlp_interest_credit, BorrowCapacityPreview, PreparedSwap, SwapRequest,
+        record_inline_hlp_interest_credit, BorrowCapacityPreview,
     },
     math::{ceil_div, denormalize_from_nad_floor, health_bps, normalize_to_nad},
     state::{
@@ -2000,9 +2001,9 @@ impl BenchmarkMarket {
             request.debt_asset,
             request.margin_transfer.destination_credit,
             request.multiplier_bps,
-            prepared_swap.swap.amount_out,
+            prepared_swap.leverage_quote().amount_out,
             prepared_swap.clone(),
-            full_leverage_swap_fee_credit(prepared_swap.swap)?,
+            full_leverage_swap_fee_credit(prepared_swap.leverage_quote())?,
             request.clock.unix_timestamp,
             request.clock.slot,
             position_bump,
@@ -2012,7 +2013,7 @@ impl BenchmarkMarket {
         let quote = BenchmarkLeverageOpenQuote {
             borrowed_amount,
             notional,
-            swap: prepared_swap.swap,
+            swap: prepared_swap.leverage_quote(),
             referral_partner,
             referral_interest_share_bps,
             settlement: BenchmarkLeverageSettlementRequirements {
@@ -2305,12 +2306,12 @@ impl BenchmarkMarket {
             },
         )?;
         require_gte!(
-            prepared_swap.swap.amount_out,
+            prepared_swap.leverage_quote().amount_out,
             debt_amount,
             ErrorCode::InsufficientAmount
         );
         let expected_gross_residual = prepared_swap
-            .swap
+            .leverage_quote()
             .amount_out
             .checked_sub(debt_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -2325,7 +2326,7 @@ impl BenchmarkMarket {
             &mut settlement_position,
             request.min_residual_out,
             prepared_swap.clone(),
-            full_leverage_swap_fee_credit(prepared_swap.swap)?,
+            full_leverage_swap_fee_credit(prepared_swap.leverage_quote())?,
             request.policy.protocol_swap_fee_bps,
             request.policy.protocol_auction_split,
             request.clock.slot,
@@ -2338,7 +2339,7 @@ impl BenchmarkMarket {
         let quote = BenchmarkLeverageCloseQuote {
             debt_amount,
             collateral_sold: slice.collateral_amount,
-            swap: prepared_swap.swap,
+            swap: prepared_swap.leverage_quote(),
             expected_gross_residual,
             metrics_before,
             settlement: BenchmarkLeverageSettlementRequirements {
@@ -3782,7 +3783,7 @@ fn prepare_floor_liquidation_plan(
     market: &mut Market,
     position: &mut BorrowPosition,
     request: BenchmarkLiquidationPlanRequest,
-) -> Result<(BenchmarkLiquidationPlan, Option<PreparedSwap>)> {
+) -> Result<(BenchmarkLiquidationPlan, Option<Box<PreparedSwap>>)> {
     require!(
         request.phase == BenchmarkLiquidationPhase::Floor,
         ErrorCode::InvalidArgument
@@ -3886,39 +3887,32 @@ fn preview_liquidation_on_state(
     request: BenchmarkLiquidationPreviewRequest,
 ) -> Result<BenchmarkLiquidationPreview> {
     if request.plan.phase == BenchmarkLiquidationPhase::Floor {
-        let (plan, prepared) = prepare_floor_liquidation_plan(market, position, request.plan)?;
+        let (plan, mut prepared) = prepare_floor_liquidation_plan(market, position, request.plan)?;
         require_gte!(
             plan.insurance_draw_debit,
             request.insurance_draw_credit,
             ErrorCode::MarketMathOverflow
         );
-        if let Some(prepared) = prepared {
-            let finalized = prepared.finalize_lending_liquidation_state(
-                market,
-                request.plan.clock.slot,
-                request.plan.protocol_swap_fee_bps,
-                request.plan.protocol_auction_split,
-            )?;
+        let (finalized, internal) = market.settle_backstop_swap(
+            prepared.as_deref_mut(),
+            crate::transitions::amm::LendingSwapSettlement {
+                position,
+                debt_asset: plan.debt_asset,
+                insurance_spent: plan.insurance_draw_debit,
+                insurance_credit: request.insurance_draw_credit,
+                collateral_consumed: plan.collateral_consumed,
+                caller_bounty: plan.caller_bounty,
+            },
+            request.plan.clock.slot,
+            request.plan.protocol_swap_fee_bps,
+            request.plan.protocol_auction_split,
+        )?;
+        if let Some(finalized) = finalized {
             require!(
                 !rebalance_executes_token_changes(&finalized.base_rebalance)
                     && !rebalance_executes_token_changes(&finalized.quote_rebalance),
                 ErrorCode::InvalidArgument
             );
-        }
-        let internal = market.settle_internal_liquidation(
-            position,
-            plan.debt_asset,
-            plan.swap_output,
-            plan.insurance_draw_debit,
-            request.insurance_draw_credit,
-            plan.collateral_consumed,
-            plan.caller_bounty,
-        )?;
-        if internal.liquidation.socialized_loss > 0 {
-            market.finalize_amm_socialized_loss_and_observe_risk(request.plan.clock.slot)?;
-        } else {
-            market.finalize_amm_transition(request.plan.clock.slot)?;
-            market.refresh_risk_at_slot(request.plan.clock.slot)?;
         }
         return Ok(BenchmarkLiquidationPreview {
             plan,
@@ -4378,27 +4372,9 @@ fn prepare_benchmark_leverage_swap(
     cash_policy: SwapCashPolicy,
 ) -> Result<PreparedLeverageSwap> {
     let current_slot = request.current_slot;
-    let PreparedSwap {
-        quote,
-        base_pre_rebalance,
-        quote_pre_rebalance,
-        fee_eligible_ylp_supply,
-        interest_eligibility,
-        cash_policy,
-        post_fee_curve_cache,
-        concentrated_transition,
-    } = request.prepare_with_cash_policy(market, cash_policy)?;
+    let prepared = request.prepare_with_cash_policy(market, cash_policy)?;
     market.observe_current_risk(current_slot)?;
-    Ok(PreparedLeverageSwap {
-        swap: LeverageSwapQuote::from_amm(quote, current_slot),
-        base_pre_rebalance,
-        quote_pre_rebalance,
-        fee_eligible_ylp_supply,
-        interest_eligibility,
-        cash_policy,
-        post_fee_curve_cache,
-        concentrated_transition,
-    })
+    Ok(prepared)
 }
 
 fn full_leverage_swap_fee_credit(quote: LeverageSwapQuote) -> Result<LeverageSwapFeeCredit> {
@@ -4978,7 +4954,7 @@ fn execute_swap(
         request.protocol_auction_split.is_valid(),
         ErrorCode::InvalidAuctionConfig
     );
-    let prepared = SwapRequest {
+    let mut prepared = SwapRequest {
         current_slot: clock.slot,
         current_unix_timestamp: clock.unix_timestamp,
         asset_in: request.asset_in,
@@ -5538,7 +5514,7 @@ mod tests {
         assert_eq!(market_bytes(benchmark.market()), before);
 
         let mut native = clone_market(benchmark.market()).unwrap();
-        let prepared = SwapRequest {
+        let mut prepared = SwapRequest {
             current_slot: benchmark.clock().slot,
             current_unix_timestamp: benchmark.clock().unix_timestamp,
             asset_in: request.asset_in,
@@ -6819,6 +6795,11 @@ mod tests {
         assert_eq!(execution.market.receipt.native.remaining_debt, 0);
         assert_eq!(execution.position_after.quote_collateral, 0);
         assert_eq!(execution.position_after.auction_debt_asset, u8::MAX);
+        let settled = benchmark.market();
+        let final_price = settled.current_concentrated_spot_price_nad().unwrap().unwrap();
+        assert_eq!(settled.amm.last_trade_price_nad, final_price);
+        assert_eq!(settled.risk.cached_spot_base_price_nad, final_price);
+        assert_eq!(settled.last_marginal_observation_nad, final_price);
     }
 
     #[test]
