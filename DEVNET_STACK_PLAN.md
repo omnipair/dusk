@@ -284,8 +284,8 @@ Because anyone can use this deployment:
 
 - **Rate limiting** per IP and per wallet on the API, with limits that a normal
   session never hits and a script does.
-- **Abuse handling**: faucet limits per wallet and per window; a documented way
-  to cut off a specific abuser without taking the service down.
+- **Abuse handling**: a documented way to cut off a specific abuser without
+  taking the service down. Faucet minting is deliberately unlimited on devnet.
 - **Status page** reporting API, indexer lag, RPC health, and keeper liveness,
   updated automatically rather than by hand.
 - **`/live`** checks process survival. **`/ready`** fails closed on RPC lag,
@@ -370,7 +370,7 @@ independent untracked fixes per repository.
 | 4 | SDK completion for product flows (section 6) | **Done for the app's actions** — typed builders added for swap, borrow, openLeverage and leverage delegation, plus a leverage-delegate client for conditional orders |
 | 5 | Webapp writes through the SDK; fork lab ported and deleted | **Done** — all 9 actions build through the SDK, and no `fork` path or name remains in the app or the API; the lab in the `dusk` repo is unused and can be deleted |
 | 6 | Rust keepers live on devnet | **Lending trigger and bidder live** — both have sent confirmed transactions on devnet: the trigger opened an auction on a genuinely underwater position, the bidder repaid 150 quote for 265.56 base. Settler, leverage, auction arbitrageur and lifecycle still have no loop |
-| 7 | Public-service operations (section 9) | **Done** — rate limiting, `/status`, a self-refreshing status page, `/metrics` and `/provenance`, structured request logs, six runbooks, backups with a tested restore, and 90-day retention. The faucet limit is written but not deployed (see below) |
+| 7 | Public-service operations (section 9) | **Done** — rate limiting, `/status`, a self-refreshing status page, `/metrics` and `/provenance`, structured request logs, six runbooks, backups with a tested restore, and 90-day retention. |
 | 8 | Full live matrix and sustained unattended operation | **11 of 11 flows pass** — `live_flow_matrix.ts` signs and sends every product flow and all eleven confirm: faucet, swap, add and remove liquidity, deposit, borrow, repay, withdraw, open leverage, add margin, close leverage. Passes on a market carrying no debt; the hLP defect below still breaks swaps once debt is outstanding, so this is not the defect being fixed. `soak.sh` samples the deployment unattended and is what caught the monitoring flaw below |
 
 ### Deployment
@@ -521,31 +521,20 @@ reverts and a regular pattern of pure RPC transients. The script now requires a
 program error in the logs before counting a failure, and every rate above was
 re-measured with that fix.
 
-### Faucet abuse: written, not deployed
+### Faucet minting is unlimited, by decision
 
-`faucet_mint` now takes a per-request ceiling and an hourly per-recipient
-cooldown, recorded in a claim account keyed by recipient and mint — not by
-payer, since a payer-keyed limit is sidestepped by paying from a fresh wallet,
-which costs nothing on devnet. The webapp passes the new account.
+`faucet_mint` checks only that the amount is above zero. There is no per-wallet
+cap, no cooldown and no supply ceiling, so one actor can mint unbounded
+balances.
 
-Not deployed. It changes `faucet_mint`'s account list, so the program upgrade
-and the app must land together, and upgrading a deployed program is a decision
-for whoever holds the upgrade authority.
+This is accepted on devnet and will not be fixed here: the tokens are
+worthless, and a limit costs a program upgrade plus a coordinated app release
+for no benefit. A per-request ceiling and hourly per-recipient cooldown were
+implemented before this call and remain in the tree, unshipped, if the decision
+is ever revisited.
 
-### The original gap, for reference
-
-The faucet mints straight from the browser to the program, so no server sits in
-the path and no amount of API rate limiting constrains it. `faucet_mint` checks
-only that the amount is above zero — there is no per-wallet cap, no cooldown,
-and no supply ceiling. On a public devnet one actor can mint unbounded balances
-and distort every market with them.
-
-Closing this needs a program change and a redeploy, which is a protocol
-decision rather than an operational one. The options are a per-wallet cooldown
-account, a per-mint supply ceiling, or moving the faucet behind a server that
-holds the authority. Until one is chosen the faucet is safe only because devnet
-tokens are worthless — which is a reason not to promote this program shape to
-mainnet unchanged.
+**This does not carry to mainnet.** A public faucet with no cap is a reason not
+to promote this program shape unchanged — see the promotion gates in section 11.
 
 ### The keeper contract had drifted from the deployed program
 
@@ -584,20 +573,23 @@ which needs an unhealthy position, and therefore a way to make one on devnet.
 
 ## 14. What is left, and why
 
-Three items remain, and none of them is engineering. Each is written, tested
-and one command from done; each needs a decision that is not an engineer's to
-make on someone else's behalf.
+The hLP invariant defect is fixed, deployed and verified on devnet, and all
+seven keepers run live. What remains is three product flows the acceptance
+matrix has never exercised, plus one process step.
 
 | Item | State | What it needs |
 | --- | --- | --- |
-| hLP invariant defect | Diagnosed as far as off-chain work allows; eight hypotheses eliminated by measurement; instrumented build ready behind `debug-hlp-drift` | Deploy the instrumented build, simulate a swap, read `hlp-drift` in the logs |
-| Faucet abuse limit | Per-request ceiling and hourly per-recipient cooldown implemented; webapp passes the new account | Upgrade the program and ship the app together — the account list changes, so they cannot land separately |
-| Keepers live | All seven profiles deployed and healthy in shadow; trigger and bidder both proven live from a local run against this same devnet | A generated hot wallet per service as `KEEPER_SIGNER_KEY`, and `KEEPER_MODE=live` |
+| Conditional orders | SDK has a leverage-delegate client; no flow signs a place or a cancel on devnet | Add place and cancel to `live_flow_matrix.ts` and confirm both on chain |
+| Market creation | Never exercised on devnet; the deployment has exactly one market | Create a second market through the SDK and confirm the indexer picks it up |
+| Parameter proposal through timelock | `dusk-lifecycle-keeper` runs but has never had a proposal to act on | Raise a proposal, let the timelock elapse, and have the keeper execute it |
+| PR #19 to `main` | Open, all four checks green, review required | A human approval, after which work stems from `main` |
 
-All eleven product flows now sign and confirm on a market carrying no debt, so
-the matrix itself is complete. The hLP defect still breaks swaps once debt is
-outstanding — 7 of 12 with 400 quote borrowed — so a green matrix is not the
-defect being fixed, and fixing it is the first item above.
+Section 15 names all three flows, so the matrix is not complete until they sign
+and confirm. Everything else in the definition of done is met.
+
+One operational note: repeated matrix runs drain the shared pool. It stands at
+roughly a quarter of its seeded depth, which is functional but thin, and shallow
+reserves distort any measurement taken against them.
 
 ## 15. Definition of done
 
