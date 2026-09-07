@@ -56,6 +56,12 @@ function faucetMint(
     [Buffer.from("faucet_authority"), programId.toBuffer()],
     programId,
   );
+  // The deployed faucet rate-limits per recipient and mint, so it takes a
+  // claim PDA that the eight-account layout predates.
+  const [claim] = PublicKey.findProgramAddressSync(
+    [Buffer.from("faucet_claim"), owner.toBuffer(), mint.toBuffer()],
+    programId,
+  );
   const data = Buffer.alloc(8);
   data.writeBigUInt64LE(amount);
   return new TransactionInstruction({
@@ -69,6 +75,7 @@ function faucetMint(
         isWritable: true,
         pubkey: getAssociatedTokenAddressSync(mint, owner),
       },
+      { isSigner: false, isWritable: true, pubkey: claim },
       { isSigner: false, isWritable: true, pubkey: mint },
       { isSigner: false, isWritable: false, pubkey: SystemProgram.programId },
       { isSigner: false, isWritable: false, pubkey: TOKEN_PROGRAM_ID },

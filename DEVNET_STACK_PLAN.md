@@ -277,6 +277,10 @@ re-add one.
 - Valuation is derived, and its derivation is visible: assets whose price is
   known by definition are anchored in a table with a recorded reason, and
   everything else is priced from pool ratios. No price is invented silently.
+- Live swaps stream over the same gRPC path as v1, unchanged: a row trigger on
+  `dusk_ingestion.event_stream` publishes on `swap_updates`, the Rust listener
+  parses it into `SwapsUpdate`, and `tonic-web` serves gRPC-web directly — no
+  Envoy. The webapp already had the client; it needed only the endpoint.
 
 ## 9. Operational model — public service bar
 
@@ -285,7 +289,9 @@ Because anyone can use this deployment:
 - **Rate limiting** per IP and per wallet on the API, with limits that a normal
   session never hits and a script does.
 - **Abuse handling**: a documented way to cut off a specific abuser without
-  taking the service down. Faucet minting is deliberately unlimited on devnet.
+  taking the service down. Faucet minting is capped per request and per
+  recipient per hour, in the program rather than the API — the browser talks to
+  the program directly, so an API limit would not bind.
 - **Status page** reporting API, indexer lag, RPC health, and keeper liveness,
   updated automatically rather than by hand.
 - **`/live`** checks process survival. **`/ready`** fails closed on RPC lag,
@@ -521,20 +527,28 @@ reverts and a regular pattern of pure RPC transients. The script now requires a
 program error in the logs before counting a failure, and every rate above was
 re-measured with that fix.
 
-### Faucet minting is unlimited, by decision
+### Faucet minting is rate limited, and the limit is shipped
 
-`faucet_mint` checks only that the amount is above zero. There is no per-wallet
-cap, no cooldown and no supply ceiling, so one actor can mint unbounded
-balances.
+`faucet_mint` caps a request at `MAX_MINT_PER_REQUEST` (10,000 units at six
+decimals) and then locks the recipient out of that mint for
+`MINT_COOLDOWN_SECONDS` (one hour). The limit is keyed to the **recipient**, not
+the payer, since paying for someone else's mint is the obvious way around a
+payer-keyed one. It is enforced by a `faucet_claim` PDA seeded on
+`[b"faucet_claim", recipient, mint]`.
 
-This is accepted on devnet and will not be fixed here: the tokens are
-worthless, and a limit costs a program upgrade plus a coordinated app release
-for no benefit. A per-request ceiling and hourly per-recipient cooldown were
-implemented before this call and remain in the tree, unshipped, if the decision
-is ever revisited.
+The call was reversed twice before landing here. It is shipped and deployed, so
+the tree and the chain agree and there is no IDL divergence.
 
-**This does not carry to mainnet.** A public faucet with no cap is a reason not
-to promote this program shape unchanged — see the promotion gates in section 11.
+**It cost two things.** The instruction went from eight accounts to nine, with
+`faucet_claim` at index 4, ahead of `mint` — so every caller that hand-builds
+the account list breaks silently until patched. Anchor callers auto-derive it
+from the IDL seeds and needed no change. And a single wallet can no longer
+acquire more than 10,000 units an hour, which is less than
+`make_liquidatable.ts` needs to move the price; that script now accumulates
+across runs rather than minting in one shot.
+
+**This is the shape that promotes.** A public faucet with no cap would have been
+a reason to hold the program back at the section 11 gates.
 
 ### The keeper contract had drifted from the deployed program
 
@@ -596,12 +610,22 @@ in two steps leaves the deployment dark in between — and any recovery script
 that reads its own configuration from that endpoint cannot run. Seed in the same
 operation that creates, or give the endpoint a per-market failure mode.
 
-**The unshipped faucet limit breaks Anchor-built faucet calls.** `faucet_mint`
-in this tree takes a `faucet_claim` account that the deployed program does not,
-so the generated IDL puts `mint` one position late and the program rejects the
-call as `AccountNotInitialized`. Anything hand-building the deployed eight
-account layout still works, which is why the acceptance matrix never noticed.
-Reverting the unshipped change would remove the divergence.
+**An account added mid-instruction breaks hand-built callers silently.**
+Deploying the faucet limit put `faucet_claim` at index 4, ahead of `mint`. Anchor
+callers auto-derived it and kept working; the five devnet scripts that
+hand-build the eight-account list did not, and the failure surfaces as a
+confusing account error rather than as "the layout changed". All five are
+patched. When an instruction gains an account, grep for hand-built key arrays
+before assuming the IDL covers every caller.
+
+**A numeric enum compared against a name is always false, and never errors.**
+`SwapExecuted` carries `asset_in_side` and `fee_asset_side` as the `MarketAsset`
+enum's code — `0` for base, `1` for quote — but three indexer migrations
+compared them against `'base'` and `'quote'`. Twelve sites, every one false: so
+`is_token0_in` read false for every swap, both fee columns read zero, and
+`volume_usd` was priced off the wrong leg. Postgres raises nothing for a
+type-correct comparison that never matches, and the columns were populated, so
+nothing looked broken. Fixed to compare the code, accepting the names too.
 
 ## 15. Definition of done
 

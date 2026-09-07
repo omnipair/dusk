@@ -9,6 +9,12 @@
  * Mints from the faucet and adds liquidity until each side reaches the target.
  * Deposits in equal amounts so the pool is not pushed off parity.
  *
+ * The deployed faucet allows one mint per wallet per mint per hour, capped at
+ * `MAX_MINT_PER_REQUEST`. So a run gets one mint a side and then works from
+ * what it holds: it deposits every token available, reports how far short of
+ * the target that leaves the pool, and has to be run again for more. Depositing
+ * is unlimited — only acquiring is rate limited.
+ *
  *   TARGET=50000 node --experimental-strip-types scripts/devnet/seed_market_depth.ts
  */
 import {
@@ -35,6 +41,10 @@ const FAUCET_PROGRAM_ID =
   process.env.DUSK_FAUCET_PROGRAM_ID ?? "EMmV9HKeQndxFd4duqp65rUSjikVWCPakBH1UjJJ32dz";
 /** Per-transaction deposit, kept small enough to stay inside one budget. */
 const CHUNK = 5_000n;
+/** `MAX_MINT_PER_REQUEST` in the deployed faucet, in raw atoms. */
+const MAX_MINT_RAW = 10_000_000_000n;
+/** `FaucetError::CooldownActive`. */
+const COOLDOWN_ACTIVE = 6002;
 
 const discriminator = (name: string) =>
   createHash("sha256").update(`global:${name}`).digest().subarray(0, 8);
@@ -43,6 +53,10 @@ function faucetMint(owner: PublicKey, mint: PublicKey, amount: bigint): Transact
   const programId = new PublicKey(FAUCET_PROGRAM_ID);
   const [authority] = PublicKey.findProgramAddressSync(
     [Buffer.from("faucet_authority"), programId.toBuffer()], programId);
+  // The deployed faucet rate-limits per recipient and mint, so it takes a
+  // claim PDA that the eight-account layout predates.
+  const [claim] = PublicKey.findProgramAddressSync(
+    [Buffer.from("faucet_claim"), owner.toBuffer(), mint.toBuffer()], programId);
   const data = Buffer.alloc(8);
   data.writeBigUInt64LE(amount);
   return new TransactionInstruction({
@@ -52,6 +66,7 @@ function faucetMint(owner: PublicKey, mint: PublicKey, amount: bigint): Transact
       { isSigner: false, isWritable: false, pubkey: owner },
       { isSigner: false, isWritable: false, pubkey: authority },
       { isSigner: false, isWritable: true, pubkey: getAssociatedTokenAddressSync(mint, owner) },
+      { isSigner: false, isWritable: true, pubkey: claim },
       { isSigner: false, isWritable: true, pubkey: mint },
       { isSigner: false, isWritable: false, pubkey: SystemProgram.programId },
       { isSigner: false, isWritable: false, pubkey: TOKEN_PROGRAM_ID },
@@ -129,14 +144,49 @@ async function main() {
       owner, ata(ylpMint), owner, ylpMint, TOKEN_2022_PROGRAM_ID),
   ]);
 
-  while (now.base < target || now.quote < target) {
-    const remaining = target - (now.base < now.quote ? now.base : now.quote);
-    const chunk = remaining < CHUNK ? remaining : CHUNK;
-    if (chunk <= 0n) break;
-    await send([
-      faucetMint(owner, baseMint, chunk * unit),
-      faucetMint(owner, quoteMint, chunk * unit),
-    ]);
+  const balance = async (mint: PublicKey) => {
+    const held = await connection
+      .getTokenAccountBalance(ata(mint), "confirmed")
+      .catch(() => null);
+    return held ? BigInt(held.value.amount) : 0n;
+  };
+
+  const shortfall = () =>
+    (target - (now.base < now.quote ? now.base : now.quote)) * unit;
+
+  // One attempt per mint. A cooldown is the expected answer on a repeat run,
+  // not a failure — the deposit below still has whatever is already held to
+  // work with. Preflight spells the code `0x1772` and confirmation spells it
+  // `6002`, so match either.
+  const acquire = async (mint: PublicKey, want: bigint) => {
+    const label = mint.toBase58().slice(0, 8);
+    if (want <= 0n) return;
+    const ask = want > MAX_MINT_RAW ? MAX_MINT_RAW : want;
+    try {
+      await send([faucetMint(owner, mint, ask)]);
+      console.log(`  minted ${ask / unit} ${label}`);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      const cooldown = new RegExp(`${COOLDOWN_ACTIVE}|0x${COOLDOWN_ACTIVE.toString(16)}`);
+      if (!cooldown.test(message)) throw e;
+      console.log(`  ${label}: faucet cooldown active, depositing held balance`);
+    }
+  };
+
+  await acquire(baseMint, shortfall() - (await balance(baseMint)));
+  await acquire(quoteMint, shortfall() - (await balance(quoteMint)));
+
+  // Deposit is not rate limited, so this runs until the tokens are gone or the
+  // target is met, whichever comes first.
+  for (;;) {
+    const held = {
+      base: await balance(baseMint),
+      quote: await balance(quoteMint),
+    };
+    const available = held.base < held.quote ? held.base : held.quote;
+    const room = shortfall() < available ? shortfall() : available;
+    if (room <= 0n) break;
+    const chunk = room > CHUNK * unit ? CHUNK * unit : room;
     await send([
       await dusk.write.addLiquidityInstruction({
         baseMint, market, owner,
@@ -144,14 +194,23 @@ async function main() {
         ownerQuoteAccount: ata(quoteMint),
         ownerYlpAccount: ata(ylpMint),
         quoteMint, ylpMint,
-        baseDepositAmount: (chunk * unit).toString(),
-        quoteDepositAmount: (chunk * unit).toString(),
+        baseDepositAmount: chunk.toString(),
+        quoteDepositAmount: chunk.toString(),
         minYlpAmount: "0",
       }),
     ]);
     now = await depth();
-    console.log(`  +${chunk} a side -> ${now.base} base / ${now.quote} quote`);
+    console.log(`  +${chunk / unit} a side -> ${now.base} base / ${now.quote} quote`);
   }
-  console.log(`\ndepth restored: ${now.base} base / ${now.quote} quote`);
+
+  if (now.base >= target && now.quote >= target) {
+    console.log(`\ndepth restored: ${now.base} base / ${now.quote} quote`);
+    return;
+  }
+  console.log(
+    `\ndepth ${now.base} base / ${now.quote} quote — ${shortfall() / unit} a side ` +
+      `short of ${target}. The faucet allows ${MAX_MINT_RAW / unit} per mint per ` +
+      `hour per wallet, so run this again in an hour to add more.`,
+  );
 }
 main().catch((e) => { console.error(e); process.exit(1); });

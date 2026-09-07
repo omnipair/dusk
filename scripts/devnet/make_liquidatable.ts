@@ -56,6 +56,10 @@ const FAUCET_PROGRAM_ID =
 const COLLATERAL = 1_000n;
 /** Base sold to push the collateral's price down, in one transaction. */
 const PRICE_CRASH = 40_000n;
+/** `MAX_MINT_PER_REQUEST` in the deployed faucet, in raw atoms. */
+const MAX_MINT_RAW = 10_000_000_000n;
+/** `FaucetError::CooldownActive`. */
+const COOLDOWN_ACTIVE = 6002;
 const PROBE_INTERVAL_MS = 20_000;
 const PROBES = 15;
 
@@ -90,6 +94,12 @@ function faucetMint(
     [Buffer.from("faucet_authority"), programId.toBuffer()],
     programId,
   );
+  // The deployed faucet rate-limits per recipient and mint, so it takes a
+  // claim PDA that the eight-account layout predates.
+  const [claim] = PublicKey.findProgramAddressSync(
+    [Buffer.from("faucet_claim"), owner.toBuffer(), mint.toBuffer()],
+    programId,
+  );
   const data = Buffer.alloc(8);
   data.writeBigUInt64LE(amount);
   return new TransactionInstruction({
@@ -103,6 +113,7 @@ function faucetMint(
         isWritable: true,
         pubkey: getAssociatedTokenAddressSync(mint, owner),
       },
+      { isSigner: false, isWritable: true, pubkey: claim },
       { isSigner: false, isWritable: true, pubkey: mint },
       { isSigner: false, isWritable: false, pubkey: SystemProgram.programId },
       { isSigner: false, isWritable: false, pubkey: TOKEN_PROGRAM_ID },
@@ -211,13 +222,43 @@ async function main() {
   console.log(`market ${market.toBase58()}\n`);
 
   // Enough to collateralize the position and to fund the largest sale the
-  // search may need.
+  // search may need. That is more base than the faucet hands out in one
+  // request, so this accumulates instead: mint up to the ceiling, and only
+  // proceed once the wallet holds the whole amount. Each run adds at most
+  // `MAX_MINT_RAW`, and the cooldown is an hour per mint per wallet.
   const needed = COLLATERAL + PRICE_CRASH + 1_000n;
-  await send(connection, keypair, [
-    faucetMint(keypair.publicKey, baseMint, needed * baseUnit),
-    faucetMint(keypair.publicKey, quoteMint, 10_000n * quoteUnit),
-  ]);
-  console.log(`minted ${needed} base for collateral and price pressure`);
+  const held = async (mint: PublicKey) => {
+    const balance = await connection
+      .getTokenAccountBalance(getAssociatedTokenAddressSync(mint, keypair.publicKey), "confirmed")
+      .catch(() => null);
+    return balance ? BigInt(balance.value.amount) : 0n;
+  };
+  // Preflight spells the code `0x1772` and confirmation spells it `6002`.
+  const cooldown = new RegExp(`${COOLDOWN_ACTIVE}|0x${COOLDOWN_ACTIVE.toString(16)}`);
+  const acquire = async (mint: PublicKey, want: bigint) => {
+    const shortfall = want - (await held(mint));
+    if (shortfall <= 0n) return;
+    const ask = shortfall > MAX_MINT_RAW ? MAX_MINT_RAW : shortfall;
+    try {
+      await send(connection, keypair, [faucetMint(keypair.publicKey, mint, ask)]);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (!cooldown.test(message)) throw e;
+    }
+  };
+
+  await acquire(baseMint, needed * baseUnit);
+  await acquire(quoteMint, 10_000n * quoteUnit);
+
+  const heldBase = await held(baseMint);
+  if (heldBase < needed * baseUnit) {
+    throw new Error(
+      `holds ${heldBase / baseUnit} base, needs ${needed}. The faucet allows ` +
+        `${MAX_MINT_RAW / baseUnit} per mint per hour per wallet, so run this ` +
+        `again each hour until the balance is there — nothing is spent until it is.`,
+    );
+  }
+  console.log(`holding ${heldBase / baseUnit} base for collateral and price pressure`);
 
   const positionId = Keypair.generate().publicKey;
   const [position] = deriveBorrowPositionAddress(market, positionId);
