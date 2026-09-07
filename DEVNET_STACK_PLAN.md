@@ -530,8 +530,8 @@ balances.
 This is accepted on devnet and will not be fixed here: the tokens are
 worthless, and a limit costs a program upgrade plus a coordinated app release
 for no benefit. A per-request ceiling and hourly per-recipient cooldown were
-implemented before this call and remain in the tree, unshipped, if the decision
-is ever revisited.
+implemented before this call and have since been removed from both the program
+and the app, so nothing in the tree half-implements a limit nobody wants.
 
 **This does not carry to mainnet.** A public faucet with no cap is a reason not
 to promote this program shape unchanged — see the promotion gates in section 11.
@@ -596,12 +596,16 @@ in two steps leaves the deployment dark in between — and any recovery script
 that reads its own configuration from that endpoint cannot run. Seed in the same
 operation that creates, or give the endpoint a per-market failure mode.
 
-**The unshipped faucet limit breaks Anchor-built faucet calls.** `faucet_mint`
-in this tree takes a `faucet_claim` account that the deployed program does not,
-so the generated IDL puts `mint` one position late and the program rejects the
-call as `AccountNotInitialized`. Anything hand-building the deployed eight
-account layout still works, which is why the acceptance matrix never noticed.
-Reverting the unshipped change would remove the divergence.
+**An unshipped account broke every Anchor-built faucet call, and was
+reverted.** `faucet_mint` had grown a `faucet_claim` account the deployed
+program does not take, for a rate limit that was never wanted on devnet. Since
+the program reads its accounts positionally, that put `mint` one slot late and
+every call failed as `AccountNotInitialized`. Callers hand-building the deployed
+eight-account layout still worked, which is why the acceptance matrix never
+noticed and only the webapp's faucet page was broken. The lesson is the shape:
+an instruction's account list is a contract, and adding to it in the client
+before the program ships is indistinguishable from corrupting every argument
+after the insertion point.
 
 ## 15. Definition of done
 
