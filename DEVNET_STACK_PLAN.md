@@ -587,20 +587,33 @@ which needs an unhealthy position, and therefore a way to make one on devnet.
 
 ## 14. What is left, and why
 
-One item remains, and it is a wait rather than work.
-
 | Item | State | What it needs |
 | --- | --- | --- |
 | Parameter proposal execution | Proposal `HzgwUjLS` stands queued on the primary market with strict-majority support | The seven-day timelock to elapse on **2026-09-13**, then execution — which is permissionless, and is what `dusk-lifecycle-keeper` exists to do |
+| Create a market from the webapp | Works from `scripts/v2/bootstrap_market.ts`; the webapp's flow targets the legacy mainnet Omnipair program and cannot work on devnet | An SDK surface for market bootstrap, the webapp flow ported onto it, and a working Pinata credential |
+| LP token metadata | The Pinata JWT in both webapp trees is rejected — `403` on `data/testAuthentication`, `401 not authenticated` on `v3/files/public` | A new key from the account owner, or the metadata step made optional |
 
 `PARAMETER_PROPOSAL_TIMELOCK_SECONDS` is seven days and a real cluster has no
-clock to advance, so this cannot be closed in a sitting. The execution window is
-a further seven days, so it must be taken by 2026-09-20 or the proposal expires
-and a new one has to be raised.
+clock to advance, so the proposal cannot be closed in a sitting. The execution
+window is a further seven days, so it must be taken by 2026-09-20 or the
+proposal expires and a new one has to be raised.
 
-Everything else in the definition of done is met. The acceptance matrix now
-signs fourteen flows, adding delegation, placing a conditional order and
-cancelling it; a second market exists and both the indexer and API report it.
+**Market creation is a bootstrap, not an instruction.** `bootstrap_market.ts`
+ensures the futarchy authority exists, creates three transfer-hooked LP mints
+(yLP, base hLP, quote hLP) each with its own keypair and mint transaction,
+opens a WSOL account for the team treasury, then calls `initialize_market`
+across twenty accounts, then initializes yield accounts, the LP transfer hook
+and token metadata. `initializeMarketInstruction` is absent from
+`packages/dusk-sdk/src/write.ts` entirely, so this is the one flow in the
+definition of done that no SDK path reaches. The webapp's existing
+`DeployStepperToast` is the right shape for it — the flow is already
+multi-transaction — but `useInitializePool` builds a v1 `pair` through
+`useOmnipair` and shares nothing with the Dusk path.
+
+Everything else in the definition of done is met. The acceptance matrix signs
+fourteen flows, adding delegation, placing a conditional order and cancelling
+it; a second market exists and both the indexer and API report it; and live
+swaps stream to the webapp over gRPC-web.
 
 ### Two things worth knowing
 
