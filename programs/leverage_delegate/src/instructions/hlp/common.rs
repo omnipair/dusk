@@ -160,6 +160,7 @@ pub(super) fn claim_hlp_yield_if_available<'info>(
             dusk_program.clone(),
             dusk::cpi::accounts::Harvest {
                 market,
+                caller: owner.clone(),
                 owner,
                 asset_mint,
                 lp_mint,

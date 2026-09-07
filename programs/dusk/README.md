@@ -133,7 +133,9 @@ and authorizes the matching terminal remint.
 
 A partial direct hLP burn is recognized lazily on the next deposit or withdrawal for that hLP side. Dusk first checkpoints nested yLP growth against the old stored supply, then replaces the stored hLP supply with the smaller nonzero live mint supply before pricing the operation. Burned hLP principal is donated to the remaining holders; historical nested yield attributable to the burned balance remains stranded, while future nested yield uses the reconciled live supply. If every hLP atom is burned directly, no holder remains to authorize the normal final exit: the side is a deliberately fail-closed zombie and later hLP deposits/withdrawals reject. There is no governance sweep or asynchronous recovery path. Normal exits must use Dusk's remove/withdraw instructions.
 
-LP custody must also preserve an authority that can sign Dusk's claim and recipient-update instructions. A normal wallet works directly; a PDA owner works only when its controlling program invokes Dusk with `invoke_signed`. SPL multisig-owned LP token accounts are not supported because the multisig account itself cannot satisfy Dusk's owner-signer constraint. Sending LP tokens to unsupported custody can make that custody's accrued yield unreachable.
+Anyone may call `harvest` for yLP or either hLP mint without the LP owner's signature. Payment goes only to the current `YieldAccount.recipient`'s canonical associated token account for the underlying mint and its token program; the caller cannot redirect the payout. This also permits harvesting yield while hLP is held by an active order PDA. Only the LP owner may change the recipient through `set_yield_recipient`.
+
+LP custody must still preserve an authority that can sign Dusk's withdrawal and recipient-update instructions. A normal wallet works directly; a PDA owner uses its controlling program's `invoke_signed`. SPL multisig-owned LP accounts cannot sign those owner-authorized instructions directly, although their yield can be harvested permissionlessly to the configured recipient.
 
 ## hLP Vaults
 
