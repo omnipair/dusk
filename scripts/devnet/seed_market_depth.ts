@@ -33,8 +33,17 @@ const API = process.env.DUSK_API_URL ?? "https://dusk-api-production-291f.up.rai
 const RPC = process.env.DUSK_RPC_URL ?? "https://api.devnet.solana.com";
 const FAUCET_PROGRAM_ID =
   process.env.DUSK_FAUCET_PROGRAM_ID ?? "EMmV9HKeQndxFd4duqp65rUSjikVWCPakBH1UjJJ32dz";
-/** Per-transaction deposit, kept small enough to stay inside one budget. */
-const CHUNK = 5_000n;
+/**
+ * Per-transaction deposit.
+ *
+ * Capped by the faucet's `MAX_MINT_PER_REQUEST` (10,000 tokens), not by the
+ * compute budget. The faucet also enforces an hourly cooldown per recipient
+ * per mint, so this loop can mint once an hour and no more: seeding past
+ * 10,000 a side means waiting, or minting from more than one wallet. That is
+ * the cost of the rate limit, and it is why the chunk is the ceiling rather
+ * than something comfortable.
+ */
+const CHUNK = 10_000n;
 
 const discriminator = (name: string) =>
   createHash("sha256").update(`global:${name}`).digest().subarray(0, 8);
@@ -43,6 +52,14 @@ function faucetMint(owner: PublicKey, mint: PublicKey, amount: bigint): Transact
   const programId = new PublicKey(FAUCET_PROGRAM_ID);
   const [authority] = PublicKey.findProgramAddressSync(
     [Buffer.from("faucet_authority"), programId.toBuffer()], programId);
+  // The deployed faucet enforces an hourly per-recipient cooldown, recorded in
+  // this account. Its list is positional, so the claim record has to sit
+  // between the recipient's token account and the mint — put it anywhere else
+  // and every argument after it is misread.
+  const [faucetClaim] = PublicKey.findProgramAddressSync(
+    [Buffer.from("faucet_claim"), owner.toBuffer(), mint.toBuffer()],
+    programId,
+  );
   const data = Buffer.alloc(8);
   data.writeBigUInt64LE(amount);
   return new TransactionInstruction({
@@ -52,6 +69,7 @@ function faucetMint(owner: PublicKey, mint: PublicKey, amount: bigint): Transact
       { isSigner: false, isWritable: false, pubkey: owner },
       { isSigner: false, isWritable: false, pubkey: authority },
       { isSigner: false, isWritable: true, pubkey: getAssociatedTokenAddressSync(mint, owner) },
+      { isSigner: false, isWritable: true, pubkey: faucetClaim },
       { isSigner: false, isWritable: true, pubkey: mint },
       { isSigner: false, isWritable: false, pubkey: SystemProgram.programId },
       { isSigner: false, isWritable: false, pubkey: TOKEN_PROGRAM_ID },
