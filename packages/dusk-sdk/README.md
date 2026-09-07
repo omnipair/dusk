@@ -223,11 +223,21 @@ await provider.sendAndConfirm(transaction);
 initializer is safe to compose unconditionally, including when a third party
 has transferred lamports to the PDA address before initialization.
 
-LP token accounts should be owned by a wallet that can sign Dusk instructions,
-or by a PDA whose controlling program invokes Dusk with `invoke_signed`. SPL
-multisig-owned LP accounts are unsupported: Token-2022 transfers can checkpoint
-yield to that owner, but the multisig account itself cannot sign Dusk's claim or
-recipient-update instruction.
+`harvest` is permissionless for yLP and both hLP mints. Its `owner` account
+identifies the LP holder and does not need to sign. Supply any signer as
+`caller`, including the configured recipient or an unrelated keeper. The
+claim event records the LP owner separately from `metadata.signer`, which
+identifies the caller.
+Derive `recipientAssetAccount` as the current `YieldAccount.recipient`'s ATA
+using the underlying mint's token program; arbitrary destination accounts are
+rejected. Create that ATA before harvesting if it does not exist; the
+transaction's payer can fund its creation. Changing the recipient still
+requires the LP owner's signature.
+
+LP token accounts should be owned by a wallet that can sign withdrawals and
+recipient updates, or by a PDA whose controlling program invokes those Dusk
+instructions with `invoke_signed`. SPL multisig accounts cannot sign those
+instructions directly, but their yield can be harvested to the stored recipient.
 
 ### Referral Interest Sharing
 
