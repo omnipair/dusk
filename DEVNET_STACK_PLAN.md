@@ -590,8 +590,7 @@ which needs an unhealthy position, and therefore a way to make one on devnet.
 | Item | State | What it needs |
 | --- | --- | --- |
 | Parameter proposal execution | Proposal `HzgwUjLS` stands queued on the primary market with strict-majority support | The seven-day timelock to elapse on **2026-09-13**, then execution — which is permissionless, and is what `dusk-lifecycle-keeper` exists to do |
-| Create a market from the webapp | Works from `scripts/v2/bootstrap_market.ts`; the webapp's flow targets the legacy mainnet Omnipair program and cannot work on devnet | An SDK surface for market bootstrap, the webapp flow ported onto it, and a working Pinata credential |
-| LP token metadata | The Pinata JWT in both webapp trees is rejected — `403` on `data/testAuthentication`, `401 not authenticated` on `v3/files/public` | A new key from the account owner, or the metadata step made optional |
+| Create a market from the webapp | The SDK reaches it now, proven on devnet; the webapp's own flow still targets the legacy mainnet Omnipair program | `useInitializePool` ported off `useOmnipair` onto `dusk.write.initializeMarketInstruction` and `market-bootstrap` |
 
 `PARAMETER_PROPOSAL_TIMELOCK_SECONDS` is seven days and a real cluster has no
 clock to advance, so the proposal cannot be closed in a sitting. The execution
@@ -603,8 +602,19 @@ ensures the futarchy authority exists, creates three transfer-hooked LP mints
 (yLP, base hLP, quote hLP) each with its own keypair and mint transaction,
 opens a WSOL account for the team treasury, then calls `initialize_market`
 across twenty accounts, then initializes yield accounts, the LP transfer hook
-and token metadata. `initializeMarketInstruction` is absent from
-`packages/dusk-sdk/src/write.ts` entirely, so this is the one flow in the
+and token metadata. That is why the SDK surface is a module rather than a
+single builder: `createHookedLpMintInstructions` returns instructions **and
+keypairs**, because the LP mints are ordinary Token-2022 accounts that must be
+signed for and must exist before the program instruction that adopts them. The
+same sequence therefore works from a script and from a browser wallet, which
+`scripts/devnet/create_market_via_sdk.ts` demonstrates — it created market
+`45qXCmfQrDxTDYc1k7Xu65Qo3kYHRYUkYmiCQKLvPBhL` end to end.
+
+What remains is the webapp flow itself. `useInitializePool` builds a v1 `pair`
+through `useOmnipair` and shares nothing with the Dusk path; the existing
+`DeployStepperToast` is the right shape for it, since the flow is inherently
+multi-transaction. Historical note: `initializeMarketInstruction` was absent from
+`packages/dusk-sdk/src/write.ts` entirely, so this was the one flow in the
 definition of done that no SDK path reaches. The webapp's existing
 `DeployStepperToast` is the right shape for it — the flow is already
 multi-transaction — but `useInitializePool` builds a v1 `pair` through
@@ -614,6 +624,30 @@ Everything else in the definition of done is met. The acceptance matrix signs
 fourteen flows, adding delegation, placing a conditional order and cancelling
 it; a second market exists and both the indexer and API report it; and live
 swaps stream to the webapp over gRPC-web.
+
+### devnet-1 was re-pinned for the harvest authority change (2026-09-10)
+
+`harvest` takes a `caller` signer distinct from `owner`. The caller must be the
+LP owner, or the recipient that owner designated through `set_yield_recipient`;
+anything else is rejected with `InvalidSigner`. That keeps the capability the
+split was introduced for — harvesting while hLP sits in an order PDA that
+cannot sign for itself — without opening the instruction to any signer. The
+destination guard is unchanged: payment reaches only the recipient's canonical
+associated token account, so a designated caller cannot redirect it either.
+
+Deployed and verified against the live program, not just LiteSVM: a funded
+stranger simulating `harvest` is rejected at `harvest.rs:106` with
+`InvalidSigner`, while the owner passes authorization and stops at `AmountZero`
+because nothing has accrued. New pins — binary `b3f1d85f…`, canonical IDL
+`aff776aa…`, source raw IDL `d898477e…`, SDK `2.3.0`. The outgoing binary
+`91c3ee46…` is kept at `dusk-keepers/artifacts/dusk-devnet-91c3ee46.so`.
+
+**Re-pinning found a latent wrong pin.** `revision.ts` set
+`idlPackagedRawSha256` to the *source* digest, and the test meant to catch that
+compared the two constants to each other rather than to the shipped file — so
+the vendored 2.2.0's real packaged bytes hashed to `7a7fce31…` and nothing
+checked it. The build re-emits the JSON, so the two digests legitimately
+differ; the test now hashes `dist/idl_v2.json`.
 
 ### Two things worth knowing
 
