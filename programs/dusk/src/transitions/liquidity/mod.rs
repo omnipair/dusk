@@ -5,7 +5,7 @@ pub use hlp::*;
 use crate::{
     constants::{MIN_LIQUIDITY, NAD},
     errors::ErrorCode,
-    math::{ceil_div, normalize_to_nad, SqrtU128},
+    math::{ceil_div, SqrtU128},
     state::{Market, MarketAsset},
 };
 use anchor_lang::prelude::*;
@@ -78,8 +78,10 @@ impl Market {
             .checked_sub(supply_before)
             .ok_or(ErrorCode::SupplyUnderflow)?;
         let seeded_price_nad = if supply_before == 0 {
-            let base_nad = normalize_to_nad(u128::from(receipt.base_reserve_credit), self.base_side.asset_decimals)?;
-            let quote_nad = normalize_to_nad(u128::from(receipt.quote_reserve_credit), self.quote_side.asset_decimals)?;
+            let base_nad =
+                self.normalize_amount(u128::from(receipt.base_reserve_credit), self.base_side.asset_decimals)?;
+            let quote_nad =
+                self.normalize_amount(u128::from(receipt.quote_reserve_credit), self.quote_side.asset_decimals)?;
             let price = quote_nad
                 .checked_mul(u128::from(NAD))
                 .and_then(|value| value.checked_div(base_nad))

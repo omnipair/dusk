@@ -501,6 +501,12 @@ impl Default for Insurance {
     }
 }
 
+/// Token amounts stored in reserves, positions, and shares are raw atoms.
+/// Internal curve quantities, risk depths, hLP NAV/exposure, and normalized
+/// debt/collateral values use `max(9, base_side.asset_decimals,
+/// quote_side.asset_decimals)` decimal places, including quantity fields with
+/// the historical `_nad` suffix. Prices, rates, and per-share ratios always
+/// retain nine-decimal NAD scaling. The quantity scale is immutable per market.
 #[account]
 #[derive(InitSpace, Default)]
 pub struct Market {
@@ -643,9 +649,9 @@ pub struct Risk {
     pub directional_quote_price_ema_nad: u64,
     pub cached_spot_base_price_nad: u64,
     pub cached_spot_quote_price_nad: u64,
-    /// Last observed total active curve depth (full-range plus concentrated).
+    /// Last observed total active curve depth in market amount units (see Market).
     pub observed_curve_depth_nad: u128,
-    /// EMA of total active curve depth.
+    /// EMA of total active curve depth in market amount units (see Market).
     pub curve_depth_ema_nad: u128,
     pub last_snapshot_slot: u64,
 }

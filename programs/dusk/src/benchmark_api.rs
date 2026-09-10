@@ -18,7 +18,7 @@ use crate::{
         leverage_position_pda, rebalance_executes_token_changes, reconcile_live_hlp_supply, record_hlp_interest_credit,
         record_inline_hlp_interest_credit, BorrowCapacityPreview, PreparedSwap, SwapRequest,
     },
-    math::{ceil_div, denormalize_from_nad_floor, health_bps, normalize_to_nad},
+    math::{ceil_div, health_bps},
     state::{
         BorrowPosition, CollateralReceipt, Debt, LeveragePosition, Market, MarketAsset, MarketConfig, MarketSide,
         ProtocolAuctionSplit, ReferralAccrual, ReferralInterestQuote, ReferralPartner, Risk, YieldAccount,
@@ -1720,30 +1720,31 @@ impl BenchmarkMarket {
         let max_debt = max_debt_by_health.min(max_debt_by_cash).min(max_debt_by_daily_limit);
         let projected_borrow_amount = projected_borrow_amount.unwrap_or(max_debt);
         let (projected_terms, projected_global_health_contribution) = preview_context.terms(projected_borrow_amount)?;
-        let projected_debt_nad = normalize_to_nad(projected_borrow_amount as u128, debt_side.asset_decimals)?;
+        let projected_debt_nad = preview.normalize_amount(projected_borrow_amount as u128, debt_side.asset_decimals)?;
         let projected_health_bps = if projected_debt_nad == 0 {
             u64::MAX
         } else {
             health_bps(collateral_value_nad, projected_debt_nad)?
         };
-        let liquidation_debt_per_collateral_price_nad =
-            if projected_borrow_amount == 0 || projected_terms.liquidation_cf_bps == 0 {
-                0
-            } else {
-                let collateral_nad = normalize_to_nad(collateral_amount as u128, collateral_side.asset_decimals)?;
-                let debt_nad = normalize_to_nad(projected_borrow_amount as u128, debt_side.asset_decimals)?;
-                let price = ceil_div(
-                    debt_nad
-                        .checked_mul(BPS_DENOMINATOR as u128)
-                        .and_then(|value| value.checked_mul(NAD as u128))
-                        .ok_or(ErrorCode::MarketMathOverflow)?,
-                    collateral_nad
-                        .checked_mul(projected_terms.liquidation_cf_bps as u128)
-                        .ok_or(ErrorCode::MarketMathOverflow)?,
-                )
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-                u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow)?
-            };
+        let liquidation_debt_per_collateral_price_nad = if projected_borrow_amount == 0
+            || projected_terms.liquidation_cf_bps == 0
+        {
+            0
+        } else {
+            let collateral_nad = preview.normalize_amount(collateral_amount as u128, collateral_side.asset_decimals)?;
+            let debt_nad = preview.normalize_amount(projected_borrow_amount as u128, debt_side.asset_decimals)?;
+            let price = ceil_div(
+                debt_nad
+                    .checked_mul(BPS_DENOMINATOR as u128)
+                    .and_then(|value| value.checked_mul(NAD as u128))
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+                collateral_nad
+                    .checked_mul(projected_terms.liquidation_cf_bps as u128)
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+            )
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+            u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow)?
+        };
 
         Ok(BorrowCapacityPreview {
             collateral_asset,
@@ -4552,7 +4553,7 @@ fn leverage_metrics(
             .and_then(|value| value.checked_div(closeout_value as u128))
             .ok_or(ErrorCode::MarketMathOverflow)?
     };
-    let collateral_nad = normalize_to_nad(
+    let collateral_nad = market.normalize_amount(
         position.collateral_amount as u128,
         market.side(collateral_asset).asset_decimals,
     )?;
@@ -4566,7 +4567,7 @@ fn leverage_metrics(
             .and_then(|value| value.checked_div(closeout_quote.start_price_nad as u128))
             .ok_or(ErrorCode::MarketMathOverflow)?,
     };
-    let spot_value = denormalize_from_nad_floor(spot_value_nad, market.side(debt_asset).asset_decimals)?;
+    let spot_value = market.denormalize_amount_floor(spot_value_nad, market.side(debt_asset).asset_decimals)?;
     let unwind_impact_bps = if closeout_value >= spot_value || spot_value == 0 {
         0
     } else {
@@ -5118,8 +5119,9 @@ impl ExistingPositionCapacityContext<'_> {
             self.debt_asset,
             target_contribution,
         )?;
-        let projected_total_debt_nad =
-            normalize_to_nad(projected_total_debt, self.market.side(self.debt_asset).asset_decimals)?;
+        let projected_total_debt_nad = self
+            .market
+            .normalize_amount(projected_total_debt, self.market.side(self.debt_asset).asset_decimals)?;
         let terms = self.market.dynamic_borrow_terms(
             self.debt_asset,
             collateral_amount,
@@ -5167,7 +5169,7 @@ fn existing_borrow_capacity_preview(
     // health-domain ceiling avoids importing live/cash capital into gross
     // admissibility.
     let search_upper =
-        denormalize_from_nad_floor(maximum_underwriting_debt_nad, market.side(debt_asset).asset_decimals)?;
+        market.denormalize_amount_floor(maximum_underwriting_debt_nad, market.side(debt_asset).asset_decimals)?;
     let underwriting_max_additional = if current_underwriting_satisfied {
         maximum_monotone_capacity(search_upper, |amount| {
             let projected = context.project(amount)?;
@@ -5279,7 +5281,9 @@ struct NewPositionCapacityContext<'a> {
 impl NewPositionCapacityContext<'_> {
     fn terms(&self, projected_debt_amount: u64) -> Result<(DynamicBorrowTerms, u64)> {
         let debt_decimals = self.market.side(self.debt_asset).asset_decimals;
-        let projected_debt_nad = normalize_to_nad(projected_debt_amount as u128, debt_decimals)?;
+        let projected_debt_nad = self
+            .market
+            .normalize_amount(projected_debt_amount as u128, debt_decimals)?;
         let projected_total_debt_nad = self
             .existing_total_debt_nad
             .checked_add(projected_debt_nad)

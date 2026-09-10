@@ -1,7 +1,12 @@
 use super::*;
 
-fn recognized_hlp_residual_exposure(actual_residual_nad: i128, nav_nad: u128) -> i128 {
-    let tolerance_nad = HLP_REBALANCE_DUST_MAX_NAD.min(nav_nad / HLP_REBALANCE_DUST_NAV_DENOMINATOR);
+fn recognized_hlp_residual_exposure(actual_residual_nad: i128, nav_nad: u128, amount_decimals: u8) -> i128 {
+    // Keep the absolute dust allowance at 0.00001 tokens at every market scale.
+    // Saturation is exact for this min: an unrepresentable absolute cap can
+    // never be tighter than the representable relative NAV cap.
+    let absolute_cap =
+        HLP_REBALANCE_DUST_MAX_NAD.saturating_mul(10_u128.saturating_pow(u32::from(amount_decimals - NAD_DECIMALS)));
+    let tolerance_nad = absolute_cap.min(nav_nad / HLP_REBALANCE_DUST_NAV_DENOMINATOR);
     if actual_residual_nad.unsigned_abs() <= tolerance_nad {
         0
     } else {
@@ -150,6 +155,7 @@ fn canonical_debt_for_proportional_claim(
     hlp_ylp_shares: u64,
     total_ylp_supply: u64,
     borrow_index_nad: u128,
+    quoted_debt: Option<u64>,
 ) -> Result<(u128, u64)> {
     if hlp_ylp_shares == 0 {
         return Ok((0, 0));
@@ -158,6 +164,22 @@ fn canonical_debt_for_proportional_claim(
         .checked_sub(hlp_ylp_shares)
         .ok_or(ErrorCode::SupplyUnderflow)?;
     require!(ordinary_and_other_shares > 0, ErrorCode::SupplyUnderflow);
+    // Retain the direct algebraic endpoint when rounding yLP ownership did
+    // not separate its debt from the materialized proportional claim.
+    if let Some(quoted_debt) = quoted_debt {
+        let shares = if quoted_debt == 0 {
+            0
+        } else {
+            Debt::debt_to_shares(quoted_debt, borrow_index_nad)?
+        };
+        let debt =
+            u64::try_from(Debt::shares_to_debt(shares, borrow_index_nad)?).map_err(|_| ErrorCode::DebtMathOverflow)?;
+        let reserve = non_debt_reserve.checked_add(debt).ok_or(ErrorCode::ReserveOverflow)?;
+        let claim = mul_div_u128(reserve as u128, hlp_ylp_shares as u128, total_ylp_supply as u128)?;
+        if u128::from(debt).abs_diff(claim) <= 1 {
+            return Ok((shares, debt));
+        }
+    }
     let continuous = u64::try_from(
         (non_debt_reserve as u128)
             .checked_mul(hlp_ylp_shares as u128)
@@ -260,10 +282,11 @@ pub(crate) fn apply_concentrated_hlp_recovery(
         MarketAsset::Base => (start.base_hlp_equity, start.ordinary_base, start.ordinary_quote),
         MarketAsset::Quote => (start.quote_hlp_equity, start.ordinary_quote, start.ordinary_base),
     };
-    let target_equity = denormalize_from_nad_floor(target_equity_nad, market.side(target_asset).asset_decimals)?;
-    let target_reserve = denormalize_from_nad_floor(target_reserve_nad, market.side(target_asset).asset_decimals)?;
+    let target_equity = market.denormalize_amount_floor(target_equity_nad, market.side(target_asset).asset_decimals)?;
+    let target_reserve =
+        market.denormalize_amount_floor(target_reserve_nad, market.side(target_asset).asset_decimals)?;
     let ordinary_opposite_reserve =
-        denormalize_from_nad_floor(opposite_reserve_nad, market.side(asset_in).asset_decimals)?;
+        market.denormalize_amount_floor(opposite_reserve_nad, market.side(asset_in).asset_decimals)?;
 
     // Gross hLP yield is already a holder liability in the current ledger.
     // Until the net-yield checkpoint is introduced, none of it may be spent
@@ -289,7 +312,8 @@ pub(crate) fn apply_concentrated_hlp_recovery(
     if bonus_output == 0 {
         return Ok(());
     }
-    let effective_bonus_nad = normalize_to_nad(bonus_output as u128, market.side(target_asset).asset_decimals)?;
+    let effective_bonus_nad =
+        market.normalize_amount(bonus_output as u128, market.side(target_asset).asset_decimals)?;
     apply_hlp_recovery_bonus(
         start,
         &mut quote.integrated,
@@ -638,10 +662,10 @@ fn prepare_concentrated_hlp_transition_from_end(
     } else {
         // A quoted swap has not materialized its endpoint yet, so reconstruct
         // the exact post-swap live reserves from the quoted ordinary point.
-        let ordinary_base = denormalize_from_nad_floor(end.ordinary_base, market.base_side.asset_decimals)?;
-        let ordinary_quote = denormalize_from_nad_floor(end.ordinary_quote, market.quote_side.asset_decimals)?;
-        let base_equity = denormalize_from_nad_floor(end.base_hlp_equity, market.base_side.asset_decimals)?;
-        let quote_equity = denormalize_from_nad_floor(end.quote_hlp_equity, market.quote_side.asset_decimals)?;
+        let ordinary_base = market.denormalize_amount_floor(end.ordinary_base, market.base_side.asset_decimals)?;
+        let ordinary_quote = market.denormalize_amount_floor(end.ordinary_quote, market.quote_side.asset_decimals)?;
+        let base_equity = market.denormalize_amount_floor(end.base_hlp_equity, market.base_side.asset_decimals)?;
+        let quote_equity = market.denormalize_amount_floor(end.quote_hlp_equity, market.quote_side.asset_decimals)?;
         (
             ordinary_base
                 .checked_add(base_equity)
@@ -666,51 +690,32 @@ fn prepare_concentrated_hlp_transition_from_end(
             .checked_sub(base_interest_paid)
             .ok_or(ErrorCode::ReserveUnderflow)?;
     }
-    let ((final_base_debt_shares, final_base_debt), (final_quote_debt_shares, final_quote_debt)) =
-        if !certify_proportional_claim {
-            // The ordinary path starts on the canonical hedge and the direct
-            // algebraic endpoint is already atom-tight. Avoid the additional
-            // proportional-claim certificate on every healthy swap.
-            let base_debt = denormalize_from_nad_floor(endpoint.base_hlp_quote_debt, market.quote_side.asset_decimals)?;
-            let quote_debt = denormalize_from_nad_floor(endpoint.quote_hlp_base_debt, market.base_side.asset_decimals)?;
-            let base_shares = if base_debt == 0 {
-                0
-            } else {
-                Debt::debt_to_shares(base_debt, market.debt.quote_borrow_index_nad)?
-            };
-            let quote_shares = if quote_debt == 0 {
-                0
-            } else {
-                Debt::debt_to_shares(quote_debt, market.debt.base_borrow_index_nad)?
-            };
-            (
-                (
-                    base_shares,
-                    u64::try_from(Debt::shares_to_debt(base_shares, market.debt.quote_borrow_index_nad)?)
-                        .map_err(|_| ErrorCode::DebtMathOverflow)?,
-                ),
-                (
-                    quote_shares,
-                    u64::try_from(Debt::shares_to_debt(quote_shares, market.debt.base_borrow_index_nad)?)
-                        .map_err(|_| ErrorCode::DebtMathOverflow)?,
-                ),
-            )
+    // Integer yLP ownership can move the opposite-asset claim by more than
+    // one token atom, especially when the mints have different decimals.
+    // Keep the quoted debt only when it still matches the materialized claim;
+    // otherwise certify the debt against the actual rounded ownership.
+    let (final_base_debt_shares, final_base_debt) = canonical_debt_for_proportional_claim(
+        quote_non_debt_reserve,
+        ownership.base_hlp_ylp_shares,
+        ownership.total_ylp_supply,
+        market.debt.quote_borrow_index_nad,
+        if certify_proportional_claim {
+            None
         } else {
-            (
-                canonical_debt_for_proportional_claim(
-                    quote_non_debt_reserve,
-                    ownership.base_hlp_ylp_shares,
-                    ownership.total_ylp_supply,
-                    market.debt.quote_borrow_index_nad,
-                )?,
-                canonical_debt_for_proportional_claim(
-                    base_non_debt_reserve,
-                    ownership.quote_hlp_ylp_shares,
-                    ownership.total_ylp_supply,
-                    market.debt.base_borrow_index_nad,
-                )?,
-            )
-        };
+            Some(market.denormalize_amount_floor(endpoint.base_hlp_quote_debt, market.quote_side.asset_decimals)?)
+        },
+    )?;
+    let (final_quote_debt_shares, final_quote_debt) = canonical_debt_for_proportional_claim(
+        base_non_debt_reserve,
+        ownership.quote_hlp_ylp_shares,
+        ownership.total_ylp_supply,
+        market.debt.base_borrow_index_nad,
+        if certify_proportional_claim {
+            None
+        } else {
+            Some(market.denormalize_amount_floor(endpoint.quote_hlp_base_debt, market.base_side.asset_decimals)?)
+        },
+    )?;
     // Under the debug flag, print the reconstruction's own inputs. The
     // identity's two sides disagree in the ordinary (non-debt) portion, and
     // separating the quoted ordinary reserve from the quoted hLP equity says
@@ -1462,14 +1467,15 @@ fn settled_close_target_amount(
         let surplus_borrowed = borrowed_redeemed
             .checked_sub(debt_repaid)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let surplus_nad = normalize_to_nad(surplus_borrowed as u128, market.side(borrowed_asset).asset_decimals)?;
+        let surplus_nad =
+            market.normalize_amount(surplus_borrowed as u128, market.side(borrowed_asset).asset_decimals)?;
         let direction = match borrowed_asset {
             MarketAsset::Base => ConcentratedCurveDirection::BaseToQuote,
             MarketAsset::Quote => ConcentratedCurveDirection::QuoteToBase,
         };
         let quote = geometry.quote_exact_in(start, surplus_nad, direction)?;
         let target_from_surplus =
-            denormalize_from_nad_floor(quote.amount_out, market.side(target_asset).asset_decimals)?;
+            market.denormalize_amount_floor(quote.amount_out, market.side(target_asset).asset_decimals)?;
         return target_redeemed
             .checked_add(target_from_surplus)
             .ok_or_else(|| ErrorCode::MarketMathOverflow.into());
@@ -1478,13 +1484,14 @@ fn settled_close_target_amount(
     let borrowed_shortfall = debt_repaid
         .checked_sub(borrowed_redeemed)
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    let shortfall_nad = normalize_to_nad(borrowed_shortfall as u128, market.side(borrowed_asset).asset_decimals)?;
+    let shortfall_nad =
+        market.normalize_amount(borrowed_shortfall as u128, market.side(borrowed_asset).asset_decimals)?;
     let direction = match target_asset {
         MarketAsset::Base => ConcentratedCurveDirection::BaseToQuote,
         MarketAsset::Quote => ConcentratedCurveDirection::QuoteToBase,
     };
     let quote = geometry.quote_exact_out(start, shortfall_nad, direction)?;
-    let target_retained = denormalize_from_nad_ceil(quote.amount_in, market.side(target_asset).asset_decimals)?;
+    let target_retained = market.denormalize_amount_ceil(quote.amount_in, market.side(target_asset).asset_decimals)?;
     require_gte!(target_redeemed, target_retained, ErrorCode::HlpSettlementUnavailable);
     target_redeemed
         .checked_sub(target_retained)
@@ -1605,7 +1612,8 @@ pub(crate) fn current_hlp_entry_state_with_prices(
     prices: HlpCurvePrices,
 ) -> Result<HlpEntryState> {
     let valuation = current_hlp_valuation_with_prices(market, target_asset, prices)?;
-    let residual_exposure = recognized_hlp_residual_exposure(valuation.ideal_delta, valuation.nav_nad);
+    let residual_exposure =
+        recognized_hlp_residual_exposure(valuation.ideal_delta, valuation.nav_nad, market.amount_decimals());
     let disposition = if residual_exposure == 0 {
         HlpEntryDisposition::Settled
     } else if !valuation.proportional_hedge_available || valuation.nav_nad == 0 {
@@ -1814,11 +1822,11 @@ pub(crate) fn checkpoint_one_hlp_with_prices(
 ) -> Result<i128> {
     let valuation = current_hlp_valuation_with_prices(market, target_asset, prices)?;
     let nav = valuation.nav_nad;
+    let ideal_delta = recognized_hlp_residual_exposure(valuation.ideal_delta, nav, market.amount_decimals());
     let vault = match target_asset {
         MarketAsset::Base => &mut market.base_hlp_vault,
         MarketAsset::Quote => &mut market.quote_hlp_vault,
     };
-    let ideal_delta = recognized_hlp_residual_exposure(valuation.ideal_delta, nav);
     vault.last_nav_nad = nav;
     vault.residual_exposure = ideal_delta;
     // This reference belongs to the last actual hLP settlement/rebalance.
@@ -1971,7 +1979,7 @@ fn asset_value_in_target_nad_with_prices(
     if amount == 0 {
         return Ok(0);
     }
-    let amount_nad = normalize_to_nad(amount as u128, market.side(asset).asset_decimals)?;
+    let amount_nad = market.normalize_amount(amount as u128, market.side(asset).asset_decimals)?;
     if asset == target_asset {
         return Ok(amount_nad);
     }
@@ -2176,7 +2184,7 @@ fn raw_amount_from_target_value_nad_with_prices(
         require!(price_nad > 0, ErrorCode::InvalidSettlementPrice);
         mul_div_u128(value_nad, NAD as u128, price_nad)?
     };
-    denormalize_from_nad_floor(amount_nad, market.side(asset).asset_decimals)
+    market.denormalize_amount_floor(amount_nad, market.side(asset).asset_decimals)
 }
 
 fn ylp_for_live_reserve_deposit(market: &Market, base_amount: u64, quote_amount: u64) -> Result<u64> {

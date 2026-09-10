@@ -12,7 +12,7 @@ use anchor_spl::{
 };
 
 use crate::{
-    constants::{HLP_YLP_VAULT_SEED_PREFIX, NAD_DECIMALS},
+    constants::HLP_YLP_VAULT_SEED_PREFIX,
     errors::ErrorCode,
     state::{Market, MarketAsset, MarketSide},
     token::is_fee_free_mint,
@@ -154,7 +154,6 @@ pub fn require_supported_asset_mint(mint: &InterfaceAccount<Mint>) -> Result<()>
         })
     };
     require!(supported, ErrorCode::InvalidTokenProgram);
-    require!(mint.decimals <= NAD_DECIMALS, ErrorCode::UnsupportedAssetDecimals);
     Ok(())
 }
 
