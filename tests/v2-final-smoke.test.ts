@@ -2594,7 +2594,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(preview.principalNavPerTokenNad.toNumber()).to.be.greaterThan(0);
   });
 
-  it("harvests active hLP order yield permissionlessly and cancels dusted custody", async function () {
+  it("lets the designated recipient harvest hLP order yield, and nobody else", async function () {
     const fixture = await addBalancedLiquidity(123);
     const hedge = await openBaseHedge(fixture, 10_000);
     await initializeLpTransferHook(fixture, fixture.baseHlpMint);
@@ -2702,17 +2702,53 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       )).amount
     ).to.equal(1_001n);
 
-    // The order PDA owns the LP, while the user remains the yield recipient.
-    // An unrelated signer can harvest without invoking the delegate program.
+    // The order PDA owns the LP, so it cannot sign for itself. The user
+    // remains the yield recipient and harvests on the PDA's behalf, which is
+    // the whole reason the caller and the owner are separate accounts.
     await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 100_000, 1);
     const orderBeforeHarvest = Buffer.from(svm.getAccount(order)!.data);
     const ownerBalanceBeforeHarvest = (await getAccount(connection as any, fixture.ownerBaseAccount)).amount;
+
+    const harvestAccounts = {
+      market: fixture.market,
+      owner: order,
+      assetMint: fixture.baseMint,
+      lpMint: fixture.baseHlpMint,
+      ownerLpAccount: custodyHlpAccount,
+      reserveVault: fixture.baseReserveVault,
+      interestVault: fixture.baseInterestVault,
+      recipientAssetAccount: fixture.ownerBaseAccount,
+      yieldAccount: orderYield.baseYieldAccount,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      token2022Program: TOKEN_2022_PROGRAM_ID,
+      eventAuthority: eventAuthority(),
+      program: DUSK_PROGRAM_ID,
+    };
+
+    // A stranger has no standing, even though the funds could only ever land
+    // in the recipient's own account: the timing is the holder's to choose.
+    const strangerTx = await program.methods
+      .harvest({ tokenKind: { hlp: {} } })
+      .accounts({ ...harvestAccounts, caller: attacker.publicKey })
+      .transaction();
+    strangerTx.feePayer = attacker.publicKey;
+    let strangerRejection: unknown;
+    try {
+      await connection.sendTransaction(strangerTx, [attacker]);
+    } catch (error) {
+      strangerRejection = error;
+    }
+    expect(strangerRejection).to.not.equal(undefined);
+    expect((await getAccount(connection as any, fixture.ownerBaseAccount)).amount).to.equal(
+      ownerBalanceBeforeHarvest
+    );
+
     const harvestTx = await program.methods
       .harvest({ tokenKind: { hlp: {} } })
       .accounts({
         market: fixture.market,
         owner: order,
-        caller: attacker.publicKey,
+        caller: payer.publicKey,
         assetMint: fixture.baseMint,
         lpMint: fixture.baseHlpMint,
         ownerLpAccount: custodyHlpAccount,
@@ -2726,9 +2762,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         program: DUSK_PROGRAM_ID,
       })
       .transaction();
-    harvestTx.feePayer = attacker.publicKey;
-    await connection.sendTransaction(harvestTx, [attacker]);
-    expect(cpiEvent(harvestTx, "yieldClaimed").metadata.signer.equals(attacker.publicKey)).to.equal(true);
+    harvestTx.feePayer = payer.publicKey;
+    await connection.sendTransaction(harvestTx, [payer]);
+    expect(cpiEvent(harvestTx, "yieldClaimed").metadata.signer.equals(payer.publicKey)).to.equal(true);
     expect((await getAccount(connection as any, fixture.ownerBaseAccount)).amount > ownerBalanceBeforeHarvest).to.equal(true);
     expect(Buffer.from(svm.getAccount(order)!.data).equals(orderBeforeHarvest)).to.equal(true);
     expect((await getAccount(connection as any, custodyHlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(1_001n);
@@ -5414,7 +5450,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     { lpKind: "base hLP", assetTokenProgram: TOKEN_2022_PROGRAM_ID },
   ].entries()) {
     const assetProgramName = assetTokenProgram.equals(TOKEN_PROGRAM_ID) ? "SPL Token" : "Token-2022";
-    it(`lets an unrelated keeper harvest ${lpKind} in ${assetProgramName} only to the owner's configured recipient`, async function () {
+    it(`lets the designated recipient harvest ${lpKind} in ${assetProgramName}, only to their own canonical account`, async function () {
       const fixture = await addBalancedLiquidity(180 + index, marketConfig(), undefined, 6, assetTokenProgram);
       const keeper = Keypair.generate();
       await connection.requestAirdrop(keeper.publicKey, LAMPORTS_PER_SOL);
@@ -5433,13 +5469,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       )[0];
       await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
 
-      const buildClaim = async (recipientAssetAccount: PublicKey) => {
+      const buildClaim = async (recipientAssetAccount: PublicKey, caller: Keypair) => {
         const tx = await program.methods
           .harvest({ tokenKind: tokenKind === "ylp" ? { ylp: {} } : { hlp: {} } })
           .accounts({
             market: fixture.market,
             owner: payer.publicKey,
-            caller: keeper.publicKey,
+            caller: caller.publicKey,
             assetMint: fixture.baseMint,
             lpMint,
             ownerLpAccount,
@@ -5453,7 +5489,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
             program: DUSK_PROGRAM_ID,
           })
           .transaction();
-        tx.feePayer = keeper.publicKey;
+        tx.feePayer = caller.publicKey;
         return tx;
       };
       const keeperAssetAccount = await createAccount(
@@ -5469,7 +5505,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       for (const destination of [keeperAssetAccount, noncanonicalOwnerAccount]) {
         let rejection: unknown;
         try {
-          await connection.sendTransaction(await buildClaim(destination), [keeper]);
+          await connection.sendTransaction(await buildClaim(destination, payer), [payer]);
         } catch (error) {
           rejection = error;
         }
@@ -5478,8 +5514,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         expect(Buffer.from(svm.getAccount(fixture.market)!.data).equals(marketBefore)).to.equal(true);
       }
 
-      // Permissionless harvesting does not grant permission to rotate the
-      // payout. Strip the owner signature meta to exercise the on-chain guard.
+      // Harvesting does not grant permission to rotate the payout. Strip the
+      // owner signature meta to exercise the on-chain guard.
       const rotateTx = await program.methods
         .setYieldRecipient({
           tokenKind: tokenKind === "ylp" ? { ylp: {} } : { hlp: {} },
@@ -5510,25 +5546,60 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       expect(String(rotationRejection)).to.include("AccountNotSigner");
       expect(Buffer.from(svm.getAccount(yieldAccount)!.data).equals(yieldBefore)).to.equal(true);
 
-      const balanceBefore = (await getAccount(connection as any, fixture.ownerBaseAccount, undefined, assetTokenProgram)).amount;
+      // A stranger cannot harvest, even to the correct destination. This is
+      // the line between "designated" and "permissionless".
+      let strangerRejection: unknown;
+      try {
+        await connection.sendTransaction(
+          await buildClaim(fixture.ownerBaseAccount, keeper),
+          [keeper]
+        );
+      } catch (error) {
+        strangerRejection = error;
+      }
+      expect(String(strangerRejection)).to.include("InvalidSigner");
+      expect(Buffer.from(svm.getAccount(yieldAccount)!.data).equals(yieldBefore)).to.equal(true);
+
+      // Designate the keeper, with the owner's signature this time, and it
+      // may then harvest to its own canonical account without the owner
+      // signing the harvest itself.
+      await connection.sendTransaction(
+        await program.methods
+          .setYieldRecipient({
+            tokenKind: tokenKind === "ylp" ? { ylp: {} } : { hlp: {} },
+            recipient: keeper.publicKey,
+          })
+          .accounts({
+            market: fixture.market,
+            owner: payer.publicKey,
+            assetMint: fixture.baseMint,
+            lpMint,
+            yieldAccount,
+            eventAuthority: eventAuthority(),
+            program: DUSK_PROGRAM_ID,
+          })
+          .transaction(),
+        [payer]
+      );
+
+      const balanceBefore = (await getAccount(connection as any, keeperAssetAccount, undefined, assetTokenProgram)).amount;
       const lpBefore = (await getAccount(
         connection as any, ownerLpAccount, undefined, TOKEN_2022_PROGRAM_ID
       )).amount;
-      const claimTx = await buildClaim(fixture.ownerBaseAccount);
+      const claimTx = await buildClaim(keeperAssetAccount, keeper);
       expect(claimTx.instructions[0].keys.find(
         (account: { pubkey: PublicKey }) => account.pubkey.equals(payer.publicKey)
       )?.isSigner).to.equal(false);
       await connection.sendTransaction(claimTx, [keeper]);
-      const credit = (await getAccount(connection as any, fixture.ownerBaseAccount, undefined, assetTokenProgram)).amount - balanceBefore;
+      const credit = (await getAccount(connection as any, keeperAssetAccount, undefined, assetTokenProgram)).amount - balanceBefore;
       expect(credit > 0n).to.equal(true);
-      expect((await getAccount(connection as any, keeperAssetAccount, undefined, assetTokenProgram)).amount).to.equal(0n);
       expect((await getAccount(
         connection as any, ownerLpAccount, undefined, TOKEN_2022_PROGRAM_ID
       )).amount).to.equal(lpBefore);
       const event = cpiEvent(claimTx, "yieldClaimed");
       expect(event.owner.equals(payer.publicKey)).to.equal(true);
       expect(event.metadata.signer.equals(keeper.publicKey)).to.equal(true);
-      expect(event.recipient.equals(payer.publicKey)).to.equal(true);
+      expect(event.recipient.equals(keeper.publicKey)).to.equal(true);
       expect(BigInt(event.recipientCredit.toString())).to.equal(credit);
       const claimed = accountCoder.decode("YieldAccount", Buffer.from(svm.getAccount(yieldAccount)!.data)) as any;
       expect(claimed.accrued_swap_fee_amount.isZero()).to.equal(true);

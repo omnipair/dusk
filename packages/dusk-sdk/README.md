@@ -223,11 +223,13 @@ await provider.sendAndConfirm(transaction);
 initializer is safe to compose unconditionally, including when a third party
 has transferred lamports to the PDA address before initialization.
 
-`harvest` is permissionless for yLP and both hLP mints. Its `owner` account
-identifies the LP holder and does not need to sign. Supply any signer as
-`caller`, including the configured recipient or an unrelated keeper. The
-claim event records the LP owner separately from `metadata.signer`, which
-identifies the caller.
+`harvest` accepts two identities for yLP and both hLP mints. Its `owner`
+account identifies the LP holder and does not need to sign; `caller` is the
+signer, and must be either that owner or the `YieldAccount.recipient` the
+owner designated through `set_yield_recipient`. A third party is rejected
+with `InvalidSigner`, so a keeper has to be designated before it can run.
+The claim event records the LP owner separately from `metadata.signer`,
+which identifies the caller.
 Derive `recipientAssetAccount` as the current `YieldAccount.recipient`'s ATA
 using the underlying mint's token program; arbitrary destination accounts are
 rejected. Create that ATA before harvesting if it does not exist; the
