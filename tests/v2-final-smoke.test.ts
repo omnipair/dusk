@@ -5450,7 +5450,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     { lpKind: "base hLP", assetTokenProgram: TOKEN_2022_PROGRAM_ID },
   ].entries()) {
     const assetProgramName = assetTokenProgram.equals(TOKEN_PROGRAM_ID) ? "SPL Token" : "Token-2022";
-    it(`lets the designated recipient harvest ${lpKind} in ${assetProgramName}, only to their own canonical account`, async function () {
+    it(`separates owner, recipient, and harvest authority for ${lpKind} in ${assetProgramName}`, async function () {
       const fixture = await addBalancedLiquidity(180 + index, marketConfig(), undefined, 6, assetTokenProgram);
       const keeper = Keypair.generate();
       await connection.requestAirdrop(keeper.publicKey, LAMPORTS_PER_SOL);
@@ -5470,6 +5470,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
 
       const buildClaim = async (recipientAssetAccount: PublicKey, caller: Keypair) => {
+        // Repeated claims must exercise current permissions, not replay rejection.
+        svm.expireBlockhash();
         const tx = await program.methods
           .harvest({ tokenKind: tokenKind === "ylp" ? { ylp: {} } : { hlp: {} } })
           .accounts({
@@ -5604,6 +5606,154 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       const claimed = accountCoder.decode("YieldAccount", Buffer.from(svm.getAccount(yieldAccount)!.data)) as any;
       expect(claimed.accrued_swap_fee_amount.isZero()).to.equal(true);
       expect(claimed.accrued_interest_amount.isZero()).to.equal(true);
+      expect(claimed.harvest_authority).to.equal(null);
+
+      // Owner A keeps the LP, recipient B receives yield, and independent
+      // keeper C only gets permission to trigger payment to B.
+      const harvestCaller = Keypair.generate();
+      const replacementCaller = Keypair.generate();
+      for (const signer of [harvestCaller, replacementCaller]) {
+        await connection.requestAirdrop(signer.publicKey, LAMPORTS_PER_SOL);
+      }
+      const callerAssetAccount = await createAccount(
+        connection as any, payer, fixture.baseMint, harvestCaller.publicKey, undefined, undefined, assetTokenProgram
+      );
+      const noncanonicalRecipientAccount = await createAccount(
+        connection as any, payer, fixture.baseMint, keeper.publicKey, Keypair.generate(), undefined, assetTokenProgram
+      );
+      const authorityAccounts = {
+        market: fixture.market,
+        owner: payer.publicKey,
+        assetMint: fixture.baseMint,
+        lpMint,
+        yieldAccount,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      };
+      const buildAuthorityUpdate = (harvestAuthority: PublicKey | null) => program.methods
+        .setHarvestAuthority({
+          tokenKind: tokenKind === "ylp" ? { ylp: {} } : { hlp: {} },
+          harvestAuthority,
+        })
+        .accounts(authorityAccounts)
+        .transaction();
+      const assertRejected = async (tx: Transaction, signer: Keypair, errorName: string) => {
+        const yieldSnapshot = Buffer.from(svm.getAccount(yieldAccount)!.data);
+        const marketSnapshot = Buffer.from(svm.getAccount(fixture.market)!.data);
+        let rejection: unknown;
+        try {
+          await connection.sendTransaction(tx, [signer]);
+        } catch (error) {
+          rejection = error;
+        }
+        expect(String(rejection)).to.include(errorName);
+        expect(Buffer.from(svm.getAccount(yieldAccount)!.data).equals(yieldSnapshot)).to.equal(true);
+        expect(Buffer.from(svm.getAccount(fixture.market)!.data).equals(marketSnapshot)).to.equal(true);
+      };
+      await assertRejected(await buildClaim(keeperAssetAccount, harvestCaller), harvestCaller, "InvalidSigner");
+      await assertRejected(await buildAuthorityUpdate(PublicKey.default), payer, "InvalidArgument");
+
+      const grantTx = await buildAuthorityUpdate(harvestCaller.publicKey);
+      await connection.sendTransaction(grantTx, [payer]);
+      trackV2Instruction("setHarvestAuthority", this.test?.title);
+      const grantEvent = cpiEvent(grantTx, "harvestAuthorityUpdated");
+      expect(grantEvent.owner.equals(payer.publicKey)).to.equal(true);
+      expect(grantEvent.harvestAuthority.equals(harvestCaller.publicKey)).to.equal(true);
+      expect(grantEvent.metadata.signer.equals(payer.publicKey)).to.equal(true);
+
+      // Neither the recipient nor an authorized keeper can change either setting.
+      for (const signer of [keeper, harvestCaller]) {
+        for (const tx of [
+          await buildAuthorityUpdate(replacementCaller.publicKey),
+          await program.methods.setYieldRecipient({
+            tokenKind: tokenKind === "ylp" ? { ylp: {} } : { hlp: {} },
+            recipient: harvestCaller.publicKey,
+          }).accounts(authorityAccounts).transaction(),
+        ]) {
+          tx.feePayer = signer.publicKey;
+          for (const instruction of tx.instructions) {
+            for (const account of instruction.keys) {
+              if (account.pubkey.equals(payer.publicKey)) account.isSigner = false;
+            }
+          }
+          await assertRejected(tx, signer, "AccountNotSigner");
+        }
+      }
+
+      // Permissionless reinitialization cannot clear the owner's configuration.
+      const configured = Buffer.from(svm.getAccount(yieldAccount)!.data);
+      await initializeYieldAccounts(fixture, payer.publicKey, lpMint, tokenKind, true);
+      expect(Buffer.from(svm.getAccount(yieldAccount)!.data).equals(configured)).to.equal(true);
+      const quoteYieldAccount = deriveYieldAccountAddress(
+        fixture.market, payer.publicKey, lpMint, fixture.quoteMint, tokenKind
+      )[0];
+      const quoteYield = accountCoder.decode("YieldAccount", Buffer.from(svm.getAccount(quoteYieldAccount)!.data)) as any;
+      expect(quoteYield.harvest_authority).to.equal(null);
+
+      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
+      for (const destination of [callerAssetAccount, fixture.ownerBaseAccount, noncanonicalRecipientAccount]) {
+        await assertRejected(await buildClaim(destination, harvestCaller), harvestCaller, "InvalidRecipient");
+      }
+      const recipientBefore = (await getAccount(connection as any, keeperAssetAccount, undefined, assetTokenProgram)).amount;
+      const delegatedTx = await buildClaim(keeperAssetAccount, harvestCaller);
+      for (const identity of [payer.publicKey, keeper.publicKey]) {
+        expect(delegatedTx.instructions[0].keys.find(
+          (account: { pubkey: PublicKey }) => account.pubkey.equals(identity)
+        )?.isSigner ?? false).to.equal(false);
+      }
+      await connection.sendTransaction(delegatedTx, [harvestCaller]);
+      const delegatedCredit = (await getAccount(connection as any, keeperAssetAccount, undefined, assetTokenProgram)).amount - recipientBefore;
+      expect(delegatedCredit > 0n).to.equal(true);
+      expect((await getAccount(connection as any, callerAssetAccount, undefined, assetTokenProgram)).amount).to.equal(0n);
+      expect((await getAccount(connection as any, ownerLpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(lpBefore);
+      const delegatedEvent = cpiEvent(delegatedTx, "yieldClaimed");
+      expect(delegatedEvent.owner.equals(payer.publicKey)).to.equal(true);
+      expect(delegatedEvent.recipient.equals(keeper.publicKey)).to.equal(true);
+      expect(delegatedEvent.metadata.signer.equals(harvestCaller.publicKey)).to.equal(true);
+      expect(BigInt(delegatedEvent.recipientCredit.toString())).to.equal(delegatedCredit);
+
+      // Rotation removes the previous caller, and changing the recipient keeps
+      // the independent caller while making the new destination mandatory.
+      await connection.sendTransaction(await buildAuthorityUpdate(replacementCaller.publicKey), [payer]);
+      await assertRejected(await buildClaim(keeperAssetAccount, harvestCaller), harvestCaller, "InvalidSigner");
+      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
+      await connection.sendTransaction(await buildClaim(keeperAssetAccount, replacementCaller), [replacementCaller]);
+      await connection.sendTransaction(
+        await program.methods.setYieldRecipient({
+          tokenKind: tokenKind === "ylp" ? { ylp: {} } : { hlp: {} },
+          recipient: payer.publicKey,
+        }).accounts(authorityAccounts).transaction(),
+        [payer]
+      );
+      await assertRejected(await buildClaim(keeperAssetAccount, replacementCaller), replacementCaller, "InvalidRecipient");
+      await assertRejected(await buildClaim(fixture.ownerBaseAccount, keeper), keeper, "InvalidSigner");
+      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
+      const ownerBefore = (await getAccount(connection as any, fixture.ownerBaseAccount, undefined, assetTokenProgram)).amount;
+      await connection.sendTransaction(await buildClaim(fixture.ownerBaseAccount, replacementCaller), [replacementCaller]);
+      expect((await getAccount(connection as any, fixture.ownerBaseAccount, undefined, assetTokenProgram)).amount > ownerBefore).to.equal(true);
+
+      const revokeTx = await buildAuthorityUpdate(null);
+      await connection.sendTransaction(revokeTx, [payer]);
+      expect(cpiEvent(revokeTx, "harvestAuthorityUpdated").harvestAuthority).to.equal(null);
+      const revoked = accountCoder.decode("YieldAccount", Buffer.from(svm.getAccount(yieldAccount)!.data)) as any;
+      expect(revoked.harvest_authority).to.equal(null);
+      expect(revoked.recipient.equals(payer.publicKey)).to.equal(true);
+      await assertRejected(await buildClaim(fixture.ownerBaseAccount, replacementCaller), replacementCaller, "InvalidSigner");
+      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
+      await connection.sendTransaction(await buildClaim(fixture.ownerBaseAccount, payer), [payer]);
+      await connection.sendTransaction(
+        await program.methods.setYieldRecipient({
+          tokenKind: tokenKind === "ylp" ? { ylp: {} } : { hlp: {} },
+          recipient: keeper.publicKey,
+        }).accounts(authorityAccounts).transaction(),
+        [payer]
+      );
+      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
+      const afterRevocation = (await getAccount(connection as any, keeperAssetAccount, undefined, assetTokenProgram)).amount;
+      await connection.sendTransaction(await buildClaim(keeperAssetAccount, payer), [payer]);
+      expect((await getAccount(connection as any, keeperAssetAccount, undefined, assetTokenProgram)).amount > afterRevocation).to.equal(true);
+      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
+      await connection.sendTransaction(await buildClaim(keeperAssetAccount, keeper), [keeper]);
     });
   }
 

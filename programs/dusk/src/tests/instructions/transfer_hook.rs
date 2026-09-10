@@ -70,6 +70,7 @@ fn checkpoints_yield_account_with_pre_transfer_balance() {
     let lp_mint = Pubkey::new_unique();
     let asset_mint = Pubkey::new_unique();
     let mut yield_account = YieldAccount {
+        harvest_authority: None,
         owner: Pubkey::default(),
         market: Pubkey::default(),
         lp_mint: Pubkey::default(),
@@ -208,6 +209,7 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
     let owner = Pubkey::new_unique();
     let recipient = Pubkey::new_unique();
     let mut source_yield = YieldAccount {
+        harvest_authority: None,
         owner: Pubkey::default(),
         market: Pubkey::default(),
         lp_mint: Pubkey::default(),
@@ -223,6 +225,7 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
         bump: 0,
     };
     let mut destination_yield = YieldAccount {
+        harvest_authority: None,
         owner: Pubkey::default(),
         market: Pubkey::default(),
         lp_mint: Pubkey::default(),

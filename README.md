@@ -89,7 +89,7 @@ Normal LPs enter with `add_liquidity`, depositing both assets at the current mar
 asset_claim = user_ylp_shares * live_reserve / total_ylp_supply
 ```
 
-A governed share of the LP-owned base fee and non-retained dynamic surcharge may compound into ordinary reserve principal. The remainder is claimable yield: swap-fee liabilities stay physically in the reserve vault as `swap_fee_custody_balance`, outside executable `cash_reserve`, while interest liabilities stay in the side-specific interest vault. Public-borrow interest uses the all-yLP growth lane, while hLP funding interest uses a separate non-hLP denominator and source-specific rounding carry. The LP owner or the yield recipient it designated may trigger `harvest`; payment goes only to that recipient's canonical associated token account, and changing the recipient still requires the LP owner's signature. Dynamic surcharge retained while recenter protection is being funded enters a custody-backed, non-quoteable Base/Quote bucket; a later admitted recenter deploys that bucket, and ordinary yLP withdrawals cannot claim it.
+A governed share of the LP-owned base fee and non-retained dynamic surcharge may compound into ordinary reserve principal. The remainder is claimable yield: swap-fee liabilities stay physically in the reserve vault as `swap_fee_custody_balance`, outside executable `cash_reserve`, while interest liabilities stay in the side-specific interest vault. Public-borrow interest uses the all-yLP growth lane, while hLP funding interest uses a separate non-hLP denominator and source-specific rounding carry. The LP owner, designated yield recipient, or separately designated harvest authority may trigger `harvest`; payment goes only to the recipient's canonical associated token account. Only the LP owner may change the recipient or set, rotate, and revoke the harvest authority. Dynamic surcharge retained while recenter protection is being funded enters a custody-backed, non-quoteable Base/Quote bucket; a later admitted recenter deploys that bucket, and ordinary yLP withdrawals cannot claim it.
 
 ## Isolated Leverage
 
@@ -214,6 +214,7 @@ add_liquidity
 open_liquidity_gates
 remove_liquidity
 set_yield_recipient
+set_harvest_authority
 harvest
 swap
 rescue_hlp

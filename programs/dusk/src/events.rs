@@ -120,6 +120,17 @@ pub struct YieldRecipientUpdated {
 }
 
 #[event]
+pub struct HarvestAuthorityUpdated {
+    pub market: Pubkey,
+    pub owner: Pubkey,
+    pub lp_mint: Pubkey,
+    pub asset_mint: Pubkey,
+    pub token_kind: u8,
+    pub harvest_authority: Option<Pubkey>,
+    pub metadata: MarketEventMetadata,
+}
+
+#[event]
 pub struct YieldClaimed {
     pub market: Pubkey,
     pub owner: Pubkey,

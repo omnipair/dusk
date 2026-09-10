@@ -41,12 +41,12 @@ pub struct Harvest<'info> {
     )]
     pub market: Box<Account<'info, Market>>,
 
-    /// LP holder identity. Its signature is not required, because the
-    /// recipient it designated may harvest on its behalf.
+    /// LP holder identity. Its signature is not required when the designated
+    /// recipient or harvest authority signs instead.
     /// CHECK: Bound to the yield PDA and canonical LP account in validation.
     pub owner: UncheckedAccount<'info>,
 
-    /// The LP holder, or the recipient it designated. Checked in validation.
+    /// The LP holder, designated recipient, or harvest authority. Checked in validation.
     pub caller: Signer<'info>,
 
     pub asset_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -95,16 +95,13 @@ impl<'info> Harvest<'info> {
         }
         validate_owner_lp_account(self.owner.key(), &self.lp_mint, &self.owner_lp_account)?;
 
-        // Harvesting settles someone else's entitlement, so it is not open to
-        // anyone: the LP holder may pull it, and so may the recipient the
-        // holder designated through `set_yield_recipient`. A third party has
-        // no standing even though the funds could only ever land in the
-        // recipient's own account -- the timing of a payment is the holder's
-        // to choose, and a checkpoint moved by a stranger is a side effect
-        // they did not ask for.
+        // The owner controls who may trigger settlement. A separate harvest
+        // authority can automate claims without becoming the yield recipient.
         let caller = self.caller.key();
         require!(
-            caller == self.owner.key() || caller == self.yield_account.recipient,
+            caller == self.owner.key()
+                || caller == self.yield_account.recipient
+                || self.yield_account.harvest_authority == Some(caller),
             ErrorCode::InvalidSigner
         );
 
@@ -119,7 +116,7 @@ impl<'info> Harvest<'info> {
             self.asset_mint.key(),
             ErrorCode::InvalidTokenAccount
         );
-        // A permissionless caller cannot select an arbitrary token account,
+        // An authorized caller cannot select an arbitrary token account,
         // even one whose token authority names the configured recipient.
         require_keys_eq!(
             self.recipient_asset_account.key(),

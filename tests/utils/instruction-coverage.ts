@@ -151,6 +151,7 @@ const DUSK_INSTRUCTIONS = [
   "openLiquidityGates",
   "removeLiquidity",
   "setYieldRecipient",
+  "setHarvestAuthority",
   "harvest",
   "swap",
   "rescueHlp",

@@ -190,6 +190,7 @@ fn final_hlp_exit_drains_both_asset_remainders_to_final_holder() {
     market.base_hlp_vault.quote_swap_fee_growth_remainder_scaled = u64::MAX / 2;
     market.base_hlp_vault.quote_interest_growth_remainder_scaled = u64::MAX / 2;
     let mut base_account = YieldAccount {
+        harvest_authority: None,
         owner: Pubkey::default(),
         market: Pubkey::default(),
         lp_mint: Pubkey::default(),
@@ -205,6 +206,7 @@ fn final_hlp_exit_drains_both_asset_remainders_to_final_holder() {
         bump: 0,
     };
     let mut quote_account = YieldAccount {
+        harvest_authority: None,
         owner: Pubkey::default(),
         market: Pubkey::default(),
         lp_mint: Pubkey::default(),

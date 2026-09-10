@@ -223,23 +223,45 @@ await provider.sendAndConfirm(transaction);
 initializer is safe to compose unconditionally, including when a third party
 has transferred lamports to the PDA address before initialization.
 
-`harvest` accepts two identities for yLP and both hLP mints. Its `owner`
-account identifies the LP holder and does not need to sign; `caller` is the
-signer, and must be either that owner or the `YieldAccount.recipient` the
-owner designated through `set_yield_recipient`. A third party is rejected
-with `InvalidSigner`, so a keeper has to be designated before it can run.
-The claim event records the LP owner separately from `metadata.signer`,
-which identifies the caller.
-Derive `recipientAssetAccount` as the current `YieldAccount.recipient`'s ATA
-using the underlying mint's token program; arbitrary destination accounts are
-rejected. Create that ATA before harvesting if it does not exist; the
-transaction's payer can fund its creation. Changing the recipient still
-requires the LP owner's signature.
+`harvest` accepts the LP owner, designated yield recipient, or independent
+harvest authority for yLP and both hLP mints. Its `owner` account identifies
+the LP holder; `caller` signs and must match that owner,
+`YieldAccount.recipient`, or the optional `YieldAccount.harvestAuthority`.
+An unrelated caller is rejected with `InvalidSigner`.
+
+The LP owner sets or rotates a keeper with `setHarvestAuthority`, passing
+`harvestAuthority: keeperPublicKey`, and revokes it with `harvestAuthority: null`.
+New yield accounts start with no harvest authority. This changes who may
+trigger payment without changing who receives it. Only the owner can update
+either setting; changing the recipient does not clear the harvest authority.
+Each yield account has its own configuration, so configure each underlying
+asset and LP mint that the keeper should service.
+
+```typescript
+// The LP owner signs this configuration transaction.
+const transaction = await dusk.write.transaction(
+  "setHarvestAuthority",
+  { tokenKind: { ylp: {} }, harvestAuthority: keeperPublicKey },
+  { accounts: { market, owner, assetMint, lpMint, yieldAccount } }
+);
+await provider.sendAndConfirm(transaction);
+// Pass harvestAuthority: null through the same instruction to revoke.
+```
+
+For harvesting, set `caller` to the keeper and sign with its key. Neither the
+owner nor recipient needs to sign. Derive `recipientAssetAccount` as the
+current recipient's ATA using the underlying mint's token program; arbitrary
+destinations are rejected. Create that ATA before harvesting if necessary.
+The claim event records the LP owner, recipient, and caller separately, with
+the caller in `metadata.signer`. `HarvestAuthorityUpdated` records delegation,
+rotation, and revocation.
 
 LP token accounts should be owned by a wallet that can sign withdrawals and
-recipient updates, or by a PDA whose controlling program invokes those Dusk
+permission updates, or by a PDA whose controlling program invokes those Dusk
 instructions with `invoke_signed`. SPL multisig accounts cannot sign those
-instructions directly, but their yield can be harvested to the stored recipient.
+instructions directly. PDA custody needs a controlling-program path to set
+an independent keeper; the existing hLP order flow can still harvest using
+the configured recipient.
 
 ### Referral Interest Sharing
 

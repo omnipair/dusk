@@ -3135,14 +3135,14 @@ export type Dusk = {
         {
           "name": "owner",
           "docs": [
-            "LP holder identity. Its signature is not required, because the",
-            "recipient it designated may harvest on its behalf."
+            "LP holder identity. Its signature is not required when the designated",
+            "recipient or harvest authority signs instead."
           ]
         },
         {
           "name": "caller",
           "docs": [
-            "The LP holder, or the recipient it designated. Checked in validation."
+            "The LP holder, designated recipient, or harvest authority. Checked in validation."
           ],
           "signer": true
         },
@@ -6192,6 +6192,118 @@ export type Dusk = {
       ]
     },
     {
+      "name": "setHarvestAuthority",
+      "docs": [
+        "Set or revoke a harvest caller independently of the yield recipient.",
+        "Only the LP owner may update this authority; `None` revokes it."
+      ],
+      "discriminator": [
+        59,
+        181,
+        149,
+        163,
+        99,
+        148,
+        106,
+        133
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "assetMint"
+        },
+        {
+          "name": "lpMint"
+        },
+        {
+          "name": "yieldAccount",
+          "writable": true
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "setHarvestAuthorityArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "setMarketReduceOnly",
       "discriminator": [
         178,
@@ -8440,6 +8552,19 @@ export type Dusk = {
         197,
         106,
         188
+      ]
+    },
+    {
+      "name": "harvestAuthorityUpdated",
+      "discriminator": [
+        232,
+        18,
+        21,
+        9,
+        229,
+        230,
+        173,
+        86
       ]
     },
     {
@@ -11135,6 +11260,48 @@ export type Dusk = {
             "type": {
               "defined": {
                 "name": "yieldTokenKind"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "harvestAuthorityUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "lpMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "assetMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "tokenKind",
+            "type": "u8"
+          },
+          {
+            "name": "harvestAuthority",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "marketEventMetadata"
               }
             }
           }
@@ -15036,6 +15203,31 @@ export type Dusk = {
       }
     },
     {
+      "name": "setHarvestAuthorityArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tokenKind",
+            "type": {
+              "defined": {
+                "name": "yieldTokenKind"
+              }
+            }
+          },
+          {
+            "name": "harvestAuthority",
+            "docs": [
+              "`None` revokes the independent caller; the recipient is unchanged."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "setMarketReduceOnlyArgs",
       "type": {
         "kind": "struct",
@@ -15883,6 +16075,16 @@ export type Dusk = {
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "harvestAuthority",
+            "docs": [
+              "Optional caller allowed to harvest to the recipient without controlling",
+              "the LP or changing either yield permission. Only the owner may set it."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
           }
         ]
       }

@@ -4635,6 +4635,7 @@ fn validate_leverage_post_state(
 
 fn empty_yield_account() -> YieldAccount {
     YieldAccount {
+        harvest_authority: None,
         owner: Pubkey::default(),
         market: Pubkey::default(),
         lp_mint: Pubkey::default(),

@@ -3955,6 +3955,16 @@ export type LeverageDelegate = {
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "harvestAuthority",
+            "docs": [
+              "Optional caller allowed to harvest to the recipient without controlling",
+              "the LP or changing either yield permission. Only the owner may set it."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
           }
         ]
       }
