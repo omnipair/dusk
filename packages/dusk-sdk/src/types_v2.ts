@@ -3135,13 +3135,14 @@ export type Dusk = {
         {
           "name": "owner",
           "docs": [
-            "LP holder identity; harvesting does not require its signature."
+            "LP holder identity. Its signature is not required, because the",
+            "recipient it designated may harvest on its behalf."
           ]
         },
         {
           "name": "caller",
           "docs": [
-            "Any signer may trigger payment to the configured recipient."
+            "The LP holder, or the recipient it designated. Checked in validation."
           ],
           "signer": true
         },
