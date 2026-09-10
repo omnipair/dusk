@@ -11,6 +11,7 @@ import {
   PARAMETER_PROPOSAL_SUPPORT_BPS,
   PROPOSAL_METADATA_VERSION,
 } from "./constants.js";
+import { sha256 } from "./hash.js";
 
 export type GovernanceIntegerLike = bigint | number | string | BN | { toString(): string };
 
@@ -1169,15 +1170,6 @@ function concatBytes(...parts: readonly Uint8Array[]): Uint8Array {
     offset += part.byteLength;
   }
   return output;
-}
-
-async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
-  if (globalThis.crypto?.subtle) {
-    const stableBytes = Uint8Array.from(bytes);
-    return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", stableBytes));
-  }
-  const { createHash } = await import("node:crypto");
-  return Uint8Array.from(createHash("sha256").update(bytes).digest());
 }
 
 function equalBytes(left: Uint8Array | readonly number[], right: Uint8Array | readonly number[]): boolean {

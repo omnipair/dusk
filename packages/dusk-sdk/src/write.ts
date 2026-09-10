@@ -15,6 +15,7 @@ import {
 } from "@solana/web3.js";
 
 import { address, normalizeAccountKeys, type AddressLike } from "./address.js";
+import { type MarketLaunchConfig } from "./market-bootstrap.js";
 import {
   deriveBorrowPositionAddress,
   deriveEventAuthorityAddress,
@@ -22,9 +23,13 @@ import {
   deriveLeverageCollateralVaultAddress,
   deriveLeverageDelegationAddress,
   deriveLeveragePositionAddress,
+  deriveMarketAddress,
   deriveMarketCollateralVaultAddress,
   deriveMarketInterestVaultAddress,
   deriveMarketReserveVaultAddress,
+  deriveInsuranceAddress,
+  deriveTokenMetadataAddress,
+  TOKEN_METADATA_PROGRAM_ID,
   deriveReferralAccrualAddress,
   deriveParameterProposalAddress,
   deriveProposalSupportAddress,
@@ -719,6 +724,119 @@ export class DuskWrite {
     params: Parameters<DuskWrite["initializeLpTransferHookInstruction"]>[0]
   ): Promise<Transaction> {
     return new Transaction().add(await this.initializeLpTransferHookInstruction(params));
+  }
+
+  /**
+   * Bring a market into existence.
+   *
+   * The three LP mints must already exist and carry the Dusk transfer hook —
+   * see `createHookedLpMintInstructions`. Every PDA is derived here rather
+   * than left to Anchor, because the market address depends on `paramsHash`,
+   * which is an argument rather than an account, and the vaults hang off the
+   * market in turn.
+   *
+   * `teamTreasury` and its wrapped-SOL account come from the futarchy
+   * authority, which must already be initialized on the deployment.
+   */
+  async initializeMarketInstruction(params: {
+    payer: AddressLike;
+    baseMint: AddressLike;
+    quoteMint: AddressLike;
+    ylpMint: AddressLike;
+    baseHlpMint: AddressLike;
+    quoteHlpMint: AddressLike;
+    teamTreasury: AddressLike;
+    teamTreasuryWsolAccount: AddressLike;
+    paramsHash: Uint8Array | Buffer | number[];
+    config: MarketLaunchConfig;
+    /** Opening price in NAD. Zero lets the first deposit set it. */
+    bootstrapPriceNad?: GovernanceIntegerLike;
+    launchFeeProgressOffset?: number;
+  }): Promise<TransactionInstruction> {
+    const baseMint = address(params.baseMint);
+    const quoteMint = address(params.quoteMint);
+    const paramsHash = Uint8Array.from(params.paramsHash);
+    if (paramsHash.length !== 32) {
+      throw new Error(`paramsHash must be 32 bytes, received ${paramsHash.length}`);
+    }
+    const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash);
+    return this.instruction(
+      "initializeMarket" as DuskInstructionName,
+      {
+        config: anchorMarketConfig(params.config),
+        paramsHash: [...paramsHash],
+        bootstrapPriceNad: governanceIntegerBN(
+          params.bootstrapPriceNad ?? 0,
+          "bootstrapPriceNad"
+        ),
+        launchFeeProgressOffset: params.launchFeeProgressOffset ?? 0,
+      },
+      {
+        accounts: {
+          payer: address(params.payer),
+          baseMint,
+          quoteMint,
+          ylpMint: address(params.ylpMint),
+          baseHlpMint: address(params.baseHlpMint),
+          quoteHlpMint: address(params.quoteHlpMint),
+          market,
+          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
+          baseReserveVault: deriveMarketReserveVaultAddress(market, baseMint)[0],
+          quoteReserveVault: deriveMarketReserveVaultAddress(market, quoteMint)[0],
+          baseCollateralVault: deriveMarketCollateralVaultAddress(market, baseMint)[0],
+          quoteCollateralVault: deriveMarketCollateralVaultAddress(market, quoteMint)[0],
+          baseInsuranceVault: deriveInsuranceAddress(market, baseMint)[0],
+          quoteInsuranceVault: deriveInsuranceAddress(market, quoteMint)[0],
+          baseInterestVault: deriveMarketInterestVaultAddress(market, baseMint)[0],
+          quoteInterestVault: deriveMarketInterestVaultAddress(market, quoteMint)[0],
+          teamTreasury: address(params.teamTreasury),
+          teamTreasuryWsolAccount: address(params.teamTreasuryWsolAccount),
+          systemProgram: SystemProgram.programId,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+        },
+      }
+    );
+  }
+
+  async initializeMarketTransaction(
+    params: Parameters<DuskWrite["initializeMarketInstruction"]>[0]
+  ): Promise<Transaction> {
+    return new Transaction().add(await this.initializeMarketInstruction(params));
+  }
+
+  /** Name, symbol and image for one of a market's LP mints. */
+  async initializeLpMetadataInstruction(params: {
+    payer: AddressLike;
+    market: AddressLike;
+    lpMint: AddressLike;
+    name: string;
+    symbol: string;
+    uri: string;
+  }): Promise<TransactionInstruction> {
+    const lpMint = address(params.lpMint);
+    return this.instruction(
+      "initializeLpMetadata" as DuskInstructionName,
+      { name: params.name, symbol: params.symbol, uri: params.uri },
+      {
+        accounts: {
+          payer: address(params.payer),
+          market: address(params.market),
+          lpMint,
+          lpTokenMetadata: deriveTokenMetadataAddress(lpMint)[0],
+          systemProgram: SystemProgram.programId,
+          sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
+        },
+      }
+    );
+  }
+
+  async initializeLpMetadataTransaction(
+    params: Parameters<DuskWrite["initializeLpMetadataInstruction"]>[0]
+  ): Promise<Transaction> {
+    return new Transaction().add(await this.initializeLpMetadataInstruction(params));
   }
 
   /** Burn-lock initial direct-yLP support and create one immutable typed proposal. */
@@ -2038,6 +2156,65 @@ export interface RemoveLiquidityParams extends YlpLiquidityAccounts {
   ylpAmount: RawAmount;
   minBaseAmountOut: RawAmount;
   minQuoteAmountOut: RawAmount;
+}
+
+/**
+ * Widen a launch config into the shape Anchor expects: every `u64` as a BN,
+ * every `u16` left as a number. Written out field by field rather than mapped,
+ * so a field added to the program fails to compile here instead of silently
+ * going missing.
+ */
+function anchorMarketConfig(config: MarketLaunchConfig): Record<string, unknown> {
+  const bn = (value: GovernanceIntegerLike, label: string) => governanceIntegerBN(value, label);
+  return {
+    swapFeeBps: config.swapFeeBps,
+    divergenceFeeShareCapBps: config.divergenceFeeShareCapBps,
+    volatilityFeeShareCapBps: config.volatilityFeeShareCapBps,
+    targetHlpLeverageBps: config.targetHlpLeverageBps,
+    settlementDivergenceBps: config.settlementDivergenceBps,
+    emaHalfLifeMs: bn(config.emaHalfLifeMs, "emaHalfLifeMs"),
+    directionalEmaHalfLifeMs: bn(
+      config.directionalEmaHalfLifeMs,
+      "directionalEmaHalfLifeMs"
+    ),
+    curveDepthEmaHalfLifeMs: bn(config.curveDepthEmaHalfLifeMs, "curveDepthEmaHalfLifeMs"),
+    maxDailyBorrowBps: config.maxDailyBorrowBps,
+    globalHealthContributionCapBps: config.globalHealthContributionCapBps,
+    borrowMarketHealthFloorBps: config.borrowMarketHealthFloorBps,
+    amm: anchorIntegerFields(config.amm, AMM_U64_FIELDS),
+    irm: anchorIntegerFields(config.irm, IRM_U64_FIELDS),
+    startTime: bn(config.startTime, "startTime"),
+  };
+}
+
+const AMM_U64_FIELDS = [
+  "peakAmplificationNad",
+  "centerEmaHalfLifeMs",
+  "volatilityHalfLifeMs",
+  "adjustmentThresholdNad",
+  "adjustmentStepNad",
+  "minAdjustmentIntervalSlots",
+  "volatilityShockCapNad",
+  "volatilityCapNad",
+  "divergenceFeeCoefficientNad",
+  "volatilityFeeCoefficientNad",
+  "launchFeeDurationSeconds",
+  "launchRateLimitReferenceNad",
+  "launchRateLimitDurationSeconds",
+] as const;
+
+const IRM_U64_FIELDS = ["curveSteepnessNad", "adjustmentSpeedPerYear"] as const;
+
+function anchorIntegerFields(
+  source: Record<string, unknown>,
+  wide: readonly string[]
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...source };
+  for (const field of wide) {
+    if (out[field] === undefined) continue;
+    out[field] = governanceIntegerBN(out[field] as GovernanceIntegerLike, field);
+  }
+  return out;
 }
 
 function normalizeArgs(args: DuskInstructionArgs): unknown[] {
