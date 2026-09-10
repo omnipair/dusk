@@ -1,0 +1,83 @@
+{
+  "verified_at": "2026-09-10",
+  "tested_code_commit": "263c1635ad87ee36ffd9bf0b970457e4be965326",
+  "scope": "Current whitepapers, their supporting bundle, and separate historical comparison archive. No program or SDK source changes.",
+  "required_checks": [
+    {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "seconds": 0.4
+    },
+    {
+      "command": "yarn check:hygiene",
+      "exit_code": 0,
+      "seconds": 0.79
+    },
+    {
+      "command": "yarn check:code-shape",
+      "exit_code": 0,
+      "seconds": 1.03
+    },
+    {
+      "command": "yarn check:clippy",
+      "exit_code": 0,
+      "seconds": 7.13
+    },
+    {
+      "command": "cargo test -p dusk",
+      "exit_code": 0,
+      "seconds": 4.86
+    },
+    {
+      "command": "cargo check -p dusk --lib --features production",
+      "exit_code": 0,
+      "seconds": 1.51
+    },
+    {
+      "command": "cargo test -p dusk --lib --features production",
+      "exit_code": 0,
+      "seconds": 3.03
+    },
+    {
+      "command": "cargo test -p leverage_delegate",
+      "exit_code": 0,
+      "seconds": 5.86
+    },
+    {
+      "command": "cargo test -p faucet",
+      "exit_code": 0,
+      "seconds": 0.53
+    },
+    {
+      "command": "yarn typecheck",
+      "exit_code": 0,
+      "seconds": 1.74
+    },
+    {
+      "command": "yarn build:litesvm",
+      "exit_code": 0,
+      "seconds": 240.08
+    },
+    {
+      "command": "npm run check:dusk-sdk",
+      "exit_code": 0,
+      "seconds": 1.92
+    },
+    {
+      "command": "DUSK_REQUIRE_COMPLETE_CU_BASELINE=1 yarn test-litesvm:no-build --forbid-pending",
+      "exit_code": 0,
+      "seconds": 5.79
+    }
+  ],
+  "additional_checks": [
+    "Staged repository hygiene passed",
+    "Staged code-shape check passed",
+    "Staged whitespace check passed; PDFs classified as binary and CSV CRLF preserved",
+    "All 28 pre-existing updated bundle files match pre-archive SHA-256 values",
+    "All 24 implementation source hashes match the reviewed snapshot",
+    "Historical source files match recovered originals",
+    "All 39 historical PDF pages rendered and visually reviewed",
+    "Comparison links resolve locally"
+  ],
+  "note": "This receipt follows the initial paper revision review in verification.json; its earlier no-commit/full-CI-not-run note records that earlier stage."
+}

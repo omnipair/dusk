@@ -1,0 +1,14 @@
+{
+  "status": "passed",
+  "checks": [
+    "range boundary continuity",
+    "center inventory",
+    "recovery activation/max/critical boundaries",
+    "integer bonus arithmetic",
+    "revenue netting distinction",
+    "equity cap",
+    "rate anchor bounds",
+    "target equilibrium",
+    "unpaid-interest exclusion"
+  ]
+}

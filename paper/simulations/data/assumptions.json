@@ -1,0 +1,24 @@
+{
+  "reviewed_commit": "263c1635ad87ee36ffd9bf0b970457e4be965326",
+  "target_utilization_bps": 7000,
+  "steepness": 4,
+  "speed_per_year": 20,
+  "update_ms": 86400000,
+  "initial_anchor_nad": 40000000,
+  "curve_tail": 100.0,
+  "curve_layers": [
+    [
+      450.0,
+      0.95,
+      1.0526315789473684
+    ],
+    [
+      450.0,
+      0.85,
+      1.1764705882352942
+    ]
+  ],
+  "recovery_claim": 1000000,
+  "recovery_conversion": "1 target atom per opposite atom",
+  "scope": "Mathematical illustrations; not a full program emulator"
+}

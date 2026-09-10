@@ -1,0 +1,50 @@
+{
+  "reviewed_commit": "263c1635ad87ee36ffd9bf0b970457e4be965326",
+  "updated_at": "2026-09-10",
+  "outputs": [
+    {
+      "path": "paper/dusk-v2-whitepaper.pdf",
+      "pages": 10,
+      "sha256": "af99972654e03e39aed054f658b708c9f67425a3913bd104655fe908e85c8db0",
+      "rendered_pages": 10,
+      "visual_review": "passed; all pages inspected, final changed pages reviewed individually"
+    },
+    {
+      "path": "paper/dusk-v2-whitepaper-expanded.pdf",
+      "pages": 26,
+      "sha256": "d61ad24670da411bc4f705c132c9e8b893035250ddf9a1fc6a5754d890bee183",
+      "rendered_pages": 26,
+      "visual_review": "passed; all pages inspected, final changed pages reviewed individually"
+    }
+  ],
+  "checks": {
+    "rust": {
+      "command": "cargo test -p dusk --lib",
+      "passed": 362,
+      "failed": 0
+    },
+    "illustrations": {
+      "status": "passed",
+      "checks": [
+        "range boundary continuity",
+        "center inventory",
+        "recovery activation/max/critical boundaries",
+        "integer bonus arithmetic",
+        "revenue netting distinction",
+        "equity cap",
+        "rate anchor bounds",
+        "target equilibrium",
+        "unpaid-interest exclusion"
+      ]
+    },
+    "source_manifest_files_verified": 24,
+    "bibtex_citations_resolved": 6,
+    "tex_builds": "both passed with Tectonic 0.16.9",
+    "overfull_boxes": 0,
+    "unresolved_references": 0,
+    "missing_glyph_warnings": 0,
+    "visual_review": "all 36 final pages reviewed; no clipping, overlapping tables, or stray reference pages",
+    "tex_notes": "Three non-fatal underfull paragraph warnings remain in the expanded paper; inspected visually."
+  },
+  "scope": "Whitepapers and supporting paper bundle only; no Rust, SDK, root README, or program README edits. Full pre-commit CI was not run; no commit or push."
+}

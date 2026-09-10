@@ -1,0 +1,34 @@
+{
+  "recovered_at": "2026-09-10",
+  "source_snapshot": "July 12, 2026",
+  "historical_source_files_unchanged": true,
+  "existing_updated_bundle_files_unchanged": 28,
+  "outputs": [
+    {
+      "path": "paper/dusk-v2-whitepaper.pdf",
+      "version": "current",
+      "pages": 10,
+      "sha256": "af99972654e03e39aed054f658b708c9f67425a3913bd104655fe908e85c8db0"
+    },
+    {
+      "path": "paper/previous/dusk-v2-whitepaper.pdf",
+      "version": "historical",
+      "pages": 10,
+      "sha256": "8493bfe70282f3f841cdee94333ca67dc294824ce83019bea36ba0278b9745e7"
+    },
+    {
+      "path": "paper/dusk-v2-whitepaper-expanded.pdf",
+      "version": "current",
+      "pages": 26,
+      "sha256": "d61ad24670da411bc4f705c132c9e8b893035250ddf9a1fc6a5754d890bee183"
+    },
+    {
+      "path": "paper/previous/dusk-v2-whitepaper-expanded.pdf",
+      "version": "historical",
+      "pages": 29,
+      "sha256": "c7014ed017200dcbe87bbd3e7b10035fd8625619016900fc37996c4b3ae7a1e7"
+    }
+  ],
+  "historical_pdf_review": "All 39 pages rendered and visually inspected; no clipping, overlap, missing glyphs, or unresolved references. Original float placement and paragraph spacing retained.",
+  "tex_notes": "Historical sources emit underfull-box warnings; no overfull boxes. Sources preserved verbatim."
+}
