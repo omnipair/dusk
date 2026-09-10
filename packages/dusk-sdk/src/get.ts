@@ -1,10 +1,18 @@
 import type { BN, Program } from "@coral-xyz/anchor";
 import {
+  ComputeBudgetProgram,
   PublicKey,
   Transaction,
   type Commitment,
   type TransactionInstruction,
 } from "@solana/web3.js";
+
+/**
+ * Previews are simulated, so the budget costs nothing unless it is used, and
+ * the default 200,000 units is not enough for the heavier ones.
+ */
+const DEFAULT_PREVIEW_COMPUTE_UNITS = 1_400_000;
+const DEFAULT_PREVIEW_HEAP_FRAME_BYTES = 256 * 1024;
 
 import {
   deriveBorrowPositionAddress,
@@ -75,6 +83,16 @@ export const pda = {
 export interface SimulateOptions {
   feePayer?: AddressLike;
   commitment?: Commitment;
+  /**
+   * Compute units to request. The default 200,000 is not enough for the
+   * heavier previews -- borrow capacity exhausts it and returns no data at
+   * all, which reads as "the program returned nothing" rather than as a
+   * budget problem. Raised well above what any preview needs, because a
+   * simulation pays only for what it consumes.
+   */
+  computeUnitLimit?: number;
+  /** Heap for previews that build large intermediate state. */
+  heapFrameBytes?: number;
 }
 
 export interface PreviewSwapParams extends SimulateOptions {
@@ -322,7 +340,15 @@ export class DuskGet {
     instruction: TransactionInstruction,
     options: SimulateOptions = {}
   ): Promise<PreviewReturnData> {
-    const tx = new Transaction().add(instruction);
+    const tx = new Transaction().add(
+      ComputeBudgetProgram.requestHeapFrame({
+        bytes: options.heapFrameBytes ?? DEFAULT_PREVIEW_HEAP_FRAME_BYTES,
+      }),
+      ComputeBudgetProgram.setComputeUnitLimit({
+        units: options.computeUnitLimit ?? DEFAULT_PREVIEW_COMPUTE_UNITS,
+      }),
+      instruction
+    );
     tx.feePayer = address(options.feePayer ?? this.program.provider.publicKey ?? this.defaultFeePayer);
     tx.recentBlockhash = (
       await this.program.provider.connection.getLatestBlockhash(options.commitment)
