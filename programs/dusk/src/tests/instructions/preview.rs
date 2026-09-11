@@ -96,6 +96,116 @@ fn preview_test_market(existing_base_debt: u64, aggregate_quote_contribution: u6
     market
 }
 
+#[test]
+fn indexed_hlp_debt_gap_does_not_block_swap_settlement() {
+    use crate::{
+        constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, MS_PER_YEAR, TARGET_MS_PER_SLOT},
+        transitions::{lending::accrue_side, liquidity::SwapCashPolicy},
+    };
+
+    // Obtain the reported index through four legal full-utilization accruals.
+    // Reuse that index in a liquid, fully hedged market after refinancing.
+    let mut accrued = Market::default();
+    accrued.config.irm.curve_steepness_nad = crate::state::MAX_IRM_CURVE_STEEPNESS_NAD;
+    accrued.debt.quote_borrow_index_nad = NAD as u128;
+    accrued.debt.quote_rate_at_target_nad = INTEREST_INITIAL_RATE_AT_TARGET_NAD;
+    accrued.base_hlp_vault.debt_shares = 1_000;
+    accrued.base_hlp_vault.quote_hlp_live_reserve = 1_000;
+    accrued.quote_side.reserves.live_reserve = 1_000;
+    for year in 1..=4 {
+        accrue_side(
+            &mut accrued,
+            MarketAsset::Quote,
+            year * MS_PER_YEAR / TARGET_MS_PER_SLOT,
+        )
+        .unwrap();
+    }
+    let index = accrued.debt.quote_borrow_index_nad;
+    assert_eq!(index, 6_989_199_360);
+
+    for decimals in [9, 18] {
+        for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
+            let mut market = preview_test_market(0, 0);
+            for side in [&mut market.base_side, &mut market.quote_side] {
+                side.asset_decimals = decimals;
+                side.reserves.cash_reserve = 13_978;
+                side.reserves.live_reserve = 13_978;
+                side.shares.ylp_supply = 13_976;
+            }
+            market.side_mut(asset_in).reserves.cash_reserve = 6_989;
+            let vault = if asset_in == MarketAsset::Quote {
+                market.debt.quote_borrow_index_nad = index;
+                market.base_hlp_vault.quote_hlp_live_reserve = 6_989;
+                &mut market.base_hlp_vault
+            } else {
+                market.debt.base_borrow_index_nad = index;
+                market.quote_hlp_vault.base_hlp_live_reserve = 6_989;
+                &mut market.quote_hlp_vault
+            };
+            vault.ylp_shares = 6_988;
+            vault.hlp_supply = 6_989;
+            vault.debt_shares = 1_000;
+            vault.debt_principal = 6_989;
+            market.config.swap_fee_bps = 0;
+            market.config.divergence_fee_share_cap_bps = 0;
+            market.config.volatility_fee_share_cap_bps = 0;
+            market.amm = crate::state::AmmState::default();
+            market.risk = Risk::default();
+            market.prepare_amm_for_swap(0).unwrap();
+            market.refresh_risk().unwrap();
+            market.assert_market_invariants().unwrap();
+
+            let request = SwapRequest {
+                current_slot: 0,
+                current_unix_timestamp: 0,
+                asset_in,
+                reserve_credit: 2,
+                protocol_fee_bps: 0,
+            };
+            // Open/increase leverage use this same planner with a Borrow
+            // cash policy; its quote must also survive the indexed gap.
+            let leveraged = request
+                .prepare_with_cash_policy(
+                    &mut market,
+                    SwapCashPolicy::Borrow {
+                        asset: asset_in,
+                        amount: 2,
+                    },
+                )
+                .unwrap();
+            let prepared = request.prepare(&mut market).unwrap();
+            assert!(prepared.quote.amount_out > 0);
+            assert_eq!(leveraged.quote.amount_out, prepared.quote.amount_out);
+            let cash_in_before = market.side(asset_in).reserves.cash_reserve;
+            let cash_out_before = market.side(asset_in.opposite()).reserves.cash_reserve;
+            let amount_out = prepared.quote.amount_out;
+            prepared
+                .finalize_state(&mut market, 0, 0, crate::state::ProtocolAuctionSplit::default())
+                .unwrap();
+            market.assert_market_invariants().unwrap();
+            assert_eq!(market.side(asset_in).reserves.cash_reserve, cash_in_before + 2);
+            assert_eq!(
+                market.side(asset_in.opposite()).reserves.cash_reserve,
+                cash_out_before - amount_out
+            );
+            let vault = if asset_in == MarketAsset::Quote {
+                &market.base_hlp_vault
+            } else {
+                &market.quote_hlp_vault
+            };
+            let debt = Debt::shares_to_debt(vault.debt_shares, index).unwrap();
+            let claim = mul_div_u128(
+                market.side(asset_in).reserves.live_reserve as u128,
+                vault.ylp_shares as u128,
+                market.side(asset_in).shares.ylp_supply as u128,
+            )
+            .unwrap();
+            assert!(debt.abs_diff(claim) <= 1);
+            assert_eq!(vault.debt_principal as u128, debt);
+        }
+    }
+}
+
 fn active_concentrated_preview_market() -> Market {
     let mut market = preview_test_market(0, 0);
     market.quote_side.reserves.live_reserve = 2_000_000;

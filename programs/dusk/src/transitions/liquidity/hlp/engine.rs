@@ -1,5 +1,10 @@
 use super::*;
 
+#[cfg(test)]
+mod tests {
+    include!("../../../tests/transitions/liquidity_hlp_engine.rs");
+}
+
 fn recognized_hlp_residual_exposure(actual_residual_nad: i128, nav_nad: u128, amount_decimals: u8) -> i128 {
     // Keep the absolute dust allowance at 0.00001 tokens at every market scale.
     // Saturation is exact for this min: an unrepresentable absolute cap can
@@ -147,9 +152,8 @@ fn concentrated_hlp_receipt(
     })
 }
 
-/// Chooses debt shares whose raw debt equals the vault's proportional
-/// opposite-asset yLP claim at the final reserve point. The continuous fixed
-/// point is closed form; five adjacent raw atoms only certify integer rounding.
+/// Chooses indexed debt within one raw atom of the vault's proportional
+/// opposite-asset yLP claim at the final reserve point.
 fn canonical_debt_for_proportional_claim(
     non_debt_reserve: u64,
     hlp_ylp_shares: u64,
@@ -164,67 +168,42 @@ fn canonical_debt_for_proportional_claim(
         .checked_sub(hlp_ylp_shares)
         .ok_or(ErrorCode::SupplyUnderflow)?;
     require!(ordinary_and_other_shares > 0, ErrorCode::SupplyUnderflow);
-    // Retain the direct algebraic endpoint when rounding yLP ownership did
-    // not separate its debt from the materialized proportional claim.
-    if let Some(quoted_debt) = quoted_debt {
-        let shares = if quoted_debt == 0 {
-            0
-        } else {
-            Debt::debt_to_shares(quoted_debt, borrow_index_nad)?
-        };
-        let debt =
-            u64::try_from(Debt::shares_to_debt(shares, borrow_index_nad)?).map_err(|_| ErrorCode::DebtMathOverflow)?;
-        let reserve = non_debt_reserve.checked_add(debt).ok_or(ErrorCode::ReserveOverflow)?;
-        let claim = mul_div_u128(reserve as u128, hlp_ylp_shares as u128, total_ylp_supply as u128)?;
-        if u128::from(debt).abs_diff(claim) <= 1 {
-            return Ok((shares, debt));
-        }
-    }
-    let continuous = u64::try_from(
-        (non_debt_reserve as u128)
-            .checked_mul(hlp_ylp_shares as u128)
-            .ok_or(ErrorCode::MarketMathOverflow)?
-            / ordinary_and_other_shares as u128,
-    )
-    .map_err(|_| ErrorCode::DebtMathOverflow)?;
+    require!(borrow_index_nad >= NAD as u128, ErrorCode::DebtShareDivisionOverflow);
 
-    let mut best: Option<(u128, u64, u64)> = None;
-    for desired in [
-        Some(continuous),
-        continuous.checked_sub(1),
-        continuous.checked_add(1),
-        continuous.checked_sub(2),
-        continuous.checked_add(2),
-    ]
-    .into_iter()
-    .flatten()
+    let max_debt = u128::from(u64::MAX - non_debt_reserve);
+    let continuous = mul_div_u128(
+        non_debt_reserve as u128,
+        hlp_ylp_shares as u128,
+        ordinary_and_other_shares as u128,
+    )?
+    .min(max_debt);
+    // Retain a valid quoted endpoint. Otherwise test the indexed debts
+    // bracketing the fixed point, rather than raw amounts that can all round
+    // to the same share count after interest accrues. The signed error
+    // d - floor((R + d) * h / S) is monotone in d and is zero at the floored
+    // continuous solution, so no farther share count can improve either side.
+    // Clipping to reserve capacity also covers a solution near u64::MAX.
+    let upper_shares = (continuous * NAD as u128).div_ceil(borrow_index_nad);
+    let quoted_shares = quoted_debt.map(|debt| (debt as u128 * NAD as u128).div_ceil(borrow_index_nad));
+    for debt_shares in [quoted_shares, Some(upper_shares), upper_shares.checked_sub(1)]
+        .into_iter()
+        .flatten()
     {
-        let debt_shares = if desired == 0 {
-            0
-        } else {
-            Debt::debt_to_shares(desired, borrow_index_nad)?
-        };
-        let debt = u64::try_from(Debt::shares_to_debt(debt_shares, borrow_index_nad)?)
-            .map_err(|_| ErrorCode::DebtMathOverflow)?;
-        let total_reserve = non_debt_reserve.checked_add(debt).ok_or(ErrorCode::ReserveOverflow)?;
-        let claim = u64::try_from(
-            (total_reserve as u128)
-                .checked_mul(hlp_ylp_shares as u128)
-                .ok_or(ErrorCode::MarketMathOverflow)?
-                / total_ylp_supply as u128,
-        )
-        .map_err(|_| ErrorCode::MarketMathOverflow)?;
-        let error = debt.abs_diff(claim);
-        if error <= 1 {
-            return Ok((debt_shares, debt));
+        let debt = Debt::shares_to_debt(debt_shares, borrow_index_nad)?;
+        // An upper candidate may exceed capacity while its predecessor fits.
+        if debt > max_debt {
+            continue;
         }
-        if best.is_none_or(|(_, _, best_error)| error < best_error) {
-            best = Some((debt_shares, debt, error));
+        let claim = mul_div_u128(
+            non_debt_reserve as u128 + debt,
+            hlp_ylp_shares as u128,
+            total_ylp_supply as u128,
+        )?;
+        if debt.abs_diff(claim) <= 1 {
+            return Ok((debt_shares, debt as u64));
         }
     }
-    let (debt_shares, debt, error) = best.ok_or(ErrorCode::BrokenInvariant)?;
-    require!(error <= 1, ErrorCode::BrokenInvariant);
-    Ok((debt_shares, debt))
+    err!(ErrorCode::BrokenInvariant)
 }
 
 pub(crate) fn prepare_concentrated_hlp_transition(
