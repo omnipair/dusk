@@ -397,3 +397,33 @@ include `.js` extensions in emitted files.
 ## License
 
 MIT
+
+
+## Token amounts and UI extensions
+
+Dusk instruction amounts, token balances, and amount previews are raw integer
+atoms (`BN`/`bigint`). The program supports Token-2022 group metadata,
+`InterestBearingConfig`, and `ScaledUiAmount` on underlying assets. Group
+metadata does not change settlement. Interest and UI multipliers change only
+the displayed denomination; the SDK does not automatically apply them.
+
+For these mints, dividing raw amounts by `10 ** decimals` alone is not a correct
+wallet display. Use the Token-2022 program's `AmountToUiAmount` and
+`UiAmountToAmount` instructions through RPC simulation with the current mint
+state and clock. Refresh conversions after multiplier/rate updates or scheduled
+changes take effect. Keep raw amounts as integers throughout transaction
+construction; token-program UI conversion uses floating-point arithmetic and
+must not be used as a lossless accounting round trip.
+
+Dusk prices and price limits use fixed mint-decimal units, with nine-decimal NAD
+precision, independently of UI multipliers. Convert UI prices at the client
+boundary as well: if raw-decimal price is quote per base, displayed price is
+`price * quote_display_multiplier / base_display_multiplier`. Interest-bearing
+mints have a time-dependent display factor. Existing orders keep their original
+raw price limits when the issuer changes the display. A display increase alone
+does not create collateral or Dusk yield.
+
+The token extension semantics are described in Solana's
+[scaled UI amount](https://solana.com/docs/tokens/extensions/scaled-ui-amount) and
+[interest-bearing token](https://solana.com/docs/tokens/extensions/interest-bearing-tokens)
+documentation.

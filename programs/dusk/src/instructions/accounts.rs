@@ -2,20 +2,18 @@ use anchor_lang::{prelude::*, solana_program::program_option::COption};
 use anchor_spl::{
     associated_token::get_associated_token_address_with_program_id,
     token::Token,
-    token_interface::{
-        spl_token_2022::{
-            extension::{transfer_hook, BaseStateWithExtensions, ExtensionType, StateWithExtensions},
-            state::Mint as SplToken2022Mint,
-        },
-        Mint, Token2022, TokenAccount,
-    },
+    token_interface::{Mint, Token2022, TokenAccount},
+};
+use spl_token_2022::{
+    extension::{transfer_hook, BaseStateWithExtensions, ExtensionType, StateWithExtensions},
+    state::Mint as SplToken2022Mint,
 };
 
 use crate::{
     constants::HLP_YLP_VAULT_SEED_PREFIX,
     errors::ErrorCode,
     state::{Market, MarketAsset, MarketSide},
-    token::is_fee_free_mint,
+    token::SUPPORTED_ASSET_EXTENSIONS,
 };
 
 pub fn derive_hlp_ylp_vault_address(market: Pubkey, target_hlp_mint: Pubkey, ylp_mint: Pubkey) -> (Pubkey, u8) {
@@ -143,15 +141,10 @@ pub fn require_supported_asset_mint(mint: &InterfaceAccount<Mint>) -> Result<()>
     } else {
         let mint_data = mint_info.try_borrow_data()?;
         let mint_state = StateWithExtensions::<SplToken2022Mint>::unpack(&mint_data)?;
-        mint_state.get_extension_types()?.into_iter().all(|extension| {
-            matches!(
-                extension,
-                ExtensionType::TransferFeeConfig
-                    | ExtensionType::MetadataPointer
-                    | ExtensionType::TokenMetadata
-                    | ExtensionType::TransferHook
-            )
-        })
+        mint_state
+            .get_extension_types()?
+            .into_iter()
+            .all(|extension| SUPPORTED_ASSET_EXTENSIONS.contains(&extension))
     };
     require!(supported, ErrorCode::InvalidTokenProgram);
     Ok(())
@@ -162,11 +155,19 @@ pub fn validate_lp_mint(mint: &InterfaceAccount<Mint>, market: Pubkey, asset_dec
         *mint.to_account_info().owner == Token2022::id(),
         ErrorCode::InvalidLpMintKey
     );
-    require!(is_fee_free_mint(mint)?, ErrorCode::InvalidLpMintKey);
     let hook_config = {
         let mint_info = mint.to_account_info();
         let mint_data = mint_info.try_borrow_data()?;
         let mint_state = StateWithExtensions::<SplToken2022Mint>::unpack(&mint_data)?;
+        // LP receipts keep their own extension policy. Asset UI multipliers
+        // and interest displays must not change how receipt balances appear.
+        require!(
+            mint_state.get_extension_types()?.into_iter().all(|extension| matches!(
+                extension,
+                ExtensionType::MetadataPointer | ExtensionType::TokenMetadata | ExtensionType::TransferHook
+            )),
+            ErrorCode::InvalidLpMintKey
+        );
         mint_state
             .get_extension::<transfer_hook::TransferHook>()
             .ok()

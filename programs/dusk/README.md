@@ -241,10 +241,8 @@ The divergence potential is Huber-capped at the configured marginal share, and
 both divergence and volatility receive explicit gross-input budgets. Together
 with the base fee, configured component caps must sum to at most 5,000 bps.
 Every accepted quote therefore leaves at least `ceil(gross_input / 2)` for
-curve execution, including odd raw-token amounts. Launch markets support asset
-decimals from zero through nine, and initialization rejects finer assets.
-Routers and user slippage bounds decide whether the resulting market quote is
-acceptable.
+curve execution, including odd raw-token amounts. Routers and user slippage
+bounds decide whether the resulting market quote is acceptable.
 
 One-times `peak_amplification` with zero widths is exact CPMM. Concentrated markets expose three product controls: peak amplification, core half-width, and fade width. Dusk derives a nonzero full-range CPMM tail plus a nested core and shoulder from those values. Quotes use at most five closed-form segments and four precomputed boundary crossings. Fees, EMA half-life, adjustment threshold, and recenter cadence remain separate controller settings. A trade is hedged and committed at its quoted endpoint before its observation can schedule a later, protected center move. Dusk never consults an external oracle.
 
@@ -384,3 +382,27 @@ Checked integer bounds still apply: extreme decimal differences or quantities
 that exceed the math representation return an arithmetic error. There is no
 fixed mint-decimal cap. Equal-precision mints need no decimal multiplication,
 even above 18 decimals.
+
+
+## Token-2022 asset extensions
+
+Asset mints may use `TransferFeeConfig`, `MetadataPointer`, `TokenMetadata`,
+`TransferHook`, `GroupPointer`, `TokenGroup`, `GroupMemberPointer`,
+`TokenGroupMember`, `InterestBearingConfig`, and `ScaledUiAmount`. Other mint
+extensions remain rejected. Group metadata describes membership; Dusk does not
+use it as an authorization or collateral-value signal.
+
+Interest-bearing and scaled-UI extensions change the token program's displayed
+amounts, not raw balances or supply. Dusk settles, prices, and measures risk in
+raw atoms normalized by the mint's fixed decimals. Changing an interest rate or
+UI multiplier does not rebase reserves, debt, collateral, LP shares, or existing
+price limits. Clients must convert between raw amounts and the token program's
+current UI representation at their input/display boundary, including when
+showing prices; a UI multiplier is not additional collateral or earned Dusk
+yield. See the [SDK amount guidance](../../packages/dusk-sdk/README.md#token-amounts-and-ui-extensions).
+
+Transfer-fee mints remain excluded from leverage collateral on risk-increasing
+paths and from auction payment, even when the configured fee is currently zero.
+Hooks still require their extra accounts and may reject transfers. LP receipt
+mints keep a separate, narrower policy: only `MetadataPointer`, `TokenMetadata`,
+and the mandatory immutable Dusk `TransferHook` are allowed.

@@ -5,6 +5,15 @@ import anchor from "@coral-xyz/anchor";
 import {
   ACCOUNT_SIZE,
   createBurnCheckedInstruction,
+  createAmountToUiAmountInstruction,
+  createInitializeGroupPointerInstruction,
+  createInitializeGroupMemberPointerInstruction,
+  createInitializeInterestBearingMintInstruction,
+  createInitializeScaledUiAmountConfigInstruction,
+  createUpdateMultiplierDataInstruction,
+  createUpdateRateInterestBearingMintInstruction,
+  tokenGroupInitializeGroupWithRentTransfer,
+  tokenGroupMemberInitializeWithRentTransfer,
   createAccount,
   createAssociatedTokenAccountIdempotentInstruction,
   createInitializeAccount3Instruction,
@@ -280,7 +289,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     connection = new LiteSVMConnection(svm);
 
     payer = Keypair.generate();
-    await connection.requestAirdrop(payer.publicKey, 20 * LAMPORTS_PER_SOL);
+    // Cover accumulated rent and creation fees for the suite's market fixtures.
+    await connection.requestAirdrop(payer.publicKey, 100 * LAMPORTS_PER_SOL);
     const provider = new AnchorProvider(connection as any, new Wallet(payer) as any, {});
     program = new Program({ ...idl, accounts: [] } as any, provider as any);
     leverageDelegateProgram = new Program(
@@ -506,9 +516,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     return mint.publicKey;
   }
 
-  async function createDeferredHookMint(authority: PublicKey, decimals = 6) {
+  async function createDeferredHookMint(authority: PublicKey, decimals = 6, scaledUi = false) {
     const mint = Keypair.generate();
-    const mintLen = getMintLen([ExtensionType.TransferHook]);
+    const mintLen = getMintLen([ExtensionType.TransferHook, ...(scaledUi ? [ExtensionType.ScaledUiAmountConfig] : [])]);
     await connection.sendTransaction(
       new Transaction().add(
         SystemProgram.createAccount({
@@ -518,6 +528,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           space: mintLen,
           programId: TOKEN_2022_PROGRAM_ID,
         }),
+        ...(scaledUi ? [createInitializeScaledUiAmountConfigInstruction(mint.publicKey, payer.publicKey, 2, TOKEN_2022_PROGRAM_ID)] : []),
         createInitializeTransferHookInstruction(
           mint.publicKey,
           payer.publicKey,
@@ -541,10 +552,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     authority: PublicKey,
     decimals = 6,
     transferFeeBasisPoints = 100,
-    maximumFee = 10_000n
+    maximumFee = 10_000n,
+    scaledUi = false
   ) {
     const mint = Keypair.generate();
-    const mintLen = getMintLen([ExtensionType.TransferFeeConfig]);
+    const mintLen = getMintLen([ExtensionType.TransferFeeConfig, ...(scaledUi ? [ExtensionType.ScaledUiAmountConfig] : [])]);
     await connection.sendTransaction(
       new Transaction().add(
         SystemProgram.createAccount({
@@ -554,6 +566,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           space: mintLen,
           programId: TOKEN_2022_PROGRAM_ID,
         }),
+        ...(scaledUi ? [createInitializeScaledUiAmountConfigInstruction(mint.publicKey, payer.publicKey, 2, TOKEN_2022_PROGRAM_ID)] : []),
         createInitializeTransferFeeConfigInstruction(
           mint.publicKey,
           payer.publicKey,
@@ -573,6 +586,42 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       [payer, mint]
     );
     return mint.publicKey;
+  }
+
+  async function createGroupedUiAssets(scaledHook = false) {
+    const base = Keypair.generate();
+    const quote = Keypair.generate();
+    for (const [mint, extensions, instructions] of [
+      [base, [ExtensionType.GroupPointer, ExtensionType.ScaledUiAmountConfig, ...(scaledHook ? [ExtensionType.TransferHook] : [])], [
+        createInitializeScaledUiAmountConfigInstruction(base.publicKey, payer.publicKey, 2, TOKEN_2022_PROGRAM_ID),
+        createInitializeGroupPointerInstruction(base.publicKey, payer.publicKey, base.publicKey, TOKEN_2022_PROGRAM_ID),
+        ...(scaledHook ? [createInitializeTransferHookInstruction(base.publicKey, payer.publicKey, PublicKey.default, TOKEN_2022_PROGRAM_ID)] : []),
+      ]],
+      [quote, [ExtensionType.GroupMemberPointer, ExtensionType.InterestBearingConfig], [
+        createInitializeInterestBearingMintInstruction(quote.publicKey, payer.publicKey, 500, TOKEN_2022_PROGRAM_ID),
+        createInitializeGroupMemberPointerInstruction(quote.publicKey, payer.publicKey, quote.publicKey, TOKEN_2022_PROGRAM_ID),
+      ]],
+    ] as const) {
+      const space = getMintLen([...extensions]);
+      await connection.sendTransaction(new Transaction().add(
+        SystemProgram.createAccount({
+          fromPubkey: payer.publicKey,
+          newAccountPubkey: mint.publicKey,
+          lamports: await connection.getMinimumBalanceForRentExemption(space),
+          space,
+          programId: TOKEN_2022_PROGRAM_ID,
+        }),
+        ...instructions,
+        createInitializeMintInstruction(mint.publicKey, 6, payer.publicKey, null, TOKEN_2022_PROGRAM_ID)
+      ), [payer, mint]);
+    }
+    await tokenGroupInitializeGroupWithRentTransfer(
+      connection as any, payer, base.publicKey, payer, payer.publicKey, 10n, [], undefined, TOKEN_2022_PROGRAM_ID
+    );
+    await tokenGroupMemberInitializeWithRentTransfer(
+      connection as any, payer, quote.publicKey, payer, base.publicKey, payer.publicKey, [], undefined, TOKEN_2022_PROGRAM_ID
+    );
+    return { base: base.publicKey, quote: quote.publicKey };
   }
 
   function eventAuthority() {
@@ -658,7 +707,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     }
   }
 
-  async function simulateReturnData(transaction: Transaction): Promise<Buffer> {
+  async function simulateReturnData(transaction: Transaction, expectedProgramId = DUSK_PROGRAM_ID): Promise<Buffer> {
     const { blockhash } = await connection.getLatestBlockhash();
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = payer.publicKey;
@@ -681,7 +730,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       throw new Error(`Simulation did not return data\n${meta?.prettyLogs?.() ?? ""}`);
     }
     const programId = new PublicKey(returnData.programId());
-    expect(programId.toString()).to.equal(DUSK_PROGRAM_ID.toString());
+    expect(programId.toString()).to.equal(expectedProgramId.toString());
     return Buffer.from(returnData.data());
   }
 
@@ -969,11 +1018,14 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       quoteMint: 2_000_000,
     },
     mintDecimals: number | { base: number; quote: number } = 6,
-    assetTokenProgram = TOKEN_PROGRAM_ID
+    assetTokenProgram = TOKEN_PROGRAM_ID,
+    assetMints?: { base: PublicKey; quote: PublicKey }
   ) {
     const baseDecimals = typeof mintDecimals === "number" ? mintDecimals : mintDecimals.base;
     const quoteDecimals = typeof mintDecimals === "number" ? mintDecimals : mintDecimals.quote;
-    const fixture = baseDecimals === 6 && quoteDecimals === 6 && assetTokenProgram.equals(TOKEN_PROGRAM_ID)
+    const fixture = assetMints
+      ? await initializeFinalMarketWithMints(paramsSeed, assetMints.base, assetMints.quote, config, baseDecimals, {}, quoteDecimals)
+      : baseDecimals === 6 && quoteDecimals === 6 && assetTokenProgram.equals(TOKEN_PROGRAM_ID)
       ? await initializeFinalMarket(paramsSeed, config)
       : await initializeFinalMarketWithMints(
           paramsSeed,
@@ -1587,15 +1639,17 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(authority.revenue_distribution.team_treasury_bps).to.equal(3_000);
   });
 
-  for (const [baseDecimals, quoteDecimals, token2022, concentrated] of [
+  for (const [baseDecimals, quoteDecimals, token2022, concentrated, groupedUi] of [
     [12, 6, false, false],
     [6, 12, true, false],
     [18, 18, false, false],
     [255, 255, true, false],
     [12, 6, false, true],
     [6, 12, true, true],
+    [6, 6, true, false, true],
+    [6, 6, true, true, true],
   ] as const) {
-    it(`preserves high-decimal ${baseDecimals}/${quoteDecimals} ${concentrated ? "concentrated" : "CPMM"} liquidity, swaps, and hLP accounting`, async function () {
+    it(`preserves ${groupedUi ? "grouped UI-amount" : "high-decimal"} ${baseDecimals}/${quoteDecimals} ${concentrated ? "concentrated" : "CPMM"} liquidity, swaps, and hLP accounting`, async function () {
       const precision = Math.max(9, baseDecimals, quoteDecimals);
       const baseDeposit = 1_000_000_000_000_000n / 10n ** BigInt(precision - baseDecimals);
       const quoteDeposit = 1_000_000_000_000_000n / 10n ** BigInt(precision - quoteDecimals);
@@ -1618,7 +1672,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         minYlp: 1,
         baseMint: baseDeposit * 4n,
         quoteMint: quoteDeposit * 4n,
-      }, { base: baseDecimals, quote: quoteDecimals }, assetProgram);
+      }, { base: baseDecimals, quote: quoteDecimals }, assetProgram, groupedUi ? await createGroupedUiAssets() : undefined);
       const hedge = await openBaseHedge(fixture, Number(baseDeposit / 20n));
       for (let round = 0n; round < 3n; round++) {
         await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), baseDeposit / (100n + round), 1);
@@ -2085,8 +2139,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   });
 
   it("accrues and claims permissioned referral interest for Token-2022 assets", async function () {
-    const baseMint = await createTransferFeeMint(payer.publicKey, 6, 100, 10_000n);
-    const quoteMint = await createTransferFeeMint(payer.publicKey, 6, 50, 10_000n);
+    const baseMint = await createTransferFeeMint(payer.publicKey, 6, 100, 10_000n, true);
+    const quoteMint = await createTransferFeeMint(payer.publicKey, 6, 50, 10_000n, true);
     const fixture = await initializeFinalMarketWithMints(71, baseMint, quoteMint);
     const ownerBaseAccount = await createAccount(
       connection as any,
@@ -2359,9 +2413,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     );
     expect(recipient.amount > 0n && recipient.amount <= claimable).to.equal(true);
   });
-  it("resolves Token-2022 hooks across liquidity, lending, and claims", async function () {
+  it("resolves Token-2022 hooks after scaled UI extensions across liquidity, lending, and claims", async function () {
     const baseMint = await createMint(connection as any, payer, payer.publicKey, null, 6);
-    const quoteMint = await createDeferredHookMint(payer.publicKey, 6);
+    const quoteMint = await createDeferredHookMint(payer.publicKey, 6, true);
     const fixture = await initializeFinalMarketWithMints(72, baseMint, quoteMint);
     const ownerBaseAccount = await createAccount(
       connection as any,
@@ -7404,189 +7458,249 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(delegationAccount).to.equal(null);
   });
 
-  it("closes an owner-controlled leverage position", async function () {
-    const fixture = await addBalancedLiquidity(63);
-    const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(fixture);
-    trackV2Instruction("openLeverage", this.test?.title);
+  for (const groupedUi of [false, true]) {
+    it(`closes an owner-controlled leverage position${groupedUi ? " with grouped UI-amount assets" : ""}`, async function () {
+      const assetProgram = groupedUi ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+      const fixture = await addBalancedLiquidity(63, marketConfig(), undefined, 6, assetProgram,
+        groupedUi ? await createGroupedUiAssets() : undefined);
+      if (groupedUi) {
+        const quoteRawBefore = (await getAccount(connection as any, fixture.ownerQuoteAccount, undefined, assetProgram)).amount;
+        const interestDisplayTx = new Transaction().add(createAmountToUiAmountInstruction(fixture.quoteMint, quoteRawBefore, assetProgram));
+        const interestDisplayBefore = Number((await simulateReturnData(interestDisplayTx, assetProgram)).toString());
+        advanceClockByYear();
+        const interestDisplayAfter = Number((await simulateReturnData(interestDisplayTx, assetProgram)).toString());
+        expect(interestDisplayAfter).to.be.greaterThan(interestDisplayBefore);
+        expect((await getAccount(connection as any, fixture.ownerQuoteAccount, undefined, assetProgram)).amount).to.equal(quoteRawBefore);
+        const rawBalanceBefore = (await getAccount(connection as any, fixture.ownerBaseAccount, undefined, assetProgram)).amount;
+        const supplyBefore = (await getMint(connection as any, fixture.baseMint, undefined, assetProgram)).supply;
+        const marketBefore = Buffer.from(svm.getAccount(fixture.market)!.data);
+        const previewTx = await program.methods.previewSwap({ exactAssetIn: new BN(1_000) }).accounts({
+          market: fixture.market, futarchyAuthority, assetInMint: fixture.baseMint, assetOutMint: fixture.quoteMint,
+        }).transaction();
+        const previewBefore = await simulateReturnData(previewTx);
+        const displayTx = new Transaction().add(createAmountToUiAmountInstruction(fixture.baseMint, rawBalanceBefore, assetProgram));
+        const displayBefore = (await simulateReturnData(displayTx, assetProgram)).toString();
+        expect(Number(displayBefore)).to.equal(Number(rawBalanceBefore) * 2 / 1_000_000);
+        await connection.sendTransaction(new Transaction().add(
+          createUpdateMultiplierDataInstruction(fixture.baseMint, payer.publicKey, 4, svm.getClock().unixTimestamp, [], assetProgram),
+          createUpdateRateInterestBearingMintInstruction(fixture.quoteMint, payer.publicKey, 1_000, [], assetProgram)
+        ), [payer]);
+        const displayAfter = (await simulateReturnData(displayTx, assetProgram)).toString();
+        expect(Number(displayAfter)).to.equal(Number(displayBefore) * 2);
+        expect((await getAccount(connection as any, fixture.ownerBaseAccount, undefined, assetProgram)).amount).to.equal(rawBalanceBefore);
+        expect((await getMint(connection as any, fixture.baseMint, undefined, assetProgram)).supply).to.equal(supplyBefore);
+        expect(Buffer.from(svm.getAccount(fixture.market)!.data).equals(marketBefore)).to.equal(true);
+        expect((await simulateReturnData(previewTx)).equals(previewBefore)).to.equal(true);
+      }
+      const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(fixture);
+      trackV2Instruction("openLeverage", this.test?.title);
 
-    const ownerQuoteBefore = await getAccount(connection as any, fixture.ownerQuoteAccount);
-    const closeTx = await program.methods
-      .closeLeverage({
-        debtAsset: 1,
-        minAmountOut: new BN(0),
-      })
-      .accounts({
-        market: fixture.market,
-        futarchyAuthority,
-        positionOwner: payer.publicKey,
-        leveragePosition,
-        debtMint: fixture.quoteMint,
-        collateralMint: fixture.baseMint,
-        debtReserveVault: fixture.quoteReserveVault,
-        collateralReserveVault: fixture.baseReserveVault,
-        debtInterestVault: fixture.quoteInterestVault,
-        leverageCollateralVault,
-        ownerDebtAccount: fixture.ownerQuoteAccount,
-        referralPartner: null,
-        referralAccrual: null,
-        leverageDelegation: null,
-        delegatedProgram: null,
-        authority: payer.publicKey,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    await connection.sendTransaction(closeTx, [payer]);
-    trackV2Instruction("closeLeverage", this.test?.title);
+      const ownerQuoteBefore = await getAccount(connection as any, fixture.ownerQuoteAccount, undefined, assetProgram);
+      const closeTx = await program.methods
+        .closeLeverage({
+          debtAsset: 1,
+          minAmountOut: new BN(0),
+        })
+        .accounts({
+          market: fixture.market,
+          futarchyAuthority,
+          positionOwner: payer.publicKey,
+          leveragePosition,
+          debtMint: fixture.quoteMint,
+          collateralMint: fixture.baseMint,
+          debtReserveVault: fixture.quoteReserveVault,
+          collateralReserveVault: fixture.baseReserveVault,
+          debtInterestVault: fixture.quoteInterestVault,
+          leverageCollateralVault,
+          ownerDebtAccount: fixture.ownerQuoteAccount,
+          referralPartner: null,
+          referralAccrual: null,
+          leverageDelegation: null,
+          delegatedProgram: null,
+          authority: payer.publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          eventAuthority: eventAuthority(),
+          program: DUSK_PROGRAM_ID,
+        })
+        .transaction();
+      await connection.sendTransaction(closeTx, [payer]);
+      trackV2Instruction("closeLeverage", this.test?.title);
 
-    const ownerQuoteAfter = await getAccount(connection as any, fixture.ownerQuoteAccount);
-    expect(ownerQuoteAfter.amount >= ownerQuoteBefore.amount).to.equal(true);
-    expect(svm.getAccount(leveragePosition)).to.equal(null);
-  });
+      const ownerQuoteAfter = await getAccount(connection as any, fixture.ownerQuoteAccount, undefined, assetProgram);
+      expect(ownerQuoteAfter.amount >= ownerQuoteBefore.amount).to.equal(true);
+      expect(svm.getAccount(leveragePosition)).to.equal(null);
+    });
+  }
 
-  it("closes a leverage position through a delegated callback settlement", async function () {
-    const fixture = await addBalancedLiquidity(65);
-    const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(fixture);
-    trackV2Instruction("openLeverage", this.test?.title);
+  for (const groupedUi of [false, true]) {
+    it(`closes a leverage position through a delegated callback settlement${groupedUi ? " with grouped UI-amount assets" : ""}`, async function () {
+      const assetProgram = groupedUi ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+      const mints = groupedUi ? await createGroupedUiAssets(true) : undefined;
+      const fixture = await addBalancedLiquidity(65, marketConfig(), undefined, 6, assetProgram,
+        mints ? { base: mints.quote, quote: mints.base } : undefined);
+      const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(fixture);
+      trackV2Instruction("openLeverage", this.test?.title);
 
-    const leverageDelegation = deriveLeverageDelegationAddress(leveragePosition)[0];
-    const createDelegationTx = await program.methods
-      .createLeverageDelegation({
-        debtAsset: 1,
-        delegatedProgram: LEVERAGE_DELEGATE_PROGRAM_ID,
-        approvedActions: LEVERAGE_DELEGATE_CLOSE,
-      })
-      .accounts({
-        market: fixture.market,
-        leveragePosition,
-        leverageDelegation,
-        owner: payer.publicKey,
-        systemProgram: SystemProgram.programId,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    await connection.sendTransaction(createDelegationTx, [payer]);
-    trackV2Instruction("createLeverageDelegation", this.test?.title);
+      const leverageDelegation = deriveLeverageDelegationAddress(leveragePosition)[0];
+      const createDelegationTx = await program.methods
+        .createLeverageDelegation({
+          debtAsset: 1,
+          delegatedProgram: LEVERAGE_DELEGATE_PROGRAM_ID,
+          approvedActions: LEVERAGE_DELEGATE_CLOSE,
+        })
+        .accounts({
+          market: fixture.market,
+          leveragePosition,
+          leverageDelegation,
+          owner: payer.publicKey,
+          systemProgram: SystemProgram.programId,
+          eventAuthority: eventAuthority(),
+          program: DUSK_PROGRAM_ID,
+        })
+        .transaction();
+      await connection.sendTransaction(createDelegationTx, [payer]);
+      trackV2Instruction("createLeverageDelegation", this.test?.title);
 
-    const orderId = new BN(1);
-    const order = deriveLeverageOrderAddress(leveragePosition, payer.publicKey, orderId)[0];
-    const custodyTokenAccount = await createAccount(
-      connection as any,
-      payer,
-      fixture.quoteMint,
-      order,
-      Keypair.generate()
-    );
-    const executor = Keypair.generate();
-    await connection.requestAirdrop(executor.publicKey, LAMPORTS_PER_SOL);
-    const executorTokenAccount = await createAccount(
-      connection as any,
-      payer,
-      fixture.quoteMint,
-      executor.publicKey,
-      Keypair.generate()
-    );
-
-    const createOrderTx = await leverageDelegateProgram.methods
-      .createLeverageOrder({
-        orderId,
-        kind: ORDER_KIND_TAKE_PROFIT,
-        triggerCloseoutPriceNad: new BN(1),
-        closeBps: 10_000,
-      })
-      .accounts({
-        market: fixture.market,
-        leveragePosition,
+      const orderId = new BN(1);
+      const order = deriveLeverageOrderAddress(leveragePosition, payer.publicKey, orderId)[0];
+      const custodyTokenAccount = await createAccount(
+        connection as any,
+        payer,
+        fixture.quoteMint,
         order,
-        owner: payer.publicKey,
-        systemProgram: SystemProgram.programId,
-      })
-      .transaction();
-    await connection.sendTransaction(createOrderTx, [payer]);
+        Keypair.generate(),
+        undefined,
+        assetProgram
+      );
+      const executor = Keypair.generate();
+      await connection.requestAirdrop(executor.publicKey, LAMPORTS_PER_SOL);
+      const executorTokenAccount = await createAccount(
+        connection as any,
+        payer,
+        fixture.quoteMint,
+        executor.publicKey,
+        Keypair.generate(),
+        undefined,
+        assetProgram
+      );
 
-    const beforeIx = await leverageDelegateProgram.methods
-      .beforeTakeProfit({ orderId })
-      .accounts({
-        order,
-        market: fixture.market,
-        leveragePosition,
-        leverageDelegation,
-        custodyTokenAccount,
-        collateralMint: fixture.baseMint,
-        tokenMint: fixture.quoteMint,
-        executor: executor.publicKey,
-      })
-      .instruction();
-    const afterIx = await leverageDelegateProgram.methods
-      .afterCloseOrder({ orderId })
-      .accounts({
-        order,
-        owner: payer.publicKey,
-        leveragePosition,
-        leverageDelegation,
-        custodyTokenAccount,
-        executorTokenAccount,
-        ownerTokenAccount: fixture.ownerQuoteAccount,
-        tokenMint: fixture.quoteMint,
-        executor: executor.publicKey,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-      })
-      .instruction();
+      const payoutHookAccounts: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] = [];
+      if (groupedUi) {
+        await connection.sendTransaction(new Transaction().add(createUpdateTransferHookInstruction(
+          fixture.quoteMint, payer.publicKey, REFERRAL_TRANSFER_HOOK_PROGRAM_ID, [], assetProgram
+        )), [payer]);
+        const validation = getExtraAccountMetaAddress(fixture.quoteMint, REFERRAL_TRANSFER_HOOK_PROGRAM_ID);
+        const data = buildYieldTransferHookValidationAccountData([]);
+        svm.setAccount(validation, {
+          lamports: Number(svm.minimumBalanceForRentExemption(BigInt(data.length))),
+          data: new Uint8Array(data), owner: REFERRAL_TRANSFER_HOOK_PROGRAM_ID, executable: false, rentEpoch: 0,
+        });
+        payoutHookAccounts.push(
+          { pubkey: validation, isWritable: false, isSigner: false },
+          { pubkey: REFERRAL_TRANSFER_HOOK_PROGRAM_ID, isWritable: false, isSigner: false }
+        );
+      }
 
-    const ownerQuoteBefore = await getAccount(connection as any, fixture.ownerQuoteAccount);
-    const executorQuoteBefore = await getAccount(connection as any, executorTokenAccount);
-    const delegatedCloseTx = await program.methods
-      .delegatedCloseLeverage({
-        debtAsset: 1,
-        minAmountOut: new BN(0),
-        closeBps: 10_000,
-        delegated: {
-          beforeIxData: Buffer.from(beforeIx.data),
-          afterIxData: Buffer.from(afterIx.data),
-          beforeAccountsLen: beforeIx.keys.length,
-        },
-      })
-      .accounts({
-        market: fixture.market,
-        futarchyAuthority,
-        positionOwner: payer.publicKey,
-        leveragePosition,
-        debtMint: fixture.quoteMint,
-        collateralMint: fixture.baseMint,
-        debtReserveVault: fixture.quoteReserveVault,
-        collateralReserveVault: fixture.baseReserveVault,
-        debtInterestVault: fixture.quoteInterestVault,
-        leverageCollateralVault,
-        ownerDebtAccount: custodyTokenAccount,
-        referralPartner: null,
-        referralAccrual: null,
-        leverageDelegation,
-        delegatedProgram: LEVERAGE_DELEGATE_PROGRAM_ID,
-        authority: executor.publicKey,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .remainingAccounts([...beforeIx.keys, ...afterIx.keys])
-      .transaction();
-    await connection.sendTransaction(delegatedCloseTx, [payer, executor]);
-    trackV2Instruction("delegatedCloseLeverage", this.test?.title);
+      const createOrderTx = await leverageDelegateProgram.methods
+        .createLeverageOrder({
+          orderId,
+          kind: ORDER_KIND_TAKE_PROFIT,
+          triggerCloseoutPriceNad: new BN(1),
+          closeBps: 10_000,
+        })
+        .accounts({
+          market: fixture.market,
+          leveragePosition,
+          order,
+          owner: payer.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .transaction();
+      await connection.sendTransaction(createOrderTx, [payer]);
 
-    const ownerQuoteAfter = await getAccount(connection as any, fixture.ownerQuoteAccount);
-    const executorQuoteAfter = await getAccount(connection as any, executorTokenAccount);
-    const custodyAfter = await getAccount(connection as any, custodyTokenAccount);
+      const beforeIx = await leverageDelegateProgram.methods
+        .beforeTakeProfit({ orderId })
+        .accounts({
+          order,
+          market: fixture.market,
+          leveragePosition,
+          leverageDelegation,
+          custodyTokenAccount,
+          collateralMint: fixture.baseMint,
+          tokenMint: fixture.quoteMint,
+          executor: executor.publicKey,
+        })
+        .instruction();
+      const afterIx = await leverageDelegateProgram.methods
+        .afterCloseOrder({ orderId })
+        .accounts({
+          order,
+          owner: payer.publicKey,
+          leveragePosition,
+          leverageDelegation,
+          custodyTokenAccount,
+          executorTokenAccount,
+          ownerTokenAccount: fixture.ownerQuoteAccount,
+          tokenMint: fixture.quoteMint,
+          executor: executor.publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+        })
+        .remainingAccounts(payoutHookAccounts)
+        .instruction();
 
-    expect(ownerQuoteAfter.amount > ownerQuoteBefore.amount).to.equal(true);
-    expect(executorQuoteAfter.amount > executorQuoteBefore.amount).to.equal(true);
-    expect(custodyAfter.amount).to.equal(0n);
-    expect(svm.getAccount(leveragePosition)).to.equal(null);
-    expect(svm.getAccount(order)).to.equal(null);
-  });
+      const ownerQuoteBefore = await getAccount(connection as any, fixture.ownerQuoteAccount, undefined, assetProgram);
+      const executorQuoteBefore = await getAccount(connection as any, executorTokenAccount, undefined, assetProgram);
+      const delegatedCloseTx = await program.methods
+        .delegatedCloseLeverage({
+          debtAsset: 1,
+          minAmountOut: new BN(0),
+          closeBps: 10_000,
+          delegated: {
+            beforeIxData: Buffer.from(beforeIx.data),
+            afterIxData: Buffer.from(afterIx.data),
+            beforeAccountsLen: beforeIx.keys.length,
+          },
+        })
+        .accounts({
+          market: fixture.market,
+          futarchyAuthority,
+          positionOwner: payer.publicKey,
+          leveragePosition,
+          debtMint: fixture.quoteMint,
+          collateralMint: fixture.baseMint,
+          debtReserveVault: fixture.quoteReserveVault,
+          collateralReserveVault: fixture.baseReserveVault,
+          debtInterestVault: fixture.quoteInterestVault,
+          leverageCollateralVault,
+          ownerDebtAccount: custodyTokenAccount,
+          referralPartner: null,
+          referralAccrual: null,
+          leverageDelegation,
+          delegatedProgram: LEVERAGE_DELEGATE_PROGRAM_ID,
+          authority: executor.publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          eventAuthority: eventAuthority(),
+          program: DUSK_PROGRAM_ID,
+        })
+        .remainingAccounts([...beforeIx.keys, ...afterIx.keys])
+        .transaction();
+      await connection.sendTransaction(delegatedCloseTx, [payer, executor]);
+      trackV2Instruction("delegatedCloseLeverage", this.test?.title);
+
+      const ownerQuoteAfter = await getAccount(connection as any, fixture.ownerQuoteAccount, undefined, assetProgram);
+      const executorQuoteAfter = await getAccount(connection as any, executorTokenAccount, undefined, assetProgram);
+      const custodyAfter = await getAccount(connection as any, custodyTokenAccount, undefined, assetProgram);
+
+      expect(ownerQuoteAfter.amount > ownerQuoteBefore.amount).to.equal(true);
+      expect(executorQuoteAfter.amount > executorQuoteBefore.amount).to.equal(true);
+      expect(custodyAfter.amount).to.equal(0n);
+      expect(svm.getAccount(leveragePosition)).to.equal(null);
+      expect(svm.getAccount(order)).to.equal(null);
+    });
+  }
 
   it("liquidates an unhealthy leverage position", async function () {
     const config = marketConfig();
