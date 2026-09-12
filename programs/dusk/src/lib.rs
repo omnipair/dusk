@@ -213,6 +213,13 @@ pub mod dusk {
         SetHarvestAuthority::handle_set(ctx, args)
     }
 
+    /// Bring a yield account created before `harvest_authority` existed up
+    /// to the current size. Permissionless: it only appends zeroed bytes and
+    /// the caller pays the rent for them.
+    pub fn grow_yield_account(ctx: Context<GrowYieldAccount>) -> Result<()> {
+        GrowYieldAccount::handle_grow(ctx)
+    }
+
     #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn harvest<'info>(ctx: Context<'_, '_, '_, 'info, Harvest<'info>>, args: HarvestArgs) -> Result<()> {
         Harvest::handle_harvest(ctx, args)
