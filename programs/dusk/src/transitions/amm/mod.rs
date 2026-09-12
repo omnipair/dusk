@@ -64,11 +64,11 @@ impl Market {
 
     pub(crate) fn liquidity_nad(&self) -> Result<u128> {
         geometric_mean_floor(
-            normalize_to_nad(
+            self.normalize_amount(
                 self.base_side.reserves.live_reserve as u128,
                 self.base_side.asset_decimals,
             )?,
-            normalize_to_nad(
+            self.normalize_amount(
                 self.quote_side.reserves.live_reserve as u128,
                 self.quote_side.asset_decimals,
             )?,
@@ -464,14 +464,11 @@ impl Market {
         if deploying_protected {
             candidate_point.ordinary_base = candidate_point
                 .ordinary_base
-                .checked_add(normalize_to_nad(protected_base as u128, self.base_side.asset_decimals)?)
+                .checked_add(self.normalize_amount(protected_base as u128, self.base_side.asset_decimals)?)
                 .ok_or(ErrorCode::ReserveOverflow)?;
             candidate_point.ordinary_quote = candidate_point
                 .ordinary_quote
-                .checked_add(normalize_to_nad(
-                    protected_quote as u128,
-                    self.quote_side.asset_decimals,
-                )?)
+                .checked_add(self.normalize_amount(protected_quote as u128, self.quote_side.asset_decimals)?)
                 .ok_or(ErrorCode::ReserveOverflow)?;
         }
         let candidate_cache = prepare_concentrated_cache_at_point(
@@ -720,11 +717,11 @@ impl Market {
 
     pub(crate) fn curve_reserves_nad(&self) -> Result<CurveReservesNad> {
         Ok(CurveReservesNad {
-            base: normalize_to_nad(
+            base: self.normalize_amount(
                 self.curve_reserve(MarketAsset::Base)? as u128,
                 self.base_side.asset_decimals,
             )?,
-            quote: normalize_to_nad(
+            quote: self.normalize_amount(
                 self.curve_reserve(MarketAsset::Quote)? as u128,
                 self.quote_side.asset_decimals,
             )?,
@@ -744,11 +741,11 @@ impl Market {
             mul_div_u128(reserves.base, self.quote_hlp_vault.ylp_shares as u128, supply as u128)?;
         let quote_hlp_quote_claim =
             mul_div_u128(reserves.quote, self.quote_hlp_vault.ylp_shares as u128, supply as u128)?;
-        let base_hlp_quote_debt = normalize_to_nad(
+        let base_hlp_quote_debt = self.normalize_amount(
             Debt::shares_to_debt(self.base_hlp_vault.debt_shares, self.debt.quote_borrow_index_nad)?,
             self.quote_side.asset_decimals,
         )?;
-        let quote_hlp_base_debt = normalize_to_nad(
+        let quote_hlp_base_debt = self.normalize_amount(
             Debt::shares_to_debt(self.quote_hlp_vault.debt_shares, self.debt.base_borrow_index_nad)?,
             self.base_side.asset_decimals,
         )?;
@@ -908,7 +905,7 @@ impl Market {
         } else {
             reserve_credit
         };
-        let gross_curve_input_nad = normalize_to_nad(curve_input_raw as u128, input_decimals)?;
+        let gross_curve_input_nad = self.normalize_amount(curve_input_raw as u128, input_decimals)?;
         let center = self
             .amm
             .concentrated_curve_cache
@@ -917,8 +914,8 @@ impl Market {
             MarketAsset::Base => (state.ordinary_base, center.base_reserve),
             MarketAsset::Quote => (state.ordinary_quote, center.quote_reserve),
         };
-        let start_input_raw = denormalize_from_nad_floor(start_input_nad, input_decimals)?;
-        let center_input_raw = denormalize_from_nad_floor(center_input_nad, input_decimals)?;
+        let start_input_raw = self.denormalize_amount_floor(start_input_nad, input_decimals)?;
+        let center_input_raw = self.denormalize_amount_floor(center_input_nad, input_decimals)?;
         require!(center_input_raw > 0, ErrorCode::InvalidMarketConfig);
         let gross_end_input_raw = start_input_raw
             .checked_add(curve_input_raw)
@@ -945,7 +942,7 @@ impl Market {
         };
         require!(divergence_surcharge < curve_input_raw, ErrorCode::InvalidSwapFeeBps);
         let divergence_nad = if fees_on_input {
-            normalize_to_nad(divergence_surcharge as u128, input_decimals)?
+            self.normalize_amount(divergence_surcharge as u128, input_decimals)?
         } else {
             0
         };
@@ -959,7 +956,7 @@ impl Market {
                 MarketAsset::Quote => IntegratedSwapDirection::QuoteToBase,
             },
         )?;
-        let gross_amount_out = denormalize_from_nad_floor(
+        let gross_amount_out = self.denormalize_amount_floor(
             integrated.executable.amount_out,
             self.side(asset_in.opposite()).asset_decimals,
         )?;
@@ -1036,7 +1033,7 @@ impl Market {
                 state,
                 &mut integrated,
                 fee_asset == MarketAsset::Base,
-                normalize_to_nad(compounded_fee_debit as u128, self.side(fee_asset).asset_decimals)?,
+                self.normalize_amount(compounded_fee_debit as u128, self.side(fee_asset).asset_decimals)?,
                 self.side(fee_asset).shares.ylp_supply,
                 self.base_hlp_vault.ylp_shares,
                 self.quote_hlp_vault.ylp_shares,
@@ -1174,7 +1171,7 @@ impl Market {
         let supply = self.base_side.shares.ylp_supply;
         require_eq!(supply, self.quote_side.shares.ylp_supply, ErrorCode::BrokenInvariant);
         require!(supply > 0, ErrorCode::SupplyUnderflow);
-        let supply_nad = normalize_to_nad(supply as u128, self.base_side.asset_decimals)?;
+        let supply_nad = self.normalize_amount(supply as u128, self.base_side.asset_decimals)?;
         curve_depth_nad
             .checked_mul(NAD as u128)
             .and_then(|value| value.checked_div(supply_nad))
@@ -1447,7 +1444,16 @@ impl Market {
     ) -> Result<PreliminarySwapInputs> {
         require!(reserve_credit > 0, ErrorCode::AmountZero);
         let mut config = self.dynamic_fee_config()?;
-        let gross_input_nad = normalize_to_nad(reserve_credit as u128, self.side(asset_in).asset_decimals)?;
+        // The launch size reference is configured in fixed nine-decimal
+        // token units, independently of the market's internal amount scale.
+        // Ceil preserves the exact fee bucket, including an atom above it:
+        // ceil(ceil(raw / scale) / reference) = ceil(raw / (scale * reference)).
+        let gross_input_nad = rescale_amount(
+            reserve_credit as u128,
+            self.side(asset_in).asset_decimals,
+            NAD_DECIMALS,
+            true,
+        )?;
         let current_base_price_nad = self
             .current_concentrated_spot_price_nad()?
             .ok_or(ErrorCode::InsufficientLiquidity)?;

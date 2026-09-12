@@ -6,8 +6,8 @@ use anchor_spl::token_interface::spl_token_2022::{
 };
 
 #[test]
-fn live_market_asset_decimals_are_bounded_by_nad_precision() {
-    for (decimals, accepted) in [(0, true), (NAD_DECIMALS, true), (NAD_DECIMALS + 1, false)] {
+fn live_market_assets_accept_high_decimal_mints() {
+    for decimals in [0, 9, 10, 12, 18, 255] {
         let mint_key = Pubkey::new_unique();
         let mint_owner = spl_token::ID;
         let mut lamports = 1;
@@ -31,12 +31,7 @@ fn live_market_asset_decimals_are_bounded_by_nad_precision() {
             0,
         );
         let mint = InterfaceAccount::<Mint>::try_from(&mint_info).unwrap();
-        let result = require_supported_asset_mint(&mint);
-        if accepted {
-            result.unwrap();
-        } else {
-            assert_eq!(result.unwrap_err(), error!(ErrorCode::UnsupportedAssetDecimals));
-        }
+        require_supported_asset_mint(&mint).unwrap();
     }
 }
 

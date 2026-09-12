@@ -757,13 +757,14 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       ylpMint: PublicKey;
       baseHlpMint: PublicKey;
       quoteHlpMint: PublicKey;
-    }> = {}
+    }> = {},
+    quoteLpDecimals = lpDecimals
   ) {
     const paramsHash = Buffer.alloc(32, paramsSeed);
     const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash);
     const ylpMint = lpMints.ylpMint ?? (await createHookedLpMint(market, lpDecimals));
     const baseHlpMint = lpMints.baseHlpMint ?? (await createHookedLpMint(market, lpDecimals));
-    const quoteHlpMint = lpMints.quoteHlpMint ?? (await createHookedLpMint(market, lpDecimals));
+    const quoteHlpMint = lpMints.quoteHlpMint ?? (await createHookedLpMint(market, quoteLpDecimals));
     const ylpTokenMetadata = deriveTokenMetadataAddress(ylpMint)[0];
     const baseHlpTokenMetadata = deriveTokenMetadataAddress(baseHlpMint)[0];
     const quoteHlpTokenMetadata = deriveTokenMetadataAddress(quoteHlpMint)[0];
@@ -967,17 +968,21 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       baseMint: 1_000_000,
       quoteMint: 2_000_000,
     },
-    mintDecimals = 6,
+    mintDecimals: number | { base: number; quote: number } = 6,
     assetTokenProgram = TOKEN_PROGRAM_ID
   ) {
-    const fixture = mintDecimals === 6 && assetTokenProgram.equals(TOKEN_PROGRAM_ID)
+    const baseDecimals = typeof mintDecimals === "number" ? mintDecimals : mintDecimals.base;
+    const quoteDecimals = typeof mintDecimals === "number" ? mintDecimals : mintDecimals.quote;
+    const fixture = baseDecimals === 6 && quoteDecimals === 6 && assetTokenProgram.equals(TOKEN_PROGRAM_ID)
       ? await initializeFinalMarket(paramsSeed, config)
       : await initializeFinalMarketWithMints(
           paramsSeed,
-          await createMint(connection as any, payer, payer.publicKey, null, mintDecimals, undefined, undefined, assetTokenProgram),
-          await createMint(connection as any, payer, payer.publicKey, null, mintDecimals, undefined, undefined, assetTokenProgram),
+          await createMint(connection as any, payer, payer.publicKey, null, baseDecimals, undefined, undefined, assetTokenProgram),
+          await createMint(connection as any, payer, payer.publicKey, null, quoteDecimals, undefined, undefined, assetTokenProgram),
           config,
-          mintDecimals
+          baseDecimals,
+          {},
+          quoteDecimals
         );
     const ownerAccounts = await createOwnerAssetAccounts(fixture, amounts.baseMint, amounts.quoteMint);
 
@@ -1581,6 +1586,115 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(authority.revenue_distribution.buybacks_vault_bps).to.equal(2_000);
     expect(authority.revenue_distribution.team_treasury_bps).to.equal(3_000);
   });
+
+  for (const [baseDecimals, quoteDecimals, token2022, concentrated] of [
+    [12, 6, false, false],
+    [6, 12, true, false],
+    [18, 18, false, false],
+    [255, 255, true, false],
+    [12, 6, false, true],
+    [6, 12, true, true],
+  ] as const) {
+    it(`preserves high-decimal ${baseDecimals}/${quoteDecimals} ${concentrated ? "concentrated" : "CPMM"} liquidity, swaps, and hLP accounting`, async function () {
+      const precision = Math.max(9, baseDecimals, quoteDecimals);
+      const baseDeposit = 1_000_000_000_000_000n / 10n ** BigInt(precision - baseDecimals);
+      const quoteDeposit = 1_000_000_000_000_000n / 10n ** BigInt(precision - quoteDecimals);
+      const assetProgram = token2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+      const config = marketConfig();
+      if (concentrated) {
+        config.amm.peakAmplificationNad = new BN("4000000000");
+        config.amm.coreHalfWidthBps = 100;
+        config.amm.fadeWidthBps = 400;
+      }
+      config.amm.compoundingFeeBps = 5_000;
+      const fixture = await addBalancedLiquidity(181, {
+        ...config,
+        swapFeeBps: 30,
+        divergenceFeeShareCapBps: 0,
+        volatilityFeeShareCapBps: 0,
+      }, {
+        baseDeposit,
+        quoteDeposit,
+        minYlp: 1,
+        baseMint: baseDeposit * 4n,
+        quoteMint: quoteDeposit * 4n,
+      }, { base: baseDecimals, quote: quoteDecimals }, assetProgram);
+      const hedge = await openBaseHedge(fixture, Number(baseDeposit / 20n));
+      for (let round = 0n; round < 3n; round++) {
+        await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), baseDeposit / (100n + round), 1);
+        await swapQuoteForBase(fixture, hlpSwapAccounts(fixture), Number(quoteDeposit / (100n + round)), 1);
+      }
+
+      const hlp = await getAccount(connection as any, hedge.ownerBaseHlpAccount, undefined, TOKEN_2022_PROGRAM_ID);
+      const exitHlp = await program.methods.withdrawSingleSided({
+        hlpAmount: new BN(hlp.amount.toString()),
+        minTargetAmountOut: new BN(1),
+      }).accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        owner: payer.publicKey,
+        baseMint: fixture.baseMint,
+        quoteMint: fixture.quoteMint,
+        ylpMint: fixture.ylpMint,
+        targetHlpMint: fixture.baseHlpMint,
+        baseReserveVault: fixture.baseReserveVault,
+        quoteReserveVault: fixture.quoteReserveVault,
+        borrowedInterestVault: fixture.quoteInterestVault,
+        ownerTargetAccount: fixture.ownerBaseAccount,
+        ownerHlpAccount: hedge.ownerBaseHlpAccount,
+        hlpYlpAccount: hedge.hlpYlpAccount,
+        baseYieldAccount: hedge.baseYieldAccount,
+        quoteYieldAccount: hedge.quoteYieldAccount,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      }).transaction();
+      await connection.sendTransaction(exitHlp, [payer]);
+      const ylp = await getAccount(connection as any, fixture.ownerYlpAccount, undefined, TOKEN_2022_PROGRAM_ID);
+      const exitYlp = await program.methods.removeLiquidity({
+        ylpAmount: new BN(ylp.amount.toString()),
+        minBaseAmountOut: new BN(1),
+        minQuoteAmountOut: new BN(1),
+      }).accounts({
+        market: fixture.market,
+        owner: payer.publicKey,
+        baseMint: fixture.baseMint,
+        quoteMint: fixture.quoteMint,
+        ylpMint: fixture.ylpMint,
+        baseReserveVault: fixture.baseReserveVault,
+        quoteReserveVault: fixture.quoteReserveVault,
+        ownerBaseAccount: fixture.ownerBaseAccount,
+        ownerQuoteAccount: fixture.ownerQuoteAccount,
+        ownerYlpAccount: fixture.ownerYlpAccount,
+        baseYieldAccount: deriveYieldAccountAddress(fixture.market, payer.publicKey, fixture.ylpMint, fixture.baseMint, "ylp")[0],
+        quoteYieldAccount: deriveYieldAccountAddress(fixture.market, payer.publicKey, fixture.ylpMint, fixture.quoteMint, "ylp")[0],
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      }).transaction();
+      await connection.sendTransaction(exitYlp, [payer]);
+
+      const decoded = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+      const ylpMint = await getMint(connection as any, fixture.ylpMint, undefined, TOKEN_2022_PROGRAM_ID);
+      for (const [side, vault] of [
+        [decoded.base_side, fixture.baseReserveVault],
+        [decoded.quote_side, fixture.quoteReserveVault],
+      ] as const) {
+        const custody = await getAccount(connection as any, vault, undefined, assetProgram);
+        expect(custody.amount).to.equal(BigInt(side.reserves.cash_reserve.toString()) + BigInt(side.fees.swap_fee_custody_balance.toString()));
+        // The internal denominator retains the permanently burned 1,000 shares.
+        expect(BigInt(side.shares.ylp_supply.toString())).to.equal(ylpMint.supply + 1_000n);
+      }
+      expect(decoded.debt.fixed_base_shares.toString()).to.equal("0");
+      expect(decoded.debt.fixed_quote_shares.toString()).to.equal("0");
+      expect(decoded.base_hlp_vault.hlp_supply.toString()).to.equal("0");
+      expect(decoded.base_hlp_vault.ylp_shares.toString()).to.equal("0");
+      expect((await getAccount(connection as any, hedge.hlpYlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(0n);
+      expect((await getAccount(connection as any, fixture.ownerYlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(0n);
+    });
+  }
 
   it("adds balanced liquidity and mints floating yLP shares", async function () {
     const fixture = await addBalancedLiquidity(43);

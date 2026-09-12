@@ -363,3 +363,24 @@ yarn test-litesvm
 ```
 
 Run dusk-sdk builds whenever public IDL, account, event, seed, or instruction shapes change. `check-idl-current` must pass after `anchor build -p dusk` so committed client files match generated build artifacts.
+
+## Token precision
+
+Markets accept mints above nine decimal places. Token balances and instruction
+amounts remain raw integer atoms. The market derives an immutable common amount
+precision as `max(9, base_mint.decimals, quote_mint.decimals)`. Both assets are
+scaled upward into this precision, preserving every atom, before curve and risk
+math. Conversion back rounds withdrawals/output down and required inputs up.
+Prices, rates, per-share ratios, and configured launch buy-size references
+continue to use nine-decimal NAD.
+
+Curve-cache liquidity, risk depths, hLP NAV/exposure, and normalized debt and
+collateral values use the common amount precision. Existing quantity fields
+with a `_nad` suffix also follow this rule; the SDK exposes
+`marketAmountDecimals(market)` for decoding them. Markets with both mints at nine
+or fewer decimals retain their original numeric representation.
+
+Checked integer bounds still apply: extreme decimal differences or quantities
+that exceed the math representation return an arithmetic error. There is no
+fixed mint-decimal cap. Equal-precision mints need no decimal multiplication,
+even above 18 decimals.

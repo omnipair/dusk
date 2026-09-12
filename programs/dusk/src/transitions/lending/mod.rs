@@ -280,7 +280,7 @@ impl Market {
             MarketAsset::Base => (self.debt.fixed_base_debt()?, self.base_side.asset_decimals),
             MarketAsset::Quote => (self.debt.fixed_quote_debt()?, self.quote_side.asset_decimals),
         };
-        normalize_to_nad(fixed_debt, debt_decimals)
+        self.normalize_amount(fixed_debt, debt_decimals)
     }
 
     pub(crate) fn external_fixed_debt_nad(
@@ -305,7 +305,7 @@ impl Market {
         let external_shares = aggregate_shares
             .checked_sub(position_shares)
             .ok_or(ErrorCode::DebtShareMathOverflow)?;
-        normalize_to_nad(Debt::shares_to_debt(external_shares, borrow_index_nad)?, debt_decimals)
+        self.normalize_amount(Debt::shares_to_debt(external_shares, borrow_index_nad)?, debt_decimals)
     }
 
     pub(crate) fn dynamic_borrow_terms(
@@ -326,7 +326,7 @@ impl Market {
             risk,
         )?;
         let collateral_amount_nad =
-            normalize_to_nad(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
+            self.normalize_amount(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
         let (geometry, point, direction) = self
             .pessimistic_borrow_cpmm(collateral_asset, risk, true)?
             .ok_or(ErrorCode::BrokenInvariant)?;
@@ -371,7 +371,7 @@ impl Market {
         };
 
         Ok(DynamicBorrowTerms {
-            max_debt: denormalize_from_nad_floor(terms.max_debt_nad, self.side(debt_asset).asset_decimals)?,
+            max_debt: self.denormalize_amount_floor(terms.max_debt_nad, self.side(debt_asset).asset_decimals)?,
             max_cf_bps: terms.max_cf_bps,
             liquidation_cf_bps: terms.liquidation_cf_bps,
             effective_existing_debt_nad,
@@ -393,7 +393,7 @@ impl Market {
             return Ok(0);
         }
         let collateral_asset = debt_asset.opposite();
-        let debt_nad = normalize_to_nad(projected_debt, self.side(debt_asset).asset_decimals)?;
+        let debt_nad = self.normalize_amount(projected_debt, self.side(debt_asset).asset_decimals)?;
         let value_cap_nad = debt_nad
             .checked_mul(self.config.global_health_contribution_cap_bps as u128)
             .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
@@ -407,7 +407,7 @@ impl Market {
             .and_then(|value| value.checked_div(price_nad))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let collateral_cap =
-            denormalize_from_nad_floor(collateral_cap_nad, self.side(collateral_asset).asset_decimals)?;
+            self.denormalize_amount_floor(collateral_cap_nad, self.side(collateral_asset).asset_decimals)?;
         Ok(total_collateral.min(collateral_cap))
     }
 
@@ -417,7 +417,7 @@ impl Market {
         debt_asset: MarketAsset,
         risk: &Risk,
     ) -> Result<bool> {
-        let debt_nad = normalize_to_nad(
+        let debt_nad = self.normalize_amount(
             match debt_asset {
                 MarketAsset::Base => borrow_position.fixed_base_debt(&self.debt)?,
                 MarketAsset::Quote => borrow_position.fixed_quote_debt(&self.debt)?,
@@ -487,7 +487,7 @@ impl Market {
             return Ok(0);
         }
         let collateral_amount_nad =
-            normalize_to_nad(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
+            self.normalize_amount(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
         let (geometry, point, direction) = self
             .pessimistic_borrow_cpmm(collateral_asset, risk, true)?
             .ok_or(ErrorCode::BrokenInvariant)?;
@@ -507,7 +507,7 @@ impl Market {
             return Ok(0);
         }
         let collateral_amount_nad =
-            normalize_to_nad(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
+            self.normalize_amount(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
         let (geometry, point, direction) = self
             .pessimistic_concentrated_curve(collateral_asset, risk, false)?
             .ok_or(ErrorCode::BrokenInvariant)?;
@@ -525,7 +525,7 @@ impl Market {
         risk: &Risk,
     ) -> Result<u128> {
         let collateral_amount_nad =
-            normalize_to_nad(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
+            self.normalize_amount(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
         let price_nad = self.pessimistic_collateral_price_nad(collateral_asset, risk, false);
         require!(price_nad > 0, ErrorCode::InvalidSettlementPrice);
         collateral_amount_nad
@@ -597,7 +597,7 @@ impl Market {
         let required_collateral_nad = geometry
             .quote_exact_out(point, projected_total_debt_nad, direction)?
             .amount_in;
-        let stored_contribution_nad = normalize_to_nad(
+        let stored_contribution_nad = self.normalize_amount(
             aggregate_contribution as u128,
             self.side(collateral_asset).asset_decimals,
         )?;
@@ -676,9 +676,9 @@ impl Market {
     pub(crate) fn pessimistic_borrow_reserve_depths(&self, risk: &Risk) -> Result<(u64, u64)> {
         let (base_nad, quote_nad) = self.pessimistic_virtual_reserves_nad(MarketAsset::Base, risk, true)?;
         Ok((
-            denormalize_from_nad_floor(base_nad, self.base_side.asset_decimals)?
+            self.denormalize_amount_floor(base_nad, self.base_side.asset_decimals)?
                 .min(self.curve_reserve(MarketAsset::Base)?),
-            denormalize_from_nad_floor(quote_nad, self.quote_side.asset_decimals)?
+            self.denormalize_amount_floor(quote_nad, self.quote_side.asset_decimals)?
                 .min(self.curve_reserve(MarketAsset::Quote)?),
         ))
     }
@@ -1066,7 +1066,8 @@ impl Market {
                 .checked_mul(max_cf_bps_from_liquidation_cf(liquidation_cf_bps) as u128)
                 .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
                 .ok_or(ErrorCode::MarketMathOverflow)?;
-            let max_debt = denormalize_from_nad_floor(max_debt_nad, self.side(market_asset.opposite()).asset_decimals)?;
+            let max_debt =
+                self.denormalize_amount_floor(max_debt_nad, self.side(market_asset.opposite()).asset_decimals)?;
             require_gte!(max_debt as u128, position_debt, ErrorCode::InsufficientMarketHealth);
             require_gte!(liquidation_cf_bps, min_liquidation_cf_bps, ErrorCode::SlippageExceeded);
             borrow_position.set_liquidation_cf_bps(debt_asset, liquidation_cf_bps);
@@ -1163,7 +1164,8 @@ impl Market {
         )?;
         let projected_aggregate =
             self.projected_aggregate_global_health_contribution(borrow_position, borrow_asset, target_contribution)?;
-        let projected_total_debt_nad = normalize_to_nad(projected_total_debt, self.side(borrow_asset).asset_decimals)?;
+        let projected_total_debt_nad =
+            self.normalize_amount(projected_total_debt, self.side(borrow_asset).asset_decimals)?;
         let terms = self.dynamic_borrow_terms(
             borrow_asset,
             collateral_amount,
