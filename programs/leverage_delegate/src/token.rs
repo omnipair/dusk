@@ -1,15 +1,9 @@
 use anchor_lang::{prelude::*, solana_program::program::invoke_signed};
 use anchor_spl::{
     token,
-    token_2022::{
-        self,
-        spl_token_2022::{
-            self,
-            extension::{transfer_hook, StateWithExtensions},
-        },
-        Token2022,
-    },
+    token_2022::{self, Token2022},
 };
+use spl_token_2022::extension::{transfer_hook, StateWithExtensions};
 
 pub(crate) fn token_program_for_mint<'info>(
     mint: &AccountInfo<'info>,
