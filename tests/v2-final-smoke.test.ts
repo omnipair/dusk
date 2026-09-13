@@ -2762,7 +2762,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(preview.principalNavPerTokenNad.toNumber()).to.be.greaterThan(0);
   });
 
-  it("harvests active hLP order yield permissionlessly and cancels dusted custody", async function () {
+  it("lets the designated recipient harvest hLP order yield, and nobody else", async function () {
     const fixture = await addBalancedLiquidity(123);
     const hedge = await openBaseHedge(fixture, 10_000);
     await initializeLpTransferHook(fixture, fixture.baseHlpMint);
@@ -2870,17 +2870,53 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       )).amount
     ).to.equal(1_001n);
 
-    // The order PDA owns the LP, while the user remains the yield recipient.
-    // An unrelated signer can harvest without invoking the delegate program.
+    // The order PDA owns the LP, so it cannot sign for itself. The user
+    // remains the yield recipient and harvests on the PDA's behalf, which is
+    // the whole reason the caller and the owner are separate accounts.
     await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 100_000, 1);
     const orderBeforeHarvest = Buffer.from(svm.getAccount(order)!.data);
     const ownerBalanceBeforeHarvest = (await getAccount(connection as any, fixture.ownerBaseAccount)).amount;
+
+    const harvestAccounts = {
+      market: fixture.market,
+      owner: order,
+      assetMint: fixture.baseMint,
+      lpMint: fixture.baseHlpMint,
+      ownerLpAccount: custodyHlpAccount,
+      reserveVault: fixture.baseReserveVault,
+      interestVault: fixture.baseInterestVault,
+      recipientAssetAccount: fixture.ownerBaseAccount,
+      yieldAccount: orderYield.baseYieldAccount,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      token2022Program: TOKEN_2022_PROGRAM_ID,
+      eventAuthority: eventAuthority(),
+      program: DUSK_PROGRAM_ID,
+    };
+
+    // A stranger has no standing, even though the funds could only ever land
+    // in the recipient's own account: the timing is the holder's to choose.
+    const strangerTx = await program.methods
+      .harvest({ tokenKind: { hlp: {} } })
+      .accounts({ ...harvestAccounts, caller: attacker.publicKey })
+      .transaction();
+    strangerTx.feePayer = attacker.publicKey;
+    let strangerRejection: unknown;
+    try {
+      await connection.sendTransaction(strangerTx, [attacker]);
+    } catch (error) {
+      strangerRejection = error;
+    }
+    expect(strangerRejection).to.not.equal(undefined);
+    expect((await getAccount(connection as any, fixture.ownerBaseAccount)).amount).to.equal(
+      ownerBalanceBeforeHarvest
+    );
+
     const harvestTx = await program.methods
       .harvest({ tokenKind: { hlp: {} } })
       .accounts({
         market: fixture.market,
         owner: order,
-        caller: attacker.publicKey,
+        caller: payer.publicKey,
         assetMint: fixture.baseMint,
         lpMint: fixture.baseHlpMint,
         ownerLpAccount: custodyHlpAccount,
@@ -2894,9 +2930,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         program: DUSK_PROGRAM_ID,
       })
       .transaction();
-    harvestTx.feePayer = attacker.publicKey;
-    await connection.sendTransaction(harvestTx, [attacker]);
-    expect(cpiEvent(harvestTx, "yieldClaimed").metadata.signer.equals(attacker.publicKey)).to.equal(true);
+    harvestTx.feePayer = payer.publicKey;
+    await connection.sendTransaction(harvestTx, [payer]);
+    expect(cpiEvent(harvestTx, "yieldClaimed").metadata.signer.equals(payer.publicKey)).to.equal(true);
     expect((await getAccount(connection as any, fixture.ownerBaseAccount)).amount > ownerBalanceBeforeHarvest).to.equal(true);
     expect(Buffer.from(svm.getAccount(order)!.data).equals(orderBeforeHarvest)).to.equal(true);
     expect((await getAccount(connection as any, custodyHlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(1_001n);
@@ -5492,6 +5528,65 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(decoded.quote_hlp_vault.hlp_supply.toString()).to.equal("20000000000");
   });
 
+  it("repairs an old-layout yield account without changing its entitlements or permissions", async function () {
+    const fixture = await addBalancedLiquidity(184);
+    const yieldAccount = deriveYieldAccountAddress(
+      fixture.market, payer.publicKey, fixture.ylpMint, fixture.baseMint, "ylp"
+    )[0];
+    const current = svm.getAccount(yieldAccount)!;
+    const decoded = accountCoder.decode("YieldAccount", Buffer.from(current.data)) as any;
+    const previousState = {
+      ...decoded,
+      recipient: Keypair.generate().publicKey,
+      swap_fee_checkpoint_q64: new BN("18446744073709551617"),
+      interest_checkpoint_q64: new BN("36893488147419103235"),
+      accrued_swap_fee_amount: new BN(123),
+      accrued_interest_amount: new BN(456),
+      swap_fee_remainder_q64: new BN(789),
+      interest_remainder_q64: new BN(987),
+      harvest_authority: null,
+    };
+    // The deployed layout ended after bump, before Option<Pubkey> was added.
+    const oldSize = 234;
+    const newSize = 267;
+    expect(current.data.length).to.equal(newSize);
+    const oldBytes = (await accountCoder.encode("YieldAccount", previousState)).subarray(0, oldSize);
+    const oldRent = Number(svm.minimumBalanceForRentExemption(BigInt(oldSize)));
+    const newRent = Number(svm.minimumBalanceForRentExemption(BigInt(newSize)));
+    svm.setAccount(yieldAccount, { ...current, data: new Uint8Array(oldBytes), lamports: oldRent });
+
+    // A keeper pays for the repair; the LP owner does not sign it.
+    const keeper = Keypair.generate();
+    await connection.requestAirdrop(keeper.publicKey, LAMPORTS_PER_SOL);
+    const repair = async () => {
+      svm.expireBlockhash();
+      const tx = await program.methods.growYieldAccount().accounts({
+        payer: keeper.publicKey,
+        yieldAccount,
+        systemProgram: SystemProgram.programId,
+      }).transaction();
+      tx.feePayer = keeper.publicKey;
+      await connection.sendTransaction(tx, [keeper]);
+    };
+    await repair();
+    trackV2Instruction("growYieldAccount", this.test?.title);
+    const repaired = svm.getAccount(yieldAccount)!;
+    expect(repaired.data.length).to.equal(newSize);
+    expect(repaired.lamports).to.equal(newRent);
+    expect(Buffer.from(repaired.data.subarray(0, oldSize)).equals(oldBytes)).to.equal(true);
+    expect(Buffer.from(repaired.data.subarray(oldSize)).equals(Buffer.alloc(newSize - oldSize))).to.equal(true);
+    const repairedState = accountCoder.decode("YieldAccount", Buffer.from(repaired.data)) as any;
+    expect(repairedState.harvest_authority).to.equal(null);
+    expect(repairedState.recipient.equals(previousState.recipient)).to.equal(true);
+    expect(repairedState.accrued_swap_fee_amount.toString()).to.equal("123");
+    expect(repairedState.accrued_interest_amount.toString()).to.equal("456");
+
+    await repair();
+    const repeated = svm.getAccount(yieldAccount)!;
+    expect(repeated.lamports).to.equal(newRent);
+    expect(Buffer.from(repeated.data).equals(Buffer.from(repaired.data))).to.equal(true);
+  });
+
   it("lets the configured recipient harvest yLP yield without the owner's signature", async function () {
     const fixture = await addBalancedLiquidity(48);
     const recipientSigner = Keypair.generate();
@@ -5582,7 +5677,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     { lpKind: "base hLP", assetTokenProgram: TOKEN_2022_PROGRAM_ID },
   ].entries()) {
     const assetProgramName = assetTokenProgram.equals(TOKEN_PROGRAM_ID) ? "SPL Token" : "Token-2022";
-    it(`lets an unrelated keeper harvest ${lpKind} in ${assetProgramName} only to the owner's configured recipient`, async function () {
+    it(`separates owner, recipient, and harvest authority for ${lpKind} in ${assetProgramName}`, async function () {
       const fixture = await addBalancedLiquidity(180 + index, marketConfig(), undefined, 6, assetTokenProgram);
       const keeper = Keypair.generate();
       await connection.requestAirdrop(keeper.publicKey, LAMPORTS_PER_SOL);
@@ -5601,13 +5696,15 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       )[0];
       await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
 
-      const buildClaim = async (recipientAssetAccount: PublicKey) => {
+      const buildClaim = async (recipientAssetAccount: PublicKey, caller: Keypair) => {
+        // Repeated claims must exercise current permissions, not replay rejection.
+        svm.expireBlockhash();
         const tx = await program.methods
           .harvest({ tokenKind: tokenKind === "ylp" ? { ylp: {} } : { hlp: {} } })
           .accounts({
             market: fixture.market,
             owner: payer.publicKey,
-            caller: keeper.publicKey,
+            caller: caller.publicKey,
             assetMint: fixture.baseMint,
             lpMint,
             ownerLpAccount,
@@ -5621,7 +5718,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
             program: DUSK_PROGRAM_ID,
           })
           .transaction();
-        tx.feePayer = keeper.publicKey;
+        tx.feePayer = caller.publicKey;
         return tx;
       };
       const keeperAssetAccount = await createAccount(
@@ -5637,7 +5734,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       for (const destination of [keeperAssetAccount, noncanonicalOwnerAccount]) {
         let rejection: unknown;
         try {
-          await connection.sendTransaction(await buildClaim(destination), [keeper]);
+          await connection.sendTransaction(await buildClaim(destination, payer), [payer]);
         } catch (error) {
           rejection = error;
         }
@@ -5646,8 +5743,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         expect(Buffer.from(svm.getAccount(fixture.market)!.data).equals(marketBefore)).to.equal(true);
       }
 
-      // Permissionless harvesting does not grant permission to rotate the
-      // payout. Strip the owner signature meta to exercise the on-chain guard.
+      // Harvesting does not grant permission to rotate the payout. Strip the
+      // owner signature meta to exercise the on-chain guard.
       const rotateTx = await program.methods
         .setYieldRecipient({
           tokenKind: tokenKind === "ylp" ? { ylp: {} } : { hlp: {} },
@@ -5678,29 +5775,212 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       expect(String(rotationRejection)).to.include("AccountNotSigner");
       expect(Buffer.from(svm.getAccount(yieldAccount)!.data).equals(yieldBefore)).to.equal(true);
 
-      const balanceBefore = (await getAccount(connection as any, fixture.ownerBaseAccount, undefined, assetTokenProgram)).amount;
+      // A stranger cannot harvest, even to the correct destination. This is
+      // the line between "designated" and "permissionless".
+      let strangerRejection: unknown;
+      try {
+        await connection.sendTransaction(
+          await buildClaim(fixture.ownerBaseAccount, keeper),
+          [keeper]
+        );
+      } catch (error) {
+        strangerRejection = error;
+      }
+      expect(String(strangerRejection)).to.include("InvalidSigner");
+      expect(Buffer.from(svm.getAccount(yieldAccount)!.data).equals(yieldBefore)).to.equal(true);
+
+      // Designate the keeper, with the owner's signature this time, and it
+      // may then harvest to its own canonical account without the owner
+      // signing the harvest itself.
+      await connection.sendTransaction(
+        await program.methods
+          .setYieldRecipient({
+            tokenKind: tokenKind === "ylp" ? { ylp: {} } : { hlp: {} },
+            recipient: keeper.publicKey,
+          })
+          .accounts({
+            market: fixture.market,
+            owner: payer.publicKey,
+            assetMint: fixture.baseMint,
+            lpMint,
+            yieldAccount,
+            eventAuthority: eventAuthority(),
+            program: DUSK_PROGRAM_ID,
+          })
+          .transaction(),
+        [payer]
+      );
+
+      const balanceBefore = (await getAccount(connection as any, keeperAssetAccount, undefined, assetTokenProgram)).amount;
       const lpBefore = (await getAccount(
         connection as any, ownerLpAccount, undefined, TOKEN_2022_PROGRAM_ID
       )).amount;
-      const claimTx = await buildClaim(fixture.ownerBaseAccount);
+      const claimTx = await buildClaim(keeperAssetAccount, keeper);
       expect(claimTx.instructions[0].keys.find(
         (account: { pubkey: PublicKey }) => account.pubkey.equals(payer.publicKey)
       )?.isSigner).to.equal(false);
       await connection.sendTransaction(claimTx, [keeper]);
-      const credit = (await getAccount(connection as any, fixture.ownerBaseAccount, undefined, assetTokenProgram)).amount - balanceBefore;
+      const credit = (await getAccount(connection as any, keeperAssetAccount, undefined, assetTokenProgram)).amount - balanceBefore;
       expect(credit > 0n).to.equal(true);
-      expect((await getAccount(connection as any, keeperAssetAccount, undefined, assetTokenProgram)).amount).to.equal(0n);
       expect((await getAccount(
         connection as any, ownerLpAccount, undefined, TOKEN_2022_PROGRAM_ID
       )).amount).to.equal(lpBefore);
       const event = cpiEvent(claimTx, "yieldClaimed");
       expect(event.owner.equals(payer.publicKey)).to.equal(true);
       expect(event.metadata.signer.equals(keeper.publicKey)).to.equal(true);
-      expect(event.recipient.equals(payer.publicKey)).to.equal(true);
+      expect(event.recipient.equals(keeper.publicKey)).to.equal(true);
       expect(BigInt(event.recipientCredit.toString())).to.equal(credit);
       const claimed = accountCoder.decode("YieldAccount", Buffer.from(svm.getAccount(yieldAccount)!.data)) as any;
       expect(claimed.accrued_swap_fee_amount.isZero()).to.equal(true);
       expect(claimed.accrued_interest_amount.isZero()).to.equal(true);
+      expect(claimed.harvest_authority).to.equal(null);
+
+      // Owner A keeps the LP, recipient B receives yield, and independent
+      // keeper C only gets permission to trigger payment to B.
+      const harvestCaller = Keypair.generate();
+      const replacementCaller = Keypair.generate();
+      for (const signer of [harvestCaller, replacementCaller]) {
+        await connection.requestAirdrop(signer.publicKey, LAMPORTS_PER_SOL);
+      }
+      const callerAssetAccount = await createAccount(
+        connection as any, payer, fixture.baseMint, harvestCaller.publicKey, undefined, undefined, assetTokenProgram
+      );
+      const noncanonicalRecipientAccount = await createAccount(
+        connection as any, payer, fixture.baseMint, keeper.publicKey, Keypair.generate(), undefined, assetTokenProgram
+      );
+      const authorityAccounts = {
+        market: fixture.market,
+        owner: payer.publicKey,
+        assetMint: fixture.baseMint,
+        lpMint,
+        yieldAccount,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      };
+      const buildAuthorityUpdate = (harvestAuthority: PublicKey | null) => program.methods
+        .setHarvestAuthority({
+          tokenKind: tokenKind === "ylp" ? { ylp: {} } : { hlp: {} },
+          harvestAuthority,
+        })
+        .accounts(authorityAccounts)
+        .transaction();
+      const assertRejected = async (tx: Transaction, signer: Keypair, errorName: string) => {
+        const yieldSnapshot = Buffer.from(svm.getAccount(yieldAccount)!.data);
+        const marketSnapshot = Buffer.from(svm.getAccount(fixture.market)!.data);
+        let rejection: unknown;
+        try {
+          await connection.sendTransaction(tx, [signer]);
+        } catch (error) {
+          rejection = error;
+        }
+        expect(String(rejection)).to.include(errorName);
+        expect(Buffer.from(svm.getAccount(yieldAccount)!.data).equals(yieldSnapshot)).to.equal(true);
+        expect(Buffer.from(svm.getAccount(fixture.market)!.data).equals(marketSnapshot)).to.equal(true);
+      };
+      await assertRejected(await buildClaim(keeperAssetAccount, harvestCaller), harvestCaller, "InvalidSigner");
+      await assertRejected(await buildAuthorityUpdate(PublicKey.default), payer, "InvalidArgument");
+
+      const grantTx = await buildAuthorityUpdate(harvestCaller.publicKey);
+      await connection.sendTransaction(grantTx, [payer]);
+      trackV2Instruction("setHarvestAuthority", this.test?.title);
+      const grantEvent = cpiEvent(grantTx, "harvestAuthorityUpdated");
+      expect(grantEvent.owner.equals(payer.publicKey)).to.equal(true);
+      expect(grantEvent.harvestAuthority.equals(harvestCaller.publicKey)).to.equal(true);
+      expect(grantEvent.metadata.signer.equals(payer.publicKey)).to.equal(true);
+
+      // Neither the recipient nor an authorized keeper can change either setting.
+      for (const signer of [keeper, harvestCaller]) {
+        for (const tx of [
+          await buildAuthorityUpdate(replacementCaller.publicKey),
+          await program.methods.setYieldRecipient({
+            tokenKind: tokenKind === "ylp" ? { ylp: {} } : { hlp: {} },
+            recipient: harvestCaller.publicKey,
+          }).accounts(authorityAccounts).transaction(),
+        ]) {
+          tx.feePayer = signer.publicKey;
+          for (const instruction of tx.instructions) {
+            for (const account of instruction.keys) {
+              if (account.pubkey.equals(payer.publicKey)) account.isSigner = false;
+            }
+          }
+          await assertRejected(tx, signer, "AccountNotSigner");
+        }
+      }
+
+      // Permissionless reinitialization cannot clear the owner's configuration.
+      const configured = Buffer.from(svm.getAccount(yieldAccount)!.data);
+      await initializeYieldAccounts(fixture, payer.publicKey, lpMint, tokenKind, true);
+      expect(Buffer.from(svm.getAccount(yieldAccount)!.data).equals(configured)).to.equal(true);
+      const quoteYieldAccount = deriveYieldAccountAddress(
+        fixture.market, payer.publicKey, lpMint, fixture.quoteMint, tokenKind
+      )[0];
+      const quoteYield = accountCoder.decode("YieldAccount", Buffer.from(svm.getAccount(quoteYieldAccount)!.data)) as any;
+      expect(quoteYield.harvest_authority).to.equal(null);
+
+      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
+      for (const destination of [callerAssetAccount, fixture.ownerBaseAccount, noncanonicalRecipientAccount]) {
+        await assertRejected(await buildClaim(destination, harvestCaller), harvestCaller, "InvalidRecipient");
+      }
+      const recipientBefore = (await getAccount(connection as any, keeperAssetAccount, undefined, assetTokenProgram)).amount;
+      const delegatedTx = await buildClaim(keeperAssetAccount, harvestCaller);
+      for (const identity of [payer.publicKey, keeper.publicKey]) {
+        expect(delegatedTx.instructions[0].keys.find(
+          (account: { pubkey: PublicKey }) => account.pubkey.equals(identity)
+        )?.isSigner ?? false).to.equal(false);
+      }
+      await connection.sendTransaction(delegatedTx, [harvestCaller]);
+      const delegatedCredit = (await getAccount(connection as any, keeperAssetAccount, undefined, assetTokenProgram)).amount - recipientBefore;
+      expect(delegatedCredit > 0n).to.equal(true);
+      expect((await getAccount(connection as any, callerAssetAccount, undefined, assetTokenProgram)).amount).to.equal(0n);
+      expect((await getAccount(connection as any, ownerLpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(lpBefore);
+      const delegatedEvent = cpiEvent(delegatedTx, "yieldClaimed");
+      expect(delegatedEvent.owner.equals(payer.publicKey)).to.equal(true);
+      expect(delegatedEvent.recipient.equals(keeper.publicKey)).to.equal(true);
+      expect(delegatedEvent.metadata.signer.equals(harvestCaller.publicKey)).to.equal(true);
+      expect(BigInt(delegatedEvent.recipientCredit.toString())).to.equal(delegatedCredit);
+
+      // Rotation removes the previous caller, and changing the recipient keeps
+      // the independent caller while making the new destination mandatory.
+      await connection.sendTransaction(await buildAuthorityUpdate(replacementCaller.publicKey), [payer]);
+      await assertRejected(await buildClaim(keeperAssetAccount, harvestCaller), harvestCaller, "InvalidSigner");
+      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
+      await connection.sendTransaction(await buildClaim(keeperAssetAccount, replacementCaller), [replacementCaller]);
+      await connection.sendTransaction(
+        await program.methods.setYieldRecipient({
+          tokenKind: tokenKind === "ylp" ? { ylp: {} } : { hlp: {} },
+          recipient: payer.publicKey,
+        }).accounts(authorityAccounts).transaction(),
+        [payer]
+      );
+      await assertRejected(await buildClaim(keeperAssetAccount, replacementCaller), replacementCaller, "InvalidRecipient");
+      await assertRejected(await buildClaim(fixture.ownerBaseAccount, keeper), keeper, "InvalidSigner");
+      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
+      const ownerBefore = (await getAccount(connection as any, fixture.ownerBaseAccount, undefined, assetTokenProgram)).amount;
+      await connection.sendTransaction(await buildClaim(fixture.ownerBaseAccount, replacementCaller), [replacementCaller]);
+      expect((await getAccount(connection as any, fixture.ownerBaseAccount, undefined, assetTokenProgram)).amount > ownerBefore).to.equal(true);
+
+      const revokeTx = await buildAuthorityUpdate(null);
+      await connection.sendTransaction(revokeTx, [payer]);
+      expect(cpiEvent(revokeTx, "harvestAuthorityUpdated").harvestAuthority).to.equal(null);
+      const revoked = accountCoder.decode("YieldAccount", Buffer.from(svm.getAccount(yieldAccount)!.data)) as any;
+      expect(revoked.harvest_authority).to.equal(null);
+      expect(revoked.recipient.equals(payer.publicKey)).to.equal(true);
+      await assertRejected(await buildClaim(fixture.ownerBaseAccount, replacementCaller), replacementCaller, "InvalidSigner");
+      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
+      await connection.sendTransaction(await buildClaim(fixture.ownerBaseAccount, payer), [payer]);
+      await connection.sendTransaction(
+        await program.methods.setYieldRecipient({
+          tokenKind: tokenKind === "ylp" ? { ylp: {} } : { hlp: {} },
+          recipient: keeper.publicKey,
+        }).accounts(authorityAccounts).transaction(),
+        [payer]
+      );
+      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
+      const afterRevocation = (await getAccount(connection as any, keeperAssetAccount, undefined, assetTokenProgram)).amount;
+      await connection.sendTransaction(await buildClaim(keeperAssetAccount, payer), [payer]);
+      expect((await getAccount(connection as any, keeperAssetAccount, undefined, assetTokenProgram)).amount > afterRevocation).to.equal(true);
+      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
+      await connection.sendTransaction(await buildClaim(keeperAssetAccount, keeper), [keeper]);
     });
   }
 

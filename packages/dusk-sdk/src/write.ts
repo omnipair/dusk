@@ -15,6 +15,7 @@ import {
 } from "@solana/web3.js";
 
 import { address, normalizeAccountKeys, type AddressLike } from "./address.js";
+import { type MarketLaunchConfig } from "./market-bootstrap.js";
 import {
   deriveBorrowPositionAddress,
   deriveEventAuthorityAddress,
@@ -22,9 +23,13 @@ import {
   deriveLeverageCollateralVaultAddress,
   deriveLeverageDelegationAddress,
   deriveLeveragePositionAddress,
+  deriveMarketAddress,
   deriveMarketCollateralVaultAddress,
   deriveMarketInterestVaultAddress,
   deriveMarketReserveVaultAddress,
+  deriveInsuranceAddress,
+  deriveTokenMetadataAddress,
+  TOKEN_METADATA_PROGRAM_ID,
   deriveReferralAccrualAddress,
   deriveParameterProposalAddress,
   deriveProposalSupportAddress,
@@ -719,6 +724,119 @@ export class DuskWrite {
     params: Parameters<DuskWrite["initializeLpTransferHookInstruction"]>[0]
   ): Promise<Transaction> {
     return new Transaction().add(await this.initializeLpTransferHookInstruction(params));
+  }
+
+  /**
+   * Bring a market into existence.
+   *
+   * The three LP mints must already exist and carry the Dusk transfer hook —
+   * see `createHookedLpMintInstructions`. Every PDA is derived here rather
+   * than left to Anchor, because the market address depends on `paramsHash`,
+   * which is an argument rather than an account, and the vaults hang off the
+   * market in turn.
+   *
+   * `teamTreasury` and its wrapped-SOL account come from the futarchy
+   * authority, which must already be initialized on the deployment.
+   */
+  async initializeMarketInstruction(params: {
+    payer: AddressLike;
+    baseMint: AddressLike;
+    quoteMint: AddressLike;
+    ylpMint: AddressLike;
+    baseHlpMint: AddressLike;
+    quoteHlpMint: AddressLike;
+    teamTreasury: AddressLike;
+    teamTreasuryWsolAccount: AddressLike;
+    paramsHash: Uint8Array | Buffer | number[];
+    config: MarketLaunchConfig;
+    /** Opening price in NAD. Zero lets the first deposit set it. */
+    bootstrapPriceNad?: GovernanceIntegerLike;
+    launchFeeProgressOffset?: number;
+  }): Promise<TransactionInstruction> {
+    const baseMint = address(params.baseMint);
+    const quoteMint = address(params.quoteMint);
+    const paramsHash = Uint8Array.from(params.paramsHash);
+    if (paramsHash.length !== 32) {
+      throw new Error(`paramsHash must be 32 bytes, received ${paramsHash.length}`);
+    }
+    const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash);
+    return this.instruction(
+      "initializeMarket" as DuskInstructionName,
+      {
+        config: anchorMarketConfig(params.config),
+        paramsHash: [...paramsHash],
+        bootstrapPriceNad: governanceIntegerBN(
+          params.bootstrapPriceNad ?? 0,
+          "bootstrapPriceNad"
+        ),
+        launchFeeProgressOffset: params.launchFeeProgressOffset ?? 0,
+      },
+      {
+        accounts: {
+          payer: address(params.payer),
+          baseMint,
+          quoteMint,
+          ylpMint: address(params.ylpMint),
+          baseHlpMint: address(params.baseHlpMint),
+          quoteHlpMint: address(params.quoteHlpMint),
+          market,
+          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
+          baseReserveVault: deriveMarketReserveVaultAddress(market, baseMint)[0],
+          quoteReserveVault: deriveMarketReserveVaultAddress(market, quoteMint)[0],
+          baseCollateralVault: deriveMarketCollateralVaultAddress(market, baseMint)[0],
+          quoteCollateralVault: deriveMarketCollateralVaultAddress(market, quoteMint)[0],
+          baseInsuranceVault: deriveInsuranceAddress(market, baseMint)[0],
+          quoteInsuranceVault: deriveInsuranceAddress(market, quoteMint)[0],
+          baseInterestVault: deriveMarketInterestVaultAddress(market, baseMint)[0],
+          quoteInterestVault: deriveMarketInterestVaultAddress(market, quoteMint)[0],
+          teamTreasury: address(params.teamTreasury),
+          teamTreasuryWsolAccount: address(params.teamTreasuryWsolAccount),
+          systemProgram: SystemProgram.programId,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+        },
+      }
+    );
+  }
+
+  async initializeMarketTransaction(
+    params: Parameters<DuskWrite["initializeMarketInstruction"]>[0]
+  ): Promise<Transaction> {
+    return new Transaction().add(await this.initializeMarketInstruction(params));
+  }
+
+  /** Name, symbol and image for one of a market's LP mints. */
+  async initializeLpMetadataInstruction(params: {
+    payer: AddressLike;
+    market: AddressLike;
+    lpMint: AddressLike;
+    name: string;
+    symbol: string;
+    uri: string;
+  }): Promise<TransactionInstruction> {
+    const lpMint = address(params.lpMint);
+    return this.instruction(
+      "initializeLpMetadata" as DuskInstructionName,
+      { name: params.name, symbol: params.symbol, uri: params.uri },
+      {
+        accounts: {
+          payer: address(params.payer),
+          market: address(params.market),
+          lpMint,
+          lpTokenMetadata: deriveTokenMetadataAddress(lpMint)[0],
+          systemProgram: SystemProgram.programId,
+          sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
+        },
+      }
+    );
+  }
+
+  async initializeLpMetadataTransaction(
+    params: Parameters<DuskWrite["initializeLpMetadataInstruction"]>[0]
+  ): Promise<Transaction> {
+    return new Transaction().add(await this.initializeLpMetadataInstruction(params));
   }
 
   /** Burn-lock initial direct-yLP support and create one immutable typed proposal. */
@@ -1431,6 +1549,276 @@ export class DuskWrite {
   }
 
   /**
+   * Open the liquidation auction on an unhealthy position.
+   *
+   * Permissionless and free of token accounts: it only snapshots the
+   * liquidation reference price and starts the decay from a 5% premium down
+   * to that floor. Nothing is repaid here, so a keeper that wins the race to
+   * start an auction gains nothing over one that arrives later — the
+   * incentive is in the fill.
+   *
+   * The program rejects a position that is healthy, and rejects a second
+   * start while an auction is live, so a caller racing another keeper sees
+   * `PositionNotLiquidatable` rather than a duplicate auction.
+   */
+  async startLiquidationAuctionInstruction(
+    params: StartLiquidationAuctionParams
+  ): Promise<TransactionInstruction> {
+    const market = address(params.market);
+    const positionId = address(params.positionId);
+    return this.instruction(
+      "startLiquidationAuction" as DuskInstructionName,
+      undefined,
+      {
+        accounts: {
+          market,
+          borrowPosition: address(
+            params.borrowPosition ??
+              deriveBorrowPositionAddress(market, positionId)[0]
+          ),
+          debtAssetMint: address(params.debtAssetMint),
+        },
+      }
+    );
+  }
+
+  async startLiquidationAuctionTransaction(
+    params: StartLiquidationAuctionParams
+  ): Promise<Transaction> {
+    return new Transaction().add(
+      await this.startLiquidationAuctionInstruction(params)
+    );
+  }
+
+  /**
+   * Repay someone else's debt at the running auction price and take their
+   * collateral.
+   *
+   * `minCollateralOut` is the liquidator's protection, and it is not
+   * optional in practice: the auction price decays every slot and the
+   * collateral mint's transfer fee can move, so a fill submitted without a
+   * floor can land at a materially worse price than the one quoted.
+   *
+   * Both insurance vaults are here because a fill can touch either side —
+   * the debt side absorbs a shortfall, the collateral side receives the
+   * insurance cut of the penalty — so passing only the debt vault would fail
+   * validation rather than skip the credit.
+   */
+  async fillLiquidationAuctionInstruction(
+    params: FillLiquidationAuctionParams
+  ): Promise<TransactionInstruction> {
+    const market = address(params.market);
+    const liquidator = address(params.liquidator);
+    const debtAssetMint = address(params.debtAssetMint);
+    const collateralAssetMint = address(params.collateralAssetMint);
+    const positionId = address(params.positionId);
+    const referralPartner = params.referralPartner
+      ? address(params.referralPartner)
+      : null;
+    const [debtTokenProgram, collateralTokenProgram] = await Promise.all([
+      tokenProgramForMint(this.program.provider.connection, debtAssetMint),
+      tokenProgramForMint(
+        this.program.provider.connection,
+        collateralAssetMint
+      ),
+    ]);
+    return this.instruction(
+      "fillLiquidationAuction" as DuskInstructionName,
+      {
+        repayAmount: governanceIntegerBN(params.repayAmount, "repayAmount"),
+        minCollateralOut: governanceIntegerBN(
+          params.minCollateralOut,
+          "minCollateralOut"
+        ),
+      },
+      {
+        accounts: {
+          market,
+          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
+          positionOwner: address(params.positionOwner),
+          liquidator,
+          debtAssetMint,
+          collateralAssetMint,
+          reserveVault: address(
+            params.reserveVault ??
+              deriveMarketReserveVaultAddress(market, debtAssetMint)[0]
+          ),
+          interestVault: address(
+            params.interestVault ??
+              deriveMarketInterestVaultAddress(market, debtAssetMint)[0]
+          ),
+          collateralVault: address(
+            params.collateralVault ??
+              deriveMarketCollateralVaultAddress(market, collateralAssetMint)[0]
+          ),
+          insuranceVault: address(
+            params.insuranceVault ??
+              deriveInsuranceAddress(market, debtAssetMint)[0]
+          ),
+          collateralInsuranceVault: address(
+            params.collateralInsuranceVault ??
+              deriveInsuranceAddress(market, collateralAssetMint)[0]
+          ),
+          liquidatorDebtAccount: address(
+            params.liquidatorDebtAccount ??
+              getAssociatedTokenAddressSync(
+                debtAssetMint,
+                liquidator,
+                true,
+                debtTokenProgram
+              )
+          ),
+          liquidatorCollateralAccount: address(
+            params.liquidatorCollateralAccount ??
+              getAssociatedTokenAddressSync(
+                collateralAssetMint,
+                liquidator,
+                true,
+                collateralTokenProgram
+              )
+          ),
+          borrowPosition: address(
+            params.borrowPosition ??
+              deriveBorrowPositionAddress(market, positionId)[0]
+          ),
+          referralPartner,
+          referralAccrual: referralPartner
+            ? deriveReferralAccrualAddress(
+                referralPartner,
+                market,
+                debtAssetMint
+              )[0]
+            : null,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+        },
+        remainingAccounts: params.remainingAccounts,
+      }
+    );
+  }
+
+  async fillLiquidationAuctionTransaction(
+    params: FillLiquidationAuctionParams
+  ): Promise<Transaction> {
+    return new Transaction().add(
+      await this.fillLiquidationAuctionInstruction(params)
+    );
+  }
+
+  /**
+   * Close out an auction nobody filled, using the market's own reserves.
+   *
+   * This is the backstop, not a cheaper fill: the market buys the collateral
+   * itself and the caller is paid a bounty, so it settles inline against the
+   * hLP vaults and needs their five-account prefix ahead of any transfer-hook
+   * accounts. The prefix is omitted when both hLP vaults are empty, matching
+   * what the program accepts.
+   */
+  async backstopLiquidationAuctionInstruction(
+    params: BackstopLiquidationAuctionParams
+  ): Promise<TransactionInstruction> {
+    const market = address(params.market);
+    const debtAssetMint = address(params.debtAssetMint);
+    const collateralAssetMint = address(params.collateralAssetMint);
+    const positionOwner = address(params.positionOwner);
+    const positionId = address(params.positionId);
+    const referralPartner = params.referralPartner
+      ? address(params.referralPartner)
+      : null;
+    const debtTokenProgram = await tokenProgramForMint(
+      this.program.provider.connection,
+      debtAssetMint
+    );
+    return this.instruction(
+      "backstopLiquidationAuction" as DuskInstructionName,
+      {
+        minCallerBountyOut: governanceIntegerBN(
+          params.minCallerBountyOut ?? 0,
+          "minCallerBountyOut"
+        ),
+      },
+      {
+        accounts: {
+          market,
+          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
+          positionOwner,
+          liquidator: address(params.liquidator),
+          debtAssetMint,
+          collateralAssetMint,
+          debtReserveVault: address(
+            params.debtReserveVault ??
+              deriveMarketReserveVaultAddress(market, debtAssetMint)[0]
+          ),
+          collateralReserveVault: address(
+            params.collateralReserveVault ??
+              deriveMarketReserveVaultAddress(market, collateralAssetMint)[0]
+          ),
+          interestVault: address(
+            params.interestVault ??
+              deriveMarketInterestVaultAddress(market, debtAssetMint)[0]
+          ),
+          collateralVault: address(
+            params.collateralVault ??
+              deriveMarketCollateralVaultAddress(market, collateralAssetMint)[0]
+          ),
+          insuranceVault: address(
+            params.insuranceVault ??
+              deriveInsuranceAddress(market, debtAssetMint)[0]
+          ),
+          liquidatorCollateralAccount: address(
+            params.liquidatorCollateralAccount ??
+              getAssociatedTokenAddressSync(
+                collateralAssetMint,
+                address(params.liquidator),
+                true,
+                await tokenProgramForMint(
+                  this.program.provider.connection,
+                  collateralAssetMint
+                )
+              )
+          ),
+          ownerDebtAccount: address(
+            params.ownerDebtAccount ??
+              getAssociatedTokenAddressSync(
+                debtAssetMint,
+                positionOwner,
+                true,
+                debtTokenProgram
+              )
+          ),
+          borrowPosition: address(
+            params.borrowPosition ??
+              deriveBorrowPositionAddress(market, positionId)[0]
+          ),
+          referralPartner,
+          referralAccrual: referralPartner
+            ? deriveReferralAccrualAddress(
+                referralPartner,
+                market,
+                debtAssetMint
+              )[0]
+            : null,
+          instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+        },
+        remainingAccounts: [
+          ...(await this.hlpRemainingAccounts(market)),
+          ...(params.remainingAccounts ?? []),
+        ],
+      }
+    );
+  }
+
+  async backstopLiquidationAuctionTransaction(
+    params: BackstopLiquidationAuctionParams
+  ): Promise<Transaction> {
+    return new Transaction().add(
+      await this.backstopLiquidationAuctionInstruction(params)
+    );
+  }
+
+  /**
    * Add balanced yLP liquidity. `minYlpAmount` is the caller's slippage floor;
    * the program rejects the deposit rather than minting fewer shares.
    */
@@ -2011,6 +2399,68 @@ export interface BorrowParams {
   remainingAccounts?: AccountMeta[];
 }
 
+/**
+ * Opening an auction needs only the position and which side it owes.
+ *
+ * No token accounts and no signer of consequence: the caller pays the fee
+ * and nothing else moves.
+ */
+export interface StartLiquidationAuctionParams {
+  market: AddressLike;
+  /** Position discriminator; the borrow position PDA derives from it. */
+  positionId: AddressLike;
+  debtAssetMint: AddressLike;
+  borrowPosition?: AddressLike;
+}
+
+export interface FillLiquidationAuctionParams {
+  market: AddressLike;
+  liquidator: AddressLike;
+  /** The borrower, who receives the position rent on a terminal fill. */
+  positionOwner: AddressLike;
+  /** Position discriminator; the borrow position PDA derives from it. */
+  positionId: AddressLike;
+  debtAssetMint: AddressLike;
+  collateralAssetMint: AddressLike;
+  repayAmount: RawAmount;
+  /** Slippage floor on the collateral received; zero accepts any price. */
+  minCollateralOut: RawAmount;
+  liquidatorDebtAccount?: AddressLike;
+  liquidatorCollateralAccount?: AddressLike;
+  reserveVault?: AddressLike;
+  interestVault?: AddressLike;
+  collateralVault?: AddressLike;
+  insuranceVault?: AddressLike;
+  collateralInsuranceVault?: AddressLike;
+  borrowPosition?: AddressLike;
+  /** Omit when the position has no referrer. */
+  referralPartner?: AddressLike;
+  remainingAccounts?: AccountMeta[];
+}
+
+export interface BackstopLiquidationAuctionParams {
+  market: AddressLike;
+  /** The keeper calling it, who is paid the bounty. */
+  liquidator: AddressLike;
+  positionOwner: AddressLike;
+  /** Position discriminator; the borrow position PDA derives from it. */
+  positionId: AddressLike;
+  debtAssetMint: AddressLike;
+  collateralAssetMint: AddressLike;
+  /** Floor on the keeper's bounty; zero accepts whatever the program pays. */
+  minCallerBountyOut?: RawAmount;
+  liquidatorCollateralAccount?: AddressLike;
+  ownerDebtAccount?: AddressLike;
+  debtReserveVault?: AddressLike;
+  collateralReserveVault?: AddressLike;
+  interestVault?: AddressLike;
+  collateralVault?: AddressLike;
+  insuranceVault?: AddressLike;
+  borrowPosition?: AddressLike;
+  referralPartner?: AddressLike;
+  remainingAccounts?: AccountMeta[];
+}
+
 /** A swap described by its market and mints rather than by an account map. */
 export interface SwapParams {
   market: AddressLike;
@@ -2038,6 +2488,65 @@ export interface RemoveLiquidityParams extends YlpLiquidityAccounts {
   ylpAmount: RawAmount;
   minBaseAmountOut: RawAmount;
   minQuoteAmountOut: RawAmount;
+}
+
+/**
+ * Widen a launch config into the shape Anchor expects: every `u64` as a BN,
+ * every `u16` left as a number. Written out field by field rather than mapped,
+ * so a field added to the program fails to compile here instead of silently
+ * going missing.
+ */
+function anchorMarketConfig(config: MarketLaunchConfig): Record<string, unknown> {
+  const bn = (value: GovernanceIntegerLike, label: string) => governanceIntegerBN(value, label);
+  return {
+    swapFeeBps: config.swapFeeBps,
+    divergenceFeeShareCapBps: config.divergenceFeeShareCapBps,
+    volatilityFeeShareCapBps: config.volatilityFeeShareCapBps,
+    targetHlpLeverageBps: config.targetHlpLeverageBps,
+    settlementDivergenceBps: config.settlementDivergenceBps,
+    emaHalfLifeMs: bn(config.emaHalfLifeMs, "emaHalfLifeMs"),
+    directionalEmaHalfLifeMs: bn(
+      config.directionalEmaHalfLifeMs,
+      "directionalEmaHalfLifeMs"
+    ),
+    curveDepthEmaHalfLifeMs: bn(config.curveDepthEmaHalfLifeMs, "curveDepthEmaHalfLifeMs"),
+    maxDailyBorrowBps: config.maxDailyBorrowBps,
+    globalHealthContributionCapBps: config.globalHealthContributionCapBps,
+    borrowMarketHealthFloorBps: config.borrowMarketHealthFloorBps,
+    amm: anchorIntegerFields(config.amm, AMM_U64_FIELDS),
+    irm: anchorIntegerFields(config.irm, IRM_U64_FIELDS),
+    startTime: bn(config.startTime, "startTime"),
+  };
+}
+
+const AMM_U64_FIELDS = [
+  "peakAmplificationNad",
+  "centerEmaHalfLifeMs",
+  "volatilityHalfLifeMs",
+  "adjustmentThresholdNad",
+  "adjustmentStepNad",
+  "minAdjustmentIntervalSlots",
+  "volatilityShockCapNad",
+  "volatilityCapNad",
+  "divergenceFeeCoefficientNad",
+  "volatilityFeeCoefficientNad",
+  "launchFeeDurationSeconds",
+  "launchRateLimitReferenceNad",
+  "launchRateLimitDurationSeconds",
+] as const;
+
+const IRM_U64_FIELDS = ["curveSteepnessNad", "adjustmentSpeedPerYear"] as const;
+
+function anchorIntegerFields(
+  source: Record<string, unknown>,
+  wide: readonly string[]
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...source };
+  for (const field of wide) {
+    if (out[field] === undefined) continue;
+    out[field] = governanceIntegerBN(out[field] as GovernanceIntegerLike, field);
+  }
+  return out;
 }
 
 function normalizeArgs(args: DuskInstructionArgs): unknown[] {

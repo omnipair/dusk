@@ -41,11 +41,12 @@ pub struct Harvest<'info> {
     )]
     pub market: Box<Account<'info, Market>>,
 
-    /// LP holder identity; harvesting does not require its signature.
+    /// LP holder identity. Its signature is not required when the designated
+    /// recipient or harvest authority signs instead.
     /// CHECK: Bound to the yield PDA and canonical LP account in validation.
     pub owner: UncheckedAccount<'info>,
 
-    /// Any signer may trigger payment to the configured recipient.
+    /// The LP holder, designated recipient, or harvest authority. Checked in validation.
     pub caller: Signer<'info>,
 
     pub asset_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -94,6 +95,16 @@ impl<'info> Harvest<'info> {
         }
         validate_owner_lp_account(self.owner.key(), &self.lp_mint, &self.owner_lp_account)?;
 
+        // The owner controls who may trigger settlement. A separate harvest
+        // authority can automate claims without becoming the yield recipient.
+        let caller = self.caller.key();
+        require!(
+            caller == self.owner.key()
+                || caller == self.yield_account.recipient
+                || self.yield_account.harvest_authority == Some(caller),
+            ErrorCode::InvalidSigner
+        );
+
         // Bind the destination and both physical yield sources.
         require_keys_eq!(
             self.recipient_asset_account.owner,
@@ -105,7 +116,7 @@ impl<'info> Harvest<'info> {
             self.asset_mint.key(),
             ErrorCode::InvalidTokenAccount
         );
-        // A permissionless caller cannot select an arbitrary token account,
+        // An authorized caller cannot select an arbitrary token account,
         // even one whose token authority names the configured recipient.
         require_keys_eq!(
             self.recipient_asset_account.key(),

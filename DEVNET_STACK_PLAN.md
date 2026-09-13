@@ -277,6 +277,10 @@ re-add one.
 - Valuation is derived, and its derivation is visible: assets whose price is
   known by definition are anchored in a table with a recorded reason, and
   everything else is priced from pool ratios. No price is invented silently.
+- Live swaps stream over the same gRPC path as v1, unchanged: a row trigger on
+  `dusk_ingestion.event_stream` publishes on `swap_updates`, the Rust listener
+  parses it into `SwapsUpdate`, and `tonic-web` serves gRPC-web directly — no
+  Envoy. The webapp already had the client; it needed only the endpoint.
 
 ## 9. Operational model — public service bar
 
@@ -285,7 +289,9 @@ Because anyone can use this deployment:
 - **Rate limiting** per IP and per wallet on the API, with limits that a normal
   session never hits and a script does.
 - **Abuse handling**: a documented way to cut off a specific abuser without
-  taking the service down. Faucet minting is deliberately unlimited on devnet.
+  taking the service down. Faucet minting is capped per request and per
+  recipient per hour, in the program rather than the API — the browser talks to
+  the program directly, so an API limit would not bind.
 - **Status page** reporting API, indexer lag, RPC health, and keeper liveness,
   updated automatically rather than by hand.
 - **`/live`** checks process survival. **`/ready`** fails closed on RPC lag,
@@ -521,20 +527,28 @@ reverts and a regular pattern of pure RPC transients. The script now requires a
 program error in the logs before counting a failure, and every rate above was
 re-measured with that fix.
 
-### Faucet minting is unlimited, by decision
+### Faucet minting is rate limited, and the limit is shipped
 
-`faucet_mint` checks only that the amount is above zero. There is no per-wallet
-cap, no cooldown and no supply ceiling, so one actor can mint unbounded
-balances.
+`faucet_mint` caps a request at `MAX_MINT_PER_REQUEST` (10,000 units at six
+decimals) and then locks the recipient out of that mint for
+`MINT_COOLDOWN_SECONDS` (one hour). The limit is keyed to the **recipient**, not
+the payer, since paying for someone else's mint is the obvious way around a
+payer-keyed one. It is enforced by a `faucet_claim` PDA seeded on
+`[b"faucet_claim", recipient, mint]`.
 
-This is accepted on devnet and will not be fixed here: the tokens are
-worthless, and a limit costs a program upgrade plus a coordinated app release
-for no benefit. A per-request ceiling and hourly per-recipient cooldown were
-implemented before this call and remain in the tree, unshipped, if the decision
-is ever revisited.
+The call was reversed twice before landing here. It is shipped and deployed, so
+the tree and the chain agree and there is no IDL divergence.
 
-**This does not carry to mainnet.** A public faucet with no cap is a reason not
-to promote this program shape unchanged — see the promotion gates in section 11.
+**It cost two things.** The instruction went from eight accounts to nine, with
+`faucet_claim` at index 4, ahead of `mint` — so every caller that hand-builds
+the account list breaks silently until patched. Anchor callers auto-derive it
+from the IDL seeds and needed no change. And a single wallet can no longer
+acquire more than 10,000 units an hour, which is less than
+`make_liquidatable.ts` needs to move the price; that script now accumulates
+across runs rather than minting in one shot.
+
+**This is the shape that promotes.** A public faucet with no cap would have been
+a reason to hold the program back at the section 11 gates.
 
 ### The keeper contract had drifted from the deployed program
 
@@ -573,20 +587,67 @@ which needs an unhealthy position, and therefore a way to make one on devnet.
 
 ## 14. What is left, and why
 
-One item remains, and it is a wait rather than work.
-
 | Item | State | What it needs |
 | --- | --- | --- |
 | Parameter proposal execution | Proposal `HzgwUjLS` stands queued on the primary market with strict-majority support | The seven-day timelock to elapse on **2026-09-13**, then execution — which is permissionless, and is what `dusk-lifecycle-keeper` exists to do |
+| Create a market from the webapp | The SDK reaches it now, proven on devnet; the webapp's own flow still targets the legacy mainnet Omnipair program | `useInitializePool` ported off `useOmnipair` onto `dusk.write.initializeMarketInstruction` and `market-bootstrap` |
 
 `PARAMETER_PROPOSAL_TIMELOCK_SECONDS` is seven days and a real cluster has no
-clock to advance, so this cannot be closed in a sitting. The execution window is
-a further seven days, so it must be taken by 2026-09-20 or the proposal expires
-and a new one has to be raised.
+clock to advance, so the proposal cannot be closed in a sitting. The execution
+window is a further seven days, so it must be taken by 2026-09-20 or the
+proposal expires and a new one has to be raised.
 
-Everything else in the definition of done is met. The acceptance matrix now
-signs fourteen flows, adding delegation, placing a conditional order and
-cancelling it; a second market exists and both the indexer and API report it.
+**Market creation is a bootstrap, not an instruction.** `bootstrap_market.ts`
+ensures the futarchy authority exists, creates three transfer-hooked LP mints
+(yLP, base hLP, quote hLP) each with its own keypair and mint transaction,
+opens a WSOL account for the team treasury, then calls `initialize_market`
+across twenty accounts, then initializes yield accounts, the LP transfer hook
+and token metadata. That is why the SDK surface is a module rather than a
+single builder: `createHookedLpMintInstructions` returns instructions **and
+keypairs**, because the LP mints are ordinary Token-2022 accounts that must be
+signed for and must exist before the program instruction that adopts them. The
+same sequence therefore works from a script and from a browser wallet, which
+`scripts/devnet/create_market_via_sdk.ts` demonstrates — it created market
+`45qXCmfQrDxTDYc1k7Xu65Qo3kYHRYUkYmiCQKLvPBhL` end to end.
+
+What remains is the webapp flow itself. `useInitializePool` builds a v1 `pair`
+through `useOmnipair` and shares nothing with the Dusk path; the existing
+`DeployStepperToast` is the right shape for it, since the flow is inherently
+multi-transaction. Historical note: `initializeMarketInstruction` was absent from
+`packages/dusk-sdk/src/write.ts` entirely, so this was the one flow in the
+definition of done that no SDK path reaches. The webapp's existing
+`DeployStepperToast` is the right shape for it — the flow is already
+multi-transaction — but `useInitializePool` builds a v1 `pair` through
+`useOmnipair` and shares nothing with the Dusk path.
+
+Everything else in the definition of done is met. The acceptance matrix signs
+fourteen flows, adding delegation, placing a conditional order and cancelling
+it; a second market exists and both the indexer and API report it; and live
+swaps stream to the webapp over gRPC-web.
+
+### devnet-1 was re-pinned for the harvest authority change (2026-09-10)
+
+`harvest` takes a `caller` signer distinct from `owner`. The caller must be the
+LP owner, or the recipient that owner designated through `set_yield_recipient`;
+anything else is rejected with `InvalidSigner`. That keeps the capability the
+split was introduced for — harvesting while hLP sits in an order PDA that
+cannot sign for itself — without opening the instruction to any signer. The
+destination guard is unchanged: payment reaches only the recipient's canonical
+associated token account, so a designated caller cannot redirect it either.
+
+Deployed and verified against the live program, not just LiteSVM: a funded
+stranger simulating `harvest` is rejected at `harvest.rs:106` with
+`InvalidSigner`, while the owner passes authorization and stops at `AmountZero`
+because nothing has accrued. New pins — binary `b3f1d85f…`, canonical IDL
+`aff776aa…`, source raw IDL `d898477e…`, SDK `2.3.0`. The outgoing binary
+`91c3ee46…` is kept at `dusk-keepers/artifacts/dusk-devnet-91c3ee46.so`.
+
+**Re-pinning found a latent wrong pin.** `revision.ts` set
+`idlPackagedRawSha256` to the *source* digest, and the test meant to catch that
+compared the two constants to each other rather than to the shipped file — so
+the vendored 2.2.0's real packaged bytes hashed to `7a7fce31…` and nothing
+checked it. The build re-emits the JSON, so the two digests legitimately
+differ; the test now hashes `dist/idl_v2.json`.
 
 ### Two things worth knowing
 
@@ -596,12 +657,22 @@ in two steps leaves the deployment dark in between — and any recovery script
 that reads its own configuration from that endpoint cannot run. Seed in the same
 operation that creates, or give the endpoint a per-market failure mode.
 
-**The unshipped faucet limit breaks Anchor-built faucet calls.** `faucet_mint`
-in this tree takes a `faucet_claim` account that the deployed program does not,
-so the generated IDL puts `mint` one position late and the program rejects the
-call as `AccountNotInitialized`. Anything hand-building the deployed eight
-account layout still works, which is why the acceptance matrix never noticed.
-Reverting the unshipped change would remove the divergence.
+**An account added mid-instruction breaks hand-built callers silently.**
+Deploying the faucet limit put `faucet_claim` at index 4, ahead of `mint`. Anchor
+callers auto-derived it and kept working; the five devnet scripts that
+hand-build the eight-account list did not, and the failure surfaces as a
+confusing account error rather than as "the layout changed". All five are
+patched. When an instruction gains an account, grep for hand-built key arrays
+before assuming the IDL covers every caller.
+
+**A numeric enum compared against a name is always false, and never errors.**
+`SwapExecuted` carries `asset_in_side` and `fee_asset_side` as the `MarketAsset`
+enum's code — `0` for base, `1` for quote — but three indexer migrations
+compared them against `'base'` and `'quote'`. Twelve sites, every one false: so
+`is_token0_in` read false for every swap, both fee columns read zero, and
+`volume_usd` was priced off the wrong leg. Postgres raises nothing for a
+type-correct comparison that never matches, and the columns were populated, so
+nothing looked broken. Fixed to compare the code, accepting the names too.
 
 ## 15. Definition of done
 

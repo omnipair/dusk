@@ -36,7 +36,7 @@ Dusk exposes the current market instruction set:
 - `initialize_market`, `initialize_lp_metadata`, `initialize_yield_accounts`, `initialize_lp_transfer_hook`, `set_market_reduce_only`, `fortify_market`
 - `create_parameter_proposal`, `support_parameter_proposal`, `queue_parameter_proposal`, `execute_parameter_proposal`, `withdraw_parameter_support`
 - `add_liquidity`, `open_liquidity_gates`, `remove_liquidity`
-- `set_yield_recipient`, `harvest`
+- `set_yield_recipient`, `set_harvest_authority`, `harvest`
 - `swap`, `rescue_hlp`, `close_insolvent_hlp`
 - `deposit_collateral`, `withdraw_collateral`, `borrow`, `repay`
 - `configure_referral_partner`, `initialize_referral_accrual`, `set_referral_recipient`, `claim_referral_interest`
@@ -133,9 +133,11 @@ and authorizes the matching terminal remint.
 
 A partial direct hLP burn is recognized lazily on the next deposit or withdrawal for that hLP side. Dusk first checkpoints nested yLP growth against the old stored supply, then replaces the stored hLP supply with the smaller nonzero live mint supply before pricing the operation. Burned hLP principal is donated to the remaining holders; historical nested yield attributable to the burned balance remains stranded, while future nested yield uses the reconciled live supply. If every hLP atom is burned directly, no holder remains to authorize the normal final exit: the side is a deliberately fail-closed zombie and later hLP deposits/withdrawals reject. There is no governance sweep or asynchronous recovery path. Normal exits must use Dusk's remove/withdraw instructions.
 
-Anyone may call `harvest` for yLP or either hLP mint without the LP owner's signature. Payment goes only to the current `YieldAccount.recipient`'s canonical associated token account for the underlying mint and its token program; the caller cannot redirect the payout. This also permits harvesting yield while hLP is held by an active order PDA. Only the LP owner may change the recipient through `set_yield_recipient`.
+`harvest` may be called for yLP or either hLP mint by the LP owner, the `YieldAccount.recipient`, or the optional `YieldAccount.harvest_authority`. The caller must sign; the owner's signature is unnecessary when the recipient or harvest authority calls. Any unrelated signer is rejected with `InvalidSigner`. Payment always goes to the recipient's canonical associated token account for the underlying mint and its token program.
 
-LP custody must still preserve an authority that can sign Dusk's withdrawal and recipient-update instructions. A normal wallet works directly; a PDA owner uses its controlling program's `invoke_signed`. SPL multisig-owned LP accounts cannot sign those owner-authorized instructions directly, although their yield can be harvested permissionlessly to the configured recipient.
+Only the LP owner may change the recipient through `set_yield_recipient` or set, rotate, and revoke the independent caller through `set_harvest_authority`. The latter accepts `Some(pubkey)` to delegate and `None` to revoke; a zero public key is rejected. New yield accounts have no harvest authority. Both settings are scoped to the yield account's owner, market, LP mint, and underlying asset, and updating either leaves the other unchanged. This allows owner A to retain the LP, recipient B to receive yield, and keeper C to trigger harvests. The keeper cannot change either setting or acquire withdrawal permission through this role.
+
+LP custody must still preserve an authority that can sign Dusk's withdrawal and permission-update instructions. A normal wallet works directly; a PDA owner uses its controlling program's `invoke_signed`. Active hLP order PDAs retain the existing recipient-signed harvest path; an independent keeper for PDA custody requires the controlling program to invoke `set_harvest_authority`. SPL multisig-owned LP accounts cannot sign owner-authorized instructions directly, although their configured recipient or harvest authority can harvest without the owner's signature.
 
 ## hLP Vaults
 
@@ -278,7 +280,7 @@ Indexers should consume Dusk events from the standalone Dusk IDL:
 
 - `MarketCreated`, `MarketReduceOnlyUpdated`, `MarketHealthUpdated`, `InsuranceDonated`
 - `LiquidityAdded`, `LiquidityRemoved`
-- `YieldRecipientUpdated`, `YieldClaimed`
+- `YieldRecipientUpdated`, `HarvestAuthorityUpdated`, `YieldClaimed`
 - `SwapExecuted`
 - `MarketCollateralDeposited`, `MarketCollateralWithdrawn`, `MarketDebtUpdated`
 - `BorrowPositionLiquidated`

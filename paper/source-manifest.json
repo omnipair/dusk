@@ -1,0 +1,101 @@
+{
+  "reviewed_commit": "263c1635ad87ee36ffd9bf0b970457e4be965326",
+  "source_files": [
+    {
+      "path": "programs/dusk/src/transitions/ledger.rs",
+      "sha256": "ad60558a6585275119c7399c25d25ad65465c8f7c05a4c9d7c092255379dc0a0"
+    },
+    {
+      "path": "programs/dusk/src/state/market.rs",
+      "sha256": "6742c4cafa901c6b20be4e6612d70289aa4d4b0ebd1f7482d919cc831bfa9654"
+    },
+    {
+      "path": "programs/dusk/src/transitions/amm/mod.rs",
+      "sha256": "62de22987445a734d2b288835ed50b000b91c21ffd8026d893bded715d0491d5"
+    },
+    {
+      "path": "programs/dusk/src/instructions/accounts.rs",
+      "sha256": "aeece488dbb0f882739a985f3504b13c219b6b060c74ff164a7331c06631aa98"
+    },
+    {
+      "path": "programs/dusk/src/transitions/amm/curve.rs",
+      "sha256": "03635013d2f7d9182ae5b5763a11fa4d6d62bb9c8acc362614ed823e8f3f05e9"
+    },
+    {
+      "path": "programs/dusk/src/instructions/prepare_swap.rs",
+      "sha256": "1042a66158c4fceb49d26a962339637f4deb364f58a24cddb830f8d4b45d2d37"
+    },
+    {
+      "path": "programs/dusk/src/transitions/amm/fees.rs",
+      "sha256": "4ae3096812613ebaffaf431c597c26c162cc2913144c2f1d2a006a568a7ce453"
+    },
+    {
+      "path": "programs/dusk/src/transitions/liquidity/hlp/integrated.rs",
+      "sha256": "31d7bfbd01e8eef84458ae4259c57f73493921d357fbe902da87a955687dabf2"
+    },
+    {
+      "path": "programs/dusk/src/transitions/liquidity/hlp/engine.rs",
+      "sha256": "1b726d28e610d98fba2e825dc08d4ae6a13e53a9faba884be256c3332fbcf094"
+    },
+    {
+      "path": "programs/dusk/src/transitions/liquidity/hlp/recovery.rs",
+      "sha256": "ad0e69913a1c9e1f030d2e57e6f93c282a99023447c1421c6934b5f58eef5006"
+    },
+    {
+      "path": "programs/dusk/src/instructions/spot/close_insolvent_hlp.rs",
+      "sha256": "55b36220163d7ff5f756300aa8ea2adc25c811fce260c1b8400f6a9f6b13e67c"
+    },
+    {
+      "path": "programs/dusk/src/transitions/lending/mod.rs",
+      "sha256": "9fd7974071af9f40a35f92d41455f43da2eaeca7267792ea395d8320999a48d5"
+    },
+    {
+      "path": "programs/dusk/src/math/risk.rs",
+      "sha256": "e2eb77391da822bbb7338f238e2a2fe885d39e6d01cfc4586277e3c14ed15829"
+    },
+    {
+      "path": "programs/dusk/src/constants.rs",
+      "sha256": "ae032c9f802804a802e708359bf5d5ae1a1535a9b45651bd70bbf522d1054b5b"
+    },
+    {
+      "path": "programs/dusk/src/transitions/lending/liquidation.rs",
+      "sha256": "6f80356e95393c11a64345bc2595ce0bfde6199f6b80dd8fdd20fd69f82ebc1d"
+    },
+    {
+      "path": "programs/dusk/src/instructions/lending/liquidation/start_liquidation_auction.rs",
+      "sha256": "46cfe82c6d4f0ca9c02b8a308604a65850f82eaa7b156d62537f42c3aba3c2cd"
+    },
+    {
+      "path": "programs/dusk/src/instructions/lending/liquidation/fill_liquidation_auction.rs",
+      "sha256": "ecf87e2ec596ced08f178ef79d48364d8058adc104b0577003064204d14bd026"
+    },
+    {
+      "path": "programs/dusk/src/instructions/lending/liquidation/backstop_liquidation_auction.rs",
+      "sha256": "1cc88f2279e5c23760fff0c3cc5abd835ea387fee61586ea23e77c6564029af4"
+    },
+    {
+      "path": "programs/dusk/src/instructions/lending/liquidation/settlement.rs",
+      "sha256": "b3ff97db0e15a3561d8ea90d82e67c996ff1c190cafe3eafa918c57fd928082c"
+    },
+    {
+      "path": "programs/dusk/src/transitions/leverage.rs",
+      "sha256": "33be69691f5625e2dba451819929c6a32ff654fdd12927e2afd0ef2168856907"
+    },
+    {
+      "path": "programs/leverage_delegate/src/lib.rs",
+      "sha256": "091849b7bef6608c3500814f5bef1b4ddf1d3681717cfce724dbc44b28b55bff"
+    },
+    {
+      "path": "programs/dusk/src/state/yield_account.rs",
+      "sha256": "4e184b053fc775b606745d280fd387356c731c4fb4385761db76b947002aae1d"
+    },
+    {
+      "path": "programs/dusk/src/instructions/liquidity/harvest.rs",
+      "sha256": "68c1122bed2ef93f7f875c6c17736df32254e6c6271f2270e6c602e22d21caa6"
+    },
+    {
+      "path": "programs/dusk/src/state/parameter_proposal.rs",
+      "sha256": "2959bfb59c904c112635a8dcede8166bedf6eeb3fc9ff841c7894fb42faf2893"
+    }
+  ]
+}

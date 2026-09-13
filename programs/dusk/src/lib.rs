@@ -206,6 +206,20 @@ pub mod dusk {
         SetYieldRecipient::handle_set(ctx, args)
     }
 
+    /// Set or revoke a harvest caller independently of the yield recipient.
+    /// Only the LP owner may update this authority; `None` revokes it.
+    #[access_control(ctx.accounts.validate(&args))]
+    pub fn set_harvest_authority(ctx: Context<SetHarvestAuthority>, args: SetHarvestAuthorityArgs) -> Result<()> {
+        SetHarvestAuthority::handle_set(ctx, args)
+    }
+
+    /// Bring a yield account created before `harvest_authority` existed up
+    /// to the current size. Permissionless: it only appends zeroed bytes and
+    /// the caller pays the rent for them.
+    pub fn grow_yield_account(ctx: Context<GrowYieldAccount>) -> Result<()> {
+        GrowYieldAccount::handle_grow(ctx)
+    }
+
     #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn harvest<'info>(ctx: Context<'_, '_, '_, 'info, Harvest<'info>>, args: HarvestArgs) -> Result<()> {
         Harvest::handle_harvest(ctx, args)

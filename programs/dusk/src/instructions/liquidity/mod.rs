@@ -1,14 +1,18 @@
+mod grow_yield_account;
 mod harvest;
 mod hlp;
 mod initialize_lp_transfer_hook;
 mod initialize_yield_accounts;
+mod set_harvest_authority;
 mod set_yield_recipient;
 mod ylp;
 
+pub use grow_yield_account::*;
 pub use harvest::*;
 pub use hlp::*;
 pub use initialize_lp_transfer_hook::*;
 pub use initialize_yield_accounts::*;
+pub use set_harvest_authority::*;
 pub use set_yield_recipient::*;
 pub use ylp::*;
 
