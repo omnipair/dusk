@@ -27,11 +27,14 @@ yarn v2:bootstrap-market
 yarn v2:smoke-devnet
 ```
 
-The devnet helper builds the standard program interface as SBPF v3, including
-the emergency authority pinned by the SDK and the existing devnet deployment.
+The devnet helper builds the standard program interface as SBPF v0, matching
+the existing deployment and the binaries covered by the complete LiteSVM suite.
+It preserves the emergency authority pinned by the SDK and the live program.
 Cluster feature state can change, so re-check the target cluster before a
 deployment instead of treating this note as a permanent network guarantee.
-Use `yarn v2:build-devnet` so the artifact is built with `--arch v3`.
+Use `yarn v2:build-devnet` so the artifact is built with `--arch v0`. Before
+changing binary formats, update the test runtime and validate the resulting
+deployment binaries through the complete release suite.
 
 The deploy commands use `ANCHOR_WALLET` as fee payer and upgrade authority, so
 the same funded deployer can later upgrade or close the programs. Do not deploy

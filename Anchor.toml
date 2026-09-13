@@ -22,5 +22,5 @@ wallet = "deployer-keypair.json"
 members = ["programs/dusk", "programs/leverage_delegate", "programs/faucet"]
 
 [scripts]
-build-devnet = "anchor build -p dusk -- --arch v3"
+build-devnet = "anchor build -p dusk -- --arch v0"
 build-mainnet = "anchor build -p dusk -- --features \"production\""
