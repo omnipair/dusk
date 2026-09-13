@@ -1,3 +1,4 @@
+use crate::transitions::amm::SwapRequest;
 use anchor_lang::{
     prelude::*,
     solana_program::{
@@ -10,6 +11,7 @@ use anchor_spl::{
     token_interface::{Mint, Token2022, TokenAccount},
 };
 
+use crate::transitions::liquidity::SwapCashPolicy;
 use crate::{
     constants::*,
     errors::ErrorCode,
@@ -31,10 +33,6 @@ use crate::{
         HlpRebalanceReceipt, HlpYieldEligibility, LeverageSwapFeeCredit, LeverageSwapQuote, PreparedLeverageSwap,
     },
 };
-use crate::{
-    instructions::{PreparedSwap, SwapRequest},
-    transitions::liquidity::SwapCashPolicy,
-};
 
 pub const LEVERAGE_DELEGATE_CLOSE: u32 = 1 << 0;
 pub const LEVERAGE_DELEGATE_ADD_MARGIN: u32 = 1 << 1;
@@ -52,10 +50,8 @@ pub const LEVERAGE_DELEGATION_APPROVAL_MAGIC: [u8; 8] = *b"OMNILVDA";
 /// must remain distinguishable from a new incompatible format.
 pub const LEVERAGE_DELEGATION_APPROVAL_VERSION: u8 = 1;
 
-/// Narrows the large AMM quote to the leverage settlement payload before it
-/// returns to an instruction handler. Keeping the two identity-bound curve
-/// checkpoints inside this non-inlined frame avoids overlapping them with
-/// account-creation and token-CPI frames.
+/// Keeps shared, boxed swap preparation and the initial risk observation out
+/// of the instruction handler's account-creation and token-CPI stack frame.
 #[inline(never)]
 pub(super) fn prepare_leverage_swap(
     market: &mut Market,
@@ -63,28 +59,9 @@ pub(super) fn prepare_leverage_swap(
     cash_policy: SwapCashPolicy,
 ) -> Result<PreparedLeverageSwap> {
     let current_slot = request.current_slot;
-    let PreparedSwap {
-        quote,
-        base_pre_rebalance,
-        quote_pre_rebalance,
-        fee_eligible_ylp_supply,
-        interest_eligibility,
-        cash_policy,
-        post_fee_curve_cache,
-        concentrated_transition,
-        ..
-    } = request.prepare_with_cash_policy(market, cash_policy)?;
+    let prepared = request.prepare_with_cash_policy(market, cash_policy)?;
     market.observe_current_risk(current_slot)?;
-    Ok(PreparedLeverageSwap {
-        swap: LeverageSwapQuote::from_amm(quote, current_slot),
-        base_pre_rebalance,
-        quote_pre_rebalance,
-        fee_eligible_ylp_supply,
-        interest_eligibility,
-        cash_policy,
-        post_fee_curve_cache,
-        concentrated_transition,
-    })
+    Ok(prepared)
 }
 
 /// Validates the canonical Market PDA outside Anchor's generated account

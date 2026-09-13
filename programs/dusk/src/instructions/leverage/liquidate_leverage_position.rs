@@ -1,3 +1,4 @@
+use crate::transitions::amm::SwapRequest;
 use anchor_lang::prelude::*;
 use anchor_spl::{
     token::Token,
@@ -23,8 +24,8 @@ use super::settlement::{
 use crate::instructions::accounts::{
     require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout,
 };
+use crate::instructions::enforce_launch_same_transaction_guard;
 use crate::instructions::referral::accounting::{referral_interest_accrued_event_at_slot, validate_referral_binding};
-use crate::instructions::{enforce_launch_same_transaction_guard, SwapRequest};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct LiquidateLeveragePositionArgs {
@@ -214,7 +215,7 @@ impl<'info> LiquidateLeveragePosition<'info> {
             },
         )?;
         let interest_eligibility = prepared_swap.interest_eligibility;
-        let swap_fee_credit = leverage_swap_fee_credit(&prepared_swap.swap)?;
+        let swap_fee_credit = leverage_swap_fee_credit(&prepared_swap.leverage_quote())?;
 
         // Commit liquidation accounting and settle the resulting hLP exposure.
         let receipt = ctx.accounts.market.liquidate_leverage_position(

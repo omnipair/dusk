@@ -1,3 +1,4 @@
+use crate::transitions::amm::SwapRequest;
 use anchor_lang::prelude::*;
 use anchor_spl::{
     token::Token,
@@ -19,7 +20,7 @@ use super::settlement::{
     validate_leverage_collateral_risk_mint, validate_leverage_mints, validate_leverage_reserve_accounts,
 };
 use crate::instructions::accounts::{require_reserve_custody, token_program_for_mint, HlpSwapAccountLayout};
-use crate::instructions::{enforce_launch_same_transaction_guard, SwapRequest};
+use crate::instructions::enforce_launch_same_transaction_guard;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct IncreaseLeverageArgs {
@@ -156,7 +157,7 @@ impl<'info> IncreaseLeverage<'info> {
                 amount: args.debt_amount,
             },
         )?;
-        let swap = prepared_swap.swap;
+        let swap = prepared_swap.leverage_quote();
         let interest_eligibility = prepared_swap.interest_eligibility;
         let collateral_credit =
             leverage_collateral_credit(&ctx.accounts.collateral_mint, swap.amount_out, current_epoch)?;

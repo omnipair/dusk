@@ -1,8 +1,8 @@
 use super::*;
 use crate::{
     constants::{
-        BPS_DENOMINATOR, LIQUIDATION_AUCTION_DURATION_SECONDS, LIQUIDATION_BACKSTOP_CALLER_BPS,
-        MARKET_LAYOUT_VERSION, NAD,
+        BPS_DENOMINATOR, LIQUIDATION_AUCTION_DURATION_SECONDS, LIQUIDATION_BACKSTOP_CALLER_BPS, MARKET_LAYOUT_VERSION,
+        NAD,
     },
     state::{Debt, HlpVault, Insurance, MarketConfig, MarketSide, Reserves, Risk},
 };
@@ -570,8 +570,7 @@ fn internal_floor_uses_insurance_then_socializes_and_closes_without_caller_cap()
         .cash_repaid;
     let collateral_consumed = borrow_position.base_collateral;
     let caller_bounty = u64::try_from(
-        (collateral_consumed as u128) * LIQUIDATION_BACKSTOP_CALLER_BPS as u128
-            / BPS_DENOMINATOR as u128,
+        (collateral_consumed as u128) * LIQUIDATION_BACKSTOP_CALLER_BPS as u128 / BPS_DENOMINATOR as u128,
     )
     .unwrap();
     let swap_output = full_repayment / 2;
@@ -588,9 +587,11 @@ fn internal_floor_uses_insurance_then_socializes_and_closes_without_caller_cap()
             insurance_credit,
             collateral_consumed,
             caller_bounty,
+            123,
         )
         .unwrap();
 
+    assert_eq!(market.insurance.quote_draw_window.start_slot, 123);
     assert_eq!(receipt.liquidation.repaid_amount, swap_output);
     assert_eq!(receipt.liquidation.insurance_drawn, insurance_credit);
     assert_eq!(
@@ -610,8 +611,7 @@ fn internal_floor_uses_insurance_then_socializes_and_closes_without_caller_cap()
 #[test]
 fn internal_floor_returns_solvent_swap_residual_to_owner() {
     let debt_asset = MarketAsset::Quote;
-    let (mut market, mut borrow_position) =
-        market_with_cash_backed_debt(debt_asset, 2_000_000, 2_000_000, 100_000, 0);
+    let (mut market, mut borrow_position) = market_with_cash_backed_debt(debt_asset, 2_000_000, 2_000_000, 100_000, 0);
     let full_repayment = market
         .fixed_repayment_for_max(&borrow_position, debt_asset, u64::MAX)
         .unwrap()
@@ -627,6 +627,7 @@ fn internal_floor_returns_solvent_swap_residual_to_owner() {
             0,
             collateral_consumed,
             0,
+            123,
         )
         .unwrap();
 
@@ -694,8 +695,10 @@ fn liquidation_threshold_is_linear_and_independent_of_curve_depth() {
         .unwrap();
 
     // A slippage-adjusted trigger would liquidate this position early.
-    assert!(600_000_000_u128 * NAD as u128 * BPS_DENOMINATOR as u128
-        >= unwind_value_nad * borrow_position.quote_liquidation_cf_bps as u128);
+    assert!(
+        600_000_000_u128 * NAD as u128 * BPS_DENOMINATOR as u128
+            >= unwind_value_nad * borrow_position.quote_liquidation_cf_bps as u128
+    );
     assert_eq!(
         market
             .linear_liquidation_collateral_value_nad(MarketAsset::Base, borrow_position.base_collateral, &deep_risk)

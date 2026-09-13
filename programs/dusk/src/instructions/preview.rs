@@ -1,8 +1,9 @@
+use crate::transitions::amm::{split_claimable_fee_credit, SwapRequest};
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::Mint;
 
 use crate::instructions::accounts::require_supported_asset_mint;
-use crate::instructions::{split_claimable_fee_credit, SwapRequest};
+
 use crate::{
     constants::*,
     errors::ErrorCode,
@@ -548,7 +549,7 @@ impl<'info> PreviewSwap<'info> {
             .exact_asset_in
             .checked_sub(transfer_fee)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let prepared = SwapRequest {
+        let mut prepared = SwapRequest {
             current_slot: slot,
             current_unix_timestamp: clock.unix_timestamp,
             asset_in,
