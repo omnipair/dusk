@@ -223,11 +223,45 @@ await provider.sendAndConfirm(transaction);
 initializer is safe to compose unconditionally, including when a third party
 has transferred lamports to the PDA address before initialization.
 
-LP token accounts should be owned by a wallet that can sign Dusk instructions,
-or by a PDA whose controlling program invokes Dusk with `invoke_signed`. SPL
-multisig-owned LP accounts are unsupported: Token-2022 transfers can checkpoint
-yield to that owner, but the multisig account itself cannot sign Dusk's claim or
-recipient-update instruction.
+`harvest` accepts the LP owner, designated yield recipient, or independent
+harvest authority for yLP and both hLP mints. Its `owner` account identifies
+the LP holder; `caller` signs and must match that owner,
+`YieldAccount.recipient`, or the optional `YieldAccount.harvestAuthority`.
+An unrelated caller is rejected with `InvalidSigner`.
+
+The LP owner sets or rotates a keeper with `setHarvestAuthority`, passing
+`harvestAuthority: keeperPublicKey`, and revokes it with `harvestAuthority: null`.
+New yield accounts start with no harvest authority. This changes who may
+trigger payment without changing who receives it. Only the owner can update
+either setting; changing the recipient does not clear the harvest authority.
+Each yield account has its own configuration, so configure each underlying
+asset and LP mint that the keeper should service.
+
+```typescript
+// The LP owner signs this configuration transaction.
+const transaction = await dusk.write.transaction(
+  "setHarvestAuthority",
+  { tokenKind: { ylp: {} }, harvestAuthority: keeperPublicKey },
+  { accounts: { market, owner, assetMint, lpMint, yieldAccount } }
+);
+await provider.sendAndConfirm(transaction);
+// Pass harvestAuthority: null through the same instruction to revoke.
+```
+
+For harvesting, set `caller` to the keeper and sign with its key. Neither the
+owner nor recipient needs to sign. Derive `recipientAssetAccount` as the
+current recipient's ATA using the underlying mint's token program; arbitrary
+destinations are rejected. Create that ATA before harvesting if necessary.
+The claim event records the LP owner, recipient, and caller separately, with
+the caller in `metadata.signer`. `HarvestAuthorityUpdated` records delegation,
+rotation, and revocation.
+
+LP token accounts should be owned by a wallet that can sign withdrawals and
+permission updates, or by a PDA whose controlling program invokes those Dusk
+instructions with `invoke_signed`. SPL multisig accounts cannot sign those
+instructions directly. PDA custody needs a controlling-program path to set
+an independent keeper; the existing hLP order flow can still harvest using
+the configured recipient.
 
 ### Referral Interest Sharing
 
@@ -387,3 +421,33 @@ include `.js` extensions in emitted files.
 ## License
 
 MIT
+
+
+## Token amounts and UI extensions
+
+Dusk instruction amounts, token balances, and amount previews are raw integer
+atoms (`BN`/`bigint`). The program supports Token-2022 group metadata,
+`InterestBearingConfig`, and `ScaledUiAmount` on underlying assets. Group
+metadata does not change settlement. Interest and UI multipliers change only
+the displayed denomination; the SDK does not automatically apply them.
+
+For these mints, dividing raw amounts by `10 ** decimals` alone is not a correct
+wallet display. Use the Token-2022 program's `AmountToUiAmount` and
+`UiAmountToAmount` instructions through RPC simulation with the current mint
+state and clock. Refresh conversions after multiplier/rate updates or scheduled
+changes take effect. Keep raw amounts as integers throughout transaction
+construction; token-program UI conversion uses floating-point arithmetic and
+must not be used as a lossless accounting round trip.
+
+Dusk prices and price limits use fixed mint-decimal units, with nine-decimal NAD
+precision, independently of UI multipliers. Convert UI prices at the client
+boundary as well: if raw-decimal price is quote per base, displayed price is
+`price * quote_display_multiplier / base_display_multiplier`. Interest-bearing
+mints have a time-dependent display factor. Existing orders keep their original
+raw price limits when the issuer changes the display. A display increase alone
+does not create collateral or Dusk yield.
+
+The token extension semantics are described in Solana's
+[scaled UI amount](https://solana.com/docs/tokens/extensions/scaled-ui-amount) and
+[interest-bearing token](https://solana.com/docs/tokens/extensions/interest-bearing-tokens)
+documentation.

@@ -3,8 +3,14 @@ use anchor_spl::{
     associated_token::AssociatedToken,
     metadata::{
         mpl_token_metadata::{
-            instructions::{CreateV1Cpi, CreateV1CpiAccounts, CreateV1InstructionArgs},
-            types::TokenStandard,
+            instructions::{
+                CreateV1Cpi, CreateV1CpiAccounts, CreateV1InstructionArgs, UpdateV1Cpi,
+                UpdateV1CpiAccounts, UpdateV1InstructionArgs,
+            },
+            types::{
+                CollectionDetailsToggle, CollectionToggle, Data, RuleSetToggle, TokenStandard,
+                UsesToggle,
+            },
             ID as MPL_TOKEN_METADATA_PROGRAM_ID,
         },
         Metadata,
@@ -128,6 +134,89 @@ pub mod faucet {
             .invoke_signed(&[&seeds[..]])
             .map_err(Into::into)
     }
+
+    /// Point a mock mint's metadata at new name, symbol and URI.
+    ///
+    /// The devnet mints were created with an empty URI, so nothing renders an
+    /// icon for them anywhere -- the app draws a letter, the indexer reports
+    /// no image. Their metadata is mutable but its update authority is the
+    /// faucet PDA, which only this program can sign for, so this is the one
+    /// path by which those tokens can ever get art. Admin-only, like the
+    /// initializer it mirrors.
+    pub fn update_mint_metadata(
+        ctx: Context<UpdateMintMetadata>,
+        args: UpdateMintMetadataArgs,
+    ) -> Result<()> {
+        require!(!args.name.is_empty(), FaucetError::InvalidMetadataName);
+        require!(
+            args.name.len() <= 32 && args.name.is_ascii(),
+            FaucetError::InvalidMetadataName
+        );
+        require!(!args.symbol.is_empty(), FaucetError::InvalidMetadataSymbol);
+        require!(
+            args.symbol.len() <= 10 && args.symbol.is_ascii(),
+            FaucetError::InvalidMetadataSymbol
+        );
+        require!(
+            args.uri.len() <= 200 && args.uri.is_ascii(),
+            FaucetError::InvalidMetadataUri
+        );
+
+        let seeds = &[
+            b"faucet_authority",
+            crate::ID.as_ref(),
+            &[ctx.bumps.faucet_authority],
+        ];
+
+        let token_metadata_program = ctx.accounts.token_metadata_program.to_account_info();
+        let metadata = ctx.accounts.metadata.to_account_info();
+        let mint = ctx.accounts.mint.to_account_info();
+        let faucet_authority = ctx.accounts.faucet_authority.to_account_info();
+        let payer = ctx.accounts.payer.to_account_info();
+        let system_program = ctx.accounts.system_program.to_account_info();
+        let instructions_sysvar = ctx.accounts.sysvar_instructions.to_account_info();
+        let cpi_accounts = UpdateV1CpiAccounts {
+            authority: &faucet_authority,
+            delegate_record: None,
+            token: None,
+            mint: &mint,
+            metadata: &metadata,
+            edition: None,
+            payer: &payer,
+            system_program: &system_program,
+            sysvar_instructions: &instructions_sysvar,
+            authorization_rules_program: None,
+            authorization_rules: None,
+        };
+        let cpi_args = UpdateV1InstructionArgs {
+            new_update_authority: None,
+            data: Some(Data {
+                name: args.name,
+                symbol: args.symbol,
+                uri: args.uri,
+                seller_fee_basis_points: 0,
+                creators: None,
+            }),
+            primary_sale_happened: None,
+            is_mutable: None,
+            collection: CollectionToggle::None,
+            collection_details: CollectionDetailsToggle::None,
+            uses: UsesToggle::None,
+            rule_set: RuleSetToggle::None,
+            authorization_data: None,
+        };
+
+        UpdateV1Cpi::new(&token_metadata_program, cpi_accounts, cpi_args)
+            .invoke_signed(&[&seeds[..]])
+            .map_err(Into::into)
+    }
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct UpdateMintMetadataArgs {
+    pub name: String,
+    pub symbol: String,
+    pub uri: String,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -204,6 +293,44 @@ pub struct FaucetMint<'info> {
     pub system_program: Program<'info, System>,
     pub token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateMintMetadata<'info> {
+    #[account(mut, address = FAUCET_ADMIN @ FaucetError::UnauthorizedMetadataAdmin)]
+    pub payer: Signer<'info>,
+
+    /// CHECK: The seed-constrained PDA is the mint and metadata authority.
+    #[account(seeds = [b"faucet_authority", crate::ID.as_ref()], bump)]
+    pub faucet_authority: AccountInfo<'info>,
+
+    #[account(
+        mint::authority = faucet_authority,
+        mint::token_program = token_program,
+    )]
+    pub mint: Box<InterfaceAccount<'info, Mint>>,
+
+    #[account(
+        mut,
+        seeds = [
+            b"metadata",
+            MPL_TOKEN_METADATA_PROGRAM_ID.as_ref(),
+            mint.key().as_ref(),
+        ],
+        seeds::program = MPL_TOKEN_METADATA_PROGRAM_ID,
+        bump,
+    )]
+    /// CHECK: The Metaplex metadata PDA is constrained by the seeds above.
+    pub metadata: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+
+    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    /// CHECK: The Metaplex update_v1 CPI requires the instructions sysvar.
+    pub sysvar_instructions: UncheckedAccount<'info>,
+
+    pub token_program: Interface<'info, TokenInterface>,
+    pub token_metadata_program: Program<'info, Metadata>,
 }
 
 #[derive(Accounts)]

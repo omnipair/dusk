@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
+    associated_token::get_associated_token_address_with_program_id,
     token::Token,
     token_interface::{Mint, Token2022, TokenAccount},
 };
@@ -40,8 +41,13 @@ pub struct Harvest<'info> {
     )]
     pub market: Box<Account<'info, Market>>,
 
-    #[account(mut)]
-    pub owner: Signer<'info>,
+    /// LP holder identity. Its signature is not required when the designated
+    /// recipient or harvest authority signs instead.
+    /// CHECK: Bound to the yield PDA and canonical LP account in validation.
+    pub owner: UncheckedAccount<'info>,
+
+    /// The LP holder, designated recipient, or harvest authority. Checked in validation.
+    pub caller: Signer<'info>,
 
     pub asset_mint: Box<InterfaceAccount<'info, Mint>>,
     pub lp_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -89,6 +95,16 @@ impl<'info> Harvest<'info> {
         }
         validate_owner_lp_account(self.owner.key(), &self.lp_mint, &self.owner_lp_account)?;
 
+        // The owner controls who may trigger settlement. A separate harvest
+        // authority can automate claims without becoming the yield recipient.
+        let caller = self.caller.key();
+        require!(
+            caller == self.owner.key()
+                || caller == self.yield_account.recipient
+                || self.yield_account.harvest_authority == Some(caller),
+            ErrorCode::InvalidSigner
+        );
+
         // Bind the destination and both physical yield sources.
         require_keys_eq!(
             self.recipient_asset_account.owner,
@@ -99,6 +115,17 @@ impl<'info> Harvest<'info> {
             self.recipient_asset_account.mint,
             self.asset_mint.key(),
             ErrorCode::InvalidTokenAccount
+        );
+        // An authorized caller cannot select an arbitrary token account,
+        // even one whose token authority names the configured recipient.
+        require_keys_eq!(
+            self.recipient_asset_account.key(),
+            get_associated_token_address_with_program_id(
+                &self.yield_account.recipient,
+                &self.asset_mint.key(),
+                self.asset_mint.to_account_info().owner,
+            ),
+            ErrorCode::InvalidRecipient
         );
         let fee_asset = validate_swap_fee_custody_accounts(&self.market, &self.asset_mint, &self.reserve_vault)?;
         let interest_asset = validate_interest_accounts(&self.market, &self.asset_mint, &self.interest_vault)?;
@@ -237,7 +264,7 @@ impl<'info> Harvest<'info> {
             swap_fee_amount: receipt.swap_fee_amount,
             interest_amount: receipt.interest_amount,
             recipient_credit,
-            metadata: MarketEventMetadata::new(owner_key, market_key)?,
+            metadata: MarketEventMetadata::new(ctx.accounts.caller.key(), market_key)?,
         });
         Ok(())
     }

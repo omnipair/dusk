@@ -36,7 +36,7 @@ Dusk exposes the current market instruction set:
 - `initialize_market`, `initialize_lp_metadata`, `initialize_yield_accounts`, `initialize_lp_transfer_hook`, `set_market_reduce_only`, `fortify_market`
 - `create_parameter_proposal`, `support_parameter_proposal`, `queue_parameter_proposal`, `execute_parameter_proposal`, `withdraw_parameter_support`
 - `add_liquidity`, `open_liquidity_gates`, `remove_liquidity`
-- `set_yield_recipient`, `harvest`
+- `set_yield_recipient`, `set_harvest_authority`, `harvest`
 - `swap`, `rescue_hlp`, `close_insolvent_hlp`
 - `deposit_collateral`, `withdraw_collateral`, `borrow`, `repay`
 - `configure_referral_partner`, `initialize_referral_accrual`, `set_referral_recipient`, `claim_referral_interest`
@@ -133,7 +133,11 @@ and authorizes the matching terminal remint.
 
 A partial direct hLP burn is recognized lazily on the next deposit or withdrawal for that hLP side. Dusk first checkpoints nested yLP growth against the old stored supply, then replaces the stored hLP supply with the smaller nonzero live mint supply before pricing the operation. Burned hLP principal is donated to the remaining holders; historical nested yield attributable to the burned balance remains stranded, while future nested yield uses the reconciled live supply. If every hLP atom is burned directly, no holder remains to authorize the normal final exit: the side is a deliberately fail-closed zombie and later hLP deposits/withdrawals reject. There is no governance sweep or asynchronous recovery path. Normal exits must use Dusk's remove/withdraw instructions.
 
-LP custody must also preserve an authority that can sign Dusk's claim and recipient-update instructions. A normal wallet works directly; a PDA owner works only when its controlling program invokes Dusk with `invoke_signed`. SPL multisig-owned LP token accounts are not supported because the multisig account itself cannot satisfy Dusk's owner-signer constraint. Sending LP tokens to unsupported custody can make that custody's accrued yield unreachable.
+`harvest` may be called for yLP or either hLP mint by the LP owner, the `YieldAccount.recipient`, or the optional `YieldAccount.harvest_authority`. The caller must sign; the owner's signature is unnecessary when the recipient or harvest authority calls. Any unrelated signer is rejected with `InvalidSigner`. Payment always goes to the recipient's canonical associated token account for the underlying mint and its token program.
+
+Only the LP owner may change the recipient through `set_yield_recipient` or set, rotate, and revoke the independent caller through `set_harvest_authority`. The latter accepts `Some(pubkey)` to delegate and `None` to revoke; a zero public key is rejected. New yield accounts have no harvest authority. Both settings are scoped to the yield account's owner, market, LP mint, and underlying asset, and updating either leaves the other unchanged. This allows owner A to retain the LP, recipient B to receive yield, and keeper C to trigger harvests. The keeper cannot change either setting or acquire withdrawal permission through this role.
+
+LP custody must still preserve an authority that can sign Dusk's withdrawal and permission-update instructions. A normal wallet works directly; a PDA owner uses its controlling program's `invoke_signed`. Active hLP order PDAs retain the existing recipient-signed harvest path; an independent keeper for PDA custody requires the controlling program to invoke `set_harvest_authority`. SPL multisig-owned LP accounts cannot sign owner-authorized instructions directly, although their configured recipient or harvest authority can harvest without the owner's signature.
 
 ## hLP Vaults
 
@@ -239,10 +243,8 @@ The divergence potential is Huber-capped at the configured marginal share, and
 both divergence and volatility receive explicit gross-input budgets. Together
 with the base fee, configured component caps must sum to at most 5,000 bps.
 Every accepted quote therefore leaves at least `ceil(gross_input / 2)` for
-curve execution, including odd raw-token amounts. Launch markets support asset
-decimals from zero through nine, and initialization rejects finer assets.
-Routers and user slippage bounds decide whether the resulting market quote is
-acceptable.
+curve execution, including odd raw-token amounts. Routers and user slippage
+bounds decide whether the resulting market quote is acceptable.
 
 One-times `peak_amplification` with zero widths is exact CPMM. Concentrated markets expose three product controls: peak amplification, core half-width, and fade width. Dusk derives a nonzero full-range CPMM tail plus a nested core and shoulder from those values. Quotes use at most five closed-form segments and four precomputed boundary crossings. Fees, EMA half-life, adjustment threshold, and recenter cadence remain separate controller settings. A trade is hedged and committed at its quoted endpoint before its observation can schedule a later, protected center move. Dusk never consults an external oracle.
 
@@ -278,7 +280,7 @@ Indexers should consume Dusk events from the standalone Dusk IDL:
 
 - `MarketCreated`, `MarketReduceOnlyUpdated`, `MarketHealthUpdated`, `InsuranceDonated`
 - `LiquidityAdded`, `LiquidityRemoved`
-- `YieldRecipientUpdated`, `YieldClaimed`
+- `YieldRecipientUpdated`, `HarvestAuthorityUpdated`, `YieldClaimed`
 - `SwapExecuted`
 - `MarketCollateralDeposited`, `MarketCollateralWithdrawn`, `MarketDebtUpdated`
 - `BorrowPositionLiquidated`
@@ -361,3 +363,48 @@ yarn test-litesvm
 ```
 
 Run dusk-sdk builds whenever public IDL, account, event, seed, or instruction shapes change. `check-idl-current` must pass after `anchor build -p dusk` so committed client files match generated build artifacts.
+
+## Token precision
+
+Markets accept mints above nine decimal places. Token balances and instruction
+amounts remain raw integer atoms. The market derives an immutable common amount
+precision as `max(9, base_mint.decimals, quote_mint.decimals)`. Both assets are
+scaled upward into this precision, preserving every atom, before curve and risk
+math. Conversion back rounds withdrawals/output down and required inputs up.
+Prices, rates, per-share ratios, and configured launch buy-size references
+continue to use nine-decimal NAD.
+
+Curve-cache liquidity, risk depths, hLP NAV/exposure, and normalized debt and
+collateral values use the common amount precision. Existing quantity fields
+with a `_nad` suffix also follow this rule; the SDK exposes
+`marketAmountDecimals(market)` for decoding them. Markets with both mints at nine
+or fewer decimals retain their original numeric representation.
+
+Checked integer bounds still apply: extreme decimal differences or quantities
+that exceed the math representation return an arithmetic error. There is no
+fixed mint-decimal cap. Equal-precision mints need no decimal multiplication,
+even above 18 decimals.
+
+
+## Token-2022 asset extensions
+
+Asset mints may use `TransferFeeConfig`, `MetadataPointer`, `TokenMetadata`,
+`TransferHook`, `GroupPointer`, `TokenGroup`, `GroupMemberPointer`,
+`TokenGroupMember`, `InterestBearingConfig`, and `ScaledUiAmount`. Other mint
+extensions remain rejected. Group metadata describes membership; Dusk does not
+use it as an authorization or collateral-value signal.
+
+Interest-bearing and scaled-UI extensions change the token program's displayed
+amounts, not raw balances or supply. Dusk settles, prices, and measures risk in
+raw atoms normalized by the mint's fixed decimals. Changing an interest rate or
+UI multiplier does not rebase reserves, debt, collateral, LP shares, or existing
+price limits. Clients must convert between raw amounts and the token program's
+current UI representation at their input/display boundary, including when
+showing prices; a UI multiplier is not additional collateral or earned Dusk
+yield. See the [SDK amount guidance](../../packages/dusk-sdk/README.md#token-amounts-and-ui-extensions).
+
+Transfer-fee mints remain excluded from leverage collateral on risk-increasing
+paths and from auction payment, even when the configured fee is currently zero.
+Hooks still require their extra accounts and may reject transfers. LP receipt
+mints keep a separate, narrower policy: only `MetadataPointer`, `TokenMetadata`,
+and the mandatory immutable Dusk `TransferHook` are allowed.

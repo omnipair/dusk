@@ -2957,6 +2957,7 @@ async function buildHarvestTx(params: {
       .accounts({
         market: m.market,
         owner: params.owner,
+        caller: params.owner,
         assetMint,
         lpMint,
         ownerLpAccount,

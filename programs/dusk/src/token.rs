@@ -13,20 +13,12 @@ use anchor_lang::{
 };
 use anchor_spl::{
     token::{Token, TokenAccount},
-    token_2022::{
-        self,
-        spl_token_2022::{
-            self,
-            extension::{
-                transfer_fee::{TransferFeeConfig, MAX_FEE_BASIS_POINTS},
-                transfer_hook, ExtensionType, StateWithExtensions,
-            },
-        },
-        Token2022,
-    },
-    token_interface::{
-        initialize_account3, spl_token_2022::extension::BaseStateWithExtensions, InitializeAccount3, Mint,
-    },
+    token_2022::{self, Token2022},
+    token_interface::{initialize_account3, InitializeAccount3, Mint},
+};
+use spl_token_2022::extension::{
+    transfer_fee::{TransferFeeConfig, MAX_FEE_BASIS_POINTS},
+    transfer_hook, BaseStateWithExtensions, ExtensionType, StateWithExtensions,
 };
 
 use crate::errors::ErrorCode;
@@ -257,18 +249,23 @@ pub fn is_fee_free_mint(mint_account: &InterfaceAccount<Mint>) -> Result<bool> {
 
     let mint_data = mint_info.try_borrow_data()?;
     let mint = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
-    let extensions = mint.get_extension_types()?;
-    for e in extensions {
-        if e == ExtensionType::TransferFeeConfig {
-            return Ok(false);
-        }
-        if e != ExtensionType::MetadataPointer && e != ExtensionType::TokenMetadata && e != ExtensionType::TransferHook
-        {
-            return Ok(false);
-        }
-    }
-    Ok(true)
+    Ok(mint.get_extension_types()?.into_iter().all(|extension| {
+        SUPPORTED_ASSET_EXTENSIONS.contains(&extension) && extension != ExtensionType::TransferFeeConfig
+    }))
 }
+
+pub(crate) const SUPPORTED_ASSET_EXTENSIONS: &[ExtensionType] = &[
+    ExtensionType::TransferFeeConfig,
+    ExtensionType::MetadataPointer,
+    ExtensionType::TokenMetadata,
+    ExtensionType::TransferHook,
+    ExtensionType::GroupPointer,
+    ExtensionType::TokenGroup,
+    ExtensionType::GroupMemberPointer,
+    ExtensionType::TokenGroupMember,
+    ExtensionType::InterestBearingConfig,
+    ExtensionType::ScaledUiAmount,
+];
 
 pub fn create_token_account<'a>(
     authority: &AccountInfo<'a>,

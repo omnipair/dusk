@@ -38,6 +38,9 @@ pub struct YieldAccount {
     pub swap_fee_remainder_q64: u64,
     pub interest_remainder_q64: u64,
     pub bump: u8,
+    /// Optional caller allowed to harvest to the recipient without controlling
+    /// the LP or changing either yield permission. Only the owner may set it.
+    pub harvest_authority: Option<Pubkey>,
 }
 
 impl YieldAccount {
@@ -57,6 +60,7 @@ impl YieldAccount {
         self.asset_mint = asset_mint;
         self.token_kind = token_kind.code();
         self.recipient = recipient;
+        self.harvest_authority = None;
         self.swap_fee_remainder_q64 = 0;
         self.interest_remainder_q64 = 0;
         self.bump = bump;
@@ -191,6 +195,7 @@ mod tests {
             swap_fee_remainder_q64: 0,
             interest_remainder_q64: 0,
             bump: 0,
+            harvest_authority: None,
         }
     }
 

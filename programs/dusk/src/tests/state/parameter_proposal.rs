@@ -16,6 +16,7 @@ fn metadata() -> ProposalMetadataV1 {
 
 fn empty_yield_account() -> YieldAccount {
     YieldAccount {
+        harvest_authority: None,
         owner: Pubkey::default(),
         market: Pubkey::default(),
         lp_mint: Pubkey::default(),

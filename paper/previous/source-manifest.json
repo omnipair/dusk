@@ -1,0 +1,10 @@
+{
+  "source": "Recovered July 12, 2026 drafting-task sources before the September 10 rewrite; not a byte-original PDF archive.",
+  "files": {
+    "dusk-v2-whitepaper.tex": "ccd65dd38536dfe749de752919d69d50f1672b090ad33fc6b35d2b0d2cb8f93b",
+    "references.bib": "bdc02384d764b62c0c36c1ac9c650c13897d99382cacb401dcbe87af58d834c3",
+    "README.md": "6325fe8f99966ce33147b3d01cf2767f112247fed9dfc83b5aaeb416f2edd926",
+    "dusk-v2-whitepaper-expanded.tex": "7d3e822111ac962bed31d06334667887f6b752a24a22b9620687125a96660842",
+    "simulations/generate.py": "5788028380c4e50faed30cd5db46696ee713c78b1326cf3cc003e8888c9af24e"
+  }
+}

@@ -55,8 +55,8 @@ impl Market {
         let side = self.side(asset);
         let (base_depth, quote_depth) = self.pessimistic_borrow_reserve_depths(&self.risk)?;
         let conservative_depth_nad = match asset {
-            MarketAsset::Base => normalize_to_nad(base_depth as u128, side.asset_decimals)?,
-            MarketAsset::Quote => normalize_to_nad(quote_depth as u128, side.asset_decimals)?,
+            MarketAsset::Base => self.normalize_amount(base_depth as u128, side.asset_decimals)?,
+            MarketAsset::Quote => self.normalize_amount(quote_depth as u128, side.asset_decimals)?,
         };
         let borrow_index_nad = self.debt.borrow_index(asset);
         let rate_at_target_nad = match asset {
@@ -171,7 +171,7 @@ impl Market {
         let max_debt = max_debt_by_health.min(max_debt_by_cash).min(max_debt_by_daily_limit);
         let projected_debt_amount = projected_borrow_amount.unwrap_or(max_debt);
         let (projected_terms, projected_global_health_contribution) = context.terms(projected_debt_amount)?;
-        let projected_debt_nad = normalize_to_nad(projected_debt_amount as u128, debt_side.asset_decimals)?;
+        let projected_debt_nad = self.normalize_amount(projected_debt_amount as u128, debt_side.asset_decimals)?;
         let projected_health_bps = if projected_debt_nad == 0 {
             u64::MAX
         } else {
@@ -181,8 +181,9 @@ impl Market {
             if collateral_amount == 0 || projected_debt_amount == 0 || projected_terms.liquidation_cf_bps == 0 {
                 0
             } else {
-                let collateral_nad = normalize_to_nad(collateral_amount as u128, collateral_side.asset_decimals)?;
-                let debt_nad = normalize_to_nad(projected_debt_amount as u128, debt_side.asset_decimals)?;
+                let collateral_nad =
+                    self.normalize_amount(collateral_amount as u128, collateral_side.asset_decimals)?;
+                let debt_nad = self.normalize_amount(projected_debt_amount as u128, debt_side.asset_decimals)?;
                 let price = ceil_div(
                     debt_nad
                         .checked_mul(BPS_DENOMINATOR as u128)
@@ -230,7 +231,7 @@ impl Market {
         } else {
             health_bps(
                 collateral_value_nad,
-                normalize_to_nad(debt, self.side(debt_asset).asset_decimals)?,
+                self.normalize_amount(debt, self.side(debt_asset).asset_decimals)?,
             )?
         };
         let liquidation_reference_price_nad = if debt == 0 {
@@ -285,7 +286,9 @@ pub(crate) struct NewPositionPreviewContext<'a> {
 impl NewPositionPreviewContext<'_> {
     pub(crate) fn terms(&self, projected_debt_amount: u64) -> Result<(DynamicBorrowTerms, u64)> {
         let debt_decimals = self.market.side(self.debt_asset).asset_decimals;
-        let projected_debt_nad = normalize_to_nad(projected_debt_amount as u128, debt_decimals)?;
+        let projected_debt_nad = self
+            .market
+            .normalize_amount(projected_debt_amount as u128, debt_decimals)?;
         let projected_total_debt_nad = self
             .existing_total_debt_nad
             .checked_add(projected_debt_nad)

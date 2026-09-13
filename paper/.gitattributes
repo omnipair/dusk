@@ -1,0 +1,6 @@
+# Preserve rendered artifacts byte for byte and keep them out of text diffs.
+*.pdf binary
+*.png binary
+
+# Python's CSV writer emits CRLF; preserve those valid CSV line endings.
+*.csv -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
