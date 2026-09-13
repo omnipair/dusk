@@ -11,25 +11,16 @@ faucet = "EMmV9HKeQndxFd4duqp65rUSjikVWCPakBH1UjJJ32dz"
 dusk = "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X"
 leverage_delegate = "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv"
 
-[programs.localnet]
-faucet = "EMmV9HKeQndxFd4duqp65rUSjikVWCPakBH1UjJJ32dz"
-dusk = "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X"
-leverage_delegate = "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv"
-
-[programs.mainnet]
-dusk = "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X"
-leverage_delegate = "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv"
-
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "mainnet"
+cluster = "devnet"
 wallet = "deployer-keypair.json"
 
 [workspace]
 members = ["programs/dusk", "programs/leverage_delegate", "programs/faucet"]
 
 [scripts]
-build-devnet = "anchor build -p dusk -- --features \"development\""
-build-mainnet = "anchor build -p dusk -- --features \"production\""
+build-devnet = "node scripts/prepare_build.js && anchor build -p dusk -- --arch v0"
+build-mainnet = "node scripts/prepare_build.js && anchor build -p dusk -- --features \"production\""

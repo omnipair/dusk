@@ -403,6 +403,7 @@ Dusk extends the invariant set where hLP needs curve-aware one-sided hedging:
 Core Omnipair V2 (Dusk) verification gates:
 
 ```bash
+node scripts/prepare_build.js
 anchor build -p dusk
 anchor build -p leverage_delegate
 cargo fmt -p dusk -- --check
@@ -415,6 +416,8 @@ yarn test-litesvm
 ```
 
 Run the dusk-sdk build whenever public IDL, account, event, seed, or instruction shapes change. `check-idl-current` must pass after `anchor build -p dusk` so committed client files match the generated build artifacts.
+
+On a clean checkout, run `node scripts/prepare_build.js` before any Anchor command. [Anchor 0.31.1's configuration discovery](https://github.com/coral-xyz/anchor/blob/47284f8f/cli/src/config.rs#L543) otherwise creates new program keys and rewrites the declared IDs when `target/deploy` is absent. The `yarn build:litesvm` and `yarn v2:build-*-devnet` commands include this preparation. `yarn check:build-identity` exercises Anchor in a disposable fresh workspace and verifies that the source declarations and devnet configuration stay unchanged. No local RPC or validator is required.
 
 ## Security And Status
 
