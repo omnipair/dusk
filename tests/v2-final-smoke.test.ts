@@ -5528,6 +5528,65 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(decoded.quote_hlp_vault.hlp_supply.toString()).to.equal("20000000000");
   });
 
+  it("repairs an old-layout yield account without changing its entitlements or permissions", async function () {
+    const fixture = await addBalancedLiquidity(184);
+    const yieldAccount = deriveYieldAccountAddress(
+      fixture.market, payer.publicKey, fixture.ylpMint, fixture.baseMint, "ylp"
+    )[0];
+    const current = svm.getAccount(yieldAccount)!;
+    const decoded = accountCoder.decode("YieldAccount", Buffer.from(current.data)) as any;
+    const previousState = {
+      ...decoded,
+      recipient: Keypair.generate().publicKey,
+      swap_fee_checkpoint_q64: new BN("18446744073709551617"),
+      interest_checkpoint_q64: new BN("36893488147419103235"),
+      accrued_swap_fee_amount: new BN(123),
+      accrued_interest_amount: new BN(456),
+      swap_fee_remainder_q64: new BN(789),
+      interest_remainder_q64: new BN(987),
+      harvest_authority: null,
+    };
+    // The deployed layout ended after bump, before Option<Pubkey> was added.
+    const oldSize = 234;
+    const newSize = 267;
+    expect(current.data.length).to.equal(newSize);
+    const oldBytes = (await accountCoder.encode("YieldAccount", previousState)).subarray(0, oldSize);
+    const oldRent = Number(svm.minimumBalanceForRentExemption(BigInt(oldSize)));
+    const newRent = Number(svm.minimumBalanceForRentExemption(BigInt(newSize)));
+    svm.setAccount(yieldAccount, { ...current, data: new Uint8Array(oldBytes), lamports: oldRent });
+
+    // A keeper pays for the repair; the LP owner does not sign it.
+    const keeper = Keypair.generate();
+    await connection.requestAirdrop(keeper.publicKey, LAMPORTS_PER_SOL);
+    const repair = async () => {
+      svm.expireBlockhash();
+      const tx = await program.methods.growYieldAccount().accounts({
+        payer: keeper.publicKey,
+        yieldAccount,
+        systemProgram: SystemProgram.programId,
+      }).transaction();
+      tx.feePayer = keeper.publicKey;
+      await connection.sendTransaction(tx, [keeper]);
+    };
+    await repair();
+    trackV2Instruction("growYieldAccount", this.test?.title);
+    const repaired = svm.getAccount(yieldAccount)!;
+    expect(repaired.data.length).to.equal(newSize);
+    expect(repaired.lamports).to.equal(newRent);
+    expect(Buffer.from(repaired.data.subarray(0, oldSize)).equals(oldBytes)).to.equal(true);
+    expect(Buffer.from(repaired.data.subarray(oldSize)).equals(Buffer.alloc(newSize - oldSize))).to.equal(true);
+    const repairedState = accountCoder.decode("YieldAccount", Buffer.from(repaired.data)) as any;
+    expect(repairedState.harvest_authority).to.equal(null);
+    expect(repairedState.recipient.equals(previousState.recipient)).to.equal(true);
+    expect(repairedState.accrued_swap_fee_amount.toString()).to.equal("123");
+    expect(repairedState.accrued_interest_amount.toString()).to.equal("456");
+
+    await repair();
+    const repeated = svm.getAccount(yieldAccount)!;
+    expect(repeated.lamports).to.equal(newRent);
+    expect(Buffer.from(repeated.data).equals(Buffer.from(repaired.data))).to.equal(true);
+  });
+
   it("lets the configured recipient harvest yLP yield without the owner's signature", async function () {
     const fixture = await addBalancedLiquidity(48);
     const recipientSigner = Keypair.generate();

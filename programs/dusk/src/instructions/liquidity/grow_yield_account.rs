@@ -51,10 +51,7 @@ impl<'info> GrowYieldAccount<'info> {
         {
             let data = account.try_borrow_data()?;
             require_gte!(data.len(), 8, ErrorCode::InvalidArgument);
-            require!(
-                &data[..8] == YieldAccount::DISCRIMINATOR,
-                ErrorCode::InvalidArgument
-            );
+            require!(&data[..8] == YieldAccount::DISCRIMINATOR, ErrorCode::InvalidArgument);
         }
 
         let space = get_size_with_discriminator::<YieldAccount>();
@@ -67,9 +64,7 @@ impl<'info> GrowYieldAccount<'info> {
         // Rent before the resize. An account left under the minimum for its
         // new size is collectable, and the realloc itself would not complain.
         let rent = Rent::get()?;
-        let top_up = rent
-            .minimum_balance(space)
-            .saturating_sub(account.lamports());
+        let top_up = rent.minimum_balance(space).saturating_sub(account.lamports());
         if top_up > 0 {
             system_program::transfer(
                 CpiContext::new(

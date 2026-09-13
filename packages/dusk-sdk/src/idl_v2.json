@@ -3077,6 +3077,44 @@
       ]
     },
     {
+      "name": "grow_yield_account",
+      "docs": [
+        "Bring a yield account created before `harvest_authority` existed up",
+        "to the current size. Permissionless: it only appends zeroed bytes and",
+        "the caller pays the rent for them."
+      ],
+      "discriminator": [
+        203,
+        157,
+        168,
+        219,
+        59,
+        246,
+        255,
+        134
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "yield_account",
+          "docs": [
+            "read this account, so a typed account here would fail the very case",
+            "this instruction exists to repair."
+          ],
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "harvest",
       "discriminator": [
         228,
