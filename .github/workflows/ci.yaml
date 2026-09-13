@@ -80,6 +80,11 @@ jobs:
       - name: Build LiteSVM artifacts
         run: yarn build:litesvm
 
+      - name: Check clean build identity
+        run: |
+          yarn check:build-identity
+          git diff --exit-code -- Anchor.toml programs
+
       - name: Upload LiteSVM artifacts
         uses: actions/upload-artifact@v4
         with:
