@@ -53,9 +53,11 @@ function faucetMint(owner: PublicKey, mint: PublicKey, amount: bigint): Transact
   const programId = new PublicKey(FAUCET_PROGRAM_ID);
   const [authority] = PublicKey.findProgramAddressSync(
     [Buffer.from("faucet_authority"), programId.toBuffer()], programId);
-  // The deployed faucet rate-limits per recipient and mint, so it takes a
-  // claim PDA that the eight-account layout predates.
-  const [claim] = PublicKey.findProgramAddressSync(
+  // The deployed faucet enforces an hourly per-recipient cooldown, recorded in
+  // this account. Its list is positional, so the claim record has to sit
+  // between the recipient's token account and the mint — put it anywhere else
+  // and every argument after it is misread.
+  const [faucetClaim] = PublicKey.findProgramAddressSync(
     [Buffer.from("faucet_claim"), owner.toBuffer(), mint.toBuffer()], programId);
   const data = Buffer.alloc(8);
   data.writeBigUInt64LE(amount);
@@ -66,7 +68,7 @@ function faucetMint(owner: PublicKey, mint: PublicKey, amount: bigint): Transact
       { isSigner: false, isWritable: false, pubkey: owner },
       { isSigner: false, isWritable: false, pubkey: authority },
       { isSigner: false, isWritable: true, pubkey: getAssociatedTokenAddressSync(mint, owner) },
-      { isSigner: false, isWritable: true, pubkey: claim },
+      { isSigner: false, isWritable: true, pubkey: faucetClaim },
       { isSigner: false, isWritable: true, pubkey: mint },
       { isSigner: false, isWritable: false, pubkey: SystemProgram.programId },
       { isSigner: false, isWritable: false, pubkey: TOKEN_PROGRAM_ID },

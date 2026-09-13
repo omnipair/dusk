@@ -3232,6 +3232,14 @@ export type LeverageDelegate = {
     },
     {
       "name": "market",
+      "docs": [
+        "Token amounts stored in reserves, positions, and shares are raw atoms.",
+        "Internal curve quantities, risk depths, hLP NAV/exposure, and normalized",
+        "debt/collateral values use `max(9, base_side.asset_decimals,",
+        "quote_side.asset_decimals)` decimal places, including quantity fields with",
+        "the historical `_nad` suffix. Prices, rates, and per-share ratios always",
+        "retain nine-decimal NAD scaling. The quantity scale is immutable per market."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -3848,14 +3856,14 @@ export type LeverageDelegate = {
           {
             "name": "observedCurveDepthNad",
             "docs": [
-              "Last observed total active curve depth (full-range plus concentrated)."
+              "Last observed total active curve depth in market amount units (see Market)."
             ],
             "type": "u128"
           },
           {
             "name": "curveDepthEmaNad",
             "docs": [
-              "EMA of total active curve depth."
+              "EMA of total active curve depth in market amount units (see Market)."
             ],
             "type": "u128"
           },

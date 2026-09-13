@@ -504,9 +504,11 @@ export const LENDING_SCENARIOS: ScenarioDefinition[] = [
         body: { assetIn: "base", exactAssetIn: "100", minAssetOut: "0" },
       });
       const changed = await previewMarket(harness, "preview K-based limits after liquidity and inventory changes");
+      const amountDecimals = Math.max(9, harness.config.baseDecimals, harness.config.quoteDecimals);
       for (const [asset, side] of [["base", changed.base], ["quote", changed.quote]] as const) {
         const limit = integer(side.dailyBorrowLimit);
-        const depthRaw = integer(side.conservativeDepthNad) / 10n ** BigInt(9 - (asset === "base" ? harness.config.baseDecimals : harness.config.quoteDecimals));
+        const assetDecimals = asset === "base" ? harness.config.baseDecimals : harness.config.quoteDecimals;
+        const depthRaw = integer(side.conservativeDepthNad) / 10n ** BigInt(amountDecimals - assetDecimals);
         const expectedDepthCap = depthRaw * BigInt(Number((await harness.market()).config.maxDailyBorrowBps)) / 10_000n;
         harness.assertTrue(`${asset} daily limit never exceeds pessimistic depth`, limit <= expectedDepthCap, { limit, expectedDepthCap });
         harness.assertTrue(`${asset} daily remaining never exceeds current cash`, integer(side.dailyBorrowRemaining) <= integer(side.cashReserve));

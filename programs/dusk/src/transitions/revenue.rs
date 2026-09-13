@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 use crate::{
     constants::*,
     errors::ErrorCode,
-    math::{denormalize_from_nad_ceil, normalize_to_nad},
+    math::{mul_div_ceil_u128, rescale_amount},
     state::*,
 };
 
@@ -44,12 +44,17 @@ pub(crate) fn quote_protocol_auction_settlement(
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let auction_price_nad = u64::try_from(start_price.checked_sub(decay).ok_or(ErrorCode::MarketMathOverflow)?)
         .map_err(|_| ErrorCode::MarketMathOverflow)?;
-    let sold_nad = normalize_to_nad(sold_amount as u128, sold_decimals)?;
-    let payment_nad = sold_nad
-        .checked_mul(auction_price_nad as u128)
-        .and_then(|value| value.checked_div(NAD as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let payment_amount = denormalize_from_nad_ceil(payment_nad, accepted_decimals)?;
+    require!(auction_price_nad > 0, ErrorCode::InvalidSettlementPrice);
+    let amount_decimals = NAD_DECIMALS.max(sold_decimals).max(accepted_decimals);
+    let sold_scaled = rescale_amount(sold_amount as u128, sold_decimals, amount_decimals, false)?;
+    let payment_scaled = mul_div_ceil_u128(sold_scaled, auction_price_nad as u128, NAD as u128)?;
+    let payment_amount = u64::try_from(rescale_amount(
+        payment_scaled,
+        amount_decimals,
+        accepted_decimals,
+        true,
+    )?)
+    .map_err(|_| ErrorCode::MarketMathOverflow)?;
 
     require_gte!(BPS_DENOMINATOR, staking_vault_bps, ErrorCode::InvalidDistribution);
     let staking_vault_amount = u64::try_from(

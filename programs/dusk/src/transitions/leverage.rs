@@ -14,10 +14,7 @@ use crate::{
         LEVERAGE_MAX_UNWIND_IMPACT_BPS, LIQUIDATION_INCENTIVE_BPS, NAD,
     },
     errors::ErrorCode,
-    math::{
-        ceil_div, denormalize_from_nad_floor, mul_div_ceil_u128, mul_div_u128, normalize_to_nad,
-        realized_interest_split,
-    },
+    math::{ceil_div, mul_div_ceil_u128, mul_div_u128, realized_interest_split},
     state::{ConcentratedCurveCache, Debt, LeveragePosition, Market, MarketAsset, ProtocolAuctionSplit},
 };
 
@@ -1875,8 +1872,9 @@ impl Market {
                 0
             })
             .ok_or(ErrorCode::ReserveUnderflow)?;
-        let input_nad = normalize_to_nad(input_principal as u128, self.side(asset_in).asset_decimals)?;
-        let output_nad = normalize_to_nad(output_principal as u128, self.side(asset_in.opposite()).asset_decimals)?;
+        let input_nad = self.normalize_amount(input_principal as u128, self.side(asset_in).asset_decimals)?;
+        let output_nad =
+            self.normalize_amount(output_principal as u128, self.side(asset_in.opposite()).asset_decimals)?;
         match asset_in {
             MarketAsset::Base => {
                 state.ordinary_base = state
@@ -2069,7 +2067,8 @@ fn require_initial_leverage_health(
         ErrorCode::LeverageInitialMarginTooLow
     );
     require!(base_price_nad > 0, ErrorCode::InsufficientLiquidity);
-    let collateral_nad = normalize_to_nad(collateral_amount as u128, market.side(collateral_asset).asset_decimals)?;
+    let collateral_nad =
+        market.normalize_amount(collateral_amount as u128, market.side(collateral_asset).asset_decimals)?;
     let spot_value_nad = match collateral_asset {
         MarketAsset::Base => collateral_nad
             .checked_mul(base_price_nad as u128)
@@ -2081,7 +2080,7 @@ fn require_initial_leverage_health(
             .ok_or(ErrorCode::MarketMathOverflow)?,
     };
     let spot_value =
-        denormalize_from_nad_floor(spot_value_nad, market.side(collateral_asset.opposite()).asset_decimals)?;
+        market.denormalize_amount_floor(spot_value_nad, market.side(collateral_asset.opposite()).asset_decimals)?;
     require!(spot_value > 0, ErrorCode::InsufficientLiquidity);
     let unwind_bps = if closeout_value >= spot_value {
         0

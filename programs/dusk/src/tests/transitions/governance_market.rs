@@ -1379,3 +1379,72 @@ fn hlp_stop_rate_signal_checkpoints_the_opposite_asset_apr() {
     assert!(decayed > 0);
     assert!(decayed < signal);
 }
+
+#[test]
+fn high_decimal_borrow_partial_repay_and_liquidation_preserve_dust_debt() {
+    for (base_decimals, quote_decimals) in [(12, 6), (6, 12), (18, 9), (10, 10)] {
+        // Start with a valid fixture, then rebuild the curve at the mint scales.
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        market.base_side.asset_decimals = base_decimals;
+        market.quote_side.asset_decimals = quote_decimals;
+        let precision = base_decimals.max(quote_decimals);
+        let normalized_reserve = 1_000_000_000_000_000_u64;
+        market.base_side.reserves.live_reserve = normalized_reserve / 10_u64.pow(u32::from(precision - base_decimals));
+        market.base_side.reserves.cash_reserve = market.base_side.reserves.live_reserve;
+        market.quote_side.reserves.live_reserve = normalized_reserve / 10_u64.pow(u32::from(precision - quote_decimals));
+        market.quote_side.reserves.cash_reserve = market.quote_side.reserves.live_reserve;
+        market.amm = AmmState::default();
+        market.risk = Risk::default();
+        market.prepare_amm_for_swap(0).unwrap();
+        market.refresh_risk().unwrap();
+        assert_eq!(market.risk.cached_spot_base_price_nad, NAD);
+        let debt_asset = if base_decimals >= quote_decimals { MarketAsset::Base } else { MarketAsset::Quote };
+        let collateral = market.side(debt_asset.opposite()).reserves.cash_reserve / 10;
+        let mut position = borrow_position_for_debt(debt_asset, collateral);
+        market.borrow(&mut position, debt_asset, 2_000_000_001, 0, 0).unwrap();
+        market.repay(&mut position, debt_asset, 2_000_000_000).unwrap();
+        let debt = match debt_asset {
+            MarketAsset::Base => position.fixed_base_debt(&market.debt).unwrap(),
+            MarketAsset::Quote => position.fixed_quote_debt(&market.debt).unwrap(),
+        };
+        assert_eq!(debt, 1);
+        assert_eq!(market.total_fixed_debt_nad(debt_asset).unwrap(), 1);
+        // An underwater remainder must remain visible to risk checks.
+        position.base_collateral = 0;
+        position.quote_collateral = 0;
+        assert!(market.is_position_liquidatable_with_risk(&position, debt_asset, &market.risk).unwrap());
+        market.repay(&mut position, debt_asset, 1).unwrap();
+        assert_eq!(market.total_fixed_debt_nad(debt_asset).unwrap(), 0);
+        assert!(!market.is_position_liquidatable_with_risk(&position, debt_asset, &market.risk).unwrap());
+    }
+}
+
+#[test]
+fn high_decimal_launch_fee_buckets_keep_nine_decimal_config_units() {
+    for decimals in [9, 12, 18] {
+        let mut market = invariant_market(1_000_000_000_000_000_000, 1_000_000_000_000_000_000);
+        market.base_side.asset_decimals = decimals;
+        market.quote_side.asset_decimals = decimals;
+        market.amm = AmmState::default();
+        market.risk = Risk::default();
+        market.config.swap_fee_bps = 100;
+        market.config.amm.launch_rate_limit_asset = LAUNCH_RATE_LIMIT_ASSET_BASE;
+        market.config.amm.launch_rate_limit_reference_nad = NAD;
+        market.config.amm.launch_rate_limit_increment_bps = 100;
+        market.config.amm.launch_rate_limit_max_fee_bps = 1_000;
+        market.config.amm.launch_rate_limit_duration_seconds = 100;
+        market.prepare_amm_for_swap(0).unwrap();
+        let one_token = 10_u64.pow(u32::from(decimals));
+        for (input, fee_bps) in [(one_token, 100_u64), (one_token + 1, 200)] {
+            let quote = market.preliminary_swap_inputs_for_state_at_time(
+                MarketAsset::Quote,
+                input,
+                0,
+                0,
+                crate::transitions::amm::DynamicFeePreState::default(),
+            ).unwrap();
+            let expected_fee = (u128::from(input) * u128::from(fee_bps) / u128::from(BPS_DENOMINATOR)) as u64;
+            assert_eq!(quote.amount_in_for_quote, input - expected_fee, "decimals={decimals}, input={input}");
+        }
+    }
+}

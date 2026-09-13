@@ -1,9 +1,12 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{NAD, NAD_DECIMALS, TARGET_MS_PER_SLOT, YIELD_GROWTH_FRACTION_MASK_Q64, YIELD_GROWTH_SCALE_Q64},
+    constants::{NAD, TARGET_MS_PER_SLOT, YIELD_GROWTH_FRACTION_MASK_Q64, YIELD_GROWTH_SCALE_Q64},
     errors::ErrorCode,
 };
+
+#[cfg(test)]
+use crate::constants::NAD_DECIMALS;
 
 /// Converts backed token atoms and prior carry into Q64 per-share growth while
 /// preserving `amount * 2^64 + prior = delta * supply + remainder` exactly.
@@ -60,6 +63,30 @@ pub fn accrue_fee_liability_with_remainder(
     ))
 }
 
+// Convert units with an explicit rounding direction. Market quantities only
+// scale upward on entry, so normalization cannot hide a nonzero token balance.
+pub(crate) fn rescale_amount(amount: u128, from: u8, to: u8, round_up: bool) -> Result<u128> {
+    if amount == 0 || from == to {
+        return Ok(amount);
+    }
+    if to > from {
+        let scale = 10_u128
+            .checked_pow(u32::from(to - from))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        amount
+            .checked_mul(scale)
+            .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+    } else {
+        let Some(scale) = 10_u128.checked_pow(u32::from(from - to)) else {
+            // The divisor exceeds every u128 amount. No overflowing power or
+            // numerator is needed to determine the correctly rounded result.
+            return Ok(u128::from(round_up));
+        };
+        Ok(amount / scale + u128::from(round_up && !amount.is_multiple_of(scale)))
+    }
+}
+
+#[cfg(test)]
 pub(crate) fn normalize_to_nad(amount: u128, decimals: u8) -> Result<u128> {
     match decimals.cmp(&NAD_DECIMALS) {
         std::cmp::Ordering::Equal => Ok(amount),
@@ -80,6 +107,7 @@ pub(crate) fn normalize_to_nad(amount: u128, decimals: u8) -> Result<u128> {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn denormalize_from_nad_ceil(amount_nad: u128, decimals: u8) -> Result<u64> {
     let value = match decimals.cmp(&NAD_DECIMALS) {
         std::cmp::Ordering::Equal => amount_nad,
@@ -90,27 +118,6 @@ pub(crate) fn denormalize_from_nad_ceil(amount_nad: u128, decimals: u8) -> Resul
                 .ok_or(ErrorCode::MarketMathOverflow)?,
         )
         .ok_or(ErrorCode::MarketMathOverflow)?,
-        std::cmp::Ordering::Greater => amount_nad
-            .checked_mul(
-                10_u128
-                    .checked_pow((decimals - NAD_DECIMALS) as u32)
-                    .ok_or(ErrorCode::MarketMathOverflow)?,
-            )
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-    };
-    u64::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow.into())
-}
-
-pub(crate) fn denormalize_from_nad_floor(amount_nad: u128, decimals: u8) -> Result<u64> {
-    let value = match decimals.cmp(&NAD_DECIMALS) {
-        std::cmp::Ordering::Equal => amount_nad,
-        std::cmp::Ordering::Less => amount_nad
-            .checked_div(
-                10_u128
-                    .checked_pow((NAD_DECIMALS - decimals) as u32)
-                    .ok_or(ErrorCode::MarketMathOverflow)?,
-            )
-            .ok_or(ErrorCode::MarketMathOverflow)?,
         std::cmp::Ordering::Greater => amount_nad
             .checked_mul(
                 10_u128

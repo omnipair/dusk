@@ -385,7 +385,10 @@ pub(crate) fn liquidation_health_bps_with_pricing(
             market.quote_side.asset_decimals,
         ),
     };
-    health_bps(collateral_value_nad, normalize_to_nad(debt_before, debt_decimals)?)
+    health_bps(
+        collateral_value_nad,
+        market.normalize_amount(debt_before, debt_decimals)?,
+    )
 }
 
 #[cfg(test)]
@@ -398,7 +401,7 @@ fn max_repay_to_restore_health_with_pricing(
 ) -> Result<u64> {
     let debt_before = position_debt(market, borrow_position, debt_asset)?;
     let debt_decimals = market.side(debt_asset).asset_decimals;
-    let debt_value_nad = normalize_to_nad(debt_before, debt_decimals)?;
+    let debt_value_nad = market.normalize_amount(debt_before, debt_decimals)?;
     let collateral_value_nad = position_collateral_value_with_pricing(market, borrow_position, debt_asset, pricing)?;
     let target_bps = liquidation_health_floor_bps(borrow_position.liquidation_cf_bps(debt_asset)) as u128;
     let penalty_multiplier_bps = (BPS_DENOMINATOR as u128)
@@ -423,7 +426,9 @@ fn max_repay_to_restore_health_with_pricing(
             .ok_or(ErrorCode::MarketMathOverflow)?,
     )
     .ok_or(ErrorCode::MarketMathOverflow)?;
-    Ok(denormalize_from_nad_ceil(repay_value_nad, debt_decimals)?.min(u64::try_from(debt_before).unwrap_or(u64::MAX)))
+    Ok(market
+        .denormalize_amount_ceil(repay_value_nad, debt_decimals)?
+        .min(u64::try_from(debt_before).unwrap_or(u64::MAX)))
 }
 
 fn position_collateral_value_with_pricing(
@@ -455,7 +460,7 @@ fn position_collateral_value_with_pricing(
             let collateral_amount = position_collateral(borrow_position, debt_asset);
             require!(debt_per_collateral_price_nad > 0, ErrorCode::InvalidSettlementPrice);
             let collateral_amount_nad =
-                normalize_to_nad(collateral_amount as u128, market.side(collateral_asset).asset_decimals)?;
+                market.normalize_amount(collateral_amount as u128, market.side(collateral_asset).asset_decimals)?;
             collateral_amount_nad
                 .checked_mul(debt_per_collateral_price_nad as u128)
                 .and_then(|value| value.checked_div(NAD as u128))
@@ -487,12 +492,12 @@ fn collateral_amount_for_debt_value_with_pricing(
             )
             .ok_or(ErrorCode::MarketMathOverflow)?;
             let collateral_asset = debt_asset.opposite();
-            let debt_amount_nad = normalize_to_nad(debt_with_penalty, market.side(debt_asset).asset_decimals)?;
+            let debt_amount_nad = market.normalize_amount(debt_with_penalty, market.side(debt_asset).asset_decimals)?;
             let (geometry, point, direction) = market
                 .pessimistic_concentrated_curve(collateral_asset, &risk, true)?
                 .ok_or(ErrorCode::BrokenInvariant)?;
             let collateral_amount_nad = geometry.quote_exact_out(point, debt_amount_nad, direction)?.amount_in;
-            denormalize_from_nad_ceil(collateral_amount_nad, market.side(collateral_asset).asset_decimals)
+            market.denormalize_amount_ceil(collateral_amount_nad, market.side(collateral_asset).asset_decimals)
         }
         LiquidationPricing::ReferencePrice {
             debt_per_collateral_price_nad,
@@ -507,7 +512,7 @@ fn collateral_amount_for_debt_value_with_pricing(
                 BPS_DENOMINATOR as u128,
             )
             .ok_or(ErrorCode::MarketMathOverflow)?;
-            let debt_value_nad = normalize_to_nad(debt_with_penalty, debt_decimals)?;
+            let debt_value_nad = market.normalize_amount(debt_with_penalty, debt_decimals)?;
             let collateral_amount_nad = ceil_div(
                 debt_value_nad
                     .checked_mul(NAD as u128)
@@ -515,7 +520,7 @@ fn collateral_amount_for_debt_value_with_pricing(
                 debt_per_collateral_price_nad as u128,
             )
             .ok_or(ErrorCode::MarketMathOverflow)?;
-            denormalize_from_nad_ceil(collateral_amount_nad, collateral_decimals)
+            market.denormalize_amount_ceil(collateral_amount_nad, collateral_decimals)
         }
     }
 }
@@ -530,7 +535,7 @@ impl Market {
         let collateral_asset = debt_asset.opposite();
         let collateral_amount = position_collateral(borrow_position, debt_asset);
         let collateral_amount_nad =
-            normalize_to_nad(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
+            self.normalize_amount(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
         require!(collateral_amount_nad > 0, ErrorCode::InvalidSettlementPrice);
         let (geometry, point, direction) = self
             .pessimistic_concentrated_curve(collateral_asset, &risk, false)?
@@ -589,7 +594,7 @@ impl Market {
                 0
             } else {
                 let debt_decimals = self.side(debt_asset).asset_decimals;
-                let debt_value_nad = normalize_to_nad(debt_before, debt_decimals)?;
+                let debt_value_nad = self.normalize_amount(debt_before, debt_decimals)?;
                 let collateral_value_nad =
                     position_collateral_value_with_pricing(self, borrow_position, debt_asset, pricing)?;
                 let target_bps = liquidation_health_floor_bps as u128;
@@ -615,7 +620,7 @@ impl Market {
                             .ok_or(ErrorCode::MarketMathOverflow)?,
                     )
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-                    denormalize_from_nad_ceil(repay_value_nad, debt_decimals)?
+                    self.denormalize_amount_ceil(repay_value_nad, debt_decimals)?
                         .min(u64::try_from(debt_before).unwrap_or(u64::MAX))
                 };
                 if restore_cap == 0 {
