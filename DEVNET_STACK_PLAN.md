@@ -1,6 +1,6 @@
 # Dusk Devnet Production Stack Plan
 
-Supersedes the Surfpool-first plan of the same lineage. Surfpool is retired as
+Supersedes the earlier local-validator plan. That environment is retired as
 a substrate; devnet is the deployed target and the E2E environment, and it is
 operated as a public service rather than a private rehearsal.
 
@@ -28,11 +28,11 @@ someone who cannot read the logs.
 
 ## 2. Locked decisions
 
-- **Devnet is the substrate.** Surfpool is retired. Its markers, fork-generation
-  detection, reset epochs, and `surfnet_*` RPC dependencies are removed rather
+- **Devnet is the substrate.** Local-validator markers, generation
+  detection, reset epochs, and nonstandard RPC dependencies are removed rather
   than carried forward disabled.
 - **Determinism moves to LiteSVM.** Devnet cannot be reset, rewound, or fault
-  injected, so the deterministic layer that Surfpool provided becomes
+  injected, so the deterministic validation layer becomes
   LiteSVM-based program tests plus recorded fixtures. Tests that genuinely need
   a live cluster run against devnet and are written to tolerate its
   nondeterminism; tests that need determinism never touch a cluster.
@@ -40,10 +40,9 @@ someone who cannot read the logs.
   instructions, derive no PDAs, and call no program directly. Generic builders
   remain an escape hatch inside the SDK; product code does not reconstruct
   account order.
-- **The fork lab is ported, then deleted.** `dusk-devnet-api`'s 53 transaction
-  builders are the working reference for account ordering. What product flows
-  need becomes typed SDK methods; the lab and every `/api/v2/fork/*` path are
-  then removed.
+- **SDK transaction clients own transaction construction.** Product flows use
+  typed SDK methods for account ordering. The retired lab, its HTTP transaction
+  builders and the dependent test client have been removed.
 - **Keepers ship Rust-live, TypeScript deferred.** The dual-runtime parity gate
   is a mainnet requirement, not a devnet one. TypeScript stays scaffolded and
   compiles against the same fixtures, but is not on the devnet critical path.
@@ -374,7 +373,7 @@ independent untracked fixes per repository.
 | 2 | Webapp reads devnet through the deployment envelope | **Done** — markets, market state and history render from the hosted API |
 | 3 | Network selection and faucet | **Done** — per-network env resolution, picker appears when a second network is configured; faucet page live on devnet |
 | 4 | SDK completion for product flows (section 6) | **Done for the app's actions** — typed builders added for swap, borrow, openLeverage and leverage delegation, plus a leverage-delegate client for conditional orders |
-| 5 | Webapp writes through the SDK; fork lab ported and deleted | **Done** — all 9 actions build through the SDK, and no `fork` path or name remains in the app or the API; the lab in the `dusk` repo is unused and can be deleted |
+| 5 | Webapp writes through the SDK; retired lab deleted | **Done** — all 9 actions build through the SDK, and no `fork` path or name remains in the app or the API; the unused lab in the `dusk` repo has been deleted |
 | 6 | Rust keepers live on devnet | **Lending trigger and bidder live** — both have sent confirmed transactions on devnet: the trigger opened an auction on a genuinely underwater position, the bidder repaid 150 quote for 265.56 base. Settler, leverage, auction arbitrageur and lifecycle still have no loop |
 | 7 | Public-service operations (section 9) | **Done** — rate limiting, `/status`, a self-refreshing status page, `/metrics` and `/provenance`, structured request logs, six runbooks, backups with a tested restore, and 90-day retention. |
 | 8 | Full live matrix and sustained unattended operation | **11 of 11 flows pass** — `live_flow_matrix.ts` signs and sends every product flow and all eleven confirm: faucet, swap, add and remove liquidity, deposit, borrow, repay, withdraw, open leverage, add margin, close leverage. Passes on a market carrying no debt; the hLP defect below still breaks swaps once debt is outstanding, so this is not the defect being fixed. `soak.sh` samples the deployment unattended and is what caught the monitoring flaw below |

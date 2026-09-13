@@ -29,8 +29,6 @@ packages/*/dist
 temp-decoder/
 carbon-cli-test/
 .generated/
-.v2-fork-lab/
-.protocol-test-lab/
 
 # Local treasury inspection helpers
 scripts/check_squads_treasury_limit.mjs

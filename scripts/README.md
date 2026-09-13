@@ -1,38 +1,15 @@
-# Omnipair V2 (Dusk) Scripts
+# Dusk devnet scripts
 
-This directory contains Omnipair V2 (Dusk) development and fork-lab scripts.
+The active integration target is Solana devnet. Use `scripts/v2/` for token and
+market setup and `scripts/devnet/` for the live SDK flows. Read each script's
+wallet, market and amount settings before running it; use dedicated devnet
+wallets and record transaction signatures as release evidence.
 
-## Devnet
+Build and deploy the existing programs with the `v2:build-*-devnet` and
+`v2:deploy-*-devnet` package commands. Verify the configured devnet genesis,
+program IDs, upgrade authority, binary hashes and SDK IDLs before publishing
+new pins to the app, indexer or keepers.
 
-```bash
-yarn v2:build-devnet
-yarn v2:deploy-devnet
-yarn v2:create-mock-tokens
-yarn v2:mint-mock-tokens <wallet>
-yarn v2:bootstrap-market
-yarn v2:smoke-devnet
-```
-
-Local Dusk state and generated keypairs live under
-`~/.config/omnipair/dusk-devnet` unless overridden by the environment variables
-documented in `scripts/v2/README.md`.
-
-## Fork Lab
-
-```bash
-yarn v2-fork:surfpool
-yarn v2-fork:rpc-proxy
-yarn v2-fork:api
-yarn test-surfpool-v2
-yarn surfpool-v2-e2e
-```
-
-The fork lab runs `dusk` against a private Surfpool fork and exposes the
-browser-facing Dusk fork API. See `scripts/v2-fork-lab/README.md`.
-
-## Utilities
-
-- `scripts/utils/address_vanity.ts`: local address-generation helper.
-- `scripts/utils/deploy_tokens.ts`: mock token deployment helper.
-
-Older pair-program scripts intentionally do not live in this repository.
+The deterministic program suite is `yarn test-litesvm`. It runs in process and
+requires no validator service. Full release validation is defined by `AGENTS.md`
+and `.github/workflows/ci.yaml`.
