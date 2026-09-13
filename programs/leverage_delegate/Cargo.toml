@@ -22,7 +22,6 @@ anchor-debug = []
 custom-heap = []
 custom-panic = []
 production = []
-development = []
 
 [dependencies]
 anchor-lang = { version = "0.31.1", features = ["init-if-needed", "derive"] }
