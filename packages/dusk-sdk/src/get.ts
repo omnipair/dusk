@@ -38,11 +38,13 @@ import {
   decodePreviewAddLiquidityReturnData,
   decodePreviewBorrowCapacityReturnData,
   decodePreviewBorrowPositionReturnData,
+  decodePreviewBorrowPositionCapacityReturnData,
   decodePreviewMarketReturnData,
   decodePreviewSwapReturnData,
   type AddLiquidityPreview,
   type BorrowCapacityPreview,
   type BorrowPositionPreview,
+  type BorrowPositionCapacityPreview,
   type MarketPreview,
   type PreviewReturnData,
   type SwapPreview,
@@ -120,6 +122,18 @@ export interface PreviewBorrowCapacityParams extends SimulateOptions {
    * Candidate debt amount used for the returned CF and health fields. When
    * omitted, the program quotes at maximum borrow capacity.
    */
+  projectedBorrowAmount?: BN | null;
+}
+
+export interface PreviewBorrowPositionCapacityParams extends SimulateOptions {
+  capacityKind: "borrow" | "withdraw";
+  market: AddressLike;
+  borrowPosition: AddressLike;
+  collateralAssetMint: AddressLike;
+  debtAssetMint: AddressLike;
+  /** Net credit after transfer fees, or negative collateral vault debit. */
+  collateralChange: BN;
+  /** Additional debt; omit for maximum additional capacity. */
   projectedBorrowAmount?: BN | null;
 }
 
@@ -320,6 +334,28 @@ export class DuskGet {
       .instruction();
 
     return decodePreviewBorrowCapacityReturnData(await this.simulateReturnData(instruction, params));
+  }
+
+  async previewBorrowPositionCapacity(
+    params: PreviewBorrowPositionCapacityParams
+  ): Promise<BorrowPositionCapacityPreview> {
+    const instruction = await this.program.methods
+      .previewBorrowPositionCapacity({
+        capacityKind: params.capacityKind === "borrow" ? { borrow: {} } : { withdraw: {} },
+        collateralChange: params.collateralChange,
+        projectedBorrowAmount: params.projectedBorrowAmount ?? null,
+      })
+      .accounts(
+        normalizeAccountKeys({
+          market: params.market,
+          borrowPosition: params.borrowPosition,
+          collateralAssetMint: params.collateralAssetMint,
+          debtAssetMint: params.debtAssetMint,
+        })
+      )
+      .instruction();
+
+    return decodePreviewBorrowPositionCapacityReturnData(await this.simulateReturnData(instruction, params));
   }
 
   async previewBorrowPosition(params: PreviewBorrowPositionParams): Promise<BorrowPositionPreview> {

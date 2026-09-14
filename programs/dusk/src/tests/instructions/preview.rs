@@ -1235,3 +1235,137 @@ proptest! {
         }
     }
 }
+
+
+fn existing_position_capacity_fixture(debt_asset: MarketAsset) -> (Market, BorrowPosition) {
+    let mut market = preview_test_market(0, 0);
+    market.config.max_daily_borrow_bps = crate::state::MAX_DAILY_BORROW_BPS;
+    // Fractional indices exercise share rounding in both new and existing draws.
+    market.debt.base_borrow_index_nad = 1_234_567_890;
+    market.debt.quote_borrow_index_nad = 1_345_678_901;
+    let mut position = BorrowPosition::default();
+    position.clear_liquidation_auction();
+    market.deposit_collateral(&mut position, debt_asset.opposite(), 50_000).unwrap();
+    market.borrow(&mut position, debt_asset, 10_000, 0, 0).unwrap();
+    (market, position)
+}
+
+#[test]
+fn existing_position_capacity_matches_actual_draw_and_withdrawal_boundaries() {
+    for debt_asset in [MarketAsset::Base, MarketAsset::Quote] {
+        let (market, position) = existing_position_capacity_fixture(debt_asset);
+        let collateral_asset = debt_asset.opposite();
+        let quote = market.position_capacity_quote(&position, collateral_asset, None, true, 0).unwrap();
+        assert!(quote.max_borrow_amount.unwrap() > 0);
+        let max_withdraw = market.position_capacity_quote(&position, collateral_asset, Some(0), false, 0)
+            .unwrap().max_withdraw_amount.unwrap();
+        assert!(quote.max_withdraw_amount.is_none());
+        assert!(max_withdraw > 0);
+        assert!(quote.borrow_allowed);
+        let mut actual_market = market.clone();
+        let mut actual_position = position.clone();
+        actual_market.borrow(&mut actual_position, debt_asset, quote.max_borrow_amount.unwrap(), quote.liquidation_cf_bps, 0).unwrap();
+        assert_eq!(actual_position.liquidation_cf_bps(debt_asset), quote.liquidation_cf_bps);
+        let actual_debt = match debt_asset {
+            MarketAsset::Base => actual_position.fixed_base_debt(&actual_market.debt).unwrap(),
+            MarketAsset::Quote => actual_position.fixed_quote_debt(&actual_market.debt).unwrap(),
+        };
+        assert_eq!(actual_debt, quote.projected_debt_amount);
+        assert!(market.clone().borrow(&mut position.clone(), debt_asset, quote.max_borrow_amount.unwrap() + 1, 0, 0).is_err());
+        market.clone().withdraw_collateral(&mut position.clone(), collateral_asset, max_withdraw, position.liquidation_cf_bps(debt_asset)).unwrap();
+        assert!(market.clone().withdraw_collateral(&mut position.clone(), collateral_asset, max_withdraw + 1, 0).is_err());
+        let too_large = market.position_capacity_quote(&position, collateral_asset, Some(quote.max_borrow_amount.unwrap() + 1), true, 0).unwrap();
+        assert!(!too_large.borrow_allowed);
+    }
+}
+
+#[test]
+fn existing_position_capacity_keeps_cash_and_daily_limits_on_additional_debt() {
+    let (mut market, position) = existing_position_capacity_fixture(MarketAsset::Base);
+    market.base_side.reserves.cash_reserve = 100;
+    let quote = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, 0).unwrap();
+    assert!(quote.existing_debt > 100);
+    assert_eq!(quote.max_borrow_amount.unwrap(), 100);
+    let daily_limit = market.daily_limit_for_side(MarketAsset::Base, market.config.max_daily_borrow_bps).unwrap();
+    let remaining = market.base_side.daily_borrow_bucket.remaining(daily_limit, 0).unwrap();
+    market.base_side.daily_borrow_bucket.record_borrow(remaining - 7, daily_limit, 0).unwrap();
+    let quote = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, 0).unwrap();
+    assert_eq!(quote.max_borrow_amount.unwrap(), 7);
+    market.borrow(&mut position.clone(), MarketAsset::Base, 7, 0, 0).unwrap();
+}
+
+#[test]
+fn collateral_only_preview_preserves_issued_terms_and_reconciles_contributions() {
+    let (mut market, mut position) = existing_position_capacity_fixture(MarketAsset::Quote);
+    let stored_cf = position.liquidation_cf_bps(MarketAsset::Quote);
+    let before = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), true, 0).unwrap();
+    market.deposit_collateral(&mut position, MarketAsset::Base, 100_000).unwrap();
+    let after = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), true, 0).unwrap();
+    assert_eq!(after.liquidation_cf_bps, stored_cf);
+    assert_eq!(after.projected_debt_amount, before.existing_debt);
+    assert!(after.max_borrow_amount.unwrap() > before.max_borrow_amount.unwrap());
+    assert_eq!(position.global_health_base_contribution_for_quote_debt, market.debt.global_health_base_contribution_for_quote_debt);
+    let max_withdraw = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), false, 0).unwrap().max_withdraw_amount.unwrap();
+    market.withdraw_collateral(&mut position, MarketAsset::Base, max_withdraw, stored_cf).unwrap();
+    let after_withdrawal = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), false, 0).unwrap();
+    assert!(after_withdrawal.liquidation_cf_bps >= stored_cf);
+    assert_eq!(after_withdrawal.max_withdraw_amount, Some(0));
+}
+
+#[test]
+fn debt_free_position_can_withdraw_all_and_zero_draw_remains_zero() {
+    let (mut market, _) = existing_position_capacity_fixture(MarketAsset::Quote);
+    // Use a separate debt-free account without altering the original aggregate debt.
+    let mut position = BorrowPosition::default();
+    position.clear_liquidation_auction();
+    market.deposit_collateral(&mut position, MarketAsset::Base, 15_000).unwrap();
+    let quote = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), false, 0).unwrap();
+    assert_eq!(quote.max_withdraw_amount, Some(15_000));
+    assert_eq!(quote.projected_borrow_amount, 0);
+    assert_eq!(quote.existing_debt, 0);
+    assert_eq!(quote.liquidation_cf_bps, 0);
+    assert_eq!(quote.liquidation_price_nad, 0);
+}
+
+proptest! {
+    #[test]
+    fn existing_position_capacity_matches_transitions_with_external_debt(
+        own_collateral in 100_u64..50_000,
+        external_collateral in 100_u64..50_000,
+        debt_is_base in any::<bool>(),
+        borrow_index in 1_000_000_000_u128..8_000_000_000,
+    ) {
+        let debt_asset = if debt_is_base { MarketAsset::Base } else { MarketAsset::Quote };
+        let collateral_asset = debt_asset.opposite();
+        let mut market = preview_test_market(0, 0);
+        market.config.max_daily_borrow_bps = crate::state::MAX_DAILY_BORROW_BPS;
+        market.debt.base_borrow_index_nad = borrow_index;
+        market.debt.quote_borrow_index_nad = borrow_index;
+        let mut external = BorrowPosition::default();
+        external.clear_liquidation_auction();
+        market.deposit_collateral(&mut external, collateral_asset, external_collateral).unwrap();
+        market.borrow(&mut external, debt_asset, external_collateral / 4, 0, 0).unwrap();
+        let mut position = BorrowPosition::default();
+        position.clear_liquidation_auction();
+        market.deposit_collateral(&mut position, collateral_asset, own_collateral).unwrap();
+        market.borrow(&mut position, debt_asset, own_collateral / 4, 0, 0).unwrap();
+        let quote = market.position_capacity_quote(&position, collateral_asset, None, true, 0).unwrap();
+        prop_assert!(quote.max_borrow_amount.unwrap() > 0);
+        prop_assert!(market.clone().borrow(
+            &mut position.clone(), debt_asset, quote.max_borrow_amount.unwrap(), quote.liquidation_cf_bps, 0,
+        ).is_ok());
+        prop_assert!(market.clone().borrow(
+            &mut position.clone(), debt_asset, quote.max_borrow_amount.unwrap() + 1, 0, 0,
+        ).is_err());
+        let max_withdraw = market.position_capacity_quote(&position, collateral_asset, Some(0), false, 0)
+            .unwrap().max_withdraw_amount.unwrap();
+        if max_withdraw > 0 {
+            prop_assert!(market.clone().withdraw_collateral(
+                &mut position.clone(), collateral_asset, max_withdraw, 0,
+            ).is_ok());
+        }
+        prop_assert!(market.clone().withdraw_collateral(
+            &mut position.clone(), collateral_asset, max_withdraw + 1, 0,
+        ).is_err());
+    }
+}

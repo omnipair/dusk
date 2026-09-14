@@ -68,6 +68,7 @@ import {
   decodePreviewAddLiquidityReturnData,
   decodePreviewBorrowCapacityReturnData,
   decodePreviewBorrowPositionReturnData,
+  decodePreviewBorrowPositionCapacityReturnData,
   decodePreviewHlpOrderTriggerReturnData,
   decodePreviewMarketReturnData,
   decodePreviewSwapReturnData,
@@ -6274,6 +6275,89 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(position.fixed_quote_shares.toNumber()).to.equal(5_000);
     expect(position.global_health_base_contribution_for_quote_debt.toNumber()).to.be.greaterThan(0);
 
+    // Existing-account quotes use the same share rounding and contribution
+    // replacement as borrow/withdraw, rather than treating this debt as external.
+    const positionCapacityTransaction = (change: anchor.BN, draw: anchor.BN | null, capacityKind = "borrow") =>
+      program.methods.previewBorrowPositionCapacity({
+        capacityKind: capacityKind === "borrow" ? { borrow: {} } : { withdraw: {} },
+        collateralChange: change,
+        projectedBorrowAmount: draw,
+      }).accounts({
+        market: fixture.market,
+        borrowPosition,
+        collateralAssetMint: fixture.baseMint,
+        debtAssetMint: fixture.quoteMint,
+      }).transaction() as Promise<Transaction>;
+    const positionCapacity = decodePreviewBorrowPositionCapacityReturnData(
+      await simulateReturnData(await positionCapacityTransaction(new BN(0), null))
+    );
+    trackV2Instruction("previewBorrowPositionCapacity", this.test?.title);
+    expect(positionCapacity.owner.toBase58()).to.equal(payer.publicKey.toBase58());
+    expect(positionCapacity.market.toBase58()).to.equal(fixture.market.toBase58());
+    expect(positionCapacity.positionId.toBase58()).to.equal(borrowPositionId.toBase58());
+    expect(positionCapacity.currentCollateralAmount.toString()).to.equal("10000");
+    expect(positionCapacity.existingDebtAmount.toString()).to.equal("5000");
+    expect(positionCapacity.maxBorrowAmount!.toNumber()).to.be.greaterThan(0);
+    expect(positionCapacity.maxWithdrawAmount).to.equal(null);
+    const withdrawalLimit = decodePreviewBorrowPositionCapacityReturnData(
+      await simulateReturnData(await positionCapacityTransaction(new BN(0), new BN(0), "withdraw"))
+    );
+    expect(withdrawalLimit.maxBorrowAmount).to.equal(null);
+    expect(withdrawalLimit.maxWithdrawAmount!.toNumber()).to.be.greaterThan(0);
+    expect(positionCapacity.borrowAllowed).to.equal(true);
+    expect(positionCapacity.projectedDebtAmount.toString()).to.equal(
+      positionCapacity.existingDebtAmount.add(positionCapacity.maxBorrowAmount!).toString()
+    );
+    const overCapacity = decodePreviewBorrowPositionCapacityReturnData(
+      await simulateReturnData(await positionCapacityTransaction(
+        new BN(0), positionCapacity.maxBorrowAmount!.addn(1)
+      ))
+    );
+    expect(overCapacity.borrowAllowed).to.equal(false);
+    const withdrawalCapacity = decodePreviewBorrowPositionCapacityReturnData(
+      await simulateReturnData(await positionCapacityTransaction(
+        withdrawalLimit.maxWithdrawAmount!.neg(), new BN(0), "withdraw"
+      ))
+    );
+    expect(withdrawalCapacity.collateralAmount.toString()).to.equal(
+      new BN(10_000).sub(withdrawalLimit.maxWithdrawAmount!).toString()
+    );
+    expect(withdrawalCapacity.projectedDebtAmount.toString()).to.equal("5000");
+    expect(withdrawalCapacity.maxWithdrawAmount!.toString()).to.equal("0");
+    let excessiveWithdrawalRejected = false;
+    try {
+      await simulateReturnData(await positionCapacityTransaction(
+        withdrawalLimit.maxWithdrawAmount!.addn(1).neg(), new BN(0), "withdraw"
+      ));
+    } catch (error) {
+      excessiveWithdrawalRejected = String(error).includes("InsufficientMarketHealth");
+    }
+    expect(excessiveWithdrawalRejected).to.equal(true);
+
+    // A submitted preview must never persist its hypothetical deposit, even
+    // when a caller upgrades the account metas to writable in the transaction.
+    const marketBeforePreview = Buffer.from(svm.getAccount(fixture.market)!.data);
+    const positionBeforePreview = Buffer.from(svm.getAccount(borrowPosition)!.data);
+    const depositPreviewTx = await positionCapacityTransaction(new BN(1_000), new BN(0));
+    const depositPreview = decodePreviewBorrowPositionCapacityReturnData(
+      await simulateReturnData(depositPreviewTx)
+    );
+    expect(depositPreview.collateralAmount.toString()).to.equal("11000");
+    expect(depositPreview.projectedDebtAmount.toString()).to.equal("5000");
+    expect(depositPreview.liquidationCfBps).to.equal(position.quote_liquidation_cf_bps);
+    for (const instruction of depositPreviewTx.instructions) {
+      for (const meta of instruction.keys) {
+        expect(meta.isWritable).to.equal(false);
+        expect(meta.isSigner).to.equal(false);
+        if (meta.pubkey.equals(fixture.market) || meta.pubkey.equals(borrowPosition)) {
+          meta.isWritable = true;
+        }
+      }
+    }
+    await connection.sendTransaction(depositPreviewTx, [payer]);
+    expect(Buffer.from(svm.getAccount(fixture.market)!.data).equals(marketBeforePreview)).to.equal(true);
+    expect(Buffer.from(svm.getAccount(borrowPosition)!.data).equals(positionBeforePreview)).to.equal(true);
+
     const debtMarketBefore = svm.getAccount(fixture.market);
     expect(debtMarketBefore).to.not.equal(null);
     const debtBefore = accountCoder.decode("Market", Buffer.from(debtMarketBefore!.data)) as any;
@@ -6398,6 +6482,52 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       activeDebtSwapPreview.reserveOutLiveReserve.toString()
     );
     expect(decoded.debt.fixed_quote_shares.toNumber()).to.equal(0);
+  });
+
+  it("quotes existing-position capacity at realistic raw-token scales", async function () {
+    const fixture = await addBalancedLiquidity(252, marketConfig(), {
+      baseDeposit: 1_000_000_000_000n,
+      quoteDeposit: 2_000_000_000_000n,
+      minYlp: 1n,
+      baseMint: 2_000_000_000_000n,
+      quoteMint: 3_000_000_000_000n,
+    });
+    const positionId = Keypair.generate().publicKey;
+    const borrowPosition = deriveBorrowPositionAddress(fixture.market, positionId)[0];
+    await connection.sendTransaction(await program.methods.depositCollateral({
+      positionId, depositAmount: new BN("10000000000"),
+    }).accounts({
+      market: fixture.market, owner: payer.publicKey, assetMint: fixture.baseMint,
+      collateralVault: fixture.baseCollateralVault, ownerAssetAccount: fixture.ownerBaseAccount,
+      borrowPosition, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+      systemProgram: SystemProgram.programId, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).transaction(), [payer]);
+    await connection.sendTransaction(await program.methods.borrow({
+      borrowAmount: new BN("5000000000"), minDebtAmountOut: new BN("5000000000"),
+      minLiquidationCfBps: 0, referrer: null,
+    }).accounts({
+      market: fixture.market, futarchyAuthority, owner: payer.publicKey,
+      debtAssetMint: fixture.quoteMint, collateralAssetMint: fixture.baseMint,
+      reserveVault: fixture.quoteReserveVault, ownerDebtAccount: fixture.ownerQuoteAccount,
+      borrowPosition, referralPartner: null, referralAccrual: null,
+      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).transaction(), [payer]);
+    for (const capacityKind of [{ borrow: {} }, { withdraw: {} }]) {
+      const quote = decodePreviewBorrowPositionCapacityReturnData(await simulateReturnData(
+        await program.methods.previewBorrowPositionCapacity({
+          capacityKind,
+          collateralChange: new BN(0), projectedBorrowAmount: null,
+        }).accounts({
+          market: fixture.market, borrowPosition,
+          collateralAssetMint: fixture.baseMint, debtAssetMint: fixture.quoteMint,
+        }).transaction()
+      ));
+      expect(quote.existingDebtAmount.toString()).to.equal("5000000000");
+      expect((quote.maxBorrowAmount ?? quote.maxWithdrawAmount)!.gt(new BN(0))).to.equal(true);
+      expect(quote.borrowAllowed).to.equal(true);
+      trackV2Instruction("previewBorrowPositionCapacity", this.test?.title);
+    }
   });
 
   it("permissioned referrals accrue a capped DAO-interest share and remain claimable", async function () {

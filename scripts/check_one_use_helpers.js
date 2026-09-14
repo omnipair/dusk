@@ -403,7 +403,7 @@ const acceptedOneUseHelpers = new Map([
   ],
   [
     "programs/dusk/src/transitions/lending/preview.rs",
-    new Set(["lending_side_preview", "borrow_capacity_quote", "position_debt_side_quote"]),
+    new Set(["lending_side_preview", "borrow_capacity_quote", "position_debt_side_quote", "position_capacity_quote"]),
   ],
   [
     "programs/dusk/src/transitions/leverage.rs",

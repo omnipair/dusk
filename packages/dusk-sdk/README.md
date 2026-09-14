@@ -355,6 +355,7 @@ Available typed previews:
 - `previewSwap({ market, assetInMint, assetOutMint, exactAssetIn })`.
 - `previewBorrowCapacity({ market, collateralAssetMint, debtAssetMint, collateralAmount, projectedBorrowAmount })`.
 - `previewBorrowPosition({ market, borrowPosition })`.
+- `previewBorrowPositionCapacity({ capacityKind, market, borrowPosition, collateralAssetMint, debtAssetMint, collateralChange, projectedBorrowAmount })`.
 
 `previewBorrowCapacity` exposes both the health-limited result of the on-chain
 binary search and the final limit after cash and daily-borrow constraints:
@@ -380,6 +381,46 @@ capacity.projectedGlobalHealthContribution;
 capacity.projectedGlobalMarketHealthBps;
 capacity.projectedEffectiveExistingDebtNad;
 ```
+
+For an existing borrow account, use `previewBorrowPositionCapacity` instead of
+adding its debt to `previewBorrowCapacity`. The account-aware preview accrues
+interest and replaces the account's own market-health contribution, using the
+same calculations as the borrow and withdrawal instructions.
+
+```typescript
+const capacity = await dusk.get.previewBorrowPositionCapacity({
+  capacityKind: "borrow",
+  market,
+  borrowPosition,
+  collateralAssetMint: baseMint,
+  debtAssetMint: quoteMint,
+  collateralChange: new BN(0),
+  projectedBorrowAmount: null, // Maximum additional draw; BN(0) means no draw.
+});
+
+capacity.existingDebtAmount;      // Accrued debt already owed.
+capacity.maxBorrowAmount;        // Additional vault debit in borrow mode.
+capacity.projectedDebtAmount;    // Existing debt plus the draw, with share rounding.
+capacity.maxWithdrawAmount;      // Collateral vault debit in withdraw mode.
+capacity.borrowAllowed;          // The requested draw is inside capacity limits.
+```
+
+Choose `capacityKind: "borrow"` for borrowing or `"withdraw"` for collateral
+withdrawal. Only that limit is calculated; the other field is `null`. This keeps
+the preview within the transaction compute budget at ordinary token scales.
+Withdrawal mode permits only a zero or omitted projected draw.
+
+`collateralChange` is a signed raw-unit delta: a positive value is the **net**
+collateral credit after inbound transfer fees; a negative value is a vault
+withdrawal debit. Invalid withdrawals fail the preview. A zero draw preserves
+the position's issued liquidation factor; a draw quotes the terms of that draw.
+Withdrawal capacity is measured after the collateral delta and before any
+additional borrowing. Outbound transfer fees may reduce wallet receipts.
+
+The instruction reads market and position accounts without persisting its
+hypothetical changes, including when submitted with writable account metas.
+Capacity does not replace transaction-time permission, reduce-only, token
+account, referral, slippage, or fresh deployment checks.
 
 ## Fetch Historical Data
 

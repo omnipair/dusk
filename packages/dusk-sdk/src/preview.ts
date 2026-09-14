@@ -11,6 +11,7 @@ export type MarketPreview = DuskPreviewTypes["marketPreview"];
 export type AddLiquidityPreview = DuskPreviewTypes["addLiquidityPreview"];
 export type SwapPreview = DuskPreviewTypes["swapPreview"];
 export type BorrowCapacityPreview = DuskPreviewTypes["borrowCapacityPreview"];
+export type BorrowPositionCapacityPreview = DuskPreviewTypes["borrowPositionCapacityPreview"];
 export type BorrowPositionPreview = DuskPreviewTypes["borrowPositionPreview"];
 export type HlpOrderTriggerPreview = DuskPreviewTypes["hlpOrderTriggerPreview"];
 
@@ -20,6 +21,7 @@ export const PREVIEW_RETURN_TYPES = {
   previewSwap: "SwapPreview",
   previewBorrowCapacity: "BorrowCapacityPreview",
   previewBorrowPosition: "BorrowPositionPreview",
+  previewBorrowPositionCapacity: "BorrowPositionCapacityPreview",
   previewHlpOrderTrigger: "HlpOrderTriggerPreview",
 } as const;
 
@@ -32,6 +34,7 @@ type PreviewReturnByIdlType = {
   SwapPreview: SwapPreview;
   BorrowCapacityPreview: BorrowCapacityPreview;
   BorrowPositionPreview: BorrowPositionPreview;
+  BorrowPositionCapacityPreview: BorrowPositionCapacityPreview;
   HlpOrderTriggerPreview: HlpOrderTriggerPreview;
 };
 
@@ -145,4 +148,8 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 function camelizeKey(key: string): string {
   const snakeToCamel = key.replace(/_([a-z0-9])/g, (_, char: string) => char.toUpperCase());
   return snakeToCamel.charAt(0).toLowerCase() + snakeToCamel.slice(1);
+}
+
+export function decodePreviewBorrowPositionCapacityReturnData(returnData: PreviewReturnData): BorrowPositionCapacityPreview {
+  return decodePreviewReturnData("BorrowPositionCapacityPreview", returnData);
 }

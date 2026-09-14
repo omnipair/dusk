@@ -432,6 +432,13 @@ pub mod dusk {
         PreviewBorrowCapacity::handle_preview(ctx, args)
     }
 
+    pub fn preview_borrow_position_capacity(
+        ctx: Context<PreviewBorrowPositionCapacity>,
+        args: PreviewBorrowPositionCapacityArgs,
+    ) -> Result<BorrowPositionCapacityPreview> {
+        PreviewBorrowPositionCapacity::handle_preview(ctx, args)
+    }
+
     pub fn preview_borrow_position(ctx: Context<PreviewBorrowPosition>) -> Result<BorrowPositionPreview> {
         PreviewBorrowPosition::handle_preview(ctx)
     }

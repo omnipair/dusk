@@ -314,3 +314,124 @@ impl NewPositionPreviewContext<'_> {
         Ok((terms, contribution))
     }
 }
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PositionCapacityQuote {
+    pub existing_debt: u128,
+    pub max_borrow_amount: Option<u64>,
+    pub max_withdraw_amount: Option<u64>,
+    pub projected_borrow_amount: u64,
+    pub projected_debt_amount: u128,
+    pub collateral_value_nad: u128,
+    pub max_cf_bps: u16,
+    pub liquidation_cf_bps: u16,
+    pub liquidation_price_nad: u64,
+    pub borrow_allowed: bool,
+}
+
+impl Market {
+    pub(crate) fn position_capacity_quote(
+        &self,
+        position: &BorrowPosition,
+        collateral_asset: MarketAsset,
+        projected_borrow_amount: Option<u64>,
+        borrow_capacity: bool,
+        slot: u64,
+    ) -> Result<PositionCapacityQuote> {
+        let debt_asset = collateral_asset.opposite();
+        let collateral_amount = position.collateral(collateral_asset);
+        let debt_index = self.debt.borrow_index(debt_asset);
+        let shares = match debt_asset {
+            MarketAsset::Base => position.fixed_base_shares,
+            MarketAsset::Quote => position.fixed_quote_shares,
+        };
+        let existing_debt = Debt::shares_to_debt(shares, debt_index)?;
+        let risk = &self.risk;
+        let market_healthy = self
+            .assert_market_health_snapshot(&self.market_health_from_risk(risk)?)
+            .is_ok();
+        let daily_limit = self.daily_limit_for_side(debt_asset, self.config.max_daily_borrow_bps)?;
+        let cash_limit = self.side(debt_asset).reserves.cash_reserve;
+        let daily_remaining = self.side(debt_asset).daily_borrow_bucket.remaining(daily_limit, slot)?;
+        let upper = cash_limit.min(daily_remaining).min(i64::MAX as u64);
+        let mut low = 0;
+        let mut high = if borrow_capacity && market_healthy && collateral_amount > 0 {
+            upper
+        } else {
+            0
+        };
+        while low < high {
+            let midpoint = low + (high - low) / 2 + 1;
+            let projection =
+                self.position_borrow_projection(position, debt_asset, midpoint, collateral_amount, risk)?;
+            if projection.terms.max_debt as u128 >= projection.projected_position_debt
+                && projection.terms.projected_market_health_bps >= self.config.borrow_market_health_floor_bps as u64
+            {
+                low = midpoint;
+            } else {
+                high = midpoint - 1;
+            }
+        }
+        let max_borrow_amount = borrow_capacity.then_some(low);
+        let projected_borrow_amount = projected_borrow_amount.unwrap_or(max_borrow_amount.unwrap_or(0));
+        let projection =
+            self.position_borrow_projection(position, debt_asset, projected_borrow_amount, collateral_amount, risk)?;
+        let borrow_allowed = projected_borrow_amount == 0
+            || (market_healthy
+                && projected_borrow_amount <= upper
+                && projection.terms.max_debt as u128 >= projection.projected_position_debt
+                && projection.terms.projected_market_health_bps >= self.config.borrow_market_health_floor_bps as u64);
+        // A deposit with no draw preserves the position's issued terms.
+        let liquidation_cf_bps = if projected_borrow_amount == 0 {
+            position.liquidation_cf_bps(debt_asset)
+        } else {
+            projection.terms.liquidation_cf_bps
+        };
+        let max_cf_bps = max_cf_bps_from_liquidation_cf(liquidation_cf_bps);
+        let collateral_value_nad = self.collateral_value_nad(collateral_asset, collateral_amount, risk)?;
+        let liquidation_price_nad =
+            if collateral_amount == 0 || projection.projected_position_debt == 0 || liquidation_cf_bps == 0 {
+                0
+            } else {
+                let collateral_nad =
+                    self.normalize_amount(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
+                let debt_nad =
+                    self.normalize_amount(projection.projected_position_debt, self.side(debt_asset).asset_decimals)?;
+                let price = ceil_div(
+                    debt_nad
+                        .checked_mul(BPS_DENOMINATOR as u128)
+                        .and_then(|value| value.checked_mul(NAD as u128))
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                    collateral_nad
+                        .checked_mul(liquidation_cf_bps as u128)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                )
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+                u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow)?
+            };
+        let mut low = 0;
+        let mut high = if borrow_capacity { 0 } else { collateral_amount };
+        while low < high {
+            let midpoint = low + (high - low) / 2 + 1;
+            let withdrawal =
+                self.position_withdrawal_projection(position, collateral_asset, collateral_amount - midpoint)?;
+            if withdrawal.max_debt as u128 >= withdrawal.position_debt {
+                low = midpoint;
+            } else {
+                high = midpoint - 1;
+            }
+        }
+        Ok(PositionCapacityQuote {
+            existing_debt,
+            max_borrow_amount,
+            max_withdraw_amount: (!borrow_capacity).then_some(low),
+            projected_borrow_amount,
+            projected_debt_amount: projection.projected_position_debt,
+            collateral_value_nad,
+            max_cf_bps,
+            liquidation_cf_bps,
+            liquidation_price_nad,
+            borrow_allowed,
+        })
+    }
+}
