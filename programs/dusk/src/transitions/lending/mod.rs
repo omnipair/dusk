@@ -26,7 +26,159 @@ pub(crate) struct DynamicBorrowTerms {
     pub projected_market_health_bps: u64,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PositionBorrowProjection {
+    pub debt_shares: u128,
+    pub aggregate_debt_increase: u64,
+    pub projected_position_debt: u128,
+    pub target_contribution: u64,
+    pub terms: DynamicBorrowTerms,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PositionWithdrawalProjection {
+    pub position_debt: u128,
+    pub target_contribution: u64,
+    pub liquidation_cf_bps: u16,
+    pub max_debt: u64,
+}
+
 impl Market {
+    pub(crate) fn position_withdrawal_projection(
+        &self,
+        borrow_position: &BorrowPosition,
+        market_asset: MarketAsset,
+        projected_collateral: u64,
+    ) -> Result<PositionWithdrawalProjection> {
+        let debt_asset = market_asset.opposite();
+        let position_debt = match debt_asset {
+            MarketAsset::Base => borrow_position.fixed_base_debt(&self.debt)?,
+            MarketAsset::Quote => borrow_position.fixed_quote_debt(&self.debt)?,
+        };
+        let target_contribution =
+            self.debt_capped_global_health_contribution(debt_asset, position_debt, projected_collateral, &self.risk)?;
+
+        let (liquidation_cf_bps, max_debt) = if position_debt > 0 {
+            let total_debt_nad = self.total_fixed_debt_nad(debt_asset)?;
+            let external_debt_nad = self.external_fixed_debt_nad(borrow_position, debt_asset)?;
+            let projected_aggregate =
+                self.projected_aggregate_global_health_contribution(borrow_position, debt_asset, target_contribution)?;
+            let terms = self.dynamic_borrow_terms(
+                debt_asset,
+                projected_collateral,
+                external_debt_nad,
+                total_debt_nad,
+                projected_aggregate,
+                &self.risk,
+            )?;
+            // A third party cannot lower this position's already-issued terms.
+            // The owner may withdraw whenever the post-withdraw position remains
+            // inside its stored 5% buffered liquidation CF.
+            let liquidation_cf_bps = borrow_position
+                .liquidation_cf_bps(debt_asset)
+                .max(terms.liquidation_cf_bps);
+            let collateral_value_nad = self.collateral_value_nad(market_asset, projected_collateral, &self.risk)?;
+            let max_debt_nad = collateral_value_nad
+                .checked_mul(max_cf_bps_from_liquidation_cf(liquidation_cf_bps) as u128)
+                .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            let max_debt =
+                self.denormalize_amount_floor(max_debt_nad, self.side(market_asset.opposite()).asset_decimals)?;
+            (liquidation_cf_bps, max_debt)
+        } else {
+            (0, 0)
+        };
+
+        Ok(PositionWithdrawalProjection {
+            position_debt,
+            target_contribution,
+            liquidation_cf_bps,
+            max_debt,
+        })
+    }
+
+    pub(crate) fn position_borrow_projection(
+        &self,
+        borrow_position: &BorrowPosition,
+        borrow_asset: MarketAsset,
+        borrow_amount: u64,
+        collateral_amount: u64,
+        risk: &Risk,
+    ) -> Result<PositionBorrowProjection> {
+        // The V1 curve prices debt already issued to other positions. Counting
+        // this position's own debt here would make repeated draws worse than
+        // opening equivalent split positions.
+        let external_debt_nad = self.external_fixed_debt_nad(borrow_position, borrow_asset)?;
+        let debt_shares = if borrow_amount == 0 {
+            0
+        } else {
+            match borrow_asset {
+                MarketAsset::Base => Debt::debt_to_shares(borrow_amount, self.debt.base_borrow_index_nad)?,
+                MarketAsset::Quote => Debt::debt_to_shares(borrow_amount, self.debt.quote_borrow_index_nad)?,
+            }
+        };
+        let aggregate_debt_increase = self.debt.fixed_debt_increase_for_shares(borrow_asset, debt_shares)?;
+        let (projected_position_debt, projected_total_debt) = match borrow_asset {
+            MarketAsset::Base => (
+                Debt::shares_to_debt(
+                    borrow_position
+                        .fixed_base_shares
+                        .checked_add(debt_shares)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                    self.debt.base_borrow_index_nad,
+                )?,
+                Debt::shares_to_debt(
+                    self.debt
+                        .fixed_base_shares
+                        .checked_add(debt_shares)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                    self.debt.base_borrow_index_nad,
+                )?,
+            ),
+            MarketAsset::Quote => (
+                Debt::shares_to_debt(
+                    borrow_position
+                        .fixed_quote_shares
+                        .checked_add(debt_shares)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                    self.debt.quote_borrow_index_nad,
+                )?,
+                Debt::shares_to_debt(
+                    self.debt
+                        .fixed_quote_shares
+                        .checked_add(debt_shares)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                    self.debt.quote_borrow_index_nad,
+                )?,
+            ),
+        };
+        let target_contribution = self.debt_capped_global_health_contribution(
+            borrow_asset,
+            projected_position_debt,
+            collateral_amount,
+            risk,
+        )?;
+        let projected_aggregate =
+            self.projected_aggregate_global_health_contribution(borrow_position, borrow_asset, target_contribution)?;
+        let projected_total_debt_nad =
+            self.normalize_amount(projected_total_debt, self.side(borrow_asset).asset_decimals)?;
+        let terms = self.dynamic_borrow_terms(
+            borrow_asset,
+            collateral_amount,
+            external_debt_nad,
+            projected_total_debt_nad,
+            projected_aggregate,
+            risk,
+        )?;
+
+        Ok(PositionBorrowProjection {
+            debt_shares,
+            aggregate_debt_increase,
+            projected_position_debt,
+            target_contribution,
+            terms,
+        })
+    }
     pub fn market_health(&self) -> Result<MarketHealth> {
         self.market_health_from_risk(&self.risk)
     }
@@ -1035,45 +1187,17 @@ impl Market {
             .checked_sub(collateral_debit)
             .ok_or(ErrorCode::InsufficientBalance)?;
         let debt_asset = market_asset.opposite();
-        let position_debt = match debt_asset {
-            MarketAsset::Base => borrow_position.fixed_base_debt(&self.debt)?,
-            MarketAsset::Quote => borrow_position.fixed_quote_debt(&self.debt)?,
-        };
-        let target_contribution =
-            self.debt_capped_global_health_contribution(debt_asset, position_debt, projected_collateral, &self.risk)?;
-
+        let PositionWithdrawalProjection {
+            position_debt,
+            target_contribution,
+            liquidation_cf_bps,
+            max_debt,
+        } = self.position_withdrawal_projection(borrow_position, market_asset, projected_collateral)?;
         if position_debt > 0 {
-            let total_debt_nad = self.total_fixed_debt_nad(debt_asset)?;
-            let external_debt_nad = self.external_fixed_debt_nad(borrow_position, debt_asset)?;
-            let projected_aggregate =
-                self.projected_aggregate_global_health_contribution(borrow_position, debt_asset, target_contribution)?;
-            let terms = self.dynamic_borrow_terms(
-                debt_asset,
-                projected_collateral,
-                external_debt_nad,
-                total_debt_nad,
-                projected_aggregate,
-                &self.risk,
-            )?;
-            // A third party cannot lower this position's already-issued terms.
-            // The owner may withdraw whenever the post-withdraw position remains
-            // inside its stored 5% buffered liquidation CF.
-            let liquidation_cf_bps = borrow_position
-                .liquidation_cf_bps(debt_asset)
-                .max(terms.liquidation_cf_bps);
-            let collateral_value_nad = self.collateral_value_nad(market_asset, projected_collateral, &self.risk)?;
-            let max_debt_nad = collateral_value_nad
-                .checked_mul(max_cf_bps_from_liquidation_cf(liquidation_cf_bps) as u128)
-                .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-            let max_debt =
-                self.denormalize_amount_floor(max_debt_nad, self.side(market_asset.opposite()).asset_decimals)?;
             require_gte!(max_debt as u128, position_debt, ErrorCode::InsufficientMarketHealth);
             require_gte!(liquidation_cf_bps, min_liquidation_cf_bps, ErrorCode::SlippageExceeded);
-            borrow_position.set_liquidation_cf_bps(debt_asset, liquidation_cf_bps);
-        } else {
-            borrow_position.set_liquidation_cf_bps(debt_asset, 0);
         }
+        borrow_position.set_liquidation_cf_bps(debt_asset, liquidation_cf_bps);
 
         match market_asset {
             MarketAsset::Base => borrow_position.base_collateral = projected_collateral,
@@ -1111,67 +1235,17 @@ impl Market {
         let risk = self.risk;
         let current_health = self.market_health_from_risk(&risk)?;
         self.assert_market_health_snapshot(&current_health)?;
-        // The V1 curve prices debt already issued to other positions. Counting
-        // this position's own debt here would make repeated draws worse than
-        // opening equivalent split positions.
-        let external_debt_nad = self.external_fixed_debt_nad(borrow_position, borrow_asset)?;
-        let debt_shares = match borrow_asset {
-            MarketAsset::Base => Debt::debt_to_shares(borrow_amount, self.debt.base_borrow_index_nad)?,
-            MarketAsset::Quote => Debt::debt_to_shares(borrow_amount, self.debt.quote_borrow_index_nad)?,
-        };
-        let aggregate_debt_increase = self.debt.fixed_debt_increase_for_shares(borrow_asset, debt_shares)?;
-        let (projected_position_debt, projected_total_debt) = match borrow_asset {
-            MarketAsset::Base => (
-                Debt::shares_to_debt(
-                    borrow_position
-                        .fixed_base_shares
-                        .checked_add(debt_shares)
-                        .ok_or(ErrorCode::MarketMathOverflow)?,
-                    self.debt.base_borrow_index_nad,
-                )?,
-                Debt::shares_to_debt(
-                    self.debt
-                        .fixed_base_shares
-                        .checked_add(debt_shares)
-                        .ok_or(ErrorCode::MarketMathOverflow)?,
-                    self.debt.base_borrow_index_nad,
-                )?,
-            ),
-            MarketAsset::Quote => (
-                Debt::shares_to_debt(
-                    borrow_position
-                        .fixed_quote_shares
-                        .checked_add(debt_shares)
-                        .ok_or(ErrorCode::MarketMathOverflow)?,
-                    self.debt.quote_borrow_index_nad,
-                )?,
-                Debt::shares_to_debt(
-                    self.debt
-                        .fixed_quote_shares
-                        .checked_add(debt_shares)
-                        .ok_or(ErrorCode::MarketMathOverflow)?,
-                    self.debt.quote_borrow_index_nad,
-                )?,
-            ),
-        };
-        let collateral_asset = borrow_asset.opposite();
-        let collateral_amount = borrow_position.collateral(collateral_asset);
-        let target_contribution = self.debt_capped_global_health_contribution(
-            borrow_asset,
+        let PositionBorrowProjection {
+            debt_shares,
+            aggregate_debt_increase,
             projected_position_debt,
-            collateral_amount,
-            &risk,
-        )?;
-        let projected_aggregate =
-            self.projected_aggregate_global_health_contribution(borrow_position, borrow_asset, target_contribution)?;
-        let projected_total_debt_nad =
-            self.normalize_amount(projected_total_debt, self.side(borrow_asset).asset_decimals)?;
-        let terms = self.dynamic_borrow_terms(
+            target_contribution,
+            terms,
+        } = self.position_borrow_projection(
+            borrow_position,
             borrow_asset,
-            collateral_amount,
-            external_debt_nad,
-            projected_total_debt_nad,
-            projected_aggregate,
+            borrow_amount,
+            borrow_position.collateral(borrow_asset.opposite()),
             &risk,
         )?;
         require_gte!(

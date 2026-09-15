@@ -181,6 +181,7 @@ const DUSK_INSTRUCTIONS = [
   "previewSwap",
   "previewBorrowCapacity",
   "previewBorrowPosition",
+  "previewBorrowPositionCapacity",
   "depositSingleSided",
   "withdrawSingleSided",
 ];
