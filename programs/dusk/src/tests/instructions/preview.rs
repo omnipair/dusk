@@ -1327,6 +1327,38 @@ fn debt_free_position_can_withdraw_all_and_zero_draw_remains_zero() {
     assert_eq!(quote.liquidation_price_nad, 0);
 }
 
+#[test]
+fn debt_free_withdrawal_capacity_does_not_require_borrow_depth() {
+    let mut market = Market::default();
+    market.version = crate::constants::MARKET_LAYOUT_VERSION;
+    market.base_side.asset_decimals = 0;
+    market.quote_side.asset_decimals = 0;
+    market.debt.base_borrow_index_nad = NAD as u128;
+    market.debt.quote_borrow_index_nad = NAD as u128;
+    market.risk.base_price_ema_nad = NAD;
+    market.risk.quote_price_ema_nad = NAD;
+    market.risk.directional_base_price_ema_nad = NAD;
+    market.risk.directional_quote_price_ema_nad = NAD;
+    market.assert_started_at(0).unwrap();
+
+    let mut position = BorrowPosition::default();
+    position.clear_liquidation_auction();
+    market.deposit_collateral(&mut position, MarketAsset::Base, 15_000).unwrap();
+
+    let quote = market
+        .position_capacity_quote(&position, MarketAsset::Base, Some(0), false, 0)
+        .unwrap();
+    assert_eq!(quote.max_withdraw_amount, Some(15_000));
+    assert_eq!(quote.projected_borrow_amount, 0);
+    assert_eq!(quote.projected_debt_amount, 0);
+
+    let mut executable_market = market;
+    executable_market
+        .withdraw_collateral(&mut position, MarketAsset::Base, quote.max_withdraw_amount.unwrap(), 0)
+        .unwrap();
+    assert_eq!(position.base_collateral, 0);
+}
+
 proptest! {
     #[test]
     fn existing_position_capacity_matches_transitions_with_external_debt(

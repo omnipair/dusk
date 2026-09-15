@@ -6484,18 +6484,18 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(decoded.debt.fixed_quote_shares.toNumber()).to.equal(0);
   });
 
-  it("quotes existing-position capacity at realistic raw-token scales", async function () {
+  it("quotes existing-position capacity with external debt at high raw-token scales", async function () {
     const fixture = await addBalancedLiquidity(252, marketConfig(), {
-      baseDeposit: 1_000_000_000_000n,
-      quoteDeposit: 2_000_000_000_000n,
+      baseDeposit: 1_000_000_000_000_000_000n,
+      quoteDeposit: 2_000_000_000_000_000_000n,
       minYlp: 1n,
-      baseMint: 2_000_000_000_000n,
-      quoteMint: 3_000_000_000_000n,
+      baseMint: 2_000_000_000_000_000_000n,
+      quoteMint: 3_000_000_000_000_000_000n,
     });
     const positionId = Keypair.generate().publicKey;
     const borrowPosition = deriveBorrowPositionAddress(fixture.market, positionId)[0];
     await connection.sendTransaction(await program.methods.depositCollateral({
-      positionId, depositAmount: new BN("10000000000"),
+      positionId, depositAmount: new BN("10000000000000000"),
     }).accounts({
       market: fixture.market, owner: payer.publicKey, assetMint: fixture.baseMint,
       collateralVault: fixture.baseCollateralVault, ownerAssetAccount: fixture.ownerBaseAccount,
@@ -6503,13 +6503,34 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       systemProgram: SystemProgram.programId, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
     }).transaction(), [payer]);
     await connection.sendTransaction(await program.methods.borrow({
-      borrowAmount: new BN("5000000000"), minDebtAmountOut: new BN("5000000000"),
+      borrowAmount: new BN("5000000000000000"), minDebtAmountOut: new BN("5000000000000000"),
       minLiquidationCfBps: 0, referrer: null,
     }).accounts({
       market: fixture.market, futarchyAuthority, owner: payer.publicKey,
       debtAssetMint: fixture.quoteMint, collateralAssetMint: fixture.baseMint,
       reserveVault: fixture.quoteReserveVault, ownerDebtAccount: fixture.ownerQuoteAccount,
       borrowPosition, referralPartner: null, referralAccrual: null,
+      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).transaction(), [payer]);
+    const externalPositionId = Keypair.generate().publicKey;
+    const externalBorrowPosition = deriveBorrowPositionAddress(fixture.market, externalPositionId)[0];
+    await connection.sendTransaction(await program.methods.depositCollateral({
+      positionId: externalPositionId, depositAmount: new BN("10000000000000000"),
+    }).accounts({
+      market: fixture.market, owner: payer.publicKey, assetMint: fixture.baseMint,
+      collateralVault: fixture.baseCollateralVault, ownerAssetAccount: fixture.ownerBaseAccount,
+      borrowPosition: externalBorrowPosition, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+      systemProgram: SystemProgram.programId, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).transaction(), [payer]);
+    await connection.sendTransaction(await program.methods.borrow({
+      borrowAmount: new BN("5000000000000000"), minDebtAmountOut: new BN("5000000000000000"),
+      minLiquidationCfBps: 0, referrer: null,
+    }).accounts({
+      market: fixture.market, futarchyAuthority, owner: payer.publicKey,
+      debtAssetMint: fixture.quoteMint, collateralAssetMint: fixture.baseMint,
+      reserveVault: fixture.quoteReserveVault, ownerDebtAccount: fixture.ownerQuoteAccount,
+      borrowPosition: externalBorrowPosition, referralPartner: null, referralAccrual: null,
       tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
       eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
     }).transaction(), [payer]);
@@ -6523,7 +6544,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           collateralAssetMint: fixture.baseMint, debtAssetMint: fixture.quoteMint,
         }).transaction()
       ));
-      expect(quote.existingDebtAmount.toString()).to.equal("5000000000");
+      expect(quote.existingDebtAmount.toString()).to.equal("5000000000000000");
       expect((quote.maxBorrowAmount ?? quote.maxWithdrawAmount)!.gt(new BN(0))).to.equal(true);
       expect(quote.borrowAllowed).to.equal(true);
       trackV2Instruction("previewBorrowPositionCapacity", this.test?.title);

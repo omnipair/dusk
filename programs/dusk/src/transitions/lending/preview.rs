@@ -1,5 +1,19 @@
 use super::*;
 
+const POSITION_CAPACITY_EXACT_SEARCH_LIMIT: u64 = 1 << 40;
+const POSITION_CAPACITY_LARGE_SEARCH_STEPS: usize = 8;
+
+fn position_capacity_search_steps(high: u64) -> usize {
+    // Atom-exact search remains cheap for ordinary ranges. Above this bound,
+    // previews return the last accepted lower bound so large raw-token markets
+    // stay within SBF compute limits without overstating executable capacity.
+    if high <= POSITION_CAPACITY_EXACT_SEARCH_LIMIT {
+        u64::BITS as usize
+    } else {
+        POSITION_CAPACITY_LARGE_SEARCH_STEPS
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct LendingSidePreview {
     pub conservative_depth_nad: u128,
@@ -315,6 +329,124 @@ impl NewPositionPreviewContext<'_> {
     }
 }
 
+struct ExistingPositionCapacityContext<'a> {
+    market: &'a Market,
+    position: &'a BorrowPosition,
+    debt_asset: MarketAsset,
+    collateral_amount: u64,
+    risk: &'a Risk,
+    debt_index: u128,
+    position_shares: u128,
+    aggregate_shares: u128,
+    external_debt_nad: u128,
+    geometry: ConcentratedCurveGeometry,
+    point: ConcentratedCurvePoint,
+    direction: ConcentratedCurveDirection,
+    collateral_amount_nad: u128,
+    impact_value_nad: u128,
+    collateral_reserve_nad: u128,
+    debt_reserve_nad: u128,
+}
+
+impl ExistingPositionCapacityContext<'_> {
+    fn projection(&self, borrow_amount: u64) -> Result<PositionBorrowProjection> {
+        let debt_shares = if borrow_amount == 0 {
+            0
+        } else {
+            Debt::debt_to_shares(borrow_amount, self.debt_index)?
+        };
+        let aggregate_debt_increase = self
+            .market
+            .debt
+            .fixed_debt_increase_for_shares(self.debt_asset, debt_shares)?;
+        let projected_position_debt = Debt::shares_to_debt(
+            self.position_shares
+                .checked_add(debt_shares)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            self.debt_index,
+        )?;
+        let projected_total_debt = Debt::shares_to_debt(
+            self.aggregate_shares
+                .checked_add(debt_shares)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            self.debt_index,
+        )?;
+        let target_contribution = self.market.debt_capped_global_health_contribution(
+            self.debt_asset,
+            projected_position_debt,
+            self.collateral_amount,
+            self.risk,
+        )?;
+        let projected_aggregate = self.market.projected_aggregate_global_health_contribution(
+            self.position,
+            self.debt_asset,
+            target_contribution,
+        )?;
+        let projected_total_debt_nad = self
+            .market
+            .normalize_amount(projected_total_debt, self.market.side(self.debt_asset).asset_decimals)?;
+        let (effective_existing_debt_nad, projected_market_health_bps) =
+            self.market.global_side_health_with_virtual_reserves(
+                self.debt_asset,
+                self.external_debt_nad,
+                projected_total_debt_nad,
+                projected_aggregate,
+                self.risk,
+                self.collateral_reserve_nad,
+                self.debt_reserve_nad,
+            )?;
+        let utilized = if effective_existing_debt_nad == 0 {
+            0
+        } else {
+            self.geometry
+                .quote_exact_out(self.point, effective_existing_debt_nad, self.direction)?
+                .amount_in
+        };
+        let total_value = self
+            .geometry
+            .quote_exact_in(
+                self.point,
+                utilized
+                    .checked_add(self.collateral_amount_nad)
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+                self.direction,
+            )?
+            .amount_out;
+        let user_max_debt = total_value.saturating_sub(effective_existing_debt_nad);
+        let base_cf_bps = if self.impact_value_nad == 0 {
+            0
+        } else {
+            user_max_debt
+                .saturating_mul(BPS_DENOMINATOR as u128)
+                .checked_div(self.impact_value_nad)
+                .unwrap_or(0)
+        };
+        let liquidation_cf_bps = base_cf_bps.min(MAX_COLLATERAL_FACTOR_BPS as u128) as u16;
+        let max_cf_bps = max_cf_bps_from_liquidation_cf(liquidation_cf_bps);
+        let max_debt_nad = self
+            .impact_value_nad
+            .saturating_mul(max_cf_bps as u128)
+            .checked_div(BPS_DENOMINATOR as u128)
+            .unwrap_or(0);
+        let terms = DynamicBorrowTerms {
+            max_debt: self
+                .market
+                .denormalize_amount_floor(max_debt_nad, self.market.side(self.debt_asset).asset_decimals)?,
+            max_cf_bps,
+            liquidation_cf_bps,
+            effective_existing_debt_nad,
+            projected_market_health_bps,
+        };
+        Ok(PositionBorrowProjection {
+            debt_shares,
+            aggregate_debt_increase,
+            projected_position_debt,
+            target_contribution,
+            terms,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PositionCapacityQuote {
     pub existing_debt: u128,
@@ -346,24 +478,97 @@ impl Market {
             MarketAsset::Quote => position.fixed_quote_shares,
         };
         let existing_debt = Debt::shares_to_debt(shares, debt_index)?;
+        let requested_borrow_amount = projected_borrow_amount;
+        let zero_draw = requested_borrow_amount.unwrap_or(0) == 0;
+        if !borrow_capacity && zero_draw && existing_debt == 0 {
+            return Ok(PositionCapacityQuote {
+                existing_debt,
+                max_borrow_amount: None,
+                max_withdraw_amount: Some(collateral_amount),
+                projected_borrow_amount: 0,
+                projected_debt_amount: 0,
+                collateral_value_nad: 0,
+                max_cf_bps: 0,
+                liquidation_cf_bps: 0,
+                liquidation_price_nad: 0,
+                borrow_allowed: true,
+            });
+        }
         let risk = &self.risk;
         let market_healthy = self
             .assert_market_health_snapshot(&self.market_health_from_risk(risk)?)
             .is_ok();
+        let aggregate_shares = match debt_asset {
+            MarketAsset::Base => self.debt.fixed_base_shares,
+            MarketAsset::Quote => self.debt.fixed_quote_shares,
+        };
+        let external_debt_nad = self.external_fixed_debt_nad(position, debt_asset)?;
+        let (geometry, point, direction) = self
+            .pessimistic_borrow_cpmm(collateral_asset, risk, true)?
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        let collateral_amount_nad =
+            self.normalize_amount(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
+        let impact_value_nad = geometry
+            .quote_exact_in(point, collateral_amount_nad, direction)?
+            .amount_out;
+        let (collateral_reserve_nad, debt_reserve_nad) = match collateral_asset {
+            MarketAsset::Base => (point.base_reserve, point.quote_reserve),
+            MarketAsset::Quote => (point.quote_reserve, point.base_reserve),
+        };
+        let borrow_context = ExistingPositionCapacityContext {
+            market: self,
+            position,
+            debt_asset,
+            collateral_amount,
+            risk,
+            debt_index,
+            position_shares: shares,
+            aggregate_shares,
+            external_debt_nad,
+            geometry,
+            point,
+            direction,
+            collateral_amount_nad,
+            impact_value_nad,
+            collateral_reserve_nad,
+            debt_reserve_nad,
+        };
         let daily_limit = self.daily_limit_for_side(debt_asset, self.config.max_daily_borrow_bps)?;
         let cash_limit = self.side(debt_asset).reserves.cash_reserve;
         let daily_remaining = self.side(debt_asset).daily_borrow_bucket.remaining(daily_limit, slot)?;
-        let upper = cash_limit.min(daily_remaining).min(i64::MAX as u64);
+        let collateral_value_nad = borrow_context.impact_value_nad;
+        let max_debt_nad_by_collateral = collateral_value_nad
+            .checked_mul(max_cf_bps_from_liquidation_cf(MAX_COLLATERAL_FACTOR_BPS) as u128)
+            .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let max_debt_by_collateral =
+            self.denormalize_amount_floor(max_debt_nad_by_collateral, self.side(debt_asset).asset_decimals)?;
+        let existing_debt_u64 = u64::try_from(existing_debt).unwrap_or(u64::MAX);
+        let collateral_limited_headroom = max_debt_by_collateral.saturating_sub(existing_debt_u64);
+        let upper = cash_limit
+            .min(daily_remaining)
+            .min(collateral_limited_headroom)
+            .min(i64::MAX as u64);
         let mut low = 0;
         let mut high = if borrow_capacity && market_healthy && collateral_amount > 0 {
             upper
         } else {
             0
         };
+        let search_steps = position_capacity_search_steps(high);
+        let use_cached_borrow_projection = upper > POSITION_CAPACITY_EXACT_SEARCH_LIMIT;
+        let mut steps = 0;
         while low < high {
+            if steps == search_steps {
+                break;
+            }
+            steps += 1;
             let midpoint = low + (high - low) / 2 + 1;
-            let projection =
-                self.position_borrow_projection(position, debt_asset, midpoint, collateral_amount, risk)?;
+            let projection = if use_cached_borrow_projection {
+                borrow_context.projection(midpoint)?
+            } else {
+                self.position_borrow_projection(position, debt_asset, midpoint, collateral_amount, risk)?
+            };
             if projection.terms.max_debt as u128 >= projection.projected_position_debt
                 && projection.terms.projected_market_health_bps >= self.config.borrow_market_health_floor_bps as u64
             {
@@ -373,9 +578,12 @@ impl Market {
             }
         }
         let max_borrow_amount = borrow_capacity.then_some(low);
-        let projected_borrow_amount = projected_borrow_amount.unwrap_or(max_borrow_amount.unwrap_or(0));
-        let projection =
-            self.position_borrow_projection(position, debt_asset, projected_borrow_amount, collateral_amount, risk)?;
+        let projected_borrow_amount = requested_borrow_amount.unwrap_or(max_borrow_amount.unwrap_or(0));
+        let projection = if use_cached_borrow_projection {
+            borrow_context.projection(projected_borrow_amount)?
+        } else {
+            self.position_borrow_projection(position, debt_asset, projected_borrow_amount, collateral_amount, risk)?
+        };
         let borrow_allowed = projected_borrow_amount == 0
             || (market_healthy
                 && projected_borrow_amount <= upper
@@ -388,7 +596,6 @@ impl Market {
             projection.terms.liquidation_cf_bps
         };
         let max_cf_bps = max_cf_bps_from_liquidation_cf(liquidation_cf_bps);
-        let collateral_value_nad = self.collateral_value_nad(collateral_asset, collateral_amount, risk)?;
         let liquidation_price_nad =
             if collateral_amount == 0 || projection.projected_position_debt == 0 || liquidation_cf_bps == 0 {
                 0
@@ -411,7 +618,13 @@ impl Market {
             };
         let mut low = 0;
         let mut high = if borrow_capacity { 0 } else { collateral_amount };
+        let search_steps = position_capacity_search_steps(high);
+        let mut steps = 0;
         while low < high {
+            if steps == search_steps {
+                break;
+            }
+            steps += 1;
             let midpoint = low + (high - low) / 2 + 1;
             let withdrawal =
                 self.position_withdrawal_projection(position, collateral_asset, collateral_amount - midpoint)?;
