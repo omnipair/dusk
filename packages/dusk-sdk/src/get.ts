@@ -3,6 +3,7 @@ import {
   ComputeBudgetProgram,
   PublicKey,
   Transaction,
+  VersionedTransaction,
   type Commitment,
   type TransactionInstruction,
 } from "@solana/web3.js";
@@ -350,11 +351,21 @@ export class DuskGet {
       instruction
     );
     tx.feePayer = address(options.feePayer ?? this.program.provider.publicKey ?? this.defaultFeePayer);
-    tx.recentBlockhash = (
-      await this.program.provider.connection.getLatestBlockhash(options.commitment)
-    ).blockhash;
-
-    const simulation = await this.program.provider.connection.simulateTransaction(tx);
+    // The simulation bank supplies the blockhash. The legacy Transaction
+    // overload replaces caller-provided hashes with web3's cached hash, which
+    // can expire before its cache refreshes on devnet. A legacy message inside
+    // VersionedTransaction uses the config overload without changing accounts
+    // or instructions, and avoids a separate blockhash RPC request.
+    tx.recentBlockhash = PublicKey.default.toBase58();
+    const connection = this.program.provider.connection;
+    const simulation = await connection.simulateTransaction(
+      new VersionedTransaction(tx.compileMessage()),
+      {
+        commitment: options.commitment ?? connection.commitment,
+        sigVerify: false,
+        replaceRecentBlockhash: true,
+      }
+    );
     if (simulation.value.err) {
       throw new DuskSimulationError("Dusk simulation failed", simulation);
     }
