@@ -5162,6 +5162,117 @@ export type Dusk = {
       }
     },
     {
+      "name": "previewBorrowPositionCapacity",
+      "discriminator": [
+        117,
+        63,
+        148,
+        138,
+        201,
+        37,
+        189,
+        1
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "borrowPosition",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  114,
+                  114,
+                  111,
+                  119,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.position_id",
+                "account": "borrowPosition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "collateralAssetMint"
+        },
+        {
+          "name": "debtAssetMint"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "previewBorrowPositionCapacityArgs"
+            }
+          }
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "borrowPositionCapacityPreview"
+        }
+      }
+    },
+    {
       "name": "previewHlpOrderTrigger",
       "discriminator": [
         98,
@@ -10377,6 +10488,108 @@ export type Dusk = {
       }
     },
     {
+      "name": "borrowPositionCapacityKind",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "borrow"
+          },
+          {
+            "name": "withdraw"
+          }
+        ]
+      }
+    },
+    {
+      "name": "borrowPositionCapacityPreview",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "positionId",
+            "type": "pubkey"
+          },
+          {
+            "name": "collateralAsset",
+            "type": {
+              "defined": {
+                "name": "marketAsset"
+              }
+            }
+          },
+          {
+            "name": "debtAsset",
+            "type": {
+              "defined": {
+                "name": "marketAsset"
+              }
+            }
+          },
+          {
+            "name": "currentCollateralAmount",
+            "type": "u64"
+          },
+          {
+            "name": "collateralAmount",
+            "type": "u64"
+          },
+          {
+            "name": "existingDebtAmount",
+            "type": "u128"
+          },
+          {
+            "name": "maxBorrowAmount",
+            "type": {
+              "option": "u64"
+            }
+          },
+          {
+            "name": "maxWithdrawAmount",
+            "type": {
+              "option": "u64"
+            }
+          },
+          {
+            "name": "projectedBorrowAmount",
+            "type": "u64"
+          },
+          {
+            "name": "projectedDebtAmount",
+            "type": "u128"
+          },
+          {
+            "name": "collateralValueNad",
+            "type": "u128"
+          },
+          {
+            "name": "maxCfBps",
+            "type": "u16"
+          },
+          {
+            "name": "liquidationCfBps",
+            "type": "u16"
+          },
+          {
+            "name": "liquidationDebtPerCollateralPriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "borrowAllowed",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
       "name": "borrowPositionLiquidated",
       "type": {
         "kind": "struct",
@@ -14165,6 +14378,38 @@ export type Dusk = {
           },
           {
             "name": "projectedBorrowAmount",
+            "type": {
+              "option": "u64"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "previewBorrowPositionCapacityArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "capacityKind",
+            "type": {
+              "defined": {
+                "name": "borrowPositionCapacityKind"
+              }
+            }
+          },
+          {
+            "name": "collateralChange",
+            "docs": [
+              "Net collateral credit (positive) or vault debit (negative), in raw mint units."
+            ],
+            "type": "i128"
+          },
+          {
+            "name": "projectedBorrowAmount",
+            "docs": [
+              "Additional debt to draw. None quotes the maximum additional draw."
+            ],
             "type": {
               "option": "u64"
             }

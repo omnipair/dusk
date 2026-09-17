@@ -35,6 +35,22 @@ pub struct PreviewBorrowCapacityArgs {
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BorrowPositionCapacityKind {
+    #[default]
+    Borrow,
+    Withdraw,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PreviewBorrowPositionCapacityArgs {
+    pub capacity_kind: BorrowPositionCapacityKind,
+    /// Net collateral credit (positive) or vault debit (negative), in raw mint units.
+    pub collateral_change: i128,
+    /// Additional debt to draw. None quotes the maximum additional draw.
+    pub projected_borrow_amount: Option<u64>,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PreviewHlpOrderTriggerArgs {
     pub target_asset: u8,
     pub hlp_amount: u64,
@@ -153,6 +169,24 @@ pub struct PreviewBorrowPosition<'info> {
         constraint = borrow_position.market == market.key() @ ErrorCode::InvalidPositionMarket
     )]
     pub borrow_position: Box<Account<'info, BorrowPosition>>,
+}
+
+#[derive(Accounts)]
+pub struct PreviewBorrowPositionCapacity<'info> {
+    #[account(
+        seeds = [MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()],
+        bump = market.bump
+    )]
+    pub market: Box<Account<'info, Market>>,
+    #[account(
+        seeds = [BORROW_POSITION_SEED_PREFIX, market.key().as_ref(), borrow_position.position_id.as_ref()],
+        bump = borrow_position.bump,
+        constraint = borrow_position.market == market.key() @ ErrorCode::InvalidPositionMarket
+    )]
+    pub borrow_position: Box<Account<'info, BorrowPosition>>,
+    pub collateral_asset_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub debt_asset_mint: Box<InterfaceAccount<'info, Mint>>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -378,6 +412,84 @@ pub struct BorrowPositionPreview {
     pub fixed_quote_debt: u128,
     pub base_debt: PositionDebtSidePreview,
     pub quote_debt: PositionDebtSidePreview,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BorrowPositionCapacityPreview {
+    pub owner: Pubkey,
+    pub market: Pubkey,
+    pub position_id: Pubkey,
+    pub collateral_asset: MarketAsset,
+    pub debt_asset: MarketAsset,
+    pub current_collateral_amount: u64,
+    pub collateral_amount: u64,
+    pub existing_debt_amount: u128,
+    pub max_borrow_amount: Option<u64>,
+    pub max_withdraw_amount: Option<u64>,
+    pub projected_borrow_amount: u64,
+    pub projected_debt_amount: u128,
+    pub collateral_value_nad: u128,
+    pub max_cf_bps: u16,
+    pub liquidation_cf_bps: u16,
+    pub liquidation_debt_per_collateral_price_nad: u64,
+    pub borrow_allowed: bool,
+}
+
+impl<'info> PreviewBorrowPositionCapacity<'info> {
+    pub fn handle_preview(
+        ctx: Context<Self>,
+        args: PreviewBorrowPositionCapacityArgs,
+    ) -> Result<BorrowPositionCapacityPreview> {
+        require_supported_asset_mint(&ctx.accounts.collateral_asset_mint)?;
+        require_supported_asset_mint(&ctx.accounts.debt_asset_mint)?;
+        let market_key = ctx.accounts.market.key();
+        // Both accounts are read-only: updates only affect this preview's
+        // deserialized storage, even if someone submits the instruction.
+        let market: &mut Market = &mut ctx.accounts.market;
+        let position: &mut BorrowPosition = &mut ctx.accounts.borrow_position;
+        let collateral_asset = market.asset_for_mint(ctx.accounts.collateral_asset_mint.key())?;
+        let debt_asset = market.asset_for_mint(ctx.accounts.debt_asset_mint.key())?;
+        require!(debt_asset == collateral_asset.opposite(), ErrorCode::InvalidMint);
+        let borrow_capacity = args.capacity_kind == BorrowPositionCapacityKind::Borrow;
+        require!(
+            borrow_capacity || args.projected_borrow_amount.unwrap_or(0) == 0,
+            ErrorCode::InvalidArgument
+        );
+        market.update()?;
+        let current_collateral_amount = position.collateral(collateral_asset);
+        let change = u64::try_from(args.collateral_change.unsigned_abs()).map_err(|_| ErrorCode::MarketMathOverflow)?;
+        if args.collateral_change > 0 {
+            market.deposit_collateral(position, collateral_asset, change)?;
+        } else if args.collateral_change < 0 {
+            market.withdraw_collateral(position, collateral_asset, change, 0)?;
+        }
+        let quote = market.position_capacity_quote(
+            position,
+            collateral_asset,
+            args.projected_borrow_amount,
+            borrow_capacity,
+            Clock::get()?.slot,
+        )?;
+        Ok(BorrowPositionCapacityPreview {
+            owner: position.owner,
+            market: market_key,
+            position_id: position.position_id,
+            collateral_asset,
+            debt_asset,
+            current_collateral_amount,
+            collateral_amount: position.collateral(collateral_asset),
+            existing_debt_amount: quote.existing_debt,
+            max_borrow_amount: quote.max_borrow_amount,
+            max_withdraw_amount: quote.max_withdraw_amount,
+            projected_borrow_amount: quote.projected_borrow_amount,
+            projected_debt_amount: quote.projected_debt_amount,
+            collateral_value_nad: quote.collateral_value_nad,
+            max_cf_bps: quote.max_cf_bps,
+            liquidation_cf_bps: quote.liquidation_cf_bps,
+            liquidation_debt_per_collateral_price_nad: quote.liquidation_price_nad,
+            borrow_allowed: quote.borrow_allowed,
+        })
+    }
 }
 
 impl<'info> PreviewMarket<'info> {
