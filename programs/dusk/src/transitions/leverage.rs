@@ -1426,7 +1426,8 @@ impl Market {
             ErrorCode::LeveragePositionNotLiquidatable
         );
         require!(
-            self.is_ema_leverage_liquidatable(position.collateral_asset()?, collateral_sold, debt_amount)?,
+            self.ema_leverage_margin_bps(position.collateral_asset()?, collateral_sold, debt_amount)?
+                <= LEVERAGE_MAINTENANCE_BUFFER_BPS as u128,
             ErrorCode::LeveragePositionNotLiquidatable
         );
 
@@ -1652,48 +1653,27 @@ impl Market {
             position.debt_amount(&self.debt)?,
         )?;
         let debt_amount = position.debt_amount(&self.debt)?;
-        let (collateral_value_nad, margin_bps) =
-            self.ema_leverage_equity_bps(collateral_asset, position.collateral_amount, debt_amount)?;
-        let debt_value_nad = self.normalize_amount(
-            debt_amount as u128,
-            self.side(collateral_asset.opposite()).asset_decimals,
-        )?;
-        require!(
-            collateral_value_nad > debt_value_nad && margin_bps >= LEVERAGE_INITIAL_MARGIN_BPS as u128,
+        require_gte!(
+            self.ema_leverage_margin_bps(collateral_asset, position.collateral_amount, debt_amount)?,
+            LEVERAGE_INITIAL_MARGIN_BPS as u128,
             ErrorCode::LeverageInitialMarginTooLow
         );
         Ok(closeout_value)
     }
 
-    fn ema_leverage_equity_bps(
+    fn ema_leverage_margin_bps(
         &self,
         collateral_asset: MarketAsset,
         collateral_amount: u64,
         debt_amount: u64,
-    ) -> Result<(u128, u128)> {
+    ) -> Result<u128> {
         let collateral_value_nad =
             self.linear_liquidation_collateral_value_nad(collateral_asset, collateral_amount, &self.risk)?;
         let debt_value_nad = self.normalize_amount(
             debt_amount as u128,
             self.side(collateral_asset.opposite()).asset_decimals,
         )?;
-        let margin_bps = equity_bps_u128(collateral_value_nad, debt_value_nad)?;
-        Ok((collateral_value_nad, margin_bps))
-    }
-
-    fn is_ema_leverage_liquidatable(
-        &self,
-        collateral_asset: MarketAsset,
-        collateral_amount: u64,
-        debt_amount: u64,
-    ) -> Result<bool> {
-        let (collateral_value_nad, margin_bps) =
-            self.ema_leverage_equity_bps(collateral_asset, collateral_amount, debt_amount)?;
-        let debt_value_nad = self.normalize_amount(
-            debt_amount as u128,
-            self.side(collateral_asset.opposite()).asset_decimals,
-        )?;
-        Ok(collateral_value_nad <= debt_value_nad || margin_bps <= LEVERAGE_MAINTENANCE_BUFFER_BPS as u128)
+        equity_bps_u128(collateral_value_nad, debt_value_nad)
     }
 
     fn require_ema_leverage_not_liquidatable(
@@ -1702,8 +1682,9 @@ impl Market {
         collateral_amount: u64,
         debt_amount: u64,
     ) -> Result<()> {
-        require!(
-            !self.is_ema_leverage_liquidatable(collateral_asset, collateral_amount, debt_amount)?,
+        require_gt!(
+            self.ema_leverage_margin_bps(collateral_asset, collateral_amount, debt_amount)?,
+            LEVERAGE_MAINTENANCE_BUFFER_BPS as u128,
             ErrorCode::LeveragePositionNotLiquidatable
         );
         Ok(())
