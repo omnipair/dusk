@@ -101,6 +101,11 @@ impl<'info> RemoveLeverageMargin<'info> {
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
         let debt_mint_key = ctx.accounts.debt_mint.key();
         let position_key = ctx.accounts.leverage_position.key();
+        crate::instructions::accounting::accrue_market_interest(
+            &mut ctx.accounts.market,
+            current_slot,
+            ctx.accounts.event_authority.to_account_info(),
+        )?;
         ctx.accounts.market.prepare_leverage_margin_operation(current_slot)?;
 
         // Reduce debt-side margin and transfer the released amount to the owner.
@@ -151,6 +156,7 @@ impl<'info> RemoveLeverageMargin<'info> {
             collateral_amount: receipt.collateral_amount,
             closeout_value: receipt.closeout_value,
             owner_credit: amount_out,
+            interest_paid: receipt.interest_paid,
             swap: None,
             metadata: MarketEventMetadata::at_slot(owner_key, market_key, current_slot),
         });

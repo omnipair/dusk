@@ -61,35 +61,20 @@ export const ORDINARY_SWAP_COMPUTE_UNIT_LIMIT = 100_000n;
 const COMPUTE_SCENARIO_BASELINES: Partial<
   Record<SwapComputeScenario, ComputeScenarioBaseline>
 > = {
-  cpmm_same_slot: { measuredMaximum: 89_761n, ceiling: 94_250n },
-  cpmm_advanced_slot: { measuredMaximum: 124_839n, ceiling: 131_081n },
-  cpmm_active_debt: { measuredMaximum: 132_218n, ceiling: 138_829n },
-  concentrated_centered: { measuredMaximum: 213_600n, ceiling: 224_280n },
-  concentrated_transition: { measuredMaximum: 215_078n, ceiling: 225_832n },
-  concentrated_tail: { measuredMaximum: 212_765n, ceiling: 223_404n },
-  dynamic_fee_divergence_stress: {
-    measuredMaximum: 221_156n,
-    ceiling: 232_214n,
-  },
-  dynamic_fee_volatility_stress: {
-    measuredMaximum: 136_349n,
-    ceiling: 143_167n,
-  },
-  retained_surcharge: { measuredMaximum: 221_313n, ceiling: 232_379n },
-  controller_due_recenter: {
-    measuredMaximum: 579_641n,
-    ceiling: 608_624n,
-  },
-  concentrated_hlp_active: {
-    measuredMaximum: 263_939n,
-    ceiling: 277_136n,
-  },
-  concentrated_hlp_funding_interest: {
-    measuredMaximum: 263_939n,
-    ceiling: 277_136n,
-  },
-  hlp_active: { measuredMaximum: 107_672n, ceiling: 113_056n },
-  token_2022_swap: { measuredMaximum: 103_353n, ceiling: 108_521n },
+  cpmm_same_slot: { measuredMaximum: 86_257n, ceiling: 90_570n },
+  cpmm_advanced_slot: { measuredMaximum: 121_374n, ceiling: 127_443n },
+  cpmm_active_debt: { measuredMaximum: 129_151n, ceiling: 135_609n },
+  concentrated_centered: { measuredMaximum: 210_096n, ceiling: 220_601n },
+  concentrated_transition: { measuredMaximum: 211_234n, ceiling: 221_796n },
+  concentrated_tail: { measuredMaximum: 208_921n, ceiling: 219_368n },
+  dynamic_fee_divergence_stress: { measuredMaximum: 218_345n, ceiling: 229_263n },
+  dynamic_fee_volatility_stress: { measuredMaximum: 132_886n, ceiling: 139_531n },
+  retained_surcharge: { measuredMaximum: 216_769n, ceiling: 227_608n },
+  controller_due_recenter: { measuredMaximum: 574_779n, ceiling: 603_518n },
+  concentrated_hlp_active: { measuredMaximum: 292_888n, ceiling: 307_533n },
+  concentrated_hlp_funding_interest: { measuredMaximum: 292_888n, ceiling: 307_533n },
+  hlp_active: { measuredMaximum: 108_957n, ceiling: 114_405n },
+  token_2022_swap: { measuredMaximum: 99_853n, ceiling: 104_846n },
 };
 
 Object.entries(COMPUTE_SCENARIO_BASELINES).forEach(([scenario, baseline]) => {

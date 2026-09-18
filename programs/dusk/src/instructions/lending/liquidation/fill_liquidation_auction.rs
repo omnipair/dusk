@@ -409,6 +409,15 @@ impl<'info> FillLiquidationAuction<'info> {
             socialized_loss: liquidation_receipt.socialized_loss,
             remaining_debt: liquidation_receipt.remaining_debt,
         });
+        crate::instructions::accounting::emit_interest_paid(
+            &ctx.accounts.market,
+            debt_asset,
+            crate::events::DebtSource::Credit,
+            Some(borrow_position_key),
+            referral_receipt.quote,
+            0,
+            ctx.accounts.event_authority.to_account_info(),
+        )?;
         if let Some(event) = referral_interest_accrued_event_at_slot(
             &referral_receipt,
             market_key,

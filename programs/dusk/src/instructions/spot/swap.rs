@@ -8,7 +8,7 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::SwapExecuted,
+    events::{SwapExecuted, SwapOrigin},
     generate_market_seeds,
     state::{FutarchyAuthority, Market, MarketAsset},
     token::{get_transfer_fee_for_epoch, token_burn, token_mint_to, transfer_checked_with_remaining_accounts},
@@ -178,6 +178,11 @@ impl<'info> Swap<'info> {
                 current_epoch,
             )?)
             .ok_or(ErrorCode::MarketMathOverflow)?;
+        crate::instructions::accounting::accrue_market_interest(
+            &mut ctx.accounts.market,
+            current_slot,
+            ctx.accounts.event_authority.to_account_info(),
+        )?;
         let mut prepared = SwapRequest {
             current_slot,
             current_unix_timestamp,
@@ -306,29 +311,20 @@ impl<'info> Swap<'info> {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require_gte!(asset_out_credit, args.min_asset_out, ErrorCode::SlippageExceeded);
 
-        emit_cpi!(SwapExecuted {
-            market: market_key,
-            trader: trader_key,
-            asset_in_side: asset_in.code(),
-            amount_in: args.exact_asset_in,
-            amount_out: asset_out_credit,
-            gross_amount_out: quote.gross_amount_out,
-            fee_asset_side: quote.fee.fee_asset,
-            amount_in_after_fee: quote.fee.amount_in_for_quote,
-            base_fee: quote.fee.base_fee_debit,
-            divergence_fee: quote.fee.divergence_surcharge_debit,
-            volatility_fee: quote.fee.volatility_surcharge_debit,
-            retained_fee: quote.fee.retained_surcharge,
-            compounded_fee: quote.fee.compounded_fee_debit,
-            hlp_recovery_target_asset: quote.recovery.target_asset,
-            hlp_recovery_funding_gap: quote.recovery.funding_gap,
-            hlp_recovery_matched_input: quote.recovery.matched_input,
-            hlp_recovery_bonus_output: quote.recovery.bonus_output,
-            hlp_recovery_discount_bps: quote.recovery.discount_bps,
-            hlp_recovery_critical: quote.recovery.critical,
-            base_live_reserve: ctx.accounts.market.base_side.reserves.live_reserve,
-            quote_live_reserve: ctx.accounts.market.quote_side.reserves.live_reserve,
-        });
+        emit_cpi!(SwapExecuted::from_amm(
+            market_key,
+            trader_key,
+            trader_key,
+            None,
+            match mode {
+                SwapExecutionMode::Ordinary => SwapOrigin::Spot,
+                SwapExecutionMode::HlpRecovery => SwapOrigin::HlpRescue,
+            },
+            current_slot,
+            quote,
+            ctx.accounts.market.base_side.reserves.live_reserve,
+            ctx.accounts.market.quote_side.reserves.live_reserve,
+        ));
 
         Ok(())
     }
@@ -430,6 +426,20 @@ fn apply_single_hlp_rebalance_token_changes<'info>(
             accounts.hook_accounts(ctx.remaining_accounts),
         )?;
         let interest_vault_credit = token_account_info_credit(interest_vault_balance_before, interest_vault)?;
+        crate::instructions::accounting::emit_interest_paid(
+            &ctx.accounts.market,
+            borrowed_asset,
+            crate::events::DebtSource::Hlp,
+            None,
+            crate::state::ReferralInterestQuote::new(
+                receipt.interest_paid,
+                interest_vault_credit,
+                ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+                None,
+            )?,
+            0,
+            ctx.accounts.event_authority.to_account_info(),
+        )?;
         record_inline_hlp_interest_credit(
             &mut ctx.accounts.market,
             borrowed_asset,

@@ -4483,6 +4483,38 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": [
@@ -7007,6 +7039,38 @@
         },
         {
           "name": "debt_asset_mint"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": []
@@ -8684,6 +8748,32 @@
     }
   ],
   "events": [
+    {
+      "name": "BorrowInterestAccrued",
+      "discriminator": [
+        72,
+        60,
+        125,
+        249,
+        229,
+        92,
+        113,
+        250
+      ]
+    },
+    {
+      "name": "BorrowInterestPaid",
+      "discriminator": [
+        173,
+        181,
+        219,
+        170,
+        32,
+        88,
+        224,
+        224
+      ]
+    },
     {
       "name": "BorrowPositionLiquidated",
       "discriminator": [
@@ -10394,6 +10484,136 @@
       }
     },
     {
+      "name": "BorrowInterestAccrued",
+      "docs": [
+        "Interest recognized by one committed borrow-index checkpoint. Amounts are",
+        "raw atoms of `asset_mint`, separately floored in each debt-share bucket.",
+        "This is accrued interest, not a payment or a protocol-revenue allocation."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_side",
+            "type": "u8"
+          },
+          {
+            "name": "from_slot",
+            "type": "u64"
+          },
+          {
+            "name": "to_slot",
+            "type": "u64"
+          },
+          {
+            "name": "borrow_index_before_nad",
+            "type": "u128"
+          },
+          {
+            "name": "borrow_index_after_nad",
+            "type": "u128"
+          },
+          {
+            "name": "credit_interest",
+            "type": "u128"
+          },
+          {
+            "name": "margin_interest",
+            "type": "u128"
+          },
+          {
+            "name": "hlp_interest",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BorrowInterestPaid",
+      "docs": [
+        "Canonical interest-payment record. Lifecycle and referral events may",
+        "repeat these amounts for context and must not be summed a second time."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_side",
+            "type": "u8"
+          },
+          {
+            "name": "source",
+            "type": {
+              "defined": {
+                "name": "DebtSource"
+              }
+            }
+          },
+          {
+            "name": "position",
+            "docs": [
+              "None for aggregate hLP funding debt; `asset_side` identifies its vault."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "interest_paid",
+            "docs": [
+              "Gross interest collected, including any terminal hLP caller bounty."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "interest_vault_credit",
+            "docs": [
+              "Net tokens credited to the interest vault after transfer fees/bounty."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "protocol_interest_revenue",
+            "docs": [
+              "Protocol allocation from vault credit, before the referral allocation."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "referral_amount",
+            "type": "u64"
+          },
+          {
+            "name": "caller_bounty",
+            "docs": [
+              "Gross terminal hLP caller bounty; zero for ordinary payments."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "BorrowPosition",
       "type": {
         "kind": "struct",
@@ -11003,6 +11223,23 @@
           {
             "name": "isolated_quote_principal",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DebtSource",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Credit"
+          },
+          {
+            "name": "Margin"
+          },
+          {
+            "name": "Hlp"
           }
         ]
       }
@@ -12645,6 +12882,13 @@
             "type": "u64"
           },
           {
+            "name": "interest_paid",
+            "docs": [
+              "Interest actually repaid by this action, in debt-token atoms."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "swap",
             "type": {
               "option": {
@@ -12668,7 +12912,8 @@
     {
       "name": "LeverageSwapReceipt",
       "docs": [
-        "Actual AMM receipt embedded in a leverage action.",
+        "Supporting AMM receipt embedded in a leverage action. `SwapExecuted` is",
+        "the authoritative swap/fee record; do not count this receipt again.",
         "`None` on `LeveragePositionUpdated` means the action was margin-only."
       ],
       "type": {
@@ -15627,7 +15872,32 @@
           },
           {
             "name": "trader",
+            "docs": [
+              "Beneficial owner of the trade, including delegated leverage actions."
+            ],
             "type": "pubkey"
+          },
+          {
+            "name": "actor",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "origin",
+            "type": {
+              "defined": {
+                "name": "SwapOrigin"
+              }
+            }
+          },
+          {
+            "name": "slot",
+            "type": "u64"
           },
           {
             "name": "asset_in_side",
@@ -15639,14 +15909,15 @@
           {
             "name": "amount_in",
             "docs": [
-              "Exact amount debited from the trader's input account."
+              "AMM input before trading fees, after any input transfer fee. Includes",
+              "internally borrowed principal; this is not the owner's wallet debit."
             ],
             "type": "u64"
           },
           {
             "name": "amount_out",
             "docs": [
-              "Amount credited to the trader after any output transfer fee."
+              "AMM output after trading fees, before any output transfer fee."
             ],
             "type": "u64"
           },
@@ -15735,6 +16006,42 @@
           {
             "name": "quote_live_reserve",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SwapOrigin",
+      "docs": [
+        "Instruction that caused an actual AMM execution. Fee attribution follows",
+        "this origin; borrowing interest is reported separately by debt source."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Spot"
+          },
+          {
+            "name": "HlpRescue"
+          },
+          {
+            "name": "LeverageOpen"
+          },
+          {
+            "name": "LeverageIncrease"
+          },
+          {
+            "name": "LeverageDecrease"
+          },
+          {
+            "name": "LeverageClose"
+          },
+          {
+            "name": "LeverageLiquidation"
+          },
+          {
+            "name": "CreditLiquidation"
           }
         ]
       }

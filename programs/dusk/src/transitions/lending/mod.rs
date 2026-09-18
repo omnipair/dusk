@@ -897,7 +897,23 @@ impl DailyBorrowBucket {
     }
 }
 
-pub(crate) fn accrue_side(market: &mut Market, asset: MarketAsset, current_slot: u64) -> Result<()> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct InterestAccrualReceipt {
+    pub asset: MarketAsset,
+    pub from_slot: u64,
+    pub to_slot: u64,
+    pub index_before: u128,
+    pub index_after: u128,
+    pub credit_interest: u128,
+    pub margin_interest: u128,
+    pub hlp_interest: u128,
+}
+
+pub(crate) fn accrue_side<const REPORT: bool>(
+    market: &mut Market,
+    asset: MarketAsset,
+    current_slot: u64,
+) -> Result<Option<InterestAccrualReceipt>> {
     let (index, rate_at_target, last_accrual_slot, fixed_shares, isolated_shares) = match asset {
         MarketAsset::Base => (
             market.debt.base_borrow_index_nad,
@@ -915,7 +931,7 @@ pub(crate) fn accrue_side(market: &mut Market, asset: MarketAsset, current_slot:
         ),
     };
     if current_slot <= last_accrual_slot {
-        return Ok(());
+        return Ok(None);
     }
     let dt_ms = current_slot
         .checked_sub(last_accrual_slot)
@@ -946,7 +962,7 @@ pub(crate) fn accrue_side(market: &mut Market, asset: MarketAsset, current_slot:
                 market.debt.quote_last_accrual_slot = current_slot;
             }
         }
-        return Ok(());
+        return Ok(None);
     }
     let (cash, live) = match asset {
         MarketAsset::Base => (
@@ -1060,7 +1076,26 @@ pub(crate) fn accrue_side(market: &mut Market, asset: MarketAsset, current_slot:
             market.debt.quote_last_accrual_slot = current_slot;
         }
     }
-    Ok(())
+    if !REPORT {
+        return Ok(None);
+    }
+    let receipt = InterestAccrualReceipt {
+        asset,
+        from_slot: last_accrual_slot,
+        to_slot: current_slot,
+        index_before: index,
+        index_after: next_index,
+        credit_interest: fixed_after
+            .checked_sub(Debt::shares_to_debt(fixed_shares, index)?)
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+        margin_interest: isolated_after
+            .checked_sub(Debt::shares_to_debt(isolated_shares, index)?)
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+        hlp_interest: Debt::shares_to_debt(hlp_shares, next_index)?
+            .checked_sub(hlp_debt_before)
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+    };
+    Ok((receipt.credit_interest > 0 || receipt.margin_interest > 0 || receipt.hlp_interest > 0).then_some(receipt))
 }
 
 pub(crate) fn total_cash_backed_borrowed(market: &Market, asset: MarketAsset, index_nad: u128) -> Result<u128> {
@@ -1129,8 +1164,8 @@ impl Market {
     }
 
     pub(crate) fn accrue_interest_to_slot(&mut self, current_slot: u64) -> Result<()> {
-        accrue_side(self, MarketAsset::Base, current_slot)?;
-        accrue_side(self, MarketAsset::Quote, current_slot)?;
+        accrue_side::<false>(self, MarketAsset::Base, current_slot)?;
+        accrue_side::<false>(self, MarketAsset::Quote, current_slot)?;
         Ok(())
     }
 

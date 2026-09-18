@@ -181,7 +181,11 @@ impl<'info> WithdrawSingleSided<'info> {
         self.validate(args)?;
         let target_asset = self.market.asset_for_hlp_mint(self.target_hlp_mint.key())?;
         let current_slot = Clock::get()?.slot;
-        self.market.accrue_interest_to_slot(current_slot)?;
+        crate::instructions::accounting::accrue_market_interest(
+            &mut self.market,
+            current_slot,
+            self.event_authority.to_account_info(),
+        )?;
         reconcile_live_hlp_supply(&mut self.market, target_asset, self.target_hlp_mint.supply)?;
         if self.market.hlp_terminally_closed(target_asset) {
             // A retired zero-principal token must remain burnable even if an
@@ -288,6 +292,20 @@ impl<'info> WithdrawSingleSided<'info> {
             ctx.accounts.borrowed_interest_vault.reload()?;
             let interest_vault_credit =
                 token_account_credit(interest_vault_balance_before, &ctx.accounts.borrowed_interest_vault)?;
+            crate::instructions::accounting::emit_interest_paid(
+                &ctx.accounts.market,
+                borrowed_asset,
+                crate::events::DebtSource::Hlp,
+                None,
+                crate::state::ReferralInterestQuote::new(
+                    receipt.interest_paid,
+                    interest_vault_credit,
+                    ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+                    None,
+                )?,
+                0,
+                ctx.accounts.event_authority.to_account_info(),
+            )?;
             record_hlp_interest_credit(
                 &mut ctx.accounts.market,
                 borrowed_asset,

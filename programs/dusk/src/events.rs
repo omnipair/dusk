@@ -1,7 +1,7 @@
 use crate::{
     errors::ErrorCode,
     state::MarketConfig,
-    transitions::{LeverageSwapFeeCredit, LeverageSwapQuote},
+    transitions::{AmmSwapQuote, LeverageSwapFeeCredit, LeverageSwapQuote},
 };
 use anchor_lang::prelude::*;
 
@@ -277,15 +277,35 @@ pub struct ProtocolAuctionSettled {
     pub metadata: MarketEventMetadata,
 }
 
+/// Instruction that caused an actual AMM execution. Fee attribution follows
+/// this origin; borrowing interest is reported separately by debt source.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SwapOrigin {
+    Spot,
+    HlpRescue,
+    LeverageOpen,
+    LeverageIncrease,
+    LeverageDecrease,
+    LeverageClose,
+    LeverageLiquidation,
+    CreditLiquidation,
+}
+
 #[event]
 pub struct SwapExecuted {
     pub market: Pubkey,
+    /// Beneficial owner of the trade, including delegated leverage actions.
     pub trader: Pubkey,
+    pub actor: Pubkey,
+    pub position: Option<Pubkey>,
+    pub origin: SwapOrigin,
+    pub slot: u64,
     /// `0` for base input and `1` for quote input.
     pub asset_in_side: u8,
-    /// Exact amount debited from the trader's input account.
+    /// AMM input before trading fees, after any input transfer fee. Includes
+    /// internally borrowed principal; this is not the owner's wallet debit.
     pub amount_in: u64,
-    /// Amount credited to the trader after any output transfer fee.
+    /// AMM output after trading fees, before any output transfer fee.
     pub amount_out: u64,
     /// Curve output before an output-denominated fee and transfer fee.
     pub gross_amount_out: u64,
@@ -313,7 +333,134 @@ pub struct SwapExecuted {
     pub quote_live_reserve: u64,
 }
 
-/// Actual AMM receipt embedded in a leverage action.
+impl SwapExecuted {
+    pub(crate) fn from_amm(
+        market: Pubkey,
+        trader: Pubkey,
+        actor: Pubkey,
+        position: Option<Pubkey>,
+        origin: SwapOrigin,
+        slot: u64,
+        swap: AmmSwapQuote,
+        base_live_reserve: u64,
+        quote_live_reserve: u64,
+    ) -> Self {
+        Self {
+            market,
+            trader,
+            actor,
+            position,
+            origin,
+            slot,
+            asset_in_side: swap.asset_in.code(),
+            amount_in: swap.fee.reserve_credit,
+            amount_out: swap.amount_out,
+            gross_amount_out: swap.gross_amount_out,
+            fee_asset_side: swap.fee.fee_asset,
+            amount_in_after_fee: swap.fee.amount_in_for_quote,
+            base_fee: swap.fee.base_fee_debit,
+            divergence_fee: swap.fee.divergence_surcharge_debit,
+            volatility_fee: swap.fee.volatility_surcharge_debit,
+            retained_fee: swap.fee.retained_surcharge,
+            compounded_fee: swap.fee.compounded_fee_debit,
+            hlp_recovery_target_asset: swap.recovery.target_asset,
+            hlp_recovery_funding_gap: swap.recovery.funding_gap,
+            hlp_recovery_matched_input: swap.recovery.matched_input,
+            hlp_recovery_bonus_output: swap.recovery.bonus_output,
+            hlp_recovery_discount_bps: swap.recovery.discount_bps,
+            hlp_recovery_critical: swap.recovery.critical,
+            base_live_reserve,
+            quote_live_reserve,
+        }
+    }
+
+    pub(crate) fn from_leverage(
+        market: Pubkey,
+        trader: Pubkey,
+        actor: Pubkey,
+        position: Pubkey,
+        origin: SwapOrigin,
+        slot: u64,
+        swap: LeverageSwapReceipt,
+    ) -> Self {
+        Self {
+            market,
+            trader,
+            actor,
+            position: Some(position),
+            origin,
+            slot,
+            asset_in_side: swap.asset_in_side,
+            amount_in: swap.amount_in,
+            amount_out: swap.amount_out,
+            gross_amount_out: swap.gross_amount_out,
+            fee_asset_side: swap.fee_asset_side,
+            amount_in_after_fee: swap.amount_in_after_fee,
+            base_fee: swap.base_fee,
+            divergence_fee: swap.divergence_fee,
+            volatility_fee: swap.volatility_fee,
+            retained_fee: swap.retained_fee,
+            compounded_fee: swap.compounded_fee,
+            hlp_recovery_target_asset: 0,
+            hlp_recovery_funding_gap: 0,
+            hlp_recovery_matched_input: 0,
+            hlp_recovery_bonus_output: 0,
+            hlp_recovery_discount_bps: 0,
+            hlp_recovery_critical: false,
+            base_live_reserve: swap.base_live_reserve,
+            quote_live_reserve: swap.quote_live_reserve,
+        }
+    }
+}
+
+/// Interest recognized by one committed borrow-index checkpoint. Amounts are
+/// raw atoms of `asset_mint`, separately floored in each debt-share bucket.
+/// This is accrued interest, not a payment or a protocol-revenue allocation.
+#[event]
+pub struct BorrowInterestAccrued {
+    pub market: Pubkey,
+    pub asset_mint: Pubkey,
+    pub asset_side: u8,
+    pub from_slot: u64,
+    pub to_slot: u64,
+    pub borrow_index_before_nad: u128,
+    pub borrow_index_after_nad: u128,
+    pub credit_interest: u128,
+    pub margin_interest: u128,
+    pub hlp_interest: u128,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DebtSource {
+    Credit,
+    Margin,
+    Hlp,
+}
+
+/// Canonical interest-payment record. Lifecycle and referral events may
+/// repeat these amounts for context and must not be summed a second time.
+#[event]
+pub struct BorrowInterestPaid {
+    pub market: Pubkey,
+    pub asset_mint: Pubkey,
+    pub asset_side: u8,
+    pub source: DebtSource,
+    /// None for aggregate hLP funding debt; `asset_side` identifies its vault.
+    pub position: Option<Pubkey>,
+    /// Gross interest collected, including any terminal hLP caller bounty.
+    pub interest_paid: u64,
+    /// Net tokens credited to the interest vault after transfer fees/bounty.
+    pub interest_vault_credit: u64,
+    /// Protocol allocation from vault credit, before the referral allocation.
+    pub protocol_interest_revenue: u64,
+    pub referral_amount: u64,
+    /// Gross terminal hLP caller bounty; zero for ordinary payments.
+    pub caller_bounty: u64,
+    pub slot: u64,
+}
+
+/// Supporting AMM receipt embedded in a leverage action. `SwapExecuted` is
+/// the authoritative swap/fee record; do not count this receipt again.
 /// `None` on `LeveragePositionUpdated` means the action was margin-only.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LeverageSwapReceipt {
@@ -415,6 +562,8 @@ pub struct LeveragePositionUpdated {
     pub closeout_value: u64,
     /// Net tokens paid to the owner by this update, if any.
     pub owner_credit: u64,
+    /// Interest actually repaid by this action, in debt-token atoms.
+    pub interest_paid: u64,
     pub swap: Option<LeverageSwapReceipt>,
     pub metadata: MarketEventMetadata,
 }

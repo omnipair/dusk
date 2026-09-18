@@ -1,5 +1,12 @@
 # @omnipair/dusk-sdk
 
+For volume, fee, and borrower-interest consumers, see the
+[accounting event contract](../../programs/dusk/ACCOUNTING_EVENTS.md).
+`SwapExecuted` covers spot and leverage AMM executions. `BorrowInterestAccrued`
+separates credit, margin, and hLP accrual; `BorrowInterestPaid` reports actual
+collections with the same source attribution. Typed events and their
+`SwapOrigin`/`DebtSource` discriminants are exported from this package.
+
 TypeScript SDK for Dusk, the Omnipair V2 protocol architecture. This package
 targets Dusk market layout v1.
 

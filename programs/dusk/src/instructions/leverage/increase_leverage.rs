@@ -8,7 +8,7 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{LeveragePositionUpdated, LeverageSwapReceipt, MarketEventMetadata},
+    events::{LeveragePositionUpdated, LeverageSwapReceipt, MarketEventMetadata, SwapExecuted, SwapOrigin},
     generate_market_seeds,
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset},
     token::transfer_checked_with_remaining_accounts,
@@ -143,6 +143,11 @@ impl<'info> IncreaseLeverage<'info> {
         let position_key = ctx.accounts.leverage_position.key();
 
         // Quote the additional debt as a collateral purchase.
+        crate::instructions::accounting::accrue_market_interest(
+            &mut ctx.accounts.market,
+            current_slot,
+            ctx.accounts.event_authority.to_account_info(),
+        )?;
         let prepared_swap = prepare_leverage_swap(
             &mut ctx.accounts.market,
             SwapRequest {
@@ -209,6 +214,7 @@ impl<'info> IncreaseLeverage<'info> {
             receipt.base_hlp_rebalance,
             receipt.quote_hlp_rebalance,
             interest_eligibility,
+            ctx.accounts.event_authority.to_account_info(),
         )?;
 
         // Reconcile physical reserve custody after inline settlement.
@@ -224,6 +230,21 @@ impl<'info> IncreaseLeverage<'info> {
         )?;
 
         // Emit the final position state.
+        let swap_event = LeverageSwapReceipt::new(
+            swap,
+            swap_fee_credit,
+            ctx.accounts.market.base_side.reserves.live_reserve,
+            ctx.accounts.market.quote_side.reserves.live_reserve,
+        )?;
+        emit_cpi!(SwapExecuted::from_leverage(
+            market_key,
+            owner_key,
+            owner_key,
+            position_key,
+            SwapOrigin::LeverageIncrease,
+            current_slot,
+            swap_event,
+        ));
         emit_cpi!(LeveragePositionUpdated {
             market: market_key,
             position: position_key,
@@ -238,12 +259,8 @@ impl<'info> IncreaseLeverage<'info> {
             collateral_amount: receipt.collateral_amount,
             closeout_value: receipt.closeout_value,
             owner_credit: 0,
-            swap: Some(LeverageSwapReceipt::new(
-                swap,
-                swap_fee_credit,
-                ctx.accounts.market.base_side.reserves.live_reserve,
-                ctx.accounts.market.quote_side.reserves.live_reserve,
-            )?),
+            interest_paid: receipt.interest_paid,
+            swap: Some(swap_event),
             metadata: MarketEventMetadata::at_slot(owner_key, market_key, current_slot),
         });
         Ok(())

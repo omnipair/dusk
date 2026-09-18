@@ -1,3 +1,4 @@
+mod accounting;
 mod accounts;
 mod futarchy;
 mod governance;

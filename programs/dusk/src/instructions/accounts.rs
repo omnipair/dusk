@@ -31,12 +31,22 @@ pub fn derive_hlp_ylp_vault_address(market: Pubkey, target_hlp_mint: Pubkey, ylp
 macro_rules! market_update_and_validate {
     ($args:ty) => {
         pub fn update_and_validate(&mut self, args: &$args) -> Result<()> {
+            crate::instructions::accounting::accrue_market_interest(
+                &mut self.market,
+                Clock::get()?.slot,
+                self.event_authority.to_account_info(),
+            )?;
             self.market.update()?;
             self.validate(args)
         }
     };
     () => {
         pub fn update_and_validate(&mut self) -> Result<()> {
+            crate::instructions::accounting::accrue_market_interest(
+                &mut self.market,
+                Clock::get()?.slot,
+                self.event_authority.to_account_info(),
+            )?;
             self.market.update()?;
             self.validate()
         }
