@@ -1188,6 +1188,7 @@ impl Market {
             )?
             .amount_out;
         require_leverage_not_liquidatable(pre_finalize_closeout_value, debt_after)?;
+        self.require_ema_leverage_not_liquidatable(collateral_asset, collateral_after, debt_after)?;
         let cash_policy = SwapCashPolicy::Decrease {
             debt_asset,
             debt_shares: position.debt_shares,
@@ -1211,6 +1212,11 @@ impl Market {
         position.debit_collateral(collateral_debit)?;
         let closeout_value = self.leverage_closeout_value_at_time(position, current_slot, current_unix_timestamp)?;
         require_leverage_not_liquidatable(closeout_value, clearance.remaining_debt)?;
+        self.require_ema_leverage_not_liquidatable(
+            collateral_asset,
+            position.collateral_amount,
+            clearance.remaining_debt,
+        )?;
         Ok(LeverageUpdateReceipt {
             borrowed_amount: 0,
             debt_delta: -i64::try_from(clearance.debt_reduced).map_err(|_| ErrorCode::Overflow)?,
@@ -1364,6 +1370,11 @@ impl Market {
                 let remaining_closeout =
                     self.leverage_closeout_value_at_time(position, current_slot, current_unix_timestamp)?;
                 require_leverage_not_liquidatable(remaining_closeout, remaining_debt)?;
+                self.require_ema_leverage_not_liquidatable(
+                    position.collateral_asset()?,
+                    position.collateral_amount,
+                    remaining_debt,
+                )?;
                 (remaining_debt, remaining_closeout)
             } else {
                 require_eq!(position.debt_shares, 0, ErrorCode::BrokenInvariant);
@@ -1412,6 +1423,11 @@ impl Market {
         let margin_bps = equity_bps(swap.amount_out, debt_amount)?;
         require!(
             swap.amount_out <= debt_amount || margin_bps <= LEVERAGE_MAINTENANCE_BUFFER_BPS as u128,
+            ErrorCode::LeveragePositionNotLiquidatable
+        );
+        require!(
+            self.ema_leverage_margin_bps(position.collateral_asset()?, collateral_sold, debt_amount)?
+                <= LEVERAGE_MAINTENANCE_BUFFER_BPS as u128,
             ErrorCode::LeveragePositionNotLiquidatable
         );
 
@@ -1636,7 +1652,42 @@ impl Market {
             closeout_value,
             position.debt_amount(&self.debt)?,
         )?;
+        let debt_amount = position.debt_amount(&self.debt)?;
+        require_gte!(
+            self.ema_leverage_margin_bps(collateral_asset, position.collateral_amount, debt_amount)?,
+            LEVERAGE_INITIAL_MARGIN_BPS as u128,
+            ErrorCode::LeverageInitialMarginTooLow
+        );
         Ok(closeout_value)
+    }
+
+    fn ema_leverage_margin_bps(
+        &self,
+        collateral_asset: MarketAsset,
+        collateral_amount: u64,
+        debt_amount: u64,
+    ) -> Result<u128> {
+        let collateral_value_nad =
+            self.linear_liquidation_collateral_value_nad(collateral_asset, collateral_amount, &self.risk)?;
+        let debt_value_nad = self.normalize_amount(
+            debt_amount as u128,
+            self.side(collateral_asset.opposite()).asset_decimals,
+        )?;
+        equity_bps_u128(collateral_value_nad, debt_value_nad)
+    }
+
+    fn require_ema_leverage_not_liquidatable(
+        &self,
+        collateral_asset: MarketAsset,
+        collateral_amount: u64,
+        debt_amount: u64,
+    ) -> Result<()> {
+        require_gt!(
+            self.ema_leverage_margin_bps(collateral_asset, collateral_amount, debt_amount)?,
+            LEVERAGE_MAINTENANCE_BUFFER_BPS as u128,
+            ErrorCode::LeveragePositionNotLiquidatable
+        );
+        Ok(())
     }
 
     fn post_swap_closeout_quote_with_quote(
@@ -1791,12 +1842,17 @@ pub(crate) fn leverage_debt_from_margin(margin_amount: u64, multiplier_bps: u64)
 }
 
 fn equity_bps(closeout_value: u64, debt_amount: u64) -> Result<u128> {
+    equity_bps_u128(closeout_value as u128, debt_amount as u128)
+}
+
+fn equity_bps_u128(closeout_value: u128, debt_amount: u128) -> Result<u128> {
     if closeout_value == 0 {
         return Ok(0);
     }
-    Ok((closeout_value.saturating_sub(debt_amount) as u128)
+    Ok(closeout_value
+        .saturating_sub(debt_amount)
         .checked_mul(BPS_DENOMINATOR as u128)
-        .and_then(|value| value.checked_div(closeout_value as u128))
+        .and_then(|value| value.checked_div(closeout_value))
         .ok_or(ErrorCode::MarketMathOverflow)?)
 }
 

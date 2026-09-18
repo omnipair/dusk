@@ -1319,6 +1319,56 @@ fn solvent_liquidation_closes_position_and_pays_residual_incentive() {
 }
 
 #[test]
+fn leverage_liquidation_requires_ema_confirmation() {
+    let mut market = test_market(1_000_000, 1_000_000);
+    let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000, 1_010);
+    let quote = market
+        .quote_leverage_swap(MarketAsset::Quote, position.collateral_amount, 1)
+        .unwrap();
+    assert!(equity_bps(quote.amount_out, 1_000).unwrap() <= LEVERAGE_MAINTENANCE_BUFFER_BPS as u128);
+    let prepared_liquidation = prepared_leverage_swap(
+        &market,
+        quote,
+        SwapCashPolicy::Liquidate {
+            debt_asset: MarketAsset::Base,
+            debt_shares: position.debt_shares,
+            debt_principal: position.debt_principal,
+        },
+    );
+
+    market.risk.quote_price_ema_nad = 2 * NAD;
+    let error = market
+        .liquidate_leverage_position(
+            &mut position,
+            prepared_liquidation,
+            full_fee_credit(&quote),
+            0,
+            ProtocolAuctionSplit::default(),
+            1,
+        )
+        .unwrap_err();
+
+    assert_eq!(error, error!(ErrorCode::LeveragePositionNotLiquidatable));
+    assert_eq!(position.collateral_amount, 1_010);
+    assert_eq!(position.debt_amount(&market.debt).unwrap(), 1_000);
+}
+
+#[test]
+fn leverage_debt_admission_requires_ema_health() {
+    let mut market = test_market(1_000_000, 1_000_000);
+    let position = seeded_position(&mut market, MarketAsset::Base, 1_000, 2_000);
+    let closeout = market.leverage_closeout_value(&position, 1).unwrap();
+    assert!(equity_bps(closeout, 1_000).unwrap() >= LEVERAGE_INITIAL_MARGIN_BPS as u128);
+
+    market.risk.quote_price_ema_nad = NAD / 2;
+    let error = market
+        .require_position_initial_leverage_health(&position, 1, 0)
+        .unwrap_err();
+
+    assert_eq!(error, error!(ErrorCode::LeverageInitialMarginTooLow));
+}
+
+#[test]
 fn insolvent_liquidation_socializes_unrepaid_principal() {
     let mut market = test_market(1_000_000, 1_000_000);
     let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000, 500);
