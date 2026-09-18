@@ -5,6 +5,10 @@ fn indexer_receipts_remain_compact() {
     let swap = SwapExecuted {
         market: Pubkey::new_unique(),
         trader: Pubkey::new_unique(),
+        actor: Pubkey::new_unique(),
+        position: None,
+        origin: SwapOrigin::Spot,
+        slot: 1,
         asset_in_side: 0,
         amount_in: 1,
         amount_out: 2,
@@ -107,7 +111,7 @@ fn indexer_receipts_remain_compact() {
         remaining_debt: 7,
     };
 
-    assert_eq!(SwapExecuted::DISCRIMINATOR.len() + swap.try_to_vec().unwrap().len(), 190);
+    assert_eq!(SwapExecuted::DISCRIMINATOR.len() + swap.try_to_vec().unwrap().len(), 232);
     assert_eq!(leverage_swap.try_to_vec().unwrap().len(), 98);
     assert_eq!(
         LiquidityAdded::DISCRIMINATOR.len() + liquidity_added.try_to_vec().unwrap().len(),

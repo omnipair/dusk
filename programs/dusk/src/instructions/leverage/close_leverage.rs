@@ -14,7 +14,10 @@ use super::settlement::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{LeveragePositionClosed, LeveragePositionUpdated, LeverageSwapReceipt, MarketEventMetadata},
+    events::{
+        LeveragePositionClosed, LeveragePositionUpdated, LeverageSwapReceipt, MarketEventMetadata, SwapExecuted,
+        SwapOrigin,
+    },
     generate_market_seeds,
     instructions::{
         accounts::{require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout},
@@ -288,7 +291,11 @@ impl<'info> CloseLeverage<'info> {
 
         // Freeze debt indexes before deriving the exact proportional slice so
         // the delegate callback and committed lifecycle share one basis.
-        ctx.accounts.market.accrue_interest_to_slot(current_slot)?;
+        crate::instructions::accounting::accrue_market_interest(
+            &mut ctx.accounts.market,
+            current_slot,
+            ctx.accounts.event_authority.to_account_info(),
+        )?;
         let close_slice = ctx
             .accounts
             .market
@@ -468,6 +475,7 @@ impl<'info> CloseLeverage<'info> {
             receipt.base_hlp_rebalance,
             receipt.quote_hlp_rebalance,
             interest_eligibility,
+            ctx.accounts.event_authority.to_account_info(),
         )?;
         // Inline hLP funding settlement may have credited this same vault.
         // Refresh before measuring the position-interest transfer so the
@@ -525,6 +533,15 @@ impl<'info> CloseLeverage<'info> {
         )?;
 
         // Emit referral accrual before the final close event.
+        crate::instructions::accounting::emit_interest_paid(
+            &ctx.accounts.market,
+            debt_asset,
+            crate::events::DebtSource::Margin,
+            Some(position_key),
+            referral_receipt.quote,
+            0,
+            ctx.accounts.event_authority.to_account_info(),
+        )?;
         if let Some(event) = referral_interest_accrued_event_at_slot(
             &referral_receipt,
             market_key,
@@ -543,6 +560,15 @@ impl<'info> CloseLeverage<'info> {
             ctx.accounts.market.base_side.reserves.live_reserve,
             ctx.accounts.market.quote_side.reserves.live_reserve,
         )?;
+        emit_cpi!(SwapExecuted::from_leverage(
+            market_key,
+            owner_key,
+            authority_key,
+            position_key,
+            SwapOrigin::LeverageClose,
+            current_slot,
+            swap_event,
+        ));
         if is_full_close {
             emit_cpi!(LeveragePositionClosed {
                 market: market_key,
@@ -573,6 +599,7 @@ impl<'info> CloseLeverage<'info> {
                 collateral_amount: receipt.remaining_collateral_amount,
                 closeout_value: receipt.remaining_closeout_value,
                 owner_credit: residual_credit,
+                interest_paid: receipt.interest_paid,
                 swap: Some(swap_event),
                 metadata: MarketEventMetadata::at_slot(authority_key, market_key, current_slot),
             });

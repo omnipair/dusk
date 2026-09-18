@@ -79,6 +79,44 @@ fn configure_active_base_side(market: &mut Market) {
 }
 
 #[test]
+fn accrual_receipt_separates_credit_margin_and_hlp_at_the_shared_index() {
+    let mut market = test_market(300, 1_000);
+    configure_active_base_side(&mut market);
+    market.debt.base_rate_at_target_nad = NAD as u128 / 10;
+    // At target utilization, one year at 10% grows credit 300 -> 330,
+    // margin 200 -> 220, and hLP funding 200 -> 220.
+    let receipt = accrue_side::<true>(&mut market, MarketAsset::Base, slots_for_ms(MS_PER_YEAR))
+        .unwrap()
+        .unwrap();
+    assert_eq!(receipt.credit_interest, 30);
+    assert_eq!(receipt.margin_interest, 20);
+    assert_eq!(receipt.hlp_interest, 20);
+    assert_eq!(market.base_side.reserves.live_reserve, 1_050);
+    assert_eq!(market.base_side.reserves.cash_reserve, 300);
+    assert_eq!(receipt.from_slot, 0);
+    assert_eq!(receipt.to_slot, slots_for_ms(MS_PER_YEAR));
+    assert!(accrue_side::<true>(&mut market, MarketAsset::Base, receipt.to_slot).unwrap().is_none());
+}
+
+#[test]
+fn accrual_receipts_preserve_each_buckets_rounding_boundary() {
+    let mut market = test_market(3, 1_000);
+    market.debt.fixed_base_shares = 3;
+    market.debt.isolated_base_shares = 2;
+    market.quote_hlp_vault.debt_shares = 2;
+    market.quote_hlp_vault.base_hlp_live_reserve = 2;
+    market.base_side.reserves.live_reserve = 10;
+    market.debt.base_rate_at_target_nad = NAD as u128 / 2;
+    let receipt = accrue_side::<true>(&mut market, MarketAsset::Base, slots_for_ms(MS_PER_YEAR))
+        .unwrap()
+        .unwrap();
+    assert_eq!(receipt.credit_interest, 1);
+    assert_eq!(receipt.margin_interest, 1);
+    assert_eq!(receipt.hlp_interest, 1);
+    assert_eq!(market.base_side.reserves.live_reserve, 12);
+}
+
+#[test]
 fn no_time_elapsed_is_a_noop() {
     let mut market = test_market(1_000, 1_000);
     market.debt.base_last_accrual_slot = 100;
