@@ -177,6 +177,7 @@ const DUSK_INSTRUCTIONS = [
   "backstopLiquidationAuction",
   "previewMarket",
   "previewHlpOrderTrigger",
+  "previewHlpDepositCapacity",
   "previewAddLiquidity",
   "previewSwap",
   "previewBorrowCapacity",

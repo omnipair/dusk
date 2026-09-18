@@ -403,6 +403,10 @@ pub mod dusk {
     }
 
     // Preview instructions
+    pub fn preview_hlp_deposit_capacity(ctx: Context<PreviewHlpDepositCapacity>) -> Result<HlpDepositCapacityPreview> {
+        PreviewHlpDepositCapacity::handle_preview(ctx)
+    }
+
     pub fn preview_market(ctx: Context<PreviewMarket>) -> Result<MarketPreview> {
         PreviewMarket::handle_preview(ctx)
     }

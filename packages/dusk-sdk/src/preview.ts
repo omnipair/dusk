@@ -7,6 +7,7 @@ const coder = new BorshCoder(IDL as unknown as Idl);
 
 type DuskPreviewTypes = IdlTypes<Dusk>;
 
+export type HlpDepositCapacityPreview = DuskPreviewTypes["hlpDepositCapacityPreview"];
 export type MarketPreview = DuskPreviewTypes["marketPreview"];
 export type AddLiquidityPreview = DuskPreviewTypes["addLiquidityPreview"];
 export type SwapPreview = DuskPreviewTypes["swapPreview"];
@@ -16,6 +17,7 @@ export type BorrowPositionPreview = DuskPreviewTypes["borrowPositionPreview"];
 export type HlpOrderTriggerPreview = DuskPreviewTypes["hlpOrderTriggerPreview"];
 
 export const PREVIEW_RETURN_TYPES = {
+  previewHlpDepositCapacity: "HlpDepositCapacityPreview",
   previewMarket: "MarketPreview",
   previewAddLiquidity: "AddLiquidityPreview",
   previewSwap: "SwapPreview",
@@ -29,6 +31,7 @@ export type PreviewInstructionName = keyof typeof PREVIEW_RETURN_TYPES;
 export type PreviewReturnTypeName = (typeof PREVIEW_RETURN_TYPES)[PreviewInstructionName];
 
 type PreviewReturnByIdlType = {
+  HlpDepositCapacityPreview: HlpDepositCapacityPreview;
   MarketPreview: MarketPreview;
   AddLiquidityPreview: AddLiquidityPreview;
   SwapPreview: SwapPreview;
@@ -152,4 +155,10 @@ function camelizeKey(key: string): string {
 
 export function decodePreviewBorrowPositionCapacityReturnData(returnData: PreviewReturnData): BorrowPositionCapacityPreview {
   return decodePreviewReturnData("BorrowPositionCapacityPreview", returnData);
+}
+
+export function decodePreviewHlpDepositCapacityReturnData(
+  returnData: PreviewReturnData
+): HlpDepositCapacityPreview {
+  return decodePreviewReturnData("HlpDepositCapacityPreview", returnData);
 }

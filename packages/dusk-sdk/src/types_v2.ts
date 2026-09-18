@@ -5273,6 +5273,42 @@ export type Dusk = {
       }
     },
     {
+      "name": "previewHlpDepositCapacity",
+      "discriminator": [
+        183,
+        4,
+        20,
+        188,
+        148,
+        193,
+        129,
+        195
+      ],
+      "accounts": [
+        {
+          "name": "market"
+        },
+        {
+          "name": "futarchyAuthority"
+        },
+        {
+          "name": "baseMint"
+        },
+        {
+          "name": "quoteMint"
+        },
+        {
+          "name": "targetHlpMint"
+        }
+      ],
+      "args": [],
+      "returns": {
+        "defined": {
+          "name": "hlpDepositCapacityPreview"
+        }
+      }
+    },
+    {
       "name": "previewHlpOrderTrigger",
       "discriminator": [
         98,
@@ -11617,6 +11653,100 @@ export type Dusk = {
           {
             "name": "quoteLiveReserve",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hlpDepositCapacityPreview",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "targetAsset",
+            "type": {
+              "defined": {
+                "name": "marketAsset"
+              }
+            }
+          },
+          {
+            "name": "hlpMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "hlpDepositStatus"
+              }
+            }
+          },
+          {
+            "name": "fundingLimitGross",
+            "docs": [
+              "Exact funding ceiling, NOT a promise that all smaller amounts execute.",
+              "Actual deposits still enforce rounding, settlement, custody and slippage.",
+              "Gross wallet debit, including the current epoch's transfer fee."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "fundingLimitNet",
+            "docs": [
+              "Greatest net target reserve credit supported by opposite-asset funding."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hlpDepositStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "ready"
+          },
+          {
+            "name": "notStarted"
+          },
+          {
+            "name": "reduceOnly"
+          },
+          {
+            "name": "noLiquidity"
+          },
+          {
+            "name": "rebalanceRequired"
+          },
+          {
+            "name": "cashConstrained"
+          },
+          {
+            "name": "unhedgeable"
+          },
+          {
+            "name": "settlementRequired"
+          },
+          {
+            "name": "noFundingCapacity"
+          },
+          {
+            "name": "noNetDeposit"
           }
         ]
       }
