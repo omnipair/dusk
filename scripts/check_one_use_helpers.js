@@ -360,6 +360,9 @@ const actionable = candidates.filter(({ recursive }) => !recursive);
 // gate: new one-use helpers still fail, while removing an accepted helper never
 // blocks a cleanup commit. Placement errors are never baselined.
 const acceptedOneUseHelpers = new Map([
+  // Keep the pure, clock-bound hLP admission and fee-boundary calculations
+  // independently testable from Anchor account deserialization and sysvars.
+  ["programs/dusk/src/instructions/hlp_deposit_preview.rs", new Set(["preview_hlp_funding_limit", "gross_funding_limit"])],
   ["programs/dusk/src/instructions/leverage/liquidate_leverage_position.rs", new Set(["finish_liquidation"])],
   [
     "programs/dusk/src/instructions/prepare_swap.rs",

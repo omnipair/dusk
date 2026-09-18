@@ -5267,6 +5267,42 @@
       }
     },
     {
+      "name": "preview_hlp_deposit_capacity",
+      "discriminator": [
+        183,
+        4,
+        20,
+        188,
+        148,
+        193,
+        129,
+        195
+      ],
+      "accounts": [
+        {
+          "name": "market"
+        },
+        {
+          "name": "futarchy_authority"
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "target_hlp_mint"
+        }
+      ],
+      "args": [],
+      "returns": {
+        "defined": {
+          "name": "HlpDepositCapacityPreview"
+        }
+      }
+    },
+    {
       "name": "preview_hlp_order_trigger",
       "discriminator": [
         98,
@@ -11611,6 +11647,100 @@
           {
             "name": "quote_live_reserve",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "HlpDepositCapacityPreview",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "target_asset",
+            "type": {
+              "defined": {
+                "name": "MarketAsset"
+              }
+            }
+          },
+          {
+            "name": "hlp_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "HlpDepositStatus"
+              }
+            }
+          },
+          {
+            "name": "funding_limit_gross",
+            "docs": [
+              "Exact funding ceiling, NOT a promise that all smaller amounts execute.",
+              "Actual deposits still enforce rounding, settlement, custody and slippage.",
+              "Gross wallet debit, including the current epoch's transfer fee."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "funding_limit_net",
+            "docs": [
+              "Greatest net target reserve credit supported by opposite-asset funding."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "HlpDepositStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Ready"
+          },
+          {
+            "name": "NotStarted"
+          },
+          {
+            "name": "ReduceOnly"
+          },
+          {
+            "name": "NoLiquidity"
+          },
+          {
+            "name": "RebalanceRequired"
+          },
+          {
+            "name": "CashConstrained"
+          },
+          {
+            "name": "Unhedgeable"
+          },
+          {
+            "name": "SettlementRequired"
+          },
+          {
+            "name": "NoFundingCapacity"
+          },
+          {
+            "name": "NoNetDeposit"
           }
         ]
       }

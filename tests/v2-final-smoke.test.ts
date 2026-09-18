@@ -70,6 +70,7 @@ import {
   decodePreviewBorrowPositionReturnData,
   decodePreviewBorrowPositionCapacityReturnData,
   decodePreviewHlpOrderTriggerReturnData,
+  decodePreviewHlpDepositCapacityReturnData,
   decodePreviewMarketReturnData,
   decodePreviewSwapReturnData,
 } from "../packages/dusk-sdk/src/preview.js";
@@ -2739,6 +2740,31 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(decoded.base_hlp_vault.ylp_shares.toNumber()).to.equal(14_142);
     expect(decoded.base_hlp_vault.hlp_supply.toNumber()).to.equal(10_000);
     expect(decoded.base_hlp_vault.debt_shares.toNumber()).to.be.greaterThan(0);
+  });
+
+  it("previews hLP funding admission without mutating market or mints", async function () {
+    const fixture = await addBalancedLiquidity(121);
+    const before = Buffer.from(svm.getAccount(fixture.market)!.data);
+    for (const [targetHlpMint, side] of [[fixture.baseHlpMint, "base"], [fixture.quoteHlpMint, "quote"]] as const) {
+      const tx = await program.methods.previewHlpDepositCapacity().accountsStrict({
+        market: fixture.market,
+        futarchyAuthority,
+        baseMint: fixture.baseMint,
+        quoteMint: fixture.quoteMint,
+        targetHlpMint,
+      }).transaction();
+      expect(tx.instructions.every((ix: any) => ix.keys.every((meta: any) => !meta.isWritable))).to.equal(true);
+      const preview = decodePreviewHlpDepositCapacityReturnData(await simulateReturnData(tx));
+      expect(preview.market.equals(fixture.market)).to.equal(true);
+      expect(preview.hlpMint.equals(targetHlpMint)).to.equal(true);
+      expect(preview.targetAsset).to.have.property(side);
+      expect(preview.status).to.have.property("ready");
+      expect(preview.fundingLimitGross.toString()).to.equal(preview.fundingLimitNet.toString());
+      expect(preview.fundingLimitNet.toNumber()).to.be.greaterThan(0);
+      await connection.sendTransaction(tx, [payer]);
+      expect(Buffer.from(svm.getAccount(fixture.market)!.data).equals(before)).to.equal(true);
+    }
+    trackV2Instruction("previewHlpDepositCapacity", this.test?.title);
   });
 
   it("previews hLP order trigger metrics", async function () {

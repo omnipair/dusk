@@ -1847,7 +1847,7 @@ pub(crate) fn checkpoint_hlp_yield_from_ylp_shares(
     }
 }
 
-fn require_hlp_settlement_available(market: &Market, target_asset: MarketAsset) -> Result<()> {
+pub(crate) fn require_hlp_settlement_available(market: &Market, target_asset: MarketAsset) -> Result<()> {
     let prices = current_hlp_curve_prices(market)?;
     let vault = match target_asset {
         MarketAsset::Base => &market.base_hlp_vault,
