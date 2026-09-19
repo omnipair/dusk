@@ -9,3 +9,5 @@ pub const HLP_ORDER_STATUS_ACTIVE: u8 = 0;
 pub const HLP_ORDER_STATUS_CANCELLED: u8 = 1;
 pub const HLP_ORDER_STATUS_EXECUTED: u8 = 2;
 pub const ENTRY_ORDER_SEED_PREFIX: &[u8] = b"leverage_entry_order";
+
+pub const PROTECTION_ORDER_SEED_PREFIX: &[u8] = b"protection_order";

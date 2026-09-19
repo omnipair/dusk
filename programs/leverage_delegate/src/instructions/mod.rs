@@ -5,3 +5,6 @@ pub mod leverage;
 pub use entry::*;
 pub use hlp::*;
 pub use leverage::*;
+
+pub mod protection;
+pub use protection::*;

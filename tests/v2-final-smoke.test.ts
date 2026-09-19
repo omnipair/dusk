@@ -8536,4 +8536,270 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       cpiEvent(successfulQueueTx, "parameterProposalQueued").proposal.toString()
     ).to.equal(queuedProposal.toString());
   });
+  async function protectionBorrow(fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>) {
+    const positionId = Keypair.generate().publicKey;
+    const borrowPosition = deriveBorrowPositionAddress(fixture.market, positionId)[0];
+    await connection.sendTransaction(await program.methods.depositCollateral({ positionId, depositAmount: new BN(10_000) }).accounts({
+      market: fixture.market, owner: payer.publicKey, assetMint: fixture.baseMint, collateralVault: fixture.baseCollateralVault,
+      ownerAssetAccount: fixture.ownerBaseAccount, borrowPosition, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+      systemProgram: SystemProgram.programId, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).transaction(), [payer]);
+    await connection.sendTransaction(await program.methods.borrow({ borrowAmount: new BN(5_000), minDebtAmountOut: new BN(5_000), minLiquidationCfBps: 0, referrer: null }).accounts({
+      market: fixture.market, futarchyAuthority, owner: payer.publicKey, debtAssetMint: fixture.quoteMint, collateralAssetMint: fixture.baseMint,
+      reserveVault: fixture.quoteReserveVault, ownerDebtAccount: fixture.ownerQuoteAccount, borrowPosition, referralPartner: null, referralAccrual: null,
+      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).transaction(), [payer]);
+    return { positionId, borrowPosition };
+  }
+
+  it("accepts permissionless debt and collateral donations without granting withdrawal rights", async function () {
+    const f = await addBalancedLiquidity(211);
+    const { borrowPosition, positionId } = await protectionBorrow(f);
+    const donor = Keypair.generate();
+    await connection.requestAirdrop(donor.publicKey, LAMPORTS_PER_SOL);
+    const donorBase = await createAccount(connection as any, payer, f.baseMint, donor.publicKey);
+    const donorQuote = await createAccount(connection as any, payer, f.quoteMint, donor.publicKey);
+    await mintTo(connection as any, payer, f.baseMint, donorBase, payer, 1_000);
+    await mintTo(connection as any, payer, f.quoteMint, donorQuote, payer, 10_000);
+    const positionBefore = accountCoder.decode("BorrowPosition", Buffer.from(svm.getAccount(borrowPosition)!.data)) as any;
+    const donationAccounts = { market: f.market, owner: donor.publicKey, assetMint: f.baseMint, collateralVault: f.baseCollateralVault,
+      ownerAssetAccount: donorBase, borrowPosition, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID };
+    const donationTx = new Transaction().add(await new DuskWrite(program).donateCollateralInstruction({
+      market: f.market, owner: donor.publicKey, assetMint: f.baseMint, ownerAssetAccount: donorBase,
+      borrowPosition, positionId, depositAmount: 100,
+    }));
+    donationTx.feePayer = donor.publicKey;
+    await connection.sendTransaction(donationTx, [donor]);
+    trackV2Instruction("donateCollateral", this.test?.title);
+    const donated = accountCoder.decode("BorrowPosition", Buffer.from(svm.getAccount(borrowPosition)!.data)) as any;
+    expect(donated.base_collateral.toNumber()).to.equal(10_100);
+    expect(donated.owner.equals(payer.publicKey)).to.equal(true);
+    expect(donated.quote_liquidation_cf_bps).to.equal(positionBefore.quote_liquidation_cf_bps);
+    expect(cpiEvent(donationTx, "marketCollateralDeposited").owner.equals(payer.publicKey)).to.equal(true);
+    expect(cpiEvent(donationTx, "marketCollateralDeposited").metadata.signer.equals(donor.publicKey)).to.equal(true);
+    const repayTx = await program.methods.repay({ repayAmount: new BN(10_000) }).accounts({
+      market: f.market, futarchyAuthority, owner: donor.publicKey, debtAssetMint: f.quoteMint, reserveVault: f.quoteReserveVault,
+      interestVault: f.quoteInterestVault, ownerDebtAccount: donorQuote, borrowPosition, referralPartner: null, referralAccrual: null,
+      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).transaction();
+    repayTx.feePayer = donor.publicKey;
+    await connection.sendTransaction(repayTx, [donor]);
+    expect((await getAccount(connection as any, donorQuote)).amount).to.equal(5_000n);
+    const debtEvent = cpiEvent(repayTx, "marketDebtUpdated");
+    expect(debtEvent.owner.equals(payer.publicKey)).to.equal(true);
+    expect(debtEvent.metadata.signer.equals(donor.publicKey)).to.equal(true);
+    const sweepAccounts = { market: f.market, owner: payer.publicKey, borrowPosition, baseMint: f.baseMint, quoteMint: f.quoteMint,
+      baseCollateralVault: f.baseCollateralVault, quoteCollateralVault: f.quoteCollateralVault, ownerBaseAccount: f.ownerBaseAccount,
+      ownerQuoteAccount: f.ownerQuoteAccount, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID };
+    let rejected = false;
+    try {
+      const tx = await program.methods.withdrawAllCollateral({ minBaseOut: new BN(0), minQuoteOut: new BN(0) }).accounts({ ...sweepAccounts, owner: donor.publicKey, ownerBaseAccount: donorBase, ownerQuoteAccount: donorQuote }).transaction();
+      tx.feePayer = donor.publicKey;
+      await connection.sendTransaction(tx, [donor]);
+    } catch { rejected = true; }
+    expect(rejected).to.equal(true);
+    // A front-running dust donation is swept atomically with the owner's balance.
+    const dust = await program.methods.donateCollateral({ depositAmount: new BN(1) }).accounts(donationAccounts).transaction();
+    dust.feePayer = donor.publicKey;
+    await connection.sendTransaction(dust, [donor]);
+    const before = (await getAccount(connection as any, f.ownerBaseAccount)).amount;
+    await connection.sendTransaction(await program.methods.withdrawAllCollateral({ minBaseOut: new BN(10_101), minQuoteOut: new BN(0) }).accounts(sweepAccounts).transaction(), [payer]);
+    trackV2Instruction("withdrawAllCollateral", this.test?.title);
+    expect(svm.getAccount(borrowPosition)).to.equal(null);
+    expect((await getAccount(connection as any, f.ownerBaseAccount)).amount - before).to.equal(10_101n);
+  });
+
+  it("fully repays someone else's leverage without selling their collateral", async function () {
+    const f = await addBalancedLiquidity(212);
+    const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(f);
+    const donor = Keypair.generate();
+    await connection.requestAirdrop(donor.publicKey, LAMPORTS_PER_SOL);
+    const donorQuote = await createAccount(connection as any, payer, f.quoteMint, donor.publicKey);
+    await mintTo(connection as any, payer, f.quoteMint, donorQuote, payer, 10_000);
+    const before = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+    const tx = await program.methods.repayLeverage({ debtAsset: 1, amount: new BN(10_000) }).accounts({
+      market: f.market, futarchyAuthority, positionOwner: payer.publicKey, leveragePosition, debtMint: f.quoteMint,
+      debtReserveVault: f.quoteReserveVault, debtInterestVault: f.quoteInterestVault, ownerDebtAccount: donorQuote,
+      referralPartner: null, referralAccrual: null, owner: donor.publicKey, tokenProgram: TOKEN_PROGRAM_ID,
+      token2022Program: TOKEN_2022_PROGRAM_ID, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).transaction();
+    tx.feePayer = donor.publicKey;
+    await connection.sendTransaction(tx, [donor]);
+    trackV2Instruction("repayLeverage", this.test?.title);
+    const after = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+    expect(after.debt_shares.toString()).to.equal("0");
+    expect(after.collateral_amount.toString()).to.equal(before.collateral_amount.toString());
+    expect(cpiEvent(tx, "leveragePositionUpdated").owner.equals(payer.publicKey)).to.equal(true);
+    expect(cpiEvent(tx, "leveragePositionUpdated").metadata.signer.equals(donor.publicKey)).to.equal(true);
+    const baseBefore = (await getAccount(connection as any, f.ownerBaseAccount)).amount;
+    await connection.sendTransaction(await program.methods.withdrawRepaidLeverage({ minCollateralOut: before.collateral_amount }).accounts({
+      market: f.market, owner: payer.publicKey, leveragePosition, collateralMint: f.baseMint, collateralVault: leverageCollateralVault,
+      ownerCollateralAccount: f.ownerBaseAccount, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).transaction(), [payer]);
+    trackV2Instruction("withdrawRepaidLeverage", this.test?.title);
+    expect(svm.getAccount(leveragePosition)).to.equal(null);
+    expect((await getAccount(connection as any, f.ownerBaseAccount)).amount - baseBefore).to.equal(BigInt(before.collateral_amount.toString()));
+  });
+
+  for (const { kind, concentrated, accrue } of [
+    { kind: "ylp", concentrated: false, accrue: false },
+    { kind: "hlp", concentrated: false, accrue: false },
+    { kind: "hlp", concentrated: true, accrue: false },
+    { kind: "hlp", concentrated: true, accrue: true },
+  ] as const) {
+    for (const action of [0, 1, 2]) {
+      it(`protects ${action === 2 ? "leverage" : action === 1 ? "borrow collateral" : "borrow debt"} with ${concentrated ? "concentrated " : ""}${kind}${accrue ? " after interest accrual" : ""}, rolls back failed execution, and refunds cancellation`, async function () {
+        const partialLeverage = concentrated && !accrue && action === 2;
+        const config = marketConfig();
+        if (concentrated) {
+          config.amm.peakAmplificationNad = new BN("4000000000");
+          config.amm.coreHalfWidthBps = 100;
+          config.amm.fadeWidthBps = 400;
+        }
+        const f = await addBalancedLiquidity(213 + action, config, concentrated ? {
+          baseDeposit: 100_000_000, quoteDeposit: 200_000_000, minYlp: 1,
+          baseMint: 500_000_000, quoteMint: 500_000_000,
+        } : undefined);
+        let lpMint = f.ylpMint;
+        let ownerLpAccount = f.ownerYlpAccount;
+        let hlpYlpAccount: PublicKey | null = null;
+        if (kind === "hlp") {
+          if (action === 1) {
+            const hedge = await openBaseHedge(f, 20_000);
+            lpMint = f.baseHlpMint;
+            ownerLpAccount = hedge.ownerBaseHlpAccount;
+            hlpYlpAccount = hedge.hlpYlpAccount;
+          } else {
+            const hedge = await openQuoteHedge(f, 20_000);
+            lpMint = f.quoteHlpMint;
+            ownerLpAccount = hedge.ownerQuoteHlpAccount;
+            hlpYlpAccount = hedge.hlpYlpAccount;
+          }
+        }
+        const leveragePosition = action === 2 ? (await openQuoteDebtLeverage(f, 1_000, kind === "hlp" ? hlpSwapAccounts(f) : [])).leveragePosition : null;
+        const borrowPosition = action < 2 ? (await protectionBorrow(f)).borrowPosition : null;
+        const position = (leveragePosition ?? borrowPosition)!;
+        const keeper = Keypair.generate();
+        await connection.requestAirdrop(keeper.publicKey, LAMPORTS_PER_SOL);
+        const paymentMint = action === 1 ? f.baseMint : f.quoteMint;
+        const keeperPaymentAccount = await createAccount(connection as any, payer, paymentMint, keeper.publicKey);
+        await mintTo(connection as any, payer, paymentMint, keeperPaymentAccount, payer, 100_000);
+        const orderId = new BN((accrue ? 400 : concentrated ? 300 : kind === "ylp" ? 100 : 200) + action);
+        const order = PublicKey.findProgramAddressSync([Buffer.from("protection_order"), payer.publicKey.toBuffer(), orderId.toArrayLike(Buffer, "le", 8)], LEVERAGE_DELEGATE_PROGRAM_ID)[0];
+        await initializeLpTransferHook(f, lpMint);
+        const custodyLpAccount = await createToken2022Ata(lpMint, order);
+        const custodyBaseAccount = await createAccount(connection as any, payer, f.baseMint, order, Keypair.generate());
+        const custodyQuoteAccount = await createAccount(connection as any, payer, f.quoteMint, order, Keypair.generate());
+        const yieldAccounts = await initializeYieldAccounts(f, order, lpMint, kind);
+        const hookAccounts = (sourceOwner: PublicKey, destinationOwner: PublicKey) => buildLpTransferHookAccountMetas({
+          lpMint, market: f.market, sourceOwner, destinationOwner, baseMint: f.baseMint, quoteMint: f.quoteMint, tokenKind: kind,
+        });
+        const create = await leverageDelegateProgram.methods.createProtectionOrder({ orderId, action, debtAsset: 1,
+          lpAmount: new BN(12_000), maxLpPerExecution: new BN(10_000), maxPaymentPerExecution: new BN(10_000),
+          triggerHealthBps: new BN(action === 1 ? 40_000 : partialLeverage ? 20_000 : 1_000_000),
+          targetHealthBps: new BN(action === 1 ? 40_001 : partialLeverage ? 25_000 : 1_000_001),
+          minPaymentPerLpNad: new BN(100_000_000), keeperFeeBps: 100, expiresAt: new BN(svm.getClock().unixTimestamp.toString()).addn(3_600),
+        }).accounts({ market: f.market, borrowPosition, leveragePosition, lpMint, baseMint: f.baseMint, quoteMint: f.quoteMint,
+          order, ownerLpAccount, custodyLpAccount, ...yieldAccounts, owner: payer.publicKey, duskEventAuthority: eventAuthority(),
+          duskProgram: DUSK_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
+        }).remainingAccounts(hookAccounts(payer.publicKey, order)).transaction();
+        await connection.sendTransaction(create, [payer]);
+        const preview = async () => (await simulateReturnData(await leverageDelegateProgram.methods.previewProtectionOrder()
+          .accounts({ order, market: f.market, borrowPosition, leveragePosition }).transaction(), LEVERAGE_DELEGATE_PROGRAM_ID)).readBigUInt64LE();
+        const healthBefore = await preview();
+        expect(healthBefore > 10_000n).to.equal(true);
+        const manageAccounts = { order, lpMint, custodyLpAccount, ownerLpAccount, owner: payer.publicKey, token2022Program: TOKEN_2022_PROGRAM_ID };
+        await connection.sendTransaction(await leverageDelegateProgram.methods.fundProtectionOrder({ lpAmount: new BN(1_000) }).accounts(manageAccounts)
+          .remainingAccounts(hookAccounts(payer.publicKey, order)).transaction(), [payer]);
+        if (accrue) svm.warpToSlot(svm.getClock().slot + 1_000_000n);
+        const executeAccounts = { order, market: f.market, futarchyAuthority, borrowPosition, leveragePosition, positionOwner: payer.publicKey,
+          baseMint: f.baseMint, quoteMint: f.quoteMint, lpMint, ylpMint: f.ylpMint, baseReserveVault: f.baseReserveVault, quoteReserveVault: f.quoteReserveVault,
+          paymentVault: action === 1 ? f.baseCollateralVault : f.quoteReserveVault, debtInterestVault: f.quoteInterestVault,
+          borrowedInterestVault: kind === "hlp" ? (action === 1 ? f.quoteInterestVault : f.baseInterestVault) : null,
+          hlpYlpAccount, custodyLpAccount, custodyBaseAccount, custodyQuoteAccount, ...yieldAccounts,
+          ownerBaseAccount: f.ownerBaseAccount, ownerQuoteAccount: f.ownerQuoteAccount, keeperPaymentAccount,
+          referralPartner: null, referralAccrual: null, keeper: keeper.publicKey,
+          duskEventAuthority: eventAuthority(), duskProgram: DUSK_PROGRAM_ID, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+        };
+        const execute = async (lpAmount: number, paymentAmount: number, overrides = {}) => {
+          svm.expireBlockhash();
+          const tx = await leverageDelegateProgram.methods.executeProtectionOrder({ lpAmount: new BN(lpAmount), paymentAmount: new BN(paymentAmount) })
+            .accounts({ ...executeAccounts, ...overrides }).transaction();
+          tx.feePayer = keeper.publicKey;
+          return connection.sendTransaction(tx, [keeper]);
+        };
+        const beforeOrder = Buffer.from(svm.getAccount(order)!.data);
+        const beforePosition = Buffer.from(svm.getAccount(position)!.data);
+        const beforeKeeper = (await getAccount(connection as any, keeperPaymentAccount)).amount;
+        // A tiny payment cannot authorize the planned LP burn or restore target health.
+        let rejected = false;
+        try { await execute(1_000, 1); } catch { rejected = true; }
+        expect(rejected).to.equal(true);
+        expect(Buffer.from(svm.getAccount(order)!.data).equals(beforeOrder)).to.equal(true);
+        expect(Buffer.from(svm.getAccount(position)!.data).equals(beforePosition)).to.equal(true);
+        expect((await getAccount(connection as any, keeperPaymentAccount)).amount).to.equal(beforeKeeper);
+        rejected = false;
+        try { await execute(10_001, 10_000); } catch { rejected = true; }
+        expect(rejected).to.equal(true);
+        // Repayment happens before withdrawal. Insufficient redemption output must
+        // still undo the keeper's payment and every debt/accounting mutation.
+        rejected = false;
+        try { await execute(1, 10_000); } catch { rejected = true; }
+        expect(rejected).to.equal(true);
+        expect(Buffer.from(svm.getAccount(position)!.data).equals(beforePosition)).to.equal(true);
+        expect((await getAccount(connection as any, keeperPaymentAccount)).amount).to.equal(beforeKeeper);
+        // Enough LP to reimburse the keeper, but not enough payment to reach
+        // the sponsor's target: the final post-redemption check must revert all.
+        rejected = false;
+        try { await execute(200, 100); } catch { rejected = true; }
+        expect(rejected).to.equal(true);
+        expect(Buffer.from(svm.getAccount(position)!.data).equals(beforePosition)).to.equal(true);
+        expect((await getAccount(connection as any, custodyLpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(13_000n);
+        expect((await getAccount(connection as any, keeperPaymentAccount)).amount).to.equal(beforeKeeper);
+        const lpBurn = action === 2 ? 1_300 : action === 1 ? 8_000 : kind === "hlp" ? 6_000 : 4_000;
+        const payment = action === 1 ? 5_000 : partialLeverage ? 500 : 10_000;
+        await execute(lpBurn, payment);
+        expect((await preview()) > healthBefore).to.equal(true);
+        const afterKeeper = (await getAccount(connection as any, keeperPaymentAccount)).amount;
+        expect(afterKeeper > beforeKeeper).to.equal(true);
+        const orderState = new anchor.BorshAccountsCoder(leverageDelegateIdl).decode("ProtectionOrder", Buffer.from(svm.getAccount(order)!.data)) as any;
+        expect(orderState.remaining_lp.toNumber()).to.equal(13_000 - lpBurn);
+        expect((await getAccount(connection as any, custodyBaseAccount)).amount).to.equal(0n);
+        expect((await getAccount(connection as any, custodyQuoteAccount)).amount).to.equal(0n);
+        const positionState = accountCoder.decode(action === 2 ? "LeveragePosition" : "BorrowPosition", Buffer.from(svm.getAccount(position)!.data)) as any;
+        if (action === 0) expect(positionState.fixed_quote_shares.toString()).to.equal("0");
+        if (action === 1) expect(positionState.base_collateral.toNumber()).to.equal(15_000);
+        if (action === 2) expect(positionState.debt_shares.toString()).to.equal(partialLeverage ? "500" : "0");
+        const beforeUnneededExecution = (await getAccount(connection as any, keeperPaymentAccount)).amount;
+        rejected = false;
+        try { await execute(lpBurn, payment); } catch { rejected = true; }
+        expect(rejected).to.equal(true);
+        expect((await getAccount(connection as any, keeperPaymentAccount)).amount).to.equal(beforeUnneededExecution);
+        let totalLpBurned = lpBurn;
+        if (action === 0) {
+          // Recurring coverage deliberately includes newly borrowed debt; it
+          // still consumes the same finite, sponsor-funded share allowance.
+          await connection.sendTransaction(await program.methods.borrow({ borrowAmount: new BN(5_000), minDebtAmountOut: new BN(5_000), minLiquidationCfBps: 0, referrer: null }).accounts({
+            market: f.market, futarchyAuthority, owner: payer.publicKey, debtAssetMint: f.quoteMint, collateralAssetMint: f.baseMint,
+            reserveVault: f.quoteReserveVault, ownerDebtAccount: f.ownerQuoteAccount, borrowPosition, referralPartner: null, referralAccrual: null,
+            tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+          }).transaction(), [payer]);
+          await execute(lpBurn, payment);
+          totalLpBurned += lpBurn;
+          const repeated = new anchor.BorshAccountsCoder(leverageDelegateIdl).decode("ProtectionOrder", Buffer.from(svm.getAccount(order)!.data)) as any;
+          expect(repeated.remaining_lp.toNumber()).to.equal(13_000 - totalLpBurned);
+        }
+        const ownerBeforeCancel = (await getAccount(connection as any, ownerLpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount;
+        await connection.sendTransaction(await leverageDelegateProgram.methods.cancelProtectionOrder().accounts(manageAccounts)
+          .remainingAccounts(hookAccounts(order, payer.publicKey)).transaction(), [payer]);
+        expect((await getAccount(connection as any, ownerLpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount - ownerBeforeCancel).to.equal(BigInt(13_000 - totalLpBurned));
+        expect((await getAccount(connection as any, custodyLpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(0n);
+        rejected = false;
+        try { await execute(1, 1); } catch { rejected = true; }
+        expect(rejected).to.equal(true);
+      });
+    }
+  }
+
 });

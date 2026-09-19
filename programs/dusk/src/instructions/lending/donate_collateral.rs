@@ -1,0 +1,151 @@
+use anchor_lang::prelude::*;
+use anchor_spl::{
+    token::Token,
+    token_interface::{Mint, Token2022, TokenAccount},
+};
+
+use crate::{
+    constants::*,
+    errors::ErrorCode,
+    events::{MarketCollateralDeposited, MarketEventMetadata},
+    state::{BorrowPosition, Market},
+    token::transfer_checked_with_remaining_accounts,
+};
+
+use crate::instructions::accounts::{require_supported_asset_mint, token_program_for_mint};
+
+use super::accounts::validate_collateral_accounts;
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct DonateCollateralArgs {
+    pub deposit_amount: u64,
+}
+
+#[event_cpi]
+#[derive(Accounts)]
+#[instruction(args: DonateCollateralArgs)]
+pub struct DonateCollateral<'info> {
+    #[account(
+        mut,
+        seeds = [
+            MARKET_V2_SEED_PREFIX,
+            market.base_side.asset_mint.as_ref(),
+            market.quote_side.asset_mint.as_ref(),
+            market.params_hash.as_ref(),
+        ],
+        bump = market.bump
+    )]
+    pub market: Box<Account<'info, Market>>,
+
+    #[account(mut)]
+    pub owner: Signer<'info>,
+
+    pub asset_mint: Box<InterfaceAccount<'info, Mint>>,
+
+    #[account(mut)]
+    pub collateral_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+
+    #[account(mut)]
+    pub owner_asset_account: Box<InterfaceAccount<'info, TokenAccount>>,
+
+    #[account(
+        mut,
+        seeds = [
+            BORROW_POSITION_SEED_PREFIX,
+            market.key().as_ref(),
+            borrow_position.position_id.as_ref(),
+        ],
+        bump = borrow_position.bump
+    )]
+    pub borrow_position: Box<Account<'info, BorrowPosition>>,
+
+    pub token_program: Program<'info, Token>,
+    pub token_2022_program: Program<'info, Token2022>,
+}
+
+impl<'info> DonateCollateral<'info> {
+    pub fn validate(&self, args: &DonateCollateralArgs) -> Result<()> {
+        self.market.assert_started()?;
+        require!(args.deposit_amount > 0, ErrorCode::AmountZero);
+        require_gte!(
+            self.owner_asset_account.amount,
+            args.deposit_amount,
+            ErrorCode::InsufficientBalance
+        );
+        validate_collateral_accounts(
+            &self.market,
+            self.owner.key(),
+            &self.asset_mint,
+            &self.collateral_vault,
+            &self.owner_asset_account,
+        )?;
+        require_supported_asset_mint(&self.asset_mint)?;
+        self.borrow_position
+            .assert_position(self.borrow_position.owner, self.market.key())?;
+        Ok(())
+    }
+
+    crate::instructions::accounts::market_update_and_validate!(DonateCollateralArgs);
+
+    pub fn handle_deposit(mut ctx: Context<'_, '_, '_, 'info, Self>, args: DonateCollateralArgs) -> Result<()> {
+        let remaining_accounts = ctx.remaining_accounts;
+        let (market_key, owner_key, asset_mint_key, collateral_receipt) = {
+            let accounts = &mut ctx.accounts;
+            let market_key = accounts.market.key();
+            let owner_key = accounts.borrow_position.owner;
+            let asset_mint_key = accounts.asset_mint.key();
+            let market_asset = accounts.market.asset_for_mint(asset_mint_key)?;
+
+            // Transfer collateral and measure the amount the vault received.
+            let collateral_balance_before = accounts.collateral_vault.amount;
+            let asset_token_program = token_program_for_mint(
+                &accounts.asset_mint,
+                &accounts.token_program,
+                &accounts.token_2022_program,
+            )?;
+            transfer_checked_with_remaining_accounts(
+                accounts.owner.to_account_info(),
+                accounts.owner_asset_account.to_account_info(),
+                accounts.collateral_vault.to_account_info(),
+                accounts.asset_mint.to_account_info(),
+                asset_token_program,
+                args.deposit_amount,
+                accounts.asset_mint.decimals,
+                &[],
+                remaining_accounts,
+            )?;
+            accounts.collateral_vault.reload()?;
+            let collateral_credit = accounts
+                .collateral_vault
+                .amount
+                .checked_sub(collateral_balance_before)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            require!(collateral_credit > 0, ErrorCode::AmountZero);
+
+            // Apply the measured credit to market and position accounting.
+            let collateral_receipt =
+                accounts
+                    .market
+                    .deposit_collateral(&mut accounts.borrow_position, market_asset, collateral_credit)?;
+            (market_key, owner_key, asset_mint_key, collateral_receipt)
+        };
+
+        emit_cpi!(MarketCollateralDeposited {
+            market: market_key,
+            owner: owner_key,
+            asset_mint: asset_mint_key,
+            collateral_credit: collateral_receipt.collateral_credit,
+            base_collateral: collateral_receipt.base_collateral,
+            quote_collateral: collateral_receipt.quote_collateral,
+            global_health_base_contribution_for_quote_debt: collateral_receipt
+                .global_health_base_contribution_for_quote_debt,
+            global_health_quote_contribution_for_base_debt: collateral_receipt
+                .global_health_quote_contribution_for_base_debt,
+            base_liquidation_cf_bps: collateral_receipt.base_liquidation_cf_bps,
+            quote_liquidation_cf_bps: collateral_receipt.quote_liquidation_cf_bps,
+            metadata: MarketEventMetadata::new(ctx.accounts.owner.key(), market_key)?,
+        });
+
+        Ok(())
+    }
+}

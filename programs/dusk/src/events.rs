@@ -412,6 +412,8 @@ pub struct LeveragePositionUpdated {
     pub debt_amount: u64,
     pub debt_shares: u128,
     pub collateral_amount: u64,
+    /// Executable closeout quote, or zero when unquoted by repay_leverage or
+    /// when add_leverage_margin fully clears the debt. Collateral remains owned.
     pub closeout_value: u64,
     /// Net tokens paid to the owner by this update, if any.
     pub owner_credit: u64,
@@ -631,4 +633,15 @@ pub struct ParameterProposalSupportWithdrawn {
 #[cfg(test)]
 mod tests {
     include!("tests/events.rs");
+}
+
+#[event]
+pub struct DebtFreePositionClosed {
+    pub market: Pubkey,
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub leverage: bool,
+    pub base_received: u64,
+    pub quote_received: u64,
+    pub metadata: MarketEventMetadata,
 }

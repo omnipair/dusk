@@ -1428,6 +1428,56 @@ export class DuskWrite {
     );
   }
 
+  /** Donate to an existing borrow position. `owner` is the token payer. */
+  async donateCollateralInstruction(params: DepositCollateralParams): Promise<TransactionInstruction> {
+    const market = address(params.market);
+    const assetMint = address(params.assetMint);
+    return this.instruction("donateCollateral" as DuskInstructionName,
+      { depositAmount: governanceIntegerBN(params.depositAmount, "depositAmount") }, {
+        accounts: {
+          market, owner: address(params.owner), assetMint,
+          collateralVault: address(params.collateralVault ?? deriveMarketCollateralVaultAddress(market, assetMint)[0]),
+          ownerAssetAccount: address(params.ownerAssetAccount),
+          borrowPosition: address(params.borrowPosition ?? deriveBorrowPositionAddress(market, address(params.positionId))[0]),
+          tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+        }, remainingAccounts: params.remainingAccounts,
+      });
+  }
+
+  /** Sweep both collateral balances and close a debt-free borrow position. */
+  async withdrawAllCollateralInstruction(params: WithdrawAllCollateralParams): Promise<TransactionInstruction> {
+    const market = address(params.market);
+    const baseMint = address(params.baseMint);
+    const quoteMint = address(params.quoteMint);
+    return this.instruction("withdrawAllCollateral" as DuskInstructionName, {
+      minBaseOut: governanceIntegerBN(params.minBaseOut, "minBaseOut"),
+      minQuoteOut: governanceIntegerBN(params.minQuoteOut, "minQuoteOut"),
+    }, { accounts: {
+      market, owner: address(params.owner), baseMint, quoteMint,
+      borrowPosition: address(params.borrowPosition ?? deriveBorrowPositionAddress(market, address(params.positionId))[0]),
+      baseCollateralVault: deriveMarketCollateralVaultAddress(market, baseMint)[0],
+      quoteCollateralVault: deriveMarketCollateralVaultAddress(market, quoteMint)[0],
+      ownerBaseAccount: address(params.ownerBaseAccount), ownerQuoteAccount: address(params.ownerQuoteAccount),
+      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+    }, remainingAccounts: params.remainingAccounts });
+  }
+
+  /** Return all collateral after a complete leverage repayment and close the position. */
+  async withdrawRepaidLeverageInstruction(params: WithdrawRepaidLeverageParams): Promise<TransactionInstruction> {
+    const market = address(params.market);
+    const collateralMint = address(params.collateralMint);
+    return this.instruction("withdrawRepaidLeverage" as DuskInstructionName,
+      { minCollateralOut: governanceIntegerBN(params.minCollateralOut, "minCollateralOut") }, {
+        accounts: {
+          market, owner: address(params.owner), collateralMint,
+          leveragePosition: address(params.leveragePosition ?? deriveLeveragePositionAddress(market, address(params.positionId))[0]),
+          collateralVault: deriveLeverageCollateralVaultAddress(market, collateralMint)[0],
+          ownerCollateralAccount: address(params.ownerCollateralAccount),
+          tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+        }, remainingAccounts: params.remainingAccounts,
+      });
+  }
+
   async depositCollateralTransaction(
     params: DepositCollateralParams
   ): Promise<Transaction> {
@@ -1491,7 +1541,8 @@ export class DuskWrite {
   }
 
   /**
-   * Repay borrowed debt. Pass the wallet balance as `repayAmount` to clear a
+   * Repay anyone’s borrowed debt using `owner`’s tokens, without collateral rights.
+   * Pass the wallet balance as `repayAmount` to clear a
    * position; the program repays at most the outstanding debt.
    */
   async repayInstruction(params: RepayParams): Promise<TransactionInstruction> {
@@ -1989,13 +2040,22 @@ export class DuskWrite {
     );
   }
 
-  /** Post additional debt-asset margin to a position. */
-  async addLeverageMarginInstruction(
-    params: LeverageMarginParams
+  /** Repay anyone’s leverage debt from `owner`’s tokens; collateral stays with the position owner. */
+  async addLeverageMarginInstruction(params: LeverageMarginParams): Promise<TransactionInstruction> {
+    return this.leverageRepaymentInstruction(params, "addLeverageMargin");
+  }
+
+  /** Permissionless repayment without an unnecessary collateral-sale quote. */
+  async repayLeverageInstruction(params: LeverageMarginParams): Promise<TransactionInstruction> {
+    return this.leverageRepaymentInstruction(params, "repayLeverage");
+  }
+
+  private async leverageRepaymentInstruction(
+    params: LeverageMarginParams, method: "addLeverageMargin" | "repayLeverage"
   ): Promise<TransactionInstruction> {
     const core = await this.resolveLeverageAccounts(params);
     return this.instruction(
-      "addLeverageMargin" as DuskInstructionName,
+      method as DuskInstructionName,
       {
         debtAsset: marketAssetIndex(params.debtAsset),
         amount: governanceIntegerBN(params.amount, "amount"),
@@ -2580,4 +2640,24 @@ function mergeAccountMetas(...groups: readonly AccountMeta[][]): AccountMeta[] {
     }
   }
   return [...merged.values()];
+}
+
+export interface WithdrawAllCollateralParams extends LendingPositionAccounts {
+  baseMint: AddressLike;
+  quoteMint: AddressLike;
+  ownerBaseAccount: AddressLike;
+  ownerQuoteAccount: AddressLike;
+  minBaseOut: RawAmount;
+  minQuoteOut: RawAmount;
+}
+
+export interface WithdrawRepaidLeverageParams {
+  market: AddressLike;
+  owner: AddressLike;
+  positionId: AddressLike;
+  leveragePosition?: AddressLike;
+  collateralMint: AddressLike;
+  ownerCollateralAccount: AddressLike;
+  minCollateralOut: RawAmount;
+  remainingAccounts?: AccountMeta[];
 }

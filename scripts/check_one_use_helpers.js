@@ -469,6 +469,9 @@ const acceptedOneUseHelpers = new Map([
     new Set(["withdraw_hlp_order_position", "validate_hlp_order_kind", "hlp_order_trigger_met"]),
   ],
 ]);
+// Dedicated CPI frames keep the protection executor within the SBF stack limit.
+acceptedOneUseHelpers.set("programs/leverage_delegate/src/instructions/protection/payment.rs", new Set(["make_payment"]));
+acceptedOneUseHelpers.set("programs/leverage_delegate/src/instructions/protection/redeem.rs", new Set(["redeem_lp"]));
 const unexpectedActionable = actionable.filter(
   ({ file, name }) => !acceptedOneUseHelpers.get(file)?.has(name)
 );
