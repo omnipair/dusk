@@ -307,13 +307,41 @@ test("curve caps output cash and rejects incompatible math or reserve state", ()
   const value = projectDuskVirtualBookCurve(limited, 100);
   assert.equal(value.bids.length, 0);
   close(value.asks.at(-1).total, 0.5, 1e-6);
-  const bad = curve();
+  const bad = curve(true);
   bad.account.amm.concentratedCurveCache.mathRevision = 2;
   assert.throws(() => projectDuskVirtualBookCurve(bad), /revision/);
   bad.account.amm.concentratedCurveCache.mathRevision = 1;
   bad.preview.amm.ordinaryQuoteReserveNad = new BN(1);
   assert.throws(() => projectDuskVirtualBookCurve(bad), /reserves/);
   assert.throws(() => projectDuskVirtualBookCurve(curve(), 0), /grouping/);
+});
+
+
+test("CPMM samples current reserves after accumulated rounding changes the cached invariant", () => {
+  const snapshot = curve();
+  // Public devnet market 45qXCmfQrDxTDYc1k7Xu65Qo3kYHRYUkYmiCQKLvPBhL,
+  // previewMarket simulation at slot 501310482, captured 2026-09-20.
+  snapshot.account.amm.concentratedCurveCache.tailLiquidity = new BN("1000000004042");
+  snapshot.preview.amm.ordinaryBaseReserveNad = new BN("977147409571");
+  snapshot.preview.amm.ordinaryQuoteReserveNad = new BN("1023397532586");
+  snapshot.preview.base.cashReserve = new BN("1177142099");
+  snapshot.account.quoteSide.assetDecimals = 6;
+  snapshot.preview.quote.cashReserve = new BN("1232858326");
+  const value = projectDuskVirtualBookCurve(snapshot, 10);
+  const base = 977.147409571, quote = 1023.397532586;
+  close(value.mid, quote / base);
+  assert.equal(value.bids.length, 12);
+  assert.equal(value.asks.length, 12);
+  for (const [i, row] of value.asks.entries()) {
+    close(row.total, base * (1 - 1 / Math.sqrt(1 + .001 * (i + 1))), 2e-6);
+    close(row.quoteTotal, quote * (Math.sqrt(1 + .001 * (i + 1)) - 1), 2e-6);
+  }
+  for (const [i, row] of value.bids.entries()) {
+    close(row.total, base * (1 / Math.sqrt(1 - .001 * (i + 1)) - 1), 2e-6);
+    close(row.quoteTotal, quote * (1 - Math.sqrt(1 - .001 * (i + 1))), 2e-6);
+  }
+  snapshot.account.amm.concentratedCurveCache.tailLiquidity = new BN("900000000000");
+  assert.deepEqual(projectDuskVirtualBookCurve(snapshot, 10), value);
 });
 
 test("full curve sampling batches both directions and retains original observation age", async (t) => {

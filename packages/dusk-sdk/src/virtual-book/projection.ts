@@ -60,8 +60,26 @@ export function projectDuskVirtualBookCurve(
   const { account, preview } = snapshot;
   const c = account.amm.concentratedCurveCache;
   if (c.mathRevision !== 1) throw new Error("Unknown depth curve revision");
-  const tail = n(c.tailLiquidity),
-    concentrated = n(c.concentratedLiquidity);
+  const base = n(preview.amm.ordinaryBaseReserveNad);
+  const quote = n(preview.amm.ordinaryQuoteReserveNad);
+  if (base <= 0n || quote <= 0n) return null;
+  const concentrated = n(c.concentratedLiquidity);
+  let tail = n(c.tailLiquidity);
+  if (tail <= 0n || concentrated < 0n) throw new Error("Invalid depth curve");
+  if (concentrated === 0n) {
+    // curve.rs::effective_reserves/quote_exact_in uses the live reserve
+    // product for CPMM. Conservative output rounding can grow that product
+    // without changing the cached liquidity. Reconstruct sqrt(x*y) instead
+    // of treating the original cache as the current trading invariant.
+    const product = base * quote;
+    let root = product;
+    let next = (root + 1n) / 2n;
+    while (next < root) {
+      root = next;
+      next = (root + product / root) / 2n;
+    }
+    tail = root;
+  }
   const layers: Layer[] =
     concentrated === 0n
       ? []
@@ -88,9 +106,6 @@ export function projectDuskVirtualBookCurve(
   const point = (sqrt: bigint) => virtualCurvePoint(tail, layers, sqrt);
   // Invert the current ordinary base inventory. Lending EMA / last fill are
   // not the current AMM marginal price and cannot anchor this book.
-  const base = n(preview.amm.ordinaryBaseReserveNad);
-  const quote = n(preview.amm.ordinaryQuoteReserveNad);
-  if (base <= 0n || quote <= 0n) return null;
   let lo = 1n,
     hi = NAD;
   for (let i = 0; point(hi).base > base; i++) {
