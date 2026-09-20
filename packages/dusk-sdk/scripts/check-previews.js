@@ -176,3 +176,19 @@ test("hung preview simulations can time out or abort without accepting a late re
     name: "AbortError",
   });
 });
+
+test("order fees use 10 bps, round up, and reject non-u64 values", async () => {
+  const { calculateOrderProtocolFee, ORDER_PROTOCOL_FEE_BPS, orderProtocolFeeAccounts } = await import("../dist/delegate.js");
+  const { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID } = await import("@solana/spl-token");
+  assert.equal(ORDER_PROTOCOL_FEE_BPS, 10n);
+  assert.equal(calculateOrderProtocolFee(0), 0n);
+  assert.equal(calculateOrderProtocolFee(1), 1n);
+  assert.equal(calculateOrderProtocolFee(1_001), 2n);
+  assert.equal(calculateOrderProtocolFee("10000000"), 10000n);
+  assert.equal(calculateOrderProtocolFee(0xffffffffffffffffn), 18446744073709552n);
+  assert.throws(() => calculateOrderProtocolFee(-1));
+  assert.throws(() => calculateOrderProtocolFee(0x10000000000000000n));
+  assert.throws(() => calculateOrderProtocolFee(Number.MAX_SAFE_INTEGER + 1));
+  assert.equal(orderProtocolFeeAccounts(payer, programId, TOKEN_2022_PROGRAM_ID).feeRecipient.toBase58(),
+    getAssociatedTokenAddressSync(programId, payer, true, TOKEN_2022_PROGRAM_ID).toBase58());
+});

@@ -5,3 +5,6 @@ mod leverage_order;
 pub use hlp_order::*;
 pub use leverage_entry_order::*;
 pub use leverage_order::*;
+
+mod protection_order;
+pub use protection_order::*;

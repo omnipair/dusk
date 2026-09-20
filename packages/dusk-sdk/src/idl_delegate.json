@@ -91,6 +91,18 @@
           "signer": true
         },
         {
+          "name": "futarchy_authority"
+        },
+        {
+          "name": "protocol_fee",
+          "accounts": [
+            {
+              "name": "fee_recipient",
+              "writable": true
+            }
+          ]
+        },
+        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -542,6 +554,79 @@
       ]
     },
     {
+      "name": "cancel_protection_order",
+      "discriminator": [
+        46,
+        254,
+        83,
+        54,
+        193,
+        197,
+        151,
+        138
+      ],
+      "accounts": [
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  111,
+                  114,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "order.order_id",
+                "account": "ProtectionOrder"
+              }
+            ]
+          }
+        },
+        {
+          "name": "lp_mint"
+        },
+        {
+          "name": "custody_lp_account",
+          "writable": true
+        },
+        {
+          "name": "owner_lp_account",
+          "writable": true
+        },
+        {
+          "name": "owner",
+          "signer": true
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "create_hlp_order",
       "discriminator": [
         65,
@@ -899,6 +984,187 @@
       ]
     },
     {
+      "name": "create_protection_order",
+      "discriminator": [
+        10,
+        24,
+        140,
+        145,
+        49,
+        24,
+        135,
+        199
+      ],
+      "accounts": [
+        {
+          "name": "market"
+        },
+        {
+          "name": "borrow_position",
+          "optional": true
+        },
+        {
+          "name": "leverage_position",
+          "optional": true
+        },
+        {
+          "name": "lp_mint"
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  111,
+                  114,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "arg",
+                "path": "args.order_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_lp_account",
+          "writable": true
+        },
+        {
+          "name": "custody_lp_account",
+          "writable": true
+        },
+        {
+          "name": "base_yield_account",
+          "writable": true
+        },
+        {
+          "name": "quote_yield_account",
+          "writable": true
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "dusk_event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                254,
+                237,
+                118,
+                109,
+                5,
+                146,
+                245,
+                249,
+                66,
+                135,
+                243,
+                124,
+                36,
+                53,
+                12,
+                19,
+                89,
+                72,
+                84,
+                7,
+                236,
+                95,
+                227,
+                238,
+                53,
+                42,
+                79,
+                224,
+                225,
+                53,
+                141,
+                56
+              ]
+            }
+          }
+        },
+        {
+          "name": "dusk_program",
+          "address": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "CreateProtectionOrderArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "execute_hlp_order",
       "discriminator": [
         186,
@@ -1089,6 +1355,15 @@
         {
           "name": "dusk_program",
           "address": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X"
+        },
+        {
+          "name": "protocol_fee",
+          "accounts": [
+            {
+              "name": "fee_recipient",
+              "writable": true
+            }
+          ]
         },
         {
           "name": "token_program",
@@ -1302,6 +1577,15 @@
           "address": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X"
         },
         {
+          "name": "protocol_fee",
+          "accounts": [
+            {
+              "name": "fee_recipient",
+              "writable": true
+            }
+          ]
+        },
+        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -1324,6 +1608,383 @@
           }
         }
       ]
+    },
+    {
+      "name": "execute_protection_order",
+      "discriminator": [
+        243,
+        193,
+        48,
+        224,
+        173,
+        161,
+        129,
+        87
+      ],
+      "accounts": [
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  111,
+                  114,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "order.owner",
+                "account": "ProtectionOrder"
+              },
+              {
+                "kind": "account",
+                "path": "order.order_id",
+                "account": "ProtectionOrder"
+              }
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "writable": true
+        },
+        {
+          "name": "futarchy_authority"
+        },
+        {
+          "name": "borrow_position",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "leverage_position",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "position_owner"
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "lp_mint",
+          "writable": true
+        },
+        {
+          "name": "ylp_mint",
+          "writable": true
+        },
+        {
+          "name": "base_reserve_vault",
+          "writable": true
+        },
+        {
+          "name": "quote_reserve_vault",
+          "writable": true
+        },
+        {
+          "name": "payment_vault",
+          "docs": [
+            "Native repayment reserve or collateral donation vault, validated by Dusk."
+          ],
+          "writable": true
+        },
+        {
+          "name": "debt_interest_vault",
+          "writable": true
+        },
+        {
+          "name": "borrowed_interest_vault",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "hlp_ylp_account",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "custody_lp_account",
+          "writable": true
+        },
+        {
+          "name": "custody_base_account",
+          "writable": true
+        },
+        {
+          "name": "custody_quote_account",
+          "writable": true
+        },
+        {
+          "name": "base_yield_account",
+          "writable": true
+        },
+        {
+          "name": "quote_yield_account",
+          "writable": true
+        },
+        {
+          "name": "owner_base_account",
+          "writable": true
+        },
+        {
+          "name": "owner_quote_account",
+          "writable": true
+        },
+        {
+          "name": "keeper_payment_account",
+          "writable": true
+        },
+        {
+          "name": "referral_partner",
+          "optional": true
+        },
+        {
+          "name": "referral_accrual",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "dusk_event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                254,
+                237,
+                118,
+                109,
+                5,
+                146,
+                245,
+                249,
+                66,
+                135,
+                243,
+                124,
+                36,
+                53,
+                12,
+                19,
+                89,
+                72,
+                84,
+                7,
+                236,
+                95,
+                227,
+                238,
+                53,
+                42,
+                79,
+                224,
+                225,
+                53,
+                141,
+                56
+              ]
+            }
+          }
+        },
+        {
+          "name": "dusk_program",
+          "address": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X"
+        },
+        {
+          "name": "protocol_fee",
+          "accounts": [
+            {
+              "name": "fee_recipient",
+              "writable": true
+            }
+          ]
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ExecuteProtectionOrderArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "fund_protection_order",
+      "discriminator": [
+        140,
+        244,
+        120,
+        40,
+        137,
+        166,
+        89,
+        178
+      ],
+      "accounts": [
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  111,
+                  114,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "order.order_id",
+                "account": "ProtectionOrder"
+              }
+            ]
+          }
+        },
+        {
+          "name": "lp_mint"
+        },
+        {
+          "name": "custody_lp_account",
+          "writable": true
+        },
+        {
+          "name": "owner_lp_account",
+          "writable": true
+        },
+        {
+          "name": "owner",
+          "signer": true
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "FundProtectionOrderArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "preview_protection_order",
+      "docs": [
+        "Current liquidation-relative health for an order's target, after interest accrual.",
+        "This preview does not mutate market or position state."
+      ],
+      "discriminator": [
+        144,
+        211,
+        144,
+        116,
+        255,
+        102,
+        252,
+        239
+      ],
+      "accounts": [
+        {
+          "name": "order"
+        },
+        {
+          "name": "market"
+        },
+        {
+          "name": "borrow_position",
+          "optional": true
+        },
+        {
+          "name": "leverage_position",
+          "optional": true
+        }
+      ],
+      "args": [],
+      "returns": "u64"
     },
     {
       "name": "settle_hlp_order_yield",
@@ -1603,6 +2264,19 @@
   ],
   "accounts": [
     {
+      "name": "BorrowPosition",
+      "discriminator": [
+        243,
+        140,
+        20,
+        139,
+        32,
+        243,
+        114,
+        55
+      ]
+    },
+    {
       "name": "FutarchyAuthority",
       "discriminator": [
         175,
@@ -1694,6 +2368,19 @@
       ]
     },
     {
+      "name": "ProtectionOrder",
+      "discriminator": [
+        253,
+        82,
+        0,
+        91,
+        178,
+        213,
+        96,
+        185
+      ]
+    },
+    {
       "name": "ReferralAccrual",
       "discriminator": [
         35,
@@ -1730,6 +2417,34 @@
         14,
         106,
         156
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "OrderProtocolFeePaid",
+      "discriminator": [
+        250,
+        40,
+        26,
+        245,
+        44,
+        108,
+        250,
+        250
+      ]
+    },
+    {
+      "name": "ProtectionExecuted",
+      "discriminator": [
+        226,
+        54,
+        23,
+        80,
+        253,
+        91,
+        190,
+        175
       ]
     }
   ],
@@ -2060,6 +2775,94 @@
       }
     },
     {
+      "name": "BorrowPosition",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "position_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "base_collateral",
+            "type": "u64"
+          },
+          {
+            "name": "quote_collateral",
+            "type": "u64"
+          },
+          {
+            "name": "global_health_base_contribution_for_quote_debt",
+            "type": "u64"
+          },
+          {
+            "name": "global_health_quote_contribution_for_base_debt",
+            "type": "u64"
+          },
+          {
+            "name": "base_liquidation_cf_bps",
+            "type": "u16"
+          },
+          {
+            "name": "quote_liquidation_cf_bps",
+            "type": "u16"
+          },
+          {
+            "name": "base_referral_partner",
+            "type": "pubkey"
+          },
+          {
+            "name": "quote_referral_partner",
+            "type": "pubkey"
+          },
+          {
+            "name": "base_referral_interest_share_bps",
+            "type": "u16"
+          },
+          {
+            "name": "quote_referral_interest_share_bps",
+            "type": "u16"
+          },
+          {
+            "name": "fixed_base_shares",
+            "type": "u128"
+          },
+          {
+            "name": "fixed_quote_shares",
+            "type": "u128"
+          },
+          {
+            "name": "auction_debt_asset",
+            "type": "u8"
+          },
+          {
+            "name": "auction_start_time",
+            "type": "i64"
+          },
+          {
+            "name": "auction_start_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "auction_floor_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "CancelLeverageOrderArgs",
       "type": {
         "kind": "struct",
@@ -2177,6 +2980,13 @@
             "type": "u64"
           },
           {
+            "name": "protocol_fee_deposit_amount",
+            "docs": [
+              "Additional gross fee funding, transferred separately so margin and bounty stay intact."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "min_margin_amount",
             "type": "u64"
           },
@@ -2236,6 +3046,64 @@
               "full close; smaller values realize one proportional slice."
             ],
             "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreateProtectionOrderArgs",
+      "docs": [
+        "Repay borrow debt, add its opposite collateral, or repay leverage debt."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "order_id",
+            "type": "u64"
+          },
+          {
+            "name": "action",
+            "type": "u8"
+          },
+          {
+            "name": "debt_asset",
+            "type": "u8"
+          },
+          {
+            "name": "lp_amount",
+            "type": "u64"
+          },
+          {
+            "name": "max_lp_per_execution",
+            "type": "u64"
+          },
+          {
+            "name": "max_payment_per_execution",
+            "type": "u64"
+          },
+          {
+            "name": "trigger_health_bps",
+            "type": "u64"
+          },
+          {
+            "name": "target_health_bps",
+            "type": "u64"
+          },
+          {
+            "name": "min_payment_per_lp_nad",
+            "docs": [
+              "Minimum gross payment per LP smallest unit, scaled by 1e9."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "keeper_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
           }
         ]
       }
@@ -2410,6 +3278,25 @@
       }
     },
     {
+      "name": "ExecuteProtectionOrderArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lp_amount",
+            "type": "u64"
+          },
+          {
+            "name": "payment_amount",
+            "docs": [
+              "Maximum gross payment taken from the keeper's own token account."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "Fees",
       "type": {
         "kind": "struct",
@@ -2545,6 +3432,18 @@
                 "name": "ProtocolAuctionEpoch"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "FundProtectionOrderArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lp_amount",
+            "type": "u64"
           }
         ]
       }
@@ -3150,6 +4049,13 @@
             "type": "u64"
           },
           {
+            "name": "staged_execution_value",
+            "docs": [
+              "Executed collateral-sale value in debt tokens, before debt repayment."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "bump",
             "type": "u8"
           }
@@ -3524,6 +4430,176 @@
                 "name": "DailyBorrowBucket"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "OrderProtocolFeePaid",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "order",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "value",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "debit",
+            "type": "u64"
+          },
+          {
+            "name": "credited",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProtectionExecuted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "order",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "keeper",
+            "type": "pubkey"
+          },
+          {
+            "name": "lp_burned",
+            "type": "u64"
+          },
+          {
+            "name": "payment",
+            "type": "u64"
+          },
+          {
+            "name": "reward",
+            "type": "u64"
+          },
+          {
+            "name": "health_before_bps",
+            "type": "u64"
+          },
+          {
+            "name": "health_after_bps",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProtectionOrder",
+      "docs": [
+        "A prepaid, recurring authorization. Future debt on this position is covered",
+        "until expiry or cancellation, subject to the remaining LP budget."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "position_owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "lp_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "custody_lp_account",
+            "type": "pubkey"
+          },
+          {
+            "name": "order_id",
+            "type": "u64"
+          },
+          {
+            "name": "action",
+            "docs": [
+              "0: borrow repayment; 1: borrow collateral donation; 2: leverage repayment."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "debt_asset",
+            "type": "u8"
+          },
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "remaining_lp",
+            "type": "u64"
+          },
+          {
+            "name": "max_lp_per_execution",
+            "type": "u64"
+          },
+          {
+            "name": "max_payment_per_execution",
+            "type": "u64"
+          },
+          {
+            "name": "trigger_health_bps",
+            "type": "u64"
+          },
+          {
+            "name": "target_health_bps",
+            "type": "u64"
+          },
+          {
+            "name": "min_payment_per_lp_nad",
+            "docs": [
+              "Minimum gross payment per LP smallest unit, scaled by 1e9."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "keeper_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }

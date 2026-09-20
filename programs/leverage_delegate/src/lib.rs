@@ -107,4 +107,32 @@ pub mod leverage_delegate {
     ) -> Result<()> {
         SettleHlpOrderYield::handle_settle(ctx, args)
     }
+    pub fn create_protection_order<'info>(
+        ctx: Context<'_, '_, '_, 'info, CreateProtectionOrder<'info>>,
+        args: CreateProtectionOrderArgs,
+    ) -> Result<()> {
+        CreateProtectionOrder::handle(ctx, args)
+    }
+    pub fn fund_protection_order<'info>(
+        ctx: Context<'_, '_, '_, 'info, ManageProtectionOrder<'info>>,
+        args: FundProtectionOrderArgs,
+    ) -> Result<()> {
+        ManageProtectionOrder::fund(ctx, args)
+    }
+    pub fn cancel_protection_order<'info>(
+        ctx: Context<'_, '_, '_, 'info, ManageProtectionOrder<'info>>,
+    ) -> Result<()> {
+        ManageProtectionOrder::cancel(ctx)
+    }
+    pub fn execute_protection_order<'info>(
+        ctx: Context<'_, '_, '_, 'info, ExecuteProtectionOrder<'info>>,
+        args: ExecuteProtectionOrderArgs,
+    ) -> Result<()> {
+        ExecuteProtectionOrder::handle(ctx, args)
+    }
+    /// Current liquidation-relative health for an order's target, after interest accrual.
+    /// This preview does not mutate market or position state.
+    pub fn preview_protection_order(ctx: Context<PreviewProtectionOrder>) -> Result<u64> {
+        PreviewProtectionOrder::handle(ctx)
+    }
 }

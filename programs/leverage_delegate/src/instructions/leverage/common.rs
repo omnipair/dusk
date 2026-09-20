@@ -37,6 +37,7 @@ pub(super) fn reset_staged_settlement(order: &mut LeverageOrder) {
     order.staged_custody_token_account = Pubkey::default();
     order.staged_output_mint = Pubkey::default();
     order.staged_output_amount = 0;
+    order.staged_execution_value = 0;
 }
 
 pub(super) fn validate_order_kind(kind: u8) -> Result<()> {

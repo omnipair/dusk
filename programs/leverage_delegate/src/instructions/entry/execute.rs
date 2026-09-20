@@ -1,4 +1,5 @@
 use super::*;
+use crate::instructions::fees::*;
 
 #[derive(Accounts)]
 #[instruction(args: LeverageEntryOrderIdArgs)]
@@ -70,6 +71,7 @@ pub struct ExecuteLeverageEntryOrder<'info> {
     #[account(seeds = [b"__event_authority"], bump, seeds::program = dusk::ID)]
     pub dusk_event_authority: AccountInfo<'info>,
     pub dusk_program: Program<'info, Dusk>,
+    pub protocol_fee: OrderFeePayment<'info>,
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
@@ -189,12 +191,33 @@ impl<'info> ExecuteLeverageEntryOrder<'info> {
             ctx.accounts.order.executor_bounty,
             LeverageDelegateError::InvalidTokenAccount
         );
-        verify_opened_position(&ctx.accounts.leverage_position, &ctx.accounts.order)?;
+        let execution_value =
+            verify_opened_position(&ctx.accounts.leverage_position, &ctx.accounts.order)?;
 
         let hook_accounts = ctx
             .remaining_accounts
             .get(hook_account_offset..)
             .ok_or(LeverageDelegateError::InvalidOrder)?;
+
+        ctx.accounts.protocol_fee.collect(
+            owner_key,
+            ctx.accounts.order.key(),
+            &ctx.accounts.debt_mint,
+            &ctx.accounts.futarchy_authority,
+            execution_value,
+            ctx.accounts.funding_vault.to_account_info(),
+            ctx.accounts.order.to_account_info(),
+            signer,
+            &ctx.accounts.token_program.to_account_info(),
+            &ctx.accounts.token_2022_program.to_account_info(),
+            hook_accounts,
+        )?;
+        ctx.accounts.funding_vault.reload()?;
+        require_gte!(
+            ctx.accounts.funding_vault.amount,
+            ctx.accounts.order.executor_bounty,
+            LeverageDelegateError::InvalidTokenAccount
+        );
         if ctx.accounts.order.executor_bounty > 0 {
             transfer_checked(
                 token_program_for_mint(

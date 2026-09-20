@@ -169,6 +169,14 @@ impl Market {
     }
 
     fn refresh_concentrated_curve_cache(&mut self, current_slot: u64, loss: bool) -> Result<(u64, u128)> {
+        let curve_depth_nad = self.checkpoint_concentrated_curve_cache(current_slot, loss)?;
+        let price_nad = self
+            .current_concentrated_spot_price_nad()?
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        Ok((price_nad, curve_depth_nad))
+    }
+
+    fn checkpoint_concentrated_curve_cache(&mut self, current_slot: u64, loss: bool) -> Result<u128> {
         self.ensure_amm_initialized(current_slot)?;
         require!(self.amm.initialized, ErrorCode::BrokenInvariant);
         let ordinary = self.integrated_curve_state_nad()?;
@@ -189,10 +197,7 @@ impl Market {
         } else {
             self.amm.checkpoint_neutral_liquidity(curve_depth_per_share_nad);
         }
-        let price_nad = self
-            .current_concentrated_spot_price_nad()?
-            .ok_or(ErrorCode::BrokenInvariant)?;
-        Ok((price_nad, curve_depth_nad))
+        Ok(curve_depth_nad)
     }
 
     /// Same accounting checkpoint without recomputing the forward protection
@@ -227,7 +232,7 @@ impl Market {
             self.amm.concentrated_curve_cache = cache;
             self.amm.checkpoint_neutral_liquidity(curve_depth_per_share_nad);
         } else {
-            self.refresh_concentrated_curve_cache(current_slot, false)?;
+            self.checkpoint_concentrated_curve_cache(current_slot, false)?;
         }
         Ok(())
     }
@@ -253,6 +258,36 @@ impl Market {
         self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, current_slot)?;
         self.risk_revision = self.curve_revision;
         Ok(())
+    }
+
+    /// Reuse a current risk price only when repayment leaves both the executable
+    /// reserves and refreshed curve geometry unchanged. Always checkpoint depth
+    /// and the protected floor, including changes from accrued hLP funding.
+    pub(crate) fn finalize_debt_repayment(&mut self, current_slot: u64, before: CurveReservesNad) -> Result<()> {
+        if self.amm.initialized
+            && self.base_side.shares.ylp_supply > MIN_LIQUIDITY
+            && before == self.curve_reserves_nad()?
+        {
+            let risk_current =
+                self.risk_revision == self.curve_revision && self.risk.last_snapshot_slot == current_slot;
+            let prior_cache = self.amm.concentrated_curve_cache;
+            let curve_depth_nad = self.checkpoint_concentrated_curve_cache(current_slot, false)?;
+            self.defer_amm_retention_target()?;
+            self.advance_curve_revision()?;
+            if risk_current && prior_cache == self.amm.concentrated_curve_cache {
+                self.observe_risk_from_concentrated_curve(
+                    self.risk.cached_spot_base_price_nad,
+                    curve_depth_nad,
+                    current_slot,
+                )?;
+                self.risk_revision = self.curve_revision;
+            } else {
+                self.refresh_risk_at_slot(current_slot)?;
+            }
+            Ok(())
+        } else {
+            self.finalize_amm_transition_and_observe_risk(current_slot)
+        }
     }
 
     /// Finalizes a complete non-trade transition. First liquidity is already fully
@@ -898,8 +933,21 @@ impl Market {
         state: IntegratedCurveState,
         protocol_fee_bps: u16,
     ) -> Result<Option<ConcentratedIntegratedAmmQuote>> {
+        self.evaluate_concentrated_swap(asset_in, reserve_credit, preliminary, state, protocol_fee_bps, true)
+            .map(|(_, transition)| transition)
+    }
+
+    pub(crate) fn evaluate_concentrated_swap(
+        &self,
+        asset_in: MarketAsset,
+        reserve_credit: u64,
+        preliminary: PreliminarySwapInputs,
+        state: IntegratedCurveState,
+        protocol_fee_bps: u16,
+        materialize_transition: bool,
+    ) -> Result<(u64, Option<ConcentratedIntegratedAmmQuote>)> {
         let Some(geometry) = self.current_concentrated_curve_geometry()? else {
-            return Ok(None);
+            return Ok((0, None));
         };
         let fee_asset = self.config.swap_fee_asset(asset_in)?;
         let fees_on_input = fee_asset == asset_in;
@@ -965,18 +1013,6 @@ impl Market {
             self.side(asset_in.opposite()).asset_decimals,
         )?;
         require!(gross_amount_out > 0, ErrorCode::InsufficientOutputAmount);
-        let start_price_nad = u64::try_from(geometry.spot_price_nad_prevalidated(ConcentratedCurvePoint {
-            base_reserve: state.ordinary_base,
-            quote_reserve: state.ordinary_quote,
-        })?)
-        .map_err(|_| ErrorCode::MarketMathOverflow)?;
-        let end_price_nad = u64::try_from(geometry.spot_price_nad_prevalidated(integrated.executable.curve.end)?)
-            .map_err(|_| ErrorCode::MarketMathOverflow)?;
-        require!(
-            start_price_nad > 0 && end_price_nad > 0,
-            ErrorCode::InvalidSettlementPrice
-        );
-
         let dynamic = if fees_on_input {
             let mut dynamic = preliminary.fee;
             dynamic.divergence_surcharge_amount = divergence_surcharge;
@@ -1005,6 +1041,28 @@ impl Market {
                 config,
             )?
         };
+        let amount_out = if fees_on_input {
+            gross_amount_out
+        } else {
+            gross_amount_out
+                .checked_sub(dynamic.total_fee_amount)
+                .ok_or(ErrorCode::FeeMathOverflow)?
+        };
+        require!(amount_out > 0, ErrorCode::InsufficientOutputAmount);
+        if !materialize_transition {
+            return Ok((amount_out, None));
+        }
+        let start_price_nad = u64::try_from(geometry.spot_price_nad_prevalidated(ConcentratedCurvePoint {
+            base_reserve: state.ordinary_base,
+            quote_reserve: state.ordinary_quote,
+        })?)
+        .map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let end_price_nad = u64::try_from(geometry.spot_price_nad_prevalidated(integrated.executable.curve.end)?)
+            .map_err(|_| ErrorCode::MarketMathOverflow)?;
+        require!(
+            start_price_nad > 0 && end_price_nad > 0,
+            ErrorCode::InvalidSettlementPrice
+        );
         let (retained_surcharge, distributed_surcharge_debit) = if self.amm.retain_dynamic_surcharge {
             (dynamic.dynamic_surcharge_amount, 0)
         } else {
@@ -1051,14 +1109,6 @@ impl Market {
         } else {
             reserve_credit
         };
-        let amount_out = if fees_on_input {
-            gross_amount_out
-        } else {
-            gross_amount_out
-                .checked_sub(dynamic.total_fee_amount)
-                .ok_or(ErrorCode::FeeMathOverflow)?
-        };
-        require!(amount_out > 0, ErrorCode::InsufficientOutputAmount);
         if fees_on_input {
             require_eq!(
                 reserve_input_credit
@@ -1106,48 +1156,51 @@ impl Market {
             self.config.amm.volatility_shock_cap_nad,
             self.config.amm.volatility_cap_nad,
         )?;
-        Ok(Some(ConcentratedIntegratedAmmQuote {
-            integrated,
+        Ok((
             amount_out,
-            gross_amount_out,
-            start_price_nad,
-            end_price_nad,
-            reserve_end_price_nad,
-            post_fee_curve_cache,
-            decayed_volatility_nad: dynamic.decayed_volatility_nad,
-            post_success_volatility_nad,
-            fee: SwapFeeBreakdown {
-                fee_asset: fee_asset.code(),
-                reserve_credit,
+            Some(ConcentratedIntegratedAmmQuote {
+                integrated,
+                amount_out,
                 gross_amount_out,
-                base_fee_debit: dynamic.base_fee_amount,
-                divergence_surcharge_debit: dynamic.divergence_surcharge_amount,
-                volatility_surcharge_debit: dynamic.volatility_surcharge_amount,
-                dynamic_surcharge_debit: dynamic.dynamic_surcharge_amount,
-                total_fee_debit: dynamic.total_fee_amount,
-                retained_surcharge,
-                distributed_surcharge_debit,
-                compounded_base_fee_debit: fee_allocation.compounded_base_fee,
-                compounded_dynamic_surcharge_debit: fee_allocation.compounded_dynamic_surcharge,
-                compounded_fee_debit,
-                amount_in_for_quote,
-                reserve_input_credit,
-                claimable_fee_debit,
-                protocol_fee_bps,
-                base_fee_rate_nad: dynamic.base_rate_nad,
-                divergence_fee_rate_nad: dynamic.divergence_rate_nad,
-                volatility_fee_rate_nad: dynamic.volatility_rate_nad,
-                total_fee_rate_nad: dynamic.total_rate_nad,
-            },
-            recovery: HlpRecoveryBreakdown {
-                target_asset: 0,
-                funding_gap: 0,
-                matched_input: 0,
-                bonus_output: 0,
-                discount_bps: 0,
-                critical: false,
-            },
-        }))
+                start_price_nad,
+                end_price_nad,
+                reserve_end_price_nad,
+                post_fee_curve_cache,
+                decayed_volatility_nad: dynamic.decayed_volatility_nad,
+                post_success_volatility_nad,
+                fee: SwapFeeBreakdown {
+                    fee_asset: fee_asset.code(),
+                    reserve_credit,
+                    gross_amount_out,
+                    base_fee_debit: dynamic.base_fee_amount,
+                    divergence_surcharge_debit: dynamic.divergence_surcharge_amount,
+                    volatility_surcharge_debit: dynamic.volatility_surcharge_amount,
+                    dynamic_surcharge_debit: dynamic.dynamic_surcharge_amount,
+                    total_fee_debit: dynamic.total_fee_amount,
+                    retained_surcharge,
+                    distributed_surcharge_debit,
+                    compounded_base_fee_debit: fee_allocation.compounded_base_fee,
+                    compounded_dynamic_surcharge_debit: fee_allocation.compounded_dynamic_surcharge,
+                    compounded_fee_debit,
+                    amount_in_for_quote,
+                    reserve_input_credit,
+                    claimable_fee_debit,
+                    protocol_fee_bps,
+                    base_fee_rate_nad: dynamic.base_rate_nad,
+                    divergence_fee_rate_nad: dynamic.divergence_rate_nad,
+                    volatility_fee_rate_nad: dynamic.volatility_rate_nad,
+                    total_fee_rate_nad: dynamic.total_rate_nad,
+                },
+                recovery: HlpRecoveryBreakdown {
+                    target_asset: 0,
+                    funding_gap: 0,
+                    matched_input: 0,
+                    bonus_output: 0,
+                    discount_bps: 0,
+                    critical: false,
+                },
+            }),
+        ))
     }
 
     /// Until first liquidity initializes AMM state, the reserve ratio is the

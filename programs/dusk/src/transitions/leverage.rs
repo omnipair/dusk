@@ -2,7 +2,9 @@ use anchor_lang::prelude::*;
 
 #[cfg(test)]
 use super::liquidity::prepare_concentrated_hlp_transition;
-use super::liquidity::{current_hlp_signed_navs_with_prices, hlp_curve_prices_from_base_price_nad, SwapCashPolicy};
+use super::liquidity::{
+    current_hlp_signed_navs_with_prices, hlp_curve_prices_from_base_price_nad, IntegratedCurveState, SwapCashPolicy,
+};
 use super::{AmmSwapQuote, HlpRebalanceReceipt, SwapFeeBreakdown};
 use crate::{
     constants::{
@@ -1188,6 +1190,7 @@ impl Market {
             )?
             .amount_out;
         require_leverage_not_liquidatable(pre_finalize_closeout_value, debt_after)?;
+        self.require_ema_leverage_not_liquidatable(collateral_asset, collateral_after, debt_after)?;
         let cash_policy = SwapCashPolicy::Decrease {
             debt_asset,
             debt_shares: position.debt_shares,
@@ -1211,6 +1214,11 @@ impl Market {
         position.debit_collateral(collateral_debit)?;
         let closeout_value = self.leverage_closeout_value_at_time(position, current_slot, current_unix_timestamp)?;
         require_leverage_not_liquidatable(closeout_value, clearance.remaining_debt)?;
+        self.require_ema_leverage_not_liquidatable(
+            collateral_asset,
+            position.collateral_amount,
+            clearance.remaining_debt,
+        )?;
         Ok(LeverageUpdateReceipt {
             borrowed_amount: 0,
             debt_delta: -i64::try_from(clearance.debt_reduced).map_err(|_| ErrorCode::Overflow)?,
@@ -1364,6 +1372,11 @@ impl Market {
                 let remaining_closeout =
                     self.leverage_closeout_value_at_time(position, current_slot, current_unix_timestamp)?;
                 require_leverage_not_liquidatable(remaining_closeout, remaining_debt)?;
+                self.require_ema_leverage_not_liquidatable(
+                    position.collateral_asset()?,
+                    position.collateral_amount,
+                    remaining_debt,
+                )?;
                 (remaining_debt, remaining_closeout)
             } else {
                 require_eq!(position.debt_shares, 0, ErrorCode::BrokenInvariant);
@@ -1412,6 +1425,11 @@ impl Market {
         let margin_bps = equity_bps(swap.amount_out, debt_amount)?;
         require!(
             swap.amount_out <= debt_amount || margin_bps <= LEVERAGE_MAINTENANCE_BUFFER_BPS as u128,
+            ErrorCode::LeveragePositionNotLiquidatable
+        );
+        require!(
+            self.ema_leverage_margin_bps(position.collateral_asset()?, collateral_sold, debt_amount)?
+                <= LEVERAGE_MAINTENANCE_BUFFER_BPS as u128,
             ErrorCode::LeveragePositionNotLiquidatable
         );
 
@@ -1471,16 +1489,38 @@ impl Market {
         repay_credit: u64,
         current_slot: u64,
     ) -> Result<LeverageUpdateReceipt> {
+        let mut receipt = self.repay_leverage_debt(position, repay_credit, current_slot)?;
+        if position.debt_shares > 0 {
+            receipt.closeout_value = self.leverage_closeout_value(position, current_slot)?;
+        }
+        Ok(receipt)
+    }
+
+    /// Repayment without a collateral-sale quote. Zero closeout_value means
+    /// unquoted; no collateral is sold and no withdrawal rights are granted.
+    pub fn repay_leverage_debt(
+        &mut self,
+        position: &mut LeveragePosition,
+        repay_credit: u64,
+        current_slot: u64,
+    ) -> Result<LeverageUpdateReceipt> {
+        self.repay_leverage_debt_from_curve(position, repay_credit, current_slot, None)
+    }
+
+    /// The new repayment instruction captures this before interest accrual.
+    /// Identical integrated reserves prove the published curve itself did not
+    /// move during the operation. Fresh risk is still evaluated after repayment.
+    pub(crate) fn repay_leverage_debt_from_curve(
+        &mut self,
+        position: &mut LeveragePosition,
+        repay_credit: u64,
+        current_slot: u64,
+        before_accrual: Option<IntegratedCurveState>,
+    ) -> Result<LeverageUpdateReceipt> {
+        let curve_reserves_before = self.curve_reserves_nad()?;
         position.require_open()?;
         require!(repay_credit > 0, ErrorCode::AmountZero);
         let debt_asset = position.debt_asset()?;
-        let debt_before = position.debt_amount(&self.debt)?;
-        require_gt!(debt_before, repay_credit, ErrorCode::InsufficientDebt);
-        let pre_finalize_closeout_value = self.leverage_closeout_value(position, current_slot)?;
-        let debt_after = debt_before
-            .checked_sub(repay_credit)
-            .ok_or(ErrorCode::DebtMathOverflow)?;
-        require_leverage_not_liquidatable(pre_finalize_closeout_value, debt_after)?;
         let repayment = self
             .debt
             .isolated_repayment_for_max(debt_asset, position.debt_shares, repay_credit)?;
@@ -1504,10 +1544,31 @@ impl Market {
             .cash_reserve
             .checked_add(principal_paid)
             .ok_or(ErrorCode::ReserveOverflow)?;
-        self.finalize_amm_transition_and_observe_risk(current_slot)?;
-        // Adding margin only reduces debt, so it remains available as a rescue
-        // path even when the position's final-curve health is poor.
-        let closeout_value = self.leverage_closeout_value(position, current_slot)?;
+        if self.amm.initialized
+            && before_accrual.is_some()
+            && before_accrual == Some(self.integrated_curve_state_nad()?)
+        {
+            // No LP supply, parameter, or center changes occur in repayment.
+            // Keep the exact published geometry instead of reconstructing a
+            // rounded equivalent at the identical point. Depth/floor, retention,
+            // quote invalidation and a fresh risk observation still advance.
+            let depth = self
+                .amm
+                .concentrated_curve_cache
+                .tail_liquidity
+                .checked_add(self.amm.concentrated_curve_cache.concentrated_liquidity)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            self.amm
+                .checkpoint_neutral_liquidity(self.curve_depth_per_share_nad(depth)?);
+            self.defer_amm_retention_target()?;
+            self.advance_curve_revision()?;
+            self.refresh_risk_at_slot(current_slot)?;
+        } else {
+            self.finalize_debt_repayment(current_slot, curve_reserves_before)?;
+        }
+        // Repayment remains available even when a collateral-sale quote would
+        // fail. It only reduces debt; the caller can preview closeout separately.
+        let closeout_value = 0;
         Ok(LeverageUpdateReceipt {
             borrowed_amount: 0,
             debt_delta: -i64::try_from(clearance.debt_reduced).map_err(|_| ErrorCode::Overflow)?,
@@ -1613,6 +1674,34 @@ impl Market {
         .map(|quote| quote.amount_out)
     }
 
+    /// Exact executable output used by protection health. Only valuation is
+    /// returned; the execution path still constructs and validates a full swap.
+    pub fn leverage_protection_closeout_value(
+        &self,
+        position: &LeveragePosition,
+        current_slot: u64,
+        current_unix_timestamp: i64,
+    ) -> Result<u64> {
+        let asset = position.collateral_asset()?;
+        let preliminary = self.preliminary_swap_inputs_for_state_at_time(
+            asset,
+            position.collateral_amount,
+            current_slot,
+            current_unix_timestamp,
+            self.dynamic_fee_pre_state(current_slot)?,
+        )?;
+        let (amount_out, _) = self.evaluate_concentrated_swap(
+            asset,
+            position.collateral_amount,
+            preliminary,
+            self.integrated_curve_state_nad()?,
+            0,
+            false,
+        )?;
+        require!(amount_out > 0, ErrorCode::InsufficientOutputAmount);
+        Ok(amount_out)
+    }
+
     fn require_position_initial_leverage_health(
         &self,
         position: &LeveragePosition,
@@ -1636,7 +1725,42 @@ impl Market {
             closeout_value,
             position.debt_amount(&self.debt)?,
         )?;
+        let debt_amount = position.debt_amount(&self.debt)?;
+        require_gte!(
+            self.ema_leverage_margin_bps(collateral_asset, position.collateral_amount, debt_amount)?,
+            LEVERAGE_INITIAL_MARGIN_BPS as u128,
+            ErrorCode::LeverageInitialMarginTooLow
+        );
         Ok(closeout_value)
+    }
+
+    fn ema_leverage_margin_bps(
+        &self,
+        collateral_asset: MarketAsset,
+        collateral_amount: u64,
+        debt_amount: u64,
+    ) -> Result<u128> {
+        let collateral_value_nad =
+            self.linear_liquidation_collateral_value_nad(collateral_asset, collateral_amount, &self.risk)?;
+        let debt_value_nad = self.normalize_amount(
+            debt_amount as u128,
+            self.side(collateral_asset.opposite()).asset_decimals,
+        )?;
+        equity_bps_u128(collateral_value_nad, debt_value_nad)
+    }
+
+    fn require_ema_leverage_not_liquidatable(
+        &self,
+        collateral_asset: MarketAsset,
+        collateral_amount: u64,
+        debt_amount: u64,
+    ) -> Result<()> {
+        require_gt!(
+            self.ema_leverage_margin_bps(collateral_asset, collateral_amount, debt_amount)?,
+            LEVERAGE_MAINTENANCE_BUFFER_BPS as u128,
+            ErrorCode::LeveragePositionNotLiquidatable
+        );
+        Ok(())
     }
 
     fn post_swap_closeout_quote_with_quote(
@@ -1791,12 +1915,17 @@ pub(crate) fn leverage_debt_from_margin(margin_amount: u64, multiplier_bps: u64)
 }
 
 fn equity_bps(closeout_value: u64, debt_amount: u64) -> Result<u128> {
+    equity_bps_u128(closeout_value as u128, debt_amount as u128)
+}
+
+fn equity_bps_u128(closeout_value: u128, debt_amount: u128) -> Result<u128> {
     if closeout_value == 0 {
         return Ok(0);
     }
-    Ok((closeout_value.saturating_sub(debt_amount) as u128)
+    Ok(closeout_value
+        .saturating_sub(debt_amount)
         .checked_mul(BPS_DENOMINATOR as u128)
-        .and_then(|value| value.checked_div(closeout_value as u128))
+        .and_then(|value| value.checked_div(closeout_value))
         .ok_or(ErrorCode::MarketMathOverflow)?)
 }
 
@@ -1859,15 +1988,22 @@ fn require_leverage_not_liquidatable(closeout_value: u64, debt_amount: u64) -> R
 
 impl Market {
     /// Advances debt, controller clocks, and hLP accounting for leverage
-    /// margin changes without eagerly rebuilding risk that the transition will
-    /// immediately invalidate. The transition records its final exact risk
-    /// observation after the reserve/debt mutation.
+    /// repayment. The hLP checkpoint's exact price also initializes risk;
+    /// repayment can reuse it when the final curve remains identical.
     pub(crate) fn prepare_leverage_margin_operation(&mut self, current_slot: u64) -> Result<()> {
         self.assert_current_version()?;
         self.accrue_interest_to_slot(current_slot)?;
         if self.base_side.reserves.live_reserve > 0 && self.quote_side.reserves.live_reserve > 0 {
             self.advance_amm_clock(current_slot)?;
-            self.checkpoint_hlp_vaults()?;
+            let (_, _, price_nad) = self.checkpoint_hlp_vaults_with_price()?;
+            let curve_depth_nad = self
+                .amm
+                .concentrated_curve_cache
+                .tail_liquidity
+                .checked_add(self.amm.concentrated_curve_cache.concentrated_liquidity)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, current_slot)?;
+            self.risk_revision = self.curve_revision;
         }
         Ok(())
     }

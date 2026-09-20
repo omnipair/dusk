@@ -8,6 +8,8 @@ pub struct CreateLeverageEntryOrderArgs {
     /// Gross amount transferred into escrow. The order records the measured
     /// net credit so Token-2022 transfer fees cannot underfund execution.
     pub deposit_amount: u64,
+    /// Additional gross fee funding, transferred separately so margin and bounty stay intact.
+    pub protocol_fee_deposit_amount: u64,
     pub min_margin_amount: u64,
     pub executor_bounty: u64,
     pub multiplier_bps: u64,
@@ -34,7 +36,7 @@ pub(crate) fn leverage_entry_funding_vault_address(
 pub(super) fn verify_opened_position(
     position: &UncheckedAccount,
     order: &LeverageEntryOrder,
-) -> Result<()> {
+) -> Result<u64> {
     require_keys_eq!(
         *position.owner,
         dusk::ID,
@@ -63,7 +65,10 @@ pub(super) fn verify_opened_position(
         position.debt_asset == order.debt_asset,
         LeverageDelegateError::InvalidOrder
     );
-    Ok(())
+    (position.margin_amount as u128)
+        .checked_add(position.debt_principal)
+        .and_then(|value| u64::try_from(value).ok())
+        .ok_or_else(|| error!(LeverageDelegateError::MathOverflow))
 }
 
 pub(crate) fn escrow_margin_after_bounty(

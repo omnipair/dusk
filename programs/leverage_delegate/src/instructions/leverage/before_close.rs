@@ -159,6 +159,7 @@ impl<'info> BeforeLeverageOrder<'info> {
         order.staged_custody_token_account = ctx.accounts.custody_token_account.key();
         order.staged_output_mint = ctx.accounts.token_mint.key();
         order.staged_output_amount = output_amount;
+        order.staged_execution_value = close_quote.amount_out;
         let approval = LeverageDelegationApproval::new(
             LEVERAGE_DELEGATE_CLOSE,
             ctx.accounts.market.key(),
