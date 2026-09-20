@@ -8334,6 +8334,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     trackV2Instruction("openLeverage", this.test?.title);
 
     await swapBaseForQuote(fixture, [], 80_000, 1);
+    // Liquidation requires both executable closeout and the symmetric EMA to
+    // breach maintenance. Let the EMA absorb the adverse spot move.
+    svm.warpToSlot(svm.getClock().slot + 600n);
+    svm.expireBlockhash();
 
     const liquidatorQuoteAccount = await createAccount(
       connection as any,
