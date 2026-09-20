@@ -103,6 +103,22 @@ impl<'info> CreateLeverageEntryOrder<'info> {
         let margin_amount =
             escrow_margin_after_bounty(credited, args.executor_bounty, args.min_margin_amount)?;
 
+        transfer_checked(
+            token_program_for_mint(
+                &ctx.accounts.debt_mint.to_account_info(),
+                &ctx.accounts.token_program.to_account_info(),
+                &ctx.accounts.token_2022_program.to_account_info(),
+            ),
+            ctx.accounts.owner_funding_account.to_account_info(),
+            ctx.accounts.debt_mint.to_account_info(),
+            ctx.accounts.funding_vault.to_account_info(),
+            ctx.accounts.owner.to_account_info(),
+            args.protocol_fee_deposit_amount,
+            ctx.accounts.debt_mint.decimals,
+            &[],
+            ctx.remaining_accounts,
+        )?;
+
         let order = &mut ctx.accounts.order;
         order.owner = ctx.accounts.owner.key();
         order.market = ctx.accounts.market.key();

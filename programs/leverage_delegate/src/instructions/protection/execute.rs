@@ -1,4 +1,5 @@
 use super::*;
+use crate::instructions::fees::*;
 
 #[derive(Accounts)]
 pub struct ExecuteProtectionOrder<'info> {
@@ -67,6 +68,7 @@ pub struct ExecuteProtectionOrder<'info> {
     #[account(seeds = [b"__event_authority"], bump, seeds::program = dusk::ID)]
     pub dusk_event_authority: AccountInfo<'info>,
     pub dusk_program: Program<'info, Dusk>,
+    pub protocol_fee: OrderFeePayment<'info>,
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
 }
@@ -178,6 +180,25 @@ impl<'info> ExecuteProtectionOrder<'info> {
                 clock.epoch,
             )?)
             .ok_or(LeverageDelegateError::MathOverflow)?;
+
+        let payment_credit = paid
+            .checked_sub(dusk::token::get_transfer_fee_for_epoch(
+                &payment_mint_info,
+                paid,
+                clock.epoch,
+            )?)
+            .ok_or(LeverageDelegateError::MathOverflow)?;
+        let protocol_fee = crate::instructions::fees::order_protocol_fee(payment_credit);
+        let protocol_debit = protocol_fee
+            .checked_add(dusk::token::get_transfer_inverse_fee_for_epoch(
+                &payment_mint_info,
+                protocol_fee,
+                clock.epoch,
+            )?)
+            .ok_or(LeverageDelegateError::MathOverflow)?;
+        let required_output = gross
+            .checked_add(protocol_debit)
+            .ok_or(LeverageDelegateError::MathOverflow)?;
         let owner = a.order.owner;
         let id = a.order.order_id.to_le_bytes();
         let bump = [a.order.bump];
@@ -187,7 +208,7 @@ impl<'info> ExecuteProtectionOrder<'info> {
         a.redeem_lp(
             args.lp_amount,
             payment_asset,
-            gross,
+            required_output,
             &[seeds],
             ctx.remaining_accounts,
         )?;
@@ -210,7 +231,7 @@ impl<'info> ExecuteProtectionOrder<'info> {
             output
                 .checked_sub(baseline)
                 .ok_or(LeverageDelegateError::MathOverflow)?,
-            gross,
+            required_output,
             LeverageDelegateError::InvalidOrder
         );
         let keeper_after_payment = a.keeper_payment_account.amount;
@@ -220,7 +241,7 @@ impl<'info> ExecuteProtectionOrder<'info> {
                 &a.token_program.to_account_info(),
                 &a.token_2022_program.to_account_info(),
             ),
-            custody,
+            custody.clone(),
             payment_mint_info,
             a.keeper_payment_account.to_account_info(),
             a.order.to_account_info(),
@@ -238,6 +259,24 @@ impl<'info> ExecuteProtectionOrder<'info> {
             reimbursement,
             LeverageDelegateError::InvalidOrder
         );
+
+        a.protocol_fee.collect(
+            owner,
+            a.order.key(),
+            if payment_asset == MarketAsset::Base {
+                &a.base_mint
+            } else {
+                &a.quote_mint
+            },
+            &a.futarchy_authority,
+            payment_credit,
+            custody,
+            a.order.to_account_info(),
+            &[seeds],
+            &a.token_program.to_account_info(),
+            &a.token_2022_program.to_account_info(),
+            ctx.remaining_accounts,
+        )?;
         a.custody_base_account.reload()?;
         a.custody_quote_account.reload()?;
         // All unused proceeds, including the other yLP asset, belong to the sponsor.

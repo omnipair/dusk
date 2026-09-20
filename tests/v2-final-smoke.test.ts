@@ -4,6 +4,8 @@ import { fileURLToPath } from "url";
 import anchor from "@coral-xyz/anchor";
 import {
   ACCOUNT_SIZE,
+  calculateEpochFee,
+  getTransferFeeConfig,
   createBurnCheckedInstruction,
   createAmountToUiAmountInstruction,
   createInitializeGroupPointerInstruction,
@@ -1342,6 +1344,12 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const denominator = sum * sum;
     const qNumerator = 4n * base * quoteAtCenter;
     return ((denominator - qNumerator) * 1_000_000_000n) / denominator;
+  }
+
+  async function orderFeeRecipient(mint: PublicKey, tokenProgram = TOKEN_PROGRAM_ID) {
+    const authority = accountCoder.decode("FutarchyAuthority", Buffer.from(svm.getAccount(futarchyAuthority)!.data)) as any;
+    return createAccount(connection as any, payer, mint, authority.recipients.futarchy_treasury,
+      Keypair.generate(), undefined, tokenProgram);
   }
 
   async function openQuoteDebtLeverage(
@@ -7990,13 +7998,19 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     });
   }
 
-  for (const groupedUi of [false, true]) {
-    it(`closes a leverage position through a delegated callback settlement${groupedUi ? " with grouped UI-amount assets" : ""}`, async function () {
-      const assetProgram = groupedUi ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+  for (const mode of ["legacy", "grouped", "transfer-fee"]) {
+    const groupedUi = mode === "grouped";
+    const transferFee = mode === "transfer-fee";
+    it(`closes a leverage position through a delegated callback settlement (${mode})`, async function () {
+      const assetProgram = mode === "legacy" ? TOKEN_PROGRAM_ID : TOKEN_2022_PROGRAM_ID;
       const mints = groupedUi ? await createGroupedUiAssets(true) : undefined;
       const fixture = await addBalancedLiquidity(65, marketConfig(), undefined, 6, assetProgram,
-        mints ? { base: mints.quote, quote: mints.base } : undefined);
+        mints ? { base: mints.quote, quote: mints.base } : transferFee ? {
+          base: await createMint(connection as any, payer, payer.publicKey, null, 6, undefined, undefined, TOKEN_2022_PROGRAM_ID),
+          quote: await createTransferFeeMint(payer.publicKey, 6, 50),
+        } : undefined);
       const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(fixture);
+      const openedPosition = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
       trackV2Instruction("openLeverage", this.test?.title);
 
       const leverageDelegation = deriveLeverageDelegationAddress(leveragePosition)[0];
@@ -8089,9 +8103,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           executor: executor.publicKey,
         })
         .instruction();
+      const feeRecipient = await orderFeeRecipient(fixture.quoteMint, assetProgram);
       const afterIx = await leverageDelegateProgram.methods
         .afterCloseOrder({ orderId })
         .accounts({
+          futarchyAuthority, protocolFee: { feeRecipient },
           order,
           owner: payer.publicKey,
           leveragePosition,
@@ -8144,18 +8160,170 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         })
         .remainingAccounts([...beforeIx.keys, ...afterIx.keys])
         .transaction();
-      await connection.sendTransaction(delegatedCloseTx, [payer, executor]);
+      const signature = await connection.sendTransaction(delegatedCloseTx, [payer, executor]);
+      const meta = svm.getTransaction(Buffer.from(signature, "base64")) as any;
+      const feeEvents = [...new anchor.EventParser(LEVERAGE_DELEGATE_PROGRAM_ID,
+        new anchor.BorshCoder(leverageDelegateIdl)).parseLogs(meta.logs())];
+      const feeEvent = feeEvents.find((event) => event.name === "OrderProtocolFeePaid")!.data as any;
+      expect(feeEvent).to.not.equal(undefined);
+      const value = BigInt(feeEvent.value.toString());
+      const fee = BigInt(feeEvent.fee.toString());
+      const feeDebit = BigInt(feeEvent.debit.toString());
+      expect(fee).to.equal((value + 999n) / 1_000n);
+      expect((await getAccount(connection as any, feeRecipient, undefined, assetProgram)).amount).to.equal(fee);
+      const grossBounty = (BigInt(openedPosition.margin_amount.toString()) * 500n + 9_999n) / 10_000n;
+      let expectedBounty = grossBounty;
+      if (transferFee) {
+        const feeConfig = getTransferFeeConfig(await getMint(connection as any, fixture.quoteMint, undefined, assetProgram))!;
+        expect(feeDebit > fee).to.equal(true);
+        expect(feeDebit - calculateEpochFee(feeConfig, svm.getClock().epoch, feeDebit)).to.equal(fee);
+        expectedBounty -= calculateEpochFee(feeConfig, svm.getClock().epoch, grossBounty);
+      }
+      expect((await getAccount(connection as any, executorTokenAccount, undefined, assetProgram)).amount - executorQuoteBefore.amount).to.equal(expectedBounty);
+
       trackV2Instruction("delegatedCloseLeverage", this.test?.title);
 
       const ownerQuoteAfter = await getAccount(connection as any, fixture.ownerQuoteAccount, undefined, assetProgram);
       const executorQuoteAfter = await getAccount(connection as any, executorTokenAccount, undefined, assetProgram);
       const custodyAfter = await getAccount(connection as any, custodyTokenAccount, undefined, assetProgram);
 
+      expect((await getAccount(connection as any, feeRecipient, undefined, assetProgram)).amount > 0n).to.equal(true);
       expect(ownerQuoteAfter.amount > ownerQuoteBefore.amount).to.equal(true);
       expect(executorQuoteAfter.amount > executorQuoteBefore.amount).to.equal(true);
       expect(custodyAfter.amount).to.equal(0n);
       expect(svm.getAccount(leveragePosition)).to.equal(null);
       expect(svm.getAccount(order)).to.equal(null);
+    });
+  }
+
+  for (const tokenProgram of [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) {
+    it(`charges entry-order fees on top of margin and bounty (${tokenProgram.toBase58()})`, async function () {
+      const f = await addBalancedLiquidity(230, marketConfig(), undefined, 6, tokenProgram);
+      const feeRecipient = await orderFeeRecipient(f.quoteMint, tokenProgram);
+      const executor = Keypair.generate();
+      await connection.requestAirdrop(executor.publicKey, LAMPORTS_PER_SOL);
+      const executorBountyAccount = await createAccount(connection as any, payer, f.quoteMint, executor.publicKey,
+        Keypair.generate(), undefined, tokenProgram);
+      for (const cancel of [true, false]) {
+        const orderId = new BN(cancel ? 801 : 802);
+        const positionId = Keypair.generate().publicKey;
+        const leveragePosition = deriveLeveragePositionAddress(f.market, positionId)[0];
+        const leverageCollateralVault = deriveLeverageCollateralVaultAddress(f.market, f.baseMint)[0];
+        const order = PublicKey.findProgramAddressSync([Buffer.from("leverage_entry_order"), f.market.toBuffer(),
+          payer.publicKey.toBuffer(), orderId.toArrayLike(Buffer, "le", 8)], LEVERAGE_DELEGATE_PROGRAM_ID)[0];
+        const fundingVault = getAssociatedTokenAddressSync(f.quoteMint, order, true, tokenProgram);
+        await connection.sendTransaction(new Transaction().add(createAssociatedTokenAccountIdempotentInstruction(
+          payer.publicKey, fundingVault, order, f.quoteMint, tokenProgram)), [payer]);
+        const ownerBefore = (await getAccount(connection as any, f.ownerQuoteAccount, undefined, tokenProgram)).amount;
+        await connection.sendTransaction(await leverageDelegateProgram.methods.createLeverageEntryOrder({
+          orderId, positionId, debtAsset: 1, depositAmount: new BN(1_050), protocolFeeDepositAmount: new BN(cancel ? 100 : 0),
+          minMarginAmount: new BN(1_000), executorBounty: new BN(50), multiplierBps: new BN(20_000),
+          limitPriceNad: new BN(100_000_000_000), minCollateralOut: new BN(1),
+          expiryUnixTimestamp: new BN(svm.getClock().unixTimestamp.toString()).addn(3_600), referrer: null,
+        }).accounts({ market: f.market, debtMint: f.quoteMint, collateralMint: f.baseMint, order,
+          ownerFundingAccount: f.ownerQuoteAccount, fundingVault, owner: payer.publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
+        }).transaction(), [payer]);
+        const created = new anchor.BorshAccountsCoder(leverageDelegateIdl).decode("LeverageEntryOrder", Buffer.from(svm.getAccount(order)!.data)) as any;
+        expect(created.margin_amount.toString()).to.equal("1000");
+        expect(created.executor_bounty.toString()).to.equal("50");
+        if (cancel) {
+          await connection.sendTransaction(await leverageDelegateProgram.methods.cancelLeverageEntryOrder({ orderId }).accounts({
+            order, debtMint: f.quoteMint, fundingVault, ownerFundingAccount: f.ownerQuoteAccount,
+            owner: payer.publicKey, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+          }).transaction(), [payer]);
+          expect((await getAccount(connection as any, f.ownerQuoteAccount, undefined, tokenProgram)).amount).to.equal(ownerBefore);
+          expect((await getAccount(connection as any, feeRecipient, undefined, tokenProgram)).amount).to.equal(0n);
+          continue;
+        }
+        const execute = async (recipient = feeRecipient) => {
+          svm.expireBlockhash();
+          return connection.sendTransaction(await leverageDelegateProgram.methods.executeLeverageEntryOrder({ orderId }).accounts({
+            order, market: f.market, futarchyAuthority, owner: payer.publicKey, leveragePosition,
+            debtMint: f.quoteMint, collateralMint: f.baseMint, debtReserveVault: f.quoteReserveVault,
+            collateralReserveVault: f.baseReserveVault, leverageCollateralVault, fundingVault,
+            ownerRefundAccount: f.ownerQuoteAccount, executorBountyAccount, referralPartner: null, referralAccrual: null,
+            instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY, executor: executor.publicKey, duskEventAuthority: eventAuthority(),
+            duskProgram: DUSK_PROGRAM_ID, protocolFee: { feeRecipient: recipient }, tokenProgram: TOKEN_PROGRAM_ID,
+            token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
+          }).transaction(), [payer, executor]);
+        };
+        let rejected = false;
+        try { await execute(); } catch { rejected = true; }
+        expect(rejected).to.equal(true);
+        expect(svm.getAccount(leveragePosition)).to.equal(null);
+        expect((await getAccount(connection as any, fundingVault, undefined, tokenProgram)).amount).to.equal(1_050n);
+        expect((await getAccount(connection as any, feeRecipient, undefined, tokenProgram)).amount).to.equal(0n);
+        await mintTo(connection as any, payer, f.quoteMint, fundingVault, payer, 100, [], undefined, tokenProgram);
+        rejected = false;
+        try { await execute(executorBountyAccount); } catch { rejected = true; }
+        expect(rejected).to.equal(true);
+        expect(svm.getAccount(leveragePosition)).to.equal(null);
+        await execute();
+        const position = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+        expect(position.margin_amount.toString()).to.equal("1000");
+        expect(position.debt_principal.toString()).to.equal("1000");
+        expect((await getAccount(connection as any, executorBountyAccount, undefined, tokenProgram)).amount).to.equal(50n);
+        expect((await getAccount(connection as any, feeRecipient, undefined, tokenProgram)).amount).to.equal(2n);
+        expect((await getAccount(connection as any, f.ownerQuoteAccount, undefined, tokenProgram)).amount).to.equal(ownerBefore - 1_050n + 98n);
+        expect(svm.getAccount(order)).to.equal(null);
+        expect(svm.getAccount(fundingVault)).to.equal(null);
+      }
+    });
+  }
+
+  for (const kind of [1, 2]) {
+    it(`charges hLP exit-order fees without reducing keeper incentives (kind ${kind})`, async function () {
+      const f = await addBalancedLiquidity(231);
+      const hedge = await openBaseHedge(f, 20_000);
+      await initializeLpTransferHook(f, f.baseHlpMint);
+      const orderId = new BN(900 + kind);
+      const order = PublicKey.findProgramAddressSync([Buffer.from("hlp_order"), f.market.toBuffer(), payer.publicKey.toBuffer(),
+        f.baseHlpMint.toBuffer(), orderId.toArrayLike(Buffer, "le", 8)], LEVERAGE_DELEGATE_PROGRAM_ID)[0];
+      const custodyHlpAccount = await createToken2022Ata(f.baseHlpMint, order);
+      const yieldAccounts = await initializeYieldAccounts(f, order, f.baseHlpMint, "hlp");
+      const custodyTargetAccount = await createAccount(connection as any, payer, f.baseMint, order, Keypair.generate());
+      const executor = Keypair.generate();
+      await connection.requestAirdrop(executor.publicKey, LAMPORTS_PER_SOL);
+      const executorTargetAccount = await createAccount(connection as any, payer, f.baseMint, executor.publicKey);
+      const feeRecipient = await orderFeeRecipient(f.baseMint);
+      await connection.sendTransaction(await leverageDelegateProgram.methods.createHlpOrder({
+        orderId, kind, hlpAmount: new BN(1_000), triggerNad: new BN(kind === 1 ? 100_000_000_000 : 1), minTargetAmountOut: new BN(1),
+      }).accounts({ market: f.market, targetHlpMint: f.baseHlpMint, baseMint: f.baseMint, quoteMint: f.quoteMint, order,
+        ownerHlpAccount: hedge.ownerBaseHlpAccount, custodyHlpAccount, ...yieldAccounts, owner: payer.publicKey,
+        duskEventAuthority: eventAuthority(), duskProgram: DUSK_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
+      }).remainingAccounts(buildLpTransferHookAccountMetas({ lpMint: f.baseHlpMint, market: f.market, sourceOwner: payer.publicKey,
+        destinationOwner: order, baseMint: f.baseMint, quoteMint: f.quoteMint, tokenKind: "hlp" })).transaction(), [payer]);
+      const ownerBefore = (await getAccount(connection as any, f.ownerBaseAccount)).amount;
+      const execute = async (recipient = feeRecipient) => {
+        svm.expireBlockhash();
+        return connection.sendTransaction(await leverageDelegateProgram.methods.executeHlpOrder({ orderId }).accounts({
+          order, market: f.market, futarchyAuthority, baseMint: f.baseMint, quoteMint: f.quoteMint,
+          ylpMint: f.ylpMint, targetHlpMint: f.baseHlpMint, baseReserveVault: f.baseReserveVault, quoteReserveVault: f.quoteReserveVault,
+          borrowedInterestVault: f.quoteInterestVault, custodyTargetAccount, custodyHlpAccount, hlpYlpAccount: hedge.hlpYlpAccount,
+          ...yieldAccounts, ownerTargetAccount: f.ownerBaseAccount, executorTargetAccount, executor: executor.publicKey,
+          orderOwner: payer.publicKey, duskEventAuthority: eventAuthority(), duskProgram: DUSK_PROGRAM_ID,
+          protocolFee: { feeRecipient: recipient }, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+        }).transaction(), [payer, executor]);
+      };
+      let rejected = false;
+      try { await execute(executorTargetAccount); } catch { rejected = true; }
+      expect(rejected).to.equal(true);
+      expect((await getAccount(connection as any, custodyHlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(1_000n);
+      expect((await getAccount(connection as any, feeRecipient)).amount).to.equal(0n);
+      await execute();
+      const ownerCredit = (await getAccount(connection as any, f.ownerBaseAccount)).amount - ownerBefore;
+      const keeperCredit = (await getAccount(connection as any, executorTargetAccount)).amount;
+      const protocolCredit = (await getAccount(connection as any, feeRecipient)).amount;
+      const output = ownerCredit + keeperCredit + protocolCredit;
+      expect(protocolCredit).to.equal((output + 999n) / 1_000n);
+      expect(keeperCredit).to.equal((output * 500n + 9_999n) / 10_000n);
+      expect(ownerCredit > 0n).to.equal(true);
+      expect(svm.getAccount(custodyTargetAccount)).to.equal(null);
+      rejected = false;
+      try { await execute(); } catch { rejected = true; }
+      expect(rejected).to.equal(true);
+      expect((await getAccount(connection as any, feeRecipient)).amount).to.equal(protocolCredit);
     });
   }
 
@@ -8713,7 +8881,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         await connection.sendTransaction(await leverageDelegateProgram.methods.fundProtectionOrder({ lpAmount: new BN(1_000) }).accounts(manageAccounts)
           .remainingAccounts(hookAccounts(payer.publicKey, order)).transaction(), [payer]);
         if (accrue) svm.warpToSlot(svm.getClock().slot + 1_000_000n);
-        const executeAccounts = { order, market: f.market, futarchyAuthority, borrowPosition, leveragePosition, positionOwner: payer.publicKey,
+        const feeRecipient = await orderFeeRecipient(paymentMint);
+        const executeAccounts = { protocolFee: { feeRecipient }, order, market: f.market, futarchyAuthority, borrowPosition, leveragePosition, positionOwner: payer.publicKey,
           baseMint: f.baseMint, quoteMint: f.quoteMint, lpMint, ylpMint: f.ylpMint, baseReserveVault: f.baseReserveVault, quoteReserveVault: f.quoteReserveVault,
           paymentVault: action === 1 ? f.baseCollateralVault : f.quoteReserveVault, debtInterestVault: f.quoteInterestVault,
           borrowedInterestVault: kind === "hlp" ? (action === 1 ? f.quoteInterestVault : f.baseInterestVault) : null,
@@ -8729,6 +8898,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           tx.feePayer = keeper.publicKey;
           return connection.sendTransaction(tx, [keeper]);
         };
+        const assertNoProtocolFee = async () => expect((await getAccount(connection as any, feeRecipient)).amount).to.equal(0n);
         const beforeOrder = Buffer.from(svm.getAccount(order)!.data);
         const beforePosition = Buffer.from(svm.getAccount(position)!.data);
         const beforeKeeper = (await getAccount(connection as any, keeperPaymentAccount)).amount;
@@ -8759,7 +8929,27 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         expect((await getAccount(connection as any, keeperPaymentAccount)).amount).to.equal(beforeKeeper);
         const lpBurn = action === 2 ? 1_300 : action === 1 ? 8_000 : kind === "hlp" ? 6_000 : 4_000;
         const payment = action === 1 ? 5_000 : partialLeverage ? 500 : 10_000;
+        await assertNoProtocolFee();
+        // An executor cannot redirect protocol revenue into their own wallet.
+        rejected = false;
+        try { await execute(lpBurn, payment, { protocolFee: { feeRecipient: keeperPaymentAccount } }); } catch { rejected = true; }
+        expect(rejected).to.equal(true);
+        expect(Buffer.from(svm.getAccount(position)!.data).equals(beforePosition)).to.equal(true);
+        await assertNoProtocolFee();
         await execute(lpBurn, payment);
+        const paidProtocolFee = (await getAccount(connection as any, feeRecipient)).amount;
+        expect(paidProtocolFee > 0n).to.equal(true);
+        // The sponsor pays the surcharge; the keeper keeps its full 1% reward.
+        const keeperReward = (await getAccount(connection as any, keeperPaymentAccount)).amount - beforeKeeper;
+        if (action === 1) {
+          expect(paidProtocolFee).to.equal(5n);
+          expect(keeperReward).to.equal(50n);
+        } else if (!accrue) {
+          const credited = action === 2 ? (partialLeverage ? 500n : 1_000n) : 5_000n;
+          expect(paidProtocolFee).to.equal((credited + 999n) / 1_000n);
+          expect(keeperReward).to.equal(credited / 100n);
+        }
+
         expect((await preview()) > healthBefore).to.equal(true);
         const afterKeeper = (await getAccount(connection as any, keeperPaymentAccount)).amount;
         expect(afterKeeper > beforeKeeper).to.equal(true);
@@ -8776,6 +8966,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         try { await execute(lpBurn, payment); } catch { rejected = true; }
         expect(rejected).to.equal(true);
         expect((await getAccount(connection as any, keeperPaymentAccount)).amount).to.equal(beforeUnneededExecution);
+        expect((await getAccount(connection as any, feeRecipient)).amount).to.equal(paidProtocolFee);
         let totalLpBurned = lpBurn;
         if (action === 0) {
           // Recurring coverage deliberately includes newly borrowed debt; it

@@ -75,6 +75,8 @@ export class DuskProtectionOrders {
 
   /** LP redemptions may need an address lookup table and a larger heap frame.
    * Simulate the complete transaction with the current native market state.
+   * LP proceeds must cover payment, the full keeper reward, and the additional
+   * 10 bps protocol fee. Supply protocolFee from orderProtocolFeeAccounts.
    */
   async executeInstruction(params: { lpAmount: RawAmount; paymentAmount: RawAmount },
     accounts: ExecuteAccounts, remainingAccounts: AccountMeta[] = []) {

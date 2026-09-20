@@ -18,5 +18,7 @@ pub struct LeverageOrder {
     pub staged_custody_token_account: Pubkey,
     pub staged_output_mint: Pubkey,
     pub staged_output_amount: u64,
+    /// Executed collateral-sale value in debt tokens, before debt repayment.
+    pub staged_execution_value: u64,
     pub bump: u8,
 }

@@ -8,3 +8,6 @@ pub use leverage::*;
 
 pub mod protection;
 pub use protection::*;
+
+pub mod fees;
+pub use fees::*;

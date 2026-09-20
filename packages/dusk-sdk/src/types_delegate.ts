@@ -97,6 +97,18 @@ export type LeverageDelegate = {
           "signer": true
         },
         {
+          "name": "futarchyAuthority"
+        },
+        {
+          "name": "protocolFee",
+          "accounts": [
+            {
+              "name": "feeRecipient",
+              "writable": true
+            }
+          ]
+        },
+        {
           "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -1351,6 +1363,15 @@ export type LeverageDelegate = {
           "address": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X"
         },
         {
+          "name": "protocolFee",
+          "accounts": [
+            {
+              "name": "feeRecipient",
+              "writable": true
+            }
+          ]
+        },
+        {
           "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -1560,6 +1581,15 @@ export type LeverageDelegate = {
         {
           "name": "duskProgram",
           "address": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X"
+        },
+        {
+          "name": "protocolFee",
+          "accounts": [
+            {
+              "name": "feeRecipient",
+              "writable": true
+            }
+          ]
         },
         {
           "name": "tokenProgram",
@@ -1815,6 +1845,15 @@ export type LeverageDelegate = {
         {
           "name": "duskProgram",
           "address": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X"
+        },
+        {
+          "name": "protocolFee",
+          "accounts": [
+            {
+              "name": "feeRecipient",
+              "writable": true
+            }
+          ]
         },
         {
           "name": "tokenProgram",
@@ -2389,6 +2428,19 @@ export type LeverageDelegate = {
   ],
   "events": [
     {
+      "name": "orderProtocolFeePaid",
+      "discriminator": [
+        250,
+        40,
+        26,
+        245,
+        44,
+        108,
+        250,
+        250
+      ]
+    },
+    {
       "name": "protectionExecuted",
       "discriminator": [
         226,
@@ -2930,6 +2982,13 @@ export type LeverageDelegate = {
             "docs": [
               "Gross amount transferred into escrow. The order records the measured",
               "net credit so Token-2022 transfer fees cannot underfund execution."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "protocolFeeDepositAmount",
+            "docs": [
+              "Additional gross fee funding, transferred separately so margin and bounty stay intact."
             ],
             "type": "u64"
           },
@@ -3996,6 +4055,13 @@ export type LeverageDelegate = {
             "type": "u64"
           },
           {
+            "name": "stagedExecutionValue",
+            "docs": [
+              "Executed collateral-sale value in debt tokens, before debt repayment."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "bump",
             "type": "u8"
           }
@@ -4370,6 +4436,42 @@ export type LeverageDelegate = {
                 "name": "dailyBorrowBucket"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "orderProtocolFeePaid",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "order",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "value",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "debit",
+            "type": "u64"
+          },
+          {
+            "name": "credited",
+            "type": "u64"
           }
         ]
       }

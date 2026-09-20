@@ -31,12 +31,30 @@ Both yield accounts designate the sponsor as recipient. Escrowed LP retains norm
 1. Refresh market accounting in a read-only copy, bind the target, and check expiry, budget, and trigger.
 2. Repay or add collateral using the keeper's own payment token account. Measure its actual gross debit.
 3. Redeem the authorized LP through native Dusk withdrawal. All existing market-health, reserve, and hLP solvency checks remain active.
-4. Reimburse the keeper's debit plus the authorized proportional reward. Account for transfer fees and verify the actual credit.
+4. Reimburse the keeper's debit plus the authorized proportional reward, and pay the additional 10 bps protocol fee from sponsor redemption proceeds. Account for transfer fees and verify both credits. Redemption must cover both payments within the sponsor's existing LP limits.
 5. Return unused redemption proceeds to the sponsor. For yLP, this includes the other asset; no swap or external route is used.
 6. Reload the market and position and require final health to exceed its starting value and reach the sponsor's target. Deduct the LP burned from the budget.
 
-All steps are one instruction. Failure, including unavailable withdrawal liquidity, a competing cancellation/liquidation, a changed target, or inadequate final health, rolls back repayment, redemption, and reward. The keeper needs working capital to advance the payment. The SDK supplies typed instruction builders; callers must simulate the complete transaction, include required transfer-hook accounts, and use address lookup tables or a requested heap frame when needed.
+All steps are one instruction. Failure, including unavailable withdrawal liquidity, a competing cancellation/liquidation, a changed target, or inadequate final health, rolls back repayment, redemption, reward, and protocol fee. The keeper needs working capital to advance the payment. The SDK supplies typed instruction builders; callers must simulate the complete transaction, include required transfer-hook accounts, and use address lookup tables or a requested heap frame when needed.
 
 Borrow health is liquidation capacity divided by debt in basis points, using the **linear valuation used by borrow liquidation**, with 10000 as the boundary. Leverage health uses executable collateral closeout value and the maintenance buffer, with one additional basis point of conservatism for integer rounding. Both return the maximum u64 for zero debt. Trigger must exceed 10000 and target must exceed trigger. These checks use Dusk's market state; they do not guarantee execution before liquidation during a price jump or a liquidity shortage.
 
 Ordinary donations have no order budget or keeper reward. Order limits control the sponsor's escrow authorization, not the public repayment capability.
+
+
+## Protocol order fee
+
+Every successful built-in voluntary order execution pays a hard-coded **10 bps (0.10%)** protocol service fee. This is an additional owner/sponsor expense; it does not reduce the pool LPs' revenue allocation or the executor's existing incentive. Native liquidations, hLP rescue, direct repayments/collateral donations, order creation/cancellation, funding, and yield harvesting do not incur this service fee. Ordinary native trading/interest fees still apply.
+
+| Order | Fee value, denominated in the payment token | Owner/sponsor funding |
+| --- | --- | --- |
+| Leverage entry | Actual opened margin plus borrowed principal | `protocol_fee_deposit_amount` is an additional gross deposit into the funding vault, separate from `deposit_amount`. Execution preserves the recorded margin and executor bounty, then refunds unused fee funding. |
+| Leverage take-profit / stop-loss | Executed collateral-sale output before debt repayment | Owner's close proceeds pay the fee in addition to the unchanged executor incentive. An insufficient residual reverts; native liquidation remains available. |
+| hLP stop-loss / stop-rate | Actual withdrawal proceeds before executor incentive | Owner's withdrawal proceeds pay the fee; the existing minimum output check applies after both fees and token transfer costs. |
+| Borrow/leverage protection | Actual net repayment or collateral donation, excluding token transfer fees | Sponsor LP redemption covers the payment, full keeper reimbursement/reward, and fee. Insufficient output or LP budget reverts atomically. |
+
+The fee is rounded up to the smallest raw token unit; zero execution value has zero fee. Token-2022 fees are grossed up on the protocol transfer so the treasury receives the full quoted fee. Any additional gross debit is also the owner's/sponsor's cost. Transfer-hook accounts must support the additional treasury transfer.
+
+Execution requires `protocol_fee.fee_recipient`, a token account owned by the canonical Dusk authority's `recipients.futarchy_treasury` and matching the payment mint. There is no administrator-settable order fee rate. `OrderProtocolFeePaid` reports the order, owner, mint, executed value, fee, gross debit, and actual treasury credit. Collection bypasses neither repayment accounting nor native market-solvency checks; this additional service revenue is sent directly to the configured futarchy treasury.
+
+The SDK exports `ORDER_PROTOCOL_FEE_BPS`, `calculateOrderProtocolFee`, and `orderProtocolFeeAccounts`. Pass the latter's result as `protocolFee` in execution accounts, and initialize its treasury ATA if necessary. Quotes must include all native fees, token transfer fees, the keeper incentive, and this surcharge; for protection, choose the LP amount within the sponsor's stored limits.

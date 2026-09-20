@@ -91,6 +91,18 @@
           "signer": true
         },
         {
+          "name": "futarchy_authority"
+        },
+        {
+          "name": "protocol_fee",
+          "accounts": [
+            {
+              "name": "fee_recipient",
+              "writable": true
+            }
+          ]
+        },
+        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -1345,6 +1357,15 @@
           "address": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X"
         },
         {
+          "name": "protocol_fee",
+          "accounts": [
+            {
+              "name": "fee_recipient",
+              "writable": true
+            }
+          ]
+        },
+        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -1554,6 +1575,15 @@
         {
           "name": "dusk_program",
           "address": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X"
+        },
+        {
+          "name": "protocol_fee",
+          "accounts": [
+            {
+              "name": "fee_recipient",
+              "writable": true
+            }
+          ]
         },
         {
           "name": "token_program",
@@ -1809,6 +1839,15 @@
         {
           "name": "dusk_program",
           "address": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X"
+        },
+        {
+          "name": "protocol_fee",
+          "accounts": [
+            {
+              "name": "fee_recipient",
+              "writable": true
+            }
+          ]
         },
         {
           "name": "token_program",
@@ -2383,6 +2422,19 @@
   ],
   "events": [
     {
+      "name": "OrderProtocolFeePaid",
+      "discriminator": [
+        250,
+        40,
+        26,
+        245,
+        44,
+        108,
+        250,
+        250
+      ]
+    },
+    {
       "name": "ProtectionExecuted",
       "discriminator": [
         226,
@@ -2924,6 +2976,13 @@
             "docs": [
               "Gross amount transferred into escrow. The order records the measured",
               "net credit so Token-2022 transfer fees cannot underfund execution."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "protocol_fee_deposit_amount",
+            "docs": [
+              "Additional gross fee funding, transferred separately so margin and bounty stay intact."
             ],
             "type": "u64"
           },
@@ -3990,6 +4049,13 @@
             "type": "u64"
           },
           {
+            "name": "staged_execution_value",
+            "docs": [
+              "Executed collateral-sale value in debt tokens, before debt repayment."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "bump",
             "type": "u8"
           }
@@ -4364,6 +4430,42 @@
                 "name": "DailyBorrowBucket"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "OrderProtocolFeePaid",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "order",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "value",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "debit",
+            "type": "u64"
+          },
+          {
+            "name": "credited",
+            "type": "u64"
           }
         ]
       }
