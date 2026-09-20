@@ -492,3 +492,61 @@ The token extension semantics are described in Solana's
 [scaled UI amount](https://solana.com/docs/tokens/extensions/scaled-ui-amount) and
 [interest-bearing token](https://solana.com/docs/tokens/extensions/interest-bearing-tokens)
 documentation.
+
+
+## Shared virtual-book previews and simulation context
+
+Use `dusk` for a `Dusk` client instance. The SDK owns native preview construction,
+account decoding, concentration sampling, cumulative quote batching, and
+fee-inclusive depth projection:
+
+```ts
+const snapshot = await dusk.get.previewVirtualBook(market, {
+  minContextSlot: verifiedSlot,
+  groupingBps: 10,
+  signal,
+});
+
+// snapshot.book contains bid/ask prices, cumulative sizes, fees, and surcharge.
+// snapshot.slot / firstQuoteSlot identify the actual simulation banks.
+// snapshot.observedAt is the first request's start time, not delivery time.
+// snapshot.account is the accrued market returned by simulation.
+```
+
+These display previews use confirmed banks. Supported groupings are 5, 10, 25,
+50, and 100 bps. A capture uses one market preview and at most six batches of
+four swap previews. Batches must agree on market, mint and authority state,
+epoch, and start price, with a maximum eight-slot spread. Output amounts include
+Token-2022 transfer fees at the simulated epoch and the program's size-dependent
+fees. Depth is display data; use a fresh preview for a user's exact transaction.
+
+Applications that bracket each stage with their own deployment checks can call
+`dusk.get.previewVirtualBookSnapshot(market, options)` and
+`dusk.get.previewVirtualBookQuotes(snapshot, options)` separately, then
+`projectDuskVirtualBook(quotes)`. `previewVirtualBookBatch(snapshot, requests,
+options)` is available for one to four explicit cumulative inputs.
+
+For other preview workflows, retain full RPC provenance instead of only return
+data:
+
+```ts
+const result = await dusk.get.simulateWithContext([previewInstruction], {
+  minContextSlot: verifiedSlot,
+  accounts: [market, baseMint, quoteMint],
+  signal,
+  timeoutMs: 10_000,
+});
+
+result.context.slot;   // Actual RPC simulation slot.
+result.value.accounts; // Ordered post-simulation accounts from that bank.
+result.value.returnData;
+result.value.logs;
+result.observedAt;
+```
+
+The existing `get.previewSwap` and other decoded preview APIs remain compatible.
+The SDK does not select deployments, attest program binaries, schedule refreshes,
+set cache expiry, coordinate database locks, or stream to subscribers. Those
+remain application responsibilities; validate deployment identity before and
+after a capture. Cancellation and timeout bound the caller's wait; they do not
+necessarily cancel an RPC request already sent over the transport.
