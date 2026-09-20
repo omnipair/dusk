@@ -164,6 +164,9 @@ export type Dusk = {
         },
         {
           "name": "owner",
+          "docs": [
+            "Token payer; need not own the leverage position."
+          ],
           "writable": true,
           "signer": true
         },
@@ -2646,6 +2649,168 @@ export type Dusk = {
           "type": {
             "defined": {
               "name": "depositSingleSidedArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "donateCollateral",
+      "docs": [
+        "Adds the signer's tokens to an existing borrow position without granting",
+        "the donor ownership or withdrawal rights. The recorded owner is unchanged."
+      ],
+      "discriminator": [
+        237,
+        234,
+        205,
+        84,
+        177,
+        106,
+        198,
+        38
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "assetMint"
+        },
+        {
+          "name": "collateralVault",
+          "writable": true
+        },
+        {
+          "name": "ownerAssetAccount",
+          "writable": true
+        },
+        {
+          "name": "borrowPosition",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  114,
+                  114,
+                  111,
+                  119,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.position_id",
+                "account": "borrowPosition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "donateCollateralArgs"
             }
           }
         }
@@ -6022,6 +6187,9 @@ export type Dusk = {
         },
         {
           "name": "owner",
+          "docs": [
+            "Token payer; need not own the borrow position."
+          ],
           "writable": true,
           "signer": true
         },
@@ -6136,6 +6304,219 @@ export type Dusk = {
           "type": {
             "defined": {
               "name": "repayArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "repayLeverage",
+      "docs": [
+        "Repays leverage from the signer's tokens without quoting or selling collateral.",
+        "The update event's closeout_value is zero (unquoted)."
+      ],
+      "discriminator": [
+        155,
+        110,
+        230,
+        251,
+        39,
+        169,
+        47,
+        22
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "futarchyAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "positionOwner"
+        },
+        {
+          "name": "leveragePosition",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.position_id",
+                "account": "leveragePosition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "debtMint"
+        },
+        {
+          "name": "debtReserveVault",
+          "writable": true
+        },
+        {
+          "name": "debtInterestVault",
+          "writable": true
+        },
+        {
+          "name": "ownerDebtAccount",
+          "writable": true
+        },
+        {
+          "name": "referralPartner",
+          "optional": true
+        },
+        {
+          "name": "referralAccrual",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "owner",
+          "docs": [
+            "Token payer; need not own the leverage position."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "addLeverageMarginArgs"
             }
           }
         }
@@ -8097,6 +8478,179 @@ export type Dusk = {
       ]
     },
     {
+      "name": "withdrawAllCollateral",
+      "docs": [
+        "Sweeps both collateral balances and closes a debt-free borrow position.",
+        "Balances are read during execution so prior dust donations cannot block closure."
+      ],
+      "discriminator": [
+        37,
+        185,
+        159,
+        214,
+        37,
+        30,
+        163,
+        146
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "borrowPosition",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  114,
+                  114,
+                  111,
+                  119,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.position_id",
+                "account": "borrowPosition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "baseMint"
+        },
+        {
+          "name": "quoteMint"
+        },
+        {
+          "name": "baseCollateralVault",
+          "writable": true
+        },
+        {
+          "name": "quoteCollateralVault",
+          "writable": true
+        },
+        {
+          "name": "ownerBaseAccount",
+          "writable": true
+        },
+        {
+          "name": "ownerQuoteAccount",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "withdrawAllCollateralArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "withdrawCollateral",
       "discriminator": [
         115,
@@ -8436,6 +8990,205 @@ export type Dusk = {
       "args": []
     },
     {
+      "name": "withdrawRepaidLeverage",
+      "docs": [
+        "Returns all remaining collateral to its owner after full leverage repayment."
+      ],
+      "discriminator": [
+        7,
+        253,
+        16,
+        195,
+        214,
+        10,
+        116,
+        51
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "leveragePosition",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.position_id",
+                "account": "leveragePosition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "collateralMint"
+        },
+        {
+          "name": "collateralVault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  99,
+                  111,
+                  108,
+                  108,
+                  97,
+                  116,
+                  101,
+                  114,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "collateralMint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ownerCollateralAccount",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "withdrawRepaidLeverageArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "withdrawSingleSided",
       "discriminator": [
         243,
@@ -8737,6 +9490,19 @@ export type Dusk = {
         197,
         106,
         188
+      ]
+    },
+    {
+      "name": "debtFreePositionClosed",
+      "discriminator": [
+        220,
+        198,
+        224,
+        150,
+        204,
+        65,
+        184,
+        31
       ]
     },
     {
@@ -11050,6 +11816,46 @@ export type Dusk = {
       }
     },
     {
+      "name": "debtFreePositionClosed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "leverage",
+            "type": "bool"
+          },
+          {
+            "name": "baseReceived",
+            "type": "u64"
+          },
+          {
+            "name": "quoteReceived",
+            "type": "u64"
+          },
+          {
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "marketEventMetadata"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "decreaseLeverageArgs",
       "type": {
         "kind": "struct",
@@ -11187,6 +11993,18 @@ export type Dusk = {
           },
           {
             "name": "minHlpAmount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "donateCollateralArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "depositAmount",
             "type": "u64"
           }
         ]
@@ -12771,6 +13589,10 @@ export type Dusk = {
           },
           {
             "name": "closeoutValue",
+            "docs": [
+              "Executable closeout quote, or zero when unquoted by repay_leverage or",
+              "when add_leverage_margin fully clears the debt. Collateral remains owned."
+            ],
             "type": "u64"
           },
           {
@@ -16396,6 +17218,22 @@ export type Dusk = {
       }
     },
     {
+      "name": "withdrawAllCollateralArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "minBaseOut",
+            "type": "u64"
+          },
+          {
+            "name": "minQuoteOut",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "withdrawCollateralArgs",
       "type": {
         "kind": "struct",
@@ -16411,6 +17249,18 @@ export type Dusk = {
           {
             "name": "minLiquidationCfBps",
             "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "withdrawRepaidLeverageArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "minCollateralOut",
+            "type": "u64"
           }
         ]
       }

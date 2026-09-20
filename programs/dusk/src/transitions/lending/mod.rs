@@ -593,6 +593,32 @@ impl Market {
             >= collateral_value_nad.saturating_mul(liquidation_cf_bps as u128))
     }
 
+    /// Liquidation capacity divided by debt, in basis points, for protection
+    /// orders. Uses the same linear collateral valuation as borrow liquidation.
+    /// Debt-free sides return u64::MAX. Call update before observing this value.
+    pub fn borrow_protection_health_bps(&self, position: &BorrowPosition, asset: MarketAsset) -> Result<u64> {
+        let debt = match asset {
+            MarketAsset::Base => position.fixed_base_debt(&self.debt)?,
+            MarketAsset::Quote => position.fixed_quote_debt(&self.debt)?,
+        };
+        if debt == 0 {
+            return Ok(u64::MAX);
+        }
+        let debt_nad = self.normalize_amount(debt, self.side(asset).asset_decimals)?;
+        if debt_nad == 0 {
+            return Ok(u64::MAX);
+        }
+        let value = self.linear_liquidation_collateral_value_nad(
+            asset.opposite(),
+            position.collateral(asset.opposite()),
+            &self.current_risk()?,
+        )?;
+        let capacity = value
+            .checked_mul(position.liquidation_cf_bps(asset) as u128)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        Ok((capacity / debt_nad).min(u64::MAX as u128) as u64)
+    }
+
     pub fn is_position_liquidatable(&self, borrow_position: &BorrowPosition, debt_asset: MarketAsset) -> Result<bool> {
         self.is_position_liquidatable_with_risk(borrow_position, debt_asset, &self.current_risk()?)
     }
@@ -1113,6 +1139,19 @@ impl Market {
         self.accrue_interest_to_slot(current_slot)
     }
 
+    /// Refreshes only inputs consumed by position-risk previews on a disposable
+    /// market copy. Borrow valuation refreshes its own scalar risk, and leverage
+    /// closeout derives hLP equity from live claims and indexed debt, not cached
+    /// hLP NAV or yield checkpoints. Never use this to settle persistent state.
+    pub fn prepare_position_protection_snapshot(&mut self, current_slot: u64) -> Result<()> {
+        self.assert_current_version()?;
+        self.accrue_interest_to_slot(current_slot)?;
+        if self.base_side.reserves.live_reserve > 0 && self.quote_side.reserves.live_reserve > 0 {
+            self.advance_amm_clock(current_slot)?;
+        }
+        Ok(())
+    }
+
     pub fn update(&mut self) -> Result<()> {
         self.assert_current_version()?;
         let current_slot = Clock::get()?.slot;
@@ -1122,8 +1161,15 @@ impl Market {
             // remains gated while a due concentrated controller target would
             // otherwise price the mint against a stale NAV basis.
             self.advance_amm_clock(current_slot)?;
-            self.checkpoint_hlp_vaults()?;
-            self.refresh_risk()?;
+            let (_, _, price_nad) = self.checkpoint_hlp_vaults_with_price()?;
+            let curve_depth_nad = self
+                .amm
+                .concentrated_curve_cache
+                .tail_liquidity
+                .checked_add(self.amm.concentrated_curve_cache.concentrated_liquidity)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, current_slot)?;
+            self.risk_revision = self.curve_revision;
         }
         Ok(())
     }
@@ -1373,6 +1419,20 @@ impl Market {
         repay_asset: MarketAsset,
         repay_credit: u64,
     ) -> Result<DebtReceipt> {
+        self.repay_with_finalization(borrow_position, repay_asset, repay_credit, None)
+    }
+
+    /// Native repayment finalizes the curve once, before calculating its final
+    /// health contribution. Interest-vault distribution changes only yield
+    /// ledgers, so it needs no second curve/risk evaluation.
+    pub(crate) fn repay_with_finalization(
+        &mut self,
+        borrow_position: &mut BorrowPosition,
+        repay_asset: MarketAsset,
+        repay_credit: u64,
+        finalize_at_slot: Option<u64>,
+    ) -> Result<DebtReceipt> {
+        let curve_reserves_before = self.curve_reserves_nad()?;
         let repayment = self.fixed_repayment_for_max(borrow_position, repay_asset, repay_credit)?;
         // Instruction handlers preview this amount before moving tokens. Keep
         // the state boundary exact so no transferred atom can become an
@@ -1455,7 +1515,11 @@ impl Market {
             }
         };
         let debt_delta = -i64::try_from(debt_reduction).map_err(|_| ErrorCode::Overflow)?;
-        self.refresh_risk()?;
+        if let Some(slot) = finalize_at_slot {
+            self.finalize_debt_repayment(slot, curve_reserves_before)?;
+        } else {
+            self.refresh_risk()?;
+        }
         let debt_after = match repay_asset {
             MarketAsset::Base => borrow_position.fixed_base_debt(&self.debt)?,
             MarketAsset::Quote => borrow_position.fixed_quote_debt(&self.debt)?,

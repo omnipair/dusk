@@ -300,6 +300,33 @@ pub mod dusk {
         Repay::handle_repay(ctx, args)
     }
 
+    /// Adds the signer's tokens to an existing borrow position without granting
+    /// the donor ownership or withdrawal rights. The recorded owner is unchanged.
+    #[access_control(ctx.accounts.update_and_validate(&args))]
+    pub fn donate_collateral<'info>(
+        ctx: Context<'_, '_, '_, 'info, DonateCollateral<'info>>,
+        args: DonateCollateralArgs,
+    ) -> Result<()> {
+        DonateCollateral::handle_deposit(ctx, args)
+    }
+
+    /// Sweeps both collateral balances and closes a debt-free borrow position.
+    /// Balances are read during execution so prior dust donations cannot block closure.
+    pub fn withdraw_all_collateral<'info>(
+        ctx: Context<'_, '_, '_, 'info, WithdrawAllCollateral<'info>>,
+        args: WithdrawAllCollateralArgs,
+    ) -> Result<()> {
+        WithdrawAllCollateral::handle(ctx, args)
+    }
+
+    /// Returns all remaining collateral to its owner after full leverage repayment.
+    pub fn withdraw_repaid_leverage<'info>(
+        ctx: Context<'_, '_, '_, 'info, WithdrawRepaidLeverage<'info>>,
+        args: WithdrawRepaidLeverageArgs,
+    ) -> Result<()> {
+        WithdrawRepaidLeverage::handle(ctx, args)
+    }
+
     // Leverage instructions
     pub fn open_leverage<'info>(
         ctx: Context<'_, '_, '_, 'info, OpenLeverage<'info>>,
@@ -352,7 +379,18 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        AddLeverageMargin::handle_add_margin(ctx, args, clock.slot, clock.epoch)
+        AddLeverageMargin::handle_add_margin(ctx, args, clock.slot, clock.epoch, true)
+    }
+
+    /// Repays leverage from the signer's tokens without quoting or selling collateral.
+    /// The update event's closeout_value is zero (unquoted).
+    pub fn repay_leverage<'info>(
+        ctx: Context<'_, '_, '_, 'info, AddLeverageMargin<'info>>,
+        args: AddLeverageMarginArgs,
+    ) -> Result<()> {
+        let clock = Clock::get()?;
+        ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
+        AddLeverageMargin::handle_add_margin(ctx, args, clock.slot, clock.epoch, false)
     }
 
     pub fn remove_leverage_margin<'info>(

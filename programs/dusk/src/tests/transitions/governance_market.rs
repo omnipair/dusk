@@ -1448,3 +1448,19 @@ fn high_decimal_launch_fee_buckets_keep_nine_decimal_config_units() {
         }
     }
 }
+
+#[test]
+fn protection_health_uses_liquidation_terms_and_donations_preserve_them() {
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    let mut position = borrow_position_for_debt(MarketAsset::Base, 250_000);
+    market.borrow(&mut position, MarketAsset::Base, 100_000, 8_000, 0).unwrap();
+    let cf = position.base_liquidation_cf_bps;
+    let before = market.borrow_protection_health_bps(&position, MarketAsset::Base).unwrap();
+    assert!(before > 10_000);
+    market.deposit_collateral(&mut position, MarketAsset::Quote, 10_000).unwrap();
+    let after = market.borrow_protection_health_bps(&position, MarketAsset::Base).unwrap();
+    assert!(after > before);
+    assert_eq!(position.base_liquidation_cf_bps, cf);
+    market.repay(&mut position, MarketAsset::Base, 100_000).unwrap();
+    assert_eq!(market.borrow_protection_health_bps(&position, MarketAsset::Base).unwrap(), u64::MAX);
+}

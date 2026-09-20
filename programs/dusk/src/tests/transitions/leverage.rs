@@ -2039,3 +2039,128 @@ fn shared_swap_rejects_wrong_context_and_cannot_be_applied_twice() {
         .is_err());
     assert_eq!(bytes(&market), settled);
 }
+
+#[test]
+fn margin_donation_can_partially_rescue_an_unhealthy_position_and_fully_repay() {
+    for asset in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut market = test_market(1_000_000, 1_000_000);
+        let mut position = seeded_position(&mut market, asset, 1_000, 800);
+        let collateral = position.collateral_amount;
+        let receipt = market.add_leverage_margin(&mut position, 1, 1).unwrap();
+        assert_eq!(receipt.debt_amount, 999);
+        assert_eq!(position.collateral_amount, collateral);
+        let receipt = market.add_leverage_margin(&mut position, 999, 1).unwrap();
+        assert_eq!(receipt.debt_amount, 0);
+        assert_eq!(position.debt_shares, 0);
+        assert_eq!(position.debt_principal, 0);
+        assert_eq!(position.collateral_amount, collateral);
+        market.assert_virtual_reserve_invariant(asset).unwrap();
+        market.assert_virtual_reserve_invariant(asset.opposite()).unwrap();
+    }
+}
+
+#[test]
+fn repayment_without_sale_quote_preserves_collateral_and_ledgers() {
+    let mut market = test_market(1_000_000, 1_000_000);
+    let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000, 800);
+    let receipt = market.repay_leverage_debt(&mut position, 100, 1).unwrap();
+    assert_eq!(receipt.closeout_value, 0);
+    assert_eq!(receipt.debt_amount, 900);
+    assert_eq!(position.collateral_amount, 800);
+    market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
+    market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
+}
+
+#[test]
+fn protection_snapshot_matches_full_update_closeout_with_active_hlp() {
+    let mut market = test_market(100_000_000, 200_000_000);
+    market.deposit_single_sided(MarketAsset::Base, 1_000_000, 1).unwrap();
+    let position = seeded_position(&mut market, MarketAsset::Quote, 1_000, 2_000);
+    for slot in [1, 100, 100_000] {
+        let mut snapshot = market.clone();
+        snapshot.prepare_position_protection_snapshot(slot).unwrap();
+        let mut full = market.clone();
+        full.accrue_interest_to_slot(slot).unwrap();
+        full.advance_amm_clock(slot).unwrap();
+        full.checkpoint_hlp_vaults().unwrap();
+        full.refresh_risk_at_slot(slot).unwrap();
+        assert_eq!(position.debt_amount(&snapshot.debt).unwrap(), position.debt_amount(&full.debt).unwrap());
+        assert_eq!(snapshot.leverage_closeout_value_at_time(&position, slot, 0).unwrap(),
+            full.leverage_closeout_value_at_time(&position, slot, 0).unwrap());
+    }
+}
+
+#[test]
+fn repayment_finalization_matches_full_curve_checkpoint() {
+    for concentrated in [false, true] {
+        for active_hlp in [false, true] {
+            for slot in [1, 100, 100_000] {
+                let mut market = if concentrated {
+                    concentrated_market()
+                } else {
+                    test_market(1_000_000, 1_000_000)
+                };
+                if active_hlp {
+                    market.deposit_single_sided(MarketAsset::Base, 100_000, 1).unwrap();
+                }
+                let mut position = seeded_position(&mut market, MarketAsset::Quote, 10_000, 20_000);
+                market.finalize_amm_transition_and_observe_risk(1).unwrap();
+                let mut protection_market = market.clone();
+                let mut protection_position = position.clone();
+                let before_accrual = protection_market.integrated_curve_state_nad().unwrap();
+                let published_cache = protection_market.amm.concentrated_curve_cache;
+                market.prepare_leverage_margin_operation(slot).unwrap();
+                let revision = market.curve_revision;
+                market.repay_leverage_debt(&mut position, 500, slot).unwrap();
+                assert_eq!(market.curve_revision, revision + 1);
+                assert_eq!(market.risk_revision, market.curve_revision);
+                let mut full = market.clone();
+                full.finalize_amm_transition_and_observe_risk(slot).unwrap();
+                assert_eq!(market.amm, full.amm, "concentrated={concentrated}, hlp={active_hlp}, slot={slot}");
+                assert_eq!(market.risk, full.risk);
+                protection_market.prepare_leverage_margin_operation(slot).unwrap();
+                protection_market.repay_leverage_debt_from_curve(&mut protection_position, 500, slot, Some(before_accrual)).unwrap();
+                assert_eq!(protection_position.try_to_vec().unwrap(), position.try_to_vec().unwrap());
+                assert_eq!(protection_market.curve_revision, market.curve_revision);
+                assert_eq!(protection_market.risk_revision, protection_market.curve_revision);
+                if before_accrual == protection_market.integrated_curve_state_nad().unwrap() {
+                    assert_eq!(protection_market.amm.concentrated_curve_cache, published_cache);
+                } else {
+                    // Accrued hLP funding moved the curve point: use the full
+                    // checkpoint, including depth and protected-floor changes.
+                    assert_eq!(protection_market.amm, full.amm);
+                    assert_eq!(protection_market.risk, full.risk);
+                }
+                assert_eq!(protection_market.risk.cached_spot_base_price_nad,
+                    protection_market.current_concentrated_spot_price_nad().unwrap().unwrap());
+                market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
+                market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
+            }
+        }
+    }
+}
+
+#[test]
+fn protection_closeout_matches_full_swap_quote_across_fee_modes() {
+    for concentrated in [false, true] {
+        for fee_mode in [crate::state::SWAP_FEE_COLLECT_INPUT_ASSET,
+            crate::state::SWAP_FEE_COLLECT_BASE_ONLY, crate::state::SWAP_FEE_COLLECT_QUOTE_ONLY] {
+            for compounding in [0, 5_000, 10_000] {
+                let mut market = if concentrated { concentrated_market() } else { test_market(1_000_000, 1_000_000) };
+                market.config.swap_fee_bps = 30;
+                market.config.amm.swap_fee_collect_mode = fee_mode;
+                market.config.amm.compounding_fee_bps = compounding;
+                market.deposit_single_sided(MarketAsset::Base, 100_000, 1).unwrap();
+                market.finalize_amm_transition_and_observe_risk(1).unwrap();
+                for asset in [MarketAsset::Base, MarketAsset::Quote] {
+                    let position = seeded_position(&mut market, asset, 1_000, 2_000);
+                    market.prepare_position_protection_snapshot(100_000).unwrap();
+                    for timestamp in [0, 86_400] {
+                        assert_eq!(market.leverage_protection_closeout_value(&position, 100_000, timestamp).unwrap(),
+                            market.leverage_closeout_value_at_time(&position, 100_000, timestamp).unwrap());
+                    }
+                }
+            }
+        }
+    }
+}

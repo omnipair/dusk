@@ -349,6 +349,11 @@ impl Market {
     }
 
     pub fn checkpoint_hlp_vaults(&mut self) -> Result<(i128, i128)> {
+        let (base_delta, quote_delta, _) = self.checkpoint_hlp_vaults_with_price()?;
+        Ok((base_delta, quote_delta))
+    }
+
+    pub(crate) fn checkpoint_hlp_vaults_with_price(&mut self) -> Result<(i128, i128, u64)> {
         let prices = current_hlp_curve_prices(self)?;
         checkpoint_hlp_yield_from_ylp(self, MarketAsset::Base)?;
         checkpoint_hlp_yield_from_ylp(self, MarketAsset::Quote)?;
@@ -364,7 +369,7 @@ impl Market {
         } else {
             0
         };
-        Ok((base_delta, quote_delta))
+        Ok((base_delta, quote_delta, prices.for_asset(MarketAsset::Base) as u64))
     }
 
     pub fn checkpoint_hlp_yield_from_ylp(&mut self, target_asset: MarketAsset) -> Result<()> {

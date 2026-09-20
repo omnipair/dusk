@@ -21,3 +21,4 @@ export * from "./preview.js";
 export * from "./program.js";
 export * from "./referral.js";
 export * from "./write.js";
+export * from "./protection.js";

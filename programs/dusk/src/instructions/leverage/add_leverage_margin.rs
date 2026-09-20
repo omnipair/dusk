@@ -77,6 +77,7 @@ pub struct AddLeverageMargin<'info> {
     pub referral_accrual: Option<Box<Account<'info, ReferralAccrual>>>,
 
     #[account(mut)]
+    /// Token payer; need not own the leverage position.
     pub owner: Signer<'info>,
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
@@ -85,7 +86,6 @@ pub struct AddLeverageMargin<'info> {
 impl<'info> AddLeverageMargin<'info> {
     pub fn validate_at(&self, args: &AddLeverageMarginArgs, unix_timestamp: i64) -> Result<()> {
         self.market.assert_started_at(unix_timestamp)?;
-        require_keys_eq!(self.owner.key(), self.position_owner.key(), ErrorCode::InvalidSigner);
         require!(args.amount > 0, ErrorCode::AmountZero);
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
         validate_side_vault_accounts(&self.market, debt_asset, &self.debt_mint, &self.debt_reserve_vault)?;
@@ -117,12 +117,18 @@ impl<'info> AddLeverageMargin<'info> {
         args: AddLeverageMarginArgs,
         current_slot: u64,
         current_epoch: u64,
+        quote_closeout: bool,
     ) -> Result<()> {
         let market_key = ctx.accounts.market.key();
-        let owner_key = ctx.accounts.owner.key();
+        let owner_key = ctx.accounts.leverage_position.owner;
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
         let debt_mint_key = ctx.accounts.debt_mint.key();
         let position_key = ctx.accounts.leverage_position.key();
+        let before_accrual = if quote_closeout {
+            None
+        } else {
+            Some(ctx.accounts.market.integrated_curve_state_nad()?)
+        };
         ctx.accounts.market.prepare_leverage_margin_operation(current_slot)?;
         let interest_eligibility = HlpYieldEligibility {
             ylp_supply: ctx.accounts.market.base_side.shares.ylp_supply,
@@ -175,10 +181,18 @@ impl<'info> AddLeverageMargin<'info> {
         require_eq!(measured_repay_credit, repay_credit, ErrorCode::BrokenInvariant);
 
         // Apply the repayment, route interest, and verify reserve custody.
-        let receipt =
+        let receipt = if quote_closeout {
             ctx.accounts
                 .market
-                .add_leverage_margin(&mut ctx.accounts.leverage_position, repay_credit, current_slot)?;
+                .add_leverage_margin(&mut ctx.accounts.leverage_position, repay_credit, current_slot)?
+        } else {
+            ctx.accounts.market.repay_leverage_debt_from_curve(
+                &mut ctx.accounts.leverage_position,
+                repay_credit,
+                current_slot,
+                before_accrual,
+            )?
+        };
         let referral_receipt = record_leverage_interest(
             &mut ctx.accounts.market,
             debt_asset,
@@ -208,7 +222,7 @@ impl<'info> AddLeverageMargin<'info> {
             market_key,
             position_key,
             owner_key,
-            owner_key,
+            ctx.accounts.owner.key(),
             debt_mint_key,
             current_slot,
         )? {
@@ -230,7 +244,7 @@ impl<'info> AddLeverageMargin<'info> {
             closeout_value: receipt.closeout_value,
             owner_credit: 0,
             swap: None,
-            metadata: MarketEventMetadata::at_slot(owner_key, market_key, current_slot),
+            metadata: MarketEventMetadata::at_slot(ctx.accounts.owner.key(), market_key, current_slot),
         });
         Ok(())
     }

@@ -16,6 +16,7 @@ fn leverage_order() -> LeverageOrder {
         staged_remaining_debt_principal: 0,
         staged_custody_token_account: Pubkey::default(),
         staged_output_mint: Pubkey::default(),
+        staged_execution_value: 0,
         staged_output_amount: 0,
         bump: 255,
     }
@@ -32,6 +33,7 @@ fn stage_close_settlement_reference(
     order.staged_custody_token_account = custody_token_account;
     order.staged_output_mint = output_mint;
     order.staged_output_amount = output_amount;
+    order.staged_execution_value = output_amount + 100;
 }
 
 fn require_staged_settlement_reference(
@@ -131,6 +133,7 @@ fn reset_staged_settlement_clears_every_binding() {
     assert_eq!(order.staged_custody_token_account, Pubkey::default());
     assert_eq!(order.staged_output_mint, Pubkey::default());
     assert_eq!(order.staged_output_amount, 0);
+    assert_eq!(order.staged_execution_value, 0);
 }
 
 #[test]
