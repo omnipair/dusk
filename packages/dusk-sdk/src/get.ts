@@ -1,19 +1,25 @@
 import type { BN, Program } from "@coral-xyz/anchor";
+import { PublicKey, type Commitment, type TransactionInstruction } from "@solana/web3.js";
 import {
-  ComputeBudgetProgram,
-  PublicKey,
-  Transaction,
-  VersionedTransaction,
-  type Commitment,
-  type TransactionInstruction,
-} from "@solana/web3.js";
-
-/**
- * Previews are simulated, so the budget costs nothing unless it is used, and
- * the default 200,000 units is not enough for the heavier ones.
- */
-const DEFAULT_PREVIEW_COMPUTE_UNITS = 1_400_000;
-const DEFAULT_PREVIEW_HEAP_FRAME_BYTES = 256 * 1024;
+  simulatePreviewWithContext,
+  type PreviewSimulationOptions,
+  type SimulateOptions,
+} from "./simulation.js";
+export { DuskSimulationError, DuskPreviewTimeoutError } from "./simulation.js";
+export type {
+  SimulateOptions,
+  PreviewSimulationOptions,
+  DuskPreviewSimulation,
+} from "./simulation.js";
+import {
+  previewVirtualBookSnapshot,
+  previewVirtualBookQuotes,
+  previewVirtualBookBatch,
+  projectDuskVirtualBook,
+  type DuskVirtualBookSnapshot,
+  type VirtualBookQuoteOptions,
+  type VirtualBookQuoteRequest,
+} from "./virtual-book/index.js";
 
 import {
   deriveBorrowPositionAddress,
@@ -83,21 +89,6 @@ export const pda = {
   proposalSupport: deriveProposalSupportAddress,
 } as const;
 
-export interface SimulateOptions {
-  feePayer?: AddressLike;
-  commitment?: Commitment;
-  /**
-   * Compute units to request. The default 200,000 is not enough for the
-   * heavier previews -- borrow capacity exhausts it and returns no data at
-   * all, which reads as "the program returned nothing" rather than as a
-   * budget problem. Raised well above what any preview needs, because a
-   * simulation pays only for what it consumes.
-   */
-  computeUnitLimit?: number;
-  /** Heap for previews that build large intermediate state. */
-  heapFrameBytes?: number;
-}
-
 export interface PreviewSwapParams extends SimulateOptions {
   market: AddressLike;
   futarchyAuthority?: AddressLike;
@@ -141,16 +132,6 @@ export interface PreviewBorrowPositionCapacityParams extends SimulateOptions {
 export interface PreviewBorrowPositionParams extends SimulateOptions {
   market: AddressLike;
   borrowPosition: AddressLike;
-}
-
-export class DuskSimulationError extends Error {
-  constructor(
-    message: string,
-    readonly simulation: Awaited<ReturnType<Program<Dusk>["provider"]["connection"]["simulateTransaction"]>>
-  ) {
-    super(message);
-    this.name = "DuskSimulationError";
-  }
 }
 
 export class DuskGet {
@@ -373,44 +354,47 @@ export class DuskGet {
     return decodePreviewBorrowPositionReturnData(await this.simulateReturnData(instruction, params));
   }
 
+  /** Simulate one or more instructions while retaining bank and account provenance. */
+  simulateWithContext(
+    instructions: readonly TransactionInstruction[],
+    options: PreviewSimulationOptions = {}
+  ) {
+    return simulatePreviewWithContext(this.program, instructions, {
+      ...options,
+      feePayer: options.feePayer ?? this.program.provider.publicKey ?? this.defaultFeePayer,
+    });
+  }
+
   async simulateReturnData(
     instruction: TransactionInstruction,
     options: SimulateOptions = {}
   ): Promise<PreviewReturnData> {
-    const tx = new Transaction().add(
-      ComputeBudgetProgram.requestHeapFrame({
-        bytes: options.heapFrameBytes ?? DEFAULT_PREVIEW_HEAP_FRAME_BYTES,
-      }),
-      ComputeBudgetProgram.setComputeUnitLimit({
-        units: options.computeUnitLimit ?? DEFAULT_PREVIEW_COMPUTE_UNITS,
-      }),
-      instruction
-    );
-    tx.feePayer = address(options.feePayer ?? this.program.provider.publicKey ?? this.defaultFeePayer);
-    // The simulation bank supplies the blockhash. The legacy Transaction
-    // overload replaces caller-provided hashes with web3's cached hash, which
-    // can expire before its cache refreshes on devnet. A legacy message inside
-    // VersionedTransaction uses the config overload without changing accounts
-    // or instructions, and avoids a separate blockhash RPC request.
-    tx.recentBlockhash = PublicKey.default.toBase58();
-    const connection = this.program.provider.connection;
-    const simulation = await connection.simulateTransaction(
-      new VersionedTransaction(tx.compileMessage()),
-      {
-        commitment: options.commitment ?? connection.commitment,
-        sigVerify: false,
-        replaceRecentBlockhash: true,
-      }
-    );
-    if (simulation.value.err) {
-      throw new DuskSimulationError("Dusk simulation failed", simulation);
-    }
-    if (!simulation.value.returnData) {
-      throw new DuskSimulationError("Dusk simulation did not return data", simulation);
-    }
-    if (simulation.value.returnData.programId !== this.program.programId.toBase58()) {
-      throw new DuskSimulationError("Dusk simulation returned data from a different program", simulation);
-    }
-    return simulation.value.returnData;
+    return (await this.simulateWithContext([instruction], options)).value.returnData!;
+  }
+
+  previewVirtualBookSnapshot(market: AddressLike, options: PreviewSimulationOptions = {}) {
+    return previewVirtualBookSnapshot(this.program, market, options);
+  }
+
+  previewVirtualBookBatch(
+    snapshot: DuskVirtualBookSnapshot,
+    requests: VirtualBookQuoteRequest[],
+    options: PreviewSimulationOptions = {}
+  ) {
+    return previewVirtualBookBatch(this.program, snapshot, requests, options);
+  }
+
+  previewVirtualBookQuotes(
+    snapshot: DuskVirtualBookSnapshot,
+    options: VirtualBookQuoteOptions = {}
+  ) {
+    return previewVirtualBookQuotes(this.program, snapshot, options);
+  }
+
+  /** Fee-inclusive display depth. Transaction quotes must still use the exact requested input. */
+  async previewVirtualBook(market: AddressLike, options: VirtualBookQuoteOptions = {}) {
+    const snapshot = await this.previewVirtualBookSnapshot(market, options);
+    const quotes = await this.previewVirtualBookQuotes(snapshot, options);
+    return { ...quotes, book: projectDuskVirtualBook(quotes)! };
   }
 }
