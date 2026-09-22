@@ -1,4 +1,5 @@
 use super::*;
+use crate::instructions::fees::*;
 
 #[derive(Accounts)]
 #[instruction(args: HlpOrderIdArgs)]
@@ -68,6 +69,7 @@ pub struct ExecuteHlpOrder<'info> {
     #[account(seeds = [b"__event_authority"], bump, seeds::program = dusk::ID)]
     pub dusk_event_authority: AccountInfo<'info>,
     pub dusk_program: Program<'info, Dusk>,
+    pub protocol_fee: OrderFeePayment<'info>,
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
 }
@@ -151,14 +153,6 @@ impl<'info> ExecuteHlpOrder<'info> {
             )
             .ok_or(LeverageDelegateError::MathOverflow)? as u64,
         );
-        let owner_amount = output
-            .checked_sub(incentive)
-            .ok_or(LeverageDelegateError::MathOverflow)?;
-        require_gte!(
-            owner_amount,
-            ctx.accounts.order.min_target_amount_out,
-            LeverageDelegateError::InvalidOrder
-        );
         let market_key = ctx.accounts.order.market;
         let owner_key = ctx.accounts.order.owner;
         let target_hlp_mint_key = ctx.accounts.order.target_hlp_mint;
@@ -173,6 +167,33 @@ impl<'info> ExecuteHlpOrder<'info> {
             &bump_seed,
         ];
         let signer = &[&authority_seeds[..]];
+        let fee_mint = match target_asset {
+            MarketAsset::Base => &ctx.accounts.base_mint,
+            MarketAsset::Quote => &ctx.accounts.quote_mint,
+        };
+        let protocol_debit = ctx.accounts.protocol_fee.collect(
+            owner_key,
+            ctx.accounts.order.key(),
+            fee_mint,
+            &ctx.accounts.futarchy_authority,
+            output,
+            ctx.accounts.custody_target_account.to_account_info(),
+            ctx.accounts.order.to_account_info(),
+            signer,
+            &ctx.accounts.token_program.to_account_info(),
+            &ctx.accounts.token_2022_program.to_account_info(),
+            ctx.remaining_accounts,
+        )?;
+        let owner_amount = output
+            .checked_sub(incentive)
+            .and_then(|remaining| remaining.checked_sub(protocol_debit))
+            .ok_or(LeverageDelegateError::InvalidOrder)?;
+        require_gte!(
+            owner_amount,
+            ctx.accounts.order.min_target_amount_out,
+            LeverageDelegateError::InvalidOrder
+        );
+
         let target_mint_account = match target_asset {
             MarketAsset::Base => ctx.accounts.base_mint.to_account_info(),
             MarketAsset::Quote => ctx.accounts.quote_mint.to_account_info(),

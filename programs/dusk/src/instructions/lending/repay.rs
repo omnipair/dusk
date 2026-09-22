@@ -51,6 +51,7 @@ pub struct Repay<'info> {
     pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
 
     #[account(mut)]
+    /// Token payer; need not own the borrow position.
     pub owner: Signer<'info>,
 
     pub debt_asset_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -107,7 +108,7 @@ impl<'info> Repay<'info> {
         require!(interest_asset == repay_asset, ErrorCode::InvalidVault);
         require_supported_asset_mint(&self.debt_asset_mint)?;
         self.borrow_position
-            .assert_position(self.owner.key(), self.market.key())?;
+            .assert_position(self.borrow_position.owner, self.market.key())?;
 
         // Repayment must honor the referral binding stored for this debt side.
         let referral_partner = self.borrow_position.referral_partner(repay_asset);
@@ -128,11 +129,12 @@ impl<'info> Repay<'info> {
     crate::instructions::accounts::market_update_and_validate!(RepayArgs);
 
     pub fn handle_repay(mut ctx: Context<'_, '_, '_, 'info, Self>, args: RepayArgs) -> Result<()> {
+        let current_slot = Clock::get()?.slot;
         let remaining_accounts = ctx.remaining_accounts;
         let (market_key, owner_key, debt_asset_mint_key, position_key, repay_gross, debt_receipt, referral_receipt) = {
             let accounts = &mut ctx.accounts;
             let market_key = accounts.market.key();
-            let owner_key = accounts.owner.key();
+            let owner_key = accounts.borrow_position.owner;
             let debt_asset_mint_key = accounts.debt_asset_mint.key();
             let repay_asset = accounts.market.asset_for_mint(debt_asset_mint_key)?;
             let expected_referral_partner = accounts.borrow_position.referral_partner(repay_asset);
@@ -184,9 +186,12 @@ impl<'info> Repay<'info> {
                 .ok_or(ErrorCode::MarketMathOverflow)?;
             require_eq!(measured_repay_credit, repay_credit, ErrorCode::BrokenInvariant);
 
-            let debt_receipt = accounts
-                .market
-                .repay(&mut accounts.borrow_position, repay_asset, repay_credit)?;
+            let debt_receipt = accounts.market.repay_with_finalization(
+                &mut accounts.borrow_position,
+                repay_asset,
+                repay_credit,
+                Some(current_slot),
+            )?;
             require_eq!(debt_receipt.cash_repaid, repay_credit, ErrorCode::BrokenInvariant);
 
             // Move paid interest before splitting referral and protocol shares.
@@ -258,11 +263,6 @@ impl<'info> Repay<'info> {
             )
         };
 
-        // Finalize the curve transition and refresh risk after debt and cash move.
-        let current_slot = Clock::get()?.slot;
-        ctx.accounts.market.finalize_amm_transition(current_slot)?;
-        ctx.accounts.market.refresh_risk()?;
-
         emit_cpi!(MarketDebtUpdated {
             market: market_key,
             position: position_key,
@@ -280,7 +280,7 @@ impl<'info> Repay<'info> {
             quote_liquidation_cf_bps: debt_receipt.quote_liquidation_cf_bps,
             base_debt_health_bps: debt_receipt.base_debt_health_bps,
             quote_debt_health_bps: debt_receipt.quote_debt_health_bps,
-            metadata: MarketEventMetadata::new(owner_key, market_key)?,
+            metadata: MarketEventMetadata::new(ctx.accounts.owner.key(), market_key)?,
         });
 
         crate::instructions::accounting::emit_interest_paid(
@@ -297,7 +297,7 @@ impl<'info> Repay<'info> {
             market_key,
             position_key,
             owner_key,
-            owner_key,
+            ctx.accounts.owner.key(),
             debt_asset_mint_key,
             current_slot,
         )? {
@@ -313,7 +313,7 @@ impl<'info> Repay<'info> {
             effective_quote_debt_nad: health.effective_quote_debt_nad,
             base_debt_health_bps: health.base_debt_health_bps,
             quote_debt_health_bps: health.quote_debt_health_bps,
-            metadata: MarketEventMetadata::new(owner_key, market_key)?,
+            metadata: MarketEventMetadata::new(ctx.accounts.owner.key(), market_key)?,
         });
         Ok(())
     }

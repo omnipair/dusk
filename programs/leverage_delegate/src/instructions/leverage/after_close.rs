@@ -1,4 +1,5 @@
 use super::*;
+use crate::instructions::fees::*;
 
 #[derive(Accounts)]
 #[instruction(args: ExecuteOrderArgs)]
@@ -55,6 +56,8 @@ pub struct AfterCloseOrder<'info> {
     )]
     pub token_mint: Box<InterfaceAccount<'info, Mint>>,
     pub executor: Signer<'info>,
+    pub futarchy_authority: Box<Account<'info, dusk::state::FutarchyAuthority>>,
+    pub protocol_fee: OrderFeePayment<'info>,
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
 }
@@ -107,7 +110,8 @@ impl<'info> AfterCloseOrder<'info> {
         let debt_asset = ctx.accounts.leverage_delegation.debt_asset()?;
         let amount = ctx.accounts.custody_token_account.amount;
 
-        if amount > 0 {
+        require!(amount > 0, LeverageDelegateError::InvalidOrder);
+        {
             let incentive = min(
                 amount,
                 ceil_div(
@@ -118,9 +122,6 @@ impl<'info> AfterCloseOrder<'info> {
                 )
                 .ok_or(LeverageDelegateError::MathOverflow)? as u64,
             );
-            let owner_amount = amount
-                .checked_sub(incentive)
-                .ok_or(LeverageDelegateError::MathOverflow)?;
             let signer_seeds = &[
                 ORDER_SEED_PREFIX,
                 order_position.as_ref(),
@@ -129,6 +130,23 @@ impl<'info> AfterCloseOrder<'info> {
                 &bump_seed,
             ];
             let signer = &[&signer_seeds[..]];
+            let protocol_debit = ctx.accounts.protocol_fee.collect(
+                order_owner,
+                ctx.accounts.order.key(),
+                &ctx.accounts.token_mint,
+                &ctx.accounts.futarchy_authority,
+                ctx.accounts.order.staged_execution_value,
+                ctx.accounts.custody_token_account.to_account_info(),
+                ctx.accounts.order.to_account_info(),
+                signer,
+                &ctx.accounts.token_program.to_account_info(),
+                &ctx.accounts.token_2022_program.to_account_info(),
+                ctx.remaining_accounts,
+            )?;
+            let owner_amount = amount
+                .checked_sub(incentive)
+                .and_then(|remaining| remaining.checked_sub(protocol_debit))
+                .ok_or(LeverageDelegateError::InvalidOrder)?;
 
             if incentive > 0 {
                 transfer_checked(

@@ -1223,6 +1223,7 @@ impl Market {
             require_hlp_settlement_available(market, target_asset)?;
         }
         checkpoint_hlp_yield_from_ylp(market, target_asset)?;
+        let mut final_price_nad = None;
         let receipt = match target_asset {
             MarketAsset::Base => {
                 let supply = market.base_hlp_vault.hlp_supply;
@@ -1272,6 +1273,7 @@ impl Market {
                     market.base_hlp_vault.cached_settlement_price_nad = 0;
                 } else {
                     let current_prices = current_hlp_curve_prices(market)?;
+                    final_price_nad = Some(current_prices.for_asset(MarketAsset::Base) as u64);
                     market.base_hlp_vault.last_nav_nad =
                         hlp_nav_nad_with_prices(market, MarketAsset::Base, current_prices)?;
                     if residual_exposure == 0 {
@@ -1338,6 +1340,7 @@ impl Market {
                     market.quote_hlp_vault.cached_settlement_price_nad = 0;
                 } else {
                     let current_prices = current_hlp_curve_prices(market)?;
+                    final_price_nad = Some(current_prices.for_asset(MarketAsset::Base) as u64);
                     market.quote_hlp_vault.last_nav_nad =
                         hlp_nav_nad_with_prices(market, MarketAsset::Quote, current_prices)?;
                     if residual_exposure == 0 {
@@ -1358,7 +1361,21 @@ impl Market {
                 }
             }
         };
-        market.refresh_risk()?;
+        if let Some(price_nad) = final_price_nad {
+            // NAV checkpointing changes no curve inputs. Share its exact price
+            // with risk rather than evaluating the identical geometry twice.
+            let slot = Clock::get().map(|clock| clock.slot).unwrap_or(market.last_update_slot);
+            let curve_depth_nad = market
+                .amm
+                .concentrated_curve_cache
+                .tail_liquidity
+                .checked_add(market.amm.concentrated_curve_cache.concentrated_liquidity)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            market.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, slot)?;
+            market.risk_revision = market.curve_revision;
+        } else {
+            market.refresh_risk()?;
+        }
         let health = market.market_health()?;
         market.assert_market_health_snapshot(&health)?;
         market.assert_virtual_reserve_invariant(MarketAsset::Base)?;
@@ -1484,7 +1501,7 @@ pub(crate) struct HlpCurvePrices {
 }
 
 impl HlpCurvePrices {
-    const fn for_asset(self, asset: MarketAsset) -> u128 {
+    pub(super) const fn for_asset(self, asset: MarketAsset) -> u128 {
         match asset {
             MarketAsset::Base => self.base_in_quote_nad,
             MarketAsset::Quote => self.quote_in_base_nad,
@@ -1847,7 +1864,7 @@ pub(crate) fn checkpoint_hlp_yield_from_ylp_shares(
     }
 }
 
-fn require_hlp_settlement_available(market: &Market, target_asset: MarketAsset) -> Result<()> {
+pub(crate) fn require_hlp_settlement_available(market: &Market, target_asset: MarketAsset) -> Result<()> {
     let prices = current_hlp_curve_prices(market)?;
     let vault = match target_asset {
         MarketAsset::Base => &market.base_hlp_vault,

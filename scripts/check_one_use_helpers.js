@@ -360,6 +360,9 @@ const actionable = candidates.filter(({ recursive }) => !recursive);
 // gate: new one-use helpers still fail, while removing an accepted helper never
 // blocks a cleanup commit. Placement errors are never baselined.
 const acceptedOneUseHelpers = new Map([
+  // Keep the pure, clock-bound hLP admission and fee-boundary calculations
+  // independently testable from Anchor account deserialization and sysvars.
+  ["programs/dusk/src/instructions/hlp_deposit_preview.rs", new Set(["preview_hlp_funding_limit", "gross_funding_limit"])],
   ["programs/dusk/src/instructions/leverage/liquidate_leverage_position.rs", new Set(["finish_liquidation"])],
   [
     "programs/dusk/src/instructions/prepare_swap.rs",
@@ -466,6 +469,9 @@ const acceptedOneUseHelpers = new Map([
     new Set(["withdraw_hlp_order_position", "validate_hlp_order_kind", "hlp_order_trigger_met"]),
   ],
 ]);
+// Dedicated CPI frames keep the protection executor within the SBF stack limit.
+acceptedOneUseHelpers.set("programs/leverage_delegate/src/instructions/protection/payment.rs", new Set(["make_payment"]));
+acceptedOneUseHelpers.set("programs/leverage_delegate/src/instructions/protection/redeem.rs", new Set(["redeem_lp"]));
 const unexpectedActionable = actionable.filter(
   ({ file, name }) => !acceptedOneUseHelpers.get(file)?.has(name)
 );
