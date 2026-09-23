@@ -18,8 +18,9 @@ and `.github/workflows/ci.yaml`.
 
 `scripts/devnet/create_named_market.ts` creates a market the way mainnet will:
 LP mints at `yLP`/`hLP` addresses ground by the vanity server for the creator's
-key, names from the SDK's `lpTokenNaming`, and per-mint images and JSON pinned
-to IPFS before `initialize_lp_metadata`. It needs `VANITY_API_URL` (defaults to
+key, transfer-hook validation accounts for all three mints (Token-2022 refuses
+to move a hooked token without one), names from the SDK's `lpTokenNaming`, and
+per-mint images and JSON pinned to IPFS before `initialize_lp_metadata`. It needs `VANITY_API_URL` (defaults to
 https://vanity.omnipair.fi) and either `PINATA_JWT` or
 `PINATA_SIGNED_URL_ENDPOINT` (a running webapp's
 `/api/pinata/create-signed-url`, which keeps the key out of the shell).

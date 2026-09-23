@@ -1,7 +1,8 @@
 /**
  * Create a market the way mainnet will: LP mints at vanity `yLP`/`hLP`
- * addresses, named per `lp-naming`, with per-mint images and metadata pinned
- * to IPFS before `initialize_lp_metadata` writes the URIs on chain.
+ * addresses, transfer hooks made usable, names per `lp-naming`, and per-mint
+ * images and metadata pinned to IPFS before `initialize_lp_metadata` writes
+ * the URIs on chain.
  *
  * The mints are `create_with_seed` accounts, so the only signer is the
  * creator; the seeds come from the vanity server, which grinds the Token-2022
@@ -240,6 +241,17 @@ async function main() {
   ]);
   console.log(`initialized    ${initSig}`);
 
+  // Token-2022 refuses to move a hooked token until the hook's validation
+  // account exists, so no LP token can leave a wallet without this step.
+  const hookSig = await send(
+    await Promise.all(
+      MARKET_LP_MINT_KINDS.map((kind) =>
+        dusk.write.initializeLpTransferHookInstruction({ payer: owner, market, lpMint: mints[kind] })
+      )
+    )
+  );
+  console.log(`lp hooks       ${hookSig}`);
+
   const published = await publishLpMetadata({
     connection, network: NETWORK, market, baseMint, quoteMint, baseSymbol, quoteSymbol,
     mints, naming, pinata, outDir,
@@ -276,7 +288,7 @@ async function main() {
             },
           ])
         ),
-        signatures: { mints: mintSig, initialize: initSig },
+        signatures: { mints: mintSig, initialize: initSig, transferHooks: hookSig },
       },
       null,
       2
