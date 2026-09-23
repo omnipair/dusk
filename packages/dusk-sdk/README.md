@@ -1,5 +1,12 @@
 # @omnipair/dusk-sdk
 
+For volume, fee, and borrower-interest consumers, see the
+[accounting event contract](../../programs/dusk/ACCOUNTING_EVENTS.md).
+`SwapExecuted` covers spot and leverage AMM executions. `BorrowInterestAccrued`
+separates credit, margin, and hLP accrual; `BorrowInterestPaid` reports actual
+collections with the same source attribution. Typed events and their
+`SwapOrigin`/`DebtSource` discriminants are exported from this package.
+
 TypeScript SDK for Dusk, the Omnipair V2 protocol architecture. This package
 targets Dusk market layout v1.
 
@@ -453,6 +460,19 @@ const program = createDuskProgram({ provider });
 
 `DUSK_PROGRAM_ID` is exported for integrations that prefer an explicit program
 name over the generic `PROGRAM_ID` constant.
+
+### TypeScript and the IDL size
+
+The Dusk IDL carries over 150 types. Anchor's `IdlTypes`, `IdlAccounts`, and
+`IdlEvents` decode every type eagerly, several passes deep, which exceeds
+TypeScript's fixed instantiation budget and fails with "Type instantiation is
+excessively deep and possibly infinite" wherever `Program<Dusk>` or the
+exported account and event types are used. This repository rewrites the
+installed Anchor declarations with a lazily recursive decoder from
+`scripts/patch_anchor_idl_types.js` during `postinstall`. Consumers that type
+against `Program<Dusk>` need the same rewrite of
+`@coral-xyz/anchor/dist/*/program/namespace/types.d.ts` until Anchor changes
+the decoder upstream; the rewrite applies unchanged to Anchor 0.31 and 0.32.
 
 ## ESM Compatibility
 

@@ -122,6 +122,7 @@ pub fn settle_inline_leverage_hlp<'info>(
     base_receipt: HlpRebalanceReceipt,
     quote_receipt: HlpRebalanceReceipt,
     interest_eligibility: HlpYieldEligibility,
+    event_authority: AccountInfo<'info>,
 ) -> Result<()> {
     for receipt in [base_receipt, quote_receipt] {
         if receipt.ylp_mint_amount == 0 && receipt.ylp_burn_amount == 0 && receipt.interest_paid == 0 {
@@ -202,6 +203,20 @@ pub fn settle_inline_leverage_hlp<'info>(
             layout.hook_accounts(remaining_accounts),
         )?;
         let interest_credit = token_account_info_credit(interest_vault_balance_before, interest_vault)?;
+        crate::instructions::accounting::emit_interest_paid(
+            market,
+            borrowed_asset,
+            crate::events::DebtSource::Hlp,
+            None,
+            crate::state::ReferralInterestQuote::new(
+                receipt.interest_paid,
+                interest_credit,
+                futarchy_authority.revenue_share.interest_bps,
+                None,
+            )?,
+            0,
+            event_authority.clone(),
+        )?;
         record_inline_hlp_interest_credit(
             market,
             borrowed_asset,

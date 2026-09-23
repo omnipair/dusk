@@ -87,6 +87,23 @@ pub(super) fn protection_health(
         .as_mut()
         .as_mut()
         .map_err(|_| error!(LeverageDelegateError::InvalidOrder))?;
+    protection_health_of(market, borrow, leverage, action, asset, clock, refresh)
+}
+
+/// Health from an already decoded Market. Before any CPI, the copy Anchor
+/// decoded at entry is current, and decoding the large account a second time
+/// costs more compute than the whole protection check. The delegate never
+/// persists a Market, so refreshing this copy in place changes nothing on chain.
+#[inline(never)]
+pub(super) fn protection_health_of(
+    market: &mut Market,
+    borrow: Option<&BorrowPosition>,
+    leverage: Option<&LeveragePosition>,
+    action: u8,
+    asset: MarketAsset,
+    clock: &Clock,
+    refresh: bool,
+) -> Result<u64> {
     if refresh {
         market.prepare_position_protection_snapshot(clock.slot)?;
     }

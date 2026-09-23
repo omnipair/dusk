@@ -17,6 +17,7 @@ pub struct InitializeYieldAccountsArgs {
     pub token_kind: YieldTokenKind,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: InitializeYieldAccountsArgs)]
 pub struct InitializeYieldAccounts<'info> {
@@ -106,6 +107,7 @@ impl<'info> InitializeYieldAccounts<'info> {
             quote_mint,
             base_yield_account,
             quote_yield_account,
+            event_authority,
             ..
         } = ctx.accounts;
         let market_key = market.key();
@@ -138,7 +140,11 @@ impl<'info> InitializeYieldAccounts<'info> {
         }
 
         // New accounts start at current indices so they cannot claim historical yield.
-        market.accrue_interest()?;
+        crate::instructions::accounting::accrue_market_interest(
+            market,
+            Clock::get()?.slot,
+            event_authority.to_account_info(),
+        )?;
         let contexts = current_yield_contexts(market, lp_mint)?.ok_or_else(|| error!(ErrorCode::InvalidLpMintKey))?;
         let base_context = contexts.items[0].ok_or_else(|| error!(ErrorCode::InvalidYieldAccount))?;
         let quote_context = contexts.items[1].ok_or_else(|| error!(ErrorCode::InvalidYieldAccount))?;

@@ -9,7 +9,9 @@ use crate::{
     account::{get_size_with_discriminator, initialize_pda_account_if_needed},
     constants::*,
     errors::ErrorCode,
-    events::{LeveragePositionOpened, LeverageSwapReceipt, MarketEventMetadata, ReferralBound},
+    events::{
+        LeveragePositionOpened, LeverageSwapReceipt, MarketEventMetadata, ReferralBound, SwapExecuted, SwapOrigin,
+    },
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
     token::{create_token_account, transfer_checked_with_remaining_accounts},
     transitions::{leverage_debt_from_margin, liquidity::SwapCashPolicy, require_leverage_entry_limit},
@@ -238,6 +240,11 @@ impl<'info> OpenLeverage<'info> {
         let notional = margin_credit
             .checked_add(debt_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
+        crate::instructions::accounting::accrue_market_interest(
+            &mut ctx.accounts.market,
+            current_slot,
+            ctx.accounts.event_authority.to_account_info(),
+        )?;
         let prepared_swap = prepare_leverage_swap(
             &mut ctx.accounts.market,
             SwapRequest {
@@ -341,6 +348,7 @@ impl<'info> OpenLeverage<'info> {
             receipt.base_hlp_rebalance,
             receipt.quote_hlp_rebalance,
             interest_eligibility,
+            ctx.accounts.event_authority.to_account_info(),
         )?;
 
         // Reconcile physical reserve custody after inline settlement.
@@ -358,6 +366,21 @@ impl<'info> OpenLeverage<'info> {
         let position_key = expected_position;
 
         // Emit the final position and referral state.
+        let swap_event = LeverageSwapReceipt::new(
+            receipt.swap,
+            swap_fee_credit,
+            ctx.accounts.market.base_side.reserves.live_reserve,
+            ctx.accounts.market.quote_side.reserves.live_reserve,
+        )?;
+        emit_cpi!(SwapExecuted::from_leverage(
+            market_key,
+            position_owner_key,
+            funding_authority_key,
+            position_key,
+            SwapOrigin::LeverageOpen,
+            current_slot,
+            swap_event,
+        ));
         emit_cpi!(LeveragePositionOpened {
             market: market_key,
             position: position_key,
@@ -372,12 +395,7 @@ impl<'info> OpenLeverage<'info> {
             closeout_value: receipt.closeout_value,
             equity: receipt.equity,
             multiplier_bps: args.multiplier_bps,
-            swap: LeverageSwapReceipt::new(
-                receipt.swap,
-                swap_fee_credit,
-                ctx.accounts.market.base_side.reserves.live_reserve,
-                ctx.accounts.market.quote_side.reserves.live_reserve,
-            )?,
+            swap: swap_event,
             metadata: MarketEventMetadata::at_slot(position_owner_key, market_key, current_slot),
         });
         if let Some(referral_partner) = referral.referral_partner {

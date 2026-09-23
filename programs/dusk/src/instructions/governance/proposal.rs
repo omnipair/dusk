@@ -231,6 +231,11 @@ impl<'info> CreateParameterProposal<'info> {
                 &[ctx.bumps.quote_hlp_ylp_vault],
             ],
         )?;
+        crate::instructions::accounting::accrue_market_interest(
+            &mut ctx.accounts.market,
+            clock.slot,
+            ctx.accounts.event_authority.to_account_info(),
+        )?;
         let indexes = carry_forward_governance_yield(&mut ctx.accounts.market, clock.slot)?;
 
         ctx.accounts.proposal.initialize(
@@ -452,6 +457,11 @@ impl<'info> ExecuteParameterProposal<'info> {
             clock.unix_timestamp,
             ErrorCode::ProposalExecutionWindowExpired
         );
+        crate::instructions::accounting::accrue_market_interest(
+            &mut ctx.accounts.market,
+            clock.slot,
+            ctx.accounts.event_authority.to_account_info(),
+        )?;
         ctx.accounts
             .market
             .execute_parameter_update(&ctx.accounts.proposal.update, clock.slot)?;

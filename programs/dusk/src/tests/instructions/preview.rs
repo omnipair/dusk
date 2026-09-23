@@ -113,7 +113,7 @@ fn indexed_hlp_debt_gap_does_not_block_swap_settlement() {
     accrued.base_hlp_vault.quote_hlp_live_reserve = 1_000;
     accrued.quote_side.reserves.live_reserve = 1_000;
     for year in 1..=4 {
-        accrue_side(
+        accrue_side::<false>(
             &mut accrued,
             MarketAsset::Quote,
             year * MS_PER_YEAR / TARGET_MS_PER_SLOT,

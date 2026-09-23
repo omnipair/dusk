@@ -168,7 +168,11 @@ impl<'info> DepositSingleSided<'info> {
         self.validate(args)?;
         let target_asset = self.market.asset_for_hlp_mint(self.target_hlp_mint.key())?;
         let current_slot = Clock::get()?.slot;
-        self.market.accrue_interest_to_slot(current_slot)?;
+        crate::instructions::accounting::accrue_market_interest(
+            &mut self.market,
+            current_slot,
+            self.event_authority.to_account_info(),
+        )?;
         reconcile_live_hlp_supply(&mut self.market, target_asset, self.target_hlp_mint.supply)?;
         self.market.assert_current_version()?;
         if self.market.base_side.reserves.live_reserve > 0 && self.market.quote_side.reserves.live_reserve > 0 {

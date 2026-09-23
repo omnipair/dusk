@@ -674,6 +674,21 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     return matches[0].data;
   }
 
+  function expectLeverageSwap(transaction: Transaction, lifecycle: string, origin: string) {
+    const action = cpiEvent(transaction, lifecycle);
+    const swap = cpiEvent(transaction, "swapExecuted");
+    expect(swap.origin).to.deep.equal({ [origin]: {} });
+    expect(swap.market.equals(action.market)).to.equal(true);
+    expect(swap.trader.equals(action.owner)).to.equal(true);
+    expect(swap.position.equals(action.position)).to.equal(true);
+    for (const field of ["assetInSide", "feeAssetSide", "amountIn", "amountOut", "grossAmountOut",
+      "amountInAfterFee", "baseFee", "divergenceFee", "volatilityFee", "retainedFee", "compoundedFee",
+      "baseLiveReserve", "quoteLiveReserve"]) {
+      expect(swap[field].toString(), `canonical swap ${field}`).to.equal(action.swap[field].toString());
+    }
+    return swap;
+  }
+
   async function sendTransactionWithUncheckedSigners(
     transaction: Transaction,
     signers: Keypair[],
@@ -2146,6 +2161,18 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       1
     );
     recordSwapComputeScenario("token_2022_swap", token2022SwapMeasurement);
+    const executed = cpiEvent(token2022SwapMeasurement.transaction, "swapExecuted");
+    // The input transfer fee is excluded from AMM volume, while the output
+    // transfer fee does not reduce the pool's executed output.
+    expect(executed.amountIn.toString()).to.equal("9900");
+    expect(executed.amountInAfterFee.lt(executed.amountIn)).to.equal(true);
+    const quoteOwnerAfterSwap = await getAccount(
+      connection as any, ownerQuoteAccount, undefined, TOKEN_2022_PROGRAM_ID
+    );
+    const poolOutput = BigInt(executed.amountOut.toString());
+    const outputTransferFee = (poolOutput * 50n + 9_999n) / 10_000n;
+    expect(outputTransferFee > 0n && outputTransferFee < 10_000n).to.equal(true);
+    expect(quoteOwnerAfterSwap.amount - quoteOwnerAfter.amount).to.equal(poolOutput - outputTransferFee);
   });
 
   it("accrues and claims permissioned referral interest for Token-2022 assets", async function () {
@@ -3606,6 +3633,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const swapEvent = cpiEvent(sameSlotMeasurement.transaction, "swapExecuted");
     expect(swapEvent.market.toString()).to.equal(fixture.market.toString());
     expect(swapEvent.trader.toString()).to.equal(payer.publicKey.toString());
+    expect(swapEvent.origin).to.deep.equal({ spot: {} });
+    expect(swapEvent.actor.equals(payer.publicKey)).to.equal(true);
+    expect(swapEvent.position).to.equal(null);
     expect(swapEvent.assetInSide).to.equal(0);
     expect(swapEvent.amountIn.toString()).to.equal("1000");
     expect(swapEvent.amountOut.toString()).to.equal("1974");
@@ -4656,6 +4686,16 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       );
       const baseInterestCredit = baseInterestVaultAfter.amount - baseInterestVaultBefore.amount;
       const quoteInterestCredit = quoteInterestVaultAfter.amount - quoteInterestVaultBefore.amount;
+      const paidEvents = cpiEvents(measurement.transaction)
+        .filter((event) => event.name === "borrowInterestPaid")
+        .map((event) => event.data);
+      expect(paidEvents.length).to.be.greaterThan(0);
+      expect(paidEvents.every((event) => "hlp" in event.source)).to.equal(true);
+      for (const [side, credit] of [[0, baseInterestCredit], [1, quoteInterestCredit]] as const) {
+        expect(paidEvents.filter((event) => event.assetSide === side)
+          .reduce((sum, event) => sum + BigInt(event.interestVaultCredit.toString()), 0n))
+          .to.equal(credit);
+      }
       expect(baseInterestCredit + quoteInterestCredit > 0n).to.equal(true);
       for (const { beforeSide, afterSide, interestCredit } of [
         {
@@ -6389,6 +6429,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       }
     }
     await connection.sendTransaction(depositPreviewTx, [payer]);
+    expect(cpiEvents(depositPreviewTx)).to.have.length(0);
     expect(Buffer.from(svm.getAccount(fixture.market)!.data).equals(marketBeforePreview)).to.equal(true);
     expect(Buffer.from(svm.getAccount(borrowPosition)!.data).equals(positionBeforePreview)).to.equal(true);
 
@@ -6789,6 +6830,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(repayTx, [payer]);
+    const interestPayment = cpiEvent(repayTx, "borrowInterestPaid");
+    expect(interestPayment.source).to.deep.equal({ credit: {} });
+    expect(interestPayment.interestPaid.gt(new BN(0))).to.equal(true);
+    const interestAccrual = cpiEvent(repayTx, "borrowInterestAccrued");
+    expect(interestAccrual.creditInterest.gt(new BN(0))).to.equal(true);
+    expect(interestAccrual.marginInterest.isZero()).to.equal(true);
+    expect(interestAccrual.hlpInterest.isZero()).to.equal(true);
 
     const interestVault = await getAccount(connection as any, fixture.quoteInterestVault);
     let accrual = accountCoder.decode(
@@ -7129,6 +7177,14 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(addMarginTx, [payer]);
+    const interestPayment = cpiEvent(addMarginTx, "borrowInterestPaid");
+    expect(interestPayment.source).to.deep.equal({ margin: {} });
+    expect(interestPayment.interestPaid.gt(new BN(0))).to.equal(true);
+    const interestAccrual = cpiEvent(addMarginTx, "borrowInterestAccrued");
+    expect(interestAccrual.marginInterest.gt(new BN(0))).to.equal(true);
+    expect(interestAccrual.creditInterest.isZero()).to.equal(true);
+    expect(interestAccrual.hlpInterest.isZero()).to.equal(true);
+
     trackV2Instruction("addLeverageMargin", this.test?.title);
 
     accrual = accountCoder.decode(
@@ -7403,6 +7459,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .transaction();
     await connection.sendTransaction(settleTx, [payer]);
     trackV2Instruction("backstopLiquidationAuction", this.test?.title);
+    const backstopSwap = cpiEvent(settleTx, "swapExecuted");
+    expect(backstopSwap.origin).to.deep.equal({ creditLiquidation: {} });
+    expect(backstopSwap.position.equals(borrowPosition)).to.equal(true);
+    expect(backstopSwap.amountIn.gt(new BN(0))).to.equal(true);
 
     const afterAccount = svm.getAccount(borrowPosition);
     expect(afterAccount).to.equal(null);
@@ -7472,6 +7532,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     trackV2Instruction("openLeverage", this.test?.title);
     expect(measurement.computeUnits < LITESVM_COMPUTE_UNIT_LIMIT).to.equal(true);
 
+    expectLeverageSwap(measurement.transaction, "leveragePositionOpened", "leverageOpen");
     const openEvent = cpiEvent(measurement.transaction, "leveragePositionOpened");
     expect(openEvent.marginAmount.toString()).to.equal(marginAmount.toString());
     expect(openEvent.borrowedAmount.toString()).to.equal(marginAmount.toString());
@@ -7599,6 +7660,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     trackV2Instruction("closeLeverage", this.test?.title);
     expect(closeMeasurement.computeUnits < LITESVM_COMPUTE_UNIT_LIMIT).to.equal(true);
 
+    expectLeverageSwap(closeMeasurement.transaction, "leveragePositionClosed", "leverageClose");
+    const accrued = cpiEvents(closeMeasurement.transaction)
+      .filter((event) => event.name === "borrowInterestAccrued");
+    const quoteAccrual = accrued.find((event) => event.data.assetSide === 1)!.data;
+    expect(quoteAccrual.creditInterest.isZero()).to.equal(true);
+    expect(quoteAccrual.marginInterest.gt(new BN(0))).to.equal(true);
+    expect(quoteAccrual.hlpInterest.gt(new BN(0))).to.equal(true);
     const closeEvent = cpiEvent(closeMeasurement.transaction, "leveragePositionClosed");
     expect(BigInt(closeEvent.interestPaid.toString()) > 0n).to.equal(true);
     const ownerQuoteAfterClose = await getAccount(connection as any, fixture.ownerQuoteAccount);
@@ -7610,6 +7678,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       fixture.quoteInterestVault
     );
     const quoteInterestCredit = quoteInterestVaultAfter.amount - quoteInterestVaultBefore.amount;
+    const paidEvents = cpiEvents(closeMeasurement.transaction)
+      .filter((event) => event.name === "borrowInterestPaid" && event.data.assetSide === 1)
+      .map((event) => event.data);
+    expect(paidEvents.some((event) => "margin" in event.source)).to.equal(true);
+    expect(paidEvents.some((event) => "hlp" in event.source)).to.equal(true);
+    expect(paidEvents.reduce((sum, event) => sum + BigInt(event.interestVaultCredit.toString()), 0n))
+      .to.equal(quoteInterestCredit);
     expect(quoteInterestCredit >= BigInt(closeEvent.interestPaid.toString())).to.equal(true);
     expect(svm.getAccount(leveragePosition)).to.equal(null);
 
@@ -7729,6 +7804,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(addMarginTx, [payer]);
+    expect(cpiEvents(addMarginTx).filter((event) => event.name === "swapExecuted")).to.have.length(0);
     trackV2Instruction("addLeverageMargin", this.test?.title);
 
     let updatedPositionAccount = svm.getAccount(leveragePosition);
@@ -7763,6 +7839,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(removeMarginTx, [payer]);
+    expect(cpiEvents(removeMarginTx).filter((event) => event.name === "swapExecuted")).to.have.length(0);
     trackV2Instruction("removeLeverageMargin", this.test?.title);
 
     updatedPositionAccount = svm.getAccount(leveragePosition);
@@ -7797,6 +7874,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(increaseTx, [payer]);
+    expectLeverageSwap(increaseTx, "leveragePositionUpdated", "leverageIncrease");
     trackV2Instruction("increaseLeverage", this.test?.title);
 
     updatedPositionAccount = svm.getAccount(leveragePosition);
@@ -7835,6 +7913,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(decreaseTx, [payer]);
+    expectLeverageSwap(decreaseTx, "leveragePositionUpdated", "leverageDecrease");
     trackV2Instruction("decreaseLeverage", this.test?.title);
 
     updatedPositionAccount = svm.getAccount(leveragePosition);
@@ -8161,6 +8240,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         .remainingAccounts([...beforeIx.keys, ...afterIx.keys])
         .transaction();
       const signature = await connection.sendTransaction(delegatedCloseTx, [payer, executor]);
+      const delegatedSwap = expectLeverageSwap(delegatedCloseTx, "leveragePositionClosed", "leverageClose");
+      expect(delegatedSwap.actor.equals(executor.publicKey)).to.equal(true);
+      expect(delegatedSwap.trader.equals(payer.publicKey)).to.equal(true);
       const meta = svm.getTransaction(Buffer.from(signature, "base64")) as any;
       const feeEvents = [...new anchor.EventParser(LEVERAGE_DELEGATE_PROGRAM_ID,
         new anchor.BorshCoder(leverageDelegateIdl)).parseLogs(meta.logs())];
@@ -8374,6 +8456,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(liquidateTx, [payer]);
+    expectLeverageSwap(liquidateTx, "leveragePositionLiquidated", "leverageLiquidation");
     trackV2Instruction("liquidateLeveragePosition", this.test?.title);
 
     const liquidatorAfter = await getAccount(connection as any, liquidatorQuoteAccount);
@@ -8940,7 +9023,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         expect(rejected).to.equal(true);
         expect(Buffer.from(svm.getAccount(position)!.data).equals(beforePosition)).to.equal(true);
         await assertNoProtocolFee();
-        await execute(lpBurn, payment);
+        const executeSignature = await execute(lpBurn, payment);
+        const executionMeta = svm.getTransaction(Buffer.from(executeSignature, "base64")) as any;
+        const protectionEvents = [...new anchor.EventParser(LEVERAGE_DELEGATE_PROGRAM_ID,
+          new anchor.BorshCoder(leverageDelegateIdl)).parseLogs(executionMeta.logs())]
+          .filter((event) => event.name === "ProtectionExecuted");
+        expect(protectionEvents).to.have.length(1);
+        const executionHealth = BigInt((protectionEvents[0].data as any).health_after_bps.toString());
         const paidProtocolFee = (await getAccount(connection as any, feeRecipient)).amount;
         expect(paidProtocolFee > 0n).to.equal(true);
         // The sponsor pays the surcharge; the keeper keeps its full 1% reward.
@@ -8954,7 +9043,16 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           expect(keeperReward).to.equal(credited / 100n);
         }
 
-        expect((await preview()) > healthBefore).to.equal(true);
+        // The event reports the same post-execution health the preview sees;
+        // full repayments are debt-free and skip the second Market decode.
+        const healthAfter = await preview();
+        expect(healthAfter > healthBefore).to.equal(true);
+        expect(executionHealth).to.equal(healthAfter);
+        if (action === 0 || (action === 2 && !partialLeverage)) {
+          expect(executionHealth).to.equal(0xffffffffffffffffn);
+        } else {
+          expect(executionHealth < 0xffffffffffffffffn).to.equal(true);
+        }
         const afterKeeper = (await getAccount(connection as any, keeperPaymentAccount)).amount;
         expect(afterKeeper > beforeKeeper).to.equal(true);
         const orderState = new anchor.BorshAccountsCoder(leverageDelegateIdl).decode("ProtectionOrder", Buffer.from(svm.getAccount(order)!.data)) as any;

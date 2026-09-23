@@ -8,6 +8,7 @@
 # Required Pre-Commit Workflow
 
 - Before the first Anchor command in a clean checkout, run `node scripts/prepare_build.js`. Anchor 0.31.1 otherwise rewrites devnet program IDs when `target/deploy` is missing. The package build commands include this setup.
+- `yarn install` runs `scripts/patch_anchor_idl_types.js` from `postinstall`. It rewrites Anchor's `IdlTypes` declarations to decode IDL types lazily; the eager upstream decoder exceeds TypeScript's instantiation budget on the Dusk IDL and fails `yarn typecheck` and `npm run check:dusk-sdk`. Run the script once in a checkout whose dependencies predate it.
 - Every commit must pass the same checks as `.github/workflows/ci.yaml`. Do not create a commit while a required check is failing.
 - Treat changes to instruction accounts, arguments, return types, events, program IDs, or public Rust documentation as interface changes.
 - After a Dusk or leverage-delegate interface change, run:

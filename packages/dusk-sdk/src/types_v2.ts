@@ -4654,6 +4654,38 @@ export type Dusk = {
         {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": [
@@ -7430,6 +7462,38 @@ export type Dusk = {
         },
         {
           "name": "debtAssetMint"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": []
@@ -9480,6 +9544,32 @@ export type Dusk = {
   ],
   "events": [
     {
+      "name": "borrowInterestAccrued",
+      "discriminator": [
+        72,
+        60,
+        125,
+        249,
+        229,
+        92,
+        113,
+        250
+      ]
+    },
+    {
+      "name": "borrowInterestPaid",
+      "discriminator": [
+        173,
+        181,
+        219,
+        170,
+        32,
+        88,
+        224,
+        224
+      ]
+    },
+    {
       "name": "borrowPositionLiquidated",
       "discriminator": [
         107,
@@ -11202,6 +11292,136 @@ export type Dusk = {
       }
     },
     {
+      "name": "borrowInterestAccrued",
+      "docs": [
+        "Interest recognized by one committed borrow-index checkpoint. Amounts are",
+        "raw atoms of `asset_mint`, separately floored in each debt-share bucket.",
+        "This is accrued interest, not a payment or a protocol-revenue allocation."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "assetMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "assetSide",
+            "type": "u8"
+          },
+          {
+            "name": "fromSlot",
+            "type": "u64"
+          },
+          {
+            "name": "toSlot",
+            "type": "u64"
+          },
+          {
+            "name": "borrowIndexBeforeNad",
+            "type": "u128"
+          },
+          {
+            "name": "borrowIndexAfterNad",
+            "type": "u128"
+          },
+          {
+            "name": "creditInterest",
+            "type": "u128"
+          },
+          {
+            "name": "marginInterest",
+            "type": "u128"
+          },
+          {
+            "name": "hlpInterest",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "borrowInterestPaid",
+      "docs": [
+        "Canonical interest-payment record. Lifecycle and referral events may",
+        "repeat these amounts for context and must not be summed a second time."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "assetMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "assetSide",
+            "type": "u8"
+          },
+          {
+            "name": "source",
+            "type": {
+              "defined": {
+                "name": "debtSource"
+              }
+            }
+          },
+          {
+            "name": "position",
+            "docs": [
+              "None for aggregate hLP funding debt; `asset_side` identifies its vault."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "interestPaid",
+            "docs": [
+              "Gross interest collected, including any terminal hLP caller bounty."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "interestVaultCredit",
+            "docs": [
+              "Net tokens credited to the interest vault after transfer fees/bounty."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "protocolInterestRevenue",
+            "docs": [
+              "Protocol allocation from vault credit, before the referral allocation."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "referralAmount",
+            "type": "u64"
+          },
+          {
+            "name": "callerBounty",
+            "docs": [
+              "Gross terminal hLP caller bounty; zero for ordinary payments."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "borrowPosition",
       "type": {
         "kind": "struct",
@@ -11851,6 +12071,23 @@ export type Dusk = {
                 "name": "marketEventMetadata"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "debtSource",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "credit"
+          },
+          {
+            "name": "margin"
+          },
+          {
+            "name": "hlp"
           }
         ]
       }
@@ -13603,6 +13840,13 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "interestPaid",
+            "docs": [
+              "Interest actually repaid by this action, in debt-token atoms."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "swap",
             "type": {
               "option": {
@@ -13626,7 +13870,8 @@ export type Dusk = {
     {
       "name": "leverageSwapReceipt",
       "docs": [
-        "Actual AMM receipt embedded in a leverage action.",
+        "Supporting AMM receipt embedded in a leverage action. `SwapExecuted` is",
+        "the authoritative swap/fee record; do not count this receipt again.",
         "`None` on `LeveragePositionUpdated` means the action was margin-only."
       ],
       "type": {
@@ -16585,7 +16830,32 @@ export type Dusk = {
           },
           {
             "name": "trader",
+            "docs": [
+              "Beneficial owner of the trade, including delegated leverage actions."
+            ],
             "type": "pubkey"
+          },
+          {
+            "name": "actor",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "origin",
+            "type": {
+              "defined": {
+                "name": "swapOrigin"
+              }
+            }
+          },
+          {
+            "name": "slot",
+            "type": "u64"
           },
           {
             "name": "assetInSide",
@@ -16597,14 +16867,15 @@ export type Dusk = {
           {
             "name": "amountIn",
             "docs": [
-              "Exact amount debited from the trader's input account."
+              "AMM input before trading fees, after any input transfer fee. Includes",
+              "internally borrowed principal; this is not the owner's wallet debit."
             ],
             "type": "u64"
           },
           {
             "name": "amountOut",
             "docs": [
-              "Amount credited to the trader after any output transfer fee."
+              "AMM output after trading fees, before any output transfer fee."
             ],
             "type": "u64"
           },
@@ -16693,6 +16964,42 @@ export type Dusk = {
           {
             "name": "quoteLiveReserve",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "swapOrigin",
+      "docs": [
+        "Instruction that caused an actual AMM execution. Fee attribution follows",
+        "this origin; borrowing interest is reported separately by debt source."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "spot"
+          },
+          {
+            "name": "hlpRescue"
+          },
+          {
+            "name": "leverageOpen"
+          },
+          {
+            "name": "leverageIncrease"
+          },
+          {
+            "name": "leverageDecrease"
+          },
+          {
+            "name": "leverageClose"
+          },
+          {
+            "name": "leverageLiquidation"
+          },
+          {
+            "name": "creditLiquidation"
           }
         ]
       }

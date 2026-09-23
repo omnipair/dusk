@@ -8,7 +8,7 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{LeveragePositionLiquidated, LeverageSwapReceipt, MarketEventMetadata},
+    events::{LeveragePositionLiquidated, LeverageSwapReceipt, MarketEventMetadata, SwapExecuted, SwapOrigin},
     generate_market_seeds,
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
     token::transfer_checked_with_remaining_accounts,
@@ -199,6 +199,11 @@ impl<'info> LiquidateLeveragePosition<'info> {
         require!(collateral_reserve_credit > 0, ErrorCode::AmountZero);
 
         // Quote the credited collateral as a debt-asset liquidation swap.
+        crate::instructions::accounting::accrue_market_interest(
+            &mut ctx.accounts.market,
+            current_slot,
+            ctx.accounts.event_authority.to_account_info(),
+        )?;
         let prepared_swap = prepare_leverage_swap(
             &mut ctx.accounts.market,
             SwapRequest {
@@ -277,6 +282,7 @@ fn finish_liquidation<'info>(
         receipt.base_hlp_rebalance,
         receipt.quote_hlp_rebalance,
         interest_eligibility,
+        ctx.accounts.event_authority.to_account_info(),
     )?;
     ctx.accounts.debt_interest_vault.reload()?;
 
@@ -345,6 +351,15 @@ fn finish_liquidation<'info>(
         ctx.accounts.market.side(collateral_asset),
     )?;
 
+    crate::instructions::accounting::emit_interest_paid(
+        &ctx.accounts.market,
+        debt_asset,
+        crate::events::DebtSource::Margin,
+        Some(position_key),
+        referral_receipt.quote,
+        0,
+        ctx.accounts.event_authority.to_account_info(),
+    )?;
     if let Some(event) = referral_interest_accrued_event_at_slot(
         &referral_receipt,
         market_key,
@@ -358,6 +373,21 @@ fn finish_liquidation<'info>(
     }
 
     // Emit the final liquidation state.
+    let swap_event = LeverageSwapReceipt::new(
+        receipt.swap,
+        swap_fee_credit,
+        ctx.accounts.market.base_side.reserves.live_reserve,
+        ctx.accounts.market.quote_side.reserves.live_reserve,
+    )?;
+    emit_cpi!(SwapExecuted::from_leverage(
+        market_key,
+        owner_key,
+        liquidator_key,
+        position_key,
+        SwapOrigin::LeverageLiquidation,
+        current_slot,
+        swap_event,
+    ));
     emit_cpi!(LeveragePositionLiquidated {
         market: market_key,
         position: position_key,
@@ -372,12 +402,7 @@ fn finish_liquidation<'info>(
         closeout_value: receipt.closeout_value,
         liquidator_amount,
         owner_residual,
-        swap: LeverageSwapReceipt::new(
-            receipt.swap,
-            swap_fee_credit,
-            ctx.accounts.market.base_side.reserves.live_reserve,
-            ctx.accounts.market.quote_side.reserves.live_reserve,
-        )?,
+        swap: swap_event,
         metadata: MarketEventMetadata::at_slot(liquidator_key, market_key, current_slot),
     });
     Ok(())

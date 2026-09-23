@@ -11,6 +11,25 @@ not claims about the current ABI. The current IDL contains 58 public
 instructions; the checked-in instruction registry is authoritative for the
 current required set.
 
+## Swap and interest accounting events (2026-09-18)
+
+The complete deterministic LiteSVM suite passed **73/73 tests** and exercised
+**61/61 public instructions** with canonical swap events and source-attributed
+interest accrual/payment events enabled. The measured Dusk SBF SHA-256 is
+`96cab1fb5afdd3c73049ffa57a24f2eef66d64733e12bce1036b5d06e5716018`.
+
+The ordinary same-slot CPMM swap consumed **86,257 CU**, below the unchanged
+**100,000 CU** architectural limit. Active concentrated hLP swaps that accrue
+and settle funding interest consumed at most **292,888 CU**, versus the prior
+**263,939 CU** baseline. These paths now publish the debt-source accrual and
+payment records in addition to the swap event. The funded-recenter scenario
+consumed **574,779 CU**.
+
+The scenario baselines in `tests/utils/instruction-coverage.ts` were refreshed
+from this fully successful run; every regression ceiling remains exactly
+`ceil(measured maximum * 1.05)`. The global **1,350,000 CU** test limit and default
+32 KiB heap are unchanged.
+
 ## Nested concentrated+hLP fee-compounding acceptance (2026-08-27)
 
 The representative nested core-and-shoulder swap uses two active hLP vaults,

@@ -378,6 +378,7 @@ impl<'info> BackstopLiquidationAuction<'info> {
                 finalized.base_rebalance,
                 finalized.quote_rebalance,
                 prepared.interest_eligibility,
+                ctx.accounts.event_authority.to_account_info(),
             )?;
         }
         ctx.accounts.interest_vault.reload()?;
@@ -442,6 +443,19 @@ impl<'info> BackstopLiquidationAuction<'info> {
             ctx.accounts.market.side(collateral_asset),
         )?;
 
+        if let Some(prepared) = &prepared {
+            emit_cpi!(crate::events::SwapExecuted::from_amm(
+                market_key,
+                borrower_key,
+                liquidator_key,
+                Some(borrow_position_key),
+                crate::events::SwapOrigin::CreditLiquidation,
+                clock.slot,
+                prepared.quote,
+                ctx.accounts.market.base_side.reserves.live_reserve,
+                ctx.accounts.market.quote_side.reserves.live_reserve,
+            ));
+        }
         emit_cpi!(BorrowPositionLiquidated {
             market: market_key,
             borrow_position: borrow_position_key,
@@ -456,6 +470,15 @@ impl<'info> BackstopLiquidationAuction<'info> {
             socialized_loss: liquidation_receipt.socialized_loss,
             remaining_debt: liquidation_receipt.remaining_debt,
         });
+        crate::instructions::accounting::emit_interest_paid(
+            &ctx.accounts.market,
+            debt_asset,
+            crate::events::DebtSource::Credit,
+            Some(borrow_position_key),
+            referral_receipt.quote,
+            0,
+            ctx.accounts.event_authority.to_account_info(),
+        )?;
         if let Some(event) = referral_interest_accrued_event_at_slot(
             &referral_receipt,
             market_key,

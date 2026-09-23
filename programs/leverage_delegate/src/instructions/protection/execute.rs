@@ -139,8 +139,8 @@ impl<'info> ExecuteProtectionOrder<'info> {
             );
             p.assert_position(a.order.position_owner, a.market.key(), asset)?;
         }
-        let before = protection_health(
-            &a.market.to_account_info(),
+        let before = protection_health_of(
+            &mut a.market,
             a.borrow_position.as_deref().map(|p| &**p),
             a.leverage_position.as_deref().map(|p| &**p),
             a.order.action,
@@ -310,16 +310,36 @@ impl<'info> ExecuteProtectionOrder<'info> {
         if let Some(p) = &mut a.leverage_position {
             p.reload()?;
         }
-        let after = protection_health(
-            &a.market.to_account_info(),
-            a.borrow_position.as_deref().map(|p| &**p),
-            a.leverage_position.as_deref().map(|p| &**p),
+        // A position whose debt shares reached zero is debt-free at every
+        // borrow index, so its health is u64::MAX without decoding the large
+        // Market a second time. Dusk's accounting events pushed the full
+        // repayment path past the transaction compute budget with that decode.
+        let debt_cleared = match (
             a.order.action,
-            asset,
-            &clock,
-            // Both native LP exits finalize risk after their reserve mutation.
-            false,
-        )?;
+            a.borrow_position.as_deref(),
+            a.leverage_position.as_deref(),
+        ) {
+            (0 | 1, Some(position), None) => match asset {
+                MarketAsset::Base => position.fixed_base_shares == 0,
+                MarketAsset::Quote => position.fixed_quote_shares == 0,
+            },
+            (2, None, Some(position)) => position.debt_shares == 0,
+            _ => return err!(LeverageDelegateError::InvalidOrder),
+        };
+        let after = if debt_cleared {
+            u64::MAX
+        } else {
+            protection_health(
+                &a.market.to_account_info(),
+                a.borrow_position.as_deref().map(|p| &**p),
+                a.leverage_position.as_deref().map(|p| &**p),
+                a.order.action,
+                asset,
+                &clock,
+                // Both native LP exits finalize risk after their reserve mutation.
+                false,
+            )?
+        };
         require!(
             after >= a.order.target_health_bps && after > before,
             LeverageDelegateError::InvalidOrder

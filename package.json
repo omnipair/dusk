@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "cargo test -p dusk && cargo test -p leverage_delegate && yarn test-litesvm",
+    "postinstall": "node scripts/patch_anchor_idl_types.js",
     "typecheck": "tsc --noEmit",
     "build:litesvm": "node scripts/prepare_build.js && anchor build -p dusk && anchor build -p leverage_delegate && anchor build -p faucet && cargo build-sbf --manifest-path tests/fixtures/referral_transfer_hook/Cargo.toml --sbf-out-dir target/deploy && cargo build-sbf --manifest-path tests/fixtures/token_metadata_fixture/Cargo.toml --sbf-out-dir target/deploy",
     "test-litesvm": "yarn build:litesvm && yarn test-litesvm:no-build",

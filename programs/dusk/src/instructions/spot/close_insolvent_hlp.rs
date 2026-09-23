@@ -124,7 +124,11 @@ impl<'info> CloseInsolventHlp<'info> {
     pub fn update_and_validate(&mut self, args: &CloseInsolventHlpArgs) -> Result<u64> {
         self.validate(args)?;
         let current_slot = Clock::get()?.slot;
-        self.market.accrue_interest_to_slot(current_slot)?;
+        crate::instructions::accounting::accrue_market_interest(
+            &mut self.market,
+            current_slot,
+            self.event_authority.to_account_info(),
+        )?;
         // The ordinary `Market::update` checkpoints hLP settlement and must
         // reject an already-insolvent vault. This terminal path instead
         // advances only the debt and clock state needed to value and close it;
@@ -253,6 +257,20 @@ impl<'info> CloseInsolventHlp<'info> {
                 eligibility,
             )?;
         }
+        crate::instructions::accounting::emit_interest_paid(
+            &ctx.accounts.market,
+            borrowed_asset,
+            crate::events::DebtSource::Hlp,
+            None,
+            crate::state::ReferralInterestQuote::new(
+                receipt.interest_paid,
+                actual_interest_credit,
+                ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+                None,
+            )?,
+            caller_bounty,
+            ctx.accounts.event_authority.to_account_info(),
+        )?;
         ctx.accounts
             .market
             .finalize_amm_socialized_loss_and_observe_risk(current_slot)?;

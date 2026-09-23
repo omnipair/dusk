@@ -283,6 +283,15 @@ impl<'info> Repay<'info> {
             metadata: MarketEventMetadata::new(ctx.accounts.owner.key(), market_key)?,
         });
 
+        crate::instructions::accounting::emit_interest_paid(
+            &ctx.accounts.market,
+            ctx.accounts.market.asset_for_mint(debt_asset_mint_key)?,
+            crate::events::DebtSource::Credit,
+            Some(position_key),
+            referral_receipt.quote,
+            0,
+            ctx.accounts.event_authority.to_account_info(),
+        )?;
         if let Some(event) = referral_interest_accrued_event_at_slot(
             &referral_receipt,
             market_key,

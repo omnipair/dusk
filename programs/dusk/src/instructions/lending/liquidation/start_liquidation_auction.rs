@@ -7,6 +7,7 @@ use crate::{
     state::{BorrowPosition, Market},
 };
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct StartLiquidationAuction<'info> {
     #[account(
