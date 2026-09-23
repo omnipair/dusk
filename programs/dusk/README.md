@@ -108,6 +108,20 @@ Each market records three Token-2022 LP mints:
 
 yLP and hLP mints must be fee-free Token-2022 mints with an immutable transfer hook configured to the Dusk program (`TransferHook.authority = None`), mint authority set to the market PDA, and no freeze authority. `initialize_lp_metadata` creates Metaplex metadata for each LP mint with the market PDA as update authority. Production builds additionally enforce vanity suffixes: `yLP` for yLP and `hLP` for each hLP mint. Underlying asset mints may be SPL Token or Token-2022 mints accepted by the shared mint validator.
 
+### LP mint addresses, names and metadata
+
+The suffix rule is satisfied without a second keypair: each LP mint is a `create_with_seed` account of the market creator, `sha256(creator ‖ seed ‖ Token-2022)`, and the seed is ground until the base58 address ends in `yLP` or `hLP`. The vanity server (omnipair/vanity-server, `GET /grind?base=<creator>&suffix=yLP&owner=TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb`) grinds a three-character suffix in well under a second; the SDK's `grindMarketLpMintSeeds` re-derives every answer before use, and `createHookedLpMintWithSeedInstructions` builds the mint so only the creator signs.
+
+Names and symbols are written once by `initialize_lp_metadata` and cannot be changed, so they follow one scheme (`lpTokenNaming` in the SDK), with no brand in the name:
+
+| Mint | Name | Symbol |
+| --- | --- | --- |
+| yLP | `yMETA/USDC LP` | `yMETA.USDC` |
+| base hLP | `hMETA` | `hMETA.USDC` |
+| quote hLP | `hUSDC` | `hUSDC.META` |
+
+The hLP symbol leads with the asset the token is exposed to. Asset symbols are trimmed, longest first, until a symbol fits Metaplex's 10 bytes (`cbBTC/USDC` gives `ycbBT.USDC`). Metadata JSON and images are pinned to IPFS through Pinata (gateway `ipfs.omnipair.fi`) before the on-chain call: the yLP image is the two asset logos split left/right in a circle, each hLP image is its asset's logo with an `h` badge. `scripts/lp-metadata/` renders and pins them; `scripts/devnet/create_named_market.ts` is the reference flow from seed grinding to a seeded, named market.
+
 ## yLP Liquidity
 
 `add_liquidity` is the normal LP entry. Users deposit both market assets at the current market ratio and receive one fungible `yLP` token.

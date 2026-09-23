@@ -474,6 +474,42 @@ against `Program<Dusk>` need the same rewrite of
 `@coral-xyz/anchor/dist/*/program/namespace/types.d.ts` until Anchor changes
 the decoder upstream; the rewrite applies unchanged to Anchor 0.31 and 0.32.
 
+## LP Mint Bootstrap
+
+`initialize_market` takes three existing Token-2022 LP mints. Production builds
+require their addresses to end in `yLP` (the yLP mint) and `hLP` (both hLP
+mints). The SDK produces them as `create_with_seed` accounts of the creator,
+so the creator is the only signer:
+
+```typescript
+import {
+  createHookedLpMintWithSeedInstructions,
+  grindMarketLpMintSeeds,
+  lpMintRent,
+  marketLpTokenNaming,
+} from "@omnipair/dusk-sdk";
+
+const seeds = await grindMarketLpMintSeeds({ base: creator }); // vanity.omnipair.fi
+const rent = await lpMintRent(connection);
+const ylp = await createHookedLpMintWithSeedInstructions({
+  payer: creator, base: creator, seed: seeds.ylp.seed, mint: seeds.ylp.mint,
+  decimals, mintAuthority: market, transferHookProgramId: PROGRAM_ID, lamports: rent,
+});
+
+const naming = marketLpTokenNaming({ baseSymbol: "META", quoteSymbol: "USDC" });
+// naming.ylp      -> { name: "yMETA/USDC LP", symbol: "yMETA.USDC", description }
+// naming.baseHlp  -> { name: "hMETA",         symbol: "hMETA.USDC", description }
+// naming.quoteHlp -> { name: "hUSDC",         symbol: "hUSDC.META", description }
+```
+
+`grindLpMintSeed` asks the vanity server for a seed with `owner` set to
+Token-2022 and re-derives the address locally before returning it; a server
+that ground the wrong suffix or owner is rejected. Names are written once by
+`initialize_lp_metadata` and cannot be changed afterwards, so use
+`lpTokenNaming` rather than ad-hoc strings. The metadata JSON and images that
+the URIs point to are produced by `scripts/lp-metadata/` in the dusk
+repository.
+
 ## ESM Compatibility
 
 This package ships strict ESM-compatible output. Relative module specifiers
