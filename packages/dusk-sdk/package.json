@@ -57,7 +57,7 @@
     "build": "npm run prepare-idl && tsc",
     "typecheck": "tsc --noEmit",
     "test:governance": "npm run build && node scripts/check-governance.js",
-    "test:previews": "tsc && node --test scripts/check-previews.js scripts/check-virtual-book.js",
+    "test:previews": "tsc && node --test scripts/check-previews.js scripts/check-virtual-book.js scripts/check-lp-tokens.js",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build"
   },

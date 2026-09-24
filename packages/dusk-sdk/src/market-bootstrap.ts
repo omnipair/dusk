@@ -4,13 +4,15 @@
  * `initialize_market` needs three LP mints that already exist, each carrying a
  * transfer-hook extension pointing back at the Dusk program, and each owned by
  * a market PDA that does not exist yet. That ordering is the whole reason this
- * module exists: the mints are plain Token-2022 accounts created with fresh
- * keypairs, so they have to be signed for, and they have to be in place before
- * the program instruction that adopts them.
+ * module exists: the mints are plain Token-2022 accounts that have to be in
+ * place before the program instruction that adopts them.
  *
- * The helpers here produce instructions rather than sending anything, so the
- * same sequence works from a script with a `Keypair` and from a browser with a
- * wallet adapter.
+ * Two ways to create one. `createHookedLpMintInstructions` uses a fresh
+ * keypair, which must sign. `createHookedLpMintWithSeedInstructions` derives
+ * the address from the creator's key and a seed, so only the creator signs;
+ * that is how a browser wallet or a multisig can launch a market, and it is
+ * how the `yLP`/`hLP` address suffixes production builds require are produced
+ * (see `lp-vanity.ts`). Both produce instructions rather than sending anything.
  */
 import {
   ExtensionType,
@@ -184,6 +186,76 @@ export function createHookedLpMintInstructions(params: {
       ),
       createInitializeMintInstruction(
         keypair.publicKey,
+        params.decimals,
+        address(params.mintAuthority),
+        null,
+        TOKEN_2022_PROGRAM_ID
+      ),
+    ],
+  };
+}
+
+export interface SeededLpMint {
+  /** Signs `createAccountWithSeed`: the wallet the seed was ground for. */
+  readonly base: PublicKey;
+  readonly seed: string;
+  readonly mint: PublicKey;
+  readonly instructions: readonly TransactionInstruction[];
+}
+
+/**
+ * Create one transfer-hooked LP mint at a `create_with_seed` address.
+ *
+ * The mint address is `sha256(base ‖ seed ‖ Token-2022 program)`, so the
+ * creator can grind seeds until the address ends in the suffix
+ * `initialize_market` demands in production builds, and no second keypair
+ * ever exists: only `base` and the payer sign. The owner program is part of
+ * the derivation, which is why a seed ground for the SPL Token program does
+ * not produce the same address here.
+ */
+export async function createHookedLpMintWithSeedInstructions(params: {
+  payer: AddressLike;
+  /** The key the seed was ground against. Must sign. */
+  base: AddressLike;
+  seed: string;
+  decimals: number;
+  /** The market PDA, which owns every LP mint it issues. */
+  mintAuthority: AddressLike;
+  transferHookProgramId: AddressLike;
+  /** From `getMinimumBalanceForRentExemption(lpMintLen())`. */
+  lamports: number;
+  /** The address the seed was ground for; rejected unless it derives from `base` and `seed`. */
+  mint?: AddressLike;
+}): Promise<SeededLpMint> {
+  const base = address(params.base);
+  const mint = await PublicKey.createWithSeed(base, params.seed, TOKEN_2022_PROGRAM_ID);
+  if (params.mint !== undefined && !address(params.mint).equals(mint)) {
+    throw new Error(
+      `LP mint ${address(params.mint).toBase58()} does not derive from base ${base.toBase58()} and seed "${params.seed}" under Token-2022; got ${mint.toBase58()}`
+    );
+  }
+  return {
+    base,
+    seed: params.seed,
+    mint,
+    instructions: [
+      SystemProgram.createAccountWithSeed({
+        fromPubkey: address(params.payer),
+        newAccountPubkey: mint,
+        basePubkey: base,
+        seed: params.seed,
+        lamports: params.lamports,
+        space: lpMintLen(),
+        programId: TOKEN_2022_PROGRAM_ID,
+      }),
+      createInitializeTransferHookInstruction(
+        mint,
+        PublicKey.default,
+        address(params.transferHookProgramId),
+        TOKEN_2022_PROGRAM_ID
+      ),
+      createInitializeMintInstruction(
+        mint,
         params.decimals,
         address(params.mintAuthority),
         null,
