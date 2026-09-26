@@ -8852,10 +8852,21 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(createTx, [payer]);
-    expect(cpiEvent(createTx, "parameterProposalCreated").proposal.toString()).to.equal(
-      proposal.toString()
-    );
+    const created = cpiEvent(createTx, "parameterProposalCreated");
+    expect(created.proposal.toString()).to.equal(proposal.toString());
     trackV2Instruction("createParameterProposal", this.test?.title);
+    // The creation event carries the update and metadata exactly as stored.
+    const stored = accountCoder.decode("ParameterProposal", Buffer.from(svm.getAccount(proposal)!.data)) as any;
+    expect(created.update).to.deep.equal({ dailyBorrowLimit: { maxDailyBorrowBps: 1_900 } });
+    expect(stored.update.DailyBorrowLimit.max_daily_borrow_bps).to.equal(1_900);
+    expect(created.metadata.version).to.equal(stored.metadata.version);
+    expect(created.metadata.title).to.equal(stored.metadata.title);
+    expect(created.metadata.descriptionUri).to.equal(stored.metadata.description_uri);
+    expect(Buffer.from(created.metadata.descriptionSha256).equals(Buffer.from(stored.metadata.description_sha256))).to.equal(
+      true
+    );
+    expect(created.metadata.descriptionLen).to.equal(stored.metadata.description_len);
+    expect(Buffer.from(created.digest).equals(Buffer.from(stored.digest))).to.equal(true);
 
     const baseHlpYlp = await getAccount(
       connection as any,

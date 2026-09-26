@@ -81,6 +81,8 @@ EMA half-lives, the daily borrow limit, the center controller, or insurance
 draw caps. Independent family revisions make
 competing proposals stale instead of silently combining them. Execution first
 checkpoints old interest/EMA/risk state and rejects at 80% utilization.
+`ParameterProposalCreated` carries the typed update and the proposal metadata
+exactly as stored, so indexers can reconstruct a proposal from events alone.
 
 Parameter bounds are enforced on creation and again on execution. Aggregate
 base/divergence/volatility fee budgets are capped at 5,000 bps; the daily borrow

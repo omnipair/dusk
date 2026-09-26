@@ -1,6 +1,6 @@
 use crate::{
     errors::ErrorCode,
-    state::MarketConfig,
+    state::{MarketConfig, MarketParameterUpdate, ProposalMetadataV1},
     transitions::{AmmSwapQuote, LeverageSwapFeeCredit, LeverageSwapQuote},
 };
 use anchor_lang::prelude::*;
@@ -775,6 +775,9 @@ pub struct ParameterProposalCreated {
     pub sponsorship_floor: u64,
     pub initial_support: u64,
     pub status: u8,
+    /// The proposed update and metadata exactly as stored on the proposal.
+    pub update: MarketParameterUpdate,
+    pub metadata: ProposalMetadataV1,
 }
 
 #[event]

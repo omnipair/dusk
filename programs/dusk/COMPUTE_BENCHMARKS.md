@@ -11,6 +11,13 @@ not claims about the current ABI. The current IDL contains 58 public
 instructions; the checked-in instruction registry is authoritative for the
 current required set.
 
+## Proposal creation event parameters (2026-09-27)
+
+`ParameterProposalCreated` now carries the stored update and metadata.
+Replaying every suite transaction from identical account pre-states against
+the preceding binary, `create_parameter_proposal` costs 1,820–1,924 CU more
+(at most 123,212 CU); no other instruction changes.
+
 ## Market observation crank (2026-09-27)
 
 The local deterministic LiteSVM suite passed **97/97 tests** and exercised

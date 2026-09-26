@@ -15424,6 +15424,25 @@ export type Dusk = {
           {
             "name": "status",
             "type": "u8"
+          },
+          {
+            "name": "update",
+            "docs": [
+              "The proposed update and metadata exactly as stored on the proposal."
+            ],
+            "type": {
+              "defined": {
+                "name": "marketParameterUpdate"
+              }
+            }
+          },
+          {
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "proposalMetadataV1"
+              }
+            }
           }
         ]
       }
