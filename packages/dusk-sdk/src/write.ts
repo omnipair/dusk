@@ -839,6 +839,38 @@ export class DuskWrite {
     return new Transaction().add(await this.initializeLpMetadataInstruction(params));
   }
 
+  /**
+   * Refresh a market's time-dependent state and publish `MarketObserved`.
+   *
+   * Permissionless and token-free: besides the event-CPI accounts it reads
+   * the market, its yLP mint, and both hLP yLP vaults (for direct-yLP
+   * eligibility), so the transaction fee payer is the only signer. It runs in
+   * reduce-only mode and before the market start time. A repeat in the same
+   * slot changes no state and reports the same observation.
+   *
+   * The mint and vault addresses never change for a market; pass all three to
+   * skip the market fetch.
+   */
+  async observeMarketInstruction(params: ObserveMarketParams): Promise<TransactionInstruction> {
+    const market = address(params.market);
+    const state =
+      params.ylpMint && params.baseHlpYlpVault && params.quoteHlpYlpVault
+        ? undefined
+        : await this.governanceMarketState(market);
+    return this.instruction("observeMarket" as DuskInstructionName, undefined, {
+      accounts: {
+        market,
+        ylpMint: address(params.ylpMint ?? state!.ylpMint),
+        baseHlpYlpVault: address(params.baseHlpYlpVault ?? state!.baseHlpVault.ylpVault),
+        quoteHlpYlpVault: address(params.quoteHlpYlpVault ?? state!.quoteHlpVault.ylpVault),
+      },
+    });
+  }
+
+  async observeMarketTransaction(params: ObserveMarketParams): Promise<Transaction> {
+    return new Transaction().add(await this.observeMarketInstruction(params));
+  }
+
   /** Burn-lock initial direct-yLP support and create one immutable typed proposal. */
   async createParameterProposal(
     params: CreateParameterProposalParams
@@ -2457,6 +2489,14 @@ export interface BorrowParams {
   reserveVault?: AddressLike;
   borrowPosition?: AddressLike;
   remainingAccounts?: AccountMeta[];
+}
+
+/**
+ * Observing a market needs only its address; the fee payer signs. The yLP
+ * mint and hLP vault overrides skip the market fetch when all three are set.
+ */
+export interface ObserveMarketParams extends GovernanceMarketAccountOverrides {
+  market: AddressLike;
 }
 
 /**

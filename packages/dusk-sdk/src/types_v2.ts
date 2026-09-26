@@ -4828,6 +4828,109 @@ export type Dusk = {
       ]
     },
     {
+      "name": "observeMarket",
+      "docs": [
+        "Permissionless observation crank. Applies the same refresh that other",
+        "market instructions run before acting, persists it, and emits",
+        "`MarketObserved`. It moves no tokens; a repeat in the same slot changes",
+        "no state."
+      ],
+      "discriminator": [
+        165,
+        112,
+        165,
+        82,
+        197,
+        36,
+        150,
+        191
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ylpMint"
+        },
+        {
+          "name": "baseHlpYlpVault",
+          "docs": [
+            "first use it is an empty System account holding no yLP."
+          ]
+        },
+        {
+          "name": "quoteHlpYlpVault"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "openLeverage",
       "discriminator": [
         182,
@@ -9817,6 +9920,19 @@ export type Dusk = {
       ]
     },
     {
+      "name": "marketObserved",
+      "discriminator": [
+        170,
+        90,
+        103,
+        217,
+        153,
+        55,
+        234,
+        182
+      ]
+    },
+    {
       "name": "marketReduceOnlyUpdated",
       "discriminator": [
         87,
@@ -14706,6 +14822,124 @@ export type Dusk = {
                 "name": "marketEventMetadata"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "marketObserved",
+      "docs": [
+        "Committed market state published by the permissionless `observe_market`",
+        "crank after the shared pre-action refresh. No other instruction emits it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "ylpMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "ylpSupply",
+            "docs": [
+              "Internal yLP share supply; both sides record the same value."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "governanceLockedYlp",
+            "docs": [
+              "yLP burn-locked in active governance support."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "eligibleYlp",
+            "docs": [
+              "Direct yLP counted by proposal sponsorship and queueing: live yLP mint",
+              "supply plus governance-locked yLP, minus both hLP vaults' yLP."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "base",
+            "type": {
+              "defined": {
+                "name": "marketObservedSide"
+              }
+            }
+          },
+          {
+            "name": "quote",
+            "type": {
+              "defined": {
+                "name": "marketObservedSide"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "marketObservedSide",
+      "docs": [
+        "One side of `MarketObserved`. Prices quote this side's asset in the",
+        "opposite asset and equal `preview_market` for the same state and slot."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "assetMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "assetDecimals",
+            "type": "u8"
+          },
+          {
+            "name": "liveReserve",
+            "type": "u64"
+          },
+          {
+            "name": "spotPriceNad",
+            "docs": [
+              "Executable marginal price of the current curve."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "priceEmaNad",
+            "docs": [
+              "Symmetric risk EMA of the spot price."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "swapFeeGrowthIndexQ64",
+            "docs": [
+              "Per-yLP-share swap-fee growth, scaled by 2^64."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "interestGrowthIndexQ64",
+            "docs": [
+              "Per-yLP-share interest growth, scaled by 2^64."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "borrowIndexNad",
+            "type": "u128"
           }
         ]
       }

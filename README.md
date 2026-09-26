@@ -205,6 +205,7 @@ initialize_yield_accounts
 initialize_lp_transfer_hook
 set_market_reduce_only
 fortify_market
+observe_market
 create_parameter_proposal
 support_parameter_proposal
 queue_parameter_proposal

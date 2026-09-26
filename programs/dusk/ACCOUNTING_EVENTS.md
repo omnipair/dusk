@@ -115,6 +115,30 @@ Accrual and payment events are separate reporting bases. Maintain both series;
 never sum them into one fees/revenue series. Convert raw mint atoms to a common
 currency off-chain with explicit pricing and reporting-period conventions.
 
+## Market observations
+
+`MarketObserved` is emitted only by the permissionless `observe_market` crank.
+It describes the committed market after the refresh every market instruction
+runs before acting, so an idle market gains a price and yield point whenever a
+keeper cranks it. Each side reports its asset mint and decimals, live reserve,
+spot price, symmetric price EMA, swap-fee and interest growth indexes, and
+borrow index. Prices quote the side's asset in the opposite asset and equal
+`preview_market` for the same committed state and slot. `ylp_supply` is the
+internal yLP share supply; `eligible_ylp` is the direct yLP counted by
+governance sponsorship and queueing (live mint supply plus
+`governance_locked_ylp`, minus yLP held by both hLP vaults).
+
+The growth indexes are per-yLP-share accumulators scaled by 2^64: the index
+difference between two observations, divided by 2^64, is the swap-fee or
+interest yield that became claimable per yLP share over that interval. They
+move when swap fees or paid interest become claimable by yLP holders. Interest
+that has accrued but is still owed appears instead in the borrow index and in
+the debt side's live reserve.
+
+The crank publishes any non-zero `BorrowInterestAccrued` records for the same
+checkpoint, exactly like other touches. A second observation in the same slot
+changes no state, repeats the same values, and emits no accrual.
+
 ## Interface changes
 
 `initialize_yield_accounts` and `start_liquidation_auction` now require Anchor's

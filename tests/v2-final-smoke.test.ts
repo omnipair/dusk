@@ -1961,6 +1961,309 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(swapPreview.reserveOutLiveReserve.toNumber()).to.equal(198_026);
   });
 
+  // About 36.5 days of slots: enough for the fixtures' 5,000-atom quote debt
+  // to accrue whole interest atoms, so the refresh publishes its accrual.
+  const OBSERVATION_ACCRUAL_SLOTS = 7_884_000n;
+
+  async function fundedKeeper() {
+    const keeper = Keypair.generate();
+    await connection.requestAirdrop(keeper.publicKey, LAMPORTS_PER_SOL);
+    return keeper;
+  }
+
+  async function observeMarket(
+    fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>,
+    keeper: Keypair,
+    testName?: string
+  ) {
+    const tx = await new DuskWrite(program).observeMarketTransaction({
+      market: fixture.market,
+      ylpMint: fixture.ylpMint,
+      baseHlpYlpVault: fixture.baseHlpYlpVault,
+      quoteHlpYlpVault: fixture.quoteHlpYlpVault,
+    });
+    tx.feePayer = keeper.publicKey;
+    const { computeUnits } = await connection.sendTransactionMeasured(tx, [keeper]);
+    trackV2Instruction("observeMarket", testName);
+    const events = cpiEvents(tx);
+    const observations = events.filter((event) => event.name === "marketObserved");
+    expect(observations, "marketObserved CPI event count").to.have.length(1);
+    return {
+      tx,
+      computeUnits,
+      observed: observations[0].data,
+      accruals: events
+        .filter((event) => event.name === "borrowInterestAccrued")
+        .map((event) => event.data),
+    };
+  }
+
+  // Prices must equal preview_market for the committed state in the same slot;
+  // reserves, supply, and indexes must equal the committed market account.
+  async function expectObservationOfCommittedState(observed: any, market: PublicKey) {
+    const preview = decodePreviewMarketReturnData(
+      await simulateReturnData(await program.methods.previewMarket().accounts({ market }).transaction())
+    ) as any;
+    const state = accountCoder.decode("Market", Buffer.from(svm.getAccount(market)!.data)) as any;
+    expect(observed.market.equals(market)).to.equal(true);
+    expect(observed.ylpMint.equals(state.ylp_mint)).to.equal(true);
+    expect(observed.slot.toString()).to.equal(svm.getClock().slot.toString());
+    expect(preview.slot.toString()).to.equal(observed.slot.toString());
+    expect(observed.ylpSupply.toString()).to.equal(state.base_side.shares.ylp_supply.toString());
+    expect(observed.ylpSupply.toString()).to.equal(state.quote_side.shares.ylp_supply.toString());
+    // Eligibility: live mint supply plus locked support, minus hLP vault yLP;
+    // a vault that was never opened holds nothing.
+    const vaultYlp = async (vault: PublicKey) =>
+      svm.getAccount(vault)?.owner.equals(TOKEN_2022_PROGRAM_ID)
+        ? (await getAccount(connection as any, vault, undefined, TOKEN_2022_PROGRAM_ID)).amount
+        : 0n;
+    const liveYlpSupply = (await getMint(connection as any, state.ylp_mint, undefined, TOKEN_2022_PROGRAM_ID)).supply;
+    expect(observed.governanceLockedYlp.toString()).to.equal(state.governance_locked_ylp.toString());
+    expect(BigInt(observed.eligibleYlp.toString())).to.equal(
+      liveYlpSupply +
+        BigInt(state.governance_locked_ylp.toString()) -
+        (await vaultYlp(state.base_hlp_vault.ylp_vault)) -
+        (await vaultYlp(state.quote_hlp_vault.ylp_vault))
+    );
+    const sides = [
+      ["base", state.base_side, state.debt.base_borrow_index_nad],
+      ["quote", state.quote_side, state.debt.quote_borrow_index_nad],
+    ] as const;
+    for (const [name, side, borrowIndexNad] of sides) {
+      const observedSide = observed[name];
+      expect(observedSide.assetMint.equals(side.asset_mint), `${name} asset mint`).to.equal(true);
+      expect(observedSide.assetDecimals, `${name} asset decimals`).to.equal(side.asset_decimals);
+      expect(observedSide.spotPriceNad.toString(), `${name} spot price`).to.equal(
+        preview[name].spotPriceNad.toString()
+      );
+      expect(observedSide.priceEmaNad.toString(), `${name} price EMA`).to.equal(
+        preview[name].priceEmaNad.toString()
+      );
+      expect(observedSide.liveReserve.toString(), `${name} live reserve`).to.equal(
+        side.reserves.live_reserve.toString()
+      );
+      expect(observedSide.swapFeeGrowthIndexQ64.toString(), `${name} swap-fee growth`).to.equal(
+        side.fees.swap_fee_growth_index_q64.toString()
+      );
+      expect(observedSide.interestGrowthIndexQ64.toString(), `${name} interest growth`).to.equal(
+        side.fees.interest_growth_index_q64.toString()
+      );
+      expect(observedSide.borrowIndexNad.toString(), `${name} borrow index`).to.equal(
+        borrowIndexNad.toString()
+      );
+    }
+    return state;
+  }
+
+  it("publishes a preview-equal market observation from a permissionless crank", async function () {
+    const fixture = await addBalancedLiquidity(140);
+    await protectionBorrow(fixture);
+    svm.warpToSlot(svm.getClock().slot + OBSERVATION_ACCRUAL_SLOTS);
+    svm.expireBlockhash();
+
+    // A keeper with no stake in the market pays the fee. Only the market is
+    // writable; no token account or signer belongs to the instruction.
+    const keeper = await fundedKeeper();
+    const { tx, computeUnits, observed, accruals } = await observeMarket(fixture, keeper, this.test?.title);
+    console.log(`    observe_market, CPMM with quote debt: ${computeUnits.toLocaleString()} CU`);
+    const [instruction] = tx.instructions;
+    expect(instruction.keys.map((meta) => meta.pubkey.toBase58())).to.deep.equal([
+      fixture.market.toBase58(),
+      fixture.ylpMint.toBase58(),
+      fixture.baseHlpYlpVault.toBase58(),
+      fixture.quoteHlpYlpVault.toBase58(),
+      eventAuthority().toBase58(),
+      DUSK_PROGRAM_ID.toBase58(),
+    ]);
+    expect(instruction.keys.map((meta) => meta.isWritable)).to.deep.equal([
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]);
+    expect(instruction.keys.some((meta) => meta.isSigner)).to.equal(false);
+
+    // The shared refresh publishes the quote accrual as any other touch does.
+    expect(accruals).to.have.length(1);
+    expect(accruals[0].assetSide).to.equal(1);
+    expect(accruals[0].toSlot.toString()).to.equal(observed.slot.toString());
+    expect(accruals[0].borrowIndexAfterNad.toString()).to.equal(observed.quote.borrowIndexNad.toString());
+    expect(BigInt(accruals[0].creditInterest.toString()) > 0n).to.equal(true);
+
+    const state = await expectObservationOfCommittedState(observed, fixture.market);
+    for (const committedSlot of [
+      state.debt.base_last_accrual_slot,
+      state.debt.quote_last_accrual_slot,
+      state.amm.last_observation_slot,
+      state.risk.last_snapshot_slot,
+    ]) {
+      expect(committedSlot.toString()).to.equal(observed.slot.toString());
+    }
+  });
+
+  it("repeats a same-slot observation without double accrual, in reduce-only mode", async function () {
+    const fixture = await addBalancedLiquidity(141);
+    await openBaseHedge(fixture);
+    await protectionBorrow(fixture);
+    svm.warpToSlot(svm.getClock().slot + OBSERVATION_ACCRUAL_SLOTS);
+    svm.expireBlockhash();
+
+    // Observation moves no funds, so reduce-only mode does not block it.
+    const reduceOnlyTx = await program.methods
+      .setMarketReduceOnly({ reduceOnly: true })
+      .accounts({
+        market: fixture.market,
+        authoritySigner: REDUCE_ONLY_EMERGENCY_AUTHORITY,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
+      .transaction();
+    await sendTransactionWithUncheckedSigners(reduceOnlyTx, [payer], [REDUCE_ONLY_EMERGENCY_AUTHORITY]);
+
+    const keeper = await fundedKeeper();
+    const first = await observeMarket(fixture, keeper, this.test?.title);
+    console.log(
+      `    observe_market, CPMM with active base hLP and quote debt: ${first.computeUnits.toLocaleString()} CU`
+    );
+    expect(first.accruals).to.have.length(1);
+    expect(first.accruals[0].assetSide).to.equal(1);
+    expect(BigInt(first.accruals[0].hlpInterest.toString()) > 0n).to.equal(true);
+    await expectObservationOfCommittedState(first.observed, fixture.market);
+    const committed = Buffer.from(svm.getAccount(fixture.market)!.data);
+
+    // Nothing is left to accrue, integrate, or checkpoint in the same slot.
+    svm.expireBlockhash();
+    const second = await observeMarket(fixture, keeper, this.test?.title);
+    console.log(`    observe_market, same-slot repeat: ${second.computeUnits.toLocaleString()} CU`);
+    expect(second.accruals).to.have.length(0);
+    expect(Buffer.from(svm.getAccount(fixture.market)!.data).equals(committed)).to.equal(true);
+    expect(JSON.stringify(second.observed)).to.equal(JSON.stringify(first.observed));
+  });
+
+  it("accrues interest and swap-fee growth between market observations", async function () {
+    const config = marketConfig();
+    config.amm.peakAmplificationNad = new BN("4000000000");
+    config.amm.coreHalfWidthBps = 100;
+    config.amm.fadeWidthBps = 400;
+    const fixture = await addBalancedLiquidity(142, config, {
+      baseDeposit: 100_000_000,
+      quoteDeposit: 200_000_000,
+      minYlp: 1,
+      baseMint: 500_000_000,
+      quoteMint: 500_000_000,
+    });
+    await protectionBorrow(fixture);
+    const keeper = await fundedKeeper();
+    const before = await observeMarket(fixture, keeper, this.test?.title);
+    expect(before.accruals).to.have.length(0);
+
+    // A base-input swap credits claimable LP fees to the base growth index.
+    await swapBaseForQuote(fixture, [], 1_000_000, 1);
+    const afterSwap = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+    svm.warpToSlot(svm.getClock().slot + OBSERVATION_ACCRUAL_SLOTS);
+    svm.expireBlockhash();
+
+    const after = await observeMarket(fixture, keeper, this.test?.title);
+    console.log(`    observe_market, concentrated curve with quote debt: ${after.computeUnits.toLocaleString()} CU`);
+    await expectObservationOfCommittedState(after.observed, fixture.market);
+    expect(
+      BigInt(after.observed.base.swapFeeGrowthIndexQ64.toString()) >
+        BigInt(before.observed.base.swapFeeGrowthIndexQ64.toString())
+    ).to.equal(true);
+
+    expect(after.accruals).to.have.length(1);
+    const [accrual] = after.accruals;
+    expect(accrual.assetSide).to.equal(1);
+    expect(accrual.fromSlot.toString()).to.equal(before.observed.slot.toString());
+    expect(accrual.toSlot.toString()).to.equal(after.observed.slot.toString());
+    expect(accrual.borrowIndexBeforeNad.toString()).to.equal(before.observed.quote.borrowIndexNad.toString());
+    expect(accrual.borrowIndexAfterNad.toString()).to.equal(after.observed.quote.borrowIndexNad.toString());
+    expect(
+      BigInt(accrual.borrowIndexAfterNad.toString()) > BigInt(accrual.borrowIndexBeforeNad.toString())
+    ).to.equal(true);
+    expect(after.observed.base.borrowIndexNad.toString()).to.equal(before.observed.base.borrowIndexNad.toString());
+    // The accrued credit interest is committed into the quote live reserve.
+    expect(
+      BigInt(after.observed.quote.liveReserve.toString()) -
+        BigInt(afterSwap.quote_side.reserves.live_reserve.toString())
+    ).to.equal(BigInt(accrual.creditInterest.toString()));
+  });
+
+  it("reports eligible direct yLP exactly as proposal sponsorship computes it", async function () {
+    const fixture = await addBalancedLiquidity(143);
+    // The base hLP vault's yLP is excluded; the quote vault is not open yet.
+    await openBaseHedge(fixture);
+    expect(svm.getAccount(fixture.quoteHlpYlpVault)).to.equal(null);
+    const keeper = await fundedKeeper();
+    const before = await observeMarket(fixture, keeper, this.test?.title);
+    await expectObservationOfCommittedState(before.observed, fixture.market);
+    const baseVault = await getAccount(connection as any, fixture.baseHlpYlpVault, undefined, TOKEN_2022_PROGRAM_ID);
+    expect(baseVault.amount > 0n).to.equal(true);
+    expect(before.observed.governanceLockedYlp.toString()).to.equal("0");
+    const eligible = BigInt(before.observed.eligibleYlp.toString());
+
+    // A strict-majority sponsorship queues at creation, so the program reports
+    // the eligible supply it computed for the same state.
+    const proposer = payer.publicKey;
+    const nonce = new BN(1);
+    const proposal = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("parameter_proposal"),
+        fixture.market.toBuffer(),
+        proposer.toBuffer(),
+        nonce.toArrayLike(Buffer, "le", 8),
+      ],
+      DUSK_PROGRAM_ID
+    )[0];
+    const initialSupport = eligible / 2n + 1n;
+    const createTx = await program.methods
+      .createParameterProposal({
+        nonce,
+        update: { dailyBorrowLimit: { maxDailyBorrowBps: 1_900 } },
+        metadata: {
+          version: 1,
+          title: "Lower daily borrow limit",
+          descriptionUri: "ipfs://dusk-litesvm-observed-eligibility",
+          descriptionSha256: Array(32).fill(2),
+          descriptionLen: 1,
+        },
+        initialSupport: new BN(initialSupport.toString()),
+      })
+      .accounts({
+        proposer,
+        market: fixture.market,
+        proposal,
+        proposalSupport: PublicKey.findProgramAddressSync(
+          [Buffer.from("proposal_support"), proposal.toBuffer(), proposer.toBuffer()],
+          DUSK_PROGRAM_ID
+        )[0],
+        ylpMint: fixture.ylpMint,
+        proposerYlpAccount: fixture.ownerYlpAccount,
+        baseYieldAccount: deriveYieldAccountAddress(fixture.market, proposer, fixture.ylpMint, fixture.baseMint, "ylp")[0],
+        quoteYieldAccount: deriveYieldAccountAddress(fixture.market, proposer, fixture.ylpMint, fixture.quoteMint, "ylp")[0],
+        baseHlpYlpVault: fixture.baseHlpYlpVault,
+        quoteHlpYlpVault: fixture.quoteHlpYlpVault,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(createTx, [payer]);
+    trackV2Instruction("createParameterProposal", this.test?.title);
+    expect(cpiEvent(createTx, "parameterProposalQueued").eligibleSupply.toString()).to.equal(eligible.toString());
+
+    // Burn-locking support moves yLP from the mint supply into the lock, so the
+    // eligible amount is unchanged while the lock becomes visible.
+    svm.expireBlockhash();
+    const after = await observeMarket(fixture, keeper, this.test?.title);
+    await expectObservationOfCommittedState(after.observed, fixture.market);
+    expect(after.observed.governanceLockedYlp.toString()).to.equal(initialSupport.toString());
+    expect(after.observed.eligibleYlp.toString()).to.equal(eligible.toString());
+  });
+
   it("adds V1-style limiting-side liquidity with Token-2022 transfer-fee assets", async function () {
     const baseMint = await createTransferFeeMint(payer.publicKey, 6, 100, 10_000n);
     const quoteMint = await createTransferFeeMint(payer.publicKey, 6, 50, 10_000n);

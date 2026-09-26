@@ -128,3 +128,33 @@ fn indexer_receipts_remain_compact() {
         201
     );
 }
+
+#[test]
+fn market_observation_carries_both_sides_in_a_fixed_width_record() {
+    let side = MarketObservedSide {
+        asset_mint: Pubkey::new_unique(),
+        asset_decimals: 6,
+        live_reserve: 1,
+        spot_price_nad: 2,
+        price_ema_nad: 3,
+        swap_fee_growth_index_q64: 4,
+        interest_growth_index_q64: 5,
+        borrow_index_nad: 6,
+    };
+    let observed = MarketObserved {
+        market: Pubkey::new_unique(),
+        ylp_mint: Pubkey::new_unique(),
+        slot: 7,
+        ylp_supply: 8,
+        governance_locked_ylp: 9,
+        eligible_ylp: 10,
+        base: side,
+        quote: side,
+    };
+
+    assert_eq!(side.try_to_vec().unwrap().len(), 105);
+    assert_eq!(
+        MarketObserved::DISCRIMINATOR.len() + observed.try_to_vec().unwrap().len(),
+        314
+    );
+}

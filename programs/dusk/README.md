@@ -33,7 +33,7 @@ Instruction modules are split by domain: `market`, `governance`, `liquidity`, `s
 
 Dusk exposes the current market instruction set:
 
-- `initialize_market`, `initialize_lp_metadata`, `initialize_yield_accounts`, `initialize_lp_transfer_hook`, `set_market_reduce_only`, `fortify_market`
+- `initialize_market`, `initialize_lp_metadata`, `initialize_yield_accounts`, `initialize_lp_transfer_hook`, `set_market_reduce_only`, `fortify_market`, `observe_market`
 - `create_parameter_proposal`, `support_parameter_proposal`, `queue_parameter_proposal`, `execute_parameter_proposal`, `withdraw_parameter_support`
 - `add_liquidity`, `open_liquidity_gates`, `remove_liquidity`
 - `set_yield_recipient`, `set_harvest_authority`, `harvest`
@@ -292,7 +292,7 @@ Referral accruals are market-specific liabilities. Their backing remains in the 
 
 Indexers should consume Dusk events from the standalone Dusk IDL:
 
-- `MarketCreated`, `MarketReduceOnlyUpdated`, `MarketHealthUpdated`, `InsuranceDonated`
+- `MarketCreated`, `MarketReduceOnlyUpdated`, `MarketHealthUpdated`, `InsuranceDonated`, `MarketObserved`
 - `LiquidityAdded`, `LiquidityRemoved`
 - `YieldRecipientUpdated`, `HarvestAuthorityUpdated`, `YieldClaimed`
 - `SwapExecuted`
@@ -311,6 +311,21 @@ and slot. Compact hot-path receipts expose `market` and their relevant actor
 directly; the transaction already supplies the slot and signature. Protocol-wide
 authority, referral-recipient, and referral-claim events likewise expose their
 authority or signer directly because they are not tied to one market.
+
+`MarketObserved` comes only from the permissionless `observe_market` crank. The
+crank writes only the market, reads its yLP mint and both hLP yLP vaults, moves
+no tokens, and runs the same refresh that other market instructions apply
+before acting: interest accrual on both sides, the AMM clock, hLP yield
+checkpoints, and the risk-price observation. It persists that refresh and
+reports each side's asset mint and decimals, live reserve, spot price and price
+EMA exactly as `preview_market` reports them for the committed state, swap-fee
+and interest growth indexes, and borrow index. It also reports the yLP share
+supply, governance-locked yLP, and eligible direct yLP computed by the same
+function proposal sponsorship and queueing use. The crank stays available in
+reduce-only mode and before the market start time because it changes no
+position or custody. A repeat in the same slot changes no state and reports the
+same values. No other instruction emits the event, so keepers choose the
+observation cadence.
 
 `SwapExecuted` is the single canonical spot-swap receipt whether or not inline
 hLP settlement changes tokens. It identifies the input by `asset_in_side`,

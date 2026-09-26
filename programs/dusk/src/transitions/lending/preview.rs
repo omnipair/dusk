@@ -27,7 +27,14 @@ pub(crate) struct LendingSidePreview {
     pub total_debt: u128,
     pub daily_borrow_limit: u64,
     pub daily_borrow_remaining: u64,
+}
+
+/// One side's executable marginal price and symmetric risk EMA, quoted in the
+/// opposite asset. `preview_market` and `observe_market` report these values.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SidePrices {
     pub spot_price_nad: u64,
+    pub price_ema_nad: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -104,20 +111,6 @@ impl Market {
             .side(asset)
             .daily_borrow_bucket
             .remaining(daily_borrow_limit, slot)?;
-        let base_price = self
-            .current_concentrated_spot_price_nad()?
-            .ok_or(ErrorCode::BrokenInvariant)?;
-        let spot_price_nad = match asset {
-            MarketAsset::Base => base_price,
-            MarketAsset::Quote => {
-                require!(base_price > 0, ErrorCode::InvalidSettlementPrice);
-                let inverse = (NAD as u128)
-                    .checked_mul(NAD as u128)
-                    .and_then(|value| value.checked_div(base_price as u128))
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
-                u64::try_from(inverse).map_err(|_| ErrorCode::MarketMathOverflow)?
-            }
-        };
 
         Ok(LendingSidePreview {
             conservative_depth_nad,
@@ -131,7 +124,29 @@ impl Market {
             total_debt,
             daily_borrow_limit,
             daily_borrow_remaining,
-            spot_price_nad,
+        })
+    }
+
+    pub(crate) fn side_prices(&self, asset: MarketAsset) -> Result<SidePrices> {
+        let base_price = self
+            .current_concentrated_spot_price_nad()?
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        Ok(match asset {
+            MarketAsset::Base => SidePrices {
+                spot_price_nad: base_price,
+                price_ema_nad: self.risk.base_price_ema_nad,
+            },
+            MarketAsset::Quote => {
+                require!(base_price > 0, ErrorCode::InvalidSettlementPrice);
+                let inverse = (NAD as u128)
+                    .checked_mul(NAD as u128)
+                    .and_then(|value| value.checked_div(base_price as u128))
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
+                SidePrices {
+                    spot_price_nad: u64::try_from(inverse).map_err(|_| ErrorCode::MarketMathOverflow)?,
+                    price_ema_nad: self.risk.quote_price_ema_nad,
+                }
+            }
         })
     }
 

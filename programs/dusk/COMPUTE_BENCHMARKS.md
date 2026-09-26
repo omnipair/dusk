@@ -11,6 +11,31 @@ not claims about the current ABI. The current IDL contains 58 public
 instructions; the checked-in instruction registry is authoritative for the
 current required set.
 
+## Market observation crank (2026-09-27)
+
+The local deterministic LiteSVM suite passed **97/97 tests** and exercised
+**67/67 public instructions** with the `observe_market` crank added. The
+measured Dusk SBF SHA-256 is
+`2ec392836860d9a0f680cb87b12033e9cbae84adbd8ad1281daffb9985dc4142`.
+
+`observe_market` applies the shared pre-action refresh, persists it, and emits
+`MarketObserved` plus any non-zero `BorrowInterestAccrued`. Whole-transaction
+costs:
+
+| Market state | CU |
+|---|---:|
+| CPMM, quote-debt accrual | 105,055 |
+| CPMM, active base hLP, quote-debt accrual | 119,301 |
+| Same-slot repeat, nothing to accrue | 71,009 |
+| Concentrated curve, quote-debt accrual | 253,002 |
+
+Anchor matches instruction discriminators in declaration order, so the crank
+is declared after every other instruction and their top-level dispatch cost is
+unchanged. Each event self-CPI and each LP transfer-hook fallback now performs
+one more discriminator comparison: every named swap scenario rose by 38 CU per
+event it emits (38 CU with one event, 114 CU with three). The checked-in
+ceilings are unchanged and still hold.
+
 ## Swap and interest accounting events (2026-09-18)
 
 The complete deterministic LiteSVM suite passed **73/73 tests** and exercised

@@ -519,6 +519,19 @@ pub mod dusk {
         WithdrawSingleSided::handle_withdraw(ctx, args)
     }
 
+    // Market observation crank. Anchor matches discriminators in declaration
+    // order, so declaring it last leaves every earlier instruction's dispatch
+    // cost unchanged.
+
+    /// Permissionless observation crank. Applies the same refresh that other
+    /// market instructions run before acting, persists it, and emits
+    /// `MarketObserved`. It moves no tokens; a repeat in the same slot changes
+    /// no state.
+    #[access_control(ctx.accounts.update_and_validate())]
+    pub fn observe_market(ctx: Context<ObserveMarket>) -> Result<()> {
+        ObserveMarket::handle_observe(ctx)
+    }
+
     pub fn fallback<'info>(program_id: &Pubkey, accounts: &'info [AccountInfo<'info>], data: &[u8]) -> Result<()> {
         crate::instructions::transfer_hook::handle_transfer_hook(program_id, accounts, data)
     }

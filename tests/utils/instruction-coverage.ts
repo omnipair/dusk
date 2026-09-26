@@ -127,6 +127,7 @@ const DUSK_INSTRUCTIONS = [
   "initializeYieldAccounts",
   "initializeLpTransferHook",
   "setMarketReduceOnly",
+  "observeMarket",
   "createParameterProposal",
   "supportParameterProposal",
   "queueParameterProposal",

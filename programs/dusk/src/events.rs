@@ -64,6 +64,42 @@ pub struct MarketHealthUpdated {
     pub metadata: MarketEventMetadata,
 }
 
+/// Committed market state published by the permissionless `observe_market`
+/// crank after the shared pre-action refresh. No other instruction emits it.
+#[event]
+pub struct MarketObserved {
+    pub market: Pubkey,
+    pub ylp_mint: Pubkey,
+    pub slot: u64,
+    /// Internal yLP share supply; both sides record the same value.
+    pub ylp_supply: u64,
+    /// yLP burn-locked in active governance support.
+    pub governance_locked_ylp: u64,
+    /// Direct yLP counted by proposal sponsorship and queueing: live yLP mint
+    /// supply plus governance-locked yLP, minus both hLP vaults' yLP.
+    pub eligible_ylp: u64,
+    pub base: MarketObservedSide,
+    pub quote: MarketObservedSide,
+}
+
+/// One side of `MarketObserved`. Prices quote this side's asset in the
+/// opposite asset and equal `preview_market` for the same state and slot.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MarketObservedSide {
+    pub asset_mint: Pubkey,
+    pub asset_decimals: u8,
+    pub live_reserve: u64,
+    /// Executable marginal price of the current curve.
+    pub spot_price_nad: u64,
+    /// Symmetric risk EMA of the spot price.
+    pub price_ema_nad: u64,
+    /// Per-yLP-share swap-fee growth, scaled by 2^64.
+    pub swap_fee_growth_index_q64: u128,
+    /// Per-yLP-share interest growth, scaled by 2^64.
+    pub interest_growth_index_q64: u128,
+    pub borrow_index_nad: u128,
+}
+
 #[event]
 pub struct InsuranceDonated {
     pub market: Pubkey,

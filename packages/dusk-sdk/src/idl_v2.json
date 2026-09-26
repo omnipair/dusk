@@ -4822,6 +4822,109 @@
       ]
     },
     {
+      "name": "observe_market",
+      "docs": [
+        "Permissionless observation crank. Applies the same refresh that other",
+        "market instructions run before acting, persists it, and emits",
+        "`MarketObserved`. It moves no tokens; a repeat in the same slot changes",
+        "no state."
+      ],
+      "discriminator": [
+        165,
+        112,
+        165,
+        82,
+        197,
+        36,
+        150,
+        191
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ylp_mint"
+        },
+        {
+          "name": "base_hlp_ylp_vault",
+          "docs": [
+            "first use it is an empty System account holding no yLP."
+          ]
+        },
+        {
+          "name": "quote_hlp_ylp_vault"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "open_leverage",
       "discriminator": [
         182,
@@ -9811,6 +9914,19 @@
       ]
     },
     {
+      "name": "MarketObserved",
+      "discriminator": [
+        170,
+        90,
+        103,
+        217,
+        153,
+        55,
+        234,
+        182
+      ]
+    },
+    {
       "name": "MarketReduceOnlyUpdated",
       "discriminator": [
         87,
@@ -14700,6 +14816,124 @@
                 "name": "MarketEventMetadata"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketObserved",
+      "docs": [
+        "Committed market state published by the permissionless `observe_market`",
+        "crank after the shared pre-action refresh. No other instruction emits it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "ylp_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "ylp_supply",
+            "docs": [
+              "Internal yLP share supply; both sides record the same value."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "governance_locked_ylp",
+            "docs": [
+              "yLP burn-locked in active governance support."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "eligible_ylp",
+            "docs": [
+              "Direct yLP counted by proposal sponsorship and queueing: live yLP mint",
+              "supply plus governance-locked yLP, minus both hLP vaults' yLP."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "base",
+            "type": {
+              "defined": {
+                "name": "MarketObservedSide"
+              }
+            }
+          },
+          {
+            "name": "quote",
+            "type": {
+              "defined": {
+                "name": "MarketObservedSide"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketObservedSide",
+      "docs": [
+        "One side of `MarketObserved`. Prices quote this side's asset in the",
+        "opposite asset and equal `preview_market` for the same state and slot."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_decimals",
+            "type": "u8"
+          },
+          {
+            "name": "live_reserve",
+            "type": "u64"
+          },
+          {
+            "name": "spot_price_nad",
+            "docs": [
+              "Executable marginal price of the current curve."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "price_ema_nad",
+            "docs": [
+              "Symmetric risk EMA of the spot price."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "swap_fee_growth_index_q64",
+            "docs": [
+              "Per-yLP-share swap-fee growth, scaled by 2^64."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "interest_growth_index_q64",
+            "docs": [
+              "Per-yLP-share interest growth, scaled by 2^64."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "borrow_index_nad",
+            "type": "u128"
           }
         ]
       }

@@ -92,6 +92,23 @@ accounts for instructions that emit CPI events.
 `write.builder(...)`, `write.transaction(...)`, and `write.rpc(...)` expose the
 same generic path for every Dusk instruction in the IDL.
 
+### Market Observations
+
+`observe_market` is a permissionless crank for keepers. It refreshes a market's
+time-dependent state (interest accrual, AMM clock, hLP yield checkpoints, risk
+observation), moves no tokens, and emits one `MarketObserved` event with each
+side's live reserve, spot price, price EMA, growth indexes, and borrow index,
+plus the eligible direct-yLP supply used by governance. The fee payer is the
+only signer.
+
+```typescript
+const tx = await dusk.write.observeMarketTransaction({ market });
+```
+
+The builder fetches the market to find its yLP mint and hLP yLP vaults unless
+`ylpMint`, `baseHlpYlpVault`, and `quoteHlpYlpVault` are all passed. The
+`MarketObserved` and `MarketObservedSide` event types are exported.
+
 ### Direct-yLP Parameter Governance
 
 Market layout v1 has no market manager. The program exposes seven independent
