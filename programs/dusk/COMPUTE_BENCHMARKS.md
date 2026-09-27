@@ -11,6 +11,26 @@ not claims about the current ABI. The current IDL contains 58 public
 instructions; the checked-in instruction registry is authoritative for the
 current required set.
 
+## Borrow-position event fields (2026-09-27)
+
+Lending events now carry each written borrow position's post-instruction
+state, and liquidation auctions report their start and recovery cancellation.
+Replaying every suite transaction from identical account pre-states against
+the preceding binary:
+
+| Instruction | CU delta |
+|---|---:|
+| `deposit_collateral`, `donate_collateral` | +910 to +911 |
+| `withdraw_collateral` | +597 |
+| `borrow`, `repay` | +423 to +424 |
+| `fill_liquidation_auction`, `backstop_liquidation_auction` | +1,284 to +1,288 |
+| `fill_liquidation_auction` cancelling a recovered auction | +10,124 |
+| `start_liquidation_auction` | +10,488 |
+
+`withdraw_all_collateral` is unchanged. The swap scenarios are unchanged, and
+the leverage-delegate protection executions that repay through Dusk rise by at
+most 424 CU.
+
 ## Proposal creation event parameters (2026-09-27)
 
 `ParameterProposalCreated` now carries the stored update and metadata.

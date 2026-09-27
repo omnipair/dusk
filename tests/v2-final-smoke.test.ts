@@ -674,6 +674,91 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     return matches[0].data;
   }
 
+  // Borrow-position state carried by lending events, as [event field, account
+  // field] pairs. Indexers derive BorrowPosition accounts from these fields.
+  const POSITION_TERMS_FIELDS = [
+    ["globalHealthBaseContributionForQuoteDebt", "global_health_base_contribution_for_quote_debt"],
+    ["globalHealthQuoteContributionForBaseDebt", "global_health_quote_contribution_for_base_debt"],
+    ["baseLiquidationCfBps", "base_liquidation_cf_bps"],
+    ["quoteLiquidationCfBps", "quote_liquidation_cf_bps"],
+  ] as const;
+  const POSITION_COLLATERAL_FIELDS = [
+    ["baseCollateral", "base_collateral"],
+    ["quoteCollateral", "quote_collateral"],
+    ...POSITION_TERMS_FIELDS,
+  ] as const;
+  const POSITION_DEBT_FIELDS = [
+    ["fixedBaseShares", "fixed_base_shares"],
+    ["fixedQuoteShares", "fixed_quote_shares"],
+    ["auctionDebtAsset", "auction_debt_asset"],
+    ...POSITION_TERMS_FIELDS,
+  ] as const;
+  const POSITION_LIQUIDATION_FIELDS = [...POSITION_COLLATERAL_FIELDS, ...POSITION_DEBT_FIELDS.slice(0, 3)] as const;
+
+  // Every listed field equals the position's post-instruction state. A closed
+  // position's final state is empty: no collateral, shares, terms, or auction.
+  function expectPositionPostState(
+    event: any,
+    position: PublicKey,
+    fields: readonly (readonly [string, string])[]
+  ): boolean {
+    const account = svm.getAccount(position);
+    const state =
+      account === null
+        ? Object.fromEntries(fields.map(([, field]) => [field, field === "auction_debt_asset" ? 255 : 0]))
+        : (accountCoder.decode("BorrowPosition", Buffer.from(account.data)) as any);
+    for (const [eventField, accountField] of fields) {
+      expect(event[eventField].toString(), `position ${eventField}`).to.equal(state[accountField].toString());
+    }
+    return account === null;
+  }
+
+  function expectCollateralDeposited(transaction: Transaction, position: PublicKey) {
+    const deposited = cpiEvent(transaction, "marketCollateralDeposited");
+    expect(deposited.position.equals(position)).to.equal(true);
+    expect(expectPositionPostState(deposited, position, [
+      ...POSITION_COLLATERAL_FIELDS,
+      ["positionId", "position_id"],
+      ["owner", "owner"],
+      ["auctionDebtAsset", "auction_debt_asset"],
+    ])).to.equal(false);
+    return deposited;
+  }
+
+  function expectCollateralWithdrawn(transaction: Transaction, position: PublicKey) {
+    const withdrawn = cpiEvent(transaction, "marketCollateralWithdrawn");
+    expect(withdrawn.position.equals(position)).to.equal(true);
+    expect(withdrawn.closed).to.equal(expectPositionPostState(withdrawn, position, POSITION_COLLATERAL_FIELDS));
+    return withdrawn;
+  }
+
+  function expectDebtUpdated(transaction: Transaction, position: PublicKey) {
+    const updated = cpiEvent(transaction, "marketDebtUpdated");
+    expect(updated.position.equals(position)).to.equal(true);
+    expect(expectPositionPostState(updated, position, POSITION_DEBT_FIELDS)).to.equal(false);
+    return updated;
+  }
+
+  function expectPositionLiquidated(transaction: Transaction, position: PublicKey) {
+    const liquidated = cpiEvent(transaction, "borrowPositionLiquidated");
+    expect(liquidated.borrowPosition.equals(position)).to.equal(true);
+    expect(liquidated.closed).to.equal(expectPositionPostState(liquidated, position, POSITION_LIQUIDATION_FIELDS));
+    return liquidated;
+  }
+
+  function expectAuctionStarted(transaction: Transaction, position: PublicKey) {
+    const started = cpiEvent(transaction, "liquidationAuctionStarted");
+    expect(started.position.equals(position)).to.equal(true);
+    expect(expectPositionPostState(started, position, [
+      ["owner", "owner"],
+      ["auctionDebtAsset", "auction_debt_asset"],
+      ["auctionStartTime", "auction_start_time"],
+      ["auctionStartPriceNad", "auction_start_price_nad"],
+      ["auctionFloorPriceNad", "auction_floor_price_nad"],
+    ])).to.equal(false);
+    return started;
+  }
+
   function expectLeverageSwap(transaction: Transaction, lifecycle: string, origin: string) {
     const action = cpiEvent(transaction, lifecycle);
     const swap = cpiEvent(transaction, "swapExecuted");
@@ -2645,6 +2730,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .transaction();
     await connection.sendTransaction(borrowTx, [payer]);
     trackV2Instruction("borrow", this.test?.title);
+    expectDebtUpdated(borrowTx, borrowPosition);
 
     const ownerQuoteAfter = await getAccount(
       connection as any,
@@ -2690,6 +2776,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .transaction();
     await connection.sendTransaction(repayTx, [payer]);
     trackV2Instruction("repay", this.test?.title);
+    expectDebtUpdated(repayTx, borrowPosition);
 
     accrual = accountCoder.decode(
       "ReferralAccrual",
@@ -6581,6 +6668,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .transaction();
     await connection.sendTransaction(depositTx, [payer]);
     trackV2Instruction("depositCollateral", this.test?.title);
+    const firstDeposit = expectCollateralDeposited(depositTx, borrowPosition);
+    expect(firstDeposit.positionId.equals(borrowPositionId)).to.equal(true);
+    expect(firstDeposit.auctionDebtAsset).to.equal(255);
 
     const capacityPreview = decodePreviewBorrowCapacityReturnData(
       await simulateReturnData(
@@ -6639,6 +6729,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .transaction();
     await connection.sendTransaction(borrowTx, [payer]);
     trackV2Instruction("borrow", this.test?.title);
+    expect(expectDebtUpdated(borrowTx, borrowPosition).fixedQuoteShares.toString()).to.equal("5000");
 
     let ownerBase = await getAccount(connection as any, fixture.ownerBaseAccount);
     let ownerQuote = await getAccount(connection as any, fixture.ownerQuoteAccount);
@@ -6810,6 +6901,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .transaction();
     await connection.sendTransaction(repayTx, [payer]);
     trackV2Instruction("repay", this.test?.title);
+    expect(expectDebtUpdated(repayTx, borrowPosition).fixedQuoteShares.toString()).to.equal("0");
 
     const withdrawTx = await program.methods
       .withdrawCollateral({
@@ -6833,6 +6925,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .transaction();
     await connection.sendTransaction(withdrawTx, [payer]);
     trackV2Instruction("withdrawCollateral", this.test?.title);
+    // Withdrawing the last collateral closes the debt-free position.
+    expect(expectCollateralWithdrawn(withdrawTx, borrowPosition).closed).to.equal(true);
 
     ownerBase = await getAccount(connection as any, fixture.ownerBaseAccount);
     ownerQuote = await getAccount(connection as any, fixture.ownerQuoteAccount);
@@ -7592,6 +7686,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .transaction();
     await connection.sendTransaction(triggerAuctionTx, [payer]);
     trackV2Instruction("startLiquidationAuction", this.test?.title);
+    expect(expectAuctionStarted(triggerAuctionTx, borrowPosition).auctionDebtAsset).to.equal(1);
 
     const bidTx = await program.methods
       .fillLiquidationAuction({
@@ -7623,6 +7718,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .transaction();
     await connection.sendTransaction(bidTx, [payer]);
     trackV2Instruction("fillLiquidationAuction", this.test?.title);
+    expect(expectPositionLiquidated(bidTx, borrowPosition).closed).to.equal(false);
 
     const liquidationEvent = cpiEvent(bidTx, "borrowPositionLiquidated");
     expect(liquidationEvent.market.toString()).to.equal(fixture.market.toString());
@@ -7652,6 +7748,122 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(BigInt(positionAfter.fixed_quote_shares.toString()) < quoteDebtSharesBefore).to.equal(
       true
     );
+  });
+
+  it("reports liquidation auctions cleared by recovery through a fill attempt or a deposit", async function () {
+    const fixture = await addBalancedLiquidity(145, marketConfig());
+    const borrowPositionId = Keypair.generate().publicKey;
+    const borrowPosition = deriveBorrowPositionAddress(fixture.market, borrowPositionId)[0];
+    const depositCollateral = async (amount: number) => {
+      svm.expireBlockhash();
+      const tx = await program.methods
+        .depositCollateral({ positionId: borrowPositionId, depositAmount: new BN(amount) })
+        .accounts({
+          market: fixture.market,
+          owner: payer.publicKey,
+          assetMint: fixture.baseMint,
+          collateralVault: fixture.baseCollateralVault,
+          ownerAssetAccount: fixture.ownerBaseAccount,
+          borrowPosition,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          eventAuthority: eventAuthority(),
+          program: DUSK_PROGRAM_ID,
+        })
+        .transaction();
+      await connection.sendTransaction(tx, [payer]);
+      return tx;
+    };
+    await depositCollateral(10_000);
+    await connection.sendTransaction(
+      await program.methods
+        .borrow({ borrowAmount: new BN(14_500), minDebtAmountOut: new BN(14_500), minLiquidationCfBps: 8_500, referrer: null })
+        .accounts({
+          market: fixture.market,
+          futarchyAuthority,
+          owner: payer.publicKey,
+          debtAssetMint: fixture.quoteMint,
+          collateralAssetMint: fixture.baseMint,
+          reserveVault: fixture.quoteReserveVault,
+          ownerDebtAccount: fixture.ownerQuoteAccount,
+          borrowPosition,
+          referralPartner: null,
+          referralAccrual: null,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          eventAuthority: eventAuthority(),
+          program: DUSK_PROGRAM_ID,
+        })
+        .transaction(),
+      [payer]
+    );
+    const letPricesSettle = () => {
+      const clock = svm.getClock();
+      clock.slot += 10_000n;
+      clock.unixTimestamp += 1_000n;
+      svm.setClock(clock);
+      svm.expireBlockhash();
+    };
+    const openAuction = async () => {
+      await swapBaseForQuote(fixture, [], 40_000, 1);
+      letPricesSettle();
+      const startTx = await program.methods
+        .startLiquidationAuction()
+        .accounts({ market: fixture.market, borrowPosition, debtAssetMint: fixture.quoteMint })
+        .transaction();
+      await connection.sendTransaction(startTx, [payer]);
+      expect(expectAuctionStarted(startTx, borrowPosition).auctionDebtAsset).to.equal(1);
+    };
+
+    // A fill attempt after the price recovers cancels the auction and moves nothing.
+    await openAuction();
+    await swapQuoteForBase(fixture, [], 57_000, 1);
+    letPricesSettle();
+    const positionBeforeFill = accountCoder.decode("BorrowPosition", Buffer.from(svm.getAccount(borrowPosition)!.data)) as any;
+    const fillTx = await program.methods
+      .fillLiquidationAuction({ repayAmount: new BN(1_000), minCollateralOut: new BN(1) })
+      .accounts({
+        market: fixture.market,
+        futarchyAuthority,
+        positionOwner: payer.publicKey,
+        liquidator: payer.publicKey,
+        debtAssetMint: fixture.quoteMint,
+        collateralAssetMint: fixture.baseMint,
+        reserveVault: fixture.quoteReserveVault,
+        interestVault: fixture.quoteInterestVault,
+        collateralVault: fixture.baseCollateralVault,
+        insuranceVault: fixture.quoteInsuranceVault,
+        collateralInsuranceVault: fixture.baseInsuranceVault,
+        liquidatorDebtAccount: fixture.ownerQuoteAccount,
+        liquidatorCollateralAccount: fixture.ownerBaseAccount,
+        borrowPosition,
+        referralPartner: null,
+        referralAccrual: null,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(),
+        program: DUSK_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(fillTx, [payer]);
+    trackV2Instruction("fillLiquidationAuction", this.test?.title);
+    expect(cpiEvents(fillTx).filter((event) => event.name === "borrowPositionLiquidated")).to.have.length(0);
+    const cancelled = cpiEvent(fillTx, "liquidationAuctionCancelled");
+    expect(cancelled.market.equals(fixture.market)).to.equal(true);
+    expect(cancelled.position.equals(borrowPosition)).to.equal(true);
+    expect(cancelled.owner.equals(payer.publicKey)).to.equal(true);
+    expect(cancelled.debtAssetSide).to.equal(1);
+    const positionAfterFill = accountCoder.decode("BorrowPosition", Buffer.from(svm.getAccount(borrowPosition)!.data)) as any;
+    expect(positionAfterFill.auction_debt_asset).to.equal(255);
+    expect(positionAfterFill.auction_start_time.toString()).to.equal("0");
+    expect(positionAfterFill.base_collateral.toString()).to.equal(positionBeforeFill.base_collateral.toString());
+    expect(positionAfterFill.fixed_quote_shares.toString()).to.equal(positionBeforeFill.fixed_quote_shares.toString());
+
+    // A deposit that restores health cancels the auction inside the deposit.
+    await openAuction();
+    const recoveryDeposit = expectCollateralDeposited(await depositCollateral(20_000), borrowPosition);
+    expect(recoveryDeposit.auctionDebtAsset).to.equal(255);
   });
 
   it("settles an expired liquidation auction through the internal AMM floor", async function () {
@@ -7724,6 +7936,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
     const beforeAccount = svm.getAccount(borrowPosition);
     expect(beforeAccount).to.not.equal(null);
+    expectAuctionStarted(triggerTx, borrowPosition);
 
     // Permissionless internal settlement becomes executable after the fixed
     // five-minute external-bid window.
@@ -7762,6 +7975,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .transaction();
     await connection.sendTransaction(settleTx, [payer]);
     trackV2Instruction("backstopLiquidationAuction", this.test?.title);
+    // The backstop consumes all collateral and debt, so it closes the position.
+    expect(expectPositionLiquidated(settleTx, borrowPosition).closed).to.equal(true);
     const backstopSwap = cpiEvent(settleTx, "swapExecuted");
     expect(backstopSwap.origin).to.deep.equal({ creditLiquidation: {} });
     expect(backstopSwap.position.equals(borrowPosition)).to.equal(true);
@@ -9140,6 +9355,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     donationTx.feePayer = donor.publicKey;
     await connection.sendTransaction(donationTx, [donor]);
     trackV2Instruction("donateCollateral", this.test?.title);
+    expectCollateralDeposited(donationTx, borrowPosition);
     const donated = accountCoder.decode("BorrowPosition", Buffer.from(svm.getAccount(borrowPosition)!.data)) as any;
     expect(donated.base_collateral.toNumber()).to.equal(10_100);
     expect(donated.owner.equals(payer.publicKey)).to.equal(true);
@@ -9153,6 +9369,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     }).transaction();
     repayTx.feePayer = donor.publicKey;
     await connection.sendTransaction(repayTx, [donor]);
+    expectDebtUpdated(repayTx, borrowPosition);
     expect((await getAccount(connection as any, donorQuote)).amount).to.equal(5_000n);
     const debtEvent = cpiEvent(repayTx, "marketDebtUpdated");
     expect(debtEvent.owner.equals(payer.publicKey)).to.equal(true);
@@ -9171,8 +9388,14 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const dust = await program.methods.donateCollateral({ depositAmount: new BN(1) }).accounts(donationAccounts).transaction();
     dust.feePayer = donor.publicKey;
     await connection.sendTransaction(dust, [donor]);
+    expectCollateralDeposited(dust, borrowPosition);
     const before = (await getAccount(connection as any, f.ownerBaseAccount)).amount;
-    await connection.sendTransaction(await program.methods.withdrawAllCollateral({ minBaseOut: new BN(10_101), minQuoteOut: new BN(0) }).accounts(sweepAccounts).transaction(), [payer]);
+    const sweepTx = await program.methods.withdrawAllCollateral({ minBaseOut: new BN(10_101), minQuoteOut: new BN(0) }).accounts(sweepAccounts).transaction();
+    await connection.sendTransaction(sweepTx, [payer]);
+    // The sweep always closes the position; its existing receipt identifies it.
+    const sweep = cpiEvent(sweepTx, "debtFreePositionClosed");
+    expect(sweep.position.equals(borrowPosition)).to.equal(true);
+    expect(sweep.leverage).to.equal(false);
     trackV2Instruction("withdrawAllCollateral", this.test?.title);
     expect(svm.getAccount(borrowPosition)).to.equal(null);
     expect((await getAccount(connection as any, f.ownerBaseAccount)).amount - before).to.equal(10_101n);

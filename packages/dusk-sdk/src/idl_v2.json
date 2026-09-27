@@ -9823,6 +9823,32 @@
       ]
     },
     {
+      "name": "LiquidationAuctionCancelled",
+      "discriminator": [
+        122,
+        103,
+        174,
+        225,
+        120,
+        149,
+        186,
+        155
+      ]
+    },
+    {
+      "name": "LiquidationAuctionStarted",
+      "discriminator": [
+        137,
+        151,
+        231,
+        92,
+        108,
+        13,
+        215,
+        59
+      ]
+    },
+    {
       "name": "LiquidityAdded",
       "discriminator": [
         154,
@@ -11783,6 +11809,55 @@
           {
             "name": "remaining_debt",
             "type": "u128"
+          },
+          {
+            "name": "base_collateral",
+            "docs": [
+              "The position's state after the liquidation."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "quote_collateral",
+            "type": "u64"
+          },
+          {
+            "name": "fixed_base_shares",
+            "type": "u128"
+          },
+          {
+            "name": "fixed_quote_shares",
+            "type": "u128"
+          },
+          {
+            "name": "global_health_base_contribution_for_quote_debt",
+            "type": "u64"
+          },
+          {
+            "name": "global_health_quote_contribution_for_base_debt",
+            "type": "u64"
+          },
+          {
+            "name": "base_liquidation_cf_bps",
+            "type": "u16"
+          },
+          {
+            "name": "quote_liquidation_cf_bps",
+            "type": "u16"
+          },
+          {
+            "name": "auction_debt_asset",
+            "docs": [
+              "`255` once the auction is cleared."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "closed",
+            "docs": [
+              "The liquidation emptied the position and closed its account."
+            ],
+            "type": "bool"
           }
         ]
       }
@@ -14065,6 +14140,79 @@
       }
     },
     {
+      "name": "LiquidationAuctionCancelled",
+      "docs": [
+        "A fill or backstop found the position healthy again and cleared its",
+        "auction without liquidating anything."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "debt_asset_side",
+            "docs": [
+              "Debt side of the cancelled auction: `0` for base and `1` for quote."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LiquidationAuctionStarted",
+      "docs": [
+        "A liquidation auction opened on a borrow position."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "auction_debt_asset",
+            "docs": [
+              "`0` for base debt and `1` for quote debt."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "auction_start_time",
+            "type": "i64"
+          },
+          {
+            "name": "auction_start_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "auction_floor_price_nad",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "LiquidityAdded",
       "type": {
         "kind": "struct",
@@ -14408,6 +14556,25 @@
                 "name": "MarketEventMetadata"
               }
             }
+          },
+          {
+            "name": "position",
+            "docs": [
+              "Borrow position written by this deposit; the first deposit creates it."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "position_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "auction_debt_asset",
+            "docs": [
+              "Post-deposit auction side, `255` when none is active. A deposit that",
+              "restores health cancels an active auction."
+            ],
+            "type": "u8"
           }
         ]
       }
@@ -14468,6 +14635,17 @@
                 "name": "MarketEventMetadata"
               }
             }
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "closed",
+            "docs": [
+              "The withdrawal emptied the position and closed its account."
+            ],
+            "type": "bool"
           }
         ]
       }
@@ -14683,6 +14861,9 @@
           },
           {
             "name": "fixed_base_debt",
+            "docs": [
+              "Market-wide fixed debt after the update, not this position's debt."
+            ],
             "type": "u128"
           },
           {
@@ -14720,6 +14901,25 @@
                 "name": "MarketEventMetadata"
               }
             }
+          },
+          {
+            "name": "fixed_base_shares",
+            "docs": [
+              "The position's fixed debt shares after the update."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "fixed_quote_shares",
+            "type": "u128"
+          },
+          {
+            "name": "auction_debt_asset",
+            "docs": [
+              "Post-update auction side, `255` when none is active. A repayment that",
+              "restores health cancels an active auction."
+            ],
+            "type": "u8"
           }
         ]
       }

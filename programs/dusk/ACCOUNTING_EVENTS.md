@@ -115,6 +115,33 @@ Accrual and payment events are separate reporting bases. Maintain both series;
 never sum them into one fees/revenue series. Convert raw mint atoms to a common
 currency off-chain with explicit pricing and reporting-period conventions.
 
+## Borrow positions
+
+Every instruction that writes a `BorrowPosition` reports the fields it can
+change, as the position's state after the instruction:
+
+| Instruction | Event | Position state carried |
+|---|---|---|
+| `deposit_collateral`, `donate_collateral` | `MarketCollateralDeposited` | `position`, `position_id`, `owner`, collateral, health contributions, liquidation CFs, `auction_debt_asset` |
+| `withdraw_collateral` | `MarketCollateralWithdrawn` | `position`, collateral, health contributions, liquidation CFs, `closed` |
+| `borrow`, `repay` | `MarketDebtUpdated` | `position`, fixed debt shares, health contributions, liquidation CFs, `auction_debt_asset` |
+| `start_liquidation_auction` | `LiquidationAuctionStarted` | auction side, start time, start and floor prices |
+| `fill_liquidation_auction`, `backstop_liquidation_auction` | `BorrowPositionLiquidated` | collateral, fixed debt shares, health contributions, liquidation CFs, `auction_debt_asset`, `closed` |
+| `fill_liquidation_auction`, `backstop_liquidation_auction` on a recovered position | `LiquidationAuctionCancelled` | auction cleared |
+| `withdraw_all_collateral` | `DebtFreePositionClosed` with `leverage = false` | position closed |
+
+The first deposit creates the position with no debt, zero liquidation CFs, no
+referral binding, and no auction. `auction_debt_asset` is `255` when no auction
+is active; the auction start time and prices are then zero, and otherwise keep
+the values from `LiquidationAuctionStarted`. Deposits and repayments that
+restore health cancel an active auction, so their events carry the resulting
+auction side. A side's referral binding is set by `ReferralBound` and clears
+whenever that side's fixed debt shares reach zero. `MarketDebtUpdated`'s
+`fixed_base_debt` and `fixed_quote_debt` are market-wide totals, not the
+position's debt. A position whose `closed` flag is set, or whose
+`DebtFreePositionClosed` has `leverage = false`, no longer exists. These fields
+are appended after each event's earlier fields.
+
 ## Market observations
 
 `MarketObserved` is emitted only by the permissionless `observe_market` crank.

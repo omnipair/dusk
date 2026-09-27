@@ -299,7 +299,7 @@ Indexers should consume Dusk events from the standalone Dusk IDL:
 - `YieldRecipientUpdated`, `HarvestAuthorityUpdated`, `YieldClaimed`
 - `SwapExecuted`
 - `MarketCollateralDeposited`, `MarketCollateralWithdrawn`, `MarketDebtUpdated`
-- `BorrowPositionLiquidated`
+- `BorrowPositionLiquidated`, `LiquidationAuctionStarted`, `LiquidationAuctionCancelled`
 - `HlpOpened`, `HlpClosed`, `HlpTerminalLiquidated`
 - `LeveragePositionOpened`, `LeveragePositionClosed`, `LeveragePositionUpdated`, `LeveragePositionLiquidated`
 - `LeverageDelegationUpdated`
@@ -328,6 +328,12 @@ reduce-only mode and before the market start time because it changes no
 position or custody. A repeat in the same slot changes no state and reports the
 same values. No other instruction emits the event, so keepers choose the
 observation cadence.
+
+Lending events carry each written borrow position's post-instruction state:
+collateral and withdrawal receipts, debt updates, liquidations, and auction
+start and cancellation events together let an indexer rebuild every
+`BorrowPosition` without reading accounts. See
+[`ACCOUNTING_EVENTS.md`](./ACCOUNTING_EVENTS.md#borrow-positions).
 
 `SwapExecuted` is the single canonical spot-swap receipt whether or not inline
 hLP settlement changes tokens. It identifies the input by `asset_in_side`,

@@ -4,6 +4,7 @@ use anchor_spl::token_interface::Mint;
 use crate::{
     constants::*,
     errors::ErrorCode,
+    events::LiquidationAuctionStarted,
     state::{BorrowPosition, Market},
 };
 
@@ -84,6 +85,17 @@ impl<'info> StartLiquidationAuction<'info> {
             start_price,
             floor_price,
         );
+
+        let position = &ctx.accounts.borrow_position;
+        emit_cpi!(LiquidationAuctionStarted {
+            market: ctx.accounts.market.key(),
+            position: position.key(),
+            owner: position.owner,
+            auction_debt_asset: position.auction_debt_asset,
+            auction_start_time: position.auction_start_time,
+            auction_start_price_nad: position.auction_start_price_nad,
+            auction_floor_price_nad: position.auction_floor_price_nad,
+        });
 
         Ok(())
     }

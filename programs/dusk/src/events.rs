@@ -649,6 +649,12 @@ pub struct MarketCollateralDeposited {
     pub base_liquidation_cf_bps: u16,
     pub quote_liquidation_cf_bps: u16,
     pub metadata: MarketEventMetadata,
+    /// Borrow position written by this deposit; the first deposit creates it.
+    pub position: Pubkey,
+    pub position_id: Pubkey,
+    /// Post-deposit auction side, `255` when none is active. A deposit that
+    /// restores health cancels an active auction.
+    pub auction_debt_asset: u8,
 }
 
 #[event]
@@ -665,6 +671,9 @@ pub struct MarketCollateralWithdrawn {
     pub base_liquidation_cf_bps: u16,
     pub quote_liquidation_cf_bps: u16,
     pub metadata: MarketEventMetadata,
+    pub position: Pubkey,
+    /// The withdrawal emptied the position and closed its account.
+    pub closed: bool,
 }
 
 #[event]
@@ -678,6 +687,7 @@ pub struct MarketDebtUpdated {
     pub cash_debit: u64,
     pub cash_credit: u64,
     pub interest_paid: u64,
+    /// Market-wide fixed debt after the update, not this position's debt.
     pub fixed_base_debt: u128,
     pub fixed_quote_debt: u128,
     pub global_health_base_contribution_for_quote_debt: u64,
@@ -687,6 +697,12 @@ pub struct MarketDebtUpdated {
     pub base_debt_health_bps: u64,
     pub quote_debt_health_bps: u64,
     pub metadata: MarketEventMetadata,
+    /// The position's fixed debt shares after the update.
+    pub fixed_base_shares: u128,
+    pub fixed_quote_shares: u128,
+    /// Post-update auction side, `255` when none is active. A repayment that
+    /// restores health cancels an active auction.
+    pub auction_debt_asset: u8,
 }
 
 #[event]
@@ -707,6 +723,43 @@ pub struct BorrowPositionLiquidated {
     pub insurance_drawn: u64,
     pub socialized_loss: u64,
     pub remaining_debt: u128,
+    /// The position's state after the liquidation.
+    pub base_collateral: u64,
+    pub quote_collateral: u64,
+    pub fixed_base_shares: u128,
+    pub fixed_quote_shares: u128,
+    pub global_health_base_contribution_for_quote_debt: u64,
+    pub global_health_quote_contribution_for_base_debt: u64,
+    pub base_liquidation_cf_bps: u16,
+    pub quote_liquidation_cf_bps: u16,
+    /// `255` once the auction is cleared.
+    pub auction_debt_asset: u8,
+    /// The liquidation emptied the position and closed its account.
+    pub closed: bool,
+}
+
+/// A liquidation auction opened on a borrow position.
+#[event]
+pub struct LiquidationAuctionStarted {
+    pub market: Pubkey,
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    /// `0` for base debt and `1` for quote debt.
+    pub auction_debt_asset: u8,
+    pub auction_start_time: i64,
+    pub auction_start_price_nad: u64,
+    pub auction_floor_price_nad: u64,
+}
+
+/// A fill or backstop found the position healthy again and cleared its
+/// auction without liquidating anything.
+#[event]
+pub struct LiquidationAuctionCancelled {
+    pub market: Pubkey,
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    /// Debt side of the cancelled auction: `0` for base and `1` for quote.
+    pub debt_asset_side: u8,
 }
 
 #[event]

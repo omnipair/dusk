@@ -14,6 +14,8 @@ export type ProposalSupport = IdlAccounts<Dusk>["proposalSupport"];
 
 export type HlpClosed = IdlEvents<Dusk>["hlpClosed"];
 export type HlpOpened = IdlEvents<Dusk>["hlpOpened"];
+export type LiquidationAuctionCancelled = IdlEvents<Dusk>["liquidationAuctionCancelled"];
+export type LiquidationAuctionStarted = IdlEvents<Dusk>["liquidationAuctionStarted"];
 export type LiquidityAdded = IdlEvents<Dusk>["liquidityAdded"];
 export type LiquidityRemoved = IdlEvents<Dusk>["liquidityRemoved"];
 export type MarketCollateralDeposited = IdlEvents<Dusk>["marketCollateralDeposited"];

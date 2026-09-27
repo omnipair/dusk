@@ -109,6 +109,16 @@ fn indexer_receipts_remain_compact() {
         insurance_drawn: 5,
         socialized_loss: 6,
         remaining_debt: 7,
+        base_collateral: 8,
+        quote_collateral: 9,
+        fixed_base_shares: 10,
+        fixed_quote_shares: 11,
+        global_health_base_contribution_for_quote_debt: 12,
+        global_health_quote_contribution_for_base_debt: 13,
+        base_liquidation_cf_bps: 14,
+        quote_liquidation_cf_bps: 15,
+        auction_debt_asset: u8::MAX,
+        closed: false,
     };
 
     assert_eq!(SwapExecuted::DISCRIMINATOR.len() + swap.try_to_vec().unwrap().len(), 232);
@@ -125,7 +135,35 @@ fn indexer_receipts_remain_compact() {
     assert_eq!(HlpClosed::DISCRIMINATOR.len() + closed.try_to_vec().unwrap().len(), 145);
     assert_eq!(
         BorrowPositionLiquidated::DISCRIMINATOR.len() + liquidated.try_to_vec().unwrap().len(),
-        201
+        271
+    );
+}
+
+#[test]
+fn liquidation_auction_receipts_stay_compact() {
+    let started = LiquidationAuctionStarted {
+        market: Pubkey::new_unique(),
+        position: Pubkey::new_unique(),
+        owner: Pubkey::new_unique(),
+        auction_debt_asset: 1,
+        auction_start_time: 2,
+        auction_start_price_nad: 3,
+        auction_floor_price_nad: 4,
+    };
+    let cancelled = LiquidationAuctionCancelled {
+        market: Pubkey::new_unique(),
+        position: Pubkey::new_unique(),
+        owner: Pubkey::new_unique(),
+        debt_asset_side: 1,
+    };
+
+    assert_eq!(
+        LiquidationAuctionStarted::DISCRIMINATOR.len() + started.try_to_vec().unwrap().len(),
+        129
+    );
+    assert_eq!(
+        LiquidationAuctionCancelled::DISCRIMINATOR.len() + cancelled.try_to_vec().unwrap().len(),
+        105
     );
 }
 
