@@ -49,6 +49,7 @@ import { expect } from "chai";
 import { ComputeBudget, FeatureSet, LiteSVM } from "litesvm";
 import {
   buildLpTransferHookAccountMetas,
+  buildLpTransferHookValidationAccountData,
   buildYieldTransferHookValidationAccountData,
   deriveFutarchyAuthorityAddress,
   deriveHlpYlpVaultAddress,
@@ -757,6 +758,27 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       ["auctionFloorPriceNad", "auction_floor_price_nad"],
     ])).to.equal(false);
     return started;
+  }
+
+  // Exactly one LP transfer receipt, published by the hook's self-CPI.
+  function expectLpTransferred(
+    transaction: Transaction,
+    expected: {
+      market: PublicKey;
+      lpMint: PublicKey;
+      tokenKind: number;
+      sourceOwner: PublicKey;
+      destinationOwner: PublicKey;
+      amount: bigint;
+    }
+  ) {
+    const transfer = cpiEvent(transaction, "lpTransferred");
+    expect(transfer.market.equals(expected.market)).to.equal(true);
+    expect(transfer.lpMint.equals(expected.lpMint)).to.equal(true);
+    expect(transfer.tokenKind).to.equal(expected.tokenKind);
+    expect(transfer.sourceOwner.equals(expected.sourceOwner)).to.equal(true);
+    expect(transfer.destinationOwner.equals(expected.destinationOwner)).to.equal(true);
+    expect(transfer.amount.toString()).to.equal(expected.amount.toString());
   }
 
   function expectLeverageSwap(transaction: Transaction, lifecycle: string, origin: string) {
@@ -3299,6 +3321,15 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .remainingAccounts(createHookAccounts)
       .transaction();
     await connection.sendTransaction(createOrderTx, [payer]);
+    // Delegate -> Token-2022 -> hook -> event self-CPI reaches stack height 4.
+    expectLpTransferred(createOrderTx, {
+      market: fixture.market,
+      lpMint: fixture.baseHlpMint,
+      tokenKind: 1,
+      sourceOwner: payer.publicKey,
+      destinationOwner: order,
+      amount: 1_000n,
+    });
 
     const donationIx = await createTransferCheckedWithTransferHookInstruction(
       connection as any,
@@ -3413,7 +3444,17 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .remainingAccounts(cancelHookAccounts)
       .transaction();
+    const custodyBeforeCancel = (await getAccount(connection as any, custodyHlpAccount, undefined, TOKEN_2022_PROGRAM_ID))
+      .amount;
     await connection.sendTransaction(cancelTx, [payer]);
+    expectLpTransferred(cancelTx, {
+      market: fixture.market,
+      lpMint: fixture.baseHlpMint,
+      tokenKind: 1,
+      sourceOwner: order,
+      destinationOwner: payer.publicKey,
+      amount: custodyBeforeCancel,
+    });
 
     expect(
       (await getAccount(
@@ -6531,6 +6572,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       destinationBaseYieldAccount.toString(),
       sourceQuoteYieldAccount.toString(),
       destinationQuoteYieldAccount.toString(),
+      eventAuthority().toString(),
       DUSK_PROGRAM_ID.toString(),
       validationAccount.toString(),
     ]);
@@ -6542,6 +6584,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       true,
       true,
       true,
+      false,
       false,
       false,
     ]);
@@ -6562,6 +6605,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       sourceBaseYieldAccount.toString(),
       sourceQuoteYieldAccount.toString(),
       sourceQuoteYieldAccount.toString(),
+      eventAuthority().toString(),
       DUSK_PROGRAM_ID.toString(),
       validationAccount.toString(),
     ]);
@@ -6589,11 +6633,17 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       undefined,
       TOKEN_2022_PROGRAM_ID
     );
-    const externalHookMeasurement = await connection.sendTransactionMeasured(
-      new Transaction().add(transferIx),
-      [payer]
-    );
+    const transferTx = new Transaction().add(transferIx);
+    const externalHookMeasurement = await connection.sendTransactionMeasured(transferTx, [payer]);
     recordExternalTransferHookComputeUnits(externalHookMeasurement.computeUnits);
+    expectLpTransferred(transferTx, {
+      market: fixture.market,
+      lpMint: fixture.ylpMint,
+      tokenKind: 0,
+      sourceOwner: payer.publicKey,
+      destinationOwner: recipient,
+      amount: 10_000n,
+    });
 
     const sourceBaseYieldData = svm.getAccount(sourceBaseYieldAccount);
     const destinationBaseYieldData = svm.getAccount(destinationBaseYieldAccount);
@@ -6638,6 +6688,122 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     );
     expect(sourceYlpAfter.amount).to.equal(130_421n);
     expect(destinationYlpAfter.amount).to.equal(10_000n);
+  });
+
+  it("reports LP transfers by self-CPI and keeps legacy-layout mints transferable", async function () {
+    const fixture = await addBalancedLiquidity(144);
+    const hedge = await openBaseHedge(fixture);
+    await initializeLpTransferHook(fixture, fixture.ylpMint);
+    await initializeLpTransferHook(fixture, fixture.baseHlpMint);
+    const recipient = Keypair.generate().publicKey;
+    const recipientYlpAccount = await createToken2022Ata(fixture.ylpMint, recipient);
+    const recipientHlpAccount = await createToken2022Ata(fixture.baseHlpMint, recipient);
+    await initializeYieldAccounts(fixture, recipient, fixture.ylpMint, "ylp");
+    await initializeYieldAccounts(fixture, recipient, fixture.baseHlpMint, "hlp");
+    const hookInvocation = `Program ${DUSK_PROGRAM_ID.toBase58()} invoke`;
+
+    async function transferLp(mint: PublicKey, source: PublicKey, destination: PublicKey, amount: bigint) {
+      svm.expireBlockhash();
+      const tx = new Transaction().add(
+        await createTransferCheckedWithTransferHookInstruction(
+          connection as any,
+          source,
+          mint,
+          destination,
+          payer.publicKey,
+          amount,
+          6,
+          [],
+          undefined,
+          TOKEN_2022_PROGRAM_ID
+        )
+      );
+      const { signature, computeUnits } = await connection.sendTransactionMeasured(tx, [payer]);
+      const logs: string[] = (svm.getTransaction(Buffer.from(signature, "base64")) as any).logs();
+      return {
+        computeUnits,
+        hookInvoked: logs.some((log) => log.startsWith(hookInvocation)),
+        transfers: cpiEvents(tx)
+          .filter((event) => event.name === "lpTransferred")
+          .map((event) => event.data),
+      };
+    }
+
+    function expectTransfer(transfers: any[], lpMint: PublicKey, tokenKind: number, amount: bigint) {
+      expect(transfers, "lpTransferred CPI event count").to.have.length(1);
+      const [transfer] = transfers;
+      expect(transfer.market.equals(fixture.market)).to.equal(true);
+      expect(transfer.lpMint.equals(lpMint)).to.equal(true);
+      expect(transfer.tokenKind).to.equal(tokenKind);
+      expect(transfer.sourceOwner.equals(payer.publicKey)).to.equal(true);
+      expect(transfer.destinationOwner.equals(recipient)).to.equal(true);
+      expect(transfer.amount.toString()).to.equal(amount.toString());
+    }
+
+    const ylp = await transferLp(fixture.ylpMint, fixture.ownerYlpAccount, recipientYlpAccount, 10_000n);
+    expectTransfer(ylp.transfers, fixture.ylpMint, 0, 10_000n);
+    console.log(`    yLP transfer with the event layout: ${ylp.computeUnits.toLocaleString()} CU`);
+    const hlp = await transferLp(fixture.baseHlpMint, hedge.ownerBaseHlpAccount, recipientHlpAccount, 1_000n);
+    expectTransfer(hlp.transfers, fixture.baseHlpMint, 1, 1_000n);
+
+    // A zero-amount transfer still runs the hook, which checkpoints both holders.
+    const empty = await transferLp(fixture.ylpMint, fixture.ownerYlpAccount, recipientYlpAccount, 0n);
+    expect(empty.hookInvoked).to.equal(true);
+    expectTransfer(empty.transfers, fixture.ylpMint, 0, 0n);
+
+    // Token-2022 settles a transfer to the same account before invoking hooks.
+    const self = await transferLp(fixture.ylpMint, fixture.ownerYlpAccount, fixture.ownerYlpAccount, 1_000n);
+    expect(self.hookInvoked).to.equal(false);
+    expect(self.transfers).to.have.length(0);
+
+    const balance = async (account: PublicKey) =>
+      (await getAccount(connection as any, account, undefined, TOKEN_2022_PROGRAM_ID)).amount;
+    expect(await balance(recipientYlpAccount)).to.equal(10_000n);
+    expect(await balance(recipientHlpAccount)).to.equal(1_000n);
+
+    // A mint initialized before the event accounts existed keeps its
+    // seven-account list: re-initialization leaves it unchanged, and transfers
+    // still checkpoint both holders but publish no receipt.
+    const legacy = await addBalancedLiquidity(146);
+    const legacyValidation = deriveYieldTransferHookValidationAddress(legacy.ylpMint)[0];
+    const legacyData = buildLpTransferHookValidationAccountData({
+      market: legacy.market,
+      baseMint: legacy.baseMint,
+      quoteMint: legacy.quoteMint,
+      tokenKind: "ylp",
+      legacyLayout: true,
+    });
+    svm.setAccount(legacyValidation, {
+      lamports: Number(svm.minimumBalanceForRentExemption(BigInt(legacyData.length))),
+      data: new Uint8Array(legacyData),
+      owner: DUSK_PROGRAM_ID,
+      executable: false,
+      rentEpoch: 0,
+    });
+    await initializeLpTransferHook(legacy, legacy.ylpMint);
+    expect(Buffer.from(svm.getAccount(legacyValidation)!.data).equals(legacyData)).to.equal(true);
+    const legacyRecipientYlp = await createToken2022Ata(legacy.ylpMint, recipient);
+    await initializeYieldAccounts(legacy, recipient, legacy.ylpMint, "ylp");
+    await swapBaseForQuote(legacy);
+    const legacyTransfer = await transferLp(legacy.ylpMint, legacy.ownerYlpAccount, legacyRecipientYlp, 5_000n);
+    console.log(`    yLP transfer with the legacy layout: ${legacyTransfer.computeUnits.toLocaleString()} CU`);
+    expect(legacyTransfer.hookInvoked).to.equal(true);
+    expect(legacyTransfer.transfers).to.have.length(0);
+    expect(await balance(legacyRecipientYlp)).to.equal(5_000n);
+    const legacyMarket = accountCoder.decode("Market", Buffer.from(svm.getAccount(legacy.market)!.data)) as any;
+    const sourceYield = accountCoder.decode(
+      "YieldAccount",
+      Buffer.from(
+        svm.getAccount(
+          deriveYieldAccountAddress(legacy.market, payer.publicKey, legacy.ylpMint, legacy.baseMint, "ylp")[0]
+        )!.data
+      )
+    ) as any;
+    // The swap's base fee reached the source holder through the checkpoint.
+    expect(sourceYield.swap_fee_checkpoint_q64.toString()).to.equal(
+      legacyMarket.base_side.fees.swap_fee_growth_index_q64.toString()
+    );
+    expect(BigInt(sourceYield.accrued_swap_fee_amount.toString()) > 0n).to.equal(true);
   });
 
   it("deposits collateral, borrows fixed quote debt, repays, and withdraws idle collateral", async function () {
@@ -9497,13 +9663,19 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           duskProgram: DUSK_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
         }).remainingAccounts(hookAccounts(payer.publicKey, order)).transaction();
         await connection.sendTransaction(create, [payer]);
+        const lpTransfer = (sourceOwner: PublicKey, destinationOwner: PublicKey, amount: bigint) => ({
+          market: f.market, lpMint, tokenKind: kind === "ylp" ? 0 : 1, sourceOwner, destinationOwner, amount,
+        });
+        expectLpTransferred(create, lpTransfer(payer.publicKey, order, 12_000n));
         const preview = async () => (await simulateReturnData(await leverageDelegateProgram.methods.previewProtectionOrder()
           .accounts({ order, market: f.market, borrowPosition, leveragePosition }).transaction(), LEVERAGE_DELEGATE_PROGRAM_ID)).readBigUInt64LE();
         const healthBefore = await preview();
         expect(healthBefore > 10_000n).to.equal(true);
         const manageAccounts = { order, lpMint, custodyLpAccount, ownerLpAccount, owner: payer.publicKey, token2022Program: TOKEN_2022_PROGRAM_ID };
-        await connection.sendTransaction(await leverageDelegateProgram.methods.fundProtectionOrder({ lpAmount: new BN(1_000) }).accounts(manageAccounts)
-          .remainingAccounts(hookAccounts(payer.publicKey, order)).transaction(), [payer]);
+        const fund = await leverageDelegateProgram.methods.fundProtectionOrder({ lpAmount: new BN(1_000) }).accounts(manageAccounts)
+          .remainingAccounts(hookAccounts(payer.publicKey, order)).transaction();
+        await connection.sendTransaction(fund, [payer]);
+        expectLpTransferred(fund, lpTransfer(payer.publicKey, order, 1_000n));
         if (accrue) svm.warpToSlot(svm.getClock().slot + 1_000_000n);
         const feeRecipient = await orderFeeRecipient(paymentMint);
         const executeAccounts = { protocolFee: { feeRecipient }, order, market: f.market, futarchyAuthority, borrowPosition, leveragePosition, positionOwner: payer.publicKey,
@@ -9621,8 +9793,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           expect(repeated.remaining_lp.toNumber()).to.equal(13_000 - totalLpBurned);
         }
         const ownerBeforeCancel = (await getAccount(connection as any, ownerLpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount;
-        await connection.sendTransaction(await leverageDelegateProgram.methods.cancelProtectionOrder().accounts(manageAccounts)
-          .remainingAccounts(hookAccounts(order, payer.publicKey)).transaction(), [payer]);
+        const cancel = await leverageDelegateProgram.methods.cancelProtectionOrder().accounts(manageAccounts)
+          .remainingAccounts(hookAccounts(order, payer.publicKey)).transaction();
+        await connection.sendTransaction(cancel, [payer]);
+        expectLpTransferred(cancel, lpTransfer(order, payer.publicKey, BigInt(13_000 - totalLpBurned)));
         expect((await getAccount(connection as any, ownerLpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount - ownerBeforeCancel).to.equal(BigInt(13_000 - totalLpBurned));
         expect((await getAccount(connection as any, custodyLpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(0n);
         rejected = false;

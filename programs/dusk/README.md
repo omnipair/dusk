@@ -286,7 +286,7 @@ hLP checkpointing computes endpoint NAV and reconstructs yLP ownership and fundi
 | Leverage collateral vault | `leverage_collateral`, `market`, `collateral_mint` | derive from seed tuple |
 | LP token metadata | Metaplex `metadata`, token metadata program, `lp_mint` | `deriveTokenMetadataAddress` |
 
-yLP and hLP mints are supplied to `initialize_market`. The two asset mints and all three LP mints must be pairwise distinct, and each LP mint is validated by mint authority, decimals, Token-2022 owner, immutable Dusk transfer hook, fee-free extension rules, no freeze authority, vanity suffix, and zero supply at market creation. LP metadata is created in follow-up `initialize_lp_metadata` calls, one mint per transaction. The permissionless, idempotent `initialize_yield_accounts` creates both asset-stream accounts for one owner and LP mint; `initialize_lp_transfer_hook` creates and validates the canonical Token-2022 extra-account-meta PDA on-chain without a seeded client fixture.
+yLP and hLP mints are supplied to `initialize_market`. The two asset mints and all three LP mints must be pairwise distinct, and each LP mint is validated by mint authority, decimals, Token-2022 owner, immutable Dusk transfer hook, fee-free extension rules, no freeze authority, vanity suffix, and zero supply at market creation. LP metadata is created in follow-up `initialize_lp_metadata` calls, one mint per transaction. The permissionless, idempotent `initialize_yield_accounts` creates both asset-stream accounts for one owner and LP mint; `initialize_lp_transfer_hook` creates and validates the canonical Token-2022 extra-account-meta PDA on-chain without a seeded client fixture. The list has nine entries: the market, both asset mints, the four source and destination yield accounts, then the event authority and the Dusk program so the hook can publish `LpTransferred`. A mint initialized with the earlier seven-entry list keeps it: re-initialization accepts that layout unchanged, and its transfers publish no receipt.
 
 Referral accruals are market-specific liabilities. Their backing remains in the corresponding market interest vault until the referrer claims to the partner's current recipient.
 
@@ -295,7 +295,7 @@ Referral accruals are market-specific liabilities. Their backing remains in the 
 Indexers should consume Dusk events from the standalone Dusk IDL:
 
 - `MarketCreated`, `MarketReduceOnlyUpdated`, `MarketHealthUpdated`, `InsuranceDonated`, `MarketObserved`
-- `LiquidityAdded`, `LiquidityRemoved`
+- `LiquidityAdded`, `LiquidityRemoved`, `LpTransferred`
 - `YieldRecipientUpdated`, `HarvestAuthorityUpdated`, `YieldClaimed`
 - `SwapExecuted`
 - `MarketCollateralDeposited`, `MarketCollateralWithdrawn`, `MarketDebtUpdated`
@@ -334,6 +334,17 @@ collateral and withdrawal receipts, debt updates, liquidations, and auction
 start and cancellation events together let an indexer rebuild every
 `BorrowPosition` without reading accounts. See
 [`ACCOUNTING_EVENTS.md`](./ACCOUNTING_EVENTS.md#borrow-positions).
+
+`LpTransferred` records each yLP or hLP transfer that runs the Dusk transfer
+hook: market, LP mint, token kind (`0` yLP, `1` hLP), source and destination
+owners, and amount. The hook publishes it by self-CPI after checkpointing both
+holders' yield accounts, for mints whose extra-account list includes the event
+authority and the Dusk program; mints initialized with the earlier seven-entry
+list transfer without it. The self-CPI uses one invoke level, so a program must
+start an LP transfer at stack height 3 or lower (the hook runs one level
+deeper and its event one more). The in-repo paths reach at most height 4 for
+the event: a direct Token-2022 transfer at 3, and the leverage delegate's order
+custody moves at 4.
 
 `SwapExecuted` is the single canonical spot-swap receipt whether or not inline
 hLP settlement changes tokens. It identifies the input by `asset_in_side`,

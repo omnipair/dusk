@@ -196,3 +196,20 @@ fn market_observation_carries_both_sides_in_a_fixed_width_record() {
         314
     );
 }
+
+#[test]
+fn lp_transfer_receipt_stays_compact() {
+    let transferred = LpTransferred {
+        market: Pubkey::new_unique(),
+        lp_mint: Pubkey::new_unique(),
+        token_kind: 1,
+        source_owner: Pubkey::new_unique(),
+        destination_owner: Pubkey::new_unique(),
+        amount: 1,
+    };
+
+    assert_eq!(
+        LpTransferred::DISCRIMINATOR.len() + transferred.try_to_vec().unwrap().len(),
+        145
+    );
+}

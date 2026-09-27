@@ -144,6 +144,20 @@ pub struct LiquidityRemoved {
     pub metadata: MarketEventMetadata,
 }
 
+/// One LP transfer checkpointed by the Dusk Token-2022 transfer hook. Only mints
+/// whose extra-account list includes the event authority and Dusk program
+/// publish it; mints initialized before that layout transfer without it.
+#[event]
+pub struct LpTransferred {
+    pub market: Pubkey,
+    pub lp_mint: Pubkey,
+    /// `0` for yLP and `1` for hLP.
+    pub token_kind: u8,
+    pub source_owner: Pubkey,
+    pub destination_owner: Pubkey,
+    pub amount: u64,
+}
+
 #[event]
 pub struct YieldRecipientUpdated {
     pub market: Pubkey,

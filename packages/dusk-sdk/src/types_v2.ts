@@ -9881,6 +9881,19 @@ export type Dusk = {
       ]
     },
     {
+      "name": "lpTransferred",
+      "discriminator": [
+        244,
+        4,
+        93,
+        185,
+        125,
+        159,
+        75,
+        55
+      ]
+    },
+    {
       "name": "marketCollateralDeposited",
       "discriminator": [
         41,
@@ -14324,6 +14337,46 @@ export type Dusk = {
                 "name": "marketEventMetadata"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "lpTransferred",
+      "docs": [
+        "One LP transfer checkpointed by the Dusk Token-2022 transfer hook. Only mints",
+        "whose extra-account list includes the event authority and Dusk program",
+        "publish it; mints initialized before that layout transfer without it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "lpMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "tokenKind",
+            "docs": [
+              "`0` for yLP and `1` for hLP."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "sourceOwner",
+            "type": "pubkey"
+          },
+          {
+            "name": "destinationOwner",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
           }
         ]
       }

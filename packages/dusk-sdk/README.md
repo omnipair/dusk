@@ -109,6 +109,13 @@ The builder fetches the market to find its yLP mint and hLP yLP vaults unless
 `ylpMint`, `baseHlpYlpVault`, and `quoteHlpYlpVault` are all passed. The
 `MarketObserved` and `MarketObservedSide` event types are exported.
 
+`LpTransferred` reports each yLP or hLP transfer through the Dusk transfer
+hook as an ordinary CPI event. `buildLpTransferHookAccountMetas` includes the
+event authority the hook needs; Token-2022 ignores it for mints initialized
+with the earlier seven-entry list, which transfer without a receipt.
+`buildLpTransferHookValidationAccountData({ ..., legacyLayout: true })`
+encodes that earlier list.
+
 ### Direct-yLP Parameter Governance
 
 Market layout v1 has no market manager. The program exposes seven independent

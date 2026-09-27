@@ -18,6 +18,7 @@ export type LiquidationAuctionCancelled = IdlEvents<Dusk>["liquidationAuctionCan
 export type LiquidationAuctionStarted = IdlEvents<Dusk>["liquidationAuctionStarted"];
 export type LiquidityAdded = IdlEvents<Dusk>["liquidityAdded"];
 export type LiquidityRemoved = IdlEvents<Dusk>["liquidityRemoved"];
+export type LpTransferred = IdlEvents<Dusk>["lpTransferred"];
 export type MarketCollateralDeposited = IdlEvents<Dusk>["marketCollateralDeposited"];
 export type MarketCollateralWithdrawn = IdlEvents<Dusk>["marketCollateralWithdrawn"];
 export type MarketCreated = IdlEvents<Dusk>["marketCreated"];

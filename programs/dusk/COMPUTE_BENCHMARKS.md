@@ -11,6 +11,19 @@ not claims about the current ABI. The current IDL contains 58 public
 instructions; the checked-in instruction registry is authoritative for the
 current required set.
 
+## LP transfer receipts (2026-09-27)
+
+LP mints initialized from now on carry the event authority and Dusk program in
+their extra-account list, and the transfer hook publishes `LpTransferred` by
+self-CPI. Replaying each suite LP transfer from identical account state with
+the legacy seven-entry list and with the new list, a hooked transfer costs
+17,247 CU more: 12,487 CU for the event self-CPI and the rest for resolving
+and passing the two added accounts. The representative yLP transfer costs
+104,239–110,567 CU in total. A transfer to the same account, which never
+reaches the hook, costs 264 CU more for the added account key. Legacy-layout
+mints keep their previous cost. `initialize_lp_transfer_hook` costs 6,508–7,053
+CU more. No other instruction changes.
+
 ## Borrow-position event fields (2026-09-27)
 
 Lending events now carry each written borrow position's post-instruction

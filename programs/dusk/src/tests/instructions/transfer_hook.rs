@@ -325,14 +325,23 @@ fn canonical_extra_meta_schema_contains_both_asset_streams() {
         ..Market::default()
     };
     let metas = canonical_lp_transfer_hook_metas(market, &state, lp_mint).unwrap();
-    assert_eq!(metas.len(), 7);
+    assert_eq!(metas.len(), 9);
     assert_eq!(metas[0].address_config, market.to_bytes());
     assert!(bool::from(metas[0].is_writable));
     assert_eq!(metas[1].address_config, base_mint.to_bytes());
     assert_eq!(metas[2].address_config, quote_mint.to_bytes());
-    for meta in &metas[3..] {
+    for meta in &metas[3..7] {
         assert_eq!(meta.discriminator, 1);
         assert!(bool::from(meta.is_writable));
+        assert!(!bool::from(meta.is_signer));
+    }
+    // The event accounts follow the legacy seven, read-only and unsigned.
+    let event_authority = Pubkey::find_program_address(&[b"__event_authority"], &crate::ID).0;
+    assert_eq!(metas[7].address_config, event_authority.to_bytes());
+    assert_eq!(metas[8].address_config, crate::ID.to_bytes());
+    for meta in &metas[7..] {
+        assert_eq!(meta.discriminator, 0);
+        assert!(!bool::from(meta.is_writable));
         assert!(!bool::from(meta.is_signer));
     }
 }

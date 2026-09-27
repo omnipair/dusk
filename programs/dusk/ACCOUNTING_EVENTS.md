@@ -166,6 +166,24 @@ The crank publishes any non-zero `BorrowInterestAccrued` records for the same
 checkpoint, exactly like other touches. A second observation in the same slot
 changes no state, repeats the same values, and emits no accrual.
 
+## LP transfers
+
+`LpTransferred` is emitted by the Dusk Token-2022 transfer hook for every yLP
+and hLP transfer that reaches it, after both holders' yield accounts are
+checkpointed. It carries the market, LP mint, token kind (`0` yLP, `1` hLP),
+source and destination owners, and amount. Holders are identified by owner
+because the hook accepts only each owner's canonical LP token account.
+
+The hook publishes it by self-CPI, like every other Dusk event, when the LP
+mint's extra-account list includes the event authority and the Dusk program.
+Mints initialized with the earlier seven-entry list still transfer normally
+but publish no receipt; track those balances another way.
+
+Transfers to the same account never reach the hook and report nothing; a
+zero-amount transfer reports amount `0`. Combine this event with the
+liquidity, hLP, and governance events for LP supply changes made through Dusk.
+A direct Token-2022 burn bypasses the hook and emits no Dusk event.
+
 ## Interface changes
 
 `initialize_yield_accounts` and `start_liquidation_auction` now require Anchor's
