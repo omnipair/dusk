@@ -322,9 +322,8 @@ impl<'info> Swap<'info> {
             },
             current_slot,
             quote,
-            ctx.accounts.market.base_side.reserves.live_reserve,
-            ctx.accounts.market.quote_side.reserves.live_reserve,
-        ));
+            &ctx.accounts.market,
+        )?);
 
         Ok(())
     }

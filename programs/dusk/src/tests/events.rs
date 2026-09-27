@@ -2,6 +2,12 @@ use super::*;
 
 #[test]
 fn indexer_receipts_remain_compact() {
+    let side = MarketSideSnapshot {
+        spot_price_nad: 1,
+        price_ema_nad: 2,
+        swap_fee_growth_index_q64: 3,
+        interest_growth_index_q64: 4,
+    };
     let swap = SwapExecuted {
         market: Pubkey::new_unique(),
         trader: Pubkey::new_unique(),
@@ -28,6 +34,9 @@ fn indexer_receipts_remain_compact() {
         hlp_recovery_critical: false,
         base_live_reserve: 8,
         quote_live_reserve: 9,
+        ylp_supply: 10,
+        base: side,
+        quote: side,
     };
     let leverage_swap = LeverageSwapReceipt {
         asset_in_side: 0,
@@ -121,7 +130,9 @@ fn indexer_receipts_remain_compact() {
         closed: false,
     };
 
-    assert_eq!(SwapExecuted::DISCRIMINATOR.len() + swap.try_to_vec().unwrap().len(), 232);
+    // 232 bytes of execution receipt plus the 104-byte post-swap market state.
+    assert_eq!(side.try_to_vec().unwrap().len(), 48);
+    assert_eq!(SwapExecuted::DISCRIMINATOR.len() + swap.try_to_vec().unwrap().len(), 336);
     assert_eq!(leverage_swap.try_to_vec().unwrap().len(), 98);
     assert_eq!(
         LiquidityAdded::DISCRIMINATOR.len() + liquidity_added.try_to_vec().unwrap().len(),
@@ -164,36 +175,6 @@ fn liquidation_auction_receipts_stay_compact() {
     assert_eq!(
         LiquidationAuctionCancelled::DISCRIMINATOR.len() + cancelled.try_to_vec().unwrap().len(),
         105
-    );
-}
-
-#[test]
-fn market_observation_carries_both_sides_in_a_fixed_width_record() {
-    let side = MarketObservedSide {
-        asset_mint: Pubkey::new_unique(),
-        asset_decimals: 6,
-        live_reserve: 1,
-        spot_price_nad: 2,
-        price_ema_nad: 3,
-        swap_fee_growth_index_q64: 4,
-        interest_growth_index_q64: 5,
-        borrow_index_nad: 6,
-    };
-    let observed = MarketObserved {
-        market: Pubkey::new_unique(),
-        ylp_mint: Pubkey::new_unique(),
-        slot: 7,
-        ylp_supply: 8,
-        governance_locked_ylp: 9,
-        eligible_ylp: 10,
-        base: side,
-        quote: side,
-    };
-
-    assert_eq!(side.try_to_vec().unwrap().len(), 105);
-    assert_eq!(
-        MarketObserved::DISCRIMINATOR.len() + observed.try_to_vec().unwrap().len(),
-        314
     );
 }
 

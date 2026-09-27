@@ -5,7 +5,7 @@ pub use proposal::*;
 pub use support::*;
 
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{Mint, Token2022, TokenAccount};
+use anchor_spl::token_interface::{Mint, TokenAccount};
 
 use crate::{
     constants::MARKET_V2_SEED_PREFIX,
@@ -121,33 +121,6 @@ pub(crate) fn direct_ylp_eligible_supply(
         .checked_sub(base_hlp_ylp_amount)
         .and_then(|amount| amount.checked_sub(quote_hlp_ylp_amount))
         .ok_or_else(|| ErrorCode::InvalidHlpVault.into())
-}
-
-/// yLP held by one canonical hLP vault, for direct-yLP eligibility. Until the
-/// first hLP deposit or proposal creates it, the vault is an empty System
-/// account with no tracked shares and holds no yLP.
-pub(crate) fn governance_vault_amount(
-    market: &Account<Market>,
-    ylp_mint: &InterfaceAccount<Mint>,
-    vault: &UncheckedAccount,
-    expected_vault: Pubkey,
-    tracked_ylp_shares: u64,
-) -> Result<u64> {
-    require_keys_eq!(vault.key(), expected_vault, ErrorCode::InvalidHlpVault);
-    let vault_info = vault.to_account_info();
-    if *vault_info.owner == System::id() {
-        require!(vault_info.data_is_empty(), ErrorCode::InvalidHlpVault);
-        require_eq!(tracked_ylp_shares, 0, ErrorCode::InvalidHlpVault);
-        return Ok(0);
-    }
-    require_keys_eq!(*vault_info.owner, Token2022::id(), ErrorCode::InvalidTokenProgram);
-    let data = vault_info.try_borrow_data()?;
-    let mut data_slice: &[u8] = &data;
-    let account = TokenAccount::try_deserialize_unchecked(&mut data_slice)?;
-    require_keys_eq!(account.mint, ylp_mint.key(), ErrorCode::InvalidHlpVault);
-    require_keys_eq!(account.owner, market.key(), ErrorCode::InvalidHlpVault);
-    require_gte!(account.amount, tracked_ylp_shares, ErrorCode::InvalidHlpVault);
-    Ok(account.amount)
 }
 
 pub(crate) fn validate_supporter_accounts(

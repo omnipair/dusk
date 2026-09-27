@@ -142,29 +142,32 @@ position's debt. A position whose `closed` flag is set, or whose
 `DebtFreePositionClosed` has `leverage = false`, no longer exists. These fields
 are appended after each event's earlier fields.
 
-## Market observations
+## Market state after swaps
 
-`MarketObserved` is emitted only by the permissionless `observe_market` crank.
-It describes the committed market after the refresh every market instruction
-runs before acting, so an idle market gains a price and yield point whenever a
-keeper cranks it. Each side reports its asset mint and decimals, live reserve,
-spot price, symmetric price EMA, swap-fee and interest growth indexes, and
-borrow index. Prices quote the side's asset in the opposite asset and equal
-`preview_market` for the same committed state and slot. `ylp_supply` is the
-internal yLP share supply; `eligible_ylp` is the direct yLP counted by
-governance sponsorship and queueing (live mint supply plus
-`governance_locked_ylp`, minus yLP held by both hLP vaults).
+Every `SwapExecuted` also describes the market the swap leaves behind, so price
+and yield history is built from events rather than from account reads or a
+keeper. `ylp_supply` is the internal yLP share supply. `base` and `quote` each
+report the side's spot price and symmetric price EMA, quoting that side's asset
+in the opposite asset exactly as `preview_market` reports them for the same
+state and slot, plus its swap-fee and interest growth indexes. The spot price
+is the price the next trade starts from; a concentrated curve's price is not a
+function of reserves alone, so it comes from the program. `MarketCreated`
+carries both assets' mints and decimals, which scale these prices.
 
 The growth indexes are per-yLP-share accumulators scaled by 2^64: the index
-difference between two observations, divided by 2^64, is the swap-fee or
-interest yield that became claimable per yLP share over that interval. They
-move when swap fees or paid interest become claimable by yLP holders. Interest
-that has accrued but is still owed appears instead in the borrow index and in
-the debt side's live reserve.
+difference between two swaps, divided by 2^64, is the swap-fee or interest
+yield that became claimable per yLP share over that interval. They move when
+swap fees or paid interest become claimable by yLP holders. Interest paid
+between swaps moves the interest index before the next swap reports it; that
+payment's amount is in `BorrowInterestPaid`. Interest that has accrued but is
+still owed appears instead in the borrow index, reported by
+`BorrowInterestAccrued`, and in the debt side's live reserve.
 
-The crank publishes any non-zero `BorrowInterestAccrued` records for the same
-checkpoint, exactly like other touches. A second observation in the same slot
-changes no state, repeats the same values, and emits no accrual.
+Between swaps the state changes only in ways that follow from committed values
+and time. Interest accrual commits credit interest into the debt side's live
+reserve and grows hLP funding debt, which moves the executable price slightly;
+the next swap reports the result. The EMA converges toward the last recorded
+spot price over the market's EMA half-life.
 
 ## LP transfers
 

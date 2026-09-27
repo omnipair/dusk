@@ -33,7 +33,7 @@ Instruction modules are split by domain: `market`, `governance`, `liquidity`, `s
 
 Dusk exposes the current market instruction set:
 
-- `initialize_market`, `initialize_lp_metadata`, `initialize_yield_accounts`, `initialize_lp_transfer_hook`, `set_market_reduce_only`, `fortify_market`, `observe_market`
+- `initialize_market`, `initialize_lp_metadata`, `initialize_yield_accounts`, `initialize_lp_transfer_hook`, `set_market_reduce_only`, `fortify_market`
 - `create_parameter_proposal`, `support_parameter_proposal`, `queue_parameter_proposal`, `execute_parameter_proposal`, `withdraw_parameter_support`
 - `add_liquidity`, `open_liquidity_gates`, `remove_liquidity`
 - `set_yield_recipient`, `set_harvest_authority`, `harvest`
@@ -294,7 +294,7 @@ Referral accruals are market-specific liabilities. Their backing remains in the 
 
 Indexers should consume Dusk events from the standalone Dusk IDL:
 
-- `MarketCreated`, `MarketReduceOnlyUpdated`, `MarketHealthUpdated`, `InsuranceDonated`, `MarketObserved`
+- `MarketCreated`, `MarketReduceOnlyUpdated`, `MarketHealthUpdated`, `InsuranceDonated`
 - `LiquidityAdded`, `LiquidityRemoved`, `LpTransferred`
 - `YieldRecipientUpdated`, `HarvestAuthorityUpdated`, `YieldClaimed`
 - `SwapExecuted`
@@ -313,21 +313,6 @@ and slot. Compact hot-path receipts expose `market` and their relevant actor
 directly; the transaction already supplies the slot and signature. Protocol-wide
 authority, referral-recipient, and referral-claim events likewise expose their
 authority or signer directly because they are not tied to one market.
-
-`MarketObserved` comes only from the permissionless `observe_market` crank. The
-crank writes only the market, reads its yLP mint and both hLP yLP vaults, moves
-no tokens, and runs the same refresh that other market instructions apply
-before acting: interest accrual on both sides, the AMM clock, hLP yield
-checkpoints, and the risk-price observation. It persists that refresh and
-reports each side's asset mint and decimals, live reserve, spot price and price
-EMA exactly as `preview_market` reports them for the committed state, swap-fee
-and interest growth indexes, and borrow index. It also reports the yLP share
-supply, governance-locked yLP, and eligible direct yLP computed by the same
-function proposal sponsorship and queueing use. The crank stays available in
-reduce-only mode and before the market start time because it changes no
-position or custody. A repeat in the same slot changes no state and reports the
-same values. No other instruction emits the event, so keepers choose the
-observation cadence.
 
 Lending events carry each written borrow position's post-instruction state:
 collateral and withdrawal receipts, debt updates, liquidations, and auction
@@ -350,9 +335,13 @@ custody moves at 4.
 hLP settlement changes tokens. It identifies the input by `asset_in_side`,
 reports the trader's exact debit and net output credit, separates the three
 fee components and retained surcharge, and records the final live reserves
-after every inline state change. Derived prices, fee totals, controller
-telemetry, and hLP residuals remain in previews or account state instead of the
-event. The total swap fee is the sum of the three fee components; the nominal
+after every inline state change. It also records the market the next trade
+starts from: the internal yLP supply and, for each side, the spot price and
+price EMA exactly as `preview_market` reports them for the same state and slot,
+plus the swap-fee and interest growth indexes. A concentrated curve's price is
+not a function of reserves alone, so the price comes from the program rather
+than from indexer math. Fee totals, controller telemetry, and hLP residuals
+remain in previews or account state instead of the event. The total swap fee is the sum of the three fee components; the nominal
 claimable portion is that total minus `retained_fee` and `compounded_fee`.
 Swap, hLP, and lending-liquidation
 receipts use the same CPI-event mechanism as every other Dusk event, so

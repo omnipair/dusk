@@ -2,7 +2,8 @@
 
 For volume, fee, and borrower-interest consumers, see the
 [accounting event contract](../../programs/dusk/ACCOUNTING_EVENTS.md).
-`SwapExecuted` covers spot and leverage AMM executions. `BorrowInterestAccrued`
+`SwapExecuted` covers spot and leverage AMM executions and the market state they
+leave behind. `BorrowInterestAccrued`
 separates credit, margin, and hLP accrual; `BorrowInterestPaid` reports actual
 collections with the same source attribution. Typed events and their
 `SwapOrigin`/`DebtSource` discriminants are exported from this package.
@@ -92,22 +93,13 @@ accounts for instructions that emit CPI events.
 `write.builder(...)`, `write.transaction(...)`, and `write.rpc(...)` expose the
 same generic path for every Dusk instruction in the IDL.
 
-### Market Observations
+### Swap and LP Transfer Events
 
-`observe_market` is a permissionless crank for keepers. It refreshes a market's
-time-dependent state (interest accrual, AMM clock, hLP yield checkpoints, risk
-observation), moves no tokens, and emits one `MarketObserved` event with each
-side's live reserve, spot price, price EMA, growth indexes, and borrow index,
-plus the eligible direct-yLP supply used by governance. The fee payer is the
-only signer.
-
-```typescript
-const tx = await dusk.write.observeMarketTransaction({ market });
-```
-
-The builder fetches the market to find its yLP mint and hLP yLP vaults unless
-`ylpMint`, `baseHlpYlpVault`, and `quoteHlpYlpVault` are all passed. The
-`MarketObserved` and `MarketObservedSide` event types are exported.
+`SwapExecuted` records the market the next trade starts from: the internal yLP
+supply and, per side, a `MarketSideSnapshot` with the spot price and price EMA
+exactly as `preview_market` reports them for the same state and slot, plus the
+swap-fee and interest growth indexes. Price, EMA, and LP-yield history
+therefore come from swap events without reading the market account.
 
 `LpTransferred` reports each yLP or hLP transfer through the Dusk transfer
 hook as an ordinary CPI event. `buildLpTransferHookAccountMetas` includes the

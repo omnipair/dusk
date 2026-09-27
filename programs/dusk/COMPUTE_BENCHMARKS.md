@@ -51,30 +51,41 @@ Replaying every suite transaction from identical account pre-states against
 the preceding binary, `create_parameter_proposal` costs 1,820–1,924 CU more
 (at most 123,212 CU); no other instruction changes.
 
-## Market observation crank (2026-09-27)
+## Post-swap market state (2026-09-27)
 
 The local deterministic LiteSVM suite passed **97/97 tests** and exercised
-**67/67 public instructions** with the `observe_market` crank added. The
-measured Dusk SBF SHA-256 is
-`2ec392836860d9a0f680cb87b12033e9cbae84adbd8ad1281daffb9985dc4142`.
+**66/66 public instructions** with `SwapExecuted` recording the market each
+execution leaves behind. `SwapExecuted` grows from 232 to 336 bytes. Each swap
+prices the curve once more for its event, exactly as `preview_market` does. The
+swap's own risk observation records the quote's endpoint price; in this suite
+that price differs from the post-swap `preview_market` price by up to 0.03%,
+so the event does not reuse it.
 
-`observe_market` applies the shared pre-action refresh, persists it, and emits
-`MarketObserved` plus any non-zero `BorrowInterestAccrued`. Whole-transaction
-costs:
+Deterministic swap scenarios against the 2026-09-18 baselines:
 
-| Market state | CU |
-|---|---:|
-| CPMM, quote-debt accrual | 105,055 |
-| CPMM, active base hLP, quote-debt accrual | 119,301 |
-| Same-slot repeat, nothing to accrue | 71,009 |
-| Concentrated curve, quote-debt accrual | 253,002 |
+| Scenario | Before | After | Delta |
+|---|---:|---:|---:|
+| `cpmm_same_slot` | 86,257 | 91,324 | +5,067 |
+| `cpmm_advanced_slot` | 121,374 | 126,441 | +5,067 |
+| `cpmm_active_debt` | 129,151 | 134,517 | +5,366 |
+| `dynamic_fee_volatility_stress` | 132,886 | 138,134 | +5,248 |
+| `hlp_active` | 108,957 | 117,417 | +8,460 |
+| `token_2022_swap` | 99,853 | 104,920 | +5,067 |
+| `concentrated_centered` | 210,096 | 264,331 | +54,235 |
+| `concentrated_transition` | 211,234 | 265,500 | +54,266 |
+| `concentrated_tail` | 208,921 | 263,187 | +54,266 |
+| `dynamic_fee_divergence_stress` | 218,345 | 272,411 | +54,066 |
+| `retained_surcharge` | 216,769 | 271,030 | +54,261 |
+| `controller_due_recenter` | 574,779 | 629,047 | +54,268 |
+| `concentrated_hlp_active` | 292,888 | 352,928 | +60,040 |
 
-Anchor matches instruction discriminators in declaration order, so the crank
-is declared after every other instruction and their top-level dispatch cost is
-unchanged. Each event self-CPI and each LP transfer-hook fallback now performs
-one more discriminator comparison: every named swap scenario rose by 38 CU per
-event it emits (38 CU with one event, 114 CU with three). The checked-in
-ceilings are unchanged and still hold.
+The ordinary same-slot CPMM swap stays below the unchanged **100,000 CU**
+architectural limit. On a concentrated curve the second price evaluation
+reconstructs the curve geometry and hLP-adjusted integrated state, about 54k
+CU. The scenario baselines in `tests/utils/instruction-coverage.ts` were
+refreshed from this fully successful run; every ceiling remains exactly
+`ceil(measured maximum * 1.05)`. The largest suite transaction measured
+1,349,596 CU under the unchanged **1,350,000 CU** test limit.
 
 ## Swap and interest accounting events (2026-09-18)
 

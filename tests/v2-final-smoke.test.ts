@@ -781,7 +781,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(transfer.amount.toString()).to.equal(expected.amount.toString());
   }
 
-  function expectLeverageSwap(transaction: Transaction, lifecycle: string, origin: string) {
+  async function expectLeverageSwap(transaction: Transaction, lifecycle: string, origin: string) {
     const action = cpiEvent(transaction, lifecycle);
     const swap = cpiEvent(transaction, "swapExecuted");
     expect(swap.origin).to.deep.equal({ [origin]: {} });
@@ -793,7 +793,40 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       "baseLiveReserve", "quoteLiveReserve"]) {
       expect(swap[field].toString(), `canonical swap ${field}`).to.equal(action.swap[field].toString());
     }
+    await expectSwapMarketState(swap, swap.market);
     return swap;
+  }
+
+  // A swap's market state equals preview_market for the committed state in the
+  // same slot; its supply, reserves, and growth indexes equal the account.
+  async function expectSwapMarketState(swap: any, market: PublicKey) {
+    const preview = decodePreviewMarketReturnData(
+      await simulateReturnData(await program.methods.previewMarket().accounts({ market }).transaction())
+    ) as any;
+    const state = accountCoder.decode("Market", Buffer.from(svm.getAccount(market)!.data)) as any;
+    expect(swap.market.equals(market)).to.equal(true);
+    expect(swap.slot.toString()).to.equal(svm.getClock().slot.toString());
+    expect(preview.slot.toString()).to.equal(swap.slot.toString());
+    expect(swap.ylpSupply.toString()).to.equal(state.base_side.shares.ylp_supply.toString());
+    expect(swap.ylpSupply.toString()).to.equal(state.quote_side.shares.ylp_supply.toString());
+    expect(swap.baseLiveReserve.toString()).to.equal(state.base_side.reserves.live_reserve.toString());
+    expect(swap.quoteLiveReserve.toString()).to.equal(state.quote_side.reserves.live_reserve.toString());
+    for (const [name, side] of [["base", state.base_side], ["quote", state.quote_side]] as const) {
+      const snapshot = swap[name];
+      expect(snapshot.spotPriceNad.toString(), `${name} spot price`).to.equal(
+        preview[name].spotPriceNad.toString()
+      );
+      expect(snapshot.priceEmaNad.toString(), `${name} price EMA`).to.equal(
+        preview[name].priceEmaNad.toString()
+      );
+      expect(snapshot.swapFeeGrowthIndexQ64.toString(), `${name} swap-fee growth`).to.equal(
+        side.fees.swap_fee_growth_index_q64.toString()
+      );
+      expect(snapshot.interestGrowthIndexQ64.toString(), `${name} interest growth`).to.equal(
+        side.fees.interest_growth_index_q64.toString()
+      );
+    }
+    return state;
   }
 
   async function sendTransactionWithUncheckedSigners(
@@ -988,6 +1021,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(tx, [payer]);
+    // Both SPL mint layouts store decimals at byte 44.
+    const created = cpiEvent(tx, "marketCreated");
+    expect(created.baseDecimals).to.equal(svm.getAccount(baseMint)!.data[44]);
+    expect(created.quoteDecimals).to.equal(svm.getAccount(quoteMint)!.data[44]);
 
     await initializeLpMetadata({
       market,
@@ -2069,306 +2106,56 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   });
 
   // About 36.5 days of slots: enough for the fixtures' 5,000-atom quote debt
-  // to accrue whole interest atoms, so the refresh publishes its accrual.
-  const OBSERVATION_ACCRUAL_SLOTS = 7_884_000n;
+  // to accrue whole interest atoms, so the swap's own refresh commits one.
+  const SWAP_ACCRUAL_SLOTS = 7_884_000n;
 
-  async function fundedKeeper() {
-    const keeper = Keypair.generate();
-    await connection.requestAirdrop(keeper.publicKey, LAMPORTS_PER_SOL);
-    return keeper;
-  }
-
-  async function observeMarket(
-    fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>,
-    keeper: Keypair,
-    testName?: string
-  ) {
-    const tx = await new DuskWrite(program).observeMarketTransaction({
-      market: fixture.market,
-      ylpMint: fixture.ylpMint,
-      baseHlpYlpVault: fixture.baseHlpYlpVault,
-      quoteHlpYlpVault: fixture.quoteHlpYlpVault,
-    });
-    tx.feePayer = keeper.publicKey;
-    const { computeUnits } = await connection.sendTransactionMeasured(tx, [keeper]);
-    trackV2Instruction("observeMarket", testName);
-    const events = cpiEvents(tx);
-    const observations = events.filter((event) => event.name === "marketObserved");
-    expect(observations, "marketObserved CPI event count").to.have.length(1);
-    return {
-      tx,
-      computeUnits,
-      observed: observations[0].data,
-      accruals: events
-        .filter((event) => event.name === "borrowInterestAccrued")
-        .map((event) => event.data),
-    };
-  }
-
-  // Prices must equal preview_market for the committed state in the same slot;
-  // reserves, supply, and indexes must equal the committed market account.
-  async function expectObservationOfCommittedState(observed: any, market: PublicKey) {
-    const preview = decodePreviewMarketReturnData(
-      await simulateReturnData(await program.methods.previewMarket().accounts({ market }).transaction())
-    ) as any;
-    const state = accountCoder.decode("Market", Buffer.from(svm.getAccount(market)!.data)) as any;
-    expect(observed.market.equals(market)).to.equal(true);
-    expect(observed.ylpMint.equals(state.ylp_mint)).to.equal(true);
-    expect(observed.slot.toString()).to.equal(svm.getClock().slot.toString());
-    expect(preview.slot.toString()).to.equal(observed.slot.toString());
-    expect(observed.ylpSupply.toString()).to.equal(state.base_side.shares.ylp_supply.toString());
-    expect(observed.ylpSupply.toString()).to.equal(state.quote_side.shares.ylp_supply.toString());
-    // Eligibility: live mint supply plus locked support, minus hLP vault yLP;
-    // a vault that was never opened holds nothing.
-    const vaultYlp = async (vault: PublicKey) =>
-      svm.getAccount(vault)?.owner.equals(TOKEN_2022_PROGRAM_ID)
-        ? (await getAccount(connection as any, vault, undefined, TOKEN_2022_PROGRAM_ID)).amount
-        : 0n;
-    const liveYlpSupply = (await getMint(connection as any, state.ylp_mint, undefined, TOKEN_2022_PROGRAM_ID)).supply;
-    expect(observed.governanceLockedYlp.toString()).to.equal(state.governance_locked_ylp.toString());
-    expect(BigInt(observed.eligibleYlp.toString())).to.equal(
-      liveYlpSupply +
-        BigInt(state.governance_locked_ylp.toString()) -
-        (await vaultYlp(state.base_hlp_vault.ylp_vault)) -
-        (await vaultYlp(state.quote_hlp_vault.ylp_vault))
-    );
-    const sides = [
-      ["base", state.base_side, state.debt.base_borrow_index_nad],
-      ["quote", state.quote_side, state.debt.quote_borrow_index_nad],
-    ] as const;
-    for (const [name, side, borrowIndexNad] of sides) {
-      const observedSide = observed[name];
-      expect(observedSide.assetMint.equals(side.asset_mint), `${name} asset mint`).to.equal(true);
-      expect(observedSide.assetDecimals, `${name} asset decimals`).to.equal(side.asset_decimals);
-      expect(observedSide.spotPriceNad.toString(), `${name} spot price`).to.equal(
-        preview[name].spotPriceNad.toString()
-      );
-      expect(observedSide.priceEmaNad.toString(), `${name} price EMA`).to.equal(
-        preview[name].priceEmaNad.toString()
-      );
-      expect(observedSide.liveReserve.toString(), `${name} live reserve`).to.equal(
-        side.reserves.live_reserve.toString()
-      );
-      expect(observedSide.swapFeeGrowthIndexQ64.toString(), `${name} swap-fee growth`).to.equal(
-        side.fees.swap_fee_growth_index_q64.toString()
-      );
-      expect(observedSide.interestGrowthIndexQ64.toString(), `${name} interest growth`).to.equal(
-        side.fees.interest_growth_index_q64.toString()
-      );
-      expect(observedSide.borrowIndexNad.toString(), `${name} borrow index`).to.equal(
-        borrowIndexNad.toString()
-      );
-    }
-    return state;
-  }
-
-  it("publishes a preview-equal market observation from a permissionless crank", async function () {
+  it("records the post-swap market in the swap event after an interest accrual", async function () {
     const fixture = await addBalancedLiquidity(140);
     await protectionBorrow(fixture);
-    svm.warpToSlot(svm.getClock().slot + OBSERVATION_ACCRUAL_SLOTS);
+    svm.warpToSlot(svm.getClock().slot + SWAP_ACCRUAL_SLOTS);
     svm.expireBlockhash();
+    const before = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+    const pricesBefore = decodePreviewMarketReturnData(
+      await simulateReturnData(await program.methods.previewMarket().accounts({ market: fixture.market }).transaction())
+    ) as any;
 
-    // A keeper with no stake in the market pays the fee. Only the market is
-    // writable; no token account or signer belongs to the instruction.
-    const keeper = await fundedKeeper();
-    const { tx, computeUnits, observed, accruals } = await observeMarket(fixture, keeper, this.test?.title);
-    console.log(`    observe_market, CPMM with quote debt: ${computeUnits.toLocaleString()} CU`);
-    const [instruction] = tx.instructions;
-    expect(instruction.keys.map((meta) => meta.pubkey.toBase58())).to.deep.equal([
-      fixture.market.toBase58(),
-      fixture.ylpMint.toBase58(),
-      fixture.baseHlpYlpVault.toBase58(),
-      fixture.quoteHlpYlpVault.toBase58(),
-      eventAuthority().toBase58(),
-      DUSK_PROGRAM_ID.toBase58(),
-    ]);
-    expect(instruction.keys.map((meta) => meta.isWritable)).to.deep.equal([
-      true,
-      false,
-      false,
-      false,
-      false,
-      false,
-    ]);
-    expect(instruction.keys.some((meta) => meta.isSigner)).to.equal(false);
+    const { transaction } = await swapBaseForQuote(fixture);
+    const swap = cpiEvent(transaction, "swapExecuted");
+    const state = await expectSwapMarketState(swap, fixture.market);
 
-    // The shared refresh publishes the quote accrual as any other touch does.
+    // The swap's own refresh accrued the quote debt before trading.
+    const accruals = cpiEvents(transaction)
+      .filter((event) => event.name === "borrowInterestAccrued")
+      .map((event) => event.data);
     expect(accruals).to.have.length(1);
     expect(accruals[0].assetSide).to.equal(1);
-    expect(accruals[0].toSlot.toString()).to.equal(observed.slot.toString());
-    expect(accruals[0].borrowIndexAfterNad.toString()).to.equal(observed.quote.borrowIndexNad.toString());
-    expect(BigInt(accruals[0].creditInterest.toString()) > 0n).to.equal(true);
+    expect(accruals[0].toSlot.toString()).to.equal(swap.slot.toString());
+    expect(accruals[0].borrowIndexAfterNad.toString()).to.equal(state.debt.quote_borrow_index_nad.toString());
 
-    const state = await expectObservationOfCommittedState(observed, fixture.market);
-    for (const committedSlot of [
-      state.debt.base_last_accrual_slot,
-      state.debt.quote_last_accrual_slot,
-      state.amm.last_observation_slot,
-      state.risk.last_snapshot_slot,
-    ]) {
-      expect(committedSlot.toString()).to.equal(observed.slot.toString());
-    }
+    // Selling base lowers its price. Only the fee asset's swap-fee index moves.
+    expect(BigInt(swap.base.spotPriceNad.toString()) < BigInt(pricesBefore.base.spotPriceNad.toString())).to.equal(
+      true
+    );
+    const [feeSide, otherSide] = swap.feeAssetSide === 0 ? (["base", "quote"] as const) : (["quote", "base"] as const);
+    const sidesBefore = { base: before.base_side, quote: before.quote_side };
+    expect(
+      BigInt(swap[feeSide].swapFeeGrowthIndexQ64.toString()) >
+        BigInt(sidesBefore[feeSide].fees.swap_fee_growth_index_q64.toString())
+    ).to.equal(true);
+    expect(swap[otherSide].swapFeeGrowthIndexQ64.toString()).to.equal(
+      sidesBefore[otherSide].fees.swap_fee_growth_index_q64.toString()
+    );
   });
 
-  it("repeats a same-slot observation without double accrual, in reduce-only mode", async function () {
+  it("records the post-swap market in the swap event with an active hLP", async function () {
     const fixture = await addBalancedLiquidity(141);
     await openBaseHedge(fixture);
     await protectionBorrow(fixture);
-    svm.warpToSlot(svm.getClock().slot + OBSERVATION_ACCRUAL_SLOTS);
+    svm.warpToSlot(svm.getClock().slot + SWAP_ACCRUAL_SLOTS);
     svm.expireBlockhash();
 
-    // Observation moves no funds, so reduce-only mode does not block it.
-    const reduceOnlyTx = await program.methods
-      .setMarketReduceOnly({ reduceOnly: true })
-      .accounts({
-        market: fixture.market,
-        authoritySigner: REDUCE_ONLY_EMERGENCY_AUTHORITY,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    await sendTransactionWithUncheckedSigners(reduceOnlyTx, [payer], [REDUCE_ONLY_EMERGENCY_AUTHORITY]);
-
-    const keeper = await fundedKeeper();
-    const first = await observeMarket(fixture, keeper, this.test?.title);
-    console.log(
-      `    observe_market, CPMM with active base hLP and quote debt: ${first.computeUnits.toLocaleString()} CU`
-    );
-    expect(first.accruals).to.have.length(1);
-    expect(first.accruals[0].assetSide).to.equal(1);
-    expect(BigInt(first.accruals[0].hlpInterest.toString()) > 0n).to.equal(true);
-    await expectObservationOfCommittedState(first.observed, fixture.market);
-    const committed = Buffer.from(svm.getAccount(fixture.market)!.data);
-
-    // Nothing is left to accrue, integrate, or checkpoint in the same slot.
-    svm.expireBlockhash();
-    const second = await observeMarket(fixture, keeper, this.test?.title);
-    console.log(`    observe_market, same-slot repeat: ${second.computeUnits.toLocaleString()} CU`);
-    expect(second.accruals).to.have.length(0);
-    expect(Buffer.from(svm.getAccount(fixture.market)!.data).equals(committed)).to.equal(true);
-    expect(JSON.stringify(second.observed)).to.equal(JSON.stringify(first.observed));
-  });
-
-  it("accrues interest and swap-fee growth between market observations", async function () {
-    const config = marketConfig();
-    config.amm.peakAmplificationNad = new BN("4000000000");
-    config.amm.coreHalfWidthBps = 100;
-    config.amm.fadeWidthBps = 400;
-    const fixture = await addBalancedLiquidity(142, config, {
-      baseDeposit: 100_000_000,
-      quoteDeposit: 200_000_000,
-      minYlp: 1,
-      baseMint: 500_000_000,
-      quoteMint: 500_000_000,
-    });
-    await protectionBorrow(fixture);
-    const keeper = await fundedKeeper();
-    const before = await observeMarket(fixture, keeper, this.test?.title);
-    expect(before.accruals).to.have.length(0);
-
-    // A base-input swap credits claimable LP fees to the base growth index.
-    await swapBaseForQuote(fixture, [], 1_000_000, 1);
-    const afterSwap = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
-    svm.warpToSlot(svm.getClock().slot + OBSERVATION_ACCRUAL_SLOTS);
-    svm.expireBlockhash();
-
-    const after = await observeMarket(fixture, keeper, this.test?.title);
-    console.log(`    observe_market, concentrated curve with quote debt: ${after.computeUnits.toLocaleString()} CU`);
-    await expectObservationOfCommittedState(after.observed, fixture.market);
-    expect(
-      BigInt(after.observed.base.swapFeeGrowthIndexQ64.toString()) >
-        BigInt(before.observed.base.swapFeeGrowthIndexQ64.toString())
-    ).to.equal(true);
-
-    expect(after.accruals).to.have.length(1);
-    const [accrual] = after.accruals;
-    expect(accrual.assetSide).to.equal(1);
-    expect(accrual.fromSlot.toString()).to.equal(before.observed.slot.toString());
-    expect(accrual.toSlot.toString()).to.equal(after.observed.slot.toString());
-    expect(accrual.borrowIndexBeforeNad.toString()).to.equal(before.observed.quote.borrowIndexNad.toString());
-    expect(accrual.borrowIndexAfterNad.toString()).to.equal(after.observed.quote.borrowIndexNad.toString());
-    expect(
-      BigInt(accrual.borrowIndexAfterNad.toString()) > BigInt(accrual.borrowIndexBeforeNad.toString())
-    ).to.equal(true);
-    expect(after.observed.base.borrowIndexNad.toString()).to.equal(before.observed.base.borrowIndexNad.toString());
-    // The accrued credit interest is committed into the quote live reserve.
-    expect(
-      BigInt(after.observed.quote.liveReserve.toString()) -
-        BigInt(afterSwap.quote_side.reserves.live_reserve.toString())
-    ).to.equal(BigInt(accrual.creditInterest.toString()));
-  });
-
-  it("reports eligible direct yLP exactly as proposal sponsorship computes it", async function () {
-    const fixture = await addBalancedLiquidity(143);
-    // The base hLP vault's yLP is excluded; the quote vault is not open yet.
-    await openBaseHedge(fixture);
-    expect(svm.getAccount(fixture.quoteHlpYlpVault)).to.equal(null);
-    const keeper = await fundedKeeper();
-    const before = await observeMarket(fixture, keeper, this.test?.title);
-    await expectObservationOfCommittedState(before.observed, fixture.market);
-    const baseVault = await getAccount(connection as any, fixture.baseHlpYlpVault, undefined, TOKEN_2022_PROGRAM_ID);
-    expect(baseVault.amount > 0n).to.equal(true);
-    expect(before.observed.governanceLockedYlp.toString()).to.equal("0");
-    const eligible = BigInt(before.observed.eligibleYlp.toString());
-
-    // A strict-majority sponsorship queues at creation, so the program reports
-    // the eligible supply it computed for the same state.
-    const proposer = payer.publicKey;
-    const nonce = new BN(1);
-    const proposal = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("parameter_proposal"),
-        fixture.market.toBuffer(),
-        proposer.toBuffer(),
-        nonce.toArrayLike(Buffer, "le", 8),
-      ],
-      DUSK_PROGRAM_ID
-    )[0];
-    const initialSupport = eligible / 2n + 1n;
-    const createTx = await program.methods
-      .createParameterProposal({
-        nonce,
-        update: { dailyBorrowLimit: { maxDailyBorrowBps: 1_900 } },
-        metadata: {
-          version: 1,
-          title: "Lower daily borrow limit",
-          descriptionUri: "ipfs://dusk-litesvm-observed-eligibility",
-          descriptionSha256: Array(32).fill(2),
-          descriptionLen: 1,
-        },
-        initialSupport: new BN(initialSupport.toString()),
-      })
-      .accounts({
-        proposer,
-        market: fixture.market,
-        proposal,
-        proposalSupport: PublicKey.findProgramAddressSync(
-          [Buffer.from("proposal_support"), proposal.toBuffer(), proposer.toBuffer()],
-          DUSK_PROGRAM_ID
-        )[0],
-        ylpMint: fixture.ylpMint,
-        proposerYlpAccount: fixture.ownerYlpAccount,
-        baseYieldAccount: deriveYieldAccountAddress(fixture.market, proposer, fixture.ylpMint, fixture.baseMint, "ylp")[0],
-        quoteYieldAccount: deriveYieldAccountAddress(fixture.market, proposer, fixture.ylpMint, fixture.quoteMint, "ylp")[0],
-        baseHlpYlpVault: fixture.baseHlpYlpVault,
-        quoteHlpYlpVault: fixture.quoteHlpYlpVault,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    await connection.sendTransaction(createTx, [payer]);
-    trackV2Instruction("createParameterProposal", this.test?.title);
-    expect(cpiEvent(createTx, "parameterProposalQueued").eligibleSupply.toString()).to.equal(eligible.toString());
-
-    // Burn-locking support moves yLP from the mint supply into the lock, so the
-    // eligible amount is unchanged while the lock becomes visible.
-    svm.expireBlockhash();
-    const after = await observeMarket(fixture, keeper, this.test?.title);
-    await expectObservationOfCommittedState(after.observed, fixture.market);
-    expect(after.observed.governanceLockedYlp.toString()).to.equal(initialSupport.toString());
-    expect(after.observed.eligibleYlp.toString()).to.equal(eligible.toString());
+    const { transaction } = await swapQuoteForBase(fixture, hlpSwapAccounts(fixture));
+    await expectSwapMarketState(cpiEvent(transaction, "swapExecuted"), fixture.market);
   });
 
   it("adds V1-style limiting-side liquidity with Token-2022 transfer-fee assets", async function () {
@@ -2572,6 +2359,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     );
     recordSwapComputeScenario("token_2022_swap", token2022SwapMeasurement);
     const executed = cpiEvent(token2022SwapMeasurement.transaction, "swapExecuted");
+    await expectSwapMarketState(executed, fixture.market);
     // The input transfer fee is excluded from AMM volume, while the output
     // transfer fee does not reduce the pool's executed output.
     expect(executed.amountIn.toString()).to.equal("9900");
@@ -4062,6 +3850,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     trackV2Instruction("swap", this.test?.title);
 
     const swapEvent = cpiEvent(sameSlotMeasurement.transaction, "swapExecuted");
+    await expectSwapMarketState(swapEvent, fixture.market);
     expect(swapEvent.market.toString()).to.equal(fixture.market.toString());
     expect(swapEvent.trader.toString()).to.equal(payer.publicKey.toString());
     expect(swapEvent.origin).to.deep.equal({ spot: {} });
@@ -4156,6 +3945,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const centeredMeasurement = await swapBaseForQuote(fixture, [], 1_000_000, 1);
     expect(currentConcentrationDeltaNad(fixture) < 100_000_000n).to.equal(true);
     recordSwapComputeScenario("concentrated_centered", centeredMeasurement);
+    await expectSwapMarketState(cpiEvent(centeredMeasurement.transaction, "swapExecuted"), fixture.market);
     trackV2Instruction("swap", this.test?.title);
     const ownerQuoteAfter = await getAccount(connection as any, fixture.ownerQuoteAccount);
 
@@ -4206,6 +3996,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     // integration check only needs to prove a positive executable output.
     expect(ownerQuoteAfterTail.amount - ownerQuoteBeforeTail.amount > 0n).to.equal(true);
     recordSwapComputeScenario("concentrated_tail", tailMeasurement);
+    await expectSwapMarketState(cpiEvent(tailMeasurement.transaction, "swapExecuted"), tail.market);
   });
 
   it("retains a concentrated dynamic surcharge as recentering principal on SBF", async function () {
@@ -4273,6 +4064,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
     const retainedMeasurement = await swapBaseForQuote(fixture, [], 1_000_000, 1);
     recordSwapComputeScenario("retained_surcharge", retainedMeasurement);
+    await expectSwapMarketState(cpiEvent(retainedMeasurement.transaction, "swapExecuted"), fixture.market);
     trackV2Instruction("swap", this.test?.title);
 
     const account = svm.getAccount(fixture.market);
@@ -4756,6 +4548,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
     const recenterMeasurement = await swapBaseForQuote(fixture, [], 1_000_000, 1);
     recordSwapComputeScenario("controller_due_recenter", recenterMeasurement);
+    await expectSwapMarketState(cpiEvent(recenterMeasurement.transaction, "swapExecuted"), fixture.market);
     trackV2Instruction("swap", this.test?.title);
 
     const accountAfter = svm.getAccount(fixture.market);
@@ -5049,6 +4842,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       trackV2Instruction("swap", this.test?.title);
 
       const swapEvent = cpiEvent(measurement.transaction, "swapExecuted");
+      await expectSwapMarketState(swapEvent, fixture.market);
       expect(swapEvent.assetInSide).to.equal(testCase.assetIn === "base" ? 0 : 1);
       expect(swapEvent.amountIn.toString()).to.equal(testCase.exactAssetIn.toString());
       expect(swapEvent.amountOut.toString()).to.equal(preview.amountOut.toString());
@@ -5712,6 +5506,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
     const activeHlpMeasurement = await swapBaseForQuote(fixture, hlpSwapAccounts(fixture));
     recordSwapComputeScenario("hlp_active", activeHlpMeasurement);
+    await expectSwapMarketState(cpiEvent(activeHlpMeasurement.transaction, "swapExecuted"), fixture.market);
     trackV2Instruction("swap", this.test?.title);
 
     const ylpAfter = await getAccount(
@@ -5929,6 +5724,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       1
     );
     recordSwapComputeScenario("hlp_active", residualCorrectionMeasurement);
+    await expectSwapMarketState(cpiEvent(residualCorrectionMeasurement.transaction, "swapExecuted"), fixture.market);
     trackV2Instruction("swap", this.test?.title);
 
     const ylpAfter = await getAccount(
@@ -8144,6 +7940,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     // The backstop consumes all collateral and debt, so it closes the position.
     expect(expectPositionLiquidated(settleTx, borrowPosition).closed).to.equal(true);
     const backstopSwap = cpiEvent(settleTx, "swapExecuted");
+    await expectSwapMarketState(backstopSwap, fixture.market);
     expect(backstopSwap.origin).to.deep.equal({ creditLiquidation: {} });
     expect(backstopSwap.position.equals(borrowPosition)).to.equal(true);
     expect(backstopSwap.amountIn.gt(new BN(0))).to.equal(true);
@@ -8216,7 +8013,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     trackV2Instruction("openLeverage", this.test?.title);
     expect(measurement.computeUnits < LITESVM_COMPUTE_UNIT_LIMIT).to.equal(true);
 
-    expectLeverageSwap(measurement.transaction, "leveragePositionOpened", "leverageOpen");
+    await expectLeverageSwap(measurement.transaction, "leveragePositionOpened", "leverageOpen");
     const openEvent = cpiEvent(measurement.transaction, "leveragePositionOpened");
     expect(openEvent.marginAmount.toString()).to.equal(marginAmount.toString());
     expect(openEvent.borrowedAmount.toString()).to.equal(marginAmount.toString());
@@ -8344,7 +8141,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     trackV2Instruction("closeLeverage", this.test?.title);
     expect(closeMeasurement.computeUnits < LITESVM_COMPUTE_UNIT_LIMIT).to.equal(true);
 
-    expectLeverageSwap(closeMeasurement.transaction, "leveragePositionClosed", "leverageClose");
+    await expectLeverageSwap(closeMeasurement.transaction, "leveragePositionClosed", "leverageClose");
     const accrued = cpiEvents(closeMeasurement.transaction)
       .filter((event) => event.name === "borrowInterestAccrued");
     const quoteAccrual = accrued.find((event) => event.data.assetSide === 1)!.data;
@@ -8558,7 +8355,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(increaseTx, [payer]);
-    expectLeverageSwap(increaseTx, "leveragePositionUpdated", "leverageIncrease");
+    await expectLeverageSwap(increaseTx, "leveragePositionUpdated", "leverageIncrease");
     trackV2Instruction("increaseLeverage", this.test?.title);
 
     updatedPositionAccount = svm.getAccount(leveragePosition);
@@ -8597,7 +8394,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(decreaseTx, [payer]);
-    expectLeverageSwap(decreaseTx, "leveragePositionUpdated", "leverageDecrease");
+    await expectLeverageSwap(decreaseTx, "leveragePositionUpdated", "leverageDecrease");
     trackV2Instruction("decreaseLeverage", this.test?.title);
 
     updatedPositionAccount = svm.getAccount(leveragePosition);
@@ -8924,7 +8721,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         .remainingAccounts([...beforeIx.keys, ...afterIx.keys])
         .transaction();
       const signature = await connection.sendTransaction(delegatedCloseTx, [payer, executor]);
-      const delegatedSwap = expectLeverageSwap(delegatedCloseTx, "leveragePositionClosed", "leverageClose");
+      const delegatedSwap = await expectLeverageSwap(delegatedCloseTx, "leveragePositionClosed", "leverageClose");
       expect(delegatedSwap.actor.equals(executor.publicKey)).to.equal(true);
       expect(delegatedSwap.trader.equals(payer.publicKey)).to.equal(true);
       const meta = svm.getTransaction(Buffer.from(signature, "base64")) as any;
@@ -9140,7 +8937,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(liquidateTx, [payer]);
-    expectLeverageSwap(liquidateTx, "leveragePositionLiquidated", "leverageLiquidation");
+    await expectLeverageSwap(liquidateTx, "leveragePositionLiquidated", "leverageLiquidation");
     trackV2Instruction("liquidateLeveragePosition", this.test?.title);
 
     const liquidatorAfter = await getAccount(connection as any, liquidatorQuoteAccount);

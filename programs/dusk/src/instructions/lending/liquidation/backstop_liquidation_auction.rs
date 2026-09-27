@@ -458,9 +458,8 @@ impl<'info> BackstopLiquidationAuction<'info> {
                 crate::events::SwapOrigin::CreditLiquidation,
                 clock.slot,
                 prepared.quote,
-                ctx.accounts.market.base_side.reserves.live_reserve,
-                ctx.accounts.market.quote_side.reserves.live_reserve,
-            ));
+                &ctx.accounts.market,
+            )?);
         }
         // Report the final values; an emptied position is closed below.
         let closed = ctx.accounts.borrow_position.is_empty();

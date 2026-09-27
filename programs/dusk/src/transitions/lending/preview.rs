@@ -30,7 +30,7 @@ pub(crate) struct LendingSidePreview {
 }
 
 /// One side's executable marginal price and symmetric risk EMA, quoted in the
-/// opposite asset. `preview_market` and `observe_market` report these values.
+/// opposite asset. `preview_market` reports these values.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct SidePrices {
     pub spot_price_nad: u64,
@@ -127,10 +127,14 @@ impl Market {
         })
     }
 
-    pub(crate) fn side_prices(&self, asset: MarketAsset) -> Result<SidePrices> {
-        let base_price = self
+    /// Evaluates the current curve once; `side_prices_at` derives both sides.
+    pub(crate) fn current_base_price_nad(&self) -> Result<u64> {
+        Ok(self
             .current_concentrated_spot_price_nad()?
-            .ok_or(ErrorCode::BrokenInvariant)?;
+            .ok_or(ErrorCode::BrokenInvariant)?)
+    }
+
+    pub(crate) fn side_prices_at(&self, asset: MarketAsset, base_price: u64) -> Result<SidePrices> {
         Ok(match asset {
             MarketAsset::Base => SidePrices {
                 spot_price_nad: base_price,

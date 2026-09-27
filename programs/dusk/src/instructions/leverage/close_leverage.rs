@@ -568,7 +568,8 @@ impl<'info> CloseLeverage<'info> {
             SwapOrigin::LeverageClose,
             current_slot,
             swap_event,
-        ));
+            &ctx.accounts.market,
+        )?);
         if is_full_close {
             emit_cpi!(LeveragePositionClosed {
                 market: market_key,

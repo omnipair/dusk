@@ -831,7 +831,7 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
         MarketAsset::Quote => market.risk.directional_quote_price_ema_nad,
     };
     let lending = market.lending_side_preview(asset, slot)?;
-    let prices = market.side_prices(asset)?;
+    let prices = market.side_prices_at(asset, market.current_base_price_nad()?)?;
 
     Ok(PreviewSide {
         live_reserve: side.reserves.live_reserve,

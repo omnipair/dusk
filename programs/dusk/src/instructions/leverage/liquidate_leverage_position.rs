@@ -387,7 +387,8 @@ fn finish_liquidation<'info>(
         SwapOrigin::LeverageLiquidation,
         current_slot,
         swap_event,
-    ));
+        &ctx.accounts.market,
+    )?);
     emit_cpi!(LeveragePositionLiquidated {
         market: market_key,
         position: position_key,

@@ -1,7 +1,7 @@
 use crate::{
     errors::ErrorCode,
-    state::{MarketConfig, MarketParameterUpdate, ProposalMetadataV1},
-    transitions::{AmmSwapQuote, LeverageSwapFeeCredit, LeverageSwapQuote},
+    state::{Market, MarketAsset, MarketConfig, MarketParameterUpdate, ProposalMetadataV1},
+    transitions::{lending::SidePrices, AmmSwapQuote, LeverageSwapFeeCredit, LeverageSwapQuote},
 };
 use anchor_lang::prelude::*;
 
@@ -43,6 +43,9 @@ pub struct MarketCreated {
     pub launch_fee_progress_offset: u16,
     pub version: u8,
     pub metadata: MarketEventMetadata,
+    /// Asset mint decimals, which scale every price and amount of the market.
+    pub base_decimals: u8,
+    pub quote_decimals: u8,
 }
 
 #[event]
@@ -62,42 +65,6 @@ pub struct MarketHealthUpdated {
     pub base_debt_health_bps: u64,
     pub quote_debt_health_bps: u64,
     pub metadata: MarketEventMetadata,
-}
-
-/// Committed market state published by the permissionless `observe_market`
-/// crank after the shared pre-action refresh. No other instruction emits it.
-#[event]
-pub struct MarketObserved {
-    pub market: Pubkey,
-    pub ylp_mint: Pubkey,
-    pub slot: u64,
-    /// Internal yLP share supply; both sides record the same value.
-    pub ylp_supply: u64,
-    /// yLP burn-locked in active governance support.
-    pub governance_locked_ylp: u64,
-    /// Direct yLP counted by proposal sponsorship and queueing: live yLP mint
-    /// supply plus governance-locked yLP, minus both hLP vaults' yLP.
-    pub eligible_ylp: u64,
-    pub base: MarketObservedSide,
-    pub quote: MarketObservedSide,
-}
-
-/// One side of `MarketObserved`. Prices quote this side's asset in the
-/// opposite asset and equal `preview_market` for the same state and slot.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MarketObservedSide {
-    pub asset_mint: Pubkey,
-    pub asset_decimals: u8,
-    pub live_reserve: u64,
-    /// Executable marginal price of the current curve.
-    pub spot_price_nad: u64,
-    /// Symmetric risk EMA of the spot price.
-    pub price_ema_nad: u64,
-    /// Per-yLP-share swap-fee growth, scaled by 2^64.
-    pub swap_fee_growth_index_q64: u128,
-    /// Per-yLP-share interest growth, scaled by 2^64.
-    pub interest_growth_index_q64: u128,
-    pub borrow_index_nad: u128,
 }
 
 #[event]
@@ -381,9 +348,49 @@ pub struct SwapExecuted {
     /// Final executable reserves after retention and inline hLP correction.
     pub base_live_reserve: u64,
     pub quote_live_reserve: u64,
+    /// Internal yLP share supply after the swap.
+    pub ylp_supply: u64,
+    /// Each side's price, price EMA, and yLP growth indexes after the swap.
+    pub base: MarketSideSnapshot,
+    pub quote: MarketSideSnapshot,
+}
+
+/// One side of the market after a swap. Prices quote this side's asset in
+/// the opposite asset and equal `preview_market` for the same state and slot.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MarketSideSnapshot {
+    /// Executable marginal price of the curve the next trade starts from.
+    pub spot_price_nad: u64,
+    /// Symmetric risk EMA of the spot price.
+    pub price_ema_nad: u64,
+    /// Per-yLP-share swap-fee growth, scaled by 2^64.
+    pub swap_fee_growth_index_q64: u128,
+    /// Per-yLP-share interest growth, scaled by 2^64.
+    pub interest_growth_index_q64: u128,
+}
+
+impl MarketSideSnapshot {
+    /// Both sides of the market's current state, pricing the curve once. The
+    /// swap's own risk observation records the quote's endpoint price, which
+    /// can differ from the executable price after the swap, so it is not reused.
+    pub(crate) fn pair(market: &Market) -> Result<(Self, Self)> {
+        let base_price = market.current_base_price_nad()?;
+        let side = |asset: MarketAsset| -> Result<Self> {
+            let prices: SidePrices = market.side_prices_at(asset, base_price)?;
+            let fees = &market.side(asset).fees;
+            Ok(Self {
+                spot_price_nad: prices.spot_price_nad,
+                price_ema_nad: prices.price_ema_nad,
+                swap_fee_growth_index_q64: fees.swap_fee_growth_index_q64,
+                interest_growth_index_q64: fees.interest_growth_index_q64,
+            })
+        };
+        Ok((side(MarketAsset::Base)?, side(MarketAsset::Quote)?))
+    }
 }
 
 impl SwapExecuted {
+    /// `state` is the market after the swap's final state change.
     pub(crate) fn from_amm(
         market: Pubkey,
         trader: Pubkey,
@@ -392,10 +399,10 @@ impl SwapExecuted {
         origin: SwapOrigin,
         slot: u64,
         swap: AmmSwapQuote,
-        base_live_reserve: u64,
-        quote_live_reserve: u64,
-    ) -> Self {
-        Self {
+        state: &Market,
+    ) -> Result<Self> {
+        let (base, quote) = MarketSideSnapshot::pair(state)?;
+        Ok(Self {
             market,
             trader,
             actor,
@@ -419,11 +426,15 @@ impl SwapExecuted {
             hlp_recovery_bonus_output: swap.recovery.bonus_output,
             hlp_recovery_discount_bps: swap.recovery.discount_bps,
             hlp_recovery_critical: swap.recovery.critical,
-            base_live_reserve,
-            quote_live_reserve,
-        }
+            base_live_reserve: state.base_side.reserves.live_reserve,
+            quote_live_reserve: state.quote_side.reserves.live_reserve,
+            ylp_supply: state.base_side.shares.ylp_supply,
+            base,
+            quote,
+        })
     }
 
+    /// `state` is the market after the swap's final state change.
     pub(crate) fn from_leverage(
         market: Pubkey,
         trader: Pubkey,
@@ -432,8 +443,10 @@ impl SwapExecuted {
         origin: SwapOrigin,
         slot: u64,
         swap: LeverageSwapReceipt,
-    ) -> Self {
-        Self {
+        state: &Market,
+    ) -> Result<Self> {
+        let (base, quote) = MarketSideSnapshot::pair(state)?;
+        Ok(Self {
             market,
             trader,
             actor,
@@ -459,7 +472,10 @@ impl SwapExecuted {
             hlp_recovery_critical: false,
             base_live_reserve: swap.base_live_reserve,
             quote_live_reserve: swap.quote_live_reserve,
-        }
+            ylp_supply: state.base_side.shares.ylp_supply,
+            base,
+            quote,
+        })
     }
 }
 
