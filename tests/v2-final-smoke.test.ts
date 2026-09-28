@@ -6251,42 +6251,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(destinationYlpAfter.amount).to.equal(10_000n);
   });
 
-  it("binds borrow positions to the signing owner while allowing multiple position IDs", async function () {
-    const fixture = await addBalancedLiquidity(253);
-    const positionId = Keypair.generate().publicKey;
-    const secondId = Keypair.generate().publicKey;
-    const otherOwner = Keypair.generate().publicKey;
-    const first = deriveBorrowPositionAddress(fixture.market, payer.publicKey, positionId)[0];
-    const second = deriveBorrowPositionAddress(fixture.market, payer.publicKey, secondId)[0];
-    const foreign = deriveBorrowPositionAddress(fixture.market, otherOwner, positionId)[0];
-    expect(first.equals(second)).to.equal(false);
-    expect(first.equals(foreign)).to.equal(false);
-
-    const deposit = (borrowPosition: PublicKey, id: PublicKey) => program.methods
-      .depositCollateral({ positionId: id, depositAmount: new BN(1) })
-      .accounts({
-        market: fixture.market, owner: payer.publicKey, assetMint: fixture.baseMint,
-        collateralVault: fixture.baseCollateralVault, ownerAssetAccount: fixture.ownerBaseAccount,
-        borrowPosition, tokenProgram: TOKEN_PROGRAM_ID,
-        token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
-        eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
-      }).transaction();
-
-    let rejected = false;
-    try {
-      await connection.sendTransaction(await deposit(foreign, positionId), [payer]);
-    } catch {
-      rejected = true;
-    }
-    expect(rejected).to.equal(true);
-    expect(svm.getAccount(foreign)).to.equal(null);
-
-    await connection.sendTransaction(await deposit(first, positionId), [payer]);
-    await connection.sendTransaction(await deposit(second, secondId), [payer]);
-    expect(svm.getAccount(first)).to.not.equal(null);
-    expect(svm.getAccount(second)).to.not.equal(null);
-  });
-
   it("deposits collateral, borrows fixed quote debt, repays, and withdraws idle collateral", async function () {
     const fixture = await addBalancedLiquidity(49);
     const borrowPositionId = Keypair.generate().publicKey;
@@ -6594,6 +6558,42 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       activeDebtSwapPreview.reserveOutLiveReserve.toString()
     );
     expect(decoded.debt.fixed_quote_shares.toNumber()).to.equal(0);
+  });
+
+  it("binds borrow positions to the signing owner while allowing multiple position IDs", async function () {
+    const fixture = await addBalancedLiquidity(253);
+    const positionId = Keypair.generate().publicKey;
+    const secondId = Keypair.generate().publicKey;
+    const otherOwner = Keypair.generate().publicKey;
+    const first = deriveBorrowPositionAddress(fixture.market, payer.publicKey, positionId)[0];
+    const second = deriveBorrowPositionAddress(fixture.market, payer.publicKey, secondId)[0];
+    const foreign = deriveBorrowPositionAddress(fixture.market, otherOwner, positionId)[0];
+    expect(first.equals(second)).to.equal(false);
+    expect(first.equals(foreign)).to.equal(false);
+
+    const deposit = (borrowPosition: PublicKey, id: PublicKey) => program.methods
+      .depositCollateral({ positionId: id, depositAmount: new BN(1) })
+      .accounts({
+        market: fixture.market, owner: payer.publicKey, assetMint: fixture.baseMint,
+        collateralVault: fixture.baseCollateralVault, ownerAssetAccount: fixture.ownerBaseAccount,
+        borrowPosition, tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+      }).transaction();
+
+    let rejected = false;
+    try {
+      await connection.sendTransaction(await deposit(foreign, positionId), [payer]);
+    } catch {
+      rejected = true;
+    }
+    expect(rejected).to.equal(true);
+    expect(svm.getAccount(foreign)).to.equal(null);
+
+    await connection.sendTransaction(await deposit(first, positionId), [payer]);
+    await connection.sendTransaction(await deposit(second, secondId), [payer]);
+    expect(svm.getAccount(first)).to.not.equal(null);
+    expect(svm.getAccount(second)).to.not.equal(null);
   });
 
   it("quotes existing-position capacity with external debt at high raw-token scales", async function () {
