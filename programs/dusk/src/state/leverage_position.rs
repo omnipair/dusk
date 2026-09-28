@@ -22,6 +22,9 @@ pub struct LeveragePosition {
     pub multiplier_bps: u64,
     pub opened_at: i64,
     pub opened_slot: u64,
+    /// Market curve revision committed by this opening. A recreated PDA gets
+    /// a new revision even if it reopens in the same slot.
+    pub open_curve_revision: u64,
     pub bump: u8,
 }
 

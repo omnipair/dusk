@@ -11971,6 +11971,18 @@ export type Dusk = {
             "type": "u128"
           },
           {
+            "name": "baseBorrowIndexRemainder",
+            "docs": [
+              "Fractional index growth carried across checkpoints. Denominator is",
+              "`NAD * MS_PER_YEAR`, so frequent checkpoints cannot discard interest."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "quoteBorrowIndexRemainder",
+            "type": "u128"
+          },
+          {
             "name": "baseRateAtTargetNad",
             "type": "u128"
           },
@@ -13445,6 +13457,10 @@ export type Dusk = {
             "type": "u32"
           },
           {
+            "name": "openCurveRevision",
+            "type": "u64"
+          },
+          {
             "name": "bump",
             "type": "u8"
           }
@@ -13550,6 +13566,14 @@ export type Dusk = {
           },
           {
             "name": "openedSlot",
+            "type": "u64"
+          },
+          {
+            "name": "openCurveRevision",
+            "docs": [
+              "Market curve revision committed by this opening. A recreated PDA gets",
+              "a new revision even if it reopens in the same slot."
+            ],
             "type": "u64"
           },
           {
@@ -17229,7 +17253,8 @@ export type Dusk = {
           {
             "name": "concentratedCurveBranch",
             "docs": [
-              "0=lower tail, 1=concentrated band, 2=upper tail."
+              "0=lower tail, 1=lower shoulder, 2=inner band,",
+              "3=upper shoulder, 4=upper tail."
             ],
             "type": "u8"
           },

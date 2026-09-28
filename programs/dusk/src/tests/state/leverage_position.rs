@@ -20,6 +20,7 @@ fn leverage_position_tracks_debt_asset_and_current_debt() {
         multiplier_bps: 0,
         opened_at: 0,
         opened_slot: 0,
+        open_curve_revision: 0,
         bump: 0,
     };
     position.initialize(

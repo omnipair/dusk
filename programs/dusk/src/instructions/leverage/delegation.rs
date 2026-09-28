@@ -173,6 +173,7 @@ impl<'info> CreateLeverageDelegation<'info> {
             args.approved_actions,
             ctx.bumps.leverage_delegation,
         );
+        delegation.open_curve_revision = leverage_position.open_curve_revision;
 
         emit_cpi!(LeverageDelegationUpdated {
             market: market_key,
@@ -199,7 +200,7 @@ impl<'info> UpdateLeverageDelegation<'info> {
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
         self.leverage_position
             .assert_position(self.owner.key(), self.market.key(), debt_asset)?;
-        self.leverage_delegation.assert_delegation(
+        self.leverage_delegation.assert_identity(
             self.owner.key(),
             self.market.key(),
             self.leverage_position.key(),
@@ -221,6 +222,7 @@ impl<'info> UpdateLeverageDelegation<'info> {
         let delegation = leverage_delegation;
 
         delegation.update(args.delegated_program, args.approved_actions);
+        delegation.open_curve_revision = leverage_position.open_curve_revision;
 
         emit_cpi!(LeverageDelegationUpdated {
             market: market_key,

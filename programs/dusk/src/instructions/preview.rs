@@ -337,7 +337,8 @@ pub struct SwapPreview {
     /// temporary caller migration.
     pub lower_range_price_nad: u64,
     pub upper_range_price_nad: u64,
-    /// 0=lower tail, 1=concentrated band, 2=upper tail.
+    /// 0=lower tail, 1=lower shoulder, 2=inner band,
+    /// 3=upper shoulder, 4=upper tail.
     pub concentrated_curve_branch: u8,
     pub ordinary_base_reserve_nad: u128,
     pub ordinary_quote_reserve_nad: u128,
@@ -836,6 +837,21 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
             market.risk.directional_quote_price_ema_nad,
         ),
     };
+    if market.base_side.shares.ylp_supply == 0 && market.quote_side.shares.ylp_supply == 0 {
+        return Ok(PreviewSide {
+            live_reserve: side.reserves.live_reserve,
+            cash_reserve: side.reserves.cash_reserve,
+            ylp_supply: 0,
+            borrow_index_nad: market.debt.borrow_index(asset),
+            rate_at_target_nad: match asset {
+                MarketAsset::Base => market.debt.base_rate_at_target_nad,
+                MarketAsset::Quote => market.debt.quote_rate_at_target_nad,
+            },
+            price_ema_nad,
+            directional_price_ema_nad,
+            ..PreviewSide::default()
+        });
+    }
     let lending = market.lending_side_preview(asset, slot)?;
 
     Ok(PreviewSide {

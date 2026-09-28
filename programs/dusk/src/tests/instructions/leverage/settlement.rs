@@ -9,6 +9,27 @@ use spl_token_2022::{
 };
 
 #[test]
+fn delegated_callback_does_not_forward_outer_signers() {
+    let key = Pubkey::new_unique();
+    let owner = Pubkey::new_unique();
+    let mut lamports = 0;
+    let mut data = [];
+    let signed_writable = AccountInfo::new(&key, true, true, &mut lamports, &mut data, &owner, false, 0);
+
+    let unprotected = delegated_callback_metas(&[signed_writable.clone()], &[], &[]).unwrap();
+    assert!(!unprotected[0].is_signer);
+    assert!(unprotected[0].is_writable);
+
+    let protected = delegated_callback_metas(&[signed_writable.clone()], &[key], &[]).unwrap();
+    assert!(!protected[0].is_signer);
+    assert!(!protected[0].is_writable);
+
+    let rent_recipient = delegated_callback_metas(&[signed_writable], &[key], &[key]).unwrap();
+    assert!(!rent_recipient[0].is_signer);
+    assert!(rent_recipient[0].is_writable);
+}
+
+#[test]
 fn leverage_market_pda_runtime_guard_matches_canonical_market_seeds() {
     let mut market = Market::default();
     market.base_side.asset_mint = Pubkey::new_unique();

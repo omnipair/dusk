@@ -67,9 +67,10 @@ const COMPUTE_SCENARIO_BASELINES: Partial<
   concentrated_centered: { measuredMaximum: 210_096n, ceiling: 220_601n },
   concentrated_transition: { measuredMaximum: 211_234n, ceiling: 221_796n },
   concentrated_tail: { measuredMaximum: 208_921n, ceiling: 219_368n },
-  dynamic_fee_divergence_stress: { measuredMaximum: 218_345n, ceiling: 229_263n },
+  // Split-resistant Huber potential solves its marginal cap once per swap.
+  dynamic_fee_divergence_stress: { measuredMaximum: 313_802n, ceiling: 329_493n },
   dynamic_fee_volatility_stress: { measuredMaximum: 132_886n, ceiling: 139_531n },
-  retained_surcharge: { measuredMaximum: 216_769n, ceiling: 227_608n },
+  retained_surcharge: { measuredMaximum: 314_844n, ceiling: 330_587n },
   controller_due_recenter: { measuredMaximum: 574_779n, ceiling: 603_518n },
   concentrated_hlp_active: { measuredMaximum: 292_888n, ceiling: 307_533n },
   concentrated_hlp_funding_interest: { measuredMaximum: 292_888n, ceiling: 307_533n },

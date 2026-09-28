@@ -940,9 +940,10 @@ pub(crate) fn accrue_side<const REPORT: bool>(
     asset: MarketAsset,
     current_slot: u64,
 ) -> Result<Option<InterestAccrualReceipt>> {
-    let (index, rate_at_target, last_accrual_slot, fixed_shares, isolated_shares) = match asset {
+    let (index, index_remainder, rate_at_target, last_accrual_slot, fixed_shares, isolated_shares) = match asset {
         MarketAsset::Base => (
             market.debt.base_borrow_index_nad,
+            market.debt.base_borrow_index_remainder,
             market.debt.base_rate_at_target_nad,
             market.debt.base_last_accrual_slot,
             market.debt.fixed_base_shares,
@@ -950,6 +951,7 @@ pub(crate) fn accrue_side<const REPORT: bool>(
         ),
         MarketAsset::Quote => (
             market.debt.quote_borrow_index_nad,
+            market.debt.quote_borrow_index_remainder,
             market.debt.quote_rate_at_target_nad,
             market.debt.quote_last_accrual_slot,
             market.debt.fixed_quote_shares,
@@ -982,10 +984,12 @@ pub(crate) fn accrue_side<const REPORT: bool>(
             MarketAsset::Base => {
                 market.debt.base_rate_at_target_nad = next_rate_at_target;
                 market.debt.base_last_accrual_slot = current_slot;
+                market.debt.base_borrow_index_remainder = 0;
             }
             MarketAsset::Quote => {
                 market.debt.quote_rate_at_target_nad = next_rate_at_target;
                 market.debt.quote_last_accrual_slot = current_slot;
+                market.debt.quote_borrow_index_remainder = 0;
             }
         }
         return Ok(None);
@@ -1037,23 +1041,23 @@ pub(crate) fn accrue_side<const REPORT: bool>(
         );
         vault.funding_apr_ema_last_slot = current_slot;
     }
-    let next_index = if index == 0 || dt_ms == 0 || rate == 0 {
-        index
+    let (next_index, next_remainder) = if index == 0 || dt_ms == 0 || rate == 0 {
+        (index, index_remainder)
     } else {
-        let elapsed_ms = dt_ms.min(MAX_INTEREST_ACCRUAL_MS) as u128;
-        let growth_nad = rate
-            .checked_mul(elapsed_ms)
-            .and_then(|value| value.checked_div(MS_PER_YEAR as u128))
+        let denominator = (NAD as u128)
+            .checked_mul(MS_PER_YEAR as u128)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        if growth_nad == 0 {
+        let numerator = index
+            .checked_mul(rate)
+            .and_then(|value| value.checked_mul(dt_ms as u128))
+            .and_then(|value| value.checked_add(index_remainder))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        (
             index
-        } else {
-            let delta = index
-                .checked_mul(growth_nad)
-                .and_then(|value| value.checked_div(NAD as u128))
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-            index.checked_add(delta).ok_or(ErrorCode::MarketMathOverflow)?
-        }
+                .checked_add(numerator / denominator)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            numerator % denominator,
+        )
     };
     let next_rate_at_target = adapt_rate_at_target_nad(
         rate_at_target,
@@ -1093,11 +1097,13 @@ pub(crate) fn accrue_side<const REPORT: bool>(
     match asset {
         MarketAsset::Base => {
             market.debt.base_borrow_index_nad = next_index;
+            market.debt.base_borrow_index_remainder = next_remainder;
             market.debt.base_rate_at_target_nad = next_rate_at_target;
             market.debt.base_last_accrual_slot = current_slot;
         }
         MarketAsset::Quote => {
             market.debt.quote_borrow_index_nad = next_index;
+            market.debt.quote_borrow_index_remainder = next_remainder;
             market.debt.quote_rate_at_target_nad = next_rate_at_target;
             market.debt.quote_last_accrual_slot = current_slot;
         }

@@ -105,8 +105,8 @@ pub const INTEREST_INITIAL_RATE_AT_TARGET_NAD: u128 = (NAD as u128) * 4 / 100; /
 /// Cap on the per-accrual exponent (NAD), bounding the anchor's move in a single
 /// step so a stale market can't jump violently (clamped further by min/max).
 pub const INTEREST_MAX_ADAPTATION_STEP_NAD: i128 = (NAD as i128) / 2;
-/// Upper bound on the elapsed time charged in a single accrual, to bound
-/// index growth (and therefore overflow / abuse) for very stale markets.
+/// Upper bound on the elapsed time used for one adaptive-rate anchor update.
+/// Borrow-index growth charges the full elapsed interval.
 pub const MAX_INTEREST_ACCRUAL_MS: u64 = MS_PER_YEAR;
 
 #[constant]

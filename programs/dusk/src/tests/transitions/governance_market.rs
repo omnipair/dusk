@@ -1232,6 +1232,60 @@ fn concentration_execution_reconstructs_the_selected_shape() {
 }
 
 #[test]
+fn disabling_recenter_releases_retained_surcharge_to_lp_inventory() {
+    for disable_by_shape in [false, true] {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        market
+            .execute_parameter_update(
+                &MarketParameterUpdate::CenterController {
+                    adjustment_threshold_nad: NAD / 100,
+                    adjustment_step_nad: NAD / 1_000,
+                    min_adjustment_interval_slots: 1,
+                },
+                1,
+            )
+            .unwrap();
+        market
+            .execute_parameter_update(
+                &MarketParameterUpdate::Concentration {
+                    peak_amplification_nad: 2 * NAD,
+                    core_half_width_bps: 100,
+                    fade_width_bps: 400,
+                },
+                2,
+            )
+            .unwrap();
+        let protected = 1_000_000;
+        market.credit_protected_recenter_reserve(MarketAsset::Base, protected).unwrap();
+        market.credit_protected_recenter_reserve(MarketAsset::Quote, protected).unwrap();
+        let base_live_before = market.base_side.reserves.live_reserve;
+        let quote_live_before = market.quote_side.reserves.live_reserve;
+
+        let update = if disable_by_shape {
+            MarketParameterUpdate::Concentration {
+                peak_amplification_nad: NAD,
+                core_half_width_bps: 0,
+                fade_width_bps: 0,
+            }
+        } else {
+            MarketParameterUpdate::CenterController {
+                adjustment_threshold_nad: 0,
+                adjustment_step_nad: 0,
+                min_adjustment_interval_slots: 0,
+            }
+        };
+        market
+            .execute_parameter_update(&update, 3)
+            .unwrap_or_else(|error| panic!("disable_by_shape={disable_by_shape}: {error:?}"));
+        assert_eq!(market.base_side.reserves.protected_recenter_reserve, 0);
+        assert_eq!(market.quote_side.reserves.protected_recenter_reserve, 0);
+        assert_eq!(market.base_side.reserves.live_reserve, base_live_before + protected);
+        assert_eq!(market.quote_side.reserves.live_reserve, quote_live_before + protected);
+        market.assert_market_invariants().unwrap();
+    }
+}
+
+#[test]
 fn active_or_residual_hlp_allows_an_atomic_concentration_update() {
     let update = MarketParameterUpdate::Concentration {
         peak_amplification_nad: 4 * NAD,

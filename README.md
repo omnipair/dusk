@@ -18,7 +18,7 @@ Omnipair's GAMM (Generalized Automated Market Maker) combines an AMM with an int
 Dusk keeps that core Omnipair GAMM idea and rebuilds it around a market-native account model:
 
 - **Oracle-less markets**: pricing and risk use in-protocol reserve state, EMA books, and conservative settlement references instead of external oracle feeds.
-- **Optional autonomous concentration**: the Dusk Concentrated AMM concentrates depth around an internal center, recenters only through its funded bounded controller during genuine user operations, and can ramp to or from exact CPMM without changing invariant families elsewhere in the protocol.
+- **Optional autonomous concentration**: the Dusk Concentrated AMM concentrates depth around an internal center and recenters only through its funded bounded controller during genuine user operations. Governance can switch the curve shape to or from exact CPMM.
 - **Path-aware bounded fees**: an outward divergence surcharge targets trending inventory stress while a separate volatility surcharge prices repeated chop. Each component has an explicit gross-input budget, and aggregate fees can never exceed 50% of the trader's input.
 - **Unified liquidity and lending**: LP inventory backs both swaps and borrow demand, letting capital serve multiple protocol flows.
 - **Standalone Dusk program**: Dusk has its own program ID, IDL, account model, event surface, and SDK helpers.
@@ -266,7 +266,7 @@ settle_protocol_auction
 ```
 
 Market parameters are deliberately split into seven typed proposal families:
-fees, concentration shape and ramp duration, IRM, EMA half-lives, the daily
+fees, concentration shape, IRM, EMA half-lives, the daily
 borrow limit, the center controller, and insurance draw caps. A proposal snapshots that family's revision, so execution becomes
 stale if another proposal changes the same family first. Execution is blocked
 at 80% utilization, while repayments, liquidations, collateral additions, and

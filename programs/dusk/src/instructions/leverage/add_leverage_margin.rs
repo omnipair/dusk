@@ -92,11 +92,6 @@ impl<'info> AddLeverageMargin<'info> {
         validate_leverage_interest_account(&self.market, &self.debt_mint, &self.debt_interest_vault, debt_asset)?;
         validate_owner_debt_account(self.owner.key(), &self.debt_mint, &self.owner_debt_account)?;
         require_supported_asset_mint(&self.debt_mint)?;
-        require_gte!(
-            self.owner_debt_account.amount,
-            args.amount,
-            ErrorCode::InsufficientBalance
-        );
         self.leverage_position.require_open()?;
         validate_referral_binding(
             None,
@@ -170,6 +165,11 @@ impl<'info> AddLeverageMargin<'info> {
             )?)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require_gte!(args.amount, repay_gross, ErrorCode::BrokenInvariant);
+        require_gte!(
+            ctx.accounts.owner_debt_account.amount,
+            repay_gross,
+            ErrorCode::InsufficientBalance
+        );
         transfer_checked_with_remaining_accounts(
             ctx.accounts.owner.to_account_info(),
             ctx.accounts.owner_debt_account.to_account_info(),

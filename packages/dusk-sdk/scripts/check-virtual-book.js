@@ -24,6 +24,17 @@ const BN = Reflect.get(anchor, "BN") ?? Reflect.get(anchor, "default").BN;
 const fixture = JSON.parse(
   readFileSync(new URL("./fixtures/virtual-book-batch-devnet-20260920.json", import.meta.url))
 );
+// This saved account predates the two fractional borrow-index carries in Debt.
+// Add zero-valued carries at the fixed fixture's Debt offset for current IDL
+// decoding; the network response and its original observations stay the same.
+const savedMarketBytes = Buffer.from(fixture.result.value.accounts[0].data[0], "base64");
+assert.equal(savedMarketBytes.length, 2917);
+const borrowIndexEnd = 1623;
+fixture.result.value.accounts[0].data[0] = Buffer.concat([
+  savedMarketBytes.subarray(0, borrowIndexEnd),
+  Buffer.alloc(32),
+  savedMarketBytes.subarray(borrowIndexEnd),
+]).toString("base64");
 const slot = fixture.result.context.slot;
 const prefix = `Program return: ${fixture.programId} `;
 const previews = fixture.result.value.logs

@@ -88,7 +88,9 @@
         },
         {
           "name": "executor",
-          "signer": true
+          "docs": [
+            "across the delegated callback boundary."
+          ]
         },
         {
           "name": "futarchy_authority"
@@ -199,7 +201,9 @@
         },
         {
           "name": "executor",
-          "signer": true
+          "docs": [
+            "across the delegated callback boundary."
+          ]
         }
       ],
       "args": [
@@ -290,7 +294,9 @@
         },
         {
           "name": "executor",
-          "signer": true
+          "docs": [
+            "across the delegated callback boundary."
+          ]
         }
       ],
       "args": [
@@ -3162,6 +3168,18 @@
             "type": "u128"
           },
           {
+            "name": "base_borrow_index_remainder",
+            "docs": [
+              "Fractional index growth carried across checkpoints. Denominator is",
+              "`NAD * MS_PER_YEAR`, so frequent checkpoints cannot discard interest."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "quote_borrow_index_remainder",
+            "type": "u128"
+          },
+          {
             "name": "base_rate_at_target_nad",
             "type": "u128"
           },
@@ -3885,6 +3903,10 @@
             "type": "u32"
           },
           {
+            "name": "open_curve_revision",
+            "type": "u64"
+          },
+          {
             "name": "bump",
             "type": "u8"
           }
@@ -3999,6 +4021,10 @@
           {
             "name": "position",
             "type": "pubkey"
+          },
+          {
+            "name": "open_curve_revision",
+            "type": "u64"
           },
           {
             "name": "order_id",
@@ -4121,6 +4147,14 @@
           },
           {
             "name": "opened_slot",
+            "type": "u64"
+          },
+          {
+            "name": "open_curve_revision",
+            "docs": [
+              "Market curve revision committed by this opening. A recreated PDA gets",
+              "a new revision even if it reopens in the same slot."
+            ],
             "type": "u64"
           },
           {

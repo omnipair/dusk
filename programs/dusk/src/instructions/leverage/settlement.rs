@@ -295,16 +295,11 @@ pub fn split_delegated_accounts<'a, 'info>(
     Ok(accounts.split_at(before_accounts_len))
 }
 
-pub fn invoke_delegated_callback<'info>(
-    delegated_program: &UncheckedAccount<'info>,
-    data: Vec<u8>,
-    accounts: &[AccountInfo<'info>],
+fn delegated_callback_metas(
+    accounts: &[AccountInfo<'_>],
     protected_accounts: &[Pubkey],
     writable_protected_accounts: &[Pubkey],
-) -> Result<()> {
-    require!(!data.is_empty(), ErrorCode::InvalidLeverageDelegation);
-    require!(delegated_program.executable, ErrorCode::InvalidLeverageDelegation);
-
+) -> Result<Vec<AccountMeta>> {
     for (index, account) in accounts.iter().enumerate() {
         for prior in accounts.iter().take(index) {
             require_keys_neq!(account.key(), prior.key(), ErrorCode::InvalidLeverageDelegation);
@@ -318,15 +313,25 @@ pub fn invoke_delegated_callback<'info>(
             account_metas.push(AccountMeta::new_readonly(account.key(), false));
             continue;
         }
-        if is_protected {
-            require!(!account.is_signer, ErrorCode::InvalidLeverageDelegation);
-        }
         account_metas.push(AccountMeta {
             pubkey: account.key(),
-            is_signer: account.is_signer,
+            is_signer: false,
             is_writable: account.is_writable,
         });
     }
+    Ok(account_metas)
+}
+
+pub fn invoke_delegated_callback<'info>(
+    delegated_program: &UncheckedAccount<'info>,
+    data: Vec<u8>,
+    accounts: &[AccountInfo<'info>],
+    protected_accounts: &[Pubkey],
+    writable_protected_accounts: &[Pubkey],
+) -> Result<()> {
+    require!(!data.is_empty(), ErrorCode::InvalidLeverageDelegation);
+    require!(delegated_program.executable, ErrorCode::InvalidLeverageDelegation);
+    let account_metas = delegated_callback_metas(accounts, protected_accounts, writable_protected_accounts)?;
     let mut account_infos = Vec::with_capacity(accounts.len() + 1);
     account_infos.push(delegated_program.to_account_info());
     account_infos.extend(accounts.iter().cloned());

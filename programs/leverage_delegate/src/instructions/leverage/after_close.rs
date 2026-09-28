@@ -55,7 +55,9 @@ pub struct AfterCloseOrder<'info> {
         constraint = token_mint.key() == order.staged_output_mint @ LeverageDelegateError::InvalidTokenAccount,
     )]
     pub token_mint: Box<InterfaceAccount<'info, Mint>>,
-    pub executor: Signer<'info>,
+    /// CHECK: Identifies the executor; Dusk does not forward signer privileges
+    /// across the delegated callback boundary.
+    pub executor: UncheckedAccount<'info>,
     pub futarchy_authority: Box<Account<'info, dusk::state::FutarchyAuthority>>,
     pub protocol_fee: OrderFeePayment<'info>,
     pub token_program: Program<'info, Token>,
@@ -67,6 +69,9 @@ impl<'info> AfterCloseOrder<'info> {
         ctx: Context<'_, '_, '_, 'info, Self>,
         _args: ExecuteOrderArgs,
     ) -> Result<()> {
+        ctx.accounts
+            .order
+            .assert_position_generation(&ctx.accounts.leverage_position)?;
         require_eq!(
             ctx.accounts.leverage_position.debt_shares,
             ctx.accounts.order.staged_remaining_debt_shares,

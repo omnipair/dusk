@@ -90,6 +90,7 @@ fn empty_position() -> LeveragePosition {
         multiplier_bps: 0,
         opened_at: 0,
         opened_slot: 0,
+        open_curve_revision: 0,
         bump: 0,
     }
 }

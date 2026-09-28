@@ -271,6 +271,7 @@ impl<'info> BackstopLiquidationAuction<'info> {
         ctx.accounts.collateral_reserve_vault.reload()?;
         let collateral_reserve_credit =
             token_account_credit(collateral_reserve_before, &ctx.accounts.collateral_reserve_vault)?;
+        require!(collateral_reserve_credit > 0, ErrorCode::InsufficientAmount);
 
         let protocol_fee_bps = ctx.accounts.futarchy_authority.revenue_share.swap_bps;
         let protocol_auction_split = ctx.accounts.futarchy_authority.protocol_auction_split;

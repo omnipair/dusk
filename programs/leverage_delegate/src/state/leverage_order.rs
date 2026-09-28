@@ -6,6 +6,7 @@ pub struct LeverageOrder {
     pub owner: Pubkey,
     pub market: Pubkey,
     pub position: Pubkey,
+    pub open_curve_revision: u64,
     pub order_id: u64,
     pub kind: u8,
     pub trigger_closeout_price_nad: u64,
@@ -21,4 +22,18 @@ pub struct LeverageOrder {
     /// Executed collateral-sale value in debt tokens, before debt repayment.
     pub staged_execution_value: u64,
     pub bump: u8,
+}
+
+impl LeverageOrder {
+    pub fn assert_position_generation(
+        &self,
+        position: &dusk::state::LeveragePosition,
+    ) -> Result<()> {
+        require_eq!(
+            self.open_curve_revision,
+            position.open_curve_revision,
+            crate::errors::LeverageDelegateError::InvalidOrder
+        );
+        Ok(())
+    }
 }

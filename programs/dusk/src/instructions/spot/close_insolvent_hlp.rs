@@ -16,7 +16,6 @@ use crate::{
         },
         record_hlp_interest_credit, validate_hlp_authority_pdas,
     },
-    math::arithmetic::ceil_div,
     state::{FutarchyAuthority, Market, MarketAsset},
     token::{token_burn, transfer_checked_with_remaining_accounts},
     transitions::HlpYieldEligibility,
@@ -194,13 +193,10 @@ impl<'info> CloseInsolventHlp<'info> {
             0
         } else {
             u64::try_from(
-                ceil_div(
-                    (receipt.interest_paid as u128)
-                        .checked_mul(HLP_TERMINAL_CALLER_BPS as u128)
-                        .ok_or(ErrorCode::MarketMathOverflow)?,
-                    BPS_DENOMINATOR as u128,
-                )
-                .ok_or(ErrorCode::MarketMathOverflow)?,
+                (receipt.interest_paid as u128)
+                    .checked_mul(HLP_TERMINAL_CALLER_BPS as u128)
+                    .and_then(|amount| amount.checked_div(BPS_DENOMINATOR as u128))
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
             )
             .map_err(|_| ErrorCode::MarketMathOverflow)?
         };

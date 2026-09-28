@@ -1,10 +1,18 @@
 use super::*;
 
+#[test]
+fn trigger_price_uses_token_decimals() {
+    assert_eq!(closeout_price_nad(2_000_000, 1_000_000_000, 6, 9).unwrap(), 2 * NAD);
+    assert_eq!(closeout_price_nad(2_000_000_000, 1_000_000, 9, 6).unwrap(), 2 * NAD);
+    assert_eq!(closeout_price_nad(2_000_000, 1_000_000, 6, 6).unwrap(), 2 * NAD);
+}
+
 fn leverage_order() -> LeverageOrder {
     LeverageOrder {
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
         position: Pubkey::new_unique(),
+        open_curve_revision: 1,
         order_id: 1,
         kind: ORDER_KIND_TAKE_PROFIT,
         trigger_closeout_price_nad: NAD,
@@ -20,6 +28,34 @@ fn leverage_order() -> LeverageOrder {
         staged_output_amount: 0,
         bump: 255,
     }
+}
+
+#[test]
+fn recreated_position_requires_owner_to_reauthorize_order() {
+    let mut order = leverage_order();
+    let mut position = dusk::state::LeveragePosition {
+        owner: order.owner,
+        market: order.market,
+        position_id: Pubkey::new_unique(),
+        referral_partner: Pubkey::default(),
+        referral_interest_share_bps: 0,
+        debt_asset: 0,
+        collateral_amount: 1,
+        margin_amount: 1,
+        open_notional: 1,
+        debt_principal: 1,
+        debt_shares: 1,
+        multiplier_bps: 20_000,
+        opened_at: 1,
+        opened_slot: 1,
+        open_curve_revision: order.open_curve_revision,
+        bump: 1,
+    };
+    assert!(order.assert_position_generation(&position).is_ok());
+    position.open_curve_revision += 1;
+    assert!(order.assert_position_generation(&position).is_err());
+    order.open_curve_revision = position.open_curve_revision;
+    assert!(order.assert_position_generation(&position).is_ok());
 }
 
 fn stage_close_settlement_reference(

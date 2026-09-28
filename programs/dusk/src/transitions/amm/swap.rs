@@ -182,6 +182,12 @@ impl PreparedSwap {
         market.base_side.assert_share_backing()?;
         market.quote_side.assert_share_backing()?;
         market.side(fee_asset).fees.assert_backed()?;
+        // The fee index belongs to the shares held at the start of this swap.
+        // Settle that interval before the hLP transition replaces ownership.
+        market
+            .checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, self.interest_eligibility.base_hlp_ylp_shares)?;
+        market
+            .checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, self.interest_eligibility.quote_hlp_ylp_shares)?;
         let debt_asset = quote.asset_in.opposite();
         consume_hlp_tracking_unrealized_interest(
             &mut self.base_pre_rebalance,

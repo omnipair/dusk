@@ -75,6 +75,7 @@ impl<'info> StartLiquidationAuction<'info> {
         let floor_price = liquidation_reference_price_nad;
         let start_price = floor_price
             .checked_mul(105)
+            .and_then(|v| v.checked_add(99))
             .and_then(|v| v.checked_div(100))
             .ok_or(ErrorCode::MarketMathOverflow)?;
 

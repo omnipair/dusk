@@ -1,5 +1,36 @@
 use super::*;
 
+pub(super) fn closeout_price_nad(
+    closeout_value: u64,
+    collateral_amount: u64,
+    debt_decimals: u8,
+    collateral_decimals: u8,
+) -> Result<u64> {
+    require!(collateral_amount > 0, LeverageDelegateError::InvalidOrder);
+    let (numerator, denominator) = if collateral_decimals >= debt_decimals {
+        let scale = 10_u128
+            .checked_pow((collateral_decimals - debt_decimals) as u32)
+            .ok_or(LeverageDelegateError::MathOverflow)?;
+        ((NAD as u128).checked_mul(scale), collateral_amount as u128)
+    } else {
+        let scale = 10_u128
+            .checked_pow((debt_decimals - collateral_decimals) as u32)
+            .ok_or(LeverageDelegateError::MathOverflow)?;
+        (
+            Some(NAD as u128),
+            (collateral_amount as u128)
+                .checked_mul(scale)
+                .ok_or(LeverageDelegateError::MathOverflow)?,
+        )
+    };
+    (closeout_value as u128)
+        .checked_mul(numerator.ok_or(LeverageDelegateError::MathOverflow)?)
+        .and_then(|value| value.checked_div(denominator))
+        .ok_or(LeverageDelegateError::MathOverflow)?
+        .try_into()
+        .map_err(|_| LeverageDelegateError::MathOverflow.into())
+}
+
 #[derive(Accounts)]
 #[instruction(args: ExecuteOrderArgs)]
 pub struct BeforeLeverageOrder<'info> {
@@ -42,7 +73,9 @@ pub struct BeforeLeverageOrder<'info> {
     /// Token-2022 transfer-fee assets before approving a partial close.
     pub collateral_mint: Box<InterfaceAccount<'info, Mint>>,
     pub token_mint: Box<InterfaceAccount<'info, Mint>>,
-    pub executor: Signer<'info>,
+    /// CHECK: Identifies the executor; Dusk does not forward signer privileges
+    /// across the delegated callback boundary.
+    pub executor: UncheckedAccount<'info>,
 }
 
 impl<'info> BeforeLeverageOrder<'info> {
@@ -52,6 +85,7 @@ impl<'info> BeforeLeverageOrder<'info> {
         expected_kind: u8,
     ) -> Result<()> {
         let order = &mut ctx.accounts.order;
+        order.assert_position_generation(&ctx.accounts.leverage_position)?;
         require!(
             order.kind == expected_kind,
             LeverageDelegateError::InvalidOrder
@@ -63,13 +97,12 @@ impl<'info> BeforeLeverageOrder<'info> {
             current_slot,
             clock.unix_timestamp,
         )?;
-        let closeout_price_nad: u64 = (closeout_value as u128)
-            .checked_mul(NAD as u128)
-            .ok_or(LeverageDelegateError::MathOverflow)?
-            .checked_div(ctx.accounts.leverage_position.collateral_amount as u128)
-            .ok_or(LeverageDelegateError::MathOverflow)?
-            .try_into()
-            .map_err(|_| LeverageDelegateError::MathOverflow)?;
+        let closeout_price_nad = closeout_price_nad(
+            closeout_value,
+            ctx.accounts.leverage_position.collateral_amount,
+            ctx.accounts.token_mint.decimals,
+            ctx.accounts.collateral_mint.decimals,
+        )?;
         match expected_kind {
             ORDER_KIND_TAKE_PROFIT => require!(
                 closeout_price_nad >= order.trigger_closeout_price_nad,

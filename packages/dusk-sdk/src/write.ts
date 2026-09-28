@@ -182,6 +182,12 @@ type AnchorMethods = Record<string, (...args: unknown[]) => AnchorMethodBuilder>
 export class DuskWrite {
   constructor(readonly program: Program<Dusk>) {}
 
+  private fetchMarketAccount(market: PublicKey): Promise<unknown> {
+    return (this.program as unknown as {
+      account: { market: { fetch(address: PublicKey): Promise<unknown> } };
+    }).account.market.fetch(market);
+  }
+
   method(name: DuskInstructionName, args?: DuskInstructionArgs): AnchorMethodBuilder {
     const method = (this.program.methods as unknown as AnchorMethods)[name];
     if (!method) {
@@ -259,7 +265,7 @@ export class DuskWrite {
     marketAddress: AddressLike
   ): Promise<AccountMeta[]> {
     const market = address(marketAddress);
-    const state = (await this.program.account.market.fetch(market)) as unknown as {
+    const state = (await this.fetchMarketAccount(market)) as {
       ylpMint: AccountMeta["pubkey"];
       baseSide: { interestVault: AccountMeta["pubkey"] };
       quoteSide: { interestVault: AccountMeta["pubkey"] };
@@ -294,7 +300,7 @@ export class DuskWrite {
     options: SwapBuildOptions
   ): Promise<AnchorMethodBuilder> {
     const market = address(options.market);
-    const state = (await this.program.account.market.fetch(market)) as unknown as {
+    const state = (await this.fetchMarketAccount(market)) as {
       ylpMint: AccountMeta["pubkey"];
       baseSide: { interestVault: AccountMeta["pubkey"] };
       quoteSide: { interestVault: AccountMeta["pubkey"] };
@@ -1082,7 +1088,7 @@ export class DuskWrite {
   }
 
   private async governanceMarketState(market: PublicKey): Promise<GovernanceMarketState> {
-    return (await this.program.account.market.fetch(market)) as unknown as GovernanceMarketState;
+    return (await this.fetchMarketAccount(market)) as GovernanceMarketState;
   }
 
   async hlpLiquidityAction(
@@ -1341,8 +1347,15 @@ export class DuskWrite {
       this.program.provider.connection,
       mintKey
     );
+    const referralAccrual = (this.program as unknown as {
+      account: {
+        referralAccrual: {
+          fetch(address: PublicKey): Promise<{ amount: { toString(): string } }>;
+        };
+      };
+    }).account.referralAccrual;
     const [accrual, mint] = await Promise.all([
-      this.program.account.referralAccrual.fetch(referral.referralAccrual),
+      referralAccrual.fetch(referral.referralAccrual),
       getMint(
         this.program.provider.connection,
         mintKey,

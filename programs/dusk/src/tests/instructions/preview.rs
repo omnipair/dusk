@@ -38,8 +38,8 @@ impl<'a> NewPositionPreviewContext<'a> {
     }
 
     fn is_accepted(&self, projected_debt_amount: u64) -> Result<bool> {
-        let (terms, _) = self.terms(projected_debt_amount)?;
-        Ok(terms.max_debt >= projected_debt_amount
+        let (terms, _, projected_debt) = self.terms(projected_debt_amount)?;
+        Ok(terms.max_debt as u128 >= projected_debt
             && terms.projected_market_health_bps >= self.market.config.borrow_market_health_floor_bps as u64)
     }
 }
@@ -54,8 +54,8 @@ fn max_new_position_debt_by_dynamic_health(context: &NewPositionPreviewContext<'
     let mut high = upper_bound;
     while low < high {
         let midpoint = low + (high - low) / 2 + 1;
-        let (terms, _) = context.terms(midpoint)?;
-        if terms.max_debt >= midpoint
+        let (terms, _, projected_debt) = context.terms(midpoint)?;
+        if terms.max_debt as u128 >= projected_debt
             && terms.projected_market_health_bps >= context.market.config.borrow_market_health_floor_bps as u64
         {
             low = midpoint;
@@ -94,6 +94,18 @@ fn preview_test_market(existing_base_debt: u64, aggregate_quote_contribution: u6
     };
     market.prepare_amm_for_swap(0).unwrap();
     market
+}
+
+#[test]
+fn unseeded_market_has_a_zero_spot_preview() {
+    let market = Market::default();
+    for asset in [MarketAsset::Base, MarketAsset::Quote] {
+        let side = preview_side(&market, asset, 0).unwrap();
+        assert_eq!(side.ylp_supply, 0);
+        assert_eq!(side.spot_price_nad, 0);
+        assert_eq!(side.borrow_index_nad, market.debt.borrow_index(asset));
+    }
+    market.market_health().unwrap();
 }
 
 #[test]
@@ -350,6 +362,24 @@ fn dynamic_health_binary_search_matches_brute_force() {
         .unwrap();
 
     assert_eq!(binary, brute);
+}
+
+#[test]
+fn new_position_preview_uses_executable_debt_share_rounding() {
+    let mut market = preview_test_market(100, 150);
+    market.debt.base_borrow_index_nad = (NAD as u128) * 3 / 2;
+    let position = BorrowPosition::default();
+    let context = NewPositionPreviewContext::new(&market, MarketAsset::Base, 5_000, &market.risk).unwrap();
+
+    for requested in [1, 2, 3, 101, 1_001] {
+        let (terms, contribution, preview_debt) = context.terms(requested).unwrap();
+        let execution = market
+            .position_borrow_projection(&position, MarketAsset::Base, requested, 5_000, &market.risk)
+            .unwrap();
+        assert_eq!(preview_debt, execution.projected_position_debt);
+        assert_eq!(contribution, execution.target_contribution);
+        assert_eq!(terms, execution.terms);
+    }
 }
 
 #[test]
@@ -727,6 +757,8 @@ fn stressed_hlp_recovery_improves_the_matching_swap_and_restores_the_hedge() {
 #[test]
 fn concentrated_spot_reconstructs_both_hlps_without_solver_cells() {
     let mut market = active_reconfigured_concentrated_preview_market();
+    let old_base_vault = market.base_hlp_vault;
+    let old_quote_vault = market.quote_hlp_vault;
     let mut prepared = SwapRequest {
         current_slot: 1,
         current_unix_timestamp: 0,
@@ -749,6 +781,21 @@ fn concentrated_spot_reconstructs_both_hlps_without_solver_cells() {
         .unwrap();
     assert!(finalized.base_rebalance.ylp_mint_amount > 0 || finalized.base_rebalance.ylp_burn_amount > 0);
     assert!(finalized.quote_rebalance.ylp_mint_amount > 0 || finalized.quote_rebalance.ylp_burn_amount > 0);
+    for (old_vault, actual_vault) in [
+        (old_base_vault, market.base_hlp_vault),
+        (old_quote_vault, market.quote_hlp_vault),
+    ] {
+        let mut expected = old_vault;
+        expected
+            .checkpoint_yield_from_ylp_shares(&market.base_side, &market.quote_side, old_vault.ylp_shares)
+            .unwrap();
+        assert!(
+            expected.base_swap_fee_growth_index_q64 > old_vault.base_swap_fee_growth_index_q64
+                || expected.quote_swap_fee_growth_index_q64 > old_vault.quote_swap_fee_growth_index_q64
+        );
+        assert_eq!(actual_vault.base_swap_fee_growth_index_q64, expected.base_swap_fee_growth_index_q64);
+        assert_eq!(actual_vault.quote_swap_fee_growth_index_q64, expected.quote_swap_fee_growth_index_q64);
+    }
     market.assert_market_invariants().unwrap();
 
     let supply = market.base_side.shares.ylp_supply as u128;
@@ -1206,7 +1253,7 @@ proptest! {
         let lower_accepted = context.is_accepted(lower_candidate).unwrap();
         let higher_accepted = context.is_accepted(higher_candidate).unwrap();
 
-        let (cached_terms, cached_contribution) = context.terms(lower_candidate).unwrap();
+        let (cached_terms, cached_contribution, _) = context.terms(lower_candidate).unwrap();
         let projected_debt_nad = normalize_to_nad(lower_candidate as u128, 0).unwrap();
         let projected_aggregate = aggregate_contribution
             .checked_add(cached_contribution)

@@ -566,4 +566,10 @@ fn huberized_raw_state_is_marginally_capped_and_telescopes() {
     let pc = state.state_potential(c).unwrap().0;
     assert_eq!(pc - pa, (pb - pa) + (pc - pb));
     assert!(pc - pb <= (c - b) as u128 * marginal_cap as u128 / NAD as u128 + 1);
+
+    let whole = gross_path_divergence_fee_raw(center, center + a, center + c, 100 * NAD, 2_000).unwrap();
+    let first = gross_path_divergence_fee_raw(center, center + a, center + b, 100 * NAD, 2_000).unwrap();
+    let second = gross_path_divergence_fee_raw(center, center + b, center + c, 100 * NAD, 2_000).unwrap();
+    assert!(!whole.1 && !first.1 && !second.1);
+    assert_eq!(whole.0, first.0 + second.0);
 }

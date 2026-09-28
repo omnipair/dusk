@@ -207,6 +207,7 @@ impl<'info> CloseLeverage<'info> {
             self.market.key(),
             self.leverage_position.key(),
             debt_asset,
+            self.leverage_position.open_curve_revision,
         )?;
         require_keys_eq!(
             delegation.delegated_program,
@@ -358,6 +359,14 @@ impl<'info> CloseLeverage<'info> {
                 ctx.accounts.debt_interest_vault.key(),
                 ctx.accounts.leverage_collateral_vault.key(),
                 ctx.accounts.owner_debt_account.key(),
+                ctx.accounts.position_owner.key(),
+                ctx.accounts.authority.key(),
+                ctx.accounts.futarchy_authority.key(),
+                ctx.accounts.debt_mint.key(),
+                ctx.accounts.collateral_mint.key(),
+                ctx.accounts.instructions_sysvar.key(),
+                ctx.accounts.token_program.key(),
+                ctx.accounts.token_2022_program.key(),
             ];
             if let Some(partner) = ctx.accounts.referral_partner.as_ref() {
                 protected_accounts.push(partner.key());
@@ -630,6 +639,14 @@ impl<'info> CloseLeverage<'info> {
                 ctx.accounts.debt_interest_vault.key(),
                 ctx.accounts.leverage_collateral_vault.key(),
                 ctx.accounts.owner_debt_account.key(),
+                ctx.accounts.position_owner.key(),
+                ctx.accounts.authority.key(),
+                ctx.accounts.futarchy_authority.key(),
+                ctx.accounts.debt_mint.key(),
+                ctx.accounts.collateral_mint.key(),
+                ctx.accounts.instructions_sysvar.key(),
+                ctx.accounts.token_program.key(),
+                ctx.accounts.token_2022_program.key(),
             ];
             if let Some(partner) = ctx.accounts.referral_partner.as_ref() {
                 protected_accounts.push(partner.key());
@@ -637,7 +654,8 @@ impl<'info> CloseLeverage<'info> {
             if let Some(accrual) = ctx.accounts.referral_accrual.as_ref() {
                 protected_accounts.push(accrual.key());
             }
-            let writable_protected_accounts = [ctx.accounts.owner_debt_account.key()];
+            let writable_protected_accounts =
+                [ctx.accounts.owner_debt_account.key(), ctx.accounts.position_owner.key()];
             ctx.accounts.market.exit(&crate::ID)?;
             ctx.accounts.leverage_position.exit(&crate::ID)?;
             invoke_delegated_approval_callback(

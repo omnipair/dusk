@@ -1049,6 +1049,7 @@ impl Market {
             opened_slot,
             bump,
         );
+        position.open_curve_revision = self.curve_revision;
         let closeout_value = self.require_position_initial_leverage_health(position, opened_slot, opened_at)?;
         let equity = closeout_value
             .checked_sub(borrowed_amount)

@@ -94,7 +94,9 @@ export type LeverageDelegate = {
         },
         {
           "name": "executor",
-          "signer": true
+          "docs": [
+            "across the delegated callback boundary."
+          ]
         },
         {
           "name": "futarchyAuthority"
@@ -205,7 +207,9 @@ export type LeverageDelegate = {
         },
         {
           "name": "executor",
-          "signer": true
+          "docs": [
+            "across the delegated callback boundary."
+          ]
         }
       ],
       "args": [
@@ -296,7 +300,9 @@ export type LeverageDelegate = {
         },
         {
           "name": "executor",
-          "signer": true
+          "docs": [
+            "across the delegated callback boundary."
+          ]
         }
       ],
       "args": [
@@ -3168,6 +3174,18 @@ export type LeverageDelegate = {
             "type": "u128"
           },
           {
+            "name": "baseBorrowIndexRemainder",
+            "docs": [
+              "Fractional index growth carried across checkpoints. Denominator is",
+              "`NAD * MS_PER_YEAR`, so frequent checkpoints cannot discard interest."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "quoteBorrowIndexRemainder",
+            "type": "u128"
+          },
+          {
             "name": "baseRateAtTargetNad",
             "type": "u128"
           },
@@ -3891,6 +3909,10 @@ export type LeverageDelegate = {
             "type": "u32"
           },
           {
+            "name": "openCurveRevision",
+            "type": "u64"
+          },
+          {
             "name": "bump",
             "type": "u8"
           }
@@ -4005,6 +4027,10 @@ export type LeverageDelegate = {
           {
             "name": "position",
             "type": "pubkey"
+          },
+          {
+            "name": "openCurveRevision",
+            "type": "u64"
           },
           {
             "name": "orderId",
@@ -4127,6 +4153,14 @@ export type LeverageDelegate = {
           },
           {
             "name": "openedSlot",
+            "type": "u64"
+          },
+          {
+            "name": "openCurveRevision",
+            "docs": [
+              "Market curve revision committed by this opening. A recreated PDA gets",
+              "a new revision even if it reopens in the same slot."
+            ],
             "type": "u64"
           },
           {

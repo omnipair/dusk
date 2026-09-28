@@ -168,10 +168,14 @@ impl Market {
             } else {
                 let mut low = 0_u64;
                 let mut high = debt_side.reserves.live_reserve;
-                while low < high {
+                let search_steps = position_capacity_search_steps(high);
+                for _ in 0..search_steps {
+                    if low >= high {
+                        break;
+                    }
                     let midpoint = low + (high - low) / 2 + 1;
-                    let (terms, _) = context.terms(midpoint)?;
-                    let accepted = terms.max_debt >= midpoint
+                    let (terms, _, projected_debt) = context.terms(midpoint)?;
+                    let accepted = terms.max_debt as u128 >= projected_debt
                         && terms.projected_market_health_bps >= self.config.borrow_market_health_floor_bps as u64;
                     if accepted {
                         low = midpoint;
@@ -184,8 +188,9 @@ impl Market {
         };
         let max_debt = max_debt_by_health.min(max_debt_by_cash).min(max_debt_by_daily_limit);
         let projected_debt_amount = projected_borrow_amount.unwrap_or(max_debt);
-        let (projected_terms, projected_global_health_contribution) = context.terms(projected_debt_amount)?;
-        let projected_debt_nad = self.normalize_amount(projected_debt_amount as u128, debt_side.asset_decimals)?;
+        let (projected_terms, projected_global_health_contribution, projected_debt) =
+            context.terms(projected_debt_amount)?;
+        let projected_debt_nad = self.normalize_amount(projected_debt, debt_side.asset_decimals)?;
         let projected_health_bps = if projected_debt_nad == 0 {
             u64::MAX
         } else {
@@ -197,7 +202,7 @@ impl Market {
             } else {
                 let collateral_nad =
                     self.normalize_amount(collateral_amount as u128, collateral_side.asset_decimals)?;
-                let debt_nad = self.normalize_amount(projected_debt_amount as u128, debt_side.asset_decimals)?;
+                let debt_nad = self.normalize_amount(projected_debt, debt_side.asset_decimals)?;
                 let price = ceil_div(
                     debt_nad
                         .checked_mul(BPS_DENOMINATOR as u128)
@@ -298,18 +303,29 @@ pub(crate) struct NewPositionPreviewContext<'a> {
 }
 
 impl NewPositionPreviewContext<'_> {
-    pub(crate) fn terms(&self, projected_debt_amount: u64) -> Result<(DynamicBorrowTerms, u64)> {
+    pub(crate) fn terms(&self, projected_debt_amount: u64) -> Result<(DynamicBorrowTerms, u64, u128)> {
         let debt_decimals = self.market.side(self.debt_asset).asset_decimals;
-        let projected_debt_nad = self
-            .market
-            .normalize_amount(projected_debt_amount as u128, debt_decimals)?;
-        let projected_total_debt_nad = self
-            .existing_total_debt_nad
-            .checked_add(projected_debt_nad)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let debt_index = self.market.debt.borrow_index(self.debt_asset);
+        let debt_shares = if projected_debt_amount == 0 {
+            0
+        } else {
+            Debt::debt_to_shares(projected_debt_amount, debt_index)?
+        };
+        let projected_debt = Debt::shares_to_debt(debt_shares, debt_index)?;
+        let aggregate_shares = match self.debt_asset {
+            MarketAsset::Base => self.market.debt.fixed_base_shares,
+            MarketAsset::Quote => self.market.debt.fixed_quote_shares,
+        };
+        let projected_total_debt = Debt::shares_to_debt(
+            aggregate_shares
+                .checked_add(debt_shares)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            debt_index,
+        )?;
+        let projected_total_debt_nad = self.market.normalize_amount(projected_total_debt, debt_decimals)?;
         let contribution = self.market.debt_capped_global_health_contribution(
             self.debt_asset,
-            projected_debt_amount as u128,
+            projected_debt,
             self.collateral_amount,
             self.risk,
         )?;
@@ -325,7 +341,7 @@ impl NewPositionPreviewContext<'_> {
             projected_aggregate,
             self.risk,
         )?;
-        Ok((terms, contribution))
+        Ok((terms, contribution, projected_debt))
     }
 }
 
