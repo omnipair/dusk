@@ -36,6 +36,7 @@ fn recreated_position_requires_owner_to_reauthorize_order() {
     let mut position = dusk::state::LeveragePosition {
         owner: order.owner,
         market: order.market,
+        namespace_authority: order.owner,
         position_id: Pubkey::new_unique(),
         referral_partner: Pubkey::default(),
         referral_interest_share_bps: 0,

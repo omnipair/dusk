@@ -163,6 +163,7 @@ pub struct PreviewBorrowPosition<'info> {
         seeds = [
             BORROW_POSITION_SEED_PREFIX,
             market.key().as_ref(),
+            borrow_position.owner.as_ref(),
             borrow_position.position_id.as_ref(),
         ],
         bump = borrow_position.bump,
@@ -180,7 +181,7 @@ pub struct PreviewBorrowPositionCapacity<'info> {
     )]
     pub market: Box<Account<'info, Market>>,
     #[account(
-        seeds = [BORROW_POSITION_SEED_PREFIX, market.key().as_ref(), borrow_position.position_id.as_ref()],
+        seeds = [BORROW_POSITION_SEED_PREFIX, market.key().as_ref(), borrow_position.owner.as_ref(), borrow_position.position_id.as_ref()],
         bump = borrow_position.bump,
         constraint = borrow_position.market == market.key() @ ErrorCode::InvalidPositionMarket
     )]

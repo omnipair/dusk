@@ -132,6 +132,16 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
                 "path": "leverage_position.position_id",
                 "account": "leveragePosition"
               }
@@ -530,6 +540,11 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
+              },
+              {
+                "kind": "account",
                 "path": "borrow_position.position_id",
                 "account": "borrowPosition"
               }
@@ -731,6 +746,11 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
               },
               {
                 "kind": "account",
@@ -1150,6 +1170,16 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
               },
               {
                 "kind": "account",
@@ -1578,6 +1608,16 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
               },
               {
                 "kind": "account",
@@ -2026,6 +2066,16 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
                 "path": "leverage_position.position_id",
                 "account": "leveragePosition"
               }
@@ -2217,6 +2267,16 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
               },
               {
                 "kind": "account",
@@ -2463,6 +2523,10 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
               },
               {
                 "kind": "arg",
@@ -2755,6 +2819,11 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
               },
               {
                 "kind": "account",
@@ -3059,6 +3128,11 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
               },
               {
                 "kind": "account",
@@ -3543,6 +3617,16 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
               },
               {
                 "kind": "account",
@@ -5344,6 +5428,11 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
+              },
+              {
+                "kind": "account",
                 "path": "borrow_position.position_id",
                 "account": "borrowPosition"
               }
@@ -5437,6 +5526,11 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
               },
               {
                 "kind": "account",
@@ -5948,6 +6042,16 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
                 "path": "leverage_position.position_id",
                 "account": "leveragePosition"
               }
@@ -6274,6 +6378,11 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
+              },
+              {
+                "kind": "account",
                 "path": "borrow_position.position_id",
                 "account": "borrowPosition"
               }
@@ -6461,6 +6570,16 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
               },
               {
                 "kind": "account",
@@ -7454,6 +7573,11 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
+              },
+              {
+                "kind": "account",
                 "path": "borrow_position.position_id",
                 "account": "borrowPosition"
               }
@@ -7976,6 +8100,16 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
               },
               {
                 "kind": "account",
@@ -8634,6 +8768,11 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
+              },
+              {
+                "kind": "account",
                 "path": "borrow_position.position_id",
                 "account": "borrowPosition"
               }
@@ -8841,6 +8980,11 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
               },
               {
                 "kind": "account",
@@ -9144,6 +9288,16 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
               },
               {
                 "kind": "account",
@@ -13518,6 +13672,14 @@ export type Dusk = {
           },
           {
             "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "namespaceAuthority",
+            "docs": [
+              "Funding signer that established this position. Ordinary opens use the",
+              "owner; sponsored entry orders use their owner-created order PDA."
+            ],
             "type": "pubkey"
           },
           {

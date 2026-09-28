@@ -57,6 +57,7 @@ pub struct DepositCollateral<'info> {
         seeds = [
             BORROW_POSITION_SEED_PREFIX,
             market.key().as_ref(),
+            owner.key().as_ref(),
             args.position_id.as_ref(),
         ],
         bump

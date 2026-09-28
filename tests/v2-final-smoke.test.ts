@@ -1373,7 +1373,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     remainingAccounts: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] = []
   ) {
     const positionId = Keypair.generate().publicKey;
-    const leveragePosition = deriveLeveragePositionAddress(fixture.market, positionId)[0];
+    const leveragePosition = deriveLeveragePositionAddress(fixture.market, payer.publicKey, positionId)[0];
     const leverageCollateralVault = deriveLeverageCollateralVaultAddress(
       fixture.market,
       fixture.baseMint
@@ -2272,7 +2272,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     trackV2Instruction("initializeReferralAccrual", this.test?.title);
 
     const borrowPositionId = Keypair.generate().publicKey;
-    const borrowPosition = deriveBorrowPositionAddress(fixture.market, borrowPositionId)[0];
+    const borrowPosition = deriveBorrowPositionAddress(fixture.market, payer.publicKey, borrowPositionId)[0];
     const depositTx = await program.methods
       .depositCollateral({
         positionId: borrowPositionId,
@@ -2584,7 +2584,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     trackV2Instruction("setReferralRecipient", this.test?.title);
 
     const borrowPositionId = Keypair.generate().publicKey;
-    const borrowPosition = deriveBorrowPositionAddress(fixture.market, borrowPositionId)[0];
+    const borrowPosition = deriveBorrowPositionAddress(fixture.market, payer.publicKey, borrowPositionId)[0];
     const depositTx = await program.methods
       .depositCollateral({
         positionId: borrowPositionId,
@@ -5102,6 +5102,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const borrowPositionId = Keypair.generate().publicKey;
     const borrowPosition = deriveBorrowPositionAddress(
       fixture.market,
+      payer.publicKey,
       borrowPositionId
     )[0];
     const depositTx = await program.methods
@@ -6250,10 +6251,46 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(destinationYlpAfter.amount).to.equal(10_000n);
   });
 
+  it("binds borrow positions to the signing owner while allowing multiple position IDs", async function () {
+    const fixture = await addBalancedLiquidity(253);
+    const positionId = Keypair.generate().publicKey;
+    const secondId = Keypair.generate().publicKey;
+    const otherOwner = Keypair.generate().publicKey;
+    const first = deriveBorrowPositionAddress(fixture.market, payer.publicKey, positionId)[0];
+    const second = deriveBorrowPositionAddress(fixture.market, payer.publicKey, secondId)[0];
+    const foreign = deriveBorrowPositionAddress(fixture.market, otherOwner, positionId)[0];
+    expect(first.equals(second)).to.equal(false);
+    expect(first.equals(foreign)).to.equal(false);
+
+    const deposit = (borrowPosition: PublicKey, id: PublicKey) => program.methods
+      .depositCollateral({ positionId: id, depositAmount: new BN(1) })
+      .accounts({
+        market: fixture.market, owner: payer.publicKey, assetMint: fixture.baseMint,
+        collateralVault: fixture.baseCollateralVault, ownerAssetAccount: fixture.ownerBaseAccount,
+        borrowPosition, tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+      }).transaction();
+
+    let rejected = false;
+    try {
+      await connection.sendTransaction(await deposit(foreign, positionId), [payer]);
+    } catch {
+      rejected = true;
+    }
+    expect(rejected).to.equal(true);
+    expect(svm.getAccount(foreign)).to.equal(null);
+
+    await connection.sendTransaction(await deposit(first, positionId), [payer]);
+    await connection.sendTransaction(await deposit(second, secondId), [payer]);
+    expect(svm.getAccount(first)).to.not.equal(null);
+    expect(svm.getAccount(second)).to.not.equal(null);
+  });
+
   it("deposits collateral, borrows fixed quote debt, repays, and withdraws idle collateral", async function () {
     const fixture = await addBalancedLiquidity(49);
     const borrowPositionId = Keypair.generate().publicKey;
-    const borrowPosition = deriveBorrowPositionAddress(fixture.market, borrowPositionId)[0];
+    const borrowPosition = deriveBorrowPositionAddress(fixture.market, payer.publicKey, borrowPositionId)[0];
     const ownerBaseBefore = await getAccount(connection as any, fixture.ownerBaseAccount);
     const ownerQuoteBefore = await getAccount(connection as any, fixture.ownerQuoteAccount);
 
@@ -6568,7 +6605,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       quoteMint: 3_000_000_000_000_000_000n,
     });
     const positionId = Keypair.generate().publicKey;
-    const borrowPosition = deriveBorrowPositionAddress(fixture.market, positionId)[0];
+    const borrowPosition = deriveBorrowPositionAddress(fixture.market, payer.publicKey, positionId)[0];
     await connection.sendTransaction(await program.methods.depositCollateral({
       positionId, depositAmount: new BN("10000000000000000"),
     }).accounts({
@@ -6589,7 +6626,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
     }).transaction(), [payer]);
     const externalPositionId = Keypair.generate().publicKey;
-    const externalBorrowPosition = deriveBorrowPositionAddress(fixture.market, externalPositionId)[0];
+    const externalBorrowPosition = deriveBorrowPositionAddress(fixture.market, payer.publicKey, externalPositionId)[0];
     await connection.sendTransaction(await program.methods.depositCollateral({
       positionId: externalPositionId, depositAmount: new BN("10000000000000000"),
     }).accounts({
@@ -6629,7 +6666,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   it("permissioned referrals accrue a capped DAO-interest share and remain claimable", async function () {
     const fixture = await addBalancedLiquidity(69);
     const borrowPositionId = Keypair.generate().publicKey;
-    const borrowPosition = deriveBorrowPositionAddress(fixture.market, borrowPositionId)[0];
+    const borrowPosition = deriveBorrowPositionAddress(fixture.market, payer.publicKey, borrowPositionId)[0];
 
     const unlistedReferrer = Keypair.generate().publicKey;
     const unlistedPartner = deriveReferralPartnerAddress(unlistedReferrer)[0];
@@ -6862,7 +6899,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     await connection.sendTransaction(inactiveAccrualSetupTx, [payer]);
 
     const rejectedPositionId = Keypair.generate().publicKey;
-    const rejectedPosition = deriveBorrowPositionAddress(fixture.market, rejectedPositionId)[0];
+    const rejectedPosition = deriveBorrowPositionAddress(fixture.market, payer.publicKey, rejectedPositionId)[0];
     const rejectedDepositTx = await program.methods
       .depositCollateral({
         positionId: rejectedPositionId,
@@ -7059,7 +7096,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     );
 
     const positionId = Keypair.generate().publicKey;
-    const leveragePosition = deriveLeveragePositionAddress(fixture.market, positionId)[0];
+    const leveragePosition = deriveLeveragePositionAddress(fixture.market, payer.publicKey, positionId)[0];
     const leverageCollateralVault = deriveLeverageCollateralVaultAddress(
       fixture.market,
       fixture.baseMint
@@ -7204,7 +7241,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const liquidationConfig = marketConfig();
     const fixture = await addBalancedLiquidity(54, liquidationConfig);
     const borrowPositionId = Keypair.generate().publicKey;
-    const borrowPosition = deriveBorrowPositionAddress(fixture.market, borrowPositionId)[0];
+    const borrowPosition = deriveBorrowPositionAddress(fixture.market, payer.publicKey, borrowPositionId)[0];
 
     const depositTx = await program.methods
       .depositCollateral({
@@ -7354,7 +7391,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   it("settles an expired liquidation auction through the internal AMM floor", async function () {
     const fixture = await addBalancedLiquidity(81, marketConfig());
     const borrowPositionId = Keypair.generate().publicKey;
-    const borrowPosition = deriveBorrowPositionAddress(fixture.market, borrowPositionId)[0];
+    const borrowPosition = deriveBorrowPositionAddress(fixture.market, payer.publicKey, borrowPositionId)[0];
 
     const depositTx = await program.methods
       .depositCollateral({
@@ -8289,10 +8326,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       for (const cancel of [true, false]) {
         const orderId = new BN(cancel ? 801 : 802);
         const positionId = Keypair.generate().publicKey;
-        const leveragePosition = deriveLeveragePositionAddress(f.market, positionId)[0];
         const leverageCollateralVault = deriveLeverageCollateralVaultAddress(f.market, f.baseMint)[0];
         const order = PublicKey.findProgramAddressSync([Buffer.from("leverage_entry_order"), f.market.toBuffer(),
           payer.publicKey.toBuffer(), orderId.toArrayLike(Buffer, "le", 8)], LEVERAGE_DELEGATE_PROGRAM_ID)[0];
+        const leveragePosition = deriveLeveragePositionAddress(f.market, payer.publicKey, positionId, order)[0];
         const fundingVault = getAssociatedTokenAddressSync(f.quoteMint, order, true, tokenProgram);
         await connection.sendTransaction(new Transaction().add(createAssociatedTokenAccountIdempotentInstruction(
           payer.publicKey, fundingVault, order, f.quoteMint, tokenProgram)), [payer]);
@@ -8793,7 +8830,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   });
   async function protectionBorrow(fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>) {
     const positionId = Keypair.generate().publicKey;
-    const borrowPosition = deriveBorrowPositionAddress(fixture.market, positionId)[0];
+    const borrowPosition = deriveBorrowPositionAddress(fixture.market, payer.publicKey, positionId)[0];
     await connection.sendTransaction(await program.methods.depositCollateral({ positionId, depositAmount: new BN(10_000) }).accounts({
       market: fixture.market, owner: payer.publicKey, assetMint: fixture.baseMint, collateralVault: fixture.baseCollateralVault,
       ownerAssetAccount: fixture.ownerBaseAccount, borrowPosition, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,

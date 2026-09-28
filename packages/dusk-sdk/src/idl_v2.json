@@ -126,6 +126,16 @@
               },
               {
                 "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "LeveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "LeveragePosition"
+              },
+              {
+                "kind": "account",
                 "path": "leverage_position.position_id",
                 "account": "LeveragePosition"
               }
@@ -524,6 +534,11 @@
               },
               {
                 "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "BorrowPosition"
+              },
+              {
+                "kind": "account",
                 "path": "borrow_position.position_id",
                 "account": "BorrowPosition"
               }
@@ -725,6 +740,11 @@
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "BorrowPosition"
               },
               {
                 "kind": "account",
@@ -1144,6 +1164,16 @@
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "LeveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "LeveragePosition"
               },
               {
                 "kind": "account",
@@ -1572,6 +1602,16 @@
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "LeveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "LeveragePosition"
               },
               {
                 "kind": "account",
@@ -2020,6 +2060,16 @@
               },
               {
                 "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "LeveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "LeveragePosition"
+              },
+              {
+                "kind": "account",
                 "path": "leverage_position.position_id",
                 "account": "LeveragePosition"
               }
@@ -2211,6 +2261,16 @@
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "LeveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "LeveragePosition"
               },
               {
                 "kind": "account",
@@ -2457,6 +2517,10 @@
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
               },
               {
                 "kind": "arg",
@@ -2749,6 +2813,11 @@
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "BorrowPosition"
               },
               {
                 "kind": "account",
@@ -3053,6 +3122,11 @@
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "BorrowPosition"
               },
               {
                 "kind": "account",
@@ -3537,6 +3611,16 @@
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "LeveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "LeveragePosition"
               },
               {
                 "kind": "account",
@@ -5338,6 +5422,11 @@
               },
               {
                 "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "BorrowPosition"
+              },
+              {
+                "kind": "account",
                 "path": "borrow_position.position_id",
                 "account": "BorrowPosition"
               }
@@ -5431,6 +5520,11 @@
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "BorrowPosition"
               },
               {
                 "kind": "account",
@@ -5942,6 +6036,16 @@
               },
               {
                 "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "LeveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "LeveragePosition"
+              },
+              {
+                "kind": "account",
                 "path": "leverage_position.position_id",
                 "account": "LeveragePosition"
               }
@@ -6268,6 +6372,11 @@
               },
               {
                 "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "BorrowPosition"
+              },
+              {
+                "kind": "account",
                 "path": "borrow_position.position_id",
                 "account": "BorrowPosition"
               }
@@ -6455,6 +6564,16 @@
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "LeveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "LeveragePosition"
               },
               {
                 "kind": "account",
@@ -7448,6 +7567,11 @@
               },
               {
                 "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "BorrowPosition"
+              },
+              {
+                "kind": "account",
                 "path": "borrow_position.position_id",
                 "account": "BorrowPosition"
               }
@@ -7970,6 +8094,16 @@
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "LeveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "LeveragePosition"
               },
               {
                 "kind": "account",
@@ -8628,6 +8762,11 @@
               },
               {
                 "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "BorrowPosition"
+              },
+              {
+                "kind": "account",
                 "path": "borrow_position.position_id",
                 "account": "BorrowPosition"
               }
@@ -8835,6 +8974,11 @@
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "BorrowPosition"
               },
               {
                 "kind": "account",
@@ -9138,6 +9282,16 @@
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "LeveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "LeveragePosition"
               },
               {
                 "kind": "account",
@@ -13512,6 +13666,14 @@
           },
           {
             "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "namespace_authority",
+            "docs": [
+              "Funding signer that established this position. Ordinary opens use the",
+              "owner; sponsored entry orders use their owner-created order PDA."
+            ],
             "type": "pubkey"
           },
           {

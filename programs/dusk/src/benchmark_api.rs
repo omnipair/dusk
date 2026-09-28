@@ -1325,7 +1325,7 @@ impl BenchmarkLeverageOwnedState {
         require_keys_neq!(funding_owner, Pubkey::default(), ErrorCode::InvalidSigner);
         require_keys_neq!(position_owner, Pubkey::default(), ErrorCode::InvalidSigner);
         let market_key = market.require_market_key()?;
-        let (position_key, _) = leverage_position_pda(market_key, position_id)?;
+        let (position_key, _) = leverage_position_pda(market_key, position_owner, funding_owner, position_id)?;
         let state = Self {
             funding_owner,
             position_owner,
@@ -1924,7 +1924,12 @@ impl BenchmarkMarket {
         require!(!leverage.position_exists, ErrorCode::InvalidLeveragePosition);
         require!(!leverage.position.is_initialized(), ErrorCode::InvalidLeveragePosition);
         let market_key = self.require_market_key()?;
-        let (position_key, _) = leverage_position_pda(market_key, leverage.position_id)?;
+        let (position_key, _) = leverage_position_pda(
+            market_key,
+            leverage.position_owner,
+            leverage.funding_owner,
+            leverage.position_id,
+        )?;
         require_keys_eq!(leverage.position_key, position_key, ErrorCode::InvalidLeveragePosition);
         validate_leverage_token_custody(&self.market, &leverage.token_balances)?;
         if let Some(referral) = leverage.referral.as_ref() {
@@ -1991,11 +1996,17 @@ impl BenchmarkMarket {
         // execution will independently reproduce these receipts.
         let mut settlement_market = clone_market(&prepared_market)?;
         let mut settlement_position = empty_leverage_position();
-        let (_, position_bump) = leverage_position_pda(self.require_market_key()?, leverage.position_id)?;
+        let (_, position_bump) = leverage_position_pda(
+            self.require_market_key()?,
+            leverage.position_owner,
+            leverage.funding_owner,
+            leverage.position_id,
+        )?;
         let settlement_preview = settlement_market.open_leverage(
             &mut settlement_position,
             leverage.position_owner,
             self.require_market_key()?,
+            leverage.funding_owner,
             leverage.position_id,
             referral_partner,
             referral_interest_share_bps,
@@ -2117,11 +2128,17 @@ impl BenchmarkMarket {
                 .ok_or(ErrorCode::MarketMathOverflow)?;
         let fee_credit = full_leverage_swap_fee_credit(prepared.quote.swap)?;
         let interest_eligibility = prepared.prepared_swap.interest_eligibility;
-        let (_, position_bump) = leverage_position_pda(self.require_market_key()?, next_leverage.position_id)?;
+        let (_, position_bump) = leverage_position_pda(
+            self.require_market_key()?,
+            next_leverage.position_owner,
+            next_leverage.funding_owner,
+            next_leverage.position_id,
+        )?;
         let native = next_market.open_leverage(
             &mut next_leverage.position,
             next_leverage.position_owner,
             self.require_market_key()?,
+            next_leverage.funding_owner,
             next_leverage.position_id,
             prepared.quote.referral_partner,
             prepared.quote.referral_interest_share_bps,
@@ -4254,6 +4271,7 @@ fn empty_leverage_position() -> LeveragePosition {
     LeveragePosition {
         owner: Pubkey::default(),
         market: Pubkey::default(),
+        namespace_authority: Pubkey::default(),
         position_id: Pubkey::default(),
         referral_partner: Pubkey::default(),
         referral_interest_share_bps: 0,
@@ -6442,12 +6460,13 @@ mod tests {
         let open_quote = prepared.quote();
         let mut expected_market = clone_market(&prepared.prepared_market).unwrap();
         let mut expected_position = empty_leverage_position();
-        let (_, position_bump) = leverage_position_pda(market_key, position_id).unwrap();
+        let (_, position_bump) = leverage_position_pda(market_key, owner, owner, position_id).unwrap();
         let expected_open = expected_market
             .open_leverage(
                 &mut expected_position,
                 owner,
                 market_key,
+                owner,
                 position_id,
                 open_quote.referral_partner,
                 open_quote.referral_interest_share_bps,

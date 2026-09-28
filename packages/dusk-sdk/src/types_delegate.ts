@@ -4108,6 +4108,14 @@ export type LeverageDelegate = {
             "type": "pubkey"
           },
           {
+            "name": "namespaceAuthority",
+            "docs": [
+              "Funding signer that established this position. Ordinary opens use the",
+              "owner; sponsored entry orders use their owner-created order PDA."
+            ],
+            "type": "pubkey"
+          },
+          {
             "name": "positionId",
             "type": "pubkey"
           },

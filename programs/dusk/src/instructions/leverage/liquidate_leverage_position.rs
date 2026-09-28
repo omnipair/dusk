@@ -86,8 +86,12 @@ impl<'info> LiquidateLeveragePosition<'info> {
         validate_leverage_futarchy_pda(self.futarchy_authority.bump, self.futarchy_authority.key())?;
         self.market.assert_started_at(unix_timestamp)?;
         let market_key = self.market.key();
-        let (expected_position, expected_position_bump) =
-            leverage_position_pda(market_key, self.leverage_position.position_id)?;
+        let (expected_position, expected_position_bump) = leverage_position_pda(
+            market_key,
+            self.leverage_position.owner,
+            self.leverage_position.namespace_authority,
+            self.leverage_position.position_id,
+        )?;
         require_keys_eq!(
             self.leverage_position.key(),
             expected_position,

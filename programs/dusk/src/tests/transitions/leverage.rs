@@ -78,6 +78,7 @@ fn empty_position() -> LeveragePosition {
     LeveragePosition {
         owner: Pubkey::default(),
         market: Pubkey::default(),
+        namespace_authority: Pubkey::default(),
         position_id: Pubkey::default(),
         referral_partner: Pubkey::default(),
         referral_interest_share_bps: 0,
@@ -165,6 +166,7 @@ fn seeded_position(
     }
     let mut position = empty_position();
     position.initialize(
+        Pubkey::new_unique(),
         Pubkey::new_unique(),
         Pubkey::new_unique(),
         Pubkey::new_unique(),
@@ -883,6 +885,7 @@ fn compounded_leverage_observes_final_reserve_price() {
                 Pubkey::new_unique(),
                 Pubkey::new_unique(),
                 Pubkey::new_unique(),
+                Pubkey::new_unique(),
                 Pubkey::default(),
                 0,
                 asset,
@@ -914,6 +917,7 @@ fn open_leverage_tracks_isolated_debt_and_cash() {
     let receipt = market
         .open_leverage(
             &mut position,
+            Pubkey::new_unique(),
             Pubkey::new_unique(),
             Pubkey::new_unique(),
             Pubkey::new_unique(),
@@ -969,6 +973,7 @@ fn referred_leverage_records_exact_debt_and_binds_partner() {
     let open = market
         .open_leverage(
             &mut position,
+            Pubkey::new_unique(),
             Pubkey::new_unique(),
             Pubkey::new_unique(),
             Pubkey::new_unique(),
@@ -1077,6 +1082,7 @@ fn close_leverage_clears_isolated_debt_and_residual_cash() {
             Pubkey::new_unique(),
             Pubkey::new_unique(),
             Pubkey::new_unique(),
+            Pubkey::new_unique(),
             Pubkey::default(),
             0,
             MarketAsset::Base,
@@ -1165,6 +1171,7 @@ fn partial_close_leverage_pays_equity_and_keeps_the_remainder_open() {
     market
         .open_leverage(
             &mut position,
+            Pubkey::new_unique(),
             Pubkey::new_unique(),
             Pubkey::new_unique(),
             Pubkey::new_unique(),
@@ -1561,6 +1568,7 @@ fn concentrated_open_leverage_checkpoints_active_hlp_exposure() {
             Pubkey::new_unique(),
             Pubkey::new_unique(),
             Pubkey::new_unique(),
+            Pubkey::new_unique(),
             Pubkey::default(),
             0,
             MarketAsset::Base,
@@ -1601,6 +1609,7 @@ fn concentrated_open_leverage_uses_integrated_hlp_transition() {
     let receipt = market
         .open_leverage(
             &mut position,
+            Pubkey::new_unique(),
             Pubkey::new_unique(),
             Pubkey::new_unique(),
             Pubkey::new_unique(),
@@ -1826,6 +1835,7 @@ fn next_risk_refresh_integrates_the_post_leverage_mark() {
     market
         .open_leverage(
             &mut position,
+            Pubkey::new_unique(),
             Pubkey::new_unique(),
             Pubkey::new_unique(),
             Pubkey::new_unique(),

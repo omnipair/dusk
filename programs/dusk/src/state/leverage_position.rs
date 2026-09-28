@@ -10,6 +10,9 @@ use crate::{
 pub struct LeveragePosition {
     pub owner: Pubkey,
     pub market: Pubkey,
+    /// Funding signer that established this position. Ordinary opens use the
+    /// owner; sponsored entry orders use their owner-created order PDA.
+    pub namespace_authority: Pubkey,
     pub position_id: Pubkey,
     pub referral_partner: Pubkey,
     pub referral_interest_share_bps: u16,
@@ -33,6 +36,7 @@ impl LeveragePosition {
         &mut self,
         owner: Pubkey,
         market: Pubkey,
+        namespace_authority: Pubkey,
         position_id: Pubkey,
         referral_partner: Pubkey,
         referral_interest_share_bps: u16,
@@ -49,6 +53,7 @@ impl LeveragePosition {
     ) {
         self.owner = owner;
         self.market = market;
+        self.namespace_authority = namespace_authority;
         self.position_id = position_id;
         self.referral_partner = referral_partner;
         self.referral_interest_share_bps = referral_interest_share_bps;

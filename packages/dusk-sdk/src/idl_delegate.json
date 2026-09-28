@@ -4102,6 +4102,14 @@
             "type": "pubkey"
           },
           {
+            "name": "namespace_authority",
+            "docs": [
+              "Funding signer that established this position. Ordinary opens use the",
+              "owner; sponsored entry orders use their owner-created order PDA."
+            ],
+            "type": "pubkey"
+          },
+          {
             "name": "position_id",
             "type": "pubkey"
           },

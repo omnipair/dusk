@@ -98,9 +98,20 @@ pub fn leverage_collateral_vault_pda(market: Pubkey, collateral_mint: Pubkey) ->
     .ok_or_else(|| error!(ErrorCode::InvalidVault))
 }
 
-pub fn leverage_position_pda(market: Pubkey, position_id: Pubkey) -> Result<(Pubkey, u8)> {
+pub fn leverage_position_pda(
+    market: Pubkey,
+    owner: Pubkey,
+    namespace_authority: Pubkey,
+    position_id: Pubkey,
+) -> Result<(Pubkey, u8)> {
     Pubkey::try_find_program_address(
-        &[LEVERAGE_POSITION_SEED_PREFIX, market.as_ref(), position_id.as_ref()],
+        &[
+            LEVERAGE_POSITION_SEED_PREFIX,
+            market.as_ref(),
+            owner.as_ref(),
+            namespace_authority.as_ref(),
+            position_id.as_ref(),
+        ],
         &crate::ID,
     )
     .ok_or_else(|| error!(ErrorCode::InvalidLeveragePosition))

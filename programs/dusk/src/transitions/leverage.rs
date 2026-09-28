@@ -983,6 +983,7 @@ impl Market {
         position: &mut LeveragePosition,
         owner: Pubkey,
         market: Pubkey,
+        namespace_authority: Pubkey,
         position_id: Pubkey,
         referral_partner: Pubkey,
         referral_interest_share_bps: u16,
@@ -1035,6 +1036,7 @@ impl Market {
         position.initialize(
             owner,
             market,
+            namespace_authority,
             position_id,
             referral_partner,
             referral_interest_share_bps,

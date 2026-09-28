@@ -437,7 +437,7 @@ async function main() {
   );
   const orderId = BigInt(Date.now());
   const [orderAddress] = deriveLeverageOrderAddress(
-    deriveLeveragePositionAddress(market, leverageId)[0],
+    deriveLeveragePositionAddress(market, owner, leverageId)[0],
     owner,
     orderId,
   );
