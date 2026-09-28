@@ -10911,6 +10911,11 @@ export type Dusk = {
       "code": 6135,
       "name": "invalidLeverageCollateralMint",
       "msg": "Leverage collateral mint must not have transfer fee configuration"
+    },
+    {
+      "code": 6136,
+      "name": "freezableAssetMint",
+      "msg": "Asset mint has an active freeze authority"
     }
   ],
   "types": [

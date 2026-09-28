@@ -120,7 +120,7 @@ referral_accrual          = floor(protocol_interest_revenue * bound_referral_sha
 
 Later partner, cap, or active-status changes apply only to new bindings. The referral amount is carved only from the DAO's configured share of realized interest; LP allocations are unchanged. Using actual vault credit keeps Token-2022 transfer fees from creating an unbacked claim.
 
-Each `ReferralAccrual` is scoped to one partner, market, and asset mint. Funds remain in the market interest vault while the account records the claimable liability. The partner authority may rotate its designated recipient, and `claim_referral_interest` pays that recipient using the asset mint's SPL Token or Token-2022 program and transfer hooks.
+Each `ReferralAccrual` is scoped to one partner, market, and asset mint. Funds remain in the market interest vault while the account records the claimable liability. The partner authority may rotate its designated recipient, and `claim_referral_interest` pays that recipient using the asset mint's SPL Token or Token-2022 program.
 
 ## hLP Vaults
 
@@ -293,7 +293,7 @@ Dusk is a standalone program and should be integrated through its own IDL, progr
 - Use the Dusk IDL and market PDAs for markets.
 - Do not sort Dusk market mints client-side. The creator's `base_mint` and `quote_mint` order defines the market and its price direction.
 - Treat yLP and hLP mints as distinct Token-2022 token concepts. yLP is the two-sided normal LP token; hLP tokens are aggregate leveraged LP vault shares.
-- Use the referral builders for referred debt actions so the partner and accrual PDAs plus any Token-2022 transfer-hook accounts are included atomically.
+- Use the referral builders for referred debt actions so the partner and accrual PDAs are included atomically.
 - Use the parameter-proposal builders so sponsorship/support burns, virtual-yield checkpoints, proposal/support PDAs, and terminal remints remain atomic.
 - Consume Dusk events from the standalone IDL, including market, liquidity, swap, debt, liquidation, yield, hLP, leverage, leverage-delegation, and referral events.
 

@@ -409,4 +409,7 @@ pub enum ErrorCode {
 
     #[msg("Leverage collateral mint must not have transfer fee configuration")]
     InvalidLeverageCollateralMint,
+
+    #[msg("Asset mint has an active freeze authority")]
+    FreezableAssetMint,
 }
