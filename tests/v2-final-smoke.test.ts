@@ -43,6 +43,7 @@ import {
   SystemProgram,
   SYSVAR_INSTRUCTIONS_PUBKEY,
   Transaction,
+  TransactionInstruction,
 } from "@solana/web3.js";
 import { expect } from "chai";
 import { ComputeBudget, FeatureSet, LiteSVM } from "litesvm";
@@ -7428,6 +7429,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         debtInterestVault: fixture.quoteInterestVault,
         leverageCollateralVault,
         ownerDebtAccount: fixture.ownerQuoteAccount,
+        delegateFeeRecipient: null,
+        delegateExecutorAccount: null,
         referralPartner: null,
         referralAccrual: null,
         leverageDelegation: null,
@@ -7841,6 +7844,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           debtInterestVault: fixture.quoteInterestVault,
           leverageCollateralVault,
           ownerDebtAccount: fixture.ownerQuoteAccount,
+          delegateFeeRecipient: null,
+          delegateExecutorAccount: null,
           referralPartner: null,
           referralAccrual: null,
           leverageDelegation: null,
@@ -7861,11 +7866,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     });
   }
 
-  for (const mode of ["legacy", "grouped", "transfer-fee"]) {
+  for (const mode of ["legacy", "grouped", "transfer-fee", "partial"]) {
     const groupedUi = mode === "grouped";
     const transferFee = mode === "transfer-fee";
+    const partial = mode === "partial";
+    const closeBps = partial ? 5_000 : 10_000;
     it(`closes a leverage position through a delegated callback settlement (${mode})`, async function () {
-      const assetProgram = mode === "legacy" ? TOKEN_PROGRAM_ID : TOKEN_2022_PROGRAM_ID;
+      const assetProgram = mode === "legacy" || partial ? TOKEN_PROGRAM_ID : TOKEN_2022_PROGRAM_ID;
       const mints = groupedUi ? await createGroupedUiAssets() : undefined;
       const fixture = await addBalancedLiquidity(65, marketConfig(), undefined, 6, assetProgram,
         mints ? { base: mints.quote, quote: mints.base } : transferFee ? {
@@ -7898,15 +7905,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
       const orderId = new BN(1);
       const order = deriveLeverageOrderAddress(leveragePosition, payer.publicKey, orderId)[0];
-      const custodyTokenAccount = await createAccount(
-        connection as any,
-        payer,
-        fixture.quoteMint,
-        order,
-        Keypair.generate(),
-        undefined,
-        assetProgram
-      );
       const executor = Keypair.generate();
       await connection.requestAirdrop(executor.publicKey, LAMPORTS_PER_SOL);
       const executorTokenAccount = await createAccount(
@@ -7918,13 +7916,14 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         undefined,
         assetProgram
       );
+      const feeRecipient = await orderFeeRecipient(fixture.quoteMint, assetProgram);
 
       const createOrderTx = await leverageDelegateProgram.methods
         .createLeverageOrder({
           orderId,
           kind: ORDER_KIND_TAKE_PROFIT,
           triggerCloseoutPriceNad: new BN(1),
-          closeBps: 10_000,
+          closeBps,
         })
         .accounts({
           market: fixture.market,
@@ -7943,28 +7942,27 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           market: fixture.market,
           leveragePosition,
           leverageDelegation,
-          custodyTokenAccount,
+          ownerTokenAccount: fixture.ownerQuoteAccount,
+          feeRecipient,
+          executorTokenAccount,
+          futarchyAuthority,
           collateralMint: fixture.baseMint,
           tokenMint: fixture.quoteMint,
           executor: executor.publicKey,
         })
         .instruction();
-      const feeRecipient = await orderFeeRecipient(fixture.quoteMint, assetProgram);
       const afterIx = await leverageDelegateProgram.methods
         .afterCloseOrder({ orderId })
         .accounts({
-          futarchyAuthority, protocolFee: { feeRecipient },
+          futarchyAuthority, feeRecipient,
           order,
           owner: payer.publicKey,
           leveragePosition,
           leverageDelegation,
-          custodyTokenAccount,
           executorTokenAccount,
           ownerTokenAccount: fixture.ownerQuoteAccount,
           tokenMint: fixture.quoteMint,
           executor: executor.publicKey,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
         })
         .instruction();
 
@@ -7974,7 +7972,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         .delegatedCloseLeverage({
           debtAsset: 1,
           minAmountOut: new BN(0),
-          closeBps: 10_000,
+          closeBps,
           delegated: {
             beforeIxData: Buffer.from(beforeIx.data),
             afterIxData: Buffer.from(afterIx.data),
@@ -7992,7 +7990,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           collateralReserveVault: fixture.baseReserveVault,
           debtInterestVault: fixture.quoteInterestVault,
           leverageCollateralVault,
-          ownerDebtAccount: custodyTokenAccount,
+          ownerDebtAccount: fixture.ownerQuoteAccount,
+          delegateFeeRecipient: feeRecipient,
+          delegateExecutorAccount: executorTokenAccount,
           referralPartner: null,
           referralAccrual: null,
           leverageDelegation,
@@ -8005,8 +8005,38 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         })
         .remainingAccounts([...beforeIx.keys, ...afterIx.keys])
         .transaction();
+      const attackerAccount = await createAccount(
+        connection as any,
+        payer,
+        fixture.quoteMint,
+        Keypair.generate().publicKey,
+        Keypair.generate(),
+        undefined,
+        assetProgram
+      );
+      const closeIx = delegatedCloseTx.instructions[0];
+      const modifiedKeys = closeIx.keys.map((meta) => ({ ...meta }));
+      const payoutIndex = modifiedKeys.findIndex((meta) => meta.pubkey.equals(fixture.ownerQuoteAccount));
+      expect(payoutIndex).to.be.greaterThan(-1);
+      modifiedKeys[payoutIndex].pubkey = attackerAccount;
+      let invalidPayout: unknown;
+      try {
+        await connection.sendTransaction(new Transaction().add(new TransactionInstruction({
+          programId: closeIx.programId,
+          data: closeIx.data,
+          keys: modifiedKeys,
+        })), [payer, executor]);
+      } catch (error) {
+        invalidPayout = error;
+      }
+      expect(invalidPayout).to.not.equal(undefined);
+      expect(String(invalidPayout)).to.include("InvalidTokenAccount");
+      expect((await getAccount(connection as any, attackerAccount, undefined, assetProgram)).amount).to.equal(0n);
+      expect(svm.getAccount(leveragePosition)).to.not.equal(null);
+
       const signature = await connection.sendTransaction(delegatedCloseTx, [payer, executor]);
-      const delegatedSwap = expectLeverageSwap(delegatedCloseTx, "leveragePositionClosed", "leverageClose");
+      const delegatedSwap = expectLeverageSwap(delegatedCloseTx,
+        partial ? "leveragePositionUpdated" : "leveragePositionClosed", "leverageClose");
       expect(delegatedSwap.actor.equals(executor.publicKey)).to.equal(true);
       expect(delegatedSwap.trader.equals(payer.publicKey)).to.equal(true);
       const meta = svm.getTransaction(Buffer.from(signature, "base64")) as any;
@@ -8027,19 +8057,19 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         expect(feeDebit - calculateEpochFee(feeConfig, svm.getClock().epoch, feeDebit)).to.equal(fee);
         expectedBounty -= calculateEpochFee(feeConfig, svm.getClock().epoch, grossBounty);
       }
-      expect((await getAccount(connection as any, executorTokenAccount, undefined, assetProgram)).amount - executorQuoteBefore.amount).to.equal(expectedBounty);
+      if (!partial) {
+        expect((await getAccount(connection as any, executorTokenAccount, undefined, assetProgram)).amount - executorQuoteBefore.amount).to.equal(expectedBounty);
+      }
 
       trackV2Instruction("delegatedCloseLeverage", this.test?.title);
 
       const ownerQuoteAfter = await getAccount(connection as any, fixture.ownerQuoteAccount, undefined, assetProgram);
       const executorQuoteAfter = await getAccount(connection as any, executorTokenAccount, undefined, assetProgram);
-      const custodyAfter = await getAccount(connection as any, custodyTokenAccount, undefined, assetProgram);
 
       expect((await getAccount(connection as any, feeRecipient, undefined, assetProgram)).amount > 0n).to.equal(true);
       expect(ownerQuoteAfter.amount > ownerQuoteBefore.amount).to.equal(true);
       expect(executorQuoteAfter.amount > executorQuoteBefore.amount).to.equal(true);
-      expect(custodyAfter.amount).to.equal(0n);
-      expect(svm.getAccount(leveragePosition)).to.equal(null);
+      expect(svm.getAccount(leveragePosition) === null).to.equal(!partial);
       expect(svm.getAccount(order)).to.equal(null);
     });
   }

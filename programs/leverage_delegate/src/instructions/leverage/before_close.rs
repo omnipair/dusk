@@ -65,10 +65,21 @@ pub struct BeforeLeverageOrder<'info> {
     )]
     pub leverage_delegation: Box<Account<'info, LeverageDelegation>>,
     #[account(
-        constraint = custody_token_account.owner == order.key() @ LeverageDelegateError::InvalidTokenAccount,
-        constraint = custody_token_account.mint == token_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = owner_token_account.owner == order.owner @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = owner_token_account.mint == token_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
     )]
-    pub custody_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub owner_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(
+        constraint = fee_recipient.owner == futarchy_authority.recipients.futarchy_treasury @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = fee_recipient.mint == token_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
+    )]
+    pub fee_recipient: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(
+        constraint = executor_token_account.owner == executor.key() @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = executor_token_account.mint == token_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
+    )]
+    pub executor_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub futarchy_authority: Box<Account<'info, dusk::state::FutarchyAuthority>>,
     /// Collateral mint is needed to reproduce the exact net reserve credit for
     /// Token-2022 transfer-fee assets before approving a partial close.
     pub collateral_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -128,8 +139,19 @@ impl<'info> BeforeLeverageOrder<'info> {
             collateral_mint,
             LeverageDelegateError::InvalidTokenAccount
         );
-        require!(
-            ctx.accounts.custody_token_account.amount == 0,
+        require_keys_neq!(
+            ctx.accounts.owner_token_account.key(),
+            ctx.accounts.fee_recipient.key(),
+            LeverageDelegateError::InvalidTokenAccount
+        );
+        require_keys_neq!(
+            ctx.accounts.owner_token_account.key(),
+            ctx.accounts.executor_token_account.key(),
+            LeverageDelegateError::InvalidTokenAccount
+        );
+        require_keys_neq!(
+            ctx.accounts.fee_recipient.key(),
+            ctx.accounts.executor_token_account.key(),
             LeverageDelegateError::InvalidTokenAccount
         );
         let close_slice = ctx
@@ -165,11 +187,19 @@ impl<'info> BeforeLeverageOrder<'info> {
                 residual,
             )?)
             .ok_or(LeverageDelegateError::MathOverflow)?;
-        order.staged_margin = if order.close_bps == BPS_DENOMINATOR {
+        let incentive_basis = if order.close_bps == BPS_DENOMINATOR {
             ctx.accounts.leverage_position.margin_amount
         } else {
             output_amount
         };
+        let payout = quote_delegated_close_payout(
+            &ctx.accounts.token_mint.to_account_info(),
+            residual,
+            close_quote.amount_out,
+            incentive_basis,
+            clock.epoch,
+        )?;
+        order.staged_margin = incentive_basis;
         order.staged_collateral_amount = close_slice.collateral_amount;
         order.staged_remaining_collateral_amount = ctx
             .accounts
@@ -189,9 +219,17 @@ impl<'info> BeforeLeverageOrder<'info> {
             .debt_principal
             .checked_sub(close_slice.debt_principal)
             .ok_or(LeverageDelegateError::MathOverflow)?;
-        order.staged_custody_token_account = ctx.accounts.custody_token_account.key();
+        order.staged_owner_token_account = ctx.accounts.owner_token_account.key();
+        order.staged_owner_balance = ctx.accounts.owner_token_account.amount;
+        order.staged_fee_recipient = ctx.accounts.fee_recipient.key();
+        order.staged_fee_balance = ctx.accounts.fee_recipient.amount;
+        order.staged_executor_token_account = ctx.accounts.executor_token_account.key();
+        order.staged_executor_balance = ctx.accounts.executor_token_account.amount;
         order.staged_output_mint = ctx.accounts.token_mint.key();
-        order.staged_output_amount = output_amount;
+        order.staged_output_amount = payout.owner_credit;
+        order.staged_protocol_fee_debit = payout.protocol_debit;
+        order.staged_protocol_fee_credit = payout.protocol_credit;
+        order.staged_executor_credit = payout.executor_credit;
         order.staged_execution_value = close_quote.amount_out;
         let approval = LeverageDelegationApproval::new(
             LEVERAGE_DELEGATE_CLOSE,
@@ -200,10 +238,10 @@ impl<'info> BeforeLeverageOrder<'info> {
             ctx.accounts.leverage_position.key(),
             ctx.accounts.leverage_delegation.key(),
             debt_asset,
-            ctx.accounts.custody_token_account.key(),
+            ctx.accounts.owner_token_account.key(),
             ctx.accounts.token_mint.key(),
             close_slice.collateral_amount,
-            output_amount,
+            payout.owner_credit,
         );
         let mut data = Vec::new();
         approval

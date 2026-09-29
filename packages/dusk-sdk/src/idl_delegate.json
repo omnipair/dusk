@@ -72,16 +72,13 @@
           "name": "leverage_delegation"
         },
         {
-          "name": "custody_token_account",
-          "writable": true
+          "name": "owner_token_account"
         },
         {
-          "name": "executor_token_account",
-          "writable": true
+          "name": "executor_token_account"
         },
         {
-          "name": "owner_token_account",
-          "writable": true
+          "name": "fee_recipient"
         },
         {
           "name": "token_mint"
@@ -94,23 +91,6 @@
         },
         {
           "name": "futarchy_authority"
-        },
-        {
-          "name": "protocol_fee",
-          "accounts": [
-            {
-              "name": "fee_recipient",
-              "writable": true
-            }
-          ]
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "token_2022_program",
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         }
       ],
       "args": [
@@ -187,7 +167,16 @@
           "name": "leverage_delegation"
         },
         {
-          "name": "custody_token_account"
+          "name": "owner_token_account"
+        },
+        {
+          "name": "fee_recipient"
+        },
+        {
+          "name": "executor_token_account"
+        },
+        {
+          "name": "futarchy_authority"
         },
         {
           "name": "collateral_mint",
@@ -280,7 +269,16 @@
           "name": "leverage_delegation"
         },
         {
-          "name": "custody_token_account"
+          "name": "owner_token_account"
+        },
+        {
+          "name": "fee_recipient"
+        },
+        {
+          "name": "executor_token_account"
+        },
+        {
+          "name": "futarchy_authority"
         },
         {
           "name": "collateral_mint",
@@ -4063,8 +4061,28 @@
             "type": "u128"
           },
           {
-            "name": "staged_custody_token_account",
+            "name": "staged_owner_token_account",
             "type": "pubkey"
+          },
+          {
+            "name": "staged_owner_balance",
+            "type": "u64"
+          },
+          {
+            "name": "staged_fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "staged_fee_balance",
+            "type": "u64"
+          },
+          {
+            "name": "staged_executor_token_account",
+            "type": "pubkey"
+          },
+          {
+            "name": "staged_executor_balance",
+            "type": "u64"
           },
           {
             "name": "staged_output_mint",
@@ -4072,6 +4090,18 @@
           },
           {
             "name": "staged_output_amount",
+            "type": "u64"
+          },
+          {
+            "name": "staged_protocol_fee_debit",
+            "type": "u64"
+          },
+          {
+            "name": "staged_protocol_fee_credit",
+            "type": "u64"
+          },
+          {
+            "name": "staged_executor_credit",
             "type": "u64"
           },
           {

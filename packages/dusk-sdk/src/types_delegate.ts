@@ -78,16 +78,13 @@ export type LeverageDelegate = {
           "name": "leverageDelegation"
         },
         {
-          "name": "custodyTokenAccount",
-          "writable": true
+          "name": "ownerTokenAccount"
         },
         {
-          "name": "executorTokenAccount",
-          "writable": true
+          "name": "executorTokenAccount"
         },
         {
-          "name": "ownerTokenAccount",
-          "writable": true
+          "name": "feeRecipient"
         },
         {
           "name": "tokenMint"
@@ -100,23 +97,6 @@ export type LeverageDelegate = {
         },
         {
           "name": "futarchyAuthority"
-        },
-        {
-          "name": "protocolFee",
-          "accounts": [
-            {
-              "name": "feeRecipient",
-              "writable": true
-            }
-          ]
-        },
-        {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "token2022Program",
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         }
       ],
       "args": [
@@ -193,7 +173,16 @@ export type LeverageDelegate = {
           "name": "leverageDelegation"
         },
         {
-          "name": "custodyTokenAccount"
+          "name": "ownerTokenAccount"
+        },
+        {
+          "name": "feeRecipient"
+        },
+        {
+          "name": "executorTokenAccount"
+        },
+        {
+          "name": "futarchyAuthority"
         },
         {
           "name": "collateralMint",
@@ -286,7 +275,16 @@ export type LeverageDelegate = {
           "name": "leverageDelegation"
         },
         {
-          "name": "custodyTokenAccount"
+          "name": "ownerTokenAccount"
+        },
+        {
+          "name": "feeRecipient"
+        },
+        {
+          "name": "executorTokenAccount"
+        },
+        {
+          "name": "futarchyAuthority"
         },
         {
           "name": "collateralMint",
@@ -4069,8 +4067,28 @@ export type LeverageDelegate = {
             "type": "u128"
           },
           {
-            "name": "stagedCustodyTokenAccount",
+            "name": "stagedOwnerTokenAccount",
             "type": "pubkey"
+          },
+          {
+            "name": "stagedOwnerBalance",
+            "type": "u64"
+          },
+          {
+            "name": "stagedFeeRecipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "stagedFeeBalance",
+            "type": "u64"
+          },
+          {
+            "name": "stagedExecutorTokenAccount",
+            "type": "pubkey"
+          },
+          {
+            "name": "stagedExecutorBalance",
+            "type": "u64"
           },
           {
             "name": "stagedOutputMint",
@@ -4078,6 +4096,18 @@ export type LeverageDelegate = {
           },
           {
             "name": "stagedOutputAmount",
+            "type": "u64"
+          },
+          {
+            "name": "stagedProtocolFeeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "stagedProtocolFeeCredit",
+            "type": "u64"
+          },
+          {
+            "name": "stagedExecutorCredit",
             "type": "u64"
           },
           {

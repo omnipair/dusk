@@ -104,7 +104,7 @@ user margin + isolated borrow
 
 Users can increase or decrease exposure, add or remove margin, close the position, or be liquidated if the closeout value falls below maintenance requirements. Isolated debt contributes to utilization and interest accrual, but it is kept separate from normal borrower debt and hLP vault debt.
 
-Owners can also approve a leverage delegate program for a position. The delegate flow uses a before-hook approval and after-hook settlement approval, so keepers can execute bounded partial or full take-profit and stop-loss closes into a custody PDA without receiving unchecked control over the position.
+Owners can also approve a leverage delegate program for a position. The delegate flow uses a before-hook approval and after-hook settlement approval, so keepers can execute bounded partial or full take-profit and stop-loss closes. Dusk pays a bounded protocol fee and executor incentive from the realized residual, then sends the remainder directly to a token account owned by the position owner. A delegate cannot redirect the owner's payout to its own custody.
 
 ## Permissioned Referral Revenue Sharing
 

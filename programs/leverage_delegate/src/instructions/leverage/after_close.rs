@@ -1,5 +1,5 @@
 use super::*;
-use crate::instructions::fees::*;
+use crate::instructions::fees::{order_protocol_fee, OrderProtocolFeePaid};
 
 #[derive(Accounts)]
 #[instruction(args: ExecuteOrderArgs)]
@@ -30,38 +30,32 @@ pub struct AfterCloseOrder<'info> {
         constraint = leverage_delegation.market == order.market @ LeverageDelegateError::InvalidOrder,
         constraint = leverage_delegation.position == order.position @ LeverageDelegateError::InvalidOrder,
         constraint = leverage_delegation.debt_asset == leverage_position.debt_asset @ LeverageDelegateError::InvalidOrder,
-        constraint = leverage_delegation.delegated_program == crate::ID @ LeverageDelegateError::InvalidOrder,
     )]
     pub leverage_delegation: Box<Account<'info, LeverageDelegation>>,
     #[account(
-        mut,
-        constraint = custody_token_account.key() == order.staged_custody_token_account @ LeverageDelegateError::InvalidTokenAccount,
-        constraint = custody_token_account.owner == order.key() @ LeverageDelegateError::InvalidTokenAccount,
-        constraint = custody_token_account.mint == token_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = owner_token_account.key() == order.staged_owner_token_account @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = owner_token_account.owner == owner.key() @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = owner_token_account.mint == token_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
     )]
-    pub custody_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub owner_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(
-        mut,
+        constraint = executor_token_account.key() == order.staged_executor_token_account @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = executor_token_account.owner == executor.key() @ LeverageDelegateError::InvalidTokenAccount,
         constraint = executor_token_account.mint == token_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
     )]
     pub executor_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(
-        mut,
-        constraint = owner_token_account.mint == token_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
-        constraint = owner_token_account.owner == owner.key() @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = fee_recipient.key() == order.staged_fee_recipient @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = fee_recipient.owner == futarchy_authority.recipients.futarchy_treasury @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = fee_recipient.mint == token_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
     )]
-    pub owner_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
-    #[account(
-        constraint = token_mint.key() == order.staged_output_mint @ LeverageDelegateError::InvalidTokenAccount,
-    )]
+    pub fee_recipient: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(constraint = token_mint.key() == order.staged_output_mint @ LeverageDelegateError::InvalidTokenAccount)]
     pub token_mint: Box<InterfaceAccount<'info, Mint>>,
     /// CHECK: Identifies the executor; Dusk does not forward signer privileges
     /// across the delegated callback boundary.
     pub executor: UncheckedAccount<'info>,
     pub futarchy_authority: Box<Account<'info, dusk::state::FutarchyAuthority>>,
-    pub protocol_fee: OrderFeePayment<'info>,
-    pub token_program: Program<'info, Token>,
-    pub token_2022_program: Program<'info, Token2022>,
 }
 
 impl<'info> AfterCloseOrder<'info> {
@@ -69,143 +63,69 @@ impl<'info> AfterCloseOrder<'info> {
         ctx: Context<'_, '_, '_, 'info, Self>,
         _args: ExecuteOrderArgs,
     ) -> Result<()> {
-        ctx.accounts
-            .order
-            .assert_position_generation(&ctx.accounts.leverage_position)?;
+        let order = &ctx.accounts.order;
+        order.assert_position_generation(&ctx.accounts.leverage_position)?;
         require_eq!(
             ctx.accounts.leverage_position.debt_shares,
-            ctx.accounts.order.staged_remaining_debt_shares,
+            order.staged_remaining_debt_shares,
             LeverageDelegateError::InvalidOrder
         );
         require_eq!(
             ctx.accounts.leverage_position.debt_principal,
-            ctx.accounts.order.staged_remaining_debt_principal,
+            order.staged_remaining_debt_principal,
             LeverageDelegateError::InvalidOrder
         );
         require_eq!(
             ctx.accounts.leverage_position.collateral_amount,
-            ctx.accounts.order.staged_remaining_collateral_amount,
+            order.staged_remaining_collateral_amount,
             LeverageDelegateError::InvalidOrder
         );
-        require_keys_eq!(
-            ctx.accounts.order.staged_custody_token_account,
-            ctx.accounts.custody_token_account.key(),
+        require_eq!(
+            ctx.accounts.owner_token_account.amount,
+            order
+                .staged_owner_balance
+                .checked_add(order.staged_output_amount)
+                .ok_or(LeverageDelegateError::MathOverflow)?,
             LeverageDelegateError::InvalidTokenAccount
         );
-        require_keys_eq!(
-            ctx.accounts.order.staged_output_mint,
-            ctx.accounts.token_mint.key(),
+        require_eq!(
+            ctx.accounts.fee_recipient.amount,
+            order
+                .staged_fee_balance
+                .checked_add(order.staged_protocol_fee_credit)
+                .ok_or(LeverageDelegateError::MathOverflow)?,
             LeverageDelegateError::InvalidTokenAccount
         );
-        require!(
-            ctx.accounts.order.staged_output_amount == ctx.accounts.custody_token_account.amount,
+        require_eq!(
+            ctx.accounts.executor_token_account.amount,
+            order
+                .staged_executor_balance
+                .checked_add(order.staged_executor_credit)
+                .ok_or(LeverageDelegateError::MathOverflow)?,
             LeverageDelegateError::InvalidTokenAccount
         );
 
-        let order_market = ctx.accounts.order.market;
-        let order_owner = ctx.accounts.order.owner;
-        let order_position = ctx.accounts.order.position;
-        let order_id_bytes = ctx.accounts.order.order_id.to_le_bytes();
-        let bump_seed = [ctx.accounts.order.bump];
-        let staged_margin = ctx.accounts.order.staged_margin;
-        let staged_output_amount = ctx.accounts.order.staged_output_amount;
-        let custody_token_account_key = ctx.accounts.custody_token_account.key();
-        let token_mint_key = ctx.accounts.token_mint.key();
-        let delegation_key = ctx.accounts.leverage_delegation.key();
-        let debt_asset = ctx.accounts.leverage_delegation.debt_asset()?;
-        let amount = ctx.accounts.custody_token_account.amount;
-
-        require!(amount > 0, LeverageDelegateError::InvalidOrder);
-        {
-            let incentive = min(
-                amount,
-                ceil_div(
-                    (staged_margin as u128)
-                        .checked_mul(EXECUTOR_INCENTIVE_BPS as u128)
-                        .ok_or(LeverageDelegateError::MathOverflow)?,
-                    BPS_DENOMINATOR as u128,
-                )
-                .ok_or(LeverageDelegateError::MathOverflow)? as u64,
-            );
-            let signer_seeds = &[
-                ORDER_SEED_PREFIX,
-                order_position.as_ref(),
-                order_owner.as_ref(),
-                &order_id_bytes,
-                &bump_seed,
-            ];
-            let signer = &[&signer_seeds[..]];
-            let protocol_debit = ctx.accounts.protocol_fee.collect(
-                order_owner,
-                ctx.accounts.order.key(),
-                &ctx.accounts.token_mint,
-                &ctx.accounts.futarchy_authority,
-                ctx.accounts.order.staged_execution_value,
-                ctx.accounts.custody_token_account.to_account_info(),
-                ctx.accounts.order.to_account_info(),
-                signer,
-                &ctx.accounts.token_program.to_account_info(),
-                &ctx.accounts.token_2022_program.to_account_info(),
-                ctx.remaining_accounts,
-            )?;
-            let owner_amount = amount
-                .checked_sub(incentive)
-                .and_then(|remaining| remaining.checked_sub(protocol_debit))
-                .ok_or(LeverageDelegateError::InvalidOrder)?;
-
-            if incentive > 0 {
-                transfer_checked(
-                    token_program_for_mint(
-                        &ctx.accounts.token_mint.to_account_info(),
-                        &ctx.accounts.token_program.to_account_info(),
-                        &ctx.accounts.token_2022_program.to_account_info(),
-                    ),
-                    ctx.accounts.custody_token_account.to_account_info(),
-                    ctx.accounts.token_mint.to_account_info(),
-                    ctx.accounts.executor_token_account.to_account_info(),
-                    ctx.accounts.order.to_account_info(),
-                    incentive,
-                    ctx.accounts.token_mint.decimals,
-                    signer,
-                    ctx.remaining_accounts,
-                )?;
-            }
-            if owner_amount > 0 {
-                transfer_checked(
-                    token_program_for_mint(
-                        &ctx.accounts.token_mint.to_account_info(),
-                        &ctx.accounts.token_program.to_account_info(),
-                        &ctx.accounts.token_2022_program.to_account_info(),
-                    ),
-                    ctx.accounts.custody_token_account.to_account_info(),
-                    ctx.accounts.token_mint.to_account_info(),
-                    ctx.accounts.owner_token_account.to_account_info(),
-                    ctx.accounts.order.to_account_info(),
-                    owner_amount,
-                    ctx.accounts.token_mint.decimals,
-                    signer,
-                    ctx.remaining_accounts,
-                )?;
-            }
-            ctx.accounts.custody_token_account.reload()?;
-            require_eq!(
-                ctx.accounts.custody_token_account.amount,
-                0,
-                LeverageDelegateError::InvalidTokenAccount
-            );
-        }
+        emit!(OrderProtocolFeePaid {
+            order: order.key(),
+            owner: order.owner,
+            mint: ctx.accounts.token_mint.key(),
+            value: order.staged_execution_value,
+            fee: order_protocol_fee(order.staged_execution_value),
+            debit: order.staged_protocol_fee_debit,
+            credited: order.staged_protocol_fee_credit,
+        });
 
         let approval = LeverageDelegationApproval::new(
             LEVERAGE_DELEGATE_CLOSE_SETTLED,
-            order_market,
-            order_owner,
-            order_position,
-            delegation_key,
-            debt_asset,
-            custody_token_account_key,
-            token_mint_key,
-            ctx.accounts.order.staged_collateral_amount,
-            staged_output_amount,
+            order.market,
+            order.owner,
+            order.position,
+            ctx.accounts.leverage_delegation.key(),
+            ctx.accounts.leverage_delegation.debt_asset()?,
+            ctx.accounts.owner_token_account.key(),
+            ctx.accounts.token_mint.key(),
+            order.staged_collateral_amount,
+            order.staged_output_amount,
         );
         let mut data = Vec::new();
         approval

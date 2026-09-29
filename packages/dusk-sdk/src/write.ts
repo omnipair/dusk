@@ -2168,6 +2168,12 @@ export class DuskWrite {
           debtInterestVault: core.debtInterestVault,
           leverageCollateralVault: core.leverageCollateralVault,
           ownerDebtAccount: address(params.ownerDebtAccount),
+          delegateFeeRecipient: params.delegateFeeRecipient
+            ? address(params.delegateFeeRecipient)
+            : null,
+          delegateExecutorAccount: params.delegateExecutorAccount
+            ? address(params.delegateExecutorAccount)
+            : null,
           referralPartner: core.referralPartner,
           referralAccrual: core.referralAccrual,
           leverageDelegation: params.leverageDelegation
@@ -2395,8 +2401,12 @@ export interface RemoveLeverageMarginParams extends LeverageMarginParams {
 
 export interface CloseLeverageParams extends LeverageAccounts {
   minAmountOut: RawAmount;
+  /** Payout account owned by the position owner. */
   ownerDebtAccount: AddressLike;
-  /** Delegated settlement; omit all three for an owner-signed close. */
+  /** Required for delegated closes; the two accounts receive bounded fees. */
+  delegateFeeRecipient?: AddressLike | null;
+  delegateExecutorAccount?: AddressLike | null;
+  /** Delegated settlement; omit these for an owner-signed close. */
   leverageDelegation?: AddressLike | null;
   delegatedProgram?: AddressLike | null;
   authority?: AddressLike;

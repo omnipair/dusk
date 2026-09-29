@@ -1246,6 +1246,22 @@
           "writable": true
         },
         {
+          "name": "delegate_fee_recipient",
+          "docs": [
+            "Protocol treasury token account for delegated close order fees."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "delegate_executor_account",
+          "docs": [
+            "Executor-owned token account for delegated close incentives."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
           "name": "referral_partner",
           "optional": true
         },
@@ -2341,6 +2357,22 @@
         {
           "name": "owner_debt_account",
           "writable": true
+        },
+        {
+          "name": "delegate_fee_recipient",
+          "docs": [
+            "Protocol treasury token account for delegated close order fees."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "delegate_executor_account",
+          "docs": [
+            "Executor-owned token account for delegated close incentives."
+          ],
+          "writable": true,
+          "optional": true
         },
         {
           "name": "referral_partner",

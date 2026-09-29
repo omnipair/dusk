@@ -22,10 +22,18 @@ fn leverage_order() -> LeverageOrder {
         staged_remaining_collateral_amount: 0,
         staged_remaining_debt_shares: 0,
         staged_remaining_debt_principal: 0,
-        staged_custody_token_account: Pubkey::default(),
+        staged_owner_token_account: Pubkey::default(),
+        staged_owner_balance: 0,
+        staged_fee_recipient: Pubkey::default(),
+        staged_fee_balance: 0,
+        staged_executor_token_account: Pubkey::default(),
+        staged_executor_balance: 0,
         staged_output_mint: Pubkey::default(),
         staged_execution_value: 0,
         staged_output_amount: 0,
+        staged_protocol_fee_debit: 0,
+        staged_protocol_fee_credit: 0,
+        staged_executor_credit: 0,
         bump: 255,
     }
 }
@@ -62,12 +70,12 @@ fn recreated_position_requires_owner_to_reauthorize_order() {
 fn stage_close_settlement_reference(
     order: &mut LeverageOrder,
     margin: u64,
-    custody_token_account: Pubkey,
+    owner_token_account: Pubkey,
     output_mint: Pubkey,
     output_amount: u64,
 ) {
     order.staged_margin = margin;
-    order.staged_custody_token_account = custody_token_account;
+    order.staged_owner_token_account = owner_token_account;
     order.staged_output_mint = output_mint;
     order.staged_output_amount = output_amount;
     order.staged_execution_value = output_amount + 100;
@@ -75,13 +83,13 @@ fn stage_close_settlement_reference(
 
 fn require_staged_settlement_reference(
     order: &LeverageOrder,
-    custody_token_account: Pubkey,
+    owner_token_account: Pubkey,
     output_mint: Pubkey,
     output_amount: u64,
 ) -> Result<()> {
     require_keys_eq!(
-        order.staged_custody_token_account,
-        custody_token_account,
+        order.staged_owner_token_account,
+        owner_token_account,
         LeverageDelegateError::InvalidTokenAccount
     );
     require_keys_eq!(
@@ -119,36 +127,6 @@ fn order_kind_validation_accepts_only_tp_or_sl() {
 }
 
 #[test]
-fn executor_incentive_is_five_percent_of_margin_capped_by_residual() {
-    let incentive = |amount: u64, staged_margin: u64| {
-        min(
-            amount,
-            ceil_div(
-                staged_margin as u128 * EXECUTOR_INCENTIVE_BPS as u128,
-                BPS_DENOMINATOR as u128,
-            )
-            .unwrap() as u64,
-        )
-    };
-    assert_eq!(incentive(1_000, 10_000), 500);
-    assert_eq!(incentive(300, 10_000), 300);
-    assert_eq!(incentive(10, 1), 1);
-}
-
-#[test]
-fn partial_order_incentive_is_bounded_by_realized_slice_equity() {
-    let realized_slice_equity = 101;
-    let incentive = ceil_div(
-        realized_slice_equity as u128 * EXECUTOR_INCENTIVE_BPS as u128,
-        BPS_DENOMINATOR as u128,
-    )
-    .unwrap() as u64;
-
-    assert_eq!(incentive, 6);
-    assert!(incentive <= realized_slice_equity);
-    assert_eq!(realized_slice_equity - incentive, 95);
-}
-
 #[test]
 fn reset_staged_settlement_clears_every_binding() {
     let mut order = leverage_order();
@@ -157,9 +135,17 @@ fn reset_staged_settlement_clears_every_binding() {
     order.staged_remaining_collateral_amount = 50;
     order.staged_remaining_debt_shares = 25;
     order.staged_remaining_debt_principal = 20;
-    order.staged_custody_token_account = Pubkey::new_unique();
+    order.staged_owner_token_account = Pubkey::new_unique();
+    order.staged_owner_balance = 100;
+    order.staged_fee_recipient = Pubkey::new_unique();
+    order.staged_fee_balance = 200;
+    order.staged_executor_token_account = Pubkey::new_unique();
+    order.staged_executor_balance = 300;
     order.staged_output_mint = Pubkey::new_unique();
     order.staged_output_amount = 123;
+    order.staged_protocol_fee_debit = 4;
+    order.staged_protocol_fee_credit = 3;
+    order.staged_executor_credit = 2;
     reset_staged_settlement(&mut order);
 
     assert_eq!(order.staged_margin, 0);
@@ -167,9 +153,17 @@ fn reset_staged_settlement_clears_every_binding() {
     assert_eq!(order.staged_remaining_collateral_amount, 0);
     assert_eq!(order.staged_remaining_debt_shares, 0);
     assert_eq!(order.staged_remaining_debt_principal, 0);
-    assert_eq!(order.staged_custody_token_account, Pubkey::default());
+    assert_eq!(order.staged_owner_token_account, Pubkey::default());
+    assert_eq!(order.staged_owner_balance, 0);
+    assert_eq!(order.staged_fee_recipient, Pubkey::default());
+    assert_eq!(order.staged_fee_balance, 0);
+    assert_eq!(order.staged_executor_token_account, Pubkey::default());
+    assert_eq!(order.staged_executor_balance, 0);
     assert_eq!(order.staged_output_mint, Pubkey::default());
     assert_eq!(order.staged_output_amount, 0);
+    assert_eq!(order.staged_protocol_fee_debit, 0);
+    assert_eq!(order.staged_protocol_fee_credit, 0);
+    assert_eq!(order.staged_executor_credit, 0);
     assert_eq!(order.staged_execution_value, 0);
 }
 

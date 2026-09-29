@@ -1252,6 +1252,22 @@ export type Dusk = {
           "writable": true
         },
         {
+          "name": "delegateFeeRecipient",
+          "docs": [
+            "Protocol treasury token account for delegated close order fees."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "delegateExecutorAccount",
+          "docs": [
+            "Executor-owned token account for delegated close incentives."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
           "name": "referralPartner",
           "optional": true
         },
@@ -2347,6 +2363,22 @@ export type Dusk = {
         {
           "name": "ownerDebtAccount",
           "writable": true
+        },
+        {
+          "name": "delegateFeeRecipient",
+          "docs": [
+            "Protocol treasury token account for delegated close order fees."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "delegateExecutorAccount",
+          "docs": [
+            "Executor-owned token account for delegated close incentives."
+          ],
+          "writable": true,
+          "optional": true
         },
         {
           "name": "referralPartner",

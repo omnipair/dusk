@@ -1,21 +1,16 @@
 use anchor_lang::{prelude::*, solana_program::program::set_return_data};
-use anchor_spl::{
-    token::Token,
-    token_2022::Token2022,
-    token_interface::{Mint, TokenAccount},
-};
+use anchor_spl::token_interface::{Mint, TokenAccount};
 use dusk::{
     constants::{BPS_DENOMINATOR, MARKET_LAYOUT_VERSION, NAD},
     instructions::{
-        LeverageDelegationApproval, LEVERAGE_DELEGATE_CLOSE, LEVERAGE_DELEGATE_CLOSE_SETTLED,
+        quote_delegated_close_payout, LeverageDelegationApproval, LEVERAGE_DELEGATE_CLOSE,
+        LEVERAGE_DELEGATE_CLOSE_SETTLED,
     },
-    math::arithmetic::ceil_div,
     state::{LeverageDelegation, LeveragePosition, Market},
     token::get_transfer_fee,
 };
-use std::cmp::min;
 
-use crate::{constants::*, errors::*, state::*, token::*};
+use crate::{constants::*, errors::*, state::*};
 
 mod after_close;
 mod before_close;
