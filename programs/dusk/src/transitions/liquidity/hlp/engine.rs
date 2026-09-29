@@ -216,6 +216,9 @@ pub(crate) fn prepare_concentrated_hlp_transition(
 ) -> Result<ConcentratedHlpTransition> {
     let asset_out = asset_in.opposite();
     let decimals = market.side(asset_out).asset_decimals;
+    let atom_scale = 10_u128
+        .checked_pow(u32::from(market.amount_decimals() - decimals))
+        .ok_or(ErrorCode::MarketMathOverflow)?;
     let (start_ordinary, end_ordinary) = match asset_out {
         MarketAsset::Base => (start.ordinary_base, quote.integrated.executable.curve.end.base_reserve),
         MarketAsset::Quote => (
@@ -237,17 +240,20 @@ pub(crate) fn prepare_concentrated_hlp_transition(
         .gross_amount_out
         .checked_sub(quote.recovery.bonus_output)
         .ok_or(ErrorCode::BrokenInvariant)?;
-    require_eq!(
-        ordinary_gross_out,
-        market.denormalize_amount_floor(quote.integrated.executable.curve.amount_out, decimals)?,
-        ErrorCode::BrokenInvariant
-    );
-    let rounding_carry = market
-        .denormalize_amount_floor(start_ordinary, decimals)?
-        .checked_sub(market.denormalize_amount_floor(end_ordinary, decimals)?)
-        .and_then(|delta| delta.checked_sub(ordinary_gross_out))
+    let raw_output_nad = u128::from(ordinary_gross_out)
+        .checked_mul(atom_scale)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let fractional_output = quote
+        .integrated
+        .executable
+        .curve
+        .amount_out
+        .checked_sub(raw_output_nad)
         .ok_or(ErrorCode::BrokenInvariant)?;
-    require!(rounding_carry <= 1, ErrorCode::BrokenInvariant);
+    require!(fractional_output < atom_scale, ErrorCode::BrokenInvariant);
+    // With start - end = exact output, the only rounding term is the borrow
+    // when the output's fractional atom exceeds the start's fractional atom.
+    let rounding_carry = u64::from(start_ordinary % atom_scale < fractional_output);
     prepare_concentrated_hlp_transition_from_end(
         market,
         quote.integrated.executable.end,
