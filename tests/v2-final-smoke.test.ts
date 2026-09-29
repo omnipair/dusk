@@ -2110,6 +2110,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(swapPreview.claimableFeeCredit.toNumber()).to.equal(3);
     expect(swapPreview.amountInForQuote.toNumber()).to.equal(997);
     expect(swapPreview.amountOut.toNumber()).to.equal(1_974);
+    expect(swapPreview.outputTransferFee.toNumber()).to.equal(0);
+    expect(swapPreview.netAmountOut.toNumber()).to.equal(1_974);
     expect(swapPreview.reserveInLiveReserve.toNumber()).to.equal(100_997);
     expect(swapPreview.reserveOutLiveReserve.toNumber()).to.equal(198_026);
   });
@@ -2355,6 +2357,27 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       secondPreview.ylpSupply.toNumber()
     );
 
+    const swapPreview = decodePreviewSwapReturnData(
+      await simulateReturnData(
+        await program.methods
+          .previewSwap({ exactAssetIn: new BN(10_000) })
+          .accounts({
+            market: fixture.market,
+            futarchyAuthority,
+            assetInMint: fixture.baseMint,
+            assetOutMint: fixture.quoteMint,
+          })
+          .transaction()
+      )
+    );
+    trackV2Instruction("previewSwap", this.test?.title);
+    expect(swapPreview.transferFee.toNumber()).to.equal(100);
+    expect(swapPreview.reserveCredit.toNumber()).to.equal(9_900);
+    const previewVaultDebit = BigInt(swapPreview.amountOut.toString());
+    const previewOutputFee = (previewVaultDebit * 50n + 9_999n) / 10_000n;
+    expect(BigInt(swapPreview.outputTransferFee.toString())).to.equal(previewOutputFee);
+    expect(BigInt(swapPreview.netAmountOut.toString())).to.equal(previewVaultDebit - previewOutputFee);
+
     const token2022SwapMeasurement = await swapBaseForQuote(
       {
         ...fixture,
@@ -2379,7 +2402,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const poolOutput = BigInt(executed.amountOut.toString());
     const outputTransferFee = (poolOutput * 50n + 9_999n) / 10_000n;
     expect(outputTransferFee > 0n && outputTransferFee < 10_000n).to.equal(true);
+    expect(poolOutput).to.equal(previewVaultDebit);
     expect(quoteOwnerAfterSwap.amount - quoteOwnerAfter.amount).to.equal(poolOutput - outputTransferFee);
+    expect(quoteOwnerAfterSwap.amount - quoteOwnerAfter.amount).to.equal(
+      BigInt(swapPreview.netAmountOut.toString())
+    );
   });
 
   it("accrues and claims permissioned referral interest for Token-2022 assets", async function () {

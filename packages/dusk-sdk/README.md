@@ -380,6 +380,10 @@ Available typed previews:
 
 - `previewMarket(market)`.
 - `previewSwap({ market, assetInMint, assetOutMint, exactAssetIn })`.
+  Its `amountOut` is the output vault debit after Dusk trading fees.
+  `outputTransferFee` is the fee withheld by the output mint at the simulated
+  epoch, and `netAmountOut` is the recipient credit used by the swap's
+  `minAssetOut` check. `grossAmountOut` is before Dusk trading fees.
 - `previewBorrowCapacity({ market, collateralAssetMint, debtAssetMint, collateralAmount, projectedBorrowAmount })`.
 - `previewBorrowPosition({ market, borrowPosition })`.
 - `previewBorrowPositionCapacity({ capacityKind, market, borrowPosition, collateralAssetMint, debtAssetMint, collateralChange, projectedBorrowAmount })`.
