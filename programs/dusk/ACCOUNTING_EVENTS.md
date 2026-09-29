@@ -115,6 +115,85 @@ Accrual and payment events are separate reporting bases. Maintain both series;
 never sum them into one fees/revenue series. Convert raw mint atoms to a common
 currency off-chain with explicit pricing and reporting-period conventions.
 
+## Borrow positions
+
+Every instruction that writes a `BorrowPosition` reports the fields it can
+change, as the position's state after the instruction:
+
+| Instruction | Event | Position state carried |
+|---|---|---|
+| `deposit_collateral`, `donate_collateral` | `MarketCollateralDeposited` | `position`, `position_id`, `owner`, collateral, health contributions, liquidation CFs, `auction_debt_asset` |
+| `withdraw_collateral` | `MarketCollateralWithdrawn` | `position`, collateral, health contributions, liquidation CFs, `closed` |
+| `borrow`, `repay` | `MarketDebtUpdated` | `position`, fixed debt shares, health contributions, liquidation CFs, `auction_debt_asset` |
+| `start_liquidation_auction` | `LiquidationAuctionStarted` | auction side, start time, start and floor prices |
+| `fill_liquidation_auction`, `backstop_liquidation_auction` | `BorrowPositionLiquidated` | collateral, fixed debt shares, health contributions, liquidation CFs, `auction_debt_asset`, `closed` |
+| `fill_liquidation_auction`, `backstop_liquidation_auction` on a recovered position | `LiquidationAuctionCancelled` | auction cleared |
+| `withdraw_all_collateral` | `DebtFreePositionClosed` with `leverage = false` | position closed |
+
+The first deposit creates the position with no debt, zero liquidation CFs, no
+referral binding, and no auction. `auction_debt_asset` is `255` when no auction
+is active; the auction start time and prices are then zero, and otherwise keep
+the values from `LiquidationAuctionStarted`. Deposits and repayments that
+restore health cancel an active auction, so their events carry the resulting
+auction side. A side's referral binding is set by `ReferralBound` and clears
+whenever that side's fixed debt shares reach zero. `MarketDebtUpdated`'s
+`fixed_base_debt` and `fixed_quote_debt` are market-wide totals, not the
+position's debt. A position whose `closed` flag is set, or whose
+`DebtFreePositionClosed` has `leverage = false`, no longer exists. These fields
+are appended after each event's earlier fields.
+
+## Market state after swaps
+
+Every `SwapExecuted` records the market immediately after that execution.
+`ylp_supply` is the internal yLP share supply. `base` and `quote` each report
+the side's spot price and symmetric price EMA, quoting that side's asset in the
+opposite asset exactly as `preview_market` reports them for the same state and
+slot, plus its swap-fee and interest growth indexes. `start_price_nad` is the
+Base price used to quote this execution, after any deferred center adjustment.
+A concentrated curve's price is not a function of reserves alone, so both
+prices come from the program. `MarketCreated` carries both assets' mints and
+decimals, which scale these prices.
+
+These are observations at completed swaps, not a continuous market-price feed.
+The post-swap spot is not a promise about a future trade's starting price:
+interest, parameter changes, or a controller step applied before that trade can
+change it. Use the later trade's `start_price_nad` for historical execution
+pricing. For a live executable quote at a specified input and slot, call
+`preview_swap`; the most recent event alone cannot quote a future trade.
+
+The growth indexes are per-yLP-share accumulators scaled by 2^64: the index
+difference between two swaps, divided by 2^64, is the swap-fee or interest
+yield that became claimable per yLP share over that interval. They move when
+swap fees or paid interest become claimable by yLP holders. Interest paid
+between swaps moves the interest index before the next swap reports it; that
+payment's amount is in `BorrowInterestPaid`. Interest that has accrued but is
+still owed appears instead in the borrow index, reported by
+`BorrowInterestAccrued`, and in the debt side's live reserve.
+
+Between swaps, interest accrual and parameter execution can change market
+state without a new `SwapExecuted`. Interest accrual commits credit interest
+into the debt side's live reserve and grows hLP funding debt, which can move
+the executable price; the next swap reports its actual starting price. The EMA
+converges toward the last recorded spot price over the market's EMA half-life.
+
+## LP transfers
+
+`LpTransferred` is emitted by the Dusk Token-2022 transfer hook for every yLP
+and hLP transfer that reaches it, after both holders' yield accounts are
+checkpointed. It carries the market, LP mint, token kind (`0` yLP, `1` hLP),
+source and destination owners, and amount. Holders are identified by owner
+because the hook accepts only each owner's canonical LP token account.
+
+The hook publishes it by self-CPI, like every other Dusk event, when the LP
+mint's extra-account list includes the event authority and the Dusk program.
+Mints initialized with the earlier seven-entry list still transfer normally
+but publish no receipt; track those balances another way.
+
+Transfers to the same account never reach the hook and report nothing; a
+zero-amount transfer reports amount `0`. Combine this event with the
+liquidity, hLP, and governance events for LP supply changes made through Dusk.
+A direct Token-2022 burn bypasses the hook and emits no Dusk event.
+
 ## Interface changes
 
 `initialize_yield_accounts` and `start_liquidation_auction` now require Anchor's

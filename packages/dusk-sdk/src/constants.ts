@@ -336,6 +336,13 @@ export interface LpTransferHookValidationArgs {
   baseMint: PublicKey;
   quoteMint: PublicKey;
   tokenKind: YieldTokenKind;
+  /**
+   * Encode the seven-account layout of mints initialized before the event
+   * authority and Dusk program were added. Those mints publish no
+   * `LpTransferred` receipt.
+   */
+  legacyLayout?: boolean;
+  programId?: PublicKey;
 }
 
 /**
@@ -489,7 +496,19 @@ export function buildLpTransferHookValidationAccountData({
   baseMint,
   quoteMint,
   tokenKind,
+  legacyLayout = false,
+  programId = DUSK_PROGRAM_ID,
 }: LpTransferHookValidationArgs): Buffer {
+  const eventMetas = legacyLayout
+    ? []
+    : [
+        staticTransferHookMeta({
+          pubkey: deriveEventAuthorityAddress(programId)[0],
+          isSigner: false,
+          isWritable: false,
+        }),
+        staticTransferHookMeta({ pubkey: programId, isSigner: false, isWritable: false }),
+      ];
   return encodeTransferHookValidationAccountData([
     staticTransferHookMeta({ pubkey: market, isSigner: false, isWritable: true }),
     staticTransferHookMeta({ pubkey: baseMint, isSigner: false, isWritable: false }),
@@ -518,6 +537,7 @@ export function buildLpTransferHookValidationAccountData({
       ),
       true
     ),
+    ...eventMetas,
   ]);
 }
 
@@ -528,7 +548,10 @@ export function buildLpTransferHookValidationAccountData({
  * account, and transfer authority as the base hook accounts. Omnipair Dusk needs
  * the market, underlying asset mint, canonical source/destination yield
  * accounts, hook program, and standard validation PDA as extra metas so the
- * hook can checkpoint revenue before the balance move is finalized.
+ * hook can checkpoint revenue before the balance move is finalized. The event
+ * authority lets the hook publish `LpTransferred`; Token-2022 ignores it for
+ * mints that still use the legacy seven-account layout, so the list works for
+ * both layouts.
  */
 export function buildLpTransferHookAccountMetas({
   lpMint,
@@ -582,6 +605,7 @@ export function buildLpTransferHookAccountMetas({
     { pubkey: destinationBaseYieldAccount, isSigner: false, isWritable: true },
     { pubkey: sourceQuoteYieldAccount, isSigner: false, isWritable: true },
     { pubkey: destinationQuoteYieldAccount, isSigner: false, isWritable: true },
+    { pubkey: deriveEventAuthorityAddress(programId)[0], isSigner: false, isWritable: false },
     { pubkey: programId, isSigner: false, isWritable: false },
     { pubkey: validationAccount, isSigner: false, isWritable: false },
   ];

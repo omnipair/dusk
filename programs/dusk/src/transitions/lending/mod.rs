@@ -6,6 +6,7 @@ pub use debt::*;
 pub use liquidation::*;
 #[cfg(test)]
 pub(crate) use preview::NewPositionPreviewContext;
+pub(crate) use preview::SidePrices;
 
 use anchor_lang::prelude::*;
 

@@ -202,7 +202,9 @@ fn prepared_leverage_swap(
         .unwrap()
         .unwrap();
     let post_fee_curve_cache = integrated.post_fee_curve_cache.map(Box::new);
-    let concentrated_transition = prepare_concentrated_hlp_transition(market, integrated, asset_in).unwrap();
+    let concentrated_transition =
+        prepare_concentrated_hlp_transition(market, market.integrated_curve_state_nad().unwrap(), integrated, asset_in)
+            .unwrap();
     Box::new(crate::transitions::amm::PreparedSwap {
         concentrated_transition: Some(Box::new(concentrated_transition)),
         post_fee_curve_cache,

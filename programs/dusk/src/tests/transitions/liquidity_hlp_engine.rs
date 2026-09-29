@@ -120,3 +120,122 @@ proptest! {
         }
     }
 }
+
+#[cfg(feature = "benchmark")]
+#[test]
+fn captured_vob_bids_survive_fractional_output_rounding() {
+    use crate::benchmark_api::{BenchmarkClock, BenchmarkMarket, BenchmarkSwapRequest};
+    use crate::state::FutarchyAuthority;
+
+    let authority = FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-20260929.bin").as_slice())
+        .unwrap();
+    let clock = BenchmarkClock { slot: 505_496_119, unix_timestamp: 1_790_677_156 };
+    // These are the twelve candidate bid levels for the captured devnet
+    // market. Before the carry certificate, six failed BrokenInvariant;
+    // the quote-side raw reconciliation was four atoms instead of three.
+    for (amount, expected_carry) in [
+        (540_606, 0),
+        (1_082_025, 1),
+        (1_624_259, 0),
+        (2_167_308, 1),
+        (2_711_176, 0),
+        (3_255_864, 1),
+        (3_801_374, 0),
+        (4_347_710, 0),
+        (4_894_872, 1),
+        (5_442_864, 0),
+        (5_991_686, 1),
+        (6_541_340, 1),
+    ] {
+        let market = Market::try_deserialize(&mut include_bytes!("../fixtures/vob-market-20260929.bin").as_slice())
+            .unwrap();
+        let benchmark = BenchmarkMarket::from_market_state(market, clock).unwrap();
+        let request = BenchmarkSwapRequest {
+            asset_in: MarketAsset::Base,
+            reserve_credit: amount,
+            protocol_fee_bps: authority.revenue_share.swap_bps,
+            protocol_auction_split: authority.protocol_auction_split,
+        };
+        let result = benchmark.preview_swap(request).unwrap_or_else(|error| panic!("bid {amount}: {error:?}"));
+        assert!(result.quote.amount_out > 0, "bid {amount}");
+        let mut before = Market::try_deserialize(&mut include_bytes!("../fixtures/vob-market-20260929.bin").as_slice())
+            .unwrap();
+        let prepared = crate::transitions::amm::SwapRequest {
+            current_slot: clock.slot,
+            current_unix_timestamp: clock.unix_timestamp,
+            asset_in: MarketAsset::Base,
+            reserve_credit: amount,
+            protocol_fee_bps: authority.revenue_share.swap_bps,
+        }
+        .prepare(&mut before)
+        .unwrap();
+        let transition = prepared.concentrated_transition.as_ref().unwrap();
+        assert_eq!(transition.base_output_rounding_carry, 0, "bid {amount}");
+        assert_eq!(transition.quote_output_rounding_carry, expected_carry, "bid {amount}");
+    }
+}
+
+#[cfg(feature = "benchmark")]
+#[test]
+fn captured_vob_bid_rejects_unexplained_reserve_drift() {
+    use crate::state::FutarchyAuthority;
+
+    let authority = FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-20260929.bin").as_slice())
+        .unwrap();
+    let mut market = Market::try_deserialize(&mut include_bytes!("../fixtures/vob-market-20260929.bin").as_slice())
+        .unwrap();
+    let mut prepared = crate::transitions::amm::SwapRequest {
+        current_slot: 505_496_119,
+        current_unix_timestamp: 1_790_677_156,
+        asset_in: MarketAsset::Base,
+        reserve_credit: 1_082_025,
+        protocol_fee_bps: authority.revenue_share.swap_bps,
+    }
+    .prepare(&mut market)
+    .unwrap();
+    // The certified carry is one atom. An additional four unexplained atoms
+    // must still fail the original three-atom reconciliation bound.
+    market.quote_side.reserves.live_reserve += 4;
+    let error = prepared
+        .finalize_state(&mut market, 505_496_119, authority.revenue_share.swap_bps, authority.protocol_auction_split)
+        .unwrap_err();
+    assert_eq!(error, error!(ErrorCode::BrokenInvariant));
+}
+
+#[cfg(feature = "benchmark")]
+#[test]
+fn captured_vob_asks_certify_only_base_output_rounding() {
+    use crate::benchmark_api::{BenchmarkClock, BenchmarkMarket, BenchmarkSwapRequest};
+    use crate::state::FutarchyAuthority;
+
+    let authority = FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-20260929.bin").as_slice())
+        .unwrap();
+    let clock = BenchmarkClock { slot: 505_496_119, unix_timestamp: 1_790_677_156 };
+    for amount in [500_000, 1_000_000, 2_000_000, 4_000_000] {
+        let market = Market::try_deserialize(&mut include_bytes!("../fixtures/vob-market-20260929.bin").as_slice())
+            .unwrap();
+        let benchmark = BenchmarkMarket::from_market_state(market, clock).unwrap();
+        let request = BenchmarkSwapRequest {
+            asset_in: MarketAsset::Quote,
+            reserve_credit: amount,
+            protocol_fee_bps: authority.revenue_share.swap_bps,
+            protocol_auction_split: authority.protocol_auction_split,
+        };
+        let result = benchmark.preview_swap(request).unwrap_or_else(|error| panic!("ask {amount}: {error:?}"));
+        assert!(result.quote.amount_out > 0, "ask {amount}");
+        let mut before = Market::try_deserialize(&mut include_bytes!("../fixtures/vob-market-20260929.bin").as_slice())
+            .unwrap();
+        let prepared = crate::transitions::amm::SwapRequest {
+            current_slot: clock.slot,
+            current_unix_timestamp: clock.unix_timestamp,
+            asset_in: MarketAsset::Quote,
+            reserve_credit: amount,
+            protocol_fee_bps: authority.revenue_share.swap_bps,
+        }
+        .prepare(&mut before)
+        .unwrap();
+        let transition = prepared.concentrated_transition.as_ref().unwrap();
+        assert_eq!(transition.quote_output_rounding_carry, 0, "ask {amount}");
+        assert!(transition.base_output_rounding_carry <= 1, "ask {amount}");
+    }
+}

@@ -240,6 +240,9 @@ impl<'info> Borrow<'info> {
             base_debt_health_bps: debt_receipt.base_debt_health_bps,
             quote_debt_health_bps: debt_receipt.quote_debt_health_bps,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
+            fixed_base_shares: ctx.accounts.borrow_position.fixed_base_shares,
+            fixed_quote_shares: ctx.accounts.borrow_position.fixed_quote_shares,
+            auction_debt_asset: ctx.accounts.borrow_position.auction_debt_asset,
         });
 
         if let Some(referral) = bound_referral {

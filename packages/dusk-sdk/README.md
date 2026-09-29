@@ -2,7 +2,8 @@
 
 For volume, fee, and borrower-interest consumers, see the
 [accounting event contract](../../programs/dusk/ACCOUNTING_EVENTS.md).
-`SwapExecuted` covers spot and leverage AMM executions. `BorrowInterestAccrued`
+`SwapExecuted` covers spot and leverage AMM executions and the market state they
+leave behind. `BorrowInterestAccrued`
 separates credit, margin, and hLP accrual; `BorrowInterestPaid` reports actual
 collections with the same source attribution. Typed events and their
 `SwapOrigin`/`DebtSource` discriminants are exported from this package.
@@ -91,6 +92,25 @@ accounts for instructions that emit CPI events.
 
 `write.builder(...)`, `write.transaction(...)`, and `write.rpc(...)` expose the
 same generic path for every Dusk instruction in the IDL.
+
+### Swap and LP Transfer Events
+
+`SwapExecuted` records the market immediately after a completed trade: the
+internal yLP supply and, per side, a `MarketSideSnapshot` with the spot price
+and price EMA exactly as `preview_market` reports them for the same state and
+slot, plus the swap-fee and interest growth indexes. `start_price_nad` is the
+Base price actually used to quote that trade, after any pending controller
+step. Swap events provide historical execution and post-swap observations;
+they are not a continuous live-price feed. For a prospective quote, use
+`preview_swap` with the intended input and current state rather than treating
+the last event's post-swap spot as the next trade's starting price.
+
+`LpTransferred` reports each yLP or hLP transfer through the Dusk transfer
+hook as an ordinary CPI event. `buildLpTransferHookAccountMetas` includes the
+event authority the hook needs; Token-2022 ignores it for mints initialized
+with the earlier seven-entry list, which transfer without a receipt.
+`buildLpTransferHookValidationAccountData({ ..., legacyLayout: true })`
+encodes that earlier list.
 
 ### Direct-yLP Parameter Governance
 

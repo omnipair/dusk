@@ -15,7 +15,12 @@ use crate::{
     state::{Market, MarketAsset, YieldTokenKind},
 };
 
-const LP_TRANSFER_HOOK_META_COUNT: usize = 7;
+/// Market, both asset mints, four yield accounts, then the event authority and
+/// Dusk program the hook needs to publish `LpTransferred` by self-CPI.
+const LP_TRANSFER_HOOK_META_COUNT: usize = 9;
+/// Mints initialized before the event accounts existed store only the first
+/// seven entries; they stay transferable and publish no receipt.
+const LEGACY_LP_TRANSFER_HOOK_META_COUNT: usize = 7;
 const TRANSFER_HOOK_MARKET_INDEX: u8 = 5;
 const TRANSFER_HOOK_BASE_MINT_INDEX: u8 = 6;
 const TRANSFER_HOOK_QUOTE_MINT_INDEX: u8 = 7;
@@ -121,10 +126,28 @@ impl<'info> InitializeLpTransferHook<'info> {
             }
         }
         require_keys_eq!(*validation_info.owner, crate::ID, ErrorCode::InvalidArgument);
+        let extra_metas = canonical_lp_transfer_hook_metas(market.key(), market, lp_mint)?;
+
+        // A mint initialized with the legacy layout keeps it: confirm the
+        // stored seven entries instead of migrating the account.
+        let legacy_size = ExtraAccountMetaList::size_of(LEGACY_LP_TRANSFER_HOOK_META_COUNT)
+            .map_err(|_| error!(ErrorCode::MarketMathOverflow))?;
+        if validation_info.data_len() == legacy_size {
+            let mut legacy = vec![0_u8; legacy_size];
+            ExtraAccountMetaList::init::<ExecuteInstruction>(
+                &mut legacy,
+                &extra_metas[..LEGACY_LP_TRANSFER_HOOK_META_COUNT],
+            )
+            .map_err(|_| error!(ErrorCode::InvalidArgument))?;
+            require!(
+                validation_info.try_borrow_data()?.as_ref() == legacy.as_slice(),
+                ErrorCode::InvalidArgument
+            );
+            return Ok(());
+        }
         require_eq!(validation_info.data_len(), account_size, ErrorCode::InvalidArgument);
 
         // Store the exact extra-account layout, or verify the existing layout.
-        let extra_metas = canonical_lp_transfer_hook_metas(market.key(), market, lp_mint)?;
         let mut expected = vec![0_u8; account_size];
         ExtraAccountMetaList::init::<ExecuteInstruction>(&mut expected, &extra_metas)
             .map_err(|_| error!(ErrorCode::InvalidArgument))?;
@@ -159,6 +182,13 @@ pub(crate) fn canonical_lp_transfer_hook_metas(
         yield_account_extra_meta(2, TRANSFER_HOOK_BASE_MINT_INDEX, token_kind)?,
         yield_account_extra_meta(0, TRANSFER_HOOK_QUOTE_MINT_INDEX, token_kind)?,
         yield_account_extra_meta(2, TRANSFER_HOOK_QUOTE_MINT_INDEX, token_kind)?,
+        ExtraAccountMeta::new_with_pubkey(
+            &Pubkey::find_program_address(&[b"__event_authority"], &crate::ID).0,
+            false,
+            false,
+        )
+        .map_err(|_| error!(ErrorCode::InvalidArgument))?,
+        ExtraAccountMeta::new_with_pubkey(&crate::ID, false, false).map_err(|_| error!(ErrorCode::InvalidArgument))?,
     ])
 }
 

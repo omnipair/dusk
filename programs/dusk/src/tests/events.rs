@@ -2,6 +2,12 @@ use super::*;
 
 #[test]
 fn indexer_receipts_remain_compact() {
+    let side = MarketSideSnapshot {
+        spot_price_nad: 1,
+        price_ema_nad: 2,
+        swap_fee_growth_index_q64: 3,
+        interest_growth_index_q64: 4,
+    };
     let swap = SwapExecuted {
         market: Pubkey::new_unique(),
         trader: Pubkey::new_unique(),
@@ -28,6 +34,10 @@ fn indexer_receipts_remain_compact() {
         hlp_recovery_critical: false,
         base_live_reserve: 8,
         quote_live_reserve: 9,
+        ylp_supply: 10,
+        start_price_nad: 11,
+        base: side,
+        quote: side,
     };
     let leverage_swap = LeverageSwapReceipt {
         asset_in_side: 0,
@@ -109,9 +119,22 @@ fn indexer_receipts_remain_compact() {
         insurance_drawn: 5,
         socialized_loss: 6,
         remaining_debt: 7,
+        base_collateral: 8,
+        quote_collateral: 9,
+        fixed_base_shares: 10,
+        fixed_quote_shares: 11,
+        global_health_base_contribution_for_quote_debt: 12,
+        global_health_quote_contribution_for_base_debt: 13,
+        base_liquidation_cf_bps: 14,
+        quote_liquidation_cf_bps: 15,
+        auction_debt_asset: u8::MAX,
+        closed: false,
     };
 
-    assert_eq!(SwapExecuted::DISCRIMINATOR.len() + swap.try_to_vec().unwrap().len(), 232);
+    // 232 bytes of execution receipt, the 104-byte post-swap market state,
+    // and the eight-byte executable start price.
+    assert_eq!(side.try_to_vec().unwrap().len(), 48);
+    assert_eq!(SwapExecuted::DISCRIMINATOR.len() + swap.try_to_vec().unwrap().len(), 344);
     assert_eq!(leverage_swap.try_to_vec().unwrap().len(), 98);
     assert_eq!(
         LiquidityAdded::DISCRIMINATOR.len() + liquidity_added.try_to_vec().unwrap().len(),
@@ -125,6 +148,51 @@ fn indexer_receipts_remain_compact() {
     assert_eq!(HlpClosed::DISCRIMINATOR.len() + closed.try_to_vec().unwrap().len(), 145);
     assert_eq!(
         BorrowPositionLiquidated::DISCRIMINATOR.len() + liquidated.try_to_vec().unwrap().len(),
-        201
+        271
+    );
+}
+
+#[test]
+fn liquidation_auction_receipts_stay_compact() {
+    let started = LiquidationAuctionStarted {
+        market: Pubkey::new_unique(),
+        position: Pubkey::new_unique(),
+        owner: Pubkey::new_unique(),
+        auction_debt_asset: 1,
+        auction_start_time: 2,
+        auction_start_price_nad: 3,
+        auction_floor_price_nad: 4,
+    };
+    let cancelled = LiquidationAuctionCancelled {
+        market: Pubkey::new_unique(),
+        position: Pubkey::new_unique(),
+        owner: Pubkey::new_unique(),
+        debt_asset_side: 1,
+    };
+
+    assert_eq!(
+        LiquidationAuctionStarted::DISCRIMINATOR.len() + started.try_to_vec().unwrap().len(),
+        129
+    );
+    assert_eq!(
+        LiquidationAuctionCancelled::DISCRIMINATOR.len() + cancelled.try_to_vec().unwrap().len(),
+        105
+    );
+}
+
+#[test]
+fn lp_transfer_receipt_stays_compact() {
+    let transferred = LpTransferred {
+        market: Pubkey::new_unique(),
+        lp_mint: Pubkey::new_unique(),
+        token_kind: 1,
+        source_owner: Pubkey::new_unique(),
+        destination_owner: Pubkey::new_unique(),
+        amount: 1,
+    };
+
+    assert_eq!(
+        LpTransferred::DISCRIMINATOR.len() + transferred.try_to_vec().unwrap().len(),
+        145
     );
 }

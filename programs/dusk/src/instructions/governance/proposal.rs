@@ -303,6 +303,8 @@ impl<'info> CreateParameterProposal<'info> {
             sponsorship_floor: ctx.accounts.proposal.sponsorship_floor,
             initial_support: args.initial_support,
             status: ctx.accounts.proposal.status.code(),
+            update: ctx.accounts.proposal.update.clone(),
+            metadata: ctx.accounts.proposal.metadata.clone(),
         });
         if queued {
             emit_cpi!(ParameterProposalQueued {

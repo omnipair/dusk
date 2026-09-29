@@ -244,7 +244,9 @@ impl<'info> IncreaseLeverage<'info> {
             SwapOrigin::LeverageIncrease,
             current_slot,
             swap_event,
-        ));
+            swap.start_price_nad,
+            &ctx.accounts.market,
+        )?);
         emit_cpi!(LeveragePositionUpdated {
             market: market_key,
             position: position_key,

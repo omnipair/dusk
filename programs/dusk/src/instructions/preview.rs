@@ -826,17 +826,12 @@ impl<'info> PreviewBorrowPosition<'info> {
 
 fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<PreviewSide> {
     let side = market.side(asset);
-    let (price_ema_nad, directional_price_ema_nad) = match asset {
-        MarketAsset::Base => (
-            market.risk.base_price_ema_nad,
-            market.risk.directional_base_price_ema_nad,
-        ),
-        MarketAsset::Quote => (
-            market.risk.quote_price_ema_nad,
-            market.risk.directional_quote_price_ema_nad,
-        ),
+    let directional_price_ema_nad = match asset {
+        MarketAsset::Base => market.risk.directional_base_price_ema_nad,
+        MarketAsset::Quote => market.risk.directional_quote_price_ema_nad,
     };
     let lending = market.lending_side_preview(asset, slot)?;
+    let prices = market.side_prices_at(asset, market.current_base_price_nad()?)?;
 
     Ok(PreviewSide {
         live_reserve: side.reserves.live_reserve,
@@ -845,8 +840,8 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
         quote_hlp_backing_inventory: side.reserves.quote_hlp_backing_inventory,
         ylp_supply: side.shares.ylp_supply,
         ylp_exchange_rate_nad: side.ylp_exchange_rate_nad()?,
-        spot_price_nad: lending.spot_price_nad,
-        price_ema_nad,
+        spot_price_nad: prices.spot_price_nad,
+        price_ema_nad: prices.price_ema_nad,
         directional_price_ema_nad,
         conservative_depth_nad: lending.conservative_depth_nad,
         borrow_index_nad: lending.borrow_index_nad,

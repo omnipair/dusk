@@ -11,10 +11,13 @@ use spl_transfer_hook_interface::{get_extra_account_metas_address, instruction::
 use crate::{
     constants::YIELD_ACCOUNT_SEED_PREFIX,
     errors::ErrorCode,
-    instructions::accounts::validate_canonical_lp_token_account_key,
+    events::LpTransferred,
+    instructions::{accounting::emit_accounting_event, accounts::validate_canonical_lp_token_account_key},
     state::{Market, YieldAccount, YieldTokenKind},
 };
 
+/// Accounts of the legacy layout; newer mints append the event authority and
+/// the Dusk program.
 const TRANSFER_HOOK_ACCOUNT_COUNT: usize = 12;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct TokenAccountSnapshot {
@@ -124,7 +127,25 @@ pub fn handle_transfer_hook<'info>(
         base_context,
         quote_context,
         balances.destination_pre_balance,
-    )
+    )?;
+
+    // Mints initialized with the event accounts publish a receipt; legacy
+    // mints transfer exactly as before, without one.
+    if let [event_authority, program, ..] = &accounts[TRANSFER_HOOK_ACCOUNT_COUNT..] {
+        require_keys_eq!(*program.key, *program_id, ErrorCode::InvalidArgument);
+        emit_accounting_event(
+            &LpTransferred {
+                market: market_key,
+                lp_mint,
+                token_kind: base_context.token_kind.code(),
+                source_owner,
+                destination_owner,
+                amount,
+            },
+            event_authority.clone(),
+        )?;
+    }
+    Ok(())
 }
 
 /// Reusable SBF stack boundary for mutable raw Anchor accounts supplied to the

@@ -421,6 +421,8 @@ impl<'info> InitializeMarket<'info> {
             launch_fee_progress_offset: args.launch_fee_progress_offset,
             version: MARKET_LAYOUT_VERSION,
             metadata: MarketEventMetadata::new(payer_key, market_key)?,
+            base_decimals: ctx.accounts.base_mint.decimals,
+            quote_decimals: ctx.accounts.quote_mint.decimals,
         });
 
         Ok(())
