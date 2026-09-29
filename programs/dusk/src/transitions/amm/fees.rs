@@ -9,9 +9,6 @@ use crate::{
 };
 
 #[cfg(test)]
-use crate::constants::NAD_DECIMALS;
-
-#[cfg(test)]
 #[allow(clippy::assign_op_pattern, clippy::manual_div_ceil)]
 mod wide {
     use uint::construct_uint;
@@ -669,107 +666,6 @@ fn uncapped_divergence_marginal_rate_raw_nad(
         .checked_div(q48.checked_mul(3).ok_or(ErrorCode::MarketMathOverflow)?)
         .ok_or(ErrorCode::MarketMathOverflow)?;
     Ok(rate.min(u64::MAX as u128) as u64)
-}
-
-/// Frozen coordinates for repeated exact-cost probes of one implicit
-/// divergence solve. Decimal normalization is removed when a raw endpoint is
-/// evaluated, keeping the hot potential arithmetic in u64/u128.
-#[derive(Clone, Copy)]
-#[cfg(test)]
-pub(crate) struct PreparedOutwardDivergencePotential {
-    pub(crate) center_input_reserve_nad: u128,
-    pub(crate) start_input_reserve_nad: u128,
-    pub(crate) coefficient_nad: u64,
-    pub(crate) divergence_fee_share_cap_bps: u16,
-}
-
-#[cfg(test)]
-pub(crate) fn prepare_outward_divergence_potential(
-    center_input_reserve_nad: u128,
-    start_input_reserve_nad: u128,
-    coefficient_nad: u64,
-    divergence_fee_share_cap_bps: u16,
-) -> Result<PreparedOutwardDivergencePotential> {
-    require!(center_input_reserve_nad > 0, ErrorCode::InvalidArgument);
-    fee_share_cap_to_marginal_rate_nad(divergence_fee_share_cap_bps)?;
-    Ok(PreparedOutwardDivergencePotential {
-        center_input_reserve_nad,
-        start_input_reserve_nad,
-        coefficient_nad,
-        divergence_fee_share_cap_bps,
-    })
-}
-
-/// Returns the additive divergence potential in raw-token units, saturating
-/// only when the exact value cannot fit `u128`. The swap solver uses the
-/// saturation bit solely to classify a probe as certainly unaffordable; the
-/// selected feasible endpoint is always recomputed below the saturation
-/// boundary before it can be charged.
-#[cfg(test)]
-pub(crate) fn outward_divergence_fee_raw_saturating_prepared(
-    prepared: &PreparedOutwardDivergencePotential,
-    end_input_reserve_nad: u128,
-    input_decimals: u8,
-) -> Result<(u128, bool)> {
-    require!(
-        end_input_reserve_nad >= prepared.start_input_reserve_nad,
-        ErrorCode::InvalidArgument
-    );
-    let marginal_cap_nad = fee_share_cap_to_marginal_rate_nad(prepared.divergence_fee_share_cap_bps)?;
-    if prepared.coefficient_nad == 0 || marginal_cap_nad == 0 {
-        return Ok((0, false));
-    }
-    require!(input_decimals <= NAD_DECIMALS, ErrorCode::UnsupportedAssetDecimals);
-    let decimal_scale = 10_u128
-        .checked_pow((NAD_DECIMALS - input_decimals) as u32)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    // Round the possibly fractional invariant center outward. This never
-    // charges restorative flow and moves the boundary by less than one raw
-    // token atom.
-    let Some(center_raw) =
-        ceil_div(prepared.center_input_reserve_nad, decimal_scale).and_then(|value| u64::try_from(value).ok())
-    else {
-        // A balanced input reserve beyond the complete u64 token-account
-        // domain cannot be crossed by any executable trade. Every reachable
-        // endpoint is therefore restorative, not an overflowing outward fee.
-        return Ok((0, false));
-    };
-    let Ok(start_raw) = u64::try_from(prepared.start_input_reserve_nad / decimal_scale) else {
-        return Ok((u128::MAX, true));
-    };
-    let Ok(end_raw) = u64::try_from(end_input_reserve_nad / decimal_scale) else {
-        return Ok((u128::MAX, true));
-    };
-    let start_outward = start_raw.saturating_sub(center_raw);
-    let end_outward = end_raw.saturating_sub(center_raw);
-    if end_outward <= start_outward {
-        return Ok((0, false));
-    }
-    let state = PreparedDivergenceStatePotential::new(center_raw, prepared.coefficient_nad, marginal_cap_nad)?;
-    let (start, start_saturated) = state.state_potential(start_outward)?;
-    let (end, end_saturated) = state.state_potential(end_outward)?;
-    if start_saturated || end_saturated {
-        return Ok((u128::MAX, true));
-    }
-    Ok((end.checked_sub(start).ok_or(ErrorCode::MarketMathOverflow)?, false))
-}
-
-#[cfg(test)]
-pub(crate) fn outward_divergence_fee_raw_saturating(
-    center_input_reserve_nad: u128,
-    start_input_reserve_nad: u128,
-    end_input_reserve_nad: u128,
-    input_decimals: u8,
-    coefficient_nad: u64,
-    divergence_fee_share_cap_bps: u16,
-) -> Result<(u128, bool)> {
-    let prepared = prepare_outward_divergence_potential(
-        center_input_reserve_nad,
-        start_input_reserve_nad,
-        coefficient_nad,
-        divergence_fee_share_cap_bps,
-    )?;
-    outward_divergence_fee_raw_saturating_prepared(&prepared, end_input_reserve_nad, input_decimals)
 }
 
 /// NAD-scaled continuous marginal rate of the divergence potential at one
