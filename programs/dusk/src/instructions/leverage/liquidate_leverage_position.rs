@@ -226,6 +226,7 @@ impl<'info> LiquidateLeveragePosition<'info> {
         let receipt = ctx.accounts.market.liquidate_leverage_position(
             &mut ctx.accounts.leverage_position,
             prepared_swap,
+            collateral_reserve_credit,
             swap_fee_credit,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,

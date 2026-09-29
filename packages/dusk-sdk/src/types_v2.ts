@@ -142,6 +142,9 @@ export type Dusk = {
           "name": "debtMint"
         },
         {
+          "name": "collateralMint"
+        },
+        {
           "name": "debtReserveVault",
           "writable": true
         },
@@ -6474,6 +6477,9 @@ export type Dusk = {
           "name": "debtMint"
         },
         {
+          "name": "collateralMint"
+        },
+        {
           "name": "debtReserveVault",
           "writable": true
         },
@@ -10795,7 +10801,7 @@ export type Dusk = {
     {
       "code": 6135,
       "name": "invalidLeverageCollateralMint",
-      "msg": "Leverage collateral mint must not have transfer fee configuration"
+      "msg": "Leverage collateral transfer fee must be immutable with no pending change"
     }
   ],
   "types": [

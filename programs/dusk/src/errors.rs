@@ -407,6 +407,6 @@ pub enum ErrorCode {
     #[msg("Invalid referral accrual account")]
     InvalidReferralAccrual,
 
-    #[msg("Leverage collateral mint must not have transfer fee configuration")]
+    #[msg("Leverage collateral transfer fee must be immutable with no pending change")]
     InvalidLeverageCollateralMint,
 }

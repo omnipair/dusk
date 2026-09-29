@@ -136,6 +136,9 @@
           "name": "debt_mint"
         },
         {
+          "name": "collateral_mint"
+        },
+        {
           "name": "debt_reserve_vault",
           "writable": true
         },
@@ -6468,6 +6471,9 @@
           "name": "debt_mint"
         },
         {
+          "name": "collateral_mint"
+        },
+        {
           "name": "debt_reserve_vault",
           "writable": true
         },
@@ -10789,7 +10795,7 @@
     {
       "code": 6135,
       "name": "InvalidLeverageCollateralMint",
-      "msg": "Leverage collateral mint must not have transfer fee configuration"
+      "msg": "Leverage collateral transfer fee must be immutable with no pending change"
     }
   ],
   "types": [

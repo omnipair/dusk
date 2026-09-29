@@ -2067,6 +2067,7 @@ export class DuskWrite {
           positionOwner: core.positionOwner,
           leveragePosition: core.leveragePosition,
           debtMint: core.debtMint,
+          ...(method === "addLeverageMargin" ? { collateralMint: core.collateralMint } : {}),
           debtReserveVault: core.debtReserveVault,
           debtInterestVault: core.debtInterestVault,
           ownerDebtAccount: address(params.ownerDebtAccount),

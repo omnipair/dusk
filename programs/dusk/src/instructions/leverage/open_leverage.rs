@@ -18,10 +18,10 @@ use crate::{
 };
 
 use super::settlement::{
-    leverage_collateral_credit, leverage_collateral_vault_pda, leverage_position_pda, leverage_swap_fee_credit,
-    prepare_leverage_swap, settle_inline_leverage_hlp, validate_leverage_collateral_risk_mint,
-    validate_leverage_futarchy_pda, validate_leverage_market_pda, validate_leverage_mints,
-    validate_leverage_reserve_accounts, validate_owner_debt_account,
+    leverage_collateral_credit, leverage_collateral_fee, leverage_collateral_vault_pda, leverage_position_pda,
+    leverage_swap_fee_credit, prepare_leverage_swap, settle_inline_leverage_hlp,
+    validate_leverage_collateral_risk_mint, validate_leverage_futarchy_pda, validate_leverage_market_pda,
+    validate_leverage_mints, validate_leverage_reserve_accounts, validate_owner_debt_account,
 };
 use crate::instructions::accounts::{
     require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout,
@@ -327,6 +327,7 @@ impl<'info> OpenLeverage<'info> {
             position_bump,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
+            leverage_collateral_fee(&ctx.accounts.collateral_mint, current_epoch)?,
         )?;
         {
             let mut data = ctx.accounts.leverage_position.try_borrow_mut_data()?;

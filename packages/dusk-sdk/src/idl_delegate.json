@@ -1981,6 +1981,9 @@
         {
           "name": "leverage_position",
           "optional": true
+        },
+        {
+          "name": "collateral_mint"
         }
       ],
       "args": [],

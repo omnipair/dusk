@@ -6,10 +6,11 @@ use anchor_spl::{
 };
 
 use super::settlement::{
-    invoke_delegated_approval_callback, leverage_collateral_credit, leverage_swap_fee_credit, prepare_leverage_swap,
-    record_leverage_interest, settle_inline_leverage_hlp, split_delegated_accounts, validate_leverage_futarchy_pda,
-    validate_leverage_interest_account, validate_leverage_market_pda, validate_leverage_mints,
-    validate_leverage_reserve_accounts, DelegatedCpiArgs, LEVERAGE_DELEGATE_CLOSE, LEVERAGE_DELEGATE_CLOSE_SETTLED,
+    invoke_delegated_approval_callback, leverage_collateral_credit, leverage_collateral_fee, leverage_swap_fee_credit,
+    prepare_leverage_swap, record_leverage_interest, settle_inline_leverage_hlp, split_delegated_accounts,
+    validate_leverage_futarchy_pda, validate_leverage_interest_account, validate_leverage_market_pda,
+    validate_leverage_mints, validate_leverage_reserve_accounts, DelegatedCpiArgs, LEVERAGE_DELEGATE_CLOSE,
+    LEVERAGE_DELEGATE_CLOSE_SETTLED,
 };
 use crate::{
     constants::*,
@@ -446,6 +447,7 @@ impl<'info> CloseLeverage<'info> {
                 ctx.accounts.futarchy_authority.revenue_share.swap_bps,
                 ctx.accounts.futarchy_authority.protocol_auction_split,
                 current_slot,
+                leverage_collateral_fee(&ctx.accounts.collateral_mint, current_epoch)?,
             )?
         } else {
             ctx.accounts.market.partial_close_leverage(
@@ -458,6 +460,7 @@ impl<'info> CloseLeverage<'info> {
                 ctx.accounts.futarchy_authority.protocol_auction_split,
                 current_slot,
                 current_unix_timestamp,
+                leverage_collateral_fee(&ctx.accounts.collateral_mint, current_epoch)?,
             )?
         };
         settle_inline_leverage_hlp(
