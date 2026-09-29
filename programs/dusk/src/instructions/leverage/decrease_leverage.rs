@@ -300,6 +300,7 @@ impl<'info> DecreaseLeverage<'info> {
             SwapOrigin::LeverageDecrease,
             current_slot,
             swap_event,
+            swap.start_price_nad,
             &ctx.accounts.market,
         )?);
         emit_cpi!(LeveragePositionUpdated {

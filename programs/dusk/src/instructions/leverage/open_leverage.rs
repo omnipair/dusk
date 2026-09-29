@@ -380,6 +380,7 @@ impl<'info> OpenLeverage<'info> {
             SwapOrigin::LeverageOpen,
             current_slot,
             swap_event,
+            receipt.swap.start_price_nad,
             &ctx.accounts.market,
         )?);
         emit_cpi!(LeveragePositionOpened {

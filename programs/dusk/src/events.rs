@@ -350,6 +350,8 @@ pub struct SwapExecuted {
     pub quote_live_reserve: u64,
     /// Internal yLP share supply after the swap.
     pub ylp_supply: u64,
+    /// Base price used to quote this execution, after any deferred controller step.
+    pub start_price_nad: u64,
     /// Each side's price, price EMA, and yLP growth indexes after the swap.
     pub base: MarketSideSnapshot,
     pub quote: MarketSideSnapshot,
@@ -359,7 +361,8 @@ pub struct SwapExecuted {
 /// the opposite asset and equal `preview_market` for the same state and slot.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MarketSideSnapshot {
-    /// Executable marginal price of the curve the next trade starts from.
+    /// Marginal price at this post-swap state. A later controller step or
+    /// market update can change it before another trade is quoted.
     pub spot_price_nad: u64,
     /// Symmetric risk EMA of the spot price.
     pub price_ema_nad: u64,
@@ -429,6 +432,7 @@ impl SwapExecuted {
             base_live_reserve: state.base_side.reserves.live_reserve,
             quote_live_reserve: state.quote_side.reserves.live_reserve,
             ylp_supply: state.base_side.shares.ylp_supply,
+            start_price_nad: swap.start_price_nad,
             base,
             quote,
         })
@@ -443,6 +447,7 @@ impl SwapExecuted {
         origin: SwapOrigin,
         slot: u64,
         swap: LeverageSwapReceipt,
+        start_price_nad: u64,
         state: &Market,
     ) -> Result<Self> {
         let (base, quote) = MarketSideSnapshot::pair(state)?;
@@ -473,6 +478,7 @@ impl SwapExecuted {
             base_live_reserve: swap.base_live_reserve,
             quote_live_reserve: swap.quote_live_reserve,
             ylp_supply: state.base_side.shares.ylp_supply,
+            start_price_nad,
             base,
             quote,
         })

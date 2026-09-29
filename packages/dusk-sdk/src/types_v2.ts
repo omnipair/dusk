@@ -15227,7 +15227,8 @@ export type Dusk = {
           {
             "name": "spotPriceNad",
             "docs": [
-              "Executable marginal price of the curve the next trade starts from."
+              "Marginal price at this post-swap state. A later controller step or",
+              "market update can change it before another trade is quoted."
             ],
             "type": "u64"
           },
@@ -17292,6 +17293,13 @@ export type Dusk = {
             "name": "ylpSupply",
             "docs": [
               "Internal yLP share supply after the swap."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "startPriceNad",
+            "docs": [
+              "Base price used to quote this execution, after any deferred controller step."
             ],
             "type": "u64"
           },

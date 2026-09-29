@@ -35,6 +35,7 @@ fn indexer_receipts_remain_compact() {
         base_live_reserve: 8,
         quote_live_reserve: 9,
         ylp_supply: 10,
+        start_price_nad: 11,
         base: side,
         quote: side,
     };
@@ -130,9 +131,10 @@ fn indexer_receipts_remain_compact() {
         closed: false,
     };
 
-    // 232 bytes of execution receipt plus the 104-byte post-swap market state.
+    // 232 bytes of execution receipt, the 104-byte post-swap market state,
+    // and the eight-byte executable start price.
     assert_eq!(side.try_to_vec().unwrap().len(), 48);
-    assert_eq!(SwapExecuted::DISCRIMINATOR.len() + swap.try_to_vec().unwrap().len(), 336);
+    assert_eq!(SwapExecuted::DISCRIMINATOR.len() + swap.try_to_vec().unwrap().len(), 344);
     assert_eq!(leverage_swap.try_to_vec().unwrap().len(), 98);
     assert_eq!(
         LiquidityAdded::DISCRIMINATOR.len() + liquidity_added.try_to_vec().unwrap().len(),

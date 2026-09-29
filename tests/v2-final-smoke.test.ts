@@ -805,6 +805,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     ) as any;
     const state = accountCoder.decode("Market", Buffer.from(svm.getAccount(market)!.data)) as any;
     expect(swap.market.equals(market)).to.equal(true);
+    expect(BigInt(swap.startPriceNad.toString()) > 0n).to.equal(true);
     expect(swap.slot.toString()).to.equal(svm.getClock().slot.toString());
     expect(preview.slot.toString()).to.equal(swap.slot.toString());
     expect(swap.ylpSupply.toString()).to.equal(state.base_side.shares.ylp_supply.toString());
@@ -4546,9 +4547,25 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       Buffer.from(beforeRejectedProbe!.data)
     );
 
+    const beforeRecenterSpot = decodePreviewMarketReturnData(
+      await simulateReturnData(await program.methods.previewMarket().accounts({ market: fixture.market }).transaction())
+    ) as any;
+    const recenterPreview = decodePreviewSwapReturnData(
+      await simulateReturnData(
+        await program.methods.previewSwap({ exactAssetIn: new BN(1_000_000) }).accounts({
+          market: fixture.market,
+          futarchyAuthority,
+          assetInMint: fixture.baseMint,
+          assetOutMint: fixture.quoteMint,
+        }).transaction()
+      )
+    ) as any;
     const recenterMeasurement = await swapBaseForQuote(fixture, [], 1_000_000, 1);
     recordSwapComputeScenario("controller_due_recenter", recenterMeasurement);
-    await expectSwapMarketState(cpiEvent(recenterMeasurement.transaction, "swapExecuted"), fixture.market);
+    const recenterEvent = cpiEvent(recenterMeasurement.transaction, "swapExecuted");
+    await expectSwapMarketState(recenterEvent, fixture.market);
+    expect(recenterEvent.startPriceNad.toString()).to.equal(recenterPreview.startPriceNad.toString());
+    expect(recenterEvent.startPriceNad.toString()).to.not.equal(beforeRecenterSpot.base.spotPriceNad.toString());
     trackV2Instruction("swap", this.test?.title);
 
     const accountAfter = svm.getAccount(fixture.market);

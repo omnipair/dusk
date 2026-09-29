@@ -95,11 +95,15 @@ same generic path for every Dusk instruction in the IDL.
 
 ### Swap and LP Transfer Events
 
-`SwapExecuted` records the market the next trade starts from: the internal yLP
-supply and, per side, a `MarketSideSnapshot` with the spot price and price EMA
-exactly as `preview_market` reports them for the same state and slot, plus the
-swap-fee and interest growth indexes. Price, EMA, and LP-yield history
-therefore come from swap events without reading the market account.
+`SwapExecuted` records the market immediately after a completed trade: the
+internal yLP supply and, per side, a `MarketSideSnapshot` with the spot price
+and price EMA exactly as `preview_market` reports them for the same state and
+slot, plus the swap-fee and interest growth indexes. `start_price_nad` is the
+Base price actually used to quote that trade, after any pending controller
+step. Swap events provide historical execution and post-swap observations;
+they are not a continuous live-price feed. For a prospective quote, use
+`preview_swap` with the intended input and current state rather than treating
+the last event's post-swap spot as the next trade's starting price.
 
 `LpTransferred` reports each yLP or hLP transfer through the Dusk transfer
 hook as an ordinary CPI event. `buildLpTransferHookAccountMetas` includes the

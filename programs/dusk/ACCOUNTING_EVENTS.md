@@ -144,15 +144,22 @@ are appended after each event's earlier fields.
 
 ## Market state after swaps
 
-Every `SwapExecuted` also describes the market the swap leaves behind, so price
-and yield history is built from events rather than from account reads or a
-keeper. `ylp_supply` is the internal yLP share supply. `base` and `quote` each
-report the side's spot price and symmetric price EMA, quoting that side's asset
-in the opposite asset exactly as `preview_market` reports them for the same
-state and slot, plus its swap-fee and interest growth indexes. The spot price
-is the price the next trade starts from; a concentrated curve's price is not a
-function of reserves alone, so it comes from the program. `MarketCreated`
-carries both assets' mints and decimals, which scale these prices.
+Every `SwapExecuted` records the market immediately after that execution.
+`ylp_supply` is the internal yLP share supply. `base` and `quote` each report
+the side's spot price and symmetric price EMA, quoting that side's asset in the
+opposite asset exactly as `preview_market` reports them for the same state and
+slot, plus its swap-fee and interest growth indexes. `start_price_nad` is the
+Base price used to quote this execution, after any deferred center adjustment.
+A concentrated curve's price is not a function of reserves alone, so both
+prices come from the program. `MarketCreated` carries both assets' mints and
+decimals, which scale these prices.
+
+These are observations at completed swaps, not a continuous market-price feed.
+The post-swap spot is not a promise about a future trade's starting price:
+interest, parameter changes, or a controller step applied before that trade can
+change it. Use the later trade's `start_price_nad` for historical execution
+pricing. For a live executable quote at a specified input and slot, call
+`preview_swap`; the most recent event alone cannot quote a future trade.
 
 The growth indexes are per-yLP-share accumulators scaled by 2^64: the index
 difference between two swaps, divided by 2^64, is the swap-fee or interest
@@ -163,11 +170,11 @@ payment's amount is in `BorrowInterestPaid`. Interest that has accrued but is
 still owed appears instead in the borrow index, reported by
 `BorrowInterestAccrued`, and in the debt side's live reserve.
 
-Between swaps the state changes only in ways that follow from committed values
-and time. Interest accrual commits credit interest into the debt side's live
-reserve and grows hLP funding debt, which moves the executable price slightly;
-the next swap reports the result. The EMA converges toward the last recorded
-spot price over the market's EMA half-life.
+Between swaps, interest accrual and parameter execution can change market
+state without a new `SwapExecuted`. Interest accrual commits credit interest
+into the debt side's live reserve and grows hLP funding debt, which can move
+the executable price; the next swap reports its actual starting price. The EMA
+converges toward the last recorded spot price over the market's EMA half-life.
 
 ## LP transfers
 

@@ -568,6 +568,7 @@ impl<'info> CloseLeverage<'info> {
             SwapOrigin::LeverageClose,
             current_slot,
             swap_event,
+            receipt.swap.start_price_nad,
             &ctx.accounts.market,
         )?);
         if is_full_close {

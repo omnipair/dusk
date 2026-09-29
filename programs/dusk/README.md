@@ -335,13 +335,17 @@ custody moves at 4.
 hLP settlement changes tokens. It identifies the input by `asset_in_side`,
 reports the trader's exact debit and net output credit, separates the three
 fee components and retained surcharge, and records the final live reserves
-after every inline state change. It also records the market the next trade
-starts from: the internal yLP supply and, for each side, the spot price and
+after every inline state change. It also records the market immediately
+after the swap: the internal yLP supply and, for each side, the spot price and
 price EMA exactly as `preview_market` reports them for the same state and slot,
-plus the swap-fee and interest growth indexes. A concentrated curve's price is
-not a function of reserves alone, so the price comes from the program rather
-than from indexer math. Fee totals, controller telemetry, and hLP residuals
-remain in previews or account state instead of the event. The total swap fee is the sum of the three fee components; the nominal
+plus the swap-fee and interest growth indexes. `start_price_nad` records the
+Base price used to quote this execution after any pending controller step. The
+post-swap spot is not guaranteed to be a later trade's starting price; use
+`preview_swap` for a prospective executable quote. A concentrated curve's
+price is not a function of reserves alone, so these prices come from the
+program rather than from indexer math. Fee totals, controller telemetry, and
+hLP residuals remain in previews or account state instead of the event. The
+total swap fee is the sum of the three fee components; the nominal
 claimable portion is that total minus `retained_fee` and `compounded_fee`.
 Swap, hLP, and lending-liquidation
 receipts use the same CPI-event mechanism as every other Dusk event, so
