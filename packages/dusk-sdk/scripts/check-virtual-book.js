@@ -26,6 +26,21 @@ const fixture = JSON.parse(
 );
 const slot = fixture.result.context.slot;
 const prefix = `Program return: ${fixture.programId} `;
+// The saved devnet snapshot predates the two trailing output-fee fields.
+// Its mint has no transfer fee, so adapt only the return bytes used by this
+// SDK fixture: zero fee and the existing vault debit as recipient credit.
+const currentPreviewBytes = (encoded) => {
+  const old = Buffer.from(encoded, "base64");
+  const added = Buffer.alloc(16);
+  added.writeBigUInt64LE(old.readBigUInt64LE(27), 8);
+  return Buffer.concat([old, added]).toString("base64");
+};
+fixture.result.value.logs = fixture.result.value.logs.map((line) =>
+  line.startsWith(prefix) ? prefix + currentPreviewBytes(line.slice(prefix.length)) : line
+);
+fixture.result.value.returnData.data[0] = currentPreviewBytes(
+  fixture.result.value.returnData.data[0]
+);
 const previews = fixture.result.value.logs
   .filter((line) => line.startsWith(prefix))
   .map((line) => decodePreviewSwapReturnData([line.slice(prefix.length), "base64"]));

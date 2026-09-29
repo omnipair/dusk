@@ -8,7 +8,7 @@ use crate::{
     constants::*,
     errors::ErrorCode,
     state::{BorrowPosition, FutarchyAuthority, Market, MarketAsset},
-    token::{get_transfer_fee, get_transfer_inverse_fee},
+    token::{get_transfer_fee, get_transfer_fee_for_epoch, get_transfer_inverse_fee},
     transitions::MarketHealth,
 };
 
@@ -290,7 +290,9 @@ pub struct SwapPreview {
     /// Actual credit received by the reserve vault from the user transfer.
     pub reserve_credit: u64,
     pub fee_asset: MarketAsset,
+    /// Output reserve vault debit after Dusk trading fees, before the output mint transfer fee.
     pub amount_out: u64,
+    /// Curve output before Dusk trading fees.
     pub gross_amount_out: u64,
     pub reserve_in_live_reserve: u64,
     pub reserve_out_live_reserve: u64,
@@ -351,6 +353,10 @@ pub struct SwapPreview {
     pub hlp_recovery_bonus_output: u64,
     pub hlp_recovery_discount_bps: u16,
     pub hlp_recovery_critical: bool,
+    /// Token-2022 fee withheld when the output vault transfers `amount_out`.
+    pub output_transfer_fee: u64,
+    /// Spendable output credited to the recipient; the value checked by `min_asset_out`.
+    pub net_amount_out: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -670,6 +676,15 @@ impl<'info> PreviewSwap<'info> {
         }
         .prepare(quote_market)?;
         let quote = prepared.quote;
+        let output_transfer_fee = get_transfer_fee_for_epoch(
+            &ctx.accounts.asset_out_mint.to_account_info(),
+            quote.amount_out,
+            clock.epoch,
+        )?;
+        let net_amount_out = quote
+            .amount_out
+            .checked_sub(output_transfer_fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
         let concentrated_debt_deltas = prepared
             .concentrated_transition
             .as_deref()
@@ -751,6 +766,8 @@ impl<'info> PreviewSwap<'info> {
             hlp_recovery_bonus_output: quote.recovery.bonus_output,
             hlp_recovery_discount_bps: quote.recovery.discount_bps,
             hlp_recovery_critical: quote.recovery.critical,
+            output_transfer_fee,
+            net_amount_out,
         })
     }
 }

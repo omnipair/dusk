@@ -17050,10 +17050,16 @@ export type Dusk = {
           },
           {
             "name": "amountOut",
+            "docs": [
+              "Output reserve vault debit after Dusk trading fees, before the output mint transfer fee."
+            ],
             "type": "u64"
           },
           {
             "name": "grossAmountOut",
+            "docs": [
+              "Curve output before Dusk trading fees."
+            ],
             "type": "u64"
           },
           {
@@ -17279,6 +17285,20 @@ export type Dusk = {
           {
             "name": "hlpRecoveryCritical",
             "type": "bool"
+          },
+          {
+            "name": "outputTransferFee",
+            "docs": [
+              "Token-2022 fee withheld when the output vault transfers `amount_out`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "netAmountOut",
+            "docs": [
+              "Spendable output credited to the recipient; the value checked by `min_asset_out`."
+            ],
+            "type": "u64"
           }
         ]
       }
