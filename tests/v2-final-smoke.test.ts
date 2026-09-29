@@ -1817,6 +1817,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     [255, 255, true, false],
     [12, 6, false, true],
     [6, 12, true, true],
+    [18, 18, false, true],
     [6, 6, true, false, true],
     [6, 6, true, true, true],
   ] as const) {
@@ -1826,16 +1827,19 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       const quoteDeposit = 1_000_000_000_000_000n / 10n ** BigInt(precision - quoteDecimals);
       const assetProgram = token2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
       const config = marketConfig();
+      const highDecimalConcentrated = concentrated && precision > 9;
       if (concentrated) {
         config.amm.peakAmplificationNad = new BN("4000000000");
         config.amm.coreHalfWidthBps = 100;
         config.amm.fadeWidthBps = 400;
+        if (highDecimalConcentrated)
+          config.amm.divergenceFeeCoefficientNad = new BN("10000000000");
       }
       config.amm.compoundingFeeBps = 5_000;
       const fixture = await addBalancedLiquidity(181, {
         ...config,
         swapFeeBps: 30,
-        divergenceFeeShareCapBps: 0,
+        divergenceFeeShareCapBps: highDecimalConcentrated ? 2_000 : 0,
         volatilityFeeShareCapBps: 0,
       }, {
         baseDeposit,
@@ -1846,7 +1850,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       }, { base: baseDecimals, quote: quoteDecimals }, assetProgram, groupedUi ? await createGroupedUiAssets() : undefined);
       const hedge = await openBaseHedge(fixture, Number(baseDeposit / 20n));
       for (let round = 0n; round < 3n; round++) {
-        await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), baseDeposit / (100n + round), 1);
+        const outwardSwap = await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), baseDeposit / (100n + round), 1);
+        if (highDecimalConcentrated && round === 0n) {
+          const swapEvent = cpiEvent(outwardSwap.transaction, "swapExecuted");
+          expect(BigInt(swapEvent.divergenceFee.toString()) > 0n).to.equal(true);
+        }
         await swapQuoteForBase(fixture, hlpSwapAccounts(fixture), Number(quoteDeposit / (100n + round)), 1);
       }
 
@@ -2103,6 +2111,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(swapPreview.claimableFeeCredit.toNumber()).to.equal(3);
     expect(swapPreview.amountInForQuote.toNumber()).to.equal(997);
     expect(swapPreview.amountOut.toNumber()).to.equal(1_974);
+    expect(swapPreview.outputTransferFee.toNumber()).to.equal(0);
+    expect(swapPreview.netAmountOut.toNumber()).to.equal(1_974);
     expect(swapPreview.reserveInLiveReserve.toNumber()).to.equal(100_997);
     expect(swapPreview.reserveOutLiveReserve.toNumber()).to.equal(198_026);
   });
@@ -2348,6 +2358,27 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       secondPreview.ylpSupply.toNumber()
     );
 
+    const swapPreview = decodePreviewSwapReturnData(
+      await simulateReturnData(
+        await program.methods
+          .previewSwap({ exactAssetIn: new BN(10_000) })
+          .accounts({
+            market: fixture.market,
+            futarchyAuthority,
+            assetInMint: fixture.baseMint,
+            assetOutMint: fixture.quoteMint,
+          })
+          .transaction()
+      )
+    );
+    trackV2Instruction("previewSwap", this.test?.title);
+    expect(swapPreview.transferFee.toNumber()).to.equal(100);
+    expect(swapPreview.reserveCredit.toNumber()).to.equal(9_900);
+    const previewVaultDebit = BigInt(swapPreview.amountOut.toString());
+    const previewOutputFee = (previewVaultDebit * 50n + 9_999n) / 10_000n;
+    expect(BigInt(swapPreview.outputTransferFee.toString())).to.equal(previewOutputFee);
+    expect(BigInt(swapPreview.netAmountOut.toString())).to.equal(previewVaultDebit - previewOutputFee);
+
     const token2022SwapMeasurement = await swapBaseForQuote(
       {
         ...fixture,
@@ -2372,7 +2403,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const poolOutput = BigInt(executed.amountOut.toString());
     const outputTransferFee = (poolOutput * 50n + 9_999n) / 10_000n;
     expect(outputTransferFee > 0n && outputTransferFee < 10_000n).to.equal(true);
+    expect(poolOutput).to.equal(previewVaultDebit);
     expect(quoteOwnerAfterSwap.amount - quoteOwnerAfter.amount).to.equal(poolOutput - outputTransferFee);
+    expect(quoteOwnerAfterSwap.amount - quoteOwnerAfter.amount).to.equal(
+      BigInt(swapPreview.netAmountOut.toString())
+    );
   });
 
   it("accrues and claims permissioned referral interest for Token-2022 assets", async function () {
