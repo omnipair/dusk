@@ -1671,6 +1671,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     [255, 255, true, false],
     [12, 6, false, true],
     [6, 12, true, true],
+    [18, 18, false, true],
     [6, 6, true, false, true],
     [6, 6, true, true, true],
   ] as const) {
@@ -1680,16 +1681,19 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       const quoteDeposit = 1_000_000_000_000_000n / 10n ** BigInt(precision - quoteDecimals);
       const assetProgram = token2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
       const config = marketConfig();
+      const highDecimalConcentrated = concentrated && precision > 9;
       if (concentrated) {
         config.amm.peakAmplificationNad = new BN("4000000000");
         config.amm.coreHalfWidthBps = 100;
         config.amm.fadeWidthBps = 400;
+        if (highDecimalConcentrated)
+          config.amm.divergenceFeeCoefficientNad = new BN("10000000000");
       }
       config.amm.compoundingFeeBps = 5_000;
       const fixture = await addBalancedLiquidity(181, {
         ...config,
         swapFeeBps: 30,
-        divergenceFeeShareCapBps: 0,
+        divergenceFeeShareCapBps: highDecimalConcentrated ? 2_000 : 0,
         volatilityFeeShareCapBps: 0,
       }, {
         baseDeposit,
@@ -1700,7 +1704,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       }, { base: baseDecimals, quote: quoteDecimals }, assetProgram, groupedUi ? await createGroupedUiAssets() : undefined);
       const hedge = await openBaseHedge(fixture, Number(baseDeposit / 20n));
       for (let round = 0n; round < 3n; round++) {
-        await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), baseDeposit / (100n + round), 1);
+        const outwardSwap = await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), baseDeposit / (100n + round), 1);
+        if (highDecimalConcentrated && round === 0n) {
+          const swapEvent = cpiEvent(outwardSwap.transaction, "swapExecuted");
+          expect(BigInt(swapEvent.divergenceFee.toString()) > 0n).to.equal(true);
+        }
         await swapQuoteForBase(fixture, hlpSwapAccounts(fixture), Number(quoteDeposit / (100n + round)), 1);
       }
 

@@ -436,24 +436,12 @@ fn one_atom_quotes_either_preserve_input_or_fail_closed() {
 fn coefficient_signal_and_coordinate_extremes_saturate_or_fail_closed() {
     let capped = outward_divergence_fee_potential_nad(1, 1, u128::MAX, u64::MAX, 5_000).unwrap();
     assert!(capped < u128::MAX);
-    let (saturated_fee, saturated) =
-        outward_divergence_fee_raw_saturating(1, u64::MAX as u128 - 1, u64::MAX as u128, 9, u64::MAX, 5_000).unwrap();
-    assert!(!saturated);
-    assert!(saturated_fee <= 1);
+    let (saturated_fee, saturated) = gross_path_divergence_fee_raw(1, u64::MAX - 1, u64::MAX, u64::MAX, 5_000).unwrap();
+    assert!(saturated);
+    assert_eq!(saturated_fee, u128::MAX);
 
-    // If the balanced reserve lies beyond every representable token-account
-    // balance, no u64 swap can cross it. This is wholly restorative flow and
-    // must not be mistaken for an overflowing outward surcharge.
-    let unreachable_center = (u64::MAX as u128 + 1) * NAD as u128;
-    let (restorative_fee, restorative_saturated) = outward_divergence_fee_raw_saturating(
-        unreachable_center,
-        u64::MAX as u128 * NAD as u128,
-        u64::MAX as u128 * NAD as u128,
-        9,
-        u64::MAX,
-        5_000,
-    )
-    .unwrap();
+    let (restorative_fee, restorative_saturated) =
+        gross_path_divergence_fee_raw(u64::MAX, u64::MAX - 1, u64::MAX, u64::MAX, 5_000).unwrap();
     assert_eq!(restorative_fee, 0);
     assert!(!restorative_saturated);
 
@@ -473,6 +461,26 @@ fn coefficient_signal_and_coordinate_extremes_saturate_or_fail_closed() {
     .unwrap();
     assert!(quote.total_fee_amount <= hard_total_fee_budget_floor(u64::MAX));
     assert!(quote.total_rate_nad < NAD);
+}
+
+#[test]
+fn gross_path_divergence_fee_telescopes_for_high_decimal_raw_reserves() {
+    for decimals in [9_u32, 12, 18] {
+        let center = 10_u64.pow(decimals);
+        let start = center + center / 10;
+        let midpoint = center + center / 5;
+        let end = center + center / 4;
+        let coefficient = 10 * NAD;
+        let (whole, whole_saturated) =
+            gross_path_divergence_fee_raw(center, start, end, coefficient, 2_000).unwrap();
+        let (first, first_saturated) =
+            gross_path_divergence_fee_raw(center, start, midpoint, coefficient, 2_000).unwrap();
+        let (second, second_saturated) =
+            gross_path_divergence_fee_raw(center, midpoint, end, coefficient, 2_000).unwrap();
+        assert!(!whole_saturated && !first_saturated && !second_saturated);
+        assert!(whole > 0);
+        assert_eq!(whole, first + second);
+    }
 }
 
 #[test]
