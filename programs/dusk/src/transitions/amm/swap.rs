@@ -372,7 +372,7 @@ impl SwapRequest {
                 &mut concentrated,
             )?;
         }
-        let transition = prepare_concentrated_hlp_transition(market, concentrated, self.asset_in)?;
+        let transition = prepare_concentrated_hlp_transition(market, integrated_start, concentrated, self.asset_in)?;
         require!(
             transition
                 .interest_cash_floors(self.asset_in, concentrated.gross_amount_out)

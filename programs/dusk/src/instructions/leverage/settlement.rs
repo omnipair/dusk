@@ -10,6 +10,9 @@ use anchor_spl::{
     token::Token,
     token_interface::{Mint, Token2022, TokenAccount},
 };
+use spl_token_2022::extension::{
+    transfer_fee::TransferFeeConfig, BaseStateWithExtensions, ExtensionType, StateWithExtensions,
+};
 
 use crate::transitions::liquidity::SwapCashPolicy;
 use crate::{
@@ -25,12 +28,10 @@ use crate::{
     instructions::liquidity::record_inline_hlp_interest_credit,
     instructions::referral::accounting::{accrue_referral_interest, ReferralInterestAccrualReceipt},
     state::{FutarchyAuthority, Market, MarketAsset, ReferralAccrual, ReferralPartner},
-    token::{
-        get_transfer_fee_for_epoch, is_fee_free_mint, token_burn, token_mint_to,
-        transfer_checked_with_remaining_accounts,
-    },
+    token::{get_transfer_fee_for_epoch, token_burn, token_mint_to, transfer_checked_with_remaining_accounts},
     transitions::{
-        HlpRebalanceReceipt, HlpYieldEligibility, LeverageSwapFeeCredit, LeverageSwapQuote, PreparedLeverageSwap,
+        HlpRebalanceReceipt, HlpYieldEligibility, LeverageCollateralFee, LeverageSwapFeeCredit, LeverageSwapQuote,
+        PreparedLeverageSwap,
     },
 };
 
@@ -489,14 +490,47 @@ pub fn validate_leverage_mints<'info>(
     Ok(())
 }
 
-/// Leverage health is evaluated against the collateral that can be returned to
-/// the AMM on unwind. A mint with `TransferFeeConfig` can charge another fee on
-/// that future vault-to-vault transfer, and its authority can change the fee
-/// after a position opens. Reject the extension itself on every risk-increasing
-/// path; Token-2022 mints without it remain supported.
+/// A mutable fee could erase collateral after a position opens. A pending
+/// different schedule can do the same even after its authority is revoked.
 pub fn validate_leverage_collateral_risk_mint(mint: &InterfaceAccount<Mint>) -> Result<()> {
-    require!(is_fee_free_mint(mint)?, ErrorCode::InvalidLeverageCollateralMint);
+    let mint_info = mint.to_account_info();
+    if *mint_info.owner == Token::id() {
+        return Ok(());
+    }
+    let mint_data = mint_info.try_borrow_data()?;
+    let mint_state = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
+    if mint_state
+        .get_extension_types()?
+        .contains(&ExtensionType::TransferFeeConfig)
+    {
+        let config = mint_state.get_extension::<TransferFeeConfig>()?;
+        let authority: Option<Pubkey> = config.transfer_fee_config_authority.into();
+        require!(authority.is_none(), ErrorCode::InvalidLeverageCollateralMint);
+        require!(
+            config.older_transfer_fee.transfer_fee_basis_points == config.newer_transfer_fee.transfer_fee_basis_points
+                && config.older_transfer_fee.maximum_fee == config.newer_transfer_fee.maximum_fee,
+            ErrorCode::InvalidLeverageCollateralMint
+        );
+    }
     Ok(())
+}
+
+pub fn leverage_collateral_fee(mint: &InterfaceAccount<Mint>, epoch: u64) -> Result<LeverageCollateralFee> {
+    let mint_info = mint.to_account_info();
+    if *mint_info.owner == Token::id() {
+        return Ok(LeverageCollateralFee::default());
+    }
+    let mint_data = mint_info.try_borrow_data()?;
+    let mint_state = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
+    let fee = if mint_state
+        .get_extension_types()?
+        .contains(&ExtensionType::TransferFeeConfig)
+    {
+        Some(*mint_state.get_extension::<TransferFeeConfig>()?.get_epoch_fee(epoch))
+    } else {
+        None
+    };
+    Ok(LeverageCollateralFee(fee))
 }
 
 pub fn validate_leverage_reserve_accounts<'info>(

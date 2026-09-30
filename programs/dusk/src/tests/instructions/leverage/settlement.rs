@@ -273,53 +273,59 @@ fn retained_surcharge_never_enters_claimable_fee_credit() {
 }
 
 #[test]
-fn ten_percent_transfer_fee_collateral_is_rejected_before_health_admission() {
-    let mint_len =
-        ExtensionType::try_calculate_account_len::<SplToken2022Mint>(&[ExtensionType::TransferFeeConfig]).unwrap();
-    let mut mint_data = vec![0_u8; mint_len];
-    {
-        let mut mint = StateWithExtensionsMut::<SplToken2022Mint>::unpack_uninitialized(&mut mint_data).unwrap();
-        let fee = TransferFee {
-            epoch: 0_u64.into(),
-            maximum_fee: u64::MAX.into(),
-            transfer_fee_basis_points: 1_000_u16.into(),
-        };
-        let config = mint.init_extension::<TransferFeeConfig>(true).unwrap();
-        config.older_transfer_fee = fee;
-        config.newer_transfer_fee = fee;
-        mint.base = SplToken2022Mint {
-            mint_authority: COption::None,
-            supply: 0,
-            decimals: 6,
-            is_initialized: true,
-            freeze_authority: COption::None,
-        };
-        mint.pack_base();
-        mint.init_account_type().unwrap();
-    }
-
-    let mint_key = Pubkey::new_unique();
-    let owner = spl_token_2022::ID;
-    let mut lamports = 1;
-    let mint_info = AccountInfo::new(&mint_key, false, false, &mut lamports, &mut mint_data, &owner, false, 0);
-    let mint = InterfaceAccount::<Mint>::try_from(&mint_info).unwrap();
-
-    // The old health path stored the first net credit (900), then quoted
-    // all 900 as unwind input even though the second transfer credits 810.
-    let configured_fee = TransferFee {
+fn fixed_fee_collateral_is_admitted_but_mutable_or_pending_fees_are_rejected() {
+    let fixed_fee = TransferFee {
         epoch: 0_u64.into(),
         maximum_fee: u64::MAX.into(),
         transfer_fee_basis_points: 1_000_u16.into(),
     };
-    let gross_swap_output = 1_000;
-    let stored_collateral = configured_fee.calculate_post_fee_amount(gross_swap_output).unwrap();
-    let actual_unwind_credit = configured_fee.calculate_post_fee_amount(stored_collateral).unwrap();
+    let pending_fee = TransferFee {
+        transfer_fee_basis_points: 2_000_u16.into(),
+        ..fixed_fee
+    };
+    let mint_len =
+        ExtensionType::try_calculate_account_len::<SplToken2022Mint>(&[ExtensionType::TransferFeeConfig]).unwrap();
+    for (authority, newer_fee, accepted) in [
+        (None, fixed_fee, true),
+        (Some(Pubkey::new_unique()), fixed_fee, false),
+        (None, pending_fee, false),
+    ] {
+        let mut mint_data = vec![0_u8; mint_len];
+        {
+            let mut mint = StateWithExtensionsMut::<SplToken2022Mint>::unpack_uninitialized(&mut mint_data).unwrap();
+            let config = mint.init_extension::<TransferFeeConfig>(true).unwrap();
+            config.transfer_fee_config_authority = authority.try_into().unwrap();
+            config.older_transfer_fee = fixed_fee;
+            config.newer_transfer_fee = newer_fee;
+            mint.base = SplToken2022Mint {
+                mint_authority: COption::None,
+                supply: 0,
+                decimals: 6,
+                is_initialized: true,
+                freeze_authority: COption::None,
+            };
+            mint.pack_base();
+            mint.init_account_type().unwrap();
+        }
+        let mint_key = Pubkey::new_unique();
+        let owner = spl_token_2022::ID;
+        let mut lamports = 1;
+        let mint_info = AccountInfo::new(&mint_key, false, false, &mut lamports, &mut mint_data, &owner, false, 0);
+        let mint = InterfaceAccount::<Mint>::try_from(&mint_info).unwrap();
+        if accepted {
+            validate_leverage_collateral_risk_mint(&mint).unwrap();
+            assert_eq!(leverage_collateral_fee(&mint, 0).unwrap().unwind_credit(900).unwrap(), 810);
+        } else {
+            assert_eq!(
+                validate_leverage_collateral_risk_mint(&mint).unwrap_err(),
+                error!(ErrorCode::InvalidLeverageCollateralMint)
+            );
+        }
+    }
+    let stored_collateral = fixed_fee.calculate_post_fee_amount(1_000).unwrap();
+    let actual_unwind_credit = fixed_fee.calculate_post_fee_amount(stored_collateral).unwrap();
     assert_eq!(stored_collateral, 900);
     assert_eq!(actual_unwind_credit, 810);
-    assert_eq!(
-        validate_leverage_collateral_risk_mint(&mint).unwrap_err(),
-        error!(ErrorCode::InvalidLeverageCollateralMint)
-    );
 }
 
 #[test]

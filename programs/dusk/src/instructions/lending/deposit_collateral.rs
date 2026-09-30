@@ -161,6 +161,9 @@ impl<'info> DepositCollateral<'info> {
             base_liquidation_cf_bps: collateral_receipt.base_liquidation_cf_bps,
             quote_liquidation_cf_bps: collateral_receipt.quote_liquidation_cf_bps,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
+            position: ctx.accounts.borrow_position.key(),
+            position_id: ctx.accounts.borrow_position.position_id,
+            auction_debt_asset: ctx.accounts.borrow_position.auction_debt_asset,
         });
 
         Ok(())

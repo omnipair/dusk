@@ -11,6 +11,82 @@ not claims about the current ABI. The current IDL contains 58 public
 instructions; the checked-in instruction registry is authoritative for the
 current required set.
 
+## LP transfer receipts (2026-09-27)
+
+LP mints initialized from now on carry the event authority and Dusk program in
+their extra-account list, and the transfer hook publishes `LpTransferred` by
+self-CPI. Replaying each suite LP transfer from identical account state with
+the legacy seven-entry list and with the new list, a hooked transfer costs
+17,247 CU more: 12,487 CU for the event self-CPI and the rest for resolving
+and passing the two added accounts. The representative yLP transfer costs
+104,239–110,567 CU in total. A transfer to the same account, which never
+reaches the hook, costs 264 CU more for the added account key. Legacy-layout
+mints keep their previous cost. `initialize_lp_transfer_hook` costs 6,508–7,053
+CU more. No other instruction changes.
+
+## Borrow-position event fields (2026-09-27)
+
+Lending events now carry each written borrow position's post-instruction
+state, and liquidation auctions report their start and recovery cancellation.
+Replaying every suite transaction from identical account pre-states against
+the preceding binary:
+
+| Instruction | CU delta |
+|---|---:|
+| `deposit_collateral`, `donate_collateral` | +910 to +911 |
+| `withdraw_collateral` | +597 |
+| `borrow`, `repay` | +423 to +424 |
+| `fill_liquidation_auction`, `backstop_liquidation_auction` | +1,284 to +1,288 |
+| `fill_liquidation_auction` cancelling a recovered auction | +10,124 |
+| `start_liquidation_auction` | +10,488 |
+
+`withdraw_all_collateral` is unchanged. The swap scenarios are unchanged, and
+the leverage-delegate protection executions that repay through Dusk rise by at
+most 424 CU.
+
+## Proposal creation event parameters (2026-09-27)
+
+`ParameterProposalCreated` now carries the stored update and metadata.
+Replaying every suite transaction from identical account pre-states against
+the preceding binary, `create_parameter_proposal` costs 1,820–1,924 CU more
+(at most 123,212 CU); no other instruction changes.
+
+## Post-swap market state (2026-09-27)
+
+The local deterministic LiteSVM suite passed **97/97 tests** and exercised
+**66/66 public instructions** with `SwapExecuted` recording the market each
+execution leaves behind. `SwapExecuted` grows from 232 to 336 bytes. Each swap
+prices the curve once more for its event, exactly as `preview_market` does. The
+swap's own risk observation records the quote's endpoint price; in this suite
+that price differs from the post-swap `preview_market` price by up to 0.03%,
+so the event does not reuse it.
+
+Deterministic swap scenarios against the 2026-09-18 baselines:
+
+| Scenario | Before | After | Delta |
+|---|---:|---:|---:|
+| `cpmm_same_slot` | 86,257 | 91,324 | +5,067 |
+| `cpmm_advanced_slot` | 121,374 | 126,441 | +5,067 |
+| `cpmm_active_debt` | 129,151 | 134,517 | +5,366 |
+| `dynamic_fee_volatility_stress` | 132,886 | 138,134 | +5,248 |
+| `hlp_active` | 108,957 | 117,417 | +8,460 |
+| `token_2022_swap` | 99,853 | 104,920 | +5,067 |
+| `concentrated_centered` | 210,096 | 264,331 | +54,235 |
+| `concentrated_transition` | 211,234 | 265,500 | +54,266 |
+| `concentrated_tail` | 208,921 | 263,187 | +54,266 |
+| `dynamic_fee_divergence_stress` | 218,345 | 272,411 | +54,066 |
+| `retained_surcharge` | 216,769 | 271,030 | +54,261 |
+| `controller_due_recenter` | 574,779 | 629,047 | +54,268 |
+| `concentrated_hlp_active` | 292,888 | 352,928 | +60,040 |
+
+The ordinary same-slot CPMM swap stays below the unchanged **100,000 CU**
+architectural limit. On a concentrated curve the second price evaluation
+reconstructs the curve geometry and hLP-adjusted integrated state, about 54k
+CU. The scenario baselines in `tests/utils/instruction-coverage.ts` were
+refreshed from this fully successful run; every ceiling remains exactly
+`ceil(measured maximum * 1.05)`. The largest suite transaction measured
+1,349,596 CU under the unchanged **1,350,000 CU** test limit.
+
 ## Swap and interest accounting events (2026-09-18)
 
 The complete deterministic LiteSVM suite passed **73/73 tests** and exercised

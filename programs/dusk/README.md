@@ -81,6 +81,8 @@ EMA half-lives, the daily borrow limit, the center controller, or insurance
 draw caps. Independent family revisions make
 competing proposals stale instead of silently combining them. Execution first
 checkpoints old interest/EMA/risk state and rejects at 80% utilization.
+`ParameterProposalCreated` carries the typed update and the proposal metadata
+exactly as stored, so indexers can reconstruct a proposal from events alone.
 
 Parameter bounds are enforced on creation and again on execution. Aggregate
 base/divergence/volatility fee budgets are capped at 5,000 bps; the daily borrow
@@ -284,7 +286,7 @@ hLP checkpointing computes endpoint NAV and reconstructs yLP ownership and fundi
 | Leverage collateral vault | `leverage_collateral`, `market`, `collateral_mint` | derive from seed tuple |
 | LP token metadata | Metaplex `metadata`, token metadata program, `lp_mint` | `deriveTokenMetadataAddress` |
 
-yLP and hLP mints are supplied to `initialize_market`. The two asset mints and all three LP mints must be pairwise distinct, and each LP mint is validated by mint authority, decimals, Token-2022 owner, immutable Dusk transfer hook, fee-free extension rules, no freeze authority, vanity suffix, and zero supply at market creation. LP metadata is created in follow-up `initialize_lp_metadata` calls, one mint per transaction. The permissionless, idempotent `initialize_yield_accounts` creates both asset-stream accounts for one owner and LP mint; `initialize_lp_transfer_hook` creates and validates the canonical Token-2022 extra-account-meta PDA on-chain without a seeded client fixture.
+yLP and hLP mints are supplied to `initialize_market`. The two asset mints and all three LP mints must be pairwise distinct, and each LP mint is validated by mint authority, decimals, Token-2022 owner, immutable Dusk transfer hook, fee-free extension rules, no freeze authority, vanity suffix, and zero supply at market creation. LP metadata is created in follow-up `initialize_lp_metadata` calls, one mint per transaction. The permissionless, idempotent `initialize_yield_accounts` creates both asset-stream accounts for one owner and LP mint; `initialize_lp_transfer_hook` creates and validates the canonical Token-2022 extra-account-meta PDA on-chain without a seeded client fixture. The list has nine entries: the market, both asset mints, the four source and destination yield accounts, then the event authority and the Dusk program so the hook can publish `LpTransferred`. A mint initialized with the earlier seven-entry list keeps it: re-initialization accepts that layout unchanged, and its transfers publish no receipt.
 
 Referral accruals are market-specific liabilities. Their backing remains in the corresponding market interest vault until the referrer claims to the partner's current recipient.
 
@@ -293,11 +295,11 @@ Referral accruals are market-specific liabilities. Their backing remains in the 
 Indexers should consume Dusk events from the standalone Dusk IDL:
 
 - `MarketCreated`, `MarketReduceOnlyUpdated`, `MarketHealthUpdated`, `InsuranceDonated`
-- `LiquidityAdded`, `LiquidityRemoved`
+- `LiquidityAdded`, `LiquidityRemoved`, `LpTransferred`
 - `YieldRecipientUpdated`, `HarvestAuthorityUpdated`, `YieldClaimed`
 - `SwapExecuted`
 - `MarketCollateralDeposited`, `MarketCollateralWithdrawn`, `MarketDebtUpdated`
-- `BorrowPositionLiquidated`
+- `BorrowPositionLiquidated`, `LiquidationAuctionStarted`, `LiquidationAuctionCancelled`
 - `HlpOpened`, `HlpClosed`, `HlpTerminalLiquidated`
 - `LeveragePositionOpened`, `LeveragePositionClosed`, `LeveragePositionUpdated`, `LeveragePositionLiquidated`
 - `LeverageDelegationUpdated`
@@ -312,13 +314,38 @@ directly; the transaction already supplies the slot and signature. Protocol-wide
 authority, referral-recipient, and referral-claim events likewise expose their
 authority or signer directly because they are not tied to one market.
 
+Lending events carry each written borrow position's post-instruction state:
+collateral and withdrawal receipts, debt updates, liquidations, and auction
+start and cancellation events together let an indexer rebuild every
+`BorrowPosition` without reading accounts. See
+[`ACCOUNTING_EVENTS.md`](./ACCOUNTING_EVENTS.md#borrow-positions).
+
+`LpTransferred` records each yLP or hLP transfer that runs the Dusk transfer
+hook: market, LP mint, token kind (`0` yLP, `1` hLP), source and destination
+owners, and amount. The hook publishes it by self-CPI after checkpointing both
+holders' yield accounts, for mints whose extra-account list includes the event
+authority and the Dusk program; mints initialized with the earlier seven-entry
+list transfer without it. The self-CPI uses one invoke level, so a program must
+start an LP transfer at stack height 3 or lower (the hook runs one level
+deeper and its event one more). The in-repo paths reach at most height 4 for
+the event: a direct Token-2022 transfer at 3, and the leverage delegate's order
+custody moves at 4.
+
 `SwapExecuted` is the single canonical spot-swap receipt whether or not inline
 hLP settlement changes tokens. It identifies the input by `asset_in_side`,
 reports the trader's exact debit and net output credit, separates the three
 fee components and retained surcharge, and records the final live reserves
-after every inline state change. Derived prices, fee totals, controller
-telemetry, and hLP residuals remain in previews or account state instead of the
-event. The total swap fee is the sum of the three fee components; the nominal
+after every inline state change. It also records the market immediately
+after the swap: the internal yLP supply and, for each side, the spot price and
+price EMA exactly as `preview_market` reports them for the same state and slot,
+plus the swap-fee and interest growth indexes. `start_price_nad` records the
+Base price used to quote this execution after any pending controller step. The
+post-swap spot is not guaranteed to be a later trade's starting price; use
+`preview_swap` for a prospective executable quote. A concentrated curve's
+price is not a function of reserves alone, so these prices come from the
+program rather than from indexer math. Fee totals, controller telemetry, and
+hLP residuals remain in previews or account state instead of the event. The
+total swap fee is the sum of the three fee components; the nominal
 claimable portion is that total minus `retained_fee` and `compounded_fee`.
 Swap, hLP, and lending-liquidation
 receipts use the same CPI-event mechanism as every other Dusk event, so

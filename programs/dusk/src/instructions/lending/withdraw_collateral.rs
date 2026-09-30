@@ -162,6 +162,7 @@ impl<'info> WithdrawCollateral<'info> {
         };
 
         // Publish the position delta before the resulting market-health snapshot.
+        let closed = ctx.accounts.borrow_position.is_empty();
         emit_cpi!(MarketCollateralWithdrawn {
             market: market_key,
             owner: owner_key,
@@ -177,6 +178,8 @@ impl<'info> WithdrawCollateral<'info> {
             base_liquidation_cf_bps: collateral_receipt.base_liquidation_cf_bps,
             quote_liquidation_cf_bps: collateral_receipt.quote_liquidation_cf_bps,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
+            position: ctx.accounts.borrow_position.key(),
+            closed,
         });
 
         let health = ctx.accounts.market.market_health()?;
@@ -191,7 +194,7 @@ impl<'info> WithdrawCollateral<'info> {
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
 
-        if ctx.accounts.borrow_position.is_empty() {
+        if closed {
             ctx.accounts
                 .borrow_position
                 .close(ctx.accounts.owner.to_account_info())?;

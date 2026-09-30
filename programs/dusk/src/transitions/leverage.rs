@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use spl_token_2022::extension::transfer_fee::TransferFee;
 
 #[cfg(test)]
 use super::liquidity::prepare_concentrated_hlp_transition;
@@ -15,6 +16,22 @@ use crate::{
     math::{ceil_div, mul_div_ceil_u128, mul_div_u128, realized_interest_split},
     state::{Debt, LeveragePosition, Market, MarketAsset, ProtocolAuctionSplit},
 };
+
+/// The net amount that a collateral-vault transfer can return to the AMM.
+/// A position stores the vault's gross balance; risk checks use this credit.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LeverageCollateralFee(pub Option<TransferFee>);
+
+impl LeverageCollateralFee {
+    pub fn unwind_credit(self, gross_collateral: u64) -> Result<u64> {
+        match self.0 {
+            Some(fee) => fee
+                .calculate_post_fee_amount(gross_collateral)
+                .ok_or_else(|| ErrorCode::MarketMathOverflow.into()),
+            None => Ok(gross_collateral),
+        }
+    }
+}
 
 /// Conservative all-in Quote-per-Base execution price after swap fees, price
 /// impact, and output transfer effects.
@@ -998,6 +1015,7 @@ impl Market {
         bump: u8,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
+        collateral_fee: LeverageCollateralFee,
     ) -> Result<LeverageOpenReceipt> {
         let swap = prepared_swap.leverage_quote();
         require!(margin_credit > 0, ErrorCode::AmountZero);
@@ -1052,7 +1070,8 @@ impl Market {
             bump,
         );
         position.open_curve_revision = self.curve_revision;
-        let closeout_value = self.require_position_initial_leverage_health(position, opened_slot, opened_at)?;
+        let closeout_value =
+            self.require_position_initial_leverage_health(position, opened_slot, opened_at, collateral_fee)?;
         let equity = closeout_value
             .checked_sub(borrowed_amount)
             .ok_or(ErrorCode::LeverageInitialMarginTooLow)?;
@@ -1082,6 +1101,7 @@ impl Market {
         protocol_auction_split: ProtocolAuctionSplit,
         current_slot: u64,
         current_unix_timestamp: i64,
+        collateral_fee: LeverageCollateralFee,
     ) -> Result<LeverageUpdateReceipt> {
         let swap = prepared_swap.leverage_quote();
         position.require_open()?;
@@ -1118,8 +1138,12 @@ impl Market {
             .checked_add(borrowed_amount as u128)
             .ok_or(ErrorCode::DebtMathOverflow)?;
         position.credit_collateral(collateral_credit)?;
-        let closeout_value =
-            self.require_position_initial_leverage_health(position, current_slot, current_unix_timestamp)?;
+        let closeout_value = self.require_position_initial_leverage_health(
+            position,
+            current_slot,
+            current_unix_timestamp,
+            collateral_fee,
+        )?;
         Ok(LeverageUpdateReceipt {
             borrowed_amount,
             debt_delta: i64::try_from(borrowed_amount).map_err(|_| ErrorCode::Overflow)?,
@@ -1146,6 +1170,7 @@ impl Market {
         protocol_auction_split: ProtocolAuctionSplit,
         current_slot: u64,
         current_unix_timestamp: i64,
+        collateral_fee: LeverageCollateralFee,
     ) -> Result<LeverageUpdateReceipt> {
         let swap = prepared_swap.leverage_quote();
         position.require_open()?;
@@ -1187,13 +1212,13 @@ impl Market {
                 collateral_asset,
                 swap,
                 collateral_asset,
-                collateral_after,
+                collateral_fee.unwind_credit(collateral_after)?,
                 current_slot,
                 current_unix_timestamp,
             )?
             .amount_out;
         require_leverage_not_liquidatable(pre_finalize_closeout_value, debt_after)?;
-        self.require_ema_leverage_not_liquidatable(collateral_asset, collateral_after, debt_after)?;
+        self.require_ema_leverage_not_liquidatable(collateral_asset, collateral_after, debt_after, collateral_fee)?;
         let cash_policy = SwapCashPolicy::Decrease {
             debt_asset,
             debt_shares: position.debt_shares,
@@ -1215,12 +1240,18 @@ impl Market {
         position.debt_shares = lifecycle.position_debt_shares;
         position.debt_principal = lifecycle.position_debt_principal;
         position.debit_collateral(collateral_debit)?;
-        let closeout_value = self.leverage_closeout_value_at_time(position, current_slot, current_unix_timestamp)?;
+        let closeout_value = self.leverage_closeout_value_at_time_with_fee(
+            position,
+            current_slot,
+            current_unix_timestamp,
+            collateral_fee,
+        )?;
         require_leverage_not_liquidatable(closeout_value, clearance.remaining_debt)?;
         self.require_ema_leverage_not_liquidatable(
             collateral_asset,
             position.collateral_amount,
             clearance.remaining_debt,
+            collateral_fee,
         )?;
         Ok(LeverageUpdateReceipt {
             borrowed_amount: 0,
@@ -1246,6 +1277,7 @@ impl Market {
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
         current_slot: u64,
+        collateral_fee: LeverageCollateralFee,
     ) -> Result<Box<LeverageCloseReceipt>> {
         let slice = self.leverage_close_slice(position, BPS_DENOMINATOR)?;
         self.close_leverage_slice(
@@ -1258,6 +1290,7 @@ impl Market {
             protocol_auction_split,
             current_slot,
             None,
+            collateral_fee,
         )
     }
 
@@ -1273,6 +1306,7 @@ impl Market {
         protocol_auction_split: ProtocolAuctionSplit,
         current_slot: u64,
         current_unix_timestamp: i64,
+        collateral_fee: LeverageCollateralFee,
     ) -> Result<Box<LeverageCloseReceipt>> {
         require!(close_bps < BPS_DENOMINATOR, ErrorCode::InvalidArgument);
         let slice = self.leverage_close_slice(position, close_bps)?;
@@ -1286,6 +1320,7 @@ impl Market {
             protocol_auction_split,
             current_slot,
             Some(current_unix_timestamp),
+            collateral_fee,
         )
     }
 
@@ -1301,6 +1336,7 @@ impl Market {
         protocol_auction_split: ProtocolAuctionSplit,
         current_slot: u64,
         partial_close_unix_timestamp: Option<i64>,
+        collateral_fee: LeverageCollateralFee,
     ) -> Result<Box<LeverageCloseReceipt>> {
         let swap = prepared_swap.leverage_quote();
         position.require_open()?;
@@ -1372,13 +1408,18 @@ impl Market {
             if let Some(current_unix_timestamp) = partial_close_unix_timestamp {
                 position.require_open()?;
                 let remaining_debt = position.debt_amount(&self.debt)?;
-                let remaining_closeout =
-                    self.leverage_closeout_value_at_time(position, current_slot, current_unix_timestamp)?;
+                let remaining_closeout = self.leverage_closeout_value_at_time_with_fee(
+                    position,
+                    current_slot,
+                    current_unix_timestamp,
+                    collateral_fee,
+                )?;
                 require_leverage_not_liquidatable(remaining_closeout, remaining_debt)?;
                 self.require_ema_leverage_not_liquidatable(
                     position.collateral_asset()?,
                     position.collateral_amount,
                     remaining_debt,
+                    collateral_fee,
                 )?;
                 (remaining_debt, remaining_closeout)
             } else {
@@ -1409,6 +1450,7 @@ impl Market {
         &mut self,
         position: &mut LeveragePosition,
         mut prepared_swap: PreparedLeverageSwap,
+        measured_unwind_credit: u64,
         swap_fee_credit: LeverageSwapFeeCredit,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
@@ -1425,13 +1467,14 @@ impl Market {
             swap.amount_in > 0 && swap.amount_in <= collateral_sold,
             ErrorCode::BrokenInvariant
         );
+        require_eq!(swap.amount_in, measured_unwind_credit, ErrorCode::BrokenInvariant);
         let margin_bps = equity_bps(swap.amount_out, debt_amount)?;
         require!(
             swap.amount_out <= debt_amount || margin_bps <= LEVERAGE_MAINTENANCE_BUFFER_BPS as u128,
             ErrorCode::LeveragePositionNotLiquidatable
         );
         require!(
-            self.ema_leverage_margin_bps(position.collateral_asset()?, collateral_sold, debt_amount)?
+            self.ema_leverage_margin_bps_for_credit(position.collateral_asset()?, measured_unwind_credit, debt_amount,)?
                 <= LEVERAGE_MAINTENANCE_BUFFER_BPS as u128,
             ErrorCode::LeveragePositionNotLiquidatable
         );
@@ -1491,10 +1534,11 @@ impl Market {
         position: &mut LeveragePosition,
         repay_credit: u64,
         current_slot: u64,
+        collateral_fee: LeverageCollateralFee,
     ) -> Result<LeverageUpdateReceipt> {
         let mut receipt = self.repay_leverage_debt(position, repay_credit, current_slot)?;
         if position.debt_shares > 0 {
-            receipt.closeout_value = self.leverage_closeout_value(position, current_slot)?;
+            receipt.closeout_value = self.leverage_closeout_value_with_fee(position, current_slot, collateral_fee)?;
         }
         Ok(receipt)
     }
@@ -1596,6 +1640,7 @@ impl Market {
         borrow_amount: u64,
         current_slot: u64,
         current_unix_timestamp: i64,
+        collateral_fee: LeverageCollateralFee,
     ) -> Result<LeverageUpdateReceipt> {
         position.require_open()?;
         require!(borrow_amount > 0, ErrorCode::AmountZero);
@@ -1607,14 +1652,14 @@ impl Market {
         let collateral_asset = position.collateral_asset()?;
         let pre_finalize_closeout_quote = self.quote_leverage_swap_at_time(
             collateral_asset,
-            position.collateral_amount,
+            collateral_fee.unwind_credit(position.collateral_amount)?,
             current_slot,
             current_unix_timestamp,
         )?;
         require_initial_leverage_health(
             self,
             collateral_asset,
-            position.collateral_amount,
+            collateral_fee.unwind_credit(position.collateral_amount)?,
             pre_finalize_closeout_quote.start_price_nad,
             pre_finalize_closeout_quote.amount_out,
             debt_after,
@@ -1630,8 +1675,12 @@ impl Market {
             .checked_add(borrow_amount as u128)
             .ok_or(ErrorCode::DebtMathOverflow)?;
         self.finalize_amm_transition_and_observe_risk(current_slot)?;
-        let closeout_value =
-            self.require_position_initial_leverage_health(position, current_slot, current_unix_timestamp)?;
+        let closeout_value = self.require_position_initial_leverage_health(
+            position,
+            current_slot,
+            current_unix_timestamp,
+            collateral_fee,
+        )?;
         Ok(LeverageUpdateReceipt {
             borrowed_amount: borrow_amount,
             debt_delta: i64::try_from(borrow_amount).map_err(|_| ErrorCode::Overflow)?,
@@ -1651,6 +1700,15 @@ impl Market {
     }
 
     pub fn leverage_closeout_value(&self, position: &LeveragePosition, current_slot: u64) -> Result<u64> {
+        self.leverage_closeout_value_with_fee(position, current_slot, LeverageCollateralFee::default())
+    }
+
+    pub fn leverage_closeout_value_with_fee(
+        &self,
+        position: &LeveragePosition,
+        current_slot: u64,
+        collateral_fee: LeverageCollateralFee,
+    ) -> Result<u64> {
         let after_launch = self.config.start_time.saturating_add(
             self.config
                 .amm
@@ -1658,7 +1716,7 @@ impl Market {
                 .max(self.config.amm.launch_rate_limit_duration_seconds)
                 .min(i64::MAX as u64) as i64,
         );
-        self.leverage_closeout_value_at_time(position, current_slot, after_launch)
+        self.leverage_closeout_value_at_time_with_fee(position, current_slot, after_launch, collateral_fee)
     }
 
     pub fn leverage_closeout_value_at_time(
@@ -1667,10 +1725,25 @@ impl Market {
         current_slot: u64,
         current_unix_timestamp: i64,
     ) -> Result<u64> {
+        self.leverage_closeout_value_at_time_with_fee(
+            position,
+            current_slot,
+            current_unix_timestamp,
+            LeverageCollateralFee::default(),
+        )
+    }
+
+    pub fn leverage_closeout_value_at_time_with_fee(
+        &self,
+        position: &LeveragePosition,
+        current_slot: u64,
+        current_unix_timestamp: i64,
+        collateral_fee: LeverageCollateralFee,
+    ) -> Result<u64> {
         let collateral_asset = position.collateral_asset()?;
         self.quote_leverage_swap_at_time(
             collateral_asset,
-            position.collateral_amount,
+            collateral_fee.unwind_credit(position.collateral_amount)?,
             current_slot,
             current_unix_timestamp,
         )
@@ -1685,17 +1758,33 @@ impl Market {
         current_slot: u64,
         current_unix_timestamp: i64,
     ) -> Result<u64> {
+        self.leverage_protection_closeout_value_with_fee(
+            position,
+            current_slot,
+            current_unix_timestamp,
+            LeverageCollateralFee::default(),
+        )
+    }
+
+    pub fn leverage_protection_closeout_value_with_fee(
+        &self,
+        position: &LeveragePosition,
+        current_slot: u64,
+        current_unix_timestamp: i64,
+        collateral_fee: LeverageCollateralFee,
+    ) -> Result<u64> {
         let asset = position.collateral_asset()?;
+        let unwind_credit = collateral_fee.unwind_credit(position.collateral_amount)?;
         let preliminary = self.preliminary_swap_inputs_for_state_at_time(
             asset,
-            position.collateral_amount,
+            unwind_credit,
             current_slot,
             current_unix_timestamp,
             self.dynamic_fee_pre_state(current_slot)?,
         )?;
         let (amount_out, _) = self.evaluate_concentrated_swap(
             asset,
-            position.collateral_amount,
+            unwind_credit,
             preliminary,
             self.integrated_curve_state_nad()?,
             0,
@@ -1710,41 +1799,39 @@ impl Market {
         position: &LeveragePosition,
         current_slot: u64,
         current_unix_timestamp: i64,
+        collateral_fee: LeverageCollateralFee,
     ) -> Result<u64> {
         let collateral_asset = position.collateral_asset()?;
-        let closeout_quote = self.quote_leverage_swap_at_time(
-            collateral_asset,
-            position.collateral_amount,
-            current_slot,
-            current_unix_timestamp,
-        )?;
+        let unwind_credit = collateral_fee.unwind_credit(position.collateral_amount)?;
+        let closeout_quote =
+            self.quote_leverage_swap_at_time(collateral_asset, unwind_credit, current_slot, current_unix_timestamp)?;
         let closeout_value = closeout_quote.amount_out;
         let spot_price_nad = closeout_quote.start_price_nad;
         require_initial_leverage_health(
             self,
             collateral_asset,
-            position.collateral_amount,
+            unwind_credit,
             spot_price_nad,
             closeout_value,
             position.debt_amount(&self.debt)?,
         )?;
         let debt_amount = position.debt_amount(&self.debt)?;
         require_gte!(
-            self.ema_leverage_margin_bps(collateral_asset, position.collateral_amount, debt_amount)?,
+            self.ema_leverage_margin_bps_for_credit(collateral_asset, unwind_credit, debt_amount)?,
             LEVERAGE_INITIAL_MARGIN_BPS as u128,
             ErrorCode::LeverageInitialMarginTooLow
         );
         Ok(closeout_value)
     }
 
-    fn ema_leverage_margin_bps(
+    fn ema_leverage_margin_bps_for_credit(
         &self,
         collateral_asset: MarketAsset,
-        collateral_amount: u64,
+        unwind_credit: u64,
         debt_amount: u64,
     ) -> Result<u128> {
         let collateral_value_nad =
-            self.linear_liquidation_collateral_value_nad(collateral_asset, collateral_amount, &self.risk)?;
+            self.linear_liquidation_collateral_value_nad(collateral_asset, unwind_credit, &self.risk)?;
         let debt_value_nad = self.normalize_amount(
             debt_amount as u128,
             self.side(collateral_asset.opposite()).asset_decimals,
@@ -1757,9 +1844,14 @@ impl Market {
         collateral_asset: MarketAsset,
         collateral_amount: u64,
         debt_amount: u64,
+        collateral_fee: LeverageCollateralFee,
     ) -> Result<()> {
         require_gt!(
-            self.ema_leverage_margin_bps(collateral_asset, collateral_amount, debt_amount)?,
+            self.ema_leverage_margin_bps_for_credit(
+                collateral_asset,
+                collateral_fee.unwind_credit(collateral_amount)?,
+                debt_amount,
+            )?,
             LEVERAGE_MAINTENANCE_BUFFER_BPS as u128,
             ErrorCode::LeveragePositionNotLiquidatable
         );

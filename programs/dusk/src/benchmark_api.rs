@@ -29,7 +29,7 @@ use crate::{
         leverage_debt_from_margin, leverage_entry_limit_satisfied, leverage_entry_price_nad,
         liquidity::{SingleSidedLiquidityReceipt, SwapCashPolicy},
         AmmSwapQuote, DebtReceipt, DynamicBorrowTerms, HlpRebalanceReceipt, HlpYieldEligibility, LeverageCloseReceipt,
-        LeverageOpenReceipt, LeverageSwapFeeCredit, LeverageSwapQuote, PreparedLeverageSwap,
+        LeverageCollateralFee, LeverageOpenReceipt, LeverageSwapFeeCredit, LeverageSwapQuote, PreparedLeverageSwap,
     },
 };
 
@@ -2021,6 +2021,7 @@ impl BenchmarkMarket {
             position_bump,
             request.policy.protocol_swap_fee_bps,
             request.policy.protocol_auction_split,
+            LeverageCollateralFee::default(),
         )?;
         let quote = BenchmarkLeverageOpenQuote {
             borrowed_amount,
@@ -2153,6 +2154,7 @@ impl BenchmarkMarket {
             position_bump,
             prepared.request.policy.protocol_swap_fee_bps,
             prepared.request.policy.protocol_auction_split,
+            LeverageCollateralFee::default(),
         )?;
         require_eq!(
             native.base_hlp_rebalance.interest_paid,
@@ -2348,6 +2350,7 @@ impl BenchmarkMarket {
             request.policy.protocol_swap_fee_bps,
             request.policy.protocol_auction_split,
             request.clock.slot,
+            LeverageCollateralFee::default(),
         )?;
         require_eq!(
             settlement_preview.residual,
@@ -2422,6 +2425,7 @@ impl BenchmarkMarket {
             prepared.request.policy.protocol_swap_fee_bps,
             prepared.request.policy.protocol_auction_split,
             prepared.request.clock.slot,
+            LeverageCollateralFee::default(),
         )?;
         require_eq!(
             native.base_hlp_rebalance.interest_paid,
@@ -6481,6 +6485,7 @@ mod tests {
                 position_bump,
                 0,
                 ProtocolAuctionSplit::default(),
+                LeverageCollateralFee::default(),
             )
             .unwrap();
         let open = benchmark
@@ -6537,6 +6542,7 @@ mod tests {
                 0,
                 ProtocolAuctionSplit::default(),
                 close_request.clock.slot,
+                LeverageCollateralFee::default(),
             )
             .unwrap();
         assert_eq!(expected_close.interest_paid, 0);

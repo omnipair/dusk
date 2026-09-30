@@ -1991,6 +1991,9 @@ export type LeverageDelegate = {
         {
           "name": "leveragePosition",
           "optional": true
+        },
+        {
+          "name": "collateralMint"
         }
       ],
       "args": [],

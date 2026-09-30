@@ -106,6 +106,8 @@ pub(crate) struct ConcentratedHlpTransition {
     final_quote_debt: u64,
     final_base_curve_reserve: u64,
     final_quote_curve_reserve: u64,
+    base_output_rounding_carry: u64,
+    quote_output_rounding_carry: u64,
     base_interest_paid: u64,
     quote_interest_paid: u64,
     base_receipt: HlpRebalanceReceipt,
@@ -208,15 +210,65 @@ fn canonical_debt_for_proportional_claim(
 
 pub(crate) fn prepare_concentrated_hlp_transition(
     market: &Market,
+    start: IntegratedCurveState,
     quote: ConcentratedIntegratedAmmQuote,
     asset_in: MarketAsset,
 ) -> Result<ConcentratedHlpTransition> {
-    let _ = asset_in;
+    let asset_out = asset_in.opposite();
+    let decimals = market.side(asset_out).asset_decimals;
+    let atom_scale = 10_u128
+        .checked_pow(u32::from(market.amount_decimals() - decimals))
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let (start_ordinary, end_ordinary) = match asset_out {
+        MarketAsset::Base => (start.ordinary_base, quote.integrated.executable.curve.end.base_reserve),
+        MarketAsset::Quote => (
+            start.ordinary_quote,
+            quote.integrated.executable.curve.end.quote_reserve,
+        ),
+    };
+    // Cash debits the floor of the fractional curve output, while the quote
+    // floors the remaining ordinary reserve. The two floors can leave one
+    // extra raw atom in the live-reserve identity.
+    require_eq!(
+        start_ordinary
+            .checked_sub(end_ordinary)
+            .ok_or(ErrorCode::BrokenInvariant)?,
+        quote.integrated.executable.curve.amount_out,
+        ErrorCode::BrokenInvariant
+    );
+    let ordinary_gross_out = quote
+        .gross_amount_out
+        .checked_sub(quote.recovery.bonus_output)
+        .ok_or(ErrorCode::BrokenInvariant)?;
+    let raw_output_nad = u128::from(ordinary_gross_out)
+        .checked_mul(atom_scale)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let fractional_output = quote
+        .integrated
+        .executable
+        .curve
+        .amount_out
+        .checked_sub(raw_output_nad)
+        .ok_or(ErrorCode::BrokenInvariant)?;
+    require!(fractional_output < atom_scale, ErrorCode::BrokenInvariant);
+    // With start - end = exact output, the only rounding term is the borrow
+    // when the output's fractional atom exceeds the start's fractional atom.
+    let rounding_carry = u64::from(start_ordinary % atom_scale < fractional_output);
     prepare_concentrated_hlp_transition_from_end(
         market,
         quote.integrated.executable.end,
         false,
         quote.recovery.bonus_output > 0,
+        if asset_out == MarketAsset::Base {
+            rounding_carry
+        } else {
+            0
+        },
+        if asset_out == MarketAsset::Quote {
+            rounding_carry
+        } else {
+            0
+        },
     )
 }
 
@@ -563,7 +615,7 @@ impl Market {
 pub(crate) fn prepare_concentrated_hlp_transition_at_current_state(
     market: &Market,
 ) -> Result<ConcentratedHlpTransition> {
-    prepare_concentrated_hlp_transition_from_end(market, market.integrated_curve_state_nad()?, true, false)
+    prepare_concentrated_hlp_transition_from_end(market, market.integrated_curve_state_nad()?, true, false, 0, 0)
 }
 
 fn prepare_concentrated_hlp_transition_from_end(
@@ -571,6 +623,8 @@ fn prepare_concentrated_hlp_transition_from_end(
     end: IntegratedCurveState,
     preserve_current_ordinary_reserves: bool,
     certify_proportional_claim: bool,
+    base_output_rounding_carry: u64,
+    quote_output_rounding_carry: u64,
 ) -> Result<ConcentratedHlpTransition> {
     require_eq!(
         market.base_side.shares.ylp_supply,
@@ -755,6 +809,8 @@ fn prepare_concentrated_hlp_transition_from_end(
         final_quote_debt,
         final_base_curve_reserve,
         final_quote_curve_reserve,
+        base_output_rounding_carry,
+        quote_output_rounding_carry,
         base_interest_paid,
         quote_interest_paid,
         base_receipt,
@@ -860,10 +916,9 @@ impl ConcentratedHlpTransition {
             .checked_sub(quote_unrealized_interest)
             .ok_or(ErrorCode::BrokenInvariant)?;
         // The quoted ordinary output, each target equity, and the reconstructed
-        // opposite debt are independently floored to raw atoms. Their summed
-        // curve-reserve identity can therefore differ from the raw cash
-        // transition by at most three atoms, without leaving any debt/claim
-        // mismatch.
+        // opposite debt are independently floored to raw atoms. Remove only
+        // the output floor carry certified from the frozen curve quote; the
+        // remaining reserve reconciliation still has a three-atom limit.
         const MAX_CONCENTRATED_HLP_LIVE_DUST_ATOMS: u128 = 3;
         // Under `debug-hlp-drift`, report the curve-domain distance before
         // deciding on it, alongside the public-interest terms removed from the
@@ -896,9 +951,11 @@ impl ConcentratedHlpTransition {
             );
         }
         require!(
-            identity_base_curve_reserve.abs_diff(self.final_base_curve_reserve as u128)
+            identity_base_curve_reserve
+                .abs_diff((self.final_base_curve_reserve as u128) + u128::from(self.base_output_rounding_carry))
                 <= MAX_CONCENTRATED_HLP_LIVE_DUST_ATOMS
-                && identity_quote_curve_reserve.abs_diff(self.final_quote_curve_reserve as u128)
+                && identity_quote_curve_reserve
+                    .abs_diff((self.final_quote_curve_reserve as u128) + u128::from(self.quote_output_rounding_carry))
                     <= MAX_CONCENTRATED_HLP_LIVE_DUST_ATOMS,
             ErrorCode::BrokenInvariant
         );

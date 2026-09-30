@@ -282,6 +282,9 @@ impl<'info> Repay<'info> {
             base_debt_health_bps: debt_receipt.base_debt_health_bps,
             quote_debt_health_bps: debt_receipt.quote_debt_health_bps,
             metadata: MarketEventMetadata::new(ctx.accounts.owner.key(), market_key)?,
+            fixed_base_shares: ctx.accounts.borrow_position.fixed_base_shares,
+            fixed_quote_shares: ctx.accounts.borrow_position.fixed_quote_shares,
+            auction_debt_asset: ctx.accounts.borrow_position.auction_debt_asset,
         });
 
         crate::instructions::accounting::emit_interest_paid(

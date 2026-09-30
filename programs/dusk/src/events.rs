@@ -1,7 +1,7 @@
 use crate::{
     errors::ErrorCode,
-    state::MarketConfig,
-    transitions::{AmmSwapQuote, LeverageSwapFeeCredit, LeverageSwapQuote},
+    state::{Market, MarketAsset, MarketConfig, MarketParameterUpdate, ProposalMetadataV1},
+    transitions::{lending::SidePrices, AmmSwapQuote, LeverageSwapFeeCredit, LeverageSwapQuote},
 };
 use anchor_lang::prelude::*;
 
@@ -43,6 +43,9 @@ pub struct MarketCreated {
     pub launch_fee_progress_offset: u16,
     pub version: u8,
     pub metadata: MarketEventMetadata,
+    /// Asset mint decimals, which scale every price and amount of the market.
+    pub base_decimals: u8,
+    pub quote_decimals: u8,
 }
 
 #[event]
@@ -106,6 +109,20 @@ pub struct LiquidityRemoved {
     pub base_live_reserve: u64,
     pub quote_live_reserve: u64,
     pub metadata: MarketEventMetadata,
+}
+
+/// One LP transfer checkpointed by the Dusk Token-2022 transfer hook. Only mints
+/// whose extra-account list includes the event authority and Dusk program
+/// publish it; mints initialized before that layout transfer without it.
+#[event]
+pub struct LpTransferred {
+    pub market: Pubkey,
+    pub lp_mint: Pubkey,
+    /// `0` for yLP and `1` for hLP.
+    pub token_kind: u8,
+    pub source_owner: Pubkey,
+    pub destination_owner: Pubkey,
+    pub amount: u64,
 }
 
 #[event]
@@ -331,9 +348,52 @@ pub struct SwapExecuted {
     /// Final executable reserves after retention and inline hLP correction.
     pub base_live_reserve: u64,
     pub quote_live_reserve: u64,
+    /// Internal yLP share supply after the swap.
+    pub ylp_supply: u64,
+    /// Base price used to quote this execution, after any deferred controller step.
+    pub start_price_nad: u64,
+    /// Each side's price, price EMA, and yLP growth indexes after the swap.
+    pub base: MarketSideSnapshot,
+    pub quote: MarketSideSnapshot,
+}
+
+/// One side of the market after a swap. Prices quote this side's asset in
+/// the opposite asset and equal `preview_market` for the same state and slot.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MarketSideSnapshot {
+    /// Marginal price at this post-swap state. A later controller step or
+    /// market update can change it before another trade is quoted.
+    pub spot_price_nad: u64,
+    /// Symmetric risk EMA of the spot price.
+    pub price_ema_nad: u64,
+    /// Per-yLP-share swap-fee growth, scaled by 2^64.
+    pub swap_fee_growth_index_q64: u128,
+    /// Per-yLP-share interest growth, scaled by 2^64.
+    pub interest_growth_index_q64: u128,
+}
+
+impl MarketSideSnapshot {
+    /// Both sides of the market's current state, pricing the curve once. The
+    /// swap's own risk observation records the quote's endpoint price, which
+    /// can differ from the executable price after the swap, so it is not reused.
+    pub(crate) fn pair(market: &Market) -> Result<(Self, Self)> {
+        let base_price = market.current_base_price_nad()?;
+        let side = |asset: MarketAsset| -> Result<Self> {
+            let prices: SidePrices = market.side_prices_at(asset, base_price)?;
+            let fees = &market.side(asset).fees;
+            Ok(Self {
+                spot_price_nad: prices.spot_price_nad,
+                price_ema_nad: prices.price_ema_nad,
+                swap_fee_growth_index_q64: fees.swap_fee_growth_index_q64,
+                interest_growth_index_q64: fees.interest_growth_index_q64,
+            })
+        };
+        Ok((side(MarketAsset::Base)?, side(MarketAsset::Quote)?))
+    }
 }
 
 impl SwapExecuted {
+    /// `state` is the market after the swap's final state change.
     pub(crate) fn from_amm(
         market: Pubkey,
         trader: Pubkey,
@@ -342,10 +402,10 @@ impl SwapExecuted {
         origin: SwapOrigin,
         slot: u64,
         swap: AmmSwapQuote,
-        base_live_reserve: u64,
-        quote_live_reserve: u64,
-    ) -> Self {
-        Self {
+        state: &Market,
+    ) -> Result<Self> {
+        let (base, quote) = MarketSideSnapshot::pair(state)?;
+        Ok(Self {
             market,
             trader,
             actor,
@@ -369,11 +429,16 @@ impl SwapExecuted {
             hlp_recovery_bonus_output: swap.recovery.bonus_output,
             hlp_recovery_discount_bps: swap.recovery.discount_bps,
             hlp_recovery_critical: swap.recovery.critical,
-            base_live_reserve,
-            quote_live_reserve,
-        }
+            base_live_reserve: state.base_side.reserves.live_reserve,
+            quote_live_reserve: state.quote_side.reserves.live_reserve,
+            ylp_supply: state.base_side.shares.ylp_supply,
+            start_price_nad: swap.start_price_nad,
+            base,
+            quote,
+        })
     }
 
+    /// `state` is the market after the swap's final state change.
     pub(crate) fn from_leverage(
         market: Pubkey,
         trader: Pubkey,
@@ -382,8 +447,11 @@ impl SwapExecuted {
         origin: SwapOrigin,
         slot: u64,
         swap: LeverageSwapReceipt,
-    ) -> Self {
-        Self {
+        start_price_nad: u64,
+        state: &Market,
+    ) -> Result<Self> {
+        let (base, quote) = MarketSideSnapshot::pair(state)?;
+        Ok(Self {
             market,
             trader,
             actor,
@@ -409,7 +477,11 @@ impl SwapExecuted {
             hlp_recovery_critical: false,
             base_live_reserve: swap.base_live_reserve,
             quote_live_reserve: swap.quote_live_reserve,
-        }
+            ylp_supply: state.base_side.shares.ylp_supply,
+            start_price_nad,
+            base,
+            quote,
+        })
     }
 }
 
@@ -613,6 +685,12 @@ pub struct MarketCollateralDeposited {
     pub base_liquidation_cf_bps: u16,
     pub quote_liquidation_cf_bps: u16,
     pub metadata: MarketEventMetadata,
+    /// Borrow position written by this deposit; the first deposit creates it.
+    pub position: Pubkey,
+    pub position_id: Pubkey,
+    /// Post-deposit auction side, `255` when none is active. A deposit that
+    /// restores health cancels an active auction.
+    pub auction_debt_asset: u8,
 }
 
 #[event]
@@ -629,6 +707,9 @@ pub struct MarketCollateralWithdrawn {
     pub base_liquidation_cf_bps: u16,
     pub quote_liquidation_cf_bps: u16,
     pub metadata: MarketEventMetadata,
+    pub position: Pubkey,
+    /// The withdrawal emptied the position and closed its account.
+    pub closed: bool,
 }
 
 #[event]
@@ -642,6 +723,7 @@ pub struct MarketDebtUpdated {
     pub cash_debit: u64,
     pub cash_credit: u64,
     pub interest_paid: u64,
+    /// Market-wide fixed debt after the update, not this position's debt.
     pub fixed_base_debt: u128,
     pub fixed_quote_debt: u128,
     pub global_health_base_contribution_for_quote_debt: u64,
@@ -651,6 +733,12 @@ pub struct MarketDebtUpdated {
     pub base_debt_health_bps: u64,
     pub quote_debt_health_bps: u64,
     pub metadata: MarketEventMetadata,
+    /// The position's fixed debt shares after the update.
+    pub fixed_base_shares: u128,
+    pub fixed_quote_shares: u128,
+    /// Post-update auction side, `255` when none is active. A repayment that
+    /// restores health cancels an active auction.
+    pub auction_debt_asset: u8,
 }
 
 #[event]
@@ -671,6 +759,43 @@ pub struct BorrowPositionLiquidated {
     pub insurance_drawn: u64,
     pub socialized_loss: u64,
     pub remaining_debt: u128,
+    /// The position's state after the liquidation.
+    pub base_collateral: u64,
+    pub quote_collateral: u64,
+    pub fixed_base_shares: u128,
+    pub fixed_quote_shares: u128,
+    pub global_health_base_contribution_for_quote_debt: u64,
+    pub global_health_quote_contribution_for_base_debt: u64,
+    pub base_liquidation_cf_bps: u16,
+    pub quote_liquidation_cf_bps: u16,
+    /// `255` once the auction is cleared.
+    pub auction_debt_asset: u8,
+    /// The liquidation emptied the position and closed its account.
+    pub closed: bool,
+}
+
+/// A liquidation auction opened on a borrow position.
+#[event]
+pub struct LiquidationAuctionStarted {
+    pub market: Pubkey,
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    /// `0` for base debt and `1` for quote debt.
+    pub auction_debt_asset: u8,
+    pub auction_start_time: i64,
+    pub auction_start_price_nad: u64,
+    pub auction_floor_price_nad: u64,
+}
+
+/// A fill or backstop found the position healthy again and cleared its
+/// auction without liquidating anything.
+#[event]
+pub struct LiquidationAuctionCancelled {
+    pub market: Pubkey,
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    /// Debt side of the cancelled auction: `0` for base and `1` for quote.
+    pub debt_asset_side: u8,
 }
 
 #[event]
@@ -739,6 +864,9 @@ pub struct ParameterProposalCreated {
     pub sponsorship_floor: u64,
     pub initial_support: u64,
     pub status: u8,
+    /// The proposed update and metadata exactly as stored on the proposal.
+    pub update: MarketParameterUpdate,
+    pub metadata: ProposalMetadataV1,
 }
 
 #[event]

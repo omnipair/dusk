@@ -16,9 +16,9 @@ use crate::{
 };
 
 use super::settlement::{
-    leverage_swap_fee_credit, prepare_leverage_swap, record_leverage_interest, settle_inline_leverage_hlp,
-    validate_leverage_futarchy_pda, validate_leverage_interest_account, validate_leverage_market_pda,
-    validate_leverage_mints, validate_leverage_reserve_accounts,
+    leverage_collateral_fee, leverage_swap_fee_credit, prepare_leverage_swap, record_leverage_interest,
+    settle_inline_leverage_hlp, validate_leverage_futarchy_pda, validate_leverage_interest_account,
+    validate_leverage_market_pda, validate_leverage_mints, validate_leverage_reserve_accounts,
 };
 use crate::instructions::accounts::{
     require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout,
@@ -217,6 +217,7 @@ impl<'info> DecreaseLeverage<'info> {
             ctx.accounts.futarchy_authority.protocol_auction_split,
             current_slot,
             current_unix_timestamp,
+            leverage_collateral_fee(&ctx.accounts.collateral_mint, Clock::get()?.epoch)?,
         )?;
         settle_inline_leverage_hlp(
             &mut ctx.accounts.market,
@@ -302,7 +303,9 @@ impl<'info> DecreaseLeverage<'info> {
             SwapOrigin::LeverageDecrease,
             current_slot,
             swap_event,
-        ));
+            swap.start_price_nad,
+            &ctx.accounts.market,
+        )?);
         emit_cpi!(LeveragePositionUpdated {
             market: market_key,
             position: position_key,

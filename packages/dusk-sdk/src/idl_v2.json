@@ -146,6 +146,9 @@
           "name": "debt_mint"
         },
         {
+          "name": "collateral_mint"
+        },
+        {
           "name": "debt_reserve_vault",
           "writable": true
         },
@@ -6619,6 +6622,9 @@
           "name": "debt_mint"
         },
         {
+          "name": "collateral_mint"
+        },
+        {
           "name": "debt_reserve_vault",
           "writable": true
         },
@@ -9906,6 +9912,32 @@
       ]
     },
     {
+      "name": "LiquidationAuctionCancelled",
+      "discriminator": [
+        122,
+        103,
+        174,
+        225,
+        120,
+        149,
+        186,
+        155
+      ]
+    },
+    {
+      "name": "LiquidationAuctionStarted",
+      "discriminator": [
+        137,
+        151,
+        231,
+        92,
+        108,
+        13,
+        215,
+        59
+      ]
+    },
+    {
       "name": "LiquidityAdded",
       "discriminator": [
         154,
@@ -9929,6 +9961,19 @@
         116,
         169,
         189
+      ]
+    },
+    {
+      "name": "LpTransferred",
+      "discriminator": [
+        244,
+        4,
+        93,
+        185,
+        125,
+        159,
+        75,
+        55
       ]
     },
     {
@@ -10936,7 +10981,7 @@
     {
       "code": 6135,
       "name": "InvalidLeverageCollateralMint",
-      "msg": "Leverage collateral mint must not have transfer fee configuration"
+      "msg": "Leverage collateral transfer fee must be immutable with no pending change"
     },
     {
       "code": 6136,
@@ -11858,6 +11903,55 @@
           {
             "name": "remaining_debt",
             "type": "u128"
+          },
+          {
+            "name": "base_collateral",
+            "docs": [
+              "The position's state after the liquidation."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "quote_collateral",
+            "type": "u64"
+          },
+          {
+            "name": "fixed_base_shares",
+            "type": "u128"
+          },
+          {
+            "name": "fixed_quote_shares",
+            "type": "u128"
+          },
+          {
+            "name": "global_health_base_contribution_for_quote_debt",
+            "type": "u64"
+          },
+          {
+            "name": "global_health_quote_contribution_for_base_debt",
+            "type": "u64"
+          },
+          {
+            "name": "base_liquidation_cf_bps",
+            "type": "u16"
+          },
+          {
+            "name": "quote_liquidation_cf_bps",
+            "type": "u16"
+          },
+          {
+            "name": "auction_debt_asset",
+            "docs": [
+              "`255` once the auction is cleared."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "closed",
+            "docs": [
+              "The liquidation emptied the position and closed its account."
+            ],
+            "type": "bool"
           }
         ]
       }
@@ -14172,6 +14266,79 @@
       }
     },
     {
+      "name": "LiquidationAuctionCancelled",
+      "docs": [
+        "A fill or backstop found the position healthy again and cleared its",
+        "auction without liquidating anything."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "debt_asset_side",
+            "docs": [
+              "Debt side of the cancelled auction: `0` for base and `1` for quote."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LiquidationAuctionStarted",
+      "docs": [
+        "A liquidation auction opened on a borrow position."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "auction_debt_asset",
+            "docs": [
+              "`0` for base debt and `1` for quote debt."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "auction_start_time",
+            "type": "i64"
+          },
+          {
+            "name": "auction_start_price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "auction_floor_price_nad",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "LiquidityAdded",
       "type": {
         "kind": "struct",
@@ -14277,6 +14444,46 @@
                 "name": "MarketEventMetadata"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "LpTransferred",
+      "docs": [
+        "One LP transfer checkpointed by the Dusk Token-2022 transfer hook. Only mints",
+        "whose extra-account list includes the event authority and Dusk program",
+        "publish it; mints initialized before that layout transfer without it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "lp_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_kind",
+            "docs": [
+              "`0` for yLP and `1` for hLP."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "source_owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "destination_owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
           }
         ]
       }
@@ -14515,6 +14722,25 @@
                 "name": "MarketEventMetadata"
               }
             }
+          },
+          {
+            "name": "position",
+            "docs": [
+              "Borrow position written by this deposit; the first deposit creates it."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "position_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "auction_debt_asset",
+            "docs": [
+              "Post-deposit auction side, `255` when none is active. A deposit that",
+              "restores health cancels an active auction."
+            ],
+            "type": "u8"
           }
         ]
       }
@@ -14575,6 +14801,17 @@
                 "name": "MarketEventMetadata"
               }
             }
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "closed",
+            "docs": [
+              "The withdrawal emptied the position and closed its account."
+            ],
+            "type": "bool"
           }
         ]
       }
@@ -14744,6 +14981,17 @@
                 "name": "MarketEventMetadata"
               }
             }
+          },
+          {
+            "name": "base_decimals",
+            "docs": [
+              "Asset mint decimals, which scale every price and amount of the market."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "quote_decimals",
+            "type": "u8"
           }
         ]
       }
@@ -14790,6 +15038,9 @@
           },
           {
             "name": "fixed_base_debt",
+            "docs": [
+              "Market-wide fixed debt after the update, not this position's debt."
+            ],
             "type": "u128"
           },
           {
@@ -14827,6 +15078,25 @@
                 "name": "MarketEventMetadata"
               }
             }
+          },
+          {
+            "name": "fixed_base_shares",
+            "docs": [
+              "The position's fixed debt shares after the update."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "fixed_quote_shares",
+            "type": "u128"
+          },
+          {
+            "name": "auction_debt_asset",
+            "docs": [
+              "Post-update auction side, `255` when none is active. A repayment that",
+              "restores health cancels an active auction."
+            ],
+            "type": "u8"
           }
         ]
       }
@@ -15169,6 +15439,47 @@
       }
     },
     {
+      "name": "MarketSideSnapshot",
+      "docs": [
+        "One side of the market after a swap. Prices quote this side's asset in",
+        "the opposite asset and equal `preview_market` for the same state and slot."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "spot_price_nad",
+            "docs": [
+              "Marginal price at this post-swap state. A later controller step or",
+              "market update can change it before another trade is quoted."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "price_ema_nad",
+            "docs": [
+              "Symmetric risk EMA of the spot price."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "swap_fee_growth_index_q64",
+            "docs": [
+              "Per-yLP-share swap-fee growth, scaled by 2^64."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "interest_growth_index_q64",
+            "docs": [
+              "Per-yLP-share interest growth, scaled by 2^64."
+            ],
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
       "name": "OpenLeverageArgs",
       "type": {
         "kind": "struct",
@@ -15407,6 +15718,25 @@
           {
             "name": "status",
             "type": "u8"
+          },
+          {
+            "name": "update",
+            "docs": [
+              "The proposed update and metadata exactly as stored on the proposal."
+            ],
+            "type": {
+              "defined": {
+                "name": "MarketParameterUpdate"
+              }
+            }
+          },
+          {
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "ProposalMetadataV1"
+              }
+            }
           }
         ]
       }
@@ -17181,6 +17511,39 @@
           {
             "name": "quote_live_reserve",
             "type": "u64"
+          },
+          {
+            "name": "ylp_supply",
+            "docs": [
+              "Internal yLP share supply after the swap."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "start_price_nad",
+            "docs": [
+              "Base price used to quote this execution, after any deferred controller step."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "base",
+            "docs": [
+              "Each side's price, price EMA, and yLP growth indexes after the swap."
+            ],
+            "type": {
+              "defined": {
+                "name": "MarketSideSnapshot"
+              }
+            }
+          },
+          {
+            "name": "quote",
+            "type": {
+              "defined": {
+                "name": "MarketSideSnapshot"
+              }
+            }
           }
         ]
       }
@@ -17267,10 +17630,16 @@
           },
           {
             "name": "amount_out",
+            "docs": [
+              "Output reserve vault debit after Dusk trading fees, before the output mint transfer fee."
+            ],
             "type": "u64"
           },
           {
             "name": "gross_amount_out",
+            "docs": [
+              "Curve output before Dusk trading fees."
+            ],
             "type": "u64"
           },
           {
@@ -17497,6 +17866,20 @@
           {
             "name": "hlp_recovery_critical",
             "type": "bool"
+          },
+          {
+            "name": "output_transfer_fee",
+            "docs": [
+              "Token-2022 fee withheld when the output vault transfers `amount_out`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "net_amount_out",
+            "docs": [
+              "Spendable output credited to the recipient; the value checked by `min_asset_out`."
+            ],
+            "type": "u64"
           }
         ]
       }

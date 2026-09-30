@@ -78,6 +78,11 @@ impl<'info> ExecuteProtectionOrder<'info> {
                             .ok_or(LeverageDelegateError::InvalidOrder)?
                             .to_account_info(),
                         debt_mint: mint,
+                        collateral_mint: if self.order.debt_asset == MarketAsset::Base.code() {
+                            self.quote_mint.to_account_info()
+                        } else {
+                            self.base_mint.to_account_info()
+                        },
                         debt_reserve_vault: self.payment_vault.to_account_info(),
                         debt_interest_vault: self.debt_interest_vault.to_account_info(),
                         owner_debt_account: self.keeper_payment_account.to_account_info(),

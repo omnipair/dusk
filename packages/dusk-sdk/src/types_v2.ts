@@ -152,6 +152,9 @@ export type Dusk = {
           "name": "debtMint"
         },
         {
+          "name": "collateralMint"
+        },
+        {
           "name": "debtReserveVault",
           "writable": true
         },
@@ -6625,6 +6628,9 @@ export type Dusk = {
           "name": "debtMint"
         },
         {
+          "name": "collateralMint"
+        },
+        {
           "name": "debtReserveVault",
           "writable": true
         },
@@ -9912,6 +9918,32 @@ export type Dusk = {
       ]
     },
     {
+      "name": "liquidationAuctionCancelled",
+      "discriminator": [
+        122,
+        103,
+        174,
+        225,
+        120,
+        149,
+        186,
+        155
+      ]
+    },
+    {
+      "name": "liquidationAuctionStarted",
+      "discriminator": [
+        137,
+        151,
+        231,
+        92,
+        108,
+        13,
+        215,
+        59
+      ]
+    },
+    {
       "name": "liquidityAdded",
       "discriminator": [
         154,
@@ -9935,6 +9967,19 @@ export type Dusk = {
         116,
         169,
         189
+      ]
+    },
+    {
+      "name": "lpTransferred",
+      "discriminator": [
+        244,
+        4,
+        93,
+        185,
+        125,
+        159,
+        75,
+        55
       ]
     },
     {
@@ -10942,7 +10987,7 @@ export type Dusk = {
     {
       "code": 6135,
       "name": "invalidLeverageCollateralMint",
-      "msg": "Leverage collateral mint must not have transfer fee configuration"
+      "msg": "Leverage collateral transfer fee must be immutable with no pending change"
     },
     {
       "code": 6136,
@@ -11864,6 +11909,55 @@ export type Dusk = {
           {
             "name": "remainingDebt",
             "type": "u128"
+          },
+          {
+            "name": "baseCollateral",
+            "docs": [
+              "The position's state after the liquidation."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "quoteCollateral",
+            "type": "u64"
+          },
+          {
+            "name": "fixedBaseShares",
+            "type": "u128"
+          },
+          {
+            "name": "fixedQuoteShares",
+            "type": "u128"
+          },
+          {
+            "name": "globalHealthBaseContributionForQuoteDebt",
+            "type": "u64"
+          },
+          {
+            "name": "globalHealthQuoteContributionForBaseDebt",
+            "type": "u64"
+          },
+          {
+            "name": "baseLiquidationCfBps",
+            "type": "u16"
+          },
+          {
+            "name": "quoteLiquidationCfBps",
+            "type": "u16"
+          },
+          {
+            "name": "auctionDebtAsset",
+            "docs": [
+              "`255` once the auction is cleared."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "closed",
+            "docs": [
+              "The liquidation emptied the position and closed its account."
+            ],
+            "type": "bool"
           }
         ]
       }
@@ -14178,6 +14272,79 @@ export type Dusk = {
       }
     },
     {
+      "name": "liquidationAuctionCancelled",
+      "docs": [
+        "A fill or backstop found the position healthy again and cleared its",
+        "auction without liquidating anything."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "debtAssetSide",
+            "docs": [
+              "Debt side of the cancelled auction: `0` for base and `1` for quote."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "liquidationAuctionStarted",
+      "docs": [
+        "A liquidation auction opened on a borrow position."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "auctionDebtAsset",
+            "docs": [
+              "`0` for base debt and `1` for quote debt."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "auctionStartTime",
+            "type": "i64"
+          },
+          {
+            "name": "auctionStartPriceNad",
+            "type": "u64"
+          },
+          {
+            "name": "auctionFloorPriceNad",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "liquidityAdded",
       "type": {
         "kind": "struct",
@@ -14283,6 +14450,46 @@ export type Dusk = {
                 "name": "marketEventMetadata"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "lpTransferred",
+      "docs": [
+        "One LP transfer checkpointed by the Dusk Token-2022 transfer hook. Only mints",
+        "whose extra-account list includes the event authority and Dusk program",
+        "publish it; mints initialized before that layout transfer without it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "lpMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "tokenKind",
+            "docs": [
+              "`0` for yLP and `1` for hLP."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "sourceOwner",
+            "type": "pubkey"
+          },
+          {
+            "name": "destinationOwner",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
           }
         ]
       }
@@ -14521,6 +14728,25 @@ export type Dusk = {
                 "name": "marketEventMetadata"
               }
             }
+          },
+          {
+            "name": "position",
+            "docs": [
+              "Borrow position written by this deposit; the first deposit creates it."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "positionId",
+            "type": "pubkey"
+          },
+          {
+            "name": "auctionDebtAsset",
+            "docs": [
+              "Post-deposit auction side, `255` when none is active. A deposit that",
+              "restores health cancels an active auction."
+            ],
+            "type": "u8"
           }
         ]
       }
@@ -14581,6 +14807,17 @@ export type Dusk = {
                 "name": "marketEventMetadata"
               }
             }
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "closed",
+            "docs": [
+              "The withdrawal emptied the position and closed its account."
+            ],
+            "type": "bool"
           }
         ]
       }
@@ -14750,6 +14987,17 @@ export type Dusk = {
                 "name": "marketEventMetadata"
               }
             }
+          },
+          {
+            "name": "baseDecimals",
+            "docs": [
+              "Asset mint decimals, which scale every price and amount of the market."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "quoteDecimals",
+            "type": "u8"
           }
         ]
       }
@@ -14796,6 +15044,9 @@ export type Dusk = {
           },
           {
             "name": "fixedBaseDebt",
+            "docs": [
+              "Market-wide fixed debt after the update, not this position's debt."
+            ],
             "type": "u128"
           },
           {
@@ -14833,6 +15084,25 @@ export type Dusk = {
                 "name": "marketEventMetadata"
               }
             }
+          },
+          {
+            "name": "fixedBaseShares",
+            "docs": [
+              "The position's fixed debt shares after the update."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "fixedQuoteShares",
+            "type": "u128"
+          },
+          {
+            "name": "auctionDebtAsset",
+            "docs": [
+              "Post-update auction side, `255` when none is active. A repayment that",
+              "restores health cancels an active auction."
+            ],
+            "type": "u8"
           }
         ]
       }
@@ -15175,6 +15445,47 @@ export type Dusk = {
       }
     },
     {
+      "name": "marketSideSnapshot",
+      "docs": [
+        "One side of the market after a swap. Prices quote this side's asset in",
+        "the opposite asset and equal `preview_market` for the same state and slot."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "spotPriceNad",
+            "docs": [
+              "Marginal price at this post-swap state. A later controller step or",
+              "market update can change it before another trade is quoted."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "priceEmaNad",
+            "docs": [
+              "Symmetric risk EMA of the spot price."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "swapFeeGrowthIndexQ64",
+            "docs": [
+              "Per-yLP-share swap-fee growth, scaled by 2^64."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "interestGrowthIndexQ64",
+            "docs": [
+              "Per-yLP-share interest growth, scaled by 2^64."
+            ],
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
       "name": "openLeverageArgs",
       "type": {
         "kind": "struct",
@@ -15413,6 +15724,25 @@ export type Dusk = {
           {
             "name": "status",
             "type": "u8"
+          },
+          {
+            "name": "update",
+            "docs": [
+              "The proposed update and metadata exactly as stored on the proposal."
+            ],
+            "type": {
+              "defined": {
+                "name": "marketParameterUpdate"
+              }
+            }
+          },
+          {
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "proposalMetadataV1"
+              }
+            }
           }
         ]
       }
@@ -17187,6 +17517,39 @@ export type Dusk = {
           {
             "name": "quoteLiveReserve",
             "type": "u64"
+          },
+          {
+            "name": "ylpSupply",
+            "docs": [
+              "Internal yLP share supply after the swap."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "startPriceNad",
+            "docs": [
+              "Base price used to quote this execution, after any deferred controller step."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "base",
+            "docs": [
+              "Each side's price, price EMA, and yLP growth indexes after the swap."
+            ],
+            "type": {
+              "defined": {
+                "name": "marketSideSnapshot"
+              }
+            }
+          },
+          {
+            "name": "quote",
+            "type": {
+              "defined": {
+                "name": "marketSideSnapshot"
+              }
+            }
           }
         ]
       }
@@ -17273,10 +17636,16 @@ export type Dusk = {
           },
           {
             "name": "amountOut",
+            "docs": [
+              "Output reserve vault debit after Dusk trading fees, before the output mint transfer fee."
+            ],
             "type": "u64"
           },
           {
             "name": "grossAmountOut",
+            "docs": [
+              "Curve output before Dusk trading fees."
+            ],
             "type": "u64"
           },
           {
@@ -17503,6 +17872,20 @@ export type Dusk = {
           {
             "name": "hlpRecoveryCritical",
             "type": "bool"
+          },
+          {
+            "name": "outputTransferFee",
+            "docs": [
+              "Token-2022 fee withheld when the output vault transfers `amount_out`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "netAmountOut",
+            "docs": [
+              "Spendable output credited to the recipient; the value checked by `min_asset_out`."
+            ],
+            "type": "u64"
           }
         ]
       }

@@ -7,7 +7,7 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::BorrowPositionLiquidated,
+    events::{BorrowPositionLiquidated, LiquidationAuctionCancelled},
     generate_market_seeds,
     state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
     token::{get_transfer_fee, get_transfer_inverse_fee, transfer_checked_with_remaining_accounts},
@@ -195,6 +195,12 @@ impl<'info> FillLiquidationAuction<'info> {
             .market
             .reconcile_liquidation_auction(&mut ctx.accounts.borrow_position)?;
         if !ctx.accounts.borrow_position.has_active_liquidation_auction() {
+            emit_cpi!(LiquidationAuctionCancelled {
+                market: market_key,
+                position: borrow_position_key,
+                owner: borrower_key,
+                debt_asset_side: debt_asset.code(),
+            });
             return Ok(());
         }
 
@@ -396,6 +402,8 @@ impl<'info> FillLiquidationAuction<'info> {
         ctx.accounts.market.refresh_risk()?;
         require_reserve_custody(ctx.accounts.reserve_vault.amount, ctx.accounts.market.side(debt_asset))?;
 
+        // Report the final values; an emptied position is closed below.
+        let closed = ctx.accounts.borrow_position.is_empty();
         emit_cpi!(BorrowPositionLiquidated {
             market: market_key,
             borrow_position: borrow_position_key,
@@ -409,6 +417,22 @@ impl<'info> FillLiquidationAuction<'info> {
             insurance_drawn: liquidation_receipt.insurance_drawn,
             socialized_loss: liquidation_receipt.socialized_loss,
             remaining_debt: liquidation_receipt.remaining_debt,
+            base_collateral: ctx.accounts.borrow_position.base_collateral,
+            quote_collateral: ctx.accounts.borrow_position.quote_collateral,
+            fixed_base_shares: ctx.accounts.borrow_position.fixed_base_shares,
+            fixed_quote_shares: ctx.accounts.borrow_position.fixed_quote_shares,
+            global_health_base_contribution_for_quote_debt: ctx
+                .accounts
+                .borrow_position
+                .global_health_base_contribution_for_quote_debt,
+            global_health_quote_contribution_for_base_debt: ctx
+                .accounts
+                .borrow_position
+                .global_health_quote_contribution_for_base_debt,
+            base_liquidation_cf_bps: ctx.accounts.borrow_position.base_liquidation_cf_bps,
+            quote_liquidation_cf_bps: ctx.accounts.borrow_position.quote_liquidation_cf_bps,
+            auction_debt_asset: ctx.accounts.borrow_position.auction_debt_asset,
+            closed,
         });
         crate::instructions::accounting::emit_interest_paid(
             &ctx.accounts.market,
@@ -430,7 +454,7 @@ impl<'info> FillLiquidationAuction<'info> {
         )? {
             emit_cpi!(event);
         }
-        if ctx.accounts.borrow_position.is_empty() {
+        if closed {
             ctx.accounts
                 .borrow_position
                 .close(ctx.accounts.position_owner.to_account_info())?;

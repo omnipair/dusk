@@ -57,6 +57,7 @@ type DuskEventTypes = [
   TypeNamed<"borrowPositionLiquidated">,
   TypeNamed<"debtFreePositionClosed">,
   TypeNamed<"debtSource">,
+  TypeNamed<"feeProfile">,
   TypeNamed<"harvestAuthorityUpdated">,
   TypeNamed<"hlpClosed">,
   TypeNamed<"hlpOpened">,
@@ -69,8 +70,11 @@ type DuskEventTypes = [
   TypeNamed<"leveragePositionOpened">,
   TypeNamed<"leveragePositionUpdated">,
   TypeNamed<"leverageSwapReceipt">,
+  TypeNamed<"liquidationAuctionCancelled">,
+  TypeNamed<"liquidationAuctionStarted">,
   TypeNamed<"liquidityAdded">,
   TypeNamed<"liquidityRemoved">,
+  TypeNamed<"lpTransferred">,
   TypeNamed<"marketCollateralDeposited">,
   TypeNamed<"marketCollateralWithdrawn">,
   TypeNamed<"marketConfig">,
@@ -78,12 +82,15 @@ type DuskEventTypes = [
   TypeNamed<"marketDebtUpdated">,
   TypeNamed<"marketEventMetadata">,
   TypeNamed<"marketHealthUpdated">,
+  TypeNamed<"marketParameterUpdate">,
   TypeNamed<"marketReduceOnlyUpdated">,
+  TypeNamed<"marketSideSnapshot">,
   TypeNamed<"parameterProposalCreated">,
   TypeNamed<"parameterProposalExecuted">,
   TypeNamed<"parameterProposalQueued">,
   TypeNamed<"parameterProposalSupportWithdrawn">,
   TypeNamed<"parameterProposalSupported">,
+  TypeNamed<"proposalMetadataV1">,
   TypeNamed<"protocolAuctionConfigUpdated">,
   TypeNamed<"protocolAuctionRecipientsUpdated">,
   TypeNamed<"protocolAuctionRouteUpdated">,
@@ -130,8 +137,11 @@ export type ProposalSupport = IdlAccounts<DuskAccountIdl>["proposalSupport"];
 
 export type HlpClosed = IdlEvents<DuskEventIdl>["hlpClosed"];
 export type HlpOpened = IdlEvents<DuskEventIdl>["hlpOpened"];
+export type LiquidationAuctionCancelled = IdlEvents<DuskEventIdl>["liquidationAuctionCancelled"];
+export type LiquidationAuctionStarted = IdlEvents<DuskEventIdl>["liquidationAuctionStarted"];
 export type LiquidityAdded = IdlEvents<DuskEventIdl>["liquidityAdded"];
 export type LiquidityRemoved = IdlEvents<DuskEventIdl>["liquidityRemoved"];
+export type LpTransferred = IdlEvents<DuskEventIdl>["lpTransferred"];
 export type MarketCollateralDeposited = IdlEvents<DuskEventIdl>["marketCollateralDeposited"];
 export type MarketCollateralWithdrawn = IdlEvents<DuskEventIdl>["marketCollateralWithdrawn"];
 export type MarketCreated = IdlEvents<DuskEventIdl>["marketCreated"];
@@ -161,5 +171,6 @@ export type ReferralInterestShareCapUpdated = IdlEvents<DuskEventIdl>["referralI
 export type ReferralRecipientUpdated = IdlEvents<DuskEventIdl>["referralRecipientUpdated"];
 export type SwapExecuted = IdlEvents<DuskEventIdl>["swapExecuted"];
 export type SwapOrigin = SwapExecuted["origin"];
+export type MarketSideSnapshot = SwapExecuted["base"];
 export type YieldClaimed = IdlEvents<DuskEventIdl>["yieldClaimed"];
 export type YieldRecipientUpdated = IdlEvents<DuskEventIdl>["yieldRecipientUpdated"];
