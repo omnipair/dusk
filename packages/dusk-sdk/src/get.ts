@@ -109,6 +109,7 @@ export interface PreviewBorrowCapacityParams extends SimulateOptions {
   market: AddressLike;
   collateralAssetMint: AddressLike;
   debtAssetMint: AddressLike;
+  /** Net collateral amount credited to the vault after any deposit transfer fee. */
   collateralAmount: BN;
   /**
    * Candidate debt amount used for the returned CF and health fields. When

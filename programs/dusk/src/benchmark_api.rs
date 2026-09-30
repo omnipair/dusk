@@ -3838,6 +3838,7 @@ fn prepare_floor_liquidation_plan(
                     debt_asset: request.debt_asset,
                     debt_shares: 0,
                     debt_principal: 0,
+                    insurance_credit: 0,
                 },
             )?,
         )

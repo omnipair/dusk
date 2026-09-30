@@ -30,6 +30,8 @@ pub struct PreviewSwapArgs {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PreviewBorrowCapacityArgs {
+    /// Net deposit credit in the collateral vault. Capacity also accounts
+    /// for the current fee when that collateral later exits the vault.
     pub collateral_amount: u64,
     pub projected_borrow_amount: Option<u64>,
 }
@@ -475,6 +477,7 @@ impl<'info> PreviewBorrowPositionCapacity<'info> {
             args.projected_borrow_amount,
             borrow_capacity,
             Clock::get()?.slot,
+            crate::instructions::leverage_collateral_fee(&ctx.accounts.collateral_asset_mint, Clock::get()?.epoch)?,
         )?;
         Ok(BorrowPositionCapacityPreview {
             owner: position.owner,
@@ -783,9 +786,18 @@ impl<'info> PreviewBorrowCapacity<'info> {
         let debt_asset = market.asset_for_mint(ctx.accounts.debt_asset_mint.key())?;
         require!(debt_asset == collateral_asset.opposite(), ErrorCode::InvalidMint);
         let slot = Clock::get()?.slot;
+        let exit_fee = crate::token::get_transfer_fee_for_epoch(
+            &ctx.accounts.collateral_asset_mint.to_account_info(),
+            args.collateral_amount,
+            Clock::get()?.epoch,
+        )?;
+        let collateral_exit_credit = args
+            .collateral_amount
+            .checked_sub(exit_fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
         let quote = market.borrow_capacity_quote(
             collateral_asset,
-            args.collateral_amount,
+            collateral_exit_credit,
             args.projected_borrow_amount,
             slot,
         )?;

@@ -4749,6 +4749,10 @@ export type Dusk = {
           "writable": true
         },
         {
+          "name": "insuranceVault",
+          "writable": true
+        },
+        {
           "name": "leverageCollateralVault",
           "writable": true
         },
@@ -6232,6 +6236,9 @@ export type Dusk = {
           "name": "debtAssetMint"
         },
         {
+          "name": "collateralAssetMint"
+        },
+        {
           "name": "reserveVault",
           "writable": true
         },
@@ -7468,6 +7475,9 @@ export type Dusk = {
         },
         {
           "name": "debtAssetMint"
+        },
+        {
+          "name": "collateralAssetMint"
         },
         {
           "name": "eventAuthority",
@@ -13751,6 +13761,14 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "insuranceDrawn",
+            "type": "u64"
+          },
+          {
+            "name": "socializedLoss",
+            "type": "u64"
+          },
+          {
             "name": "interestPaid",
             "type": "u64"
           },
@@ -15901,6 +15919,10 @@ export type Dusk = {
         "fields": [
           {
             "name": "collateralAmount",
+            "docs": [
+              "Net deposit credit in the collateral vault. Capacity also accounts",
+              "for the current fee when that collateral later exits the vault."
+            ],
             "type": "u64"
           },
           {

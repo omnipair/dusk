@@ -17,8 +17,7 @@ use crate::{
 
 use super::settlement::{
     leverage_collateral_credit, leverage_collateral_fee, leverage_swap_fee_credit, prepare_leverage_swap,
-    settle_inline_leverage_hlp, validate_leverage_collateral_risk_mint, validate_leverage_mints,
-    validate_leverage_reserve_accounts,
+    settle_inline_leverage_hlp, validate_leverage_mints, validate_leverage_reserve_accounts,
 };
 use crate::instructions::accounts::{require_reserve_custody, token_program_for_mint, HlpSwapAccountLayout};
 use crate::instructions::enforce_launch_same_transaction_guard;
@@ -112,7 +111,6 @@ impl<'info> IncreaseLeverage<'info> {
             &self.instructions_sysvar.to_account_info(),
         )?;
         validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
-        validate_leverage_collateral_risk_mint(&self.collateral_mint)?;
         validate_leverage_reserve_accounts(
             &self.market,
             debt_asset,

@@ -17,7 +17,7 @@ use crate::{
         referral::accounting::validate_referral_binding,
     },
     state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
-    token::transfer_checked_with_remaining_accounts,
+    token::{get_transfer_fee_for_epoch, transfer_checked_with_remaining_accounts},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -139,7 +139,8 @@ impl<'info> Borrow<'info> {
     crate::instructions::accounts::market_update_and_validate!(BorrowArgs);
 
     pub fn handle_borrow(mut ctx: Context<'_, '_, '_, 'info, Self>, args: BorrowArgs) -> Result<()> {
-        let current_slot = Clock::get()?.slot;
+        let clock = Clock::get()?;
+        let current_slot = clock.slot;
         let (market_key, owner_key, debt_asset_mint_key, position_key, debt_credit, debt_receipt, bound_referral) = {
             let accounts = &mut ctx.accounts;
             let market_key = accounts.market.key();
@@ -174,10 +175,20 @@ impl<'info> Borrow<'info> {
             };
 
             // Commit the debt transition before releasing reserve cash.
-            let debt_receipt = accounts.market.borrow(
+            let gross_collateral = accounts.borrow_position.collateral(borrow_asset.opposite());
+            let exit_fee = get_transfer_fee_for_epoch(
+                &accounts.collateral_asset_mint.to_account_info(),
+                gross_collateral,
+                clock.epoch,
+            )?;
+            let collateral_exit_credit = gross_collateral
+                .checked_sub(exit_fee)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            let debt_receipt = accounts.market.borrow_with_collateral_credit(
                 &mut accounts.borrow_position,
                 borrow_asset,
                 args.borrow_amount,
+                collateral_exit_credit,
                 args.min_liquidation_cf_bps,
                 current_slot,
             )?;

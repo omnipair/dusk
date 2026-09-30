@@ -121,8 +121,10 @@ pub(super) fn protection_health_of(
     }
     if action < 2 {
         require!(leverage.is_none(), LeverageDelegateError::InvalidOrder);
-        market
-            .borrow_protection_health_bps(borrow.ok_or(LeverageDelegateError::InvalidOrder)?, asset)
+        let position = borrow.ok_or(LeverageDelegateError::InvalidOrder)?;
+        let collateral_exit_credit =
+            collateral_fee.unwind_credit(position.collateral(asset.opposite()))?;
+        market.borrow_protection_health_bps_with_credit(position, asset, collateral_exit_credit)
     } else {
         require!(
             action == 2 && borrow.is_none(),

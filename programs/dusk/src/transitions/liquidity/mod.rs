@@ -50,6 +50,8 @@ pub(crate) enum SwapCashPolicy {
         debt_asset: MarketAsset,
         debt_shares: u128,
         debt_principal: u128,
+        /// Measured debt-reserve credit from the insurance vault.
+        insurance_credit: u64,
     },
 }
 

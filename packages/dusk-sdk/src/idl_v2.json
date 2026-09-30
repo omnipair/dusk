@@ -4743,6 +4743,10 @@
           "writable": true
         },
         {
+          "name": "insurance_vault",
+          "writable": true
+        },
+        {
           "name": "leverage_collateral_vault",
           "writable": true
         },
@@ -6226,6 +6230,9 @@
           "name": "debt_asset_mint"
         },
         {
+          "name": "collateral_asset_mint"
+        },
+        {
           "name": "reserve_vault",
           "writable": true
         },
@@ -7462,6 +7469,9 @@
         },
         {
           "name": "debt_asset_mint"
+        },
+        {
+          "name": "collateral_asset_mint"
         },
         {
           "name": "event_authority",
@@ -13745,6 +13755,14 @@
             "type": "u64"
           },
           {
+            "name": "insurance_drawn",
+            "type": "u64"
+          },
+          {
+            "name": "socialized_loss",
+            "type": "u64"
+          },
+          {
             "name": "interest_paid",
             "type": "u64"
           },
@@ -15895,6 +15913,10 @@
         "fields": [
           {
             "name": "collateral_amount",
+            "docs": [
+              "Net deposit credit in the collateral vault. Capacity also accounts",
+              "for the current fee when that collateral later exits the vault."
+            ],
             "type": "u64"
           },
           {

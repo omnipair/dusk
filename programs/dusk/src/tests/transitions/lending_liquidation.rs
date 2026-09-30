@@ -852,7 +852,9 @@ fn recovered_position_cancels_active_auction_before_settlement() {
     assert!(!market
         .is_position_liquidatable(&borrow_position, MarketAsset::Quote)
         .unwrap());
-    market.reconcile_liquidation_auction(&mut borrow_position).unwrap();
+    market
+        .reconcile_liquidation_auction_with_credit(&mut borrow_position, 1_000)
+        .unwrap();
 
     assert!(!borrow_position.has_active_liquidation_auction());
     assert_eq!(
@@ -861,6 +863,47 @@ fn recovered_position_cancels_active_auction_before_settlement() {
             .unwrap_err(),
         error!(ErrorCode::PositionNotLiquidatable)
     );
+}
+
+#[test]
+fn fee_increase_keeps_auction_active_until_net_collateral_recovers() {
+    let (market, mut borrow_position) = liquidatable_quote_debt_position();
+    borrow_position.base_collateral = 1_000;
+    assert!(!market
+        .is_position_liquidatable(&borrow_position, MarketAsset::Quote)
+        .unwrap());
+    assert!(market
+        .is_position_liquidatable_with_credit(&borrow_position, MarketAsset::Quote, 0)
+        .unwrap());
+
+    borrow_position.start_liquidation_auction(MarketAsset::Quote, 1, NAD, NAD);
+    market.reconcile_liquidation_auction(&mut borrow_position).unwrap();
+    assert!(borrow_position.has_active_liquidation_auction());
+    market
+        .reconcile_liquidation_auction_with_credit(&mut borrow_position, 0)
+        .unwrap();
+    assert!(borrow_position.has_active_liquidation_auction());
+    market
+        .reconcile_liquidation_auction_with_credit(&mut borrow_position, 1_000)
+        .unwrap();
+    assert!(!borrow_position.has_active_liquidation_auction());
+}
+
+#[test]
+fn fee_driven_auction_has_repay_capacity_even_when_gross_collateral_looks_healthy() {
+    let (market, mut borrow_position) = liquidatable_quote_debt_position();
+    borrow_position.base_collateral = 1_000;
+    let pricing = LiquidationPricing::ReferencePrice {
+        debt_per_collateral_price_nad: NAD,
+    };
+    let gross_terms = market
+        .liquidation_terms_with_pricing(&borrow_position, MarketAsset::Quote, pricing)
+        .unwrap();
+    assert_eq!(gross_terms.max_repay_amount, 0);
+    let net_terms = market
+        .liquidation_terms_with_pricing_and_credit(&borrow_position, MarketAsset::Quote, 0, pricing)
+        .unwrap();
+    assert!(net_terms.max_repay_amount > 0);
 }
 
 #[test]

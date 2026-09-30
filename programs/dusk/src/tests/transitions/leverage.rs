@@ -312,6 +312,7 @@ fn apply_leverage_lifecycle_transition_reference(
             debt_asset,
             debt_shares,
             debt_principal,
+            insurance_credit,
         } => {
             require!(debt_asset == asset_in.opposite(), ErrorCode::BrokenInvariant);
             let full_repayment = market
@@ -323,7 +324,15 @@ fn apply_leverage_lifecycle_transition_reference(
                 position_principal,
                 ErrorCode::DebtMathOverflow
             );
-            let repay_credit = amount_out.min(full_repayment.cash_repaid);
+            require_gte!(
+                full_repayment.cash_repaid.saturating_sub(amount_out),
+                insurance_credit,
+                ErrorCode::BrokenInvariant
+            );
+            let repay_credit = amount_out
+                .min(full_repayment.cash_repaid)
+                .checked_add(insurance_credit)
+                .ok_or(ErrorCode::DebtMathOverflow)?;
             let (principal_paid, interest_paid) =
                 crate::math::realized_interest_split(repay_credit, full_repayment.cash_repaid as u128, debt_principal)?;
             transition.clearance = DebtClearance {
@@ -362,6 +371,12 @@ fn apply_leverage_lifecycle_transition_reference(
             *aggregate_principal = aggregate_principal
                 .checked_sub(position_principal)
                 .ok_or(ErrorCode::DebtMathOverflow)?;
+            market.side_mut(debt_asset).reserves.cash_reserve = market
+                .side(debt_asset)
+                .reserves
+                .cash_reserve
+                .checked_add(insurance_credit)
+                .ok_or(ErrorCode::ReserveOverflow)?;
             cash_debit_out = amount_out
                 .saturating_sub(full_repayment.cash_repaid)
                 .checked_add(interest_paid)
@@ -506,6 +521,7 @@ fn leverage_lifecycle_cases(asset_in: MarketAsset) -> Vec<(Market, SwapCashPolic
             debt_asset,
             debt_shares: liquidation_position.debt_shares,
             debt_principal: liquidation_position.debt_principal,
+            insurance_credit: 0,
         },
         61_013,
         70_009,
@@ -1305,15 +1321,17 @@ fn solvent_liquidation_closes_position_and_pays_residual_incentive() {
             debt_asset: MarketAsset::Base,
             debt_shares: position.debt_shares,
             debt_principal: position.debt_principal,
+            insurance_credit: 0,
         },
     );
 
     let receipt = market
         .liquidate_leverage_position(
             &mut position,
-            prepared_liquidation,
+            Some(prepared_liquidation),
             quote.amount_in,
             fee_credit,
+            LeverageInsuranceDraw::default(),
             0,
             ProtocolAuctionSplit::default(),
             1,
@@ -1345,6 +1363,7 @@ fn leverage_liquidation_requires_ema_confirmation() {
             debt_asset: MarketAsset::Base,
             debt_shares: position.debt_shares,
             debt_principal: position.debt_principal,
+            insurance_credit: 0,
         },
     );
 
@@ -1352,9 +1371,10 @@ fn leverage_liquidation_requires_ema_confirmation() {
     let error = market
         .liquidate_leverage_position(
             &mut position,
-            prepared_liquidation,
+            Some(prepared_liquidation),
             quote.amount_in,
             full_fee_credit(&quote),
+            LeverageInsuranceDraw::default(),
             0,
             ProtocolAuctionSplit::default(),
             1,
@@ -1415,15 +1435,17 @@ fn insolvent_liquidation_socializes_unrepaid_principal() {
             debt_asset: MarketAsset::Base,
             debt_shares: position.debt_shares,
             debt_principal: position.debt_principal,
+            insurance_credit: 0,
         },
     );
 
     let receipt = market
         .liquidate_leverage_position(
             &mut position,
-            prepared_liquidation,
+            Some(prepared_liquidation),
             quote.amount_in,
             fee_credit,
+            LeverageInsuranceDraw::default(),
             0,
             ProtocolAuctionSplit::default(),
             1,
@@ -1438,6 +1460,103 @@ fn insolvent_liquidation_socializes_unrepaid_principal() {
     assert_eq!(receipt.liquidator_amount, 0);
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
+}
+
+#[test]
+fn insolvent_leverage_swap_draws_measured_insurance_credit() {
+    let mut market = test_market(1_000_000, 1_000_000);
+    let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000, 500);
+    market.insurance.base_available = 1_500;
+    market.insurance.per_event_draw_bps = crate::constants::MAX_INSURANCE_DRAW_PER_EVENT_BPS;
+    market.insurance.per_day_draw_bps = crate::constants::MAX_INSURANCE_DRAW_PER_DAY_BPS;
+    let quote = market.quote_leverage_swap(MarketAsset::Quote, position.collateral_amount, 1).unwrap();
+    let prepared = prepared_leverage_swap(
+        &market,
+        quote,
+        SwapCashPolicy::Liquidate {
+            debt_asset: MarketAsset::Base,
+            debt_shares: position.debt_shares,
+            debt_principal: position.debt_principal,
+            insurance_credit: 0,
+        },
+    );
+    let receipt = market
+        .liquidate_leverage_position(
+            &mut position,
+            Some(prepared),
+            quote.amount_in,
+            full_fee_credit(&quote),
+            LeverageInsuranceDraw { spent: 300, credit: 270 },
+            0,
+            ProtocolAuctionSplit::default(),
+            1,
+        )
+        .unwrap();
+
+    assert_eq!(receipt.insurance_drawn, 270);
+    assert_eq!(receipt.debt_repaid, quote.amount_out + 270);
+    assert_eq!(receipt.principal_written_off, 1_000 - receipt.debt_repaid);
+    assert_eq!(receipt.socialized_loss, receipt.principal_written_off);
+    assert_eq!(market.insurance.base_available, 1_200);
+    assert_eq!(position.debt_shares, 0);
+    market.assert_market_invariants().unwrap();
+}
+
+#[test]
+fn zero_credit_leverage_liquidation_closes_and_socializes_the_debt() {
+    let mut market = test_market(1_000_000, 1_000_000);
+    let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000, 500);
+    let receipt = market
+        .liquidate_leverage_position(
+            &mut position, None, 0, LeverageSwapFeeCredit::default(), LeverageInsuranceDraw::default(), 0,
+            ProtocolAuctionSplit::default(), 1,
+        )
+        .unwrap();
+
+    assert_eq!(receipt.collateral_sold, 500);
+    assert_eq!(receipt.closeout_value, 0);
+    assert_eq!(receipt.debt_repaid, 0);
+    assert!(receipt.principal_written_off > 0);
+    assert_eq!(position.collateral_amount, 0);
+    assert_eq!(position.debt_shares, 0);
+    assert_eq!(market.debt.isolated_base_shares, 0);
+    market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
+    market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
+}
+
+#[test]
+fn zero_credit_leverage_liquidation_draws_insurance_before_socializing() {
+    let mut market = test_market(1_000_000, 1_000_000);
+    let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000, 500);
+    let cash_before = market.base_side.reserves.cash_reserve;
+    market.insurance.base_available = 3_000;
+    market.insurance.per_event_draw_bps = crate::constants::MAX_INSURANCE_DRAW_PER_EVENT_BPS;
+    market.insurance.per_day_draw_bps = crate::constants::MAX_INSURANCE_DRAW_PER_DAY_BPS;
+
+    // The instruction must measure this pair from an actual vault transfer.
+    // A debt-mint transfer fee spent 600 insurance atoms but credited 540.
+    let receipt = market
+        .liquidate_leverage_position(
+            &mut position,
+            None,
+            0,
+            LeverageSwapFeeCredit::default(),
+            LeverageInsuranceDraw { spent: 600, credit: 540 },
+            0,
+            ProtocolAuctionSplit::default(),
+            1,
+        )
+        .unwrap();
+
+    assert_eq!(receipt.insurance_drawn, 540);
+    assert_eq!(receipt.debt_repaid, 540);
+    assert_eq!(receipt.principal_written_off, 460);
+    assert_eq!(receipt.socialized_loss, 460);
+    assert_eq!(market.insurance.base_available, 2_400);
+    assert_eq!(market.base_side.reserves.cash_reserve, cash_before + 540);
+    assert_eq!(position.collateral_amount, 0);
+    assert_eq!(position.debt_shares, 0);
+    market.assert_market_invariants().unwrap();
 }
 
 #[test]
@@ -1482,15 +1601,17 @@ fn insolvent_liquidation_does_not_socialize_phantom_unpaid_interest() {
             debt_asset: MarketAsset::Base,
             debt_shares: position.debt_shares,
             debt_principal: position.debt_principal,
+            insurance_credit: 0,
         },
     );
 
     let receipt = market
         .liquidate_leverage_position(
             &mut position,
-            prepared_liquidation,
+            Some(prepared_liquidation),
             quote.amount_in,
             full_fee_credit(&quote),
+            LeverageInsuranceDraw::default(),
             0,
             ProtocolAuctionSplit::default(),
             1,
@@ -1525,15 +1646,17 @@ fn pure_unpaid_interest_writeoff_refreshes_the_stored_curve_checkpoint() {
             debt_asset: MarketAsset::Base,
             debt_shares: position.debt_shares,
             debt_principal: position.debt_principal,
+            insurance_credit: 0,
         },
     );
 
     let receipt = market
         .liquidate_leverage_position(
             &mut position,
-            prepared_liquidation,
+            Some(prepared_liquidation),
             quote.amount_in,
             full_fee_credit(&quote),
+            LeverageInsuranceDraw::default(),
             0,
             ProtocolAuctionSplit::default(),
             1,
@@ -1678,6 +1801,7 @@ fn concentrated_leverage_liquidation_uses_the_same_integrated_transition() {
             debt_asset: MarketAsset::Base,
             debt_shares: position.debt_shares,
             debt_principal: position.debt_principal,
+            insurance_credit: 0,
         },
     );
     let fee_credit = full_fee_credit(&prepared.leverage_quote());
@@ -1685,9 +1809,10 @@ fn concentrated_leverage_liquidation_uses_the_same_integrated_transition() {
     let receipt = market
         .liquidate_leverage_position(
             &mut position,
-            prepared,
+            Some(prepared),
             measured_unwind_credit,
             fee_credit,
+            LeverageInsuranceDraw::default(),
             0,
             ProtocolAuctionSplit::default(),
             2,
@@ -1715,6 +1840,7 @@ fn concentrated_socialized_loss_rebases_curve_then_restores_exact_hlp_hedges() {
             debt_asset: MarketAsset::Base,
             debt_shares: position.debt_shares,
             debt_principal: position.debt_principal,
+            insurance_credit: 0,
         },
     );
     let fee_credit = full_fee_credit(&prepared.leverage_quote());
@@ -1722,9 +1848,10 @@ fn concentrated_socialized_loss_rebases_curve_then_restores_exact_hlp_hedges() {
     let receipt = market
         .liquidate_leverage_position(
             &mut position,
-            prepared,
+            Some(prepared),
             measured_unwind_credit,
             fee_credit,
+            LeverageInsuranceDraw::default(),
             0,
             ProtocolAuctionSplit::default(),
             2,

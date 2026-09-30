@@ -352,6 +352,7 @@ async function main() {
     send([
       await dusk.write.repayInstruction({
         debtAssetMint: quoteMint,
+        collateralAssetMint: baseMint,
         market,
         owner,
         ownerDebtAccount: ata(quoteMint),

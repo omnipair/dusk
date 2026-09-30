@@ -4,7 +4,8 @@ use spl_token_2022::extension::transfer_fee::TransferFee;
 #[cfg(test)]
 use super::liquidity::prepare_concentrated_hlp_transition;
 use super::liquidity::{
-    current_hlp_signed_navs_with_prices, hlp_curve_prices_from_base_price_nad, IntegratedCurveState, SwapCashPolicy,
+    current_hlp_signed_navs_with_prices, hlp_curve_prices_from_base_price_nad,
+    prepare_concentrated_hlp_transition_at_current_state, IntegratedCurveState, SwapCashPolicy,
 };
 use super::{AmmSwapQuote, HlpRebalanceReceipt, SwapFeeBreakdown};
 use crate::{
@@ -409,6 +410,7 @@ fn derive_leverage_lifecycle_plan_from_state(
             debt_asset,
             debt_shares,
             debt_principal,
+            insurance_credit,
         } => {
             require!(debt_asset == asset_in.opposite(), ErrorCode::BrokenInvariant);
             let full_repayment = debt.isolated_repayment_for_max(debt_asset, debt_shares, u64::MAX)?;
@@ -418,7 +420,15 @@ fn derive_leverage_lifecycle_plan_from_state(
                 position_principal,
                 ErrorCode::DebtMathOverflow
             );
-            let repay_credit = amount_out.min(full_repayment.cash_repaid);
+            require_gte!(
+                full_repayment.cash_repaid.saturating_sub(amount_out),
+                insurance_credit,
+                ErrorCode::BrokenInvariant
+            );
+            let repay_credit = amount_out
+                .min(full_repayment.cash_repaid)
+                .checked_add(insurance_credit)
+                .ok_or(ErrorCode::DebtMathOverflow)?;
             let (principal_paid, interest_paid) =
                 crate::math::realized_interest_split(repay_credit, full_repayment.cash_repaid as u128, debt_principal)?;
             transition.clearance = DebtClearance {
@@ -452,6 +462,10 @@ fn derive_leverage_lifecycle_plan_from_state(
             *aggregate_principal = aggregate_principal
                 .checked_sub(position_principal)
                 .ok_or(ErrorCode::DebtMathOverflow)?;
+            let cash_reserve = post.cash_reserve_mut(debt_asset);
+            *cash_reserve = cash_reserve
+                .checked_add(insurance_credit)
+                .ok_or(ErrorCode::ReserveOverflow)?;
             cash_debit_out = amount_out
                 .saturating_sub(full_repayment.cash_repaid)
                 .checked_add(interest_paid)
@@ -684,6 +698,8 @@ pub struct LeverageCloseSlice {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LeverageLiquidationReceipt {
     pub debt_repaid: u64,
+    pub insurance_drawn: u64,
+    pub socialized_loss: u64,
     pub interest_paid: u64,
     pub principal_written_off: u64,
     pub collateral_sold: u64,
@@ -694,6 +710,14 @@ pub struct LeverageLiquidationReceipt {
     pub fees: FeesReceipt,
     pub base_hlp_rebalance: HlpRebalanceReceipt,
     pub quote_hlp_rebalance: HlpRebalanceReceipt,
+}
+
+/// Source debit and measured reserve credit from a real insurance-vault
+/// transfer. The instruction supplies both after the token CPI completes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LeverageInsuranceDraw {
+    pub spent: u64,
+    pub credit: u64,
 }
 
 impl Market {
@@ -1446,13 +1470,80 @@ impl Market {
     pub fn liquidate_leverage_position(
         &mut self,
         position: &mut LeveragePosition,
-        mut prepared_swap: PreparedLeverageSwap,
+        prepared_swap: Option<PreparedLeverageSwap>,
         measured_unwind_credit: u64,
         swap_fee_credit: LeverageSwapFeeCredit,
+        insurance: LeverageInsuranceDraw,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
         current_slot: u64,
     ) -> Result<LeverageLiquidationReceipt> {
+        require_gte!(insurance.spent, insurance.credit, ErrorCode::BrokenInvariant);
+        require!(insurance.spent > 0 || insurance.credit == 0, ErrorCode::BrokenInvariant);
+        if prepared_swap.is_none() {
+            require_eq!(measured_unwind_credit, 0, ErrorCode::BrokenInvariant);
+            require!(
+                swap_fee_credit == LeverageSwapFeeCredit::default(),
+                ErrorCode::BrokenInvariant
+            );
+            position.require_open()?;
+            let debt_asset = position.debt_asset()?;
+            let collateral_asset = debt_asset.opposite();
+            let debt_amount = position.debt_amount(&self.debt)?;
+            require_gt!(debt_amount, 0, ErrorCode::ZeroDebtAmount);
+            let collateral_sold = position.collateral_amount;
+            self.ensure_amm_initialized(current_slot)?;
+
+            let lifecycle = self.apply_leverage_lifecycle_transition(
+                SwapCashPolicy::Liquidate {
+                    debt_asset,
+                    debt_shares: position.debt_shares,
+                    debt_principal: position.debt_principal,
+                    insurance_credit: insurance.credit,
+                },
+                collateral_asset,
+                0,
+                0,
+                0,
+            )?;
+            require_eq!(
+                lifecycle.clearance.cash_repaid,
+                insurance.credit,
+                ErrorCode::BrokenInvariant
+            );
+            if insurance.spent > 0 {
+                self.insurance.consume_draw(debt_asset, insurance.spent, current_slot)?;
+            }
+            self.apply_leverage_socialized_loss(debt_asset, lifecycle, current_slot)?;
+            let transition = prepare_concentrated_hlp_transition_at_current_state(self)?;
+            let (base_hlp_rebalance, quote_hlp_rebalance) = transition.consume(self)?;
+            self.finalize_amm_socialized_loss_and_observe_risk(current_slot)?;
+            self.assert_market_invariants()?;
+
+            position.debt_shares = lifecycle.position_debt_shares;
+            position.debt_principal = lifecycle.position_debt_principal;
+            position.collateral_amount = 0;
+            return Ok(LeverageLiquidationReceipt {
+                debt_repaid: lifecycle.clearance.cash_repaid,
+                insurance_drawn: insurance.credit,
+                socialized_loss: lifecycle.socialized_principal_loss,
+                interest_paid: lifecycle.clearance.interest_paid,
+                principal_written_off: lifecycle.writeoff.principal_written_off,
+                collateral_sold,
+                closeout_value: 0,
+                liquidator_amount: 0,
+                owner_residual: 0,
+                swap: LeverageSwapQuote {
+                    asset_in: collateral_asset.code(),
+                    quoted_slot: current_slot,
+                    ..LeverageSwapQuote::default()
+                },
+                fees: FeesReceipt::default(),
+                base_hlp_rebalance,
+                quote_hlp_rebalance,
+            });
+        }
+        let mut prepared_swap = prepared_swap.ok_or(ErrorCode::BrokenInvariant)?;
         let swap = prepared_swap.leverage_quote();
         position.require_open()?;
         let debt_asset = position.debt_asset()?;
@@ -1480,7 +1571,19 @@ impl Market {
             debt_asset,
             debt_shares: position.debt_shares,
             debt_principal: position.debt_principal,
+            insurance_credit: insurance.credit,
         };
+        require!(
+            prepared_swap.cash_policy
+                == SwapCashPolicy::Liquidate {
+                    debt_asset,
+                    debt_shares: position.debt_shares,
+                    debt_principal: position.debt_principal,
+                    insurance_credit: 0,
+                },
+            ErrorCode::BrokenInvariant
+        );
+        prepared_swap.cash_policy = cash_policy;
         let finalized = prepared_swap.apply(
             self,
             cash_policy,
@@ -1495,6 +1598,9 @@ impl Market {
         let (base_hlp_rebalance, quote_hlp_rebalance) = (finalized.base_rebalance, finalized.quote_rebalance);
         let clearance = lifecycle.clearance;
         let writeoff = lifecycle.writeoff;
+        if insurance.spent > 0 {
+            self.insurance.consume_draw(debt_asset, insurance.spent, current_slot)?;
+        }
         position.debt_shares = lifecycle.position_debt_shares;
         position.debt_principal = lifecycle.position_debt_principal;
         let full_cash_repayment = clearance
@@ -1513,6 +1619,8 @@ impl Market {
         position.collateral_amount = 0;
         Ok(LeverageLiquidationReceipt {
             debt_repaid: clearance.cash_repaid,
+            insurance_drawn: insurance.credit,
+            socialized_loss: lifecycle.socialized_principal_loss,
             interest_paid: clearance.interest_paid,
             principal_written_off: writeoff.principal_written_off,
             collateral_sold,

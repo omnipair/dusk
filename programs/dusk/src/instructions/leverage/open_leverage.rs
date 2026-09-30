@@ -19,9 +19,9 @@ use crate::{
 
 use super::settlement::{
     leverage_collateral_credit, leverage_collateral_fee, leverage_collateral_vault_pda, leverage_position_pda,
-    leverage_swap_fee_credit, prepare_leverage_swap, settle_inline_leverage_hlp,
-    validate_leverage_collateral_risk_mint, validate_leverage_futarchy_pda, validate_leverage_market_pda,
-    validate_leverage_mints, validate_leverage_reserve_accounts, validate_owner_debt_account,
+    leverage_swap_fee_credit, prepare_leverage_swap, settle_inline_leverage_hlp, validate_leverage_futarchy_pda,
+    validate_leverage_market_pda, validate_leverage_mints, validate_leverage_reserve_accounts,
+    validate_owner_debt_account,
 };
 use crate::instructions::accounts::{
     require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout,
@@ -121,7 +121,6 @@ impl<'info> OpenLeverage<'info> {
             &self.instructions_sysvar.to_account_info(),
         )?;
         validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
-        validate_leverage_collateral_risk_mint(&self.collateral_mint)?;
         let (expected_collateral_vault, _) =
             leverage_collateral_vault_pda(self.market.key(), self.collateral_mint.key())?;
         require_keys_eq!(

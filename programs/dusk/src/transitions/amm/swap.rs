@@ -138,6 +138,7 @@ impl PreparedSwap {
                         debt_asset: settlement.debt_asset,
                         debt_shares: 0,
                         debt_principal: 0,
+                        insurance_credit: 0,
                     },
                 ErrorCode::BrokenInvariant
             );
@@ -281,6 +282,7 @@ impl Market {
                 debt_asset: settlement.debt_asset,
                 debt_shares: 0,
                 debt_principal: 0,
+                insurance_credit: 0,
             };
             let credit = LeverageSwapFeeCredit::from_total_actual_credit(
                 &prepared.leverage_quote(),

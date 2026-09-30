@@ -6,6 +6,7 @@ use crate::{
     errors::ErrorCode,
     events::LiquidationAuctionStarted,
     state::{BorrowPosition, Market},
+    token::get_transfer_fee_for_epoch,
 };
 
 #[event_cpi]
@@ -35,6 +36,7 @@ pub struct StartLiquidationAuction<'info> {
     pub borrow_position: Box<Account<'info, BorrowPosition>>,
 
     pub debt_asset_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub collateral_asset_mint: Box<InterfaceAccount<'info, Mint>>,
 }
 
 impl<'info> StartLiquidationAuction<'info> {
@@ -53,6 +55,20 @@ impl<'info> StartLiquidationAuction<'info> {
     pub fn handle_start(ctx: Context<Self>) -> Result<()> {
         let debt_asset_mint_key = ctx.accounts.debt_asset_mint.key();
         let debt_asset = ctx.accounts.market.asset_for_mint(debt_asset_mint_key)?;
+        require_keys_eq!(
+            ctx.accounts.collateral_asset_mint.key(),
+            ctx.accounts.market.side(debt_asset.opposite()).asset_mint,
+            ErrorCode::InvalidMint
+        );
+        let gross_collateral = ctx.accounts.borrow_position.collateral(debt_asset.opposite());
+        let exit_fee = get_transfer_fee_for_epoch(
+            &ctx.accounts.collateral_asset_mint.to_account_info(),
+            gross_collateral,
+            Clock::get()?.epoch,
+        )?;
+        let collateral_exit_credit = gross_collateral
+            .checked_sub(exit_fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
 
         // Snapshot the liquidation reference before opening the auction.
         let liquidation_reference_price_nad = ctx
@@ -61,9 +77,11 @@ impl<'info> StartLiquidationAuction<'info> {
             .liquidation_reference_price_nad(&ctx.accounts.borrow_position, debt_asset)?;
 
         require!(
-            ctx.accounts
-                .market
-                .is_position_liquidatable(&ctx.accounts.borrow_position, debt_asset)?,
+            ctx.accounts.market.is_position_liquidatable_with_credit(
+                &ctx.accounts.borrow_position,
+                debt_asset,
+                collateral_exit_credit,
+            )?,
             ErrorCode::PositionNotLiquidatable
         );
 

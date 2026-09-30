@@ -474,31 +474,6 @@ pub fn validate_leverage_mints<'info>(
     Ok(())
 }
 
-/// A mutable fee could erase collateral after a position opens. A pending
-/// different schedule can do the same even after its authority is revoked.
-pub fn validate_leverage_collateral_risk_mint(mint: &InterfaceAccount<Mint>) -> Result<()> {
-    let mint_info = mint.to_account_info();
-    if *mint_info.owner == Token::id() {
-        return Ok(());
-    }
-    let mint_data = mint_info.try_borrow_data()?;
-    let mint_state = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
-    if mint_state
-        .get_extension_types()?
-        .contains(&ExtensionType::TransferFeeConfig)
-    {
-        let config = mint_state.get_extension::<TransferFeeConfig>()?;
-        let authority: Option<Pubkey> = config.transfer_fee_config_authority.into();
-        require!(authority.is_none(), ErrorCode::InvalidLeverageCollateralMint);
-        require!(
-            config.older_transfer_fee.transfer_fee_basis_points == config.newer_transfer_fee.transfer_fee_basis_points
-                && config.older_transfer_fee.maximum_fee == config.newer_transfer_fee.maximum_fee,
-            ErrorCode::InvalidLeverageCollateralMint
-        );
-    }
-    Ok(())
-}
-
 pub fn leverage_collateral_fee(mint: &InterfaceAccount<Mint>, epoch: u64) -> Result<LeverageCollateralFee> {
     let mint_info = mint.to_account_info();
     if *mint_info.owner == Token::id() {

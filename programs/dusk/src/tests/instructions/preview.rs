@@ -1,11 +1,12 @@
 use super::*;
+use spl_token_2022::extension::transfer_fee::TransferFee;
 use crate::state::AmmConfig;
 use crate::transitions::amm::PreparedSwap;
 use crate::{
     math::{mul_div_u128, normalize_to_nad},
     state::{Debt, Risk},
     transitions::{
-        amm::ConcentratedCurveParameters, lending::NewPositionPreviewContext, HlpRebalanceReceipt, SwapFeeBreakdown,
+        amm::ConcentratedCurveParameters, lending::NewPositionPreviewContext, HlpRebalanceReceipt, LeverageCollateralFee, SwapFeeBreakdown,
     },
 };
 use proptest::prelude::*;
@@ -1251,13 +1252,48 @@ fn existing_position_capacity_fixture(debt_asset: MarketAsset) -> (Market, Borro
 }
 
 #[test]
+fn mutable_transfer_fee_reduces_existing_borrow_capacity_and_withdrawal_room() {
+    let (market, position) = existing_position_capacity_fixture(MarketAsset::Base);
+    let gross_borrow = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, 0, LeverageCollateralFee::default()).unwrap();
+    let gross_withdraw = market.position_capacity_quote(&position, MarketAsset::Quote, Some(0), false, 0, LeverageCollateralFee::default()).unwrap();
+    let fee = LeverageCollateralFee(Some(TransferFee {
+        epoch: 0_u64.into(),
+        maximum_fee: u64::MAX.into(),
+        transfer_fee_basis_points: 5_000_u16.into(),
+    }));
+    let net_borrow = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, 0, fee).unwrap();
+    let net_withdraw = market.position_capacity_quote(&position, MarketAsset::Quote, Some(0), false, 0, fee).unwrap();
+    assert!(net_borrow.max_borrow_amount.unwrap() < gross_borrow.max_borrow_amount.unwrap());
+    assert!(net_withdraw.max_withdraw_amount.unwrap() < gross_withdraw.max_withdraw_amount.unwrap());
+    assert!(net_borrow.collateral_value_nad < gross_borrow.collateral_value_nad);
+    let confiscatory_fee = LeverageCollateralFee(Some(TransferFee {
+        epoch: 0_u64.into(),
+        maximum_fee: u64::MAX.into(),
+        transfer_fee_basis_points: 10_000_u16.into(),
+    }));
+    let zero_credit = market
+        .position_capacity_quote(&position, MarketAsset::Quote, None, true, 0, confiscatory_fee)
+        .unwrap();
+    assert_eq!(zero_credit.max_borrow_amount, Some(0));
+    assert_eq!(zero_credit.collateral_value_nad, 0);
+}
+
+#[test]
+fn zero_exit_credit_quotes_no_new_borrow_capacity() {
+    let market = preview_test_market(0, 0);
+    let quote = market.borrow_capacity_quote(MarketAsset::Quote, 0, Some(1), 0).unwrap();
+    assert_eq!(quote.max_debt, 0);
+    assert_eq!(quote.collateral_value_nad, 0);
+}
+
+#[test]
 fn existing_position_capacity_matches_actual_draw_and_withdrawal_boundaries() {
     for debt_asset in [MarketAsset::Base, MarketAsset::Quote] {
         let (market, position) = existing_position_capacity_fixture(debt_asset);
         let collateral_asset = debt_asset.opposite();
-        let quote = market.position_capacity_quote(&position, collateral_asset, None, true, 0).unwrap();
+        let quote = market.position_capacity_quote(&position, collateral_asset, None, true, 0, LeverageCollateralFee::default()).unwrap();
         assert!(quote.max_borrow_amount.unwrap() > 0);
-        let max_withdraw = market.position_capacity_quote(&position, collateral_asset, Some(0), false, 0)
+        let max_withdraw = market.position_capacity_quote(&position, collateral_asset, Some(0), false, 0, LeverageCollateralFee::default())
             .unwrap().max_withdraw_amount.unwrap();
         assert!(quote.max_withdraw_amount.is_none());
         assert!(max_withdraw > 0);
@@ -1274,7 +1310,7 @@ fn existing_position_capacity_matches_actual_draw_and_withdrawal_boundaries() {
         assert!(market.clone().borrow(&mut position.clone(), debt_asset, quote.max_borrow_amount.unwrap() + 1, 0, 0).is_err());
         market.clone().withdraw_collateral(&mut position.clone(), collateral_asset, max_withdraw, position.liquidation_cf_bps(debt_asset)).unwrap();
         assert!(market.clone().withdraw_collateral(&mut position.clone(), collateral_asset, max_withdraw + 1, 0).is_err());
-        let too_large = market.position_capacity_quote(&position, collateral_asset, Some(quote.max_borrow_amount.unwrap() + 1), true, 0).unwrap();
+        let too_large = market.position_capacity_quote(&position, collateral_asset, Some(quote.max_borrow_amount.unwrap() + 1), true, 0, LeverageCollateralFee::default()).unwrap();
         assert!(!too_large.borrow_allowed);
     }
 }
@@ -1283,13 +1319,13 @@ fn existing_position_capacity_matches_actual_draw_and_withdrawal_boundaries() {
 fn existing_position_capacity_keeps_cash_and_daily_limits_on_additional_debt() {
     let (mut market, position) = existing_position_capacity_fixture(MarketAsset::Base);
     market.base_side.reserves.cash_reserve = 100;
-    let quote = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, 0).unwrap();
+    let quote = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, 0, LeverageCollateralFee::default()).unwrap();
     assert!(quote.existing_debt > 100);
     assert_eq!(quote.max_borrow_amount.unwrap(), 100);
     let daily_limit = market.daily_limit_for_side(MarketAsset::Base, market.config.max_daily_borrow_bps).unwrap();
     let remaining = market.base_side.daily_borrow_bucket.remaining(daily_limit, 0).unwrap();
     market.base_side.daily_borrow_bucket.record_borrow(remaining - 7, daily_limit, 0).unwrap();
-    let quote = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, 0).unwrap();
+    let quote = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, 0, LeverageCollateralFee::default()).unwrap();
     assert_eq!(quote.max_borrow_amount.unwrap(), 7);
     market.borrow(&mut position.clone(), MarketAsset::Base, 7, 0, 0).unwrap();
 }
@@ -1298,16 +1334,16 @@ fn existing_position_capacity_keeps_cash_and_daily_limits_on_additional_debt() {
 fn collateral_only_preview_preserves_issued_terms_and_reconciles_contributions() {
     let (mut market, mut position) = existing_position_capacity_fixture(MarketAsset::Quote);
     let stored_cf = position.liquidation_cf_bps(MarketAsset::Quote);
-    let before = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), true, 0).unwrap();
+    let before = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), true, 0, LeverageCollateralFee::default()).unwrap();
     market.deposit_collateral(&mut position, MarketAsset::Base, 100_000).unwrap();
-    let after = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), true, 0).unwrap();
+    let after = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), true, 0, LeverageCollateralFee::default()).unwrap();
     assert_eq!(after.liquidation_cf_bps, stored_cf);
     assert_eq!(after.projected_debt_amount, before.existing_debt);
     assert!(after.max_borrow_amount.unwrap() > before.max_borrow_amount.unwrap());
     assert_eq!(position.global_health_base_contribution_for_quote_debt, market.debt.global_health_base_contribution_for_quote_debt);
-    let max_withdraw = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), false, 0).unwrap().max_withdraw_amount.unwrap();
+    let max_withdraw = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), false, 0, LeverageCollateralFee::default()).unwrap().max_withdraw_amount.unwrap();
     market.withdraw_collateral(&mut position, MarketAsset::Base, max_withdraw, stored_cf).unwrap();
-    let after_withdrawal = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), false, 0).unwrap();
+    let after_withdrawal = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), false, 0, LeverageCollateralFee::default()).unwrap();
     assert!(after_withdrawal.liquidation_cf_bps >= stored_cf);
     assert_eq!(after_withdrawal.max_withdraw_amount, Some(0));
 }
@@ -1319,7 +1355,7 @@ fn debt_free_position_can_withdraw_all_and_zero_draw_remains_zero() {
     let mut position = BorrowPosition::default();
     position.clear_liquidation_auction();
     market.deposit_collateral(&mut position, MarketAsset::Base, 15_000).unwrap();
-    let quote = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), false, 0).unwrap();
+    let quote = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), false, 0, LeverageCollateralFee::default()).unwrap();
     assert_eq!(quote.max_withdraw_amount, Some(15_000));
     assert_eq!(quote.projected_borrow_amount, 0);
     assert_eq!(quote.existing_debt, 0);
@@ -1346,7 +1382,7 @@ fn debt_free_withdrawal_capacity_does_not_require_borrow_depth() {
     market.deposit_collateral(&mut position, MarketAsset::Base, 15_000).unwrap();
 
     let quote = market
-        .position_capacity_quote(&position, MarketAsset::Base, Some(0), false, 0)
+        .position_capacity_quote(&position, MarketAsset::Base, Some(0), false, 0, LeverageCollateralFee::default())
         .unwrap();
     assert_eq!(quote.max_withdraw_amount, Some(15_000));
     assert_eq!(quote.projected_borrow_amount, 0);
@@ -1381,7 +1417,7 @@ proptest! {
         position.clear_liquidation_auction();
         market.deposit_collateral(&mut position, collateral_asset, own_collateral).unwrap();
         market.borrow(&mut position, debt_asset, own_collateral / 4, 0, 0).unwrap();
-        let quote = market.position_capacity_quote(&position, collateral_asset, None, true, 0).unwrap();
+        let quote = market.position_capacity_quote(&position, collateral_asset, None, true, 0, LeverageCollateralFee::default()).unwrap();
         prop_assert!(quote.max_borrow_amount.unwrap() > 0);
         prop_assert!(market.clone().borrow(
             &mut position.clone(), debt_asset, quote.max_borrow_amount.unwrap(), quote.liquidation_cf_bps, 0,
@@ -1389,7 +1425,7 @@ proptest! {
         prop_assert!(market.clone().borrow(
             &mut position.clone(), debt_asset, quote.max_borrow_amount.unwrap() + 1, 0, 0,
         ).is_err());
-        let max_withdraw = market.position_capacity_quote(&position, collateral_asset, Some(0), false, 0)
+        let max_withdraw = market.position_capacity_quote(&position, collateral_asset, Some(0), false, 0, LeverageCollateralFee::default())
             .unwrap().max_withdraw_amount.unwrap();
         if max_withdraw > 0 {
             prop_assert!(market.clone().withdraw_collateral(

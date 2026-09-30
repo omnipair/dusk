@@ -1566,6 +1566,7 @@ export class DuskWrite {
           futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
           owner,
           debtAssetMint,
+          collateralAssetMint: address(params.collateralAssetMint),
           reserveVault: address(
             params.reserveVault ??
               deriveMarketReserveVaultAddress(market, debtAssetMint)[0]
@@ -1628,6 +1629,7 @@ export class DuskWrite {
               deriveBorrowPositionAddress(market, positionId)[0]
           ),
           debtAssetMint: address(params.debtAssetMint),
+          collateralAssetMint: address(params.collateralAssetMint),
         },
       }
     );
@@ -2321,6 +2323,7 @@ export interface WithdrawCollateralParams extends LendingPositionAccounts {
 
 export interface RepayParams extends LendingPositionAccounts {
   debtAssetMint: AddressLike;
+  collateralAssetMint: AddressLike;
   ownerDebtAccount: AddressLike;
   repayAmount: RawAmount;
   /** Omit when the position has no referrer. */
@@ -2471,6 +2474,7 @@ export interface StartLiquidationAuctionParams {
   /** Position discriminator; the borrow position PDA derives from it. */
   positionId: AddressLike;
   debtAssetMint: AddressLike;
+  collateralAssetMint: AddressLike;
   borrowPosition?: AddressLike;
 }
 
