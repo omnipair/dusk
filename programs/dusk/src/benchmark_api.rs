@@ -1396,7 +1396,9 @@ impl BenchmarkLeverageOwnedState {
 }
 
 impl BenchmarkBorrowPosition {
-    pub fn initialize(owner: Pubkey, market: Pubkey, position_id: Pubkey, bump: u8) -> Self {
+    pub fn initialize(owner: Pubkey, market: Pubkey, position_id: Pubkey, bump: u8) -> Result<Self> {
+        require_keys_neq!(owner, Pubkey::default(), ErrorCode::InvalidSigner);
+        require_keys_neq!(market, Pubkey::default(), ErrorCode::InvalidPositionMarket);
         let mut position = Box::new(BorrowPosition {
             owner: Pubkey::default(),
             market: Pubkey::default(),
@@ -1420,7 +1422,7 @@ impl BenchmarkBorrowPosition {
             bump: 0,
         });
         position.initialize(owner, market, position_id, bump);
-        Self { position }
+        Ok(Self { position })
     }
 
     pub fn from_position_state(position: BorrowPosition) -> Result<Self> {
@@ -1446,6 +1448,7 @@ impl BenchmarkBorrowPosition {
 
     pub fn checkpoint(&self, market: &BenchmarkMarket) -> Result<BenchmarkBorrowPositionCheckpoint> {
         let market_key = market.require_market_key()?;
+        require!(self.position.is_initialized(), ErrorCode::InvalidPositionMarket);
         self.position.assert_position(self.position.owner, market_key)?;
         borrow_position_checkpoint(&self.position, &market.market.debt)
     }
@@ -3669,6 +3672,7 @@ impl BenchmarkMarket {
     }
 
     fn assert_position_market(&self, position: &BenchmarkBorrowPosition) -> Result<()> {
+        require!(position.position.is_initialized(), ErrorCode::InvalidPositionMarket);
         position
             .position
             .assert_position(position.position.owner, self.require_market_key()?)
@@ -5391,6 +5395,24 @@ mod tests {
         (keyed, market_key)
     }
 
+    #[test]
+    fn borrow_position_replay_rejects_default_owner_and_market() {
+        let (market, market_key) = initialized_keyed_market();
+        let position_id = Pubkey::new_unique();
+        assert!(BenchmarkBorrowPosition::initialize(Pubkey::default(), market_key, position_id, 1).is_err());
+        assert!(BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), Pubkey::default(), position_id, 1).is_err());
+
+        let mut decoded = BorrowPosition::default();
+        decoded.initialize(Pubkey::default(), market_key, position_id, 1);
+        assert!(BenchmarkBorrowPosition::from_position_state(decoded.clone()).is_err());
+        let invalid = BenchmarkBorrowPosition {
+            position: Box::new(decoded),
+        };
+        assert!(invalid.checkpoint(&market).is_err());
+
+        assert!(BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, position_id, 1).is_ok());
+    }
+
     fn borrow_position_with_collateral(collateral_asset: MarketAsset, collateral_amount: u64) -> BorrowPosition {
         let mut position = BorrowPosition {
             owner: Pubkey::new_unique(),
@@ -5424,7 +5446,7 @@ mod tests {
     fn borrowed_liquidation_fixture(collateral_after: u64) -> (BenchmarkMarket, BenchmarkBorrowPosition, u64) {
         let (mut benchmark, market_key) = initialized_keyed_market();
         let mut position =
-            BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, Pubkey::new_unique(), 251);
+            BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, Pubkey::new_unique(), 251).unwrap();
         benchmark
             .execute_deposit_collateral(
                 &mut position,
@@ -5595,7 +5617,7 @@ mod tests {
     fn existing_position_capacity_decomposes_native_bounds_without_mutation() {
         let (mut benchmark, market_key) = initialized_keyed_market();
         let mut position =
-            BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, Pubkey::new_unique(), 250);
+            BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, Pubkey::new_unique(), 250).unwrap();
         benchmark
             .execute_deposit_collateral(
                 &mut position,
@@ -5718,7 +5740,7 @@ mod tests {
     fn existing_position_capacity_reduce_only_is_exact_zero_actionable() {
         let (mut benchmark, market_key) = initialized_keyed_market();
         let mut position =
-            BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, Pubkey::new_unique(), 249);
+            BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, Pubkey::new_unique(), 249).unwrap();
         benchmark
             .execute_deposit_collateral(
                 &mut position,
@@ -5755,7 +5777,7 @@ mod tests {
     fn existing_position_target_solver_preserves_post_debt_atoms_across_share_rounding() {
         let (mut benchmark, market_key) = initialized_keyed_market();
         let mut position =
-            BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, Pubkey::new_unique(), 248);
+            BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, Pubkey::new_unique(), 248).unwrap();
         benchmark
             .execute_deposit_collateral(
                 &mut position,
@@ -5917,10 +5939,11 @@ mod tests {
         let (mut benchmark, market_key) = initialized_keyed_market();
         let owner = Pubkey::new_unique();
         let position_id = Pubkey::new_unique();
-        let mut position = BenchmarkBorrowPosition::initialize(owner, market_key, position_id, 254);
+        let mut position = BenchmarkBorrowPosition::initialize(owner, market_key, position_id, 254).unwrap();
         let mut native_market = clone_market(benchmark.market()).unwrap();
-        let mut native_position =
-            BenchmarkBorrowPosition::initialize(owner, market_key, position_id, 254).into_position();
+        let mut native_position = BenchmarkBorrowPosition::initialize(owner, market_key, position_id, 254)
+            .unwrap()
+            .into_position();
 
         let deposit_clock = BenchmarkClock {
             slot: 2,
@@ -6040,7 +6063,7 @@ mod tests {
     fn failed_position_transition_rolls_back_market_position_and_clock() {
         let (mut benchmark, market_key) = initialized_keyed_market();
         let owner = Pubkey::new_unique();
-        let mut position = BenchmarkBorrowPosition::initialize(owner, market_key, Pubkey::new_unique(), 253);
+        let mut position = BenchmarkBorrowPosition::initialize(owner, market_key, Pubkey::new_unique(), 253).unwrap();
         benchmark
             .execute_deposit_collateral(
                 &mut position,
