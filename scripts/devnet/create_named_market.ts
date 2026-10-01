@@ -1,8 +1,8 @@
 /**
  * Create a market the way mainnet will: LP mints at vanity `yLP`/`hLP`
  * addresses, transfer hooks made usable, names per `lp-naming`, and per-mint
- * images and metadata pinned to IPFS before `initialize_lp_metadata` writes
- * the URIs on chain.
+ * images and metadata pinned to IPFS before market creation writes all three
+ * URIs on chain.
  *
  * The mints are `create_with_seed` accounts, so the only signer is the
  * creator; the seeds come from the vanity server, which grinds the Token-2022
@@ -56,6 +56,7 @@ import {
 import { readTokenMetadata } from "../lp-metadata/logos.ts";
 import { pinataConfigFromEnv } from "../lp-metadata/pinata.ts";
 import { publishLpMetadata } from "../lp-metadata/publish.ts";
+import { sendAtomicMarketCreation } from "../utils/market-creation.ts";
 
 const API = process.env.DUSK_API_URL ?? "https://dusk-api-production-291f.up.railway.app";
 const RPC = process.env.DUSK_RPC_URL ?? "https://api.devnet.solana.com";
@@ -225,8 +226,16 @@ async function main() {
   ]);
   console.log(`lp mints       ${mintSig}`);
 
-  const initSig = await send([
-    await dusk.write.initializeMarketInstruction({
+  const published = await publishLpMetadata({
+    connection, network: NETWORK, market, baseMint, quoteMint, baseSymbol, quoteSymbol,
+    mints, naming, pinata, outDir,
+    logoUrls: { base: process.env.BASE_LOGO, quote: process.env.QUOTE_LOGO },
+  });
+  const lpMetadata = Object.fromEntries(MARKET_LP_MINT_KINDS.map((kind) => [
+    kind,
+    { name: naming[kind].name, symbol: naming[kind].symbol, uri: published[kind].uri },
+  ])) as Record<(typeof MARKET_LP_MINT_KINDS)[number], { name: string; symbol: string; uri: string }>;
+  const marketInstruction = await dusk.write.initializeMarketInstruction({
       payer: owner,
       baseMint,
       quoteMint,
@@ -237,9 +246,12 @@ async function main() {
       teamTreasuryWsolAccount,
       paramsHash,
       config: defaultMarketLaunchConfig(),
-    }),
-  ]);
-  console.log(`initialized    ${initSig}`);
+      lpMetadata,
+    });
+  const { signature: initSig, lookupTable } = await sendAtomicMarketCreation({
+    connection, payer: keypair, instruction: marketInstruction,
+  });
+  console.log(`initialized    ${initSig} (lookup table ${lookupTable})`);
 
   // Token-2022 refuses to move a hooked token until the hook's validation
   // account exists, so no LP token can leave a wallet without this step.
@@ -252,23 +264,7 @@ async function main() {
   );
   console.log(`lp hooks       ${hookSig}`);
 
-  const published = await publishLpMetadata({
-    connection, network: NETWORK, market, baseMint, quoteMint, baseSymbol, quoteSymbol,
-    mints, naming, pinata, outDir,
-    logoUrls: { base: process.env.BASE_LOGO, quote: process.env.QUOTE_LOGO },
-  });
-  const metadataSigs: Record<string, string> = {};
   for (const kind of MARKET_LP_MINT_KINDS) {
-    metadataSigs[kind] = await send([
-      await dusk.write.initializeLpMetadataInstruction({
-        payer: owner,
-        market,
-        lpMint: mints[kind],
-        name: naming[kind].name,
-        symbol: naming[kind].symbol,
-        uri: published[kind].uri,
-      }),
-    ]);
     console.log(`${kind.padEnd(14)} ${naming[kind].symbol.padEnd(11)} ${published[kind].uri}`);
   }
 
@@ -284,11 +280,12 @@ async function main() {
             kind,
             {
               mint: mints[kind].toBase58(), seed: seeds[kind].seed, ...naming[kind],
-              image: published[kind].image, uri: published[kind].uri, metadataSignature: metadataSigs[kind],
+              image: published[kind].image, uri: published[kind].uri, metadataSignature: initSig,
             },
           ])
         ),
         signatures: { mints: mintSig, initialize: initSig, transferHooks: hookSig },
+        lookupTable,
       },
       null,
       2

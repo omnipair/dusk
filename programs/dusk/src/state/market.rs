@@ -320,6 +320,10 @@ pub struct Debt {
     pub fixed_quote_shares: u128,
     pub base_borrow_index_nad: u128,
     pub quote_borrow_index_nad: u128,
+    /// Fractional index growth carried across checkpoints. Denominator is
+    /// `NAD * MS_PER_YEAR`, so frequent checkpoints cannot discard interest.
+    pub base_borrow_index_remainder: u128,
+    pub quote_borrow_index_remainder: u128,
     pub base_rate_at_target_nad: u128,
     pub quote_rate_at_target_nad: u128,
     pub global_health_base_contribution_for_quote_debt: u64,
@@ -439,6 +443,7 @@ pub struct HlpVault {
     pub unallocated_quote_swap_fee_amount: u64,
     pub unallocated_quote_interest_amount: u64,
     pub last_nav_nad: u128,
+    /// Base quoted in quote NAD units for either target asset; zero means unset.
     pub cached_settlement_price_nad: u128,
     /// Smoothed APR of the opposite asset borrowed by this target-asset hLP.
     /// The fixed twelve-hour half-life gives Stop Rate orders stable semantics.

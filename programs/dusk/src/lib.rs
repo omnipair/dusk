@@ -121,11 +121,6 @@ pub mod dusk {
         InitializeMarket::handle_initialize(ctx, args)
     }
 
-    #[access_control(ctx.accounts.validate(&args))]
-    pub fn initialize_lp_metadata(ctx: Context<InitializeLpMetadata>, args: InitializeLpMetadataArgs) -> Result<()> {
-        InitializeLpMetadata::handle_initialize(ctx, args)
-    }
-
     #[access_control(ctx.accounts.validate())]
     pub fn set_market_reduce_only(ctx: Context<SetMarketReduceOnly>, args: SetMarketReduceOnlyArgs) -> Result<()> {
         SetMarketReduceOnly::handle_set(ctx, args)

@@ -263,7 +263,7 @@ async function main() {
   console.log(`holding ${heldBase / baseUnit} base for collateral and price pressure`);
 
   const positionId = Keypair.generate().publicKey;
-  const [position] = deriveBorrowPositionAddress(market, positionId);
+  const [position] = deriveBorrowPositionAddress(market, keypair.publicKey, positionId);
 
   await send(connection, keypair, [
     await dusk.write.depositCollateralInstruction({

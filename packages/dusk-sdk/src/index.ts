@@ -17,6 +17,7 @@ export * from "./governance.js";
 export * from "./hash.js";
 export * from "./indexer.js";
 export * from "./lp-naming.js";
+export * from "./market-launch.js";
 export * from "./lp-vanity.js";
 export * from "./market-bootstrap.js";
 export * from "./preview.js";

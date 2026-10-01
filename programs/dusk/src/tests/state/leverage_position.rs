@@ -8,6 +8,7 @@ fn leverage_position_tracks_debt_asset_and_current_debt() {
     let mut position = LeveragePosition {
         owner: Pubkey::default(),
         market: Pubkey::default(),
+        namespace_authority: Pubkey::default(),
         position_id: Pubkey::default(),
         referral_partner: Pubkey::default(),
         referral_interest_share_bps: 0,
@@ -20,11 +21,13 @@ fn leverage_position_tracks_debt_asset_and_current_debt() {
         multiplier_bps: 0,
         opened_at: 0,
         opened_slot: 0,
+        open_curve_revision: 0,
         bump: 0,
     };
     position.initialize(
         owner,
         market,
+        owner,
         Pubkey::new_unique(),
         Pubkey::default(),
         0,

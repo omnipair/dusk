@@ -30,6 +30,8 @@ pub struct PreviewSwapArgs {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PreviewBorrowCapacityArgs {
+    /// Net deposit credit in the collateral vault. Capacity also accounts
+    /// for the current fee when that collateral later exits the vault.
     pub collateral_amount: u64,
     pub projected_borrow_amount: Option<u64>,
 }
@@ -163,12 +165,20 @@ pub struct PreviewBorrowPosition<'info> {
         seeds = [
             BORROW_POSITION_SEED_PREFIX,
             market.key().as_ref(),
+            borrow_position.owner.as_ref(),
             borrow_position.position_id.as_ref(),
         ],
         bump = borrow_position.bump,
         constraint = borrow_position.market == market.key() @ ErrorCode::InvalidPositionMarket
     )]
     pub borrow_position: Box<Account<'info, BorrowPosition>>,
+
+    /// Liquidation values each side's collateral after its mint's current
+    /// transfer fee, so the preview reads both mints.
+    #[account(address = market.base_side.asset_mint @ ErrorCode::InvalidMint)]
+    pub base_mint: Box<InterfaceAccount<'info, Mint>>,
+    #[account(address = market.quote_side.asset_mint @ ErrorCode::InvalidMint)]
+    pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
 }
 
 #[derive(Accounts)]
@@ -180,7 +190,7 @@ pub struct PreviewBorrowPositionCapacity<'info> {
     )]
     pub market: Box<Account<'info, Market>>,
     #[account(
-        seeds = [BORROW_POSITION_SEED_PREFIX, market.key().as_ref(), borrow_position.position_id.as_ref()],
+        seeds = [BORROW_POSITION_SEED_PREFIX, market.key().as_ref(), borrow_position.owner.as_ref(), borrow_position.position_id.as_ref()],
         bump = borrow_position.bump,
         constraint = borrow_position.market == market.key() @ ErrorCode::InvalidPositionMarket
     )]
@@ -339,7 +349,8 @@ pub struct SwapPreview {
     /// temporary caller migration.
     pub lower_range_price_nad: u64,
     pub upper_range_price_nad: u64,
-    /// 0=lower tail, 1=concentrated band, 2=upper tail.
+    /// 0=lower tail, 1=lower shoulder, 2=inner band,
+    /// 3=upper shoulder, 4=upper tail.
     pub concentrated_curve_branch: u8,
     pub ordinary_base_reserve_nad: u128,
     pub ordinary_quote_reserve_nad: u128,
@@ -463,18 +474,47 @@ impl<'info> PreviewBorrowPositionCapacity<'info> {
         );
         market.update()?;
         let current_collateral_amount = position.collateral(collateral_asset);
+        let epoch = Clock::get()?.epoch;
         let change = u64::try_from(args.collateral_change.unsigned_abs()).map_err(|_| ErrorCode::MarketMathOverflow)?;
         if args.collateral_change > 0 {
-            market.deposit_collateral(position, collateral_asset, change)?;
+            market.deposit_collateral_with_fee(
+                position,
+                collateral_asset,
+                change,
+                crate::instructions::leverage_collateral_fee(&ctx.accounts.collateral_asset_mint, epoch)?,
+            )?;
         } else if args.collateral_change < 0 {
-            market.withdraw_collateral(position, collateral_asset, change, 0)?;
+            market.withdraw_collateral_with_fee(
+                position,
+                collateral_asset,
+                change,
+                crate::instructions::leverage_collateral_admission_fee(&ctx.accounts.collateral_asset_mint, epoch)?,
+                0,
+            )?;
         }
-        let quote = market.position_capacity_quote(
+        // Borrow and withdrawal capacity mirror execution, which admits
+        // both at the worse of the effective and any scheduled fee.
+        let fees = match collateral_asset {
+            MarketAsset::Base => crate::instructions::lending_market_admission_fees(
+                market,
+                &ctx.accounts.collateral_asset_mint,
+                &ctx.accounts.debt_asset_mint,
+                epoch,
+            )?,
+            MarketAsset::Quote => crate::instructions::lending_market_admission_fees(
+                market,
+                &ctx.accounts.debt_asset_mint,
+                &ctx.accounts.collateral_asset_mint,
+                epoch,
+            )?,
+        };
+        let quote = market.position_capacity_quote_with_market_fees(
             position,
             collateral_asset,
             args.projected_borrow_amount,
             borrow_capacity,
             Clock::get()?.slot,
+            fees,
         )?;
         Ok(BorrowPositionCapacityPreview {
             owner: position.owner,
@@ -783,9 +823,24 @@ impl<'info> PreviewBorrowCapacity<'info> {
         let debt_asset = market.asset_for_mint(ctx.accounts.debt_asset_mint.key())?;
         require!(debt_asset == collateral_asset.opposite(), ErrorCode::InvalidMint);
         let slot = Clock::get()?.slot;
-        let quote = market.borrow_capacity_quote(
+        let fees = match collateral_asset {
+            MarketAsset::Base => crate::instructions::lending_market_admission_fees(
+                market,
+                &ctx.accounts.collateral_asset_mint,
+                &ctx.accounts.debt_asset_mint,
+                Clock::get()?.epoch,
+            )?,
+            MarketAsset::Quote => crate::instructions::lending_market_admission_fees(
+                market,
+                &ctx.accounts.debt_asset_mint,
+                &ctx.accounts.collateral_asset_mint,
+                Clock::get()?.epoch,
+            )?,
+        };
+        let quote = market.borrow_capacity_quote_with_market_fees(
             collateral_asset,
             args.collateral_amount,
+            fees,
             args.projected_borrow_amount,
             slot,
         )?;
@@ -818,6 +873,7 @@ impl<'info> PreviewBorrowCapacity<'info> {
 impl<'info> PreviewBorrowPosition<'info> {
     pub fn handle_preview(ctx: Context<Self>) -> Result<BorrowPositionPreview> {
         ctx.accounts.market.update()?;
+        let epoch = Clock::get()?.epoch;
         let market: &Market = &ctx.accounts.market;
         let borrow_position = &ctx.accounts.borrow_position;
 
@@ -835,18 +891,47 @@ impl<'info> PreviewBorrowPosition<'info> {
             quote_liquidation_cf_bps: borrow_position.quote_liquidation_cf_bps,
             fixed_base_debt: borrow_position.fixed_base_debt(&market.debt)?,
             fixed_quote_debt: borrow_position.fixed_quote_debt(&market.debt)?,
-            base_debt: preview_position_debt_side(market, borrow_position, MarketAsset::Base)?,
-            quote_debt: preview_position_debt_side(market, borrow_position, MarketAsset::Quote)?,
+            base_debt: preview_position_debt_side(
+                market,
+                borrow_position,
+                MarketAsset::Base,
+                crate::instructions::leverage_collateral_liquidation_fee(&ctx.accounts.quote_mint, epoch)?,
+            )?,
+            quote_debt: preview_position_debt_side(
+                market,
+                borrow_position,
+                MarketAsset::Quote,
+                crate::instructions::leverage_collateral_liquidation_fee(&ctx.accounts.base_mint, epoch)?,
+            )?,
         })
     }
 }
 
 fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<PreviewSide> {
     let side = market.side(asset);
+    let price_ema_nad = match asset {
+        MarketAsset::Base => market.risk.base_price_ema_nad,
+        MarketAsset::Quote => market.risk.quote_price_ema_nad,
+    };
     let directional_price_ema_nad = match asset {
         MarketAsset::Base => market.risk.directional_base_price_ema_nad,
         MarketAsset::Quote => market.risk.directional_quote_price_ema_nad,
     };
+    if market.base_side.shares.ylp_supply == 0 && market.quote_side.shares.ylp_supply == 0 {
+        return Ok(PreviewSide {
+            live_reserve: side.reserves.live_reserve,
+            cash_reserve: side.reserves.cash_reserve,
+            ylp_supply: 0,
+            borrow_index_nad: market.debt.borrow_index(asset),
+            rate_at_target_nad: match asset {
+                MarketAsset::Base => market.debt.base_rate_at_target_nad,
+                MarketAsset::Quote => market.debt.quote_rate_at_target_nad,
+            },
+            price_ema_nad,
+            directional_price_ema_nad,
+            ..PreviewSide::default()
+        });
+    }
     let lending = market.lending_side_preview(asset, slot)?;
     let prices = market.side_prices_at(asset, market.current_base_price_nad()?)?;
 
@@ -878,8 +963,9 @@ fn preview_position_debt_side(
     market: &Market,
     borrow_position: &BorrowPosition,
     debt_asset: MarketAsset,
+    collateral_fee: crate::transitions::LeverageCollateralFee,
 ) -> Result<PositionDebtSidePreview> {
-    let quote = market.position_debt_side_quote(borrow_position, debt_asset)?;
+    let quote = market.position_debt_side_quote(borrow_position, debt_asset, collateral_fee)?;
 
     Ok(PositionDebtSidePreview {
         debt_asset: quote.debt_asset,

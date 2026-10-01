@@ -16,14 +16,14 @@ use crate::{
             require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
             validate_interest_accounts, HlpSwapAccountLayout,
         },
-        enforce_launch_same_transaction_guard,
+        enforce_launch_same_transaction_guard, leverage_collateral_liquidation_fee,
         referral::accounting::{
             accrue_referral_interest, referral_interest_accrued_event_at_slot, validate_referral_binding,
         },
         settle_inline_leverage_hlp,
     },
     state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
-    token::transfer_checked_with_remaining_accounts,
+    token::{get_transfer_fee, transfer_checked_with_remaining_accounts},
     transitions::liquidity::SwapCashPolicy,
 };
 
@@ -85,6 +85,7 @@ pub struct BackstopLiquidationAuction<'info> {
         seeds = [
             BORROW_POSITION_SEED_PREFIX,
             market.key().as_ref(),
+            borrow_position.owner.as_ref(),
             borrow_position.position_id.as_ref(),
         ],
         bump = borrow_position.bump
@@ -194,9 +195,13 @@ impl<'info> BackstopLiquidationAuction<'info> {
         // Commit recovery-driven cancellation before checking expiry or moving
         // collateral. The initial assertion prevents an unrelated no-op call.
         ctx.accounts.borrow_position.assert_liquidation_auction(debt_asset)?;
+        let gross_collateral = ctx.accounts.borrow_position.collateral(collateral_asset);
+        let collateral_exit_credit =
+            leverage_collateral_liquidation_fee(&ctx.accounts.collateral_asset_mint, clock.epoch)?
+                .unwind_credit(gross_collateral)?;
         ctx.accounts
             .market
-            .reconcile_liquidation_auction(&mut ctx.accounts.borrow_position)?;
+            .reconcile_liquidation_auction_with_credit(&mut ctx.accounts.borrow_position, collateral_exit_credit)?;
         if !ctx.accounts.borrow_position.has_active_liquidation_auction() {
             emit_cpi!(LiquidationAuctionCancelled {
                 market: market_key,
@@ -295,6 +300,7 @@ impl<'info> BackstopLiquidationAuction<'info> {
                         debt_asset,
                         debt_shares: 0,
                         debt_principal: 0,
+                        insurance_credit: 0,
                     },
                 )?,
             )
@@ -320,6 +326,17 @@ impl<'info> BackstopLiquidationAuction<'info> {
                 .draw_capacity(debt_asset, clock.slot)?
                 .min(ctx.accounts.insurance_vault.amount)
                 .min(remaining_debt)
+        };
+        // A 100% debt-mint fee would debit insurance and credit the reserve
+        // nothing. Preserve the insurance vault and socialize the loss, as
+        // leverage liquidation does.
+        let insurance_request = if insurance_request > 0
+            && get_transfer_fee(&ctx.accounts.debt_asset_mint.to_account_info(), insurance_request)?
+                == insurance_request
+        {
+            0
+        } else {
+            insurance_request
         };
         let debt_token_program = token_program_for_mint(
             &ctx.accounts.debt_asset_mint,

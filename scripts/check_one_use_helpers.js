@@ -363,7 +363,11 @@ const acceptedOneUseHelpers = new Map([
   // Keep the pure, clock-bound hLP admission and fee-boundary calculations
   // independently testable from Anchor account deserialization and sysvars.
   ["programs/dusk/src/instructions/hlp_deposit_preview.rs", new Set(["preview_hlp_funding_limit", "gross_funding_limit"])],
-  ["programs/dusk/src/instructions/leverage/liquidate_leverage_position.rs", new Set(["finish_liquidation"])],
+  // The fee-aware liquidator/owner split is a tested settlement policy kept
+  // separate from token CPI bookkeeping.
+  ["programs/dusk/src/instructions/leverage/liquidate_leverage_position.rs", new Set(["finish_liquidation", "liquidation_payout_debits"])],
+  // CPI metadata isolation is a security boundary and has a focused test.
+  ["programs/dusk/src/instructions/leverage/settlement.rs", new Set(["delegated_callback_metas"])],
   [
     "programs/dusk/src/instructions/prepare_swap.rs",
     new Set(["rebalance_executes_token_changes"]),
@@ -406,7 +410,12 @@ const acceptedOneUseHelpers = new Map([
   ],
   [
     "programs/dusk/src/transitions/lending/preview.rs",
-    new Set(["lending_side_preview", "borrow_capacity_quote", "position_debt_side_quote", "position_capacity_quote"]),
+    new Set([
+      "lending_side_preview",
+      "borrow_capacity_quote_with_market_fees",
+      "position_debt_side_quote",
+      "position_capacity_quote_with_market_fees",
+    ]),
   ],
   [
     "programs/dusk/src/transitions/leverage.rs",
@@ -464,6 +473,8 @@ const acceptedOneUseHelpers = new Map([
     "programs/leverage_delegate/src/instructions/entry/common.rs",
     new Set(["verify_opened_position", "escrow_margin_after_bounty"]),
   ],
+  // Keep unit-scale trigger math testable without Anchor account fixtures.
+  ["programs/leverage_delegate/src/instructions/leverage/before_close.rs", new Set(["closeout_price_nad"])],
   [
     "programs/leverage_delegate/src/instructions/hlp/common.rs",
     new Set(["withdraw_hlp_order_position", "validate_hlp_order_kind", "hlp_order_trigger_met"]),

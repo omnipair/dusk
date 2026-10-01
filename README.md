@@ -18,7 +18,7 @@ Omnipair's GAMM (Generalized Automated Market Maker) combines an AMM with an int
 Dusk keeps that core Omnipair GAMM idea and rebuilds it around a market-native account model:
 
 - **Oracle-less markets**: pricing and risk use in-protocol reserve state, EMA books, and conservative settlement references instead of external oracle feeds.
-- **Optional autonomous concentration**: the Dusk Concentrated AMM concentrates depth around an internal center, recenters only through its funded bounded controller during genuine user operations, and can ramp to or from exact CPMM without changing invariant families elsewhere in the protocol.
+- **Optional autonomous concentration**: the Dusk Concentrated AMM concentrates depth around an internal center and recenters only through its funded bounded controller during genuine user operations. Governance can switch the curve shape to or from exact CPMM.
 - **Path-aware bounded fees**: an outward divergence surcharge targets trending inventory stress while a separate volatility surcharge prices repeated chop. Each component has an explicit gross-input budget, and aggregate fees can never exceed 50% of the trader's input.
 - **Unified liquidity and lending**: LP inventory backs both swaps and borrow demand, letting capital serve multiple protocol flows.
 - **Standalone Dusk program**: Dusk has its own program ID, IDL, account model, event surface, and SDK helpers.
@@ -104,7 +104,7 @@ user margin + isolated borrow
 
 Users can increase or decrease exposure, add or remove margin, close the position, or be liquidated if the closeout value falls below maintenance requirements. Isolated debt contributes to utilization and interest accrual, but it is kept separate from normal borrower debt and hLP vault debt.
 
-Owners can also approve a leverage delegate program for a position. The delegate flow uses a before-hook approval and after-hook settlement approval, so keepers can execute bounded partial or full take-profit and stop-loss closes into a custody PDA without receiving unchecked control over the position.
+Owners can also approve a leverage delegate program for a position. The delegate flow uses a before-hook approval and after-hook settlement approval, so keepers can execute bounded partial or full take-profit and stop-loss closes. Dusk pays a bounded protocol fee and executor incentive from the realized residual, then sends the remainder directly to a token account owned by the position owner. A delegate cannot redirect the owner's payout to its own custody.
 
 ## Permissioned Referral Revenue Sharing
 
@@ -120,7 +120,7 @@ referral_accrual          = floor(protocol_interest_revenue * bound_referral_sha
 
 Later partner, cap, or active-status changes apply only to new bindings. The referral amount is carved only from the DAO's configured share of realized interest; LP allocations are unchanged. Using actual vault credit keeps Token-2022 transfer fees from creating an unbacked claim.
 
-Each `ReferralAccrual` is scoped to one partner, market, and asset mint. Funds remain in the market interest vault while the account records the claimable liability. The partner authority may rotate its designated recipient, and `claim_referral_interest` pays that recipient using the asset mint's SPL Token or Token-2022 program and transfer hooks.
+Each `ReferralAccrual` is scoped to one partner, market, and asset mint. Funds remain in the market interest vault while the account records the claimable liability. The partner authority may rotate its designated recipient, and `claim_referral_interest` pays that recipient using the asset mint's SPL Token or Token-2022 program.
 
 ## hLP Vaults
 
@@ -200,7 +200,6 @@ Dusk exposes simple market actions:
 
 ```text
 initialize_market
-initialize_lp_metadata
 initialize_yield_accounts
 initialize_lp_transfer_hook
 set_market_reduce_only
@@ -266,7 +265,7 @@ settle_protocol_auction
 ```
 
 Market parameters are deliberately split into seven typed proposal families:
-fees, concentration shape and ramp duration, IRM, EMA half-lives, the daily
+fees, concentration shape, IRM, EMA half-lives, the daily
 borrow limit, the center controller, and insurance draw caps. A proposal snapshots that family's revision, so execution becomes
 stale if another proposal changes the same family first. Execution is blocked
 at 80% utilization, while repayments, liquidations, collateral additions, and
@@ -293,7 +292,7 @@ Dusk is a standalone program and should be integrated through its own IDL, progr
 - Use the Dusk IDL and market PDAs for markets.
 - Do not sort Dusk market mints client-side. The creator's `base_mint` and `quote_mint` order defines the market and its price direction.
 - Treat yLP and hLP mints as distinct Token-2022 token concepts. yLP is the two-sided normal LP token; hLP tokens are aggregate leveraged LP vault shares.
-- Use the referral builders for referred debt actions so the partner and accrual PDAs plus any Token-2022 transfer-hook accounts are included atomically.
+- Use the referral builders for referred debt actions so the partner and accrual PDAs are included atomically.
 - Use the parameter-proposal builders so sponsorship/support burns, virtual-yield checkpoints, proposal/support PDAs, and terminal remints remain atomic.
 - Consume Dusk events from the standalone IDL, including market, liquidity, swap, debt, liquidation, yield, hLP, leverage, leverage-delegation, and referral events.
 

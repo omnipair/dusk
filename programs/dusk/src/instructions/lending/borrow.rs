@@ -10,6 +10,7 @@ use crate::{
     errors::ErrorCode,
     events::{MarketDebtUpdated, MarketEventMetadata, MarketHealthUpdated, ReferralBound},
     generate_market_seeds,
+    instructions::lending_market_admission_fees,
     instructions::{
         accounts::{
             require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
@@ -68,6 +69,7 @@ pub struct Borrow<'info> {
         seeds = [
             BORROW_POSITION_SEED_PREFIX,
             market.key().as_ref(),
+            borrow_position.owner.as_ref(),
             borrow_position.position_id.as_ref(),
         ],
         bump = borrow_position.bump
@@ -139,7 +141,8 @@ impl<'info> Borrow<'info> {
     crate::instructions::accounts::market_update_and_validate!(BorrowArgs);
 
     pub fn handle_borrow(mut ctx: Context<'_, '_, '_, 'info, Self>, args: BorrowArgs) -> Result<()> {
-        let current_slot = Clock::get()?.slot;
+        let clock = Clock::get()?;
+        let current_slot = clock.slot;
         let (market_key, owner_key, debt_asset_mint_key, position_key, debt_credit, debt_receipt, bound_referral) = {
             let accounts = &mut ctx.accounts;
             let market_key = accounts.market.key();
@@ -174,10 +177,27 @@ impl<'info> Borrow<'info> {
             };
 
             // Commit the debt transition before releasing reserve cash.
-            let debt_receipt = accounts.market.borrow(
+            // Both market sides must pass the global floor after current and
+            // scheduled fees, even when the acting borrow uses the other mint.
+            let fees = match borrow_asset {
+                crate::state::MarketAsset::Base => lending_market_admission_fees(
+                    &accounts.market,
+                    &accounts.debt_asset_mint,
+                    &accounts.collateral_asset_mint,
+                    clock.epoch,
+                )?,
+                crate::state::MarketAsset::Quote => lending_market_admission_fees(
+                    &accounts.market,
+                    &accounts.collateral_asset_mint,
+                    &accounts.debt_asset_mint,
+                    clock.epoch,
+                )?,
+            };
+            let debt_receipt = accounts.market.borrow_with_market_fees(
                 &mut accounts.borrow_position,
                 borrow_asset,
                 args.borrow_amount,
+                fees,
                 args.min_liquidation_cf_bps,
                 current_slot,
             )?;

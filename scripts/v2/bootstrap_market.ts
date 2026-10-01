@@ -33,6 +33,7 @@ import {
   writeState,
 } from "./common.ts";
 import idl from "../../target/idl/dusk.json" with { type: "json" };
+import { sendAtomicMarketCreation } from "../utils/market-creation.ts";
 
 async function main() {
   const provider = providerFromEnv();
@@ -126,12 +127,15 @@ async function main() {
   const marketAccount = await provider.connection.getAccountInfo(market, "confirmed");
   if (!marketAccount) {
     console.log(`Initializing Dusk yLP/hLP market ${market.toBase58()}`);
-    const signature = await program.methods
+    const instruction = await program.methods
       .initializeMarket({
         config: defaultMarketConfig(),
         paramsHash: [...paramsHash],
         bootstrapPriceNad: new anchor.BN(duskEnv("BOOTSTRAP_PRICE_NAD", "0")),
         launchFeeProgressOffset: Number(duskEnv("LAUNCH_FEE_PROGRESS_OFFSET", "0")),
+        ylpMetadata: defaultLpMetadata("ylp"),
+        baseHlpMetadata: defaultLpMetadata("baseHlp"),
+        quoteHlpMetadata: defaultLpMetadata("quoteHlp"),
       })
       .accounts({
         payer: payer.publicKey,
@@ -142,6 +146,9 @@ async function main() {
         ylpMint: ylp,
         baseHlpMint: baseHlp,
         quoteHlpMint: quoteHlp,
+        ylpTokenMetadata,
+        baseHlpTokenMetadata,
+        quoteHlpTokenMetadata,
         baseReserveVault: addresses.baseReserveVault,
         quoteReserveVault: addresses.quoteReserveVault,
         baseCollateralVault: addresses.baseCollateralVault,
@@ -155,43 +162,21 @@ async function main() {
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
+        sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
         eventAuthority: addresses.eventAuthority,
         program: program.programId,
       })
-      .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
-      .rpc();
+      .instruction();
+    const { signature } = await sendAtomicMarketCreation({
+      connection: provider.connection,
+      payer,
+      instruction,
+    });
     console.log(`Initialize tx: ${explorerTx(signature)}`);
   } else {
     console.log(`Market already exists: ${market.toBase58()}`);
   }
-
-  await ensureLpMetadata({
-    provider,
-    payer,
-    program,
-    market,
-    lpMint: ylp,
-    lpTokenMetadata: ylpTokenMetadata,
-    metadata: defaultLpMetadata("ylp"),
-  });
-  await ensureLpMetadata({
-    provider,
-    payer,
-    program,
-    market,
-    lpMint: baseHlp,
-    lpTokenMetadata: baseHlpTokenMetadata,
-    metadata: defaultLpMetadata("baseHlp"),
-  });
-  await ensureLpMetadata({
-    provider,
-    payer,
-    program,
-    market,
-    lpMint: quoteHlp,
-    lpTokenMetadata: quoteHlpTokenMetadata,
-    metadata: defaultLpMetadata("quoteHlp"),
-  });
 
   const storedMarket = {
     label: marketLabel,
@@ -317,37 +302,6 @@ async function ensureFutarchyAuthority(params: {
     .rpc();
   console.log(`Futarchy init tx: ${explorerTx(signature)}`);
   return await params.program.account.futarchyAuthority.fetch(params.futarchyAuthority);
-}
-
-async function ensureLpMetadata(params: {
-  provider: anchor.AnchorProvider;
-  payer: anchor.web3.Keypair;
-  program: any;
-  market: PublicKey;
-  lpMint: PublicKey;
-  lpTokenMetadata: PublicKey;
-  metadata: { name: string; symbol: string; uri: string };
-}) {
-  const existing = await params.provider.connection.getAccountInfo(
-    params.lpTokenMetadata,
-    "confirmed"
-  );
-  if (existing) return;
-
-  const signature = await params.program.methods
-    .initializeLpMetadata(params.metadata)
-    .accounts({
-      payer: params.payer.publicKey,
-      market: params.market,
-      lpMint: params.lpMint,
-      lpTokenMetadata: params.lpTokenMetadata,
-      systemProgram: SystemProgram.programId,
-      sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-      token2022Program: TOKEN_2022_PROGRAM_ID,
-      tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
-    })
-    .rpc();
-  console.log(`LP metadata tx: ${explorerTx(signature)}`);
 }
 
 async function seedBalancedLiquidity(params: {

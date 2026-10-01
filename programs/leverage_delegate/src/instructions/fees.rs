@@ -9,6 +9,16 @@ pub fn order_protocol_fee(value: u64) -> u64 {
     ((value as u128 * ORDER_PROTOCOL_FEE_BPS as u128).div_ceil(10_000)) as u64
 }
 
+pub fn gross_debit_for_net(mint: &AccountInfo, net: u64, epoch: u64) -> Result<u64> {
+    if net == 0 {
+        return Ok(0);
+    }
+    net.checked_add(dusk::token::get_transfer_inverse_fee_for_epoch(
+        mint, net, epoch,
+    )?)
+    .ok_or_else(|| error!(LeverageDelegateError::MathOverflow))
+}
+
 /// Additional protocol fee paid by the order owner, separately from keeper rewards.
 #[derive(Accounts)]
 pub struct OrderFeePayment<'info> {
@@ -25,6 +35,40 @@ impl<'info> OrderFeePayment<'info> {
         mint: &InterfaceAccount<'info, Mint>,
         futarchy: &Account<'info, FutarchyAuthority>,
         value: u64,
+        source: AccountInfo<'info>,
+        authority: AccountInfo<'info>,
+        signer: &[&[&[u8]]],
+        token_program: &AccountInfo<'info>,
+        token_2022_program: &AccountInfo<'info>,
+        remaining: &[AccountInfo<'info>],
+    ) -> Result<u64> {
+        self.collect_with_budget(
+            owner,
+            order,
+            mint,
+            futarchy,
+            value,
+            u64::MAX,
+            source,
+            authority,
+            signer,
+            token_program,
+            token_2022_program,
+            remaining,
+        )
+    }
+
+    /// Collect as much of the order fee as the caller can fund after its
+    /// guaranteed owner and executor payouts. A fee cannot strand an exit.
+    #[inline(never)]
+    pub fn collect_with_budget(
+        &mut self,
+        owner: Pubkey,
+        order: Pubkey,
+        mint: &InterfaceAccount<'info, Mint>,
+        futarchy: &Account<'info, FutarchyAuthority>,
+        value: u64,
+        max_debit: u64,
         source: AccountInfo<'info>,
         authority: AccountInfo<'info>,
         signer: &[&[&[u8]]],
@@ -52,27 +96,41 @@ impl<'info> OrderFeePayment<'info> {
             self.fee_recipient.key(),
             LeverageDelegateError::InvalidTokenAccount
         );
-        let fee = order_protocol_fee(value);
-        let debit = fee
-            .checked_add(dusk::token::get_transfer_inverse_fee_for_epoch(
-                &mint.to_account_info(),
-                fee,
-                Clock::get()?.epoch,
-            )?)
-            .ok_or(LeverageDelegateError::MathOverflow)?;
+        let assessed_fee = order_protocol_fee(value);
+        let epoch = Clock::get()?.epoch;
+        let full_debit = gross_debit_for_net(&mint.to_account_info(), assessed_fee, epoch)?;
+        let mut debit = full_debit.min(max_debit);
+        let mut fee = if debit > 0 {
+            debit
+                .checked_sub(dusk::token::get_transfer_fee_for_epoch(
+                    &mint.to_account_info(),
+                    debit,
+                    epoch,
+                )?)
+                .ok_or(LeverageDelegateError::MathOverflow)?
+        } else {
+            0
+        };
+        // Do not spend a positive gross amount when the mint would withhold
+        // the entire transfer and credit the treasury nothing.
+        if fee == 0 {
+            debit = 0;
+        }
         self.fee_recipient.reload()?;
         let before = self.fee_recipient.amount;
-        transfer_checked(
-            token_program_for_mint(&mint.to_account_info(), token_program, token_2022_program),
-            source,
-            mint.to_account_info(),
-            self.fee_recipient.to_account_info(),
-            authority,
-            debit,
-            mint.decimals,
-            signer,
-            remaining,
-        )?;
+        if debit > 0 {
+            transfer_checked(
+                token_program_for_mint(&mint.to_account_info(), token_program, token_2022_program),
+                source,
+                mint.to_account_info(),
+                self.fee_recipient.to_account_info(),
+                authority,
+                debit,
+                mint.decimals,
+                signer,
+                remaining,
+            )?;
+        }
         self.fee_recipient.reload()?;
         let credited = self
             .fee_recipient
@@ -80,6 +138,7 @@ impl<'info> OrderFeePayment<'info> {
             .checked_sub(before)
             .ok_or(LeverageDelegateError::MathOverflow)?;
         require_gte!(credited, fee, LeverageDelegateError::InvalidTokenAccount);
+        fee = credited;
         emit!(OrderProtocolFeePaid {
             order,
             owner,

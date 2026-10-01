@@ -27,6 +27,7 @@ pub struct ExecuteLeverageEntryOrder<'info> {
     #[account(mut, address = order.position)]
     pub leverage_position: UncheckedAccount<'info>,
     #[account(address = order.debt_mint)]
+    #[account(mut)]
     pub debt_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(address = order.collateral_mint)]
     pub collateral_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -82,7 +83,8 @@ impl<'info> ExecuteLeverageEntryOrder<'info> {
         ctx: Context<'_, '_, '_, 'info, Self>,
         args: LeverageEntryOrderIdArgs,
     ) -> Result<()> {
-        let now = Clock::get()?.unix_timestamp;
+        let clock = Clock::get()?;
+        let now = clock.unix_timestamp;
         require!(
             now <= ctx.accounts.order.expiry_unix_timestamp,
             LeverageDelegateError::InvalidOrder
@@ -91,11 +93,16 @@ impl<'info> ExecuteLeverageEntryOrder<'info> {
             ctx.accounts.market.version == MARKET_LAYOUT_VERSION,
             LeverageDelegateError::InvalidMarketVersion
         );
+        let bounty_debit = gross_debit_for_net(
+            &ctx.accounts.debt_mint.to_account_info(),
+            ctx.accounts.order.executor_bounty,
+            clock.epoch,
+        )?;
         let expected_escrow = ctx
             .accounts
             .order
             .margin_amount
-            .checked_add(ctx.accounts.order.executor_bounty)
+            .checked_add(bounty_debit)
             .ok_or(LeverageDelegateError::MathOverflow)?;
         require_gte!(
             ctx.accounts.funding_vault.amount,
@@ -188,7 +195,7 @@ impl<'info> ExecuteLeverageEntryOrder<'info> {
         ctx.accounts.funding_vault.reload()?;
         require_gte!(
             ctx.accounts.funding_vault.amount,
-            ctx.accounts.order.executor_bounty,
+            bounty_debit,
             LeverageDelegateError::InvalidTokenAccount
         );
         let execution_value =
@@ -199,12 +206,19 @@ impl<'info> ExecuteLeverageEntryOrder<'info> {
             .get(hook_account_offset..)
             .ok_or(LeverageDelegateError::InvalidOrder)?;
 
-        ctx.accounts.protocol_fee.collect(
+        let fee_budget = ctx
+            .accounts
+            .funding_vault
+            .amount
+            .checked_sub(bounty_debit)
+            .ok_or(LeverageDelegateError::InvalidOrder)?;
+        ctx.accounts.protocol_fee.collect_with_budget(
             owner_key,
             ctx.accounts.order.key(),
             &ctx.accounts.debt_mint,
             &ctx.accounts.futarchy_authority,
             execution_value,
+            fee_budget,
             ctx.accounts.funding_vault.to_account_info(),
             ctx.accounts.order.to_account_info(),
             signer,
@@ -215,10 +229,11 @@ impl<'info> ExecuteLeverageEntryOrder<'info> {
         ctx.accounts.funding_vault.reload()?;
         require_gte!(
             ctx.accounts.funding_vault.amount,
-            ctx.accounts.order.executor_bounty,
+            bounty_debit,
             LeverageDelegateError::InvalidTokenAccount
         );
-        if ctx.accounts.order.executor_bounty > 0 {
+        let executor_balance_before = ctx.accounts.executor_bounty_account.amount;
+        if bounty_debit > 0 {
             transfer_checked(
                 token_program_for_mint(
                     &ctx.accounts.debt_mint.to_account_info(),
@@ -229,14 +244,27 @@ impl<'info> ExecuteLeverageEntryOrder<'info> {
                 ctx.accounts.debt_mint.to_account_info(),
                 ctx.accounts.executor_bounty_account.to_account_info(),
                 ctx.accounts.order.to_account_info(),
-                ctx.accounts.order.executor_bounty,
+                bounty_debit,
                 ctx.accounts.debt_mint.decimals,
                 signer,
                 hook_accounts,
             )?;
         }
+        ctx.accounts.executor_bounty_account.reload()?;
+        let executor_credit = ctx
+            .accounts
+            .executor_bounty_account
+            .amount
+            .checked_sub(executor_balance_before)
+            .ok_or(LeverageDelegateError::MathOverflow)?;
+        require_gte!(
+            executor_credit,
+            ctx.accounts.order.executor_bounty,
+            LeverageDelegateError::InvalidOrder
+        );
         ctx.accounts.funding_vault.reload()?;
         let surplus = ctx.accounts.funding_vault.amount;
+        let owner_balance_before = ctx.accounts.owner_refund_account.amount;
         if surplus > 0 {
             transfer_checked(
                 token_program_for_mint(
@@ -255,18 +283,31 @@ impl<'info> ExecuteLeverageEntryOrder<'info> {
             )?;
             ctx.accounts.funding_vault.reload()?;
         }
+        ctx.accounts.owner_refund_account.reload()?;
+        let owner_credit = ctx
+            .accounts
+            .owner_refund_account
+            .amount
+            .checked_sub(owner_balance_before)
+            .ok_or(LeverageDelegateError::MathOverflow)?;
+        require_gte!(
+            owner_credit,
+            args.min_owner_refund_out,
+            LeverageDelegateError::InvalidOrder
+        );
         require_eq!(
             ctx.accounts.funding_vault.amount,
             0,
             LeverageDelegateError::InvalidTokenAccount
         );
-        close_token_account(
+        close_token_account_with_fee_harvest(
             token_program_for_mint(
                 &ctx.accounts.debt_mint.to_account_info(),
                 &ctx.accounts.token_program.to_account_info(),
                 &ctx.accounts.token_2022_program.to_account_info(),
             ),
             ctx.accounts.funding_vault.to_account_info(),
+            ctx.accounts.debt_mint.to_account_info(),
             ctx.accounts.owner.to_account_info(),
             ctx.accounts.order.to_account_info(),
             signer,

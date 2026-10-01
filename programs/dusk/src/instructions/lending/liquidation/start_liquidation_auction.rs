@@ -5,6 +5,7 @@ use crate::{
     constants::*,
     errors::ErrorCode,
     events::LiquidationAuctionStarted,
+    instructions::leverage_collateral_liquidation_fee,
     state::{BorrowPosition, Market},
 };
 
@@ -28,6 +29,7 @@ pub struct StartLiquidationAuction<'info> {
         seeds = [
             BORROW_POSITION_SEED_PREFIX,
             market.key().as_ref(),
+            borrow_position.owner.as_ref(),
             borrow_position.position_id.as_ref(),
         ],
         bump = borrow_position.bump
@@ -35,6 +37,7 @@ pub struct StartLiquidationAuction<'info> {
     pub borrow_position: Box<Account<'info, BorrowPosition>>,
 
     pub debt_asset_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub collateral_asset_mint: Box<InterfaceAccount<'info, Mint>>,
 }
 
 impl<'info> StartLiquidationAuction<'info> {
@@ -53,6 +56,15 @@ impl<'info> StartLiquidationAuction<'info> {
     pub fn handle_start(ctx: Context<Self>) -> Result<()> {
         let debt_asset_mint_key = ctx.accounts.debt_asset_mint.key();
         let debt_asset = ctx.accounts.market.asset_for_mint(debt_asset_mint_key)?;
+        require_keys_eq!(
+            ctx.accounts.collateral_asset_mint.key(),
+            ctx.accounts.market.side(debt_asset.opposite()).asset_mint,
+            ErrorCode::InvalidMint
+        );
+        let gross_collateral = ctx.accounts.borrow_position.collateral(debt_asset.opposite());
+        let collateral_exit_credit =
+            leverage_collateral_liquidation_fee(&ctx.accounts.collateral_asset_mint, Clock::get()?.epoch)?
+                .unwind_credit(gross_collateral)?;
 
         // Snapshot the liquidation reference before opening the auction.
         let liquidation_reference_price_nad = ctx
@@ -61,9 +73,11 @@ impl<'info> StartLiquidationAuction<'info> {
             .liquidation_reference_price_nad(&ctx.accounts.borrow_position, debt_asset)?;
 
         require!(
-            ctx.accounts
-                .market
-                .is_position_liquidatable(&ctx.accounts.borrow_position, debt_asset)?,
+            ctx.accounts.market.is_position_liquidatable_with_credit(
+                &ctx.accounts.borrow_position,
+                debt_asset,
+                collateral_exit_credit,
+            )?,
             ErrorCode::PositionNotLiquidatable
         );
 
@@ -72,10 +86,12 @@ impl<'info> StartLiquidationAuction<'info> {
             ErrorCode::PositionNotLiquidatable
         );
 
-        // Start at a 5% premium and decay toward the immutable floor.
+        // Store the opening 5% premium. Fills apply its remaining fraction to
+        // the current liquidation reference rather than this price snapshot.
         let floor_price = liquidation_reference_price_nad;
         let start_price = floor_price
             .checked_mul(105)
+            .and_then(|v| v.checked_add(99))
             .and_then(|v| v.checked_div(100))
             .ok_or(ErrorCode::MarketMathOverflow)?;
 

@@ -363,7 +363,6 @@ ceiling.
 | `support_parameter_proposal` | 5 | 64,055 | 68,555 | 94.93% |
 | `claim_referral_interest` | 15 | 47,558 | 66,132 | 95.11% |
 | `preview_market` | 5 | 61,143 | 61,143 | 95.48% |
-| `initialize_lp_metadata` | 750 | 24,862 | 57,872 | 95.72% |
 | `deposit_collateral` | 40 | 51,297 | 57,860 | 95.72% |
 | `withdraw_collateral` | 5 | 55,567 | 55,567 | 95.89% |
 | `withdraw_parameter_support` | 5 | 52,141 | 54,241 | 95.99% |

@@ -132,6 +132,16 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
                 "path": "leverage_position.position_id",
                 "account": "leveragePosition"
               }
@@ -140,6 +150,9 @@ export type Dusk = {
         },
         {
           "name": "debtMint"
+        },
+        {
+          "name": "collateralMint"
         },
         {
           "name": "debtReserveVault",
@@ -530,6 +543,11 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
+              },
+              {
+                "kind": "account",
                 "path": "borrow_position.position_id",
                 "account": "borrowPosition"
               }
@@ -731,6 +749,11 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
               },
               {
                 "kind": "account",
@@ -1153,6 +1176,16 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
                 "path": "leverage_position.position_id",
                 "account": "leveragePosition"
               }
@@ -1220,6 +1253,22 @@ export type Dusk = {
         {
           "name": "ownerDebtAccount",
           "writable": true
+        },
+        {
+          "name": "delegateFeeRecipient",
+          "docs": [
+            "Protocol treasury token account for delegated close order fees."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "delegateExecutorAccount",
+          "docs": [
+            "Executor-owned token account for delegated close incentives."
+          ],
+          "writable": true,
+          "optional": true
         },
         {
           "name": "referralPartner",
@@ -1578,6 +1627,16 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
               },
               {
                 "kind": "account",
@@ -2026,6 +2085,16 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
                 "path": "leverage_position.position_id",
                 "account": "leveragePosition"
               }
@@ -2220,6 +2289,16 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
                 "path": "leverage_position.position_id",
                 "account": "leveragePosition"
               }
@@ -2287,6 +2366,22 @@ export type Dusk = {
         {
           "name": "ownerDebtAccount",
           "writable": true
+        },
+        {
+          "name": "delegateFeeRecipient",
+          "docs": [
+            "Protocol treasury token account for delegated close order fees."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "delegateExecutorAccount",
+          "docs": [
+            "Executor-owned token account for delegated close incentives."
+          ],
+          "writable": true,
+          "optional": true
         },
         {
           "name": "referralPartner",
@@ -2463,6 +2558,10 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
               },
               {
                 "kind": "arg",
@@ -2758,6 +2857,11 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
+              },
+              {
+                "kind": "account",
                 "path": "borrow_position.position_id",
                 "account": "borrowPosition"
               }
@@ -2865,6 +2969,12 @@ export type Dusk = {
               }
             ]
           }
+        },
+        {
+          "name": "baseMint"
+        },
+        {
+          "name": "quoteMint"
         },
         {
           "name": "proposal",
@@ -3059,6 +3169,11 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
               },
               {
                 "kind": "account",
@@ -3546,6 +3661,16 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
                 "path": "leverage_position.position_id",
                 "account": "leveragePosition"
               }
@@ -3814,158 +3939,6 @@ export type Dusk = {
       ]
     },
     {
-      "name": "initializeLpMetadata",
-      "discriminator": [
-        214,
-        99,
-        201,
-        159,
-        220,
-        88,
-        74,
-        27
-      ],
-      "accounts": [
-        {
-          "name": "payer",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "market"
-        },
-        {
-          "name": "lpMint",
-          "writable": true
-        },
-        {
-          "name": "lpTokenMetadata",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  101,
-                  116,
-                  97,
-                  100,
-                  97,
-                  116,
-                  97
-                ]
-              },
-              {
-                "kind": "const",
-                "value": [
-                  11,
-                  112,
-                  101,
-                  177,
-                  227,
-                  209,
-                  124,
-                  69,
-                  56,
-                  157,
-                  82,
-                  127,
-                  107,
-                  4,
-                  195,
-                  205,
-                  88,
-                  184,
-                  108,
-                  115,
-                  26,
-                  160,
-                  253,
-                  181,
-                  73,
-                  182,
-                  209,
-                  188,
-                  3,
-                  248,
-                  41,
-                  70
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "lpMint"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                11,
-                112,
-                101,
-                177,
-                227,
-                209,
-                124,
-                69,
-                56,
-                157,
-                82,
-                127,
-                107,
-                4,
-                195,
-                205,
-                88,
-                184,
-                108,
-                115,
-                26,
-                160,
-                253,
-                181,
-                73,
-                182,
-                209,
-                188,
-                3,
-                248,
-                41,
-                70
-              ]
-            }
-          }
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        },
-        {
-          "name": "sysvarInstructions",
-          "address": "Sysvar1nstructions1111111111111111111111111"
-        },
-        {
-          "name": "token2022Program",
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        },
-        {
-          "name": "tokenMetadataProgram",
-          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "initializeLpMetadataArgs"
-            }
-          }
-        }
-      ]
-    },
-    {
       "name": "initializeLpTransferHook",
       "discriminator": [
         207,
@@ -4028,13 +4001,313 @@ export type Dusk = {
           "name": "quoteMint"
         },
         {
-          "name": "ylpMint"
+          "name": "ylpMint",
+          "writable": true
         },
         {
-          "name": "baseHlpMint"
+          "name": "baseHlpMint",
+          "writable": true
         },
         {
-          "name": "quoteHlpMint"
+          "name": "quoteHlpMint",
+          "writable": true
+        },
+        {
+          "name": "ylpTokenMetadata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  11,
+                  112,
+                  101,
+                  177,
+                  227,
+                  209,
+                  124,
+                  69,
+                  56,
+                  157,
+                  82,
+                  127,
+                  107,
+                  4,
+                  195,
+                  205,
+                  88,
+                  184,
+                  108,
+                  115,
+                  26,
+                  160,
+                  253,
+                  181,
+                  73,
+                  182,
+                  209,
+                  188,
+                  3,
+                  248,
+                  41,
+                  70
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "ylpMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                11,
+                112,
+                101,
+                177,
+                227,
+                209,
+                124,
+                69,
+                56,
+                157,
+                82,
+                127,
+                107,
+                4,
+                195,
+                205,
+                88,
+                184,
+                108,
+                115,
+                26,
+                160,
+                253,
+                181,
+                73,
+                182,
+                209,
+                188,
+                3,
+                248,
+                41,
+                70
+              ]
+            }
+          }
+        },
+        {
+          "name": "baseHlpTokenMetadata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  11,
+                  112,
+                  101,
+                  177,
+                  227,
+                  209,
+                  124,
+                  69,
+                  56,
+                  157,
+                  82,
+                  127,
+                  107,
+                  4,
+                  195,
+                  205,
+                  88,
+                  184,
+                  108,
+                  115,
+                  26,
+                  160,
+                  253,
+                  181,
+                  73,
+                  182,
+                  209,
+                  188,
+                  3,
+                  248,
+                  41,
+                  70
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "baseHlpMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                11,
+                112,
+                101,
+                177,
+                227,
+                209,
+                124,
+                69,
+                56,
+                157,
+                82,
+                127,
+                107,
+                4,
+                195,
+                205,
+                88,
+                184,
+                108,
+                115,
+                26,
+                160,
+                253,
+                181,
+                73,
+                182,
+                209,
+                188,
+                3,
+                248,
+                41,
+                70
+              ]
+            }
+          }
+        },
+        {
+          "name": "quoteHlpTokenMetadata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  11,
+                  112,
+                  101,
+                  177,
+                  227,
+                  209,
+                  124,
+                  69,
+                  56,
+                  157,
+                  82,
+                  127,
+                  107,
+                  4,
+                  195,
+                  205,
+                  88,
+                  184,
+                  108,
+                  115,
+                  26,
+                  160,
+                  253,
+                  181,
+                  73,
+                  182,
+                  209,
+                  188,
+                  3,
+                  248,
+                  41,
+                  70
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "quoteHlpMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                11,
+                112,
+                101,
+                177,
+                227,
+                209,
+                124,
+                69,
+                56,
+                157,
+                82,
+                127,
+                107,
+                4,
+                195,
+                205,
+                88,
+                184,
+                108,
+                115,
+                26,
+                160,
+                253,
+                181,
+                73,
+                182,
+                209,
+                188,
+                3,
+                248,
+                41,
+                70
+              ]
+            }
+          }
         },
         {
           "name": "market",
@@ -4398,6 +4671,14 @@ export type Dusk = {
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
+          "name": "sysvarInstructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "tokenMetadataProgram",
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+        },
+        {
           "name": "eventAuthority",
           "pda": {
             "seeds": [
@@ -4743,6 +5024,10 @@ export type Dusk = {
         },
         {
           "name": "debtInterestVault",
+          "writable": true
+        },
+        {
+          "name": "insuranceVault",
           "writable": true
         },
         {
@@ -5344,11 +5629,26 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
+              },
+              {
+                "kind": "account",
                 "path": "borrow_position.position_id",
                 "account": "borrowPosition"
               }
             ]
           }
+        },
+        {
+          "name": "baseMint",
+          "docs": [
+            "Liquidation values each side's collateral after its mint's current",
+            "transfer fee, so the preview reads both mints."
+          ]
+        },
+        {
+          "name": "quoteMint"
         }
       ],
       "args": [],
@@ -5437,6 +5737,11 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
               },
               {
                 "kind": "account",
@@ -5948,6 +6253,16 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
                 "path": "leverage_position.position_id",
                 "account": "leveragePosition"
               }
@@ -6229,6 +6544,9 @@ export type Dusk = {
           "name": "debtAssetMint"
         },
         {
+          "name": "collateralAssetMint"
+        },
+        {
           "name": "reserveVault",
           "writable": true
         },
@@ -6271,6 +6589,11 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
               },
               {
                 "kind": "account",
@@ -6464,6 +6787,16 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
                 "path": "leverage_position.position_id",
                 "account": "leveragePosition"
               }
@@ -6472,6 +6805,9 @@ export type Dusk = {
         },
         {
           "name": "debtMint"
+        },
+        {
+          "name": "collateralMint"
         },
         {
           "name": "debtReserveVault",
@@ -7454,6 +7790,11 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
+              },
+              {
+                "kind": "account",
                 "path": "borrow_position.position_id",
                 "account": "borrowPosition"
               }
@@ -7462,6 +7803,9 @@ export type Dusk = {
         },
         {
           "name": "debtAssetMint"
+        },
+        {
+          "name": "collateralAssetMint"
         },
         {
           "name": "eventAuthority",
@@ -7976,6 +8320,16 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
               },
               {
                 "kind": "account",
@@ -8634,6 +8988,11 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
+              },
+              {
+                "kind": "account",
                 "path": "borrow_position.position_id",
                 "account": "borrowPosition"
               }
@@ -8841,6 +9200,11 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
               },
               {
                 "kind": "account",
@@ -9144,6 +9508,16 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
               },
               {
                 "kind": "account",
@@ -10795,7 +11169,12 @@ export type Dusk = {
     {
       "code": 6135,
       "name": "invalidLeverageCollateralMint",
-      "msg": "Leverage collateral mint must not have transfer fee configuration"
+      "msg": "Leverage collateral transfer fee must be immutable with no pending change"
+    },
+    {
+      "code": 6136,
+      "name": "freezableAssetMint",
+      "msg": "Asset mint has an active freeze authority"
     }
   ],
   "types": [
@@ -12059,6 +12438,18 @@ export type Dusk = {
             "type": "u128"
           },
           {
+            "name": "baseBorrowIndexRemainder",
+            "docs": [
+              "Fractional index growth carried across checkpoints. Denominator is",
+              "`NAD * MS_PER_YEAR`, so frequent checkpoints cannot discard interest."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "quoteBorrowIndexRemainder",
+            "type": "u128"
+          },
+          {
             "name": "baseRateAtTargetNad",
             "type": "u128"
           },
@@ -13172,6 +13563,9 @@ export type Dusk = {
           },
           {
             "name": "cachedSettlementPriceNad",
+            "docs": [
+              "Base quoted in quote NAD units for either target asset; zero means unset."
+            ],
             "type": "u128"
           },
           {
@@ -13325,6 +13719,33 @@ export type Dusk = {
               "Number of price-fee periods already completed before graduation."
             ],
             "type": "u16"
+          },
+          {
+            "name": "ylpMetadata",
+            "docs": [
+              "Metadata for the three LP mints, created atomically with the market."
+            ],
+            "type": {
+              "defined": {
+                "name": "initializeLpMetadataArgs"
+              }
+            }
+          },
+          {
+            "name": "baseHlpMetadata",
+            "type": {
+              "defined": {
+                "name": "initializeLpMetadataArgs"
+              }
+            }
+          },
+          {
+            "name": "quoteHlpMetadata",
+            "type": {
+              "defined": {
+                "name": "initializeLpMetadataArgs"
+              }
+            }
           }
         ]
       }
@@ -13533,6 +13954,10 @@ export type Dusk = {
             "type": "u32"
           },
           {
+            "name": "openCurveRevision",
+            "type": "u64"
+          },
+          {
             "name": "bump",
             "type": "u8"
           }
@@ -13593,6 +14018,14 @@ export type Dusk = {
             "type": "pubkey"
           },
           {
+            "name": "namespaceAuthority",
+            "docs": [
+              "Funding signer that established this position. Ordinary opens use the",
+              "owner; sponsored entry orders use their owner-created order PDA."
+            ],
+            "type": "pubkey"
+          },
+          {
             "name": "positionId",
             "type": "pubkey"
           },
@@ -13638,6 +14071,14 @@ export type Dusk = {
           },
           {
             "name": "openedSlot",
+            "type": "u64"
+          },
+          {
+            "name": "openCurveRevision",
+            "docs": [
+              "Market curve revision committed by this opening. A recreated PDA gets",
+              "a new revision even if it reopens in the same slot."
+            ],
             "type": "u64"
           },
           {
@@ -13742,6 +14183,14 @@ export type Dusk = {
           },
           {
             "name": "debtRepaid",
+            "type": "u64"
+          },
+          {
+            "name": "insuranceDrawn",
+            "type": "u64"
+          },
+          {
+            "name": "socializedLoss",
             "type": "u64"
           },
           {
@@ -14038,6 +14487,13 @@ export type Dusk = {
           {
             "name": "debtAsset",
             "type": "u8"
+          },
+          {
+            "name": "minLiquidatorAmountOut",
+            "docs": [
+              "Minimum debt tokens the liquidator must actually receive after transfer fees."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -15895,6 +16351,10 @@ export type Dusk = {
         "fields": [
           {
             "name": "collateralAmount",
+            "docs": [
+              "Net deposit credit in the collateral vault. Capacity also accounts",
+              "for the current fee when that collateral later exits the vault."
+            ],
             "type": "u64"
           },
           {
@@ -17592,7 +18052,8 @@ export type Dusk = {
           {
             "name": "concentratedCurveBranch",
             "docs": [
-              "0=lower tail, 1=concentrated band, 2=upper tail."
+              "0=lower tail, 1=lower shoulder, 2=inner band,",
+              "3=upper shoulder, 4=upper tail."
             ],
             "type": "u8"
           },

@@ -43,6 +43,7 @@ impl<'info> CreateLeverageOrder<'info> {
         order.owner = ctx.accounts.owner.key();
         order.market = ctx.accounts.market.key();
         order.position = ctx.accounts.leverage_position.key();
+        order.open_curve_revision = ctx.accounts.leverage_position.open_curve_revision;
         order.order_id = args.order_id;
         order.kind = args.kind;
         order.trigger_closeout_price_nad = args.trigger_closeout_price_nad;

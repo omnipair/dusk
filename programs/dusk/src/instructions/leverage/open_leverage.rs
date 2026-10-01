@@ -18,8 +18,8 @@ use crate::{
 };
 
 use super::settlement::{
-    leverage_collateral_credit, leverage_collateral_vault_pda, leverage_position_pda, leverage_swap_fee_credit,
-    prepare_leverage_swap, settle_inline_leverage_hlp, validate_leverage_collateral_risk_mint,
+    leverage_collateral_admission_fee, leverage_collateral_credit, leverage_collateral_vault_pda,
+    leverage_position_pda, leverage_swap_fee_credit, prepare_leverage_swap, settle_inline_leverage_hlp,
     validate_leverage_futarchy_pda, validate_leverage_market_pda, validate_leverage_mints,
     validate_leverage_reserve_accounts, validate_owner_debt_account,
 };
@@ -106,7 +106,9 @@ impl<'info> OpenLeverage<'info> {
             Pubkey::default(),
             ErrorCode::InvalidSigner
         );
-        let (expected_position, _) = leverage_position_pda(self.market.key(), args.position_id)?;
+        let position_owner = args.position_owner.unwrap_or_else(|| self.owner.key());
+        let (expected_position, _) =
+            leverage_position_pda(self.market.key(), position_owner, self.owner.key(), args.position_id)?;
         require_keys_eq!(
             self.leverage_position.key(),
             expected_position,
@@ -121,7 +123,6 @@ impl<'info> OpenLeverage<'info> {
             &self.instructions_sysvar.to_account_info(),
         )?;
         validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
-        validate_leverage_collateral_risk_mint(&self.collateral_mint)?;
         let (expected_collateral_vault, _) =
             leverage_collateral_vault_pda(self.market.key(), self.collateral_mint.key())?;
         require_keys_eq!(
@@ -174,7 +175,8 @@ impl<'info> OpenLeverage<'info> {
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
         let debt_mint_key = ctx.accounts.debt_mint.key();
         let collateral_mint_key = ctx.accounts.collateral_mint.key();
-        let (expected_position, position_bump) = leverage_position_pda(market_key, args.position_id)?;
+        let (expected_position, position_bump) =
+            leverage_position_pda(market_key, position_owner_key, funding_authority_key, args.position_id)?;
         require_keys_eq!(
             ctx.accounts.leverage_position.key(),
             expected_position,
@@ -184,6 +186,8 @@ impl<'info> OpenLeverage<'info> {
         let position_seeds = [
             LEVERAGE_POSITION_SEED_PREFIX,
             market_key.as_ref(),
+            position_owner_key.as_ref(),
+            funding_authority_key.as_ref(),
             args.position_id.as_ref(),
             &position_bump_seed,
         ];
@@ -313,6 +317,7 @@ impl<'info> OpenLeverage<'info> {
             &mut leverage_position,
             position_owner_key,
             market_key,
+            funding_authority_key,
             args.position_id,
             referral.referral_partner.unwrap_or_default(),
             referral.interest_share_bps,
@@ -327,6 +332,7 @@ impl<'info> OpenLeverage<'info> {
             position_bump,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
+            leverage_collateral_admission_fee(&ctx.accounts.collateral_mint, current_epoch)?,
         )?;
         {
             let mut data = ctx.accounts.leverage_position.try_borrow_mut_data()?;

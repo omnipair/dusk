@@ -73,9 +73,6 @@ const ix = await dusk.write.swapInstruction(
       tokenProgram,
       token2022Program,
     },
-    remainingAccounts: [
-      // Token-2022 transfer-hook extras only. The SDK preserves this tail.
-    ],
   }
 );
 ```
@@ -84,8 +81,8 @@ const ix = await dusk.write.swapInstruction(
 `swapRpc(...)` fetch the market before building the swap. Whenever either hLP
 side has nonzero supply or residual exposure, they prepend the canonical
 five-account prefix exactly once: `[yLP mint, base hLP yLP vault, quote hLP yLP
-vault, base interest vault, quote interest vault]`. Caller-provided Token-2022
-transfer-hook extras remain after that prefix.
+vault, base interest vault, quote interest vault]`. Caller-provided remaining
+accounts remain after that prefix.
 
 The write client supplies the canonical event-CPI authority and Dusk program
 accounts for instructions that emit CPI events.
@@ -344,7 +341,7 @@ principal, position debt, interest, health, or liquidation terms.
 
 When interest is realized, the partner accrues a governed share of the DAO's
 interest revenue. Claims always pay a token account owned by the partner's
-current recipient, and the SDK resolves Token-2022 transfer-hook accounts:
+current recipient:
 
 ```typescript
 const claimTx = await dusk.write.claimReferralInterestTransaction({
@@ -385,7 +382,7 @@ Available typed previews:
   epoch, and `netAmountOut` is the recipient credit used by the swap's
   `minAssetOut` check. `grossAmountOut` is before Dusk trading fees.
 - `previewBorrowCapacity({ market, collateralAssetMint, debtAssetMint, collateralAmount, projectedBorrowAmount })`.
-- `previewBorrowPosition({ market, borrowPosition })`.
+- `previewBorrowPosition({ market, borrowPosition, baseMint, quoteMint })`.
 - `previewBorrowPositionCapacity({ capacityKind, market, borrowPosition, collateralAssetMint, debtAssetMint, collateralChange, projectedBorrowAmount })`.
 
 `previewBorrowCapacity` exposes both the health-limited result of the on-chain
@@ -529,8 +526,11 @@ const naming = marketLpTokenNaming({ baseSymbol: "META", quoteSymbol: "USDC" });
 `grindLpMintSeed` asks the vanity server for a seed with `owner` set to
 Token-2022 and re-derives the address locally before returning it; a server
 that ground the wrong suffix or owner is rejected. Names are written once by
-`initialize_lp_metadata` and cannot be changed afterwards, so use
-`lpTokenNaming` rather than ad-hoc strings. The metadata JSON and images that
+`initialize_market` and cannot be changed afterwards, so use `lpTokenNaming`
+rather than ad-hoc strings. Pass the three names, symbols, and URIs through
+`initializeMarketInstruction`; `marketCreationLookupTablePlan` and
+`marketCreationV0Transaction` build the v0 transaction once the lookup table is
+active. The metadata JSON and images that
 the URIs point to are produced by `scripts/lp-metadata/` in the dusk
 repository.
 

@@ -9,6 +9,7 @@ use crate::{
     errors::ErrorCode,
     events::{BorrowPositionLiquidated, LiquidationAuctionCancelled},
     generate_market_seeds,
+    instructions::{leverage_collateral_fee, leverage_collateral_liquidation_fee},
     state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
     token::{get_transfer_fee, get_transfer_inverse_fee, transfer_checked_with_remaining_accounts},
     transitions::LiquidationPricing,
@@ -81,6 +82,7 @@ pub struct FillLiquidationAuction<'info> {
         seeds = [
             BORROW_POSITION_SEED_PREFIX,
             market.key().as_ref(),
+            borrow_position.owner.as_ref(),
             borrow_position.position_id.as_ref(),
         ],
         bump = borrow_position.bump
@@ -187,12 +189,17 @@ impl<'info> FillLiquidationAuction<'info> {
         let referral_interest_share_bps = ctx.accounts.borrow_position.referral_interest_share_bps(debt_asset);
 
         // `market_update_and_validate` materializes current risk immediately
-        // before this handler. Cancel a recovered auction before reading its
-        // stored price or moving bidder tokens.
+        // before this handler. Cancel a recovered auction before quoting its
+        // current reference price or moving bidder tokens.
         ctx.accounts.borrow_position.assert_liquidation_auction(debt_asset)?;
+        let collateral_fee = leverage_collateral_fee(&ctx.accounts.collateral_asset_mint, Clock::get()?.epoch)?;
+        let eligibility_fee =
+            leverage_collateral_liquidation_fee(&ctx.accounts.collateral_asset_mint, Clock::get()?.epoch)?;
+        let gross_collateral = ctx.accounts.borrow_position.collateral(debt_asset.opposite());
+        let collateral_exit_credit = eligibility_fee.unwind_credit(gross_collateral)?;
         ctx.accounts
             .market
-            .reconcile_liquidation_auction(&mut ctx.accounts.borrow_position)?;
+            .reconcile_liquidation_auction_with_credit(&mut ctx.accounts.borrow_position, collateral_exit_credit)?;
         if !ctx.accounts.borrow_position.has_active_liquidation_auction() {
             emit_cpi!(LiquidationAuctionCancelled {
                 market: market_key,
@@ -208,25 +215,25 @@ impl<'info> FillLiquidationAuction<'info> {
             !ctx.accounts.borrow_position.liquidation_auction_expired(now)?,
             ErrorCode::PositionNotLiquidatable
         );
-        let mut final_price = ctx.accounts.borrow_position.liquidation_auction_price_nad(now)?;
+        let current_reference_price_nad = ctx
+            .accounts
+            .market
+            .liquidation_reference_price_nad(&ctx.accounts.borrow_position, debt_asset)?;
+        let final_price = ctx
+            .accounts
+            .borrow_position
+            .liquidation_auction_bid_price_nad(now, current_reference_price_nad)?;
 
-        // Liquidator pays LP fee (e.g. 0.20%) to beat the floor
-        let reservation_fee = final_price
-            .checked_mul(20)
-            .and_then(|v| v.checked_div(10000))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        final_price = final_price
-            .checked_add(reservation_fee)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-
-        let liquidation_pricing = LiquidationPricing::ReferencePrice {
-            debt_per_collateral_price_nad: final_price,
-        };
-
-        let liquidation_terms = ctx.accounts.market.liquidation_terms_with_pricing(
+        // Eligibility follows the worse scheduled fee, while the actual
+        // transfer pays the currently effective fee. Settlement grosses up
+        // the bidder and insurance slices separately under that fee.
+        let liquidation_terms = ctx.accounts.market.liquidation_terms_with_pricing_and_credit(
             &ctx.accounts.borrow_position,
             debt_asset,
-            liquidation_pricing,
+            collateral_exit_credit,
+            LiquidationPricing::ReferencePrice {
+                debt_per_collateral_price_nad: final_price,
+            },
         )?;
         let debt_token_program = token_program_for_mint(
             &ctx.accounts.debt_asset_mint,
@@ -278,15 +285,16 @@ impl<'info> FillLiquidationAuction<'info> {
 
         // For ordinary auction fills, there is no insurance draw or socialized
         // loss because repayment is fully external.
-        let liquidation_receipt = ctx.accounts.market.settle_liquidation(
+        let liquidation_receipt = ctx.accounts.market.settle_auction_liquidation_with_fees(
             &mut ctx.accounts.borrow_position,
             debt_asset,
             repay_credit,
-            0,
-            0,
-            0,
             liquidation_terms,
-            liquidation_pricing,
+            LiquidationPricing::ReferencePrice {
+                debt_per_collateral_price_nad: final_price,
+            },
+            collateral_fee,
+            eligibility_fee,
         )?;
 
         let referral_receipt = if liquidation_receipt.interest_paid > 0 {

@@ -95,6 +95,25 @@ impl Market {
         Ok(())
     }
 
+    /// Return retained surcharge to executable, LP-owned inventory when a
+    /// governed parameter change removes the controller that can deploy it.
+    pub(crate) fn release_protected_recenter_reserves(&mut self) -> Result<()> {
+        for asset in [MarketAsset::Base, MarketAsset::Quote] {
+            let reserves = &mut self.side_mut(asset).reserves;
+            let amount = reserves.protected_recenter_reserve;
+            reserves.live_reserve = reserves
+                .live_reserve
+                .checked_add(amount)
+                .ok_or(ErrorCode::ReserveOverflow)?;
+            reserves.cash_reserve = reserves
+                .cash_reserve
+                .checked_add(amount)
+                .ok_or(ErrorCode::ReserveOverflow)?;
+            reserves.protected_recenter_reserve = 0;
+        }
+        Ok(())
+    }
+
     pub(crate) fn advance_curve_revision(&mut self) -> Result<()> {
         self.curve_revision = self
             .curve_revision
@@ -330,6 +349,7 @@ impl Market {
                 ErrorCode::InsufficientLiquidity
             );
             self.amm.concentrated_curve_cache = Default::default();
+            self.amm.initialized = false;
             self.amm.curve_depth_per_share_nad = 0;
             self.amm.protected_floor_per_share_nad = 0;
             self.amm.retention_required_nad = 0;
@@ -376,8 +396,8 @@ impl Market {
         Ok(())
     }
 
-    /// Initializes clock-driven AMM state. Parameter ramps and center moves are
-    /// evaluated lazily by genuine user operations.
+    /// Initializes clock-driven AMM state. Deferred center moves are evaluated
+    /// lazily by genuine user operations.
     pub(crate) fn advance_amm_clock(&mut self, current_slot: u64) -> Result<()> {
         self.ensure_amm_initialized(current_slot)?;
         if self.amm.initialized {
@@ -395,8 +415,8 @@ impl Market {
         self.advance_amm_clock(current_slot)
     }
 
-    /// Lazily advances at most one already-authorized parameter-ramp or center
-    /// target. No transition depends on a keeper or auxiliary instruction.
+    /// Lazily advances at most one already-authorized center target. No
+    /// transition depends on a keeper or auxiliary instruction.
     pub(crate) fn advance_one_amm_controller_target(&mut self, current_slot: u64) -> Result<bool> {
         if !self.amm.initialized {
             return Ok(false);

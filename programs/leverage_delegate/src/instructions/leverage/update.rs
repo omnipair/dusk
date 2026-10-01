@@ -40,6 +40,7 @@ impl<'info> UpdateLeverageOrder<'info> {
             LeverageDelegateError::InvalidOrder
         );
         let order = &mut ctx.accounts.order;
+        order.open_curve_revision = ctx.accounts.leverage_position.open_curve_revision;
         order.kind = args.kind;
         order.trigger_closeout_price_nad = args.trigger_closeout_price_nad;
         order.close_bps = args.close_bps;

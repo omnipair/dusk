@@ -1,10 +1,9 @@
 /**
  * Name, image and pin the metadata for a market's three LP mints.
  *
- * Order matters for the caller: the mints and the market address must exist
- * (they are written into the JSON and the pin keyvalues), and the returned
- * URIs go into `initialize_lp_metadata`, which the program lets a market call
- * once per mint. Everything is also written under `target/lp-metadata/<market>`
+ * The mint addresses and market PDA are known before market creation; the
+ * returned URIs go into the atomic `initialize_market` instruction. Everything
+ * is also written under `target/lp-metadata/<market>`
  * so the result can be inspected before or after it is pinned.
  */
 import { mkdirSync, writeFileSync } from "node:fs";

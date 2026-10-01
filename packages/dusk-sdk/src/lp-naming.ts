@@ -1,8 +1,8 @@
 /**
  * Names and symbols for LP tokens.
  *
- * The program writes whatever `initialize_lp_metadata` is given, and there is
- * no instruction to change it afterwards, so the strings are decided once,
+ * The program writes the names provided at `initialize_market`, and there is
+ * no instruction to change them afterwards, so the strings are decided once,
  * here, for every market. No brand in the name: the token is identified by
  * what it is and which market it belongs to.
  *

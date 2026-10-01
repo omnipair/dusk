@@ -1,6 +1,7 @@
 use super::*;
 use crate::state::{FeeProfile, IrmConfig, DEFAULT_DAILY_BORROW_BPS};
 use crate::transitions::lending::total_cash_backed_borrowed;
+use crate::transitions::{LendingCollateralFees, LeverageCollateralFee};
 use proptest::prelude::*;
 
 fn valid_config() -> MarketConfig {
@@ -272,6 +273,65 @@ fn borrow_preserves_virtual_reserve_as_cash_plus_debt() {
     assert_eq!(market.base_side.daily_borrow_bucket.borrowed_bucket, 100_000);
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
+}
+
+#[test]
+fn borrow_uses_net_collateral_exit_credit_for_mutable_transfer_fees() {
+    let mut gross_market = invariant_market(1_000_000, 1_000_000);
+    let mut gross_position = borrow_position_for_debt(MarketAsset::Base, 250_000);
+    gross_market
+        .borrow(&mut gross_position, MarketAsset::Base, 100_000, 0, 0)
+        .unwrap();
+
+    let mut fee_market = invariant_market(1_000_000, 1_000_000);
+    let mut fee_position = borrow_position_for_debt(MarketAsset::Base, 250_000);
+    let err = fee_market
+        .borrow_with_collateral_fee(
+            &mut fee_position,
+            MarketAsset::Base,
+            100_000,
+            crate::transitions::LeverageCollateralFee::new(Some(
+                spl_token_2022::extension::transfer_fee::TransferFee {
+                    epoch: 0_u64.into(),
+                    maximum_fee: u64::MAX.into(),
+                    transfer_fee_basis_points: 10_000_u16.into(),
+                },
+            )),
+            0,
+            0,
+        )
+        .unwrap_err();
+    assert_eq!(err, anchor_lang::prelude::error!(ErrorCode::InsufficientMarketHealth));
+}
+
+#[test]
+fn transfer_fee_discounts_health_contributions_stored_before_it() {
+    let fee = crate::transitions::LeverageCollateralFee::new(Some(spl_token_2022::extension::transfer_fee::TransferFee {
+        epoch: 0_u64.into(),
+        maximum_fee: u64::MAX.into(),
+        transfer_fee_basis_points: 7_500_u16.into(),
+    }));
+    let seeded = || {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        market.config.borrow_market_health_floor_bps = 11_000;
+        // Alice's contribution is stored while the collateral is fee-free.
+        let mut alice = borrow_position_for_debt(MarketAsset::Base, 300_000);
+        market.borrow(&mut alice, MarketAsset::Base, 100_000, 0, 0).unwrap();
+        market
+    };
+
+    let mut fee_free = seeded();
+    let mut bob = borrow_position_for_debt(MarketAsset::Base, 1_000_000);
+    fee_free.borrow(&mut bob, MarketAsset::Base, 20_000, 0, 0).unwrap();
+
+    // Once the fee applies, Alice's untouched gross contribution is read at
+    // its exit value, so the market floor rejects the same draw.
+    let mut fee_market = seeded();
+    let mut bob = borrow_position_for_debt(MarketAsset::Base, 1_000_000);
+    let err = fee_market
+        .borrow_with_collateral_fee(&mut bob, MarketAsset::Base, 20_000, fee, 0, 0)
+        .unwrap_err();
+    assert_eq!(err, anchor_lang::prelude::error!(ErrorCode::InsufficientMarketHealth));
 }
 
 #[test]
@@ -870,6 +930,28 @@ fn deposit_and_repay_update_contribution_without_floating_cf() {
 }
 
 #[test]
+fn opposite_collateral_fee_blocks_borrow_below_global_health_floor() {
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    market.config.borrow_market_health_floor_bps = 11_000;
+    let mut alice = borrow_position_for_debt(MarketAsset::Quote, 300_000);
+    market.borrow(&mut alice, MarketAsset::Quote, 100_000, 0, 0).unwrap();
+    let mut bob = borrow_position_for_debt(MarketAsset::Base, 75_000);
+    let fee = LeverageCollateralFee::new(Some(spl_token_2022::extension::transfer_fee::TransferFee {
+        epoch: 0_u64.into(),
+        maximum_fee: u64::MAX.into(),
+        transfer_fee_basis_points: 7_500_u16.into(),
+    }));
+    let fees = LendingCollateralFees { base: fee, ..Default::default() };
+    assert!(market.market_health().unwrap().quote_debt_health_bps >= 11_000);
+    assert!(market.market_health_from_risk_with_fees(&market.risk, fees).unwrap().quote_debt_health_bps < 11_000);
+    assert_eq!(
+        market.borrow_with_market_fees(&mut bob, MarketAsset::Base, 5_000, fees, 0, 0).unwrap_err(),
+        anchor_lang::prelude::error!(ErrorCode::InsufficientMarketHealth)
+    );
+    market.borrow(&mut bob, MarketAsset::Base, 5_000, 0, 0).unwrap();
+}
+
+#[test]
 fn withdrawal_uses_stored_terms_without_enforcing_global_floor() {
     let mut market = invariant_market(1_000_000, 1_000_000);
     market.config.borrow_market_health_floor_bps = 11_000;
@@ -1232,6 +1314,60 @@ fn concentration_execution_reconstructs_the_selected_shape() {
 }
 
 #[test]
+fn disabling_recenter_releases_retained_surcharge_to_lp_inventory() {
+    for disable_by_shape in [false, true] {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        market
+            .execute_parameter_update(
+                &MarketParameterUpdate::CenterController {
+                    adjustment_threshold_nad: NAD / 100,
+                    adjustment_step_nad: NAD / 1_000,
+                    min_adjustment_interval_slots: 1,
+                },
+                1,
+            )
+            .unwrap();
+        market
+            .execute_parameter_update(
+                &MarketParameterUpdate::Concentration {
+                    peak_amplification_nad: 2 * NAD,
+                    core_half_width_bps: 100,
+                    fade_width_bps: 400,
+                },
+                2,
+            )
+            .unwrap();
+        let protected = 1_000_000;
+        market.credit_protected_recenter_reserve(MarketAsset::Base, protected).unwrap();
+        market.credit_protected_recenter_reserve(MarketAsset::Quote, protected).unwrap();
+        let base_live_before = market.base_side.reserves.live_reserve;
+        let quote_live_before = market.quote_side.reserves.live_reserve;
+
+        let update = if disable_by_shape {
+            MarketParameterUpdate::Concentration {
+                peak_amplification_nad: NAD,
+                core_half_width_bps: 0,
+                fade_width_bps: 0,
+            }
+        } else {
+            MarketParameterUpdate::CenterController {
+                adjustment_threshold_nad: 0,
+                adjustment_step_nad: 0,
+                min_adjustment_interval_slots: 0,
+            }
+        };
+        market
+            .execute_parameter_update(&update, 3)
+            .unwrap_or_else(|error| panic!("disable_by_shape={disable_by_shape}: {error:?}"));
+        assert_eq!(market.base_side.reserves.protected_recenter_reserve, 0);
+        assert_eq!(market.quote_side.reserves.protected_recenter_reserve, 0);
+        assert_eq!(market.base_side.reserves.live_reserve, base_live_before + protected);
+        assert_eq!(market.quote_side.reserves.live_reserve, quote_live_before + protected);
+        market.assert_market_invariants().unwrap();
+    }
+}
+
+#[test]
 fn active_or_residual_hlp_allows_an_atomic_concentration_update() {
     let update = MarketParameterUpdate::Concentration {
         peak_amplification_nad: 4 * NAD,
@@ -1457,6 +1593,14 @@ fn protection_health_uses_liquidation_terms_and_donations_preserve_them() {
     let cf = position.base_liquidation_cf_bps;
     let before = market.borrow_protection_health_bps(&position, MarketAsset::Base).unwrap();
     assert!(before > 10_000);
+    let after_fee_increase = market
+        .borrow_protection_health_bps_with_credit(&position, MarketAsset::Base, position.quote_collateral / 2)
+        .unwrap();
+    assert!(after_fee_increase < before);
+    assert_eq!(
+        market.borrow_protection_health_bps_with_credit(&position, MarketAsset::Base, 0).unwrap(),
+        0
+    );
     market.deposit_collateral(&mut position, MarketAsset::Quote, 10_000).unwrap();
     let after = market.borrow_protection_health_bps(&position, MarketAsset::Base).unwrap();
     assert!(after > before);
