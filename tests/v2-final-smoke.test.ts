@@ -8503,6 +8503,51 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .to.equal(storedCollateral - fee);
   });
 
+  it("liquidates leverage in the final notice epoch before a confiscatory fee activates", async function () {
+    const baseMint = await createTransferFeeMint(payer.publicKey, 6, 300, 1_000_000n);
+    const quoteMint = await createMint(
+      connection as any, payer, payer.publicKey, null, 6, undefined, undefined, TOKEN_2022_PROGRAM_ID
+    );
+    const fixture = await addBalancedLiquidity(237, marketConfig(), undefined, 6, TOKEN_2022_PROGRAM_ID,
+      { base: baseMint, quote: quoteMint });
+    const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(fixture);
+
+    await connection.sendTransaction(new Transaction().add(
+      createSetTransferFeeInstruction(baseMint, payer.publicKey, [], 10_000, 1_000_000n, TOKEN_2022_PROGRAM_ID)
+    ), [payer]);
+    const clock = svm.getClock();
+    clock.epoch += 1n;
+    clock.slot += 1_000n;
+    clock.unixTimestamp += 1_000n;
+    svm.setClock(clock);
+    svm.expireBlockhash();
+    const scheduled = getTransferFeeConfig(
+      await getMint(connection as any, baseMint, undefined, TOKEN_2022_PROGRAM_ID)
+    )!;
+    expect(scheduled.newerTransferFee.epoch).to.equal(clock.epoch + 1n);
+
+    const liquidatorDebtAccount = await createAccount(
+      connection as any, payer, quoteMint, payer.publicKey, Keypair.generate(), undefined, TOKEN_2022_PROGRAM_ID
+    );
+    const tx = await program.methods.liquidateLeveragePosition({ debtAsset: 1 })
+      .accounts({
+        market: fixture.market, futarchyAuthority, positionOwner: payer.publicKey,
+        leveragePosition, debtMint: quoteMint, collateralMint: baseMint,
+        debtReserveVault: fixture.quoteReserveVault, collateralReserveVault: fixture.baseReserveVault,
+        debtInterestVault: fixture.quoteInterestVault, insuranceVault: fixture.quoteInsuranceVault,
+        leverageCollateralVault,
+        liquidatorDebtAccount, ownerDebtAccount: fixture.ownerQuoteAccount,
+        referralPartner: null, referralAccrual: null, liquidator: payer.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+      }).transaction();
+    await connection.sendTransaction(tx, [payer]);
+    const liquidated = cpiEvent(tx, "leveragePositionLiquidated");
+    expect(liquidated.closeoutValue.toNumber()).to.be.greaterThan(0);
+    expect(liquidated.socializedLoss.toNumber()).to.equal(0);
+    expect(svm.getAccount(leveragePosition)).to.equal(null);
+  });
+
   it("socializes leverage debt when a mutable fee leaves zero liquidation credit", async function () {
     const baseMint = await createTransferFeeMint(payer.publicKey, 6, 300, 1_000_000n);
     const quoteMint = await createMint(
@@ -8689,6 +8734,81 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const backstop = cpiEvent(backstopTx, "borrowPositionLiquidated");
     expect(backstop.socializedLoss.toNumber()).to.be.greaterThan(0);
     expect(svm.getAccount(borrowPosition)).to.equal(null);
+  });
+
+  it("pays a capped-fee auction bidder the net collateral on a partial fill", async function () {
+    const baseMint = await createTransferFeeMint(payer.publicKey, 6, 0, 10n);
+    const quoteMint = await createMint(
+      connection as any, payer, payer.publicKey, null, 6, undefined, undefined, TOKEN_2022_PROGRAM_ID
+    );
+    const fixture = await addBalancedLiquidity(238, marketConfig(), undefined, 6, TOKEN_2022_PROGRAM_ID,
+      { base: baseMint, quote: quoteMint });
+    const positionId = Keypair.generate().publicKey;
+    const borrowPosition = deriveBorrowPositionAddress(fixture.market, payer.publicKey, positionId)[0];
+    await connection.sendTransaction(await program.methods.depositCollateral({
+      positionId, depositAmount: new BN(10_000),
+    }).accounts({
+      market: fixture.market, owner: payer.publicKey, assetMint: baseMint,
+      collateralVault: fixture.baseCollateralVault, ownerAssetAccount: fixture.ownerBaseAccount,
+      borrowPosition, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+      systemProgram: SystemProgram.programId, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).transaction(), [payer]);
+    await connection.sendTransaction(await program.methods.borrow({
+      borrowAmount: new BN(14_500), minDebtAmountOut: new BN(14_500),
+      minLiquidationCfBps: 8_500, referrer: null,
+    }).accounts({
+      market: fixture.market, futarchyAuthority, owner: payer.publicKey,
+      debtAssetMint: quoteMint, collateralAssetMint: baseMint,
+      reserveVault: fixture.quoteReserveVault, ownerDebtAccount: fixture.ownerQuoteAccount,
+      borrowPosition, referralPartner: null, referralAccrual: null,
+      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).transaction(), [payer]);
+
+    await connection.sendTransaction(new Transaction().add(
+      createSetTransferFeeInstruction(baseMint, payer.publicKey, [], 2_000, 10n, TOKEN_2022_PROGRAM_ID)
+    ), [payer]);
+    const clock = svm.getClock();
+    clock.epoch += 2n;
+    clock.slot += 2_000n;
+    clock.unixTimestamp += 2_000n;
+    svm.setClock(clock);
+    svm.expireBlockhash();
+    await swapBaseForQuote(fixture, [], 40_000, 1);
+    const settleClock = svm.getClock();
+    settleClock.slot += 10_000n;
+    settleClock.unixTimestamp += 1_000n;
+    svm.setClock(settleClock);
+    svm.expireBlockhash();
+
+    await connection.sendTransaction(await program.methods.startLiquidationAuction().accounts({
+      market: fixture.market, borrowPosition, debtAssetMint: quoteMint,
+      collateralAssetMint: baseMint, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).transaction(), [payer]);
+    const bidderBefore = await getAccount(connection as any, fixture.ownerBaseAccount, undefined, TOKEN_2022_PROGRAM_ID);
+    const tx = await program.methods.fillLiquidationAuction({
+      repayAmount: new BN(1_000), minCollateralOut: new BN(1),
+    }).accounts({
+      market: fixture.market, futarchyAuthority, positionOwner: payer.publicKey,
+      liquidator: payer.publicKey, debtAssetMint: quoteMint, collateralAssetMint: baseMint,
+      reserveVault: fixture.quoteReserveVault, interestVault: fixture.quoteInterestVault,
+      collateralVault: fixture.baseCollateralVault, insuranceVault: fixture.quoteInsuranceVault,
+      collateralInsuranceVault: fixture.baseInsuranceVault,
+      liquidatorDebtAccount: fixture.ownerQuoteAccount, liquidatorCollateralAccount: fixture.ownerBaseAccount,
+      borrowPosition, referralPartner: null, referralAccrual: null,
+      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).transaction();
+    await connection.sendTransaction(tx, [payer]);
+    const event = cpiEvent(tx, "borrowPositionLiquidated");
+    const bidderAfter = await getAccount(connection as any, fixture.ownerBaseAccount, undefined, TOKEN_2022_PROGRAM_ID);
+    const gross = BigInt(event.collateralToLiquidator.toString());
+    const uncappedFee = (gross * 2_000n + 9_999n) / 10_000n;
+    const expectedFee = uncappedFee < 10n ? uncappedFee : 10n;
+    expect(gross > 10n).to.equal(true);
+    expect(BigInt(event.collateralCredit.toString())).to.equal(gross - expectedFee);
+    expect(bidderAfter.amount - bidderBefore.amount).to.equal(gross - expectedFee);
+    expect(event.repaidAmount.toNumber()).to.equal(1_000);
   });
 
   for (const mode of ["legacy", "grouped", "transfer-fee", "partial"]) {
