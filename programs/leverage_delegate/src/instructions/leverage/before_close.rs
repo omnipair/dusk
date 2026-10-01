@@ -103,11 +103,34 @@ impl<'info> BeforeLeverageOrder<'info> {
         );
         let clock = Clock::get()?;
         let current_slot = clock.slot;
-        let closeout_value = ctx.accounts.market.leverage_closeout_value_at_time(
-            &ctx.accounts.leverage_position,
-            current_slot,
-            clock.unix_timestamp,
-        )?;
+        let debt_asset = ctx.accounts.leverage_position.debt_asset()?;
+        let collateral_asset = debt_asset.opposite();
+        let debt_mint = ctx.accounts.market.side(debt_asset).asset_mint;
+        let collateral_mint = ctx.accounts.market.side(collateral_asset).asset_mint;
+        require_keys_eq!(
+            ctx.accounts.token_mint.key(),
+            debt_mint,
+            LeverageDelegateError::InvalidTokenAccount
+        );
+        require_keys_eq!(
+            ctx.accounts.collateral_mint.key(),
+            collateral_mint,
+            LeverageDelegateError::InvalidTokenAccount
+        );
+        // Trigger on the closeout the position can actually execute: its
+        // collateral pays the mint's current transfer fee on the way out.
+        let closeout_value = ctx
+            .accounts
+            .market
+            .leverage_closeout_value_at_time_with_fee(
+                &ctx.accounts.leverage_position,
+                current_slot,
+                clock.unix_timestamp,
+                dusk::instructions::leverage_collateral_fee(
+                    &ctx.accounts.collateral_mint,
+                    clock.epoch,
+                )?,
+            )?;
         let closeout_price_nad = closeout_price_nad(
             closeout_value,
             ctx.accounts.leverage_position.collateral_amount,
@@ -125,20 +148,7 @@ impl<'info> BeforeLeverageOrder<'info> {
             ),
             _ => return err!(LeverageDelegateError::InvalidOrder),
         }
-        let debt_asset = ctx.accounts.leverage_position.debt_asset()?;
-        let collateral_asset = debt_asset.opposite();
-        let debt_mint = ctx.accounts.market.side(debt_asset).asset_mint;
-        let collateral_mint = ctx.accounts.market.side(collateral_asset).asset_mint;
-        require_keys_eq!(
-            ctx.accounts.token_mint.key(),
-            debt_mint,
-            LeverageDelegateError::InvalidTokenAccount
-        );
-        require_keys_eq!(
-            ctx.accounts.collateral_mint.key(),
-            collateral_mint,
-            LeverageDelegateError::InvalidTokenAccount
-        );
+        // These three payout accounts must remain distinct.
         require_keys_neq!(
             ctx.accounts.owner_token_account.key(),
             ctx.accounts.fee_recipient.key(),

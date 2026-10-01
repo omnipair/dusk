@@ -133,6 +133,10 @@ export interface PreviewBorrowPositionCapacityParams extends SimulateOptions {
 export interface PreviewBorrowPositionParams extends SimulateOptions {
   market: AddressLike;
   borrowPosition: AddressLike;
+  /** Market base mint; liquidation fields value collateral after its transfer fee. */
+  baseMint: AddressLike;
+  /** Market quote mint; liquidation fields value collateral after its transfer fee. */
+  quoteMint: AddressLike;
 }
 
 export class DuskGet {
@@ -373,6 +377,8 @@ export class DuskGet {
       normalizeAccountKeys({
           market: params.market,
           borrowPosition: params.borrowPosition,
+          baseMint: params.baseMint,
+          quoteMint: params.quoteMint,
       })
     );
 

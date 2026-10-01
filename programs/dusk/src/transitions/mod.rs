@@ -12,8 +12,8 @@ pub use ledger::{FeesReceipt, SwapReceipt, YieldClaimReceipt};
 #[cfg(feature = "benchmark")]
 pub(crate) use lending::DynamicBorrowTerms;
 pub use lending::{
-    DebtClearance, DebtReceipt, DebtRepaymentQuote, DebtWriteoff, Liquidation, LiquidationPricing, LiquidationReceipt,
-    LiquidationTerms, MarketHealth,
+    DebtClearance, DebtReceipt, DebtRepaymentQuote, DebtWriteoff, LendingCollateralFees, Liquidation,
+    LiquidationPricing, LiquidationReceipt, LiquidationTerms, MarketHealth,
 };
 pub use leverage::*;
 pub use liquidity::{AddLiquidityReceipt, HlpRebalanceReceipt, HlpYieldEligibility, RemoveLiquidityReceipt};

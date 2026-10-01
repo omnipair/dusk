@@ -1,6 +1,7 @@
 use super::*;
 use crate::state::{FeeProfile, IrmConfig, DEFAULT_DAILY_BORROW_BPS};
 use crate::transitions::lending::total_cash_backed_borrowed;
+use crate::transitions::{LendingCollateralFees, LeverageCollateralFee};
 use proptest::prelude::*;
 
 fn valid_config() -> MarketConfig {
@@ -285,7 +286,50 @@ fn borrow_uses_net_collateral_exit_credit_for_mutable_transfer_fees() {
     let mut fee_market = invariant_market(1_000_000, 1_000_000);
     let mut fee_position = borrow_position_for_debt(MarketAsset::Base, 250_000);
     let err = fee_market
-        .borrow_with_collateral_credit(&mut fee_position, MarketAsset::Base, 100_000, 0, 0, 0)
+        .borrow_with_collateral_fee(
+            &mut fee_position,
+            MarketAsset::Base,
+            100_000,
+            crate::transitions::LeverageCollateralFee::new(Some(
+                spl_token_2022::extension::transfer_fee::TransferFee {
+                    epoch: 0_u64.into(),
+                    maximum_fee: u64::MAX.into(),
+                    transfer_fee_basis_points: 10_000_u16.into(),
+                },
+            )),
+            0,
+            0,
+        )
+        .unwrap_err();
+    assert_eq!(err, anchor_lang::prelude::error!(ErrorCode::InsufficientMarketHealth));
+}
+
+#[test]
+fn transfer_fee_discounts_health_contributions_stored_before_it() {
+    let fee = crate::transitions::LeverageCollateralFee::new(Some(spl_token_2022::extension::transfer_fee::TransferFee {
+        epoch: 0_u64.into(),
+        maximum_fee: u64::MAX.into(),
+        transfer_fee_basis_points: 7_500_u16.into(),
+    }));
+    let seeded = || {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        market.config.borrow_market_health_floor_bps = 11_000;
+        // Alice's contribution is stored while the collateral is fee-free.
+        let mut alice = borrow_position_for_debt(MarketAsset::Base, 300_000);
+        market.borrow(&mut alice, MarketAsset::Base, 100_000, 0, 0).unwrap();
+        market
+    };
+
+    let mut fee_free = seeded();
+    let mut bob = borrow_position_for_debt(MarketAsset::Base, 1_000_000);
+    fee_free.borrow(&mut bob, MarketAsset::Base, 20_000, 0, 0).unwrap();
+
+    // Once the fee applies, Alice's untouched gross contribution is read at
+    // its exit value, so the market floor rejects the same draw.
+    let mut fee_market = seeded();
+    let mut bob = borrow_position_for_debt(MarketAsset::Base, 1_000_000);
+    let err = fee_market
+        .borrow_with_collateral_fee(&mut bob, MarketAsset::Base, 20_000, fee, 0, 0)
         .unwrap_err();
     assert_eq!(err, anchor_lang::prelude::error!(ErrorCode::InsufficientMarketHealth));
 }
@@ -883,6 +927,28 @@ fn deposit_and_repay_update_contribution_without_floating_cf() {
     assert_eq!(position.base_liquidation_cf_bps, 0);
     assert_eq!(position.global_health_quote_contribution_for_base_debt, 0);
     assert_eq!(market.debt.global_health_quote_contribution_for_base_debt, 0);
+}
+
+#[test]
+fn opposite_collateral_fee_blocks_borrow_below_global_health_floor() {
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    market.config.borrow_market_health_floor_bps = 11_000;
+    let mut alice = borrow_position_for_debt(MarketAsset::Quote, 300_000);
+    market.borrow(&mut alice, MarketAsset::Quote, 100_000, 0, 0).unwrap();
+    let mut bob = borrow_position_for_debt(MarketAsset::Base, 75_000);
+    let fee = LeverageCollateralFee::new(Some(spl_token_2022::extension::transfer_fee::TransferFee {
+        epoch: 0_u64.into(),
+        maximum_fee: u64::MAX.into(),
+        transfer_fee_basis_points: 7_500_u16.into(),
+    }));
+    let fees = LendingCollateralFees { base: fee, ..Default::default() };
+    assert!(market.market_health().unwrap().quote_debt_health_bps >= 11_000);
+    assert!(market.market_health_from_risk_with_fees(&market.risk, fees).unwrap().quote_debt_health_bps < 11_000);
+    assert_eq!(
+        market.borrow_with_market_fees(&mut bob, MarketAsset::Base, 5_000, fees, 0, 0).unwrap_err(),
+        anchor_lang::prelude::error!(ErrorCode::InsufficientMarketHealth)
+    );
+    market.borrow(&mut bob, MarketAsset::Base, 5_000, 0, 0).unwrap();
 }
 
 #[test]

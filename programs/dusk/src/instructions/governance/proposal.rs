@@ -427,6 +427,11 @@ pub struct ExecuteParameterProposal<'info> {
     )]
     pub market: Box<Account<'info, Market>>,
 
+    #[account(address = market.base_side.asset_mint @ ErrorCode::InvalidMint)]
+    pub base_mint: Box<InterfaceAccount<'info, Mint>>,
+    #[account(address = market.quote_side.asset_mint @ ErrorCode::InvalidMint)]
+    pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
+
     #[account(mut)]
     pub proposal: Box<Account<'info, ParameterProposal>>,
 }
@@ -467,6 +472,13 @@ impl<'info> ExecuteParameterProposal<'info> {
         ctx.accounts
             .market
             .execute_parameter_update(&ctx.accounts.proposal.update, clock.slot)?;
+        let fees = crate::instructions::lending_market_admission_fees(
+            &ctx.accounts.market,
+            &ctx.accounts.base_mint,
+            &ctx.accounts.quote_mint,
+            clock.epoch,
+        )?;
+        ctx.accounts.market.assert_market_health_with_fees(fees)?;
         ctx.accounts.proposal.status = ParameterProposalStatus::Executed;
         emit_cpi!(ParameterProposalExecuted {
             proposal: ctx.accounts.proposal.key(),

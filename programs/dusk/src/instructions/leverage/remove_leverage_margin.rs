@@ -13,7 +13,7 @@ use crate::{
     token::transfer_checked_with_remaining_accounts,
 };
 
-use super::settlement::{leverage_collateral_fee, validate_leverage_mints, validate_owner_debt_account};
+use super::settlement::{leverage_collateral_admission_fee, validate_leverage_mints, validate_owner_debt_account};
 use crate::instructions::accounts::{
     require_reserve_custody, token_account_credit, token_program_for_mint, validate_side_vault_accounts,
 };
@@ -115,7 +115,7 @@ impl<'info> RemoveLeverageMargin<'info> {
             args.amount,
             current_slot,
             current_unix_timestamp,
-            leverage_collateral_fee(&ctx.accounts.collateral_mint, Clock::get()?.epoch)?,
+            leverage_collateral_admission_fee(&ctx.accounts.collateral_mint, Clock::get()?.epoch)?,
         )?;
         let debt_token_program = token_program_for_mint(
             &ctx.accounts.debt_mint,

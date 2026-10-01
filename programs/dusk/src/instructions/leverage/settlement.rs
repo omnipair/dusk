@@ -490,22 +490,66 @@ pub fn validate_leverage_mints<'info>(
     Ok(())
 }
 
+/// The fee a collateral transfer pays at `epoch`. Use it for exits, repayment,
+/// and liquidation, which must not react to a change that has not happened.
 pub fn leverage_collateral_fee(mint: &InterfaceAccount<Mint>, epoch: u64) -> Result<LeverageCollateralFee> {
+    collateral_fee_schedule(mint, epoch, 0)
+}
+
+/// The effective fee plus any change already scheduled for a later epoch.
+/// Token-2022 gives two epochs of notice before a new fee applies; checks that
+/// issue debt or release collateral value it at the worse of the two.
+pub fn leverage_collateral_admission_fee(mint: &InterfaceAccount<Mint>, epoch: u64) -> Result<LeverageCollateralFee> {
+    collateral_fee_schedule(mint, epoch, u64::MAX)
+}
+
+/// An existing position gets its first notice epoch to repay or deleverage.
+/// During the final notice epoch it may be liquidated while transfers still
+/// pay the old fee, preventing an announced confiscatory fee from stranding
+/// all collateral when it activates.
+pub fn leverage_collateral_liquidation_fee(mint: &InterfaceAccount<Mint>, epoch: u64) -> Result<LeverageCollateralFee> {
+    collateral_fee_schedule(mint, epoch, 1)
+}
+
+/// Validate both market mints before valuing stored lending contributions.
+/// A fee authority can change either mint without touching the Market account.
+pub fn lending_market_admission_fees(
+    market: &Market,
+    base_mint: &InterfaceAccount<Mint>,
+    quote_mint: &InterfaceAccount<Mint>,
+    epoch: u64,
+) -> Result<crate::transitions::LendingCollateralFees> {
+    require_keys_eq!(base_mint.key(), market.base_side.asset_mint, ErrorCode::InvalidMint);
+    require_keys_eq!(quote_mint.key(), market.quote_side.asset_mint, ErrorCode::InvalidMint);
+    Ok(crate::transitions::LendingCollateralFees {
+        base: leverage_collateral_admission_fee(base_mint, epoch)?,
+        quote: leverage_collateral_admission_fee(quote_mint, epoch)?,
+    })
+}
+
+fn collateral_fee_schedule(
+    mint: &InterfaceAccount<Mint>,
+    epoch: u64,
+    pending_lookahead_epochs: u64,
+) -> Result<LeverageCollateralFee> {
     let mint_info = mint.to_account_info();
     if *mint_info.owner == Token::id() {
         return Ok(LeverageCollateralFee::default());
     }
     let mint_data = mint_info.try_borrow_data()?;
     let mint_state = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
-    let fee = if mint_state
+    if !mint_state
         .get_extension_types()?
         .contains(&ExtensionType::TransferFeeConfig)
     {
-        Some(*mint_state.get_extension::<TransferFeeConfig>()?.get_epoch_fee(epoch))
-    } else {
-        None
-    };
-    Ok(LeverageCollateralFee(fee))
+        return Ok(LeverageCollateralFee::default());
+    }
+    let config = mint_state.get_extension::<TransferFeeConfig>()?;
+    let fee = LeverageCollateralFee::new(Some(*config.get_epoch_fee(epoch)));
+    let pending_epoch = u64::from(config.newer_transfer_fee.epoch);
+    let pending = (pending_epoch > epoch && pending_epoch - epoch <= pending_lookahead_epochs)
+        .then_some(config.newer_transfer_fee);
+    Ok(fee.with_pending(pending))
 }
 
 pub fn validate_leverage_reserve_accounts<'info>(

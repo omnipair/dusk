@@ -9,11 +9,9 @@ use crate::{
     errors::ErrorCode,
     events::{MarketDebtUpdated, MarketEventMetadata, MarketHealthUpdated},
     generate_market_seeds,
+    instructions::leverage_collateral_fee,
     state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
-    token::{
-        get_transfer_fee, get_transfer_fee_for_epoch, get_transfer_inverse_fee,
-        transfer_checked_with_remaining_accounts,
-    },
+    token::{get_transfer_fee, get_transfer_inverse_fee, transfer_checked_with_remaining_accounts},
 };
 
 use crate::instructions::accounts::{
@@ -196,20 +194,11 @@ impl<'info> Repay<'info> {
                 .ok_or(ErrorCode::MarketMathOverflow)?;
             require_eq!(measured_repay_credit, repay_credit, ErrorCode::BrokenInvariant);
 
-            let gross_collateral = accounts.borrow_position.collateral(repay_asset.opposite());
-            let exit_fee = get_transfer_fee_for_epoch(
-                &accounts.collateral_asset_mint.to_account_info(),
-                gross_collateral,
-                Clock::get()?.epoch,
-            )?;
-            let collateral_exit_credit = gross_collateral
-                .checked_sub(exit_fee)
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-            let debt_receipt = accounts.market.repay_with_finalization_and_credit(
+            let debt_receipt = accounts.market.repay_with_finalization_and_fee(
                 &mut accounts.borrow_position,
                 repay_asset,
                 repay_credit,
-                collateral_exit_credit,
+                leverage_collateral_fee(&accounts.collateral_asset_mint, Clock::get()?.epoch)?,
                 Some(current_slot),
             )?;
             require_eq!(debt_receipt.cash_repaid, repay_credit, ErrorCode::BrokenInvariant);

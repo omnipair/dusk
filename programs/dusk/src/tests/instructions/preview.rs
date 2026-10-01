@@ -29,6 +29,7 @@ impl<'a> NewPositionPreviewContext<'a> {
             market,
             debt_asset,
             collateral_amount,
+            collateral_fee: LeverageCollateralFee::default(),
             risk,
             existing_total_debt_nad: market.total_fixed_debt_nad(debt_asset)?,
             current_aggregate_contribution: match debt_asset {
@@ -375,7 +376,7 @@ fn new_position_preview_uses_executable_debt_share_rounding() {
     for requested in [1, 2, 3, 101, 1_001] {
         let (terms, contribution, preview_debt) = context.terms(requested).unwrap();
         let execution = market
-            .position_borrow_projection(&position, MarketAsset::Base, requested, 5_000, &market.risk)
+            .position_borrow_projection(&position, MarketAsset::Base, requested, 5_000, LeverageCollateralFee::default(), &market.risk)
             .unwrap();
         assert_eq!(preview_debt, execution.projected_position_debt);
         assert_eq!(contribution, execution.target_contribution);
@@ -1303,7 +1304,7 @@ fn mutable_transfer_fee_reduces_existing_borrow_capacity_and_withdrawal_room() {
     let (market, position) = existing_position_capacity_fixture(MarketAsset::Base);
     let gross_borrow = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, 0, LeverageCollateralFee::default()).unwrap();
     let gross_withdraw = market.position_capacity_quote(&position, MarketAsset::Quote, Some(0), false, 0, LeverageCollateralFee::default()).unwrap();
-    let fee = LeverageCollateralFee(Some(TransferFee {
+    let fee = LeverageCollateralFee::new(Some(TransferFee {
         epoch: 0_u64.into(),
         maximum_fee: u64::MAX.into(),
         transfer_fee_basis_points: 5_000_u16.into(),
@@ -1313,7 +1314,7 @@ fn mutable_transfer_fee_reduces_existing_borrow_capacity_and_withdrawal_room() {
     assert!(net_borrow.max_borrow_amount.unwrap() < gross_borrow.max_borrow_amount.unwrap());
     assert!(net_withdraw.max_withdraw_amount.unwrap() < gross_withdraw.max_withdraw_amount.unwrap());
     assert!(net_borrow.collateral_value_nad < gross_borrow.collateral_value_nad);
-    let confiscatory_fee = LeverageCollateralFee(Some(TransferFee {
+    let confiscatory_fee = LeverageCollateralFee::new(Some(TransferFee {
         epoch: 0_u64.into(),
         maximum_fee: u64::MAX.into(),
         transfer_fee_basis_points: 10_000_u16.into(),
@@ -1328,7 +1329,7 @@ fn mutable_transfer_fee_reduces_existing_borrow_capacity_and_withdrawal_room() {
 #[test]
 fn zero_exit_credit_quotes_no_new_borrow_capacity() {
     let market = preview_test_market(0, 0);
-    let quote = market.borrow_capacity_quote(MarketAsset::Quote, 0, Some(1), 0).unwrap();
+    let quote = market.borrow_capacity_quote(MarketAsset::Quote, 0, LeverageCollateralFee::default(), Some(1), 0).unwrap();
     assert_eq!(quote.max_debt, 0);
     assert_eq!(quote.collateral_value_nad, 0);
 }

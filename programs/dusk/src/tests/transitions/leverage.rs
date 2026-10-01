@@ -1395,6 +1395,40 @@ fn leverage_liquidation_requires_ema_confirmation() {
 }
 
 #[test]
+fn pending_confiscatory_fee_allows_recovery_before_activation() {
+    let mut market = test_market(1_000_000, 1_000_000);
+    let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000, 2_000);
+    let quote = market.quote_leverage_swap(MarketAsset::Quote, position.collateral_amount, 1).unwrap();
+    assert!(quote.amount_out > 1_000);
+    let prepared = prepared_leverage_swap(
+        &market,
+        quote,
+        SwapCashPolicy::Liquidate {
+            debt_asset: MarketAsset::Base,
+            debt_shares: position.debt_shares,
+            debt_principal: position.debt_principal,
+            insurance_credit: 0,
+        },
+    );
+    let receipt = market
+        .liquidate_leverage_position_with_pending_credit(
+            &mut position,
+            Some(prepared),
+            quote.amount_in,
+            Some(0),
+            full_fee_credit(&quote),
+            LeverageInsuranceDraw::default(),
+            0,
+            ProtocolAuctionSplit::default(),
+            1,
+        )
+        .unwrap();
+    assert_eq!(receipt.socialized_loss, 0);
+    assert_eq!(receipt.debt_repaid, 1_000);
+    assert_eq!(position.debt_shares, 0);
+}
+
+#[test]
 fn leverage_debt_admission_requires_ema_health() {
     let mut market = test_market(1_000_000, 1_000_000);
     let position = seeded_position(&mut market, MarketAsset::Base, 1_000, 2_000);
@@ -1413,7 +1447,7 @@ fn leverage_debt_admission_requires_ema_health() {
 fn fixed_transfer_fee_is_charged_again_for_leverage_health() {
     let mut market = test_market(1_000_000, 1_000_000);
     let position = seeded_position(&mut market, MarketAsset::Base, 1_000, 1_200);
-    let fee = LeverageCollateralFee(Some(TransferFee {
+    let fee = LeverageCollateralFee::new(Some(TransferFee {
         epoch: 0_u64.into(),
         maximum_fee: u64::MAX.into(),
         transfer_fee_basis_points: 1_000_u16.into(),

@@ -318,6 +318,26 @@ fn leverage_collateral_fee_uses_the_effective_mint_schedule() {
             leverage_collateral_fee(&mint, 3).unwrap().unwind_credit(900).unwrap(),
             if newer_fee == pending_fee { 720 } else { 810 }
         );
+        // Admission sees the scheduled fee during its notice window; exits and
+        // liquidation keep the effective fee until the change applies.
+        let admission = leverage_collateral_admission_fee(&mint, 0).unwrap();
+        assert_eq!(
+            admission.unwind_credit(900).unwrap(),
+            if newer_fee == pending_fee { 720 } else { 810 }
+        );
+        assert_eq!(admission.haircut_bps(), if newer_fee == pending_fee { 2_000 } else { 1_000 });
+        assert_eq!(
+            leverage_collateral_liquidation_fee(&mint, 1).unwrap().unwind_credit(900).unwrap(),
+            810,
+        );
+        assert_eq!(
+            leverage_collateral_liquidation_fee(&mint, 2).unwrap().unwind_credit(900).unwrap(),
+            if newer_fee == pending_fee { 720 } else { 810 },
+        );
+        assert_eq!(
+            leverage_collateral_admission_fee(&mint, 3).unwrap().unwind_credit(900).unwrap(),
+            if newer_fee == pending_fee { 720 } else { 810 }
+        );
     }
     let stored_collateral = fixed_fee.calculate_post_fee_amount(1_000).unwrap();
     let actual_unwind_credit = fixed_fee.calculate_post_fee_amount(stored_collateral).unwrap();

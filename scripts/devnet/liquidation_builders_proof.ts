@@ -160,6 +160,8 @@ async function main() {
   const preview = (await dusk.get.previewBorrowPosition({
     market: market.toBase58(),
     borrowPosition: position.publicKey.toBase58(),
+    baseMint,
+    quoteMint,
   })) as unknown as {
     baseDebt: { fixedDebt: { toString(): string } };
     quoteDebt: { fixedDebt: { toString(): string } };

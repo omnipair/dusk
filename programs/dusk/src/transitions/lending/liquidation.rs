@@ -32,7 +32,9 @@ pub struct Liquidation {
     pub max_socialized_loss: u64,
     pub terms: LiquidationTerms,
     pub pricing: LiquidationPricing,
-    pub remaining_collateral_exit_credit: Option<u64>,
+    pub collateral_fee: Option<LeverageCollateralFee>,
+    pub auction_eligibility_fee: Option<LeverageCollateralFee>,
+    pub exact_net_auction_pricing: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -96,7 +98,9 @@ impl Liquidation {
             max_socialized_loss,
             terms,
             pricing: LiquidationPricing::PessimisticReserves,
-            remaining_collateral_exit_credit: None,
+            collateral_fee: None,
+            auction_eligibility_fee: None,
+            exact_net_auction_pricing: false,
         }
     }
 
@@ -117,7 +121,9 @@ impl Liquidation {
             max_socialized_loss,
             terms,
             pricing,
-            remaining_collateral_exit_credit: None,
+            collateral_fee: None,
+            auction_eligibility_fee: None,
+            exact_net_auction_pricing: false,
         }
     }
 
@@ -130,22 +136,35 @@ impl Liquidation {
             ErrorCode::LiquidationRepayTooLarge
         );
         let collateral_before = position_collateral(borrow_position, self.debt_asset);
-        let collateral_seized = collateral_amount_for_debt_value_with_pricing(
+        let total_collateral_quote = collateral_amount_for_debt_value_with_pricing(
             market,
             self.debt_asset,
             self.repay_credit,
             self.terms.total_penalty_bps,
             self.pricing,
-        )?
-        .min(collateral_before);
-        let collateral_to_liquidator = collateral_amount_for_debt_value_with_pricing(
+        )?;
+        let liquidator_collateral_quote = collateral_amount_for_debt_value_with_pricing(
             market,
             self.debt_asset,
             self.repay_credit,
             self.terms.liquidation_incentive_bps,
             self.pricing,
-        )?
-        .min(collateral_seized);
+        )?;
+        let (collateral_seized, collateral_to_liquidator) = if self.exact_net_auction_pricing {
+            let fee = self.collateral_fee.ok_or(ErrorCode::BrokenInvariant)?;
+            let liquidator_gross = fee.effective_gross_for_credit(liquidator_collateral_quote)?;
+            require_gte!(collateral_before, liquidator_gross, ErrorCode::LiquidationRepayTooLarge);
+            let insurance_net = total_collateral_quote.saturating_sub(liquidator_collateral_quote);
+            let insurance_gross = fee.effective_gross_for_credit(insurance_net)?;
+            let seized = liquidator_gross
+                .checked_add(insurance_gross)
+                .ok_or(ErrorCode::MarketMathOverflow)?
+                .min(collateral_before);
+            (seized, liquidator_gross)
+        } else {
+            let seized = total_collateral_quote.min(collateral_before);
+            (seized, liquidator_collateral_quote.min(seized))
+        };
         let insurance_funded = collateral_seized
             .checked_sub(collateral_to_liquidator)
             .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -306,16 +325,12 @@ impl Liquidation {
         market.refresh_risk()?;
         let remaining_debt = position_debt(market, borrow_position, self.debt_asset)?;
         let remaining_collateral = position_collateral(borrow_position, self.debt_asset);
-        let remaining_collateral_effective = self.remaining_collateral_exit_credit.unwrap_or(remaining_collateral);
-        require_gte!(
-            remaining_collateral,
-            remaining_collateral_effective,
-            ErrorCode::BrokenInvariant
-        );
+        let collateral_fee = self.collateral_fee.unwrap_or_default();
+        let remaining_collateral_effective = collateral_fee.unwind_credit(remaining_collateral)?;
         let target_contribution = market.debt_capped_global_health_contribution(
             self.debt_asset,
             remaining_debt,
-            remaining_collateral_effective,
+            remaining_collateral,
             &market.risk,
         )?;
         if remaining_debt == 0 {
@@ -324,11 +339,14 @@ impl Liquidation {
         } else if remaining_collateral_effective > 0 {
             let total_debt_nad = market.total_fixed_debt_nad(self.debt_asset)?;
             let external_debt_nad = market.external_fixed_debt_nad(borrow_position, self.debt_asset)?;
-            let projected_aggregate = market.projected_aggregate_global_health_contribution(
-                borrow_position,
-                self.debt_asset,
-                target_contribution,
-            )?;
+            let projected_aggregate = fee_discounted_contribution(
+                market.projected_aggregate_global_health_contribution(
+                    borrow_position,
+                    self.debt_asset,
+                    target_contribution,
+                )?,
+                collateral_fee.haircut_bps(),
+            );
             let terms = market.dynamic_borrow_terms(
                 self.debt_asset,
                 remaining_collateral_effective,
@@ -348,8 +366,12 @@ impl Liquidation {
             );
         }
         market.reconcile_global_health_contribution(borrow_position, self.debt_asset, target_contribution)?;
-        if self.remaining_collateral_exit_credit.is_some() {
-            market.reconcile_liquidation_auction_with_credit(borrow_position, remaining_collateral_effective)?;
+        if self.collateral_fee.is_some() {
+            let auction_credit = self
+                .auction_eligibility_fee
+                .unwrap_or(collateral_fee)
+                .unwind_credit(remaining_collateral)?;
+            market.reconcile_liquidation_auction_with_credit(borrow_position, auction_credit)?;
         } else {
             market.reconcile_liquidation_auction(borrow_position)?;
         }
@@ -389,7 +411,7 @@ fn position_collateral(borrow_position: &BorrowPosition, debt_asset: MarketAsset
     }
 }
 
-fn liquidation_health_bps_with_pricing_and_credit(
+pub(crate) fn liquidation_health_bps_with_pricing_and_credit(
     market: &Market,
     borrow_position: &BorrowPosition,
     debt_asset: MarketAsset,
@@ -736,35 +758,36 @@ impl Market {
         .apply(self, borrow_position)
     }
 
-    pub fn liquidation_collateral_seized(
-        &self,
-        borrow_position: &BorrowPosition,
-        debt_asset: MarketAsset,
-        repay_credit: u64,
-        terms: LiquidationTerms,
-        pricing: LiquidationPricing,
-    ) -> Result<u64> {
-        Ok(collateral_amount_for_debt_value_with_pricing(
-            self,
-            debt_asset,
-            repay_credit,
-            terms.total_penalty_bps,
-            pricing,
-        )?
-        .min(position_collateral(borrow_position, debt_asset)))
-    }
-
-    pub fn settle_liquidation_with_credit(
+    pub fn settle_liquidation_with_fee(
         &mut self,
         borrow_position: &mut BorrowPosition,
         debt_asset: MarketAsset,
         repay_credit: u64,
         terms: LiquidationTerms,
         pricing: LiquidationPricing,
-        remaining_collateral_exit_credit: u64,
+        collateral_fee: LeverageCollateralFee,
     ) -> Result<LiquidationReceipt> {
         let mut liquidation = Liquidation::new_with_pricing(debt_asset, repay_credit, 0, 0, 0, terms, pricing);
-        liquidation.remaining_collateral_exit_credit = Some(remaining_collateral_exit_credit);
+        liquidation.collateral_fee = Some(collateral_fee);
+        liquidation.apply(self, borrow_position)
+    }
+
+    /// Auction reference prices net bidder and insurance receipts. Each
+    /// transfer is grossed up independently under the effective mint fee.
+    pub fn settle_auction_liquidation_with_fees(
+        &mut self,
+        borrow_position: &mut BorrowPosition,
+        debt_asset: MarketAsset,
+        repay_credit: u64,
+        terms: LiquidationTerms,
+        pricing: LiquidationPricing,
+        effective_fee: LeverageCollateralFee,
+        eligibility_fee: LeverageCollateralFee,
+    ) -> Result<LiquidationReceipt> {
+        let mut liquidation = Liquidation::new_with_pricing(debt_asset, repay_credit, 0, 0, 0, terms, pricing);
+        liquidation.collateral_fee = Some(effective_fee);
+        liquidation.auction_eligibility_fee = Some(eligibility_fee);
+        liquidation.exact_net_auction_pricing = true;
         liquidation.apply(self, borrow_position)
     }
 

@@ -6630,6 +6630,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           .accounts({
             market: fixture.market,
             borrowPosition,
+            baseMint: fixture.baseMint,
+            quoteMint: fixture.quoteMint,
           })
           .transaction()
       )
@@ -7467,7 +7469,12 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       await simulateReturnData(
         await program.methods
           .previewBorrowPosition()
-          .accounts({ market: fixture.market, borrowPosition })
+          .accounts({
+            market: fixture.market,
+            borrowPosition,
+            baseMint: fixture.baseMint,
+            quoteMint: fixture.quoteMint,
+          })
           .transaction()
       )
     ) as any;
@@ -8623,8 +8630,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
       eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
     }).transaction(), [payer]);
+    // Contributions are stored in gross collateral units and discounted by
+    // the mint fee whenever they underwrite debt.
     const afterRepay = accountCoder.decode("BorrowPosition", Buffer.from(svm.getAccount(borrowPosition)!.data)) as any;
-    expect(afterRepay.global_health_base_contribution_for_quote_debt.toNumber()).to.equal(0);
+    expect(afterRepay.global_health_base_contribution_for_quote_debt.toNumber()).to.be.greaterThan(0);
 
     await connection.sendTransaction(await program.methods.startLiquidationAuction().accounts({
       market: fixture.market, borrowPosition,
@@ -8647,9 +8656,14 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
       eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
     }).transaction();
-    await connection.sendTransaction(fillTx, [payer]);
+    // A 100% collateral fee delivers the bidder nothing, so the partial
+    // repayment cap is zero and the auction must expire into the backstop.
+    let fillError: unknown;
+    try { await connection.sendTransaction(fillTx, [payer]); } catch (error) { fillError = error; }
+    const repayCapError = idl.errors?.find((error: any) => error.name === "LiquidationRepayTooLarge");
+    expect(repayCapError).to.not.equal(undefined);
+    expect(String(fillError)).to.include(`code: ${repayCapError!.code}`);
     const afterFill = accountCoder.decode("BorrowPosition", Buffer.from(svm.getAccount(borrowPosition)!.data)) as any;
-    expect(afterFill.global_health_base_contribution_for_quote_debt.toNumber()).to.equal(0);
     expect(afterFill.auction_debt_asset).to.equal(1);
 
     const expiredClock = svm.getClock();
@@ -9254,6 +9268,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .accounts({
         market: fixture.market,
         proposal,
+        baseMint: fixture.baseMint,
+        quoteMint: fixture.quoteMint,
         eventAuthority: eventAuthority(),
         program: DUSK_PROGRAM_ID,
       })
@@ -9276,6 +9292,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .accounts({
         market: fixture.market,
         proposal,
+        baseMint: fixture.baseMint,
+        quoteMint: fixture.quoteMint,
         eventAuthority: eventAuthority(),
         program: DUSK_PROGRAM_ID,
       })

@@ -9,11 +9,9 @@ use crate::{
     errors::ErrorCode,
     events::{BorrowPositionLiquidated, LiquidationAuctionCancelled},
     generate_market_seeds,
+    instructions::{leverage_collateral_fee, leverage_collateral_liquidation_fee},
     state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
-    token::{
-        get_transfer_fee, get_transfer_fee_for_epoch, get_transfer_inverse_fee,
-        transfer_checked_with_remaining_accounts,
-    },
+    token::{get_transfer_fee, get_transfer_inverse_fee, transfer_checked_with_remaining_accounts},
     transitions::LiquidationPricing,
 };
 
@@ -194,15 +192,11 @@ impl<'info> FillLiquidationAuction<'info> {
         // before this handler. Cancel a recovered auction before quoting its
         // current reference price or moving bidder tokens.
         ctx.accounts.borrow_position.assert_liquidation_auction(debt_asset)?;
+        let collateral_fee = leverage_collateral_fee(&ctx.accounts.collateral_asset_mint, Clock::get()?.epoch)?;
+        let eligibility_fee =
+            leverage_collateral_liquidation_fee(&ctx.accounts.collateral_asset_mint, Clock::get()?.epoch)?;
         let gross_collateral = ctx.accounts.borrow_position.collateral(debt_asset.opposite());
-        let exit_fee = get_transfer_fee_for_epoch(
-            &ctx.accounts.collateral_asset_mint.to_account_info(),
-            gross_collateral,
-            Clock::get()?.epoch,
-        )?;
-        let collateral_exit_credit = gross_collateral
-            .checked_sub(exit_fee)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let collateral_exit_credit = eligibility_fee.unwind_credit(gross_collateral)?;
         ctx.accounts
             .market
             .reconcile_liquidation_auction_with_credit(&mut ctx.accounts.borrow_position, collateral_exit_credit)?;
@@ -230,15 +224,16 @@ impl<'info> FillLiquidationAuction<'info> {
             .borrow_position
             .liquidation_auction_bid_price_nad(now, current_reference_price_nad)?;
 
-        let liquidation_pricing = LiquidationPricing::ReferencePrice {
-            debt_per_collateral_price_nad: final_price,
-        };
-
+        // Eligibility follows the worse scheduled fee, while the actual
+        // transfer pays the currently effective fee. Settlement grosses up
+        // the bidder and insurance slices separately under that fee.
         let liquidation_terms = ctx.accounts.market.liquidation_terms_with_pricing_and_credit(
             &ctx.accounts.borrow_position,
             debt_asset,
             collateral_exit_credit,
-            liquidation_pricing,
+            LiquidationPricing::ReferencePrice {
+                debt_per_collateral_price_nad: final_price,
+            },
         )?;
         let debt_token_program = token_program_for_mint(
             &ctx.accounts.debt_asset_mint,
@@ -290,37 +285,17 @@ impl<'info> FillLiquidationAuction<'info> {
 
         // For ordinary auction fills, there is no insurance draw or socialized
         // loss because repayment is fully external.
-        let collateral_seized = ctx.accounts.market.liquidation_collateral_seized(
-            &ctx.accounts.borrow_position,
-            debt_asset,
-            repay_credit,
-            liquidation_terms,
-            liquidation_pricing,
-        )?;
-        let remaining_gross_collateral = gross_collateral
-            .checked_sub(collateral_seized)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let remaining_exit_fee = get_transfer_fee_for_epoch(
-            &ctx.accounts.collateral_asset_mint.to_account_info(),
-            remaining_gross_collateral,
-            Clock::get()?.epoch,
-        )?;
-        let remaining_collateral_exit_credit = remaining_gross_collateral
-            .checked_sub(remaining_exit_fee)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let liquidation_receipt = ctx.accounts.market.settle_liquidation_with_credit(
+        let liquidation_receipt = ctx.accounts.market.settle_auction_liquidation_with_fees(
             &mut ctx.accounts.borrow_position,
             debt_asset,
             repay_credit,
             liquidation_terms,
-            liquidation_pricing,
-            remaining_collateral_exit_credit,
+            LiquidationPricing::ReferencePrice {
+                debt_per_collateral_price_nad: final_price,
+            },
+            collateral_fee,
+            eligibility_fee,
         )?;
-        require_eq!(
-            liquidation_receipt.collateral_seized,
-            collateral_seized,
-            ErrorCode::BrokenInvariant
-        );
 
         let referral_receipt = if liquidation_receipt.interest_paid > 0 {
             let interest_vault_balance_before = ctx.accounts.interest_vault.amount;

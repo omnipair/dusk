@@ -19,10 +19,10 @@ use crate::{
 };
 
 use super::settlement::{
-    leverage_collateral_vault_pda, leverage_position_pda, leverage_swap_fee_credit, prepare_leverage_swap,
-    record_leverage_interest, settle_inline_leverage_hlp, validate_leverage_futarchy_pda,
-    validate_leverage_interest_account, validate_leverage_market_pda, validate_leverage_mints,
-    validate_leverage_reserve_accounts, validate_owner_debt_account,
+    leverage_collateral_fee, leverage_collateral_liquidation_fee, leverage_collateral_vault_pda, leverage_position_pda,
+    leverage_swap_fee_credit, prepare_leverage_swap, record_leverage_interest, settle_inline_leverage_hlp,
+    validate_leverage_futarchy_pda, validate_leverage_interest_account, validate_leverage_market_pda,
+    validate_leverage_mints, validate_leverage_reserve_accounts, validate_owner_debt_account,
 };
 use crate::instructions::accounts::{
     require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout,
@@ -191,6 +191,13 @@ impl<'info> LiquidateLeveragePosition<'info> {
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
         let collateral_asset = debt_asset.opposite();
         let collateral_sold = ctx.accounts.leverage_position.collateral_amount;
+        let effective_unwind_credit = leverage_collateral_fee(&ctx.accounts.collateral_mint, Clock::get()?.epoch)?
+            .unwind_credit(collateral_sold)?;
+        let admission_unwind_credit =
+            leverage_collateral_liquidation_fee(&ctx.accounts.collateral_mint, Clock::get()?.epoch)?
+                .unwind_credit(collateral_sold)?;
+        let pending_unwind_credit =
+            (admission_unwind_credit < effective_unwind_credit).then_some(admission_unwind_credit);
 
         // Return seized collateral to the reserve and measure its net credit.
         let collateral_token_program = token_program_for_mint(
@@ -316,10 +323,11 @@ impl<'info> LiquidateLeveragePosition<'info> {
         };
 
         // Commit liquidation accounting and settle the resulting hLP exposure.
-        let receipt = ctx.accounts.market.liquidate_leverage_position(
+        let receipt = ctx.accounts.market.liquidate_leverage_position_with_pending_credit(
             &mut ctx.accounts.leverage_position,
             prepared_swap,
             collateral_reserve_credit,
+            pending_unwind_credit,
             swap_fee_credit,
             insurance,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,

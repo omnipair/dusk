@@ -9,8 +9,9 @@ use crate::{
     constants::*,
     errors::ErrorCode,
     events::{MarketCollateralDeposited, MarketEventMetadata},
+    instructions::leverage_collateral_fee,
     state::{BorrowPosition, Market},
-    token::{get_transfer_fee_for_epoch, transfer_checked_with_remaining_accounts},
+    token::transfer_checked_with_remaining_accounts,
 };
 
 use crate::instructions::accounts::{require_supported_asset_mint, token_program_for_mint};
@@ -140,24 +141,11 @@ impl<'info> DepositCollateral<'info> {
             require!(collateral_credit > 0, ErrorCode::AmountZero);
 
             // Apply the measured credit to market and position accounting.
-            let projected_collateral = accounts
-                .borrow_position
-                .collateral(market_asset)
-                .checked_add(collateral_credit)
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-            let exit_fee = get_transfer_fee_for_epoch(
-                &accounts.asset_mint.to_account_info(),
-                projected_collateral,
-                Clock::get()?.epoch,
-            )?;
-            let collateral_exit_credit = projected_collateral
-                .checked_sub(exit_fee)
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-            let collateral_receipt = accounts.market.deposit_collateral_with_credit(
+            let collateral_receipt = accounts.market.deposit_collateral_with_fee(
                 &mut accounts.borrow_position,
                 market_asset,
                 collateral_credit,
-                collateral_exit_credit,
+                leverage_collateral_fee(&accounts.asset_mint, Clock::get()?.epoch)?,
             )?;
             (market_key, owner_key, asset_mint_key, collateral_receipt)
         };

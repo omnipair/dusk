@@ -2965,6 +2965,12 @@
           }
         },
         {
+          "name": "base_mint"
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
           "name": "proposal",
           "writable": true
         },
@@ -5471,6 +5477,16 @@
               }
             ]
           }
+        },
+        {
+          "name": "base_mint",
+          "docs": [
+            "Liquidation values each side's collateral after its mint's current",
+            "transfer fee, so the preview reads both mints."
+          ]
+        },
+        {
+          "name": "quote_mint"
         }
       ],
       "args": [],

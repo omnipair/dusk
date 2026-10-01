@@ -20,17 +20,78 @@ use crate::{
 
 /// The net amount that a collateral-vault transfer can return to the AMM.
 /// A position stores the vault's gross balance; risk checks use this credit.
+///
+/// `effective` is the fee a transfer pays now. `pending` is a fee change the
+/// mint has already scheduled for a later epoch. Exit and liquidation checks
+/// carry only the effective fee. Admission checks that add risk also carry the
+/// pending fee, so debt is never issued against collateral that a scheduled
+/// change is about to devalue. The issuer can reschedule or cancel a pending
+/// change, so it never makes an existing position liquidatable.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct LeverageCollateralFee(pub Option<TransferFee>);
+pub struct LeverageCollateralFee {
+    effective: Option<TransferFee>,
+    pending: Option<TransferFee>,
+}
 
 impl LeverageCollateralFee {
-    pub fn unwind_credit(self, gross_collateral: u64) -> Result<u64> {
-        match self.0 {
-            Some(fee) => fee
-                .calculate_post_fee_amount(gross_collateral)
-                .ok_or_else(|| ErrorCode::MarketMathOverflow.into()),
-            None => Ok(gross_collateral),
+    pub fn new(effective: Option<TransferFee>) -> Self {
+        Self {
+            effective,
+            pending: None,
         }
+    }
+
+    pub fn with_pending(self, pending: Option<TransferFee>) -> Self {
+        Self { pending, ..self }
+    }
+
+    /// Net credit under the worst carried fee schedule.
+    pub fn unwind_credit(self, gross_collateral: u64) -> Result<u64> {
+        let mut credit = gross_collateral;
+        for fee in [self.effective, self.pending].into_iter().flatten() {
+            credit = credit.min(
+                fee.calculate_post_fee_amount(gross_collateral)
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+            );
+        }
+        Ok(credit)
+    }
+
+    /// Gross vault debit needed to deliver at least `net_credit` under the
+    /// currently effective fee. Auction fills use this for each transfer;
+    /// maximum-fee caps make a whole-position fee ratio inaccurate.
+    pub fn effective_gross_for_credit(self, net_credit: u64) -> Result<u64> {
+        let gross = match self.effective {
+            Some(fee) => fee
+                .calculate_pre_fee_amount(net_credit)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            None => net_credit,
+        };
+        require_gte!(
+            self.effective
+                .map(|fee| fee
+                    .calculate_post_fee_amount(gross)
+                    .ok_or(ErrorCode::MarketMathOverflow))
+                .transpose()?
+                .unwrap_or(gross),
+            net_credit,
+            ErrorCode::BrokenInvariant
+        );
+        Ok(gross)
+    }
+
+    /// Largest carried fee rate. Market-wide health contributions are stored
+    /// in gross collateral units and discounted by this rate when read, so a
+    /// fee change applies to every position, not only the ones it touches.
+    /// A per-transfer maximum fee can only lower the real fee, so the rate
+    /// alone is conservative.
+    pub fn haircut_bps(self) -> u16 {
+        [self.effective, self.pending]
+            .into_iter()
+            .flatten()
+            .map(|fee| u16::from(fee.transfer_fee_basis_points))
+            .max()
+            .unwrap_or(0)
     }
 }
 
@@ -1481,6 +1542,32 @@ impl Market {
         protocol_auction_split: ProtocolAuctionSplit,
         current_slot: u64,
     ) -> Result<LeverageLiquidationReceipt> {
+        self.liquidate_leverage_position_with_pending_credit(
+            position,
+            prepared_swap,
+            measured_unwind_credit,
+            None,
+            swap_fee_credit,
+            insurance,
+            protocol_fee_bps,
+            protocol_auction_split,
+            current_slot,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn liquidate_leverage_position_with_pending_credit(
+        &mut self,
+        position: &mut LeveragePosition,
+        prepared_swap: Option<PreparedLeverageSwap>,
+        measured_unwind_credit: u64,
+        pending_unwind_credit: Option<u64>,
+        swap_fee_credit: LeverageSwapFeeCredit,
+        insurance: LeverageInsuranceDraw,
+        protocol_fee_bps: u16,
+        protocol_auction_split: ProtocolAuctionSplit,
+        current_slot: u64,
+    ) -> Result<LeverageLiquidationReceipt> {
         require_gte!(insurance.spent, insurance.credit, ErrorCode::BrokenInvariant);
         require!(insurance.spent > 0 || insurance.credit == 0, ErrorCode::BrokenInvariant);
         if prepared_swap.is_none() {
@@ -1560,15 +1647,28 @@ impl Market {
         );
         require_eq!(swap.amount_in, measured_unwind_credit, ErrorCode::BrokenInvariant);
         let margin_bps = equity_bps(swap.amount_out, debt_amount)?;
-        require!(
-            swap.amount_out <= debt_amount || margin_bps <= LEVERAGE_MAINTENANCE_BUFFER_BPS as u128,
-            ErrorCode::LeveragePositionNotLiquidatable
-        );
-        require!(
-            self.ema_leverage_margin_bps_for_credit(position.collateral_asset()?, measured_unwind_credit, debt_amount,)?
-                <= LEVERAGE_MAINTENANCE_BUFFER_BPS as u128,
-            ErrorCode::LeveragePositionNotLiquidatable
-        );
+        let collateral_asset = position.collateral_asset()?;
+        let pending_unhealthy = pending_unwind_credit
+            .map(|credit| {
+                require_gte!(position.collateral_amount, credit, ErrorCode::BrokenInvariant);
+                Ok(
+                    self.ema_leverage_margin_bps_for_credit(collateral_asset, credit, debt_amount)?
+                        <= LEVERAGE_MAINTENANCE_BUFFER_BPS as u128,
+                )
+            })
+            .transpose()?
+            .unwrap_or(false);
+        if !pending_unhealthy {
+            require!(
+                swap.amount_out <= debt_amount || margin_bps <= LEVERAGE_MAINTENANCE_BUFFER_BPS as u128,
+                ErrorCode::LeveragePositionNotLiquidatable
+            );
+            require!(
+                self.ema_leverage_margin_bps_for_credit(collateral_asset, measured_unwind_credit, debt_amount,)?
+                    <= LEVERAGE_MAINTENANCE_BUFFER_BPS as u128,
+                ErrorCode::LeveragePositionNotLiquidatable
+            );
+        }
 
         let cash_policy = SwapCashPolicy::Liquidate {
             debt_asset,

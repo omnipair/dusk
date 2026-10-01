@@ -924,6 +924,61 @@ fn fee_driven_auction_has_repay_capacity_even_when_gross_collateral_looks_health
 }
 
 #[test]
+fn position_preview_matches_fee_aware_liquidation_eligibility() {
+    let (market, mut borrow_position) = liquidatable_quote_debt_position();
+    borrow_position.base_collateral = 1_000;
+    let confiscatory_fee = crate::transitions::LeverageCollateralFee::new(Some(
+        spl_token_2022::extension::transfer_fee::TransferFee {
+            epoch: 0_u64.into(),
+            maximum_fee: u64::MAX.into(),
+            transfer_fee_basis_points: 10_000_u16.into(),
+        },
+    ));
+    let gross = market
+        .position_debt_side_quote(&borrow_position, MarketAsset::Quote, Default::default())
+        .unwrap();
+    assert!(!gross.is_liquidatable);
+    let net = market
+        .position_debt_side_quote(&borrow_position, MarketAsset::Quote, confiscatory_fee)
+        .unwrap();
+    assert!(net.is_liquidatable);
+    assert!(net.max_repay_amount > 0);
+    assert_eq!(net.collateral_value_nad, 0);
+}
+
+#[test]
+fn auction_fill_delivers_the_quoted_net_collateral_with_capped_or_uncapped_fees() {
+    for maximum_fee in [u64::MAX, 10] {
+        let (mut market, mut borrow_position) = liquidatable_quote_debt_position();
+        market.quote_side.reserves.live_reserve += 100;
+        let fee = crate::transitions::LeverageCollateralFee::new(Some(spl_token_2022::extension::transfer_fee::TransferFee {
+            epoch: 0_u64.into(),
+            maximum_fee: maximum_fee.into(),
+            transfer_fee_basis_points: 2_000_u16.into(),
+        }));
+        let credit = fee.unwind_credit(borrow_position.base_collateral).unwrap();
+        let pricing = LiquidationPricing::ReferencePrice { debt_per_collateral_price_nad: NAD };
+        let terms = market
+            .liquidation_terms_with_pricing_and_credit(&borrow_position, MarketAsset::Quote, credit, pricing)
+            .unwrap();
+        let repay = terms.max_repay_amount.min(10);
+        assert!(repay > 0);
+        let receipt = market
+            .settle_auction_liquidation_with_fees(
+                &mut borrow_position, MarketAsset::Quote, repay, terms, pricing, fee, fee,
+            )
+            .unwrap();
+        let quoted_net = crate::math::ceil_div(
+            repay as u128 * (BPS_DENOMINATOR as u128 + terms.liquidation_incentive_bps as u128),
+            BPS_DENOMINATOR as u128,
+        )
+        .unwrap();
+        let bidder_net = fee.unwind_credit(receipt.collateral_to_liquidator).unwrap() as u128;
+        assert!(bidder_net >= quoted_net, "max fee {maximum_fee}: bidder net {bidder_net} < quoted {quoted_net}");
+    }
+}
+
+#[test]
 fn max_repay_caps_liquidation_to_restore_target_health() {
     let (market, borrow_position) = liquidatable_quote_debt_position();
     let target_health_bps = liquidation_health_floor_bps(borrow_position.quote_liquidation_cf_bps);

@@ -382,7 +382,7 @@ Available typed previews:
   epoch, and `netAmountOut` is the recipient credit used by the swap's
   `minAssetOut` check. `grossAmountOut` is before Dusk trading fees.
 - `previewBorrowCapacity({ market, collateralAssetMint, debtAssetMint, collateralAmount, projectedBorrowAmount })`.
-- `previewBorrowPosition({ market, borrowPosition })`.
+- `previewBorrowPosition({ market, borrowPosition, baseMint, quoteMint })`.
 - `previewBorrowPositionCapacity({ capacityKind, market, borrowPosition, collateralAssetMint, debtAssetMint, collateralChange, projectedBorrowAmount })`.
 
 `previewBorrowCapacity` exposes both the health-limited result of the on-chain

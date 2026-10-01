@@ -270,7 +270,10 @@ impl<'info> CloseInsolventHlp<'info> {
         ctx.accounts
             .market
             .finalize_amm_socialized_loss_and_observe_risk(current_slot)?;
-        ctx.accounts.market.assert_market_health()?;
+        // This is the terminal recovery path for an already-insolvent hLP.
+        // A changed fee on either market mint can leave global health below
+        // the floor; requiring that floor here would strand the debt instead
+        // of allowing insurance and socialization to close it.
         require_reserve_custody(
             ctx.accounts.borrowed_reserve_vault.amount,
             ctx.accounts.market.side(borrowed_asset),

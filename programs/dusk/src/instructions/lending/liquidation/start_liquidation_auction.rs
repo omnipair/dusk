@@ -5,8 +5,8 @@ use crate::{
     constants::*,
     errors::ErrorCode,
     events::LiquidationAuctionStarted,
+    instructions::leverage_collateral_liquidation_fee,
     state::{BorrowPosition, Market},
-    token::get_transfer_fee_for_epoch,
 };
 
 #[event_cpi]
@@ -62,14 +62,9 @@ impl<'info> StartLiquidationAuction<'info> {
             ErrorCode::InvalidMint
         );
         let gross_collateral = ctx.accounts.borrow_position.collateral(debt_asset.opposite());
-        let exit_fee = get_transfer_fee_for_epoch(
-            &ctx.accounts.collateral_asset_mint.to_account_info(),
-            gross_collateral,
-            Clock::get()?.epoch,
-        )?;
-        let collateral_exit_credit = gross_collateral
-            .checked_sub(exit_fee)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let collateral_exit_credit =
+            leverage_collateral_liquidation_fee(&ctx.accounts.collateral_asset_mint, Clock::get()?.epoch)?
+                .unwind_credit(gross_collateral)?;
 
         // Snapshot the liquidation reference before opening the auction.
         let liquidation_reference_price_nad = ctx

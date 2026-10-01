@@ -2971,6 +2971,12 @@ export type Dusk = {
           }
         },
         {
+          "name": "baseMint"
+        },
+        {
+          "name": "quoteMint"
+        },
+        {
           "name": "proposal",
           "writable": true
         },
@@ -5477,6 +5483,16 @@ export type Dusk = {
               }
             ]
           }
+        },
+        {
+          "name": "baseMint",
+          "docs": [
+            "Liquidation values each side's collateral after its mint's current",
+            "transfer fee, so the preview reads both mints."
+          ]
+        },
+        {
+          "name": "quoteMint"
         }
       ],
       "args": [],
