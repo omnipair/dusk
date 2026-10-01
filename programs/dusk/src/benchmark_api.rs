@@ -1279,6 +1279,29 @@ impl BenchmarkReferralOwnedState {
         Ok(state)
     }
 
+    /// Imports decoded partner and accrual accounts for historical replay.
+    pub fn from_account_state(
+        market: &BenchmarkMarket,
+        debt_asset: MarketAsset,
+        partner_key: Pubkey,
+        partner: ReferralPartner,
+        accrual_key: Pubkey,
+        accrual: ReferralAccrual,
+    ) -> Result<Self> {
+        let state = Self {
+            partner_key,
+            partner: Box::new(partner),
+            accrual_key,
+            accrual: Box::new(accrual),
+        };
+        validate_referral_owned_state(
+            &state,
+            market.require_market_key()?,
+            market.market.side(debt_asset).asset_mint,
+        )?;
+        Ok(state)
+    }
+
     pub fn checkpoint(&self) -> BenchmarkReferralCheckpoint {
         BenchmarkReferralCheckpoint {
             partner_key: self.partner_key,
@@ -3144,9 +3167,11 @@ impl BenchmarkMarket {
         )
     }
 
+    /// Replays a repay with its validated referral claim ledger in the same rollback boundary.
     pub fn execute_repay(
         &mut self,
         position: &mut BenchmarkBorrowPosition,
+        referral: Option<&mut BenchmarkReferralOwnedState>,
         request: BenchmarkRepayRequest,
     ) -> Result<BenchmarkPositionExecution<DebtReceipt>> {
         self.require_monotonic_clock(request.clock)?;
@@ -3158,6 +3183,7 @@ impl BenchmarkMarket {
         let revenue_before = self.revenue_checkpoint();
         let mut next_market = clone_market(&self.market)?;
         let mut next_position = clone_borrow_position(&position.position)?;
+        let mut next_referral = referral.as_ref().map(|state| state.try_fork()).transpose()?;
         advance_market_to_slot(&mut next_market, request.clock.slot)?;
         next_market.assert_started_at(request.clock.unix_timestamp)?;
         let referral_binding = referral_binding(&next_position, request.debt_asset);
@@ -3170,8 +3196,11 @@ impl BenchmarkMarket {
             request.interest_vault_credit,
             ErrorCode::FeeMathOverflow
         );
-        let expected_referral = referral_interest_amount(
+        let expected_referral = accrue_benchmark_referral_interest(
             referral_binding,
+            next_referral.as_mut(),
+            self.require_market_key()?,
+            next_market.side(request.debt_asset).asset_mint,
             receipt.interest_paid,
             request.interest_vault_credit,
             request.protocol_interest_fee_bps,
@@ -3199,7 +3228,7 @@ impl BenchmarkMarket {
         side.reserve_vault_credit = receipt.cash_repaid;
         side.reserve_vault_debit = receipt.interest_paid;
         side.interest_vault_credit = request.interest_vault_credit;
-        self.commit_position_execution(
+        let result = self.commit_position_execution(
             position,
             next_market,
             next_position,
@@ -3207,7 +3236,11 @@ impl BenchmarkMarket {
             revenue_before,
             cash,
             receipt,
-        )
+        )?;
+        if let Some((current, next)) = referral.zip(next_referral) {
+            *current = next;
+        }
+        Ok(result)
     }
 
     /// Opens the native liquidation auction and atomically owns both account
@@ -3329,12 +3362,13 @@ impl BenchmarkMarket {
 
     /// Executes bid or floor settlement with the same account-wide rollback
     /// boundary as the instruction: Market, BorrowPosition, and every touched
-    /// token balance are forked first and committed only after custody, fee,
-    /// slippage, and finalization checks all succeed.
+    /// token balance and referral claim ledger are forked first and committed
+    /// only after custody, fee, slippage, and finalization checks all succeed.
     pub fn execute_liquidation(
         &mut self,
         position: &mut BenchmarkBorrowPosition,
         token_balances: &mut BenchmarkLiquidationTokenBalances,
+        referral: Option<&mut BenchmarkReferralOwnedState>,
         request: BenchmarkLiquidationExecuteRequest,
     ) -> Result<BenchmarkLiquidationExecution> {
         self.require_monotonic_clock(request.preview.plan.clock)?;
@@ -3347,6 +3381,7 @@ impl BenchmarkMarket {
         let mut next_market = clone_market(&self.market)?;
         let mut next_position = clone_borrow_position(&position.position)?;
         let mut next_balances = *token_balances;
+        let mut next_referral = referral.as_ref().map(|state| state.try_fork()).transpose()?;
         let clock = request.preview.plan.clock;
         advance_market_to_slot(&mut next_market, clock.slot)?;
         next_market.assert_started_at(clock.unix_timestamp)?;
@@ -3514,8 +3549,11 @@ impl BenchmarkMarket {
         // to the staged account pair. Reconcile token-program outcomes and
         // revenue ownership exactly as the instruction does afterward.
         let referral_binding = referral_binding(&position.position, preview.plan.debt_asset);
-        let expected_referral = referral_interest_amount(
+        let expected_referral = accrue_benchmark_referral_interest(
             referral_binding,
+            next_referral.as_mut(),
+            self.require_market_key()?,
+            next_market.side(preview.plan.debt_asset).asset_mint,
             preview.native.interest_paid,
             request.interest_transfer.destination_credit,
             request.protocol_interest_fee_bps,
@@ -3655,6 +3693,9 @@ impl BenchmarkMarket {
         let market = self.commit_market_execution(next_market, clock, revenue_before, cash, receipt)?;
         *position.position = next_position;
         *token_balances = next_balances;
+        if let Some((current, next)) = referral.zip(next_referral) {
+            *current = next;
+        }
         Ok(BenchmarkLiquidationExecution {
             market,
             position_after,
@@ -4688,25 +4729,38 @@ fn referral_binding(position: &BorrowPosition, debt_asset: MarketAsset) -> (Pubk
     )
 }
 
-fn referral_interest_amount(
+fn accrue_benchmark_referral_interest(
     binding: (Pubkey, u16),
+    referral: Option<&mut BenchmarkReferralOwnedState>,
+    market_key: Pubkey,
+    asset_mint: Pubkey,
     interest_paid: u64,
     interest_vault_credit: u64,
     protocol_interest_fee_bps: u16,
 ) -> Result<u64> {
     let interest_share_bps = if binding.0 == Pubkey::default() {
         require_eq!(binding.1, 0, ErrorCode::BrokenInvariant);
+        require!(referral.is_none(), ErrorCode::InvalidReferralPartner);
         None
     } else {
+        let referral = referral.as_ref().ok_or(ErrorCode::InvalidReferralPartner)?;
+        validate_referral_owned_state(referral, market_key, asset_mint)?;
+        require_keys_eq!(referral.partner_key, binding.0, ErrorCode::InvalidReferralPartner);
         Some(binding.1)
     };
-    Ok(ReferralInterestQuote::new(
+    let quote = ReferralInterestQuote::new(
         interest_paid,
         interest_vault_credit,
         protocol_interest_fee_bps,
         interest_share_bps,
-    )?
-    .referral_amount)
+    )?;
+    if quote.referral_amount > 0 {
+        referral
+            .ok_or(ErrorCode::InvalidReferralAccrual)?
+            .accrual
+            .accrue(quote.referral_amount)?;
+    }
+    Ok(quote.referral_amount)
 }
 
 fn revenue_side_checkpoint(side: &MarketSide) -> BenchmarkRevenueSideCheckpoint {
@@ -5940,6 +5994,16 @@ mod tests {
         let owner = Pubkey::new_unique();
         let position_id = Pubkey::new_unique();
         let mut position = BenchmarkBorrowPosition::initialize(owner, market_key, position_id, 254).unwrap();
+        let mut referral = BenchmarkReferralOwnedState::initialize(
+            &benchmark,
+            MarketAsset::Base,
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            5_000,
+            true,
+        )
+        .unwrap();
+        let referral_partner = referral.partner_key;
         let mut native_market = clone_market(benchmark.market()).unwrap();
         let mut native_position = BenchmarkBorrowPosition::initialize(owner, market_key, position_id, 254)
             .unwrap()
@@ -5980,7 +6044,7 @@ mod tests {
         };
         advance_market_to_slot(&mut native_market, borrow_clock.slot).unwrap();
         native_market.assert_started_at(borrow_clock.unix_timestamp).unwrap();
-        native_position.set_referral_binding(MarketAsset::Base, Pubkey::default(), 0);
+        native_position.set_referral_binding(MarketAsset::Base, referral_partner, 5_000);
         let native_borrow = native_market
             .borrow(
                 &mut native_position,
@@ -6003,8 +6067,8 @@ mod tests {
                     min_recipient_credit: borrow_amount,
                     min_liquidation_cf_bps: 0,
                     global_reduce_only: false,
-                    referral_partner: Pubkey::default(),
-                    referral_interest_share_bps: 0,
+                    referral_partner,
+                    referral_interest_share_bps: 5_000,
                     referral_interest_share_cap_bps: BPS_DENOMINATOR,
                 },
             )
@@ -6016,8 +6080,8 @@ mod tests {
         assert_eq!(position_bytes(position.position()), position_bytes(&native_position));
 
         let repay_clock = BenchmarkClock {
-            slot: 100_003,
-            unix_timestamp: 100_003,
+            slot: 10_000_003,
+            unix_timestamp: 10_000_003,
         };
         advance_market_to_slot(&mut native_market, repay_clock.slot).unwrap();
         native_market.assert_started_at(repay_clock.unix_timestamp).unwrap();
@@ -6027,28 +6091,72 @@ mod tests {
         let native_repay = native_market
             .repay(&mut native_position, MarketAsset::Base, repayment.cash_repaid)
             .unwrap();
+        let expected_referral = ReferralInterestQuote::new(
+            native_repay.interest_paid,
+            native_repay.interest_paid,
+            2_000,
+            Some(5_000),
+        )
+        .unwrap()
+        .referral_amount;
+        assert!(expected_referral > 0);
         if native_repay.interest_paid > 0 {
             native_market
                 .base_side
-                .record_interest_credit(native_repay.interest_paid, 2_000, ProtocolAuctionSplit::default(), 0)
+                .record_interest_credit(
+                    native_repay.interest_paid,
+                    2_000,
+                    ProtocolAuctionSplit::default(),
+                    expected_referral,
+                )
                 .unwrap();
         }
         native_market.finalize_amm_transition(repay_clock.slot).unwrap();
         native_market.refresh_risk_at_slot(repay_clock.slot).unwrap();
 
-        let repay = benchmark
+        let market_before = market_bytes(benchmark.market());
+        let position_before = position_bytes(position.position());
+        let clock_before = benchmark.clock();
+        let repay_request = BenchmarkRepayRequest {
+            clock: repay_clock,
+            max_repay_credit: u64::MAX,
+            interest_vault_credit: native_repay.interest_paid,
+            protocol_interest_fee_bps: 2_000,
+            protocol_auction_split: ProtocolAuctionSplit::default(),
+            referral_interest_amount: expected_referral,
+            debt_asset: MarketAsset::Base,
+        };
+        assert!(benchmark.execute_repay(&mut position, None, repay_request).is_err());
+        let mut wrong_referral = BenchmarkReferralOwnedState::initialize(
+            &benchmark,
+            MarketAsset::Base,
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            5_000,
+            true,
+        )
+        .unwrap();
+        assert!(benchmark
+            .execute_repay(&mut position, Some(&mut wrong_referral), repay_request)
+            .is_err());
+        assert_eq!(wrong_referral.checkpoint().accrued_amount, 0);
+        assert!(benchmark
             .execute_repay(
                 &mut position,
+                Some(&mut referral),
                 BenchmarkRepayRequest {
-                    clock: repay_clock,
-                    max_repay_credit: u64::MAX,
-                    interest_vault_credit: native_repay.interest_paid,
-                    protocol_interest_fee_bps: 2_000,
-                    protocol_auction_split: ProtocolAuctionSplit::default(),
-                    referral_interest_amount: 0,
-                    debt_asset: MarketAsset::Base,
+                    referral_interest_amount: expected_referral + 1,
+                    ..repay_request
                 },
             )
+            .is_err());
+        assert_eq!(referral.checkpoint().accrued_amount, 0);
+        assert_eq!(market_bytes(benchmark.market()), market_before);
+        assert_eq!(position_bytes(position.position()), position_before);
+        assert_eq!(benchmark.clock(), clock_before);
+
+        let repay = benchmark
+            .execute_repay(&mut position, Some(&mut referral), repay_request)
             .unwrap();
         assert_eq!(repay.market.receipt, native_repay);
         assert_eq!(repay.market.cash.base.reserve_vault_credit, native_repay.cash_repaid);
@@ -6057,6 +6165,18 @@ mod tests {
         assert_eq!(market_bytes(benchmark.market()), market_bytes(&native_market));
         assert_eq!(position_bytes(position.position()), position_bytes(&native_position));
         assert_eq!(repay.position_after, position.checkpoint(&benchmark).unwrap());
+        assert_eq!(referral.checkpoint().accrued_amount, expected_referral);
+        let snapshot = referral.try_fork().unwrap();
+        let restored = BenchmarkReferralOwnedState::from_account_state(
+            &benchmark,
+            MarketAsset::Base,
+            snapshot.partner_key,
+            *snapshot.partner,
+            snapshot.accrual_key,
+            *snapshot.accrual,
+        )
+        .unwrap();
+        assert_eq!(restored.checkpoint(), referral.checkpoint());
     }
 
     #[test]
@@ -6718,6 +6838,7 @@ mod tests {
             .execute_liquidation(
                 &mut position,
                 &mut balances,
+                None,
                 BenchmarkLiquidationExecuteRequest {
                     preview: preview_request,
                     max_repay_source_debit: 1_000,
@@ -6803,6 +6924,7 @@ mod tests {
             .execute_liquidation(
                 &mut position,
                 &mut balances,
+                None,
                 BenchmarkLiquidationExecuteRequest {
                     min_collateral_recipient_credit: preview.plan.caller_bounty.saturating_add(1),
                     ..valid_request
@@ -6814,7 +6936,7 @@ mod tests {
         assert_eq!(balances, balances_before);
 
         let execution = benchmark
-            .execute_liquidation(&mut position, &mut balances, valid_request)
+            .execute_liquidation(&mut position, &mut balances, None, valid_request)
             .unwrap();
         assert_eq!(
             execution.market.receipt.native.socialized_loss,
@@ -6875,6 +6997,7 @@ mod tests {
             .execute_liquidation(
                 &mut position,
                 &mut balances,
+                None,
                 BenchmarkLiquidationExecuteRequest {
                     preview: preview_request,
                     max_repay_source_debit: 0,
