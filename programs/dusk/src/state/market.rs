@@ -439,6 +439,7 @@ pub struct HlpVault {
     pub unallocated_quote_swap_fee_amount: u64,
     pub unallocated_quote_interest_amount: u64,
     pub last_nav_nad: u128,
+    /// Base quoted in quote NAD units for either target asset; zero means unset.
     pub cached_settlement_price_nad: u128,
     /// Smoothed APR of the opposite asset borrowed by this target-asset hLP.
     /// The fixed twelve-hour half-life gives Stop Rate orders stable semantics.

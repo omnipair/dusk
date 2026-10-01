@@ -369,7 +369,7 @@ impl Market {
         } else {
             0
         };
-        Ok((base_delta, quote_delta, prices.for_asset(MarketAsset::Base) as u64))
+        Ok((base_delta, quote_delta, prices.base_in_quote_nad() as u64))
     }
 
     pub fn checkpoint_hlp_yield_from_ylp(&mut self, target_asset: MarketAsset) -> Result<()> {

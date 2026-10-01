@@ -192,6 +192,7 @@ pub struct BenchmarkHlpCheckpoint {
     pub quote_hlp_live_reserve: u64,
     pub residual_exposure: i128,
     pub last_nav_nad: u128,
+    /// Base quoted in quote NAD units for either target asset; zero means unset.
     pub cached_settlement_price_nad: u128,
 }
 
