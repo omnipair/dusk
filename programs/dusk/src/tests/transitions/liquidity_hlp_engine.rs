@@ -2,6 +2,58 @@ use super::*;
 use proptest::prelude::*;
 
 #[test]
+fn extreme_forward_price_values_both_hlp_numeraires_without_a_rounded_reciprocal() {
+    let mut market = Market::default();
+    market.base_side.asset_decimals = 0;
+    market.quote_side.asset_decimals = 0;
+    let price = (NAD as u128) * (NAD as u128) + NAD as u128;
+    let prices = hlp_curve_prices_from_base_price_nad(price).unwrap();
+
+    assert_eq!(
+        asset_value_in_target_nad_with_prices(&market, prices, MarketAsset::Base, 1, MarketAsset::Quote).unwrap(),
+        price,
+    );
+    assert_eq!(
+        asset_value_in_target_nad_with_prices(
+            &market,
+            prices,
+            MarketAsset::Quote,
+            NAD + 1,
+            MarketAsset::Base,
+        )
+        .unwrap(),
+        NAD as u128,
+    );
+    assert_eq!(
+        raw_amount_from_target_value_nad_with_prices(
+            &market,
+            prices,
+            MarketAsset::Quote,
+            MarketAsset::Base,
+            NAD as u128,
+        )
+        .unwrap(),
+        NAD + 1,
+    );
+}
+
+#[test]
+fn quote_hlp_settlement_divergence_uses_inverse_relative_change() {
+    let mut market = Market::default();
+    market.base_side.asset_decimals = 0;
+    market.quote_side.asset_decimals = 0;
+    market.add_liquidity(10_000, 20_000).unwrap();
+    market.config.settlement_divergence_bps = 500;
+    market.quote_hlp_vault.hlp_supply = 1;
+    market.quote_hlp_vault.cached_settlement_price_nad = 1_900_000_000;
+    market.base_hlp_vault.hlp_supply = 1;
+    market.base_hlp_vault.cached_settlement_price_nad = 1_900_000_000;
+
+    assert!(require_hlp_settlement_available(&market, MarketAsset::Quote).is_ok());
+    assert!(require_hlp_settlement_available(&market, MarketAsset::Base).is_err());
+}
+
+#[test]
 fn proportional_debt_checks_adjacent_shares_after_interest_accrual() {
     let index = 6_989_199_360;
     // All five old raw candidates (6,990..=6,994) round up to 1,001

@@ -5,6 +5,20 @@ use crate::{
 };
 
 #[test]
+fn extreme_forward_price_does_not_block_inactive_hlp_checkpoint() {
+    let mut market = Market::default();
+    market.base_side.asset_decimals = 0;
+    market.quote_side.asset_decimals = 0;
+    market.add_liquidity(1, NAD + 1).unwrap();
+    let spot = market.current_concentrated_spot_price_nad().unwrap().unwrap();
+    assert!(spot as u128 > (NAD as u128) * (NAD as u128));
+    assert_eq!(market.base_hlp_vault.hlp_supply, 0);
+    assert_eq!(market.quote_hlp_vault.hlp_supply, 0);
+
+    market.checkpoint_hlp_vaults().unwrap();
+}
+
+#[test]
 fn hlp_raw_principal_accepts_u64_max_and_rejects_the_next_atom() {
     let mut vault = HlpVault::default();
     vault.add_debt_principal(u64::MAX).unwrap();

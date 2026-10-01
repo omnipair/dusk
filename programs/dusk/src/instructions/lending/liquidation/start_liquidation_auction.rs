@@ -72,7 +72,8 @@ impl<'info> StartLiquidationAuction<'info> {
             ErrorCode::PositionNotLiquidatable
         );
 
-        // Start at a 5% premium and decay toward the immutable floor.
+        // Store the opening 5% premium. Fills apply its remaining fraction to
+        // the current liquidation reference rather than this price snapshot.
         let floor_price = liquidation_reference_price_nad;
         let start_price = floor_price
             .checked_mul(105)

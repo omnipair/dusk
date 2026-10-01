@@ -187,8 +187,8 @@ impl<'info> FillLiquidationAuction<'info> {
         let referral_interest_share_bps = ctx.accounts.borrow_position.referral_interest_share_bps(debt_asset);
 
         // `market_update_and_validate` materializes current risk immediately
-        // before this handler. Cancel a recovered auction before reading its
-        // stored price or moving bidder tokens.
+        // before this handler. Cancel a recovered auction before quoting its
+        // current reference price or moving bidder tokens.
         ctx.accounts.borrow_position.assert_liquidation_auction(debt_asset)?;
         ctx.accounts
             .market
@@ -208,16 +208,14 @@ impl<'info> FillLiquidationAuction<'info> {
             !ctx.accounts.borrow_position.liquidation_auction_expired(now)?,
             ErrorCode::PositionNotLiquidatable
         );
-        let mut final_price = ctx.accounts.borrow_position.liquidation_auction_price_nad(now)?;
-
-        // Liquidator pays LP fee (e.g. 0.20%) to beat the floor
-        let reservation_fee = final_price
-            .checked_mul(20)
-            .and_then(|v| v.checked_div(10000))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        final_price = final_price
-            .checked_add(reservation_fee)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let current_reference_price_nad = ctx
+            .accounts
+            .market
+            .liquidation_reference_price_nad(&ctx.accounts.borrow_position, debt_asset)?;
+        let final_price = ctx
+            .accounts
+            .borrow_position
+            .liquidation_auction_bid_price_nad(now, current_reference_price_nad)?;
 
         let liquidation_pricing = LiquidationPricing::ReferencePrice {
             debt_per_collateral_price_nad: final_price,

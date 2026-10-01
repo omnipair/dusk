@@ -13172,6 +13172,9 @@ export type Dusk = {
           },
           {
             "name": "cachedSettlementPriceNad",
+            "docs": [
+              "Base quoted in quote NAD units for either target asset; zero means unset."
+            ],
             "type": "u128"
           },
           {
