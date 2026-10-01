@@ -229,23 +229,19 @@ pub fn adapt_rate_at_target_nad(
 }
 
 /// Advance a borrow index by `dt_ms` at the given instantaneous APR (NAD):
-/// `index *= 1 + apr * dt / year`. Elapsed time is capped per call.
+/// `index *= 1 + apr * dt / year` for the full elapsed interval.
 #[cfg(test)]
 pub fn accrued_index_nad(index_nad: u128, rate_apr_nad: u128, dt_ms: u64) -> Result<u128> {
     if index_nad == 0 || dt_ms == 0 || rate_apr_nad == 0 {
         return Ok(index_nad);
     }
-    let dt = dt_ms.min(MAX_INTEREST_ACCRUAL_MS) as u128;
-    let growth_nad = rate_apr_nad
-        .checked_mul(dt)
-        .and_then(|value| value.checked_div(MS_PER_YEAR as u128))
+    let denominator = (MS_PER_YEAR as u128)
+        .checked_mul(NAD as u128)
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    if growth_nad == 0 {
-        return Ok(index_nad);
-    }
     let delta = index_nad
-        .checked_mul(growth_nad)
-        .and_then(|value| value.checked_div(NAD as u128))
+        .checked_mul(rate_apr_nad)
+        .and_then(|value| value.checked_mul(dt_ms as u128))
+        .and_then(|value| value.checked_div(denominator))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     index_nad
         .checked_add(delta)

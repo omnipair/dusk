@@ -78,6 +78,21 @@ fn first_liquidity_initializes_center_without_an_oracle() {
 }
 
 #[test]
+fn final_user_withdrawal_allows_the_amm_to_reinitialize() {
+    let mut market = market_with_liquidity(concentrated_config());
+    market.ensure_amm_initialized(10).unwrap();
+    let user_shares = market.base_side.shares.ylp_supply - MIN_LIQUIDITY;
+    market.remove_liquidity(user_shares).unwrap();
+    market.finalize_amm_transition_and_observe_risk(11).unwrap();
+    assert!(!market.amm.initialized);
+
+    market.add_liquidity(100_000 * NAD, 100_000 * NAD).unwrap();
+    market.finalize_amm_transition_and_observe_risk(12).unwrap();
+    assert!(market.amm.initialized);
+    assert!(market.current_concentrated_spot_price_nad().unwrap().is_some());
+}
+
+#[test]
 fn concentrated_curve_initializes_and_quotes_the_integrated_ordinary_tranche() {
     let mut config = AmmConfig::default();
     config

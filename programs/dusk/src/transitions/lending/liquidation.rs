@@ -32,6 +32,7 @@ pub struct Liquidation {
     pub max_socialized_loss: u64,
     pub terms: LiquidationTerms,
     pub pricing: LiquidationPricing,
+    pub remaining_collateral_exit_credit: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -95,6 +96,7 @@ impl Liquidation {
             max_socialized_loss,
             terms,
             pricing: LiquidationPricing::PessimisticReserves,
+            remaining_collateral_exit_credit: None,
         }
     }
 
@@ -115,6 +117,7 @@ impl Liquidation {
             max_socialized_loss,
             terms,
             pricing,
+            remaining_collateral_exit_credit: None,
         }
     }
 
@@ -303,16 +306,22 @@ impl Liquidation {
         market.refresh_risk()?;
         let remaining_debt = position_debt(market, borrow_position, self.debt_asset)?;
         let remaining_collateral = position_collateral(borrow_position, self.debt_asset);
+        let remaining_collateral_effective = self.remaining_collateral_exit_credit.unwrap_or(remaining_collateral);
+        require_gte!(
+            remaining_collateral,
+            remaining_collateral_effective,
+            ErrorCode::BrokenInvariant
+        );
         let target_contribution = market.debt_capped_global_health_contribution(
             self.debt_asset,
             remaining_debt,
-            remaining_collateral,
+            remaining_collateral_effective,
             &market.risk,
         )?;
         if remaining_debt == 0 {
             borrow_position.set_liquidation_cf_bps(self.debt_asset, 0);
             borrow_position.clear_referral_binding(self.debt_asset);
-        } else {
+        } else if remaining_collateral_effective > 0 {
             let total_debt_nad = market.total_fixed_debt_nad(self.debt_asset)?;
             let external_debt_nad = market.external_fixed_debt_nad(borrow_position, self.debt_asset)?;
             let projected_aggregate = market.projected_aggregate_global_health_contribution(
@@ -322,16 +331,28 @@ impl Liquidation {
             )?;
             let terms = market.dynamic_borrow_terms(
                 self.debt_asset,
-                remaining_collateral,
+                remaining_collateral_effective,
                 external_debt_nad,
                 total_debt_nad,
                 projected_aggregate,
                 &market.risk,
             )?;
             borrow_position.set_liquidation_cf_bps(self.debt_asset, terms.liquidation_cf_bps);
+        } else {
+            // With a 100% exit fee the position remains unhealthy. Retain its
+            // issued threshold until the fee or position state changes.
+            require_gt!(
+                borrow_position.liquidation_cf_bps(self.debt_asset),
+                0,
+                ErrorCode::BrokenInvariant
+            );
         }
         market.reconcile_global_health_contribution(borrow_position, self.debt_asset, target_contribution)?;
-        market.reconcile_liquidation_auction(borrow_position)?;
+        if self.remaining_collateral_exit_credit.is_some() {
+            market.reconcile_liquidation_auction_with_credit(borrow_position, remaining_collateral_effective)?;
+        } else {
+            market.reconcile_liquidation_auction(borrow_position)?;
+        }
 
         market.assert_virtual_reserve_invariant(MarketAsset::Base)?;
         market.assert_virtual_reserve_invariant(MarketAsset::Quote)?;
@@ -368,13 +389,15 @@ fn position_collateral(borrow_position: &BorrowPosition, debt_asset: MarketAsset
     }
 }
 
-pub(crate) fn liquidation_health_bps_with_pricing(
+fn liquidation_health_bps_with_pricing_and_credit(
     market: &Market,
     borrow_position: &BorrowPosition,
     debt_asset: MarketAsset,
+    collateral_exit_credit: u64,
     pricing: LiquidationPricing,
 ) -> Result<u64> {
-    let collateral_value_nad = position_collateral_value_with_pricing(market, borrow_position, debt_asset, pricing)?;
+    let collateral_value_nad =
+        position_collateral_value_with_pricing_amount(market, debt_asset, collateral_exit_credit, pricing)?;
     let (debt_before, debt_decimals) = match debt_asset {
         MarketAsset::Base => (
             borrow_position.fixed_base_debt(&market.debt)?,
@@ -402,7 +425,12 @@ fn max_repay_to_restore_health_with_pricing(
     let debt_before = position_debt(market, borrow_position, debt_asset)?;
     let debt_decimals = market.side(debt_asset).asset_decimals;
     let debt_value_nad = market.normalize_amount(debt_before, debt_decimals)?;
-    let collateral_value_nad = position_collateral_value_with_pricing(market, borrow_position, debt_asset, pricing)?;
+    let collateral_value_nad = position_collateral_value_with_pricing_amount(
+        market,
+        debt_asset,
+        position_collateral(borrow_position, debt_asset),
+        pricing,
+    )?;
     let target_bps = liquidation_health_floor_bps(borrow_position.liquidation_cf_bps(debt_asset)) as u128;
     let penalty_multiplier_bps = (BPS_DENOMINATOR as u128)
         .checked_add(total_penalty_bps as u128)
@@ -431,33 +459,21 @@ fn max_repay_to_restore_health_with_pricing(
         .min(u64::try_from(debt_before).unwrap_or(u64::MAX)))
 }
 
-fn position_collateral_value_with_pricing(
+fn position_collateral_value_with_pricing_amount(
     market: &Market,
-    borrow_position: &BorrowPosition,
     debt_asset: MarketAsset,
+    collateral_amount: u64,
     pricing: LiquidationPricing,
 ) -> Result<u128> {
     match pricing {
         LiquidationPricing::PessimisticReserves => {
             let risk = market.current_risk()?;
-            match debt_asset {
-                MarketAsset::Base => market.linear_liquidation_collateral_value_nad(
-                    MarketAsset::Quote,
-                    borrow_position.quote_collateral,
-                    &risk,
-                ),
-                MarketAsset::Quote => market.linear_liquidation_collateral_value_nad(
-                    MarketAsset::Base,
-                    borrow_position.base_collateral,
-                    &risk,
-                ),
-            }
+            market.linear_liquidation_collateral_value_nad(debt_asset.opposite(), collateral_amount, &risk)
         }
         LiquidationPricing::ReferencePrice {
             debt_per_collateral_price_nad,
         } => {
             let collateral_asset = debt_asset.opposite();
-            let collateral_amount = position_collateral(borrow_position, debt_asset);
             require!(debt_per_collateral_price_nad > 0, ErrorCode::InvalidSettlementPrice);
             let collateral_amount_nad =
                 market.normalize_amount(collateral_amount as u128, market.side(collateral_asset).asset_decimals)?;
@@ -558,7 +574,13 @@ impl Market {
         debt_asset: MarketAsset,
         pricing: LiquidationPricing,
     ) -> Result<u64> {
-        liquidation_health_bps_with_pricing(self, borrow_position, debt_asset, pricing)
+        liquidation_health_bps_with_pricing_and_credit(
+            self,
+            borrow_position,
+            debt_asset,
+            position_collateral(borrow_position, debt_asset),
+            pricing,
+        )
     }
 
     pub fn liquidation_terms_with_pricing(
@@ -567,7 +589,33 @@ impl Market {
         debt_asset: MarketAsset,
         pricing: LiquidationPricing,
     ) -> Result<LiquidationTerms> {
-        let health_before = liquidation_health_bps_with_pricing(self, borrow_position, debt_asset, pricing)?;
+        self.liquidation_terms_with_pricing_and_credit(
+            borrow_position,
+            debt_asset,
+            position_collateral(borrow_position, debt_asset),
+            pricing,
+        )
+    }
+
+    pub fn liquidation_terms_with_pricing_and_credit(
+        &self,
+        borrow_position: &BorrowPosition,
+        debt_asset: MarketAsset,
+        collateral_exit_credit: u64,
+        pricing: LiquidationPricing,
+    ) -> Result<LiquidationTerms> {
+        require_gte!(
+            position_collateral(borrow_position, debt_asset),
+            collateral_exit_credit,
+            ErrorCode::BrokenInvariant
+        );
+        let health_before = liquidation_health_bps_with_pricing_and_credit(
+            self,
+            borrow_position,
+            debt_asset,
+            collateral_exit_credit,
+            pricing,
+        )?;
         let liquidation_cf_bps = borrow_position.liquidation_cf_bps(debt_asset);
         let liquidation_health_floor_bps = if liquidation_cf_bps == 0 {
             u64::MAX
@@ -596,7 +644,7 @@ impl Market {
                 let debt_decimals = self.side(debt_asset).asset_decimals;
                 let debt_value_nad = self.normalize_amount(debt_before, debt_decimals)?;
                 let collateral_value_nad =
-                    position_collateral_value_with_pricing(self, borrow_position, debt_asset, pricing)?;
+                    position_collateral_value_with_pricing_amount(self, debt_asset, collateral_exit_credit, pricing)?;
                 let target_bps = liquidation_health_floor_bps as u128;
                 let penalty_multiplier_bps = (BPS_DENOMINATOR as u128)
                     .checked_add(total_penalty_bps as u128)
@@ -686,6 +734,38 @@ impl Market {
             pricing,
         )
         .apply(self, borrow_position)
+    }
+
+    pub fn liquidation_collateral_seized(
+        &self,
+        borrow_position: &BorrowPosition,
+        debt_asset: MarketAsset,
+        repay_credit: u64,
+        terms: LiquidationTerms,
+        pricing: LiquidationPricing,
+    ) -> Result<u64> {
+        Ok(collateral_amount_for_debt_value_with_pricing(
+            self,
+            debt_asset,
+            repay_credit,
+            terms.total_penalty_bps,
+            pricing,
+        )?
+        .min(position_collateral(borrow_position, debt_asset)))
+    }
+
+    pub fn settle_liquidation_with_credit(
+        &mut self,
+        borrow_position: &mut BorrowPosition,
+        debt_asset: MarketAsset,
+        repay_credit: u64,
+        terms: LiquidationTerms,
+        pricing: LiquidationPricing,
+        remaining_collateral_exit_credit: u64,
+    ) -> Result<LiquidationReceipt> {
+        let mut liquidation = Liquidation::new_with_pricing(debt_asset, repay_credit, 0, 0, 0, terms, pricing);
+        liquidation.remaining_collateral_exit_credit = Some(remaining_collateral_exit_credit);
+        liquidation.apply(self, borrow_position)
     }
 
     /// Closes a lending position after its external auction expires. The AMM

@@ -75,7 +75,12 @@ impl<'info> CreateLeverageEntryOrder<'info> {
             ctx.accounts.collateral_mint.key(),
             LeverageDelegateError::InvalidTokenAccount
         );
-        let (position, _) = leverage_position_pda(ctx.accounts.market.key(), args.position_id)?;
+        let (position, _) = leverage_position_pda(
+            ctx.accounts.market.key(),
+            ctx.accounts.owner.key(),
+            ctx.accounts.order.key(),
+            args.position_id,
+        )?;
 
         let vault_balance_before = ctx.accounts.funding_vault.amount;
         transfer_checked(

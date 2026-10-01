@@ -132,6 +132,16 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
                 "path": "leverage_position.position_id",
                 "account": "leveragePosition"
               }
@@ -140,6 +150,9 @@ export type Dusk = {
         },
         {
           "name": "debtMint"
+        },
+        {
+          "name": "collateralMint"
         },
         {
           "name": "debtReserveVault",
@@ -530,6 +543,11 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
+              },
+              {
+                "kind": "account",
                 "path": "borrow_position.position_id",
                 "account": "borrowPosition"
               }
@@ -731,6 +749,11 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
               },
               {
                 "kind": "account",
@@ -1153,6 +1176,16 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
                 "path": "leverage_position.position_id",
                 "account": "leveragePosition"
               }
@@ -1220,6 +1253,22 @@ export type Dusk = {
         {
           "name": "ownerDebtAccount",
           "writable": true
+        },
+        {
+          "name": "delegateFeeRecipient",
+          "docs": [
+            "Protocol treasury token account for delegated close order fees."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "delegateExecutorAccount",
+          "docs": [
+            "Executor-owned token account for delegated close incentives."
+          ],
+          "writable": true,
+          "optional": true
         },
         {
           "name": "referralPartner",
@@ -1578,6 +1627,16 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
               },
               {
                 "kind": "account",
@@ -2026,6 +2085,16 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
                 "path": "leverage_position.position_id",
                 "account": "leveragePosition"
               }
@@ -2220,6 +2289,16 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
                 "path": "leverage_position.position_id",
                 "account": "leveragePosition"
               }
@@ -2287,6 +2366,22 @@ export type Dusk = {
         {
           "name": "ownerDebtAccount",
           "writable": true
+        },
+        {
+          "name": "delegateFeeRecipient",
+          "docs": [
+            "Protocol treasury token account for delegated close order fees."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "delegateExecutorAccount",
+          "docs": [
+            "Executor-owned token account for delegated close incentives."
+          ],
+          "writable": true,
+          "optional": true
         },
         {
           "name": "referralPartner",
@@ -2463,6 +2558,10 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
               },
               {
                 "kind": "arg",
@@ -2755,6 +2854,11 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
               },
               {
                 "kind": "account",
@@ -3059,6 +3163,11 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
               },
               {
                 "kind": "account",
@@ -3543,6 +3652,16 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
               },
               {
                 "kind": "account",
@@ -4746,6 +4865,10 @@ export type Dusk = {
           "writable": true
         },
         {
+          "name": "insuranceVault",
+          "writable": true
+        },
+        {
           "name": "leverageCollateralVault",
           "writable": true
         },
@@ -5344,6 +5467,11 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
+              },
+              {
+                "kind": "account",
                 "path": "borrow_position.position_id",
                 "account": "borrowPosition"
               }
@@ -5437,6 +5565,11 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
               },
               {
                 "kind": "account",
@@ -5948,6 +6081,16 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
                 "path": "leverage_position.position_id",
                 "account": "leveragePosition"
               }
@@ -6229,6 +6372,9 @@ export type Dusk = {
           "name": "debtAssetMint"
         },
         {
+          "name": "collateralAssetMint"
+        },
+        {
           "name": "reserveVault",
           "writable": true
         },
@@ -6271,6 +6417,11 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
               },
               {
                 "kind": "account",
@@ -6464,6 +6615,16 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
                 "path": "leverage_position.position_id",
                 "account": "leveragePosition"
               }
@@ -6472,6 +6633,9 @@ export type Dusk = {
         },
         {
           "name": "debtMint"
+        },
+        {
+          "name": "collateralMint"
         },
         {
           "name": "debtReserveVault",
@@ -7454,6 +7618,11 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
+              },
+              {
+                "kind": "account",
                 "path": "borrow_position.position_id",
                 "account": "borrowPosition"
               }
@@ -7462,6 +7631,9 @@ export type Dusk = {
         },
         {
           "name": "debtAssetMint"
+        },
+        {
+          "name": "collateralAssetMint"
         },
         {
           "name": "eventAuthority",
@@ -7976,6 +8148,16 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
               },
               {
                 "kind": "account",
@@ -8634,6 +8816,11 @@ export type Dusk = {
               },
               {
                 "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
+              },
+              {
+                "kind": "account",
                 "path": "borrow_position.position_id",
                 "account": "borrowPosition"
               }
@@ -8841,6 +9028,11 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "borrow_position.owner",
+                "account": "borrowPosition"
               },
               {
                 "kind": "account",
@@ -9144,6 +9336,16 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.owner",
+                "account": "leveragePosition"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.namespace_authority",
+                "account": "leveragePosition"
               },
               {
                 "kind": "account",
@@ -10795,7 +10997,12 @@ export type Dusk = {
     {
       "code": 6135,
       "name": "invalidLeverageCollateralMint",
-      "msg": "Leverage collateral mint must not have transfer fee configuration"
+      "msg": "Leverage collateral transfer fee must be immutable with no pending change"
+    },
+    {
+      "code": 6136,
+      "name": "freezableAssetMint",
+      "msg": "Asset mint has an active freeze authority"
     }
   ],
   "types": [
@@ -12056,6 +12263,18 @@ export type Dusk = {
           },
           {
             "name": "quoteBorrowIndexNad",
+            "type": "u128"
+          },
+          {
+            "name": "baseBorrowIndexRemainder",
+            "docs": [
+              "Fractional index growth carried across checkpoints. Denominator is",
+              "`NAD * MS_PER_YEAR`, so frequent checkpoints cannot discard interest."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "quoteBorrowIndexRemainder",
             "type": "u128"
           },
           {
@@ -13536,6 +13755,10 @@ export type Dusk = {
             "type": "u32"
           },
           {
+            "name": "openCurveRevision",
+            "type": "u64"
+          },
+          {
             "name": "bump",
             "type": "u8"
           }
@@ -13596,6 +13819,14 @@ export type Dusk = {
             "type": "pubkey"
           },
           {
+            "name": "namespaceAuthority",
+            "docs": [
+              "Funding signer that established this position. Ordinary opens use the",
+              "owner; sponsored entry orders use their owner-created order PDA."
+            ],
+            "type": "pubkey"
+          },
+          {
             "name": "positionId",
             "type": "pubkey"
           },
@@ -13641,6 +13872,14 @@ export type Dusk = {
           },
           {
             "name": "openedSlot",
+            "type": "u64"
+          },
+          {
+            "name": "openCurveRevision",
+            "docs": [
+              "Market curve revision committed by this opening. A recreated PDA gets",
+              "a new revision even if it reopens in the same slot."
+            ],
             "type": "u64"
           },
           {
@@ -13745,6 +13984,14 @@ export type Dusk = {
           },
           {
             "name": "debtRepaid",
+            "type": "u64"
+          },
+          {
+            "name": "insuranceDrawn",
+            "type": "u64"
+          },
+          {
+            "name": "socializedLoss",
             "type": "u64"
           },
           {
@@ -15898,6 +16145,10 @@ export type Dusk = {
         "fields": [
           {
             "name": "collateralAmount",
+            "docs": [
+              "Net deposit credit in the collateral vault. Capacity also accounts",
+              "for the current fee when that collateral later exits the vault."
+            ],
             "type": "u64"
           },
           {
@@ -17595,7 +17846,8 @@ export type Dusk = {
           {
             "name": "concentratedCurveBranch",
             "docs": [
-              "0=lower tail, 1=concentrated band, 2=upper tail."
+              "0=lower tail, 1=lower shoulder, 2=inner band,",
+              "3=upper shoulder, 4=upper tail."
             ],
             "type": "u8"
           },

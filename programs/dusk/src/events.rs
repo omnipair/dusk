@@ -651,6 +651,8 @@ pub struct LeveragePositionLiquidated {
     pub debt_asset_mint: Pubkey,
     pub collateral_asset_mint: Pubkey,
     pub debt_repaid: u64,
+    pub insurance_drawn: u64,
+    pub socialized_loss: u64,
     pub interest_paid: u64,
     pub principal_written_off: u64,
     pub collateral_sold: u64,

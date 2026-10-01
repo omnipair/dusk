@@ -11,8 +11,11 @@ use crate::{
     events::{LeveragePositionLiquidated, LeverageSwapReceipt, MarketEventMetadata, SwapExecuted, SwapOrigin},
     generate_market_seeds,
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
-    token::transfer_checked_with_remaining_accounts,
-    transitions::{liquidity::SwapCashPolicy, HlpYieldEligibility, LeverageLiquidationReceipt, LeverageSwapFeeCredit},
+    token::{get_transfer_fee, transfer_checked_with_remaining_accounts},
+    transitions::{
+        liquidity::SwapCashPolicy, HlpYieldEligibility, LeverageInsuranceDraw, LeverageLiquidationReceipt,
+        LeverageSwapFeeCredit,
+    },
 };
 
 use super::settlement::{
@@ -56,6 +59,8 @@ pub struct LiquidateLeveragePosition<'info> {
     pub collateral_reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
     pub debt_interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(mut)]
+    pub insurance_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(mut)]
     pub leverage_collateral_vault: Box<InterfaceAccount<'info, TokenAccount>>,
@@ -86,8 +91,12 @@ impl<'info> LiquidateLeveragePosition<'info> {
         validate_leverage_futarchy_pda(self.futarchy_authority.bump, self.futarchy_authority.key())?;
         self.market.assert_started_at(unix_timestamp)?;
         let market_key = self.market.key();
-        let (expected_position, expected_position_bump) =
-            leverage_position_pda(market_key, self.leverage_position.position_id)?;
+        let (expected_position, expected_position_bump) = leverage_position_pda(
+            market_key,
+            self.leverage_position.owner,
+            self.leverage_position.namespace_authority,
+            self.leverage_position.position_id,
+        )?;
         require_keys_eq!(
             self.leverage_position.key(),
             expected_position,
@@ -126,6 +135,16 @@ impl<'info> LiquidateLeveragePosition<'info> {
             &self.collateral_reserve_vault,
         )?;
         validate_leverage_interest_account(&self.market, &self.debt_mint, &self.debt_interest_vault, debt_asset)?;
+        require_keys_eq!(
+            self.insurance_vault.key(),
+            match debt_asset {
+                MarketAsset::Base => self.market.insurance.base_vault,
+                MarketAsset::Quote => self.market.insurance.quote_vault,
+            },
+            ErrorCode::InvalidVault
+        );
+        require_keys_eq!(self.insurance_vault.mint, self.debt_mint.key(), ErrorCode::InvalidVault);
+        require_keys_eq!(self.insurance_vault.owner, market_key, ErrorCode::InvalidVault);
         let (expected_collateral_vault, _) = leverage_collateral_vault_pda(market_key, self.collateral_mint.key())?;
         require_keys_eq!(
             self.leverage_collateral_vault.key(),
@@ -196,37 +215,113 @@ impl<'info> LiquidateLeveragePosition<'info> {
             collateral_reserve_balance_before,
             &ctx.accounts.collateral_reserve_vault,
         )?;
-        require!(collateral_reserve_credit > 0, ErrorCode::AmountZero);
-
-        // Quote the credited collateral as a debt-asset liquidation swap.
         crate::instructions::accounting::accrue_market_interest(
             &mut ctx.accounts.market,
             current_slot,
             ctx.accounts.event_authority.to_account_info(),
         )?;
-        let prepared_swap = prepare_leverage_swap(
-            &mut ctx.accounts.market,
-            SwapRequest {
-                current_slot,
-                current_unix_timestamp,
-                asset_in: collateral_asset,
-                reserve_credit: collateral_reserve_credit,
-                protocol_fee_bps: ctx.accounts.futarchy_authority.revenue_share.swap_bps,
-            },
-            SwapCashPolicy::Liquidate {
-                debt_asset,
-                debt_shares: ctx.accounts.leverage_position.debt_shares,
-                debt_principal: ctx.accounts.leverage_position.debt_principal,
-            },
-        )?;
-        let interest_eligibility = prepared_swap.interest_eligibility;
-        let swap_fee_credit = leverage_swap_fee_credit(&prepared_swap.leverage_quote())?;
+        // Freeze the swap quote before moving insurance. The measured vault
+        // credit, rather than the requested debit, repays the remaining debt.
+        let prepared_swap = if collateral_reserve_credit > 0 {
+            Some(prepare_leverage_swap(
+                &mut ctx.accounts.market,
+                SwapRequest {
+                    current_slot,
+                    current_unix_timestamp,
+                    asset_in: collateral_asset,
+                    reserve_credit: collateral_reserve_credit,
+                    protocol_fee_bps: ctx.accounts.futarchy_authority.revenue_share.swap_bps,
+                },
+                SwapCashPolicy::Liquidate {
+                    debt_asset,
+                    debt_shares: ctx.accounts.leverage_position.debt_shares,
+                    debt_principal: ctx.accounts.leverage_position.debt_principal,
+                    insurance_credit: 0,
+                },
+            )?)
+        } else {
+            ctx.accounts.market.prepare_leverage_margin_operation(current_slot)?;
+            None
+        };
+        let interest_eligibility = prepared_swap
+            .as_ref()
+            .map(|swap| swap.interest_eligibility)
+            .unwrap_or_else(|| HlpYieldEligibility {
+                ylp_supply: ctx.accounts.market.base_side.shares.ylp_supply,
+                base_hlp_ylp_shares: ctx.accounts.market.base_hlp_vault.ylp_shares,
+                quote_hlp_ylp_shares: ctx.accounts.market.quote_hlp_vault.ylp_shares,
+            });
+        let swap_output = prepared_swap
+            .as_ref()
+            .map(|swap| swap.leverage_quote().amount_out)
+            .unwrap_or(0);
+        let swap_fee_credit = prepared_swap
+            .as_ref()
+            .map(|swap| leverage_swap_fee_credit(&swap.leverage_quote()))
+            .transpose()?
+            .unwrap_or_default();
+        let full_repayment = ctx
+            .accounts
+            .market
+            .debt
+            .isolated_repayment_for_max(debt_asset, ctx.accounts.leverage_position.debt_shares, u64::MAX)?
+            .cash_repaid;
+        let insurance_request = ctx
+            .accounts
+            .market
+            .insurance
+            .draw_capacity(debt_asset, current_slot)?
+            .min(ctx.accounts.insurance_vault.amount)
+            .min(full_repayment.saturating_sub(swap_output));
+        // A 100% fee cannot repay debt. Preserve the insurance vault and
+        // socialize the loss instead of paying the mint's fee authority.
+        let insurance_request = if insurance_request > 0
+            && get_transfer_fee(&ctx.accounts.debt_mint.to_account_info(), insurance_request)? == insurance_request
+        {
+            0
+        } else {
+            insurance_request
+        };
+        let insurance = if insurance_request > 0 {
+            let debt_token_program = token_program_for_mint(
+                &ctx.accounts.debt_mint,
+                &ctx.accounts.token_program,
+                &ctx.accounts.token_2022_program,
+            )?;
+            let insurance_before = ctx.accounts.insurance_vault.amount;
+            let reserve_before = ctx.accounts.debt_reserve_vault.amount;
+            transfer_checked_with_remaining_accounts(
+                ctx.accounts.market.to_account_info(),
+                ctx.accounts.insurance_vault.to_account_info(),
+                ctx.accounts.debt_reserve_vault.to_account_info(),
+                ctx.accounts.debt_mint.to_account_info(),
+                debt_token_program,
+                insurance_request,
+                ctx.accounts.debt_mint.decimals,
+                &[&generate_market_seeds!(ctx.accounts.market)[..]],
+                h_lp_accounts.hook_accounts(ctx.remaining_accounts),
+            )?;
+            ctx.accounts.insurance_vault.reload()?;
+            ctx.accounts.debt_reserve_vault.reload()?;
+            let spent = insurance_before
+                .checked_sub(ctx.accounts.insurance_vault.amount)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            require_eq!(spent, insurance_request, ErrorCode::BrokenInvariant);
+            LeverageInsuranceDraw {
+                spent,
+                credit: token_account_credit(reserve_before, &ctx.accounts.debt_reserve_vault)?,
+            }
+        } else {
+            LeverageInsuranceDraw::default()
+        };
 
         // Commit liquidation accounting and settle the resulting hLP exposure.
         let receipt = ctx.accounts.market.liquidate_leverage_position(
             &mut ctx.accounts.leverage_position,
             prepared_swap,
+            collateral_reserve_credit,
             swap_fee_credit,
+            insurance,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
             current_slot,
@@ -379,17 +474,19 @@ fn finish_liquidation<'info>(
         ctx.accounts.market.base_side.reserves.live_reserve,
         ctx.accounts.market.quote_side.reserves.live_reserve,
     )?;
-    emit_cpi!(SwapExecuted::from_leverage(
-        market_key,
-        owner_key,
-        liquidator_key,
-        position_key,
-        SwapOrigin::LeverageLiquidation,
-        current_slot,
-        swap_event,
-        receipt.swap.start_price_nad,
-        &ctx.accounts.market,
-    )?);
+    if receipt.swap.amount_in > 0 {
+        emit_cpi!(SwapExecuted::from_leverage(
+            market_key,
+            owner_key,
+            liquidator_key,
+            position_key,
+            SwapOrigin::LeverageLiquidation,
+            current_slot,
+            swap_event,
+            receipt.swap.start_price_nad,
+            &ctx.accounts.market,
+        )?);
+    }
     emit_cpi!(LeveragePositionLiquidated {
         market: market_key,
         position: position_key,
@@ -398,6 +495,8 @@ fn finish_liquidation<'info>(
         debt_asset_mint: debt_mint_key,
         collateral_asset_mint: collateral_mint_key,
         debt_repaid: receipt.debt_repaid,
+        insurance_drawn: receipt.insurance_drawn,
+        socialized_loss: receipt.socialized_loss,
         interest_paid: receipt.interest_paid,
         principal_written_off: receipt.principal_written_off,
         collateral_sold: receipt.collateral_sold,

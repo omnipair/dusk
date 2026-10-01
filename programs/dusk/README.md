@@ -108,7 +108,7 @@ Each market records three Token-2022 LP mints:
 - `hLP_base`: one-sided hedged LP shares targeting base exposure.
 - `hLP_quote`: one-sided hedged LP shares targeting quote exposure.
 
-yLP and hLP mints must be fee-free Token-2022 mints with an immutable transfer hook configured to the Dusk program (`TransferHook.authority = None`), mint authority set to the market PDA, and no freeze authority. `initialize_lp_metadata` creates Metaplex metadata for each LP mint with the market PDA as update authority. Production builds additionally enforce vanity suffixes: `yLP` for yLP and `hLP` for each hLP mint. Underlying asset mints may be SPL Token or Token-2022 mints accepted by the shared mint validator.
+yLP and hLP mints must be fee-free Token-2022 mints with an immutable transfer hook configured to the Dusk program (`TransferHook.authority = None`), mint authority set to the market PDA, and no freeze authority. `initialize_lp_metadata` creates Metaplex metadata for each LP mint with the market PDA as update authority. Production builds additionally enforce vanity suffixes: `yLP` for yLP and `hLP` for each hLP mint. Underlying asset mints may be SPL Token or Token-2022 mints without a freeze authority or Transfer Hook extension.
 
 ### LP mint addresses, names and metadata
 
@@ -249,7 +249,7 @@ bound_referral_share      = min(partner.interest_share_bps, max_referral_interes
 referral_accrual          = floor(protocol_interest_revenue * bound_referral_share / 10_000)
 ```
 
-The runtime cap is governed through `update_protocol_revenue` and applies when a new binding is admitted; later cap or partner changes do not reprice existing debt. `ReferralAccrual` records the claimable liability for one partner, market, and debt mint while the backing tokens remain in the market interest vault. `claim_referral_interest` pays the partner's current recipient. Realization and claims support legacy SPL Token and Token-2022 assets, including transfer fees and transfer hooks.
+The runtime cap is governed through `update_protocol_revenue` and applies when a new binding is admitted; later cap or partner changes do not reprice existing debt. `ReferralAccrual` records the claimable liability for one partner, market, and debt mint while the backing tokens remain in the market interest vault. `claim_referral_interest` pays the partner's current recipient. Realization and claims support legacy SPL Token and admitted Token-2022 assets, including transfer fees.
 
 ## Swaps And Rebalancing
 
@@ -430,10 +430,12 @@ even above 18 decimals.
 ## Token-2022 asset extensions
 
 Asset mints may use `TransferFeeConfig`, `MetadataPointer`, `TokenMetadata`,
-`TransferHook`, `GroupPointer`, `TokenGroup`, `GroupMemberPointer`,
+`GroupPointer`, `TokenGroup`, `GroupMemberPointer`,
 `TokenGroupMember`, `InterestBearingConfig`, and `ScaledUiAmount`. Other mint
-extensions remain rejected. Group metadata describes membership; Dusk does not
-use it as an authorization or collateral-value signal.
+extensions remain rejected, as do mints with a freeze authority. A Transfer Hook
+extension is rejected even when its program is currently unset, because its
+authority could configure a hook after market creation. Group metadata describes
+membership; Dusk does not use it as an authorization or collateral-value signal.
 
 Interest-bearing and scaled-UI extensions change the token program's displayed
 amounts, not raw balances or supply. Dusk settles, prices, and measures risk in
@@ -444,8 +446,9 @@ current UI representation at their input/display boundary, including when
 showing prices; a UI multiplier is not additional collateral or earned Dusk
 yield. See the [SDK amount guidance](../../packages/dusk-sdk/README.md#token-amounts-and-ui-extensions).
 
-Transfer-fee mints remain excluded from leverage collateral on risk-increasing
-paths and from auction payment, even when the configured fee is currently zero.
-Hooks still require their extra accounts and may reject transfers. LP receipt
-mints keep a separate, narrower policy: only `MetadataPointer`, `TokenMetadata`,
+Transfer-fee mints are supported as leverage collateral, including when the fee
+authority can change the rate. Borrow capacity uses the collateral expected to
+reach reserves on unwind at the current fee; liquidation measures the actual
+reserve credit. Auction payment remains excluded for transfer-fee mints.
+LP receipt mints keep a separate, narrower policy: only `MetadataPointer`, `TokenMetadata`,
 and the mandatory immutable Dusk `TransferHook` are allowed.

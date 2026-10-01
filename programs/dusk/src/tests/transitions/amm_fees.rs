@@ -436,9 +436,10 @@ fn one_atom_quotes_either_preserve_input_or_fail_closed() {
 fn coefficient_signal_and_coordinate_extremes_saturate_or_fail_closed() {
     let capped = outward_divergence_fee_potential_nad(1, 1, u128::MAX, u64::MAX, 5_000).unwrap();
     assert!(capped < u128::MAX);
-    let (saturated_fee, saturated) = gross_path_divergence_fee_raw(1, u64::MAX - 1, u64::MAX, u64::MAX, 5_000).unwrap();
-    assert!(saturated);
-    assert_eq!(saturated_fee, u128::MAX);
+    let (capped_fee, saturated) = gross_path_divergence_fee_raw(1, u64::MAX - 1, u64::MAX, u64::MAX, 5_000).unwrap();
+    // The split-resistant Huber potential caps this one-atom tail increment.
+    assert!(!saturated);
+    assert!(capped_fee <= 1);
 
     let (restorative_fee, restorative_saturated) =
         gross_path_divergence_fee_raw(u64::MAX, u64::MAX - 1, u64::MAX, u64::MAX, 5_000).unwrap();
@@ -574,4 +575,10 @@ fn huberized_raw_state_is_marginally_capped_and_telescopes() {
     let pc = state.state_potential(c).unwrap().0;
     assert_eq!(pc - pa, (pb - pa) + (pc - pb));
     assert!(pc - pb <= (c - b) as u128 * marginal_cap as u128 / NAD as u128 + 1);
+
+    let whole = gross_path_divergence_fee_raw(center, center + a, center + c, 100 * NAD, 2_000).unwrap();
+    let first = gross_path_divergence_fee_raw(center, center + a, center + b, 100 * NAD, 2_000).unwrap();
+    let second = gross_path_divergence_fee_raw(center, center + b, center + c, 100 * NAD, 2_000).unwrap();
+    assert!(!whole.1 && !first.1 && !second.1);
+    assert_eq!(whole.0, first.0 + second.0);
 }

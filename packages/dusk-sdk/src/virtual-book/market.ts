@@ -1,6 +1,6 @@
 import { DEFAULT_READONLY_PUBLIC_KEY } from "../address.js";
 import type { Program } from "@coral-xyz/anchor";
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import { address as publicKey, type AddressLike } from "../address.js";
 import { deriveMarketAddress } from "../constants.js";
 import { decodePreviewMarketReturnData } from "../preview.js";
@@ -17,7 +17,16 @@ export async function previewVirtualBookSnapshot(
   options.signal?.throwIfAborted();
   const market = publicKey(marketAddress).toBase58();
   const floor = options.minContextSlot ?? 0;
-  const instruction = await program.methods
+  const methods = (program as unknown as {
+    methods: {
+      previewMarket(): {
+        accountsStrict(accounts: { market: PublicKey }): {
+          instruction(): Promise<TransactionInstruction>;
+        };
+      };
+    };
+  }).methods;
+  const instruction = await methods
     .previewMarket()
     .accountsStrict({ market: publicKey(market) })
     .instruction();

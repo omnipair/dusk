@@ -2,7 +2,23 @@ use super::*;
 use crate::state::Debt;
 
 fn snapshot() -> (Market, Clock) {
-    let bytes = include_bytes!("../fixtures/hlp-entry-devnet-500291305.bin");
+    // The captured devnet account predates fractional borrow-index carries.
+    // Insert zero carries at the new Debt fields without changing the fixture.
+    let mut layout = Market::default();
+    layout.debt.base_borrow_index_nad = 0x1234_5678_9abc_def0_1357_2468_ace0_bdf1;
+    layout.debt.quote_borrow_index_nad = 0x2468_ace0_1357_bdf1_1234_5678_9abc_def0;
+    let mut layout_bytes = Vec::new();
+    layout.try_serialize(&mut layout_bytes).unwrap();
+    let mut marker = Vec::new();
+    marker.extend_from_slice(&layout.debt.base_borrow_index_nad.to_le_bytes());
+    marker.extend_from_slice(&layout.debt.quote_borrow_index_nad.to_le_bytes());
+    let insertion_offset = layout_bytes
+        .windows(marker.len())
+        .position(|window| window == marker)
+        .unwrap()
+        + marker.len();
+    let mut bytes = include_bytes!("../fixtures/hlp-entry-devnet-500291305.bin").to_vec();
+    bytes.splice(insertion_offset..insertion_offset, [0u8; 32]);
     let market = Market::try_deserialize(&mut bytes.as_slice()).unwrap();
     let clock = Clock {
         slot: 500_291_305,

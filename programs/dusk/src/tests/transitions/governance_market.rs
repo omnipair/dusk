@@ -275,6 +275,22 @@ fn borrow_preserves_virtual_reserve_as_cash_plus_debt() {
 }
 
 #[test]
+fn borrow_uses_net_collateral_exit_credit_for_mutable_transfer_fees() {
+    let mut gross_market = invariant_market(1_000_000, 1_000_000);
+    let mut gross_position = borrow_position_for_debt(MarketAsset::Base, 250_000);
+    gross_market
+        .borrow(&mut gross_position, MarketAsset::Base, 100_000, 0, 0)
+        .unwrap();
+
+    let mut fee_market = invariant_market(1_000_000, 1_000_000);
+    let mut fee_position = borrow_position_for_debt(MarketAsset::Base, 250_000);
+    let err = fee_market
+        .borrow_with_collateral_credit(&mut fee_position, MarketAsset::Base, 100_000, 0, 0, 0)
+        .unwrap_err();
+    assert_eq!(err, anchor_lang::prelude::error!(ErrorCode::InsufficientMarketHealth));
+}
+
+#[test]
 fn borrow_never_exceeds_cash_headroom() {
     let mut market = invariant_market(1_000_000, 1_000_000);
     market.base_side.reserves.cash_reserve = 10_000;
@@ -1232,6 +1248,60 @@ fn concentration_execution_reconstructs_the_selected_shape() {
 }
 
 #[test]
+fn disabling_recenter_releases_retained_surcharge_to_lp_inventory() {
+    for disable_by_shape in [false, true] {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        market
+            .execute_parameter_update(
+                &MarketParameterUpdate::CenterController {
+                    adjustment_threshold_nad: NAD / 100,
+                    adjustment_step_nad: NAD / 1_000,
+                    min_adjustment_interval_slots: 1,
+                },
+                1,
+            )
+            .unwrap();
+        market
+            .execute_parameter_update(
+                &MarketParameterUpdate::Concentration {
+                    peak_amplification_nad: 2 * NAD,
+                    core_half_width_bps: 100,
+                    fade_width_bps: 400,
+                },
+                2,
+            )
+            .unwrap();
+        let protected = 1_000_000;
+        market.credit_protected_recenter_reserve(MarketAsset::Base, protected).unwrap();
+        market.credit_protected_recenter_reserve(MarketAsset::Quote, protected).unwrap();
+        let base_live_before = market.base_side.reserves.live_reserve;
+        let quote_live_before = market.quote_side.reserves.live_reserve;
+
+        let update = if disable_by_shape {
+            MarketParameterUpdate::Concentration {
+                peak_amplification_nad: NAD,
+                core_half_width_bps: 0,
+                fade_width_bps: 0,
+            }
+        } else {
+            MarketParameterUpdate::CenterController {
+                adjustment_threshold_nad: 0,
+                adjustment_step_nad: 0,
+                min_adjustment_interval_slots: 0,
+            }
+        };
+        market
+            .execute_parameter_update(&update, 3)
+            .unwrap_or_else(|error| panic!("disable_by_shape={disable_by_shape}: {error:?}"));
+        assert_eq!(market.base_side.reserves.protected_recenter_reserve, 0);
+        assert_eq!(market.quote_side.reserves.protected_recenter_reserve, 0);
+        assert_eq!(market.base_side.reserves.live_reserve, base_live_before + protected);
+        assert_eq!(market.quote_side.reserves.live_reserve, quote_live_before + protected);
+        market.assert_market_invariants().unwrap();
+    }
+}
+
+#[test]
 fn active_or_residual_hlp_allows_an_atomic_concentration_update() {
     let update = MarketParameterUpdate::Concentration {
         peak_amplification_nad: 4 * NAD,
@@ -1457,6 +1527,14 @@ fn protection_health_uses_liquidation_terms_and_donations_preserve_them() {
     let cf = position.base_liquidation_cf_bps;
     let before = market.borrow_protection_health_bps(&position, MarketAsset::Base).unwrap();
     assert!(before > 10_000);
+    let after_fee_increase = market
+        .borrow_protection_health_bps_with_credit(&position, MarketAsset::Base, position.quote_collateral / 2)
+        .unwrap();
+    assert!(after_fee_increase < before);
+    assert_eq!(
+        market.borrow_protection_health_bps_with_credit(&position, MarketAsset::Base, 0).unwrap(),
+        0
+    );
     market.deposit_collateral(&mut position, MarketAsset::Quote, 10_000).unwrap();
     let after = market.borrow_protection_health_bps(&position, MarketAsset::Base).unwrap();
     assert!(after > before);

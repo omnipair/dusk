@@ -73,9 +73,6 @@ const ix = await dusk.write.swapInstruction(
       tokenProgram,
       token2022Program,
     },
-    remainingAccounts: [
-      // Token-2022 transfer-hook extras only. The SDK preserves this tail.
-    ],
   }
 );
 ```
@@ -84,8 +81,8 @@ const ix = await dusk.write.swapInstruction(
 `swapRpc(...)` fetch the market before building the swap. Whenever either hLP
 side has nonzero supply or residual exposure, they prepend the canonical
 five-account prefix exactly once: `[yLP mint, base hLP yLP vault, quote hLP yLP
-vault, base interest vault, quote interest vault]`. Caller-provided Token-2022
-transfer-hook extras remain after that prefix.
+vault, base interest vault, quote interest vault]`. Caller-provided remaining
+accounts remain after that prefix.
 
 The write client supplies the canonical event-CPI authority and Dusk program
 accounts for instructions that emit CPI events.
@@ -344,7 +341,7 @@ principal, position debt, interest, health, or liquidation terms.
 
 When interest is realized, the partner accrues a governed share of the DAO's
 interest revenue. Claims always pay a token account owned by the partner's
-current recipient, and the SDK resolves Token-2022 transfer-hook accounts:
+current recipient:
 
 ```typescript
 const claimTx = await dusk.write.claimReferralInterestTransaction({

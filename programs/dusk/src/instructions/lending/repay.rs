@@ -10,7 +10,10 @@ use crate::{
     events::{MarketDebtUpdated, MarketEventMetadata, MarketHealthUpdated},
     generate_market_seeds,
     state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
-    token::{get_transfer_fee, get_transfer_inverse_fee, transfer_checked_with_remaining_accounts},
+    token::{
+        get_transfer_fee, get_transfer_fee_for_epoch, get_transfer_inverse_fee,
+        transfer_checked_with_remaining_accounts,
+    },
 };
 
 use crate::instructions::accounts::{
@@ -55,6 +58,7 @@ pub struct Repay<'info> {
     pub owner: Signer<'info>,
 
     pub debt_asset_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub collateral_asset_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(mut)]
     pub reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
@@ -70,6 +74,7 @@ pub struct Repay<'info> {
         seeds = [
             BORROW_POSITION_SEED_PREFIX,
             market.key().as_ref(),
+            borrow_position.owner.as_ref(),
             borrow_position.position_id.as_ref(),
         ],
         bump = borrow_position.bump
@@ -95,6 +100,11 @@ impl<'info> Repay<'info> {
             ErrorCode::InsufficientBalance
         );
         let repay_asset = self.market.asset_for_mint(self.debt_asset_mint.key())?;
+        require_keys_eq!(
+            self.collateral_asset_mint.key(),
+            self.market.side(repay_asset.opposite()).asset_mint,
+            ErrorCode::InvalidMint
+        );
         let debt_side = self.market.side(repay_asset);
         validate_debt_reserve_accounts(
             &self.market,
@@ -186,10 +196,20 @@ impl<'info> Repay<'info> {
                 .ok_or(ErrorCode::MarketMathOverflow)?;
             require_eq!(measured_repay_credit, repay_credit, ErrorCode::BrokenInvariant);
 
-            let debt_receipt = accounts.market.repay_with_finalization(
+            let gross_collateral = accounts.borrow_position.collateral(repay_asset.opposite());
+            let exit_fee = get_transfer_fee_for_epoch(
+                &accounts.collateral_asset_mint.to_account_info(),
+                gross_collateral,
+                Clock::get()?.epoch,
+            )?;
+            let collateral_exit_credit = gross_collateral
+                .checked_sub(exit_fee)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            let debt_receipt = accounts.market.repay_with_finalization_and_credit(
                 &mut accounts.borrow_position,
                 repay_asset,
                 repay_credit,
+                collateral_exit_credit,
                 Some(current_slot),
             )?;
             require_eq!(debt_receipt.cash_repaid, repay_credit, ErrorCode::BrokenInvariant);

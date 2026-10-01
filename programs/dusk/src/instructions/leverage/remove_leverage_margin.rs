@@ -13,7 +13,7 @@ use crate::{
     token::transfer_checked_with_remaining_accounts,
 };
 
-use super::settlement::{validate_leverage_collateral_risk_mint, validate_leverage_mints, validate_owner_debt_account};
+use super::settlement::{leverage_collateral_fee, validate_leverage_mints, validate_owner_debt_account};
 use crate::instructions::accounts::{
     require_reserve_custody, token_account_credit, token_program_for_mint, validate_side_vault_accounts,
 };
@@ -53,6 +53,8 @@ pub struct RemoveLeverageMargin<'info> {
         seeds = [
             LEVERAGE_POSITION_SEED_PREFIX,
             market.key().as_ref(),
+            leverage_position.owner.as_ref(),
+            leverage_position.namespace_authority.as_ref(),
             leverage_position.position_id.as_ref(),
         ],
         bump = leverage_position.bump,
@@ -83,7 +85,6 @@ impl<'info> RemoveLeverageMargin<'info> {
         require!(args.amount > 0, ErrorCode::AmountZero);
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
         validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
-        validate_leverage_collateral_risk_mint(&self.collateral_mint)?;
         validate_side_vault_accounts(&self.market, debt_asset, &self.debt_mint, &self.debt_reserve_vault)?;
         validate_owner_debt_account(self.owner.key(), &self.debt_mint, &self.owner_debt_account)?;
         self.leverage_position.require_open()?;
@@ -114,6 +115,7 @@ impl<'info> RemoveLeverageMargin<'info> {
             args.amount,
             current_slot,
             current_unix_timestamp,
+            leverage_collateral_fee(&ctx.accounts.collateral_mint, Clock::get()?.epoch)?,
         )?;
         let debt_token_program = token_program_for_mint(
             &ctx.accounts.debt_mint,

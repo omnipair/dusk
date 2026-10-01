@@ -10,6 +10,9 @@ use anchor_spl::{
     token::Token,
     token_interface::{Mint, Token2022, TokenAccount},
 };
+use spl_token_2022::extension::{
+    transfer_fee::TransferFeeConfig, BaseStateWithExtensions, ExtensionType, StateWithExtensions,
+};
 
 use crate::transitions::liquidity::SwapCashPolicy;
 use crate::{
@@ -25,12 +28,10 @@ use crate::{
     instructions::liquidity::record_inline_hlp_interest_credit,
     instructions::referral::accounting::{accrue_referral_interest, ReferralInterestAccrualReceipt},
     state::{FutarchyAuthority, Market, MarketAsset, ReferralAccrual, ReferralPartner},
-    token::{
-        get_transfer_fee_for_epoch, is_fee_free_mint, token_burn, token_mint_to,
-        transfer_checked_with_remaining_accounts,
-    },
+    token::{get_transfer_fee_for_epoch, token_burn, token_mint_to, transfer_checked_with_remaining_accounts},
     transitions::{
-        HlpRebalanceReceipt, HlpYieldEligibility, LeverageSwapFeeCredit, LeverageSwapQuote, PreparedLeverageSwap,
+        HlpRebalanceReceipt, HlpYieldEligibility, LeverageCollateralFee, LeverageSwapFeeCredit, LeverageSwapQuote,
+        PreparedLeverageSwap,
     },
 };
 
@@ -98,9 +99,20 @@ pub fn leverage_collateral_vault_pda(market: Pubkey, collateral_mint: Pubkey) ->
     .ok_or_else(|| error!(ErrorCode::InvalidVault))
 }
 
-pub fn leverage_position_pda(market: Pubkey, position_id: Pubkey) -> Result<(Pubkey, u8)> {
+pub fn leverage_position_pda(
+    market: Pubkey,
+    owner: Pubkey,
+    namespace_authority: Pubkey,
+    position_id: Pubkey,
+) -> Result<(Pubkey, u8)> {
     Pubkey::try_find_program_address(
-        &[LEVERAGE_POSITION_SEED_PREFIX, market.as_ref(), position_id.as_ref()],
+        &[
+            LEVERAGE_POSITION_SEED_PREFIX,
+            market.as_ref(),
+            owner.as_ref(),
+            namespace_authority.as_ref(),
+            position_id.as_ref(),
+        ],
         &crate::ID,
     )
     .ok_or_else(|| error!(ErrorCode::InvalidLeveragePosition))
@@ -295,16 +307,11 @@ pub fn split_delegated_accounts<'a, 'info>(
     Ok(accounts.split_at(before_accounts_len))
 }
 
-pub fn invoke_delegated_callback<'info>(
-    delegated_program: &UncheckedAccount<'info>,
-    data: Vec<u8>,
-    accounts: &[AccountInfo<'info>],
+fn delegated_callback_metas(
+    accounts: &[AccountInfo<'_>],
     protected_accounts: &[Pubkey],
     writable_protected_accounts: &[Pubkey],
-) -> Result<()> {
-    require!(!data.is_empty(), ErrorCode::InvalidLeverageDelegation);
-    require!(delegated_program.executable, ErrorCode::InvalidLeverageDelegation);
-
+) -> Result<Vec<AccountMeta>> {
     for (index, account) in accounts.iter().enumerate() {
         for prior in accounts.iter().take(index) {
             require_keys_neq!(account.key(), prior.key(), ErrorCode::InvalidLeverageDelegation);
@@ -318,15 +325,25 @@ pub fn invoke_delegated_callback<'info>(
             account_metas.push(AccountMeta::new_readonly(account.key(), false));
             continue;
         }
-        if is_protected {
-            require!(!account.is_signer, ErrorCode::InvalidLeverageDelegation);
-        }
         account_metas.push(AccountMeta {
             pubkey: account.key(),
-            is_signer: account.is_signer,
+            is_signer: false,
             is_writable: account.is_writable,
         });
     }
+    Ok(account_metas)
+}
+
+pub fn invoke_delegated_callback<'info>(
+    delegated_program: &UncheckedAccount<'info>,
+    data: Vec<u8>,
+    accounts: &[AccountInfo<'info>],
+    protected_accounts: &[Pubkey],
+    writable_protected_accounts: &[Pubkey],
+) -> Result<()> {
+    require!(!data.is_empty(), ErrorCode::InvalidLeverageDelegation);
+    require!(delegated_program.executable, ErrorCode::InvalidLeverageDelegation);
+    let account_metas = delegated_callback_metas(accounts, protected_accounts, writable_protected_accounts)?;
     let mut account_infos = Vec::with_capacity(accounts.len() + 1);
     account_infos.push(delegated_program.to_account_info());
     account_infos.extend(accounts.iter().cloned());
@@ -473,14 +490,22 @@ pub fn validate_leverage_mints<'info>(
     Ok(())
 }
 
-/// Leverage health is evaluated against the collateral that can be returned to
-/// the AMM on unwind. A mint with `TransferFeeConfig` can charge another fee on
-/// that future vault-to-vault transfer, and its authority can change the fee
-/// after a position opens. Reject the extension itself on every risk-increasing
-/// path; Token-2022 mints without it remain supported.
-pub fn validate_leverage_collateral_risk_mint(mint: &InterfaceAccount<Mint>) -> Result<()> {
-    require!(is_fee_free_mint(mint)?, ErrorCode::InvalidLeverageCollateralMint);
-    Ok(())
+pub fn leverage_collateral_fee(mint: &InterfaceAccount<Mint>, epoch: u64) -> Result<LeverageCollateralFee> {
+    let mint_info = mint.to_account_info();
+    if *mint_info.owner == Token::id() {
+        return Ok(LeverageCollateralFee::default());
+    }
+    let mint_data = mint_info.try_borrow_data()?;
+    let mint_state = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
+    let fee = if mint_state
+        .get_extension_types()?
+        .contains(&ExtensionType::TransferFeeConfig)
+    {
+        Some(*mint_state.get_extension::<TransferFeeConfig>()?.get_epoch_fee(epoch))
+    } else {
+        None
+    };
+    Ok(LeverageCollateralFee(fee))
 }
 
 pub fn validate_leverage_reserve_accounts<'info>(

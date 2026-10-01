@@ -25,7 +25,7 @@ pub struct WithdrawRepaidLeverage<'info> {
     pub market: Box<Account<'info, Market>>,
     #[account(mut)]
     pub owner: Signer<'info>,
-    #[account(mut, close = owner, seeds = [LEVERAGE_POSITION_SEED_PREFIX, market.key().as_ref(), leverage_position.position_id.as_ref()], bump = leverage_position.bump,
+    #[account(mut, close = owner, seeds = [LEVERAGE_POSITION_SEED_PREFIX, market.key().as_ref(), leverage_position.owner.as_ref(), leverage_position.namespace_authority.as_ref(), leverage_position.position_id.as_ref()], bump = leverage_position.bump,
         constraint = leverage_position.owner == owner.key() @ ErrorCode::InvalidSigner,
         constraint = leverage_position.market == market.key() @ ErrorCode::InvalidLeveragePosition)]
     pub leverage_position: Box<Account<'info, LeveragePosition>>,

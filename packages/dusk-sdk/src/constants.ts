@@ -232,10 +232,11 @@ export function deriveMarketInterestVaultAddress(
  */
 export function deriveBorrowPositionAddress(
   market: PublicKey,
+  owner: PublicKey,
   positionId: PublicKey
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [SEEDS.BORROW_POSITION, market.toBuffer(), positionId.toBuffer()],
+    [SEEDS.BORROW_POSITION, market.toBuffer(), owner.toBuffer(), positionId.toBuffer()],
     DUSK_PROGRAM_ID
   );
 }
@@ -255,10 +256,18 @@ export function deriveLeverageDelegationAddress(
 
 export function deriveLeveragePositionAddress(
   market: PublicKey,
-  positionId: PublicKey
+  positionOwner: PublicKey,
+  positionId: PublicKey,
+  namespaceAuthority: PublicKey = positionOwner
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [SEEDS.LEVERAGE_POSITION, market.toBuffer(), positionId.toBuffer()],
+    [
+      SEEDS.LEVERAGE_POSITION,
+      market.toBuffer(),
+      positionOwner.toBuffer(),
+      namespaceAuthority.toBuffer(),
+      positionId.toBuffer(),
+    ],
     DUSK_PROGRAM_ID
   );
 }

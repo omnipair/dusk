@@ -78,43 +78,25 @@ export type LeverageDelegate = {
           "name": "leverageDelegation"
         },
         {
-          "name": "custodyTokenAccount",
-          "writable": true
+          "name": "ownerTokenAccount"
         },
         {
-          "name": "executorTokenAccount",
-          "writable": true
+          "name": "executorTokenAccount"
         },
         {
-          "name": "ownerTokenAccount",
-          "writable": true
+          "name": "feeRecipient"
         },
         {
           "name": "tokenMint"
         },
         {
           "name": "executor",
-          "signer": true
-        },
-        {
-          "name": "futarchyAuthority"
-        },
-        {
-          "name": "protocolFee",
-          "accounts": [
-            {
-              "name": "feeRecipient",
-              "writable": true
-            }
+          "docs": [
+            "across the delegated callback boundary."
           ]
         },
         {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "token2022Program",
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+          "name": "futarchyAuthority"
         }
       ],
       "args": [
@@ -191,7 +173,16 @@ export type LeverageDelegate = {
           "name": "leverageDelegation"
         },
         {
-          "name": "custodyTokenAccount"
+          "name": "ownerTokenAccount"
+        },
+        {
+          "name": "feeRecipient"
+        },
+        {
+          "name": "executorTokenAccount"
+        },
+        {
+          "name": "futarchyAuthority"
         },
         {
           "name": "collateralMint",
@@ -205,7 +196,9 @@ export type LeverageDelegate = {
         },
         {
           "name": "executor",
-          "signer": true
+          "docs": [
+            "across the delegated callback boundary."
+          ]
         }
       ],
       "args": [
@@ -282,7 +275,16 @@ export type LeverageDelegate = {
           "name": "leverageDelegation"
         },
         {
-          "name": "custodyTokenAccount"
+          "name": "ownerTokenAccount"
+        },
+        {
+          "name": "feeRecipient"
+        },
+        {
+          "name": "executorTokenAccount"
+        },
+        {
+          "name": "futarchyAuthority"
         },
         {
           "name": "collateralMint",
@@ -296,7 +298,9 @@ export type LeverageDelegate = {
         },
         {
           "name": "executor",
-          "signer": true
+          "docs": [
+            "across the delegated callback boundary."
+          ]
         }
       ],
       "args": [
@@ -1987,6 +1991,9 @@ export type LeverageDelegate = {
         {
           "name": "leveragePosition",
           "optional": true
+        },
+        {
+          "name": "collateralMint"
         }
       ],
       "args": [],
@@ -3168,6 +3175,18 @@ export type LeverageDelegate = {
             "type": "u128"
           },
           {
+            "name": "baseBorrowIndexRemainder",
+            "docs": [
+              "Fractional index growth carried across checkpoints. Denominator is",
+              "`NAD * MS_PER_YEAR`, so frequent checkpoints cannot discard interest."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "quoteBorrowIndexRemainder",
+            "type": "u128"
+          },
+          {
             "name": "baseRateAtTargetNad",
             "type": "u128"
           },
@@ -3894,6 +3913,10 @@ export type LeverageDelegate = {
             "type": "u32"
           },
           {
+            "name": "openCurveRevision",
+            "type": "u64"
+          },
+          {
             "name": "bump",
             "type": "u8"
           }
@@ -4010,6 +4033,10 @@ export type LeverageDelegate = {
             "type": "pubkey"
           },
           {
+            "name": "openCurveRevision",
+            "type": "u64"
+          },
+          {
             "name": "orderId",
             "type": "u64"
           },
@@ -4046,8 +4073,28 @@ export type LeverageDelegate = {
             "type": "u128"
           },
           {
-            "name": "stagedCustodyTokenAccount",
+            "name": "stagedOwnerTokenAccount",
             "type": "pubkey"
+          },
+          {
+            "name": "stagedOwnerBalance",
+            "type": "u64"
+          },
+          {
+            "name": "stagedFeeRecipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "stagedFeeBalance",
+            "type": "u64"
+          },
+          {
+            "name": "stagedExecutorTokenAccount",
+            "type": "pubkey"
+          },
+          {
+            "name": "stagedExecutorBalance",
+            "type": "u64"
           },
           {
             "name": "stagedOutputMint",
@@ -4055,6 +4102,18 @@ export type LeverageDelegate = {
           },
           {
             "name": "stagedOutputAmount",
+            "type": "u64"
+          },
+          {
+            "name": "stagedProtocolFeeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "stagedProtocolFeeCredit",
+            "type": "u64"
+          },
+          {
+            "name": "stagedExecutorCredit",
             "type": "u64"
           },
           {
@@ -4082,6 +4141,14 @@ export type LeverageDelegate = {
           },
           {
             "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "namespaceAuthority",
+            "docs": [
+              "Funding signer that established this position. Ordinary opens use the",
+              "owner; sponsored entry orders use their owner-created order PDA."
+            ],
             "type": "pubkey"
           },
           {
@@ -4130,6 +4197,14 @@ export type LeverageDelegate = {
           },
           {
             "name": "openedSlot",
+            "type": "u64"
+          },
+          {
+            "name": "openCurveRevision",
+            "docs": [
+              "Market curve revision committed by this opening. A recreated PDA gets",
+              "a new revision even if it reopens in the same slot."
+            ],
             "type": "u64"
           },
           {

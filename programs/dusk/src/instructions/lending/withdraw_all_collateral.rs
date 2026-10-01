@@ -26,7 +26,7 @@ pub struct WithdrawAllCollateral<'info> {
     pub market: Box<Account<'info, Market>>,
     #[account(mut)]
     pub owner: Signer<'info>,
-    #[account(mut, close = owner, seeds = [BORROW_POSITION_SEED_PREFIX, market.key().as_ref(), borrow_position.position_id.as_ref()], bump = borrow_position.bump,
+    #[account(mut, close = owner, seeds = [BORROW_POSITION_SEED_PREFIX, market.key().as_ref(), borrow_position.owner.as_ref(), borrow_position.position_id.as_ref()], bump = borrow_position.bump,
         constraint = borrow_position.owner == owner.key() @ ErrorCode::InvalidSigner,
         constraint = borrow_position.market == market.key() @ ErrorCode::InvalidBorrowPosition)]
     pub borrow_position: Box<Account<'info, BorrowPosition>>,

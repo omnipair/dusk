@@ -1,5 +1,36 @@
 use super::*;
 
+pub(super) fn closeout_price_nad(
+    closeout_value: u64,
+    collateral_amount: u64,
+    debt_decimals: u8,
+    collateral_decimals: u8,
+) -> Result<u64> {
+    require!(collateral_amount > 0, LeverageDelegateError::InvalidOrder);
+    let (numerator, denominator) = if collateral_decimals >= debt_decimals {
+        let scale = 10_u128
+            .checked_pow((collateral_decimals - debt_decimals) as u32)
+            .ok_or(LeverageDelegateError::MathOverflow)?;
+        ((NAD as u128).checked_mul(scale), collateral_amount as u128)
+    } else {
+        let scale = 10_u128
+            .checked_pow((debt_decimals - collateral_decimals) as u32)
+            .ok_or(LeverageDelegateError::MathOverflow)?;
+        (
+            Some(NAD as u128),
+            (collateral_amount as u128)
+                .checked_mul(scale)
+                .ok_or(LeverageDelegateError::MathOverflow)?,
+        )
+    };
+    (closeout_value as u128)
+        .checked_mul(numerator.ok_or(LeverageDelegateError::MathOverflow)?)
+        .and_then(|value| value.checked_div(denominator))
+        .ok_or(LeverageDelegateError::MathOverflow)?
+        .try_into()
+        .map_err(|_| LeverageDelegateError::MathOverflow.into())
+}
+
 #[derive(Accounts)]
 #[instruction(args: ExecuteOrderArgs)]
 pub struct BeforeLeverageOrder<'info> {
@@ -34,15 +65,28 @@ pub struct BeforeLeverageOrder<'info> {
     )]
     pub leverage_delegation: Box<Account<'info, LeverageDelegation>>,
     #[account(
-        constraint = custody_token_account.owner == order.key() @ LeverageDelegateError::InvalidTokenAccount,
-        constraint = custody_token_account.mint == token_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = owner_token_account.owner == order.owner @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = owner_token_account.mint == token_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
     )]
-    pub custody_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub owner_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(
+        constraint = fee_recipient.owner == futarchy_authority.recipients.futarchy_treasury @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = fee_recipient.mint == token_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
+    )]
+    pub fee_recipient: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(
+        constraint = executor_token_account.owner == executor.key() @ LeverageDelegateError::InvalidTokenAccount,
+        constraint = executor_token_account.mint == token_mint.key() @ LeverageDelegateError::InvalidTokenAccount,
+    )]
+    pub executor_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub futarchy_authority: Box<Account<'info, dusk::state::FutarchyAuthority>>,
     /// Collateral mint is needed to reproduce the exact net reserve credit for
     /// Token-2022 transfer-fee assets before approving a partial close.
     pub collateral_mint: Box<InterfaceAccount<'info, Mint>>,
     pub token_mint: Box<InterfaceAccount<'info, Mint>>,
-    pub executor: Signer<'info>,
+    /// CHECK: Identifies the executor; Dusk does not forward signer privileges
+    /// across the delegated callback boundary.
+    pub executor: UncheckedAccount<'info>,
 }
 
 impl<'info> BeforeLeverageOrder<'info> {
@@ -52,6 +96,7 @@ impl<'info> BeforeLeverageOrder<'info> {
         expected_kind: u8,
     ) -> Result<()> {
         let order = &mut ctx.accounts.order;
+        order.assert_position_generation(&ctx.accounts.leverage_position)?;
         require!(
             order.kind == expected_kind,
             LeverageDelegateError::InvalidOrder
@@ -63,13 +108,12 @@ impl<'info> BeforeLeverageOrder<'info> {
             current_slot,
             clock.unix_timestamp,
         )?;
-        let closeout_price_nad: u64 = (closeout_value as u128)
-            .checked_mul(NAD as u128)
-            .ok_or(LeverageDelegateError::MathOverflow)?
-            .checked_div(ctx.accounts.leverage_position.collateral_amount as u128)
-            .ok_or(LeverageDelegateError::MathOverflow)?
-            .try_into()
-            .map_err(|_| LeverageDelegateError::MathOverflow)?;
+        let closeout_price_nad = closeout_price_nad(
+            closeout_value,
+            ctx.accounts.leverage_position.collateral_amount,
+            ctx.accounts.token_mint.decimals,
+            ctx.accounts.collateral_mint.decimals,
+        )?;
         match expected_kind {
             ORDER_KIND_TAKE_PROFIT => require!(
                 closeout_price_nad >= order.trigger_closeout_price_nad,
@@ -95,8 +139,19 @@ impl<'info> BeforeLeverageOrder<'info> {
             collateral_mint,
             LeverageDelegateError::InvalidTokenAccount
         );
-        require!(
-            ctx.accounts.custody_token_account.amount == 0,
+        require_keys_neq!(
+            ctx.accounts.owner_token_account.key(),
+            ctx.accounts.fee_recipient.key(),
+            LeverageDelegateError::InvalidTokenAccount
+        );
+        require_keys_neq!(
+            ctx.accounts.owner_token_account.key(),
+            ctx.accounts.executor_token_account.key(),
+            LeverageDelegateError::InvalidTokenAccount
+        );
+        require_keys_neq!(
+            ctx.accounts.fee_recipient.key(),
+            ctx.accounts.executor_token_account.key(),
             LeverageDelegateError::InvalidTokenAccount
         );
         let close_slice = ctx
@@ -132,11 +187,19 @@ impl<'info> BeforeLeverageOrder<'info> {
                 residual,
             )?)
             .ok_or(LeverageDelegateError::MathOverflow)?;
-        order.staged_margin = if order.close_bps == BPS_DENOMINATOR {
+        let incentive_basis = if order.close_bps == BPS_DENOMINATOR {
             ctx.accounts.leverage_position.margin_amount
         } else {
             output_amount
         };
+        let payout = quote_delegated_close_payout(
+            &ctx.accounts.token_mint.to_account_info(),
+            residual,
+            close_quote.amount_out,
+            incentive_basis,
+            clock.epoch,
+        )?;
+        order.staged_margin = incentive_basis;
         order.staged_collateral_amount = close_slice.collateral_amount;
         order.staged_remaining_collateral_amount = ctx
             .accounts
@@ -156,9 +219,17 @@ impl<'info> BeforeLeverageOrder<'info> {
             .debt_principal
             .checked_sub(close_slice.debt_principal)
             .ok_or(LeverageDelegateError::MathOverflow)?;
-        order.staged_custody_token_account = ctx.accounts.custody_token_account.key();
+        order.staged_owner_token_account = ctx.accounts.owner_token_account.key();
+        order.staged_owner_balance = ctx.accounts.owner_token_account.amount;
+        order.staged_fee_recipient = ctx.accounts.fee_recipient.key();
+        order.staged_fee_balance = ctx.accounts.fee_recipient.amount;
+        order.staged_executor_token_account = ctx.accounts.executor_token_account.key();
+        order.staged_executor_balance = ctx.accounts.executor_token_account.amount;
         order.staged_output_mint = ctx.accounts.token_mint.key();
-        order.staged_output_amount = output_amount;
+        order.staged_output_amount = payout.owner_credit;
+        order.staged_protocol_fee_debit = payout.protocol_debit;
+        order.staged_protocol_fee_credit = payout.protocol_credit;
+        order.staged_executor_credit = payout.executor_credit;
         order.staged_execution_value = close_quote.amount_out;
         let approval = LeverageDelegationApproval::new(
             LEVERAGE_DELEGATE_CLOSE,
@@ -167,10 +238,10 @@ impl<'info> BeforeLeverageOrder<'info> {
             ctx.accounts.leverage_position.key(),
             ctx.accounts.leverage_delegation.key(),
             debt_asset,
-            ctx.accounts.custody_token_account.key(),
+            ctx.accounts.owner_token_account.key(),
             ctx.accounts.token_mint.key(),
             close_slice.collateral_amount,
-            output_amount,
+            payout.owner_credit,
         );
         let mut data = Vec::new();
         approval

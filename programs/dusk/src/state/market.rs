@@ -320,6 +320,10 @@ pub struct Debt {
     pub fixed_quote_shares: u128,
     pub base_borrow_index_nad: u128,
     pub quote_borrow_index_nad: u128,
+    /// Fractional index growth carried across checkpoints. Denominator is
+    /// `NAD * MS_PER_YEAR`, so frequent checkpoints cannot discard interest.
+    pub base_borrow_index_remainder: u128,
+    pub quote_borrow_index_remainder: u128,
     pub base_rate_at_target_nad: u128,
     pub quote_rate_at_target_nad: u128,
     pub global_health_base_contribution_for_quote_debt: u64,

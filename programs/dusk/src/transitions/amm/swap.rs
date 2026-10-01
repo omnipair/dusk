@@ -138,6 +138,7 @@ impl PreparedSwap {
                         debt_asset: settlement.debt_asset,
                         debt_shares: 0,
                         debt_principal: 0,
+                        insurance_credit: 0,
                     },
                 ErrorCode::BrokenInvariant
             );
@@ -182,6 +183,12 @@ impl PreparedSwap {
         market.base_side.assert_share_backing()?;
         market.quote_side.assert_share_backing()?;
         market.side(fee_asset).fees.assert_backed()?;
+        // The fee index belongs to the shares held at the start of this swap.
+        // Settle that interval before the hLP transition replaces ownership.
+        market
+            .checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, self.interest_eligibility.base_hlp_ylp_shares)?;
+        market
+            .checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, self.interest_eligibility.quote_hlp_ylp_shares)?;
         let debt_asset = quote.asset_in.opposite();
         consume_hlp_tracking_unrealized_interest(
             &mut self.base_pre_rebalance,
@@ -281,6 +288,7 @@ impl Market {
                 debt_asset: settlement.debt_asset,
                 debt_shares: 0,
                 debt_principal: 0,
+                insurance_credit: 0,
             };
             let credit = LeverageSwapFeeCredit::from_total_actual_credit(
                 &prepared.leverage_quote(),

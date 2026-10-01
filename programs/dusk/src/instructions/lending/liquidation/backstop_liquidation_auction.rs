@@ -23,7 +23,7 @@ use crate::{
         settle_inline_leverage_hlp,
     },
     state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
-    token::transfer_checked_with_remaining_accounts,
+    token::{get_transfer_fee_for_epoch, transfer_checked_with_remaining_accounts},
     transitions::liquidity::SwapCashPolicy,
 };
 
@@ -85,6 +85,7 @@ pub struct BackstopLiquidationAuction<'info> {
         seeds = [
             BORROW_POSITION_SEED_PREFIX,
             market.key().as_ref(),
+            borrow_position.owner.as_ref(),
             borrow_position.position_id.as_ref(),
         ],
         bump = borrow_position.bump
@@ -194,9 +195,18 @@ impl<'info> BackstopLiquidationAuction<'info> {
         // Commit recovery-driven cancellation before checking expiry or moving
         // collateral. The initial assertion prevents an unrelated no-op call.
         ctx.accounts.borrow_position.assert_liquidation_auction(debt_asset)?;
+        let gross_collateral = ctx.accounts.borrow_position.collateral(collateral_asset);
+        let exit_fee = get_transfer_fee_for_epoch(
+            &ctx.accounts.collateral_asset_mint.to_account_info(),
+            gross_collateral,
+            clock.epoch,
+        )?;
+        let collateral_exit_credit = gross_collateral
+            .checked_sub(exit_fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
         ctx.accounts
             .market
-            .reconcile_liquidation_auction(&mut ctx.accounts.borrow_position)?;
+            .reconcile_liquidation_auction_with_credit(&mut ctx.accounts.borrow_position, collateral_exit_credit)?;
         if !ctx.accounts.borrow_position.has_active_liquidation_auction() {
             emit_cpi!(LiquidationAuctionCancelled {
                 market: market_key,
@@ -295,6 +305,7 @@ impl<'info> BackstopLiquidationAuction<'info> {
                         debt_asset,
                         debt_shares: 0,
                         debt_principal: 0,
+                        insurance_credit: 0,
                     },
                 )?,
             )

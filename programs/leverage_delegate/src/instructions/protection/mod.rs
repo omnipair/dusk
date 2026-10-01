@@ -12,6 +12,7 @@ use dusk::{
         BorrowPosition, FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual,
         ReferralPartner, YieldAccount, YieldTokenKind,
     },
+    transitions::LeverageCollateralFee,
 };
 mod create;
 mod execute;
@@ -69,6 +70,7 @@ pub(super) fn protection_health(
     asset: MarketAsset,
     clock: &Clock,
     refresh: bool,
+    collateral_fee: LeverageCollateralFee,
 ) -> Result<u64> {
     // Fresh deserialization after CPIs avoids Anchor Account::reload's two
     // large Market temporaries sharing one 4 KiB SBF stack frame.
@@ -87,7 +89,16 @@ pub(super) fn protection_health(
         .as_mut()
         .as_mut()
         .map_err(|_| error!(LeverageDelegateError::InvalidOrder))?;
-    protection_health_of(market, borrow, leverage, action, asset, clock, refresh)
+    protection_health_of(
+        market,
+        borrow,
+        leverage,
+        action,
+        asset,
+        clock,
+        refresh,
+        collateral_fee,
+    )
 }
 
 /// Health from an already decoded Market. Before any CPI, the copy Anchor
@@ -103,14 +114,17 @@ pub(super) fn protection_health_of(
     asset: MarketAsset,
     clock: &Clock,
     refresh: bool,
+    collateral_fee: LeverageCollateralFee,
 ) -> Result<u64> {
     if refresh {
         market.prepare_position_protection_snapshot(clock.slot)?;
     }
     if action < 2 {
         require!(leverage.is_none(), LeverageDelegateError::InvalidOrder);
-        market
-            .borrow_protection_health_bps(borrow.ok_or(LeverageDelegateError::InvalidOrder)?, asset)
+        let position = borrow.ok_or(LeverageDelegateError::InvalidOrder)?;
+        let collateral_exit_credit =
+            collateral_fee.unwind_credit(position.collateral(asset.opposite()))?;
+        market.borrow_protection_health_bps_with_credit(position, asset, collateral_exit_credit)
     } else {
         require!(
             action == 2 && borrow.is_none(),
@@ -126,10 +140,11 @@ pub(super) fn protection_health_of(
         if debt == 0 {
             return Ok(u64::MAX);
         }
-        let value = market.leverage_protection_closeout_value(
+        let value = market.leverage_protection_closeout_value_with_fee(
             position,
             clock.slot,
             clock.unix_timestamp,
+            collateral_fee,
         )?;
         // One extra basis point makes this conservative with the liquidation
         // engine's integer-rounded equity test (equity_bps <= maintenance).

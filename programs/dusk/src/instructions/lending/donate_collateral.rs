@@ -9,7 +9,7 @@ use crate::{
     errors::ErrorCode,
     events::{MarketCollateralDeposited, MarketEventMetadata},
     state::{BorrowPosition, Market},
-    token::transfer_checked_with_remaining_accounts,
+    token::{get_transfer_fee_for_epoch, transfer_checked_with_remaining_accounts},
 };
 
 use crate::instructions::accounts::{require_supported_asset_mint, token_program_for_mint};
@@ -53,6 +53,7 @@ pub struct DonateCollateral<'info> {
         seeds = [
             BORROW_POSITION_SEED_PREFIX,
             market.key().as_ref(),
+            borrow_position.owner.as_ref(),
             borrow_position.position_id.as_ref(),
         ],
         bump = borrow_position.bump
@@ -123,10 +124,25 @@ impl<'info> DonateCollateral<'info> {
             require!(collateral_credit > 0, ErrorCode::AmountZero);
 
             // Apply the measured credit to market and position accounting.
-            let collateral_receipt =
-                accounts
-                    .market
-                    .deposit_collateral(&mut accounts.borrow_position, market_asset, collateral_credit)?;
+            let projected_collateral = accounts
+                .borrow_position
+                .collateral(market_asset)
+                .checked_add(collateral_credit)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            let exit_fee = get_transfer_fee_for_epoch(
+                &accounts.asset_mint.to_account_info(),
+                projected_collateral,
+                Clock::get()?.epoch,
+            )?;
+            let collateral_exit_credit = projected_collateral
+                .checked_sub(exit_fee)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            let collateral_receipt = accounts.market.deposit_collateral_with_credit(
+                &mut accounts.borrow_position,
+                market_asset,
+                collateral_credit,
+                collateral_exit_credit,
+            )?;
             (market_key, owner_key, asset_mint_key, collateral_receipt)
         };
 

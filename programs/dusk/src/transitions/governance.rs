@@ -729,6 +729,11 @@ impl Market {
                         })?;
                     next.validate()?;
                     self.config = next;
+                    if self.config.amm.concentrated_curve_parameters()?.is_cpmm()
+                        || self.config.amm.adjustment_step_nad == 0
+                    {
+                        self.release_protected_recenter_reserves()?;
+                    }
                     if self.amm.initialized {
                         self.apply_concentrated_curve_parameter_update(current_slot)?;
                     }
@@ -781,6 +786,11 @@ impl Market {
                     next.amm.min_adjustment_interval_slots = *min_adjustment_interval_slots;
                     next.validate()?;
                     self.config = next;
+                    if self.config.amm.adjustment_step_nad == 0
+                        || self.config.amm.concentrated_curve_parameters()?.is_cpmm()
+                    {
+                        self.release_protected_recenter_reserves()?;
+                    }
                     if self.amm.initialized {
                         self.amm.invalidate_deferred_controller_target();
                     }

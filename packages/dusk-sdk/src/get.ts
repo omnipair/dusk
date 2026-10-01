@@ -109,6 +109,7 @@ export interface PreviewBorrowCapacityParams extends SimulateOptions {
   market: AddressLike;
   collateralAssetMint: AddressLike;
   debtAssetMint: AddressLike;
+  /** Net collateral amount credited to the vault after any deposit transfer fee. */
   collateralAmount: BN;
   /**
    * Candidate debt amount used for the returned CF and health fields. When
@@ -156,44 +157,56 @@ export class DuskGet {
     return client.fetch(address(account));
   }
 
+  private allProgramAccounts<T>(name: string): Promise<Array<{ publicKey: PublicKey; account: T }>> {
+    const client = (
+      this.program as unknown as {
+        account: Record<string, { all(): Promise<Array<{ publicKey: PublicKey; account: T }>> }>;
+      }
+    ).account[name];
+    if (!client) {
+      throw new Error(`Unknown Dusk account type: ${name}`);
+    }
+    return client.all();
+  }
+
   market(account: AddressLike): Promise<Market> {
-    return this.program.account.market.fetch(address(account));
+    return this.programAccount<Market>("market", account);
   }
 
   borrowPosition(account: AddressLike): Promise<BorrowPosition> {
-    return this.program.account.borrowPosition.fetch(address(account));
+    return this.programAccount<BorrowPosition>("borrowPosition", account);
   }
 
   leveragePosition(account: AddressLike): Promise<LeveragePosition> {
-    return this.program.account.leveragePosition.fetch(address(account));
+    return this.programAccount<LeveragePosition>("leveragePosition", account);
   }
 
   leverageDelegation(account: AddressLike): Promise<LeverageDelegation> {
-    return this.program.account.leverageDelegation.fetch(address(account));
+    return this.programAccount<LeverageDelegation>("leverageDelegation", account);
   }
 
   yieldAccount(account: AddressLike): Promise<YieldAccount> {
-    return this.program.account.yieldAccount.fetch(address(account));
+    return this.programAccount<YieldAccount>("yieldAccount", account);
   }
 
   futarchyAuthority(account: AddressLike = deriveFutarchyAuthorityAddress()[0]): Promise<FutarchyAuthority> {
-    return this.program.account.futarchyAuthority.fetch(address(account));
+    return this.programAccount<FutarchyAuthority>("futarchyAuthority", account);
   }
 
   referralPartner(account: AddressLike): Promise<ReferralPartner> {
-    return this.program.account.referralPartner.fetch(address(account));
+    return this.programAccount<ReferralPartner>("referralPartner", account);
   }
 
   referralAccrual(account: AddressLike): Promise<ReferralAccrual> {
-    return this.program.account.referralAccrual.fetch(address(account));
+    return this.programAccount<ReferralAccrual>("referralAccrual", account);
   }
 
   parameterProposal(account: AddressLike): Promise<ParameterProposal> {
-    return this.program.account.parameterProposal.fetch(address(account));
+    return this.programAccount<ParameterProposal>("parameterProposal", account);
   }
 
   proposalSupport(account: AddressLike): Promise<ProposalSupport> {
-    return this.program.account.proposalSupport.fetch(address(account));
+    return this.programAccount<ProposalSupport>("proposalSupport", account);
   }
 
   parameterProposalFor(
@@ -223,56 +236,72 @@ export class DuskGet {
   }
 
   allMarkets() {
-    return this.program.account.market.all();
+    return this.allProgramAccounts<Market>("market");
   }
 
   allBorrowPositions() {
-    return this.program.account.borrowPosition.all();
+    return this.allProgramAccounts<BorrowPosition>("borrowPosition");
   }
 
   allLeveragePositions() {
-    return this.program.account.leveragePosition.all();
+    return this.allProgramAccounts<LeveragePosition>("leveragePosition");
   }
 
   allReferralPartners() {
-    return this.program.account.referralPartner.all();
+    return this.allProgramAccounts<ReferralPartner>("referralPartner");
   }
 
   allReferralAccruals() {
-    return this.program.account.referralAccrual.all();
+    return this.allProgramAccounts<ReferralAccrual>("referralAccrual");
   }
 
   allParameterProposals() {
-    return this.program.account.parameterProposal.all();
+    return this.allProgramAccounts<ParameterProposal>("parameterProposal");
   }
 
   allProposalSupports() {
-    return this.program.account.proposalSupport.all();
+    return this.allProgramAccounts<ProposalSupport>("proposalSupport");
+  }
+
+  private previewInstruction(
+    name: string,
+    args: unknown[],
+    accounts: Record<string, unknown>
+  ): Promise<TransactionInstruction> {
+    const methods = (this.program as unknown as {
+      methods: Record<
+        string,
+        (...args: unknown[]) => {
+          accounts(accounts: Record<string, unknown>): {
+            instruction(): Promise<TransactionInstruction>;
+          };
+        }
+      >;
+    }).methods;
+    const method = methods[name];
+    if (!method) throw new Error(`Unknown Dusk preview instruction: ${name}`);
+    return method(...args).accounts(accounts).instruction();
   }
 
   async previewMarket(market: AddressLike, options: SimulateOptions = {}): Promise<MarketPreview> {
-    const instruction = await this.program.methods
-      .previewMarket()
-      .accounts(normalizeAccountKeys({ market }))
-      .instruction();
+    const instruction = await this.previewInstruction("previewMarket", [], normalizeAccountKeys({ market }));
 
     return decodePreviewMarketReturnData(await this.simulateReturnData(instruction, options));
   }
 
   async previewAddLiquidity(params: PreviewAddLiquidityParams): Promise<AddLiquidityPreview> {
-    const instruction = await this.program.methods
-      .previewAddLiquidity({
+    const instruction = await this.previewInstruction(
+      "previewAddLiquidity",
+      [{
         baseDepositAmount: params.baseDepositAmount,
         quoteDepositAmount: params.quoteDepositAmount,
-      })
-      .accounts(
-        normalizeAccountKeys({
+      }],
+      normalizeAccountKeys({
           market: params.market,
           baseMint: params.baseMint,
           quoteMint: params.quoteMint,
-        })
-      )
-      .instruction();
+      })
+    );
 
     return decodePreviewAddLiquidityReturnData(
       await this.simulateReturnData(instruction, params)
@@ -280,20 +309,19 @@ export class DuskGet {
   }
 
   async previewSwap(params: PreviewSwapParams): Promise<SwapPreview> {
-    const instruction = await this.program.methods
-      .previewSwap({
+    const instruction = await this.previewInstruction(
+      "previewSwap",
+      [{
         exactAssetIn: params.exactAssetIn,
-      })
-      .accounts(
-        normalizeAccountKeys({
+      }],
+      normalizeAccountKeys({
           market: params.market,
           futarchyAuthority:
             params.futarchyAuthority ?? deriveFutarchyAuthorityAddress()[0],
           assetInMint: params.assetInMint,
           assetOutMint: params.assetOutMint,
-        })
-      )
-      .instruction();
+      })
+    );
 
     return decodePreviewSwapReturnData(await this.simulateReturnData(instruction, params));
   }
@@ -301,19 +329,18 @@ export class DuskGet {
   async previewBorrowCapacity(
     params: PreviewBorrowCapacityParams
   ): Promise<BorrowCapacityPreview> {
-    const instruction = await this.program.methods
-      .previewBorrowCapacity({
+    const instruction = await this.previewInstruction(
+      "previewBorrowCapacity",
+      [{
         collateralAmount: params.collateralAmount,
         projectedBorrowAmount: params.projectedBorrowAmount ?? null,
-      })
-      .accounts(
-        normalizeAccountKeys({
+      }],
+      normalizeAccountKeys({
           market: params.market,
           collateralAssetMint: params.collateralAssetMint,
           debtAssetMint: params.debtAssetMint,
-        })
-      )
-      .instruction();
+      })
+    );
 
     return decodePreviewBorrowCapacityReturnData(await this.simulateReturnData(instruction, params));
   }
@@ -321,35 +348,33 @@ export class DuskGet {
   async previewBorrowPositionCapacity(
     params: PreviewBorrowPositionCapacityParams
   ): Promise<BorrowPositionCapacityPreview> {
-    const instruction = await this.program.methods
-      .previewBorrowPositionCapacity({
+    const instruction = await this.previewInstruction(
+      "previewBorrowPositionCapacity",
+      [{
         capacityKind: params.capacityKind === "borrow" ? { borrow: {} } : { withdraw: {} },
         collateralChange: params.collateralChange,
         projectedBorrowAmount: params.projectedBorrowAmount ?? null,
-      })
-      .accounts(
-        normalizeAccountKeys({
+      }],
+      normalizeAccountKeys({
           market: params.market,
           borrowPosition: params.borrowPosition,
           collateralAssetMint: params.collateralAssetMint,
           debtAssetMint: params.debtAssetMint,
-        })
-      )
-      .instruction();
+      })
+    );
 
     return decodePreviewBorrowPositionCapacityReturnData(await this.simulateReturnData(instruction, params));
   }
 
   async previewBorrowPosition(params: PreviewBorrowPositionParams): Promise<BorrowPositionPreview> {
-    const instruction = await this.program.methods
-      .previewBorrowPosition()
-      .accounts(
-        normalizeAccountKeys({
+    const instruction = await this.previewInstruction(
+      "previewBorrowPosition",
+      [],
+      normalizeAccountKeys({
           market: params.market,
           borrowPosition: params.borrowPosition,
-        })
-      )
-      .instruction();
+      })
+    );
 
     return decodePreviewBorrowPositionReturnData(await this.simulateReturnData(instruction, params));
   }

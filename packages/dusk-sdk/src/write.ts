@@ -182,6 +182,12 @@ type AnchorMethods = Record<string, (...args: unknown[]) => AnchorMethodBuilder>
 export class DuskWrite {
   constructor(readonly program: Program<Dusk>) {}
 
+  private fetchMarketAccount(market: PublicKey): Promise<unknown> {
+    return (this.program as unknown as {
+      account: { market: { fetch(address: PublicKey): Promise<unknown> } };
+    }).account.market.fetch(market);
+  }
+
   method(name: DuskInstructionName, args?: DuskInstructionArgs): AnchorMethodBuilder {
     const method = (this.program.methods as unknown as AnchorMethods)[name];
     if (!method) {
@@ -259,7 +265,7 @@ export class DuskWrite {
     marketAddress: AddressLike
   ): Promise<AccountMeta[]> {
     const market = address(marketAddress);
-    const state = (await this.program.account.market.fetch(market)) as unknown as {
+    const state = (await this.fetchMarketAccount(market)) as {
       ylpMint: AccountMeta["pubkey"];
       baseSide: { interestVault: AccountMeta["pubkey"] };
       quoteSide: { interestVault: AccountMeta["pubkey"] };
@@ -294,7 +300,7 @@ export class DuskWrite {
     options: SwapBuildOptions
   ): Promise<AnchorMethodBuilder> {
     const market = address(options.market);
-    const state = (await this.program.account.market.fetch(market)) as unknown as {
+    const state = (await this.fetchMarketAccount(market)) as {
       ylpMint: AccountMeta["pubkey"];
       baseSide: { interestVault: AccountMeta["pubkey"] };
       quoteSide: { interestVault: AccountMeta["pubkey"] };
@@ -425,7 +431,7 @@ export class DuskWrite {
           ),
           borrowPosition: address(
             params.borrowPosition ??
-              deriveBorrowPositionAddress(market, address(params.positionId))[0]
+              deriveBorrowPositionAddress(market, owner, address(params.positionId))[0]
           ),
           referralPartner: null,
           referralAccrual: null,
@@ -495,7 +501,7 @@ export class DuskWrite {
           payer: address(params.payer ?? owner),
           leveragePosition: address(
             params.leveragePosition ??
-              deriveLeveragePositionAddress(market, positionId)[0]
+              deriveLeveragePositionAddress(market, owner, positionId)[0]
           ),
           debtMint,
           collateralMint,
@@ -553,7 +559,7 @@ export class DuskWrite {
     const market = address(params.market);
     const leveragePosition = address(
       params.leveragePosition ??
-        deriveLeveragePositionAddress(market, address(params.positionId))[0]
+        deriveLeveragePositionAddress(market, address(params.owner), address(params.positionId), address(params.namespaceAuthority ?? params.owner))[0]
     );
 
     return this.instruction(
@@ -1082,7 +1088,7 @@ export class DuskWrite {
   }
 
   private async governanceMarketState(market: PublicKey): Promise<GovernanceMarketState> {
-    return (await this.program.account.market.fetch(market)) as unknown as GovernanceMarketState;
+    return (await this.fetchMarketAccount(market)) as GovernanceMarketState;
   }
 
   async hlpLiquidityAction(
@@ -1341,8 +1347,15 @@ export class DuskWrite {
       this.program.provider.connection,
       mintKey
     );
+    const referralAccrual = (this.program as unknown as {
+      account: {
+        referralAccrual: {
+          fetch(address: PublicKey): Promise<{ amount: { toString(): string } }>;
+        };
+      };
+    }).account.referralAccrual;
     const [accrual, mint] = await Promise.all([
-      this.program.account.referralAccrual.fetch(referral.referralAccrual),
+      referralAccrual.fetch(referral.referralAccrual),
       getMint(
         this.program.provider.connection,
         mintKey,
@@ -1418,7 +1431,7 @@ export class DuskWrite {
           ownerAssetAccount: address(params.ownerAssetAccount),
           borrowPosition: address(
             params.borrowPosition ??
-              deriveBorrowPositionAddress(market, positionId)[0]
+              deriveBorrowPositionAddress(market, owner, positionId)[0]
           ),
           tokenProgram,
           token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -1438,7 +1451,7 @@ export class DuskWrite {
           market, owner: address(params.owner), assetMint,
           collateralVault: address(params.collateralVault ?? deriveMarketCollateralVaultAddress(market, assetMint)[0]),
           ownerAssetAccount: address(params.ownerAssetAccount),
-          borrowPosition: address(params.borrowPosition ?? deriveBorrowPositionAddress(market, address(params.positionId))[0]),
+          borrowPosition: address(params.borrowPosition ?? deriveBorrowPositionAddress(market, address(params.positionOwner ?? params.owner), address(params.positionId))[0]),
           tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
         }, remainingAccounts: params.remainingAccounts,
       });
@@ -1454,7 +1467,7 @@ export class DuskWrite {
       minQuoteOut: governanceIntegerBN(params.minQuoteOut, "minQuoteOut"),
     }, { accounts: {
       market, owner: address(params.owner), baseMint, quoteMint,
-      borrowPosition: address(params.borrowPosition ?? deriveBorrowPositionAddress(market, address(params.positionId))[0]),
+      borrowPosition: address(params.borrowPosition ?? deriveBorrowPositionAddress(market, address(params.owner), address(params.positionId))[0]),
       baseCollateralVault: deriveMarketCollateralVaultAddress(market, baseMint)[0],
       quoteCollateralVault: deriveMarketCollateralVaultAddress(market, quoteMint)[0],
       ownerBaseAccount: address(params.ownerBaseAccount), ownerQuoteAccount: address(params.ownerQuoteAccount),
@@ -1470,7 +1483,7 @@ export class DuskWrite {
       { minCollateralOut: governanceIntegerBN(params.minCollateralOut, "minCollateralOut") }, {
         accounts: {
           market, owner: address(params.owner), collateralMint,
-          leveragePosition: address(params.leveragePosition ?? deriveLeveragePositionAddress(market, address(params.positionId))[0]),
+          leveragePosition: address(params.leveragePosition ?? deriveLeveragePositionAddress(market, address(params.owner), address(params.positionId), address(params.namespaceAuthority ?? params.owner))[0]),
           collateralVault: deriveLeverageCollateralVaultAddress(market, collateralMint)[0],
           ownerCollateralAccount: address(params.ownerCollateralAccount),
           tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -1522,7 +1535,7 @@ export class DuskWrite {
           ownerAssetAccount: address(params.ownerAssetAccount),
           borrowPosition: address(
             params.borrowPosition ??
-              deriveBorrowPositionAddress(market, positionId)[0]
+              deriveBorrowPositionAddress(market, owner, positionId)[0]
           ),
           tokenProgram,
           token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -1566,6 +1579,7 @@ export class DuskWrite {
           futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
           owner,
           debtAssetMint,
+          collateralAssetMint: address(params.collateralAssetMint),
           reserveVault: address(
             params.reserveVault ??
               deriveMarketReserveVaultAddress(market, debtAssetMint)[0]
@@ -1577,7 +1591,7 @@ export class DuskWrite {
           ownerDebtAccount: address(params.ownerDebtAccount),
           borrowPosition: address(
             params.borrowPosition ??
-              deriveBorrowPositionAddress(market, positionId)[0]
+              deriveBorrowPositionAddress(market, address(params.positionOwner ?? params.owner), positionId)[0]
           ),
           referralPartner,
           referralAccrual: referralPartner
@@ -1625,9 +1639,10 @@ export class DuskWrite {
           market,
           borrowPosition: address(
             params.borrowPosition ??
-              deriveBorrowPositionAddress(market, positionId)[0]
+              deriveBorrowPositionAddress(market, address(params.positionOwner), positionId)[0]
           ),
           debtAssetMint: address(params.debtAssetMint),
+          collateralAssetMint: address(params.collateralAssetMint),
         },
       }
     );
@@ -1730,7 +1745,7 @@ export class DuskWrite {
           ),
           borrowPosition: address(
             params.borrowPosition ??
-              deriveBorrowPositionAddress(market, positionId)[0]
+              deriveBorrowPositionAddress(market, address(params.positionOwner), positionId)[0]
           ),
           referralPartner,
           referralAccrual: referralPartner
@@ -1839,7 +1854,7 @@ export class DuskWrite {
           ),
           borrowPosition: address(
             params.borrowPosition ??
-              deriveBorrowPositionAddress(market, positionId)[0]
+              deriveBorrowPositionAddress(market, positionOwner, positionId)[0]
           ),
           referralPartner,
           referralAccrual: referralPartner
@@ -2067,6 +2082,7 @@ export class DuskWrite {
           positionOwner: core.positionOwner,
           leveragePosition: core.leveragePosition,
           debtMint: core.debtMint,
+          ...(method === "addLeverageMargin" ? { collateralMint: core.collateralMint } : {}),
           debtReserveVault: core.debtReserveVault,
           debtInterestVault: core.debtInterestVault,
           ownerDebtAccount: address(params.ownerDebtAccount),
@@ -2155,6 +2171,12 @@ export class DuskWrite {
           debtInterestVault: core.debtInterestVault,
           leverageCollateralVault: core.leverageCollateralVault,
           ownerDebtAccount: address(params.ownerDebtAccount),
+          delegateFeeRecipient: params.delegateFeeRecipient
+            ? address(params.delegateFeeRecipient)
+            : null,
+          delegateExecutorAccount: params.delegateExecutorAccount
+            ? address(params.delegateExecutorAccount)
+            : null,
           referralPartner: core.referralPartner,
           referralAccrual: core.referralAccrual,
           leverageDelegation: params.leverageDelegation
@@ -2206,7 +2228,7 @@ export class DuskWrite {
       owner: address(params.owner ?? params.positionOwner),
       leveragePosition: address(
         params.leveragePosition ??
-          deriveLeveragePositionAddress(market, positionId)[0]
+          deriveLeveragePositionAddress(market, positionOwner, positionId, address(params.namespaceAuthority ?? params.positionOwner))[0]
       ),
       debtMint,
       collateralMint,
@@ -2295,6 +2317,8 @@ export type RawAmount = bigint | number | string;
 interface LendingPositionAccounts {
   market: AddressLike;
   owner: AddressLike;
+  /** Beneficiary when a different wallet pays for this position. */
+  positionOwner?: AddressLike;
   /** Position discriminator; the borrow position PDA derives from it. */
   positionId: AddressLike;
   borrowPosition?: AddressLike;
@@ -2320,6 +2344,7 @@ export interface WithdrawCollateralParams extends LendingPositionAccounts {
 
 export interface RepayParams extends LendingPositionAccounts {
   debtAssetMint: AddressLike;
+  collateralAssetMint: AddressLike;
   ownerDebtAccount: AddressLike;
   repayAmount: RawAmount;
   /** Omit when the position has no referrer. */
@@ -2348,6 +2373,8 @@ interface LeverageAccounts {
   debtAsset: MarketAssetSide;
   /** Signer when it differs from the position owner. */
   owner?: AddressLike;
+  /** Signer that originally funded the position, if different from its owner. */
+  namespaceAuthority?: AddressLike;
   leveragePosition?: AddressLike;
   debtReserveVault?: AddressLike;
   collateralReserveVault?: AddressLike;
@@ -2378,8 +2405,12 @@ export interface RemoveLeverageMarginParams extends LeverageMarginParams {
 
 export interface CloseLeverageParams extends LeverageAccounts {
   minAmountOut: RawAmount;
+  /** Payout account owned by the position owner. */
   ownerDebtAccount: AddressLike;
-  /** Delegated settlement; omit all three for an owner-signed close. */
+  /** Required for delegated closes; the two accounts receive bounded fees. */
+  delegateFeeRecipient?: AddressLike | null;
+  delegateExecutorAccount?: AddressLike | null;
+  /** Delegated settlement; omit these for an owner-signed close. */
   leverageDelegation?: AddressLike | null;
   delegatedProgram?: AddressLike | null;
   authority?: AddressLike;
@@ -2431,6 +2462,7 @@ export interface OpenLeverageParams {
 export interface CreateLeverageDelegationParams {
   market: AddressLike;
   owner: AddressLike;
+  namespaceAuthority?: AddressLike;
   positionId: AddressLike;
   debtAsset: LeverageDebtAsset;
   delegatedProgram: AddressLike;
@@ -2467,9 +2499,11 @@ export interface BorrowParams {
  */
 export interface StartLiquidationAuctionParams {
   market: AddressLike;
+  positionOwner: AddressLike;
   /** Position discriminator; the borrow position PDA derives from it. */
   positionId: AddressLike;
   debtAssetMint: AddressLike;
+  collateralAssetMint: AddressLike;
   borrowPosition?: AddressLike;
 }
 
@@ -2654,6 +2688,7 @@ export interface WithdrawAllCollateralParams extends LendingPositionAccounts {
 export interface WithdrawRepaidLeverageParams {
   market: AddressLike;
   owner: AddressLike;
+  namespaceAuthority?: AddressLike;
   positionId: AddressLike;
   leveragePosition?: AddressLike;
   collateralMint: AddressLike;
