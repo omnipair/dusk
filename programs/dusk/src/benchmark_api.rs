@@ -602,7 +602,6 @@ pub struct BenchmarkRepayRequest {
 
 const BENCHMARK_LIQUIDATION_START_PREMIUM_NUMERATOR: u64 = 105;
 const BENCHMARK_LIQUIDATION_START_PREMIUM_DENOMINATOR: u64 = 100;
-const BENCHMARK_LIQUIDATION_RESERVATION_FEE_BPS: u64 = 20;
 
 /// The two executable branches of Dusk's native borrow-position auction.
 ///
@@ -3740,14 +3739,9 @@ fn liquidation_plan(
         !position.liquidation_auction_expired(request.clock.unix_timestamp)?,
         ErrorCode::PositionNotLiquidatable
     );
-    let price_before_fee = position.liquidation_auction_price_nad(request.clock.unix_timestamp)?;
-    let reservation_fee = price_before_fee
-        .checked_mul(BENCHMARK_LIQUIDATION_RESERVATION_FEE_BPS)
-        .and_then(|value| value.checked_div(BPS_DENOMINATOR as u64))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let auction_price_nad = price_before_fee
-        .checked_add(reservation_fee)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let current_reference_price_nad = market.liquidation_reference_price_nad(position, request.debt_asset)?;
+    let auction_price_nad =
+        position.liquidation_auction_bid_price_nad(request.clock.unix_timestamp, current_reference_price_nad)?;
     let pricing = LiquidationPricing::ReferencePrice {
         debt_per_collateral_price_nad: auction_price_nad,
     };
@@ -6644,6 +6638,25 @@ mod tests {
                 },
             )
             .unwrap();
+        let opening_reference = position.position().auction_floor_price_nad;
+        benchmark
+            .execute_swap(BenchmarkSwapRequest {
+                asset_in: MarketAsset::Quote,
+                reserve_credit: 100_000,
+                protocol_fee_bps: 0,
+                protocol_auction_split: ProtocolAuctionSplit::default(),
+            })
+            .unwrap();
+        let clock = BenchmarkClock {
+            slot: 100,
+            unix_timestamp: 44,
+        };
+        benchmark.advance_to(clock).unwrap();
+        let current_reference = benchmark
+            .market()
+            .liquidation_reference_price_nad(position.position(), MarketAsset::Base)
+            .unwrap();
+        assert_ne!(current_reference, opening_reference);
         let plan_request = BenchmarkLiquidationPlanRequest {
             clock,
             debt_asset: MarketAsset::Base,
@@ -6658,6 +6671,13 @@ mod tests {
             insurance_draw_credit: 0,
         };
         let preview = benchmark.preview_liquidation(&position, preview_request).unwrap();
+        assert_eq!(
+            preview.plan.auction_price_nad,
+            position
+                .position()
+                .liquidation_auction_bid_price_nad(clock.unix_timestamp, current_reference)
+                .unwrap()
+        );
         assert_eq!(preview.native.socialized_loss, 0);
         assert!(preview.native.collateral_seized < 50_000);
 

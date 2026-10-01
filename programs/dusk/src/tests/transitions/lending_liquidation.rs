@@ -819,10 +819,10 @@ fn liquidation_auction_reaches_floor_only_at_explicit_expiry() {
     let start_time = 10;
     borrow_position.start_liquidation_auction(MarketAsset::Quote, start_time, 105, 100);
 
-    assert_eq!(borrow_position.liquidation_auction_price_nad(start_time).unwrap(), 105);
+    assert_eq!(borrow_position.liquidation_auction_price_nad(start_time, 100).unwrap(), 105);
     assert_eq!(
         borrow_position
-            .liquidation_auction_price_nad(start_time + LIQUIDATION_AUCTION_DURATION_SECONDS - 1)
+            .liquidation_auction_price_nad(start_time + LIQUIDATION_AUCTION_DURATION_SECONDS - 1, 100)
             .unwrap(),
         101
     );
@@ -831,13 +831,30 @@ fn liquidation_auction_reaches_floor_only_at_explicit_expiry() {
         .unwrap());
     assert_eq!(
         borrow_position
-            .liquidation_auction_price_nad(start_time + LIQUIDATION_AUCTION_DURATION_SECONDS)
+            .liquidation_auction_price_nad(start_time + LIQUIDATION_AUCTION_DURATION_SECONDS, 100)
             .unwrap(),
         100
     );
     assert!(borrow_position
         .liquidation_auction_expired(start_time + LIQUIDATION_AUCTION_DURATION_SECONDS)
         .unwrap());
+
+    let midpoint = start_time + LIQUIDATION_AUCTION_DURATION_SECONDS / 2;
+    assert_eq!(borrow_position.liquidation_auction_price_nad(midpoint, 130).unwrap(), 134);
+    assert_eq!(borrow_position.liquidation_auction_price_nad(midpoint, 70).unwrap(), 72);
+    assert_eq!(borrow_position.liquidation_auction_price_nad(start_time, 130).unwrap(), 137);
+    assert_eq!(
+        borrow_position
+            .liquidation_auction_price_nad(start_time + LIQUIDATION_AUCTION_DURATION_SECONDS, 130)
+            .unwrap(),
+        130
+    );
+    assert_eq!(
+        borrow_position
+            .liquidation_auction_bid_price_nad(start_time, u64::MAX)
+            .unwrap(),
+        u64::MAX
+    );
 }
 
 #[test]

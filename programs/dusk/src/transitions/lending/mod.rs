@@ -347,7 +347,7 @@ impl Market {
     }
 
     /// Rebuilds the full concentrated curve at the pessimistic price and
-    /// depth. This is used to price the external-liquidation auction floor.
+    /// depth. This supplies opening and live references for external bids.
     pub(crate) fn pessimistic_concentrated_curve(
         &self,
         collateral_asset: MarketAsset,

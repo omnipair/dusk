@@ -1,7 +1,13 @@
 use anchor_lang::prelude::*;
 
 use crate::state::market::{Debt, MarketAsset};
-use crate::{constants::LIQUIDATION_AUCTION_DURATION_SECONDS, errors::ErrorCode};
+use crate::{
+    constants::{BPS_DENOMINATOR, LIQUIDATION_AUCTION_DURATION_SECONDS},
+    errors::ErrorCode,
+    math::arithmetic::mul_div_ceil_u128,
+};
+
+const LIQUIDATION_RESERVATION_FEE_BPS: u128 = 20;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CollateralReceipt {
@@ -185,12 +191,15 @@ impl BorrowPosition {
         Ok(now.saturating_sub(self.auction_start_time) >= LIQUIDATION_AUCTION_DURATION_SECONDS)
     }
 
-    pub fn liquidation_auction_price_nad(&self, now: i64) -> Result<u64> {
+    /// Applies the remaining opening premium to the current liquidation reference.
+    /// The stored start and floor prices define the premium, not a fixed fill quote.
+    pub fn liquidation_auction_price_nad(&self, now: i64, current_reference_price_nad: u64) -> Result<u64> {
         require!(
             self.has_active_liquidation_auction(),
             ErrorCode::PositionNotLiquidatable
         );
         require!(now >= self.auction_start_time, ErrorCode::MarketMathOverflow);
+        require!(current_reference_price_nad > 0, ErrorCode::InvalidSettlementPrice);
         require!(
             self.auction_start_price_nad >= self.auction_floor_price_nad && self.auction_floor_price_nad > 0,
             ErrorCode::BrokenInvariant
@@ -205,15 +214,34 @@ impl BorrowPosition {
             .auction_start_price_nad
             .checked_sub(self.auction_floor_price_nad)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let remaining_premium = (premium as u128)
+        let premium_numerator = (premium as u128)
             .checked_mul(remaining as u128)
-            .and_then(|value| value.checked_add(LIQUIDATION_AUCTION_DURATION_SECONDS as u128 - 1))
-            .and_then(|value| value.checked_div(LIQUIDATION_AUCTION_DURATION_SECONDS as u128))
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let price = (self.auction_floor_price_nad as u128)
+        let premium_denominator = (self.auction_floor_price_nad as u128)
+            .checked_mul(LIQUIDATION_AUCTION_DURATION_SECONDS as u128)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let remaining_premium = mul_div_ceil_u128(
+            current_reference_price_nad as u128,
+            premium_numerator,
+            premium_denominator,
+        )?;
+        let price = (current_reference_price_nad as u128)
             .checked_add(remaining_premium)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow.into())
+        Ok(price.min(u64::MAX as u128) as u64)
+    }
+
+    /// Adds the fixed LP reservation fee to the current auction quote.
+    pub fn liquidation_auction_bid_price_nad(&self, now: i64, current_reference_price_nad: u64) -> Result<u64> {
+        let price = self.liquidation_auction_price_nad(now, current_reference_price_nad)? as u128;
+        let reservation_fee = price
+            .checked_mul(LIQUIDATION_RESERVATION_FEE_BPS)
+            .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let bid_price = price
+            .checked_add(reservation_fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        Ok(bid_price.min(u64::MAX as u128) as u64)
     }
 
     pub fn start_liquidation_auction(
