@@ -11,7 +11,7 @@ use crate::{
     events::{LeveragePositionLiquidated, LeverageSwapReceipt, MarketEventMetadata, SwapExecuted, SwapOrigin},
     generate_market_seeds,
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
-    token::{get_transfer_fee, transfer_checked_with_remaining_accounts},
+    token::{get_transfer_fee, get_transfer_inverse_fee_for_epoch, transfer_checked_with_remaining_accounts},
     transitions::{
         liquidity::SwapCashPolicy, HlpYieldEligibility, LeverageInsuranceDraw, LeverageLiquidationReceipt,
         LeverageSwapFeeCredit,
@@ -33,6 +33,29 @@ use crate::instructions::referral::accounting::{referral_interest_accrued_event_
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct LiquidateLeveragePositionArgs {
     pub debt_asset: u8,
+    /// Minimum debt tokens the liquidator must actually receive after transfer fees.
+    pub min_liquidator_amount_out: u64,
+}
+
+/// Spend at most the realized residual while targeting the receipt's net
+/// liquidator incentive. Transfer fees come out of owner proceeds when there
+/// are enough proceeds; an insufficient gross-up still permits liquidation
+/// unless the caller requires a larger net minimum.
+fn liquidation_payout_debits(
+    debt_mint: &AccountInfo,
+    residual: u64,
+    liquidator_target: u64,
+    epoch: u64,
+) -> Result<(u64, u64)> {
+    let target = liquidator_target.min(residual);
+    let gross = if target == 0 {
+        0
+    } else {
+        target
+            .saturating_add(get_transfer_inverse_fee_for_epoch(debt_mint, target, epoch)?)
+            .min(residual)
+    };
+    Ok((gross, residual - gross))
 }
 
 #[event_cpi]
@@ -341,6 +364,7 @@ impl<'info> LiquidateLeveragePosition<'info> {
             swap_fee_credit,
             interest_eligibility,
             current_slot,
+            args.min_liquidator_amount_out,
         )
     }
 }
@@ -356,6 +380,7 @@ fn finish_liquidation<'info>(
     swap_fee_credit: LeverageSwapFeeCredit,
     interest_eligibility: HlpYieldEligibility,
     current_slot: u64,
+    min_liquidator_amount_out: u64,
 ) -> Result<()> {
     let market_key = ctx.accounts.market.key();
     let liquidator_key = ctx.accounts.liquidator.key();
@@ -389,11 +414,22 @@ fn finish_liquidation<'info>(
     )?;
     ctx.accounts.debt_interest_vault.reload()?;
 
-    // Pay the liquidator first, then return any residual to the owner.
+    // Pay the liquidator a net incentive when available, then return any
+    // residual to the owner. The measured credit enforces the caller's floor.
     let debt_token_program = token_program_for_mint(
         &ctx.accounts.debt_mint,
         &ctx.accounts.token_program,
         &ctx.accounts.token_2022_program,
+    )?;
+    let residual = receipt
+        .liquidator_amount
+        .checked_add(receipt.owner_residual)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let (liquidator_debit, owner_debit) = liquidation_payout_debits(
+        &ctx.accounts.debt_mint.to_account_info(),
+        residual,
+        receipt.liquidator_amount,
+        Clock::get()?.epoch,
     )?;
     let liquidator_balance_before = ctx.accounts.liquidator_debt_account.amount;
     transfer_checked_with_remaining_accounts(
@@ -402,13 +438,18 @@ fn finish_liquidation<'info>(
         ctx.accounts.liquidator_debt_account.to_account_info(),
         ctx.accounts.debt_mint.to_account_info(),
         debt_token_program.clone(),
-        receipt.liquidator_amount,
+        liquidator_debit,
         ctx.accounts.debt_mint.decimals,
         &[&generate_market_seeds!(ctx.accounts.market)[..]],
         h_lp_accounts.hook_accounts(ctx.remaining_accounts),
     )?;
     ctx.accounts.liquidator_debt_account.reload()?;
     let liquidator_amount = token_account_credit(liquidator_balance_before, &ctx.accounts.liquidator_debt_account)?;
+    require_gte!(
+        liquidator_amount,
+        min_liquidator_amount_out,
+        ErrorCode::SlippageExceeded
+    );
 
     let owner_balance_before = ctx.accounts.owner_debt_account.amount;
     transfer_checked_with_remaining_accounts(
@@ -417,7 +458,7 @@ fn finish_liquidation<'info>(
         ctx.accounts.owner_debt_account.to_account_info(),
         ctx.accounts.debt_mint.to_account_info(),
         debt_token_program,
-        receipt.owner_residual,
+        owner_debit,
         ctx.accounts.debt_mint.decimals,
         &[&generate_market_seeds!(ctx.accounts.market)[..]],
         h_lp_accounts.hook_accounts(ctx.remaining_accounts),
@@ -515,4 +556,9 @@ fn finish_liquidation<'info>(
         metadata: MarketEventMetadata::at_slot(liquidator_key, market_key, current_slot),
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    include!("../../tests/instructions/leverage/liquidate_leverage_position.rs");
 }

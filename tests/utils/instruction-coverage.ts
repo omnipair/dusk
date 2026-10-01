@@ -123,7 +123,6 @@ const DUSK_INSTRUCTIONS = [
   "claimReferralInterest",
   "settleProtocolAuction",
   "initializeMarket",
-  "initializeLpMetadata",
   "initializeYieldAccounts",
   "initializeLpTransferHook",
   "setMarketReduceOnly",

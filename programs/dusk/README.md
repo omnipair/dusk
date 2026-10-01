@@ -33,7 +33,7 @@ Instruction modules are split by domain: `market`, `governance`, `liquidity`, `s
 
 Dusk exposes the current market instruction set:
 
-- `initialize_market`, `initialize_lp_metadata`, `initialize_yield_accounts`, `initialize_lp_transfer_hook`, `set_market_reduce_only`, `fortify_market`
+- `initialize_market` (including all three LP metadata records), `initialize_yield_accounts`, `initialize_lp_transfer_hook`, `set_market_reduce_only`, `fortify_market`
 - `create_parameter_proposal`, `support_parameter_proposal`, `queue_parameter_proposal`, `execute_parameter_proposal`, `withdraw_parameter_support`
 - `add_liquidity`, `open_liquidity_gates`, `remove_liquidity`
 - `set_yield_recipient`, `set_harvest_authority`, `harvest`
@@ -108,13 +108,13 @@ Each market records three Token-2022 LP mints:
 - `hLP_base`: one-sided hedged LP shares targeting base exposure.
 - `hLP_quote`: one-sided hedged LP shares targeting quote exposure.
 
-yLP and hLP mints must be fee-free Token-2022 mints with an immutable transfer hook configured to the Dusk program (`TransferHook.authority = None`), mint authority set to the market PDA, and no freeze authority. `initialize_lp_metadata` creates Metaplex metadata for each LP mint with the market PDA as update authority. Production builds additionally enforce vanity suffixes: `yLP` for yLP and `hLP` for each hLP mint. Underlying asset mints may be SPL Token or Token-2022 mints without a freeze authority or Transfer Hook extension.
+yLP and hLP mints must be fee-free Token-2022 mints with an immutable transfer hook configured to the Dusk program (`TransferHook.authority = None`), mint authority set to the market PDA, and no freeze authority. `initialize_market` creates all three immutable Metaplex records atomically, with the market PDA as update authority. Production builds additionally enforce vanity suffixes: `yLP` for yLP and `hLP` for each hLP mint. Underlying asset mints may be SPL Token or Token-2022 mints without a freeze authority or Transfer Hook extension.
 
 ### LP mint addresses, names and metadata
 
 The suffix rule is satisfied without a second keypair: each LP mint is a `create_with_seed` account of the market creator, `sha256(creator ‖ seed ‖ Token-2022)`, and the seed is ground until the base58 address ends in `yLP` or `hLP`. The vanity server (omnipair/vanity-server, `GET /grind?base=<creator>&suffix=yLP&owner=TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb`) grinds a three-character suffix in well under a second; the SDK's `grindMarketLpMintSeeds` re-derives every answer before use, and `createHookedLpMintWithSeedInstructions` builds the mint so only the creator signs.
 
-Names and symbols are written once by `initialize_lp_metadata` and cannot be changed, so they follow one scheme (`lpTokenNaming` in the SDK), with no brand in the name:
+Names and symbols are written once by `initialize_market` and cannot be changed, so they follow one scheme (`lpTokenNaming` in the SDK), with no brand in the name:
 
 | Mint | Name | Symbol |
 | --- | --- | --- |
@@ -286,7 +286,7 @@ hLP checkpointing computes endpoint NAV and reconstructs yLP ownership and fundi
 | Leverage collateral vault | `leverage_collateral`, `market`, `collateral_mint` | derive from seed tuple |
 | LP token metadata | Metaplex `metadata`, token metadata program, `lp_mint` | `deriveTokenMetadataAddress` |
 
-yLP and hLP mints are supplied to `initialize_market`. The two asset mints and all three LP mints must be pairwise distinct, and each LP mint is validated by mint authority, decimals, Token-2022 owner, immutable Dusk transfer hook, fee-free extension rules, no freeze authority, vanity suffix, and zero supply at market creation. LP metadata is created in follow-up `initialize_lp_metadata` calls, one mint per transaction. The permissionless, idempotent `initialize_yield_accounts` creates both asset-stream accounts for one owner and LP mint; `initialize_lp_transfer_hook` creates and validates the canonical Token-2022 extra-account-meta PDA on-chain without a seeded client fixture. The list has nine entries: the market, both asset mints, the four source and destination yield accounts, then the event authority and the Dusk program so the hook can publish `LpTransferred`. A mint initialized with the earlier seven-entry list keeps it: re-initialization accepts that layout unchanged, and its transfers publish no receipt.
+yLP and hLP mints are supplied to `initialize_market`. The two asset mints and all three LP mints must be pairwise distinct, and each LP mint is validated by mint authority, decimals, Token-2022 owner, immutable Dusk transfer hook, fee-free extension rules, no freeze authority, vanity suffix, and zero supply at market creation. All three LP metadata records are created in that transaction; clients prepare an address lookup table first to fit the account list. The permissionless, idempotent `initialize_yield_accounts` creates both asset-stream accounts for one owner and LP mint; `initialize_lp_transfer_hook` creates and validates the canonical Token-2022 extra-account-meta PDA on-chain without a seeded client fixture. The list has nine entries: the market, both asset mints, the four source and destination yield accounts, then the event authority and the Dusk program so the hook can publish `LpTransferred`. A mint initialized with the earlier seven-entry list keeps it: re-initialization accepts that layout unchanged, and its transfers publish no receipt.
 
 Referral accruals are market-specific liabilities. Their backing remains in the corresponding market interest vault until the referrer claims to the partner's current recipient.
 

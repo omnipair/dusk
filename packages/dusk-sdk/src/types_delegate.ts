@@ -458,7 +458,8 @@ export type LeverageDelegate = {
           }
         },
         {
-          "name": "debtMint"
+          "name": "debtMint",
+          "writable": true
         },
         {
           "name": "fundingVault",
@@ -1235,10 +1236,12 @@ export type LeverageDelegate = {
           "name": "futarchyAuthority"
         },
         {
-          "name": "baseMint"
+          "name": "baseMint",
+          "writable": true
         },
         {
-          "name": "quoteMint"
+          "name": "quoteMint",
+          "writable": true
         },
         {
           "name": "ylpMint",
@@ -1470,7 +1473,8 @@ export type LeverageDelegate = {
           "writable": true
         },
         {
-          "name": "debtMint"
+          "name": "debtMint",
+          "writable": true
         },
         {
           "name": "collateralMint"
@@ -3970,7 +3974,7 @@ export type LeverageDelegate = {
           {
             "name": "executorBounty",
             "docs": [
-              "Gross vault debit paid to the successful executor."
+              "Minimum net credit paid to the successful executor."
             ],
             "type": "u64"
           },
@@ -4010,6 +4014,14 @@ export type LeverageDelegate = {
         "fields": [
           {
             "name": "orderId",
+            "type": "u64"
+          },
+          {
+            "name": "minOwnerRefundOut",
+            "docs": [
+              "Minimum amount actually credited to the owner on cancel or execution.",
+              "Zero keeps cancellation available when transfer fees consume escrow."
+            ],
             "type": "u64"
           }
         ]

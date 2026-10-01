@@ -526,8 +526,11 @@ const naming = marketLpTokenNaming({ baseSymbol: "META", quoteSymbol: "USDC" });
 `grindLpMintSeed` asks the vanity server for a seed with `owner` set to
 Token-2022 and re-derives the address locally before returning it; a server
 that ground the wrong suffix or owner is rejected. Names are written once by
-`initialize_lp_metadata` and cannot be changed afterwards, so use
-`lpTokenNaming` rather than ad-hoc strings. The metadata JSON and images that
+`initialize_market` and cannot be changed afterwards, so use `lpTokenNaming`
+rather than ad-hoc strings. Pass the three names, symbols, and URIs through
+`initializeMarketInstruction`; `marketCreationLookupTablePlan` and
+`marketCreationV0Transaction` build the v0 transaction once the lookup table is
+active. The metadata JSON and images that
 the URIs point to are produced by `scripts/lp-metadata/` in the dusk
 repository.
 

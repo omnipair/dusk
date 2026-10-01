@@ -23,6 +23,9 @@ pub struct CreateLeverageEntryOrderArgs {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct LeverageEntryOrderIdArgs {
     pub order_id: u64,
+    /// Minimum amount actually credited to the owner on cancel or execution.
+    /// Zero keeps cancellation available when transfer fees consume escrow.
+    pub min_owner_refund_out: u64,
 }
 
 pub(crate) fn leverage_entry_funding_vault_address(

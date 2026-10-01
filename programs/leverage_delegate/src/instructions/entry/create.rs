@@ -1,4 +1,5 @@
 use super::*;
+use crate::instructions::fees::gross_debit_for_net;
 
 #[derive(Accounts)]
 #[instruction(args: CreateLeverageEntryOrderArgs)]
@@ -105,8 +106,13 @@ impl<'info> CreateLeverageEntryOrder<'info> {
             .amount
             .checked_sub(vault_balance_before)
             .ok_or(LeverageDelegateError::MathOverflow)?;
+        let bounty_debit = gross_debit_for_net(
+            &ctx.accounts.debt_mint.to_account_info(),
+            args.executor_bounty,
+            Clock::get()?.epoch,
+        )?;
         let margin_amount =
-            escrow_margin_after_bounty(credited, args.executor_bounty, args.min_margin_amount)?;
+            escrow_margin_after_bounty(credited, bounty_debit, args.min_margin_amount)?;
 
         transfer_checked(
             token_program_for_mint(

@@ -363,7 +363,9 @@ const acceptedOneUseHelpers = new Map([
   // Keep the pure, clock-bound hLP admission and fee-boundary calculations
   // independently testable from Anchor account deserialization and sysvars.
   ["programs/dusk/src/instructions/hlp_deposit_preview.rs", new Set(["preview_hlp_funding_limit", "gross_funding_limit"])],
-  ["programs/dusk/src/instructions/leverage/liquidate_leverage_position.rs", new Set(["finish_liquidation"])],
+  // The fee-aware liquidator/owner split is a tested settlement policy kept
+  // separate from token CPI bookkeeping.
+  ["programs/dusk/src/instructions/leverage/liquidate_leverage_position.rs", new Set(["finish_liquidation", "liquidation_payout_debits"])],
   // CPI metadata isolation is a security boundary and has a focused test.
   ["programs/dusk/src/instructions/leverage/settlement.rs", new Set(["delegated_callback_metas"])],
   [

@@ -452,7 +452,8 @@
           }
         },
         {
-          "name": "debt_mint"
+          "name": "debt_mint",
+          "writable": true
         },
         {
           "name": "funding_vault",
@@ -1229,10 +1230,12 @@
           "name": "futarchy_authority"
         },
         {
-          "name": "base_mint"
+          "name": "base_mint",
+          "writable": true
         },
         {
-          "name": "quote_mint"
+          "name": "quote_mint",
+          "writable": true
         },
         {
           "name": "ylp_mint",
@@ -1464,7 +1467,8 @@
           "writable": true
         },
         {
-          "name": "debt_mint"
+          "name": "debt_mint",
+          "writable": true
         },
         {
           "name": "collateral_mint"
@@ -3964,7 +3968,7 @@
           {
             "name": "executor_bounty",
             "docs": [
-              "Gross vault debit paid to the successful executor."
+              "Minimum net credit paid to the successful executor."
             ],
             "type": "u64"
           },
@@ -4004,6 +4008,14 @@
         "fields": [
           {
             "name": "order_id",
+            "type": "u64"
+          },
+          {
+            "name": "min_owner_refund_out",
+            "docs": [
+              "Minimum amount actually credited to the owner on cancel or execution.",
+              "Zero keeps cancellation available when transfer fees consume escrow."
+            ],
             "type": "u64"
           }
         ]

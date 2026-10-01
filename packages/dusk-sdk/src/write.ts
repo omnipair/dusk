@@ -758,6 +758,11 @@ export class DuskWrite {
     /** Opening price in NAD. Zero lets the first deposit set it. */
     bootstrapPriceNad?: GovernanceIntegerLike;
     launchFeeProgressOffset?: number;
+    lpMetadata: {
+      ylp: { name: string; symbol: string; uri: string };
+      baseHlp: { name: string; symbol: string; uri: string };
+      quoteHlp: { name: string; symbol: string; uri: string };
+    };
   }): Promise<TransactionInstruction> {
     const baseMint = address(params.baseMint);
     const quoteMint = address(params.quoteMint);
@@ -776,6 +781,9 @@ export class DuskWrite {
           "bootstrapPriceNad"
         ),
         launchFeeProgressOffset: params.launchFeeProgressOffset ?? 0,
+        ylpMetadata: params.lpMetadata.ylp,
+        baseHlpMetadata: params.lpMetadata.baseHlp,
+        quoteHlpMetadata: params.lpMetadata.quoteHlp,
       },
       {
         accounts: {
@@ -785,6 +793,9 @@ export class DuskWrite {
           ylpMint: address(params.ylpMint),
           baseHlpMint: address(params.baseHlpMint),
           quoteHlpMint: address(params.quoteHlpMint),
+          ylpTokenMetadata: deriveTokenMetadataAddress(address(params.ylpMint))[0],
+          baseHlpTokenMetadata: deriveTokenMetadataAddress(address(params.baseHlpMint))[0],
+          quoteHlpTokenMetadata: deriveTokenMetadataAddress(address(params.quoteHlpMint))[0],
           market,
           futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
           baseReserveVault: deriveMarketReserveVaultAddress(market, baseMint)[0],
@@ -800,6 +811,8 @@ export class DuskWrite {
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
           token2022Program: TOKEN_2022_PROGRAM_ID,
+          sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+          tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
         },
       }
     );
@@ -809,40 +822,6 @@ export class DuskWrite {
     params: Parameters<DuskWrite["initializeMarketInstruction"]>[0]
   ): Promise<Transaction> {
     return new Transaction().add(await this.initializeMarketInstruction(params));
-  }
-
-  /** Name, symbol and image for one of a market's LP mints. */
-  async initializeLpMetadataInstruction(params: {
-    payer: AddressLike;
-    market: AddressLike;
-    lpMint: AddressLike;
-    name: string;
-    symbol: string;
-    uri: string;
-  }): Promise<TransactionInstruction> {
-    const lpMint = address(params.lpMint);
-    return this.instruction(
-      "initializeLpMetadata" as DuskInstructionName,
-      { name: params.name, symbol: params.symbol, uri: params.uri },
-      {
-        accounts: {
-          payer: address(params.payer),
-          market: address(params.market),
-          lpMint,
-          lpTokenMetadata: deriveTokenMetadataAddress(lpMint)[0],
-          systemProgram: SystemProgram.programId,
-          sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-          tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
-        },
-      }
-    );
-  }
-
-  async initializeLpMetadataTransaction(
-    params: Parameters<DuskWrite["initializeLpMetadataInstruction"]>[0]
-  ): Promise<Transaction> {
-    return new Transaction().add(await this.initializeLpMetadataInstruction(params));
   }
 
   /** Burn-lock initial direct-yLP support and create one immutable typed proposal. */
