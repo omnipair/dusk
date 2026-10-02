@@ -461,14 +461,13 @@ export class DuskWrite {
     }
 
     const positionId = address(params.positionId);
+    const fundingMint = params.fundingAsset === "collateral" ? collateralMint : debtMint;
     const debtTokenProgram = await tokenProgramForMint(
       this.program.provider.connection,
-      debtMint
+      fundingMint
     );
 
-    return this.instruction(
-      "openLeverage" as DuskInstructionName,
-      {
+    const openArgs = {
         positionId,
         debtAsset: params.debtAsset === "quote" ? 1 : 0,
         marginAmount: governanceIntegerBN(params.marginAmount, "marginAmount"),
@@ -486,7 +485,12 @@ export class DuskWrite {
           params.limitPriceNad ?? 0,
           "limitPriceNad"
         ),
-      },
+      };
+    const native = params.fundingAsset === "collateral";
+    if (native && params.maxDebtAmount === undefined) throw new Error("Native entry requires a maximum debt amount");
+    return this.instruction(
+      (native ? "openCollateralLeverage" : "openLeverage") as DuskInstructionName,
+      native ? { open: openArgs, maxDebtAmount: governanceIntegerBN(params.maxDebtAmount!, "maxDebtAmount") } : openArgs,
       {
         accounts: {
           market,
@@ -514,7 +518,7 @@ export class DuskWrite {
           ownerDebtAccount: address(
             params.ownerDebtAccount ??
               getAssociatedTokenAddressSync(
-                debtMint,
+                fundingMint,
                 owner,
                 true,
                 debtTokenProgram
@@ -2136,9 +2140,16 @@ export class DuskWrite {
     params: CloseLeverageParams
   ): Promise<TransactionInstruction> {
     const core = await this.resolveLeverageAccounts(params);
+    const native = params.collateralFunded === true;
+    if (native && (!params.ownerCollateralAccount || params.maxCollateralIn === undefined))
+      throw new Error("Native close requires a collateral recipient and maximum sale amount");
     return this.instruction(
-      "closeLeverage" as DuskInstructionName,
-      {
+      (native ? "closeCollateralLeverage" : "closeLeverage") as DuskInstructionName,
+      native ? {
+        debtAsset: marketAssetIndex(params.debtAsset),
+        maxCollateralIn: governanceIntegerBN(params.maxCollateralIn!, "maxCollateralIn"),
+        minCollateralOut: governanceIntegerBN(params.minAmountOut, "minAmountOut"),
+      } : {
         debtAsset: marketAssetIndex(params.debtAsset),
         minAmountOut: governanceIntegerBN(params.minAmountOut, "minAmountOut"),
       },
@@ -2169,6 +2180,7 @@ export class DuskWrite {
           token2022Program: TOKEN_2022_PROGRAM_ID,
         },
         remainingAccounts: [
+          ...(native ? [{ pubkey: address(params.ownerCollateralAccount!), isSigner: false, isWritable: true }] : []),
           ...(await this.hlpRemainingAccounts(core.market)),
           ...(params.remainingAccounts ?? []),
         ],
@@ -2377,6 +2389,10 @@ export interface RemoveLeverageMarginParams extends LeverageMarginParams {
 }
 
 export interface CloseLeverageParams extends LeverageAccounts {
+  /** Return unsold native collateral; debt-token rounding surplus is refunded separately. */
+  collateralFunded?: boolean;
+  ownerCollateralAccount?: AddressLike;
+  maxCollateralIn?: RawAmount;
   minAmountOut: RawAmount;
   ownerDebtAccount: AddressLike;
   /** Delegated settlement; omit all three for an owner-signed close. */
@@ -2406,6 +2422,9 @@ export type LeverageDebtAsset = "base" | "quote";
 
 /** Opening leverage, described by the market, position and mints. */
 export interface OpenLeverageParams {
+  fundingAsset?: "debt" | "collateral";
+  /** Required for collateral funding; bounds spot-valued borrowing at execution. */
+  maxDebtAmount?: RawAmount;
   market: AddressLike;
   owner: AddressLike;
   positionId: AddressLike;

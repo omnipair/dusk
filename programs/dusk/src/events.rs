@@ -591,6 +591,7 @@ pub struct LeveragePositionOpened {
     pub debt_asset_mint: Pubkey,
     pub collateral_asset_mint: Pubkey,
     pub margin_amount: u64,
+    pub funded_collateral_amount: u64,
     pub borrowed_amount: u64,
     pub debt_amount: u64,
     pub debt_shares: u128,
@@ -614,6 +615,8 @@ pub struct LeveragePositionClosed {
     pub collateral_sold: u64,
     pub closeout_value: u64,
     pub residual: u64,
+    /// Unsold collateral paid to the owner by a collateral-funded close.
+    pub collateral_returned: u64,
     pub swap: LeverageSwapReceipt,
     pub metadata: MarketEventMetadata,
 }

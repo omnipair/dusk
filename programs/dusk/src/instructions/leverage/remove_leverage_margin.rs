@@ -87,6 +87,13 @@ impl<'info> RemoveLeverageMargin<'info> {
         validate_side_vault_accounts(&self.market, debt_asset, &self.debt_mint, &self.debt_reserve_vault)?;
         validate_owner_debt_account(self.owner.key(), &self.debt_mint, &self.owner_debt_account)?;
         self.leverage_position.require_open()?;
+        // Native collateral MVP preserves its deposit denomination. Debt-token
+        // margin transfers would mix the cost basis and settlement assets.
+        require_eq!(
+            self.leverage_position.funded_collateral_amount,
+            0,
+            ErrorCode::InvalidArgument
+        );
         Ok(())
     }
 

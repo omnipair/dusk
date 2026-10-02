@@ -37,6 +37,15 @@ pub struct CloseLeverageArgs {
     pub min_amount_out: u64,
 }
 
+/// Sell bounded collateral to repay all debt, returning unsold collateral.
+/// Any indivisible excess output is also refunded in the debt token.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct CloseCollateralLeverageArgs {
+    pub debt_asset: u8,
+    pub max_collateral_in: u64,
+    pub min_collateral_out: u64,
+}
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct DelegatedCloseLeverageArgs {
     pub debt_asset: u8,
@@ -236,6 +245,7 @@ impl<'info> CloseLeverage<'info> {
             current_slot,
             current_epoch,
             current_unix_timestamp,
+            None,
         )
     }
 
@@ -258,6 +268,35 @@ impl<'info> CloseLeverage<'info> {
             current_slot,
             current_epoch,
             current_unix_timestamp,
+            None,
+        )
+    }
+
+    pub fn handle_collateral_close(
+        ctx: Context<'_, '_, '_, 'info, Self>,
+        args: CloseCollateralLeverageArgs,
+        current_slot: u64,
+        current_epoch: u64,
+        current_unix_timestamp: i64,
+    ) -> Result<()> {
+        require_gt!(
+            ctx.accounts.leverage_position.funded_collateral_amount,
+            0,
+            ErrorCode::InvalidArgument
+        );
+        Self::execute(
+            ctx,
+            CloseLeverageArgs {
+                debt_asset: args.debt_asset,
+                min_amount_out: 0,
+            },
+            None,
+            CloseMode::Owner,
+            BPS_DENOMINATOR,
+            current_slot,
+            current_epoch,
+            current_unix_timestamp,
+            Some((args.max_collateral_in, args.min_collateral_out)),
         )
     }
 
@@ -270,11 +309,44 @@ impl<'info> CloseLeverage<'info> {
         current_slot: u64,
         current_epoch: u64,
         current_unix_timestamp: i64,
+        native_close: Option<(u64, u64)>,
     ) -> Result<()> {
+        // Native closes reserve the first remaining account for the owner's collateral payout.
+        let (mut native_recipient, remaining_accounts) = if native_close.is_some() {
+            let (account, rest) = ctx
+                .remaining_accounts
+                .split_first()
+                .ok_or(ErrorCode::InvalidTokenAccount)?;
+            let recipient = TokenAccount::try_deserialize(&mut account.try_borrow_data()?.as_ref())?;
+            require_keys_eq!(
+                *account.owner,
+                *ctx.accounts.collateral_mint.to_account_info().owner,
+                ErrorCode::InvalidTokenAccount
+            );
+            require_keys_eq!(
+                recipient.owner,
+                ctx.accounts.position_owner.key(),
+                ErrorCode::InvalidTokenAccount
+            );
+            require_keys_eq!(
+                recipient.mint,
+                ctx.accounts.collateral_mint.key(),
+                ErrorCode::InvalidTokenAccount
+            );
+            require!(account.is_writable, ErrorCode::InvalidTokenAccount);
+            (Some(account.clone()), rest)
+        } else {
+            require_eq!(
+                ctx.accounts.leverage_position.funded_collateral_amount,
+                0,
+                ErrorCode::InvalidArgument
+            );
+            (None, ctx.remaining_accounts)
+        };
         let market_key = ctx.accounts.market.key();
         let h_lp_accounts = {
             let market: &Market = &ctx.accounts.market;
-            HlpSwapAccountLayout::try_from((market, ctx.remaining_accounts))?
+            HlpSwapAccountLayout::try_from((market, remaining_accounts))?
         };
         let delegated = match mode {
             CloseMode::Owner => DelegatedCpiArgs::default(),
@@ -300,7 +372,27 @@ impl<'info> CloseLeverage<'info> {
             .accounts
             .market
             .leverage_close_slice(&ctx.accounts.leverage_position, close_bps)?;
-        let collateral_sold = close_slice.collateral_amount;
+        ctx.accounts.market.prepare_amm_for_swap(current_slot)?;
+        ctx.accounts.market.advance_one_amm_controller_target(current_slot)?;
+        ctx.accounts.market.observe_current_risk(current_slot)?;
+        let collateral_sold = if let Some((maximum, _)) = native_close {
+            // Risk-increasing entries exclude transfer-fee collateral mints. Keep that invariant
+            // explicit here so the search and measured vault credit use the same raw amount.
+            super::settlement::validate_leverage_collateral_risk_mint(&ctx.accounts.collateral_mint)?;
+            ctx.accounts.market.collateral_for_leverage_repayment(
+                &ctx.accounts.leverage_position,
+                maximum,
+                current_slot,
+                current_unix_timestamp,
+            )?
+        } else {
+            close_slice.collateral_amount
+        };
+        require!(
+            collateral_sold > 0 && collateral_sold <= close_slice.collateral_amount,
+            ErrorCode::InvalidArgument
+        );
+        let collateral_returned = close_slice.collateral_amount - collateral_sold;
         let is_full_close = close_bps == BPS_DENOMINATOR;
         // Price the selected close before an optional delegated approval callback.
         let debt_amount = ctx
@@ -311,9 +403,6 @@ impl<'info> CloseLeverage<'info> {
             .cash_repaid;
         let expected_collateral_reserve_credit =
             leverage_collateral_credit(&ctx.accounts.collateral_mint, collateral_sold, current_epoch)?;
-        ctx.accounts.market.prepare_amm_for_swap(current_slot)?;
-        ctx.accounts.market.advance_one_amm_controller_target(current_slot)?;
-        ctx.accounts.market.observe_current_risk(current_slot)?;
         let close_quote = ctx.accounts.market.quote_leverage_swap_at_time(
             collateral_asset,
             expected_collateral_reserve_credit,
@@ -346,7 +435,7 @@ impl<'info> CloseLeverage<'info> {
                 .as_ref()
                 .ok_or(ErrorCode::InvalidLeverageDelegation)?;
             let (before_accounts, _) = split_delegated_accounts(
-                h_lp_accounts.hook_accounts(ctx.remaining_accounts),
+                h_lp_accounts.hook_accounts(remaining_accounts),
                 delegated.before_accounts_len,
             )?;
             let mut protected_accounts = vec![
@@ -398,11 +487,11 @@ impl<'info> CloseLeverage<'info> {
             ctx.accounts.leverage_collateral_vault.to_account_info(),
             ctx.accounts.collateral_reserve_vault.to_account_info(),
             ctx.accounts.collateral_mint.to_account_info(),
-            collateral_token_program,
+            collateral_token_program.clone(),
             collateral_sold,
             ctx.accounts.collateral_mint.decimals,
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
-            h_lp_accounts.hook_accounts(ctx.remaining_accounts),
+            h_lp_accounts.hook_accounts(remaining_accounts),
         )?;
         ctx.accounts.collateral_reserve_vault.reload()?;
         ctx.accounts.leverage_collateral_vault.reload()?;
@@ -417,27 +506,30 @@ impl<'info> CloseLeverage<'info> {
         );
 
         // Quote the credited collateral as the position's final debt repayment.
-        let prepared_swap = prepare_leverage_swap(
-            &mut ctx.accounts.market,
-            SwapRequest {
-                current_slot,
-                current_unix_timestamp,
-                asset_in: collateral_asset,
-                reserve_credit: collateral_reserve_credit,
-                protocol_fee_bps: ctx.accounts.futarchy_authority.revenue_share.swap_bps,
-            },
-            SwapCashPolicy::Close {
-                debt_asset,
-                debt_shares: close_slice.debt_shares,
-                debt_principal: close_slice.debt_principal,
-            },
-        )?;
+        let request = SwapRequest {
+            current_slot,
+            current_unix_timestamp,
+            asset_in: collateral_asset,
+            reserve_credit: collateral_reserve_credit,
+            protocol_fee_bps: ctx.accounts.futarchy_authority.revenue_share.swap_bps,
+        };
+        let policy = SwapCashPolicy::Close {
+            debt_asset,
+            debt_shares: close_slice.debt_shares,
+            debt_principal: close_slice.debt_principal,
+        };
+        let prepared_swap = if native_close.is_some() {
+            request.prepare_with_cash_policy_on_curve(&mut ctx.accounts.market, policy, true)?
+        } else {
+            prepare_leverage_swap(&mut ctx.accounts.market, request, policy)?
+        };
+
         let swap = prepared_swap.leverage_quote();
         let interest_eligibility = prepared_swap.interest_eligibility;
         let swap_fee_credit = leverage_swap_fee_credit(&swap)?;
 
         // Commit the close and settle the resulting hLP exposure.
-        let receipt = if is_full_close {
+        let mut receipt = if is_full_close {
             ctx.accounts.market.close_leverage(
                 &mut ctx.accounts.leverage_position,
                 args.min_amount_out,
@@ -460,6 +552,9 @@ impl<'info> CloseLeverage<'info> {
                 current_unix_timestamp,
             )?
         };
+        if native_close.is_some() {
+            receipt.collateral_sold = collateral_sold;
+        }
         settle_inline_leverage_hlp(
             &mut ctx.accounts.market,
             &ctx.accounts.futarchy_authority,
@@ -470,7 +565,7 @@ impl<'info> CloseLeverage<'info> {
             &ctx.accounts.collateral_reserve_vault,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
-            ctx.remaining_accounts,
+            remaining_accounts,
             h_lp_accounts,
             receipt.base_hlp_rebalance,
             receipt.quote_hlp_rebalance,
@@ -498,11 +593,33 @@ impl<'info> CloseLeverage<'info> {
             receipt.residual,
             ctx.accounts.debt_mint.decimals,
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
-            h_lp_accounts.hook_accounts(ctx.remaining_accounts),
+            h_lp_accounts.hook_accounts(remaining_accounts),
         )?;
         ctx.accounts.owner_debt_account.reload()?;
         let residual_credit = token_account_credit(owner_balance_before, &ctx.accounts.owner_debt_account)?;
         require_gte!(residual_credit, args.min_amount_out, ErrorCode::SlippageExceeded);
+
+        let mut collateral_credit = 0;
+        if let (Some(recipient), Some((_, minimum))) = (native_recipient.as_mut(), native_close) {
+            let before = crate::instructions::accounts::token_account_info_amount(recipient)?;
+            if collateral_returned > 0 {
+                transfer_checked_with_remaining_accounts(
+                    ctx.accounts.market.to_account_info(),
+                    ctx.accounts.leverage_collateral_vault.to_account_info(),
+                    recipient.to_account_info(),
+                    ctx.accounts.collateral_mint.to_account_info(),
+                    collateral_token_program,
+                    collateral_returned,
+                    ctx.accounts.collateral_mint.decimals,
+                    &[&generate_market_seeds!(ctx.accounts.market)[..]],
+                    h_lp_accounts.hook_accounts(remaining_accounts),
+                )?;
+            }
+            collateral_credit = crate::instructions::accounts::token_account_info_amount(recipient)?
+                .checked_sub(before)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            require_gte!(collateral_credit, minimum, ErrorCode::SlippageExceeded);
+        }
 
         let referral_receipt = record_leverage_interest(
             &mut ctx.accounts.market,
@@ -519,7 +636,7 @@ impl<'info> CloseLeverage<'info> {
             ctx.accounts.referral_accrual.as_deref_mut(),
             receipt.interest_paid,
             interest_eligibility,
-            h_lp_accounts.hook_accounts(ctx.remaining_accounts),
+            h_lp_accounts.hook_accounts(remaining_accounts),
         )?;
         ctx.accounts.debt_reserve_vault.reload()?;
         ctx.accounts.collateral_reserve_vault.reload()?;
@@ -583,6 +700,7 @@ impl<'info> CloseLeverage<'info> {
                 collateral_sold: receipt.collateral_sold,
                 closeout_value: receipt.closeout_value,
                 residual: residual_credit,
+                collateral_returned: collateral_credit,
                 swap: swap_event,
                 metadata: MarketEventMetadata::at_slot(authority_key, market_key, current_slot),
             });
@@ -620,7 +738,7 @@ impl<'info> CloseLeverage<'info> {
                 .as_ref()
                 .ok_or(ErrorCode::InvalidLeverageDelegation)?;
             let (_, after_accounts) = split_delegated_accounts(
-                h_lp_accounts.hook_accounts(ctx.remaining_accounts),
+                h_lp_accounts.hook_accounts(remaining_accounts),
                 delegated.before_accounts_len,
             )?;
             let mut protected_accounts = vec![

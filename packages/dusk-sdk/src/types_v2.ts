@@ -983,6 +983,215 @@ export type Dusk = {
       "args": []
     },
     {
+      "name": "closeCollateralLeverage",
+      "docs": [
+        "Close native collateral funding and pay the remaining collateral back to its owner."
+      ],
+      "discriminator": [
+        197,
+        210,
+        47,
+        138,
+        27,
+        103,
+        116,
+        59
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true
+        },
+        {
+          "name": "futarchyAuthority"
+        },
+        {
+          "name": "positionOwner",
+          "writable": true
+        },
+        {
+          "name": "leveragePosition",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "leverage_position.position_id",
+                "account": "leveragePosition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "debtMint"
+        },
+        {
+          "name": "collateralMint"
+        },
+        {
+          "name": "debtReserveVault",
+          "writable": true
+        },
+        {
+          "name": "collateralReserveVault",
+          "writable": true
+        },
+        {
+          "name": "debtInterestVault",
+          "writable": true
+        },
+        {
+          "name": "leverageCollateralVault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  118,
+                  101,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  99,
+                  111,
+                  108,
+                  108,
+                  97,
+                  116,
+                  101,
+                  114,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "collateralMint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ownerDebtAccount",
+          "writable": true
+        },
+        {
+          "name": "referralPartner",
+          "optional": true
+        },
+        {
+          "name": "referralAccrual",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "leverageDelegation",
+          "optional": true
+        },
+        {
+          "name": "delegatedProgram",
+          "optional": true
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "instructionsSysvar",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "closeCollateralLeverageArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "closeInsolventHlp",
       "docs": [
         "Permissionlessly closes an hLP after passive funding has exhausted its",
@@ -4822,6 +5031,140 @@ export type Dusk = {
           "type": {
             "defined": {
               "name": "liquidateLeveragePositionArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "openCollateralLeverage",
+      "docs": [
+        "Deposit the bought asset directly and swap only the borrowed asset."
+      ],
+      "discriminator": [
+        107,
+        156,
+        1,
+        59,
+        143,
+        64,
+        254,
+        149
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true
+        },
+        {
+          "name": "futarchyAuthority"
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays account rent. Ordinary opens pass `owner` again; delegated opens",
+            "use the keeper without transferring position ownership to it."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "leveragePosition",
+          "docs": [
+            "validated before any economic mutation."
+          ],
+          "writable": true
+        },
+        {
+          "name": "debtMint"
+        },
+        {
+          "name": "collateralMint"
+        },
+        {
+          "name": "debtReserveVault",
+          "writable": true
+        },
+        {
+          "name": "collateralReserveVault",
+          "writable": true
+        },
+        {
+          "name": "leverageCollateralVault",
+          "writable": true
+        },
+        {
+          "name": "ownerDebtAccount",
+          "writable": true
+        },
+        {
+          "name": "referralPartner",
+          "optional": true
+        },
+        {
+          "name": "referralAccrual",
+          "optional": true
+        },
+        {
+          "name": "instructionsSysvar",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "openCollateralLeverageArgs"
             }
           }
         }
@@ -11834,6 +12177,30 @@ export type Dusk = {
       }
     },
     {
+      "name": "closeCollateralLeverageArgs",
+      "docs": [
+        "Sell bounded collateral to repay all debt, returning unsold collateral.",
+        "Any indivisible excess output is also refunded in the debt token."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "debtAsset",
+            "type": "u8"
+          },
+          {
+            "name": "maxCollateralIn",
+            "type": "u64"
+          },
+          {
+            "name": "minCollateralOut",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "closeInsolventHlpArgs",
       "type": {
         "kind": "struct",
@@ -13614,6 +13981,16 @@ export type Dusk = {
           },
           {
             "name": "marginAmount",
+            "docs": [
+              "Entry equity valued in debt-token atoms."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "fundedCollateralAmount",
+            "docs": [
+              "Initial collateral-token deposit. Zero denotes debt-token funding."
+            ],
             "type": "u64"
           },
           {
@@ -13690,6 +14067,13 @@ export type Dusk = {
           },
           {
             "name": "residual",
+            "type": "u64"
+          },
+          {
+            "name": "collateralReturned",
+            "docs": [
+              "Unsold collateral paid to the owner by a collateral-funded close."
+            ],
             "type": "u64"
           },
           {
@@ -13814,6 +14198,10 @@ export type Dusk = {
           },
           {
             "name": "marginAmount",
+            "type": "u64"
+          },
+          {
+            "name": "fundedCollateralAmount",
             "type": "u64"
           },
           {
@@ -15252,6 +15640,29 @@ export type Dusk = {
               "Per-yLP-share interest growth, scaled by 2^64."
             ],
             "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "openCollateralLeverageArgs",
+      "docs": [
+        "Native collateral deposit; max debt bounds valuation changes between preview and execution."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "open",
+            "type": {
+              "defined": {
+                "name": "openLeverageArgs"
+              }
+            }
+          },
+          {
+            "name": "maxDebtAmount",
+            "type": "u64"
           }
         ]
       }
