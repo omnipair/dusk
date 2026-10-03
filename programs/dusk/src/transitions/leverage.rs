@@ -9,10 +9,10 @@ use super::{AmmSwapQuote, HlpRebalanceReceipt, SwapFeeBreakdown};
 use crate::{
     constants::{
         BPS_DENOMINATOR, LEVERAGE_INITIAL_MARGIN_BPS, LEVERAGE_MAINTENANCE_BUFFER_BPS, LEVERAGE_MAX_MULTIPLIER_BPS,
-        LEVERAGE_MAX_UNWIND_IMPACT_BPS, LIQUIDATION_INCENTIVE_BPS, NAD,
+        LEVERAGE_MAX_UNWIND_IMPACT_BPS, LIQUIDATION_INCENTIVE_BPS, NAD, NAD_DECIMALS,
     },
     errors::ErrorCode,
-    math::{ceil_div, mul_div_ceil_u128, mul_div_u128, realized_interest_split},
+    math::{ceil_div, mul_div_ceil_u128, mul_div_u128, realized_interest_split, rescale_amount},
     state::{Debt, LeveragePosition, Market, MarketAsset, ProtocolAuctionSplit},
 };
 
@@ -978,7 +978,179 @@ impl Market {
         Ok(())
     }
 
+    /// Minimum raw collateral input whose executable quote clears the exact indexed debt.
+    /// The search is bounded to 64 iterations and never writes market state.
+    pub fn collateral_for_leverage_repayment(
+        &self,
+        position: &LeveragePosition,
+        max_collateral_in: u64,
+        current_slot: u64,
+        unix_timestamp: i64,
+    ) -> Result<u64> {
+        require!(
+            max_collateral_in > 0 && max_collateral_in <= position.collateral_amount,
+            ErrorCode::InvalidArgument
+        );
+        let debt = self
+            .debt
+            .isolated_repayment_for_max(position.debt_asset()?, position.debt_shares, u64::MAX)?
+            .cash_repaid;
+        require_gt!(debt, 0, ErrorCode::ZeroDebtAmount);
+        let asset = position.collateral_asset()?;
+        let pre_state = self.dynamic_fee_pre_state(current_slot)?;
+        let curve_state = self.integrated_curve_state_nad()?;
+        // Search only executable output. Materializing each candidate's post-fee
+        // curve/hLP transition would exhaust the transaction's compute budget.
+        let output = |amount| -> Result<u64> {
+            let quote = (|| {
+                let preliminary = self.preliminary_swap_inputs_for_state_at_time(
+                    asset,
+                    amount,
+                    current_slot,
+                    unix_timestamp,
+                    pre_state,
+                )?;
+                self.evaluate_concentrated_swap(asset, amount, preliminary, curve_state, 0, false)
+                    .map(|(amount_out, _)| amount_out)
+            })();
+            match quote {
+                Err(anchor_lang::error::Error::AnchorError(ref error))
+                    if error.error_code_number == u32::from(ErrorCode::InsufficientOutputAmount) =>
+                {
+                    Ok(0)
+                }
+                other => other,
+            }
+        };
+        let mut high_output = output(max_collateral_in)?;
+        require_gte!(high_output, debt, ErrorCode::SlippageExceeded);
+        let (mut low, mut high, mut low_output) = (0, max_collateral_in, 0);
+        let mut remaining_steps = 64;
+        if self.config.launch_rate_limit_active_for_swap(asset, unix_timestamp) {
+            let amm = self.config.amm;
+            let reference = amm.launch_rate_limit_reference_nad;
+            require_gt!(reference, 0, ErrorCode::InvalidMarketConfig);
+            require_gt!(amm.launch_rate_limit_increment_bps, 0, ErrorCode::InvalidMarketConfig);
+            let input_decimals = self.side(asset).asset_decimals;
+            let maximum_nad = rescale_amount(max_collateral_in as u128, input_decimals, NAD_DECIMALS, true)?;
+            let maximum_bucket = ceil_div(maximum_nad, reference as u128).ok_or(ErrorCode::MarketMathOverflow)?;
+            // Once the fee cap is reached, all later inputs share one fee tier.
+            let cap_bucket = 1 + u128::from(amm.launch_rate_limit_max_fee_bps)
+                .div_ceil(u128::from(amm.launch_rate_limit_increment_bps));
+            let final_bucket = maximum_bucket.min(cap_bucket);
+            let bucket_endpoint = |bucket: u128| {
+                let limit_nad = bucket.saturating_mul(reference as u128);
+                let raw = if input_decimals > NAD_DECIMALS {
+                    let scale = 10_u128
+                        .checked_pow((input_decimals - NAD_DECIMALS) as u32)
+                        .unwrap_or(u128::MAX);
+                    limit_nad.saturating_mul(scale)
+                } else {
+                    let scale = 10_u128.pow((NAD_DECIMALS - input_decimals) as u32);
+                    limit_nad / scale
+                };
+                raw.min(max_collateral_in as u128) as u64
+            };
+            let (mut low_bucket, mut high_bucket) = (0, final_bucket);
+            while high_bucket - low_bucket > 1 {
+                remaining_steps -= 1;
+                let middle_bucket = low_bucket + (high_bucket - low_bucket) / 2;
+                let endpoint = bucket_endpoint(middle_bucket);
+                let amount_out = if endpoint == 0 { 0 } else { output(endpoint)? };
+                if amount_out >= debt {
+                    high_bucket = middle_bucket;
+                    high = endpoint;
+                    high_output = amount_out;
+                } else {
+                    low_bucket = middle_bucket;
+                    low = endpoint;
+                    low_output = amount_out;
+                }
+            }
+            // The earliest sufficient fee tier brackets a range with a fixed
+            // size fee. An earlier tier cannot be skipped by the atom-level search.
+        }
+        for _ in 0..remaining_steps {
+            if high - low == 1 {
+                return Ok(high);
+            }
+            // Interpolate inside a proven bracket. Half an output atom avoids
+            // repeatedly probing the upper endpoint when integer output is flat.
+            // Every update retains output(low) < debt <= output(high).
+            let step = u64::try_from(mul_div_u128(
+                2 * (debt - low_output) as u128 - 1,
+                (high - low) as u128,
+                2 * (high_output - low_output) as u128,
+            )?)
+            .map_err(|_| ErrorCode::MarketMathOverflow)?;
+            let mid = low + step.clamp(1, high - low - 1);
+            let amount_out = output(mid)?;
+            if amount_out >= debt {
+                high = mid;
+                high_output = amount_out;
+            } else {
+                low = mid;
+                low_output = amount_out;
+            }
+        }
+        err!(ErrorCode::SlippageExceeded)
+    }
+
+    pub fn leverage_collateral_entry_value(&self, debt_asset: MarketAsset, amount: u64) -> Result<u64> {
+        let collateral_asset = debt_asset.opposite();
+        let normalized = self.normalize_amount(amount as u128, self.side(collateral_asset).asset_decimals)?;
+        let price = self.current_base_price_nad()?;
+        require_gt!(price, 0, ErrorCode::InsufficientLiquidity);
+        let value = match collateral_asset {
+            MarketAsset::Base => mul_div_u128(normalized, price as u128, NAD as u128)?,
+            MarketAsset::Quote => mul_div_u128(normalized, NAD as u128, price as u128)?,
+        };
+        self.denormalize_amount_floor(value, self.side(debt_asset).asset_decimals)
+    }
+
     pub fn open_leverage(
+        &mut self,
+        position: &mut LeveragePosition,
+        owner: Pubkey,
+        market: Pubkey,
+        position_id: Pubkey,
+        referral_partner: Pubkey,
+        referral_interest_share_bps: u16,
+        debt_asset: MarketAsset,
+        margin_credit: u64,
+        multiplier_bps: u64,
+        collateral_credit: u64,
+        prepared_swap: PreparedLeverageSwap,
+        swap_fee_credit: LeverageSwapFeeCredit,
+        opened_at: i64,
+        opened_slot: u64,
+        bump: u8,
+        protocol_fee_bps: u16,
+        protocol_auction_split: ProtocolAuctionSplit,
+    ) -> Result<LeverageOpenReceipt> {
+        self.open_leverage_funded(
+            position,
+            owner,
+            market,
+            position_id,
+            referral_partner,
+            referral_interest_share_bps,
+            debt_asset,
+            margin_credit,
+            multiplier_bps,
+            collateral_credit,
+            prepared_swap,
+            swap_fee_credit,
+            opened_at,
+            opened_slot,
+            bump,
+            protocol_fee_bps,
+            protocol_auction_split,
+            0,
+        )
+    }
+
+    pub fn open_leverage_funded(
         &mut self,
         position: &mut LeveragePosition,
         owner: Pubkey,
@@ -997,6 +1169,7 @@ impl Market {
         bump: u8,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
+        funded_collateral_amount: u64,
     ) -> Result<LeverageOpenReceipt> {
         let swap = prepared_swap.leverage_quote();
         require!(margin_credit > 0, ErrorCode::AmountZero);
@@ -1010,8 +1183,16 @@ impl Market {
             .checked_add(borrowed_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         self.ensure_amm_initialized(opened_slot)?;
-        require_eq!(swap.amount_in, notional, ErrorCode::BrokenInvariant);
-        require_gte!(swap.amount_out, collateral_credit, ErrorCode::SlippageExceeded);
+        let swap_input = if funded_collateral_amount == 0 {
+            notional
+        } else {
+            borrowed_amount
+        };
+        let purchased_collateral = collateral_credit
+            .checked_sub(funded_collateral_amount)
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        require_eq!(swap.amount_in, swap_input, ErrorCode::BrokenInvariant);
+        require_gte!(swap.amount_out, purchased_collateral, ErrorCode::SlippageExceeded);
         require!(collateral_credit > 0, ErrorCode::InsufficientOutputAmount);
 
         let cash_policy = SwapCashPolicy::Borrow {
@@ -1049,6 +1230,7 @@ impl Market {
             opened_slot,
             bump,
         );
+        position.funded_collateral_amount = funded_collateral_amount;
         let closeout_value = self.require_position_initial_leverage_health(position, opened_slot, opened_at)?;
         let equity = closeout_value
             .checked_sub(borrowed_amount)

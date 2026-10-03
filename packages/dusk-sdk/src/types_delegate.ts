@@ -4103,6 +4103,16 @@ export type LeverageDelegate = {
           },
           {
             "name": "marginAmount",
+            "docs": [
+              "Entry equity valued in debt-token atoms."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "fundedCollateralAmount",
+            "docs": [
+              "Initial collateral-token deposit. Zero denotes debt-token funding."
+            ],
             "type": "u64"
           },
           {
