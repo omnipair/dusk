@@ -9,10 +9,10 @@ use super::{AmmSwapQuote, HlpRebalanceReceipt, SwapFeeBreakdown};
 use crate::{
     constants::{
         BPS_DENOMINATOR, LEVERAGE_INITIAL_MARGIN_BPS, LEVERAGE_MAINTENANCE_BUFFER_BPS, LEVERAGE_MAX_MULTIPLIER_BPS,
-        LEVERAGE_MAX_UNWIND_IMPACT_BPS, LIQUIDATION_INCENTIVE_BPS, NAD,
+        LEVERAGE_MAX_UNWIND_IMPACT_BPS, LIQUIDATION_INCENTIVE_BPS, NAD, NAD_DECIMALS,
     },
     errors::ErrorCode,
-    math::{ceil_div, mul_div_ceil_u128, mul_div_u128, realized_interest_split},
+    math::{ceil_div, mul_div_ceil_u128, mul_div_u128, realized_interest_split, rescale_amount},
     state::{Debt, LeveragePosition, Market, MarketAsset, ProtocolAuctionSplit},
 };
 
@@ -1025,7 +1025,52 @@ impl Market {
         let mut high_output = output(max_collateral_in)?;
         require_gte!(high_output, debt, ErrorCode::SlippageExceeded);
         let (mut low, mut high, mut low_output) = (0, max_collateral_in, 0);
-        for _ in 0..64 {
+        let mut remaining_steps = 64;
+        if self.config.launch_rate_limit_active_for_swap(asset, unix_timestamp) {
+            let amm = self.config.amm;
+            let reference = amm.launch_rate_limit_reference_nad;
+            require_gt!(reference, 0, ErrorCode::InvalidMarketConfig);
+            require_gt!(amm.launch_rate_limit_increment_bps, 0, ErrorCode::InvalidMarketConfig);
+            let input_decimals = self.side(asset).asset_decimals;
+            let maximum_nad = rescale_amount(max_collateral_in as u128, input_decimals, NAD_DECIMALS, true)?;
+            let maximum_bucket = ceil_div(maximum_nad, reference as u128).ok_or(ErrorCode::MarketMathOverflow)?;
+            // Once the fee cap is reached, all later inputs share one fee tier.
+            let cap_bucket = 1 + u128::from(amm.launch_rate_limit_max_fee_bps)
+                .div_ceil(u128::from(amm.launch_rate_limit_increment_bps));
+            let final_bucket = maximum_bucket.min(cap_bucket);
+            let bucket_endpoint = |bucket: u128| {
+                let limit_nad = bucket.saturating_mul(reference as u128);
+                let raw = if input_decimals > NAD_DECIMALS {
+                    let scale = 10_u128
+                        .checked_pow((input_decimals - NAD_DECIMALS) as u32)
+                        .unwrap_or(u128::MAX);
+                    limit_nad.saturating_mul(scale)
+                } else {
+                    let scale = 10_u128.pow((NAD_DECIMALS - input_decimals) as u32);
+                    limit_nad / scale
+                };
+                raw.min(max_collateral_in as u128) as u64
+            };
+            let (mut low_bucket, mut high_bucket) = (0, final_bucket);
+            while high_bucket - low_bucket > 1 {
+                remaining_steps -= 1;
+                let middle_bucket = low_bucket + (high_bucket - low_bucket) / 2;
+                let endpoint = bucket_endpoint(middle_bucket);
+                let amount_out = if endpoint == 0 { 0 } else { output(endpoint)? };
+                if amount_out >= debt {
+                    high_bucket = middle_bucket;
+                    high = endpoint;
+                    high_output = amount_out;
+                } else {
+                    low_bucket = middle_bucket;
+                    low = endpoint;
+                    low_output = amount_out;
+                }
+            }
+            // The earliest sufficient fee tier brackets a range with a fixed
+            // size fee. An earlier tier cannot be skipped by the atom-level search.
+        }
+        for _ in 0..remaining_steps {
             if high - low == 1 {
                 return Ok(high);
             }
