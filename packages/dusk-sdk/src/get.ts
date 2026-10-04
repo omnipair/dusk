@@ -1,6 +1,7 @@
 import type { BN, Program } from "@coral-xyz/anchor";
-import { PublicKey, type Commitment, type TransactionInstruction } from "@solana/web3.js";
+import { PublicKey, TransactionInstruction, type Commitment } from "@solana/web3.js";
 import {
+  DuskSimulationError,
   simulatePreviewWithContext,
   type PreviewSimulationOptions,
   type SimulateOptions,
@@ -41,6 +42,9 @@ import {
   type U64SeedLike,
 } from "./constants.js";
 import { address, DEFAULT_READONLY_PUBLIC_KEY, normalizeAccountKeys, type AddressLike } from "./address.js";
+import { governanceIntegerBN } from "./governance.js";
+import { findMinimumNativeCloseCollateralIn } from "./native-close.js";
+import { DuskWrite, type CloseLeverageParams, type RawAmount } from "./write.js";
 import {
   decodePreviewAddLiquidityReturnData,
   decodePreviewBorrowCapacityReturnData,
@@ -134,6 +138,29 @@ export interface PreviewBorrowPositionParams extends SimulateOptions {
   borrowPosition: AddressLike;
 }
 
+export interface FindCollateralLeverageCloseInputParams
+  extends Omit<CloseLeverageParams, "collateralFunded" | "collateralIn"> {
+  /** Optional sale cap; the minimum payout also caps how much can be sold. */
+  maxCollateralIn?: RawAmount;
+  simulation?: Omit<PreviewSimulationOptions, "accounts" | "requireReturnData">;
+}
+
+export interface CollateralLeverageCloseInput {
+  collateralIn: bigint;
+  collateralReturned: bigint;
+  /** Slot of the final successful simulation, not a guarantee for a later bank. */
+  observedSlot: number;
+}
+
+function isInsufficientCloseInput(error: unknown, codes: ReadonlySet<number>): boolean {
+  if (!(error instanceof DuskSimulationError)) return false;
+  const instructionError = (error.simulation.value.err as {
+    InstructionError?: [number, { Custom?: number }];
+  } | null)?.InstructionError;
+  // The two compute-budget instructions precede the close instruction.
+  return instructionError?.[0] === 2 && codes.has(instructionError[1]?.Custom ?? -1);
+}
+
 export class DuskGet {
   readonly pda = pda;
 
@@ -166,6 +193,103 @@ export class DuskGet {
 
   leveragePosition(account: AddressLike): Promise<LeveragePosition> {
     return this.program.account.leveragePosition.fetch(address(account));
+  }
+
+  /**
+   * Find the smallest collateral sale that completes the native close. Each
+   * candidate simulates the actual close instruction, so interest, swap fees,
+   * hLP settlement, and the owner's payout floor use the on-chain path.
+   * Rebuild and submit the close promptly; state can change after simulation.
+   */
+  async findCollateralLeverageCloseInput(
+    params: FindCollateralLeverageCloseInputParams
+  ): Promise<CollateralLeverageCloseInput> {
+    const { maxCollateralIn, simulation, ...closeParams } = params;
+    const marketKey = address(closeParams.market);
+    const positionKey = address(closeParams.leveragePosition ??
+      deriveLeveragePositionAddress(marketKey, address(closeParams.positionId))[0]);
+    const [position, market] = await Promise.all([
+      this.leveragePosition(positionKey),
+      this.market(marketKey),
+    ]);
+    const debtAsset = closeParams.debtAsset === "base" ? 0 : closeParams.debtAsset === "quote" ? 1 : -1;
+    if (debtAsset < 0 || position.debtAsset !== debtAsset ||
+      !position.owner.equals(address(closeParams.positionOwner)) ||
+      !position.market.equals(marketKey) ||
+      !position.positionId.equals(address(closeParams.positionId)) ||
+      BigInt(position.fundedCollateralAmount.toString()) === 0n)
+      throw new Error("The requested position is not a matching native collateral position");
+    const total = BigInt(position.collateralAmount.toString());
+    const minimumReturned = BigInt(governanceIntegerBN(closeParams.minAmountOut, "minAmountOut").toString());
+    if (minimumReturned >= total)
+      throw new Error("Minimum collateral payout leaves no amount available for repayment");
+    const available = total - minimumReturned;
+    const requestedCap = maxCollateralIn === undefined
+      ? available
+      : BigInt(governanceIntegerBN(maxCollateralIn, "maxCollateralIn").toString());
+    const maximum = requestedCap < available ? requestedCap : available;
+    if (maximum === 0n) throw new Error("No collateral is available for repayment");
+
+    // Build account metas once. Only the encoded exact input changes per probe.
+    const baseInstruction = await new DuskWrite(this.program).closeLeverageInstruction({
+      ...closeParams,
+      collateralFunded: true,
+      collateralIn: maximum,
+    });
+    const candidateInstruction = (amount: bigint) => new TransactionInstruction({
+      programId: baseInstruction.programId,
+      keys: baseInstruction.keys,
+      data: this.program.coder.instruction.encode("closeCollateralLeverage", {
+        args: {
+          debtAsset,
+          collateralIn: governanceIntegerBN(amount.toString()),
+          minCollateralOut: governanceIntegerBN(minimumReturned.toString()),
+        },
+      }),
+    });
+    const insufficientCodes = new Set(
+      this.program.idl.errors
+        .filter((entry) => ["insufficientamount", "insufficientoutputamount"].includes(entry.name.toLowerCase()))
+        .map((entry) => entry.code)
+    );
+    const probe = async (amount: bigint) => {
+      try {
+        const result = await this.simulateWithContext([candidateInstruction(amount)], {
+          ...simulation,
+          feePayer: simulation?.feePayer ?? closeParams.authority ?? closeParams.positionOwner,
+          requireReturnData: false,
+        });
+        return { sufficient: true, slot: result.context.slot };
+      } catch (error) {
+        if (isInsufficientCloseInput(error, insufficientCodes)) return { sufficient: false, slot: 0 };
+        throw error;
+      }
+    };
+    const amm = market.config.amm;
+    const feeTiers = amm.launchRateLimitAsset === debtAsset + 1 &&
+      amm.launchRateLimitMaxFeeBps > 0
+      ? {
+          referenceNad: BigInt(amm.launchRateLimitReferenceNad.toString()),
+          incrementBps: amm.launchRateLimitIncrementBps,
+          maxFeeBps: amm.launchRateLimitMaxFeeBps,
+          collateralDecimals: debtAsset === 0
+            ? market.quoteSide.assetDecimals : market.baseSide.assetDecimals,
+        }
+      : undefined;
+    const collateralIn = await findMinimumNativeCloseCollateralIn({
+      maxCollateralIn: maximum,
+      feeTiers,
+      canClose: async (amount) => (await probe(amount)).sufficient,
+      signal: simulation?.signal,
+    });
+    // One fresh simulation catches a market change during the search.
+    const final = await probe(collateralIn);
+    if (!final.sufficient) throw new Error("Market changed during the close quote; retry");
+    return {
+      collateralIn,
+      collateralReturned: total - collateralIn,
+      observedSlot: final.slot,
+    };
   }
 
   leverageDelegation(account: AddressLike): Promise<LeverageDelegation> {

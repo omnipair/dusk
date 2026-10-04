@@ -80,6 +80,7 @@ import {
 } from "../packages/dusk-sdk/src/preview.js";
 import { resolveTransferHookAccountMetas } from "../packages/dusk-sdk/src/referral.js";
 import { DuskWrite } from "../packages/dusk-sdk/src/write.js";
+import { DuskGet } from "../packages/dusk-sdk/src/get.js";
 import { LiteSVMConnection } from "./utils/litesvm-connection.js";
 import {
   assertRequiredSwapComputeScenarios,
@@ -8066,11 +8067,59 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       expect((await getAccount(connection as any, ownerCollateralAccount, undefined, assetProgram)).amount).to.equal(initial - 1_000_000n);
       expect((await getAccount(connection as any, ownerDebtAccount, undefined, assetProgram)).amount).to.equal(initialDebt);
       const total = BigInt(open.collateralAmount.toString());
-      const collateralToSell = (total * 3n) / 4n;
+      let collateralToSell = (total * 3n) / 4n;
       expect((await getAccount(connection as any, leverageCollateralVault, undefined, assetProgram)).amount).to.equal(total);
       const closeAccounts = { ...common, positionOwner: payer.publicKey, authority: payer.publicKey,
         ownerDebtAccount, debtInterestVault: debtAsset === 1 ? fixture.quoteInterestVault : fixture.baseInterestVault,
         leverageDelegation: null, delegatedProgram: null };
+      let searchedMinimum = false;
+      if (debtAsset === 1 && concentrated) {
+        // The SDK probes the real close path; model unsigned RPC simulations
+        // against this fixture's bank without committing any candidate.
+        const originalSimulate = connection.simulateTransaction;
+        const originalAccountContext = connection.getAccountInfoAndContext;
+        (connection as any).getAccountInfoAndContext = async (key: PublicKey) => ({
+          context: { slot: Number(svm.getClock().slot) },
+          value: await connection.getAccountInfo(key),
+        });
+        (connection as any).simulateTransaction = async (transaction: any) => {
+          const result = svm.simulateTransaction(transaction);
+          const failure: any = "err" in result ? result.err() : null;
+          const cause = failure && typeof failure.index === "number" && typeof failure.err === "function"
+            ? { InstructionError: [failure.index, { Custom: failure.err().code }] }
+            : failure?.toString() ?? null;
+          return { context: { slot: Number(svm.getClock().slot) },
+            value: { err: cause, logs: result.meta().logs() } };
+        };
+        svm.withSigverify(false).withBlockhashCheck(false);
+        try {
+          const sdkProgram = new Program(idl as any, program.provider as any);
+          const quote = await new DuskGet(sdkProgram as any).findCollateralLeverageCloseInput({
+            market: fixture.market, positionOwner: payer.publicKey, positionId,
+            debtAsset: "quote", debtMint, collateralMint,
+            ownerDebtAccount, ownerCollateralAccount, minAmountOut: 1n,
+          });
+          collateralToSell = quote.collateralIn;
+          searchedMinimum = true;
+          expect(quote.collateralReturned).to.equal(total - collateralToSell);
+          expect(quote.observedSlot).to.equal(Number(svm.getClock().slot));
+        } finally {
+          svm.withSigverify(true).withBlockhashCheck(true);
+          (connection as any).simulateTransaction = originalSimulate;
+          (connection as any).getAccountInfoAndContext = originalAccountContext;
+        }
+      }
+      if (searchedMinimum) {
+        const oneLess = await program.methods.closeCollateralLeverage({ debtAsset,
+          collateralIn: new BN((collateralToSell - 1n).toString()), minCollateralOut: new BN(1) })
+          .accounts(closeAccounts)
+          .remainingAccounts([{ pubkey: ownerCollateralAccount, isSigner: false, isWritable: true }, ...remaining])
+          .transaction();
+        let insufficientByOne = false;
+        try { await connection.sendTransaction(oneLess, [payer]); }
+        catch { insufficientByOne = true; }
+        expect(insufficientByOne, "the previous collateral atom must not repay debt").to.equal(true);
+      }
       // Native positions must not fall through to the debt-token payout path.
       const legacyClose = await program.methods.closeLeverage({ debtAsset, minAmountOut: new BN(0) })
         .accounts(closeAccounts).remainingAccounts(remaining).transaction();

@@ -29,6 +29,8 @@ export interface PreviewSimulationOptions extends SimulateOptions {
   signal?: AbortSignal;
   /** Bounds the caller's wait; the transport may finish an in-flight RPC later. */
   timeoutMs?: number;
+  /** Set false when simulating an instruction that succeeds without return data. */
+  requireReturnData?: boolean;
 }
 
 /** Keeps the actual RPC slot, logs and account snapshots beside return data. */
@@ -107,9 +109,9 @@ export async function simulatePreviewWithContext(
     ]);
     options.signal?.throwIfAborted();
     if (simulation.value.err) throw new DuskSimulationError("Dusk simulation failed", simulation);
-    if (!simulation.value.returnData)
+    if (options.requireReturnData !== false && !simulation.value.returnData)
       throw new DuskSimulationError("Dusk simulation did not return data", simulation);
-    if (simulation.value.returnData.programId !== program.programId.toBase58())
+    if (simulation.value.returnData && simulation.value.returnData.programId !== program.programId.toBase58())
       throw new DuskSimulationError(
         "Dusk simulation returned data from a different program",
         simulation

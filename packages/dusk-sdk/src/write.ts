@@ -2207,10 +2207,6 @@ export class DuskWrite {
     const referralPartner = params.referralPartner
       ? address(params.referralPartner)
       : null;
-    const tokenProgram = await tokenProgramForMint(
-      this.program.provider.connection,
-      debtMint
-    );
     return {
       market,
       futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
@@ -2242,7 +2238,7 @@ export class DuskWrite {
       referralAccrual: referralPartner
         ? deriveReferralAccrualAddress(referralPartner, market, debtMint)[0]
         : null,
-      tokenProgram,
+      tokenProgram: TOKEN_PROGRAM_ID,
     };
   }
 

@@ -19,9 +19,11 @@ This candidate has not been deployed.
   repays the full indexed debt, and returns the remaining collateral. The
   instruction rejects a sale that cannot cover debt or the owner's minimum
   collateral payout. Any excess debt-token output is refunded separately and
-  shown as debt-token dust. Clients select the amount off-chain using current
-  quotes and simulate before sending; launch fee thresholds can make output
-  non-monotone across input sizes.
+  shown as debt-token dust. The SDK's
+  `dusk.get.findCollateralLeverageCloseInput(...)` searches off-chain by
+  simulating the actual close instruction for each candidate. It checks launch
+  fee-tier endpoints before narrowing to the least sufficient collateral atom.
+  Clients must still submit promptly because market state can change.
 - Debt-funded positions retain their existing debt-token payout on close.
 - Native entry is market-only. Native limit entry, margin deposits/withdrawals,
   and TP/SL or delegated closes are not included. Size adjustments remain
@@ -54,6 +56,26 @@ Native close validates one executable quote for the supplied amount before
 settling. This avoids an on-chain repayment search. Clients should simulate
 the final transaction with the chosen compute budget and slippage limits;
 market state or fee changes can still cause the transaction to revert.
+
+To close from a client, pass the same close accounts and payout floor to the
+helper and the transaction builder:
+
+```ts
+const close = {
+  market, positionOwner, positionId, debtAsset, debtMint, collateralMint,
+  ownerDebtAccount, ownerCollateralAccount, minAmountOut: 1n,
+};
+const quote = await dusk.get.findCollateralLeverageCloseInput(close);
+const transaction = await dusk.write.closeLeverageTransaction({
+  ...close, collateralFunded: true, collateralIn: quote.collateralIn,
+});
+```
+
+`quote.collateralReturned` is the unsold collateral amount, and
+`quote.observedSlot` is the final successful simulation slot. The helper makes
+multiple RPC simulations but submits none. Non-repayment failures are surfaced
+to the caller. The submitted transaction needs an appropriate compute budget;
+its payout floor remains enforced even if the quote becomes stale.
 
 ## Local verification
 
