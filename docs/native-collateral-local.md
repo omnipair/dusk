@@ -23,6 +23,8 @@ This candidate has not been deployed.
   `dusk.get.findCollateralLeverageCloseInput(...)` searches off-chain by
   simulating the actual close instruction for each candidate. It checks launch
   fee-tier endpoints before narrowing to the least sufficient collateral atom.
+  If a large candidate exceeds pool liquidity, the helper searches smaller
+  amounts and returns only after the chosen amount passes an exact simulation.
   Clients must still submit promptly because market state can change.
 - Debt-funded positions retain their existing debt-token payout on close.
 - Native entry is market-only. Native limit entry, margin deposits/withdrawals,

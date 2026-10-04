@@ -9,7 +9,8 @@ export interface NativeCloseFeeTiers {
 export interface NativeCloseSearch {
   maxCollateralIn: bigint;
   feeTiers?: NativeCloseFeeTiers;
-  canClose(collateralIn: bigint): Promise<boolean>;
+  /** False means too little repayment; liquidity-limited means the sale is too large. */
+  canClose(collateralIn: bigint): Promise<boolean | "liquidity-limited">;
   signal?: AbortSignal;
 }
 
@@ -33,13 +34,16 @@ export async function findMinimumNativeCloseCollateralIn({
 }: NativeCloseSearch): Promise<bigint> {
   if (maxCollateralIn <= 0n || maxCollateralIn > U64_MAX)
     throw new Error("maxCollateralIn must be a positive u64 amount");
-  const probe = async (amount: bigint): Promise<boolean> => {
+  const probe = async (amount: bigint): Promise<boolean | "liquidity-limited"> => {
     signal?.throwIfAborted();
     return amount === 0n ? false : canClose(amount);
   };
+  // A size-limited quote can bound the search from above, but must never be
+  // returned as executable; the selected amount needs a successful simulation.
+  const coversDebt = (result: boolean | "liquidity-limited") => result !== false;
   let low = 0n;
   let high = maxCollateralIn;
-  const maximumSuffices = await probe(maxCollateralIn);
+  const maximumCoversDebt = coversDebt(await probe(maxCollateralIn));
   if (feeTiers && feeTiers.maxFeeBps > 0) {
     const { referenceNad, incrementBps, maxFeeBps, collateralDecimals } = feeTiers;
     if (referenceNad <= 0n || incrementBps <= 0 || !Number.isInteger(collateralDecimals) || collateralDecimals < 0)
@@ -58,18 +62,18 @@ export async function findMinimumNativeCloseCollateralIn({
     };
     let lowBucket = 0n;
     let highBucket = lastBucket;
-    if (!maximumSuffices) {
+    if (!maximumCoversDebt) {
       // The maximum may sit just above a fee jump while an earlier tier's
       // endpoint still repays debt. The old on-chain search rejected here.
       if (lastBucket <= 1n) throw new Error("Collateral cap cannot repay the current debt");
       highBucket = lastBucket - 1n;
       high = endpoint(highBucket);
-      if (!(await probe(high))) throw new Error("Collateral cap cannot repay the current debt");
+      if (!coversDebt(await probe(high))) throw new Error("Collateral cap cannot repay the current debt");
     }
     while (highBucket - lowBucket > 1n) {
       const middle = lowBucket + (highBucket - lowBucket) / 2n;
       const amount = endpoint(middle);
-      if (await probe(amount)) {
+      if (coversDebt(await probe(amount))) {
         highBucket = middle;
         high = amount;
       } else {
@@ -77,13 +81,15 @@ export async function findMinimumNativeCloseCollateralIn({
         low = amount;
       }
     }
-  } else if (!maximumSuffices) {
+  } else if (!maximumCoversDebt) {
     throw new Error("Collateral cap cannot repay the current debt");
   }
   while (high - low > 1n) {
     const middle = low + (high - low) / 2n;
-    if (await probe(middle)) high = middle;
+    if (coversDebt(await probe(middle))) high = middle;
     else low = middle;
   }
+  if ((await probe(high)) !== true)
+    throw new Error("No executable collateral sale can repay the current debt");
   return high;
 }

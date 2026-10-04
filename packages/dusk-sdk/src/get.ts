@@ -152,13 +152,13 @@ export interface CollateralLeverageCloseInput {
   observedSlot: number;
 }
 
-function isInsufficientCloseInput(error: unknown, codes: ReadonlySet<number>): boolean {
-  if (!(error instanceof DuskSimulationError)) return false;
+function closeSimulationErrorCode(error: unknown): number | undefined {
+  if (!(error instanceof DuskSimulationError)) return undefined;
   const instructionError = (error.simulation.value.err as {
     InstructionError?: [number, { Custom?: number }];
   } | null)?.InstructionError;
   // The two compute-budget instructions precede the close instruction.
-  return instructionError?.[0] === 2 && codes.has(instructionError[1]?.Custom ?? -1);
+  return instructionError?.[0] === 2 ? instructionError[1]?.Custom : undefined;
 }
 
 export class DuskGet {
@@ -247,11 +247,13 @@ export class DuskGet {
         },
       }),
     });
-    const insufficientCodes = new Set(
+    const insufficientCodes = new Set<number>(
       this.program.idl.errors
         .filter((entry) => ["insufficientamount", "insufficientoutputamount"].includes(entry.name.toLowerCase()))
         .map((entry) => entry.code)
     );
+    const insufficientLiquidityCode = this.program.idl.errors
+      .find((entry) => entry.name.toLowerCase() === "insufficientliquidity")?.code;
     const probe = async (amount: bigint) => {
       try {
         const result = await this.simulateWithContext([candidateInstruction(amount)], {
@@ -259,9 +261,13 @@ export class DuskGet {
           feePayer: simulation?.feePayer ?? closeParams.authority ?? closeParams.positionOwner,
           requireReturnData: false,
         });
-        return { sufficient: true, slot: result.context.slot };
+        return { status: "sufficient" as const, slot: result.context.slot };
       } catch (error) {
-        if (isInsufficientCloseInput(error, insufficientCodes)) return { sufficient: false, slot: 0 };
+        const code = closeSimulationErrorCode(error);
+        if (code !== undefined && insufficientCodes.has(code))
+          return { status: "insufficient" as const, slot: 0 };
+        if (code !== undefined && code === insufficientLiquidityCode)
+          return { status: "liquidity-limited" as const, slot: 0 };
         throw error;
       }
     };
@@ -279,12 +285,15 @@ export class DuskGet {
     const collateralIn = await findMinimumNativeCloseCollateralIn({
       maxCollateralIn: maximum,
       feeTiers,
-      canClose: async (amount) => (await probe(amount)).sufficient,
+      canClose: async (amount) => {
+        const result = await probe(amount);
+        return result.status === "liquidity-limited" ? result.status : result.status === "sufficient";
+      },
       signal: simulation?.signal,
     });
     // One fresh simulation catches a market change during the search.
     const final = await probe(collateralIn);
-    if (!final.sufficient) throw new Error("Market changed during the close quote; retry");
+    if (final.status !== "sufficient") throw new Error("Market changed during the close quote; retry");
     return {
       collateralIn,
       collateralReturned: total - collateralIn,

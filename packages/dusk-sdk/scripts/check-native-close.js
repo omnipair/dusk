@@ -21,6 +21,36 @@ test("native close search finds the least input with a monotone quote", async ()
   assert.equal(result, 995n);
 });
 
+test("native close search finds repayment below a liquidity-limited maximum", async () => {
+  const result = await findMinimumNativeCloseCollateralIn({
+    maxCollateralIn: 2_000n,
+    canClose: async (amount) => amount < 995n ? false : amount <= 1_200n ? true : "liquidity-limited",
+  });
+  assert.equal(result, 995n);
+});
+
+test("native close search keeps fee-tier boundaries when the maximum is liquidity-limited", async () => {
+  const result = await findMinimumNativeCloseCollateralIn({
+    maxCollateralIn: 2_000n,
+    feeTiers: { referenceNad: 1_000n, incrementBps: 100, maxFeeBps: 500, collateralDecimals: 9 },
+    canClose: async (amount) => {
+      const output = amount <= 1_000n ? amount : amount - 10n;
+      return output < 995n ? false : output <= 1_200n ? true : "liquidity-limited";
+    },
+  });
+  assert.equal(result, 995n);
+});
+
+test("native close search rejects a debt-covering amount that is still liquidity-limited", async () => {
+  await assert.rejects(
+    findMinimumNativeCloseCollateralIn({
+      maxCollateralIn: 2_000n,
+      canClose: async (amount) => amount < 995n ? false : "liquidity-limited",
+    }),
+    /No executable collateral sale/
+  );
+});
+
 test("native close search checks earlier launch fee tiers before searching atoms", async () => {
   const probes = [];
   const result = await findMinimumNativeCloseCollateralIn({
@@ -139,6 +169,7 @@ test("SDK searches exact close simulations and returns the minimum sale", async 
     idl: { errors: [
       { code: 6033, name: "insufficientOutputAmount" },
       { code: 6041, name: "insufficientAmount" },
+      { code: 6042, name: "insufficientLiquidity" },
     ] },
     coder: { instruction: { encode(name, args) {
       assert.equal(name, "closeCollateralLeverage");
@@ -188,6 +219,24 @@ test("SDK searches exact close simulations and returns the minimum sale", async 
   assert.equal(builds, 1);
   assert.ok(probes.includes(1_000n));
   assert.equal(probes.at(-1), 995n, "the selected close is revalidated");
+
+  reader.simulateWithContext = async ([instruction]) => {
+    const amount = instruction.data.readBigUInt64LE();
+    const output = amount <= 1_000n ? amount : amount - 10n;
+    const errorCode = output < 995n ? 6041 : output > 1_200n ? 6042 : undefined;
+    if (errorCode !== undefined) throw new DuskSimulationError("Dusk simulation failed", {
+      context: { slot: 124 },
+      value: { err: { InstructionError: [2, { Custom: errorCode }] } },
+    });
+    return { context: { slot: 124 }, value: { err: null }, observedAt: Date.now() };
+  };
+  const liquidityBounded = await reader.findCollateralLeverageCloseInput({
+    market: marketKey, positionOwner: owner, positionId,
+    debtAsset: "base", debtMint, collateralMint,
+    ownerDebtAccount: owner, ownerCollateralAccount: owner,
+    minAmountOut: 10n,
+  });
+  assert.deepEqual(liquidityBounded, { collateralIn: 995n, collateralReturned: 1_005n, observedSlot: 124 });
 
   reader.simulateWithContext = async () => {
     throw new DuskSimulationError("Dusk simulation failed", {
