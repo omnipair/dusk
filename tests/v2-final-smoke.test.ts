@@ -38,6 +38,7 @@ import {
   createUpdateTransferHookInstruction,
 } from "@solana/spl-token";
 import {
+  ComputeBudgetProgram,
   Keypair,
   LAMPORTS_PER_SOL,
   PublicKey,
@@ -9657,8 +9658,24 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           svm.expireBlockhash();
           const tx = await leverageDelegateProgram.methods.executeProtectionOrder({ lpAmount: new BN(lpAmount), paymentAmount: new BN(paymentAmount) })
             .accounts({ ...executeAccounts, ...overrides }).transaction();
+          // This accrued concentrated repayment is near the repository's 1.35M
+          // default guard across SBF build hosts. Request 1.38M explicitly,
+          // leaving 20k below Solana's transaction cap.
+          if (accrue && action === 0) {
+            tx.instructions.unshift(ComputeBudgetProgram.setComputeUnitLimit({ units: 1_380_000 }));
+          }
           tx.feePayer = keeper.publicKey;
-          return connection.sendTransaction(tx, [keeper]);
+          if (!(accrue && action === 0)) return connection.sendTransaction(tx, [keeper]);
+          const budget = new ComputeBudget();
+          budget.computeUnitLimit = 1_380_000n;
+          svm.withComputeBudget(budget);
+          try {
+            return await connection.sendTransaction(tx, [keeper]);
+          } finally {
+            const standardBudget = new ComputeBudget();
+            standardBudget.computeUnitLimit = LITESVM_COMPUTE_UNIT_LIMIT;
+            svm.withComputeBudget(standardBudget);
+          }
         };
         const assertNoProtocolFee = async () => expect((await getAccount(connection as any, feeRecipient)).amount).to.equal(0n);
         const beforeOrder = Buffer.from(svm.getAccount(order)!.data);
