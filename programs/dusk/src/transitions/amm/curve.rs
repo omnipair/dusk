@@ -17,7 +17,16 @@ use crate::{constants::MIN_LIQUIDITY, math::SqrtU128, state::MarketSide};
 #[cfg(test)]
 use crate::math::arithmetic::normalize_to_nad;
 
-#[allow(clippy::assign_op_pattern, clippy::manual_div_ceil)]
+// uint 0.9's construct_uint! expansion uses legacy integer APIs and an
+// expression-position semicolon. Rust 1.99 reports these at the call site;
+// confine the compatibility allowances to the generated wide integer module.
+#[allow(unknown_lints)] // The SBF toolchain predates Rust 1.99's renamed lint.
+#[allow(
+    clippy::assign_op_pattern,
+    clippy::manual_div_ceil,
+    deprecated,
+    semicolon_in_expressions_from_non_local_macros
+)]
 mod wide {
     use uint::construct_uint;
 

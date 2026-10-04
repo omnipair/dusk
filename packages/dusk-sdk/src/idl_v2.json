@@ -12173,8 +12173,9 @@
     {
       "name": "CloseCollateralLeverageArgs",
       "docs": [
-        "Sell bounded collateral to repay all debt, returning unsold collateral.",
-        "Any indivisible excess output is also refunded in the debt token."
+        "Sell the owner's specified collateral amount to repay all debt, returning",
+        "unsold collateral. The swap must cover debt and the minimum collateral",
+        "payout or the close reverts. Any excess debt-token output is refunded."
       ],
       "type": {
         "kind": "struct",
@@ -12184,7 +12185,7 @@
             "type": "u8"
           },
           {
-            "name": "max_collateral_in",
+            "name": "collateral_in",
             "type": "u64"
           },
           {

@@ -12179,8 +12179,9 @@ export type Dusk = {
     {
       "name": "closeCollateralLeverageArgs",
       "docs": [
-        "Sell bounded collateral to repay all debt, returning unsold collateral.",
-        "Any indivisible excess output is also refunded in the debt token."
+        "Sell the owner's specified collateral amount to repay all debt, returning",
+        "unsold collateral. The swap must cover debt and the minimum collateral",
+        "payout or the close reverts. Any excess debt-token output is refunded."
       ],
       "type": {
         "kind": "struct",
@@ -12190,7 +12191,7 @@ export type Dusk = {
             "type": "u8"
           },
           {
-            "name": "maxCollateralIn",
+            "name": "collateralIn",
             "type": "u64"
           },
           {

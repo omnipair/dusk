@@ -2249,14 +2249,13 @@ fn native_collateral_entry_and_partial_sale_close_conserve_both_sides() {
 
             let debt = market.debt.isolated_repayment_for_max(debt_asset, position.debt_shares, u64::MAX).unwrap().cash_repaid;
             let collateral_asset = debt_asset.opposite();
-            let lo = market.collateral_for_leverage_repayment(&position, position.collateral_amount, 1, 0).unwrap();
-            assert!(market.collateral_for_leverage_repayment(&position, lo - 1, 1, 0).is_err());
-            assert!(market.collateral_for_leverage_repayment(&position, 0, 1, 0).is_err());
+            let lo = position.collateral_amount - collateral_deposit / 2;
             let unsold = position.collateral_amount - lo;
             assert!(unsold > 0);
             let policy = SwapCashPolicy::Close { debt_asset, debt_shares: position.debt_shares, debt_principal: position.debt_principal };
             let prepared = prepare_leverage_swap_with_policy(&mut market, collateral_asset, lo, 1, policy);
             let quote = prepared.leverage_quote();
+            assert!(quote.amount_out >= debt);
             let close = market.close_leverage(&mut position, 0, prepared, full_fee_credit(&quote),
                 0, ProtocolAuctionSplit::default(), 1).unwrap();
             assert_eq!(close.debt_repaid, debt);
@@ -2269,125 +2268,6 @@ fn native_collateral_entry_and_partial_sale_close_conserve_both_sides() {
     }
       }
      }
-    }
-}
-
-#[test]
-fn native_repayment_search_keeps_earlier_launch_fee_tiers() {
-    let mut market = test_market(1_000_000, 1_000_000);
-    market.config.amm.launch_rate_limit_asset = crate::state::LAUNCH_RATE_LIMIT_ASSET_BASE;
-    market.config.amm.launch_rate_limit_reference_nad = 1_000 * NAD;
-    market.config.amm.launch_rate_limit_increment_bps = 100;
-    market.config.amm.launch_rate_limit_max_fee_bps = 100;
-    market.config.amm.launch_rate_limit_duration_seconds = 100;
-    market.config.fee_profile().validate().unwrap();
-    let debt_asset = MarketAsset::Base;
-    let deposit = 500;
-    let margin = market.leverage_collateral_entry_value(debt_asset, deposit).unwrap();
-    let borrowed = leverage_debt_from_margin(margin, 29_900).unwrap();
-    let prepared = prepare_leverage_swap_with_policy(
-        &mut market,
-        debt_asset,
-        borrowed,
-        1,
-        SwapCashPolicy::Borrow { asset: debt_asset, amount: borrowed },
-    );
-    let quote = prepared.leverage_quote();
-    let mut position = empty_position();
-    market
-        .open_leverage_funded(
-            &mut position,
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            Pubkey::default(),
-            0,
-            debt_asset,
-            margin,
-            29_900,
-            deposit + quote.amount_out,
-            prepared,
-            full_fee_credit(&quote),
-            0,
-            1,
-            255,
-            0,
-            ProtocolAuctionSplit::default(),
-            deposit,
-        )
-        .unwrap();
-    let debt = market
-        .debt
-        .isolated_repayment_for_max(debt_asset, position.debt_shares, u64::MAX)
-        .unwrap()
-        .cash_repaid;
-    let expected = (1..=position.collateral_amount)
-        .find(|&amount| {
-            market
-                .quote_leverage_swap_at_time(MarketAsset::Quote, amount, 1, 0)
-                .is_ok_and(|candidate| candidate.amount_out >= debt)
-        })
-        .unwrap();
-    let selected = market.collateral_for_leverage_repayment(&position, position.collateral_amount, 1, 0).unwrap();
-    assert_eq!(selected, expected);
-}
-
-#[test]
-fn native_repayment_search_matches_first_sufficient_quote_across_launch_fee_modes() {
-    for fee_mode in [
-        crate::state::SWAP_FEE_COLLECT_INPUT_ASSET,
-        crate::state::SWAP_FEE_COLLECT_BASE_ONLY,
-        crate::state::SWAP_FEE_COLLECT_QUOTE_ONLY,
-    ] {
-        for reference in [100, 500, 1_000] {
-            for max_fee_bps in [100, 500, 1_500] {
-                for debt in [95, 995, 1_495] {
-                    let mut market = test_market(1_000_000, 1_000_000);
-                    market.config.amm.swap_fee_collect_mode = fee_mode;
-                    market.config.divergence_fee_share_cap_bps = 1_000;
-                    market.config.volatility_fee_share_cap_bps = 1_000;
-                    market.config.amm.launch_rate_limit_asset = crate::state::LAUNCH_RATE_LIMIT_ASSET_BASE;
-                    market.config.amm.launch_rate_limit_reference_nad = reference * NAD;
-                    market.config.amm.launch_rate_limit_increment_bps = 100;
-                    market.config.amm.launch_rate_limit_max_fee_bps = max_fee_bps;
-                    market.config.amm.launch_rate_limit_duration_seconds = 100;
-                    market.config.fee_profile().validate().unwrap();
-                    let position = seeded_position(&mut market, MarketAsset::Base, debt, 3_000);
-                    let expected = (1..=position.collateral_amount)
-                        .find(|&amount| {
-                            market
-                                .quote_leverage_swap_at_time(MarketAsset::Quote, amount, 1, 0)
-                                .is_ok_and(|quote| quote.amount_out >= debt)
-                        })
-                        .unwrap();
-                    let selected = market.collateral_for_leverage_repayment(&position, position.collateral_amount, 1, 0).unwrap();
-                    assert_eq!(selected, expected, "fee_mode={fee_mode}, reference={reference}, max_fee_bps={max_fee_bps}, debt={debt}");
-                }
-            }
-        }
-    }
-}
-
-#[test]
-fn native_repayment_search_respects_launch_fee_boundary_across_decimals() {
-    for decimals in [6, 9, 12] {
-        let scale = 10_u64.pow(decimals.into());
-        let mut market = test_market(1_000_000 * scale, 1_000_000 * scale);
-        market.base_side.asset_decimals = decimals;
-        market.quote_side.asset_decimals = decimals;
-        market.amm = AmmState::default();
-        market.prepare_amm_for_swap(0).unwrap();
-        market.config.amm.launch_rate_limit_asset = crate::state::LAUNCH_RATE_LIMIT_ASSET_BASE;
-        market.config.amm.launch_rate_limit_reference_nad = 1_000 * NAD;
-        market.config.amm.launch_rate_limit_increment_bps = 100;
-        market.config.amm.launch_rate_limit_max_fee_bps = 100;
-        market.config.amm.launch_rate_limit_duration_seconds = 100;
-        market.config.fee_profile().validate().unwrap();
-        let position = seeded_position(&mut market, MarketAsset::Base, 995 * scale, 3_000 * scale);
-        let selected = market.collateral_for_leverage_repayment(&position, position.collateral_amount, 1, 0).unwrap();
-        assert!(selected <= 1_000 * scale, "decimals={decimals}");
-        assert!(market.quote_leverage_swap_at_time(MarketAsset::Quote, selected, 1, 0).unwrap().amount_out >= 995 * scale);
-        assert!(market.quote_leverage_swap_at_time(MarketAsset::Quote, selected - 1, 1, 0).unwrap().amount_out < 995 * scale);
     }
 }
 

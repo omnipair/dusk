@@ -8010,6 +8010,15 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         config.amm.coreHalfWidthBps = 100;
         config.amm.fadeWidthBps = 400;
       }
+      // The protected debt asset makes native close exercise active launch fee tiers.
+      if (debtAsset === 1 && assetProgram.equals(TOKEN_PROGRAM_ID)) {
+        config.startTime = new BN(svm.getClock().unixTimestamp.toString());
+        config.amm.launchRateLimitAsset = 2;
+        config.amm.launchRateLimitReferenceNad = new BN(100_000_000);
+        config.amm.launchRateLimitIncrementBps = 10;
+        config.amm.launchRateLimitMaxFeeBps = 100;
+        config.amm.launchRateLimitDurationSeconds = new BN(3_600);
+      }
       const fixture = await addBalancedLiquidity(190 + debtAsset + Number(concentrated) * 2, config, {
         baseDeposit: 1_000_000_000, quoteDeposit: 2_000_000_000, minYlp: 1,
         baseMint: 5_000_000_000, quoteMint: 5_000_000_000,
@@ -8056,6 +8065,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       expect((await getAccount(connection as any, ownerCollateralAccount, undefined, assetProgram)).amount).to.equal(initial - 1_000_000n);
       expect((await getAccount(connection as any, ownerDebtAccount, undefined, assetProgram)).amount).to.equal(initialDebt);
       const total = BigInt(open.collateralAmount.toString());
+      const collateralToSell = (total * 3n) / 4n;
       expect((await getAccount(connection as any, leverageCollateralVault, undefined, assetProgram)).amount).to.equal(total);
       const closeAccounts = { ...common, positionOwner: payer.publicKey, authority: payer.publicKey,
         ownerDebtAccount, debtInterestVault: debtAsset === 1 ? fixture.quoteInterestVault : fixture.baseInterestVault,
@@ -8069,15 +8079,23 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       expect(rejected).to.equal(true);
       // An incorrect payout mint must fail before it can move collateral.
       const wrongRecipientClose = await program.methods.closeCollateralLeverage({ debtAsset,
-        maxCollateralIn: new BN(total.toString()), minCollateralOut: new BN(0) })
+        collateralIn: new BN(collateralToSell.toString()), minCollateralOut: new BN(0) })
         .accounts(closeAccounts).remainingAccounts([{ pubkey: ownerDebtAccount, isSigner: false, isWritable: true }, ...remaining]).transaction();
       rejected = false;
       try { await connection.sendTransaction(wrongRecipientClose, [payer]); }
       catch { rejected = true; }
       expect(rejected).to.equal(true);
       expect((await getAccount(connection as any, leverageCollateralVault, undefined, assetProgram)).amount).to.equal(total);
+      const insufficientClose = await program.methods.closeCollateralLeverage({ debtAsset,
+        collateralIn: new BN(1), minCollateralOut: new BN(0) })
+        .accounts(closeAccounts).remainingAccounts([{ pubkey: ownerCollateralAccount, isSigner: false, isWritable: true }, ...remaining]).transaction();
+      rejected = false;
+      try { await connection.sendTransaction(insufficientClose, [payer]); }
+      catch { rejected = true; }
+      expect(rejected).to.equal(true);
+      expect((await getAccount(connection as any, leverageCollateralVault, undefined, assetProgram)).amount).to.equal(total);
       const closeTx = (minimum: anchor.BN) => program.methods.closeCollateralLeverage({ debtAsset,
-        maxCollateralIn: new BN(total.toString()), minCollateralOut: minimum })
+        collateralIn: new BN(collateralToSell.toString()), minCollateralOut: minimum })
         .accounts(closeAccounts).remainingAccounts([{ pubkey: ownerCollateralAccount, isSigner: false, isWritable: true }, ...remaining]).transaction();
       rejected = false;
       try { await connection.sendTransaction(await closeTx(new BN(total.toString())), [payer]); }
@@ -8090,6 +8108,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       const close = cpiEvent(closed.transaction, "leveragePositionClosed");
       const returned = BigInt(close.collateralReturned.toString());
       expect(returned > 0n).to.equal(true);
+      expect(BigInt(close.collateralSold.toString())).to.equal(collateralToSell);
       expect(BigInt(close.collateralSold.toString()) + returned).to.equal(total);
       expect((await getAccount(connection as any, ownerCollateralAccount, undefined, assetProgram)).amount).to.equal(initial - 1_000_000n + returned);
       expect((await getAccount(connection as any, ownerDebtAccount, undefined, assetProgram)).amount - initialDebt).to.equal(BigInt(close.residual.toString()));

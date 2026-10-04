@@ -37,12 +37,13 @@ pub struct CloseLeverageArgs {
     pub min_amount_out: u64,
 }
 
-/// Sell bounded collateral to repay all debt, returning unsold collateral.
-/// Any indivisible excess output is also refunded in the debt token.
+/// Sell the owner's specified collateral amount to repay all debt, returning
+/// unsold collateral. The swap must cover debt and the minimum collateral
+/// payout or the close reverts. Any excess debt-token output is refunded.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct CloseCollateralLeverageArgs {
     pub debt_asset: u8,
-    pub max_collateral_in: u64,
+    pub collateral_in: u64,
     pub min_collateral_out: u64,
 }
 
@@ -296,7 +297,7 @@ impl<'info> CloseLeverage<'info> {
             current_slot,
             current_epoch,
             current_unix_timestamp,
-            Some((args.max_collateral_in, args.min_collateral_out)),
+            Some((args.collateral_in, args.min_collateral_out)),
         )
     }
 
@@ -375,16 +376,11 @@ impl<'info> CloseLeverage<'info> {
         ctx.accounts.market.prepare_amm_for_swap(current_slot)?;
         ctx.accounts.market.advance_one_amm_controller_target(current_slot)?;
         ctx.accounts.market.observe_current_risk(current_slot)?;
-        let collateral_sold = if let Some((maximum, _)) = native_close {
+        let collateral_sold = if let Some((amount, _)) = native_close {
             // Risk-increasing entries exclude transfer-fee collateral mints. Keep that invariant
-            // explicit here so the search and measured vault credit use the same raw amount.
+            // explicit so the specified raw amount equals the measured vault debit.
             super::settlement::validate_leverage_collateral_risk_mint(&ctx.accounts.collateral_mint)?;
-            ctx.accounts.market.collateral_for_leverage_repayment(
-                &ctx.accounts.leverage_position,
-                maximum,
-                current_slot,
-                current_unix_timestamp,
-            )?
+            amount
         } else {
             close_slice.collateral_amount
         };

@@ -15,10 +15,13 @@ This candidate has not been deployed.
 - The multiplier targets leverage before fees and price impact. The preview
   reports effective leverage separately. The transaction binds maximum debt
   and minimum purchased collateral to the quote.
-- Native owner-close sells the collateral needed to repay the full indexed
-  debt and returns the remaining collateral to the owner. It binds maximum
-  collateral sold and minimum collateral returned. Any integer-rounding
-  surplus in the debt token is refunded separately and shown as debt-token dust.
+- Native owner-close sells the exact collateral amount supplied by the owner,
+  repays the full indexed debt, and returns the remaining collateral. The
+  instruction rejects a sale that cannot cover debt or the owner's minimum
+  collateral payout. Any excess debt-token output is refunded separately and
+  shown as debt-token dust. Clients select the amount off-chain using current
+  quotes and simulate before sending; launch fee thresholds can make output
+  non-monotone across input sizes.
 - Debt-funded positions retain their existing debt-token payout on close.
 - Native entry is market-only. Native limit entry, margin deposits/withdrawals,
   and TP/SL or delegated closes are not included. Size adjustments remain
@@ -47,11 +50,10 @@ the candidate SDK with the active devnet IDL. The webapp likewise shows a
 deployment mismatch against the current devnet service. No identity checks
 were bypassed and no historical data was relabeled as this candidate.
 
-Native close requests use a 1,400,000 CU budget. The largest native close in
-the local transaction matrix used 1,191,507 CU. Quote search shares the prepared
-curve with execution, uses output-only curve evaluations, and is bounded to
-64 bracketed interpolation steps. Unusual pool states can still reject the
-quote or exceed the available compute; the tested matrix is not an audit.
+Native close validates one executable quote for the supplied amount before
+settling. This avoids an on-chain repayment search. Clients should simulate
+the final transaction with the chosen compute budget and slippage limits;
+market state or fee changes can still cause the transaction to revert.
 
 ## Local verification
 
