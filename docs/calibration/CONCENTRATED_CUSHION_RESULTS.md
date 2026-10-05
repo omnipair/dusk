@@ -18,43 +18,46 @@ Quote-token debt, ten positions requested, slow path, no withdrawal. The 15,000 
 | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | 1 | false | false | off | 10 | 7,500.00 | 0 | 0.00 | 0.58 | 2.60 | 4 | — |
 | 1 | false | false | 2% | 10 | 7,500.00 | 5 | 0.00 | 3.47 | 1.64 | 1 | — |
-| 1 | false | true | off | 9 | 6,750.00 | 0 | 0.00 | 0.36 | 2.49 | 3 | entry_margin |
+| 1 | false | true | off | 9 | 6,750.00 | 0 | 0.00 | 0.36 | 2.28 | 3 | entry_margin |
 | 1 | false | true | 2% | 9 | 6,750.00 | 4 | 0.00 | 2.44 | 2.16 | 1 | entry_margin |
 | 1 | true | false | off | 8 | 6,000.00 | 0 | 633.40 | 500.00 | 0.00 | 0 | entry_margin |
 | 1 | true | false | 2% | 8 | 6,000.00 | 0 | 633.40 | 500.00 | 0.00 | 0 | entry_margin |
-| 1 | true | true | off | 6 | 4,500.00 | 0 | 402.98 | 500.00 | 0.00 | 0 | entry_margin |
-| 1 | true | true | 2% | 6 | 4,500.00 | 0 | 402.98 | 500.00 | 0.00 | 0 | entry_margin |
+| 1 | true | true | off | 6 | 4,500.00 | 0 | 402.99 | 500.00 | 0.00 | 0 | entry_margin |
+| 1 | true | true | 2% | 6 | 4,500.00 | 0 | 402.99 | 500.00 | 0.00 | 0 | entry_margin |
 | 4 | false | false | off | 10 | 7,500.00 | 0 | 0.00 | 25.29 | 0.48 | 1 | — |
 | 4 | false | false | 2% | 10 | 7,500.00 | 2 | 0.00 | 40.35 | 0.48 | 1 | — |
-| 4 | false | true | off | 10 | 7,500.00 | 0 | 0.00 | 3.74 | 251.47 | 3 | stress:target_unreached:BrokenInvariant |
+| 4 | false | true | off | 10 | 7,500.00 | 0 | 0.00 | 22.80 | 0.88 | 1 | — |
 | 4 | false | true | 2% | 10 | 7,500.00 | 6 | 0.00 | 21.69 | 0.15 | 1 | — |
 | 4 | true | false | off | 9 | 6,750.00 | 0 | 843.30 | 500.00 | 0.00 | 0 | entry_margin |
 | 4 | true | false | 2% | 9 | 6,750.00 | 0 | 843.30 | 500.00 | 0.00 | 0 | entry_margin |
-| 4 | true | true | off | 7 | 5,250.00 | 0 | 0.00 | 0.00 | 5,250.00 | 0 | stress:target_unreached:BrokenInvariant |
-| 4 | true | true | 2% | 7 | 5,250.00 | 0 | 0.00 | 0.00 | 5,250.00 | 0 | stress:target_unreached:BrokenInvariant |
+| 4 | true | true | off | 7 | 5,250.00 | 0 | 563.70 | 500.00 | 0.00 | 0 | entry_margin |
+| 4 | true | true | 2% | 7 | 5,250.00 | 0 | 563.70 | 500.00 | 0.00 | 0 | entry_margin |
 | 10 | false | false | off | 10 | 7,500.00 | 0 | 0.00 | 346.36 | 0.83 | 1 | — |
 | 10 | false | false | 2% | 10 | 7,500.00 | 6 | 0.00 | 288.24 | 0.00 | 0 | — |
-| 10 | false | true | off | 10 | 7,500.00 | 0 | 0.00 | 198.41 | 0.92 | 1 | — |
+| 10 | false | true | off | 10 | 7,500.00 | 0 | 0.00 | 198.40 | 0.92 | 1 | — |
 | 10 | false | true | 2% | 10 | 7,500.00 | 7 | 0.00 | 240.27 | 0.00 | 0 | — |
 | 10 | true | false | off | 10 | 7,500.00 | 0 | 1,149.71 | 500.00 | 0.00 | 0 | — |
 | 10 | true | false | 2% | 10 | 7,500.00 | 0 | 1,149.71 | 500.00 | 0.00 | 0 | — |
-| 10 | true | true | off | 10 | 7,500.00 | 0 | 0.00 | 0.00 | 7,500.00 | 0 | stress:target_unreached:BrokenInvariant |
-| 10 | true | true | 2% | 10 | 7,500.00 | 0 | 0.00 | 0.00 | 7,500.00 | 0 | stress:target_unreached:BrokenInvariant |
+| 10 | true | true | off | 10 | 7,500.00 | 0 | 1,149.25 | 500.00 | 0.00 | 0 | — |
+| 10 | true | true | 2% | 10 | 7,500.00 | 0 | 1,149.25 | 500.00 | 0.00 | 0 | — |
 
 ## Native limits and observed failures
 
-103 paths stopped before completing the requested stress because a native countertrade/withdrawal could not be completed. 43 runs recorded failed full-sale execution attempts; 135 runs encountered the hLP reserve-reconciliation `BrokenInvariant` guard in either a stress trade or a full-sale attempt. These results prevent treating the calibration as ready for parameter selection. A stopped stress path is neither a successful liquidation nor proof that all routes are unavailable.
+0 paths stopped before completing the requested stress because a native countertrade/withdrawal could not be completed. 0 runs recorded failed full-sale execution attempts; 0 runs encountered the hLP reserve-reconciliation `BrokenInvariant` guard in either a stress trade or a full-sale attempt. 22 runs still have eligible positions at the finite horizon. Execution success alone does not select safe parameters or guarantee complete cleanup. A stopped stress path is neither a successful liquidation nor proof that all routes are unavailable.
 
 | Recorded run limitation | Runs |
 | --- | ---: |
-| entry_margin | 94 |
-| stress:target_unreached:BrokenInvariant | 103 |
+| entry_margin | 120 |
 
-Committed stressed observations include 2390 center changes, 102 deferred-center observations and 25763 tail observations. These are across repeated counterfactual scenarios, not distinct real-world events or a success rate.
+Committed stressed observations include 2592 center changes, 2276 deferred-center observations and 23936 tail observations. These are across repeated counterfactual scenarios, not distinct real-world events or a success rate.
 
 A focused cash-limit test seeds curve backing that includes a borrow receivable. A full sale quote succeeds but exceeds spendable reserve cash; actual native preparation rejects it with `InsufficientLiquidity`. A quoted positive cushion must therefore be paired with the exact execution cash policy and hLP funding floors. This fixture tests a constraint; it does not claim the seeded position passed admission.
 
-The hLP failure is reproduced with native `SwapRequest` execution in a scratch copy, with guards intact. The recorded location is the live-reserve/quoted-endpoint reconciliation in `transitions/liquidity/hlp/engine.rs`. It requires diagnosis before asserting reliable settlement across the affected configurations, including hLP cases with and without the controller/surcharge. No runtime guard was removed or widened.
+### hLP reconciliation correction
+
+The prior report at `6f85ee9` recorded 135 runs hitting the reserve-identity guard, 103 stopped stress paths and 43 runs with rejected full-sale attempts. The quote had replaced recorded starting hLP debt with a hypothetical freshly hedged claim after reserve/share changes. That refinance had never happened in the ledger. A minimal funded-recenter fixture with 10,000 tokens of actual debt on each side inferred about 10,333 and 10,667 instead, creating unexplained reserve discrepancies.
+
+The native starting state now satisfies `ordinary + target equity + recorded indexed opposite-hLP debt = executable total reserve` on each side. It keeps the existing NAV valuation and reserves accrued funding interest exactly once; endpoint reconstruction no longer subtracts that interest again. Recenter funding projects the same actual post-deployment reserve state that execution will use. The three-atom reconciliation guard remains intact. First-entry price checkpoints include the backing already recorded before receipt tokens are minted, avoiding a transient pre-mint price. Regressions cover that sequence for both assets under CPMM and concentration, both swap directions, LP withdrawals, released protected inventory, funding cash conservation, and deliberate unexplained drift.
 
 ## Scope and interpretation
 
@@ -76,7 +79,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 docs/calibration/report_native_cushion.py /pri
 cargo test -p dusk native_cushion_
 ```
 
-Replay one recorded hLP rejection (4x, controller on, hLP on, quote debt, ten requested positions, slow path, 2% window, no withdrawal):
+Replay one formerly rejected hLP path (4x, controller on, hLP on, quote debt, ten requested positions, slow path, 2% window, no withdrawal):
 
 ```sh
 DUSK_NATIVE_CUSHION_CASE='4,true,true,1,10,0,200,0' cargo test -p dusk native_concentrated_cushion_report -- --nocapture

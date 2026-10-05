@@ -365,6 +365,13 @@ fn native_concentrated_cushion_report() {
                                         withdrawal,
                                     };
                                     let t = one_case(case);
+                                    assert!(
+                                        !t.blocked.contains("BrokenInvariant")
+                                            && !t.last_quote_error.contains("BrokenInvariant"),
+                                        "native accounting rejected {key}: {} {}",
+                                        t.blocked,
+                                        t.last_quote_error
+                                    );
                                     successes[0] += t.solvent;
                                     successes[1] += u64::from(t.loss > 0);
                                     successes[2] += u64::from(hlp && t.repaid > 0);
@@ -476,4 +483,9 @@ fn native_cushion_solvent_and_loss_settlements_preserve_active_hlp() {
             }
         }
     }
+}
+
+mod reconciliation {
+    use super::*;
+    include!("amm_hlp_reconciliation.rs");
 }

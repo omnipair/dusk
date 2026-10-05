@@ -671,7 +671,7 @@ fn prepare_concentrated_hlp_transition_from_end(
     let base_interest_paid = current_base_debt.saturating_sub(market.base_hlp_vault.debt_principal);
     let quote_interest_paid = current_quote_debt.saturating_sub(market.quote_hlp_vault.debt_principal);
 
-    let (mut base_non_debt_reserve, mut quote_non_debt_reserve) = if preserve_current_ordinary_reserves {
+    let (base_non_debt_reserve, quote_non_debt_reserve) = if preserve_current_ordinary_reserves {
         // Changing hLP ownership/debt around an already materialized reserve
         // point must not create or destroy ordinary curve reserves. Remove
         // public lending interest from the raw live identity just as
@@ -702,27 +702,12 @@ fn prepare_concentrated_hlp_transition_from_end(
         (
             ordinary_base
                 .checked_add(base_equity)
-                .and_then(|value| value.checked_sub(quote_interest_paid))
                 .ok_or(ErrorCode::ReserveUnderflow)?,
             ordinary_quote
                 .checked_add(quote_equity)
-                .and_then(|value| value.checked_sub(base_interest_paid))
                 .ok_or(ErrorCode::ReserveUnderflow)?,
         )
     };
-    if !preserve_current_ordinary_reserves {
-        // The quoted endpoint includes the trader-funded interest tranche in
-        // the input-side live reserve. `consume` transfers that tranche out of
-        // cash before replacing hLP ownership/debt, so both the proportional
-        // claim certificate and terminal live reserve use the post-payment
-        // ordinary reserve.
-        base_non_debt_reserve = base_non_debt_reserve
-            .checked_sub(quote_interest_paid)
-            .ok_or(ErrorCode::ReserveUnderflow)?;
-        quote_non_debt_reserve = quote_non_debt_reserve
-            .checked_sub(base_interest_paid)
-            .ok_or(ErrorCode::ReserveUnderflow)?;
-    }
     // Integer yLP ownership can move the opposite-asset claim by more than
     // one token atom, especially when the mints have different decimals.
     // Keep the quoted debt only when it still matches the materialized claim;

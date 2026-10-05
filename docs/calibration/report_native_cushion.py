@@ -77,9 +77,10 @@ def main():
                f"{len(interrupted)} paths stopped before completing the requested stress because a native "
                f"countertrade/withdrawal could not be completed. {len(quote_blocked)} runs recorded failed "
                f"full-sale execution attempts; {len(invariant)} runs encountered the hLP reserve-reconciliation "
-               "`BrokenInvariant` guard in either a stress trade or a full-sale attempt. These results "
-               "prevent treating the calibration as ready for parameter selection. A stopped stress path "
-               "is neither a successful liquidation nor proof that all routes are unavailable.", "",
+               "`BrokenInvariant` guard in either a stress trade or a full-sale attempt. "
+               f"{sum(int(r['eligible']) > 0 for r in rows)} runs still have eligible positions at the finite horizon. "
+               "Execution success alone does not select safe parameters or guarantee complete cleanup. "
+               "A stopped stress path is neither a successful liquidation nor proof that all routes are unavailable.", "",
                "| Recorded run limitation | Runs |", "| --- | ---: |"]
     for failure, count in sorted(failures.items()):
         report.append(f"| {failure} | {count} |")
@@ -93,11 +94,23 @@ def main():
                "it with `InsufficientLiquidity`. A quoted positive cushion must therefore be paired with "
                "the exact execution cash policy and hLP funding floors. This fixture tests a constraint; "
                "it does not claim the seeded position passed admission.", "",
-               "The hLP failure is reproduced with native `SwapRequest` execution in a scratch copy, "
-               "with guards intact. The recorded location is the live-reserve/quoted-endpoint reconciliation "
-               "in `transitions/liquidity/hlp/engine.rs`. It requires diagnosis before asserting reliable "
-               "settlement across the affected configurations, including hLP cases with and without "
-               "the controller/surcharge. No runtime guard was removed or widened.", "",
+               "### hLP reconciliation correction", "",
+               "The prior report at `6f85ee9` recorded 135 runs hitting the reserve-identity guard, "
+               "103 stopped stress paths and 43 runs with rejected full-sale attempts. The quote had "
+               "replaced recorded starting hLP debt with a hypothetical freshly hedged claim after "
+               "reserve/share changes. That refinance had never happened in the ledger. A minimal "
+               "funded-recenter fixture with 10,000 tokens of actual debt on each side inferred about "
+               "10,333 and 10,667 instead, creating unexplained reserve discrepancies.", "",
+               "The native starting state now satisfies `ordinary + target equity + recorded indexed "
+               "opposite-hLP debt = executable total reserve` on each side. It keeps the existing NAV "
+               "valuation and reserves accrued funding interest exactly once; endpoint reconstruction "
+               "no longer subtracts that interest again. Recenter funding projects the same actual "
+               "post-deployment reserve state that execution will use. The three-atom reconciliation "
+               "guard remains intact. First-entry price checkpoints include the backing already recorded "
+               "before receipt tokens are minted, avoiding a transient pre-mint price. Regressions cover "
+               "that sequence for both assets under CPMM and concentration, both swap directions, LP "
+               "withdrawals, released protected inventory, funding cash conservation, and deliberate "
+               "unexplained drift.", "",
                "## Scope and interpretation", "",
                "Native concentration changes execution and admission; it is not a constant liquidity "
                "multiplier. Trades can leave the core, and recentering can wait for its funding budget. "
@@ -131,7 +144,7 @@ def main():
                "PYTHONDONTWRITEBYTECODE=1 python3 docs/calibration/report_native_cushion.py /private/tmp/dusk-concentrated-cushion.log",
                "cargo test -p dusk native_cushion_",
                "```", "",
-               "Replay one recorded hLP rejection (4x, controller on, hLP on, quote debt, ten requested "
+               "Replay one formerly rejected hLP path (4x, controller on, hLP on, quote debt, ten requested "
                "positions, slow path, 2% window, no withdrawal):", "", "```sh",
                "DUSK_NATIVE_CUSHION_CASE='4,true,true,1,10,0,200,0' cargo test -p dusk native_concentrated_cushion_report -- --nocapture",
                "```", "",

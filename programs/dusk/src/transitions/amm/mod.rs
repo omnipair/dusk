@@ -519,17 +519,20 @@ impl Market {
         let protected_base = self.base_side.reserves.protected_recenter_reserve;
         let protected_quote = self.quote_side.reserves.protected_recenter_reserve;
         let deploying_protected = protected_base > 0 || protected_quote > 0;
-        let mut candidate_point = ordinary;
-        if deploying_protected {
-            candidate_point.ordinary_base = candidate_point
-                .ordinary_base
+        let candidate_point = if deploying_protected {
+            let mut reserves = self.curve_reserves_nad()?;
+            reserves.base = reserves
+                .base
                 .checked_add(self.normalize_amount(protected_base as u128, self.base_side.asset_decimals)?)
                 .ok_or(ErrorCode::ReserveOverflow)?;
-            candidate_point.ordinary_quote = candidate_point
-                .ordinary_quote
+            reserves.quote = reserves
+                .quote
                 .checked_add(self.normalize_amount(protected_quote as u128, self.quote_side.asset_decimals)?)
                 .ok_or(ErrorCode::ReserveOverflow)?;
-        }
+            self.integrated_curve_state_from_reserves_nad(reserves)?
+        } else {
+            ordinary
+        };
         let candidate_cache = prepare_concentrated_cache_at_point(
             candidate_point.ordinary_base,
             candidate_point.ordinary_quote,
@@ -788,7 +791,10 @@ impl Market {
     }
 
     pub(crate) fn integrated_curve_state_nad(&self) -> Result<IntegratedCurveState> {
-        let reserves = self.curve_reserves_nad()?;
+        self.integrated_curve_state_from_reserves_nad(self.curve_reserves_nad()?)
+    }
+
+    fn integrated_curve_state_from_reserves_nad(&self, reserves: CurveReservesNad) -> Result<IntegratedCurveState> {
         let supply = self.base_side.shares.ylp_supply;
         require_eq!(supply, self.quote_side.shares.ylp_supply, ErrorCode::BrokenInvariant);
         require!(supply > 0, ErrorCode::SupplyUnderflow);
@@ -858,20 +864,39 @@ impl Market {
             base_hlp_equity >= 0 && quote_hlp_equity >= 0,
             ErrorCode::HlpSettlementUnavailable
         );
-        IntegratedCurveState::from_total_reserves(
-            reserves.base,
-            reserves.quote,
-            if self.base_hlp_vault.hlp_supply == 0 {
-                0
-            } else {
-                base_hlp_equity as u128
-            },
-            if self.quote_hlp_vault.hlp_supply == 0 {
-                0
-            } else {
-                quote_hlp_equity as u128
-            },
-        )
+        // First entry records backing before minting receipt shares. Include
+        // that backing in its price checkpoint even while receipt supply is
+        // zero; an actually empty vault already has zero claims and debt.
+        let base_hlp_equity = base_hlp_equity as u128;
+        let quote_hlp_equity = quote_hlp_equity as u128;
+        // Reserve/share mutations can leave the opposite claim different from
+        // recorded debt. Replacing that debt with a freshly hedged claim here
+        // would invent a reserve movement before the quoted swap. Keep indexed
+        // debt until the identity-bound transition actually refinances it.
+        // Indexed funding interest is reserved in this subtraction and paid
+        // once by consume; it must not also be removed from the quoted end.
+        let ordinary_base = reserves
+            .base
+            .checked_sub(base_hlp_equity)
+            .and_then(|value| value.checked_sub(quote_hlp_base_debt))
+            .ok_or(ErrorCode::InsufficientLiquidity)?;
+        let ordinary_quote = reserves
+            .quote
+            .checked_sub(quote_hlp_equity)
+            .and_then(|value| value.checked_sub(base_hlp_quote_debt))
+            .ok_or(ErrorCode::InsufficientLiquidity)?;
+        require!(
+            ordinary_base > 0 && ordinary_quote > 0,
+            ErrorCode::InsufficientLiquidity
+        );
+        Ok(IntegratedCurveState {
+            ordinary_base,
+            ordinary_quote,
+            base_hlp_equity,
+            quote_hlp_equity,
+            base_hlp_quote_debt,
+            quote_hlp_base_debt,
+        })
     }
 
     pub(crate) fn current_concentrated_curve_geometry(&self) -> Result<Option<ConcentratedCurveGeometry>> {

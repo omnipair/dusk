@@ -14,14 +14,8 @@ fn extreme_forward_price_values_both_hlp_numeraires_without_a_rounded_reciprocal
         price,
     );
     assert_eq!(
-        asset_value_in_target_nad_with_prices(
-            &market,
-            prices,
-            MarketAsset::Quote,
-            NAD + 1,
-            MarketAsset::Base,
-        )
-        .unwrap(),
+        asset_value_in_target_nad_with_prices(&market, prices, MarketAsset::Quote, NAD + 1, MarketAsset::Base,)
+            .unwrap(),
         NAD as u128,
     );
     assert_eq!(
@@ -183,7 +177,10 @@ fn captured_vob_market() -> Market {
     let mut encoded_layout = Vec::new();
     layout.try_serialize(&mut encoded_layout).unwrap();
     let marker = u128::MAX.to_le_bytes();
-    let marker_offset = encoded_layout.windows(marker.len()).position(|window| window == marker).unwrap();
+    let marker_offset = encoded_layout
+        .windows(marker.len())
+        .position(|window| window == marker)
+        .unwrap();
     let carry_offset = marker_offset + marker.len();
 
     let mut captured = include_bytes!("../fixtures/vob-market-20260929.bin").to_vec();
@@ -197,23 +194,29 @@ fn captured_vob_bids_survive_fractional_output_rounding() {
     use crate::benchmark_api::{BenchmarkClock, BenchmarkMarket, BenchmarkSwapRequest};
     use crate::state::FutarchyAuthority;
 
-    let authority = FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-20260929.bin").as_slice())
-        .unwrap();
-    let clock = BenchmarkClock { slot: 505_496_119, unix_timestamp: 1_790_677_156 };
+    let authority =
+        FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-20260929.bin").as_slice())
+            .unwrap();
+    let clock = BenchmarkClock {
+        slot: 505_496_119,
+        unix_timestamp: 1_790_677_156,
+    };
     // These are the twelve candidate bid levels for the captured devnet
     // market. Before the carry certificate, six failed BrokenInvariant;
     // the quote-side raw reconciliation was four atoms instead of three.
+    // Using recorded start debt changes the fractional ordinary coordinate;
+    // all twelve bids now require exactly one certified output atom.
     for (amount, expected_carry) in [
-        (540_606, 0),
+        (540_606, 1),
         (1_082_025, 1),
-        (1_624_259, 0),
+        (1_624_259, 1),
         (2_167_308, 1),
-        (2_711_176, 0),
+        (2_711_176, 1),
         (3_255_864, 1),
-        (3_801_374, 0),
-        (4_347_710, 0),
+        (3_801_374, 1),
+        (4_347_710, 1),
         (4_894_872, 1),
-        (5_442_864, 0),
+        (5_442_864, 1),
         (5_991_686, 1),
         (6_541_340, 1),
     ] {
@@ -225,7 +228,9 @@ fn captured_vob_bids_survive_fractional_output_rounding() {
             protocol_fee_bps: authority.revenue_share.swap_bps,
             protocol_auction_split: authority.protocol_auction_split,
         };
-        let result = benchmark.preview_swap(request).unwrap_or_else(|error| panic!("bid {amount}: {error:?}"));
+        let result = benchmark
+            .preview_swap(request)
+            .unwrap_or_else(|error| panic!("bid {amount}: {error:?}"));
         assert!(result.quote.amount_out > 0, "bid {amount}");
         let mut before = captured_vob_market();
         let prepared = crate::transitions::amm::SwapRequest {
@@ -248,8 +253,9 @@ fn captured_vob_bids_survive_fractional_output_rounding() {
 fn captured_vob_bid_rejects_unexplained_reserve_drift() {
     use crate::state::FutarchyAuthority;
 
-    let authority = FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-20260929.bin").as_slice())
-        .unwrap();
+    let authority =
+        FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-20260929.bin").as_slice())
+            .unwrap();
     let mut market = captured_vob_market();
     let mut prepared = crate::transitions::amm::SwapRequest {
         current_slot: 505_496_119,
@@ -264,7 +270,12 @@ fn captured_vob_bid_rejects_unexplained_reserve_drift() {
     // must still fail the original three-atom reconciliation bound.
     market.quote_side.reserves.live_reserve += 4;
     let error = prepared
-        .finalize_state(&mut market, 505_496_119, authority.revenue_share.swap_bps, authority.protocol_auction_split)
+        .finalize_state(
+            &mut market,
+            505_496_119,
+            authority.revenue_share.swap_bps,
+            authority.protocol_auction_split,
+        )
         .unwrap_err();
     assert_eq!(error, error!(ErrorCode::BrokenInvariant));
 }
@@ -275,9 +286,13 @@ fn captured_vob_asks_certify_only_base_output_rounding() {
     use crate::benchmark_api::{BenchmarkClock, BenchmarkMarket, BenchmarkSwapRequest};
     use crate::state::FutarchyAuthority;
 
-    let authority = FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-20260929.bin").as_slice())
-        .unwrap();
-    let clock = BenchmarkClock { slot: 505_496_119, unix_timestamp: 1_790_677_156 };
+    let authority =
+        FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-20260929.bin").as_slice())
+            .unwrap();
+    let clock = BenchmarkClock {
+        slot: 505_496_119,
+        unix_timestamp: 1_790_677_156,
+    };
     for amount in [500_000, 1_000_000, 2_000_000, 4_000_000] {
         let market = captured_vob_market();
         let benchmark = BenchmarkMarket::from_market_state(market, clock).unwrap();
@@ -287,7 +302,9 @@ fn captured_vob_asks_certify_only_base_output_rounding() {
             protocol_fee_bps: authority.revenue_share.swap_bps,
             protocol_auction_split: authority.protocol_auction_split,
         };
-        let result = benchmark.preview_swap(request).unwrap_or_else(|error| panic!("ask {amount}: {error:?}"));
+        let result = benchmark
+            .preview_swap(request)
+            .unwrap_or_else(|error| panic!("ask {amount}: {error:?}"));
         assert!(result.quote.amount_out > 0, "ask {amount}");
         let mut before = captured_vob_market();
         let prepared = crate::transitions::amm::SwapRequest {

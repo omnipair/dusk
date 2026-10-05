@@ -4358,7 +4358,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(recentered.curve_revision.gt(recentered.risk_revision)).to.equal(true);
   });
 
-  it("executes a funded concentrated recenter with an active hLP below the SBF compute ceiling", async function () {
+  it("executes a funded concentrated recenter with both hLPs below the SBF compute ceiling", async function () {
     const config = marketConfig();
     config.swapFeeBps = 0;
     config.divergenceFeeShareCapBps = 5_000;
@@ -4377,6 +4377,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       quoteMint: 500_000_000,
     });
     await openBaseHedge(fixture, 10_000_000);
+    await openQuoteHedge(fixture, 20_000_000);
     trackV2Instruction("depositSingleSided", this.test?.title);
 
     const hLpAccounts = hlpSwapAccounts(fixture);
@@ -4391,6 +4392,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       Buffer.from(accountBefore!.data)
     ) as any;
     expect(funded.base_hlp_vault.hlp_supply.gt(new BN(0))).to.equal(true);
+    expect(funded.quote_hlp_vault.hlp_supply.gt(new BN(0))).to.equal(true);
     expect(funded.amm.retention_target_stale).to.equal(true);
     expect(funded.amm.retention_hard_cap_nad.gt(new BN(0))).to.equal(true);
     expect(
@@ -4416,7 +4418,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     svm.warpToSlot(recenterSlot);
 
     const oldCenter = funded.amm.center_price_nad;
-    await swapBaseForQuote(fixture, hLpAccounts, 1_000_000, 1);
+    const measurement = await swapBaseForQuote(fixture, hLpAccounts, 1_000_000, 1);
+    await expectSwapMarketState(cpiEvent(measurement.transaction, "swapExecuted"), fixture.market);
     trackV2Instruction("swap", this.test?.title);
 
     const accountAfter = svm.getAccount(fixture.market);
@@ -4434,6 +4437,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       )
     ).to.equal(true);
     expect(recentered.base_hlp_vault.hlp_supply.gt(new BN(0))).to.equal(true);
+    expect(recentered.quote_hlp_vault.hlp_supply.gt(new BN(0))).to.equal(true);
     expect(recentered.last_marginal_observation_nad.gt(new BN(0))).to.equal(true);
     expect(recentered.curve_revision.gt(recentered.risk_revision)).to.equal(true);
   });

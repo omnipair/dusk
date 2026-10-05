@@ -47,10 +47,10 @@ amplification,controller,hlp,debt_side,pieces,path,cushion_bps,withdrawal_bps,op
 1,false,false,1,10,2,0,2500,10,7500000,0,0,0,10,4950008,500000,2049992,0,38395,0,0,0,17,0,0,0,,0,
 1,false,false,1,10,2,200,0,10,7500000,0,0,0,10,5244535,500000,1755465,0,39436,0,0,0,18,0,0,0,,0,
 1,false,false,1,10,2,200,2500,10,7500000,0,0,0,10,4950008,500000,2049992,0,38395,0,0,0,17,0,0,0,,0,
-1,false,true,0,1,0,0,0,1,7500000,6,0,0,1,6628605,200555,670840,0,28010,2778,0,0,60,0,0,0,,0,
-1,false,true,0,1,0,0,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,42,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-1,false,true,0,1,0,200,0,1,7500000,6,0,0,1,6628605,200555,670840,0,28010,2778,0,0,60,0,0,0,,0,
-1,false,true,0,1,0,200,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,42,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
+1,false,true,0,1,0,0,0,1,7500000,6,0,0,1,6628606,200555,670839,0,28010,2778,0,0,60,0,0,0,,0,
+1,false,true,0,1,0,0,2500,1,7500000,5,0,0,1,5920519,200331,1379150,0,28138,1659,0,0,60,0,0,0,,0,
+1,false,true,0,1,0,200,0,1,7500000,6,0,0,1,6628606,200555,670839,0,28010,2778,0,0,60,0,0,0,,0,
+1,false,true,0,1,0,200,2500,1,7500000,5,0,0,1,5920519,200331,1379150,0,28138,1659,0,0,60,0,0,0,,0,
 1,false,true,0,1,1,0,0,1,7500000,0,0,0,1,5028150,200000,2271850,0,28692,0,0,0,19,0,0,0,,0,
 1,false,true,0,1,1,0,2500,1,7500000,0,0,0,1,4565594,200000,2734406,0,26053,0,0,0,19,0,0,0,,0,
 1,false,true,0,1,1,200,0,1,7500000,0,0,0,1,5028150,200000,2271850,0,28692,0,0,0,19,0,0,0,,0,
@@ -59,22 +59,22 @@ amplification,controller,hlp,debt_side,pieces,path,cushion_bps,withdrawal_bps,op
 1,false,true,0,1,2,0,2500,1,7500000,0,0,0,1,4479146,200000,2820854,0,26171,0,0,0,9,0,0,0,,0,
 1,false,true,0,1,2,200,0,1,7500000,0,0,0,1,4940227,200000,2359773,0,28865,0,0,0,9,0,0,0,,0,
 1,false,true,0,1,2,200,2500,1,7500000,0,0,0,1,4479146,200000,2820854,0,26171,0,0,0,9,0,0,0,,0,
-1,false,true,0,10,0,0,0,9,6750000,73,6,0,0,6747157,357,0,0,0,13363,2486,3,180,0,0,0,,0,entry_margin
-1,false,true,0,10,0,0,2500,9,6750000,15,0,0,7,5860246,138489,0,0,22060,4472,751265,2,132,0,0,179,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-1,false,true,0,10,0,200,0,9,6750000,58,3,4,0,6745396,2443,0,28633,3188,13133,2161,1,180,0,0,0,,0,entry_margin
-1,false,true,0,10,0,200,2500,9,6750000,4,0,3,6,6610960,139040,0,16182,25823,4702,0,0,38,0,0,0,,0,entry_margin
-1,false,true,0,10,1,0,0,9,6750000,0,0,0,9,5228890,500000,1021110,0,33346,0,0,0,30,0,0,0,,0,entry_margin
-1,false,true,0,10,1,0,2500,9,6750000,0,0,0,0,0,0,0,0,0,0,6750000,0,7,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-1,false,true,0,10,1,200,0,9,6750000,0,0,0,9,5228890,500000,1021110,0,33346,0,0,0,30,0,0,0,,0,entry_margin
-1,false,true,0,10,1,200,2500,9,6750000,0,0,0,0,0,0,0,0,0,0,6750000,0,7,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-1,false,true,0,10,2,0,0,9,6750000,0,0,0,9,4526596,500000,1723404,0,34411,0,0,0,17,0,0,0,,0,entry_margin
-1,false,true,0,10,2,0,2500,9,6750000,0,0,0,9,4072042,500000,2177958,0,33115,0,0,0,15,0,0,0,,0,entry_margin
-1,false,true,0,10,2,200,0,9,6750000,0,0,0,9,4526596,500000,1723404,0,34411,0,0,0,17,0,0,0,,0,entry_margin
-1,false,true,0,10,2,200,2500,9,6750000,0,0,0,9,4072042,500000,2177958,0,33115,0,0,0,15,0,0,0,,0,entry_margin
-1,false,true,1,1,0,0,0,1,7500000,6,0,0,1,6628605,200555,670840,0,28010,2778,0,0,60,0,0,0,,0,
-1,false,true,1,1,0,0,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,42,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-1,false,true,1,1,0,200,0,1,7500000,6,0,0,1,6628605,200555,670840,0,28010,2778,0,0,60,0,0,0,,0,
-1,false,true,1,1,0,200,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,42,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
+1,false,true,0,10,0,0,0,9,6750000,73,6,0,0,6747361,357,0,0,0,13364,2282,3,180,0,0,0,,0,entry_margin
+1,false,true,0,10,0,0,2500,9,6750000,15,0,0,8,6566432,182303,0,0,27376,4472,1265,1,180,0,0,0,,0,entry_margin
+1,false,true,0,10,0,200,0,9,6750000,58,3,4,0,6745398,2441,0,28634,3188,13133,2161,1,180,0,0,0,,0,entry_margin
+1,false,true,0,10,0,200,2500,9,6750000,4,0,3,6,6610962,139038,0,16182,25823,4702,0,0,38,0,0,0,,0,entry_margin
+1,false,true,0,10,1,0,0,9,6750000,0,0,0,9,5228796,500000,1021204,0,33410,0,0,0,30,0,0,0,,0,entry_margin
+1,false,true,0,10,1,0,2500,9,6750000,0,0,0,9,5155091,500000,1094909,0,36233,0,0,0,29,0,0,0,,0,entry_margin
+1,false,true,0,10,1,200,0,9,6750000,0,0,0,9,5228796,500000,1021204,0,33410,0,0,0,30,0,0,0,,0,entry_margin
+1,false,true,0,10,1,200,2500,9,6750000,0,0,0,9,5155091,500000,1094909,0,36233,0,0,0,29,0,0,0,,0,entry_margin
+1,false,true,0,10,2,0,0,9,6750000,0,0,0,9,4519259,500000,1730741,0,34671,0,0,0,17,0,0,0,,0,entry_margin
+1,false,true,0,10,2,0,2500,9,6750000,0,0,0,9,4049564,500000,2200436,0,33630,0,0,0,15,0,0,0,,0,entry_margin
+1,false,true,0,10,2,200,0,9,6750000,0,0,0,9,4519259,500000,1730741,0,34671,0,0,0,17,0,0,0,,0,entry_margin
+1,false,true,0,10,2,200,2500,9,6750000,0,0,0,9,4049564,500000,2200436,0,33630,0,0,0,15,0,0,0,,0,entry_margin
+1,false,true,1,1,0,0,0,1,7500000,6,0,0,1,6628606,200555,670839,0,28010,2778,0,0,60,0,0,0,,0,
+1,false,true,1,1,0,0,2500,1,7500000,5,0,0,1,5920519,200331,1379150,0,28138,1659,0,0,60,0,0,0,,0,
+1,false,true,1,1,0,200,0,1,7500000,6,0,0,1,6628606,200555,670839,0,28010,2778,0,0,60,0,0,0,,0,
+1,false,true,1,1,0,200,2500,1,7500000,5,0,0,1,5920519,200331,1379150,0,28138,1659,0,0,60,0,0,0,,0,
 1,false,true,1,1,1,0,0,1,7500000,0,0,0,1,5028150,200000,2271850,0,28692,0,0,0,19,0,0,0,,0,
 1,false,true,1,1,1,0,2500,1,7500000,0,0,0,1,4565594,200000,2734406,0,26053,0,0,0,19,0,0,0,,0,
 1,false,true,1,1,1,200,0,1,7500000,0,0,0,1,5028150,200000,2271850,0,28692,0,0,0,19,0,0,0,,0,
@@ -83,18 +83,18 @@ amplification,controller,hlp,debt_side,pieces,path,cushion_bps,withdrawal_bps,op
 1,false,true,1,1,2,0,2500,1,7500000,0,0,0,1,4479146,200000,2820854,0,26171,0,0,0,9,0,0,0,,0,
 1,false,true,1,1,2,200,0,1,7500000,0,0,0,1,4940227,200000,2359773,0,28865,0,0,0,9,0,0,0,,0,
 1,false,true,1,1,2,200,2500,1,7500000,0,0,0,1,4479146,200000,2820854,0,26171,0,0,0,9,0,0,0,,0,
-1,false,true,1,10,0,0,0,9,6750000,73,6,0,0,6747157,357,0,0,0,13363,2486,3,180,0,0,0,,0,entry_margin
-1,false,true,1,10,0,0,2500,9,6750000,15,0,0,7,5860246,138489,0,0,22060,4472,751265,2,132,0,0,179,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-1,false,true,1,10,0,200,0,9,6750000,58,3,4,0,6745396,2443,0,28633,3188,13133,2161,1,180,0,0,0,,0,entry_margin
-1,false,true,1,10,0,200,2500,9,6750000,4,0,3,6,6610960,139040,0,16182,25823,4702,0,0,38,0,0,0,,0,entry_margin
-1,false,true,1,10,1,0,0,9,6750000,0,0,0,9,5228890,500000,1021110,0,33346,0,0,0,30,0,0,0,,0,entry_margin
-1,false,true,1,10,1,0,2500,9,6750000,0,0,0,0,0,0,0,0,0,0,6750000,0,7,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-1,false,true,1,10,1,200,0,9,6750000,0,0,0,9,5228890,500000,1021110,0,33346,0,0,0,30,0,0,0,,0,entry_margin
-1,false,true,1,10,1,200,2500,9,6750000,0,0,0,0,0,0,0,0,0,0,6750000,0,7,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-1,false,true,1,10,2,0,0,9,6750000,0,0,0,9,4526596,500000,1723404,0,34411,0,0,0,17,0,0,0,,0,entry_margin
-1,false,true,1,10,2,0,2500,9,6750000,0,0,0,9,4072042,500000,2177958,0,33115,0,0,0,15,0,0,0,,0,entry_margin
-1,false,true,1,10,2,200,0,9,6750000,0,0,0,9,4526596,500000,1723404,0,34411,0,0,0,17,0,0,0,,0,entry_margin
-1,false,true,1,10,2,200,2500,9,6750000,0,0,0,9,4072042,500000,2177958,0,33115,0,0,0,15,0,0,0,,0,entry_margin
+1,false,true,1,10,0,0,0,9,6750000,73,6,0,0,6747361,357,0,0,0,13364,2282,3,180,0,0,0,,0,entry_margin
+1,false,true,1,10,0,0,2500,9,6750000,15,0,0,8,6566432,182303,0,0,27376,4472,1265,1,180,0,0,0,,0,entry_margin
+1,false,true,1,10,0,200,0,9,6750000,58,3,4,0,6745396,2443,0,28634,3188,13133,2161,1,180,0,0,0,,0,entry_margin
+1,false,true,1,10,0,200,2500,9,6750000,4,0,3,6,6610962,139038,0,16182,25823,4702,0,0,38,0,0,0,,0,entry_margin
+1,false,true,1,10,1,0,0,9,6750000,0,0,0,9,5228796,500000,1021204,0,33410,0,0,0,30,0,0,0,,0,entry_margin
+1,false,true,1,10,1,0,2500,9,6750000,0,0,0,9,5155091,500000,1094909,0,36233,0,0,0,29,0,0,0,,0,entry_margin
+1,false,true,1,10,1,200,0,9,6750000,0,0,0,9,5228796,500000,1021204,0,33410,0,0,0,30,0,0,0,,0,entry_margin
+1,false,true,1,10,1,200,2500,9,6750000,0,0,0,9,5155091,500000,1094909,0,36233,0,0,0,29,0,0,0,,0,entry_margin
+1,false,true,1,10,2,0,0,9,6750000,0,0,0,9,4519259,500000,1730741,0,34671,0,0,0,17,0,0,0,,0,entry_margin
+1,false,true,1,10,2,0,2500,9,6750000,0,0,0,9,4049564,500000,2200436,0,33630,0,0,0,15,0,0,0,,0,entry_margin
+1,false,true,1,10,2,200,0,9,6750000,0,0,0,9,4519259,500000,1730741,0,34671,0,0,0,17,0,0,0,,0,entry_margin
+1,false,true,1,10,2,200,2500,9,6750000,0,0,0,9,4049564,500000,2200436,0,33630,0,0,0,15,0,0,0,,0,entry_margin
 1,true,false,0,1,0,0,0,1,7500000,0,0,0,1,5494418,200000,1805582,0,29597,0,0,0,40,0,0,0,,0,
 1,true,false,0,1,0,0,2500,1,7500000,0,0,0,1,5279489,200000,2020511,0,28439,0,0,0,40,0,0,0,,0,
 1,true,false,0,1,0,200,0,1,7500000,0,0,0,1,5494418,200000,1805582,0,29597,0,0,0,40,0,0,0,,0,
@@ -144,53 +144,53 @@ amplification,controller,hlp,debt_side,pieces,path,cushion_bps,withdrawal_bps,op
 1,true,false,1,10,2,200,0,8,6000000,0,0,0,8,3221410,500000,2278590,0,21636,0,0,0,18,0,0,0,,0,entry_margin
 1,true,false,1,10,2,200,2500,8,6000000,0,0,0,8,3089373,500000,2410627,0,24691,0,0,0,17,0,0,0,,0,entry_margin
 1,true,true,0,1,0,0,0,1,7500000,0,0,0,1,5366746,200000,1933254,0,27201,0,0,0,30,0,0,0,,0,
-1,true,true,0,1,0,0,2500,1,7500000,0,0,0,1,4936176,200000,2363824,0,25019,0,0,0,30,0,0,0,,0,
+1,true,true,0,1,0,0,2500,1,7500000,0,0,0,1,4936177,200000,2363823,0,25019,0,0,0,30,0,0,0,,0,
 1,true,true,0,1,0,200,0,1,7500000,0,0,0,1,5366746,200000,1933254,0,27201,0,0,0,30,0,0,0,,0,
-1,true,true,0,1,0,200,2500,1,7500000,0,0,0,1,4936176,200000,2363824,0,25019,0,0,0,30,0,0,0,,0,
+1,true,true,0,1,0,200,2500,1,7500000,0,0,0,1,4936177,200000,2363823,0,25019,0,0,0,30,0,0,0,,0,
 1,true,true,0,1,1,0,0,1,7500000,0,0,0,1,4390737,200000,2909263,0,24584,0,0,0,12,0,0,0,,0,
-1,true,true,0,1,1,0,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,7,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
+1,true,true,0,1,1,0,2500,1,7500000,0,0,0,1,4067323,200000,3232677,0,22773,0,0,0,12,0,0,0,,0,
 1,true,true,0,1,1,200,0,1,7500000,0,0,0,1,4390737,200000,2909263,0,24584,0,0,0,12,0,0,0,,0,
-1,true,true,0,1,1,200,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,7,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
+1,true,true,0,1,1,200,2500,1,7500000,0,0,0,1,4067323,200000,3232677,0,22773,0,0,0,12,0,0,0,,0,
 1,true,true,0,1,2,0,0,1,7500000,0,0,0,1,3522966,200000,3777034,0,28618,0,0,0,5,0,0,0,,0,
 1,true,true,0,1,2,0,2500,1,7500000,0,0,0,1,3281529,200000,4018471,0,26657,0,0,0,5,0,0,0,,0,
 1,true,true,0,1,2,200,0,1,7500000,0,0,0,1,3522966,200000,3777034,0,28618,0,0,0,5,0,0,0,,0,
 1,true,true,0,1,2,200,2500,1,7500000,0,0,0,1,3281529,200000,4018471,0,26657,0,0,0,5,0,0,0,,0,
-1,true,true,0,10,0,0,0,6,4500000,0,0,0,6,3597020,500000,402980,0,18737,0,0,0,122,0,0,0,,0,entry_margin
-1,true,true,0,10,0,0,2500,6,4500000,0,0,0,6,3555308,500000,444692,0,18778,0,0,0,122,0,0,0,,0,entry_margin
-1,true,true,0,10,0,200,0,6,4500000,0,0,0,6,3597020,500000,402980,0,18737,0,0,0,122,0,0,0,,0,entry_margin
-1,true,true,0,10,0,200,2500,6,4500000,0,0,0,6,3555308,500000,444692,0,18778,0,0,0,122,0,0,0,,0,entry_margin
-1,true,true,0,10,1,0,0,6,4500000,0,0,0,6,2797681,500000,1202319,0,19415,0,0,0,30,0,0,0,,0,entry_margin
-1,true,true,0,10,1,0,2500,6,4500000,0,0,0,0,0,0,0,0,0,0,4500000,0,7,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-1,true,true,0,10,1,200,0,6,4500000,0,0,0,6,2797681,500000,1202319,0,19415,0,0,0,30,0,0,0,,0,entry_margin
-1,true,true,0,10,1,200,2500,6,4500000,0,0,0,0,0,0,0,0,0,0,4500000,0,7,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-1,true,true,0,10,2,0,0,6,4500000,0,0,0,6,2484575,500000,1515425,0,20067,0,0,0,19,0,0,0,,0,entry_margin
-1,true,true,0,10,2,0,2500,6,4500000,0,0,0,6,2340437,500000,1659563,0,17291,0,0,0,16,0,0,0,,0,entry_margin
-1,true,true,0,10,2,200,0,6,4500000,0,0,0,6,2484575,500000,1515425,0,20067,0,0,0,19,0,0,0,,0,entry_margin
-1,true,true,0,10,2,200,2500,6,4500000,0,0,0,6,2340437,500000,1659563,0,17291,0,0,0,16,0,0,0,,0,entry_margin
+1,true,true,0,10,0,0,0,6,4500000,0,0,0,6,3597015,500000,402985,0,18737,0,0,0,122,0,0,0,,0,entry_margin
+1,true,true,0,10,0,0,2500,6,4500000,0,0,0,6,3555215,500000,444785,0,18786,0,0,0,122,0,0,0,,0,entry_margin
+1,true,true,0,10,0,200,0,6,4500000,0,0,0,6,3597015,500000,402985,0,18737,0,0,0,122,0,0,0,,0,entry_margin
+1,true,true,0,10,0,200,2500,6,4500000,0,0,0,6,3555215,500000,444785,0,18786,0,0,0,122,0,0,0,,0,entry_margin
+1,true,true,0,10,1,0,0,6,4500000,0,0,0,6,2813028,500000,1186972,0,17824,0,0,0,30,0,0,0,,0,entry_margin
+1,true,true,0,10,1,0,2500,6,4500000,0,0,0,6,2784780,500000,1215220,0,19703,0,0,0,30,0,0,0,,0,entry_margin
+1,true,true,0,10,1,200,0,6,4500000,0,0,0,6,2813028,500000,1186972,0,17824,0,0,0,30,0,0,0,,0,entry_margin
+1,true,true,0,10,1,200,2500,6,4500000,0,0,0,6,2784780,500000,1215220,0,19703,0,0,0,30,0,0,0,,0,entry_margin
+1,true,true,0,10,2,0,0,6,4500000,0,0,0,6,2481077,500000,1518923,0,20214,0,0,0,19,0,0,0,,0,entry_margin
+1,true,true,0,10,2,0,2500,6,4500000,0,0,0,6,2330170,500000,1669830,0,17671,0,0,0,16,0,0,0,,0,entry_margin
+1,true,true,0,10,2,200,0,6,4500000,0,0,0,6,2481077,500000,1518923,0,20214,0,0,0,19,0,0,0,,0,entry_margin
+1,true,true,0,10,2,200,2500,6,4500000,0,0,0,6,2330170,500000,1669830,0,17671,0,0,0,16,0,0,0,,0,entry_margin
 1,true,true,1,1,0,0,0,1,7500000,0,0,0,1,5366746,200000,1933254,0,27201,0,0,0,30,0,0,0,,0,
-1,true,true,1,1,0,0,2500,1,7500000,0,0,0,1,4936176,200000,2363824,0,25019,0,0,0,30,0,0,0,,0,
+1,true,true,1,1,0,0,2500,1,7500000,0,0,0,1,4936177,200000,2363823,0,25019,0,0,0,30,0,0,0,,0,
 1,true,true,1,1,0,200,0,1,7500000,0,0,0,1,5366746,200000,1933254,0,27201,0,0,0,30,0,0,0,,0,
-1,true,true,1,1,0,200,2500,1,7500000,0,0,0,1,4936176,200000,2363824,0,25019,0,0,0,30,0,0,0,,0,
+1,true,true,1,1,0,200,2500,1,7500000,0,0,0,1,4936177,200000,2363823,0,25019,0,0,0,30,0,0,0,,0,
 1,true,true,1,1,1,0,0,1,7500000,0,0,0,1,4390737,200000,2909263,0,24584,0,0,0,12,0,0,0,,0,
-1,true,true,1,1,1,0,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,7,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
+1,true,true,1,1,1,0,2500,1,7500000,0,0,0,1,4067323,200000,3232677,0,22773,0,0,0,12,0,0,0,,0,
 1,true,true,1,1,1,200,0,1,7500000,0,0,0,1,4390737,200000,2909263,0,24584,0,0,0,12,0,0,0,,0,
-1,true,true,1,1,1,200,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,7,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
+1,true,true,1,1,1,200,2500,1,7500000,0,0,0,1,4067323,200000,3232677,0,22773,0,0,0,12,0,0,0,,0,
 1,true,true,1,1,2,0,0,1,7500000,0,0,0,1,3522966,200000,3777034,0,28618,0,0,0,5,0,0,0,,0,
 1,true,true,1,1,2,0,2500,1,7500000,0,0,0,1,3281529,200000,4018471,0,26657,0,0,0,5,0,0,0,,0,
 1,true,true,1,1,2,200,0,1,7500000,0,0,0,1,3522966,200000,3777034,0,28618,0,0,0,5,0,0,0,,0,
 1,true,true,1,1,2,200,2500,1,7500000,0,0,0,1,3281529,200000,4018471,0,26657,0,0,0,5,0,0,0,,0,
-1,true,true,1,10,0,0,0,6,4500000,0,0,0,6,3597020,500000,402980,0,18737,0,0,0,122,0,0,0,,0,entry_margin
-1,true,true,1,10,0,0,2500,6,4500000,0,0,0,6,3555308,500000,444692,0,18778,0,0,0,122,0,0,0,,0,entry_margin
-1,true,true,1,10,0,200,0,6,4500000,0,0,0,6,3597020,500000,402980,0,18737,0,0,0,122,0,0,0,,0,entry_margin
-1,true,true,1,10,0,200,2500,6,4500000,0,0,0,6,3555308,500000,444692,0,18778,0,0,0,122,0,0,0,,0,entry_margin
-1,true,true,1,10,1,0,0,6,4500000,0,0,0,6,2797681,500000,1202319,0,19415,0,0,0,30,0,0,0,,0,entry_margin
-1,true,true,1,10,1,0,2500,6,4500000,0,0,0,0,0,0,0,0,0,0,4500000,0,7,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-1,true,true,1,10,1,200,0,6,4500000,0,0,0,6,2797681,500000,1202319,0,19415,0,0,0,30,0,0,0,,0,entry_margin
-1,true,true,1,10,1,200,2500,6,4500000,0,0,0,0,0,0,0,0,0,0,4500000,0,7,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-1,true,true,1,10,2,0,0,6,4500000,0,0,0,6,2484575,500000,1515425,0,20067,0,0,0,19,0,0,0,,0,entry_margin
-1,true,true,1,10,2,0,2500,6,4500000,0,0,0,6,2340437,500000,1659563,0,17291,0,0,0,16,0,0,0,,0,entry_margin
-1,true,true,1,10,2,200,0,6,4500000,0,0,0,6,2484575,500000,1515425,0,20067,0,0,0,19,0,0,0,,0,entry_margin
-1,true,true,1,10,2,200,2500,6,4500000,0,0,0,6,2340437,500000,1659563,0,17291,0,0,0,16,0,0,0,,0,entry_margin
+1,true,true,1,10,0,0,0,6,4500000,0,0,0,6,3597015,500000,402985,0,18737,0,0,0,122,0,0,0,,0,entry_margin
+1,true,true,1,10,0,0,2500,6,4500000,0,0,0,6,3555215,500000,444785,0,18786,0,0,0,122,0,0,0,,0,entry_margin
+1,true,true,1,10,0,200,0,6,4500000,0,0,0,6,3597015,500000,402985,0,18737,0,0,0,122,0,0,0,,0,entry_margin
+1,true,true,1,10,0,200,2500,6,4500000,0,0,0,6,3555215,500000,444785,0,18786,0,0,0,122,0,0,0,,0,entry_margin
+1,true,true,1,10,1,0,0,6,4500000,0,0,0,6,2813028,500000,1186972,0,17824,0,0,0,30,0,0,0,,0,entry_margin
+1,true,true,1,10,1,0,2500,6,4500000,0,0,0,6,2784780,500000,1215220,0,19703,0,0,0,30,0,0,0,,0,entry_margin
+1,true,true,1,10,1,200,0,6,4500000,0,0,0,6,2813028,500000,1186972,0,17824,0,0,0,30,0,0,0,,0,entry_margin
+1,true,true,1,10,1,200,2500,6,4500000,0,0,0,6,2784780,500000,1215220,0,19703,0,0,0,30,0,0,0,,0,entry_margin
+1,true,true,1,10,2,0,0,6,4500000,0,0,0,6,2481077,500000,1518923,0,20214,0,0,0,19,0,0,0,,0,entry_margin
+1,true,true,1,10,2,0,2500,6,4500000,0,0,0,6,2330170,500000,1669830,0,17671,0,0,0,16,0,0,0,,0,entry_margin
+1,true,true,1,10,2,200,0,6,4500000,0,0,0,6,2481077,500000,1518923,0,20214,0,0,0,19,0,0,0,,0,entry_margin
+1,true,true,1,10,2,200,2500,6,4500000,0,0,0,6,2330170,500000,1669830,0,17671,0,0,0,16,0,0,0,,0,entry_margin
 4,false,false,0,1,0,0,0,1,7500000,6,0,0,1,6786168,200636,513196,0,27146,3184,0,0,74,0,0,0,,0,
 4,false,false,0,1,0,0,2500,1,7500000,6,0,0,1,6415820,200474,883706,0,29292,2370,0,0,74,0,0,0,,0,
 4,false,false,0,1,0,200,0,1,7500000,6,0,0,1,6786168,200636,513196,0,27146,3184,0,0,74,0,0,0,,0,
@@ -240,53 +240,53 @@ amplification,controller,hlp,debt_side,pieces,path,cushion_bps,withdrawal_bps,op
 4,false,false,1,10,2,200,0,10,7500000,0,0,0,10,5506035,500000,1493965,0,38291,0,0,0,20,0,0,0,,0,
 4,false,false,1,10,2,200,2500,10,7500000,0,0,0,10,5173503,500000,1826497,0,39363,0,0,0,18,0,0,0,,0,
 4,false,true,0,1,0,0,0,1,7500000,6,0,0,1,6526705,200553,772742,0,29916,2768,0,0,63,0,0,0,,0,
-4,false,true,0,1,0,0,2500,1,7500000,5,0,0,1,5790712,200302,1508986,0,29887,1510,0,0,63,0,0,0,,0,
+4,false,true,0,1,0,0,2500,1,7500000,5,0,0,1,5790714,200302,1508984,0,29887,1510,0,0,63,0,0,0,,0,
 4,false,true,0,1,0,200,0,1,7500000,6,0,0,1,6526705,200553,772742,0,29916,2768,0,0,63,0,0,0,,0,
-4,false,true,0,1,0,200,2500,1,7500000,5,0,0,1,5790712,200302,1508986,0,29887,1510,0,0,63,0,0,0,,0,
+4,false,true,0,1,0,200,2500,1,7500000,5,0,0,1,5790714,200302,1508984,0,29887,1510,0,0,63,0,0,0,,0,
 4,false,true,0,1,1,0,0,1,7500000,0,0,0,1,4958653,200000,2341347,0,26160,0,0,0,20,0,0,0,,0,
-4,false,true,0,1,1,0,2500,1,7500000,0,0,0,1,4476053,200000,2823947,0,23614,0,0,0,20,0,0,0,,0,
+4,false,true,0,1,1,0,2500,1,7500000,0,0,0,1,4476054,200000,2823946,0,23614,0,0,0,20,0,0,0,,0,
 4,false,true,0,1,1,200,0,1,7500000,0,0,0,1,4958653,200000,2341347,0,26160,0,0,0,20,0,0,0,,0,
-4,false,true,0,1,1,200,2500,1,7500000,0,0,0,1,4476053,200000,2823947,0,23614,0,0,0,20,0,0,0,,0,
+4,false,true,0,1,1,200,2500,1,7500000,0,0,0,1,4476054,200000,2823946,0,23614,0,0,0,20,0,0,0,,0,
 4,false,true,0,1,2,0,0,1,7500000,0,0,0,1,5150020,200000,2149980,0,27971,0,0,0,11,0,0,0,,0,
 4,false,true,0,1,2,0,2500,1,7500000,0,0,0,1,4624582,200000,2675418,0,25117,0,0,0,11,0,0,0,,0,
 4,false,true,0,1,2,200,0,1,7500000,0,0,0,1,5150020,200000,2149980,0,27971,0,0,0,11,0,0,0,,0,
 4,false,true,0,1,2,200,2500,1,7500000,0,0,0,1,4624582,200000,2675418,0,25117,0,0,0,11,0,0,0,,0,
-4,false,true,0,10,0,0,0,10,7500000,61,8,0,2,7494848,5152,0,21,403,13916,0,0,117,0,0,0,,0,
-4,false,true,0,10,0,0,2500,10,7500000,13,2,0,8,7193950,306050,0,0,35717,3615,0,0,34,0,0,0,,0,
-4,false,true,0,10,0,200,0,10,7500000,42,1,6,2,7478160,21694,0,37508,8811,13142,146,1,167,0,0,1,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,false,true,0,10,0,200,2500,10,7500000,7,0,3,7,7267011,232989,0,23966,28952,6717,0,0,28,0,0,0,,0,
-4,false,true,0,10,1,0,0,10,7500000,0,0,0,10,5743113,500000,1256887,0,40807,0,0,0,30,0,0,0,,0,
-4,false,true,0,10,1,0,2500,10,7500000,0,0,0,10,5694981,500000,1305019,0,39335,0,0,0,29,0,0,0,,0,
-4,false,true,0,10,1,200,0,10,7500000,0,0,0,10,5743113,500000,1256887,0,40807,0,0,0,30,0,0,0,,0,
-4,false,true,0,10,1,200,2500,10,7500000,0,0,0,10,5694981,500000,1305019,0,39335,0,0,0,29,0,0,0,,0,
-4,false,true,0,10,2,0,0,10,7500000,0,0,0,10,5006877,500000,1993123,0,38775,0,0,0,18,0,0,0,,0,
-4,false,true,0,10,2,0,2500,10,7500000,0,0,0,10,4422232,500000,2577768,0,32382,0,0,0,15,0,0,0,,0,
-4,false,true,0,10,2,200,0,10,7500000,0,0,0,10,5006877,500000,1993123,0,38775,0,0,0,18,0,0,0,,0,
-4,false,true,0,10,2,200,2500,10,7500000,0,0,0,10,4422232,500000,2577768,0,32382,0,0,0,15,0,0,0,,0,
+4,false,true,0,10,0,0,0,10,7500000,58,5,0,4,7476322,22795,0,21,4549,13337,883,1,171,0,0,0,,0,
+4,false,true,0,10,0,0,2500,10,7500000,13,2,0,8,7193952,306048,0,0,35717,3615,0,0,34,0,0,0,,0,
+4,false,true,0,10,0,200,0,10,7500000,42,1,6,2,7478160,21694,0,37508,8811,13142,146,1,171,0,0,0,,0,
+4,false,true,0,10,0,200,2500,10,7500000,7,0,3,7,7267013,232987,0,23966,28952,6717,0,0,28,0,0,0,,0,
+4,false,true,0,10,1,0,0,10,7500000,0,0,0,10,5742694,500000,1257306,0,40892,0,0,0,30,0,0,0,,0,
+4,false,true,0,10,1,0,2500,10,7500000,0,0,0,10,5685498,500000,1314502,0,39739,0,0,0,29,0,0,0,,0,
+4,false,true,0,10,1,200,0,10,7500000,0,0,0,10,5742694,500000,1257306,0,40892,0,0,0,30,0,0,0,,0,
+4,false,true,0,10,1,200,2500,10,7500000,0,0,0,10,5685498,500000,1314502,0,39739,0,0,0,29,0,0,0,,0,
+4,false,true,0,10,2,0,0,10,7500000,0,0,0,10,4996325,500000,2003675,0,39172,0,0,0,18,0,0,0,,0,
+4,false,true,0,10,2,0,2500,10,7500000,0,0,0,10,4390254,500000,2609746,0,33131,0,0,0,15,0,0,0,,0,
+4,false,true,0,10,2,200,0,10,7500000,0,0,0,10,4996325,500000,2003675,0,39172,0,0,0,18,0,0,0,,0,
+4,false,true,0,10,2,200,2500,10,7500000,0,0,0,10,4390254,500000,2609746,0,33131,0,0,0,15,0,0,0,,0,
 4,false,true,1,1,0,0,0,1,7500000,6,0,0,1,6526705,200553,772742,0,29916,2768,0,0,63,0,0,0,,0,
-4,false,true,1,1,0,0,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,1,55,0,0,1,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
+4,false,true,1,1,0,0,2500,1,7500000,5,0,0,1,5790714,200302,1508984,0,29887,1510,0,0,63,0,0,0,,0,
 4,false,true,1,1,0,200,0,1,7500000,6,0,0,1,6526705,200553,772742,0,29916,2768,0,0,63,0,0,0,,0,
-4,false,true,1,1,0,200,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,1,55,0,0,1,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,false,true,1,1,1,0,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,10,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,false,true,1,1,1,0,2500,1,7500000,0,0,0,1,4476053,200000,2823947,0,23614,0,0,0,20,0,0,0,,0,
-4,false,true,1,1,1,200,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,10,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,false,true,1,1,1,200,2500,1,7500000,0,0,0,1,4476053,200000,2823947,0,23614,0,0,0,20,0,0,0,,0,
+4,false,true,1,1,0,200,2500,1,7500000,5,0,0,1,5790714,200302,1508984,0,29887,1510,0,0,63,0,0,0,,0,
+4,false,true,1,1,1,0,0,1,7500000,0,0,0,1,4958653,200000,2341347,0,26160,0,0,0,20,0,0,0,,0,
+4,false,true,1,1,1,0,2500,1,7500000,0,0,0,1,4476054,200000,2823946,0,23614,0,0,0,20,0,0,0,,0,
+4,false,true,1,1,1,200,0,1,7500000,0,0,0,1,4958653,200000,2341347,0,26160,0,0,0,20,0,0,0,,0,
+4,false,true,1,1,1,200,2500,1,7500000,0,0,0,1,4476054,200000,2823946,0,23614,0,0,0,20,0,0,0,,0,
 4,false,true,1,1,2,0,0,1,7500000,0,0,0,1,5150020,200000,2149980,0,27971,0,0,0,11,0,0,0,,0,
 4,false,true,1,1,2,0,2500,1,7500000,0,0,0,1,4624582,200000,2675418,0,25117,0,0,0,11,0,0,0,,0,
 4,false,true,1,1,2,200,0,1,7500000,0,0,0,1,5150020,200000,2149980,0,27971,0,0,0,11,0,0,0,,0,
 4,false,true,1,1,2,200,2500,1,7500000,0,0,0,1,4624582,200000,2675418,0,25117,0,0,0,11,0,0,0,,0,
-4,false,true,1,10,0,0,0,10,7500000,61,6,0,1,7244795,3737,0,21,51,13916,251468,3,131,0,0,53,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,false,true,1,10,0,0,2500,10,7500000,13,2,0,8,7193950,306050,0,0,35717,3615,0,0,34,0,0,0,,0,
+4,false,true,1,10,0,0,0,10,7500000,58,5,0,4,7476322,22795,0,21,4549,13337,883,1,171,0,0,0,,0,
+4,false,true,1,10,0,0,2500,10,7500000,13,2,0,8,7193952,306048,0,0,35717,3615,0,0,34,0,0,0,,0,
 4,false,true,1,10,0,200,0,10,7500000,42,1,6,2,7478160,21694,0,37508,8811,13142,146,1,171,0,0,0,,0,
 4,false,true,1,10,0,200,2500,10,7500000,7,0,3,7,7267011,232989,0,23966,28952,6717,0,0,28,0,0,0,,0,
-4,false,true,1,10,1,0,0,10,7500000,0,0,0,10,5743113,500000,1256887,0,40807,0,0,0,30,0,0,0,,0,
-4,false,true,1,10,1,0,2500,10,7500000,0,0,0,10,5694981,500000,1305019,0,39335,0,0,0,29,0,0,0,,0,
-4,false,true,1,10,1,200,0,10,7500000,0,0,0,10,5743113,500000,1256887,0,40807,0,0,0,30,0,0,0,,0,
-4,false,true,1,10,1,200,2500,10,7500000,0,0,0,10,5694981,500000,1305019,0,39335,0,0,0,29,0,0,0,,0,
-4,false,true,1,10,2,0,0,10,7500000,0,0,0,10,5006877,500000,1993123,0,38775,0,0,0,18,0,0,0,,0,
-4,false,true,1,10,2,0,2500,10,7500000,0,0,0,10,4422232,500000,2577768,0,32382,0,0,0,15,0,0,0,,0,
-4,false,true,1,10,2,200,0,10,7500000,0,0,0,10,5006877,500000,1993123,0,38775,0,0,0,18,0,0,0,,0,
-4,false,true,1,10,2,200,2500,10,7500000,0,0,0,10,4422232,500000,2577768,0,32382,0,0,0,15,0,0,0,,0,
+4,false,true,1,10,1,0,0,10,7500000,0,0,0,10,5742694,500000,1257306,0,40892,0,0,0,30,0,0,0,,0,
+4,false,true,1,10,1,0,2500,10,7500000,0,0,0,10,5685499,500000,1314501,0,39739,0,0,0,29,0,0,0,,0,
+4,false,true,1,10,1,200,0,10,7500000,0,0,0,10,5742694,500000,1257306,0,40892,0,0,0,30,0,0,0,,0,
+4,false,true,1,10,1,200,2500,10,7500000,0,0,0,10,5685499,500000,1314501,0,39739,0,0,0,29,0,0,0,,0,
+4,false,true,1,10,2,0,0,10,7500000,0,0,0,10,4996326,500000,2003674,0,39172,0,0,0,18,0,0,0,,0,
+4,false,true,1,10,2,0,2500,10,7500000,0,0,0,10,4390253,500000,2609747,0,33131,0,0,0,15,0,0,0,,0,
+4,false,true,1,10,2,200,0,10,7500000,0,0,0,10,4996326,500000,2003674,0,39172,0,0,0,18,0,0,0,,0,
+4,false,true,1,10,2,200,2500,10,7500000,0,0,0,10,4390253,500000,2609747,0,33131,0,0,0,15,0,0,0,,0,
 4,true,false,0,1,0,0,0,1,7500000,0,0,0,1,5463380,200000,1836620,0,29049,0,0,0,41,49,0,0,,0,
 4,true,false,0,1,0,0,2500,1,7500000,0,0,0,1,5237527,200000,2062473,0,27848,0,0,0,41,49,0,0,,0,
 4,true,false,0,1,0,200,0,1,7500000,0,0,0,1,5463380,200000,1836620,0,29049,0,0,0,41,49,0,0,,0,
@@ -335,54 +335,54 @@ amplification,controller,hlp,debt_side,pieces,path,cushion_bps,withdrawal_bps,op
 4,true,false,1,10,2,0,2500,9,6750000,0,0,0,9,3460987,500000,2789013,0,30255,0,0,0,17,0,0,0,,0,entry_margin
 4,true,false,1,10,2,200,0,9,6750000,0,0,0,9,3630382,500000,2619618,0,30150,0,0,0,18,0,0,0,,0,entry_margin
 4,true,false,1,10,2,200,2500,9,6750000,0,0,0,9,3460987,500000,2789013,0,30255,0,0,0,17,0,0,0,,0,entry_margin
-4,true,true,0,1,0,0,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,0,1,0,0,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,0,1,0,200,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,0,1,0,200,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,0,1,1,0,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,0,1,1,0,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,0,1,1,200,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,0,1,1,200,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,0,1,2,0,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,1,180,0,0,177,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-4,true,true,0,1,2,0,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,1,180,0,0,177,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-4,true,true,0,1,2,200,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,1,180,0,0,177,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-4,true,true,0,1,2,200,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,1,180,0,0,177,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-4,true,true,0,10,0,0,0,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,0,10,0,0,2500,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,0,10,0,200,0,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,0,10,0,200,2500,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,0,10,1,0,0,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,0,10,1,0,2500,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,0,10,1,200,0,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,0,10,1,200,2500,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,0,10,2,0,0,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,7,180,0,0,1180,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,entry_margin
-4,true,true,0,10,2,0,2500,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,7,180,0,0,1180,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,entry_margin
-4,true,true,0,10,2,200,0,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,7,180,0,0,1180,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,entry_margin
-4,true,true,0,10,2,200,2500,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,7,180,0,0,1180,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,entry_margin
-4,true,true,1,1,0,0,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,1,1,0,0,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,1,1,0,200,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,1,1,0,200,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,1,1,1,0,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,1,1,1,0,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,1,1,1,200,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,1,1,1,200,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,1,1,2,0,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,1,180,0,0,177,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-4,true,true,1,1,2,0,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,1,180,0,0,177,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-4,true,true,1,1,2,200,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,1,180,0,0,177,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-4,true,true,1,1,2,200,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,1,180,0,0,177,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-4,true,true,1,10,0,0,0,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,1,10,0,0,2500,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,1,10,0,200,0,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,1,10,0,200,2500,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,1,10,1,0,0,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,1,10,1,0,2500,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,1,10,1,200,0,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,1,10,1,200,2500,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-4,true,true,1,10,2,0,0,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,7,180,0,0,1180,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,entry_margin
-4,true,true,1,10,2,0,2500,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,7,180,0,0,1180,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,entry_margin
-4,true,true,1,10,2,200,0,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,7,180,0,0,1180,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,entry_margin
-4,true,true,1,10,2,200,2500,7,5250000,0,0,0,0,0,0,0,0,0,0,5250000,7,180,0,0,1180,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,entry_margin
+4,true,true,0,1,0,0,0,1,7500000,0,0,0,1,5332978,200000,1967022,0,27132,0,0,0,33,1,38,0,,0,
+4,true,true,0,1,0,0,2500,1,7500000,0,0,0,1,4896236,200000,2403764,0,24910,0,0,0,33,1,38,0,,0,
+4,true,true,0,1,0,200,0,1,7500000,0,0,0,1,5332978,200000,1967022,0,27132,0,0,0,33,1,38,0,,0,
+4,true,true,0,1,0,200,2500,1,7500000,0,0,0,1,4896236,200000,2403764,0,24910,0,0,0,33,1,38,0,,0,
+4,true,true,0,1,1,0,0,1,7500000,0,0,0,1,4240756,200000,3059244,0,25997,0,0,0,14,1,11,0,,0,
+4,true,true,0,1,1,0,2500,1,7500000,0,0,0,1,3925633,200000,3374367,0,24065,0,0,0,14,1,11,0,,0,
+4,true,true,0,1,1,200,0,1,7500000,0,0,0,1,4240756,200000,3059244,0,25997,0,0,0,14,1,11,0,,0,
+4,true,true,0,1,1,200,2500,1,7500000,0,0,0,1,3925633,200000,3374367,0,24065,0,0,0,14,1,11,0,,0,
+4,true,true,0,1,2,0,0,1,7500000,0,0,0,1,3787361,200000,3512639,0,24257,0,0,0,6,0,0,0,,0,
+4,true,true,0,1,2,0,2500,1,7500000,0,0,0,1,3471200,200000,3828800,0,22232,0,0,0,6,1,0,0,,0,
+4,true,true,0,1,2,200,0,1,7500000,0,0,0,1,3787361,200000,3512639,0,24257,0,0,0,6,0,0,0,,0,
+4,true,true,0,1,2,200,2500,1,7500000,0,0,0,1,3471200,200000,3828800,0,22232,0,0,0,6,1,0,0,,0,
+4,true,true,0,10,0,0,0,7,5250000,0,0,0,7,4186302,500000,563698,0,22092,0,0,0,118,7,113,0,,0,entry_margin
+4,true,true,0,10,0,0,2500,7,5250000,0,0,0,7,4067093,500000,682907,0,24933,0,0,0,118,3,56,0,,0,entry_margin
+4,true,true,0,10,0,200,0,7,5250000,0,0,0,7,4186302,500000,563698,0,22092,0,0,0,118,7,113,0,,0,entry_margin
+4,true,true,0,10,0,200,2500,7,5250000,0,0,0,7,4067093,500000,682907,0,24933,0,0,0,118,3,56,0,,0,entry_margin
+4,true,true,0,10,1,0,0,7,5250000,0,0,0,7,3240483,500000,1509517,0,23113,0,0,0,30,7,19,0,,0,entry_margin
+4,true,true,0,10,1,0,2500,7,5250000,0,0,0,7,3242341,500000,1507659,0,22057,0,0,0,29,6,15,0,,0,entry_margin
+4,true,true,0,10,1,200,0,7,5250000,0,0,0,7,3240483,500000,1509517,0,23113,0,0,0,30,7,19,0,,0,entry_margin
+4,true,true,0,10,1,200,2500,7,5250000,0,0,0,7,3242341,500000,1507659,0,22057,0,0,0,29,6,15,0,,0,entry_margin
+4,true,true,0,10,2,0,0,7,5250000,0,0,0,7,2822505,500000,1927495,0,20308,0,0,0,18,0,0,0,,0,entry_margin
+4,true,true,0,10,2,0,2500,7,5250000,0,0,0,7,2548929,500000,2201071,0,20775,0,0,0,15,1,1,0,,0,entry_margin
+4,true,true,0,10,2,200,0,7,5250000,0,0,0,7,2822505,500000,1927495,0,20308,0,0,0,18,0,0,0,,0,entry_margin
+4,true,true,0,10,2,200,2500,7,5250000,0,0,0,7,2548929,500000,2201071,0,20775,0,0,0,15,1,1,0,,0,entry_margin
+4,true,true,1,1,0,0,0,1,7500000,0,0,0,1,5332978,200000,1967022,0,27132,0,0,0,33,1,38,0,,0,
+4,true,true,1,1,0,0,2500,1,7500000,0,0,0,1,4896236,200000,2403764,0,24910,0,0,0,33,1,38,0,,0,
+4,true,true,1,1,0,200,0,1,7500000,0,0,0,1,5332978,200000,1967022,0,27132,0,0,0,33,1,38,0,,0,
+4,true,true,1,1,0,200,2500,1,7500000,0,0,0,1,4896236,200000,2403764,0,24910,0,0,0,33,1,38,0,,0,
+4,true,true,1,1,1,0,0,1,7500000,0,0,0,1,4240756,200000,3059244,0,25997,0,0,0,14,1,11,0,,0,
+4,true,true,1,1,1,0,2500,1,7500000,0,0,0,1,3925633,200000,3374367,0,24065,0,0,0,14,1,11,0,,0,
+4,true,true,1,1,1,200,0,1,7500000,0,0,0,1,4240756,200000,3059244,0,25997,0,0,0,14,1,11,0,,0,
+4,true,true,1,1,1,200,2500,1,7500000,0,0,0,1,3925633,200000,3374367,0,24065,0,0,0,14,1,11,0,,0,
+4,true,true,1,1,2,0,0,1,7500000,0,0,0,1,3787361,200000,3512639,0,24257,0,0,0,6,0,0,0,,0,
+4,true,true,1,1,2,0,2500,1,7500000,0,0,0,1,3471200,200000,3828800,0,22232,0,0,0,6,1,0,0,,0,
+4,true,true,1,1,2,200,0,1,7500000,0,0,0,1,3787361,200000,3512639,0,24257,0,0,0,6,0,0,0,,0,
+4,true,true,1,1,2,200,2500,1,7500000,0,0,0,1,3471200,200000,3828800,0,22232,0,0,0,6,1,0,0,,0,
+4,true,true,1,10,0,0,0,7,5250000,0,0,0,7,4186303,500000,563697,0,22092,0,0,0,118,7,113,0,,0,entry_margin
+4,true,true,1,10,0,0,2500,7,5250000,0,0,0,7,4067094,500000,682906,0,24933,0,0,0,118,3,56,0,,0,entry_margin
+4,true,true,1,10,0,200,0,7,5250000,0,0,0,7,4186303,500000,563697,0,22092,0,0,0,118,7,113,0,,0,entry_margin
+4,true,true,1,10,0,200,2500,7,5250000,0,0,0,7,4067094,500000,682906,0,24933,0,0,0,118,3,56,0,,0,entry_margin
+4,true,true,1,10,1,0,0,7,5250000,0,0,0,7,3240484,500000,1509516,0,23113,0,0,0,30,7,19,0,,0,entry_margin
+4,true,true,1,10,1,0,2500,7,5250000,0,0,0,7,3242342,500000,1507658,0,22057,0,0,0,29,6,15,0,,0,entry_margin
+4,true,true,1,10,1,200,0,7,5250000,0,0,0,7,3240484,500000,1509516,0,23113,0,0,0,30,7,19,0,,0,entry_margin
+4,true,true,1,10,1,200,2500,7,5250000,0,0,0,7,3242342,500000,1507658,0,22057,0,0,0,29,6,15,0,,0,entry_margin
+4,true,true,1,10,2,0,0,7,5250000,0,0,0,7,2822505,500000,1927495,0,20308,0,0,0,18,0,0,0,,0,entry_margin
+4,true,true,1,10,2,0,2500,7,5250000,0,0,0,7,2550334,500000,2199666,0,19459,0,0,0,15,0,0,0,,0,entry_margin
+4,true,true,1,10,2,200,0,7,5250000,0,0,0,7,2822505,500000,1927495,0,20308,0,0,0,18,0,0,0,,0,entry_margin
+4,true,true,1,10,2,200,2500,7,5250000,0,0,0,7,2550334,500000,2199666,0,19459,0,0,0,15,0,0,0,,0,entry_margin
 10,false,false,0,1,0,0,0,1,7500000,6,0,0,1,6630367,200558,669075,0,27864,2792,0,0,93,0,0,0,,0,
 10,false,false,0,1,0,0,2500,1,7500000,5,0,0,1,6195586,200335,1104079,0,27914,1675,0,0,93,0,0,0,,0,
 10,false,false,0,1,0,200,0,1,7500000,6,0,0,1,6630367,200558,669075,0,27864,2792,0,0,93,0,0,0,,0,
@@ -431,54 +431,54 @@ amplification,controller,hlp,debt_side,pieces,path,cushion_bps,withdrawal_bps,op
 10,false,false,1,10,2,0,2500,10,7500000,0,0,0,10,5531021,500000,1468979,0,37097,0,0,0,22,0,0,0,,0,
 10,false,false,1,10,2,200,0,10,7500000,0,0,0,10,5927324,500000,1072676,0,38615,0,0,0,24,0,0,0,,0,
 10,false,false,1,10,2,200,2500,10,7500000,0,0,0,10,5531021,500000,1468979,0,37097,0,0,0,22,0,0,0,,0,
-10,false,true,0,1,0,0,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,1,74,0,0,1,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,false,true,0,1,0,0,2500,1,7500000,5,0,0,1,5541386,200273,1758341,0,28892,1365,0,0,83,0,0,0,,0,
-10,false,true,0,1,0,200,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,1,74,0,0,1,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,false,true,0,1,0,200,2500,1,7500000,5,0,0,1,5541386,200273,1758341,0,28892,1365,0,0,83,0,0,0,,0,
+10,false,true,0,1,0,0,0,1,7500000,5,0,0,1,6332377,200392,967231,0,27326,1962,0,0,82,0,0,0,,0,
+10,false,true,0,1,0,0,2500,1,7500000,5,0,0,1,5541391,200273,1758336,0,28892,1365,0,0,83,0,0,0,,0,
+10,false,true,0,1,0,200,0,1,7500000,5,0,0,1,6332377,200392,967231,0,27326,1962,0,0,82,0,0,0,,0,
+10,false,true,0,1,0,200,2500,1,7500000,5,0,0,1,5541391,200273,1758336,0,28892,1365,0,0,83,0,0,0,,0,
 10,false,true,0,1,1,0,0,1,7500000,0,0,0,1,4730481,200000,2569519,0,27793,0,0,0,24,0,0,0,,0,
-10,false,true,0,1,1,0,2500,1,7500000,0,0,0,1,4219473,200000,3080527,0,24790,0,0,0,24,0,0,0,,0,
+10,false,true,0,1,1,0,2500,1,7500000,0,0,0,1,4219474,200000,3080526,0,24790,0,0,0,24,0,0,0,,0,
 10,false,true,0,1,1,200,0,1,7500000,0,0,0,1,4730481,200000,2569519,0,27793,0,0,0,24,0,0,0,,0,
-10,false,true,0,1,1,200,2500,1,7500000,0,0,0,1,4219473,200000,3080527,0,24790,0,0,0,24,0,0,0,,0,
+10,false,true,0,1,1,200,2500,1,7500000,0,0,0,1,4219474,200000,3080526,0,24790,0,0,0,24,0,0,0,,0,
 10,false,true,0,1,2,0,0,1,7500000,0,0,0,1,5481818,200000,1818182,0,28155,0,0,0,16,0,0,0,,0,
 10,false,true,0,1,2,0,2500,1,7500000,0,0,0,1,4820053,200000,2479947,0,24756,0,0,0,16,0,0,0,,0,
 10,false,true,0,1,2,200,0,1,7500000,0,0,0,1,5481818,200000,1818182,0,28155,0,0,0,16,0,0,0,,0,
 10,false,true,0,1,2,200,2500,1,7500000,0,0,0,1,4820053,200000,2479947,0,24756,0,0,0,16,0,0,0,,0,
-10,false,true,0,10,0,0,0,10,7500000,51,4,0,5,7300676,198406,0,0,13466,10497,918,1,171,0,0,0,,0,
-10,false,true,0,10,0,0,2500,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
+10,false,true,0,10,0,0,0,10,7500000,51,4,0,5,7300683,198399,0,0,13466,10497,918,1,171,0,0,0,,0,
+10,false,true,0,10,0,0,2500,10,7500000,8,1,0,9,6796163,501206,202631,0,35809,2413,0,0,51,0,0,0,,0,
 10,false,true,0,10,0,200,0,10,7500000,7,0,7,3,7259732,240268,0,71297,27440,10495,0,0,108,0,0,0,,0,
-10,false,true,0,10,0,200,2500,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,false,true,0,10,1,0,0,10,7500000,0,0,0,10,5437473,500000,1562527,0,38557,0,0,0,30,0,0,0,,0,
-10,false,true,0,10,1,0,2500,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,4,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,false,true,0,10,1,200,0,10,7500000,0,0,0,10,5437473,500000,1562527,0,38557,0,0,0,30,0,0,0,,0,
-10,false,true,0,10,1,200,2500,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,4,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,false,true,0,10,2,0,0,10,7500000,0,0,0,10,5364768,500000,1635232,0,38950,0,0,0,20,0,0,0,,0,
-10,false,true,0,10,2,0,2500,10,7500000,0,0,0,4,2004006,500000,495994,0,16521,0,4500000,6,180,0,0,992,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-10,false,true,0,10,2,200,0,10,7500000,0,0,0,10,5364768,500000,1635232,0,38950,0,0,0,20,0,0,0,,0,
-10,false,true,0,10,2,200,2500,10,7500000,0,0,0,4,2004006,500000,495994,0,16521,0,4500000,6,180,0,0,992,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-10,false,true,1,1,0,0,0,1,7500000,5,0,0,1,6332376,200392,967232,0,27326,1962,0,0,82,0,0,0,,0,
-10,false,true,1,1,0,0,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,63,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,false,true,1,1,0,200,0,1,7500000,5,0,0,1,6332376,200392,967232,0,27326,1962,0,0,82,0,0,0,,0,
-10,false,true,1,1,0,200,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,63,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
+10,false,true,0,10,0,200,2500,10,7500000,6,1,3,6,6873552,502978,123470,12742,29574,5956,0,0,49,0,0,0,,0,
+10,false,true,0,10,1,0,0,10,7500000,0,0,0,10,5434081,500000,1565919,0,38612,0,0,0,30,0,0,0,,0,
+10,false,true,0,10,1,0,2500,10,7500000,0,0,0,10,5212109,500000,1787891,0,38934,0,0,0,29,0,0,0,,0,
+10,false,true,0,10,1,200,0,10,7500000,0,0,0,10,5434081,500000,1565919,0,38612,0,0,0,30,0,0,0,,0,
+10,false,true,0,10,1,200,2500,10,7500000,0,0,0,10,5212109,500000,1787891,0,38934,0,0,0,29,0,0,0,,0,
+10,false,true,0,10,2,0,0,10,7500000,0,0,0,10,5355813,500000,1644187,0,39245,0,0,0,20,0,0,0,,0,
+10,false,true,0,10,2,0,2500,10,7500000,0,0,0,10,4607785,500000,2392215,0,37144,0,0,0,17,0,0,0,,0,
+10,false,true,0,10,2,200,0,10,7500000,0,0,0,10,5355813,500000,1644187,0,39245,0,0,0,20,0,0,0,,0,
+10,false,true,0,10,2,200,2500,10,7500000,0,0,0,10,4607785,500000,2392215,0,37144,0,0,0,17,0,0,0,,0,
+10,false,true,1,1,0,0,0,1,7500000,5,0,0,1,6332377,200392,967231,0,27326,1962,0,0,82,0,0,0,,0,
+10,false,true,1,1,0,0,2500,1,7500000,5,0,0,1,5541391,200273,1758336,0,28892,1365,0,0,83,0,0,0,,0,
+10,false,true,1,1,0,200,0,1,7500000,5,0,0,1,6332377,200392,967231,0,27326,1962,0,0,82,0,0,0,,0,
+10,false,true,1,1,0,200,2500,1,7500000,5,0,0,1,5541391,200273,1758336,0,28892,1365,0,0,83,0,0,0,,0,
 10,false,true,1,1,1,0,0,1,7500000,0,0,0,1,4730481,200000,2569519,0,27793,0,0,0,24,0,0,0,,0,
-10,false,true,1,1,1,0,2500,1,7500000,0,0,0,1,4219473,200000,3080527,0,24790,0,0,0,24,0,0,0,,0,
+10,false,true,1,1,1,0,2500,1,7500000,0,0,0,1,4219474,200000,3080526,0,24790,0,0,0,24,0,0,0,,0,
 10,false,true,1,1,1,200,0,1,7500000,0,0,0,1,4730481,200000,2569519,0,27793,0,0,0,24,0,0,0,,0,
-10,false,true,1,1,1,200,2500,1,7500000,0,0,0,1,4219473,200000,3080527,0,24790,0,0,0,24,0,0,0,,0,
+10,false,true,1,1,1,200,2500,1,7500000,0,0,0,1,4219474,200000,3080526,0,24790,0,0,0,24,0,0,0,,0,
 10,false,true,1,1,2,0,0,1,7500000,0,0,0,1,5481818,200000,1818182,0,28155,0,0,0,16,0,0,0,,0,
 10,false,true,1,1,2,0,2500,1,7500000,0,0,0,1,4820053,200000,2479947,0,24756,0,0,0,16,0,0,0,,0,
 10,false,true,1,1,2,200,0,1,7500000,0,0,0,1,5481818,200000,1818182,0,28155,0,0,0,16,0,0,0,,0,
 10,false,true,1,1,2,200,2500,1,7500000,0,0,0,1,4820053,200000,2479947,0,24756,0,0,0,16,0,0,0,,0,
-10,false,true,1,10,0,0,0,10,7500000,51,4,0,5,7300677,198405,0,0,13466,10497,918,1,171,0,0,0,,0,
-10,false,true,1,10,0,0,2500,10,7500000,8,1,0,9,6796372,501206,202422,0,35812,2413,0,0,51,0,0,0,,0,
+10,false,true,1,10,0,0,0,10,7500000,51,4,0,5,7300679,198403,0,0,13466,10497,918,1,171,0,0,0,,0,
+10,false,true,1,10,0,0,2500,10,7500000,8,1,0,9,6796163,501206,202631,0,35809,2413,0,0,51,0,0,0,,0,
 10,false,true,1,10,0,200,0,10,7500000,7,0,7,3,7259732,240268,0,71297,27440,10495,0,0,108,0,0,0,,0,
-10,false,true,1,10,0,200,2500,10,7500000,6,1,2,2,3711910,38090,0,12742,7999,5239,3750000,3,110,0,0,191,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,false,true,1,10,1,0,0,10,7500000,0,0,0,10,5437473,500000,1562527,0,38557,0,0,0,30,0,0,0,,0,
-10,false,true,1,10,1,0,2500,10,7500000,0,0,0,6,3373287,500000,626713,0,24035,0,3000000,4,30,0,0,12,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,false,true,1,10,1,200,0,10,7500000,0,0,0,10,5437473,500000,1562527,0,38557,0,0,0,30,0,0,0,,0,
-10,false,true,1,10,1,200,2500,10,7500000,0,0,0,6,3373287,500000,626713,0,24035,0,3000000,4,30,0,0,12,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,false,true,1,10,2,0,0,10,7500000,0,0,0,10,5364768,500000,1635232,0,38950,0,0,0,20,0,0,0,,0,
-10,false,true,1,10,2,0,2500,10,7500000,0,0,0,4,2004006,500000,495994,0,16521,0,4500000,6,180,0,0,992,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-10,false,true,1,10,2,200,0,10,7500000,0,0,0,10,5364768,500000,1635232,0,38950,0,0,0,20,0,0,0,,0,
-10,false,true,1,10,2,200,2500,10,7500000,0,0,0,4,2004006,500000,495994,0,16521,0,4500000,6,180,0,0,992,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
+10,false,true,1,10,0,200,2500,10,7500000,6,1,3,6,6873553,502978,123469,12742,29574,5956,0,0,49,0,0,0,,0,
+10,false,true,1,10,1,0,0,10,7500000,0,0,0,10,5434081,500000,1565919,0,38612,0,0,0,30,0,0,0,,0,
+10,false,true,1,10,1,0,2500,10,7500000,0,0,0,10,5212109,500000,1787891,0,38934,0,0,0,29,0,0,0,,0,
+10,false,true,1,10,1,200,0,10,7500000,0,0,0,10,5434081,500000,1565919,0,38612,0,0,0,30,0,0,0,,0,
+10,false,true,1,10,1,200,2500,10,7500000,0,0,0,10,5212109,500000,1787891,0,38934,0,0,0,29,0,0,0,,0,
+10,false,true,1,10,2,0,0,10,7500000,0,0,0,10,5355813,500000,1644187,0,39245,0,0,0,20,0,0,0,,0,
+10,false,true,1,10,2,0,2500,10,7500000,0,0,0,10,4607785,500000,2392215,0,37144,0,0,0,17,0,0,0,,0,
+10,false,true,1,10,2,200,0,10,7500000,0,0,0,10,5355813,500000,1644187,0,39245,0,0,0,20,0,0,0,,0,
+10,false,true,1,10,2,200,2500,10,7500000,0,0,0,10,4607785,500000,2392215,0,37144,0,0,0,17,0,0,0,,0,
 10,true,false,0,1,0,0,0,1,7500000,0,0,0,1,5373502,200000,1926498,0,28723,0,0,0,59,67,0,0,,0,
 10,true,false,0,1,0,0,2500,1,7500000,0,0,0,1,5125627,200000,2174373,0,27398,0,0,0,59,67,0,0,,0,
 10,true,false,0,1,0,200,0,1,7500000,0,0,0,1,5373502,200000,1926498,0,28723,0,0,0,59,67,0,0,,0,
@@ -527,51 +527,51 @@ amplification,controller,hlp,debt_side,pieces,path,cushion_bps,withdrawal_bps,op
 10,true,false,1,10,2,0,2500,10,7500000,0,0,0,10,3980101,500000,3019899,0,28936,0,0,0,17,1,0,0,,0,
 10,true,false,1,10,2,200,0,10,7500000,0,0,0,10,4210830,500000,2789170,0,31484,0,0,0,18,0,0,0,,0,
 10,true,false,1,10,2,200,2500,10,7500000,0,0,0,10,3980101,500000,3019899,0,28936,0,0,0,17,1,0,0,,0,
-10,true,true,0,1,0,0,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,0,1,0,0,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,0,1,0,200,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,0,1,0,200,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,0,1,1,0,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,0,1,1,0,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,0,1,1,200,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,0,1,1,200,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,0,1,2,0,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,1,180,0,0,174,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-10,true,true,0,1,2,0,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,1,180,0,0,174,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-10,true,true,0,1,2,200,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,1,180,0,0,174,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-10,true,true,0,1,2,200,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,1,180,0,0,174,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-10,true,true,0,10,0,0,0,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,0,10,0,0,2500,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,0,10,0,200,0,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,0,10,0,200,2500,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,0,10,1,0,0,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,0,10,1,0,2500,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,0,10,1,200,0,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,0,10,1,200,2500,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,0,10,2,0,0,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,10,180,0,0,1677,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-10,true,true,0,10,2,0,2500,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,10,180,0,0,1677,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-10,true,true,0,10,2,200,0,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,10,180,0,0,1677,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-10,true,true,0,10,2,200,2500,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,10,180,0,0,1677,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-10,true,true,1,1,0,0,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,1,1,0,0,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,1,1,0,200,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,1,1,0,200,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,1,1,1,0,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,1,1,1,0,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,1,1,1,200,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,1,1,1,200,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,1,1,2,0,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,1,180,0,0,174,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-10,true,true,1,1,2,0,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,1,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,1,1,2,200,0,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,1,180,0,0,174,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-10,true,true,1,1,2,200,2500,1,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,1,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,1,10,0,0,0,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,1,10,0,0,2500,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,1,10,0,200,0,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,1,10,0,200,2500,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,0,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,1,10,1,0,0,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,1,10,1,0,2500,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,1,10,1,200,0,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,1,10,1,200,2500,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,2,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,1,10,2,0,0,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,10,180,0,0,1677,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-10,true,true,1,10,2,0,2500,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,1,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
-10,true,true,1,10,2,200,0,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,10,180,0,0,1677,"BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))",0,
-10,true,true,1,10,2,200,2500,10,7500000,0,0,0,0,0,0,0,0,0,0,7500000,0,1,0,0,0,,0,"stress:target_unreached:BrokenInvariant@Some(Source(Source { filename: ""programs/dusk/src/transitions/liquidity/hlp/engine.rs""; line: 953 }))"
+10,true,true,0,1,0,0,0,1,7500000,0,0,0,1,5200897,200000,2099103,0,27900,0,0,0,53,1,58,0,,0,
+10,true,true,0,1,0,0,2500,1,7500000,0,0,0,1,4724190,200000,2575810,0,25343,0,0,0,53,1,58,0,,0,
+10,true,true,0,1,0,200,0,1,7500000,0,0,0,1,5200897,200000,2099103,0,27900,0,0,0,53,1,58,0,,0,
+10,true,true,0,1,0,200,2500,1,7500000,0,0,0,1,4724190,200000,2575810,0,25343,0,0,0,53,1,58,0,,0,
+10,true,true,0,1,1,0,0,1,7500000,0,0,0,1,4068375,200000,3231625,0,25393,0,0,0,18,1,15,0,,0,
+10,true,true,0,1,1,0,2500,1,7500000,0,0,0,1,3732792,200000,3567208,0,23299,0,0,0,18,1,15,0,,0,
+10,true,true,0,1,1,200,0,1,7500000,0,0,0,1,4068375,200000,3231625,0,25393,0,0,0,18,1,15,0,,0,
+10,true,true,0,1,1,200,2500,1,7500000,0,0,0,1,3732792,200000,3567208,0,23299,0,0,0,18,1,15,0,,0,
+10,true,true,0,1,2,0,0,1,7500000,0,0,0,1,4061122,200000,3238878,0,26146,0,0,0,9,0,0,0,,0,
+10,true,true,0,1,2,0,2500,1,7500000,0,0,0,1,3698505,200000,3601495,0,23811,0,0,0,9,0,0,0,,0,
+10,true,true,0,1,2,200,0,1,7500000,0,0,0,1,4061122,200000,3238878,0,26146,0,0,0,9,0,0,0,,0,
+10,true,true,0,1,2,200,2500,1,7500000,0,0,0,1,3698505,200000,3601495,0,23811,0,0,0,9,0,0,0,,0,
+10,true,true,0,10,0,0,0,10,7500000,0,0,0,10,5850750,500000,1149250,0,34345,0,0,0,120,5,54,0,,0,
+10,true,true,0,10,0,0,2500,10,7500000,0,0,0,10,5311483,500000,1688517,0,38020,0,0,0,23,1,21,0,,0,
+10,true,true,0,10,0,200,0,10,7500000,0,0,0,10,5850750,500000,1149250,0,34345,0,0,0,120,5,54,0,,0,
+10,true,true,0,10,0,200,2500,10,7500000,0,0,0,10,5311483,500000,1688517,0,38020,0,0,0,23,1,21,0,,0,
+10,true,true,0,10,1,0,0,10,7500000,0,0,0,10,4577837,500000,2422163,0,32920,0,0,0,29,7,12,0,,0,
+10,true,true,0,10,1,0,2500,10,7500000,0,0,0,10,4385329,500000,2614671,0,34549,0,0,0,27,4,8,0,,0,
+10,true,true,0,10,1,200,0,10,7500000,0,0,0,10,4577837,500000,2422163,0,32920,0,0,0,29,7,12,0,,0,
+10,true,true,0,10,1,200,2500,10,7500000,0,0,0,10,4385329,500000,2614671,0,34549,0,0,0,27,4,8,0,,0,
+10,true,true,0,10,2,0,0,10,7500000,0,0,0,10,3843764,500000,3156236,0,28302,0,0,0,16,0,0,0,,0,
+10,true,true,0,10,2,0,2500,10,7500000,0,0,0,10,3346592,500000,3653408,0,27967,0,0,0,14,0,0,0,,0,
+10,true,true,0,10,2,200,0,10,7500000,0,0,0,10,3843764,500000,3156236,0,28302,0,0,0,16,0,0,0,,0,
+10,true,true,0,10,2,200,2500,10,7500000,0,0,0,10,3346592,500000,3653408,0,27967,0,0,0,14,0,0,0,,0,
+10,true,true,1,1,0,0,0,1,7500000,0,0,0,1,5200898,200000,2099102,0,27900,0,0,0,53,1,58,0,,0,
+10,true,true,1,1,0,0,2500,1,7500000,0,0,0,1,4724190,200000,2575810,0,25343,0,0,0,53,1,58,0,,0,
+10,true,true,1,1,0,200,0,1,7500000,0,0,0,1,5200898,200000,2099102,0,27900,0,0,0,53,1,58,0,,0,
+10,true,true,1,1,0,200,2500,1,7500000,0,0,0,1,4724190,200000,2575810,0,25343,0,0,0,53,1,58,0,,0,
+10,true,true,1,1,1,0,0,1,7500000,0,0,0,1,4068375,200000,3231625,0,25393,0,0,0,18,1,15,0,,0,
+10,true,true,1,1,1,0,2500,1,7500000,0,0,0,1,3732792,200000,3567208,0,23299,0,0,0,18,1,15,0,,0,
+10,true,true,1,1,1,200,0,1,7500000,0,0,0,1,4068375,200000,3231625,0,25393,0,0,0,18,1,15,0,,0,
+10,true,true,1,1,1,200,2500,1,7500000,0,0,0,1,3732792,200000,3567208,0,23299,0,0,0,18,1,15,0,,0,
+10,true,true,1,1,2,0,0,1,7500000,0,0,0,1,4061122,200000,3238878,0,26146,0,0,0,9,0,0,0,,0,
+10,true,true,1,1,2,0,2500,1,7500000,0,0,0,1,3679059,200000,3620941,0,23686,0,0,0,9,1,0,0,,0,
+10,true,true,1,1,2,200,0,1,7500000,0,0,0,1,4061122,200000,3238878,0,26146,0,0,0,9,0,0,0,,0,
+10,true,true,1,1,2,200,2500,1,7500000,0,0,0,1,3679059,200000,3620941,0,23686,0,0,0,9,1,0,0,,0,
+10,true,true,1,10,0,0,0,10,7500000,0,0,0,10,5850750,500000,1149250,0,34345,0,0,0,120,5,54,0,,0,
+10,true,true,1,10,0,0,2500,10,7500000,0,0,0,10,5311484,500000,1688516,0,38020,0,0,0,23,1,21,0,,0,
+10,true,true,1,10,0,200,0,10,7500000,0,0,0,10,5850750,500000,1149250,0,34345,0,0,0,120,5,54,0,,0,
+10,true,true,1,10,0,200,2500,10,7500000,0,0,0,10,5311484,500000,1688516,0,38020,0,0,0,23,1,21,0,,0,
+10,true,true,1,10,1,0,0,10,7500000,0,0,0,10,4577838,500000,2422162,0,32920,0,0,0,29,7,12,0,,0,
+10,true,true,1,10,1,0,2500,10,7500000,0,0,0,10,4385329,500000,2614671,0,34549,0,0,0,27,4,8,0,,0,
+10,true,true,1,10,1,200,0,10,7500000,0,0,0,10,4577838,500000,2422162,0,32920,0,0,0,29,7,12,0,,0,
+10,true,true,1,10,1,200,2500,10,7500000,0,0,0,10,4385329,500000,2614671,0,34549,0,0,0,27,4,8,0,,0,
+10,true,true,1,10,2,0,0,10,7500000,0,0,0,10,3843765,500000,3156235,0,28302,0,0,0,16,0,0,0,,0,
+10,true,true,1,10,2,0,2500,10,7500000,0,0,0,10,3346308,500000,3653692,0,28223,0,0,0,14,1,2,0,,0,
+10,true,true,1,10,2,200,0,10,7500000,0,0,0,10,3843765,500000,3156235,0,28302,0,0,0,16,0,0,0,,0,
+10,true,true,1,10,2,200,2500,10,7500000,0,0,0,10,3346308,500000,3653692,0,28223,0,0,0,14,1,2,0,,0,

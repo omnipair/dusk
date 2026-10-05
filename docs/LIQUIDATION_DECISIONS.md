@@ -118,8 +118,10 @@ It does not implement the runtime, select defaults or establish manipulation saf
 The [native concentrated comparison](calibration/CONCENTRATED_CUSHION_RESULTS.md)
 adds actual curve/fee/controller/hLP execution to the repayment-cushion study.
 Record rejected trades and remaining debt as well as completed recovery. The
-observed hLP reserve-reconciliation guard failures and cash constraints are
-integration gates, not reasons to disable hLP or loosen accounting invariants.
+previous hLP reserve-reconciliation failures are fixed by retaining recorded
+starting debt and matching the controller's projected reserve state to execution.
+The full native replay now has no such guard failures; cash constraints and
+integration of the new instruction paths remain to be validated.
 The [flash contract](FLASH_LIQUIDATION_CONTRACT.md#native-execution-and-integration-gates)
 tracks these gates alongside principal-first interest handling and atomic shared-state settlement.
 
