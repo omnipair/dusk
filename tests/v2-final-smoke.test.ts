@@ -7873,20 +7873,17 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         leverageDelegation: null, delegatedProgram: null };
       let searchedMinimum = false;
       if (debtAsset === 1 && concentrated) {
-        // The SDK probes the real close path; model unsigned RPC simulations
-        // against this fixture's bank without committing any candidate.
+        // The SDK prices candidates locally and simulates only the selected
+        // close against this fixture's bank.
         const originalSimulate = connection.simulateTransaction;
-        const originalAccountContext = connection.getAccountInfoAndContext;
         const originalMultipleContext = (connection as any).getMultipleAccountsInfoAndContext;
         (connection as any).getMultipleAccountsInfoAndContext = async (keys: PublicKey[]) => ({
           context: { slot: Number(svm.getClock().slot) },
           value: await Promise.all(keys.map((key) => connection.getAccountInfo(key))),
         });
-        (connection as any).getAccountInfoAndContext = async (key: PublicKey) => ({
-          context: { slot: Number(svm.getClock().slot) },
-          value: await connection.getAccountInfo(key),
-        });
+        let simulations = 0;
         (connection as any).simulateTransaction = async (transaction: any, options: any) => {
+          simulations++;
           const result = svm.simulateTransaction(transaction);
           const failure: any = "err" in result ? result.err() : null;
           const cause = failure && typeof failure.index === "number" && typeof failure.err === "function"
@@ -7911,10 +7908,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           searchedMinimum = true;
           expect(quote.collateralReturned).to.equal(netCollateral(total - collateralToSell));
           expect(quote.observedSlot).to.equal(Number(svm.getClock().slot));
+          expect(simulations).to.equal(1);
         } finally {
           svm.withSigverify(true).withBlockhashCheck(true);
           (connection as any).simulateTransaction = originalSimulate;
-          (connection as any).getAccountInfoAndContext = originalAccountContext;
           (connection as any).getMultipleAccountsInfoAndContext = originalMultipleContext;
         }
       }

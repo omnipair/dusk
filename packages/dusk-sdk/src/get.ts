@@ -2,7 +2,6 @@ import type { BN, Program } from "@coral-xyz/anchor";
 import { PublicKey, SYSVAR_CLOCK_PUBKEY, TransactionInstruction, type AccountInfo, type Commitment } from "@solana/web3.js";
 import { getEpochFee, getTransferFeeConfig, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, unpackMint } from "@solana/spl-token";
 import {
-  DuskSimulationError,
   simulatePreviewWithContext,
   type PreviewSimulationOptions,
   type SimulateOptions,
@@ -46,6 +45,7 @@ import { address, DEFAULT_READONLY_PUBLIC_KEY, normalizeAccountKeys, type Addres
 import { governanceIntegerBN } from "./governance.js";
 import { findMinimumNativeCloseCollateralIn, nativeCloseCredit, nativeCloseGrossForCredit,
   type NativeCloseTransferFee } from "./native-close.js";
+import { createNativeCloseQuote } from "./native-close-quote.js";
 import { DuskWrite, type CloseLeverageParams, type RawAmount } from "./write.js";
 import {
   decodePreviewAddLiquidityReturnData,
@@ -171,15 +171,6 @@ function nativeCloseFeeFromAccounts(
   return config ? getEpochFee(config, clock.data.readBigUInt64LE(16)) : undefined;
 }
 
-function closeSimulationErrorCode(error: unknown): number | undefined {
-  if (!(error instanceof DuskSimulationError)) return undefined;
-  const instructionError = (error.simulation.value.err as {
-    InstructionError?: [number, { Custom?: number }];
-  } | null)?.InstructionError;
-  // The two compute-budget instructions precede the close instruction.
-  return instructionError?.[0] === 2 ? instructionError[1]?.Custom : undefined;
-}
-
 export class DuskGet {
   readonly pda = pda;
 
@@ -227,10 +218,9 @@ export class DuskGet {
   }
 
   /**
-   * Find the smallest collateral sale that completes the native close. Each
-   * candidate simulates the actual close instruction, so interest, swap fees,
-   * hLP settlement, and the owner's payout floor use the on-chain path.
-   * Rebuild and submit the close promptly; state can change after simulation.
+   * Price candidate sales locally with the program's Rust transition math and
+   * effective collateral transfer fee. Simulate only the selected close to
+   * validate account constraints and current market state before submission.
    */
   async findCollateralLeverageCloseInput(
     params: FindCollateralLeverageCloseInputParams
@@ -240,10 +230,25 @@ export class DuskGet {
     const positionKey = address(closeParams.leveragePosition ??
       deriveLeveragePositionAddress(marketKey, address(closeParams.positionOwner),
         address(closeParams.positionId), address(closeParams.namespaceAuthority ?? closeParams.positionOwner))[0]);
-    const [position, market] = await Promise.all([
-      this.leveragePosition(positionKey),
-      this.market(marketKey),
-    ]);
+    const collateralMintKey = address(closeParams.collateralMint);
+    simulation?.signal?.throwIfAborted();
+    const snapshot = await this.program.provider.connection.getMultipleAccountsInfoAndContext(
+      [marketKey, positionKey, collateralMintKey, SYSVAR_CLOCK_PUBKEY],
+      {
+        ...(simulation?.commitment === undefined ? {} : { commitment: simulation.commitment }),
+        ...(simulation?.minContextSlot === undefined ? {} : { minContextSlot: simulation.minContextSlot }),
+      }
+    );
+    simulation?.signal?.throwIfAborted();
+    const [marketAccount, positionAccount, mintAccount, clockAccount] = snapshot.value;
+    if (!marketAccount || !positionAccount || !clockAccount ||
+      !marketAccount.owner.equals(this.program.programId) ||
+      !positionAccount.owner.equals(this.program.programId) ||
+      clockAccount.data.length < 40 ||
+      clockAccount.data.readBigUInt64LE(0) !== BigInt(snapshot.context.slot))
+      throw new Error("Native-close account snapshot is incomplete or inconsistent");
+    const market = this.program.coder.accounts.decode("market", marketAccount.data) as Market;
+    const position = this.program.coder.accounts.decode("leveragePosition", positionAccount.data) as LeveragePosition;
     const debtAsset = closeParams.debtAsset === "base" ? 0 : closeParams.debtAsset === "quote" ? 1 : -1;
     if (debtAsset < 0 || position.debtAsset !== debtAsset ||
       !position.owner.equals(address(closeParams.positionOwner)) ||
@@ -252,13 +257,7 @@ export class DuskGet {
       BigInt(position.fundedCollateralAmount.toString()) === 0n)
       throw new Error("The requested position is not a matching native collateral position");
     const total = BigInt(position.collateralAmount.toString());
-    const collateralMintKey = address(closeParams.collateralMint);
-    const feeSnapshot = await this.program.provider.connection.getMultipleAccountsInfoAndContext(
-      [collateralMintKey, SYSVAR_CLOCK_PUBKEY], {
-        commitment: simulation?.commitment,
-        minContextSlot: simulation?.minContextSlot,
-      });
-    const transferFee = nativeCloseFeeFromAccounts(collateralMintKey, feeSnapshot.value[0], feeSnapshot.value[1]);
+    const transferFee = nativeCloseFeeFromAccounts(collateralMintKey, mintAccount, clockAccount);
     const minimumReturned = BigInt(governanceIntegerBN(closeParams.minAmountOut, "minAmountOut").toString());
     const minimumGrossReturned = nativeCloseGrossForCredit(minimumReturned, transferFee);
     if (minimumGrossReturned >= total)
@@ -270,59 +269,12 @@ export class DuskGet {
     const maximum = requestedCap < available ? requestedCap : available;
     if (maximum === 0n) throw new Error("No collateral is available for repayment");
 
-    // Build account metas once. Only the encoded exact input changes per probe.
-    const baseInstruction = await new DuskWrite(this.program).closeLeverageInstruction({
-      ...closeParams,
-      collateralFunded: true,
-      collateralIn: maximum,
-    });
-    const candidateInstruction = (amount: bigint) => new TransactionInstruction({
-      programId: baseInstruction.programId,
-      keys: baseInstruction.keys,
-      data: this.program.coder.instruction.encode("closeCollateralLeverage", {
-        args: {
-          debtAsset,
-          collateralIn: governanceIntegerBN(amount.toString()),
-          minCollateralOut: governanceIntegerBN(minimumReturned.toString()),
-        },
-      }),
-    });
-    const insufficientCodes = new Set<number>(
-      this.program.idl.errors
-        .filter((entry) => ["insufficientamount", "insufficientoutputamount"].includes(entry.name.toLowerCase()))
-        .map((entry) => entry.code)
+    const quote = await createNativeCloseQuote(
+      marketAccount.data,
+      positionAccount.data,
+      BigInt(snapshot.context.slot),
+      clockAccount.data.readBigInt64LE(32)
     );
-    const insufficientLiquidityCode = this.program.idl.errors
-      .find((entry) => entry.name.toLowerCase() === "insufficientliquidity")?.code;
-    const probe = async (amount: bigint, captureFee = false) => {
-      try {
-        const result = await this.simulateWithContext([candidateInstruction(amount)], {
-          ...simulation,
-          minContextSlot: Math.max(simulation?.minContextSlot ?? 0, feeSnapshot.context.slot),
-          feePayer: simulation?.feePayer ?? closeParams.authority ?? closeParams.positionOwner,
-          requireReturnData: false,
-          ...(captureFee ? { accounts: [collateralMintKey, SYSVAR_CLOCK_PUBKEY] } : {}),
-        });
-        let finalFee = transferFee;
-        if (captureFee) {
-          const infos = result.value.accounts?.map((info) => info && ({
-            ...info, owner: new PublicKey(info.owner), data: Buffer.from(info.data[0], "base64"),
-          }));
-          finalFee = nativeCloseFeeFromAccounts(collateralMintKey, infos?.[0] ?? null, infos?.[1] ?? null);
-          if ((finalFee?.transferFeeBasisPoints ?? 0) !== (transferFee?.transferFeeBasisPoints ?? 0) ||
-            (finalFee?.maximumFee ?? 0n) !== (transferFee?.maximumFee ?? 0n))
-            throw new Error("Collateral transfer fee changed during the close quote; retry");
-        }
-        return { status: "sufficient" as const, slot: result.context.slot, transferFee: finalFee };
-      } catch (error) {
-        const code = closeSimulationErrorCode(error);
-        if (code !== undefined && insufficientCodes.has(code))
-          return { status: "insufficient" as const, slot: 0 };
-        if (code !== undefined && code === insufficientLiquidityCode)
-          return { status: "liquidity-limited" as const, slot: 0 };
-        throw error;
-      }
-    };
     const amm = market.config.amm;
     const feeTiers = amm.launchRateLimitAsset === debtAsset + 1 &&
       amm.launchRateLimitMaxFeeBps > 0
@@ -339,18 +291,37 @@ export class DuskGet {
       feeTiers,
       transferFee,
       canClose: async (amount) => {
-        const result = await probe(amount);
-        return result.status === "liquidity-limited" ? result.status : result.status === "sufficient";
+        const output = quote.amountOut(nativeCloseCredit(amount, transferFee));
+        return output === "liquidity-limited" ? output :
+          output === "insufficient" ? false : output >= quote.debtAmount;
       },
       signal: simulation?.signal,
     });
-    // One fresh simulation catches a market change during the search.
-    const final = await probe(collateralIn, true);
-    if (final.status !== "sufficient") throw new Error("Market changed during the close quote; retry");
+    const closeInstruction = await new DuskWrite(this.program).closeLeverageInstruction({
+      ...closeParams,
+      collateralFunded: true,
+      collateralIn,
+    }, market);
+    const final = await this.simulateWithContext([closeInstruction], {
+      ...simulation,
+      minContextSlot: Math.max(snapshot.context.slot, simulation?.minContextSlot ?? 0),
+      feePayer: simulation?.feePayer ?? closeParams.authority ?? closeParams.positionOwner,
+      requireReturnData: false,
+      accounts: [collateralMintKey, SYSVAR_CLOCK_PUBKEY],
+    });
+    const finalAccounts = final.value.accounts?.map((info) => info && ({
+      ...info, owner: new PublicKey(info.owner), data: Buffer.from(info.data[0], "base64"),
+    }));
+    const finalFee = nativeCloseFeeFromAccounts(
+      collateralMintKey, finalAccounts?.[0] ?? null, finalAccounts?.[1] ?? null
+    );
+    if ((finalFee?.transferFeeBasisPoints ?? 0) !== (transferFee?.transferFeeBasisPoints ?? 0) ||
+      (finalFee?.maximumFee ?? 0n) !== (transferFee?.maximumFee ?? 0n))
+      throw new Error("Collateral transfer fee changed during the close quote; retry");
     return {
       collateralIn,
-      collateralReturned: nativeCloseCredit(total - collateralIn, final.transferFee),
-      observedSlot: final.slot,
+      collateralReturned: nativeCloseCredit(total - collateralIn, finalFee),
+      observedSlot: final.context.slot,
     };
   }
 

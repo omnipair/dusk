@@ -50,8 +50,8 @@ function ceilDiv(numerator: bigint, denominator: bigint): bigint {
 
 /**
  * Find the least sufficient raw collateral input. The caller's predicate must
- * evaluate the executable close at the current market state. A plain binary
- * search is invalid while launch size fees introduce downward output jumps.
+ * use the program's quote at one market snapshot. A plain binary search is
+ * invalid while launch size fees introduce downward output jumps.
  */
 export async function findMinimumNativeCloseCollateralIn({
   maxCollateralIn,
@@ -75,10 +75,11 @@ export async function findMinimumNativeCloseCollateralIn({
   const coversDebt = (result: boolean | "liquidity-limited") => result !== false;
   let low = 0n;
   let high = maxCollateralIn;
-  const maximumCoversDebt = coversDebt(await probe(maxCollateralIn));
   if (feeTiers && feeTiers.maxFeeBps > 0) {
     const { referenceNad, incrementBps, maxFeeBps, collateralDecimals } = feeTiers;
-    if (referenceNad <= 0n || incrementBps <= 0 || !Number.isInteger(collateralDecimals) || collateralDecimals < 0)
+    if (referenceNad <= 0n || !Number.isInteger(incrementBps) || incrementBps <= 0 ||
+      !Number.isInteger(maxFeeBps) || maxFeeBps > 10_000 ||
+      !Number.isInteger(collateralDecimals) || collateralDecimals < 0)
       throw new Error("Invalid launch size-fee configuration");
     const scale = 10n ** BigInt(Math.abs(collateralDecimals - NAD_DECIMALS));
     const maximumCredit = nativeCloseCredit(maxCollateralIn, transferFee);
@@ -96,28 +97,25 @@ export async function findMinimumNativeCloseCollateralIn({
       return creditLimit >= maximumCredit ? maxCollateralIn
         : nativeCloseGrossForCredit(creditLimit + 1n, transferFee) - 1n;
     };
-    let lowBucket = 0n;
-    let highBucket = lastBucket;
-    if (!maximumCoversDebt) {
-      // The maximum may sit just above a fee jump while an earlier tier's
-      // endpoint still repays debt. The old on-chain search rejected here.
-      if (lastBucket <= 1n) throw new Error("Collateral cap cannot repay the current debt");
-      highBucket = lastBucket - 1n;
-      high = endpoint(highBucket);
-      if (!coversDebt(await probe(high))) throw new Error("Collateral cap cannot repay the current debt");
-    }
-    while (highBucket - lowBucket > 1n) {
-      const middle = lowBucket + (highBucket - lowBucket) / 2n;
-      const amount = endpoint(middle);
+    // Bucket maxima need not be monotone when the fee increment is steep.
+    // There are at most 10,001 uncapped buckets; these probes run locally.
+    let found = false;
+    for (let bucket = 1n; bucket <= lastBucket; bucket++) {
+      const amount = endpoint(bucket);
+      if (amount <= low) continue;
       if (coversDebt(await probe(amount))) {
-        highBucket = middle;
         high = amount;
-      } else {
-        lowBucket = middle;
-        low = amount;
+        found = true;
+        break;
       }
+      low = amount;
     }
-  } else if (!maximumCoversDebt) {
+    if (!found && maxCollateralIn > low && coversDebt(await probe(maxCollateralIn))) {
+      high = maxCollateralIn;
+      found = true;
+    }
+    if (!found) throw new Error("Collateral cap cannot repay the current debt");
+  } else if (!coversDebt(await probe(maxCollateralIn))) {
     throw new Error("Collateral cap cannot repay the current debt");
   }
   while (high - low > 1n) {

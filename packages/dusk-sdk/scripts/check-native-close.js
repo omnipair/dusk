@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { Program } from "@coral-xyz/anchor";
 import { test } from "node:test";
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { MintLayout, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 
 import { DuskGet, DuskSimulationError } from "../dist/get.js";
+import IDL from "../dist/idl_v2.js";
+import { createNativeCloseQuote } from "../dist/native-close-quote.js";
 import { findMinimumNativeCloseCollateralIn, nativeCloseCredit, nativeCloseGrossForCredit } from "../dist/native-close.js";
 import { deriveLeveragePositionAddress } from "../dist/constants.js";
 import { DuskWrite } from "../dist/write.js";
@@ -181,113 +185,89 @@ test("native close searches gross input across net launch tiers and capped trans
   }
 });
 
-test("SDK searches exact close simulations and returns the minimum sale", async (t) => {
+test("WebAssembly quote matches the shared Rust fixture", async () => {
+  const fixture = JSON.parse(readFileSync(new URL("./native-close-fixture.json", import.meta.url)));
+  const quote = await createNativeCloseQuote(
+    Buffer.from(fixture.market, "hex"), Buffer.from(fixture.position, "hex"), 0n, 0n
+  );
+  assert.equal(quote.debtAmount, BigInt(fixture.debt));
+  assert.equal(quote.amountOut(BigInt(fixture.amount)), BigInt(fixture.output));
+  assert.equal(quote.amountOut(1n), "insufficient");
+});
+
+test("SDK searches locally and simulates only the selected close", async (t) => {
+  const fixture = JSON.parse(readFileSync(new URL("./native-close-fixture.json", import.meta.url)));
+  const marketData = Buffer.from(fixture.market, "hex");
+  const positionData = Buffer.from(fixture.position, "hex");
+  const decoder = new Program(IDL, { publicKey: null, connection: {} });
+  const position = decoder.coder.accounts.decode("leveragePosition", positionData);
+  const marketKey = position.market;
+  const positionId = position.positionId;
+  const owner = position.owner;
+  const positionKey = new PublicKey(new Uint8Array(32).fill(8));
+  const clockData = Buffer.alloc(40);
+  clockData.writeBigUInt64LE(123n, 0);
+  const account = (data) => ({ data, owner: decoder.programId });
   const mintData = Buffer.alloc(MintLayout.span);
   MintLayout.encode({ mintAuthorityOption: 1, mintAuthority: owner, supply: 100_000n,
     decimals: 9, isInitialized: true, freezeAuthorityOption: 0, freezeAuthority: PublicKey.default }, mintData);
-  const mintInfo = { owner: TOKEN_PROGRAM_ID, data: mintData, executable: false, lamports: 1 };
-  const clockInfo = { owner: new PublicKey("Sysvar1111111111111111111111111111111111111"),
-    data: Buffer.alloc(40), executable: false, lamports: 1 };
-  const returnedAccounts = [mintInfo, clockInfo].map((info) => ({
+  const mintAccount = { data: mintData, owner: TOKEN_PROGRAM_ID, executable: false, lamports: 1 };
+  const clockAccount = { data: clockData,
+    owner: new PublicKey("Sysvar1111111111111111111111111111111111111"), executable: false, lamports: 1 };
+  const returnedAccounts = [mintAccount, clockAccount].map((info) => ({
     ...info, owner: info.owner.toBase58(), data: [info.data.toString("base64"), "base64"],
   }));
+  let reads = 0;
+  const connection = {
+    async getMultipleAccountsInfoAndContext(keys) {
+      reads++;
+      assert.deepEqual(keys.map((key) => key.toBase58()).slice(0, 2),
+        [marketKey.toBase58(), positionKey.toBase58()]);
+      return { context: { slot: 123 },
+        value: [account(marketData), account(positionData), mintAccount, clockAccount] };
+    },
+  };
+  const program = new Program(IDL, { publicKey: owner, connection });
   let builds = 0;
   t.mock.method(DuskWrite.prototype, "closeLeverageInstruction", async (params) => {
     builds++;
     assert.equal(params.collateralFunded, true);
-    assert.equal(params.collateralIn, 1_990n);
-    return new TransactionInstruction({ programId, keys: [], data: Buffer.alloc(16) });
+    const data = Buffer.alloc(8);
+    data.writeBigUInt64LE(BigInt(params.collateralIn));
+    return new TransactionInstruction({ programId: program.programId, keys: [], data });
   });
-  const program = {
-    programId,
-    provider: { publicKey: owner, connection: {
-      getMultipleAccountsInfoAndContext: async () => ({ context: { slot: 123 }, value: [mintInfo, clockInfo] }),
-    } },
-    idl: { errors: [
-      { code: 6033, name: "insufficientOutputAmount" },
-      { code: 6041, name: "insufficientAmount" },
-      { code: 6042, name: "insufficientLiquidity" },
-    ] },
-    coder: { instruction: { encode(name, args) {
-      assert.equal(name, "closeCollateralLeverage");
-      assert.equal(args.args.debtAsset, 0);
-      const data = Buffer.alloc(16);
-      data.writeBigUInt64LE(BigInt(args.args.collateralIn.toString()));
-      data.writeBigUInt64LE(BigInt(args.args.minCollateralOut.toString()), 8);
-      return data;
-    } } },
-  };
   const reader = new DuskGet(program);
-  reader.leveragePosition = async (key) => {
-    assert.ok(key.equals(deriveLeveragePositionAddress(marketKey, owner, positionId)[0]));
-    return ({
-    owner, market: marketKey, positionId, debtAsset: 0,
-    fundedCollateralAmount: { toString: () => "100" },
-    collateralAmount: { toString: () => "2000" },
-    });
-  };
-  reader.market = async () => ({
-    config: { amm: { launchRateLimitAsset: 1,
-      launchRateLimitReferenceNad: { toString: () => "1000" },
-      launchRateLimitIncrementBps: 100,
-      launchRateLimitMaxFeeBps: 500,
-    } },
-    baseSide: { assetDecimals: 9 }, quoteSide: { assetDecimals: 9 },
-  });
-  const probes = [];
+  let simulations = 0;
   reader.simulateWithContext = async ([instruction], options) => {
+    simulations++;
     assert.equal(options.requireReturnData, false);
     assert.equal(options.feePayer.toBase58(), owner.toBase58());
-    const amount = instruction.data.readBigUInt64LE();
-    assert.equal(instruction.data.readBigUInt64LE(8), 10n);
-    probes.push(amount);
-    if ((amount <= 1_000n ? amount : amount - 10n) < 995n) {
-      throw new DuskSimulationError("Dusk simulation failed", {
-        context: { slot: 123 },
-        value: { err: { InstructionError: [2, { Custom: 6041 }] } },
-      });
-    }
-    return { context: { slot: 123 }, value: { err: null, accounts: returnedAccounts }, observedAt: Date.now() };
+    assert.equal(options.minContextSlot, 123);
+    const selected = instruction.data.readBigUInt64LE();
+    const quote = await createNativeCloseQuote(marketData, positionData, 123n, 0n);
+    assert.ok(quote.amountOut(selected) >= quote.debtAmount);
+    assert.ok(quote.amountOut(selected - 1n) < quote.debtAmount);
+    return { context: { slot: 124 },
+      value: { err: null, accounts: returnedAccounts }, observedAt: Date.now() };
   };
-  const result = await reader.findCollateralLeverageCloseInput({
-    market: marketKey, positionOwner: owner, positionId,
+  const params = {
+    market: marketKey, leveragePosition: positionKey, positionOwner: owner, positionId,
     debtAsset: "base", debtMint, collateralMint,
     ownerDebtAccount: owner, ownerCollateralAccount: owner,
     minAmountOut: 10n,
-  });
-  assert.deepEqual(result, { collateralIn: 995n, collateralReturned: 1_005n, observedSlot: 123 });
+  };
+  const result = await reader.findCollateralLeverageCloseInput(params);
+  assert.equal(result.collateralReturned, BigInt(position.collateralAmount.toString()) - result.collateralIn);
+  assert.equal(result.observedSlot, 124);
+  assert.equal(reads, 1);
   assert.equal(builds, 1);
-  assert.ok(probes.includes(1_000n));
-  assert.equal(probes.at(-1), 995n, "the selected close is revalidated");
-
-  reader.simulateWithContext = async ([instruction]) => {
-    const amount = instruction.data.readBigUInt64LE();
-    const output = amount <= 1_000n ? amount : amount - 10n;
-    const errorCode = output < 995n ? 6041 : output > 1_200n ? 6042 : undefined;
-    if (errorCode !== undefined) throw new DuskSimulationError("Dusk simulation failed", {
-      context: { slot: 124 },
-      value: { err: { InstructionError: [2, { Custom: errorCode }] } },
-    });
-    return { context: { slot: 124 }, value: { err: null, accounts: returnedAccounts }, observedAt: Date.now() };
-  };
-  const liquidityBounded = await reader.findCollateralLeverageCloseInput({
-    market: marketKey, positionOwner: owner, positionId,
-    debtAsset: "base", debtMint, collateralMint,
-    ownerDebtAccount: owner, ownerCollateralAccount: owner,
-    minAmountOut: 10n,
-  });
-  assert.deepEqual(liquidityBounded, { collateralIn: 995n, collateralReturned: 1_005n, observedSlot: 124 });
+  assert.equal(simulations, 1);
 
   reader.simulateWithContext = async () => {
     throw new DuskSimulationError("Dusk simulation failed", {
-      context: { slot: 124 },
+      context: { slot: 125 },
       value: { err: { InstructionError: [2, { Custom: 6065 }] } },
     });
   };
-  await assert.rejects(reader.findCollateralLeverageCloseInput({
-    market: marketKey, positionOwner: owner, positionId,
-    debtAsset: "base", debtMint, collateralMint,
-    ownerDebtAccount: owner, ownerCollateralAccount: owner,
-    minAmountOut: 10n,
-  }), DuskSimulationError, "unrelated instruction failures must surface to the client");
+  await assert.rejects(reader.findCollateralLeverageCloseInput(params), DuskSimulationError);
 });

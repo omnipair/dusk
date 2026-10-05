@@ -16,6 +16,7 @@ import {
 
 import { address, normalizeAccountKeys, type AddressLike } from "./address.js";
 import { type MarketLaunchConfig } from "./market-bootstrap.js";
+import type { Market } from "./type-aliases.js";
 import {
   deriveBorrowPositionAddress,
   deriveEventAuthorityAddress,
@@ -262,10 +263,11 @@ export class DuskWrite {
    * call.
    */
   private async hlpRemainingAccounts(
-    marketAddress: AddressLike
+    marketAddress: AddressLike,
+    marketSnapshot?: Market
   ): Promise<AccountMeta[]> {
     const market = address(marketAddress);
-    const state = (await this.fetchMarketAccount(market)) as {
+    const state = (marketSnapshot ?? await this.fetchMarketAccount(market)) as {
       ylpMint: AccountMeta["pubkey"];
       baseSide: { interestVault: AccountMeta["pubkey"] };
       quoteSide: { interestVault: AccountMeta["pubkey"] };
@@ -2132,7 +2134,8 @@ export class DuskWrite {
    * settle through `leverage_delegate` instead.
    */
   async closeLeverageInstruction(
-    params: CloseLeverageParams
+    params: CloseLeverageParams,
+    marketSnapshot?: Market
   ): Promise<TransactionInstruction> {
     const core = await this.resolveLeverageAccounts(params);
     const native = params.collateralFunded === true;
@@ -2182,7 +2185,7 @@ export class DuskWrite {
         },
         remainingAccounts: [
           ...(native ? [{ pubkey: address(params.ownerCollateralAccount!), isSigner: false, isWritable: true }] : []),
-          ...(await this.hlpRemainingAccounts(core.market)),
+          ...(await this.hlpRemainingAccounts(core.market, marketSnapshot)),
           ...(params.remainingAccounts ?? []),
         ],
       }

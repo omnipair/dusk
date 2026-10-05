@@ -90,6 +90,34 @@ accounts for instructions that emit CPI events.
 `write.builder(...)`, `write.transaction(...)`, and `write.rpc(...)` expose the
 same generic path for every Dusk instruction in the IDL.
 
+### Native collateral leverage close
+
+Clients can obtain the exact raw collateral sale before building the close:
+
+```typescript
+const close = {
+  market, positionOwner, positionId,
+  debtAsset: "quote" as const,
+  debtMint, collateralMint,
+  ownerDebtAccount, ownerCollateralAccount,
+  minAmountOut: 1n, // minimum collateral returned to the owner
+};
+const quote = await dusk.get.findCollateralLeverageCloseInput(close);
+const instruction = await dusk.write.closeLeverageInstruction({
+  ...close,
+  collateralFunded: true,
+  collateralIn: quote.collateralIn,
+});
+```
+
+The SDK reads the market, position, collateral mint, and clock from one bank. It searches
+locally with the program's shared Rust pricing code compiled to WebAssembly,
+including accrued debt, collateral transfer fees, and launch fee thresholds, then simulates the selected
+close once to check settlement and account constraints. `quote.collateralReturned`
+is the expected net owner payout; `quote.observedSlot` is the final simulation
+slot. Submit promptly because market state can change. The package includes the
+WebAssembly file; browser bundlers must serve it as an asset.
+
 ### Swap and LP Transfer Events
 
 `SwapExecuted` records the market immediately after a completed trade: the

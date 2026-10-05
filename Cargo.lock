@@ -660,6 +660,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "dusk-native-close-quote"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "hex",
+ "num-traits",
+ "uint 0.9.5",
+]
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

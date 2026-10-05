@@ -3,6 +3,7 @@ members = [
     "programs/dusk",
     "programs/leverage_delegate",
     "programs/faucet",
+    "packages/dusk-sdk/quote-rust",
     "tests/fixtures/referral_transfer_hook",
     "tests/fixtures/token_metadata_fixture",
 ]

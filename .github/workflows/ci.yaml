@@ -35,6 +35,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
 
       - name: Install JavaScript dependencies
         run: yarn install --frozen-lockfile
@@ -85,6 +86,9 @@ jobs:
           yarn check:build-identity
           git diff --exit-code -- Anchor.toml programs
 
+      - name: Check Dusk SDK package
+        run: npm run check:dusk-sdk
+
       - name: Upload LiteSVM artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -101,8 +105,13 @@ jobs:
             target/idl/leverage_delegate.json
             target/idl/faucet.json
 
-      - name: Check Dusk SDK package
-        run: npm run check:dusk-sdk
+      - name: Upload SDK quote WASM
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-close-quote-wasm
+          retention-days: 1
+          if-no-files-found: error
+          path: packages/dusk-sdk/dist/native-close-quote.wasm
 
   litesvm:
     needs: test
@@ -129,6 +138,12 @@ jobs:
         with:
           name: litesvm-sbf
           path: target
+
+      - name: Download SDK quote WASM
+        uses: actions/download-artifact@v4
+        with:
+          name: native-close-quote-wasm
+          path: packages/dusk-sdk/dist
 
       - name: Test LiteSVM smoke suite
         run: yarn test-litesvm:no-build --forbid-pending
