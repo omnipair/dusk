@@ -64,10 +64,12 @@ fn launch_price_moving_instruction(data: &[u8]) -> bool {
     };
     discriminator == crate::instruction::Swap::DISCRIMINATOR
         || discriminator == crate::instruction::OpenLeverage::DISCRIMINATOR
+        || discriminator == crate::instruction::OpenCollateralLeverage::DISCRIMINATOR
         || discriminator == crate::instruction::IncreaseLeverage::DISCRIMINATOR
         || discriminator == crate::instruction::DecreaseLeverage::DISCRIMINATOR
         || discriminator == crate::instruction::CloseLeverage::DISCRIMINATOR
         || discriminator == crate::instruction::DelegatedCloseLeverage::DISCRIMINATOR
+        || discriminator == crate::instruction::CloseCollateralLeverage::DISCRIMINATOR
         || discriminator == crate::instruction::LiquidateLeveragePosition::DISCRIMINATOR
         || discriminator == crate::instruction::BackstopLiquidationAuction::DISCRIMINATOR
         || discriminator == crate::instruction::RescueHlp::DISCRIMINATOR

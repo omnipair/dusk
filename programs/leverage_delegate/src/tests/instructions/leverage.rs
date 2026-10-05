@@ -51,6 +51,7 @@ fn recreated_position_requires_owner_to_reauthorize_order() {
         debt_asset: 0,
         collateral_amount: 1,
         margin_amount: 1,
+        funded_collateral_amount: 0,
         open_notional: 1,
         debt_principal: 1,
         debt_shares: 1,
@@ -126,7 +127,6 @@ fn order_kind_validation_accepts_only_tp_or_sl() {
     assert!(validate_order_kind(0).is_err());
 }
 
-#[test]
 #[test]
 fn reset_staged_settlement_clears_every_binding() {
     let mut order = leverage_order();

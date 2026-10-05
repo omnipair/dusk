@@ -149,6 +149,8 @@ const DUSK_INSTRUCTIONS = [
   "borrow",
   "repay",
   "openLeverage",
+  "openCollateralLeverage",
+  "closeCollateralLeverage",
   "closeLeverage",
   "delegatedCloseLeverage",
   "increaseLeverage",

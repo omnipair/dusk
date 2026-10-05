@@ -90,3 +90,24 @@ fn launch_guard_rejects_aggregator_cpi_but_is_inert_after_expiry() {
     )
     .is_ok());
 }
+
+#[test]
+fn launch_guard_classifies_native_leverage_open_and_close() {
+    let market = guarded_market();
+    let market_key = Pubkey::new_unique();
+    let swap = crate::instruction::Swap::DISCRIMINATOR;
+    for native in [
+        crate::instruction::OpenCollateralLeverage::DISCRIMINATOR,
+        crate::instruction::CloseCollateralLeverage::DISCRIMINATOR,
+    ] {
+        assert!(run_guard(&market, market_key, &[(crate::ID, market_key, native)], 0, 100).is_ok());
+        assert!(run_guard(
+            &market,
+            market_key,
+            &[(crate::ID, market_key, native), (crate::ID, market_key, swap)],
+            1,
+            100,
+        )
+        .is_err());
+    }
+}
