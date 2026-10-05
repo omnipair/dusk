@@ -18,6 +18,11 @@ mod stored_depth_paths {
     include!("leverage_stored_depth_paths.rs");
 }
 
+mod concentrated_cushion {
+    use super::*;
+    include!("leverage_concentrated_cushion.rs");
+}
+
 fn calibration_market(total_liquidity: u64, amplification: u64) -> Market {
     let side_cash = total_liquidity * CALIBRATION_UNIT / 2;
     let mut market = test_market(side_cash, side_cash);

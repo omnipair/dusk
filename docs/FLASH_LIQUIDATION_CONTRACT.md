@@ -11,6 +11,26 @@ requirements, not completed protections.
 
 Status: implementation specification for PR #45, updated 2026-10-05. The existing program does not yet implement this session or its guards. This document complements the [margin and liquidation plan](LEVERAGE_MARGIN_AND_LIQUIDATION_PLAN.md) and [current decisions](LIQUIDATION_DECISIONS.md).
 
+## Native execution and integration gates
+
+The [concentrated/hLP comparison](calibration/CONCENTRATED_CUSHION_RESULTS.md)
+executes the native economic primitives, including both solvent repayment and
+insurance/write-off. These primitives exist; their composition into the proposed
+flash instructions is still required. The following gates remain material:
+
+| Area | Evidence and required work |
+| --- | --- |
+| Spendable cash | A focused native test obtains a curve quote backed partly by debt receivables, then observes `InsufficientLiquidity` during actual spot preparation. Existing `Close`/`Liquidate` cash policies already net debt internally; this spot rejection does not prove those policies would fail. Validate the policy selected for the redesign, including hLP interest floors and physical payouts; a curve quote alone is insufficient. |
+| hLP and recentering | Seeded solvent and loss-taking settlement anchors succeed with both hLP vaults and both debt directions. The wider sweep also reproduces the `BrokenInvariant` live-reserve/quoted-endpoint guard in `liquidity/hlp/engine.rs`, in hLP scenarios with and without the controller/surcharge. Diagnose those cases before claiming reliable execution across the tested configurations. Keep the guard intact. |
+| Loss accounting | Current native liquidation can clear debt, consume insurance and rebase the concentrated curve/hLP after principal loss. Its existing proportional realized-interest allocation is not the selected principal-first waterfall. Implement and test funded interest, canceled interest, principal-only insurance and fee/referral treatment; the new economic sweep freezes accrual and cannot validate these changes. |
+| Concurrent state changes | An hLP transition is tied to specific curve revisions, LP supply and hLP shares/debt. A plan prepared at flash begin cannot simply be applied after allowed LP/parameter/other-position operations. Keep the original payment/debt obligation bound, then prepare valid settlement accounting against current shared state with reservations intact. |
+| Instruction boundary | Native state tests do not exercise transfer-fee CPIs, session account lifecycle, token-account aliasing, exact begin/settle pairing, compute/account limits or concurrent instruction ordering. These remain required integration tests for the new entrypoints and previews. |
+
+The ordinary hLP settlement-divergence check is used by single-sided entry and
+withdrawal, not a blanket guard on every integrated swap or liquidation. Do not
+infer that all hLP activity must pause for liquidation. Conversely, hLP funding
+cash and reserve-identity constraints still apply to the native integrated path.
+
 Emergency permission uses critically low symmetric EMA equity, with its numeric threshold still to be calibrated. There is no mandatory waiting period or distress clock. The [older emergency policy](EMERGENCY_LIQUIDATION_POLICY.md) is historical calibration context. Internal price relaxation never permits an arbitrary external route to return less than its bound obligation.
 
 The user also approved modeling an earlier **solvent internal AMM close** when

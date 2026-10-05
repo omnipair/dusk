@@ -1,5 +1,10 @@
 # Preliminary native leverage calibration
 
+**Native concentration follow-up (2026-10-05):** [concentrated/hLP repayment-cushion results](CONCENTRATED_CUSHION_RESULTS.md)
+use Dusk's actual integer curve, controller, repayment, insurance/write-off and
+hLP reconstruction. The report records execution failures and remaining debt;
+it does not establish that all proposed flash settlements can execute.
+
 **Latest experiment (2026-10-05):** [solvent repayment-cushion comparison](REPAYMENT_CUSHION_RESULTS.md)
 models an earlier fully funded internal sale alongside the separate loss-taking
 fallback, using the selected discount candidate and a provisional curve meeting

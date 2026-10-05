@@ -2,6 +2,8 @@
 
 2026-10-05. Economic model only; no new on-chain instruction has been implemented. The user approved modeling this direction, not a numeric cushion or final loss-mode threshold.
 
+For concentrated pools and hLP, read the [native follow-up](CONCENTRATED_CUSHION_RESULTS.md). The 648 scenarios below remain plain CPMM and cannot stand in for that native execution coverage.
+
 ## Proposed permission
 
 1. Symmetric EMA health must already permit liquidation; retain linear collateral valuation.

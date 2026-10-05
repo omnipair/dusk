@@ -115,6 +115,14 @@ curve meeting the 6x target at 30% stored side depth. It compares solvent window
 separate loss gates, outside depth, withdrawals and competing full/partial order.
 It does not implement the runtime, select defaults or establish manipulation safety.
 
+The [native concentrated comparison](calibration/CONCENTRATED_CUSHION_RESULTS.md)
+adds actual curve/fee/controller/hLP execution to the repayment-cushion study.
+Record rejected trades and remaining debt as well as completed recovery. The
+observed hLP reserve-reconciliation guard failures and cash constraints are
+integration gates, not reasons to disable hLP or loosen accounting invariants.
+The [flash contract](FLASH_LIQUIDATION_CONTRACT.md#native-execution-and-integration-gates)
+tracks these gates alongside principal-first interest handling and atomic shared-state settlement.
+
 For partial fills, prove improvement after fees using the surviving position's
 maintenance requirement; do not require every small fill to restore the whole
 target in one transaction. Test the near-insolvency region where a discount can
