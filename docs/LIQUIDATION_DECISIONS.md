@@ -71,6 +71,15 @@ superseded timers, a reference-plus-executable liquidation gate, separate cash
 rewards and alternative IM relationships; their results cannot be presented as
 validation of this design. Preserve their provenance.
 
+The [stored-depth comparison](calibration/STORED_DEPTH_RESULTS.md) now tests gentle
+first bands with steeper large-position tiers in native entry and price-path
+quotes. It also checks same-slot LP depth inflation and withdrawal-independent
+stored bands. [Fixed-payment economic scenarios](calibration/FLASH_PURCHASE_RESULTS.md)
+compare realized model losses, outside depth and position splitting. Neither
+experiment selects defaults or establishes implementation safety. In particular,
+earlier EMA eligibility does not guarantee a profitable purchase at an EMA-based
+payment floor; calibrate pricing and emergency permission together with margins.
+
 For partial fills, prove improvement after fees using the surviving position's
 maintenance requirement; do not require every small fill to restore the whole
 target in one transaction. Test the near-insolvency region where a discount can

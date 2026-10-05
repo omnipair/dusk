@@ -192,7 +192,8 @@ def simulate(terms=Terms(), tvl=100_000, pieces=10, spending_ratio=0.15,
             break
     return dict(tvl=tvl, pieces=pieces, spending_ratio=spending_ratio,
                 outside_depth=outside_depth, path=path, withdrawal=withdrawal,
-                rates="/".join(str(r) for r in terms.rates), critical_fraction=terms.critical_fraction,
+                rates="/".join(str(r) for r in terms.rates), bands="/".join(str(b) for b in terms.bands),
+                critical_fraction=terms.critical_fraction,
                 emergency_reward_max=terms.emergency_reward_max, **stats,
                 loss_fraction=stats["loss"] / original_debt if original_debt else 0,
                 insurance_drawn=insurance.drawn, remaining_debt=sum(p[1] for p in positions),
@@ -203,10 +204,13 @@ def simulate(terms=Terms(), tvl=100_000, pieces=10, spending_ratio=0.15,
 
 if __name__ == "__main__":
     rows = []
-    for rates, pieces, outside, path, critical in product(
-            [(0.07, 0.08, 0.10), (0.10, 0.12, 0.15), (0.15, 0.18, 0.22)],
+    for (rates, bands), pieces, outside, path, critical in product(
+            [((0.07, 0.08, 0.10), (0.20, 0.60)),
+             ((0.07, 0.12, 0.30), (0.05, 0.15)),
+             ((0.07, 0.20, 0.40), (0.05, 0.15)),
+             ((0.07, 0.25, 0.45), (0.05, 0.15))],
             [1, 10], [0, 1, 5], ["slow", "fast", "gap_flat"], [0.25, 0.5, 0.75]):
-        rows.append(simulate(terms=Terms(rates=rates, critical_fraction=critical),
+        rows.append(simulate(terms=Terms(rates=rates, bands=bands, critical_fraction=critical),
                              pieces=pieces, outside_depth=outside, path=path))
     directory = Path(__file__).resolve().parent
     save_csv(directory / "flash-purchase-candidates.csv", rows)
@@ -218,17 +222,18 @@ if __name__ == "__main__":
               "keep execution upside. Critical EMA equity permits internal emergency execution without a timer.", "",
               "Candidate inputs: 0.5–3% health-based discount; 0.2% solvent insurance contribution; "
               "internal caller reward up to 1% of proceeds (mechanism approved, numeric cap unselected). "
-              "Bands at 20%/60% of stored collateral-side depth. These are experiments, not defaults.", "",
+              "Compare old 20%/60% depth bands with steeper rates above 5%/15% of stored collateral-side depth. "
+              "These are experiments, not defaults. All candidates retain a 7% first-band maintenance rate.", "",
               "## Matched request: $100k pool, $15k total entry spending, 50% wallet equity", "",
               "Rows use critical equity = half maintenance and no outside venue. A fast sample is a "
               "3% spot decline every ten seconds with a 60-second EMA; slow is 0.5% per minute. "
               "These are stress assumptions, not forecasts. Different admission counts require care.", "",
-              "| MM rates | Positions requested/opened | Path | Admitted debt | Partials | Emergency sales | "
+              "| MM rates (depth bands) | Positions requested/opened | Path | Admitted debt | Partials | Emergency sales | "
               "Principal loss after insurance | Insurance drawn | Unresolved eligible |",
               "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"]
     for r in rows:
         if r["critical_fraction"] == 0.5 and r["outside_depth"] == 0 and r["path"] != "gap_flat":
-            report.append(f'| {r["rates"]} | {r["pieces"]}/{r["opened"]} | {r["path"]} | '
+            report.append(f'| {r["rates"]} ({r["bands"]}) | {r["pieces"]}/{r["opened"]} | {r["path"]} | '
                           f'{r["original_debt"]:.2f} | {r["partials"]} | {r["emergency_full"]} | '
                           f'{r["loss"]:.2f} ({r["loss_fraction"]:.2%}) | {r["insurance_drawn"]:.2f} | '
                           f'{r["eligible_remaining"]} |')

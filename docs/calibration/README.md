@@ -1,5 +1,10 @@
 # Preliminary native leverage calibration
 
+**Current experiments (2026-10-05):** [stored-depth margin comparisons](STORED_DEPTH_RESULTS.md)
+and [fixed-payment flash purchase economics](FLASH_PURCHASE_RESULTS.md) test the
+current product direction. They are calibration evidence, not implemented runtime
+policy or selected defaults. The sections below preserve the older experiments.
+
 **Historical results:** the [2026-10-05 decisions](../LIQUIDATION_DECISIONS.md)
 supersede several policies modeled here. These experiments have not been rerun
 for fixed-payment flash purchases, reference-only eligibility, timer-free

@@ -82,9 +82,9 @@ Verified on 2026-10-02:
 
 PR #45 overlaps leverage transitions, liquidation instructions, state, previews, SDK interfaces, delegate settlement, and tests. It carries owner-scoped position addressing, owner-owned delegated payouts, fee splitting, freeze/transfer-hook admission checks, mutable transfer-fee support, and other audit fixes. Its body describes #287652 as still unresolved.
 
-Recheck remote `main`, open PRs, and the PR head before implementation. The user explicitly chose to add the full implementation to #45. Its clean attached checkout is `/Users/User/.codex/worktrees/v12-benchmark-replay/dusk`, on `fix/benchmark-replay-owner`. Work on that branch while preserving the consolidated changes. Do not merge or rewrite its history merely to begin this task. If it merges or changes concurrently, reconcile before pushing further work.
+Recheck remote `main`, open PRs, and the PR head before implementation. The user explicitly chose to add the full implementation to #45. Use its attached checkout on `fix/benchmark-replay-owner`. Work on that branch while preserving the consolidated changes. Do not merge or rewrite its history merely to begin this task. If it merges or changes concurrently, reconcile before pushing further work.
 
-Read repository `AGENTS.md` and `/Users/User/.codex/memories/branch-prefix.md` before creating or changing branch/PR metadata. Use the required `feat/` prefix for feature work. Preserve all unrelated local changes; use a suitable isolated checkout for implementation. There are no production markets or legacy-account migration requirements unless the user introduces them.
+Read repository `AGENTS.md` and its referenced branch-naming preferences before creating or changing branch/PR metadata. Use the required `feat/` prefix for new feature branches. Preserve all unrelated local changes; use a suitable isolated checkout for implementation. There are no production markets or legacy-account migration requirements unless the user introduces them.
 
 ## 4. Current behavior to preserve or deliberately replace
 

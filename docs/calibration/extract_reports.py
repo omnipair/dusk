@@ -16,6 +16,8 @@ def main():
         "MARGIN_CALIBRATION": ("total_liquidity", "leverage-entry-candidates.csv"),
         "RECOVERY_CALIBRATION": ("curve_depth", "leverage-partial-recovery.csv"),
         "EMERGENCY_CALIBRATION": ("amplification", "leverage-emergency-paths.csv"),
+        "STORED_DEPTH_ENTRY": ("liquidity", "leverage-stored-depth-entry.csv"),
+        "STORED_DEPTH_PATH": ("amplification", "leverage-stored-depth-paths.csv"),
     }
     for marker, (first_column, filename) in files.items():
         records = [line.partition(",")[2] for line in log.splitlines() if line.startswith(marker + ",")]
