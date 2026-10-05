@@ -13,6 +13,16 @@ Status: implementation specification for PR #45, updated 2026-10-05. The existin
 
 Emergency permission uses critically low symmetric EMA equity, with its numeric threshold still to be calibrated. There is no mandatory waiting period or distress clock. The [older emergency policy](EMERGENCY_LIQUIDATION_POLICY.md) is historical calibration context. Internal price relaxation never permits an arbitrary external route to return less than its bound obligation.
 
+The user also approved modeling an earlier **solvent internal AMM close** when
+ordinary EMA eligibility holds and the full-sale repayment cushion is small but
+nonnegative after bounded caller reward and applicable charges. This mode must
+repay principal and accrued interest from actual execution, fund insurance only
+from surplus, and return the remainder to the owner. It cannot draw insurance,
+write off principal, or cancel interest; failed final coverage rolls back the
+transaction. The cushion width is unselected. A negative quote does not itself
+unlock the separate loss-taking mode. See the [comparison](calibration/REPAYMENT_CUSHION_RESULTS.md)
+for gap risk, quote sensitivity and the cost of full close preceding partial repair.
+
 ## Transaction and custody
 
 ```text

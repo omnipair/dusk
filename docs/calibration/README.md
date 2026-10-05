@@ -1,9 +1,15 @@
 # Preliminary native leverage calibration
 
-**Current experiments (2026-10-05):** [stored-depth margin comparisons](STORED_DEPTH_RESULTS.md)
-and [fixed-payment flash purchase economics](FLASH_PURCHASE_RESULTS.md) test the
-current product direction. They are calibration evidence, not implemented runtime
-policy or selected defaults. The sections below preserve the older experiments.
+**Latest experiment (2026-10-05):** [solvent repayment-cushion comparison](REPAYMENT_CUSHION_RESULTS.md)
+models an earlier fully funded internal sale alongside the separate loss-taking
+fallback, using the selected discount candidate and a provisional curve meeting
+the 6x margin target. It compares competing partial/full ordering and price gaps.
+This is economic modeling, not implemented runtime policy or selected defaults.
+
+Earlier [stored-depth margin comparisons](STORED_DEPTH_RESULTS.md) and
+[fixed-payment flash purchase economics](FLASH_PURCHASE_RESULTS.md) preserve
+the previous margin/discount candidates; their numeric settings are not defaults.
+The sections below preserve the older experiments.
 
 **Historical results:** the [2026-10-05 decisions](../LIQUIDATION_DECISIONS.md)
 supersede several policies modeled here. These experiments have not been rerun

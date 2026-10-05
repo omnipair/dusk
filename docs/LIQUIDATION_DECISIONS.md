@@ -12,14 +12,17 @@ implemented or tested behavior.
 | --- | --- |
 | Ordinary liquidation eligibility | Symmetric EMA health alone. Preserve V2's linear collateral valuation: hypothetical AMM price impact and LP withdrawal do not independently make a reference-healthy position liquidatable. Preserve the separate scheduled-transfer-fee remedy. |
 | Admission valuation | Preserve directional/asymmetric EMA protections for new risk and existing cash/accounting constraints. Deliberate use of different EMA roles is not a finding by itself. |
-| Initial margin | At least maintenance plus a calibrated buffer; aggregate exposure on the same side may raise the requirement further. Apply to new or increased risk. No replacement hard cap at 50% TVL. |
+| Initial margin | User selected effective maintenance plus 3 percentage points, with same-side aggregate crowding able to raise the requirement further: IM = max(effective MM + 3 points, crowding requirement). Apply to new or increased risk. No replacement hard cap at 50% TVL. |
 | Maintenance | Progressive position-size bands scaled to a conservative liquidity reference stored at entry. LP withdrawals and other traders' entries do not rebase an existing position's bands. Risk increases recheck applicable terms and expose changes in the preview. |
-| Calibration priority | Preserve gentle small-position requirements near today's 10% IM / 7% MM; test substantially steeper marginal maintenance for large positions relative to stored liquidity. Exact boundaries and rates remain unselected. |
+| Calibration priority | Preserve gentle small-position requirements near today's 10% IM / 7% MM, with progressive protection for larger positions. The user found the tested 7/12/30% and 7/20/40% schedules too restrictive around 30% of the stored side reference; they are comparison candidates, not selected defaults. |
+| Leverage target at 30% of the stored side reference | User selected approximately 6x. This is a reference-margin calibration target before execution costs, additional crowding or other admission constraints. It implies about 16.67% IM and, with the selected 3-percentage-point entry buffer, about 13.67% effective MM. It does not select the entire tier curve or guarantee 6x wallet leverage in a thin AMM. |
+| Margin UX | Emphasize available leverage, required collateral and estimated liquidation price in the main flow. Raw IM/MM percentages are secondary information. Displayed leverage must include actual execution and crowding constraints. |
 | Partial liquidation | Accept useful partial fills toward a recovery target. Size the maximum seizure to avoid unnecessary liquidation after recovery; full liquidation for insolvency, infeasible recovery or uneconomic leftovers under explicit rules. |
 | Buyer economics | Quote a specified collateral slice for a specified net debt-token payment. The buyer can route anywhere, pay from inventory, or retain purchased collateral; upside on the purchased slice belongs to the buyer. Unsold collateral remains position-owned. |
-| Incentive | Progressive collateral discount based on deteriorating reference health, including insolvent cleanup. Competitive keeper racing is an accepted assumption. The earlier separate bounded cash reward and mandatory return of all execution upside are superseded. |
+| Incentive | User accepted the proposed starting discount curve: 0.5% at the liquidation threshold, rising linearly with deteriorating reference health to 5% at zero EMA equity, capped at 5% when insolvent. Validate this candidate jointly with partial recovery and emergency execution; it does not guarantee profitable fills. Competitive keeper racing is an accepted assumption. The earlier separate bounded cash reward and mandatory return of all execution upside are superseded. |
 | Timing | Immediate eligible fills; no required auction wait, expiry, distress timer or time-based emergency unlock. |
-| Emergency | Permit a full Dusk-AMM sale below the ordinary flash-payment floor at critically low EMA equity. Half maintenance was illustrative, not a selected threshold. An arbitrary external route cannot lower its bound payment after release. |
+| Earlier solvent AMM close | User approved modeling a full internal sale while its net repayment cushion is small but nonnegative, after bounded caller reward and applicable costs. Ordinary EMA eligibility remains necessary; actual execution must repay principal plus all accrued interest without insurance or write-off. Return residual to owner. Cushion width is unselected; 2% is a comparison candidate. |
+| Loss-taking emergency | Keep a separate permission for full Dusk-AMM sale below the ordinary flash-payment floor at critically low EMA equity. Half maintenance was illustrative, not a selected threshold. A negative AMM repayment cushion alone does not authorize insurance/write-off. An arbitrary external route cannot lower its bound payment after release. |
 | Emergency caller | Pay a bounded progressive share of actual internal sale proceeds, including insolvent sales. This compensates the caller when Dusk performs the sale itself; the percentage is unselected and 1% was illustrative. |
 | Loss waterfall | Full-liquidation recovery protects principal first. Insurance covers remaining principal only within applicable limits. Remaining principal is written off, unpaid interest is canceled, and canceled interest generates no protocol/referral fees. Finish with zero debt on the fully settled leg. |
 | Insurance funding | Successful solvent borrowing and leverage flash liquidations contribute a bounded insurance fee. Include it in the quoted borrower cost and recovery math; it must not create a shortfall merely to fund insurance. |
@@ -59,12 +62,38 @@ protocol-authorized payment and loss calculation before release. A buyer's bad
 route never authorizes an additional insurance claim. Internal emergency pricing
 still carries manipulation risk; atomicity alone does not close finding #287652.
 
+The additional solvent AMM mode measures executable repayment after the bounded
+caller reward and insurance contribution. It requires principal plus interest to
+be fully funded from actual sale recovery. A quote is a preview, not permission
+to draw insurance if final execution falls short; that transaction must revert.
+The solvent contribution is capped by post-repayment surplus. Do not double-count
+execution fees already included in the quote or accept caller-defined expenses.
+Keeper network costs come from the keeper's reward. The owner receives residual.
+
+This mode can allow a full closure before the critical-EMA loss mode, but only
+after ordinary EMA liquidation eligibility. Price gaps, liquidity loss and delayed
+keepers can skip the solvent window. The separate loss mode remains necessary.
+Manipulating the AMM quote can also change full-close permission and reduce owner
+surplus even when debt is fully paid. Prefer partial repair, but do not claim that
+off-chain keeper preferences enforce priority or prove outside routes unavailable.
+
 ## Calibration and implementation details still to resolve
 
-The eight product questions are answered. Numeric examples were not approvals of
-production defaults. Calibrate maintenance rates/boundaries, the liquidity
-denominator and observation rules, IM crowding slope and buffer, recovery target,
-discount curve, critical-health threshold, insurance fee and dust behavior.
+The eight product questions are answered. The user subsequently selected the 6x
+target, 3-percentage-point IM buffer and proposed 0.5%-to-5% discount candidate.
+Other numeric examples are not approvals of production defaults. Calibrate
+maintenance rates/boundaries, the liquidity denominator and observation rules,
+IM crowding slope, recovery target, solvent repayment-cushion width,
+critical-health loss threshold, insurance fee
+and dust behavior; validate the selected discount candidate across these choices.
+
+The user's subsequent 6x selection fixes the target near 30% of the stored
+side reference. Refit the candidate margin curve to this target and compare its
+execution and loss behavior; do not continue treating either previously tested
+steep curve as the approved default. Keep the selected 3-percentage-point entry
+buffer; the detailed size curve, including beyond that target, remains subject
+to calibration. The user considered a 2:1 IM/MM relationship and chose to retain
+the additive buffer, with leverage and liquidation price carrying the main UX.
 
 Use the selected policy in new experiments. The 2026-10-02 experiments include
 superseded timers, a reference-plus-executable liquidation gate, separate cash
@@ -79,6 +108,12 @@ compare realized model losses, outside depth and position splitting. Neither
 experiment selects defaults or establishes implementation safety. In particular,
 earlier EMA eligibility does not guarantee a profitable purchase at an EMA-based
 payment floor; calibrate pricing and emergency permission together with margins.
+
+The [repayment-cushion comparison](calibration/REPAYMENT_CUSHION_RESULTS.md)
+uses the selected 0.5%-to-5% discount candidate and a provisional 7/12/17% margin
+curve meeting the 6x target at 30% stored side depth. It compares solvent windows,
+separate loss gates, outside depth, withdrawals and competing full/partial order.
+It does not implement the runtime, select defaults or establish manipulation safety.
 
 For partial fills, prove improvement after fees using the surviving position's
 maintenance requirement; do not require every small fill to restore the whole

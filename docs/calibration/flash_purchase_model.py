@@ -14,6 +14,7 @@ import copy
 import math
 
 from emergency_model import EPS, Pool, Insurance, band_amount, health, save_csv
+from repayment_cushion import solvent_amm_sale
 
 
 @dataclass(frozen=True)
@@ -91,7 +92,8 @@ def partial(collateral, debt, depth, reference, pool, outside, terms, cost):
 
 def simulate(terms=Terms(), tvl=100_000, pieces=10, spending_ratio=0.15,
              wallet_fraction=0.5, outside_depth=0, path="fast", withdrawal=0,
-             half_life=60, fixed_cost=0.05, max_steps=120):
+             half_life=60, fixed_cost=0.05, max_steps=120,
+             cushion_limit=None, solvent_first=False):
     pool = Pool(tvl / 2, tvl / 2)
     positions = []
     spending = tvl * spending_ratio / pieces
@@ -113,7 +115,31 @@ def simulate(terms=Terms(), tvl=100_000, pieces=10, spending_ratio=0.15,
     original_debt = sum(p[1] for p in positions)
     stats = dict(opened=len(positions), original_debt=original_debt, partials=0,
                  flash_full=0, emergency_full=0, loss=0.0, buyer_profit=0.0,
-                 emergency_reward=0.0, insurance_contribution=0.0, owner_value=0.0)
+                 emergency_reward=0.0, insurance_contribution=0.0, owner_value=0.0,
+                 solvent_full=0, solvent_reward=0.0, solvent_owner=0.0,
+                 solvent_debt_repaid=0.0)
+
+    def try_solvent_close(collateral, debt, h, mm):
+        if cushion_limit is None:
+            return False
+        allocation = solvent_amm_sale(
+            principal=debt, interest=0, output=pool.quote(collateral), equity=h,
+            maintenance=mm, cushion_limit=cushion_limit,
+            reward_max=terms.emergency_reward_max, insurance_rate=terms.insurance_rate)
+        if allocation is None or allocation["reward"] < fixed_cost:
+            return False
+        actual = pool.sell(collateral)
+        # This deterministic model has identical quote/execution. A real
+        # instruction must validate actual credits atomically, or roll back.
+        assert abs(actual - allocation["repayment"] - allocation["reward"]) < EPS
+        insurance.credited += allocation["contribution"]
+        stats["insurance_contribution"] += allocation["contribution"]
+        stats["owner_value"] += allocation["owner"]
+        stats["solvent_owner"] += allocation["owner"]
+        stats["solvent_reward"] += allocation["reward"]
+        stats["solvent_debt_repaid"] += debt
+        stats["solvent_full"] += 1
+        return True
     # Match the historical model: entry price impact is admission cost; unrelated
     # price discovery resets price before the scenario. Dusk has no restorative
     # arbitrage after this reset. Outside depth reprices only between samples.
@@ -147,6 +173,11 @@ def simulate(terms=Terms(), tvl=100_000, pieces=10, spending_ratio=0.15,
                 if h > mm:
                     survivors.append([collateral, debt, depth])
                     break
+                # Compare the preferred partial-first keeper with a caller
+                # taking a permitted solvent full close first. Finding a
+                # partial in this simulator does not prove on-chain exclusivity.
+                if solvent_first and try_solvent_close(collateral, debt, h, mm):
+                    break
                 fill = partial(collateral, debt, depth, reference, pool, outside, terms, fixed_cost)
                 if fill:
                     (pool if fill["venue"] == "dusk" else outside).sell(fill["sold"])
@@ -163,6 +194,8 @@ def simulate(terms=Terms(), tvl=100_000, pieces=10, spending_ratio=0.15,
                 if output - payment >= fixed_cost:
                     stats["flash_full"] += 1
                     stats["buyer_profit"] += output - payment - fixed_cost
+                elif try_solvent_close(collateral, debt, h, mm):
+                    break
                 elif h <= mm * terms.critical_fraction:
                     venue = "dusk"
                     output = pool.quote(collateral)
@@ -194,10 +227,12 @@ def simulate(terms=Terms(), tvl=100_000, pieces=10, spending_ratio=0.15,
                 outside_depth=outside_depth, path=path, withdrawal=withdrawal,
                 rates="/".join(str(r) for r in terms.rates), bands="/".join(str(b) for b in terms.bands),
                 critical_fraction=terms.critical_fraction,
+                cushion_limit=cushion_limit, solvent_first=solvent_first,
                 emergency_reward_max=terms.emergency_reward_max, **stats,
                 loss_fraction=stats["loss"] / original_debt if original_debt else 0,
                 insurance_drawn=insurance.drawn, remaining_debt=sum(p[1] for p in positions),
                 remaining_positions=len(positions),
+                remaining_owner_ema=sum(max(0, c * reference - d) for c, d, _ in positions),
                 eligible_remaining=sum(health(c * reference, d) <= terms.maintenance(c, depth)
                                        for c, d, depth in positions))
 
