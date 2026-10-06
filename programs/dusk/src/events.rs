@@ -863,14 +863,15 @@ pub struct ParameterProposalCreated {
     pub market: Pubkey,
     pub proposer: Pubkey,
     pub nonce: u64,
-    pub family: u8,
-    pub family_revision: u64,
+    /// Each updated family's revision at creation; untouched families read
+    /// zero. The family of every update is its variant.
+    pub family_revisions: [u64; 7],
     pub digest: [u8; 32],
     pub sponsorship_floor: u64,
     pub initial_support: u64,
     pub status: u8,
-    /// The proposed update and metadata exactly as stored on the proposal.
-    pub update: MarketParameterUpdate,
+    /// The proposed updates and metadata exactly as stored on the proposal.
+    pub updates: Vec<MarketParameterUpdate>,
     pub metadata: ProposalMetadataV1,
 }
 
@@ -898,8 +899,10 @@ pub struct ParameterProposalQueued {
 pub struct ParameterProposalExecuted {
     pub proposal: Pubkey,
     pub market: Pubkey,
-    pub family: u8,
-    pub new_family_revision: u64,
+    /// Family codes of every update applied, ascending.
+    pub families: Vec<u8>,
+    /// The market's revision of every family after execution.
+    pub new_family_revisions: [u64; 7],
     pub executed_at: i64,
 }
 

@@ -11544,6 +11544,11 @@ export type Dusk = {
       "code": 6136,
       "name": "freezableAssetMint",
       "msg": "Asset mint has an active freeze authority"
+    },
+    {
+      "code": 6137,
+      "name": "parameterUpdatesNotCanonical",
+      "msg": "Parameter updates must name one to seven families, each once, in ascending family order"
     }
   ],
   "types": [
@@ -12756,10 +12761,16 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "update",
+            "name": "updates",
+            "docs": [
+              "One to seven updates, at most one per family, in ascending family",
+              "order. One sponsorship and one vote cover all of them."
+            ],
             "type": {
-              "defined": {
-                "name": "marketParameterUpdate"
+              "vec": {
+                "defined": {
+                  "name": "marketParameterUpdate"
+                }
               }
             }
           },
@@ -16204,35 +16215,6 @@ export type Dusk = {
       }
     },
     {
-      "name": "parameterFamily",
-      "type": {
-        "kind": "enum",
-        "variants": [
-          {
-            "name": "fee"
-          },
-          {
-            "name": "concentration"
-          },
-          {
-            "name": "irm"
-          },
-          {
-            "name": "emaHalfLives"
-          },
-          {
-            "name": "dailyBorrowLimit"
-          },
-          {
-            "name": "centerController"
-          },
-          {
-            "name": "insurance"
-          }
-        ]
-      }
-    },
-    {
       "name": "parameterProposal",
       "type": {
         "kind": "struct",
@@ -16250,23 +16232,31 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "family",
+            "name": "updates",
+            "docs": [
+              "The families this proposal changes, one update each, in ascending",
+              "family order. They execute together or not at all."
+            ],
             "type": {
-              "defined": {
-                "name": "parameterFamily"
+              "vec": {
+                "defined": {
+                  "name": "marketParameterUpdate"
+                }
               }
             }
           },
           {
-            "name": "familyRevision",
-            "type": "u64"
-          },
-          {
-            "name": "update",
+            "name": "familyRevisions",
+            "docs": [
+              "The revision of each updated family when the proposal was created; an",
+              "executed change to any of them makes this proposal stale. Families the",
+              "proposal does not update read zero."
+            ],
             "type": {
-              "defined": {
-                "name": "marketParameterUpdate"
-              }
+              "array": [
+                "u64",
+                7
+              ]
             }
           },
           {
@@ -16362,12 +16352,17 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "family",
-            "type": "u8"
-          },
-          {
-            "name": "familyRevision",
-            "type": "u64"
+            "name": "familyRevisions",
+            "docs": [
+              "Each updated family's revision at creation; untouched families read",
+              "zero. The family of every update is its variant."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                7
+              ]
+            }
           },
           {
             "name": "digest",
@@ -16391,13 +16386,15 @@ export type Dusk = {
             "type": "u8"
           },
           {
-            "name": "update",
+            "name": "updates",
             "docs": [
-              "The proposed update and metadata exactly as stored on the proposal."
+              "The proposed updates and metadata exactly as stored on the proposal."
             ],
             "type": {
-              "defined": {
-                "name": "marketParameterUpdate"
+              "vec": {
+                "defined": {
+                  "name": "marketParameterUpdate"
+                }
               }
             }
           },
@@ -16426,12 +16423,23 @@ export type Dusk = {
             "type": "pubkey"
           },
           {
-            "name": "family",
-            "type": "u8"
+            "name": "families",
+            "docs": [
+              "Family codes of every update applied, ascending."
+            ],
+            "type": "bytes"
           },
           {
-            "name": "newFamilyRevision",
-            "type": "u64"
+            "name": "newFamilyRevisions",
+            "docs": [
+              "The market's revision of every family after execution."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                7
+              ]
+            }
           },
           {
             "name": "executedAt",

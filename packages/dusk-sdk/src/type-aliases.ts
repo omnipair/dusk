@@ -29,7 +29,6 @@ type DuskAccountTypes = [
   TypeNamed<"marketConfig">,
   TypeNamed<"marketParameterUpdate">,
   TypeNamed<"marketSide">,
-  TypeNamed<"parameterFamily">,
   TypeNamed<"parameterProposal">,
   TypeNamed<"parameterProposalStatus">,
   TypeNamed<"proposalMetadataV1">,

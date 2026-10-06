@@ -9541,11 +9541,21 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const createTx = await program.methods
       .createParameterProposal({
         nonce,
-        update: {
-          dailyBorrowLimit: {
-            maxDailyBorrowBps: 1_900,
+        // Two families under one sponsorship and one vote, in ascending
+        // family order.
+        updates: [
+          {
+            dailyBorrowLimit: {
+              maxDailyBorrowBps: 1_900,
+            },
           },
-        },
+          {
+            insuranceDrawCaps: {
+              perEventBps: 1_000,
+              perDayBps: 3_000,
+            },
+          },
+        ],
         metadata: {
           version: 1,
           title: "Lower daily borrow limit",
@@ -9576,10 +9586,19 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const created = cpiEvent(createTx, "parameterProposalCreated");
     expect(created.proposal.toString()).to.equal(proposal.toString());
     trackV2Instruction("createParameterProposal", this.test?.title);
-    // The creation event carries the update and metadata exactly as stored.
+    // The creation event carries the updates and metadata exactly as stored.
     const stored = accountCoder.decode("ParameterProposal", Buffer.from(svm.getAccount(proposal)!.data)) as any;
-    expect(created.update).to.deep.equal({ dailyBorrowLimit: { maxDailyBorrowBps: 1_900 } });
-    expect(stored.update.DailyBorrowLimit.max_daily_borrow_bps).to.equal(1_900);
+    expect(created.updates).to.deep.equal([
+      { dailyBorrowLimit: { maxDailyBorrowBps: 1_900 } },
+      { insuranceDrawCaps: { perEventBps: 1_000, perDayBps: 3_000 } },
+    ]);
+    expect(stored.updates).to.have.length(2);
+    expect(stored.updates[0].DailyBorrowLimit.max_daily_borrow_bps).to.equal(1_900);
+    expect(stored.updates[1].InsuranceDrawCaps.per_event_bps).to.equal(1_000);
+    expect(stored.updates[1].InsuranceDrawCaps.per_day_bps).to.equal(3_000);
+    expect(created.familyRevisions.map((revision: { toNumber(): number }) => revision.toNumber())).to.deep.equal(
+      stored.family_revisions.map((revision: { toNumber(): number }) => revision.toNumber())
+    );
     expect(created.metadata.version).to.equal(stored.metadata.version);
     expect(created.metadata.title).to.equal(stored.metadata.title);
     expect(created.metadata.descriptionUri).to.equal(stored.metadata.description_uri);
@@ -9701,16 +9720,22 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(maturedExecuteTx, [payer]);
-    expect(cpiEvent(maturedExecuteTx, "parameterProposalExecuted").proposal.toString()).to.equal(
-      proposal.toString()
-    );
+    const executed = cpiEvent(maturedExecuteTx, "parameterProposalExecuted");
+    expect(executed.proposal.toString()).to.equal(proposal.toString());
+    expect(Array.from(executed.families)).to.deep.equal([4, 6]);
     trackV2Instruction("executeParameterProposal", this.test?.title);
 
     marketAccount = svm.getAccount(fixture.market);
     expect(marketAccount).to.not.equal(null);
     market = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
     expect(market.config.max_daily_borrow_bps).to.equal(1_900);
+    expect(market.insurance.per_event_draw_bps).to.equal(1_000);
+    expect(market.insurance.per_day_draw_bps).to.equal(3_000);
     expect(market.parameter_revisions[4].toNumber()).to.equal(1);
+    expect(market.parameter_revisions[6].toNumber()).to.equal(1);
+    expect(executed.newFamilyRevisions.map((revision: { toNumber(): number }) => revision.toNumber())).to.deep.equal(
+      market.parameter_revisions.map((revision: { toNumber(): number }) => revision.toNumber())
+    );
 
     const withdrawTx = await program.methods
       .withdrawParameterSupport()
@@ -9765,11 +9790,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const queueCreateTx = await program.methods
       .createParameterProposal({
         nonce: queueNonce,
-        update: {
-          dailyBorrowLimit: {
-            maxDailyBorrowBps: 1_800,
+        updates: [
+          {
+            dailyBorrowLimit: {
+              maxDailyBorrowBps: 1_800,
+            },
           },
-        },
+        ],
         metadata: {
           version: 1,
           title: "Measure denominator-fall queue",

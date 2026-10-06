@@ -67,6 +67,8 @@ pub const PARAMETER_PROPOSAL_SUPPORT_BPS: u16 = 5_000; // strict >50%
 pub const PARAMETER_PROPOSAL_TIMELOCK_SECONDS: i64 = 7 * 24 * 60 * 60;
 #[constant]
 pub const PARAMETER_PROPOSAL_EXECUTION_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60;
+/// A proposal changes one to this many families, at most one update each.
+pub const MAX_PARAMETER_UPDATES_PER_PROPOSAL: usize = 7;
 #[constant]
 pub const PARAMETER_EXECUTION_MAX_UTILIZATION_BPS: u64 = 8_000;
 

@@ -1,5 +1,5 @@
 use super::*;
-use crate::constants::{PARAMETER_PROPOSAL_SEED_PREFIX, YIELD_GROWTH_SCALE_Q64};
+use crate::constants::{MAX_PARAMETER_UPDATES_PER_PROPOSAL, PARAMETER_PROPOSAL_SEED_PREFIX, YIELD_GROWTH_SCALE_Q64};
 use crate::instructions::CreateParameterProposalArgs;
 use crate::state::{ProposalSupport, VirtualYieldLedger, YieldAccount, YieldTokenKind};
 use anchor_lang::{InstructionData, ToAccountMetas};
@@ -12,6 +12,42 @@ fn metadata() -> ProposalMetadataV1 {
         description_sha256: [7; 32],
         description_len: 512,
     }
+}
+
+fn revisions(values: [u64; PARAMETER_FAMILY_COUNT]) -> [u64; PARAMETER_FAMILY_COUNT] {
+    values
+}
+
+/// One update per family, in ascending family order: the largest set a
+/// proposal can carry.
+fn every_family_update() -> Vec<MarketParameterUpdate> {
+    vec![
+        MarketParameterUpdate::Fee(FeeProfile::default()),
+        MarketParameterUpdate::Concentration {
+            peak_amplification_nad: 0,
+            core_half_width_bps: 0,
+            fade_width_bps: 0,
+        },
+        MarketParameterUpdate::Irm(IrmConfig::default()),
+        MarketParameterUpdate::EmaHalfLives {
+            price_ms: 0,
+            directional_price_ms: 0,
+            curve_depth_ms: 0,
+            center_price_ms: 0,
+        },
+        MarketParameterUpdate::DailyBorrowLimit {
+            max_daily_borrow_bps: 0,
+        },
+        MarketParameterUpdate::CenterController {
+            adjustment_threshold_nad: 0,
+            adjustment_step_nad: 0,
+            min_adjustment_interval_slots: 0,
+        },
+        MarketParameterUpdate::InsuranceDrawCaps {
+            per_event_bps: 0,
+            per_day_bps: 0,
+        },
+    ]
 }
 
 fn empty_yield_account() -> YieldAccount {
@@ -75,39 +111,105 @@ fn metadata_enforces_every_serialized_bound_in_bytes() {
 }
 
 #[test]
-fn digest_binds_nonce_revision_update_and_metadata() {
+fn digest_binds_nonce_revisions_updates_and_metadata() {
     let program = Pubkey::new_unique();
     let market = Pubkey::new_unique();
     let proposer = Pubkey::new_unique();
-    let update = MarketParameterUpdate::DailyBorrowLimit {
+    let borrow_limit = MarketParameterUpdate::DailyBorrowLimit {
         max_daily_borrow_bps: 1_000,
     };
-    let digest = parameter_proposal_digest(program, market, proposer, 4, 9, &update, &metadata()).unwrap();
+    let caps = MarketParameterUpdate::InsuranceDrawCaps {
+        per_event_bps: 100,
+        per_day_bps: 200,
+    };
+    let updates = vec![borrow_limit.clone(), caps.clone()];
+    let base_revisions = revisions([0, 0, 0, 0, 9, 0, 3]);
+    let digest = |nonce, family_revisions: &[u64; PARAMETER_FAMILY_COUNT], updates: &[MarketParameterUpdate], metadata: &ProposalMetadataV1| {
+        parameter_proposal_digest(program, market, proposer, nonce, family_revisions, updates, metadata).unwrap()
+    };
+    let expected = digest(4, &base_revisions, &updates, &metadata());
 
+    assert_ne!(expected, digest(5, &base_revisions, &updates, &metadata()));
+    assert_ne!(expected, digest(4, &revisions([0, 0, 0, 0, 10, 0, 3]), &updates, &metadata()));
+    assert_ne!(expected, digest(4, &revisions([0, 0, 0, 0, 9, 0, 4]), &updates, &metadata()));
+    assert_ne!(expected, digest(4, &base_revisions, &[borrow_limit], &metadata()));
+    assert_ne!(expected, digest(4, &base_revisions, &[caps.clone()], &metadata()));
     assert_ne!(
-        digest,
-        parameter_proposal_digest(program, market, proposer, 5, 9, &update, &metadata()).unwrap()
-    );
-    assert_ne!(
-        digest,
-        parameter_proposal_digest(program, market, proposer, 4, 10, &update, &metadata()).unwrap()
+        expected,
+        digest(
+            4,
+            &base_revisions,
+            &[
+                MarketParameterUpdate::DailyBorrowLimit {
+                    max_daily_borrow_bps: 1_001,
+                },
+                caps,
+            ],
+            &metadata()
+        )
     );
 
     for byte_index in 0..32 {
         let mut changed = metadata();
         changed.description_sha256[byte_index] ^= 1;
         assert_ne!(
-            digest,
-            parameter_proposal_digest(program, market, proposer, 4, 9, &update, &changed).unwrap(),
+            expected,
+            digest(4, &base_revisions, &updates, &changed),
             "description hash byte {byte_index} was not bound"
         );
     }
 
     let mut changed_title = metadata();
     changed_title.title = "Lower the daily borrow limit".to_string();
-    assert_ne!(
-        digest,
-        parameter_proposal_digest(program, market, proposer, 4, 9, &update, &changed_title).unwrap()
+    assert_ne!(expected, digest(4, &base_revisions, &updates, &changed_title));
+}
+
+#[test]
+fn update_set_names_each_family_once_in_ascending_order() {
+    validate_parameter_update_set(&every_family_update()).unwrap();
+    validate_parameter_update_set(&every_family_update()[4..5]).unwrap();
+
+    let rejected = |updates: &[MarketParameterUpdate]| {
+        assert_eq!(
+            validate_parameter_update_set(updates).unwrap_err(),
+            anchor_lang::prelude::error!(ErrorCode::ParameterUpdatesNotCanonical)
+        );
+    };
+    rejected(&[]);
+
+    let mut reversed = every_family_update();
+    reversed.reverse();
+    rejected(&reversed);
+
+    let borrow_limit = |bps| MarketParameterUpdate::DailyBorrowLimit {
+        max_daily_borrow_bps: bps,
+    };
+    rejected(&[borrow_limit(1_000), borrow_limit(1_000)]);
+    rejected(&[borrow_limit(1_000), borrow_limit(2_000)]);
+
+    let mut eight = every_family_update();
+    eight.push(borrow_limit(1_000));
+    rejected(&eight);
+}
+
+#[test]
+fn only_updated_families_carry_a_revision() {
+    let market_revisions = revisions([1, 2, 3, 4, 5, 6, 7]);
+    let updates = vec![
+        MarketParameterUpdate::Concentration {
+            peak_amplification_nad: 1,
+            core_half_width_bps: 1,
+            fade_width_bps: 1,
+        },
+        MarketParameterUpdate::CenterController {
+            adjustment_threshold_nad: 1,
+            adjustment_step_nad: 1,
+            min_adjustment_interval_slots: 1,
+        },
+    ];
+    assert_eq!(
+        updated_family_revisions(&updates, &market_revisions),
+        revisions([0, 2, 0, 0, 0, 6, 0])
     );
 }
 
@@ -129,9 +231,8 @@ fn account_digest_rejects_any_post_creation_action_or_metadata_mutation() {
         market: Pubkey::default(),
         proposer: Pubkey::default(),
         nonce: 0,
-        family: ParameterFamily::Fee,
-        family_revision: 0,
-        update: MarketParameterUpdate::Fee(FeeProfile::default()),
+        updates: Vec::new(),
+        family_revisions: [0; PARAMETER_FAMILY_COUNT],
         metadata: metadata(),
         digest: [0; 32],
         status: ParameterProposalStatus::Cancelled,
@@ -150,10 +251,10 @@ fn account_digest_rejects_any_post_creation_action_or_metadata_mutation() {
             market,
             proposer,
             nonce,
-            3,
-            MarketParameterUpdate::DailyBorrowLimit {
+            &revisions([0, 0, 0, 0, 3, 0, 0]),
+            vec![MarketParameterUpdate::DailyBorrowLimit {
                 max_daily_borrow_bps: 1_000,
-            },
+            }],
             metadata(),
             10_000,
             1,
@@ -161,14 +262,85 @@ fn account_digest_rejects_any_post_creation_action_or_metadata_mutation() {
         )
         .unwrap();
     proposal.assert_account(market, proposal_key).unwrap();
+    assert_eq!(proposal.family_revisions, revisions([0, 0, 0, 0, 3, 0, 0]));
 
-    proposal.update = MarketParameterUpdate::DailyBorrowLimit {
+    let created = proposal.updates.clone();
+    proposal.updates[0] = MarketParameterUpdate::DailyBorrowLimit {
         max_daily_borrow_bps: 1_001,
     };
     assert_eq!(
         proposal.assert_account(market, proposal_key).unwrap_err(),
         anchor_lang::prelude::error!(ErrorCode::InvalidProposalDigest)
     );
+
+    proposal.updates = created.clone();
+    proposal.updates.push(MarketParameterUpdate::InsuranceDrawCaps {
+        per_event_bps: 100,
+        per_day_bps: 200,
+    });
+    assert_eq!(
+        proposal.assert_account(market, proposal_key).unwrap_err(),
+        anchor_lang::prelude::error!(ErrorCode::InvalidProposalDigest)
+    );
+
+    proposal.updates = created;
+    proposal.family_revisions[4] = 4;
+    assert_eq!(
+        proposal.assert_account(market, proposal_key).unwrap_err(),
+        anchor_lang::prelude::error!(ErrorCode::InvalidProposalDigest)
+    );
+
+    proposal.family_revisions[4] = 3;
+    proposal.updates.clear();
+    assert_eq!(
+        proposal.assert_account(market, proposal_key).unwrap_err(),
+        anchor_lang::prelude::error!(ErrorCode::InvalidParameterProposal)
+    );
+}
+
+#[test]
+fn any_updated_family_changing_makes_the_proposal_stale() {
+    let mut proposal = ParameterProposal {
+        market: Pubkey::new_unique(),
+        proposer: Pubkey::new_unique(),
+        nonce: 1,
+        updates: vec![
+            MarketParameterUpdate::Concentration {
+                peak_amplification_nad: 1,
+                core_half_width_bps: 1,
+                fade_width_bps: 1,
+            },
+            MarketParameterUpdate::CenterController {
+                adjustment_threshold_nad: 1,
+                adjustment_step_nad: 1,
+                min_adjustment_interval_slots: 1,
+            },
+        ],
+        family_revisions: revisions([0, 2, 0, 0, 0, 6, 0]),
+        metadata: metadata(),
+        digest: [0; 32],
+        status: ParameterProposalStatus::Collecting,
+        sponsorship_floor: 1,
+        total_locked: 1,
+        queued_support: 0,
+        queued_eligible_ylp: 0,
+        created_at: 1,
+        queued_at: 0,
+        execute_after: 0,
+        execution_deadline: 0,
+        bump: 1,
+    };
+
+    // Families the proposal does not touch may move freely.
+    let untouched_moved = revisions([9, 2, 9, 9, 9, 6, 9]);
+    assert!(proposal.revisions_current(&untouched_moved));
+    assert!(!proposal.mark_stale_if_revision_changed(&untouched_moved));
+    assert_eq!(proposal.status, ParameterProposalStatus::Collecting);
+
+    let center_moved = revisions([0, 2, 0, 0, 0, 7, 0]);
+    assert!(!proposal.revisions_current(&center_moved));
+    assert!(proposal.mark_stale_if_revision_changed(&center_moved));
+    assert_eq!(proposal.status, ParameterProposalStatus::Stale);
 }
 
 #[test]
@@ -204,11 +376,10 @@ fn queue_snapshots_support_then_expiry_makes_support_unlockable() {
         market: Pubkey::new_unique(),
         proposer: Pubkey::new_unique(),
         nonce: 1,
-        family: ParameterFamily::DailyBorrowLimit,
-        family_revision: 7,
-        update: MarketParameterUpdate::DailyBorrowLimit {
+        updates: vec![MarketParameterUpdate::DailyBorrowLimit {
             max_daily_borrow_bps: 1_000,
-        },
+        }],
+        family_revisions: revisions([0, 0, 0, 0, 7, 0, 0]),
         metadata: metadata(),
         digest: [0; 32],
         status: ParameterProposalStatus::Collecting,
@@ -227,7 +398,7 @@ fn queue_snapshots_support_then_expiry_makes_support_unlockable() {
     assert_eq!(proposal.queued_eligible_ylp, 100);
     assert!(proposal.mark_expired_if_past_deadline(proposal.execution_deadline + 1));
     assert_eq!(proposal.status, ParameterProposalStatus::Expired);
-    assert!(!proposal.mark_stale_if_revision_changed(8));
+    assert!(!proposal.mark_stale_if_revision_changed(&revisions([0, 0, 0, 0, 8, 0, 0])));
 }
 
 #[test]
@@ -236,9 +407,8 @@ fn collecting_withdrawal_cancels_below_the_frozen_sponsorship_floor() {
         market: Pubkey::new_unique(),
         proposer: Pubkey::new_unique(),
         nonce: 2,
-        family: ParameterFamily::Fee,
-        family_revision: 0,
-        update: MarketParameterUpdate::Fee(FeeProfile::default()),
+        updates: vec![MarketParameterUpdate::Fee(FeeProfile::default())],
+        family_revisions: [0; PARAMETER_FAMILY_COUNT],
         metadata: metadata(),
         digest: [0; 32],
         status: ParameterProposalStatus::Collecting,
@@ -268,14 +438,15 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
         description_sha256: [u8::MAX; 32],
         description_len: MAX_PROPOSAL_DESCRIPTION_BYTES,
     };
+    // Every variant at its fixed Borsh size, so seven Fee updates bound the
+    // account even though a valid proposal names each family at most once.
     let max_update = MarketParameterUpdate::Fee(FeeProfile::default());
     let proposal = ParameterProposal {
         market: Pubkey::new_unique(),
         proposer: Pubkey::new_unique(),
         nonce: u64::MAX,
-        family: ParameterFamily::Fee,
-        family_revision: u64::MAX,
-        update: max_update.clone(),
+        updates: vec![max_update; MAX_PARAMETER_UPDATES_PER_PROPOSAL],
+        family_revisions: [u64::MAX; PARAMETER_FAMILY_COUNT],
         metadata: max_metadata.clone(),
         digest: [u8::MAX; 32],
         status: ParameterProposalStatus::Queued,
@@ -313,19 +484,19 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
     };
 
     assert_eq!(proposal.try_to_vec().unwrap().len(), ParameterProposal::INIT_SPACE);
-    assert_eq!(ParameterProposal::INIT_SPACE, 608);
+    assert_eq!(ParameterProposal::INIT_SPACE, 1_187);
     assert_eq!(support.try_to_vec().unwrap().len(), ProposalSupport::INIT_SPACE);
     assert_eq!(ProposalSupport::INIT_SPACE, 201);
 
     let proposer = proposal.proposer;
     let args = CreateParameterProposalArgs {
         nonce: proposal.nonce,
-        update: max_update,
+        updates: every_family_update(),
         metadata: max_metadata,
         initial_support: u64::MAX,
     };
     let instruction_data = crate::instruction::CreateParameterProposal { args }.data();
-    assert_eq!(instruction_data.len(), 453);
+    assert_eq!(instruction_data.len(), 555);
 
     let account_metas = crate::accounts::CreateParameterProposal {
         proposer,
@@ -357,9 +528,11 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
     assert_eq!(message.header.num_required_signatures, 1);
     assert_eq!(message.account_keys.len(), 14);
     let message_size = bincode::serialize(&message).unwrap().len();
-    assert_eq!(message_size, 956);
+    assert_eq!(message_size, 1_058);
     // One compact-u16 signature count byte, one signature, and the message.
-    assert_eq!(1 + 64 + message_size, 1_021);
+    assert_eq!(1 + 64 + message_size, 1_123);
+    // A proposal that changes every family still fits one 1,232-byte packet.
+    assert!(1 + 64 + message_size <= 1_232);
 }
 
 #[test]
@@ -368,9 +541,8 @@ fn lifecycle_boundaries_keep_support_frozen_through_the_deadline() {
         market: Pubkey::new_unique(),
         proposer: Pubkey::new_unique(),
         nonce: 3,
-        family: ParameterFamily::Irm,
-        family_revision: 5,
-        update: MarketParameterUpdate::Irm(IrmConfig::default()),
+        updates: vec![MarketParameterUpdate::Irm(IrmConfig::default())],
+        family_revisions: revisions([0, 0, 5, 0, 0, 0, 0]),
         metadata: metadata(),
         digest: [0; 32],
         status: ParameterProposalStatus::Collecting,

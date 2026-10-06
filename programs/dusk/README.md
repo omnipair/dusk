@@ -75,14 +75,28 @@ withdrawn; after execution, expiry, staleness, or cancellation,
 `withdraw_parameter_support` remints the exact locked amount and merges its
 yield into the holder's normal `YieldAccount`s.
 
-Each proposal changes exactly one of seven families: the complete fee profile,
+A proposal changes one or more of seven families: the complete fee profile,
 concentration shape plus its 216,000–1,512,000-slot ramp duration, IRM, the four
-EMA half-lives, the daily borrow limit, the center controller, or insurance
-draw caps. Independent family revisions make
-competing proposals stale instead of silently combining them. Execution first
-checkpoints old interest/EMA/risk state and rejects at 80% utilization.
-`ParameterProposalCreated` carries the typed update and the proposal metadata
-exactly as stored, so indexers can reconstruct a proposal from events alone.
+EMA half-lives, the daily borrow limit, the center controller, and insurance
+draw caps. It names each family at most once, in ascending family order, so a
+set of updates has exactly one encoding and one digest. Every family must be a
+real change within its own bounds, and the configuration they produce together
+must be valid. One sponsorship and one vote cover the whole set, and it
+executes atomically: all families apply or none do.
+
+Each proposal binds the revision of every family it changes. Executing any
+proposal advances the revision of each family it touched, so a competing
+proposal on any of those families goes stale instead of silently combining
+with it; proposals on other families are unaffected. Execution first
+checkpoints old interest/EMA/risk state and rejects at 80% utilization. Every
+family then closes its elapsed windows under the old values (the daily borrow
+buckets refill at the old rate, the insurance draw windows open under the old
+caps) before any value moves, and the curve and controller side effects run
+once against the final configuration.
+`ParameterProposalCreated` carries the typed updates, their family revisions
+and the proposal metadata exactly as stored, so indexers can reconstruct a
+proposal from events alone. `ParameterProposalExecuted` lists the families that
+changed and the market's revisions afterwards.
 
 Parameter bounds are enforced on creation and again on execution. Aggregate
 base/divergence/volatility fee budgets are capped at 5,000 bps; the daily borrow

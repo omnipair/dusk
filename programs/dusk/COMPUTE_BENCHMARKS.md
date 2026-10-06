@@ -11,6 +11,18 @@ not claims about the current ABI. The current IDL contains 58 public
 instructions; the checked-in instruction registry is authoritative for the
 current required set.
 
+## Multi-family parameter proposals (2026-10-07)
+
+A parameter proposal now carries one to seven family updates, and its account
+is sized for seven. In one LiteSVM suite run the governance lifecycle's
+two-family proposal costs 134,901 CU to create and 80,420 CU to execute; on
+the preceding binary its single-family proposal cost 122,460 and 77,064 CU.
+Instructions the change does not touch, such as `repay`, moved by up to
+15,000 CU between the same two runs, since the suite generates fresh keys on
+every run; these whole-transaction figures are single-run telemetry, not
+replays from identical pre-states. A create
+transaction that changes all seven families is 1,123 of 1,232 bytes.
+
 ## LP transfer receipts (2026-09-27)
 
 LP mints initialized from now on carry the event authority and Dusk program in

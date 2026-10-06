@@ -584,105 +584,126 @@ impl Market {
         Ok(())
     }
 
-    /// Validate one typed governance action without permitting unrelated
-    /// configuration fields to move with it.
-    pub fn validate_parameter_update(&self, update: &MarketParameterUpdate) -> Result<()> {
-        match update {
-            MarketParameterUpdate::Fee(profile) => {
-                profile.validate()?;
-                require!(
-                    self.config.fee_profile() != *profile,
-                    ErrorCode::ParameterUpdateNotMeaningful
-                );
-            }
-            MarketParameterUpdate::Concentration {
-                peak_amplification_nad,
-                core_half_width_bps,
-                fade_width_bps,
-            } => {
-                let target = ConcentratedCurveParameters {
-                    peak_amplification_nad: *peak_amplification_nad,
-                    core_half_width_bps: *core_half_width_bps,
-                    fade_width_bps: *fade_width_bps,
-                };
-                target.validate(MAX_AMM_AMPLIFICATION_NAD)?;
-                require!(
-                    self.config.amm.concentrated_curve_parameters()? != target,
-                    ErrorCode::ParameterUpdateNotMeaningful
-                );
-            }
-            MarketParameterUpdate::Irm(irm) => {
-                irm.validate()?;
-                require!(self.config.irm != *irm, ErrorCode::ParameterUpdateNotMeaningful);
-            }
-            MarketParameterUpdate::EmaHalfLives {
-                price_ms,
-                directional_price_ms,
-                curve_depth_ms,
-                center_price_ms,
-            } => {
-                require!(
-                    (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(price_ms)
-                        && (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(directional_price_ms)
-                        && (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(curve_depth_ms)
-                        && (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(center_price_ms),
-                    ErrorCode::InvalidHalfLife
-                );
-                require!(
-                    self.config.ema_half_life_ms != *price_ms
-                        || self.config.directional_ema_half_life_ms != *directional_price_ms
-                        || self.config.curve_depth_ema_half_life_ms != *curve_depth_ms
-                        || self.config.amm.center_ema_half_life_ms != *center_price_ms,
-                    ErrorCode::ParameterUpdateNotMeaningful
-                );
-            }
-            MarketParameterUpdate::DailyBorrowLimit { max_daily_borrow_bps } => {
-                require!(
-                    *max_daily_borrow_bps <= MAX_DAILY_BORROW_BPS,
-                    ErrorCode::InvalidParameterUpdate
-                );
-                require!(
-                    self.config.max_daily_borrow_bps != *max_daily_borrow_bps,
-                    ErrorCode::ParameterUpdateNotMeaningful
-                );
-            }
-            MarketParameterUpdate::CenterController {
-                adjustment_threshold_nad,
-                adjustment_step_nad,
-                min_adjustment_interval_slots,
-            } => {
-                let mut next = self.config;
-                next.amm.adjustment_threshold_nad = *adjustment_threshold_nad;
-                next.amm.adjustment_step_nad = *adjustment_step_nad;
-                next.amm.min_adjustment_interval_slots = *min_adjustment_interval_slots;
-                next.validate()?;
-                require!(next != self.config, ErrorCode::ParameterUpdateNotMeaningful);
-            }
-            MarketParameterUpdate::InsuranceDrawCaps {
-                per_event_bps,
-                per_day_bps,
-            } => {
-                require!(
-                    *per_event_bps <= MAX_INSURANCE_DRAW_PER_EVENT_BPS
-                        && *per_day_bps <= MAX_INSURANCE_DRAW_PER_DAY_BPS,
-                    ErrorCode::InvalidParameterUpdate
-                );
-                require!(
-                    self.insurance.per_event_draw_bps != *per_event_bps
-                        || self.insurance.per_day_draw_bps != *per_day_bps,
-                    ErrorCode::ParameterUpdateNotMeaningful
-                );
+    /// Validate a proposal's updates without permitting unrelated
+    /// configuration fields to move with them: one to seven, at most one per
+    /// family in ascending family order, each a real change within its own
+    /// family's bounds, and the configuration they produce together valid as
+    /// a whole. Returns that configuration.
+    pub fn validate_parameter_updates(&self, updates: &[MarketParameterUpdate]) -> Result<MarketConfig> {
+        validate_parameter_update_set(updates)?;
+        let mut next = self.config;
+        for update in updates {
+            match update {
+                MarketParameterUpdate::Fee(profile) => {
+                    require!(
+                        self.config.fee_profile() != *profile,
+                        ErrorCode::ParameterUpdateNotMeaningful
+                    );
+                    next.apply_fee_profile(*profile)?;
+                }
+                MarketParameterUpdate::Concentration {
+                    peak_amplification_nad,
+                    core_half_width_bps,
+                    fade_width_bps,
+                } => {
+                    let target = ConcentratedCurveParameters {
+                        peak_amplification_nad: *peak_amplification_nad,
+                        core_half_width_bps: *core_half_width_bps,
+                        fade_width_bps: *fade_width_bps,
+                    };
+                    target.validate(MAX_AMM_AMPLIFICATION_NAD)?;
+                    require!(
+                        self.config.amm.concentrated_curve_parameters()? != target,
+                        ErrorCode::ParameterUpdateNotMeaningful
+                    );
+                    next.amm.set_concentrated_curve_parameters(target)?;
+                }
+                MarketParameterUpdate::Irm(irm) => {
+                    irm.validate()?;
+                    require!(self.config.irm != *irm, ErrorCode::ParameterUpdateNotMeaningful);
+                    next.irm = *irm;
+                }
+                MarketParameterUpdate::EmaHalfLives {
+                    price_ms,
+                    directional_price_ms,
+                    curve_depth_ms,
+                    center_price_ms,
+                } => {
+                    require!(
+                        (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(price_ms)
+                            && (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(directional_price_ms)
+                            && (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(curve_depth_ms)
+                            && (MIN_HALF_LIFE_MS..=MAX_HALF_LIFE_MS).contains(center_price_ms),
+                        ErrorCode::InvalidHalfLife
+                    );
+                    require!(
+                        self.config.ema_half_life_ms != *price_ms
+                            || self.config.directional_ema_half_life_ms != *directional_price_ms
+                            || self.config.curve_depth_ema_half_life_ms != *curve_depth_ms
+                            || self.config.amm.center_ema_half_life_ms != *center_price_ms,
+                        ErrorCode::ParameterUpdateNotMeaningful
+                    );
+                    next.ema_half_life_ms = *price_ms;
+                    next.directional_ema_half_life_ms = *directional_price_ms;
+                    next.curve_depth_ema_half_life_ms = *curve_depth_ms;
+                    next.amm.center_ema_half_life_ms = *center_price_ms;
+                }
+                MarketParameterUpdate::DailyBorrowLimit { max_daily_borrow_bps } => {
+                    require!(
+                        *max_daily_borrow_bps <= MAX_DAILY_BORROW_BPS,
+                        ErrorCode::InvalidParameterUpdate
+                    );
+                    require!(
+                        self.config.max_daily_borrow_bps != *max_daily_borrow_bps,
+                        ErrorCode::ParameterUpdateNotMeaningful
+                    );
+                    next.max_daily_borrow_bps = *max_daily_borrow_bps;
+                }
+                MarketParameterUpdate::CenterController {
+                    adjustment_threshold_nad,
+                    adjustment_step_nad,
+                    min_adjustment_interval_slots,
+                } => {
+                    // The tuple's own rules are checked with the whole
+                    // configuration below.
+                    require!(
+                        self.config.amm.adjustment_threshold_nad != *adjustment_threshold_nad
+                            || self.config.amm.adjustment_step_nad != *adjustment_step_nad
+                            || self.config.amm.min_adjustment_interval_slots != *min_adjustment_interval_slots,
+                        ErrorCode::ParameterUpdateNotMeaningful
+                    );
+                    next.amm.adjustment_threshold_nad = *adjustment_threshold_nad;
+                    next.amm.adjustment_step_nad = *adjustment_step_nad;
+                    next.amm.min_adjustment_interval_slots = *min_adjustment_interval_slots;
+                }
+                MarketParameterUpdate::InsuranceDrawCaps {
+                    per_event_bps,
+                    per_day_bps,
+                } => {
+                    require!(
+                        *per_event_bps <= MAX_INSURANCE_DRAW_PER_EVENT_BPS
+                            && *per_day_bps <= MAX_INSURANCE_DRAW_PER_DAY_BPS,
+                        ErrorCode::InvalidParameterUpdate
+                    );
+                    require!(
+                        self.insurance.per_event_draw_bps != *per_event_bps
+                            || self.insurance.per_day_draw_bps != *per_day_bps,
+                        ErrorCode::ParameterUpdateNotMeaningful
+                    );
+                }
             }
         }
-        Ok(())
+        next.validate()?;
+        Ok(next)
     }
 
-    /// Checkpoint all elapsed state under the old parameters, apply exactly
-    /// one typed family, enforce the point-in-time utilization guard, and then
-    /// advance only that family's revision.
-    pub fn execute_parameter_update(&mut self, update: &MarketParameterUpdate, current_slot: u64) -> Result<()> {
+    /// Checkpoint all elapsed state under the old parameters, apply every
+    /// family as one atomic change, enforce the point-in-time utilization
+    /// guard once, and then advance the revision of each family that changed.
+    /// Any failure leaves the market untouched.
+    pub fn execute_parameter_updates(&mut self, updates: &[MarketParameterUpdate], current_slot: u64) -> Result<()> {
         self.assert_current_version()?;
-        self.validate_parameter_update(update)?;
+        let next_config = self.validate_parameter_updates(updates)?;
         let previous_config = self.config;
         let previous_base_side = self.base_side;
         let previous_quote_side = self.quote_side;
@@ -707,114 +728,84 @@ impl Market {
             self.refresh_risk_at_slot(current_slot)?;
             self.assert_parameter_execution_utilization()?;
 
-            let family_index = update.family().code() as usize;
-            match update {
-                MarketParameterUpdate::Fee(profile) => {
-                    self.config.apply_fee_profile(*profile)?;
-                    if self.amm.initialized {
-                        self.amm.invalidate_deferred_controller_target();
+            // Every family closes its elapsed windows under the old values
+            // before any value moves, so one family's change never reaches
+            // back into another's accounting.
+            for update in updates {
+                match update {
+                    MarketParameterUpdate::DailyBorrowLimit { .. } => {
+                        // Close elapsed refill under the old governed rate. The
+                        // newly selected rate applies only from this slot onward.
+                        let old_limit_bps = self.config.max_daily_borrow_bps;
+                        let base_limit = self.daily_limit_for_side(MarketAsset::Base, old_limit_bps)?;
+                        let quote_limit = self.daily_limit_for_side(MarketAsset::Quote, old_limit_bps)?;
+                        self.base_side
+                            .daily_borrow_bucket
+                            .decay_to_slot(base_limit, current_slot)?;
+                        self.quote_side
+                            .daily_borrow_bucket
+                            .decay_to_slot(quote_limit, current_slot)?;
                     }
-                }
-                MarketParameterUpdate::Concentration {
-                    peak_amplification_nad,
-                    core_half_width_bps,
-                    fade_width_bps,
-                } => {
-                    let mut next = self.config;
-                    next.amm
-                        .set_concentrated_curve_parameters(ConcentratedCurveParameters {
-                            peak_amplification_nad: *peak_amplification_nad,
-                            core_half_width_bps: *core_half_width_bps,
-                            fade_width_bps: *fade_width_bps,
-                        })?;
-                    next.validate()?;
-                    self.config = next;
-                    if self.config.amm.concentrated_curve_parameters()?.is_cpmm()
-                        || self.config.amm.adjustment_step_nad == 0
-                    {
-                        self.release_protected_recenter_reserves()?;
+                    MarketParameterUpdate::InsuranceDrawCaps {
+                        per_event_bps,
+                        per_day_bps,
+                    } => {
+                        // Open/checkpoint the current window under the old policy.
+                        // Lowering a cap can therefore only reduce future capacity;
+                        // it never retroactively restores already-spent allowance.
+                        self.insurance.checkpoint_draw_window(MarketAsset::Base, current_slot);
+                        self.insurance.checkpoint_draw_window(MarketAsset::Quote, current_slot);
+                        self.insurance.per_event_draw_bps = *per_event_bps;
+                        self.insurance.per_day_draw_bps = *per_day_bps;
                     }
-                    if self.amm.initialized {
-                        self.apply_concentrated_curve_parameter_update(current_slot)?;
+                    _ => {}
+                }
+            }
+
+            self.config = next_config;
+            // Side effects read the final configuration, so a curve shape and
+            // a center controller changed together each see the other's new
+            // values.
+            for update in updates {
+                match update {
+                    MarketParameterUpdate::Fee(_) => {
+                        if self.amm.initialized {
+                            self.amm.invalidate_deferred_controller_target();
+                        }
                     }
-                }
-                MarketParameterUpdate::Irm(irm) => {
-                    let mut next = self.config;
-                    next.irm = *irm;
-                    next.validate()?;
-                    self.config = next;
-                }
-                MarketParameterUpdate::EmaHalfLives {
-                    price_ms,
-                    directional_price_ms,
-                    curve_depth_ms,
-                    center_price_ms,
-                } => {
-                    let mut next = self.config;
-                    next.ema_half_life_ms = *price_ms;
-                    next.directional_ema_half_life_ms = *directional_price_ms;
-                    next.curve_depth_ema_half_life_ms = *curve_depth_ms;
-                    next.amm.center_ema_half_life_ms = *center_price_ms;
-                    next.validate()?;
-                    self.config = next;
-                }
-                MarketParameterUpdate::DailyBorrowLimit { max_daily_borrow_bps } => {
-                    // Close elapsed refill under the old governed rate. The
-                    // newly selected rate applies only from this slot onward.
-                    let old_limit_bps = self.config.max_daily_borrow_bps;
-                    let base_limit = self.daily_limit_for_side(MarketAsset::Base, old_limit_bps)?;
-                    let quote_limit = self.daily_limit_for_side(MarketAsset::Quote, old_limit_bps)?;
-                    self.base_side
-                        .daily_borrow_bucket
-                        .decay_to_slot(base_limit, current_slot)?;
-                    self.quote_side
-                        .daily_borrow_bucket
-                        .decay_to_slot(quote_limit, current_slot)?;
-                    let mut next = self.config;
-                    next.max_daily_borrow_bps = *max_daily_borrow_bps;
-                    next.validate()?;
-                    self.config = next;
-                }
-                MarketParameterUpdate::CenterController {
-                    adjustment_threshold_nad,
-                    adjustment_step_nad,
-                    min_adjustment_interval_slots,
-                } => {
-                    let mut next = self.config;
-                    next.amm.adjustment_threshold_nad = *adjustment_threshold_nad;
-                    next.amm.adjustment_step_nad = *adjustment_step_nad;
-                    next.amm.min_adjustment_interval_slots = *min_adjustment_interval_slots;
-                    next.validate()?;
-                    self.config = next;
-                    if self.config.amm.adjustment_step_nad == 0
-                        || self.config.amm.concentrated_curve_parameters()?.is_cpmm()
-                    {
-                        self.release_protected_recenter_reserves()?;
+                    MarketParameterUpdate::Concentration { .. } => {
+                        if self.config.amm.concentrated_curve_parameters()?.is_cpmm()
+                            || self.config.amm.adjustment_step_nad == 0
+                        {
+                            self.release_protected_recenter_reserves()?;
+                        }
+                        if self.amm.initialized {
+                            self.apply_concentrated_curve_parameter_update(current_slot)?;
+                        }
                     }
-                    if self.amm.initialized {
-                        self.amm.invalidate_deferred_controller_target();
+                    MarketParameterUpdate::CenterController { .. } => {
+                        if self.config.amm.adjustment_step_nad == 0
+                            || self.config.amm.concentrated_curve_parameters()?.is_cpmm()
+                        {
+                            self.release_protected_recenter_reserves()?;
+                        }
+                        if self.amm.initialized {
+                            self.amm.invalidate_deferred_controller_target();
+                        }
                     }
-                }
-                MarketParameterUpdate::InsuranceDrawCaps {
-                    per_event_bps,
-                    per_day_bps,
-                } => {
-                    // Open/checkpoint the current window under the old policy.
-                    // Lowering a cap can therefore only reduce future capacity;
-                    // it never retroactively restores already-spent allowance.
-                    self.insurance.checkpoint_draw_window(MarketAsset::Base, current_slot);
-                    self.insurance.checkpoint_draw_window(MarketAsset::Quote, current_slot);
-                    self.insurance.per_event_draw_bps = *per_event_bps;
-                    self.insurance.per_day_draw_bps = *per_day_bps;
+                    _ => {}
                 }
             }
 
             self.finalize_amm_transition(current_slot)?;
             self.refresh_risk_at_slot(current_slot)?;
             self.assert_market_health()?;
-            self.parameter_revisions[family_index] = self.parameter_revisions[family_index]
-                .checked_add(1)
-                .ok_or(ErrorCode::MarketMathOverflow)?;
+            for update in updates {
+                let family_index = update.family().code() as usize;
+                self.parameter_revisions[family_index] = self.parameter_revisions[family_index]
+                    .checked_add(1)
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
+            }
             Ok(())
         })();
 

@@ -412,4 +412,7 @@ pub enum ErrorCode {
 
     #[msg("Asset mint has an active freeze authority")]
     FreezableAssetMint,
+
+    #[msg("Parameter updates must name one to seven families, each once, in ascending family order")]
+    ParameterUpdatesNotCanonical,
 }

@@ -8,9 +8,19 @@ import {
   anchorParameterUpdate,
   assertProposalTitle,
   assertProposalUri,
+  canonicalParameterUpdates,
+  centerControllerParameterUpdate,
   computeParameterProposalDigest,
+  concentrationParameterUpdate,
   createProposalMetadata,
+  dailyBorrowLimitParameterUpdate,
+  emaHalfLivesParameterUpdate,
   feeParameterUpdate,
+  insuranceDrawCapsParameterUpdate,
+  irmParameterUpdate,
+  NAD,
+  PARAMETER_PROPOSAL_DIGEST_DOMAIN,
+  updatedFamilyRevisions,
   standardLaunchFeeParameterUpdate,
   resolveProposalDescriptionUri,
   tryFetchProposalDescription,
@@ -20,7 +30,7 @@ import IDL from "../dist/idl_v2.js";
 import { DuskWrite } from "../dist/write.js";
 
 const SOLANA_TRANSACTION_LIMIT = 1_232;
-const EXPECTED_WORST_CASE_CREATE_SIZE = 1_021;
+const EXPECTED_WORST_CASE_CREATE_SIZE = 1_123;
 const { Program } = anchor;
 
 const keys = Array.from(
@@ -174,24 +184,74 @@ assert.throws(() =>
     launchRateLimitAsset: 1,
   })
 );
-const digestNonce = new anchor.BN(7);
-const familyRevision = new anchor.BN(11);
-const updateBytes = program.coder.types.encode(
-  "marketParameterUpdate",
-  anchorParameterUpdate(update)
+// One update per family, deliberately out of order: the SDK sends them in
+// ascending family order, the only order the program accepts.
+const everyFamily = [
+  insuranceDrawCapsParameterUpdate({ perEventBps: 1_000, perDayBps: 3_000 }),
+  centerControllerParameterUpdate({
+    adjustmentThresholdNad: NAD / 100n,
+    adjustmentStepNad: NAD / 1_000n,
+    minAdjustmentIntervalSlots: 100,
+  }),
+  dailyBorrowLimitParameterUpdate(3_000),
+  emaHalfLivesParameterUpdate({
+    priceMs: 120_000,
+    directionalPriceMs: 180_000,
+    curveDepthMs: 240_000,
+    centerPriceMs: 300_000,
+  }),
+  irmParameterUpdate({
+    targetUtilizationBps: 6_500,
+    curveSteepnessNad: 6n * NAD,
+    adjustmentSpeedPerYear: 12,
+  }),
+  concentrationParameterUpdate({
+    peakAmplificationNad: 4n * NAD,
+    coreHalfWidthBps: 100,
+    fadeWidthBps: 400,
+  }),
+  update,
+];
+const canonical = canonicalParameterUpdates(everyFamily);
+assert.deepEqual(
+  canonical.map(({ kind }) => kind),
+  ["fee", "concentration", "irm", "emaHalfLives", "dailyBorrowLimit", "centerController", "insuranceDrawCaps"],
+  "updates must be sent in ascending family order"
 );
+assert.throws(() => canonicalParameterUpdates([]), /at least one/);
+assert.throws(
+  () => canonicalParameterUpdates([dailyBorrowLimitParameterUpdate(1_000), dailyBorrowLimitParameterUpdate(2_000)]),
+  /more than once/
+);
+assert.throws(() => insuranceDrawCapsParameterUpdate({ perEventBps: 2_001, perDayBps: 5_000 }));
+
+const marketRevisions = [11, 12, 13, 14, 15, 16, 17];
+assert.deepEqual(
+  updatedFamilyRevisions([dailyBorrowLimitParameterUpdate(1_000)], marketRevisions),
+  [0n, 0n, 0n, 0n, 15n, 0n, 0n],
+  "families a proposal leaves alone bind revision zero"
+);
+const familyRevisions = updatedFamilyRevisions(everyFamily, marketRevisions);
+const digestNonce = new anchor.BN(7);
+const updatesBytes = Buffer.concat([
+  Buffer.from(Uint32Array.of(canonical.length).buffer),
+  ...canonical.map((value) =>
+    program.coder.types.encode("marketParameterUpdate", anchorParameterUpdate(value))
+  ),
+]);
 const metadataBytes = program.coder.types.encode("proposalMetadataV1", verifiedMetadata);
-const u64Le = (value) => value.toArrayLike(Buffer, "le", 8);
+const u64Le = (value) => new anchor.BN(value.toString()).toArrayLike(Buffer, "le", 8);
+assert.equal(PARAMETER_PROPOSAL_DIGEST_DOMAIN, "DUSK_PARAMETER_PROPOSAL_V2");
 const expectedDigest = createHash("sha256")
   .update(
     Buffer.concat([
-      Buffer.from("DUSK_PARAMETER_PROPOSAL_V1"),
+      Buffer.from(PARAMETER_PROPOSAL_DIGEST_DOMAIN),
       program.programId.toBuffer(),
       keys[1].toBuffer(),
       keys[0].toBuffer(),
       u64Le(digestNonce),
-      u64Le(familyRevision),
-      updateBytes,
+      ...familyRevisions.map(u64Le),
+      updatesBytes,
       metadataBytes,
     ])
   )
@@ -201,8 +261,8 @@ const actualDigest = await computeParameterProposalDigest({
   market: keys[1],
   proposer: keys[0],
   nonce: digestNonce,
-  familyRevision,
-  update,
+  familyRevisions,
+  updates: everyFamily,
   metadata: verifiedMetadata,
 });
 assert.deepEqual(Buffer.from(actualDigest), expectedDigest, "proposal digest must match Anchor Borsh");
@@ -211,7 +271,7 @@ const build = await new DuskWrite(program).createParameterProposal({
   proposer: keys[0],
   market: keys[1],
   nonce: "18446744073709551615",
-  update,
+  updates: everyFamily,
   metadata,
   initialSupport: "18446744073709551615",
   holderYlpAccount: keys[7],
@@ -243,7 +303,7 @@ const alternateBuild = await alternateWriter.createParameterProposal({
   proposer: keys[0],
   market: keys[1],
   nonce: 8,
-  update,
+  updates: [update],
   metadata: verifiedMetadata,
   initialSupport: 1,
   holderYlpAccount: keys[7],

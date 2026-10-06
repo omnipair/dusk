@@ -42,6 +42,7 @@ import {
 import {
   anchorParameterUpdate,
   assertProposalMetadata,
+  canonicalParameterUpdates,
   governanceIntegerBN,
   type GovernanceIntegerLike,
   type ParameterUpdate,
@@ -123,7 +124,11 @@ export interface CreateParameterProposalParams extends GovernanceHolderAccountOv
   proposer: AddressLike;
   market: AddressLike;
   nonce: GovernanceIntegerLike;
-  update: ParameterUpdate;
+  /**
+   * One to seven updates, at most one per family. They are sent in ascending
+   * family order and execute together under one sponsorship and one vote.
+   */
+  updates: readonly ParameterUpdate[];
   metadata: ProposalMetadataV1;
   initialSupport: GovernanceIntegerLike;
 }
@@ -830,7 +835,7 @@ export class DuskWrite {
     return new Transaction().add(await this.initializeMarketInstruction(params));
   }
 
-  /** Burn-lock initial direct-yLP support and create one immutable typed proposal. */
+  /** Burn-lock initial direct-yLP support and create one immutable proposal over one or more families. */
   async createParameterProposal(
     params: CreateParameterProposalParams
   ): Promise<ParameterGovernanceBuild> {
@@ -858,7 +863,7 @@ export class DuskWrite {
       "createParameterProposal" as DuskInstructionName,
       {
         nonce: governanceIntegerBN(params.nonce, "nonce"),
-        update: anchorParameterUpdate(params.update),
+        updates: canonicalParameterUpdates(params.updates).map(anchorParameterUpdate),
         metadata: cloneProposalMetadata(params.metadata),
         initialSupport: governanceIntegerBN(params.initialSupport, "initialSupport"),
       },

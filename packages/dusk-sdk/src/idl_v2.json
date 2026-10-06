@@ -11538,6 +11538,11 @@
       "code": 6136,
       "name": "FreezableAssetMint",
       "msg": "Asset mint has an active freeze authority"
+    },
+    {
+      "code": 6137,
+      "name": "ParameterUpdatesNotCanonical",
+      "msg": "Parameter updates must name one to seven families, each once, in ascending family order"
     }
   ],
   "types": [
@@ -12750,10 +12755,16 @@
             "type": "u64"
           },
           {
-            "name": "update",
+            "name": "updates",
+            "docs": [
+              "One to seven updates, at most one per family, in ascending family",
+              "order. One sponsorship and one vote cover all of them."
+            ],
             "type": {
-              "defined": {
-                "name": "MarketParameterUpdate"
+              "vec": {
+                "defined": {
+                  "name": "MarketParameterUpdate"
+                }
               }
             }
           },
@@ -16198,35 +16209,6 @@
       }
     },
     {
-      "name": "ParameterFamily",
-      "type": {
-        "kind": "enum",
-        "variants": [
-          {
-            "name": "Fee"
-          },
-          {
-            "name": "Concentration"
-          },
-          {
-            "name": "Irm"
-          },
-          {
-            "name": "EmaHalfLives"
-          },
-          {
-            "name": "DailyBorrowLimit"
-          },
-          {
-            "name": "CenterController"
-          },
-          {
-            "name": "Insurance"
-          }
-        ]
-      }
-    },
-    {
       "name": "ParameterProposal",
       "type": {
         "kind": "struct",
@@ -16244,23 +16226,31 @@
             "type": "u64"
           },
           {
-            "name": "family",
+            "name": "updates",
+            "docs": [
+              "The families this proposal changes, one update each, in ascending",
+              "family order. They execute together or not at all."
+            ],
             "type": {
-              "defined": {
-                "name": "ParameterFamily"
+              "vec": {
+                "defined": {
+                  "name": "MarketParameterUpdate"
+                }
               }
             }
           },
           {
-            "name": "family_revision",
-            "type": "u64"
-          },
-          {
-            "name": "update",
+            "name": "family_revisions",
+            "docs": [
+              "The revision of each updated family when the proposal was created; an",
+              "executed change to any of them makes this proposal stale. Families the",
+              "proposal does not update read zero."
+            ],
             "type": {
-              "defined": {
-                "name": "MarketParameterUpdate"
-              }
+              "array": [
+                "u64",
+                7
+              ]
             }
           },
           {
@@ -16356,12 +16346,17 @@
             "type": "u64"
           },
           {
-            "name": "family",
-            "type": "u8"
-          },
-          {
-            "name": "family_revision",
-            "type": "u64"
+            "name": "family_revisions",
+            "docs": [
+              "Each updated family's revision at creation; untouched families read",
+              "zero. The family of every update is its variant."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                7
+              ]
+            }
           },
           {
             "name": "digest",
@@ -16385,13 +16380,15 @@
             "type": "u8"
           },
           {
-            "name": "update",
+            "name": "updates",
             "docs": [
-              "The proposed update and metadata exactly as stored on the proposal."
+              "The proposed updates and metadata exactly as stored on the proposal."
             ],
             "type": {
-              "defined": {
-                "name": "MarketParameterUpdate"
+              "vec": {
+                "defined": {
+                  "name": "MarketParameterUpdate"
+                }
               }
             }
           },
@@ -16420,12 +16417,23 @@
             "type": "pubkey"
           },
           {
-            "name": "family",
-            "type": "u8"
+            "name": "families",
+            "docs": [
+              "Family codes of every update applied, ascending."
+            ],
+            "type": "bytes"
           },
           {
-            "name": "new_family_revision",
-            "type": "u64"
+            "name": "new_family_revisions",
+            "docs": [
+              "The market's revision of every family after execution."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                7
+              ]
+            }
           },
           {
             "name": "executed_at",

@@ -13,7 +13,7 @@ use crate::{
 };
 
 use super::{
-    carry_forward_governance_yield, checkpoint_supporter_yield, current_parameter_revision, direct_ylp_eligible_supply,
+    carry_forward_governance_yield, checkpoint_supporter_yield, direct_ylp_eligible_supply,
     validate_governance_token_accounts, validate_market_pda, validate_supporter_accounts,
 };
 
@@ -109,9 +109,8 @@ impl<'info> SupportParameterProposal<'info> {
             self.proposal.status == ParameterProposalStatus::Collecting,
             ErrorCode::ProposalNotCollecting
         );
-        require_eq!(
-            current_parameter_revision(&self.market, self.proposal.family),
-            self.proposal.family_revision,
+        require!(
+            self.proposal.revisions_current(&self.market.parameter_revisions),
             ErrorCode::ProposalStale
         );
         validate_governance_token_accounts(
@@ -323,8 +322,8 @@ impl<'info> WithdrawParameterSupport<'info> {
     pub fn handle_withdraw(ctx: Context<'_, '_, '_, 'info, Self>) -> Result<()> {
         ctx.accounts.validate()?;
         let clock = Clock::get()?;
-        let current_revision = current_parameter_revision(&ctx.accounts.market, ctx.accounts.proposal.family);
-        ctx.accounts.proposal.mark_stale_if_revision_changed(current_revision);
+        let market_revisions = ctx.accounts.market.parameter_revisions;
+        ctx.accounts.proposal.mark_stale_if_revision_changed(&market_revisions);
         ctx.accounts
             .proposal
             .mark_expired_if_past_deadline(clock.unix_timestamp);
