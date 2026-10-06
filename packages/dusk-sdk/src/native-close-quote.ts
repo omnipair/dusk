@@ -68,13 +68,14 @@ export async function createNativeCloseQuote(
     exports.quote_free(positionPointer, positionData.length);
   }
   return {
-    debtAmount: exports.quote_debt_amount(),
+    // WebAssembly exposes i64 results as signed BigInts, including Rust u64s.
+    debtAmount: BigInt.asUintN(64, exports.quote_debt_amount()),
     amountOut(collateralIn) {
       const status = exports.quote_amount_out(collateralIn);
       if (status === 1) return "liquidity-limited";
       if (status === 2) return "insufficient";
       if (status !== 0) throw new Error("Native-close quote failed for this collateral amount");
-      return exports.quote_last_amount_out();
+      return BigInt.asUintN(64, exports.quote_last_amount_out());
     },
   };
 }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { Program } from "@coral-xyz/anchor";
+import BN from "bn.js";
 import { test } from "node:test";
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { MintLayout, TOKEN_PROGRAM_ID } from "@solana/spl-token";
@@ -193,6 +194,68 @@ test("WebAssembly quote matches the shared Rust fixture", async () => {
   assert.equal(quote.debtAmount, BigInt(fixture.debt));
   assert.equal(quote.amountOut(BigInt(fixture.amount)), BigInt(fixture.output));
   assert.equal(quote.amountOut(1n), "insufficient");
+});
+
+async function largeNativeCloseQuote(baseReserve, debt = 100_000_000_000_000_000n) {
+  const fixture = JSON.parse(readFileSync(new URL("./native-close-fixture.json", import.meta.url)));
+  const decoder = new Program(IDL, { publicKey: null, connection: {} });
+  const market = decoder.coder.accounts.decode("market", Buffer.from(fixture.market, "hex"));
+  const position = decoder.coder.accounts.decode("leveragePosition", Buffer.from(fixture.position, "hex"));
+  const bn = (amount) => new BN(amount.toString());
+  const quoteReserve = 1_000_000_000_000_000_000n;
+  market.baseSide.assetDecimals = market.quoteSide.assetDecimals = 18;
+  market.baseSide.reserves.liveReserve = bn(baseReserve);
+  market.baseSide.reserves.cashReserve = bn(baseReserve - debt);
+  market.quoteSide.reserves.liveReserve = market.quoteSide.reserves.cashReserve = bn(quoteReserve);
+  market.baseSide.shares.ylpSupply = market.quoteSide.shares.ylpSupply = bn(quoteReserve);
+  market.debt.isolatedBaseShares = market.debt.isolatedBasePrincipal = bn(debt);
+  position.debtShares = position.debtPrincipal = bn(debt);
+  position.collateralAmount = bn(2n * quoteReserve);
+  // Anchor's encode convenience method has a 1,000-byte scratch buffer;
+  // the Market account needs its full layout size.
+  const encode = (name, state) => {
+    const { layout, discriminator } = decoder.coder.accounts.accountLayouts.get(name);
+    const data = Buffer.alloc(layout.span);
+    layout.encode(state, data);
+    return Buffer.concat([Buffer.from(discriminator), data]);
+  };
+  return createNativeCloseQuote(encode("market", market), encode("leveragePosition", position), 0n, 0n);
+}
+
+test("WebAssembly debt stays unsigned at the i64 and u64 boundaries", async () => {
+  const maximum = (1n << 64n) - 1n;
+  for (const debt of [(1n << 63n) - 1n, 1n << 63n, maximum]) {
+    const quote = await largeNativeCloseQuote(maximum, debt);
+    assert.equal(quote.debtAmount, debt);
+  }
+});
+
+test("WebAssembly swap output remains unsigned across the i64 boundary", async () => {
+  const reserve = 1_000_000_000_000_000_000n;
+  for (const [base, input, expected] of [
+    [2n * ((1n << 63n) - 1n), reserve, (1n << 63n) - 1n],
+    [3n * (1n << 62n), 2n * reserve, 1n << 63n],
+    [18n * reserve, 2n * reserve, 12n * reserve],
+  ]) {
+    const quote = await largeNativeCloseQuote(base);
+    assert.equal(quote.amountOut(input), expected);
+  }
+});
+
+test("native close finds smaller repayment when maximum output exceeds i64", async () => {
+  const quote = await largeNativeCloseQuote(18_000_000_000_000_000_000n);
+  const maximum = 2_000_000_000_000_000_000n;
+  const selected = await findMinimumNativeCloseCollateralIn({
+    maxCollateralIn: maximum,
+    canClose: async (input) => {
+      const output = quote.amountOut(input);
+      return typeof output === "bigint" ? output >= quote.debtAmount :
+        output === "liquidity-limited" ? output : false;
+    },
+  });
+  assert.equal(selected, 5_586_592_178_770_950n);
+  assert.ok(quote.amountOut(selected) >= quote.debtAmount);
+  assert.ok(quote.amountOut(selected - 1n) < quote.debtAmount);
 });
 
 test("SDK searches locally and simulates only the selected close", async (t) => {
