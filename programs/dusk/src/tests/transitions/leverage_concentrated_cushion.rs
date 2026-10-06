@@ -5,6 +5,12 @@
 // unpaid-interest mechanics. Token CPIs/flash sessions are not exercised here.
 use super::stored_depth_schedules::stored_cash_depth;
 
+mod parameters {
+    use super::*;
+    include!("leverage_parameter_comparison.rs");
+}
+use parameters::Policy;
+
 mod settlement {
     use super::*;
     include!("leverage_cushion_settlement.rs");
@@ -46,6 +52,10 @@ struct Totals {
     last_quote_error: String,
     failed_fills: u64,
     blocked: String,
+    eligible_debt: u64,
+    eligible_below_keeper_cost: u64,
+    min_entry_health: u64,
+    max_entry_requirement: u64,
 }
 
 fn no_accrual(market: &mut Market, slot: u64) {
@@ -158,6 +168,10 @@ fn stress_to(market: &mut Market, asset: MarketAsset, target: u64, slot: u64) ->
 }
 
 fn one_case(case: Case) -> Totals {
+    one_case_with_policy(case, Policy::default())
+}
+
+fn one_case_with_policy(case: Case, policy: Policy) -> Totals {
     let mut market = initialize(case);
     let asset = case.debt_asset.opposite();
     let mut positions = Vec::new();
@@ -169,7 +183,7 @@ fn one_case(case: Case) -> Totals {
             &mut trial,
             case.debt_asset,
             15_000 * CALIBRATION_UNIT / case.pieces,
-            5_000,
+            policy.wallet_bps,
             2,
         ) {
             Ok(p) => p,
@@ -179,7 +193,9 @@ fn one_case(case: Case) -> Totals {
             }
         };
         let depth = stored_cash_depth(&trial, asset);
-        let terms = schedule(depth);
+        let mut terms = schedule(depth);
+        terms.exposure_slope_denominator = policy.crowding_denominator;
+        terms.recovery_buffer_bps = policy.recovery_buffer_bps;
         let exposure = positions
             .iter()
             .map(|(p, _): &(LeveragePosition, LeverageMarginSchedule)| p.collateral_amount as u128)
@@ -197,11 +213,18 @@ fn one_case(case: Case) -> Totals {
                 break;
             }
         };
-        if equity_bps(value, debt).unwrap().min(equity_bps(exit, debt).unwrap()) < u128::from(required) {
+        let entry_health = equity_bps(value, debt).unwrap().min(equity_bps(exit, debt).unwrap()) as u64;
+        if entry_health < u64::from(required) {
             totals.blocked = "entry_margin".into();
             break;
         }
         totals.opened += 1;
+        totals.min_entry_health = if totals.opened == 1 {
+            entry_health
+        } else {
+            totals.min_entry_health.min(entry_health)
+        };
+        totals.max_entry_requirement = totals.max_entry_requirement.max(required.into());
         totals.original_debt += debt;
         positions.push((position, terms));
         market = trial;
@@ -266,7 +289,7 @@ fn one_case(case: Case) -> Totals {
                 if health > mm {
                     break;
                 }
-                let Some(fill) = choose_fill(&market, &position, &terms, case.cushion, slot) else {
+                let Some(fill) = choose_fill(&market, &position, &terms, case.cushion, slot, policy) else {
                     if let Err(e) = sale(&market, asset, position.collateral_amount, slot) {
                         totals.quote_failures += 1;
                         totals.last_quote_error = error_name(e);
@@ -311,7 +334,29 @@ fn one_case(case: Case) -> Totals {
         let mm = terms
             .effective_maintenance_bps(position.collateral_amount.into())
             .unwrap();
-        totals.eligible += u64::from(health <= u128::from(mm));
+        if health <= u128::from(mm) {
+            totals.eligible += 1;
+            totals.eligible_debt += debt;
+            // Re-run the same permission/price rules with zero off-chain cost.
+            // This isolates a modeled profitability obstacle from eligibility,
+            // cash, price-floor and recovery constraints.
+            if choose_fill(&market, &position, &terms, case.cushion, slot, policy).is_none()
+                && choose_fill(
+                    &market,
+                    &position,
+                    &terms,
+                    case.cushion,
+                    slot,
+                    Policy {
+                        keeper_cost: 0,
+                        ..policy
+                    },
+                )
+                .is_some()
+            {
+                totals.eligible_below_keeper_cost += 1;
+            }
+        }
     }
     assert_eq!(
         totals.original_debt,

@@ -40,6 +40,7 @@ pub(super) fn choose_fill(
     terms: &LeverageMarginSchedule,
     cushion: u64,
     slot: u64,
+    policy: Policy,
 ) -> Option<Fill> {
     let asset = position.collateral_asset().unwrap();
     let debt = position.debt_amount(&market.debt).unwrap();
@@ -65,9 +66,9 @@ pub(super) fn choose_fill(
         };
         let sold_value = reference_credit(market, asset, sold);
         let payment = (u128::from(sold_value) * u128::from(10_000 - discount)).div_ceil(10_000) as u64;
-        let contribution = payment * 20 / 10_000;
+        let contribution = payment * policy.insurance_bps / 10_000;
         let repay = payment - contribution;
-        if repay == 0 || repay >= debt || output < payment + 50 {
+        if repay == 0 || repay >= debt || output < payment + policy.keeper_cost {
             continue;
         }
         let left = position.collateral_amount - sold;
@@ -88,7 +89,7 @@ pub(super) fn choose_fill(
             contribution,
             reward: 0,
         });
-        if after >= after_mm + 200 {
+        if after >= after_mm + u64::from(terms.recovery_buffer_bps) {
             return partial;
         }
     }
@@ -100,20 +101,24 @@ pub(super) fn choose_fill(
         return None;
     };
     let payment = (u128::from(value) * u128::from(10_000 - discount)).div_ceil(10_000) as u64;
-    if output >= payment + 50 {
+    if output >= payment + policy.keeper_cost {
         return Some(Fill {
             kind: 1,
             sold,
             output,
             payment,
-            contribution: payment.saturating_sub(debt).min(debt * 20 / 10_000),
+            contribution: payment.saturating_sub(debt).min(debt * policy.insurance_bps / 10_000),
             reward: 0,
         });
     }
-    let reward = output * severity / 1_000_000; // up to 1% of actual proceeds
+    let reward = (u128::from(output) * u128::from(severity) * u128::from(policy.max_reward_bps) / 100_000_000) as u64;
     let payment = output - reward;
-    let contribution = payment.saturating_sub(debt).min(debt * 20 / 10_000);
-    if reward >= 50 && cushion > 0 && payment >= debt && (payment - debt - contribution) * 10_000 <= debt * cushion {
+    let contribution = payment.saturating_sub(debt).min(debt * policy.insurance_bps / 10_000);
+    if reward >= policy.keeper_cost
+        && cushion > 0
+        && payment >= debt
+        && (payment - debt - contribution) * 10_000 <= debt * cushion
+    {
         return Some(Fill {
             kind: 2,
             sold,
@@ -123,7 +128,7 @@ pub(super) fn choose_fill(
             reward,
         });
     }
-    if h * 2 <= mm && reward >= 50 {
+    if h * 10_000 <= mm * policy.critical_fraction_bps && reward >= policy.keeper_cost {
         return Some(Fill {
             kind: 3,
             sold,

@@ -1,6 +1,6 @@
 # Margin and flash liquidation decisions
 
-Updated 2026-10-05. This is the current decision record for implementation in
+Updated 2026-10-07. This is the current decision record for implementation in
 [PR #45](https://github.com/omnipair/dusk/pull/45). It supersedes conflicting
 pricing, eligibility, reward, clock and composability proposals in the earlier
 handoff, flash contract and calibration documents. Decisions are not claims of
@@ -78,6 +78,14 @@ surplus even when debt is fully paid. Prefer partial repair, but do not claim th
 off-chain keeper preferences enforce priority or prove outside routes unavailable.
 
 ## Calibration and implementation details still to resolve
+
+The [2026-10-07 parameter recommendation](calibration/PARAMETER_RECOMMENDATION.md)
+fits the selected 6x reference target with 7/12/17% marginal bands and compares
+the remaining settings in 1,080 native scenarios. A separate 48-case diagnostic
+identifies keeper cost as the immediate modeled obstacle for all 32 eligible
+residual positions from the previous 22 unfinished runs. The recommended
+numeric package and dust funding policy are **pending user decisions**; they
+do not change the confirmed choices or runtime defaults below.
 
 The eight product questions are answered. The user subsequently selected the 6x
 target, 3-percentage-point IM buffer and proposed 0.5%-to-5% discount candidate.
