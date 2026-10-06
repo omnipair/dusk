@@ -9,10 +9,9 @@ use anchor_lang::{prelude::*, AccountDeserialize, AccountSerialize};
 
 use crate::{
     constants::{
-        BPS_DENOMINATOR, LEVERAGE_INITIAL_MARGIN_BPS, LEVERAGE_MAINTENANCE_BUFFER_BPS, LEVERAGE_MAX_UNWIND_IMPACT_BPS,
-        LIQUIDATION_AUCTION_DURATION_SECONDS, LIQUIDATION_BACKSTOP_CALLER_BPS, MAX_COLLATERAL_FACTOR_BPS,
-        MAX_REFERRAL_INTEREST_SHARE_BPS, NAD, REFERRAL_ACCRUAL_SEED_PREFIX, REFERRAL_PARTNER_SEED_PREFIX,
-        YIELD_ACCOUNT_SEED_PREFIX,
+        BPS_DENOMINATOR, LIQUIDATION_AUCTION_DURATION_SECONDS, LIQUIDATION_BACKSTOP_CALLER_BPS,
+        MAX_COLLATERAL_FACTOR_BPS, MAX_REFERRAL_INTEREST_SHARE_BPS, NAD, REFERRAL_ACCRUAL_SEED_PREFIX,
+        REFERRAL_PARTNER_SEED_PREFIX, YIELD_ACCOUNT_SEED_PREFIX,
     },
     errors::ErrorCode,
     instructions::{
@@ -809,12 +808,12 @@ pub struct BenchmarkLeverageOwnedCheckpoint {
     pub referral: Option<BenchmarkReferralCheckpoint>,
 }
 
-/// Exact current-position health in debt-token atoms.
+/// Current executable metrics alongside stored margin requirements.
 ///
-/// `minimum_healthy_closeout_value` is the first integer closeout value that
-/// satisfies Dusk's strict maintenance predicate. It is deliberately not
-/// presented as an oracle price: concentrated-curve unwind impact makes that
-/// conversion state- and size-dependent.
+/// `minimum_healthy_closeout_value` and `maintenance_shortfall` describe a
+/// hypothetical executable equity comparison. `liquidatable` instead uses
+/// symmetric-EMA equity, independently of that execution quote. A null maximum
+/// unwind impact means there is no fixed percentage admission guard.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BenchmarkLeverageMetrics {
     pub debt_asset: MarketAsset,
@@ -829,7 +828,7 @@ pub struct BenchmarkLeverageMetrics {
     pub maintenance_shortfall: u64,
     pub spot_value: u64,
     pub unwind_impact_bps: u128,
-    pub maximum_open_unwind_impact_bps: u16,
+    pub maximum_open_unwind_impact_bps: Option<u16>,
     pub liquidatable: bool,
 }
 
@@ -4454,6 +4453,7 @@ fn empty_leverage_position() -> LeveragePosition {
         referral_interest_share_bps: 0,
         debt_asset: 0,
         collateral_amount: 0,
+        margin_terms: crate::state::LeverageMarginTerms::default(),
         margin_amount: 0,
         funded_collateral_amount: 0,
         open_notional: 0,
@@ -4754,7 +4754,7 @@ fn leverage_metrics(
             .checked_mul(BPS_DENOMINATOR as u128)
             .and_then(|value| value.checked_div(candidate as u128))
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        Ok(bps > LEVERAGE_MAINTENANCE_BUFFER_BPS as u128)
+        Ok(bps > u128::from(position.margin_terms.maintenance_bps(position.collateral_amount)?))
     };
     require!(healthy(u64::MAX)?, ErrorCode::DebtMathOverflow);
     let mut low = debt_amount.saturating_add(1);
@@ -4775,14 +4775,15 @@ fn leverage_metrics(
         closeout_value,
         equity,
         equity_bps,
-        initial_margin_bps: LEVERAGE_INITIAL_MARGIN_BPS,
-        maintenance_margin_bps: LEVERAGE_MAINTENANCE_BUFFER_BPS,
+        initial_margin_bps: position.margin_terms.initial_bps(position.collateral_amount)?,
+        maintenance_margin_bps: position.margin_terms.maintenance_bps(position.collateral_amount)?,
         minimum_healthy_closeout_value,
         maintenance_shortfall: minimum_healthy_closeout_value.saturating_sub(closeout_value),
         spot_value,
         unwind_impact_bps,
-        maximum_open_unwind_impact_bps: LEVERAGE_MAX_UNWIND_IMPACT_BPS,
-        liquidatable: closeout_value <= debt_amount || equity_bps <= LEVERAGE_MAINTENANCE_BUFFER_BPS as u128,
+        maximum_open_unwind_impact_bps: None,
+        liquidatable: market.leverage_reference_equity_bps(position, position.collateral_amount)?
+            <= u128::from(position.margin_terms.maintenance_bps(position.collateral_amount)?),
     })
 }
 

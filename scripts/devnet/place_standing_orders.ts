@@ -55,8 +55,8 @@ async function main() {
     return sig;
   };
 
-  // Small enough to stay well inside LEVERAGE_MAX_UNWIND_IMPACT_BPS at current
-  // depth; the point is to have a position, not a large one.
+  // Use a small position for this standing-order fixture; admission evaluates
+  // stored size margins, crowding, reference equity and executable equity.
   const positionId = Keypair.generate().publicKey;
   console.log(`position ${positionId.toBase58()}`);
   console.log(`open      ${await send([

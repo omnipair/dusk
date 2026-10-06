@@ -3,6 +3,11 @@ use crate::math::leverage_margin::LeverageMarginSchedule;
 
 const CALIBRATION_UNIT: u64 = 1_000;
 
+mod stored_margin_runtime {
+    use super::*;
+    include!("leverage_stored_margin_runtime.rs");
+}
+
 mod emergency_anchors {
     use super::*;
     include!("leverage_emergency_anchors.rs");
@@ -108,6 +113,14 @@ fn calibration_entry(
         255,
     );
     position.open_curve_revision = market.curve_revision;
+    // Historical calibration controls admission and maintenance outside the
+    // runtime open path. Keep that fixture's old liquidation terms explicit.
+    position.margin_terms = crate::state::LeverageMarginTerms::at_entry(market.leverage_reference_depth(debt_asset.opposite())?)?;
+    position.margin_terms.maintenance_rates_bps = [700; 3];
+    match debt_asset.opposite() {
+        MarketAsset::Base => market.debt.leverage_base_collateral += position.collateral_amount,
+        MarketAsset::Quote => market.debt.leverage_quote_collateral += position.collateral_amount,
+    }
     market.assert_market_invariants()?;
     Ok(position)
 }

@@ -102,7 +102,15 @@ user margin + isolated borrow
   -> debt tracked in isolated debt buckets
 ```
 
-Users can increase or decrease exposure, add or remove margin, close the position, or be liquidated if the closeout value falls below maintenance requirements. Isolated debt contributes to utilization and interest accrual, but it is kept separate from normal borrower debt and hLP vault debt.
+Users can increase or decrease exposure, add or remove margin, close the position, or be liquidated if symmetric-EMA equity falls below the position's stored maintenance requirement. Isolated debt contributes to utilization and interest accrual, but it is kept separate from normal borrower debt and hLP vault debt.
+
+Leverage stores liquidity-scaled maintenance bands and an entry-equity obligation
+per position. Other traders and LP activity do not passively change those terms.
+New risk uses progressive size margins and aggregate same-side exposure across
+all owners; margin extraction retains the admission obligation. Partial closure
+releases it proportionally. The former fixed 2% unwind-impact admission guard is
+removed; executable and reference equity checks still apply. See the
+[stored-margin contract](docs/STORED_LEVERAGE_MARGINS.md).
 
 Owners can also approve a leverage delegate program for a position. The delegate flow uses a before-hook approval and after-hook settlement approval, so keepers can execute bounded partial or full take-profit and stop-loss closes. Dusk pays a bounded protocol fee and executor incentive from the realized residual, then sends the remainder directly to a token account owned by the position owner. A delegate cannot redirect the owner's payout to its own custody.
 

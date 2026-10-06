@@ -54,6 +54,7 @@ fn wasm_boundary_uses_serialized_program_state() {
         referral_interest_share_bps: 0,
         debt_asset: 0,
         collateral_amount: 200_000_000,
+        margin_terms: dusk_native_close_quote::state::LeverageMarginTerms::at_entry(2_000_000_000).unwrap(),
         margin_amount: debt,
         funded_collateral_amount: debt,
         open_notional: debt * 2,
@@ -65,6 +66,7 @@ fn wasm_boundary_uses_serialized_program_state() {
         open_curve_revision: 0,
         bump: 1,
     };
+    market.debt.leverage_quote_collateral = position.collateral_amount;
     let mut market_bytes = Vec::new();
     let mut position_bytes = Vec::new();
     market.try_serialize(&mut market_bytes).unwrap();

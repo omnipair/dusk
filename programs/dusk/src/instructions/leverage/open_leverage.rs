@@ -460,6 +460,7 @@ impl<'info> OpenLeverage<'info> {
             debt_amount: receipt.debt_amount,
             debt_shares: receipt.debt_shares,
             collateral_amount: receipt.collateral_amount,
+            margin_terms: leverage_position.margin_terms,
             closeout_value: receipt.closeout_value,
             equity: receipt.equity,
             multiplier_bps: args.multiplier_bps,

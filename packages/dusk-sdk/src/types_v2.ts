@@ -12904,6 +12904,18 @@ export type Dusk = {
           {
             "name": "isolatedQuotePrincipal",
             "type": "u64"
+          },
+          {
+            "name": "leverageBaseCollateral",
+            "docs": [
+              "Gross collateral atoms in debt-bearing leverage positions. Counts all",
+              "owners and namespaces; custody donations cannot create exposure credit."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "leverageQuoteCollateral",
+            "type": "u64"
           }
         ]
       }
@@ -14399,6 +14411,52 @@ export type Dusk = {
       }
     },
     {
+      "name": "leverageMarginTerms",
+      "docs": [
+        "Entry terms are snapshotted in collateral units. Price, LP activity and",
+        "another trader's position cannot passively rebase an existing position."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "referenceCollateral",
+            "type": "u64"
+          },
+          {
+            "name": "maintenanceBoundariesBps",
+            "type": {
+              "array": [
+                "u16",
+                2
+              ]
+            }
+          },
+          {
+            "name": "maintenanceRatesBps",
+            "type": {
+              "array": [
+                "u16",
+                3
+              ]
+            }
+          },
+          {
+            "name": "entryBufferBps",
+            "type": "u16"
+          },
+          {
+            "name": "admissionEquityCollateralNad",
+            "docs": [
+              "Collateral atoms times NAD, not a fixed debt-token or dollar amount.",
+              "Retained on equity extraction; released proportionally on size reduction."
+            ],
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
       "name": "leveragePosition",
       "type": {
         "kind": "struct",
@@ -14438,6 +14496,14 @@ export type Dusk = {
           {
             "name": "collateralAmount",
             "type": "u64"
+          },
+          {
+            "name": "marginTerms",
+            "type": {
+              "defined": {
+                "name": "leverageMarginTerms"
+              }
+            }
           },
           {
             "name": "marginAmount",
@@ -14697,6 +14763,14 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "marginTerms",
+            "type": {
+              "defined": {
+                "name": "leverageMarginTerms"
+              }
+            }
+          },
+          {
             "name": "closeoutValue",
             "type": "u64"
           },
@@ -14775,6 +14849,14 @@ export type Dusk = {
           {
             "name": "collateralAmount",
             "type": "u64"
+          },
+          {
+            "name": "marginTerms",
+            "type": {
+              "defined": {
+                "name": "leverageMarginTerms"
+              }
+            }
           },
           {
             "name": "closeoutValue",
@@ -19099,24 +19181,9 @@ export type Dusk = {
       "value": "[108, 101, 118, 101, 114, 97, 103, 101, 95, 100, 101, 108, 101, 103, 97, 116, 105, 111, 110, 95, 118, 50]"
     },
     {
-      "name": "leverageInitialMarginBps",
-      "type": "u16",
-      "value": "1000"
-    },
-    {
-      "name": "leverageMaintenanceBufferBps",
-      "type": "u16",
-      "value": "700"
-    },
-    {
       "name": "leverageMaxMultiplierBps",
       "type": "u64",
       "value": "200000"
-    },
-    {
-      "name": "leverageMaxUnwindImpactBps",
-      "type": "u16",
-      "value": "200"
     },
     {
       "name": "leveragePositionSeedPrefix",
@@ -19192,12 +19259,11 @@ export type Dusk = {
       "docs": [
         "Serialized `Market` account layout discriminator.",
         "",
-        "Dusk is still pre-launch, so CONCENTRATED ships in the first deployable layout.",
-        "Increment this only for an incompatible account-layout change after",
-        "deployment, never for ordinary feature work or product naming."
+        "Layout 2 adds aggregate leverage collateral to Debt. It must not decode",
+        "existing layout-1 bytes as the expanded structure."
       ],
       "type": "u8",
-      "value": "1"
+      "value": "2"
     },
     {
       "name": "marketReserveVaultSeedPrefix",

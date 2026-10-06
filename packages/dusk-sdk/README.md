@@ -9,7 +9,31 @@ collections with the same source attribution. Typed events and their
 `SwapOrigin`/`DebtSource` discriminants are exported from this package.
 
 TypeScript SDK for Dusk, the Omnipair V2 protocol architecture. This package
-targets Dusk market layout v1.
+targets Dusk market layout v2, including aggregate leverage exposure and stored
+position margin terms. Regenerate clients and use matching account layouts.
+
+## Stored leverage margins
+
+```typescript
+import { getStoredLeverageMargins } from "@omnipair/dusk-sdk";
+
+const position = await dusk.get.leveragePosition(positionAddress);
+const { initialMarginBps, maintenanceMarginBps } = getStoredLeverageMargins(position);
+// Or fetch and decode in one call:
+const margins = await dusk.get.leverageMargins(positionAddress);
+```
+
+The helper reads the saved terms and applies the same conservative rate rounding
+as Rust. It does not recalculate an existing position from live market crowding.
+`admissionEquityCollateralNad` is collateral atoms times 1e9, not dollars or
+debt-token atoms. These are required margin rates, not actual equity or an
+executable leverage quote. Price and interest still change health. Simulate the
+complete proposed transaction for openings, increases and withdrawals; executable
+equity, cash and Token-2022 fees can impose tighter constraints.
+
+`LeveragePositionOpened` and `LeveragePositionUpdated` include `marginTerms`.
+Indexers should retain those fields per position and replace them on subsequent
+position updates, rather than deriving old-position terms from current liquidity.
 
 A `Dusk` instance is an enriched Anchor program facade. It exposes the raw
 Anchor program through `dusk.program`, alongside typed on-chain reads and
@@ -139,7 +163,7 @@ encodes that earlier list.
 
 ### Direct-yLP Parameter Governance
 
-Market layout v1 has no market manager. The program exposes seven independent
+Market layout v2 has no market manager. The program exposes seven independent
 parameter families: Fee, Concentration, IRM, EMA Half-Lives, Daily Borrow
 Limit, Center Controller, and Insurance. A direct yLP holder burn-locks at least
 1% of eligible direct yLP to create a typed proposal. Strictly more than 50%

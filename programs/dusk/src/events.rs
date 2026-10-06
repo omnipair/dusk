@@ -596,6 +596,7 @@ pub struct LeveragePositionOpened {
     pub debt_amount: u64,
     pub debt_shares: u128,
     pub collateral_amount: u64,
+    pub margin_terms: crate::state::LeverageMarginTerms,
     pub closeout_value: u64,
     pub equity: u64,
     pub multiplier_bps: u64,
@@ -634,6 +635,7 @@ pub struct LeveragePositionUpdated {
     pub debt_amount: u64,
     pub debt_shares: u128,
     pub collateral_amount: u64,
+    pub margin_terms: crate::state::LeverageMarginTerms,
     /// Executable closeout quote, or zero when unquoted by repay_leverage or
     /// when add_leverage_margin fully clears the debt. Collateral remains owned.
     pub closeout_value: u64,

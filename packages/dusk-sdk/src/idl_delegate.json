@@ -3245,6 +3245,18 @@
           {
             "name": "isolated_quote_principal",
             "type": "u64"
+          },
+          {
+            "name": "leverage_base_collateral",
+            "docs": [
+              "Gross collateral atoms in debt-bearing leverage positions. Counts all",
+              "owners and namespaces; custody donations cannot create exposure credit."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "leverage_quote_collateral",
+            "type": "u64"
           }
         ]
       }
@@ -4022,6 +4034,52 @@
       }
     },
     {
+      "name": "LeverageMarginTerms",
+      "docs": [
+        "Entry terms are snapshotted in collateral units. Price, LP activity and",
+        "another trader's position cannot passively rebase an existing position."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "reference_collateral",
+            "type": "u64"
+          },
+          {
+            "name": "maintenance_boundaries_bps",
+            "type": {
+              "array": [
+                "u16",
+                2
+              ]
+            }
+          },
+          {
+            "name": "maintenance_rates_bps",
+            "type": {
+              "array": [
+                "u16",
+                3
+              ]
+            }
+          },
+          {
+            "name": "entry_buffer_bps",
+            "type": "u16"
+          },
+          {
+            "name": "admission_equity_collateral_nad",
+            "docs": [
+              "Collateral atoms times NAD, not a fixed debt-token or dollar amount.",
+              "Retained on equity extraction; released proportionally on size reduction."
+            ],
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
       "name": "LeverageOrder",
       "type": {
         "kind": "struct",
@@ -4176,6 +4234,14 @@
           {
             "name": "collateral_amount",
             "type": "u64"
+          },
+          {
+            "name": "margin_terms",
+            "type": {
+              "defined": {
+                "name": "LeverageMarginTerms"
+              }
+            }
           },
           {
             "name": "margin_amount",

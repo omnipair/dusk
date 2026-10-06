@@ -6,7 +6,7 @@ use anchor_spl::{
     token_interface::{Mint, TokenAccount},
 };
 use dusk::{
-    constants::{BPS_DENOMINATOR, LEVERAGE_MAINTENANCE_BUFFER_BPS},
+    constants::BPS_DENOMINATOR,
     program::Dusk,
     state::{
         BorrowPosition, FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual,
@@ -140,18 +140,9 @@ pub(super) fn protection_health_of(
         if debt == 0 {
             return Ok(u64::MAX);
         }
-        let value = market.leverage_protection_closeout_value_with_fee(
+        market.leverage_reference_protection_health(
             position,
-            clock.slot,
-            clock.unix_timestamp,
-            collateral_fee,
-        )?;
-        // One extra basis point makes this conservative with the liquidation
-        // engine's integer-rounded equity test (equity_bps <= maintenance).
-        Ok(
-            ((value as u128) * (BPS_DENOMINATOR - LEVERAGE_MAINTENANCE_BUFFER_BPS - 1) as u128
-                / debt as u128)
-                .min(u64::MAX as u128) as u64,
+            collateral_fee.unwind_credit(position.collateral_amount)?,
         )
     }
 }

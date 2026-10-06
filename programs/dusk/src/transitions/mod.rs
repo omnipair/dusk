@@ -4,6 +4,7 @@ pub(crate) mod governance;
 pub(crate) mod ledger;
 pub(crate) mod lending;
 mod leverage;
+mod leverage_margins;
 pub(crate) mod liquidity;
 pub(crate) mod revenue;
 

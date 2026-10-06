@@ -100,7 +100,7 @@ export function decodeDuskVirtualBookBatch(
     market.paramsHash
   );
   if (
-    market.version !== 1 ||
+    market.version !== 2 ||
     market.bump !== bump ||
     address.toBase58() !== snapshot.market ||
     !market.baseSide.assetMint.equals(snapshot.account.baseSide.assetMint) ||

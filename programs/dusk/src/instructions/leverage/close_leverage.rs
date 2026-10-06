@@ -910,6 +910,7 @@ impl<'info> CloseLeverage<'info> {
                 debt_amount: receipt.remaining_debt_amount,
                 debt_shares: receipt.remaining_debt_shares,
                 collateral_amount: receipt.remaining_collateral_amount,
+                margin_terms: ctx.accounts.leverage_position.margin_terms,
                 closeout_value: receipt.remaining_closeout_value,
                 owner_credit: residual_credit,
                 interest_paid: receipt.interest_paid,

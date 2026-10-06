@@ -1,10 +1,8 @@
 /**
  * Restore market depth on devnet.
  *
- * Leverage refuses to open when unwinding the position would move the price
- * more than `LEVERAGE_MAX_UNWIND_IMPACT_BPS` (2%), so a shallow market fails
- * `open_leverage` with `LeverageUnwindImpactTooHigh` while every other flow
- * still passes. That reads as a leverage bug and is really a depth problem.
+ * Additional physical depth can improve execution and new-position margin
+ * requirements. Existing positions retain their stored margin terms.
  *
  * Mints from the faucet and adds liquidity until each side reaches the target.
  * Deposits in equal amounts so the pool is not pushed off parity.

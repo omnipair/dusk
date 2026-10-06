@@ -47,6 +47,7 @@ import { findMinimumNativeCloseCollateralIn, nativeCloseCredit, nativeCloseGross
   type NativeCloseTransferFee } from "./native-close.js";
 import { createNativeCloseQuote } from "./native-close-quote.js";
 import { DuskWrite, type CloseLeverageParams, type RawAmount } from "./write.js";
+import { getStoredLeverageMargins } from "./leverage-margins.js";
 import {
   decodePreviewAddLiquidityReturnData,
   decodePreviewBorrowCapacityReturnData,
@@ -215,6 +216,11 @@ export class DuskGet {
 
   leveragePosition(account: AddressLike): Promise<LeveragePosition> {
     return this.programAccount<LeveragePosition>("leveragePosition", account);
+  }
+
+  /** Fetch saved margin terms; does not quote an opening or an increase. */
+  async leverageMargins(account: AddressLike) {
+    return getStoredLeverageMargins(await this.leveragePosition(account));
   }
 
   /**

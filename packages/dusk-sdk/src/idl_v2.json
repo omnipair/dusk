@@ -12898,6 +12898,18 @@
           {
             "name": "isolated_quote_principal",
             "type": "u64"
+          },
+          {
+            "name": "leverage_base_collateral",
+            "docs": [
+              "Gross collateral atoms in debt-bearing leverage positions. Counts all",
+              "owners and namespaces; custody donations cannot create exposure credit."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "leverage_quote_collateral",
+            "type": "u64"
           }
         ]
       }
@@ -14393,6 +14405,52 @@
       }
     },
     {
+      "name": "LeverageMarginTerms",
+      "docs": [
+        "Entry terms are snapshotted in collateral units. Price, LP activity and",
+        "another trader's position cannot passively rebase an existing position."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "reference_collateral",
+            "type": "u64"
+          },
+          {
+            "name": "maintenance_boundaries_bps",
+            "type": {
+              "array": [
+                "u16",
+                2
+              ]
+            }
+          },
+          {
+            "name": "maintenance_rates_bps",
+            "type": {
+              "array": [
+                "u16",
+                3
+              ]
+            }
+          },
+          {
+            "name": "entry_buffer_bps",
+            "type": "u16"
+          },
+          {
+            "name": "admission_equity_collateral_nad",
+            "docs": [
+              "Collateral atoms times NAD, not a fixed debt-token or dollar amount.",
+              "Retained on equity extraction; released proportionally on size reduction."
+            ],
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
       "name": "LeveragePosition",
       "type": {
         "kind": "struct",
@@ -14432,6 +14490,14 @@
           {
             "name": "collateral_amount",
             "type": "u64"
+          },
+          {
+            "name": "margin_terms",
+            "type": {
+              "defined": {
+                "name": "LeverageMarginTerms"
+              }
+            }
           },
           {
             "name": "margin_amount",
@@ -14691,6 +14757,14 @@
             "type": "u64"
           },
           {
+            "name": "margin_terms",
+            "type": {
+              "defined": {
+                "name": "LeverageMarginTerms"
+              }
+            }
+          },
+          {
             "name": "closeout_value",
             "type": "u64"
           },
@@ -14769,6 +14843,14 @@
           {
             "name": "collateral_amount",
             "type": "u64"
+          },
+          {
+            "name": "margin_terms",
+            "type": {
+              "defined": {
+                "name": "LeverageMarginTerms"
+              }
+            }
           },
           {
             "name": "closeout_value",
@@ -19093,24 +19175,9 @@
       "value": "[108, 101, 118, 101, 114, 97, 103, 101, 95, 100, 101, 108, 101, 103, 97, 116, 105, 111, 110, 95, 118, 50]"
     },
     {
-      "name": "LEVERAGE_INITIAL_MARGIN_BPS",
-      "type": "u16",
-      "value": "1000"
-    },
-    {
-      "name": "LEVERAGE_MAINTENANCE_BUFFER_BPS",
-      "type": "u16",
-      "value": "700"
-    },
-    {
       "name": "LEVERAGE_MAX_MULTIPLIER_BPS",
       "type": "u64",
       "value": "200000"
-    },
-    {
-      "name": "LEVERAGE_MAX_UNWIND_IMPACT_BPS",
-      "type": "u16",
-      "value": "200"
     },
     {
       "name": "LEVERAGE_POSITION_SEED_PREFIX",
@@ -19186,12 +19253,11 @@
       "docs": [
         "Serialized `Market` account layout discriminator.",
         "",
-        "Dusk is still pre-launch, so CONCENTRATED ships in the first deployable layout.",
-        "Increment this only for an incompatible account-layout change after",
-        "deployment, never for ordinary feature work or product naming."
+        "Layout 2 adds aggregate leverage collateral to Debt. It must not decode",
+        "existing layout-1 bytes as the expanded structure."
       ],
       "type": "u8",
-      "value": "1"
+      "value": "2"
     },
     {
       "name": "MARKET_RESERVE_VAULT_SEED_PREFIX",

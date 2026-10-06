@@ -14,6 +14,7 @@ implemented or tested behavior.
 | Admission valuation | Preserve directional/asymmetric EMA protections for new risk and existing cash/accounting constraints. Deliberate use of different EMA roles is not a finding by itself. |
 | Initial margin | User selected effective maintenance plus 3 percentage points, with same-side aggregate crowding able to raise the requirement further: IM = max(effective MM + 3 points, crowding requirement). Apply to new or increased risk. No replacement hard cap at 50% TVL. |
 | Maintenance | Progressive position-size bands scaled to a conservative liquidity reference stored at entry. LP withdrawals and other traders' entries do not rebase an existing position's bands. Risk increases recheck applicable terms and expose changes in the preview. |
+| Persistence of entry terms | User accepted retaining the entry-equity requirement as predictable UX. Calculate and store the admission obligation and maintenance terms/reference at entry. For an unchanged position, other traders' activity, LP depth changes and price movements alone do not reselect its IM/MM terms. Price movements and accrued interest still change actual equity, health and the estimated liquidation price. Increasing risk rechecks applicable admission terms with a preview; reducing collateral releases the retained obligation proportionally and can lower effective MM under the stored bands. Runtime implementation and native lifecycle coverage are described in [stored leverage margins](STORED_LEVERAGE_MARGINS.md); full loss calibration of the new policy remains outstanding. |
 | Calibration priority | Preserve gentle small-position requirements near today's 10% IM / 7% MM, with progressive protection for larger positions. The user found the tested 7/12/30% and 7/20/40% schedules too restrictive around 30% of the stored side reference; they are comparison candidates, not selected defaults. |
 | Leverage target at 30% of the stored side reference | User selected approximately 6x. This is a reference-margin calibration target before execution costs, additional crowding or other admission constraints. It implies about 16.67% IM and, with the selected 3-percentage-point entry buffer, about 13.67% effective MM. It does not select the entire tier curve or guarantee 6x wallet leverage in a thin AMM. |
 | Margin UX | Emphasize available leverage, required collateral and estimated liquidation price in the main flow. Raw IM/MM percentages are secondary information. Displayed leverage must include actual execution and crowding constraints. |
@@ -140,6 +141,26 @@ make a partial worsen health, and bound full-sale permission and incentives ther
 Do not silently choose a subsidy or minimum fee to solve uneconomic dust.
 
 ## Implementation order and acceptance evidence
+
+### Margin implementation checkpoint, 2026-10-07
+
+The current increment implements stored position terms, aggregate collateral
+exposure, incremental admission obligations, symmetric-EMA eligibility, and SDK
+display helpers/events. It replaces the fixed 2% unwind rejection. Development
+defaults use 7/12/17% marginal MM at 5/15% of stored depth, plus the selected
+3-point buffer and a growing crowding tail. The exact potential, rounding and
+lifecycle rules are in [the implementation contract](STORED_LEVERAGE_MARGINS.md).
+This supersedes the earlier endpoint-crowding arithmetic for runtime admission.
+
+Native tests cover actual openings across concentration, controller/hLP and
+both debt directions, retained-equity withdrawal checks, LP activity, partial
+closure and full repayment. These lifecycle tests do not replace loss-path
+calibration. Atomic flash sessions, partial liquidation, emergency permission,
+progressive rewards and the selected loss waterfall remain unfinished. Existing
+full-sale liquidation and auction instructions still exist; finding #287652
+remains open. No deployment is included.
+
+### Remaining integration sequence
 
 1. Combine #48 into #45 and reconcile audit, native-collateral, SDK and test
    changes. Regenerate interfaces; run all required CI checks before committing.

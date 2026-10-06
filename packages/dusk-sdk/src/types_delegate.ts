@@ -3251,6 +3251,18 @@ export type LeverageDelegate = {
           {
             "name": "isolatedQuotePrincipal",
             "type": "u64"
+          },
+          {
+            "name": "leverageBaseCollateral",
+            "docs": [
+              "Gross collateral atoms in debt-bearing leverage positions. Counts all",
+              "owners and namespaces; custody donations cannot create exposure credit."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "leverageQuoteCollateral",
+            "type": "u64"
           }
         ]
       }
@@ -4028,6 +4040,52 @@ export type LeverageDelegate = {
       }
     },
     {
+      "name": "leverageMarginTerms",
+      "docs": [
+        "Entry terms are snapshotted in collateral units. Price, LP activity and",
+        "another trader's position cannot passively rebase an existing position."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "referenceCollateral",
+            "type": "u64"
+          },
+          {
+            "name": "maintenanceBoundariesBps",
+            "type": {
+              "array": [
+                "u16",
+                2
+              ]
+            }
+          },
+          {
+            "name": "maintenanceRatesBps",
+            "type": {
+              "array": [
+                "u16",
+                3
+              ]
+            }
+          },
+          {
+            "name": "entryBufferBps",
+            "type": "u16"
+          },
+          {
+            "name": "admissionEquityCollateralNad",
+            "docs": [
+              "Collateral atoms times NAD, not a fixed debt-token or dollar amount.",
+              "Retained on equity extraction; released proportionally on size reduction."
+            ],
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
       "name": "leverageOrder",
       "type": {
         "kind": "struct",
@@ -4182,6 +4240,14 @@ export type LeverageDelegate = {
           {
             "name": "collateralAmount",
             "type": "u64"
+          },
+          {
+            "name": "marginTerms",
+            "type": {
+              "defined": {
+                "name": "leverageMarginTerms"
+              }
+            }
           },
           {
             "name": "marginAmount",

@@ -50,6 +50,7 @@ fn recreated_position_requires_owner_to_reauthorize_order() {
         referral_interest_share_bps: 0,
         debt_asset: 0,
         collateral_amount: 1,
+        margin_terms: dusk::state::LeverageMarginTerms::at_entry(100).unwrap(),
         margin_amount: 1,
         funded_collateral_amount: 0,
         open_notional: 1,

@@ -1,5 +1,8 @@
 use super::*;
 
+const LEVERAGE_INITIAL_MARGIN_BPS: u16 = 1000;
+const LEVERAGE_MAINTENANCE_BUFFER_BPS: u16 = 700;
+
 mod margin_calibration {
     include!("leverage_margin_calibration.rs");
 }
@@ -90,6 +93,7 @@ fn empty_position() -> LeveragePosition {
         referral_interest_share_bps: 0,
         debt_asset: 0,
         collateral_amount: 0,
+        margin_terms: crate::state::LeverageMarginTerms::default(),
         margin_amount: 0,
         funded_collateral_amount: 0,
         open_notional: 0,
@@ -190,6 +194,14 @@ fn seeded_position(
         0,
         255,
     );
+    // Legacy accounting fixtures retain their original flat 7% maintenance.
+    // Runtime opening tests separately exercise the new size/crowding terms.
+    position.margin_terms = crate::state::LeverageMarginTerms::at_entry(market.leverage_reference_depth(debt_asset.opposite()).unwrap()).unwrap();
+    position.margin_terms.maintenance_rates_bps = [700; 3];
+    match debt_asset.opposite() {
+        MarketAsset::Base => market.debt.leverage_base_collateral += collateral_amount,
+        MarketAsset::Quote => market.debt.leverage_quote_collateral += collateral_amount,
+    }
     position
 }
 

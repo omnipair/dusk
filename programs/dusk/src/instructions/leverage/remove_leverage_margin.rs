@@ -163,6 +163,7 @@ impl<'info> RemoveLeverageMargin<'info> {
             debt_amount: receipt.debt_amount,
             debt_shares: receipt.debt_shares,
             collateral_amount: receipt.collateral_amount,
+            margin_terms: ctx.accounts.leverage_position.margin_terms,
             closeout_value: receipt.closeout_value,
             owner_credit: amount_out,
             interest_paid: receipt.interest_paid,

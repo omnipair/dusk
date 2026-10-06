@@ -35,6 +35,14 @@ fixture.result.value.accounts[0].data[0] = Buffer.concat([
   Buffer.alloc(32),
   savedMarketBytes.subarray(borrowIndexEnd),
 ]).toString("base64");
+// The immutable network capture also predates leverage exposure counters.
+const carriedMarketBytes = Buffer.from(fixture.result.value.accounts[0].data[0], "base64");
+const debtEnd = borrowIndexEnd + 32 + 128;
+const currentMarketBytes = Buffer.concat([
+  carriedMarketBytes.subarray(0, debtEnd), Buffer.alloc(16), carriedMarketBytes.subarray(debtEnd),
+]);
+currentMarketBytes[8] = 2;
+fixture.result.value.accounts[0].data[0] = currentMarketBytes.toString("base64");
 const slot = fixture.result.context.slot;
 const prefix = `Program return: ${fixture.programId} `;
 // The saved devnet snapshot predates the two trailing output-fee fields.

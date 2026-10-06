@@ -1503,7 +1503,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   async function openQuoteDebtLeverage(
     fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>,
     marginAmount = 1_000,
-    remainingAccounts: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] = []
+    remainingAccounts: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] = [],
+    multiplierBps = 20_000
   ) {
     const positionId = Keypair.generate().publicKey;
     const leveragePosition = deriveLeveragePositionAddress(fixture.market, payer.publicKey, positionId)[0];
@@ -1517,7 +1518,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         positionId,
         debtAsset: 1,
         marginAmount: new BN(marginAmount),
-        multiplierBps: new BN(20_000),
+        multiplierBps: new BN(multiplierBps),
         minCollateralOut: new BN(1),
         referrer: null,
         positionOwner: null,
@@ -8274,6 +8275,21 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
   it("opens leverage, updates exposure, and manages delegated permissions", async function () {
     const fixture = await addBalancedLiquidity(62);
+    // Admission runs after the tentative swap/exposure updates. A rejected
+    // opening must roll back both accounting and physical token transfers.
+    const rollbackAccounts = [fixture.market, fixture.baseReserveVault,
+      fixture.quoteReserveVault, fixture.ownerQuoteAccount];
+    const beforeRejectedOpen = rollbackAccounts.map((key) => Buffer.from(svm.getAccount(key)!.data));
+    let rejection: unknown;
+    try {
+      await openQuoteDebtLeverage(fixture, 1_000, [], 200_000);
+    } catch (error) {
+      rejection = error;
+    }
+    expect(String(rejection)).to.include("LeverageInitialMarginTooLow");
+    rollbackAccounts.forEach((key, index) => {
+      expect(Buffer.from(svm.getAccount(key)!.data).equals(beforeRejectedOpen[index])).to.equal(true);
+    });
     const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(fixture);
     trackV2Instruction("openLeverage", this.test?.title);
 
@@ -8285,6 +8301,14 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(position.debt_asset).to.equal(1);
     expect(position.collateral_amount.toNumber()).to.be.greaterThan(0);
     expect(BigInt(position.debt_shares.toString()) > 0n).to.equal(true);
+    expect(position.margin_terms.reference_collateral.toNumber()).to.be.greaterThan(0);
+    expect(position.margin_terms.maintenance_rates_bps).to.deep.equal([700, 1200, 1700]);
+    const termsAfterOpen = position.margin_terms;
+    const marketExposure = () => {
+      const decoded = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+      return BigInt(decoded.debt.leverage_base_collateral.toString());
+    };
+    expect(marketExposure()).to.equal(BigInt(position.collateral_amount.toString()));
     const collateralAfterOpen = position.collateral_amount.toNumber();
     const debtSharesAfterOpen = BigInt(position.debt_shares.toString());
 
@@ -8322,6 +8346,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       "LeveragePosition",
       Buffer.from(updatedPositionAccount!.data)
     ) as any;
+    expect(position.margin_terms).to.deep.equal(termsAfterOpen);
     const debtSharesAfterAddMargin = BigInt(position.debt_shares.toString());
     expect(debtSharesAfterAddMargin < debtSharesAfterOpen).to.equal(true);
 
@@ -8393,6 +8418,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       Buffer.from(updatedPositionAccount!.data)
     ) as any;
     expect(position.collateral_amount.toNumber()).to.be.greaterThan(collateralAfterOpen);
+    expect(marketExposure()).to.equal(BigInt(position.collateral_amount.toString()));
+    const increaseEvent = cpiEvents(increaseTx).find((event) => event.name === "leveragePositionUpdated");
+    expect(increaseEvent).to.not.equal(undefined);
+    const obligationAfterIncrease = BigInt(position.margin_terms.admission_equity_collateral_nad.toString());
     const collateralAfterIncrease = position.collateral_amount.toNumber();
 
     const decreaseTx = await program.methods
@@ -8432,6 +8461,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       Buffer.from(updatedPositionAccount!.data)
     ) as any;
     expect(position.collateral_amount.toNumber()).to.equal(collateralAfterIncrease - 25);
+    expect(marketExposure()).to.equal(BigInt(collateralAfterIncrease - 25));
+    const remainingObligation = (obligationAfterIncrease * BigInt(collateralAfterIncrease - 25)
+      + BigInt(collateralAfterIncrease) - 1n) / BigInt(collateralAfterIncrease);
+    expect(BigInt(position.margin_terms.admission_equity_collateral_nad.toString())).to.equal(remainingObligation);
 
     const leverageDelegation = deriveLeverageDelegationAddress(leveragePosition)[0];
     const delegatedProgram = Keypair.generate().publicKey;
@@ -9438,8 +9471,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     trackV2Instruction("openLeverage", this.test?.title);
 
     await swapBaseForQuote(fixture, [], 80_000, 1);
-    // Liquidation requires both executable closeout and the symmetric EMA to
-    // breach maintenance. Let the EMA absorb the adverse spot move.
+    // Symmetric-EMA equity determines eligibility at stored maintenance.
+    // Let the EMA absorb the adverse spot move.
     svm.warpToSlot(svm.getClock().slot + 600n);
     svm.expireBlockhash();
 

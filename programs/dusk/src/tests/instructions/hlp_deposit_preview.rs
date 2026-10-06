@@ -19,7 +19,18 @@ fn snapshot() -> (Market, Clock) {
         + marker.len();
     let mut bytes = include_bytes!("../fixtures/hlp-entry-devnet-500291305.bin").to_vec();
     bytes.splice(insertion_offset..insertion_offset, [0u8; 32]);
-    let market = Market::try_deserialize(&mut bytes.as_slice()).unwrap();
+    // The immutable capture also predates aggregate leverage collateral.
+    layout.debt.leverage_base_collateral = 0x1357_9bdf_2468_ace0;
+    layout.debt.leverage_quote_collateral = 0x2468_ace0_1357_9bdf;
+    layout_bytes.clear();
+    layout.try_serialize(&mut layout_bytes).unwrap();
+    marker.clear();
+    marker.extend_from_slice(&layout.debt.leverage_base_collateral.to_le_bytes());
+    marker.extend_from_slice(&layout.debt.leverage_quote_collateral.to_le_bytes());
+    let exposure_offset = layout_bytes.windows(marker.len()).position(|window| window == marker).unwrap();
+    bytes.splice(exposure_offset..exposure_offset, [0u8; 16]);
+    let mut market = Market::try_deserialize(&mut bytes.as_slice()).unwrap();
+    market.version = crate::constants::MARKET_LAYOUT_VERSION;
     let clock = Clock {
         slot: 500_291_305,
         unix_timestamp: market.config.start_time + 1,

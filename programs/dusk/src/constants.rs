@@ -146,19 +146,12 @@ pub const LEVERAGE_DELEGATION_SEED_PREFIX: &[u8] = b"leverage_delegation_v2";
 pub const LEVERAGE_COLLATERAL_VAULT_SEED_PREFIX: &[u8] = b"leverage_collateral";
 #[constant]
 pub const LEVERAGE_MAX_MULTIPLIER_BPS: u64 = 200_000; // 20x circuit breaker
-#[constant]
-pub const LEVERAGE_MAX_UNWIND_IMPACT_BPS: u16 = 200; // 2%
-#[constant]
-pub const LEVERAGE_INITIAL_MARGIN_BPS: u16 = 1_000; // 10%
-#[constant]
-pub const LEVERAGE_MAINTENANCE_BUFFER_BPS: u16 = 700; // 7%
 /// Serialized `Market` account layout discriminator.
 ///
-/// Dusk is still pre-launch, so CONCENTRATED ships in the first deployable layout.
-/// Increment this only for an incompatible account-layout change after
-/// deployment, never for ordinary feature work or product naming.
+/// Layout 2 adds aggregate leverage collateral to Debt. It must not decode
+/// existing layout-1 bytes as the expanded structure.
 #[constant]
-pub const MARKET_LAYOUT_VERSION: u8 = 1;
+pub const MARKET_LAYOUT_VERSION: u8 = 2;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");

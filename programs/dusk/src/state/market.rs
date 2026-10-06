@@ -347,6 +347,10 @@ pub struct Debt {
     pub isolated_quote_shares: u128,
     pub isolated_base_principal: u64,
     pub isolated_quote_principal: u64,
+    /// Gross collateral atoms in debt-bearing leverage positions. Counts all
+    /// owners and namespaces; custody donations cannot create exposure credit.
+    pub leverage_base_collateral: u64,
+    pub leverage_quote_collateral: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
