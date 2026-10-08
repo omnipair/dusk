@@ -9692,12 +9692,19 @@ export type Dusk = {
         },
         {
           "name": "proposal",
+          "docs": [
+            "than by Anchor: when its last supporter withdraws it shrinks to a",
+            "`ParameterProposalTombstone`, which a typed account would overwrite with",
+            "the full proposal on exit. `validate` checks its owner, discriminator,",
+            "address and digest."
+          ],
           "writable": true
         },
         {
           "name": "proposer",
           "docs": [
-            "lamports: the rent when the last supporter withdraws."
+            "proposal in `validate`. Only receives lamports: the rent above the",
+            "tombstone's own when the last supporter withdraws."
           ],
           "writable": true
         },
@@ -16544,10 +16551,11 @@ export type Dusk = {
             "type": "u8"
           },
           {
-            "name": "proposalClosed",
+            "name": "proposalTombstoned",
             "docs": [
-              "The last supporter left, so the proposal account closed and its rent",
-              "returned to the proposer."
+              "The last supporter left, so the proposal account became a",
+              "`ParameterProposalTombstone` and the rest of its rent returned to the",
+              "proposer."
             ],
             "type": "bool"
           }
@@ -18053,10 +18061,10 @@ export type Dusk = {
           {
             "name": "digest",
             "docs": [
-              "Digest of the proposal the supporter reviewed. A proposal account",
-              "closes once every supporter has withdrawn, which frees its address for",
-              "a new proposal; binding the digest keeps a pending support from landing",
-              "on different updates created at the same address."
+              "Digest of the proposal the supporter reviewed. A proposal never",
+              "changes and its address never holds another one (it ends as a",
+              "tombstone), so this is defence in depth: a support names exactly the",
+              "updates and metadata its sender saw."
             ],
             "type": {
               "array": [

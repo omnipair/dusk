@@ -485,6 +485,11 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
 
     assert_eq!(proposal.try_to_vec().unwrap().len(), ParameterProposal::INIT_SPACE);
     assert_eq!(ParameterProposal::INIT_SPACE, 1_187);
+    // A finished proposal keeps only its tombstone discriminator.
+    assert_eq!(
+        crate::account::get_size_with_discriminator::<crate::state::ParameterProposalTombstone>(),
+        8
+    );
     assert_eq!(support.try_to_vec().unwrap().len(), ProposalSupport::INIT_SPACE);
     assert_eq!(ProposalSupport::INIT_SPACE, 201);
 

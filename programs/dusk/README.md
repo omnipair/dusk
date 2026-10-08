@@ -74,10 +74,12 @@ streams through a proposal-local virtual ledger. Queued support cannot be
 withdrawn; after execution, expiry, staleness, or cancellation,
 `withdraw_parameter_support` remints the exact locked amount and merges its
 yield into the holder's normal `YieldAccount`s. When the last supporter
-withdraws, the proposal account closes and its rent returns to the proposer,
-whoever sends that withdrawal. Closing frees the proposal's address, so
-`support_parameter_proposal` carries the digest the supporter reviewed and
-fails if the address now holds a different proposal.
+withdraws, whoever sends that withdrawal, the proposal becomes a tombstone
+(`ParameterProposalTombstone`): the account shrinks to its 8-byte
+discriminator and stays rent-exempt, so its address can never hold another
+proposal, and the rest of its rent returns to the proposer.
+`support_parameter_proposal` also carries the digest the supporter reviewed
+and fails with `ProposalDigestMismatch` if it does not match.
 
 A proposal changes one or more of seven families: the complete fee profile,
 concentration shape plus its 216,000–1,512,000-slot ramp duration, IRM, the four

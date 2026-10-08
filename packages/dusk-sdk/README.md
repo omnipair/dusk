@@ -223,7 +223,7 @@ await dusk.write.supportParameterProposal({
   proposal,
   amount: additionalSupport,
   // The digest of the proposal the supporter reviewed, from its creation
-  // event or account; support fails if the address now holds another one.
+  // event or account; support fails unless it matches the proposal.
   digest: proposalDigest,
 });
 
@@ -233,7 +233,8 @@ await dusk.write.withdrawParameterSupport({
   supporter: wallet.publicKey,
   market,
   proposal,
-  // Receives the proposal's rent when the last supporter withdraws.
+  // Receives the proposal's rent, less its tombstone's, when the last
+  // supporter withdraws.
   proposer,
 });
 ```
@@ -249,7 +250,9 @@ claim continues earning yLP yield. Withdrawal destroys that claim, merges its
 virtual-yield ledgers, and mints back exactly the locked yLP. Collecting support
 can be withdrawn; queued support stays frozen until the proposal executes,
 expires, or becomes stale. When the last supporter withdraws, the proposal
-account closes and its rent returns to the proposer.
+becomes a tombstone: the account keeps only its discriminator, which stops the
+address from ever holding another proposal, and the rest of its rent returns
+to the proposer.
 
 hLP deposits and withdrawals use async composite builders because both
 asset-denominated `YieldAccount` PDAs must exist before the liquidity

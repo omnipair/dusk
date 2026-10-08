@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
@@ -9755,6 +9756,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     );
 
     const proposalRent = BigInt(svm.getAccount(proposal)!.lamports);
+    const tombstoneRent = BigInt(svm.minimumBalanceForRentExemption(8n));
     const supportRent = BigInt(svm.getAccount(proposalSupport)!.lamports);
     const proposerLamportsBefore = BigInt(svm.getAccount(proposer)!.lamports);
     const withdrawTx = await program.methods
@@ -9778,14 +9780,66 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const withdrawn = cpiEvent(withdrawTx, "parameterProposalSupportWithdrawn");
     expect(withdrawn.proposal.toString()).to.equal(proposal.toString());
     trackV2Instruction("withdrawParameterSupport", this.test?.title);
-    // The last supporter left an executed proposal: the account closes and
-    // the proposer, who also pays this transaction's one-signature fee,
-    // receives both rents.
-    expect(withdrawn.proposalClosed).to.equal(true);
-    expect(svm.getAccount(proposal)).to.equal(null);
+    // The last supporter left an executed proposal: it becomes a tombstone
+    // holding only its discriminator, and the proposer, who also pays this
+    // transaction's one-signature fee, receives the rest of its rent and the
+    // support account's rent.
+    expect(withdrawn.proposalTombstoned).to.equal(true);
+    const tombstone = svm.getAccount(proposal)!;
+    expect(tombstone.owner.toString()).to.equal(DUSK_PROGRAM_ID.toString());
+    // No instruction takes the tombstone as a typed account, so the IDL omits
+    // it; its discriminator is Anchor's usual `account:<Name>` hash.
+    expect(
+      Buffer.from(tombstone.data).equals(
+        createHash("sha256").update("account:ParameterProposalTombstone").digest().subarray(0, 8)
+      )
+    ).to.equal(true);
+    expect(BigInt(tombstone.lamports)).to.equal(tombstoneRent);
     expect(BigInt(svm.getAccount(proposer)!.lamports) - proposerLamportsBefore).to.equal(
-      proposalRent + supportRent - 5_000n
+      proposalRent - tombstoneRent + supportRent - 5_000n
     );
+    // The tombstone keeps the address: the same proposer and nonce cannot
+    // create a different proposal there.
+    let reusedAddressRejection: unknown;
+    try {
+      await connection.sendTransaction(
+        await program.methods
+          .createParameterProposal({
+            nonce,
+            updates: [{ dailyBorrowLimit: { maxDailyBorrowBps: 1_700 } }],
+            metadata: {
+              version: 1,
+              title: "Reuse a finished proposal address",
+              descriptionUri: "ipfs://dusk-litesvm-reused-proposal-address",
+              descriptionSha256: Array(32).fill(3),
+              descriptionLen: 1,
+            },
+            initialSupport: new BN(sponsorship.toString()),
+          })
+          .accounts({
+            proposer,
+            market: fixture.market,
+            proposal,
+            proposalSupport,
+            ylpMint: fixture.ylpMint,
+            proposerYlpAccount: fixture.ownerYlpAccount,
+            baseYieldAccount,
+            quoteYieldAccount,
+            baseHlpYlpVault: fixture.baseHlpYlpVault,
+            quoteHlpYlpVault: fixture.quoteHlpYlpVault,
+            token2022Program: TOKEN_2022_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+            eventAuthority: eventAuthority(),
+            program: DUSK_PROGRAM_ID,
+          })
+          .transaction(),
+        [payer]
+      );
+    } catch (error) {
+      reusedAddressRejection = error;
+    }
+    expect(String(reusedAddressRejection)).to.include("already in use");
+    expect(Buffer.from(svm.getAccount(proposal)!.data).length).to.equal(8);
 
     const ownerYlpAfter = await getAccount(
       connection as any,

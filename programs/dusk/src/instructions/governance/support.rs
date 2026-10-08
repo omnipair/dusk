@@ -8,7 +8,10 @@ use crate::{
     events::{ParameterProposalQueued, ParameterProposalSupportWithdrawn, ParameterProposalSupported},
     generate_market_seeds,
     instructions::accounts::validate_lp_mint,
-    state::{Market, ParameterProposal, ParameterProposalStatus, ProposalSupport, YieldAccount, YieldTokenKind},
+    state::{
+        Market, ParameterProposal, ParameterProposalStatus, ParameterProposalTombstone, ProposalSupport, YieldAccount,
+        YieldTokenKind,
+    },
     token::{token_burn, token_mint_to},
 };
 
@@ -20,10 +23,10 @@ use super::{
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct SupportParameterProposalArgs {
     pub amount: u64,
-    /// Digest of the proposal the supporter reviewed. A proposal account
-    /// closes once every supporter has withdrawn, which frees its address for
-    /// a new proposal; binding the digest keeps a pending support from landing
-    /// on different updates created at the same address.
+    /// Digest of the proposal the supporter reviewed. A proposal never
+    /// changes and its address never holds another one (it ends as a
+    /// tombstone), so this is defence in depth: a support names exactly the
+    /// updates and metadata its sender saw.
     pub digest: [u8; 32],
 }
 
@@ -251,12 +254,18 @@ pub struct WithdrawParameterSupport<'info> {
     )]
     pub market: Box<Account<'info, Market>>,
 
+    /// CHECK: The parameter proposal, opened and saved by the handler rather
+    /// than by Anchor: when its last supporter withdraws it shrinks to a
+    /// `ParameterProposalTombstone`, which a typed account would overwrite with
+    /// the full proposal on exit. `validate` checks its owner, discriminator,
+    /// address and digest.
     #[account(mut)]
-    pub proposal: Box<Account<'info, ParameterProposal>>,
+    pub proposal: UncheckedAccount<'info>,
 
-    /// CHECK: The proposer who paid the proposal's rent. Only receives
-    /// lamports: the rent when the last supporter withdraws.
-    #[account(mut, address = proposal.proposer @ ErrorCode::InvalidParameterProposal)]
+    /// CHECK: The proposer who paid the proposal's rent, checked against the
+    /// proposal in `validate`. Only receives lamports: the rent above the
+    /// tombstone's own when the last supporter withdraws.
+    #[account(mut)]
     pub proposer: UncheckedAccount<'info>,
 
     #[account(
@@ -309,11 +318,18 @@ pub struct WithdrawParameterSupport<'info> {
 }
 
 impl<'info> WithdrawParameterSupport<'info> {
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<ParameterProposal> {
         validate_market_pda(&self.market, self.market.key())?;
         require_keys_eq!(self.market.ylp_mint, self.ylp_mint.key(), ErrorCode::InvalidLpMintKey);
         validate_lp_mint(&self.ylp_mint, self.market.key(), self.market.base_side.asset_decimals)?;
-        self.proposal.assert_account(self.market.key(), self.proposal.key())?;
+        require_keys_eq!(*self.proposal.owner, crate::ID, ErrorCode::InvalidParameterProposal);
+        let proposal = ParameterProposal::try_deserialize(&mut &self.proposal.try_borrow_data()?[..])?;
+        proposal.assert_account(self.market.key(), self.proposal.key())?;
+        require_keys_eq!(
+            self.proposer.key(),
+            proposal.proposer,
+            ErrorCode::InvalidParameterProposal
+        );
         self.proposal_support
             .assert_account(self.proposal.key(), self.supporter.key(), self.proposal_support.bump)?;
         require!(
@@ -327,19 +343,17 @@ impl<'info> WithdrawParameterSupport<'info> {
             &self.supporter_ylp_account,
             &self.base_yield_account,
             &self.quote_yield_account,
-        )
+        )?;
+        Ok(proposal)
     }
 
     pub fn handle_withdraw(ctx: Context<'_, '_, '_, 'info, Self>) -> Result<()> {
-        ctx.accounts.validate()?;
+        let mut proposal = ctx.accounts.validate()?;
         let clock = Clock::get()?;
-        let market_revisions = ctx.accounts.market.parameter_revisions;
-        ctx.accounts.proposal.mark_stale_if_revision_changed(&market_revisions);
-        ctx.accounts
-            .proposal
-            .mark_expired_if_past_deadline(clock.unix_timestamp);
+        proposal.mark_stale_if_revision_changed(&ctx.accounts.market.parameter_revisions);
+        proposal.mark_expired_if_past_deadline(clock.unix_timestamp);
         require!(
-            ctx.accounts.proposal.status != ParameterProposalStatus::Queued,
+            proposal.status != ParameterProposalStatus::Queued,
             ErrorCode::ProposalSupportFrozen
         );
 
@@ -371,9 +385,7 @@ impl<'info> WithdrawParameterSupport<'info> {
             .quote_yield
             .merge_into(&mut ctx.accounts.quote_yield_account)?;
 
-        ctx.accounts.proposal.total_locked = ctx
-            .accounts
-            .proposal
+        proposal.total_locked = proposal
             .total_locked
             .checked_sub(amount)
             .ok_or(ErrorCode::InvalidProposalSupport)?;
@@ -383,7 +395,7 @@ impl<'info> WithdrawParameterSupport<'info> {
             .governance_locked_ylp
             .checked_sub(amount)
             .ok_or(ErrorCode::InvalidProposalSupport)?;
-        ctx.accounts.proposal.cancel_if_below_sponsorship_floor();
+        proposal.cancel_if_below_sponsorship_floor();
 
         let market_seeds = generate_market_seeds!(ctx.accounts.market);
         token_mint_to(
@@ -397,19 +409,35 @@ impl<'info> WithdrawParameterSupport<'info> {
         // Support only reaches zero once the proposal has ended: a collecting
         // proposal below its sponsorship floor was cancelled above, and queued
         // support cannot be withdrawn. Nothing reads the proposal after its
-        // last supporter leaves, so it closes and its rent returns to the
-        // proposer who paid it.
-        let proposal_closed = ctx.accounts.proposal.total_locked == 0;
+        // last supporter leaves, so it becomes a tombstone: the discriminator
+        // alone, kept rent-exempt so the address can never hold another
+        // proposal, with the rest of its rent returned to the proposer.
+        let proposal_tombstoned = proposal.total_locked == 0;
         emit_cpi!(ParameterProposalSupportWithdrawn {
             proposal: ctx.accounts.proposal.key(),
             supporter: ctx.accounts.supporter.key(),
             amount,
-            total_locked: ctx.accounts.proposal.total_locked,
-            status: ctx.accounts.proposal.status.code(),
-            proposal_closed,
+            total_locked: proposal.total_locked,
+            status: proposal.status.code(),
+            proposal_tombstoned,
         });
-        if proposal_closed {
-            ctx.accounts.proposal.close(ctx.accounts.proposer.to_account_info())?;
+        let proposal_info = ctx.accounts.proposal.to_account_info();
+        if proposal_tombstoned {
+            let space = get_size_with_discriminator::<ParameterProposalTombstone>();
+            let refund = proposal_info
+                .lamports()
+                .checked_sub(Rent::get()?.minimum_balance(space))
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            proposal_info.realloc(space, false)?;
+            proposal_info
+                .try_borrow_mut_data()?
+                .copy_from_slice(ParameterProposalTombstone::DISCRIMINATOR);
+            proposal_info.sub_lamports(refund)?;
+            ctx.accounts.proposer.add_lamports(refund)?;
+        } else {
+            let mut data = proposal_info.try_borrow_mut_data()?;
+            let mut writer: &mut [u8] = &mut data;
+            proposal.try_serialize(&mut writer)?;
         }
         Ok(())
     }
