@@ -1647,6 +1647,125 @@
       ]
     },
     {
+      "name": "close_yield_accounts",
+      "docs": [
+        "Close an owner's empty pair of yield accounts for one LP mint and",
+        "return their rent to the owner."
+      ],
+      "discriminator": [
+        227,
+        234,
+        195,
+        89,
+        18,
+        167,
+        35,
+        145
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "lp_mint"
+        },
+        {
+          "name": "owner_lp_account",
+          "docs": [
+            "can hold the owner's LP. It must hold none, or not exist."
+          ]
+        },
+        {
+          "name": "base_yield_account",
+          "writable": true
+        },
+        {
+          "name": "quote_yield_account",
+          "writable": true
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "CloseYieldAccountsArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "configure_referral_partner",
       "discriminator": [
         36,
@@ -10827,6 +10946,19 @@
       ]
     },
     {
+      "name": "YieldAccountsClosed",
+      "discriminator": [
+        3,
+        17,
+        10,
+        193,
+        64,
+        152,
+        1,
+        17
+      ]
+    },
+    {
       "name": "YieldClaimed",
       "discriminator": [
         177,
@@ -11538,6 +11670,11 @@
       "code": 6136,
       "name": "FreezableAssetMint",
       "msg": "Asset mint has an active freeze authority"
+    },
+    {
+      "code": 6137,
+      "name": "YieldAccountsNotEmpty",
+      "msg": "Yield accounts close only when the owner holds none of the LP and nothing is left to harvest"
     }
   ],
   "types": [
@@ -12648,6 +12785,22 @@
           {
             "name": "position",
             "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CloseYieldAccountsArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "token_kind",
+            "type": {
+              "defined": {
+                "name": "YieldTokenKind"
+              }
+            }
           }
         ]
       }
@@ -19014,6 +19167,46 @@
             ],
             "type": {
               "option": "pubkey"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "YieldAccountsClosed",
+      "docs": [
+        "An owner closed an empty pair of yield accounts for one LP mint; their",
+        "recipient and harvest authority are gone, and a later",
+        "`initialize_yield_accounts` starts the pair afresh."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "lp_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_kind",
+            "docs": [
+              "`0` for yLP and `1` for hLP."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "MarketEventMetadata"
+              }
             }
           }
         ]

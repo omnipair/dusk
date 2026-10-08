@@ -124,6 +124,7 @@ const DUSK_INSTRUCTIONS = [
   "settleProtocolAuction",
   "initializeMarket",
   "initializeYieldAccounts",
+  "closeYieldAccounts",
   "initializeLpTransferHook",
   "setMarketReduceOnly",
   "createParameterProposal",

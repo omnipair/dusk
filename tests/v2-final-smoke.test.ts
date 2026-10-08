@@ -6083,6 +6083,159 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     });
   }
 
+  it("closes an owner's empty yield accounts, returns their rent, and recreates them on demand", async function () {
+    const fixture = await addBalancedLiquidity(254);
+    await initializeLpTransferHook(fixture, fixture.ylpMint);
+    const holder = Keypair.generate();
+    await connection.requestAirdrop(holder.publicKey, LAMPORTS_PER_SOL);
+    const holderYlpAccount = await createToken2022Ata(fixture.ylpMint, holder.publicKey);
+    await initializeYieldAccounts(fixture, holder.publicKey, fixture.ylpMint, "ylp");
+    const [baseYieldAccount] = deriveYieldAccountAddress(
+      fixture.market,
+      holder.publicKey,
+      fixture.ylpMint,
+      fixture.baseMint,
+      "ylp"
+    );
+    const [quoteYieldAccount] = deriveYieldAccountAddress(
+      fixture.market,
+      holder.publicKey,
+      fixture.ylpMint,
+      fixture.quoteMint,
+      "ylp"
+    );
+    const decodeYield = (account: PublicKey) =>
+      accountCoder.decode("YieldAccount", Buffer.from(svm.getAccount(account)!.data)) as any;
+    const claimable = (account: PublicKey) => {
+      const state = decodeYield(account);
+      return BigInt(state.accrued_swap_fee_amount.toString()) + BigInt(state.accrued_interest_amount.toString());
+    };
+
+    async function transferYlp(source: PublicKey, destination: PublicKey, authority: Keypair, amount: bigint) {
+      svm.expireBlockhash();
+      const tx = new Transaction().add(
+        await createTransferCheckedWithTransferHookInstruction(
+          connection as any,
+          source,
+          fixture.ylpMint,
+          destination,
+          authority.publicKey,
+          amount,
+          6,
+          [],
+          undefined,
+          TOKEN_2022_PROGRAM_ID
+        )
+      );
+      await connection.sendTransaction(tx, authority === payer ? [payer] : [payer, authority]);
+    }
+    const closeYieldAccountsTx = async () => {
+      svm.expireBlockhash();
+      const tx = await program.methods
+        .closeYieldAccounts({ tokenKind: { ylp: {} } })
+        .accounts({
+          market: fixture.market,
+          owner: holder.publicKey,
+          lpMint: fixture.ylpMint,
+          ownerLpAccount: holderYlpAccount,
+          baseYieldAccount,
+          quoteYieldAccount,
+          eventAuthority: eventAuthority(),
+          program: DUSK_PROGRAM_ID,
+        })
+        .transaction();
+      tx.feePayer = holder.publicKey;
+      return tx;
+    };
+    async function closeRejection() {
+      try {
+        await connection.sendTransaction(await closeYieldAccountsTx(), [holder]);
+      } catch (error) {
+        return String(error);
+      }
+      return "closed";
+    }
+
+    // Holding LP keeps the pair open.
+    const payerYlp = (await getAccount(connection as any, fixture.ownerYlpAccount, undefined, TOKEN_2022_PROGRAM_ID))
+      .amount;
+    const holderShare = payerYlp / 2n;
+    await transferYlp(fixture.ownerYlpAccount, holderYlpAccount, payer, holderShare);
+    expect(await closeRejection()).to.include("YieldAccountsNotEmpty");
+
+    // So does yield accrued while it was held, until it is harvested.
+    await swapBaseForQuote(fixture, [], 50_000, 1);
+    await transferYlp(holderYlpAccount, fixture.ownerYlpAccount, holder, holderShare);
+    expect(claimable(baseYieldAccount) + claimable(quoteYieldAccount) > 0n).to.equal(true);
+    expect(await closeRejection()).to.include("YieldAccountsNotEmpty");
+
+    for (const [yieldAccount, assetMint, reserveVault, interestVault] of [
+      [baseYieldAccount, fixture.baseMint, fixture.baseReserveVault, fixture.baseInterestVault],
+      [quoteYieldAccount, fixture.quoteMint, fixture.quoteReserveVault, fixture.quoteInterestVault],
+    ] as const) {
+      if (claimable(yieldAccount) === 0n) continue;
+      const recipientAssetAccount = await createAccount(connection as any, payer, assetMint, holder.publicKey);
+      svm.expireBlockhash();
+      const harvestTx = await program.methods
+        .harvest({ tokenKind: { ylp: {} } })
+        .accounts({
+          market: fixture.market,
+          owner: holder.publicKey,
+          caller: holder.publicKey,
+          assetMint,
+          lpMint: fixture.ylpMint,
+          ownerLpAccount: holderYlpAccount,
+          reserveVault,
+          interestVault,
+          recipientAssetAccount,
+          yieldAccount,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          eventAuthority: eventAuthority(),
+          program: DUSK_PROGRAM_ID,
+        })
+        .transaction();
+      harvestTx.feePayer = holder.publicKey;
+      await connection.sendTransaction(harvestTx, [holder]);
+      expect(claimable(yieldAccount)).to.equal(0n);
+    }
+
+    // Empty and harvested: both accounts close and their rent returns to the
+    // owner, who also pays this transaction's one-signature fee.
+    const rent = BigInt(svm.getAccount(baseYieldAccount)!.lamports) + BigInt(svm.getAccount(quoteYieldAccount)!.lamports);
+    const holderLamportsBefore = BigInt(svm.getAccount(holder.publicKey)!.lamports);
+    const closeTx = await closeYieldAccountsTx();
+    await connection.sendTransaction(closeTx, [holder]);
+    trackV2Instruction("closeYieldAccounts", this.test?.title);
+    const closed = cpiEvent(closeTx, "yieldAccountsClosed");
+    expect(closed.owner.equals(holder.publicKey)).to.equal(true);
+    expect(closed.lpMint.equals(fixture.ylpMint)).to.equal(true);
+    expect(closed.tokenKind).to.equal(0);
+    expect(svm.getAccount(baseYieldAccount)).to.equal(null);
+    expect(svm.getAccount(quoteYieldAccount)).to.equal(null);
+    expect(BigInt(svm.getAccount(holder.publicKey)!.lamports) - holderLamportsBefore).to.equal(rent - 5_000n);
+
+    // LP cannot reach the owner until the pair exists again. Recreated, it
+    // starts at the current indexes, and transfers resume.
+    let transferWithoutPairRejected = false;
+    try {
+      await transferYlp(fixture.ownerYlpAccount, holderYlpAccount, payer, 1_000n);
+    } catch {
+      transferWithoutPairRejected = true;
+    }
+    expect(transferWithoutPairRejected).to.equal(true);
+    await initializeYieldAccounts(fixture, holder.publicKey, fixture.ylpMint, "ylp");
+    const market = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+    expect(decodeYield(baseYieldAccount).swap_fee_checkpoint_q64.toString()).to.equal(
+      market.base_side.fees.swap_fee_growth_index_q64.toString()
+    );
+    expect(claimable(baseYieldAccount)).to.equal(0n);
+    await transferYlp(fixture.ownerYlpAccount, holderYlpAccount, payer, 1_000n);
+    expect((await getAccount(connection as any, holderYlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(
+      1_000n
+    );
+  });
+
   it("checkpoints yLP yield accounts during a Token-2022 transfer hook", async function () {
     const fixture = await addBalancedLiquidity(58);
     const recipient = Keypair.generate().publicKey;

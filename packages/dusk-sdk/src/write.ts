@@ -715,6 +715,56 @@ export class DuskWrite {
     return new Transaction().add(await this.initializeYieldAccountsInstruction(params));
   }
 
+  /**
+   * Close the owner's empty yield-account pair for one LP mint and return its
+   * rent to the owner. The owner must hold none of that LP and have harvested
+   * everything accrued; `initializeYieldAccountsInstruction` recreates the
+   * pair before the owner receives that LP again.
+   */
+  async closeYieldAccountsInstruction(params: {
+    owner: AddressLike;
+    market: AddressLike;
+    lpMint: AddressLike;
+    baseMint: AddressLike;
+    quoteMint: AddressLike;
+    tokenKind: YieldTokenKind;
+  }): Promise<TransactionInstruction> {
+    const owner = address(params.owner);
+    const market = address(params.market);
+    const lpMint = address(params.lpMint);
+    const tokenKind = params.tokenKind === "ylp" || params.tokenKind === 0 ? { ylp: {} } : { hlp: {} };
+    return this.instruction("closeYieldAccounts" as DuskInstructionName, { tokenKind }, {
+      accounts: {
+        market,
+        owner,
+        lpMint,
+        ownerLpAccount: getAssociatedTokenAddressSync(lpMint, owner, true, TOKEN_2022_PROGRAM_ID),
+        baseYieldAccount: deriveYieldAccountAddress(
+          market,
+          owner,
+          lpMint,
+          address(params.baseMint),
+          params.tokenKind,
+          this.program.programId
+        )[0],
+        quoteYieldAccount: deriveYieldAccountAddress(
+          market,
+          owner,
+          lpMint,
+          address(params.quoteMint),
+          params.tokenKind,
+          this.program.programId
+        )[0],
+      },
+    });
+  }
+
+  async closeYieldAccountsTransaction(
+    params: Parameters<DuskWrite["closeYieldAccountsInstruction"]>[0]
+  ): Promise<Transaction> {
+    return new Transaction().add(await this.closeYieldAccountsInstruction(params));
+  }
+
   async initializeLpTransferHookInstruction(params: {
     payer: AddressLike;
     market: AddressLike;

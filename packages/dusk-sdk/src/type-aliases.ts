@@ -106,6 +106,7 @@ type DuskEventTypes = [
   TypeNamed<"referralRecipientUpdated">,
   TypeNamed<"swapExecuted">,
   TypeNamed<"swapOrigin">,
+  TypeNamed<"yieldAccountsClosed">,
   TypeNamed<"yieldClaimed">,
   TypeNamed<"yieldRecipientUpdated">,
 ];
@@ -174,5 +175,6 @@ export type ReferralRecipientUpdated = IdlEvents<DuskEventIdl>["referralRecipien
 export type SwapExecuted = IdlEvents<DuskEventIdl>["swapExecuted"];
 export type SwapOrigin = SwapExecuted["origin"];
 export type MarketSideSnapshot = SwapExecuted["base"];
+export type YieldAccountsClosed = IdlEvents<DuskEventIdl>["yieldAccountsClosed"];
 export type YieldClaimed = IdlEvents<DuskEventIdl>["yieldClaimed"];
 export type YieldRecipientUpdated = IdlEvents<DuskEventIdl>["yieldRecipientUpdated"];

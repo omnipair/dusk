@@ -412,4 +412,7 @@ pub enum ErrorCode {
 
     #[msg("Asset mint has an active freeze authority")]
     FreezableAssetMint,
+
+    #[msg("Yield accounts close only when the owner holds none of the LP and nothing is left to harvest")]
+    YieldAccountsNotEmpty,
 }

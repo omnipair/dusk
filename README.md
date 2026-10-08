@@ -209,6 +209,7 @@ Dusk exposes simple market actions:
 ```text
 initialize_market
 initialize_yield_accounts
+close_yield_accounts
 initialize_lp_transfer_hook
 set_market_reduce_only
 fortify_market

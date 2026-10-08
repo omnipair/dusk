@@ -332,6 +332,13 @@ The claim event records the LP owner, recipient, and caller separately, with
 the caller in `metadata.signer`. `HarvestAuthorityUpdated` records delegation,
 rotation, and revocation.
 
+Once an owner holds none of an LP mint and has harvested both asset streams,
+`dusk.write.closeYieldAccountsTransaction({ owner, market, lpMint, baseMint,
+quoteMint, tokenKind })` closes that pair of yield accounts and returns its
+rent to the owner; any remaining sub-atom remainder is forfeited. The owner
+signs. Recreate the pair with `initializeYieldAccountsTransaction` before the
+owner receives that LP again; deposits recreate it on their own.
+
 LP token accounts should be owned by a wallet that can sign withdrawals and
 permission updates, or by a PDA whose controlling program invokes those Dusk
 instructions with `invoke_signed`. SPL multisig accounts cannot sign those

@@ -1,3 +1,4 @@
+mod close_yield_accounts;
 mod grow_yield_account;
 mod harvest;
 mod hlp;
@@ -7,6 +8,7 @@ mod set_harvest_authority;
 mod set_yield_recipient;
 mod ylp;
 
+pub use close_yield_accounts::*;
 pub use grow_yield_account::*;
 pub use harvest::*;
 pub use hlp::*;

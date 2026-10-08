@@ -147,6 +147,19 @@ pub struct HarvestAuthorityUpdated {
     pub metadata: MarketEventMetadata,
 }
 
+/// An owner closed an empty pair of yield accounts for one LP mint; their
+/// recipient and harvest authority are gone, and a later
+/// `initialize_yield_accounts` starts the pair afresh.
+#[event]
+pub struct YieldAccountsClosed {
+    pub market: Pubkey,
+    pub owner: Pubkey,
+    pub lp_mint: Pubkey,
+    /// `0` for yLP and `1` for hLP.
+    pub token_kind: u8,
+    pub metadata: MarketEventMetadata,
+}
+
 #[event]
 pub struct YieldClaimed {
     pub market: Pubkey,

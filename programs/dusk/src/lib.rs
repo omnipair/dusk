@@ -220,6 +220,13 @@ pub mod dusk {
         Harvest::handle_harvest(ctx, args)
     }
 
+    /// Close an owner's empty pair of yield accounts for one LP mint and
+    /// return their rent to the owner.
+    #[access_control(ctx.accounts.validate(&args))]
+    pub fn close_yield_accounts(ctx: Context<CloseYieldAccounts>, args: CloseYieldAccountsArgs) -> Result<()> {
+        CloseYieldAccounts::handle_close(ctx, args)
+    }
+
     #[access_control(ctx.accounts.validate(&args))]
     pub fn initialize_yield_accounts<'info>(
         ctx: Context<'_, '_, '_, 'info, InitializeYieldAccounts<'info>>,

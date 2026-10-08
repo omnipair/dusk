@@ -1653,6 +1653,125 @@ export type Dusk = {
       ]
     },
     {
+      "name": "closeYieldAccounts",
+      "docs": [
+        "Close an owner's empty pair of yield accounts for one LP mint and",
+        "return their rent to the owner."
+      ],
+      "discriminator": [
+        227,
+        234,
+        195,
+        89,
+        18,
+        167,
+        35,
+        145
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "lpMint"
+        },
+        {
+          "name": "ownerLpAccount",
+          "docs": [
+            "can hold the owner's LP. It must hold none, or not exist."
+          ]
+        },
+        {
+          "name": "baseYieldAccount",
+          "writable": true
+        },
+        {
+          "name": "quoteYieldAccount",
+          "writable": true
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "closeYieldAccountsArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "configureReferralPartner",
       "discriminator": [
         36,
@@ -10833,6 +10952,19 @@ export type Dusk = {
       ]
     },
     {
+      "name": "yieldAccountsClosed",
+      "discriminator": [
+        3,
+        17,
+        10,
+        193,
+        64,
+        152,
+        1,
+        17
+      ]
+    },
+    {
       "name": "yieldClaimed",
       "discriminator": [
         177,
@@ -11544,6 +11676,11 @@ export type Dusk = {
       "code": 6136,
       "name": "freezableAssetMint",
       "msg": "Asset mint has an active freeze authority"
+    },
+    {
+      "code": 6137,
+      "name": "yieldAccountsNotEmpty",
+      "msg": "Yield accounts close only when the owner holds none of the LP and nothing is left to harvest"
     }
   ],
   "types": [
@@ -12654,6 +12791,22 @@ export type Dusk = {
           {
             "name": "position",
             "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "closeYieldAccountsArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tokenKind",
+            "type": {
+              "defined": {
+                "name": "yieldTokenKind"
+              }
+            }
           }
         ]
       }
@@ -19020,6 +19173,46 @@ export type Dusk = {
             ],
             "type": {
               "option": "pubkey"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "yieldAccountsClosed",
+      "docs": [
+        "An owner closed an empty pair of yield accounts for one LP mint; their",
+        "recipient and harvest authority are gone, and a later",
+        "`initialize_yield_accounts` starts the pair afresh."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "lpMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "tokenKind",
+            "docs": [
+              "`0` for yLP and `1` for hLP."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "marketEventMetadata"
+              }
             }
           }
         ]
